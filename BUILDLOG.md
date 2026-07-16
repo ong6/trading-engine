@@ -55,3 +55,5 @@ conflict; execution design §7 has exit criteria).
 ## Blockers
 
 - None hard. Soft: GitHub remote needed before M1 exit (owner action — create the repo).
+
+- 2026-07-16 · **M1 code committed** (screen.py, sync.py, run_daily.sh wired). Proven on a 37-name real-bar fixture incl. independent math recheck (zero diff) + append-only/--rerun/new_today diff tests. Full-DB verification queued behind backfill. Post-backfill TODO: retry stragglers (`collect.py --backfill` again — resumable), then real screen run.
