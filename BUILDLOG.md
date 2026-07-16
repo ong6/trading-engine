@@ -32,7 +32,7 @@ conflict; execution design §7 has exit criteria).
   backfill → history to 1962; AAPL 2026-07-15 close 327.50 cross-checked vs independent pull.
 - 2026-07-16 · Full-universe `--bootstrap-floor` **done**: active=12,209 · priced=12,105 · **liquid=4,118** · failed=106 (dead tickers, honest). 785k price rows.
 - 2026-07-16 · Full `--backfill` (max history, 4,118 liquid names) **running** (nice 19, logs/backfill-2026-07-16.log; resumable — if interrupted just rerun `collect.py --backfill`).
-- 2026-07-16 · M1 `screen.py` + `sync.py` being written in parallel (Opus subagent, tests against a temp DB only — real DB is locked by backfill). Verification against real DB happens after backfill completes.
+- 2026-07-16 · **M1 code committed** (screen.py, sync.py, run_daily.sh wired). Proven on a 37-name real-bar fixture incl. independent math recheck (zero diff) + append-only/--rerun/new_today diff tests. Full-DB verification queued behind backfill. Post-backfill TODO: retry stragglers (`collect.py --backfill` again — resumable), then real screen run.
 
 ## Decisions
 
@@ -55,5 +55,3 @@ conflict; execution design §7 has exit criteria).
 ## Blockers
 
 - None hard. Soft: GitHub remote needed before M1 exit (owner action — create the repo).
-
-- 2026-07-16 · **M1 code committed** (screen.py, sync.py, run_daily.sh wired). Proven on a 37-name real-bar fixture incl. independent math recheck (zero diff) + append-only/--rerun/new_today diff tests. Full-DB verification queued behind backfill. Post-backfill TODO: retry stragglers (`collect.py --backfill` again — resumable), then real screen run.
