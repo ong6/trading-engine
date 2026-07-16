@@ -1,0 +1,19 @@
+{
+  "last_run": "2026-07-16T11:12:52.396846+00:00",
+  "mode": "backfill",
+  "universe_size": 12209,
+  "active_count": 12209,
+  "liquid_count": 98,
+  "prices_rows": 98942,
+  "tickers_with_data": 298,
+  "stale_tickers": {
+    "count": 0,
+    "list": []
+  },
+  "failed_this_run": 1,
+  "sources": {
+    "stooq": "blocked",
+    "yfinance": "ok"
+  },
+  "regime": null
+}
