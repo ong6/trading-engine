@@ -45,12 +45,16 @@ conflict; execution design §7 has exit criteria).
 - 2026-07-16 · Universe kept at 12,209 (incl. 5,549 ETFs) — spec keeps ETFs explicitly; the liquidity floor is the real boundary (~4-6k expected liquid).
 - 2026-07-16 · tmux not installed on box — loop continuity is via the agent scheduler instead; noted, not blocking.
 
+- 2026-07-16 · **Backfill 100% done**: 4,121 liquid names (incl. HAL via bounded start-date workaround for a yfinance period=max glitch), 19.8M rows, 1.2 GB store/. 3 retry passes; remaining failures = 0.
+- 2026-07-16 · **First full-DB screen**: 3,879 screened (239 short-history skipped honestly) → 629 passing, regime risk-on, 2.8s runtime. Output shape/values sane (leveraged AMD ETFs + hot small caps at RS 99; DELL 98 tight base). 111 eod/ files.
+- 2026-07-16 · **Incremental collect proven on real DB**: 4,113/4,118 with data, 5 failed, 3.3 min.
+- 2026-07-16 · **Cron installed**: `30 22 * * 1-5 run_daily.sh >> logs/cron.log` (weekdays; calendar gate handles holidays). Tonight's 22:30 UTC run = M0 exit-criterion candidate.
+
 ## Next
 
-1. When bootstrap-floor finishes: check liquid count (~4-6k expected), then launch full `--backfill` (resumable).
-2. When backfill finishes: install cron (22:30 UTC `run_daily.sh`), run `run_daily.sh --force`-equivalent once manually to prove the pipeline.
-3. M0 exit: `_meta.json` shows a clean nightly run over ~4k+ names **from cron**, backfill done. Stamp with evidence.
-4. Then M1: screen.py (Minervini 8 checks + RS rank + regime gate), sync.py, first synced screen. Needs GitHub remote (owner: create `ong6/trading-engine`).
+1. **Tonight 22:30 UTC**: verify cron ran clean (logs/cron.log, _meta.json, screen 2026-07-16 committed by sync.py). If clean → **stamp M0 exit** (backfill done + clean nightly over 4k+ names from cron). M1 exit still needs the GitHub remote (owner: create `ong6/trading-engine`, then `git remote add origin ssh://git@ssh.github.com:443/ong6/trading-engine.git` + pull on laptop).
+2. M2 in flight: sim core (fills/portfolio/league/strategies) being built by Opus subagent against a **copy** of the DB. Do NOT wire league into run_daily.sh until after tonight's clean M0 run.
+3. After M0 stamp: wire league into run_daily.sh; league goes live next nightly run.
 
 ## Blockers
 
