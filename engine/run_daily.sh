@@ -26,9 +26,8 @@ LOG="${REPO_ROOT}/logs/run-$(date +%F).log"
   "${PY}" engine/universe.py
   "${PY}" engine/collect.py   # incremental daily (calendar-gated)
 
-  # M1 placeholder: screener + git sync will run here.
-  # "${PY}" engine/screen.py
-  # "${PY}" engine/sync.py
+  "${PY}" engine/screen.py    # rank universe + trend template, write screens/eod
+  "${PY}" engine/sync.py      # commit (and push if a remote exists) data/
 
   echo "=== done $(date -u +%FT%TZ) ==="
 } 2>&1 | tee "${LOG}"
