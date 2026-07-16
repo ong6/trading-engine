@@ -1,0 +1,362 @@
+#!/usr/bin/env python
+"""M2 paper league — one idempotent day-step over the mock portfolios.
+
+For a given date d the step runs in this fixed order:
+  a. Fill pending orders at d's OPEN (fills.py; t+1-open, slippage, guards).
+  b. Mark every portfolio to market at d's CLOSE → append sim_equity.
+  c. Generate new orders from d's close signals, per each strategy's cadence.
+  d. Render data/reports/league.md and league.csv.
+
+Idempotency: if sim_equity already has rows for d the step ABORTS. `--rerun`
+deletes d's sim rows first and rebuilds cash/positions from the surviving fills
+(portfolio.rebuild_state), so a re-run is exact. `--init` creates the 10
+registered portfolios if absent. Reads prices/screen_results read-only; writes
+only sim_* / portfolios.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from datetime import date
+from pathlib import Path
+
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
+from lib import db  # noqa: E402
+
+from . import calendar, fills, portfolio  # noqa: E402
+from .schema import INITIAL_CASH, init_sim_schema  # noqa: E402
+from .strategies import PortfolioView, get_strategy  # noqa: E402
+from .strategies.configs import CONFIGS  # noqa: E402
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_DATA_DIR = REPO_ROOT / "data"
+
+
+# --------------------------------------------------------------------------- #
+# setup
+# --------------------------------------------------------------------------- #
+def resolve_date(con, requested: str | None) -> date:
+    if requested:
+        return date.fromisoformat(requested)
+    row = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
+    if row is None:
+        raise SystemExit("[league] prices table is empty")
+    return row
+
+
+def init_portfolios(con, as_of: date) -> int:
+    """Create any registered portfolio that doesn't exist yet. Returns #created."""
+    created = 0
+    for cfg in CONFIGS:
+        exists = con.execute(
+            "SELECT 1 FROM portfolios WHERE id = ?", [cfg["id"]]
+        ).fetchone()
+        if exists:
+            continue
+        con.execute(
+            "INSERT INTO portfolios (id, name, strategy, config, created, active, cash)"
+            " VALUES (?, ?, ?, ?, ?, TRUE, ?)",
+            [cfg["id"], cfg["name"], cfg["strategy"], json.dumps(cfg), as_of,
+             INITIAL_CASH],
+        )
+        created += 1
+    return created
+
+
+def next_order_id(con) -> int:
+    return con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM sim_orders").fetchone()[0]
+
+
+# --------------------------------------------------------------------------- #
+# day-step phases
+# --------------------------------------------------------------------------- #
+def fill_pending(con, d: date) -> dict:
+    """Phase a. Attempt every pending order at d's open. Sells first so freed
+    cash funds same-day buys. Returns {'filled','rejected','pending'} counts."""
+    pend = con.execute(
+        "SELECT id, portfolio_id, ticker, side, qty, signal_date FROM sim_orders "
+        "WHERE status = 'pending' "
+        "ORDER BY CASE side WHEN 'sell' THEN 0 ELSE 1 END, id"
+    ).fetchall()
+    counts = {"filled": 0, "rejected": 0, "pending": 0}
+    for oid, pf_id, tk, side, qty, sig in pend:
+        res = fills.attempt_fill(con, tk, side, qty, sig, d)
+        if res.status == "filled":
+            con.execute(
+                "INSERT INTO sim_fills (order_id, portfolio_id, ticker, side, qty,"
+                " fill_date, open_px, fill_px, slippage_bps, cost_bps)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [oid, pf_id, tk, side, qty, d, res.open_px, res.fill_px,
+                 res.slippage_bps, res.slippage_bps],
+            )
+            portfolio.apply_fill(con, {"portfolio_id": pf_id, "ticker": tk,
+                                       "side": side, "qty": qty,
+                                       "fill_px": res.fill_px})
+            con.execute("UPDATE sim_orders SET status = 'filled' WHERE id = ?", [oid])
+            counts["filled"] += 1
+        elif res.status == "rejected":
+            con.execute(
+                "UPDATE sim_orders SET status = 'rejected', reject_reason = ? "
+                "WHERE id = ?",
+                [res.reject_reason, oid],
+            )
+            counts["rejected"] += 1
+        else:
+            counts["pending"] += 1
+    return counts
+
+
+def mtm_all(con, d: date) -> None:
+    """Phase b. Mark every active portfolio to market → append sim_equity."""
+    for (pf_id,) in con.execute(
+        "SELECT id FROM portfolios WHERE active ORDER BY id"
+    ).fetchall():
+        portfolio.mark_to_market(con, pf_id, d)
+
+
+def generate_all(con, d: date) -> int:
+    """Phase c. Generate new orders per cadence. Returns #orders created."""
+    n_new = 0
+    for pf_id, strat_name, cfg_json, cash in con.execute(
+        "SELECT id, strategy, config, cash FROM portfolios WHERE active ORDER BY id"
+    ).fetchall():
+        cfg = json.loads(cfg_json)
+        cadence = cfg.get("cadence", "daily")
+        if not _cadence_fires(con, cadence, d, pf_id):
+            continue
+        strat = get_strategy(strat_name)
+        equity = con.execute(
+            "SELECT equity FROM sim_equity WHERE portfolio_id = ? AND date = ?",
+            [pf_id, d],
+        ).fetchone()
+        equity = equity[0] if equity else cash
+        pv = PortfolioView(
+            id=pf_id,
+            params=cfg.get("params", {}),
+            cash=cash,
+            positions={t: p["qty"]
+                       for t, p in portfolio.get_positions(con, pf_id).items()},
+            equity=equity,
+        )
+        orders = strat.generate_orders(con, pv, d)
+        oid = next_order_id(con)
+        for o in orders:
+            con.execute(
+                "INSERT INTO sim_orders (id, portfolio_id, ticker, side, qty,"
+                " signal_date, status, reject_reason)"
+                " VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",
+                [oid, o.portfolio_id, o.ticker, o.side, o.qty, o.signal_date],
+            )
+            oid += 1
+            n_new += 1
+    return n_new
+
+
+def _cadence_fires(con, cadence: str, d: date, pf_id: str) -> bool:
+    if cadence == "daily":
+        return True
+    if cadence == "weekly":
+        return calendar.is_week_signal(con, d)
+    if cadence == "monthly":
+        return calendar.is_month_signal(con, d)
+    if cadence == "once":
+        n = con.execute(
+            "SELECT COUNT(*) FROM sim_orders WHERE portfolio_id = ?", [pf_id]
+        ).fetchone()[0]
+        return n == 0
+    return False
+
+
+# --------------------------------------------------------------------------- #
+# reporting
+# --------------------------------------------------------------------------- #
+def regime_label(con, d: date) -> str:
+    spy = con.execute(
+        "SELECT close FROM prices WHERE ticker = 'SPY' AND date <= ? "
+        "ORDER BY date DESC LIMIT 200", [d]
+    ).fetchall()
+    if len(spy) < 200:
+        return "unknown"
+    c = np.array([r[0] for r in spy], dtype=float)
+    return "risk-on" if c[0] > c.mean() else "risk-off"
+
+
+def _max_drawdown(equity: list[float]) -> float:
+    peak = -1e18
+    mdd = 0.0
+    for e in equity:
+        peak = max(peak, e)
+        if peak > 0:
+            mdd = min(mdd, e / peak - 1)
+    return mdd
+
+
+def _fmt_pct(v) -> str:
+    if v is None or (isinstance(v, float) and np.isnan(v)):
+        return "·"
+    n = v * 100
+    sign = "+" if n >= 0 else "−"
+    return f"{sign}{abs(n):.2f}%"
+
+
+def _spy_return(con, inception: date, d: date):
+    a = con.execute("SELECT close FROM prices WHERE ticker='SPY' AND date <= ? "
+                    "ORDER BY date DESC LIMIT 1", [inception]).fetchone()
+    b = con.execute("SELECT close FROM prices WHERE ticker='SPY' AND date <= ? "
+                    "ORDER BY date DESC LIMIT 1", [d]).fetchone()
+    if not a or not b or not a[0]:
+        return None
+    return b[0] / a[0] - 1
+
+
+def write_reports(con, d: date, data_dir: Path) -> Path:
+    rows = []
+    for pf_id, name, created in con.execute(
+        "SELECT id, name, created FROM portfolios WHERE active ORDER BY id"
+    ).fetchall():
+        eq = con.execute(
+            "SELECT date, equity FROM sim_equity WHERE portfolio_id = ? ORDER BY date",
+            [pf_id],
+        ).fetchall()
+        if not eq:
+            continue
+        series = [e for _, e in eq]
+        equity = series[-1]
+        total_ret = equity / INITIAL_CASH - 1
+        spy_ret = _spy_return(con, created, d)
+        vs_spy = None if spy_ret is None else total_ret - spy_ret
+        mdd = _max_drawdown(series)
+        last5 = series[-1] / series[-6] - 1 if len(series) >= 6 else None
+        n_open = con.execute(
+            "SELECT COUNT(*) FROM sim_positions WHERE portfolio_id = ? AND qty > 0",
+            [pf_id]).fetchone()[0]
+        n_fills = con.execute(
+            "SELECT COUNT(*) FROM sim_fills WHERE portfolio_id = ?",
+            [pf_id]).fetchone()[0]
+        rows.append({
+            "id": pf_id, "name": name, "inception": created, "equity": equity,
+            "total_ret": total_ret, "vs_spy": vs_spy, "mdd": mdd,
+            "n_open": n_open, "n_fills": n_fills, "last5": last5,
+        })
+    rows.sort(key=lambda r: r["total_ret"], reverse=True)
+
+    lines = [
+        f"# Paper League — {d.isoformat()}",
+        "",
+        "| # | Portfolio | Inception | Equity | Total ret | vs SPY | Max DD | "
+        "Open | Fills | Last 5d |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for i, r in enumerate(rows, 1):
+        lines.append(
+            f"| {i} | {r['name']} | {r['inception']} | "
+            f"${r['equity']:,.0f} | {_fmt_pct(r['total_ret'])} | "
+            f"{_fmt_pct(r['vs_spy'])} | {_fmt_pct(r['mdd'])} | "
+            f"{r['n_open']} | {r['n_fills']} | {_fmt_pct(r['last5'])} |"
+        )
+    lines += [
+        "",
+        f"_Regime: **{regime_label(con, d)}** · reference notional "
+        f"${INITIAL_CASH:,.0f}/book · as of {d.isoformat()}._",
+        "",
+    ]
+
+    reports_dir = data_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    md_path = reports_dir / "league.md"
+    md_path.write_text("\n".join(lines))
+
+    # full sim_equity export
+    csv_df = con.execute(
+        "SELECT portfolio_id, date, equity FROM sim_equity ORDER BY portfolio_id, date"
+    ).fetch_df()
+    csv_df.to_csv(reports_dir / "league.csv", index=False)
+    return md_path
+
+
+# --------------------------------------------------------------------------- #
+# orchestration
+# --------------------------------------------------------------------------- #
+def rerun_cleanup(con, d: date) -> None:
+    """Delete date d's sim rows, then rebuild cash/positions from surviving fills.
+
+    - sim_equity[d] and sim_fills[fill_date=d] are deleted.
+    - Orders created on d (signal_date=d) are deleted.
+    - Orders that filled on d now have no surviving fill → reset to pending so
+      the re-run re-attempts them.
+    - Rejected orders are left as-is: a reject is a deterministic outcome of the
+      same data, so re-attempting d would reproduce it identically (documented).
+    - State is rebuilt by replaying every surviving fill (exact).
+    """
+    con.execute("DELETE FROM sim_equity WHERE date = ?", [d])
+    con.execute("DELETE FROM sim_fills WHERE fill_date = ?", [d])
+    con.execute("DELETE FROM sim_orders WHERE signal_date = ?", [d])
+    con.execute(
+        "UPDATE sim_orders SET status = 'pending', reject_reason = NULL "
+        "WHERE status = 'filled' AND id NOT IN (SELECT order_id FROM sim_fills)"
+    )
+    portfolio.rebuild_state(con)
+
+
+def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True) -> int:
+    existing = con.execute(
+        "SELECT COUNT(*) FROM sim_equity WHERE date = ?", [d]
+    ).fetchone()[0]
+    if existing:
+        if not rerun:
+            if verbose:
+                print(f"[league] ABORT: sim_equity already has {existing} rows for "
+                      f"{d} — the step is idempotent. Pass --rerun to redo this date.")
+            return 1
+        rerun_cleanup(con, d)
+        if verbose:
+            print(f"[league] --rerun: cleared {d} sim rows, rebuilt state")
+
+    fc = fill_pending(con, d)
+    mtm_all(con, d)
+    nn = generate_all(con, d)
+    md_path = write_reports(con, d, data_dir)
+    if verbose:
+        print(f"[league] {d}: fills={fc['filled']} rejected={fc['rejected']} "
+              f"still_pending={fc['pending']} new_orders={nn} → {md_path}")
+    return 0
+
+
+def run(db_path: str, data_dir: Path, requested_date: str | None,
+        do_init: bool, rerun: bool) -> int:
+    con = db.connect(db_path)
+    db.init_schema(con)
+    init_sim_schema(con)
+    d = resolve_date(con, requested_date)
+
+    if do_init:
+        n = init_portfolios(con, d)
+        print(f"[league] init: created {n} portfolios (as of {d})")
+
+    have = con.execute("SELECT COUNT(*) FROM portfolios").fetchone()[0]
+    if not have:
+        print("[league] no portfolios — run with --init first")
+        con.close()
+        return 1
+
+    rc = step(con, d, data_dir, rerun)
+    con.close()
+    return rc
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="M2 paper-league day-step.")
+    ap.add_argument("--db", default=str(db.DEFAULT_DB), help="DuckDB path")
+    ap.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR), help="output dir")
+    ap.add_argument("--date", default=None, help="step date YYYY-MM-DD (default: latest bar)")
+    ap.add_argument("--init", action="store_true", help="create the 10 portfolios if absent")
+    ap.add_argument("--rerun", action="store_true", help="redo an already-run date")
+    args = ap.parse_args()
+    return run(args.db, Path(args.data_dir), args.date, args.init, args.rerun)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
