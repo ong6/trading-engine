@@ -1,16 +1,16 @@
 {
-  "last_run": "2026-07-16T11:12:52.396846+00:00",
-  "mode": "backfill",
+  "last_run": "2026-07-16T11:28:26.953081+00:00",
+  "mode": "bootstrap-floor",
   "universe_size": 12209,
   "active_count": 12209,
-  "liquid_count": 98,
-  "prices_rows": 98942,
-  "tickers_with_data": 298,
+  "liquid_count": 4118,
+  "prices_rows": 785308,
+  "tickers_with_data": 12105,
   "stale_tickers": {
     "count": 0,
     "list": []
   },
-  "failed_this_run": 1,
+  "failed_this_run": 106,
   "sources": {
     "stooq": "blocked",
     "yfinance": "ok"
