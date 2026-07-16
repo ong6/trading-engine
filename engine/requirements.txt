@@ -1,0 +1,5 @@
+duckdb>=1.5
+pandas>=3.0
+requests>=2.31
+yfinance>=1.5
+pandas_market_calendars>=5.4
