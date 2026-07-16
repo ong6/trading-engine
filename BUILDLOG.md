@@ -30,7 +30,9 @@ conflict; execution design §7 has exit criteria).
   `collect.py` (--bootstrap-floor / --backfill resumable / incremental calendar-gated),
   `run_daily.sh`. Smoke: 300-name floor pass → 98 liquid, 2 failed (honest); 20-name
   backfill → history to 1962; AAPL 2026-07-15 close 327.50 cross-checked vs independent pull.
-- 2026-07-16 · Full-universe `--bootstrap-floor` launched (nice 19, logs/bootstrap-floor-2026-07-16.log).
+- 2026-07-16 · Full-universe `--bootstrap-floor` **done**: active=12,209 · priced=12,105 · **liquid=4,118** · failed=106 (dead tickers, honest). 785k price rows.
+- 2026-07-16 · Full `--backfill` (max history, 4,118 liquid names) **running** (nice 19, logs/backfill-2026-07-16.log; resumable — if interrupted just rerun `collect.py --backfill`).
+- 2026-07-16 · M1 `screen.py` + `sync.py` being written in parallel (Opus subagent, tests against a temp DB only — real DB is locked by backfill). Verification against real DB happens after backfill completes.
 
 ## Decisions
 
