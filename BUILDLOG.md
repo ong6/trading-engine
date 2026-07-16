@@ -24,6 +24,13 @@ conflict; execution design §7 has exit criteria).
 
 - 2026-07-16 · Environment truth pass (table above). Stooq contingency triggered → yfinance is primary.
 - 2026-07-16 · Repo scaffolded at `/data00/home/jun.ong/trading-engine` (git init, local-only), `.venv` with Python 3.12 + deps.
+- 2026-07-16 · **M0 code built & verified** (Opus subagent wrote, main loop verified end-to-end):
+  `lib/db.py` (schema: prices/universe/universe_snapshot/screen_results/jobs),
+  `universe.py` (13,053 parsed → 12,209 kept incl. 5,549 ETFs; append-only snapshot),
+  `collect.py` (--bootstrap-floor / --backfill resumable / incremental calendar-gated),
+  `run_daily.sh`. Smoke: 300-name floor pass → 98 liquid, 2 failed (honest); 20-name
+  backfill → history to 1962; AAPL 2026-07-15 close 327.50 cross-checked vs independent pull.
+- 2026-07-16 · Full-universe `--bootstrap-floor` launched (nice 19, logs/bootstrap-floor-2026-07-16.log).
 
 ## Decisions
 
@@ -32,13 +39,16 @@ conflict; execution design §7 has exit criteria).
 - 2026-07-16 · **Repo local-only** (no GitHub CLI on box). M1's sync exit criterion needs a remote — flag to owner before M1 completes: create `ong6/trading-engine` on GitHub and we'll add the SSH remote.
 - 2026-07-16 · Owner directive: **Fable plans, Opus subagents write code** (token efficiency). Verification still done by running end-to-end in the main loop.
 - 2026-07-16 · Backfill is a **resumable job** in a minimal DuckDB `jobs` table from day one (§12.7: no ad-hoc pools; backfill of ~5k names must survive interruption).
+- 2026-07-16 · **Cron at 22:30 UTC year-round** (box is UTC; = 6:30pm ET summer / 5:30pm ET winter, both post-close for yfinance; calendar gate handles holidays). **Install cron only after backfill completes** — DuckDB is single-writer, a cron collect during backfill would collide.
+- 2026-07-16 · Universe kept at 12,209 (incl. 5,549 ETFs) — spec keeps ETFs explicitly; the liquidity floor is the real boundary (~4-6k expected liquid).
+- 2026-07-16 · tmux not installed on box — loop continuity is via the agent scheduler instead; noted, not blocking.
 
 ## Next
 
-1. M0 code: `lib/db.py` (schema), `universe.py` (nasdaqtraded → universe + append-only snapshot), `collect.py` (yfinance batch backfill --full, incremental daily), `run_daily.sh`, requirements.
-2. Run universe build end-to-end; then start max-history backfill (long-running, resumable).
-3. Nightly cron entry (6:30pm ET trading days, market-calendar gated) + `_meta.json` health output.
-4. M0 exit: `_meta.json` shows a clean nightly run over ~4k+ names from cron, backfill done.
+1. When bootstrap-floor finishes: check liquid count (~4-6k expected), then launch full `--backfill` (resumable).
+2. When backfill finishes: install cron (22:30 UTC `run_daily.sh`), run `run_daily.sh --force`-equivalent once manually to prove the pipeline.
+3. M0 exit: `_meta.json` shows a clean nightly run over ~4k+ names **from cron**, backfill done. Stamp with evidence.
+4. Then M1: screen.py (Minervini 8 checks + RS rank + regime gate), sync.py, first synced screen. Needs GitHub remote (owner: create `ong6/trading-engine`).
 
 ## Blockers
 
