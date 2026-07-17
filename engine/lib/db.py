@@ -109,6 +109,87 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+def init_queue_schema(con: duckdb.DuckDBPyConnection) -> None:
+    """M4 additions: extend the minimal `jobs` table with the §12.7 queue
+    columns and create the append-only `intraday_prices` table.
+
+    Kept SEPARATE from init_schema so the nightly collect path is untouched;
+    every statement is ADD COLUMN IF NOT EXISTS / CREATE TABLE IF NOT EXISTS so
+    it is safe to run against the live single-writer DB. Assumes `jobs` already
+    exists (call init_schema first).
+    """
+    # Extend jobs in place — backward compatible with the backfill rows already
+    # present (they simply get priority=100, mem_mb=0, last_error=NULL).
+    for ddl in (
+        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS priority   INTEGER DEFAULT 100",
+        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS mem_mb     INTEGER DEFAULT 0",
+        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_error VARCHAR",
+    ):
+        con.execute(ddl)
+
+    # Intraday archive: append-only, UTC timestamps. The (ticker, ts, interval)
+    # primary key + the anti-join insert together guarantee we never update or
+    # overwrite a captured bar.
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS intraday_prices (
+            ticker   VARCHAR   NOT NULL,
+            ts       TIMESTAMP NOT NULL,
+            interval VARCHAR   NOT NULL,
+            open     DOUBLE,
+            high     DOUBLE,
+            low      DOUBLE,
+            close    DOUBLE,
+            volume   BIGINT,
+            source   VARCHAR DEFAULT 'yfinance',
+            as_of    DATE,
+            PRIMARY KEY (ticker, ts, interval)
+        )
+        """
+    )
+
+
+def insert_intraday(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
+    """Append-only insert into intraday_prices via anti-join.
+
+    df must have columns: ticker, ts, interval, open, high, low, close, volume.
+    ts must already be UTC (tz-naive). Only (ticker, ts, interval) keys not
+    already stored are inserted — existing rows are NEVER touched. Rows with a
+    NaN close are dropped (never store a fabricated bar). Returns rows inserted.
+    """
+    cols = ["ticker", "ts", "interval", "open", "high", "low", "close", "volume"]
+    if df is None or df.empty:
+        return 0
+
+    df = df[cols].copy()
+    df = df.dropna(subset=["close"])
+    # Guard the primary key against dupes within a single incoming batch.
+    df = df.drop_duplicates(subset=["ticker", "ts", "interval"])
+    if df.empty:
+        return 0
+
+    df["source"] = "yfinance"
+    df["as_of"] = datetime.now(timezone.utc).date()
+
+    before = con.execute("SELECT COUNT(*) FROM intraday_prices").fetchone()[0]
+    con.register("_incoming_intraday", df)
+    con.execute(
+        """
+        INSERT INTO intraday_prices
+            (ticker, ts, interval, open, high, low, close, volume, source, as_of)
+        SELECT i.ticker, i.ts, i.interval, i.open, i.high, i.low, i.close,
+               i.volume, i.source, i.as_of
+        FROM _incoming_intraday i
+        LEFT JOIN intraday_prices p
+               ON p.ticker = i.ticker AND p.ts = i.ts AND p.interval = i.interval
+        WHERE p.ticker IS NULL
+        """
+    )
+    con.unregister("_incoming_intraday")
+    after = con.execute("SELECT COUNT(*) FROM intraday_prices").fetchone()[0]
+    return after - before
+
+
 def upsert_prices(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
     """INSERT OR REPLACE price bars.
 
