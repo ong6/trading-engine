@@ -1,10 +1,10 @@
 {
-  "last_run": "2026-07-17T08:39:31.280898+00:00",
+  "last_run": "2026-07-17T22:34:06.033117+00:00",
   "mode": "incremental",
-  "universe_size": 12211,
-  "active_count": 12210,
+  "universe_size": 12214,
+  "active_count": 12213,
   "liquid_count": 4118,
-  "prices_rows": 19817187,
+  "prices_rows": 19821305,
   "tickers_with_data": 12105,
   "stale_tickers": {
     "count": 0,
@@ -16,21 +16,10 @@
     "yfinance": "ok"
   },
   "regime": "risk-on",
-  "last_screen": "2026-07-17T08:39:34.491174+00:00",
-  "passing_count": 651,
-  "new_today_count": 96,
+  "last_screen": "2026-07-17T22:34:09.073146+00:00",
+  "passing_count": 642,
+  "new_today_count": 55,
   "screened": 3880,
   "skipped_stale": 0,
-  "skipped_short": 238,
-  "disk_warning": null,
-  "intraday": {
-    "last_run": "2026-07-17T11:28:42.714805+00:00",
-    "tickers_requested": 1088,
-    "tickers_with_data": 1088,
-    "new_rows_1m": 2399238,
-    "new_rows_5m": 4673839,
-    "failed_tickers": 0,
-    "failed_batches": 0,
-    "store_gb": 1.31
-  }
+  "skipped_short": 238
 }
