@@ -21,5 +21,16 @@
   "new_today_count": 96,
   "screened": 3880,
   "skipped_stale": 0,
-  "skipped_short": 238
+  "skipped_short": 238,
+  "disk_warning": null,
+  "intraday": {
+    "last_run": "2026-07-17T11:28:42.714805+00:00",
+    "tickers_requested": 1088,
+    "tickers_with_data": 1088,
+    "new_rows_1m": 2399238,
+    "new_rows_5m": 4673839,
+    "failed_tickers": 0,
+    "failed_batches": 0,
+    "store_gb": 1.31
+  }
 }
