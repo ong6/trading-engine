@@ -67,11 +67,26 @@ conflict; execution design §7 has exit criteria).
   never fills or steps the league), `sim/schema.py` M3 tables (disc_tickets / audit_log /
   review_markers), fastapi+uvicorn in requirements. Left **uncommitted** — unverified, and
   commit-after-proof is the rule. Verify end-to-end in a later iteration (after M0/M1), then commit.
+- 2026-07-17 · **M3 backend verified end-to-end on a DB copy and committed** (`97b3d48`). Uvicorn
+  against a copy via `TRADING_ENGINE_DB`; exercised: /health /meta /screen/latest /candidates/DELL
+  /league /positions /orders /journal; gate rejections (no stop · R:R 1.0 · oversize qty 9999 vs
+  1%-max 39 · earnings unacked) each rejected with the right gate + honest detail; accept path
+  (DELL 30sh, entry 392 / stop 382 / target 412, R:R 2.0) → ticket `submitted` + **pending**
+  sim_orders row + audit row, no fill (fills stay with the nightly step); cancel flow + double-cancel
+  + missing-ticket errors correct; **write-lock test: POST → HTTP 503** with clear message while a
+  RW connection held the DB, clean recovery after release; /review-done writes the circuit-breaker
+  marker. Sizing/R:R/4R-budget rechecked by hand (equity $39,000 → 1R $390, max 39sh, 4R $1,560).
+  All 8 gates match the exec-design §4 / rules.md table. Gates are **long-only** by design in v1
+  (shorts rejected; sells = closes).
+- 2026-07-17 · M3 open items: **Next.js UI not built** (M3 exit needs the trade through the *UI's*
+  gates — install Node user-space first); `/candidates` returns bars + latest close but no
+  server-side sizing prefill — UI computes it (needs equity; expose via /league or add a
+  sizing-suggest endpoint when building the ticket page).
 
 ## Next
 
 1. **After tonight 22:30 UTC**: verify cron ran clean end-to-end (logs/cron.log shows `=== done`, _meta.json last_run stamped by cron, screen 2026-07-17 committed by sync.py). If clean → **stamp M0 exit** (backfill done + clean nightly over 4k+ names from cron). M1 exit still needs the GitHub remote (owner: create `ong6/trading-engine`, then `git remote add origin ssh://git@ssh.github.com:443/ong6/trading-engine.git` + pull on laptop).
-2. Meanwhile (doesn't touch nightly): verify the M3 `server/` backend end-to-end against a **copy** of the DB (start uvicorn, exercise ticket submit → gate rejects/accepts → pending sim_orders row, 503 under write lock), then commit it with the schema + requirements changes.
+2. Meanwhile (doesn't touch nightly): install Node.js user-space (tarball reachable per env table), scaffold the M3 Next.js UI (dashboard / league / candidate→ticket / positions / journal pages against the verified backend).
 3. After M0 stamp: wire league into run_daily.sh; league goes live next nightly run.
 
 ## Blockers
