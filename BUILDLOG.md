@@ -100,11 +100,18 @@ conflict; execution design §7 has exit criteria).
   `/journal`, then re-verify. Matters for the real store DB, which has no sim tables until league
   go-live.
 
+- 2026-07-17 · **Fresh-DB 500s fixed & verified** (`4bcdfc5`; Sonnet subagent wrote, verified by it +
+  an independent main-loop pass on schema-less copies of the real DB). `/league`,
+  `/league/{id}/equity`, `/positions`, `/journal` guarded with `_table_exists`; also caught that
+  `/orders` guarded `disc_tickets` but not `sim_orders` itself. All five now 200 with honest empty
+  shapes pre-league-init; regression confirmed (ticket POST → journal/orders non-empty). GETs stay
+  read-only — no schema creation.
+
 ## Next
 
 1. **After tonight 22:30 UTC**: verify cron ran clean end-to-end (logs/cron.log shows `=== done`, _meta.json last_run stamped by cron, screen 2026-07-17 committed by sync.py). If clean → **stamp M0 exit** (backfill done + clean nightly over 4k+ names from cron). M1 exit still needs the GitHub remote (owner: create `ong6/trading-engine`, then `git remote add origin ssh://git@ssh.github.com:443/ong6/trading-engine.git` + pull on laptop).
-2. Fix the `/league` + `/journal` fresh-DB 500s (guard reads like `/orders` does), re-verify on a schema-less DB copy.
-3. After M0 stamp: wire league into run_daily.sh; league goes live next nightly run. Then the M3 exit demonstration: owner (or browser automation) submits a discretionary paper trade through the UI's gates end-to-end on the real DB.
+2. After M0 stamp: wire league into run_daily.sh; league goes live next nightly run. Then the M3 exit demonstration: owner (or browser automation) submits a discretionary paper trade through the UI's gates end-to-end on the real DB.
+3. M4 prep can start meanwhile: read spec §12 experiment framework; E1 SPY-Monday is queued first (pre-registered report), plus intraday archive + disk watchdog.
 
 ## Blockers
 
