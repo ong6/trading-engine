@@ -54,10 +54,24 @@ conflict; execution design §7 has exit criteria).
 - 2026-07-16 · **M2 code committed** (sim/: fills, portfolio, league, 10 strategies + configs). Shakedown on DB copy: 15 sessions, 267 fills, fill model verified vs exec-design §2 (3 hand-checks by builder + 1 independent random recheck; 0 same-bar fills; liquidity guard rejects oversize). Not wired into run_daily.sh yet. Live league tables get created in the real DB by `league.py --init` at go-live; shakedown artifacts were NOT committed.
 - 2026-07-16 · M2 open items: regime-gate entry-block never exercised in a live risk-off window yet (unit-tested only); partial fills not modeled (oversize = reject, documented).
 
+- 2026-07-17 · **Cron run of 2026-07-16 22:30 UTC FAILED** — `run_daily.sh: Permission denied`.
+  Root cause: script was committed mode 100644 (no exec bit); earlier manual proofs ran it via
+  `bash run_daily.sh`, masking it. Fix: `chmod +x` (git mode → 100755). **Recovery run executed
+  via cron's exact invocation** (`/bin/sh -c '…/run_daily.sh >> logs/cron.log 2>&1'`), exit 0:
+  incremental collect 4,115/4,118 (3 failed, honest) in ~4 min; screen 2026-07-16 → 651 passing /
+  3,880 screened, regime risk-on; sync committed (`27302b3`). `_meta.json` updated. Missed
+  2026-07-16 bars fully recovered. **M0 exit NOT stamped** — criterion requires the run to come
+  *from cron*; tonight's 22:30 UTC run is the new candidate.
+- 2026-07-17 · Found **uncommitted M3 work** in tree, not previously logged: `server/` (FastAPI
+  backend — localhost-only dashboard + gated discretionary tickets that become pending sim_orders;
+  never fills or steps the league), `sim/schema.py` M3 tables (disc_tickets / audit_log /
+  review_markers), fastapi+uvicorn in requirements. Left **uncommitted** — unverified, and
+  commit-after-proof is the rule. Verify end-to-end in a later iteration (after M0/M1), then commit.
+
 ## Next
 
-1. **Tonight 22:30 UTC**: verify cron ran clean (logs/cron.log, _meta.json, screen 2026-07-16 committed by sync.py). If clean → **stamp M0 exit** (backfill done + clean nightly over 4k+ names from cron). M1 exit still needs the GitHub remote (owner: create `ong6/trading-engine`, then `git remote add origin ssh://git@ssh.github.com:443/ong6/trading-engine.git` + pull on laptop).
-2. M2 in flight: sim core (fills/portfolio/league/strategies) being built by Opus subagent against a **copy** of the DB. Do NOT wire league into run_daily.sh until after tonight's clean M0 run.
+1. **After tonight 22:30 UTC**: verify cron ran clean end-to-end (logs/cron.log shows `=== done`, _meta.json last_run stamped by cron, screen 2026-07-17 committed by sync.py). If clean → **stamp M0 exit** (backfill done + clean nightly over 4k+ names from cron). M1 exit still needs the GitHub remote (owner: create `ong6/trading-engine`, then `git remote add origin ssh://git@ssh.github.com:443/ong6/trading-engine.git` + pull on laptop).
+2. Meanwhile (doesn't touch nightly): verify the M3 `server/` backend end-to-end against a **copy** of the DB (start uvicorn, exercise ticket submit → gate rejects/accepts → pending sim_orders row, 503 under write lock), then commit it with the schema + requirements changes.
 3. After M0 stamp: wire league into run_daily.sh; league goes live next nightly run.
 
 ## Blockers
