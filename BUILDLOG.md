@@ -107,11 +107,25 @@ conflict; execution design §7 has exit criteria).
   shapes pre-league-init; regression confirmed (ticket POST → journal/orders non-empty). GETs stay
   read-only — no schema creation.
 
+- 2026-07-17 · **M4 foundation built & first real intraday pull done** (`e99c992`; Opus subagent
+  wrote + verified on a copy, main loop ran the real pull). `queue_runner.py` (§12.7: sequential
+  drain of the jobs table behind nice19/ionice/load/RAM/disk guards; dispatch-table seam for farm
+  job types), `intraday.py` (1m/7d + 5m/60d, top-500 dollar-volume ∪ screen passers ∪ SPY/QQQ/IWM,
+  append-only anti-join), `lib/resources.py` (guards + merge-don't-clobber _meta writer). Real run:
+  **1088/1088 tickers, 2.40M 1m + 4.67M 5m rows, 0 failures, store 1.31GiB**, `intraday` block in
+  _meta.json, job 5 `done` in queue. Idempotence + independent cross-check (ABT, diff 0.0) proven
+  on the copy. yfinance quirks logged: 5m first pulls can be partial (append-only converges);
+  occasional spurious "delisted" on 5m for valid names (counted as gaps, retried once).
+- 2026-07-17 · Decision: intraday universe = top-500 by 20d median dollar volume ∪ latest screen
+  passers ∪ {SPY,QQQ,IWM} (resolves to ~1.1k names). Store watchlist names come via screen passers;
+  no store coupling. NOT in run_daily.sh yet — wiring after tonight's M0 stamp (cron must stay
+  byte-identical).
+
 ## Next
 
 1. **After tonight 22:30 UTC**: verify cron ran clean end-to-end (logs/cron.log shows `=== done`, _meta.json last_run stamped by cron, screen 2026-07-17 committed by sync.py). If clean → **stamp M0 exit** (backfill done + clean nightly over 4k+ names from cron). M1 exit still needs the GitHub remote (owner: create `ong6/trading-engine`, then `git remote add origin ssh://git@ssh.github.com:443/ong6/trading-engine.git` + pull on laptop).
-2. After M0 stamp: wire league into run_daily.sh; league goes live next nightly run. Then the M3 exit demonstration: owner (or browser automation) submits a discretionary paper trade through the UI's gates end-to-end on the real DB.
-3. M4 prep can start meanwhile: read spec §12 experiment framework; E1 SPY-Monday is queued first (pre-registered report), plus intraday archive + disk watchdog.
+2. After M0 stamp, wire the nightly: league step + intraday enqueue/drain into run_daily.sh (league live + archive daily from the next nightly run). Then the M3 exit demonstration: owner (or browser automation) submits a discretionary paper trade through the UI's gates end-to-end on the real DB.
+3. M4 continues: experiment framework (pre-registered configs, locked holdout, results table, report generator) with E1 SPY-Monday as the first pre-registered report; then fundamentals weekly + earnings calendar daily miners as queue job types.
 
 ## Blockers
 
