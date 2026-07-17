@@ -167,33 +167,35 @@ def league():
     try:
         d = _latest_prices_date(con)
         rows = []
-        for pf_id, name, created in con.execute(
-            "SELECT id, name, created FROM portfolios WHERE active ORDER BY id"
-        ).fetchall():
-            eq = con.execute(
-                "SELECT date, equity FROM sim_equity WHERE portfolio_id = ? "
-                "ORDER BY date", [pf_id],
-            ).fetchall()
-            if not eq:
-                continue
-            series = [e for _, e in eq]
-            equity = series[-1]
-            total_ret = equity / INITIAL_CASH - 1
-            spy_ret = _spy_return(con, created, d)
-            vs_spy = None if spy_ret is None else total_ret - spy_ret
-            mdd = _max_drawdown(series)
-            last5 = series[-1] / series[-6] - 1 if len(series) >= 6 else None
-            n_open = con.execute(
-                "SELECT COUNT(*) FROM sim_positions WHERE portfolio_id = ? "
-                "AND qty > 0", [pf_id]).fetchone()[0]
-            n_fills = con.execute(
-                "SELECT COUNT(*) FROM sim_fills WHERE portfolio_id = ?",
-                [pf_id]).fetchone()[0]
-            rows.append({
-                "id": pf_id, "name": name, "inception": created,
-                "equity": equity, "total_ret": total_ret, "vs_spy": vs_spy,
-                "mdd": mdd, "n_open": n_open, "n_fills": n_fills, "last5": last5,
-            })
+        if _table_exists(con, "portfolios"):
+            for pf_id, name, created in con.execute(
+                "SELECT id, name, created FROM portfolios WHERE active ORDER BY id"
+            ).fetchall():
+                eq = con.execute(
+                    "SELECT date, equity FROM sim_equity WHERE portfolio_id = ? "
+                    "ORDER BY date", [pf_id],
+                ).fetchall()
+                if not eq:
+                    continue
+                series = [e for _, e in eq]
+                equity = series[-1]
+                total_ret = equity / INITIAL_CASH - 1
+                spy_ret = _spy_return(con, created, d)
+                vs_spy = None if spy_ret is None else total_ret - spy_ret
+                mdd = _max_drawdown(series)
+                last5 = series[-1] / series[-6] - 1 if len(series) >= 6 else None
+                n_open = con.execute(
+                    "SELECT COUNT(*) FROM sim_positions WHERE portfolio_id = ? "
+                    "AND qty > 0", [pf_id]).fetchone()[0]
+                n_fills = con.execute(
+                    "SELECT COUNT(*) FROM sim_fills WHERE portfolio_id = ?",
+                    [pf_id]).fetchone()[0]
+                rows.append({
+                    "id": pf_id, "name": name, "inception": created,
+                    "equity": equity, "total_ret": total_ret, "vs_spy": vs_spy,
+                    "mdd": mdd, "n_open": n_open, "n_fills": n_fills,
+                    "last5": last5,
+                })
         rows.sort(key=lambda r: r["total_ret"], reverse=True)
         for i, r in enumerate(rows, 1):
             r["rank"] = i
@@ -207,6 +209,8 @@ def league():
 def league_equity(portfolio_id: str):
     con = read_con()
     try:
+        if not _table_exists(con, "sim_equity"):
+            return {"portfolio_id": portfolio_id, "equity": []}
         rows = _rows(con.execute(
             "SELECT portfolio_id, date, equity, cash, n_positions FROM sim_equity "
             "WHERE portfolio_id = ? ORDER BY date", [portfolio_id]))
@@ -250,6 +254,8 @@ def candidate(ticker: str):
 def positions(portfolio: str | None = Query(None)):
     con = read_con()
     try:
+        if not _table_exists(con, "sim_positions"):
+            return {"portfolio": portfolio, "positions": []}
         if portfolio:
             q = ("SELECT portfolio_id, ticker, qty, avg_cost FROM sim_positions "
                  "WHERE portfolio_id = ? AND qty > 0 ORDER BY ticker")
@@ -287,6 +293,8 @@ def positions(portfolio: str | None = Query(None)):
 def orders(status: str | None = Query(None)):
     con = read_con()
     try:
+        if not _table_exists(con, "sim_orders"):
+            return {"status": status, "orders": []}
         has_t = _table_exists(con, "disc_tickets")
         sel = ("o.*, t.id AS ticket_id, t.playbook, t.stop, t.target "
                "FROM sim_orders o LEFT JOIN disc_tickets t ON t.order_id = o.id"
@@ -326,7 +334,8 @@ def journal():
         round_trips = risk.closed_round_trips(con)
         league_events = _rows(con.execute(
             "SELECT order_id, portfolio_id, ticker, side, qty, fill_date, fill_px "
-            "FROM sim_fills ORDER BY fill_date DESC, order_id DESC LIMIT 100"))
+            "FROM sim_fills ORDER BY fill_date DESC, order_id DESC LIMIT 100"
+        )) if _table_exists(con, "sim_fills") else []
         return {"discretionary": {"tickets": tickets, "round_trips": round_trips},
                 "league_events": league_events}
     finally:
