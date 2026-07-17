@@ -82,12 +82,29 @@ conflict; execution design §7 has exit criteria).
   gates — install Node user-space first); `/candidates` returns bars + latest close but no
   server-side sizing prefill — UI computes it (needs equity; expose via /league or add a
   sizing-suggest endpoint when building the ticket page).
+- 2026-07-17 · **Node.js 24.18.0 LTS installed user-space** at `~/tools/node`
+  (npm 11.16.0; not on default PATH — scripts export it). npm registry reachable.
+- 2026-07-17 · **M3 UI built & committed** (`5e7e2fa`; Opus subagent wrote, verified end-to-end twice —
+  builder pass + independent main-loop pass, both on DB copies). Next 16 App Router in `ui/`,
+  Next+React only, inline-SVG charts, system fonts (offline-clean), `/api/*` → `127.0.0.1:8000`
+  rewrite proxy. Pages: dashboard / league / candidates/[ticker] (ticket form, client-side 1%-risk
+  prefill from discretionary `/league` equity, full 8-gate checklist rendered on accept AND reject) /
+  positions (+cancel) / journal (+review-done). Evidence: all pages SSR 200 with MOCK banner + real
+  screen data; via the UI's own proxy: DELL ticket submit → `allowed:true` + 8 gates → pending order
+  → cancel OK; `npm run build` clean. `ui/node_modules` gitignored.
+- 2026-07-17 · **Backend defect found during UI build** (not fixed yet): on a DB where sim tables
+  don't exist (fresh store — league never initialized), `GET /league` and `GET /journal` return
+  **HTTP 500** (they read sim tables unguarded; `/orders` guards with `_table_exists`). UI shows an
+  honest "Could not load data" state so nothing crashes, but the backend should guard → next
+  iteration: add `_table_exists` guards (empty-state JSON) to `/league`, `/league/{id}/equity`,
+  `/journal`, then re-verify. Matters for the real store DB, which has no sim tables until league
+  go-live.
 
 ## Next
 
 1. **After tonight 22:30 UTC**: verify cron ran clean end-to-end (logs/cron.log shows `=== done`, _meta.json last_run stamped by cron, screen 2026-07-17 committed by sync.py). If clean → **stamp M0 exit** (backfill done + clean nightly over 4k+ names from cron). M1 exit still needs the GitHub remote (owner: create `ong6/trading-engine`, then `git remote add origin ssh://git@ssh.github.com:443/ong6/trading-engine.git` + pull on laptop).
-2. Meanwhile (doesn't touch nightly): install Node.js user-space (tarball reachable per env table), scaffold the M3 Next.js UI (dashboard / league / candidate→ticket / positions / journal pages against the verified backend).
-3. After M0 stamp: wire league into run_daily.sh; league goes live next nightly run.
+2. Fix the `/league` + `/journal` fresh-DB 500s (guard reads like `/orders` does), re-verify on a schema-less DB copy.
+3. After M0 stamp: wire league into run_daily.sh; league goes live next nightly run. Then the M3 exit demonstration: owner (or browser automation) submits a discretionary paper trade through the UI's gates end-to-end on the real DB.
 
 ## Blockers
 
