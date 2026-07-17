@@ -88,3 +88,47 @@ def init_sim_schema(con: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
+    # --- M3 discretionary paper-trading (server/) tables --------------------- #
+    # A discretionary ticket is a human trade intent gated server-side before it
+    # becomes a sim_orders row. disc_tickets is append-only except `status`/
+    # `order_id`, mirroring the sim_orders discipline.
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS disc_tickets (
+            id         BIGINT PRIMARY KEY,
+            ticker     VARCHAR,
+            side       VARCHAR,   -- 'buy' | 'sell'
+            qty        DOUBLE,
+            entry_ref  DOUBLE,
+            stop       DOUBLE,
+            target     DOUBLE,
+            playbook   VARCHAR,
+            emotion    VARCHAR,
+            notes      VARCHAR,
+            gates      VARCHAR,   -- json array of gate results
+            status     VARCHAR,   -- 'submitted'|'rejected'|'cancelled'|'filled'
+            order_id   BIGINT,    -- linked sim_orders.id (NULL if rejected)
+            created_at TIMESTAMP
+        )
+        """
+    )
+    # Append-only audit trail: every ticket submit/cancel/review-done writes one row.
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audit_log (
+            ts      TIMESTAMP,
+            actor   VARCHAR,
+            action  VARCHAR,
+            payload VARCHAR   -- json blob
+        )
+        """
+    )
+    # Circuit-breaker clear markers (POST /review-done).
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS review_markers (
+            ts   TIMESTAMP,
+            kind VARCHAR
+        )
+        """
+    )
