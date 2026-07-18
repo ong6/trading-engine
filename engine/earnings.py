@@ -80,12 +80,18 @@ def _select_universe(con, params: dict) -> tuple[list[tuple[str, str]], str]:
         "SELECT COUNT(*) FROM fundamentals WHERE market_cap IS NOT NULL"
     ).fetchone()[0] > 0
     if have_fund:
-        # equities the fundamentals miner has seen (latest as_of with real mcap)
+        # Equities the fundamentals miner has seen. Take the UNION of tickers with
+        # a real market_cap across EVERY as_of in the trailing 14 days of MAX(as_of)
+        # — not just MAX(as_of) alone. A single latest as_of can be a PARTIAL /
+        # interrupted snapshot (miner mid-run), which would silently shrink the
+        # earnings universe to only the names pulled so far. Unioning the recent
+        # window means a partial snapshot only ever ADDS names, never drops coverage.
         rows = con.execute(
             """
             WITH latest AS (SELECT MAX(as_of) m FROM fundamentals)
             SELECT DISTINCT ticker FROM fundamentals
-            WHERE market_cap IS NOT NULL AND as_of = (SELECT m FROM latest)
+            WHERE market_cap IS NOT NULL
+              AND as_of >= (SELECT m FROM latest) - INTERVAL 14 DAY
             """
         ).fetchall()
         canon |= {r[0] for r in rows}
@@ -142,22 +148,38 @@ def _fetch_calendar(yf_ticker: str) -> dict | None:
             return None
 
 
-def _dates_from_calendar(cal: dict | None) -> tuple[list[date], bool] | None:
+def _dates_from_calendar(cal: dict | None, yf_ticker: str = "") -> tuple[list[date], bool] | None:
     """Extract upcoming earnings dates. Returns (dates, is_estimate) or None when
-    there is no usable date. is_estimate = the source gave a window (len != 1)."""
+    there is no usable date. is_estimate = the source gave a window (len != 1),
+    computed from the CLEANED list only.
+
+    Every candidate is coerced through pd.to_datetime(errors="coerce"), so
+    datetime, date, pandas Timestamp (incl. tz-aware → wall-clock .date()),
+    numpy.datetime64 and ISO date strings are all handled. NaT / NaN / None
+    window-fillers are dropped BEFORE the length test (so a [real_date, NaT]
+    calendar stores a single confirmed date, not a mislabeled estimate); values
+    that survive filtering but still fail to parse are dropped AND logged."""
     if not cal or not isinstance(cal, dict):
         return None
     raw = cal.get("Earnings Date")
-    if not raw:
+    if raw is None:
         return None
-    if not isinstance(raw, list):
+    if not isinstance(raw, (list, tuple)):
         raw = [raw]
+    if len(raw) == 0:
+        return None
     dates: list[date] = []
     for d in raw:
-        if isinstance(d, datetime):
-            dates.append(d.date())
-        elif isinstance(d, date):
-            dates.append(d)
+        # NaT / NaN / None: expected window-filler — drop silently (finding A).
+        if pd.isna(d):
+            continue
+        ts = pd.to_datetime(d, errors="coerce")
+        if pd.isna(ts):
+            # A non-null value we could not parse (finding B) — never fabricate.
+            print(f"[earnings] dropped unparseable earnings-date value {d!r}"
+                  + (f" for {yf_ticker}" if yf_ticker else ""))
+            continue
+        dates.append(ts.date())
     if not dates:
         return None
     return dates, len(dates) != 1
@@ -207,7 +229,7 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
         if cal is None:
             failed += 1
         else:
-            parsed = _dates_from_calendar(cal)
+            parsed = _dates_from_calendar(cal, yft)
             if parsed is None:
                 no_date += 1
             else:
