@@ -240,14 +240,45 @@ conflict; execution design §7 has exit criteria).
     — was silently sliding forward with new data under a "computed once" banner.
   - lxml installed (yfinance parse speed).
 
+- 2026-07-18 (pm) · **Miners bootstrap drain died silently ~11:20 UTC — diagnosed, resumed,
+  completed.** The background drain (jobs 7+8) was killed mid-earnings (no traceback; SIGHUP
+  from the launching SSH session dropping — no tmux on box), leaving job 8 stale-`running` +
+  a leftover WAL. Fundamentals (job 7) had already finished: **4,118/4,118 tickers**, 0 failed
+  (3,568 pulled this run + 550 prior, ETF equity fields NULL-honest). Restarted with `nohup`:
+  the hardening pass's stale-job reclaim worked as designed (job 8 → pending, resumed at
+  1,046 already-done). **Earnings complete 15:34 UTC: 2,768 tickers, 0 failures**, dates
+  2026-04-22→2026-10-16, AAPL 07-30 / MSFT 07-29 match the earlier independent confirms;
+  `_meta.json` fundamentals+earnings blocks merged. Lesson applied: long background jobs get
+  `nohup` (or the agent-tracked background shell), never a bare `&` from an SSH session.
+- 2026-07-18 (pm) · **Pre-Monday checks from the Next list all pass**: `screen.py
+  --skip-if-done` and `sim.league --init --skip-if-done` both no-op exit 0 on the real DB
+  (first post-transaction-rewrite exercise); API degrades honestly under the drain's writer
+  lock (`/health` 200, `/league` 503 "database busy"); **earnings gate verified on real data
+  both ways** via POST /tickets — AIR (earnings Tue 07-21, confirmed) → `earnings_window:
+  fail` + rejected; DELL (earnings 09-03) → `earnings_window: pass "no earnings within 7d"`
+  (rejected on a deliberate no-stop so no order side-effect; tickets 5+6 journaled).
+- 2026-07-18 (pm) · **Monday-readiness review (independent Opus pass over the unattended-run
+  seams) → 1 central defect + 3 risks, all fixed & verified (`32a3550`)**. Findings: nightly
+  stages opened DuckDB RW with **no lock retry** (`lib/db.py`) while un-`||`-guarded under
+  `set -e` — one in-flight UI request at 22:30 (servers are left running) or a prior night's
+  still-draining farm would hard-abort the whole nightly (server→engine direction was
+  protected via 503, engine→server was not); no cross-night overlap guard; no drain runtime
+  bound; sync failure aborted the nightly (though league results were already DB-safe —
+  reviewer confirmed fill flow SOLID: Monday's step fills all pending incl. weekend gap, no
+  double-fill/skip of order 42, and found zero price-fabrication paths). Fixes: bounded
+  lock-retry in `db.connect()` (TRADING_ENGINE_LOCK_WAIT_S, default 60s; **proven live
+  against the real locked store during the drain** — honest retry lines then re-raise, and
+  the retry→succeed path proven on a copy); `flock -n .nightly.lock` overlap guard in
+  run_daily.sh (proven: second invocation aborts exit 1 before any stage); wall-clock drain
+  budget in queue_runner (TRADING_ENGINE_DRAIN_BUDGET_S, default 4h — stops starting jobs,
+  never kills in-flight; proven with budget=0 on a throwaway DB, job stays pending); sync
+  now best-effort WARN in run_daily.sh + refuses to commit mid-rebase/merge; failure
+  breadcrumb names the failing stage (via logs/.last_stage — tee block is a subshell).
+
 ## Next
 
-1. **Verify the miners bootstrap** (background drain, `logs/miners-bootstrap-2026-07-18.log`):
-   `fundamentals` rows ≈ liquid universe, `earnings_calendar` populated, `_meta.json` blocks
-   merged; then confirm the earnings gate reads real data on a fresh ticket check — the gate
-   is now implemented (2026-07-18), so this check should return pass/fail, not "unknown".
-   Also smoke-test `sim.league --skip-if-done` + `screen.py --skip-if-done` once the DB lock
-   frees (first post-transaction-rewrite no-op paths) before Monday's cron.
+1. ~~Verify the miners bootstrap~~ **DONE 2026-07-18 pm** (see above — fundamentals 4,118,
+   earnings 2,768, gate live on real data, skip-if-done smoke tests pass).
 2. **Monday 2026-07-20 22:30 UTC cron = first full unattended nightly with everything wired**:
    collect → screen → league step (fills the 41 auto orders + discretionary DELL order 42 at
    Monday's open, conservative slippage) → sync → intraday + earnings mining. Verify Tuesday:
