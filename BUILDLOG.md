@@ -15,6 +15,26 @@ conflict; execution design §7 has exit criteria).
   failed_this_run 3 (honest), screen 642 passing / 3,880 screened; sync commit `356c7af`
   authored 22:34:09 +0000 (inside the cron window, no human involvement). Backfill was
   stamped done 2026-07-16 (4,121 names, 19.8M rows).
+- **M3 — DONE 2026-07-18.** Criterion: a discretionary paper trade goes end-to-end through the
+  UI's risk gates. Evidence: on the REAL store DB, backend (:8000) + Next UI (:3000) running,
+  submitted through the UI's own `/api` proxy (the exact route the ticket form posts to):
+  (1) stopless DELL ticket → rejected, 5 gates fail honestly; (2) DELL 39sh @ entry 397 /
+  stop 387 / target 417 → rejected by `playbook_named` (`experiment` setups capped at 0.25%
+  risk $98 < $390) — a real rules.md cap enforced; (3) DELL 9sh ($90 risk) → **allowed:true,
+  ticket 3, pending sim_order 42** in the `discretionary` book (auto-created), all 8 gates
+  pass/ack, audit + journal rows verified via the API. No same-bar fill — order fills at
+  Monday 2026-07-20's open in the nightly league step (correct per exec-design §2). Caveat:
+  submission was via the UI's proxy route, not a hand-clicked browser; pages were previously
+  verified SSR-rendering the same flow.
+- **M4 — DONE 2026-07-18.** Criterion: first pre-registered experiment report published +
+  intraday archive accumulating under the disk watchdog. Evidence: E1 SPY-Monday report
+  committed at `data/reports/experiments/e1-spy-monday.md` (`9568cec`; pre-registered config,
+  locked holdout, honest negative in-sample result); intraday archive at 2 consecutive real
+  daily pulls (2026-07-17: 2.40M 1m + 4.67M 5m rows; 2026-07-18: +448,716 1m + +492,011 5m,
+  1078/1078 tickers, 0 failures) behind the §12.7 queue guards incl. the disk watchdog
+  (store 1.65 GiB vs 60/80 GB caps). Fundamentals/earnings miners built + scheduled
+  (earnings nightly, fundamentals Fridays, `ac9fa72`); first real full runs in flight
+  2026-07-18 (jobs 7+8).
 
 ## Environment truth (verified 2026-07-16, from this devbox)
 
@@ -166,11 +186,51 @@ conflict; execution design §7 has exit criteria).
   not yet scheduled (needs enqueue lines in the nightly/weekly driver — pending after league wiring
   lands).
 
+- 2026-07-18 · **Nightly fully wired & league LIVE on the real DB** (`8ae3937`, `2ad119c`,
+  `7fe40e7`; Opus subagent wrote + verified on copies, then live). Order: collect →
+  `screen --skip-if-done` → `sim.league --init --skip-if-done` (writes league.md/csv) → sync →
+  farm subshell (enqueue + drain, pinned exit 0 so farm failures log WARN but never fail the
+  nightly). League go-live: **10 portfolios, session 2026-07-17, 41 pending orders, 0 fills**
+  (first fills Monday — no same-bar). Fill model re-verified on a 2-day historical copy run:
+  6 fills reconcile exactly across 3 slippage tiers (15bp/10bp/20bp by mdv), 0 same-bar.
+  Full `run_daily.sh` proven exit 0 via cron's exact `/bin/sh -c` form; real intraday pull
+  1078/1078, 0 failures.
+- 2026-07-18 · **Defect found + fixed by wiring** (`2ad119c`): `screen.py` exit-1'd on an
+  already-screened date — every weekend/holiday weekday cron would have failed the nightly.
+  Now `--skip-if-done` no-ops at exit 0 (matches collect.py); real failures still exit 1.
+- 2026-07-18 · Decisions: league runs `--init` every nightly (idempotent, self-healing);
+  monthly sleeves (dual_momentum×2, ew_benchmark) correctly generated 0 orders at a
+  non-month-end go-live; farm `_meta.json` intraday accounting lands in the NEXT run's sync
+  commit by design (add a post-farm sync later if a same-night commit is wanted).
+- 2026-07-18 · **Miners scheduled in the nightly** (`ac9fa72`): earnings enqueued daily
+  (prio 110), fundamentals Fridays (prio 120), after intraday (prio 100; queue drains
+  ascending). Bootstrap first real runs enqueued fundamentals-before-earnings (jobs 7+8) so
+  the earnings universe can use fundamentals coverage; drain running in background
+  (`logs/miners-bootstrap-2026-07-18.log`). Until it lands, the earnings gate honestly
+  reports "no earnings data — check manually" (observed in the M3 demo, ack flow works).
+- 2026-07-18 · Interactive loop left RUNNING for the owner: FastAPI :8000 + Next dev :3000
+  (loopback; `logs/server.log`, `logs/ui.log`). Note: while a queue job holds the DuckDB
+  writer lock, UI reads/POSTs degrade honestly (503 / "Could not load data") — single-writer
+  by design.
+
 ## Next
 
-1. **After tonight 22:30 UTC**: verify cron ran clean end-to-end (logs/cron.log shows `=== done`, _meta.json last_run stamped by cron, screen 2026-07-17 committed by sync.py). If clean → **stamp M0 exit** (backfill done + clean nightly over 4k+ names from cron). M1 exit still needs the GitHub remote (owner: create `ong6/trading-engine`, then `git remote add origin ssh://git@ssh.github.com:443/ong6/trading-engine.git` + pull on laptop).
-2. After M0 stamp, wire the nightly: league step + intraday enqueue/drain into run_daily.sh (league live + archive daily from the next nightly run). Then the M3 exit demonstration: owner (or browser automation) submits a discretionary paper trade through the UI's gates end-to-end on the real DB.
-3. M4 continues: experiment framework (pre-registered configs, locked holdout, results table, report generator) with E1 SPY-Monday as the first pre-registered report; then fundamentals weekly + earnings calendar daily miners as queue job types.
+1. **Verify the miners bootstrap** (background drain, `logs/miners-bootstrap-2026-07-18.log`):
+   `fundamentals` rows ≈ liquid universe, `earnings_calendar` populated, `_meta.json` blocks
+   merged; then confirm the earnings gate reads real data on a fresh ticket check.
+2. **Monday 2026-07-20 22:30 UTC cron = first full unattended nightly with everything wired**:
+   collect → screen → league step (fills the 41 auto orders + discretionary DELL order 42 at
+   Monday's open, conservative slippage) → sync → intraday + earnings mining. Verify Tuesday:
+   fills present, league.md shows real equity moves, no WARN in the farm section.
+3. **Mission "Done" gate**: 7 consecutive clean unattended nightly runs (counting from Monday
+   2026-07-20 if clean). Watch `logs/cron.log` daily; any failure resets the count.
+4. **M1 exit** still needs the GitHub remote (owner action: create `ong6/trading-engine`, then
+   `git remote add origin ssh://git@ssh.github.com:443/ong6/trading-engine.git`; sync.py
+   pushes automatically once a remote exists; then prove a pull on another machine).
+5. Nice-to-haves surfaced this session (not blocking): `lxml` for historical earnings
+   surprises; post-farm second sync if a same-night intraday `_meta` commit is wanted;
+   walk-forward re-validation job type for active league strategies (weekly, §12.3);
+   weekly-review integration (exec-design §6 Sunday loop) once a week of league history exists.
 
 ## Blockers
 
