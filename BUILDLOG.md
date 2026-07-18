@@ -4,7 +4,17 @@ Source of truth for build state. Read at the start of every loop iteration; trus
 remembered state. Specs live in `../personal-data-store/trading/` (engine design §12 wins on
 conflict; execution design §7 has exit criteria).
 
-## Current phase: M0 — scaffold + full-universe EOD collect + nightly cron
+## Current phase: M3/M4 — league go-live + nightly wiring, M3 exit demo, experiment framework
+
+## Phase exits stamped
+
+- **M0 — DONE 2026-07-18.** Criterion: `_meta.json` shows a clean nightly run over ~4k+ names,
+  from cron, max-history backfill done. Evidence: cron run of 2026-07-17 22:30 UTC completed
+  clean — `logs/cron.log` ends `=== done 2026-07-17T22:34:09Z ===`; `_meta.json`
+  `last_run 2026-07-17T22:34:06Z`, mode incremental, liquid_count 4,118, prices_rows 19.8M,
+  failed_this_run 3 (honest), screen 642 passing / 3,880 screened; sync commit `356c7af`
+  authored 22:34:09 +0000 (inside the cron window, no human involvement). Backfill was
+  stamped done 2026-07-16 (4,121 names, 19.8M rows).
 
 ## Environment truth (verified 2026-07-16, from this devbox)
 
