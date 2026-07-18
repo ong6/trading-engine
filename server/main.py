@@ -11,6 +11,7 @@ Run from repo root:  .venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8
 from __future__ import annotations
 
 import json
+import math
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -364,6 +365,17 @@ def create_ticket(body: dict = Body(...)):
     if not ticker:
         raise HTTPException(400, "ticker required")
 
+    # qty must be a positive finite number for both buy and sell (close) paths.
+    # A qty <= 0 slips past every multiplicative gate (sizing, heat, experiment
+    # cap) — a negative qty would size a forbidden short and inflate cash, a zero
+    # qty a no-op order. Reject before any gate evaluation.
+    try:
+        qty = float(body.get("qty") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "qty must be a number")
+    if not math.isfinite(qty) or qty <= 0:
+        raise HTTPException(400, "qty must be a positive number")
+
     con = write_con()
     try:
         init_sim_schema(con)  # ensure disc_tickets/audit_log/review_markers exist
@@ -374,7 +386,7 @@ def create_ticket(body: dict = Body(...)):
 
         ticket = {
             "ticker": ticker, "side": side,
-            "qty": float(body.get("qty") or 0),
+            "qty": qty,
             "entry_ref": body.get("entry_ref"),
             "stop": body.get("stop"),
             "target": body.get("target"),
@@ -402,33 +414,42 @@ def create_ticket(body: dict = Body(...)):
             gates = risk.evaluate_gates(con, ticket)
             allowed, reasons = risk.is_allowed(gates, ticket)
 
-        tid = con.execute(
-            "SELECT COALESCE(MAX(id), 0) + 1 FROM disc_tickets").fetchone()[0]
-        order_id = None
-        status = "rejected"
+        # MAX(id)+1 allocation + the dependent inserts are one read-modify-write:
+        # wrap them in an explicit transaction so the ids and rows commit (or roll
+        # back) atomically. DuckDB's single-writer lock is the outer guard.
+        con.execute("BEGIN TRANSACTION")
+        try:
+            tid = con.execute(
+                "SELECT COALESCE(MAX(id), 0) + 1 FROM disc_tickets").fetchone()[0]
+            order_id = None
+            status = "rejected"
 
-        if allowed:
-            order_id = con.execute(
-                "SELECT COALESCE(MAX(id), 0) + 1 FROM sim_orders").fetchone()[0]
+            if allowed:
+                order_id = con.execute(
+                    "SELECT COALESCE(MAX(id), 0) + 1 FROM sim_orders").fetchone()[0]
+                con.execute(
+                    "INSERT INTO sim_orders (id, portfolio_id, ticker, side, qty, "
+                    "signal_date, status, reject_reason) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",
+                    [order_id, DISC_ID, ticker, side, ticket["qty"], as_of])
+                status = "submitted"
+
             con.execute(
-                "INSERT INTO sim_orders (id, portfolio_id, ticker, side, qty, "
-                "signal_date, status, reject_reason) "
-                "VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",
-                [order_id, DISC_ID, ticker, side, ticket["qty"], as_of])
-            status = "submitted"
+                "INSERT INTO disc_tickets (id, ticker, side, qty, entry_ref, stop, "
+                "target, playbook, emotion, notes, gates, status, order_id, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [tid, ticker, side, ticket["qty"], ticket["entry_ref"], ticket["stop"],
+                 ticket["target"], ticket["playbook"], ticket["emotion"],
+                 ticket["notes"], json.dumps(gates, default=str), status, order_id,
+                 _now()])
 
-        con.execute(
-            "INSERT INTO disc_tickets (id, ticker, side, qty, entry_ref, stop, "
-            "target, playbook, emotion, notes, gates, status, order_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [tid, ticker, side, ticket["qty"], ticket["entry_ref"], ticket["stop"],
-             ticket["target"], ticket["playbook"], ticket["emotion"],
-             ticket["notes"], json.dumps(gates, default=str), status, order_id,
-             _now()])
-
-        _audit(con, "ticket_submit", {"ticket_id": tid, "status": status,
-                                      "order_id": order_id, "allowed": allowed,
-                                      "ticket": ticket})
+            _audit(con, "ticket_submit", {"ticket_id": tid, "status": status,
+                                          "order_id": order_id, "allowed": allowed,
+                                          "ticket": ticket})
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
         return {"ticket_id": tid, "allowed": allowed, "status": status,
                 "order_id": order_id, "signal_date": as_of, "gates": gates,
                 "reasons": reasons}

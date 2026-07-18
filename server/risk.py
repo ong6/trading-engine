@@ -10,7 +10,7 @@ latest bar in `prices`. This module reads only; the caller opens the connection.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import duckdb
 import numpy as np
@@ -26,6 +26,20 @@ MAX_OPEN_R = 4.0         # portfolio heat cap in R (× 1% equity)
 CB_CONSEC_LOSERS = 3     # circuit breaker: 3 straight losing round-trips
 CB_R_WINDOW_DAYS = 5     # ...or realized R ≤ -5 within trailing 5 trading days
 CB_R_FLOOR = -5.0
+EARNINGS_WINDOW_DAYS = 7  # fail if earnings fall within [today, today+7d]
+
+# The known-playbook library: setups the book has vetted and sizes at the full
+# 1% risk. A setup NOT in this set is treated as an experiment and capped at
+# EXPERIMENT_MAX (0.25%). Empty for now — until it is populated, every named
+# setup is unknown and therefore capped (only 'experiment' is intentionally so).
+KNOWN_PLAYBOOKS: frozenset[str] = frozenset()
+
+
+def _is_experiment(playbook: str) -> bool:
+    """True when this setup carries the experiment risk cap (0.25%): the literal
+    'experiment', or any setup absent from the known-playbook library."""
+    pb = playbook.strip().lower()
+    return pb == "experiment" or pb not in KNOWN_PLAYBOOKS
 
 
 # --------------------------------------------------------------------------- #
@@ -87,10 +101,34 @@ def disc_state(con: duckdb.DuckDBPyConnection) -> dict:
             "positions": positions}
 
 
+def pending_disc_risk(con: duckdb.DuckDBPyConnection) -> float:
+    """Σ risk of already-accepted-but-unfilled discretionary buy orders, in
+    dollars. Each pending sim_orders row joins back to its disc_ticket for the
+    stop/entry_ref; risk = qty*(entry_ref-stop), floored at 0 (the stop-side gate
+    guarantees entry_ref > stop for accepted tickets). A pending order missing any
+    of qty/entry_ref/stop contributes nothing (never fabricate a stop)."""
+    if not _table_exists(con, "sim_orders") or not _table_exists(con, "disc_tickets"):
+        return 0.0
+    rows = con.execute(
+        "SELECT o.qty, t.entry_ref, t.stop FROM sim_orders o "
+        "JOIN disc_tickets t ON t.order_id = o.id "
+        "WHERE o.portfolio_id = ? AND o.status = 'pending' AND o.side = 'buy'",
+        [DISC_ID],
+    ).fetchall()
+    total = 0.0
+    for qty, entry, stop in rows:
+        if qty is None or entry is None or stop is None:
+            continue
+        total += max(0.0, float(qty) * (float(entry) - float(stop)))
+    return total
+
+
 def open_disc_risk(con: duckdb.DuckDBPyConnection, state: dict) -> float:
     """Σ open discretionary risk in dollars. Position with a stored stop risks
     qty*(avg_cost-stop) (floored at 0); a position with no stored stop counts as
-    1R = 1% of equity (conservative)."""
+    1R = 1% of equity (conservative). Pending (accepted-but-unfilled) buy orders
+    add their own committed risk so same-day tickets can't stack past the heat
+    cap before any of them fills."""
     one_r = RISK_PCT * state["equity"]
     total = 0.0
     for p in state["positions"]:
@@ -98,7 +136,7 @@ def open_disc_risk(con: duckdb.DuckDBPyConnection, state: dict) -> float:
             total += max(0.0, p["qty"] * (p["avg_cost"] - p["stop"]))
         else:
             total += one_r
-    return total
+    return total + pending_disc_risk(con)
 
 
 # --------------------------------------------------------------------------- #
@@ -223,6 +261,41 @@ def _g(name: str, status: str, detail: str) -> dict:
     return {"name": name, "status": status, "detail": detail}
 
 
+def earnings_window(con: duckdb.DuckDBPyConnection, ticker: str,
+                    acked: bool) -> dict:
+    """earnings_window gate result. Reads the LATEST as_of snapshot per ticker
+    from the append-only earnings_calendar. Fails if that snapshot has an
+    earnings_date within [today, today+EARNINGS_WINDOW_DAYS]. No rows for the
+    ticker (or the table absent / any DB error) → 'unknown, check manually', which
+    the earnings ack clears. Past earnings dates never fail."""
+    ack_suffix = " (acknowledged)" if acked else ""
+    unknown = _g("earnings_window", "unknown",
+                 "no earnings data — check manually" + ack_suffix)
+    try:
+        if not _table_exists(con, "earnings_calendar"):
+            return unknown
+        rows = con.execute(
+            "SELECT earnings_date, is_estimate FROM earnings_calendar "
+            "WHERE ticker = ? AND as_of = "
+            "(SELECT MAX(as_of) FROM earnings_calendar WHERE ticker = ?)",
+            [ticker, ticker],
+        ).fetchall()
+    except Exception:
+        return unknown
+    if not rows:
+        return unknown
+    today = datetime.now(timezone.utc).date()
+    horizon = today + timedelta(days=EARNINGS_WINDOW_DAYS)
+    upcoming = [(d, est) for d, est in rows if d is not None and today <= d <= horizon]
+    if not upcoming:
+        return _g("earnings_window", "pass",
+                  f"no earnings within {EARNINGS_WINDOW_DAYS}d")
+    d, est = min(upcoming, key=lambda x: x[0])
+    kind = "estimate" if est else "confirmed"
+    return _g("earnings_window", "fail",
+              f"earnings {d} ({kind}) within {EARNINGS_WINDOW_DAYS}d window")
+
+
 def evaluate_gates(con: duckdb.DuckDBPyConnection, t: dict) -> list[dict]:
     """Run all gates for ticket dict `t`. Fields: ticker, side, qty, entry_ref,
     stop, target, playbook, acknowledge_earnings, override_regime,
@@ -265,7 +338,7 @@ def evaluate_gates(con: duckdb.DuckDBPyConnection, t: dict) -> list[dict]:
     # 3. playbook_named
     if not playbook:
         gates.append(_g("playbook_named", "fail", "no playbook named"))
-    elif playbook.lower() == "experiment":
+    elif _is_experiment(playbook):
         cap = EXPERIMENT_MAX * equity
         if ticket_risk is None:
             gates.append(_g("playbook_named", "fail",
@@ -305,11 +378,10 @@ def evaluate_gates(con: duckdb.DuckDBPyConnection, t: dict) -> list[dict]:
                         f"open ${open_risk:,.0f} + ticket ${ticket_risk:,.0f} = "
                         f"${total:,.0f} vs 4R budget ${budget:,.0f}"))
 
-    # 6. earnings_window — no data yet (M4); always unknown, blocks unless acked.
+    # 6. earnings_window — latest earnings_calendar snapshot; fail inside the
+    # window, unknown when there's no data. Ack clears fail/unknown (is_allowed).
     acked = bool(t.get("acknowledge_earnings"))
-    gates.append(_g("earnings_window", "unknown",
-                    "no earnings data — check manually"
-                    + (" (acknowledged)" if acked else "")))
+    gates.append(earnings_window(con, t.get("ticker"), acked))
 
     # 7. regime_gate
     label, detail = spy_regime(con)
@@ -338,10 +410,16 @@ def is_allowed(gates: list[dict], t: dict) -> tuple[bool, list[str]]:
     acknowledged. Only earnings_window has an ack (acknowledge_earnings)."""
     reasons: list[str] = []
     for g in gates:
+        # The earnings ack clears earnings_window whether it fails (earnings in
+        # the window) or is unknown (no data) — an explicit "I checked" override.
+        acked_earnings = (g["name"] == "earnings_window"
+                          and t.get("acknowledge_earnings"))
         if g["status"] == "fail":
+            if acked_earnings:
+                continue
             reasons.append(f"{g['name']}: {g['detail']}")
         elif g["status"] == "unknown":
-            if g["name"] == "earnings_window" and t.get("acknowledge_earnings"):
+            if acked_earnings:
                 continue
             reasons.append(f"{g['name']} unacknowledged: {g['detail']}")
     return (len(reasons) == 0), reasons
