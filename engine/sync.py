@@ -13,7 +13,7 @@ import argparse
 import json
 import subprocess
 import sys
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -28,7 +28,7 @@ def _git(*args: str) -> subprocess.CompletedProcess:
 
 def _commit_message() -> str:
     n = m = 0
-    run_date = date.today().isoformat()
+    run_date = datetime.now(timezone.utc).date().isoformat()
     if META_PATH.exists():
         try:
             meta = json.loads(META_PATH.read_text())

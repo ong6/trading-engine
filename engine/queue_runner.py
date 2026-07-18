@@ -100,14 +100,30 @@ def _set_state(con, jid: int, state: str, *, progress: str | None = None,
 
 def cmd_enqueue(con, jtype: str, params: str, priority: int, mem_mb: int | None) -> int:
     if jtype not in JOB_TYPES:
-        print(f"[queue] WARNING: unknown job type '{jtype}' "
-              f"(known: {', '.join(JOB_TYPES)}); enqueuing anyway")
+        # An unknown type would only become a dead 'failed' row at drain — refuse it.
+        print(f"[queue] ERROR: unknown job type '{jtype}' "
+              f"(known: {', '.join(JOB_TYPES)}); refusing to enqueue")
+        return 1
     # validate params JSON early so a bad payload fails at enqueue, not at run
     try:
         json.loads(params)
     except json.JSONDecodeError as exc:
         print(f"[queue] refusing to enqueue: --params is not valid JSON ({exc})")
         return 1
+
+    # Dedup: if an identical (kind, params) job is already pending, don't stack a
+    # duplicate. When the resource guard leaves jobs pending, back-to-back nightly
+    # re-enqueues otherwise pile up N identical rows that all drain later (N
+    # redundant yfinance pulls).
+    dup = con.execute(
+        "SELECT id FROM jobs WHERE kind = ? AND params = ? AND state = 'pending' "
+        "ORDER BY id LIMIT 1",
+        [jtype, params],
+    ).fetchone()
+    if dup is not None:
+        print(f"[queue] job {dup[0]} ({jtype}) already pending with same params; "
+              f"skipping duplicate enqueue")
+        return 0
 
     if mem_mb is None:
         mem_mb = JOB_TYPES.get(jtype, {}).get("mem_mb", 0)

@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -91,6 +92,25 @@ def root_free_gb(path: str = "/") -> float:
 # --------------------------------------------------------------------------- #
 # _meta.json — merge, never clobber
 # --------------------------------------------------------------------------- #
+def write_text_atomic(path: str | Path, text: str) -> None:
+    """Write `text` to `path` atomically: a temp file in the same directory then
+    os.replace() onto the target. A torn write can never leave a partial (or
+    empty) file that a later read would swallow as {} and clobber sibling keys."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def read_meta(path: str | Path) -> dict:
     path = Path(path)
     if not path.exists():
@@ -107,8 +127,7 @@ def merge_meta(path: str | Path, updates: dict) -> None:
     path = Path(path)
     meta = read_meta(path)
     meta.update(updates)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(meta, indent=2))
+    write_text_atomic(path, json.dumps(meta, indent=2))
 
 
 def update_disk_warning(path: str | Path, store_gb: float, soft_gb: float = 60.0) -> None:

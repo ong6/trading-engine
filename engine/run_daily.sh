@@ -9,6 +9,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
 PY="${REPO_ROOT}/.venv/bin/python"
+export PYTHONUNBUFFERED=1   # keep the tee'd log + cron.log live, not block-buffered
 mkdir -p "${REPO_ROOT}/logs"
 LOG="${REPO_ROOT}/logs/run-$(date +%F).log"
 
@@ -23,7 +24,10 @@ LOG="${REPO_ROOT}/logs/run-$(date +%F).log"
     echo "INFO: no git remote configured; skipping pull"
   fi
 
-  "${PY}" engine/universe.py
+  # universe.py raises if nasdaqtraded.txt is unreachable after retries; a stale
+  # universe table (from a prior run) is fine since collect reads it from DuckDB,
+  # so never let a failed refresh abort the whole nightly under set -e.
+  "${PY}" engine/universe.py || echo "WARN: universe refresh failed; continuing with existing universe table"
   "${PY}" engine/collect.py   # incremental daily (calendar-gated)
 
   # rank universe + trend template, write screens/eod. --skip-if-done: on a
