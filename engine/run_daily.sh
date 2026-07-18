@@ -46,16 +46,27 @@ LOG="${REPO_ROOT}/logs/run-$(date +%F).log"
   # its own exit to 0 so set -e / PIPESTATUS never see it.
   (
     set +e
-    echo "--- farm (post-sync, lowest priority §12.7): intraday enqueue + drain ---"
+    echo "--- farm (post-sync, lowest priority §12.7): mining enqueue + drain ---"
     "${PY}" engine/queue_runner.py --enqueue intraday --priority 100
     eq=$?
+    # Earnings calendar: daily (§12.2 — feeds the earnings risk gate).
+    "${PY}" engine/queue_runner.py --enqueue earnings --priority 110
+    ee=$?
+    # Fundamentals snapshot: weekly (§12.2) — Fridays, so the point-in-time rows
+    # land on week-close data. Resumable if the drain is interrupted.
+    ef=0
+    if [ "$(date -u +%u)" = "5" ]; then
+      "${PY}" engine/queue_runner.py --enqueue fundamentals --priority 120
+      ef=$?
+    fi
     "${PY}" engine/queue_runner.py --run
     rn=$?
-    if [ "${eq}" -ne 0 ] || [ "${rn}" -ne 0 ]; then
-      echo "WARN: farm section had failures (enqueue=${eq} run=${rn}) — nightly NOT" \
-           "failed; collect/screen/league/sync already succeeded"
+    if [ "${eq}" -ne 0 ] || [ "${ee}" -ne 0 ] || [ "${ef}" -ne 0 ] || [ "${rn}" -ne 0 ]; then
+      echo "WARN: farm section had failures (intraday=${eq} earnings=${ee}" \
+           "fundamentals=${ef} run=${rn}) — nightly NOT failed;" \
+           "collect/screen/league/sync already succeeded"
     else
-      echo "INFO: farm section OK (intraday enqueued + queue drained)"
+      echo "INFO: farm section OK (mining enqueued + queue drained)"
     fi
     exit 0
   )
