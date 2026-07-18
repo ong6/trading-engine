@@ -5,7 +5,7 @@ stores a fabricated bar (rows with a NaN close are dropped).
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import duckdb
@@ -147,6 +147,168 @@ def init_queue_schema(con: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
+
+
+def init_mining_schema(con: duckdb.DuckDBPyConnection) -> None:
+    """M4 §12.2 additions: the append-only, point-in-time `fundamentals`
+    (weekly snapshot) and `earnings_calendar` (daily) tables.
+
+    Kept SEPARATE from init_schema so the nightly collect path is untouched;
+    every statement is CREATE TABLE IF NOT EXISTS so it is safe to run against
+    the live single-writer DB and first-run on the real store just works.
+
+    Both tables are keyed by (ticker, ..., as_of) with as_of = the pull date, so
+    a re-run on the same day is a no-op (see insert_fundamentals / insert_earnings
+    anti-joins) and a past snapshot is NEVER updated — point-in-time discipline.
+    """
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS fundamentals (
+            ticker             VARCHAR NOT NULL,
+            as_of              DATE    NOT NULL,
+            market_cap         DOUBLE,
+            trailing_pe        DOUBLE,
+            forward_pe         DOUBLE,
+            price_to_book      DOUBLE,
+            price_to_sales     DOUBLE,
+            enterprise_value   DOUBLE,
+            ev_to_ebitda       DOUBLE,
+            ev_to_revenue      DOUBLE,
+            ebitda             DOUBLE,
+            trailing_eps       DOUBLE,
+            forward_eps        DOUBLE,
+            profit_margins     DOUBLE,
+            dividend_yield     DOUBLE,
+            beta               DOUBLE,
+            shares_outstanding DOUBLE,
+            sector             VARCHAR,
+            industry           VARCHAR,
+            quote_type         VARCHAR,
+            currency           VARCHAR,
+            source             VARCHAR DEFAULT 'yfinance',
+            fetched_at         TIMESTAMP,
+            PRIMARY KEY (ticker, as_of)
+        )
+        """
+    )
+    # Earnings dates are forward-looking estimates that move; every daily pull is
+    # its own as_of-stamped snapshot so a gate lookup uses the LATEST snapshot per
+    # ticker. is_estimate = the source returned a date window (not a confirmed day).
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS earnings_calendar (
+            ticker        VARCHAR NOT NULL,
+            earnings_date DATE    NOT NULL,
+            as_of         DATE    NOT NULL,
+            is_estimate   BOOLEAN,
+            source        VARCHAR DEFAULT 'yfinance',
+            fetched_at    TIMESTAMP,
+            PRIMARY KEY (ticker, earnings_date, as_of)
+        )
+        """
+    )
+
+
+# Columns the fundamentals miner supplies (order-independent; as_of/source/
+# fetched_at are stamped by insert_fundamentals). Kept next to the schema so the
+# two never drift.
+_FUNDAMENTAL_COLS = [
+    "ticker", "market_cap", "trailing_pe", "forward_pe", "price_to_book",
+    "price_to_sales", "enterprise_value", "ev_to_ebitda", "ev_to_revenue",
+    "ebitda", "trailing_eps", "forward_eps", "profit_margins", "dividend_yield",
+    "beta", "shares_outstanding", "sector", "industry", "quote_type", "currency",
+]
+
+
+def insert_fundamentals(con: duckdb.DuckDBPyConnection, df: pd.DataFrame,
+                        as_of: date | None = None) -> int:
+    """Append-only, point-in-time insert into `fundamentals` via anti-join.
+
+    df carries one row per ticker with any subset of _FUNDAMENTAL_COLS present;
+    missing columns are stored as NULL (never fabricated). Only (ticker, as_of)
+    keys not already stored are inserted — an existing snapshot is NEVER updated.
+    as_of defaults to today (UTC). Returns rows inserted.
+    """
+    if df is None or df.empty:
+        return 0
+    as_of = as_of or datetime.now(timezone.utc).date()
+
+    df = df.copy()
+    for col in _FUNDAMENTAL_COLS:
+        if col not in df.columns:
+            df[col] = None
+    df = df[_FUNDAMENTAL_COLS]
+    df = df.drop_duplicates(subset=["ticker"])
+    if df.empty:
+        return 0
+
+    df["as_of"] = as_of
+    df["source"] = "yfinance"
+    df["fetched_at"] = datetime.now(timezone.utc)
+
+    insert_cols = _FUNDAMENTAL_COLS + ["as_of", "source", "fetched_at"]
+    before = con.execute("SELECT COUNT(*) FROM fundamentals").fetchone()[0]
+    con.register("_incoming_fund", df)
+    select_list = ", ".join(f"i.{c}" for c in insert_cols)
+    con.execute(
+        f"""
+        INSERT INTO fundamentals ({', '.join(insert_cols)})
+        SELECT {select_list}
+        FROM _incoming_fund i
+        LEFT JOIN fundamentals f
+               ON f.ticker = i.ticker AND f.as_of = i.as_of
+        WHERE f.ticker IS NULL
+        """
+    )
+    con.unregister("_incoming_fund")
+    after = con.execute("SELECT COUNT(*) FROM fundamentals").fetchone()[0]
+    return after - before
+
+
+def insert_earnings(con: duckdb.DuckDBPyConnection, df: pd.DataFrame,
+                    as_of: date | None = None) -> int:
+    """Append-only insert into `earnings_calendar` via anti-join.
+
+    df columns: ticker, earnings_date, is_estimate. as_of defaults to today
+    (UTC). Only (ticker, earnings_date, as_of) keys not already stored are
+    inserted — existing rows are NEVER touched. Rows with a NaT earnings_date are
+    dropped (never store a fabricated date). Returns rows inserted.
+    """
+    cols = ["ticker", "earnings_date", "is_estimate"]
+    if df is None or df.empty:
+        return 0
+    as_of = as_of or datetime.now(timezone.utc).date()
+
+    df = df[[c for c in cols if c in df.columns]].copy()
+    for col in cols:
+        if col not in df.columns:
+            df[col] = None
+    df = df.dropna(subset=["earnings_date"])
+    df = df.drop_duplicates(subset=["ticker", "earnings_date"])
+    if df.empty:
+        return 0
+
+    df["as_of"] = as_of
+    df["source"] = "yfinance"
+    df["fetched_at"] = datetime.now(timezone.utc)
+
+    before = con.execute("SELECT COUNT(*) FROM earnings_calendar").fetchone()[0]
+    con.register("_incoming_earn", df)
+    con.execute(
+        """
+        INSERT INTO earnings_calendar
+            (ticker, earnings_date, is_estimate, as_of, source, fetched_at)
+        SELECT i.ticker, i.earnings_date, i.is_estimate, i.as_of, i.source, i.fetched_at
+        FROM _incoming_earn i
+        LEFT JOIN earnings_calendar e
+               ON e.ticker = i.ticker AND e.earnings_date = i.earnings_date
+              AND e.as_of = i.as_of
+        WHERE e.ticker IS NULL
+        """
+    )
+    con.unregister("_incoming_earn")
+    after = con.execute("SELECT COUNT(*) FROM earnings_calendar").fetchone()[0]
+    return after - before
 
 
 def insert_intraday(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
