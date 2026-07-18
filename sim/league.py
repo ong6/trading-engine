@@ -301,12 +301,21 @@ def rerun_cleanup(con, d: date) -> None:
     portfolio.rebuild_state(con)
 
 
-def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True) -> int:
+def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
+         skip_if_done: bool = False) -> int:
     existing = con.execute(
         "SELECT COUNT(*) FROM sim_equity WHERE date = ?", [d]
     ).fetchone()[0]
     if existing:
         if not rerun:
+            if skip_if_done:
+                # Benign no-op: the date is already stepped (e.g. a weekend/holiday
+                # nightly where MAX(date) hasn't advanced, or a re-run). The report
+                # already reflects this date. Exit 0 so the nightly never trips.
+                if verbose:
+                    print(f"[league] {d} already stepped ({existing} equity rows); "
+                          f"--skip-if-done → no-op, exit 0")
+                return 0
             if verbose:
                 print(f"[league] ABORT: sim_equity already has {existing} rows for "
                       f"{d} — the step is idempotent. Pass --rerun to redo this date.")
@@ -326,7 +335,7 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True) -> int
 
 
 def run(db_path: str, data_dir: Path, requested_date: str | None,
-        do_init: bool, rerun: bool) -> int:
+        do_init: bool, rerun: bool, skip_if_done: bool = False) -> int:
     con = db.connect(db_path)
     db.init_schema(con)
     init_sim_schema(con)
@@ -342,7 +351,7 @@ def run(db_path: str, data_dir: Path, requested_date: str | None,
         con.close()
         return 1
 
-    rc = step(con, d, data_dir, rerun)
+    rc = step(con, d, data_dir, rerun, skip_if_done=skip_if_done)
     con.close()
     return rc
 
@@ -354,8 +363,13 @@ def main() -> int:
     ap.add_argument("--date", default=None, help="step date YYYY-MM-DD (default: latest bar)")
     ap.add_argument("--init", action="store_true", help="create the 10 portfolios if absent")
     ap.add_argument("--rerun", action="store_true", help="redo an already-run date")
+    ap.add_argument("--skip-if-done", action="store_true",
+                    help="exit 0 (not 1) if the date is already stepped — for the "
+                         "unattended nightly, where a weekend/holiday run re-sees the "
+                         "same MAX(date). Real errors still fail loudly.")
     args = ap.parse_args()
-    return run(args.db, Path(args.data_dir), args.date, args.init, args.rerun)
+    return run(args.db, Path(args.data_dir), args.date, args.init, args.rerun,
+               skip_if_done=args.skip_if_done)
 
 
 if __name__ == "__main__":
