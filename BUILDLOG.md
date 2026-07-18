@@ -213,11 +213,41 @@ conflict; execution design §7 has exit criteria).
   writer lock, UI reads/POSTs degrade honestly (503 / "Could not load data") — single-writer
   by design.
 
+- 2026-07-18 · **Hardening session (4 Opus reviewers → 4 Opus fixers, all findings verified
+  behaviorally before commit)**. Reviews confirmed clean: fill honesty (next-open, slippage
+  sign, liquidity cap, cash conservation), DSR math matches Bailey–LdP 2014 to 1e-12, miners
+  resume/torn-row-safe, no price fabrication anywhere. Fixed (commits `a091272`..`fb95d64`):
+  - queue_runner: reclaim stale `running` jobs at drain start (killed drain left job 7
+    unresumable); dedup pending (kind,params) enqueues; refuse unknown job types.
+  - run_daily: universe refresh non-fatal (was: transient Nasdaq hiccup aborts whole nightly
+    — biggest threat to Monday); PYTHONUNBUFFERED for live logs.
+  - screen: MIN_BARS 253 (exactly-252-bar names were silently unpassable); skip-if-done
+    regenerates missing report files. intraday: universe CTE bounded to 40 days (was
+    full-table scan). All date.today() → UTC date. Atomic _meta.json writes.
+  - server: qty<=0 rejected with 400 (negative qty bypassed EVERY gate → accidental short);
+    unknown playbooks capped at 0.25% (was only literal 'experiment'; library empty until
+    owner vets setups — every named setup capped for now); pending unfilled tickets now count
+    toward the 4R heat cap; **earnings_window gate implemented** (latest as_of per ticker,
+    fail inside [today,+7d], ack clears fail+unknown, degrades to unknown on no data);
+    ticket inserts transactional. Backend restarted on the new code.
+  - sim: league.step is one transaction (no half-done day, no double-fill on rerun);
+    pending-order dedup in generate_all; sells clamp to held qty, buys clamp to cash
+    (floor-to-0 → rejected insufficient_cash); qty!=0 in MTM; median $vol excludes fill day;
+    rebuild_state replays in live order so --rerun stays exact.
+  - earnings: NaT no longer mislabels is_estimate; datetime64/string dates coerced not
+    dropped; universe unions trailing-14d as_of (partial snapshot only adds names).
+  - experiment: holdout **pinned at first registration** (sidecar lock.json + DB recovery)
+    — was silently sliding forward with new data under a "computed once" banner.
+  - lxml installed (yfinance parse speed).
+
 ## Next
 
 1. **Verify the miners bootstrap** (background drain, `logs/miners-bootstrap-2026-07-18.log`):
    `fundamentals` rows ≈ liquid universe, `earnings_calendar` populated, `_meta.json` blocks
-   merged; then confirm the earnings gate reads real data on a fresh ticket check.
+   merged; then confirm the earnings gate reads real data on a fresh ticket check — the gate
+   is now implemented (2026-07-18), so this check should return pass/fail, not "unknown".
+   Also smoke-test `sim.league --skip-if-done` + `screen.py --skip-if-done` once the DB lock
+   frees (first post-transaction-rewrite no-op paths) before Monday's cron.
 2. **Monday 2026-07-20 22:30 UTC cron = first full unattended nightly with everything wired**:
    collect → screen → league step (fills the 41 auto orders + discretionary DELL order 42 at
    Monday's open, conservative slippage) → sync → intraday + earnings mining. Verify Tuesday:
