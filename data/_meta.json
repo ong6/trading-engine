@@ -15,5 +15,16 @@
     "stooq": "blocked",
     "yfinance": "ok"
   },
-  "regime": null
+  "regime": null,
+  "disk_warning": null,
+  "intraday": {
+    "last_run": "2026-07-18T05:30:59.751823+00:00",
+    "tickers_requested": 1078,
+    "tickers_with_data": 1078,
+    "new_rows_1m": 448716,
+    "new_rows_5m": 492011,
+    "failed_tickers": 0,
+    "failed_batches": 0,
+    "store_gb": 1.65
+  }
 }
