@@ -8,10 +8,26 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
+# Overlap guard: refuse to start if a prior run_daily is still alive. The farm
+# drain runs INSIDE this script, so a slow Monday drain can still hold this at
+# Tuesday 22:30 — non-blocking flock on fd 9 covers the whole script body below.
+exec 9>"${REPO_ROOT}/.nightly.lock"
+if ! flock -n 9; then
+  echo "ERROR: another run_daily is still running (lock held) — aborting this nightly"
+  exit 1
+fi
+
 PY="${REPO_ROOT}/.venv/bin/python"
 export PYTHONUNBUFFERED=1   # keep the tee'd log + cron.log live, not block-buffered
 mkdir -p "${REPO_ROOT}/logs"
 LOG="${REPO_ROOT}/logs/run-$(date +%F).log"
+
+# Stage breadcrumb: the tee'd block below is a pipeline, so it runs in a SUBSHELL
+# and its variables don't survive to the failure breadcrumb. Record the current
+# stage to a small state file instead; the breadcrumb reads it back.
+STAGE_FILE="${REPO_ROOT}/logs/.last_stage"
+stage() { echo "$1" > "${STAGE_FILE}"; }
+: > "${STAGE_FILE}"
 
 # Everything below is teed into the daily log.
 {
@@ -27,12 +43,15 @@ LOG="${REPO_ROOT}/logs/run-$(date +%F).log"
   # universe.py raises if nasdaqtraded.txt is unreachable after retries; a stale
   # universe table (from a prior run) is fine since collect reads it from DuckDB,
   # so never let a failed refresh abort the whole nightly under set -e.
+  stage universe
   "${PY}" engine/universe.py || echo "WARN: universe refresh failed; continuing with existing universe table"
+  stage collect
   "${PY}" engine/collect.py   # incremental daily (calendar-gated)
 
   # rank universe + trend template, write screens/eod. --skip-if-done: on a
   # weekend/holiday run collect no-ops so MAX(date) is already screened — no-op
   # cleanly (exit 0) instead of aborting the nightly; real failures still exit 1.
+  stage screen
   "${PY}" engine/screen.py --skip-if-done
 
   # Paper league (exec-design §1 nightly order: … → screen → league → report → sync).
@@ -40,9 +59,13 @@ LOG="${REPO_ROOT}/logs/run-$(date +%F).log"
   # data/reports/league.md + league.csv itself. --skip-if-done keeps a weekend/
   # holiday re-run (MAX(date) unchanged) a clean exit 0; a real error still fails
   # the nightly loudly via set -e / PIPESTATUS below.
+  stage league
   "${PY}" -m sim.league --init --skip-if-done
 
-  "${PY}" engine/sync.py      # commit (and push if a remote exists) data/ (incl. reports/)
+  # Sync is best-effort: a failure must NOT fail the nightly — the league/screen
+  # results are already safe in DuckDB + data/ and will re-stage next nightly.
+  stage sync
+  "${PY}" engine/sync.py || echo "WARN: sync failed (exit $?) — league/screen results are safe in DuckDB + data/; will re-stage next nightly"
 
   # --- Farm work: LOWEST priority (§12.7 — the nightly loop preempts the farm).
   # Runs AFTER sync so data collection + the committed screen/league are already
@@ -78,9 +101,11 @@ LOG="${REPO_ROOT}/logs/run-$(date +%F).log"
   echo "=== done $(date -u +%FT%TZ) ==="
 } 2>&1 | tee "${LOG}"
 
-# Propagate failure of any piped stage and drop a breadcrumb.
+# Propagate failure of any piped stage and drop a breadcrumb. The stage name was
+# written to STAGE_FILE from inside the (subshell) block, so it survives here.
 status="${PIPESTATUS[0]}"
 if [ "${status}" -ne 0 ]; then
-  echo "TODO: run_daily failed $(date -u +%FT%TZ) (exit ${status}) — inspect ${LOG}" >> "${LOG}"
+  failed_stage="$(cat "${STAGE_FILE}" 2>/dev/null)"
+  echo "TODO: run_daily failed $(date -u +%FT%TZ) (stage=${failed_stage:-unknown} exit ${status}) — inspect ${LOG}" >> "${LOG}"
   exit "${status}"
 fi

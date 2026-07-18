@@ -26,6 +26,19 @@ def _git(*args: str) -> subprocess.CompletedProcess:
     )
 
 
+def _rebase_in_progress() -> str | None:
+    """Return a marker name if a rebase/merge is mid-flight, else None.
+
+    Committing on top of a half-finished rebase/merge would bury the conflict —
+    refuse and let the operator resolve it first.
+    """
+    git_dir = REPO_ROOT / ".git"
+    for marker in ("rebase-merge", "rebase-apply", "MERGE_HEAD"):
+        if (git_dir / marker).exists():
+            return marker
+    return None
+
+
 def _commit_message() -> str:
     n = m = 0
     run_date = datetime.now(timezone.utc).date().isoformat()
@@ -45,6 +58,15 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true",
                     help="show staged files + message without committing")
     args = ap.parse_args()
+
+    # Never commit mid-rebase/merge — that would silently bury an unresolved
+    # conflict. Bail loudly and leave it for the operator.
+    marker = _rebase_in_progress()
+    if marker is not None:
+        print(f"[sync] ABORT: a git {marker} is in progress "
+              f"({REPO_ROOT / '.git' / marker}) — resolve it "
+              f"(git rebase --continue/--abort or resolve the merge) then re-run sync")
+        return 1
 
     # Stage data/ (idempotent — no-op if nothing changed).
     _git("add", "data/")
