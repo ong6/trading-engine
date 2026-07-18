@@ -68,9 +68,10 @@ def load_config(path: Path) -> dict:
 
 
 def config_hash(cfg: dict) -> str:
-    """SHA-256 over the canonicalized WHOLE config. The entire file is frozen
-    once a result exists — any change (even a comment-free field) alters the
-    hash and is refused under the same id."""
+    """SHA-256 over the canonicalized PARSED config (the YAML mapping, not the
+    file text). Any change to a config VALUE alters the hash and is refused under
+    the same id once a result exists. Comments and formatting are not part of the
+    parsed mapping, so editing them leaves the hash unchanged."""
     canonical = json.dumps(cfg, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode()).hexdigest()
 
@@ -87,6 +88,79 @@ def resolve_config(cfg_id: str | None, cfg_path: str | None) -> tuple[dict, Path
     if not p.exists():
         raise SystemExit(f"[farm] config not found: {p}")
     return load_config(p), p
+
+
+# --------------------------------------------------------------------------- #
+# holdout data-window pin (locks the "computed once" holdout window)
+# --------------------------------------------------------------------------- #
+# The holdout is the most-recent-N-months slice of the data. If the cutoff were
+# re-derived from the LIVE max bar on every regeneration, a growing store would
+# silently advance the holdout window while the report still claims "computed
+# once". So at first registration we PIN the data as-of (the max_date used) and
+# reuse it forever after: subsequent runs cap the trade set to the pinned as-of
+# and derive the cutoff from it, so both partitions are byte-for-byte reproducible
+# regardless of how much the store has grown. Simplest correct mechanism: a
+# sidecar next to the frozen YAML, created once and never overwritten.
+def _pin_path(cfg_id: str) -> Path:
+    return EXPERIMENTS_DIR / f"{cfg_id}.lock.json"
+
+
+def _read_pin(cfg_id: str) -> date | None:
+    """Return the pinned data as-of date, or None if no pin exists yet."""
+    p = _pin_path(cfg_id)
+    if not p.exists():
+        return None
+    try:
+        s = json.loads(p.read_text()).get("data_as_of")
+        return date.fromisoformat(s) if s else None
+    except Exception:  # noqa: BLE001 - a corrupt pin must not break the run
+        return None
+
+
+def _write_pin(cfg_id: str, data_as_of: date) -> None:
+    """Create the pin ONCE. Never overwrites an existing pin (the window is
+    frozen at first registration, same as the config)."""
+    p = _pin_path(cfg_id)
+    if p.exists():
+        return
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"data_as_of": str(data_as_of)}, indent=2) + "\n")
+
+
+def _recover_pin_from_db(con, cfg_id: str) -> date | None:
+    """Back-fill the pin for an experiment registered BEFORE this pinning logic
+    existed: read the data as-of from the earliest stored 'full' result row's
+    meta_json (that row was written against the original data window). Read-only,
+    tolerant of a missing table/column. Returns the recovered date or None."""
+    try:
+        row = con.execute(
+            "SELECT meta_json FROM experiment_results "
+            "WHERE experiment_id = ? AND partition = 'full' "
+            "ORDER BY run_at ASC LIMIT 1",
+            [cfg_id],
+        ).fetchone()
+    except Exception:  # noqa: BLE001 - table may not exist yet
+        return None
+    if not row or not row[0]:
+        return None
+    try:
+        meta = json.loads(row[0])
+        s = meta.get("data_as_of") or meta.get("max_date")
+        return date.fromisoformat(s) if s else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _resolve_pin(cfg_id: str, con=None) -> date | None:
+    """Pinned as-of if one exists: sidecar first, else recover from DB (and
+    back-fill the sidecar so it is stable thereafter). None on a first run."""
+    pinned = _read_pin(cfg_id)
+    if pinned is not None or con is None:
+        return pinned
+    recovered = _recover_pin_from_db(con, cfg_id)
+    if recovered is not None:
+        _write_pin(cfg_id, recovered)
+    return recovered
 
 
 # --------------------------------------------------------------------------- #
@@ -188,13 +262,28 @@ def holdout_cutoff(max_date: date, months: int) -> date:
     return date(y, m, day)
 
 
-def evaluate(cfg: dict, con) -> dict:
-    """Run the full experiment (read-only). Returns a structured result dict."""
+def evaluate(cfg: dict, con, pinned_as_of: date | None = None) -> dict:
+    """Run the full experiment (read-only). Returns a structured result dict.
+
+    pinned_as_of: if set (an experiment already registered), the analysis window
+    is LOCKED to it — trades after the pinned as-of are dropped and the holdout
+    cutoff is derived from the pin, so the holdout is reproducible even as the
+    live store grows. If None (first registration), the live max bar is used and
+    becomes the pin the caller persists."""
     trades = build_trades(cfg, con)
     variants = cfg.get("variants_tried")
     months = int(cfg.get("holdout", {}).get("months", 12))
 
-    max_d = max(trades["date"])
+    live_max = max(trades["date"])
+    if pinned_as_of is not None:
+        # Lock the window: exclude anything after the pinned as-of so both the
+        # in-sample and holdout partitions match the first registration exactly.
+        trades = trades[trades["date"] <= pinned_as_of].reset_index(drop=True)
+        data_as_of = pinned_as_of
+    else:
+        data_as_of = live_max
+
+    max_d = data_as_of
     min_d = min(trades["date"])
     cutoff = holdout_cutoff(max_d, months)
 
@@ -241,7 +330,10 @@ def evaluate(cfg: dict, con) -> dict:
         "holdout": holdout,
         "cutoff": cutoff,
         "min_date": min_d,
-        "max_date": max_d,
+        "max_date": max_d,               # the as-of the window/cutoff was built on
+        "data_as_of": data_as_of,        # pinned (or live) window edge
+        "live_max_date": live_max,       # newest bar actually in the store
+        "pinned": pinned_as_of is not None,
         "partitions": partitions,
         "blocks": blocks,
         "regimes": regimes,
@@ -351,7 +443,7 @@ def _rows_from_res(cfg: dict, chash: str, run_at, res: dict) -> list[dict]:
 
     row("full", res["partitions"]["full"],
         {"cutoff": str(res["cutoff"]), "min_date": str(res["min_date"]),
-         "max_date": str(res["max_date"])})
+         "max_date": str(res["max_date"]), "data_as_of": str(res["data_as_of"])})
     row("in_sample", res["partitions"]["in_sample"],
         {"cutoff": str(res["cutoff"])})
     row("holdout", res["partitions"]["holdout"],
@@ -424,8 +516,15 @@ def render_report(cfg: dict, chash: str, res: dict, run_at, storage_note: str) -
 
     # data span / partition accounting
     L.append("## Data & partition accounting")
-    L.append(f"- SPY daily bars from the store: **{res['min_date']} → {res['max_date']}** "
+    L.append(f"- SPY daily bars used: **{res['min_date']} → {res['max_date']}** "
              f"(real data, read-only).")
+    if res.get("pinned") and res.get("live_max_date") \
+            and res["live_max_date"] != res["data_as_of"]:
+        L.append(f"- **Data window PINNED at first registration: as-of "
+                 f"{res['data_as_of']}.** The live store now extends to "
+                 f"{res['live_max_date']}, but the holdout is locked to the "
+                 f"original window (computed once): bars after {res['data_as_of']} "
+                 f"are excluded so the holdout never silently advances.")
     L.append(f"- **Holdout = most recent {res['months']} months of Mondays**, locked at "
              f"cutoff **{res['cutoff']}** (trades on/after are holdout).")
     L.append(f"- In-sample Mondays: **{is_s.n}** · Holdout Mondays: **{ho.n}** · "
@@ -573,10 +672,11 @@ def run_standalone(cfg_id, cfg_path, db_path) -> int:
     chash = config_hash(cfg)
     print(f"[farm] {cfg['id']} config hash {chash[:16]} (from {path})")
 
-    # 1) compute read-only
+    # 1) compute read-only (pin the data window so the holdout is reproducible)
     ro = _connect_ro(db_path)
     try:
-        res = evaluate(cfg, ro)
+        pinned = _resolve_pin(cfg["id"], ro)
+        res = evaluate(cfg, ro, pinned_as_of=pinned)
     finally:
         ro.close()
     run_at = datetime.now(timezone.utc)
@@ -605,6 +705,7 @@ def run_standalone(cfg_id, cfg_path, db_path) -> int:
             print(f"[farm] {storage_note}")
         else:
             append_results(rw, rows)
+            _write_pin(cfg["id"], res["data_as_of"])   # pin at first registration
             storage_note = (f"{len(rows)} rows appended to experiment_results "
                             f"(append-only) at {run_at:%Y-%m-%d %H:%M UTC}.")
             print(f"[farm] {storage_note}")
@@ -627,15 +728,19 @@ def run_job(params: dict, con, meta_path=None) -> None:
         raise ValueError("experiment job needs params {'id': ...} or {'config': ...}")
     cfg, path = resolve_config(cfg_id, cfg_path)
     chash = config_hash(cfg)
-    res = evaluate(cfg, con)                       # price read on the shared con
+    ensure_results_table(con)
+    # Pin the data window (sidecar, or recover+back-fill from an existing result
+    # row) so a grown store cannot silently advance a "computed once" holdout.
+    pinned = _resolve_pin(cfg["id"], con)
+    res = evaluate(cfg, con, pinned_as_of=pinned)  # price read on the shared con
     run_at = datetime.now(timezone.utc)
     rows = _rows_from_res(cfg, chash, run_at, res)
-    ensure_results_table(con)
     state = check_immutable(con, cfg["id"], chash)  # raises on violation
     if state == "exists":
         note = "identical config already has results — append skipped (holdout intact)."
     else:
         append_results(con, rows)
+        _write_pin(cfg["id"], res["data_as_of"])   # pin at first registration
         note = f"{len(rows)} rows appended to experiment_results."
     _write_report(cfg, chash, res, run_at, note)
     print(f"[farm] job {cfg['id']}: {note}")
