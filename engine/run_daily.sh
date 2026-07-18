@@ -26,7 +26,10 @@ LOG="${REPO_ROOT}/logs/run-$(date +%F).log"
   "${PY}" engine/universe.py
   "${PY}" engine/collect.py   # incremental daily (calendar-gated)
 
-  "${PY}" engine/screen.py    # rank universe + trend template, write screens/eod
+  # rank universe + trend template, write screens/eod. --skip-if-done: on a
+  # weekend/holiday run collect no-ops so MAX(date) is already screened — no-op
+  # cleanly (exit 0) instead of aborting the nightly; real failures still exit 1.
+  "${PY}" engine/screen.py --skip-if-done
 
   # Paper league (exec-design §1 nightly order: … → screen → league → report → sync).
   # --init is idempotent (creates only absent portfolios); the step writes
