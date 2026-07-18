@@ -334,7 +334,8 @@ def update_meta(meta_path: Path, **updates) -> None:
 # --------------------------------------------------------------------------- #
 # main
 # --------------------------------------------------------------------------- #
-def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool) -> int:
+def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
+        skip_if_done: bool = False) -> int:
     con = db.connect(db_path)
     db.init_schema(con)
 
@@ -347,6 +348,17 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool) -
     ).fetchone()[0]
     if existing:
         if not rerun:
+            if skip_if_done:
+                # Benign no-op for the unattended nightly: on a weekend/holiday run
+                # collect no-ops and MAX(date) doesn't advance, so the latest date is
+                # already screened. Exit 0 (not 1) so the nightly proceeds to the
+                # league step; a genuine failure below still returns 1.
+                print(
+                    f"[screen] {screen_date} already screened ({existing} rows); "
+                    f"--skip-if-done → no-op, exit 0"
+                )
+                con.close()
+                return 0
             print(
                 f"[screen] ABORT: {existing} rows already exist for {screen_date} "
                 f"— screen_results is append-only. Pass --rerun to overwrite this "
@@ -497,10 +509,15 @@ def main() -> int:
     ap.add_argument("--db", default=str(db.DEFAULT_DB), help="DuckDB path")
     ap.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR), help="output dir")
     ap.add_argument("--date", default=None, help="screen date YYYY-MM-DD (default: latest bar)")
+    ap.add_argument("--skip-if-done", action="store_true",
+                    help="exit 0 (not 1) if the date is already screened — for the "
+                         "unattended nightly, where a weekend/holiday run re-sees the "
+                         "same MAX(date). Real failures still return 1.")
     ap.add_argument("--rerun", action="store_true",
                     help="overwrite an existing run_date (same-day correction only)")
     args = ap.parse_args()
-    return run(args.db, Path(args.data_dir), args.date, args.rerun)
+    return run(args.db, Path(args.data_dir), args.date, args.rerun,
+               skip_if_done=args.skip_if_done)
 
 
 if __name__ == "__main__":
