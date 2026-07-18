@@ -131,6 +131,41 @@ conflict; execution design §7 has exit criteria).
   no store coupling. NOT in run_daily.sh yet — wiring after tonight's M0 stamp (cron must stay
   byte-identical).
 
+- 2026-07-18 · **M4 backtest-farm framework built + E1 published** (`9568cec`; Opus subagent wrote +
+  verified, real SPY data). `farm/experiment.py` (pre-registered YAML configs, SHA-256 config-hash
+  immutability — mutated config under same id is refused, verified; RO price reads, brief RW append
+  with lock-retry + `farm/pending-results/` fallback; in-sample vs locked-12-month-holdout split,
+  holdout computed exactly once; append-only `experiment_results` table + report to
+  `data/reports/experiments/<id>.md`), `farm/stats.py` (t-stat, annualized + Deflated Sharpe per
+  Bailey–López de Prado 2014, CAGR, max DD).
+- 2026-07-18 · **E1 SPY-Monday result: honest NEGATIVE (in-sample).** 1,583 Mondays 1993→2026-07-13.
+  In-sample (1,534): gross +0.88%/yr vs registered +10% prior (0.09×), net −0.55%/yr @3bp r/t,
+  t −0.28, deflated Sharpe 0.070; at the sim model's conservative 20bp r/t, −8.23%/yr. Monday
+  effect decayed (strong 1990–94, negative 2000s–2010s, positive 2020–24 t=2.03). Holdout
+  (49 Mondays, computed once, labeled separately): net +6.77%/yr, t 1.66. Forward kill criterion
+  stands as registered (40 OOS Mondays, mean ≤ 0 or t < 0.5). 3 hand-checked trades matched
+  independent SQL exactly; partitions disjoint (1,534 + 49 = 1,583, overlap 0).
+- 2026-07-18 · **M4 miners built** (`456f184`; Opus subagent wrote + verified on a store copy):
+  `engine/fundamentals.py` (weekly, full liquid universe incl. ETFs with NULL-honest equity fields,
+  append-only point-in-time `fundamentals` keyed (ticker, as_of), ~70–80 min full pass at 0.4s/name
+  polite rate) and `engine/earnings.py` (daily, universe = fundamentals-covered equities ∪ latest
+  screen passers, fallback liquid non-ETF; `Ticker.calendar` next-date(s) with `is_estimate`;
+  append-only `earnings_calendar` keyed (ticker, earnings_date, as_of), ~50–70 min/day). Proof:
+  30-name real pulls, 3 fundamentals spot-checks matched an independent second pull (incl. JPM's
+  honest NULL EV/EBITDA), AAPL 07-30 / MSFT 07-29 earnings confirmed independently, same-day
+  re-runs insert 0. Schema helpers in `lib/db.py::init_mining_schema`.
+- 2026-07-18 · **All three new job types registered in the queue dispatch** (`0e72889`, main loop):
+  `fundamentals` (archive, 2000 MB) · `earnings` (archive, 1000 MB) · `experiment` (non-archive,
+  2000 MB) beside `intraday`; all four loaders verified to resolve. Enqueue:
+  `queue_runner.py --enqueue fundamentals` (weekly) / `--enqueue earnings` (daily) /
+  `--enqueue experiment --params '{"id":"..."}'`.
+- 2026-07-18 · M4 open items: `lxml` not installed → `get_earnings_dates` (historical earnings +
+  surprises for event studies) unavailable; `.calendar` next-date path is sufficient for the risk
+  gate. No historical regime data in `screen_results` (starts 2026-07-15) — E1 computed regime from
+  SPY vs 200d SMA (no look-ahead), revisit as forward history accumulates. Earnings/fundamentals
+  not yet scheduled (needs enqueue lines in the nightly/weekly driver — pending after league wiring
+  lands).
+
 ## Next
 
 1. **After tonight 22:30 UTC**: verify cron ran clean end-to-end (logs/cron.log shows `=== done`, _meta.json last_run stamped by cron, screen 2026-07-17 committed by sync.py). If clean → **stamp M0 exit** (backfill done + clean nightly over 4k+ names from cron). M1 exit still needs the GitHub remote (owner: create `ong6/trading-engine`, then `git remote add origin ssh://git@ssh.github.com:443/ong6/trading-engine.git` + pull on laptop).
