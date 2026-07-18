@@ -151,6 +151,13 @@ def cmd_status(con) -> int:
 def cmd_run(con, meta_path: str | Path) -> int:
     rsc.apply_niceness()
 
+    # Reclaim jobs a killed drain left in 'running'. Safe: DuckDB has a single
+    # write lock, so holding this write connection proves no other drain is
+    # alive — any 'running' row here is an orphan. Jobs are resumable by design.
+    for (sid,) in con.execute("SELECT id FROM jobs WHERE state = 'running'").fetchall():
+        _set_state(con, sid, "pending", progress="reclaimed")
+        print(f"[queue] reclaimed stale running job {sid} -> pending (prior drain died)")
+
     pending = con.execute(
         "SELECT id, kind, params, mem_mb FROM jobs WHERE state = 'pending' "
         "ORDER BY priority ASC, created_at ASC"
