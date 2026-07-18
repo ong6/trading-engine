@@ -36,6 +36,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib import db  # noqa: E402
+from lib import resources as rsc  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA_DIR = REPO_ROOT / "data"
@@ -44,7 +45,8 @@ WATCHLIST_PATH = Path(
     "/data00/home/jun.ong/personal-data-store/trading/watchlist.md"
 )
 
-MIN_BARS = 252          # 52-week window / 200d SMA / 252d return
+MIN_BARS = 253          # 52-week window / 200d SMA / 252d return needs 253 bars
+                        # (ret(252) reads close 252 positions back → 253rd bar)
 WINDOW_BARS = 400       # bars pulled per name (all lookbacks fit in this)
 STALE_TRADING_DAYS = 3  # latest bar must be within this many sessions
 TABLE_CAP = 100         # max rows per md table
@@ -327,8 +329,7 @@ def update_meta(meta_path: Path, **updates) -> None:
         except json.JSONDecodeError:
             meta = {}
     meta.update(updates)
-    meta_path.parent.mkdir(parents=True, exist_ok=True)
-    meta_path.write_text(json.dumps(meta, indent=2))
+    rsc.write_text_atomic(meta_path, json.dumps(meta, indent=2))
 
 
 # --------------------------------------------------------------------------- #
@@ -347,27 +348,41 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
         "SELECT COUNT(*) FROM screen_results WHERE run_date = ?", [screen_date]
     ).fetchone()[0]
     if existing:
+        report_path = data_dir / "screens" / f"{screen_date.isoformat()}.md"
         if not rerun:
-            if skip_if_done:
+            if skip_if_done and report_path.exists():
                 # Benign no-op for the unattended nightly: on a weekend/holiday run
                 # collect no-ops and MAX(date) doesn't advance, so the latest date is
-                # already screened. Exit 0 (not 1) so the nightly proceeds to the
-                # league step; a genuine failure below still returns 1.
+                # already screened AND its report file is present. Exit 0 (not 1) so
+                # the nightly proceeds to the league step; a genuine failure below
+                # still returns 1.
                 print(
                     f"[screen] {screen_date} already screened ({existing} rows); "
                     f"--skip-if-done → no-op, exit 0"
                 )
                 con.close()
                 return 0
-            print(
-                f"[screen] ABORT: {existing} rows already exist for {screen_date} "
-                f"— screen_results is append-only. Pass --rerun to overwrite this "
-                f"date (same-day correction only)."
-            )
-            con.close()
-            return 1
-        con.execute("DELETE FROM screen_results WHERE run_date = ?", [screen_date])
-        print(f"[screen] --rerun: deleted {existing} existing rows for {screen_date}")
+            if skip_if_done:
+                # DB rows exist but the report file is missing — a kill between the
+                # INSERT and the report writes leaves it unregenerable via the skip
+                # branch forever. Treat as an implicit rerun: drop this date's rows
+                # and fall through to regenerate both the DB rows and the reports.
+                print(
+                    f"[screen] {screen_date} has {existing} screen_results rows but "
+                    f"{report_path.name} is missing — regenerating (implicit rerun)"
+                )
+                con.execute("DELETE FROM screen_results WHERE run_date = ?", [screen_date])
+            else:
+                print(
+                    f"[screen] ABORT: {existing} rows already exist for {screen_date} "
+                    f"— screen_results is append-only. Pass --rerun to overwrite this "
+                    f"date (same-day correction only)."
+                )
+                con.close()
+                return 1
+        else:
+            con.execute("DELETE FROM screen_results WHERE run_date = ?", [screen_date])
+            print(f"[screen] --rerun: deleted {existing} existing rows for {screen_date}")
 
     cutoff = stale_cutoff(con, screen_date)
     eligible, n_stale, n_short = classify_universe(con, screen_date, cutoff)

@@ -57,6 +57,9 @@ def _select_universe(con) -> list[str]:
             SELECT ticker, close, volume,
                    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) AS rn
             FROM prices
+            -- bound the window function's input: 40 calendar days covers the 20
+            -- sessions we keep, so ROW_NUMBER() never scans the full prices table
+            WHERE date >= (SELECT MAX(date) FROM prices) - INTERVAL 40 DAY
         )
         SELECT ticker
         FROM recent
