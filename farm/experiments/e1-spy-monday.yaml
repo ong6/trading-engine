@@ -1,0 +1,63 @@
+# E1 — SPY Monday-intraday.  PRE-REGISTERED per trading-engine-design.md §12.3.
+#
+# Once a result row exists for this id, THIS ENTIRE FILE IS FROZEN: the runner
+# hashes the config into every results row and refuses to re-run a changed
+# config under the same id (farm/experiment.py enforces it). Do not edit after
+# the first published result — register a new id instead.
+
+id: e1-spy-monday
+
+hypothesis: >
+  SPY shows a positive Monday intraday drift: buying the Monday open and selling
+  the same Monday's close earns a small positive average per-trade return. The
+  classic "weekend/Monday effect" was strongly positive intraday in early data
+  and is expected to have decayed. Null hypothesis: mean Monday open->close
+  return <= 0 net of costs.
+
+instrument: SPY
+universe: single            # SPY only, one instrument
+
+entry:
+  rule: weekday_open        # enter at the OPEN of the target weekday
+  weekday: monday           # calendar Monday only (isoweekday 1); holiday Mondays
+                            # have no bar and are simply skipped (no trade that week).
+exit:
+  rule: same_day_close      # exit at the CLOSE of the same bar (same-bar open->close)
+
+# The registered hypothesis is intentionally same-bar (open known before close).
+# No signal/filter uses any data at/after the Monday open -> no look-ahead.
+
+expected_effect:
+  direction: positive
+  gross_annual: 0.10        # decayed expectation ~ +10%/yr GROSS
+  source: >
+    trading-engine-design.md §12.3 experiment backlog (E1, approved/pre-registered)
+    and the 0dte-casino-and-earnings-vol.md research run. The +10%/yr gross figure
+    is the decayed prior, NOT a fitted value.
+
+cost:
+  roundtrip_bps: 3.0        # registered cost assumption: 3bp round-trip.
+                            # ~1.5%/yr over ~52 Mondays/yr; SPY is the most liquid
+                            # US ETF (penny spreads, $0 commissions) so 3bp r/t is
+                            # realistic. Matches spec's ~1.2-1.5%/yr cost anchor.
+  note: >
+    The report ALSO shows a conservative sensitivity at 20bp round-trip (the SPY
+    tier of the sim fill model, execution-design §2) so the reader sees a cost range.
+
+holdout:
+  months: 12                # lock the most recent 12 months of Mondays. Untouched
+                            # in-sample; computed exactly once, reported separately.
+
+kill_criterion: >
+  FORWARD phase (starts with the paper league): after 40 out-of-sample Mondays,
+  if mean <= 0 OR t-stat < 0.5, the strategy is killed. No re-optimization, no
+  parameter search to rescue it.
+
+# Multiple-testing honesty. The Monday choice is 1 of 5 weekdays any "which day
+# has an intraday drift" search implicitly scans; the 0DTE/calendar research also
+# tested overnight-vs-intraday, Friday/expiry, and daily mean-reversion. We use
+# the conservative N=5 (the 5-weekday scan) for the Deflated-Sharpe haircut — the
+# larger N is the honest direction (stricter deflation).
+variants_tried: 5
+
+registered: 2026-07-18
