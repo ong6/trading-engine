@@ -1,0 +1,11 @@
+portfolio_id,date,equity
+dual_momentum,2026-07-17,39000.0
+dual_momentum_gated,2026-07-17,39000.0
+ew_benchmark,2026-07-17,39000.0
+mr_overlay,2026-07-17,39000.0
+mr_overlay_gated,2026-07-17,39000.0
+spy_benchmark,2026-07-17,39000.0
+template_top10_banded,2026-07-17,39000.0
+template_top10_banded_gated,2026-07-17,39000.0
+template_top5,2026-07-17,39000.0
+template_top5_gated,2026-07-17,39000.0

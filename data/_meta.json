@@ -1,5 +1,5 @@
 {
-  "last_run": "2026-07-17T22:34:06.033117+00:00",
+  "last_run": "2026-07-18T05:24:12.668937+00:00",
   "mode": "incremental",
   "universe_size": 12214,
   "active_count": 12213,
@@ -10,16 +10,10 @@
     "count": 0,
     "list": []
   },
-  "failed_this_run": 3,
+  "failed_this_run": 0,
   "sources": {
     "stooq": "blocked",
     "yfinance": "ok"
   },
-  "regime": "risk-on",
-  "last_screen": "2026-07-17T22:34:09.073146+00:00",
-  "passing_count": 642,
-  "new_today_count": 55,
-  "screened": 3880,
-  "skipped_stale": 0,
-  "skipped_short": 238
+  "regime": null
 }
