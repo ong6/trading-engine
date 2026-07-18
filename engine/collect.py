@@ -26,6 +26,7 @@ import yfinance as yf
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib import db  # noqa: E402
+from lib import resources as rsc  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 META_PATH = REPO_ROOT / "data" / "_meta.json"
@@ -139,7 +140,7 @@ def mode_bootstrap_floor(con, limit: int | None) -> tuple[int, int]:
     ).fetchall()
     yf_to_canon = {yft: tk for tk, yft in rows}
     all_yf = list(yf_to_canon)
-    start = (date.today() - timedelta(days=90)).isoformat()
+    start = (datetime.now(timezone.utc).date() - timedelta(days=90)).isoformat()
 
     got_all: set[str] = set()
     for batch in _batches(all_yf, 200):
@@ -232,7 +233,7 @@ def _is_trading_day(day: date) -> bool:
 
 def mode_incremental(con, force: bool) -> tuple[int, int]:
     """Daily pull of the last few sessions for liquid names. Calendar-gated."""
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     if not force and not _is_trading_day(today):
         print(f"[incremental] {today} is not an NYSE trading day; skipping (use --force to override)")
         return 0, 0
@@ -265,7 +266,7 @@ def _stale_cutoff(n: int = 3) -> date:
     """Date such that a latest bar older than it is >n trading days stale."""
     import pandas_market_calendars as mcal
 
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     nyse = mcal.get_calendar("NYSE")
     days = [d.date() for d in nyse.valid_days(
         start_date=(today - timedelta(days=40)).isoformat(), end_date=today.isoformat())]
@@ -310,8 +311,7 @@ def write_meta(con, mode: str, requested: int, failed: int) -> None:
         "sources": {"stooq": "blocked", "yfinance": "degraded" if degraded else "ok"},
         "regime": None,
     }
-    META_PATH.parent.mkdir(parents=True, exist_ok=True)
-    META_PATH.write_text(json.dumps(meta, indent=2))
+    rsc.write_text_atomic(META_PATH, json.dumps(meta, indent=2))
     print(f"[meta] wrote {META_PATH} (prices_rows={prices_rows}, liquid={liquid_count}, stale={len(stale_list)})")
 
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sys
 import time
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -52,7 +52,7 @@ def download_nasdaqtraded(max_retries: int = 5) -> str:
 
 def cache_raw(text: str) -> Path:
     """Persist the raw file to store/ for provenance."""
-    out = REPO_ROOT / "store" / f"nasdaqtraded-{date.today().isoformat()}.txt"
+    out = REPO_ROOT / "store" / f"nasdaqtraded-{datetime.now(timezone.utc).date().isoformat()}.txt"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text)
     return out
@@ -112,7 +112,7 @@ def parse(text: str) -> pd.DataFrame:
 def sync_universe(con, parsed: pd.DataFrame) -> tuple[int, int]:
     """Upsert parsed tickers; deactivate tickers no longer in the file.
     Returns (new_count, deactivated_count)."""
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     con.register("_incoming_univ", parsed)
 
     existing = set(r[0] for r in con.execute("SELECT ticker FROM universe").fetchall())
@@ -162,7 +162,7 @@ def sync_universe(con, parsed: pd.DataFrame) -> tuple[int, int]:
 def append_snapshot(con) -> bool:
     """Append today's full universe into universe_snapshot (idempotent).
     Returns True if rows were appended."""
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     exists = con.execute(
         "SELECT COUNT(*) FROM universe_snapshot WHERE snapshot_date = ?", [today]
     ).fetchone()[0]
