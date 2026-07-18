@@ -27,7 +27,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -46,6 +48,11 @@ ENGINE_RAM_BUDGET_MB = 48000  # combined engine budget; sequential => one job
 STORE_SOFT_GB = 60.0        # soft cap -> warn in _meta.json
 STORE_HARD_GB = 80.0        # hard cap -> refuse archive jobs
 ROOT_FREE_MIN_GB = 10.0     # refuse archive jobs below this root free space
+
+# Wall-clock ceiling for a single drain (env-tunable). Once elapsed exceeds this
+# we STOP starting new jobs and exit 0, leaving them pending for the next drain —
+# an in-flight job is never killed. Keeps a slow farm from running into the day.
+DRAIN_BUDGET_DEFAULT_S = 4 * 3600  # 4 hours
 
 
 # --------------------------------------------------------------------------- #
@@ -183,8 +190,19 @@ def cmd_run(con, meta_path: str | Path) -> int:
         return 0
     print(f"[queue] {len(pending)} pending job(s)")
 
+    budget_s = float(os.environ.get("TRADING_ENGINE_DRAIN_BUDGET_S",
+                                    DRAIN_BUDGET_DEFAULT_S))
+    drain_start = time.monotonic()
+
     for idx, (jid, kind, params_json, mem_mb) in enumerate(pending):
         remaining = len(pending) - idx
+
+        # --- wall-clock budget: stop STARTING new jobs once the window is up ---
+        elapsed = time.monotonic() - drain_start
+        if elapsed > budget_s:
+            print(f"[queue] drain budget exhausted after {elapsed / 3600:.1f}h — "
+                  f"leaving {remaining} pending job(s) for next drain")
+            return 0
 
         # --- global resource guard: load / RAM (start nothing if tripped) ---
         load5 = rsc.load_5min()
