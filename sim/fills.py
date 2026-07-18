@@ -51,15 +51,19 @@ class FillResult:
 def median_dollar_vol(
     con: duckdb.DuckDBPyConnection, ticker: str, as_of: date, bars: int = MEDVOL_BARS
 ) -> float | None:
-    """Median of close*volume over the last `bars` sessions on/before `as_of`.
+    """Median of close*volume over the last `bars` sessions STRICTLY BEFORE
+    `as_of`.
 
-    Returns None if the name has no bars at all in the window.
+    The window excludes `as_of` itself (date < as_of): `as_of` is the fill date,
+    so including its own close×volume in the liquidity cap and slippage tier would
+    consume information from the bar being traded — a small look-ahead. Returns
+    None if the name has no bars at all in the window.
     """
     row = con.execute(
         """
         SELECT MEDIAN(close * volume) FROM (
             SELECT close, volume FROM prices
-            WHERE ticker = ? AND date <= ?
+            WHERE ticker = ? AND date < ?
             ORDER BY date DESC LIMIT ?
         )
         """,
