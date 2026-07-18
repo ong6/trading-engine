@@ -85,16 +85,29 @@ def fill_pending(con, d: date) -> dict:
     for oid, pf_id, tk, side, qty, sig in pend:
         res = fills.attempt_fill(con, tk, side, qty, sig, d)
         if res.status == "filled":
+            # apply_fill may clamp (sell close-only / buy cash-bounded) and returns
+            # the qty ACTUALLY applied. Record the fill and mark the order with that
+            # qty so the fill log and order status reflect what really happened.
+            filled_qty = portfolio.apply_fill(
+                con, {"portfolio_id": pf_id, "ticker": tk, "side": side,
+                      "qty": qty, "fill_px": res.fill_px})
+            if filled_qty <= 0:
+                reason = ("insufficient_cash" if side == "buy"
+                          else "no_position_to_sell")
+                con.execute(
+                    "UPDATE sim_orders SET status = 'rejected', reject_reason = ? "
+                    "WHERE id = ?",
+                    [reason, oid],
+                )
+                counts["rejected"] += 1
+                continue
             con.execute(
                 "INSERT INTO sim_fills (order_id, portfolio_id, ticker, side, qty,"
                 " fill_date, open_px, fill_px, slippage_bps, cost_bps)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [oid, pf_id, tk, side, qty, d, res.open_px, res.fill_px,
+                [oid, pf_id, tk, side, filled_qty, d, res.open_px, res.fill_px,
                  res.slippage_bps, res.slippage_bps],
             )
-            portfolio.apply_fill(con, {"portfolio_id": pf_id, "ticker": tk,
-                                       "side": side, "qty": qty,
-                                       "fill_px": res.fill_px})
             con.execute("UPDATE sim_orders SET status = 'filled' WHERE id = ?", [oid])
             counts["filled"] += 1
         elif res.status == "rejected":
@@ -118,8 +131,17 @@ def mtm_all(con, d: date) -> None:
 
 
 def generate_all(con, d: date) -> int:
-    """Phase c. Generate new orders per cadence. Returns #orders created."""
+    """Phase c. Generate new orders per cadence. Returns #orders created.
+
+    Dedup guard: a new order is skipped if a PENDING sim_orders row already
+    exists for the same (portfolio_id, ticker, side). Pending orders don't mutate
+    sim_positions and can linger up to PENDING_MAX_DAYS on missing bars, and
+    mr_overlay re-emits the same exit daily — so without this guard two pendings
+    for the same leg could both fill and double-buy (negative cash) or
+    double-sell (negative position). Skips are counted and logged.
+    """
     n_new = 0
+    n_skipped = 0
     for pf_id, strat_name, cfg_json, cash in con.execute(
         "SELECT id, strategy, config, cash FROM portfolios WHERE active ORDER BY id"
     ).fetchall():
@@ -144,6 +166,16 @@ def generate_all(con, d: date) -> int:
         orders = strat.generate_orders(con, pv, d)
         oid = next_order_id(con)
         for o in orders:
+            dup = con.execute(
+                "SELECT 1 FROM sim_orders WHERE portfolio_id = ? AND ticker = ? "
+                "AND side = ? AND status = 'pending' LIMIT 1",
+                [o.portfolio_id, o.ticker, o.side],
+            ).fetchone()
+            if dup:
+                n_skipped += 1
+                print(f"[league] dedup: skip {o.portfolio_id} {o.ticker} {o.side} "
+                      f"— a pending order for this leg already exists")
+                continue
             con.execute(
                 "INSERT INTO sim_orders (id, portfolio_id, ticker, side, qty,"
                 " signal_date, status, reject_reason)"
@@ -152,6 +184,8 @@ def generate_all(con, d: date) -> int:
             )
             oid += 1
             n_new += 1
+    if n_skipped:
+        print(f"[league] dedup: skipped {n_skipped} duplicate pending order(s)")
     return n_new
 
 
@@ -320,13 +354,32 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
                 print(f"[league] ABORT: sim_equity already has {existing} rows for "
                       f"{d} — the step is idempotent. Pass --rerun to redo this date.")
             return 1
-        rerun_cleanup(con, d)
-        if verbose:
-            print(f"[league] --rerun: cleared {d} sim rows, rebuilt state")
+    # The whole per-day step is ONE DuckDB transaction so the day is all-or-
+    # nothing. Without it, a mid-run death (e.g. after fills + partial equity
+    # writes) leaves fills applied but that day's orders never generated and some
+    # portfolios missing equity rows — and because "day done" is inferred from ANY
+    # sim_equity[d] row existing, --skip-if-done would then no-op forever. Wrapping
+    # fill_pending + mtm_all + generate_all (and the --rerun cleanup) in one
+    # BEGIN…COMMIT makes a crash roll back everything, so a rerun redoes the whole
+    # day exactly once. This also fixes the per-order double-fill window: the
+    # INSERT sim_fills + apply_fill + UPDATE status trio is now atomic, so a crash
+    # between them rolls back rather than double-filling on rerun.
+    # (db.connect returns a fresh autocommit connection with no enclosing
+    # transaction, so this BEGIN never nests.)
+    con.execute("BEGIN TRANSACTION")
+    try:
+        if existing:  # reached only on --rerun (non-rerun already returned above)
+            rerun_cleanup(con, d)
+            if verbose:
+                print(f"[league] --rerun: cleared {d} sim rows, rebuilt state")
+        fc = fill_pending(con, d)
+        mtm_all(con, d)
+        nn = generate_all(con, d)
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
 
-    fc = fill_pending(con, d)
-    mtm_all(con, d)
-    nn = generate_all(con, d)
     md_path = write_reports(con, d, data_dir)
     if verbose:
         print(f"[league] {d}: fills={fc['filled']} rejected={fc['rejected']} "
