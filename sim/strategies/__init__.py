@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .base import Order, PortfolioView, Strategy
+from .discretionary import Discretionary
 from .dual_momentum import DualMomentum
 from .ew_benchmark import EwBenchmark
 from .mr_overlay import MrOverlay
@@ -10,6 +11,7 @@ from .template_top10_banded import TemplateTop10Banded
 from .template_top5 import TemplateTop5
 
 REGISTRY: dict[str, type[Strategy]] = {
+    "discretionary": Discretionary,
     "template_top5": TemplateTop5,
     "template_top10_banded": TemplateTop10Banded,
     "dual_momentum": DualMomentum,
