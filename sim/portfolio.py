@@ -41,22 +41,35 @@ def get_cash(con: duckdb.DuckDBPyConnection, pf_id: str) -> float:
 def position_open_since(con: duckdb.DuckDBPyConnection, pf_id: str, ticker: str):
     """The fill_date the current open lot was opened on: the earliest buy after
     the most recent sell (or ever, if never sold). None if no buys. Used for the
-    MR time stop."""
-    last_sell = con.execute(
-        "SELECT MAX(fill_date) FROM sim_fills "
-        "WHERE portfolio_id = ? AND ticker = ? AND side = 'sell'",
+    MR time stop.
+
+    ORDER BY … LIMIT 1 instead of MIN/MAX on purpose: DuckDB 1.5.4 has an
+    internal error ("Attempted to access index 0 within vector of size 0") when
+    a MIN/MAX aggregate WITH a WHERE clause scans rows appended earlier in the
+    SAME transaction — exactly what happens here, since the league day-step is
+    one transaction and fill_pending appends to sim_fills before strategies run.
+    Plain filtered scans and ORDER BY/LIMIT are unaffected. Don't "simplify"
+    these back to MIN/MAX while the engine is on 1.5.x.
+    """
+    row = con.execute(
+        "SELECT fill_date FROM sim_fills "
+        "WHERE portfolio_id = ? AND ticker = ? AND side = 'sell' "
+        "ORDER BY fill_date DESC LIMIT 1",
         [pf_id, ticker],
-    ).fetchone()[0]
+    ).fetchone()
+    last_sell = row[0] if row else None
     if last_sell is None:
         row = con.execute(
-            "SELECT MIN(fill_date) FROM sim_fills "
-            "WHERE portfolio_id = ? AND ticker = ? AND side = 'buy'",
+            "SELECT fill_date FROM sim_fills "
+            "WHERE portfolio_id = ? AND ticker = ? AND side = 'buy' "
+            "ORDER BY fill_date ASC LIMIT 1",
             [pf_id, ticker],
         ).fetchone()
     else:
         row = con.execute(
-            "SELECT MIN(fill_date) FROM sim_fills "
-            "WHERE portfolio_id = ? AND ticker = ? AND side = 'buy' AND fill_date > ?",
+            "SELECT fill_date FROM sim_fills "
+            "WHERE portfolio_id = ? AND ticker = ? AND side = 'buy' AND fill_date > ? "
+            "ORDER BY fill_date ASC LIMIT 1",
             [pf_id, ticker, last_sell],
         ).fetchone()
     return row[0] if row else None
