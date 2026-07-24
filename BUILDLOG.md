@@ -303,6 +303,27 @@ conflict; execution design §7 has exit criteria).
   Copies used for go-live proofs must include every runtime-created row, not just the
   registered configs.
 
+- 2026-07-24 (pm) · **Correction: the morning's farm-recovery drain did NOT complete.** The
+  intraday job (9) finished (1081/1081, `_meta.json` block written, uncommitted by design),
+  but the drain was killed silently ~11:07 UTC mid-earnings — job 10 left stale-`running`,
+  leftover WAL, no queue_runner process, no traceback in `farm-recovery-2026-07-24.log`
+  (same SIGHUP pattern as 07-18; the launching session dropped and `nohup` was not used,
+  against the 07-18 lesson). 15:02 UTC: drain restarted as a harness-tracked background job
+  (`queue_runner.py --run >> logs/farm-recovery-2026-07-24.log`); stale-job reclaim picked
+  job 10 back up (earnings resumed, 25/1456 observed pulling). **Complete ~16:05 UTC:
+  1,456 pulled, 0 failed (1,318 with dates + 138 honest no-date), 2,781 rows for
+  as_of=2026-07-24 (dates 2026-04-30→2026-10-23), job 10 `done`, WAL checkpointed,
+  store 1.84 GiB.** Earnings gate is current again ahead of tonight's nightly.
+- 2026-07-24 (pm) · **Independent read-only audit of the incident fixes (Explore subagent)
+  — both commits verified correct, no new crash defects.** `6febad5`: fills/MTM confirmed
+  strategy-independent (only `generate_all` consumes the registry), no-op class emits zero
+  orders on daily cadence. `71543f3`: ORDER BY/LIMIT rewrite semantically identical to the
+  filtered MIN/MAX incl. NULL handling; sweep confirmed it was the only in-transaction
+  aggregate-over-appended-rows query. run_daily.sh seam re-checked (flock, non-fatal
+  universe/sync, farm pinned exit 0, lock-retry) — clean. Two watch items filed in Next:
+  first-ever monthly-sleeve execution 07-31, and the unguarded `json.loads(config)` at
+  league.py:148.
+
 ## Next
 
 1. ~~Verify the miners bootstrap~~ **DONE 2026-07-18 pm** (see above — fundamentals 4,118,
@@ -317,7 +338,19 @@ conflict; execution design §7 has exit criteria).
 4. **M1 exit** still needs the GitHub remote (owner action: create `ong6/trading-engine`, then
    `git remote add origin ssh://git@ssh.github.com:443/ong6/trading-engine.git`; sync.py
    pushes automatically once a remote exists; then prove a pull on another machine).
-5. Nice-to-haves surfaced this session (not blocking): `lxml` for historical earnings
+5. **Watch Fri 2026-07-31's nightly log closely** — first-ever production execution of the
+   monthly sleeves (dual_momentum ×2, ew_benchmark: 0 orders since inception; `generate_all`
+   cadence-gates before `get_strategy`, so their `generate_orders` has never run live).
+   2026-07-24 independent read-only audit (post-incident): both fix commits verified correct
+   (no-op strategy sound — fills/MTM don't touch the strategy object; ORDER BY/LIMIT rewrite
+   semantically identical to the MIN/MAX it replaced, and the only vulnerable in-txn query),
+   no new crash defect found; monthly paths read sound (empty-history and zero-price guarded)
+   but are the one genuinely unexercised seam, landing inside the 7-clean-run streak.
+6. Latent fragility (audit finding, not currently triggerable): a portfolio row with
+   NULL/non-JSON `config` crashes the league stage — `generate_all` does
+   `json.loads(cfg_json)` unguarded (league.py:148). Both insert sites always write JSON
+   today; guard it (skip + WARN) next time league.py is touched.
+7. Nice-to-haves surfaced this session (not blocking): `lxml` for historical earnings
    surprises; post-farm second sync if a same-night intraday `_meta` commit is wanted;
    walk-forward re-validation job type for active league strategies (weekly, §12.3);
    weekly-review integration (exec-design §6 Sunday loop) once a week of league history exists.
