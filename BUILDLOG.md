@@ -275,16 +275,45 @@ conflict; execution design §7 has exit criteria).
   now best-effort WARN in run_daily.sh + refuses to commit mid-rebase/merge; failure
   breadcrumb names the failing stage (via logs/.last_stage — tee block is a subshell).
 
+- 2026-07-24 · **INCIDENT: all four unattended nightlies 07-20→07-23 failed at the league
+  stage — diagnosed, fixed, fully replayed (`6febad5`, `71543f3`, data sync `24f85a9`).**
+  Root cause: the `discretionary` book (auto-created by the M3 server with
+  `strategy='discretionary'`) had no REGISTRY entry, so `generate_all` hit
+  `KeyError: 'discretionary'` on Monday's first live step. Because the day-step is one
+  transaction, each night's fills rolled back entirely (league frozen at 07-17, 42 orders
+  stuck pending), and because league failed under `set -e`, **sync and the farm never ran
+  all week** — 4 days of screens/eod sat uncommitted, intraday/earnings mining stalled at
+  07-17/07-18. Never caught pre-Monday because every earlier league exercise predated the
+  discretionary book or ran on copies without it.
+  Fixes, both proven behaviorally on DB copies before touching the real store:
+  (1) no-op `Discretionary` strategy registered — generates nothing (orders come only from
+  UI tickets), fills/MTM already cover the book; (2) found an **uncommitted** ORDER BY/LIMIT
+  rewrite of `portfolio.position_open_since` in the tree (unlogged — likely a dropped prior
+  session) and verified its claim both ways: with the old filtered MIN/MAX, the 07-21 step
+  dies on a DuckDB 1.5.4 internal assertion ("index 0 within vector of size 0" — aggregate
+  over rows appended in the same transaction); with the rewrite all steps pass. Committed.
+  Recovery: replayed 07-20/21/22/23 in order on the real DB — Mon 42 fills incl.
+  discretionary DELL order 42 @ 400.69 (9sh), Tue +10 orders, Wed 10 fills, Thu 10 fills;
+  sim_equity now 11 books × 4 new days; league.md/csv regenerated (books honestly red:
+  top5 −9.8%, top10 −6.2%, SPY bench −1.3%, discretionary +0.9%). `sync.py` committed the
+  156 stranded data files. Farm recovery: intraday + earnings enqueued (jobs 9, 10) and
+  drained same day — 1m/7d window still covered the whole gap, nothing lost.
+  Lesson: **a strategy-registry lookup is part of the unattended seam** — the Monday-readiness
+  review checked locks/overlap/sync but never ran a step with the discretionary book present.
+  Copies used for go-live proofs must include every runtime-created row, not just the
+  registered configs.
+
 ## Next
 
 1. ~~Verify the miners bootstrap~~ **DONE 2026-07-18 pm** (see above — fundamentals 4,118,
    earnings 2,768, gate live on real data, skip-if-done smoke tests pass).
-2. **Monday 2026-07-20 22:30 UTC cron = first full unattended nightly with everything wired**:
-   collect → screen → league step (fills the 41 auto orders + discretionary DELL order 42 at
-   Monday's open, conservative slippage) → sync → intraday + earnings mining. Verify Tuesday:
-   fills present, league.md shows real equity moves, no WARN in the farm section.
-3. **Mission "Done" gate**: 7 consecutive clean unattended nightly runs (counting from Monday
-   2026-07-20 if clean). Watch `logs/cron.log` daily; any failure resets the count.
+2. ~~Monday 2026-07-20 first full unattended nightly~~ **FAILED — see 2026-07-24 incident
+   above; fixed and replayed same week.** Verify Saturday that Friday 07-24's 22:30 UTC cron
+   ran clean end-to-end (collect → screen → league → sync → farm incl. Friday fundamentals):
+   fills present, league.md advanced to 07-24, farm section says OK, no TODO breadcrumb.
+3. **Mission "Done" gate**: 7 consecutive clean unattended nightly runs — **counter reset,
+   now counting from Friday 2026-07-24** if clean. Watch `logs/cron.log` daily; any failure
+   resets the count.
 4. **M1 exit** still needs the GitHub remote (owner action: create `ong6/trading-engine`, then
    `git remote add origin ssh://git@ssh.github.com:443/ong6/trading-engine.git`; sync.py
    pushes automatically once a remote exists; then prove a pull on another machine).
