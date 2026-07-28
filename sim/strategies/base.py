@@ -150,6 +150,39 @@ def rsi_wilder(closes: np.ndarray, period: int = 2) -> float | None:
     return 100.0 - 100.0 / (1.0 + rs)
 
 
+def atr_wilder(con, ticker: str, as_of: date, period: int = 20) -> float | None:
+    """Wilder-smoothed ATR at as_of. None if fewer than period+1 bars, or if any
+    high/low/close in the window is NULL (never patch a missing bar)."""
+    rows = con.execute(
+        "SELECT high, low, close FROM prices WHERE ticker = ? AND date <= ? "
+        "ORDER BY date DESC LIMIT ?",
+        [ticker, as_of, period * 3 + 1],
+    ).fetchall()
+    if len(rows) < period + 1:
+        return None
+    bars = list(reversed(rows))
+    if any(v is None for bar in bars for v in bar):
+        return None
+    trs = []
+    for i in range(1, len(bars)):
+        hi, lo, _ = bars[i]
+        prev_close = bars[i - 1][2]
+        trs.append(max(hi - lo, abs(hi - prev_close), abs(lo - prev_close)))
+    atr = sum(trs[:period]) / period
+    for tr in trs[period:]:
+        atr = (atr * (period - 1) + tr) / period
+    return float(atr)
+
+
+def highest_close_between(con, ticker: str, start_date: date, end_date: date):
+    """Max close in (start_date, end_date] — the chandelier-exit reference peak."""
+    row = con.execute(
+        "SELECT MAX(close) FROM prices WHERE ticker = ? AND date > ? AND date <= ?",
+        [ticker, start_date, end_date],
+    ).fetchone()
+    return None if row is None or row[0] is None else float(row[0])
+
+
 def n_down_closes(closes: np.ndarray) -> int:
     """How many consecutive down closes end the series (close[i] < close[i-1])."""
     n = 0

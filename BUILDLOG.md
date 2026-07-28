@@ -324,6 +324,41 @@ conflict; execution design §7 has exit criteria).
   first-ever monthly-sleeve execution 07-31, and the unguarded `json.loads(config)` at
   league.py:148.
 
+- 2026-07-28 · **League expanded 10 → 16 books: six research-grounded strategies added, plus
+  a real calendar-arithmetic bug found and fixed along the way.** Research first (two web
+  passes, full cited report in the store at `research/paper-league-strategy-sleeves.md`):
+  trend-following on stocks (Wilcox & Crittenden; Concretum 2024 replication), stop-loss
+  momentum (Han-Zhou-Zhu; Barroso & Santa-Clara; Daniel & Moskowitz), sector rotation
+  (Quantpedia/Faber), low-vol anomaly, 52-week-high momentum (George & Hwang 2004), and
+  EAR-based PEAD (Brandt et al. — needs no analyst data). New books, all long-only,
+  point-in-time, pre-registered expectation + kill criterion in `configs.py`:
+  `turtle_breakout` (daily; 55d-high entries on template passers, 0.75%-risk ATR sizing,
+  chandelier 3×ATR trail, ≤10 positions, SPY-200d entry gate), `momo_stopped` (daily; the
+  controlled A/B vs template_top10_banded — identical weekly selection, verified
+  byte-identical order lists, plus a daily 15%-below-weekly-reference stop), `sector_momentum`
+  (monthly; top-3 SPDR sectors by mean 3/6/12-mo return, negative-12-mo slots to cash),
+  `low_vol` (monthly; 30 lowest-252d-vol ≥$5B names, 5-per-sector cap, keep-to-rank-60
+  buffer), `high_52wk` (monthly; close÷252d-high ≥ 0.85, top 25, hold-to-0.75 buffer),
+  `pead_ear` (daily; earnings reaction ≥ +5% vs SPY on 2× volume → 4% slots, ≤10
+  concurrent, 45-session or −8% exit). New shared helpers `atr_wilder` /
+  `highest_close_between` in base.py.
+  **Bug fix: `calendar.trading_days_between` counted price ROWS, not sessions**
+  (`COUNT(*)` over all tickers → "1 day" read as ~4,117). Every mr_overlay "10-day" time
+  stop to date actually fired after ONE session (the live book's record so far is honestly
+  a 1-day-hold variant — its forward record only matches its spec from tonight), and
+  fills.py's 3-day `no_bar` grace rejected on the first retry. Fixed to
+  `COUNT(DISTINCT date)`; all three callers audited (mr_overlay, pead_ear, fills.py) —
+  session-count semantics correct for each. Proof: two full shakedowns on throwaway copies
+  (window 06-22→07-27, 25 sessions, month + 6 week signals, 16 screens backfilled, exit 0,
+  0 tracebacks, live store never opened). Post-fix: mr_overlay 85→43 fills with real 1–9
+  session holds bounded by the 10-session stop (equity 37,009→38,092 over the window);
+  pead_ear exits only via its −8% stop (3 cases verified against avg_cost) with 7 names
+  held open; the five books that don't call `trading_days_between` byte-identical across
+  runs — the fix touched only what it should. Implementation by an Opus subagent
+  (spec + review + both verification passes by the orchestrating session).
+  Tonight's nightly `--init` creates the six books (created=07-28); their first signals:
+  daily books tonight, monthly books Fri 07-31.
+
 ## Next
 
 1. ~~Verify the miners bootstrap~~ **DONE 2026-07-18 pm** (see above — fundamentals 4,118,
@@ -346,6 +381,18 @@ conflict; execution design §7 has exit criteria).
    semantically identical to the MIN/MAX it replaced, and the only vulnerable in-txn query),
    no new crash defect found; monthly paths read sound (empty-history and zero-price guarded)
    but are the one genuinely unexercised seam, landing inside the 7-clean-run streak.
+   **2026-07-28 update: 07-31 is now a bigger night** — the three new monthly books
+   (sector_momentum, low_vol, high_52wk) also fire their first live signals then, alongside
+   the weekly rebalances. All were month-signal-exercised in the 06-30 shakedown step
+   (low_vol legitimately inert until a fundamentals snapshot with as_of ≤ month-end exists —
+   07-31 will have 07-18+ snapshots, so it goes live for real).
+8. **Watch tonight's (2026-07-28) nightly** — first unattended run with the six new books:
+   `--init` creates them, then turtle_breakout / momo_stopped / pead_ear generate their
+   first live daily signals. New code inside the 7-clean-run streak (counter: 2/7 as of
+   Mon 07-27) — shakedown-proven on copies, but per the 07-24 lesson the live store's
+   runtime-created rows are the seam to watch. Also confirm mr_overlay's behavior change
+   post calendar-fix (holds now reach up to 10 sessions; its pre-fix record was effectively
+   1-day holds — noted in its forward interpretation).
 6. Latent fragility (audit finding, not currently triggerable): a portfolio row with
    NULL/non-JSON `config` crashes the league stage — `generate_all` does
    `json.loads(cfg_json)` unguarded (league.py:148). Both insert sites always write JSON
