@@ -22,9 +22,14 @@ def next_trading_day(con: duckdb.DuckDBPyConnection, d: date) -> date | None:
 
 
 def trading_days_between(con: duckdb.DuckDBPyConnection, a: date, b: date) -> int:
-    """Count of trading sessions in (a, b] — i.e. how many sessions b is after a."""
+    """Count of trading sessions in (a, b] — i.e. how many sessions b is after a.
+
+    COUNT(DISTINCT date), not COUNT(*): `prices` holds one row per (ticker, date),
+    so a plain row count returns the number of price rows in the window (thousands
+    per session) rather than the number of sessions.
+    """
     return con.execute(
-        "SELECT COUNT(*) FROM prices WHERE date > ? AND date <= ?", [a, b]
+        "SELECT COUNT(DISTINCT date) FROM prices WHERE date > ? AND date <= ?", [a, b]
     ).fetchone()[0]
 
 
