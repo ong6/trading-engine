@@ -1,10 +1,10 @@
 {
-  "last_run": "2026-07-27T22:32:10.026877+00:00",
+  "last_run": "2026-07-28T22:31:47.283875+00:00",
   "mode": "incremental",
-  "universe_size": 12263,
-  "active_count": 12223,
+  "universe_size": 12273,
+  "active_count": 12230,
   "liquid_count": 4118,
-  "prices_rows": 19846007,
+  "prices_rows": 19850123,
   "tickers_with_data": 12105,
   "stale_tickers": {
     "count": 1,
@@ -18,10 +18,10 @@
     "yfinance": "ok"
   },
   "regime": "risk-on",
-  "last_screen": "2026-07-27T22:32:13.068714+00:00",
-  "passing_count": 647,
-  "new_today_count": 48,
-  "screened": 3881,
+  "last_screen": "2026-07-28T22:31:50.277615+00:00",
+  "passing_count": 654,
+  "new_today_count": 62,
+  "screened": 3882,
   "skipped_stale": 0,
-  "skipped_short": 233
+  "skipped_short": 232
 }
