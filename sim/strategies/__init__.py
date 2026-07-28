@@ -5,10 +5,16 @@ from .base import Order, PortfolioView, Strategy
 from .discretionary import Discretionary
 from .dual_momentum import DualMomentum
 from .ew_benchmark import EwBenchmark
+from .high_52wk import High52Week
+from .low_vol import LowVol
+from .momo_stopped import MomoStopped
 from .mr_overlay import MrOverlay
+from .pead_ear import PeadEar
+from .sector_momentum import SectorMomentum
 from .spy_benchmark import SpyBenchmark
 from .template_top10_banded import TemplateTop10Banded
 from .template_top5 import TemplateTop5
+from .turtle_breakout import TurtleBreakout
 
 REGISTRY: dict[str, type[Strategy]] = {
     "discretionary": Discretionary,
@@ -18,6 +24,12 @@ REGISTRY: dict[str, type[Strategy]] = {
     "mr_overlay": MrOverlay,
     "ew_benchmark": EwBenchmark,
     "spy_benchmark": SpyBenchmark,
+    "turtle_breakout": TurtleBreakout,
+    "momo_stopped": MomoStopped,
+    "sector_momentum": SectorMomentum,
+    "low_vol": LowVol,
+    "high_52wk": High52Week,
+    "pead_ear": PeadEar,
 }
 
 

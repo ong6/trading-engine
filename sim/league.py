@@ -9,7 +9,7 @@ For a given date d the step runs in this fixed order:
 
 Idempotency: if sim_equity already has rows for d the step ABORTS. `--rerun`
 deletes d's sim rows first and rebuilds cash/positions from the surviving fills
-(portfolio.rebuild_state), so a re-run is exact. `--init` creates the 10
+(portfolio.rebuild_state), so a re-run is exact. `--init` creates the 16
 registered portfolios if absent. Reads prices/screen_results read-only; writes
 only sim_* / portfolios.
 """
@@ -414,7 +414,7 @@ def main() -> int:
     ap.add_argument("--db", default=str(db.DEFAULT_DB), help="DuckDB path")
     ap.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR), help="output dir")
     ap.add_argument("--date", default=None, help="step date YYYY-MM-DD (default: latest bar)")
-    ap.add_argument("--init", action="store_true", help="create the 10 portfolios if absent")
+    ap.add_argument("--init", action="store_true", help="create the 16 portfolios if absent")
     ap.add_argument("--rerun", action="store_true", help="redo an already-run date")
     ap.add_argument("--skip-if-done", action="store_true",
                     help="exit 0 (not 1) if the date is already stepped — for the "
