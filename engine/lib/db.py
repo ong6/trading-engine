@@ -292,7 +292,8 @@ def init_actions_schema(con: duckdb.DuckDBPyConnection) -> None:
             ex_date       DATE    NOT NULL,
             ratio         DOUBLE,
             outcome       VARCHAR,
-            observed      DOUBLE,   -- stored close(prev session) / close(ex_date)
+            observed      DOUBLE,   -- the stored one-session close ratio at the break
+            break_date    DATE,     -- session where the stored scale actually changes
             rows_restated BIGINT,
             applied_at    TIMESTAMP,
             PRIMARY KEY (ticker, ex_date)
