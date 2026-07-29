@@ -1,6 +1,6 @@
 # Low-Volatility Defensive (`low_vol`) — historical windows
 
-_strategy `low_vol` · cadence monthly · generated 2026-07-29 07:41 UTC_
+_strategy `low_vol` · cadence monthly · generated 2026-07-29 07:55 UTC_
 
 ## Disclosures — read before any number below
 
@@ -47,7 +47,8 @@ _strategy `low_vol` · cadence monthly · generated 2026-07-29 07:41 UTC_
 
 | Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| low_vol | 2026-01-16→2026-07-16 | +5.32% | +11.02% | +9.73% | 1.14 | 0.78 | −5.63% | −4.74% | +0.61% | −5.13% | 96 |
+| low_vol | 2026-01-16→2026-07-16 | +5.32% | +11.02% | +9.73% | +1.14 | +0.78 | −5.63% | −4.74% | +0.61% | −5.13% | 96 |
+| low_vol | 2025-07-16→2026-07-16 | +10.17% | +10.17% | +8.83% | +1.14 | +0.72 | −5.86% | −4.85% | −35.20% | −11.01% | 178 |
 
 ## Equity-curve detail
 
@@ -66,3 +67,25 @@ _strategy `low_vol` · cadence monthly · generated 2026-07-29 07:41 UTC_
 | 2026-05 | $39,545 |
 | 2026-06 | $40,162 |
 | 2026-07 | $41,073 |
+
+### 1y — 2025-07-16 → 2026-07-16
+
+- sessions 252 · fills 178 · rejected orders 3 · dividend credits 0 ($0)
+- equity $39,000 → $42,964 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
+- replay runtime 26.0s (screen 0.0s, day-steps 21.8s) · screen rows 0 · dividend rows in force 1837
+
+| Month | Equity |
+|---|---|
+| 2025-07 | $39,000 |
+| 2025-08 | $39,859 |
+| 2025-09 | $39,966 |
+| 2025-10 | $38,726 |
+| 2025-11 | $39,626 |
+| 2025-12 | $39,468 |
+| 2026-01 | $40,570 |
+| 2026-02 | $43,289 |
+| 2026-03 | $41,189 |
+| 2026-04 | $42,463 |
+| 2026-05 | $41,373 |
+| 2026-06 | $42,026 |
+| 2026-07 | $42,964 |

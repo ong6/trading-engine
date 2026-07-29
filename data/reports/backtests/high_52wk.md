@@ -1,6 +1,6 @@
 # 52-Week-High Momentum (`high_52wk`) — historical windows
 
-_strategy `high_52wk` · cadence monthly · generated 2026-07-29 07:41 UTC_
+_strategy `high_52wk` · cadence monthly · generated 2026-07-29 07:55 UTC_
 
 ## Disclosures — read before any number below
 
@@ -47,7 +47,8 @@ _strategy `high_52wk` · cadence monthly · generated 2026-07-29 07:41 UTC_
 
 | Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| high_52wk | 2026-01-16→2026-07-16 | −0.41% | −0.82% | +17.80% | 0.04 | -0.16 | −12.19% | −8.20% | −5.11% | −10.85% | 252 |
+| high_52wk | 2026-01-16→2026-07-16 | −0.41% | −0.82% | +17.80% | +0.04 | −0.16 | −12.19% | −8.20% | −5.11% | −10.85% | 252 |
+| high_52wk | 2025-07-16→2026-07-16 | +17.84% | +17.85% | +15.82% | +1.12 | +0.88 | −11.95% | −7.97% | −27.53% | −3.34% | 538 |
 
 ## Equity-curve detail
 
@@ -66,3 +67,25 @@ _strategy `high_52wk` · cadence monthly · generated 2026-07-29 07:41 UTC_
 | 2026-05 | $40,212 |
 | 2026-06 | $40,561 |
 | 2026-07 | $38,841 |
+
+### 1y — 2025-07-16 → 2026-07-16
+
+- sessions 252 · fills 538 · rejected orders 0 · dividend credits 0 ($0)
+- equity $39,000 → $45,956 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
+- replay runtime 27.8s (screen 0.0s, day-steps 23.2s) · screen rows 0 · dividend rows in force 1837
+
+| Month | Equity |
+|---|---|
+| 2025-07 | $39,000 |
+| 2025-08 | $39,980 |
+| 2025-09 | $43,205 |
+| 2025-10 | $42,627 |
+| 2025-11 | $43,148 |
+| 2025-12 | $43,335 |
+| 2026-01 | $46,020 |
+| 2026-02 | $49,501 |
+| 2026-03 | $45,554 |
+| 2026-04 | $47,043 |
+| 2026-05 | $47,578 |
+| 2026-06 | $47,992 |
+| 2026-07 | $45,956 |

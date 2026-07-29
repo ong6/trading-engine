@@ -1,6 +1,6 @@
 # Template Top 10 banded (regime-gated) (`template_top10_banded_gated`) — historical windows
 
-_strategy `template_top10_banded` · cadence weekly · generated 2026-07-29 07:41 UTC_
+_strategy `template_top10_banded` · cadence weekly · generated 2026-07-29 07:55 UTC_
 
 ## Disclosures — read before any number below
 
@@ -47,7 +47,8 @@ _strategy `template_top10_banded` · cadence weekly · generated 2026-07-29 07:4
 
 | Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| template_top10_banded_gated | 2026-01-16→2026-07-16 | −14.31% | −26.78% | +85.01% | 0.07 | 0.02 | −35.34% | −29.23% | −19.02% | −24.76% | 343 |
+| template_top10_banded_gated | 2026-01-16→2026-07-16 | −14.31% | −26.78% | +85.01% | +0.07 | +0.02 | −35.34% | −29.23% | −19.02% | −24.76% | 343 |
+| template_top10_banded_gated | 2025-07-16→2026-07-16 | +2.87% | +2.88% | +70.26% | +0.40 | +0.35 | −35.34% | −29.22% | −42.49% | −18.30% | 705 |
 
 ## Equity-curve detail
 
@@ -66,3 +67,25 @@ _strategy `template_top10_banded` · cadence weekly · generated 2026-07-29 07:4
 | 2026-05 | $45,496 |
 | 2026-06 | $47,219 |
 | 2026-07 | $33,418 |
+
+### 1y — 2025-07-16 → 2026-07-16
+
+- sessions 252 · fills 705 · rejected orders 6 · dividend credits 0 ($0)
+- equity $39,000 → $40,121 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
+- replay runtime 29.7s (screen 6.1s, day-steps 19.4s) · screen rows 160706 · dividend rows in force 1837
+
+| Month | Equity |
+|---|---|
+| 2025-07 | $34,739 |
+| 2025-08 | $33,915 |
+| 2025-09 | $39,327 |
+| 2025-10 | $44,847 |
+| 2025-11 | $36,807 |
+| 2025-12 | $38,033 |
+| 2026-01 | $45,083 |
+| 2026-02 | $49,730 |
+| 2026-03 | $38,739 |
+| 2026-04 | $43,830 |
+| 2026-05 | $54,620 |
+| 2026-06 | $56,685 |
+| 2026-07 | $40,121 |

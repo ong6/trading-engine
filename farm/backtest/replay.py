@@ -427,6 +427,12 @@ def main() -> int:
                              if args.start and args.end else None))
     finally:
         live.close()
+    if not args.no_result:
+        # Same as the queue path: a completed replay always leaves the reports
+        # consistent with data/reports/backtests/results/.
+        from farm.backtest import report
+        for f in report.write_reports():
+            print(f"[replay] report → {f}")
     return 0
 
 

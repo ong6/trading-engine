@@ -1,6 +1,6 @@
 # Mean-Reversion Overlay (regime-gated) (`mr_overlay_gated`) — historical windows
 
-_strategy `mr_overlay` · cadence daily · generated 2026-07-29 07:41 UTC_
+_strategy `mr_overlay` · cadence daily · generated 2026-07-29 07:55 UTC_
 
 ## Disclosures — read before any number below
 
@@ -47,7 +47,8 @@ _strategy `mr_overlay` · cadence daily · generated 2026-07-29 07:41 UTC_
 
 | Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| mr_overlay_gated | 2026-01-16→2026-07-16 | +9.34% | +19.74% | +18.51% | 1.08 | 0.89 | −8.04% | −1.13% | +4.64% | −1.11% | 221 |
+| mr_overlay_gated | 2026-01-16→2026-07-16 | +9.34% | +19.74% | +18.51% | +1.08 | +0.89 | −8.04% | −1.13% | +4.64% | −1.11% | 221 |
+| mr_overlay_gated | 2025-07-16→2026-07-16 | +11.90% | +11.91% | +16.20% | +0.78 | +0.54 | −8.04% | −3.62% | −33.47% | −9.28% | 463 |
 
 ## Equity-curve detail
 
@@ -66,3 +67,25 @@ _strategy `mr_overlay` · cadence daily · generated 2026-07-29 07:41 UTC_
 | 2026-05 | $42,258 |
 | 2026-06 | $43,012 |
 | 2026-07 | $42,642 |
+
+### 1y — 2025-07-16 → 2026-07-16
+
+- sessions 252 · fills 463 · rejected orders 0 · dividend credits 0 ($0)
+- equity $39,000 → $43,640 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
+- replay runtime 101.0s (screen 6.1s, day-steps 90.6s) · screen rows 160706 · dividend rows in force 1837
+
+| Month | Equity |
+|---|---|
+| 2025-07 | $38,967 |
+| 2025-08 | $40,253 |
+| 2025-09 | $39,829 |
+| 2025-10 | $41,392 |
+| 2025-11 | $39,894 |
+| 2025-12 | $40,910 |
+| 2026-01 | $42,196 |
+| 2026-02 | $43,011 |
+| 2026-03 | $43,437 |
+| 2026-04 | $43,739 |
+| 2026-05 | $43,246 |
+| 2026-06 | $44,019 |
+| 2026-07 | $43,640 |
