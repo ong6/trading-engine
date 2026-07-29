@@ -1,6 +1,6 @@
 # Template Top 5 (regime-gated) (`template_top5_gated`) — historical windows
 
-_strategy `template_top5` · cadence weekly · generated 2026-07-29 07:41 UTC_
+_strategy `template_top5` · cadence weekly · generated 2026-07-29 07:55 UTC_
 
 ## Disclosures — read before any number below
 
@@ -47,7 +47,8 @@ _strategy `template_top5` · cadence weekly · generated 2026-07-29 07:41 UTC_
 
 | Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| template_top5_gated | 2026-01-16→2026-07-16 | −17.14% | −31.58% | +82.82% | -0.05 | -0.09 | −37.76% | −21.39% | −21.85% | −27.59% | 151 |
+| template_top5_gated | 2026-01-16→2026-07-16 | −17.14% | −31.58% | +82.82% | −0.05 | −0.09 | −37.76% | −21.39% | −21.85% | −27.59% | 151 |
+| template_top5_gated | 2025-07-16→2026-07-16 | +11.98% | +11.98% | +71.54% | +0.52 | +0.47 | −37.76% | −21.39% | −33.39% | −9.20% | 322 |
 
 ## Equity-curve detail
 
@@ -66,3 +67,25 @@ _strategy `template_top5` · cadence weekly · generated 2026-07-29 07:41 UTC_
 | 2026-05 | $46,116 |
 | 2026-06 | $41,106 |
 | 2026-07 | $32,315 |
+
+### 1y — 2025-07-16 → 2026-07-16
+
+- sessions 252 · fills 322 · rejected orders 3 · dividend credits 0 ($0)
+- equity $39,000 → $43,670 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
+- replay runtime 23.7s (screen 6.0s, day-steps 13.4s) · screen rows 160706 · dividend rows in force 1837
+
+| Month | Equity |
+|---|---|
+| 2025-07 | $33,430 |
+| 2025-08 | $35,650 |
+| 2025-09 | $38,124 |
+| 2025-10 | $48,526 |
+| 2025-11 | $46,912 |
+| 2025-12 | $44,254 |
+| 2026-01 | $49,468 |
+| 2026-02 | $53,634 |
+| 2026-03 | $54,736 |
+| 2026-04 | $59,095 |
+| 2026-05 | $62,323 |
+| 2026-06 | $55,550 |
+| 2026-07 | $43,670 |

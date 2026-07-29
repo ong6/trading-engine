@@ -1,6 +1,6 @@
 # SPY Buy & Hold (`spy_benchmark`) — historical windows
 
-_strategy `spy_benchmark` · cadence once · generated 2026-07-29 07:41 UTC_
+_strategy `spy_benchmark` · cadence once · generated 2026-07-29 07:55 UTC_
 
 ## Disclosures — read before any number below
 
@@ -47,8 +47,8 @@ _strategy `spy_benchmark` · cadence once · generated 2026-07-29 07:41 UTC_
 
 | Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| spy_benchmark | 2026-01-16→2026-07-16 | +10.45% | +22.20% | +13.82% | 1.54 | 1.28 | −8.76% | −4.87% | +5.74% | +0.00% | 1 |
-| spy_benchmark | 2025-07-16→2026-07-16 | +21.18% | +21.19% | +12.46% | 1.61 | 1.31 | −8.78% | −4.88% | · | +0.00% | 1 |
+| spy_benchmark | 2026-01-16→2026-07-16 | +10.45% | +22.20% | +13.82% | +1.54 | +1.28 | −8.76% | −4.87% | +5.74% | +0.00% | 1 |
+| spy_benchmark | 2025-07-16→2026-07-16 | +21.18% | +21.19% | +12.46% | +1.61 | +1.31 | −8.78% | −4.88% | −24.18% | +0.00% | 1 |
 
 ## Equity-curve detail
 
@@ -72,7 +72,7 @@ _strategy `spy_benchmark` · cadence once · generated 2026-07-29 07:41 UTC_
 
 - sessions 252 · fills 1 · rejected orders 0 · dividend credits 4 ($467)
 - equity $39,000 → $47,260 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
-- replay runtime 10.9s (screen 0.0s, day-steps 6.9s) · screen rows 0 · dividend rows in force 1837
+- replay runtime 11.0s (screen 0.0s, day-steps 6.9s) · screen rows 0 · dividend rows in force 1837
 
 | Month | Equity |
 |---|---|

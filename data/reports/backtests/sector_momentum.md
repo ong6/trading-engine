@@ -1,6 +1,6 @@
 # Sector ETF Rotation (`sector_momentum`) — historical windows
 
-_strategy `sector_momentum` · cadence monthly · generated 2026-07-29 07:41 UTC_
+_strategy `sector_momentum` · cadence monthly · generated 2026-07-29 07:55 UTC_
 
 ## Disclosures — read before any number below
 
@@ -47,7 +47,8 @@ _strategy `sector_momentum` · cadence monthly · generated 2026-07-29 07:41 UTC
 
 | Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| sector_momentum | 2026-01-16→2026-07-16 | +14.85% | +32.23% | +13.71% | 2.14 | 1.88 | −5.75% | −1.41% | +10.15% | +4.40% | 18 |
+| sector_momentum | 2026-01-16→2026-07-16 | +14.85% | +32.23% | +13.71% | +2.14 | +1.88 | −5.75% | −1.41% | +10.15% | +4.40% | 18 |
+| sector_momentum | 2025-07-16→2026-07-16 | +24.30% | +24.32% | +13.20% | +1.72 | +1.43 | −7.91% | −1.91% | −21.06% | +3.12% | 38 |
 
 ## Equity-curve detail
 
@@ -66,3 +67,25 @@ _strategy `sector_momentum` · cadence monthly · generated 2026-07-29 07:41 UTC
 | 2026-05 | $44,804 |
 | 2026-06 | $45,118 |
 | 2026-07 | $44,792 |
+
+### 1y — 2025-07-16 → 2026-07-16
+
+- sessions 252 · fills 38 · rejected orders 1 · dividend credits 12 ($592)
+- equity $39,000 → $48,476 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
+- replay runtime 13.5s (screen 0.0s, day-steps 9.4s) · screen rows 0 · dividend rows in force 1837
+
+| Month | Equity |
+|---|---|
+| 2025-07 | $39,000 |
+| 2025-08 | $39,817 |
+| 2025-09 | $42,182 |
+| 2025-10 | $42,712 |
+| 2025-11 | $41,896 |
+| 2025-12 | $42,095 |
+| 2026-01 | $42,363 |
+| 2026-02 | $45,990 |
+| 2026-03 | $45,343 |
+| 2026-04 | $46,527 |
+| 2026-05 | $48,494 |
+| 2026-06 | $48,830 |
+| 2026-07 | $48,476 |
