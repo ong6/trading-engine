@@ -31,6 +31,7 @@ from lib import db  # noqa: E402
 from . import calendar, fills, portfolio  # noqa: E402
 from .schema import INITIAL_CASH, init_sim_schema  # noqa: E402
 from .strategies import PortfolioView, get_strategy  # noqa: E402
+from .strategies.base import total_return_between  # noqa: E402
 from .strategies.configs import CONFIGS  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -239,13 +240,11 @@ def _fmt_pct(v) -> str:
 
 
 def _spy_return(con, inception: date, d: date):
-    a = con.execute("SELECT close FROM prices WHERE ticker='SPY' AND date <= ? "
-                    "ORDER BY date DESC LIMIT 1", [inception]).fetchone()
-    b = con.execute("SELECT close FROM prices WHERE ticker='SPY' AND date <= ? "
-                    "ORDER BY date DESC LIMIT 1", [d]).fetchone()
-    if not a or not b or not a[0]:
-        return None
-    return b[0] / a[0] - 1
+    """SPY TOTAL return since a book's inception — price plus the dividends that
+    went ex in the window. The books now receive their own dividends as cash
+    (day-step phase a0), so a price-only benchmark would flatter every book by
+    SPY's ~1.2%/yr yield. The league column stays labelled "vs SPY"."""
+    return total_return_between(con, "SPY", inception, d)
 
 
 def write_reports(con, d: date, data_dir: Path) -> Path:
