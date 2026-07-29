@@ -436,7 +436,11 @@ conflict; execution design §7 has exit criteria).
   * *BIL sanity (real fetch, SPY/EFA/BIL).* 12-mo (252-session) as of 2026-07-28:
     **BIL price −0.09% vs total +3.72%** (12 distributions, $3.489/sh; research reference was
     −0.1% / +3.8% with the 3-mo T-bill at 3.91% — same ballpark). SPY **+16.29% → +17.47%**
-    (+1.18%, the ~1.2%/yr yield). EFA **+14.48% → +18.19%**. The GEM hurdle is real again.
+    (+1.18%, the ~1.2%/yr yield). EFA **+14.48% → +18.19%**. The GEM hurdle is real again —
+    and note this is not merely a magnitude correction: on price return SPY (+16.29%) beat
+    EFA (+14.48%), but on total return **EFA (+18.19%) beats SPY (+17.47%)**, because EFA's
+    ~3.7% yield is triple SPY's. The fix therefore FLIPS which asset dual_momentum selects on
+    Friday 07-31. Post-merge verification of the same numbers on the live store confirms it.
   * *Regression.* No repo pytest suite exists (checked). `sim/backtest_shakedown.py --start 25`
     on sim-cleared copies, run on `master` and on the branch: both exit 0, 0 tracebacks, and
     the final 16-book equity/fill/open table is **byte-identical** (`diff` empty) — the copy
@@ -469,6 +473,19 @@ conflict; execution design §7 has exit criteria).
   (iv) *Dividends are credited as unreinvested cash* (documented v1 approximation in
   `total_return`'s docstring); this matches how the books actually behave, since sim dividend
   cash is only redeployed at the next rebalance.
+  **Post-merge live-store dry run (03:25–03:30 UTC, ~19 h before cron).** Because the reconcile
+  stage is FATAL and sits in front of the league, both nightly commands were run by hand
+  against the real store exactly as `run_daily.sh` will run them, rather than discovering a
+  surprise at 22:30. `actions.py --mode incremental`: 77 names, 0 failed, 41 s.
+  `actions.py --mode reconcile`: exit 0 in 1.3 s, 36 candidates → 32 `noop_restated`,
+  3 `skipped_ambiguous` (PRK 1.05:1 ×2, XLF 1.231:1 — all sub-threshold ratios), 1
+  `skipped_sanity` (ARWR 0.0153846:1 ex-2004, observed 1.6 — Yahoo's row disagrees with our
+  bars, correctly left alone), **rows_restated = 0**; tripwire silent. Verified afterwards
+  read-only: live `prices` untouched (`SUM(rows_restated) = 0`), `sim_positions` unchanged
+  (42 rows, ATEX still 41.6396 / 38.3144 / 73.5341), 36 splits + 1,839 dividends stored,
+  SPY/EFA/BIL/XL* all with full dividend history. A second reconcile exits 0 with 0
+  candidates, so tonight's stage is a fast no-op over this set and only adjudicates whatever
+  is new.
   (v) *A split adjudicated `noop_restated` does not adjust sim positions* — correct today
   because the nightly reconcile decides every split within a session of its ex-date, well
   inside the 5-day refetch window, but it is the assumption that would break if the nightly
