@@ -2,7 +2,16 @@
 
 Monthly: pick the 12-month (252-session) total-return winner of the risk assets;
 hold it 100% if it beats BIL's 12-mo return, else go to cash. If BIL is missing
-its return is taken as 0 (cash earns nothing) — never fabricated. The regime gate
+its return is taken as 0 (cash earns nothing) — never fabricated.
+
+`total_return` here is a real TOTAL return (price + dividends going ex in the
+window), not a price return. This matters more for this book than any other: the
+absolute hurdle is BIL, whose price is flat by construction and whose entire
+return is coupon. On a price-only basis the hurdle silently degenerated from
+"beat the ~4% T-bill" to "beat 0" — i.e. the defensive half of GEM did nothing.
+Reference (2026-07-28/29): BIL 12-mo price return ≈ −0.1%, total ≈ +3.8%.
+
+The regime gate
 (if configured) also forces cash while risk-off; since GEM already exits to cash
 in weak tapes the gate rarely binds.
 """
