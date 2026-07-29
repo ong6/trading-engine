@@ -1,6 +1,6 @@
 # SPY Buy & Hold (`spy_benchmark`) — historical windows
 
-_strategy `spy_benchmark` · cadence once · generated 2026-07-29 07:55 UTC_
+_strategy `spy_benchmark` · cadence once · generated 2026-07-29 07:56 UTC_
 
 ## Disclosures — read before any number below
 
