@@ -76,6 +76,11 @@ conflict; execution design §7 has exit criteria).
 - 2026-07-16 · Universe kept at 12,209 (incl. 5,549 ETFs) — spec keeps ETFs explicitly; the liquidity floor is the real boundary (~4-6k expected liquid).
 - 2026-07-16 · tmux not installed on box — loop continuity is via the agent scheduler instead; noted, not blocking.
 
+- 2026-07-29 · **D3 — `prices` is a CACHE of Yahoo's split-adjusted view, not a point-in-time table.** Controlled, audited, watermarked restatement is how that cache stays internally coherent, and it is the ONLY internally consistent policy short of re-architecting collection: our stored history is already Yahoo-back-adjusted as of each row's fetch date, and every incremental re-fetch arrives restated, so there is no raw series to preserve. The professional alternative (QuantConnect LEAN / Quantopian — keep truly-raw prices append-only, derive an adjusted VIEW from cumulative factors) was considered and rejected for that reason. **The append-only guardrail is unchanged and still applies in full to every `as_of`-stamped point-in-time table** (screen_results, fundamentals, universe_snapshot, earnings_calendar, intraday_prices, and the new corporate_actions). Restatement writes an `audit_log` row and a `split_adjustments` watermark row, so it is exactly-once and fully traceable.
+- 2026-07-29 · **D3b — the split's price boundary and its fill boundary are different, on purpose.** Prices are restated at the `break_date` located in the stored series (the nightly 5-day re-fetch restates the tail, so a late-spotted split's break sits at the refetch edge, not at the ex-date — restating `date < ex_date` would double-adjust). Fills are compensated at the `ex_date`, because a fill before the ex-date was economically executed at pre-split prices whatever the storage boundary turned out to be.
+- 2026-07-29 · **D4 — `--rerun` rebuild semantics: state is a pure function of (sim_fills, sim_dividends).** `rebuild_state` replays both, ordered by date with dividends BEFORE fills within a date — exactly the live phase-a0-then-phase-a order, so `apply_fill`'s cash-bounded buy clamp sees an identical cash trajectory and never re-clamps a stored fill. Fills before an APPLIED split's ex-date replay at qty×ratio / px÷ratio (notional invariant). Dividends replay at their RECORDED amount: the cash was received at the share count of the day and a later split does not retroactively change what was paid.
+- 2026-07-29 · **D6 — the actions FETCH is warn-and-continue, the RECONCILE is FATAL.** The fetch is a network call and a night with no fresh actions data is not a night with wrong data: the reconciler still adjudicates everything already stored, and the >40%-move tripwire is independent of the fetch. The reconcile is deliberately un-`||`-guarded under `set -e` — if it cannot run we do not know whether the price scale the league is about to trade on is coherent, and trading on a broken scale is strictly worse than skipping a night. A `skipped_sanity` verdict is NOT a failure: it is the designed never-guess outcome and surfaces as a TODO breadcrumb plus an audit_log row.
+
 - 2026-07-16 · **Backfill 100% done**: 4,121 liquid names (incl. HAL via bounded start-date workaround for a yfinance period=max glitch), 19.8M rows, 1.2 GB store/. 3 retry passes; remaining failures = 0.
 - 2026-07-16 · **First full-DB screen**: 3,879 screened (239 short-history skipped honestly) → 629 passing, regime risk-on, 2.8s runtime. Output shape/values sane (leveraged AMD ETFs + hot small caps at RS 99; DELL 98 tight base). 111 eod/ files.
 - 2026-07-16 · **Incremental collect proven on real DB**: 4,113/4,118 with data, 5 failed, 3.3 min.
@@ -359,6 +364,115 @@ conflict; execution design §7 has exit criteria).
   Tonight's nightly `--init` creates the six books (created=07-28); their first signals:
   daily books tonight, monthly books Fri 07-31.
 
+- 2026-07-29 · **Corporate actions (splits + dividends) built, proven on throwaway copies and
+  merged to `master` ahead of tonight's cron** (branch `corporate-actions`, commits `9128516`
+  schema → `cd92941` collector+reconciler → `ca1af0a` dividend crediting → `d86cfdf`
+  total-return signals → `f08b799` nightly wiring → `400fa67` shakedown → `4d4e1e9` log cap,
+  merged `d5cc1c1`). Closes two silent-corruption holes found by the 07-29 audit.
+  **(1) Splits.** `collect.py` fetches `auto_adjust=False`, but Yahoo restates raw OHLC at
+  fetch time while incremental collection only re-fetches `period="5d"` with INSERT OR
+  REPLACE. So the first split in any stored name leaves a PERMANENT scale break ~5 sessions
+  back: every lookback crossing it (SMA200, RS ranks, 55d breakout, ATR, 252d vol, 52wk high,
+  3/6/12-mo returns) silently corrupts, and because `sim_positions.qty`/`avg_cost` were never
+  adjusted, held books took a fake ~(1−1/ratio) crash that fires false stops.
+  **(2) Dividends did not exist anywhere** — books never received distribution cash, so every
+  long book undercounted total return. Worst case was `dual_momentum`'s absolute hurdle
+  "12-mo return vs BIL": BIL's price is flat by construction and its whole return is coupon,
+  so on a price basis the hurdle had degenerated from "beat the ~4% T-bill" to "beat 0" —
+  i.e. the defensive half of GEM was inert. Its first live monthly signal is **Fri 07-31**,
+  which is why this landed today.
+  New `engine/actions.py` (three modes, one §12.7 job kind `actions`): `backfill` = full
+  split/dividend history for every ticker in `prices`, resumable off `actions_fetch_log`;
+  `incremental` = held ∪ pending ∪ core ETFs (SPY/EFA/BIL + 11 XL*) ∪ screen-top-50, seconds
+  per night; `reconcile` = adjudicate and restate. New tables `corporate_actions`,
+  `split_adjustments` (the watermark), `actions_fetch_log`, `sim_dividends`. Nightly order is
+  now collect → universe → screen → **actions incremental → split reconcile** → league →
+  sync → farm. `base.total_return` is now a real total return and the old price-only function
+  it displaced was renamed `price_return`; `dual_momentum`, `sector_momentum` and league's
+  vs-SPY column moved over, and `screen.py` was deliberately left alone (52wk ratio, vol, RS,
+  ATR, breakouts are conventionally price-based).
+  **The reconciler never guesses.** A split is applied only when the STORED series actually
+  shows the break, and the break is *located* by scanning one-session close ratios around the
+  ex-date rather than assumed to sit at the ex-date — because the nightly 5-day re-fetch
+  restates the tail too, so a split spotted 2–3 sessions late has its break at the EDGE OF
+  THE REFETCH WINDOW and restating `date < ex_date` would double-adjust the bars between.
+  Readings matching neither hypothesis (break present / already restated) are recorded
+  `skipped_sanity` with an audit_log row and a nightly TODO breadcrumb, and left for a human;
+  ratios inside [0.694, 1.44] are ambiguous by construction and skipped rather than guessed.
+  An INDEPENDENT tripwire, not gated on the actions fetch at all, WARNs on any held/pending
+  name with a >40% one-session move and no corporate_actions row within ±7d.
+  **Evidence — all five proofs green, live store never opened read-write by any test.**
+  * *Synthetic split (3-arm A/B/C on identical copies).*
+    `python -m sim.corp_actions_shakedown --db-prefix <scratch>/ca --data-dir <scratch>/data
+    --setup-from store/market.duckdb`. A = one extra synthetic session, all bars carried flat.
+    B = same but ATEX's new bar arrives at the post-2:1 scale with nothing reconciling it
+    (the bug). C = same plus the corporate_actions row and the reconciler.
+    B vs A: `mr_overlay 39,003.22 → 37,100.91 (−1,902.31)`, `template_top5 32,327.10 →
+    28,967.69 (−3,359.41)` — the fake crash, reproduced. C vs A: **every one of the 17 books
+    diff 0.00, order sets identical** (`RESULT: IDENTICAL`). Reconcile log:
+    `RESTATED ATEX split 2:1 ex=2026-07-29 break=2026-07-29 rows=2887 (obs 2.0000)`;
+    `OK qty x2, avg_cost /2 on 6 position(s)`; audit_log `split_restated {...
+    "rows_restated": 2887}`; second pass `candidates=0`, state byte-identical (idempotent).
+  * *The subtle one, caught and fixed:* `--rerun` rebuilds positions by replaying `sim_fills`,
+    and every stored ATEX fill executed at the PRE-split scale — so a naive `rebuild_state`
+    silently un-does the reconciler and the fake crash returns on the next re-run of a date.
+    `rebuild_state` now scales pre-ex-date fills by the applied ratio (notional and therefore
+    the cash trajectory unchanged, so `apply_fill`'s cash clamp never re-clamps). Proven both
+    ways: with the fix `template_top5 ATEX qty=147.068236 avg_cost=52.078000` survives a
+    `--rerun`; **negative control** (monkeypatch `_split_factors` to `{}`) fires the assertion
+    and reverts it to `73.534118 / 104.156`.
+  * *Dividend.* Arm D, differenced against the control arm because the step day also fills 20
+    carried-over orders. A synthetic $1.00/sh on ATEX: **cash AND equity moved by exactly the
+    entitlement for all 17 books (6 paid, 11 at 0.00)** — e.g. `template_top5 73.534118 sh ×
+    $1.00 = $73.534118` credited and stored in `sim_dividends`; `--rerun` reproduces identical
+    state and ledger; `rebuild_state` replays fills+dividends to the same cash and positions.
+  * *Real-data nightly-equivalent.* The run_daily stage sequence (screen → actions incremental
+    → reconcile → league, real 2026-07-28 bars, `--rerun` so nothing `--skip-if-done`-no-ops;
+    universe/collect skipped as pure-network stages with no `--db` flag) on a copy: **exit 0,
+    0 tracebacks, league.md renders all 17 books.** Real Yahoo pull of 77 names; reconcile
+    adjudicated **36 real historical splits → 32 `noop_restated`, 3 `skipped_ambiguous`,
+    1 `skipped_sanity`, rows_restated=0.**
+  * *BIL sanity (real fetch, SPY/EFA/BIL).* 12-mo (252-session) as of 2026-07-28:
+    **BIL price −0.09% vs total +3.72%** (12 distributions, $3.489/sh; research reference was
+    −0.1% / +3.8% with the 3-mo T-bill at 3.91% — same ballpark). SPY **+16.29% → +17.47%**
+    (+1.18%, the ~1.2%/yr yield). EFA **+14.48% → +18.19%**. The GEM hurdle is real again.
+  * *Regression.* No repo pytest suite exists (checked). `sim/backtest_shakedown.py --start 25`
+    on sim-cleared copies, run on `master` and on the branch: both exit 0, 0 tracebacks, and
+    the final 16-book equity/fill/open table is **byte-identical** (`diff` empty) — the copy
+    has no corporate_actions rows so `total_return` degrades to `price_return` exactly as
+    designed. Note: the shakedown fails on a *raw* copy of the live store on master too
+    (pending 07-28 orders vs a 06-23 window trip the look-ahead assert) — pre-existing, not a
+    regression; it needs sim state cleared, which is its documented usage.
+  **First-run safety, the thing that could have destroyed the store.** A watermark-only design
+  would treat every historical split as unreconciled on first run and divide prices repeatedly.
+  Because adjudication is driven by what the stored series actually shows, real history reads
+  as already-restated and is marked no-op: BIL's genuine 1:2 reverse split (2017-11-30) and
+  EFA's 3:1 (2005-06-09) both came back `noop_restated`, **rows_restated=0**, with BIL's closes
+  flat at ~91.48 across the ex-date. Also verified the D3 dividend share-basis question on
+  those two names: dps/price per payment stays the same order of magnitude on both sides of a
+  later split (BIL 0.0022–0.4431% pre vs 0.0033–0.4615% post; EFA 0.07–1.91% pre vs
+  0.21–2.55% post), confirming yfinance back-adjusts dividends for later splits to the same
+  scale our restated prices use.
+  Reconcile costs **17.4 ms/candidate** (36 candidates in 0.63s), so the one-time pass over
+  the full backfill's split history extrapolates to ~3 min for 10k splits — safe in front of
+  the league even though that stage is fatal.
+  **KNOWN LIMITATIONS (documented, deliberately not built now):**
+  (i) *Delisting / merger cash-outs.* A position in a name that stops printing freezes at its
+  last close after the 3-day `no_bar` window; real practice credits the deal price. Needs a
+  manual/assisted path — not attempted, because inventing a cash-out price is exactly the
+  fabrication the mission forbids.
+  (ii) *Idle cash earns 0%.* Broker-realistic and deliberate; the BIL opportunity cost is
+  visible via the benchmarks now that BIL's total return is honest.
+  (iii) *`intraday_prices` is not restated* by the reconciler — it is a raw append-only
+  archive, not a signal source, and no strategy reads it.
+  (iv) *Dividends are credited as unreinvested cash* (documented v1 approximation in
+  `total_return`'s docstring); this matches how the books actually behave, since sim dividend
+  cash is only redeployed at the next rebalance.
+  (v) *A split adjudicated `noop_restated` does not adjust sim positions* — correct today
+  because the nightly reconcile decides every split within a session of its ex-date, well
+  inside the 5-day refetch window, but it is the assumption that would break if the nightly
+  stopped running for a week across a split in a held name.
+
 ## Next
 
 1. ~~Verify the miners bootstrap~~ **DONE 2026-07-18 pm** (see above — fundamentals 4,118,
@@ -393,6 +507,30 @@ conflict; execution design §7 has exit criteria).
    runtime-created rows are the seam to watch. Also confirm mr_overlay's behavior change
    post calendar-fix (holds now reach up to 10 sessions; its pre-fix record was effectively
    1-day holds — noted in its forward interpretation).
+9. **Corporate-actions backfill is enqueued as job 18** (`actions`, priority 130, params
+   `{"mode": "backfill"}`) — the farm drains it at the tail of tonight's 2026-07-29 nightly,
+   after intraday and earnings. ~12,105 distinct tickers in `prices` at ~0.5 s/name ≈ **1.5–2 h**
+   (same throughput class as earnings), inside the 4 h drain budget and resumable off
+   `actions_fetch_log` if it is interrupted — per the 07-18/07-24 lesson, if it has to be
+   restarted by hand use `nohup` or a harness-tracked background shell, never a bare `&`.
+   **Watch for on Thursday 07-30:** (a) the backfill lands thousands of historical splits, so
+   *Thursday's* reconcile is the big one-time adjudication pass — expect a burst of
+   `skipped_ambiguous`/`skipped_sanity` TODO lines (capped at 20 in the log, all of them in
+   `audit_log WHERE actor='actions.reconcile'`) and expect `rows_restated=0`, since real
+   history reads as already-restated; a NON-zero rows_restated on a name we hold deserves an
+   immediate look. (b) That pass is measured at 17.4 ms/candidate (~3 min for 10k splits) but
+   it now sits in front of the league on a FATAL stage — if it ever grows past a few minutes,
+   move it behind the league or make it incremental by ex_date.
+10. **Fri 2026-07-31 is now the payoff night for this work** — `dual_momentum`'s first-ever
+   live monthly signal runs against a REAL BIL hurdle (+3.72% total vs −0.09% price) instead
+   of the degenerate "> 0" one, and `sector_momentum`'s first signal ranks the SPDR sleeves on
+   total return. Confirm in the log that the actions stage ran before the league and that
+   BIL/SPY/EFA/XL* all have current dividend rows; sanity-check that whichever sleeve GEM
+   picks is consistent with the printed 12-mo total returns.
+11. `engine/collect.py` still fetches `auto_adjust=False` + `period="5d"` INSERT OR REPLACE.
+   That is now *handled* (the reconciler is the compensating control) rather than fixed at
+   source. If collection is ever re-architected, the cleaner design is a periodic full
+   re-fetch per name, which would make restatement unnecessary — worth revisiting, not urgent.
 6. Latent fragility (audit finding, not currently triggerable): a portfolio row with
    NULL/non-JSON `config` crashes the league stage — `generate_all` does
    `json.loads(cfg_json)` unguarded (league.py:148). Both insert sites always write JSON
