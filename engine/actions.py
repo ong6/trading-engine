@@ -95,6 +95,7 @@ SEARCH_AFTER = 10          # sessions after ex_date to scan for the break
 # Independent tripwire: a one-session move beyond this with no action row nearby.
 TRIPWIRE_MOVE = 0.40
 TRIPWIRE_NEAR_DAYS = 7     # a corporate_actions row within ±N days explains it
+TODO_LOG_CAP = 20          # TODO breadcrumbs printed per run (audit_log has all)
 
 
 # --------------------------------------------------------------------------- #
@@ -512,9 +513,15 @@ def reconcile(con) -> dict:
                "outcomes": counts, "warnings": len(todos)}
     print(f"[actions] reconcile DONE: {counts or '{}'} rows_restated={restated_rows}")
     if todos:
+        # The first reconcile after a full backfill adjudicates the entire split
+        # history of ~12k names at once, so the never-guess skips arrive as a
+        # one-time burst. Cap the nightly log; audit_log has every one of them.
         print(f"TODO: corporate actions need review ({len(todos)}):")
-        for t in todos:
+        for t in todos[:TODO_LOG_CAP]:
             print(f"TODO:   {t}")
+        if len(todos) > TODO_LOG_CAP:
+            print(f"TODO:   … and {len(todos) - TODO_LOG_CAP} more — full list in "
+                  f"audit_log (actor='actions.reconcile')")
     return summary
 
 
