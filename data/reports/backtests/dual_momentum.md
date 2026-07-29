@@ -1,6 +1,6 @@
 # Dual Momentum (GEM) (`dual_momentum`) — historical windows
 
-_strategy `dual_momentum` · cadence monthly · generated 2026-07-29 07:41 UTC_
+_strategy `dual_momentum` · cadence monthly · generated 2026-07-29 07:55 UTC_
 
 ## Disclosures — read before any number below
 
@@ -47,7 +47,8 @@ _strategy `dual_momentum` · cadence monthly · generated 2026-07-29 07:41 UTC_
 
 | Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| dual_momentum | 2026-01-16→2026-07-16 | +5.43% | +11.27% | +17.48% | 0.71 | 0.50 | −11.42% | −7.82% | +0.73% | −5.01% | 5 |
+| dual_momentum | 2026-01-16→2026-07-16 | +5.43% | +11.27% | +17.48% | +0.71 | +0.50 | −11.42% | −7.82% | +0.73% | −5.01% | 5 |
+| dual_momentum | 2025-07-16→2026-07-16 | +25.48% | +25.50% | +14.61% | +1.63 | +1.37 | −11.42% | −7.83% | −19.89% | +4.30% | 10 |
 
 ## Equity-curve detail
 
@@ -66,3 +67,25 @@ _strategy `dual_momentum` · cadence monthly · generated 2026-07-29 07:41 UTC_
 | 2026-05 | $41,329 |
 | 2026-06 | $40,903 |
 | 2026-07 | $41,120 |
+
+### 1y — 2025-07-16 → 2026-07-16
+
+- sessions 252 · fills 10 · rejected orders 0 · dividend credits 3 ($1,018)
+- equity $39,000 → $48,936 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
+- replay runtime 11.1s (screen 0.0s, day-steps 6.9s) · screen rows 0 · dividend rows in force 1837
+
+| Month | Equity |
+|---|---|
+| 2025-07 | $39,000 |
+| 2025-08 | $40,118 |
+| 2025-09 | $41,550 |
+| 2025-10 | $42,541 |
+| 2025-11 | $42,964 |
+| 2025-12 | $44,123 |
+| 2026-01 | $46,278 |
+| 2026-02 | $48,409 |
+| 2026-03 | $44,620 |
+| 2026-04 | $47,004 |
+| 2026-05 | $49,186 |
+| 2026-06 | $48,679 |
+| 2026-07 | $48,936 |

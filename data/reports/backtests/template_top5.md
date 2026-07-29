@@ -1,6 +1,6 @@
 # Template Top 5 (`template_top5`) — historical windows
 
-_strategy `template_top5` · cadence weekly · generated 2026-07-29 07:41 UTC_
+_strategy `template_top5` · cadence weekly · generated 2026-07-29 07:55 UTC_
 
 ## Disclosures — read before any number below
 
@@ -47,8 +47,8 @@ _strategy `template_top5` · cadence weekly · generated 2026-07-29 07:41 UTC_
 
 | Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| template_top5 | 2026-01-16→2026-07-16 | −3.32% | −6.58% | +85.75% | 0.35 | 0.31 | −37.76% | −21.38% | −8.02% | −13.76% | 169 |
-| template_top5 | 2025-07-16→2026-07-16 | +30.63% | +30.66% | +73.19% | 0.74 | 0.68 | −37.76% | −21.39% | · | +9.45% | 340 |
+| template_top5 | 2026-01-16→2026-07-16 | −3.32% | −6.58% | +85.75% | +0.35 | +0.31 | −37.76% | −21.38% | −8.02% | −13.76% | 169 |
+| template_top5 | 2025-07-16→2026-07-16 | +30.63% | +30.66% | +73.19% | +0.74 | +0.68 | −37.76% | −21.39% | −14.73% | +9.45% | 340 |
 
 ## Equity-curve detail
 

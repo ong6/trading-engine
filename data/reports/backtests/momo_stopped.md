@@ -1,6 +1,6 @@
 # Momentum Top 10 (stop-managed) (`momo_stopped`) — historical windows
 
-_strategy `momo_stopped` · cadence daily · generated 2026-07-29 07:41 UTC_
+_strategy `momo_stopped` · cadence daily · generated 2026-07-29 07:55 UTC_
 
 ## Disclosures — read before any number below
 
@@ -47,7 +47,8 @@ _strategy `momo_stopped` · cadence daily · generated 2026-07-29 07:41 UTC_
 
 | Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| momo_stopped | 2026-01-16→2026-07-16 | −6.05% | −11.84% | +84.18% | 0.28 | 0.24 | −34.15% | −27.95% | −10.75% | −16.50% | 380 |
+| momo_stopped | 2026-01-16→2026-07-16 | −6.05% | −11.84% | +84.18% | +0.28 | +0.24 | −34.15% | −27.95% | −10.75% | −16.50% | 380 |
+| momo_stopped | 2025-07-16→2026-07-16 | +7.69% | +7.70% | +68.58% | +0.46 | +0.40 | −33.64% | −27.94% | −37.67% | −13.48% | 748 |
 
 ## Equity-curve detail
 
@@ -66,3 +67,25 @@ _strategy `momo_stopped` · cadence daily · generated 2026-07-29 07:41 UTC_
 | 2026-05 | $48,431 |
 | 2026-06 | $50,850 |
 | 2026-07 | $36,640 |
+
+### 1y — 2025-07-16 → 2026-07-16
+
+- sessions 252 · fills 748 · rejected orders 10 · dividend credits 0 ($0)
+- equity $39,000 → $42,001 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
+- replay runtime 51.3s (screen 6.3s, day-steps 40.6s) · screen rows 160706 · dividend rows in force 1837
+
+| Month | Equity |
+|---|---|
+| 2025-07 | $35,036 |
+| 2025-08 | $34,022 |
+| 2025-09 | $38,438 |
+| 2025-10 | $42,122 |
+| 2025-11 | $35,633 |
+| 2025-12 | $36,614 |
+| 2026-01 | $43,246 |
+| 2026-02 | $47,337 |
+| 2026-03 | $37,513 |
+| 2026-04 | $46,392 |
+| 2026-05 | $55,511 |
+| 2026-06 | $58,287 |
+| 2026-07 | $42,001 |

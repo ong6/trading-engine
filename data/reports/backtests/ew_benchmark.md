@@ -1,6 +1,6 @@
 # Equal-Weight Benchmark (`ew_benchmark`) — historical windows
 
-_strategy `ew_benchmark` · cadence monthly · generated 2026-07-29 07:41 UTC_
+_strategy `ew_benchmark` · cadence monthly · generated 2026-07-29 07:55 UTC_
 
 ## Disclosures — read before any number below
 
@@ -47,7 +47,8 @@ _strategy `ew_benchmark` · cadence monthly · generated 2026-07-29 07:41 UTC_
 
 | Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| ew_benchmark | 2026-01-16→2026-07-16 | +4.70% | +9.72% | +62.38% | 0.46 | 0.41 | −25.57% | −23.55% | +0.00% | −5.74% | 419 |
+| ew_benchmark | 2026-01-16→2026-07-16 | +4.70% | +9.72% | +62.38% | +0.46 | +0.41 | −25.57% | −23.55% | +0.00% | −5.74% | 419 |
+| ew_benchmark | 2025-07-16→2026-07-16 | +45.36% | +45.40% | +53.33% | +0.97 | +0.90 | −27.50% | −23.57% | +0.00% | +24.18% | 857 |
 
 ## Equity-curve detail
 
@@ -66,3 +67,25 @@ _strategy `ew_benchmark` · cadence monthly · generated 2026-07-29 07:41 UTC_
 | 2026-05 | $52,785 |
 | 2026-06 | $53,415 |
 | 2026-07 | $40,834 |
+
+### 1y — 2025-07-16 → 2026-07-16
+
+- sessions 252 · fills 857 · rejected orders 1 · dividend credits 0 ($0)
+- equity $39,000 → $56,692 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
+- replay runtime 48.0s (screen 6.3s, day-steps 37.3s) · screen rows 160706 · dividend rows in force 1837
+
+| Month | Equity |
+|---|---|
+| 2025-07 | $39,000 |
+| 2025-08 | $41,686 |
+| 2025-09 | $48,875 |
+| 2025-10 | $54,171 |
+| 2025-11 | $48,627 |
+| 2025-12 | $48,191 |
+| 2026-01 | $54,683 |
+| 2026-02 | $55,827 |
+| 2026-03 | $48,537 |
+| 2026-04 | $60,254 |
+| 2026-05 | $73,304 |
+| 2026-06 | $74,179 |
+| 2026-07 | $56,692 |
