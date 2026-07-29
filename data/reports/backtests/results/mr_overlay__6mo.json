@@ -1,0 +1,63 @@
+{
+  "bil_coverage": 1.0,
+  "cadence": "daily",
+  "cagr": 0.13738811054063005,
+  "clamped_to_data_floor": false,
+  "config_id": "mr_overlay",
+  "corporate_actions_dividend_rows": 1837,
+  "dividend_cash": 0.0,
+  "end_date": "2026-07-16",
+  "equity_end": 41569.060670619096,
+  "equity_start": 39000.0,
+  "max_dd": -0.08959918978475234,
+  "monthly_equity": [
+    [
+      "2026-01",
+      39809.96520132699
+    ],
+    [
+      "2026-02",
+      42027.88424015819
+    ],
+    [
+      "2026-03",
+      41602.70749900296
+    ],
+    [
+      "2026-04",
+      41662.089650201175
+    ],
+    [
+      "2026-05",
+      41194.24865769157
+    ],
+    [
+      "2026-06",
+      41930.023607768606
+    ],
+    [
+      "2026-07",
+      41569.060670619096
+    ]
+  ],
+  "n_dividend_credits": 0,
+  "n_fills": 237,
+  "n_rejected": 0,
+  "n_sessions": 124,
+  "name": "Mean-Reversion Overlay",
+  "runtime_s": 84.8,
+  "screen_rows": 85638,
+  "screen_s": 4.9,
+  "screen_source": "hist",
+  "sharpe": 0.7748319477682214,
+  "sharpe_ex_bil": 0.5900452494323887,
+  "start_date": "2026-01-16",
+  "step_s": 76.1,
+  "strategy": "mr_overlay",
+  "total_return": 0.06587335052869481,
+  "vol_ann": 0.19229457367246258,
+  "window": "6mo",
+  "window_end_target": "2026-07-16",
+  "worst_month": -0.011229417353705529,
+  "years": 0.49555099247091033
+}
