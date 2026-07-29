@@ -2,6 +2,8 @@
 """M2 paper league — one idempotent day-step over the mock portfolios.
 
 For a given date d the step runs in this fixed order:
+  a0. Credit cash dividends going ex on d (portfolio.credit_dividends). Runs
+      FIRST so entitlement is the position held at the close of d−1.
   a. Fill pending orders at d's OPEN (fills.py; t+1-open, slippage, guards).
   b. Mark every portfolio to market at d's CLOSE → append sim_equity.
   c. Generate new orders from d's close signals, per each strategy's cadence.
@@ -317,7 +319,8 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
 def rerun_cleanup(con, d: date) -> None:
     """Delete date d's sim rows, then rebuild cash/positions from surviving fills.
 
-    - sim_equity[d] and sim_fills[fill_date=d] are deleted.
+    - sim_equity[d], sim_fills[fill_date=d] and sim_dividends[ex_date=d] are
+      deleted (the day's dividend credits are re-paid by the re-run's phase a0).
     - Orders created on d (signal_date=d) are deleted.
     - Orders that filled on d now have no surviving fill → reset to pending so
       the re-run re-attempts them.
@@ -327,6 +330,7 @@ def rerun_cleanup(con, d: date) -> None:
     """
     con.execute("DELETE FROM sim_equity WHERE date = ?", [d])
     con.execute("DELETE FROM sim_fills WHERE fill_date = ?", [d])
+    con.execute("DELETE FROM sim_dividends WHERE ex_date = ?", [d])
     con.execute("DELETE FROM sim_orders WHERE signal_date = ?", [d])
     con.execute(
         "UPDATE sim_orders SET status = 'pending', reject_reason = NULL "
@@ -372,6 +376,7 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
             rerun_cleanup(con, d)
             if verbose:
                 print(f"[league] --rerun: cleared {d} sim rows, rebuilt state")
+        dv = portfolio.credit_dividends(con, d)
         fc = fill_pending(con, d)
         mtm_all(con, d)
         nn = generate_all(con, d)
@@ -382,8 +387,10 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
 
     md_path = write_reports(con, d, data_dir)
     if verbose:
+        div_note = (f" divs={dv['credited']}/${dv['amount']:,.2f}"
+                    if dv["credited"] else "")
         print(f"[league] {d}: fills={fc['filled']} rejected={fc['rejected']} "
-              f"still_pending={fc['pending']} new_orders={nn} → {md_path}")
+              f"still_pending={fc['pending']} new_orders={nn}{div_note} → {md_path}")
     return 0
 
 
@@ -391,6 +398,7 @@ def run(db_path: str, data_dir: Path, requested_date: str | None,
         do_init: bool, rerun: bool, skip_if_done: bool = False) -> int:
     con = db.connect(db_path)
     db.init_schema(con)
+    db.init_actions_schema(con)   # dividends are read by phase a0 / total_return
     init_sim_schema(con)
     d = resolve_date(con, requested_date)
 
