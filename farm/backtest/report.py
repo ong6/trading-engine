@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -35,10 +35,13 @@ DISCLOSURES = """\
    for a screen-driven book. That is WHY the primary comparison here is
    **vs EW (same universe, same screen)** — the bias is largely common to both
    sides of that difference. Absolute CAGR is context, not evidence.
-   (Measured in passing while proving the screen: re-screening 2026-07-15 today
-   drops 6 names that were in the live universe that day — SBIL, NSA, NOWL,
-   AVNS, TMHC, CCRN — i.e. the survivor filter is visibly at work over
-   two weeks, never mind fifteen years.)
+   Two measurements of the size of the problem, both taken while building this:
+   (i) re-screening **2026-07-15** today drops 6 names that were in the live
+   universe that day — SBIL, NSA, NOWL, AVNS, TMHC, CCRN — the survivor filter
+   visibly at work over *two weeks*; (ii) the screen's eligible universe in
+   **July 2011** is **1,237 names against 3,873 today**, and every one of those
+   1,237 is a name that was still listed in 2026. The 2011 cross-section is not
+   the 2011 market; it is the part of the 2011 market that survived.
 2. **In-sample context, not out-of-sample evidence.** These configs are the
    league's pre-registered books, replayed as written — one variant per book, no
    sweep, nothing fitted here. But they were chosen by a human who has seen this
@@ -89,7 +92,7 @@ def _pct(v) -> str:
 def _num(v) -> str:
     if v is None or (isinstance(v, float) and v != v):
         return "·"
-    return f"{v:.2f}"
+    return f"{'+' if v >= 0 else '−'}{abs(v):.2f}"
 
 
 def _row(r: dict, bench: dict[str, dict]) -> str:

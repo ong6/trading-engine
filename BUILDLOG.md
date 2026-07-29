@@ -604,6 +604,83 @@ conflict; execution design §7 has exit criteria).
   deferred, personal hardware only. Not wired into the nightly on purpose (streak at 3/7,
   monthly debut Friday) — run manually or from the weekly review.
 
+- 2026-07-29 (pm) · **Historical-backtest farm built — the league books replayed over 6mo/1y/
+  3y/5y/15y windows, on scratch copies, by their own live code** (design §12.3; Next #13(b)
+  first workload). New package `farm/backtest/`: `hist_screen.py` (vectorized point-in-time
+  screen), `replay.py` (per-(book, window) scratch build + real league day-step loop),
+  `stats.py`, `report.py`, `grid.py`, `proofs.py`; `engine/queue_runner.py` gains the
+  `backtest` job kind. **`engine/run_daily.sh`, `sim/league.py`, `sim/fills.py` and every
+  strategy file are untouched** — the replay drives them, it does not fork them.
+  **The two design calls that make this honest.**
+  (D-BF1) *Vectorize the SCREEN, never the STRATEGY.* The expensive part of a 15-year
+  replay is recomputing `screen_results` for 3,775 sessions; the part that would quietly
+  invalidate the whole exercise is reimplementing what a book does. So `hist_screen.py`
+  recomputes the screen set-based in DuckDB — window frames over each ticker's own bar
+  sequence, which IS the live screener's positional semantics (`closes[-50:]` ==
+  `AVG(close) OVER (… ROWS 49 PRECEDING)`) — and everything downstream is the production
+  code path: `league.init_portfolios`, `league.step`, `fills.attempt_fill`,
+  `portfolio.credit_dividends`, the real strategy classes. A replay is 5 s of screen and N
+  day-steps, not a second engine.
+  (D-BF2) *Slim scratch, live store read-only.* Each job exports parquet from the live
+  connection (SELECT / COPY TO only — never a write), loads it into
+  `scratch/<book>__<window>/replay.duckdb` (prices trimmed to the window + 460 sessions of
+  warmup, actions, universe, fundamentals), replays, writes one result JSON and deletes the
+  scratch. 460 sessions covers every lookback any book reads (the screen's 400-bar pull, the
+  252-session total returns, `high_52wk`'s 430-day window, `low_vol`'s 428-day vol window,
+  the 200-session SPY regime, the 60-bar median-$vol the fill model prices slippage from).
+  Only `passes_template = TRUE` screen rows are stored: every `sim/strategies/*` read goes
+  through `passing_ranked` / `rank_position`, both of which filter to passing rows, so the
+  non-passing ~11M rows of a 15-year window are dead weight.
+  **Five proofs, all green** (`farm/backtest/proofs.py --all`).
+  * *Screen equivalence.* Against a FRESH `engine/screen.py --rerun` on the same copy:
+    **2026-07-15 / 07-21 / 07-28 → 0 membership differences and 0 column differences**
+    (3,873 / 3,876 / 3,882 names; close, rs_rank, template_score, passes_template, dist_50d,
+    dist_200d, off_52w_low, off_52w_high, base_tight, vol_dryup all exact). Against the rows
+    STORED on the day, 07-28 also matches exactly (0 diffs), while 07-15 and 07-21 differ —
+    and every one of those differences is attributable: 6 and 4 names have since left
+    `universe` (AVNS, CCRN, NOWL, NSA, SBIL, TMHC), and 4 / 56 closes were restated by the
+    corporate-actions reconciler. That is survivorship and restatement caught in the act,
+    two weeks out, which is the best argument for disclosure #1 in the reports.
+  * *Replay fidelity.* `sim/backtest_shakedown.py` over 2026-06-22→07-16 on one scratch copy
+    vs the new driver over the same span off the same screens on another:
+    **`template_top10_banded` and `mr_overlay` are row-identical in sim_orders (40 / 39),
+    sim_fills (39 / 39), sim_equity (18 / 18), sim_positions (19 / 22) and sim_dividends.**
+    Both drive the same league code, so equality was the only acceptable result.
+  * *Stats sanity.* `spy_benchmark` 1y recomputed by an independent implementation that
+    imports nothing from `farm/backtest`: equity_end **47,259.6738684082**, total
+    **+21.17865094%**, CAGR **+21.19459576%**, vol **12.45908803%**, Sharpe **1.6106349048**,
+    Sharpe-ex-BIL **1.3071286955**, maxDD **−8.77592838%** — every one matching to **0.00e+00**.
+    BIL excess lowers Sharpe as it must (1.6106 → 1.3071). (The book bought 62 SPY at
+    625.024424 = the 2025-07-17 open + 10 bp, after `apply_fill`'s integer cash clamp.)
+  * *Queue end-to-end.* `queue_runner --enqueue backtest --params
+    {"config_id":"ew_benchmark","window":"6mo"} --priority 140` then `--run` on a full copy:
+    job 19 pending → running → **done in 22.9 s**, result JSON + `data/reports/backtests/`
+    regenerated.
+  * *Nightly-equivalent tail.* league → experiment → sync --dry-run → queue drain on a copy
+    under `set -euo pipefail`: **exit 0**, and `sync.py --dry-run` staged
+    `data/reports/backtests/**` unprompted (it stages `data/` wholesale, so **sync needed no
+    change**). Nothing this feature added runs in the nightly.
+  **What the numbers say so far (6mo window, PRE-BACKFILL — regenerate after job 18).**
+  Ranked by total return: sector_momentum +14.85%, spy_benchmark +10.45%, mr_overlay_gated
+  +9.34%, mr_overlay +6.59%, dual_momentum +5.43%, low_vol +5.32%, ew_benchmark +4.70%,
+  dual_momentum_gated +1.55%, high_52wk −0.41%, template_top5 −3.32%, momo_stopped −6.05%,
+  template_top10_banded −8.22%, turtle_breakout −10.29%, template_top10_banded_gated
+  −14.31%, template_top5_gated −17.14%. **The whole RS-template family loses to the
+  equal-weight benchmark on the same universe and runs at 82–87% annualized vol with 34–38%
+  drawdowns** — the books really do hold the microcap/biotech tape the live league holds
+  today (the replay's 2026-07 selection overlaps the live book's actual positions), so this
+  is the book, not an artifact. Nothing here is out-of-sample; see the report's disclosures.
+  **KNOWN COMPROMISES (all disclosed at the top of every report).** (i) Survivor universe —
+  the screen's eligible set is **1,237 names in July 2011 against 3,873 today**, and all
+  1,237 are names that were still listed in 2026; that is why **vs EW on the same universe**
+  is the primary comparison and absolute CAGR is context only. (ii) `low_vol`'s $5B cap
+  filter uses TODAY'S fundamentals snapshot restamped to the window start (no historical
+  caps exist) — static-cap look-ahead; without it the book is silently inert. (iii)
+  `pead_ear` is excluded outright (no historical earnings dates) and `discretionary` is a
+  human book — both said plainly rather than faked. (iv) `new_today` is defined against the
+  previous session in the replay window rather than the previous stored `run_date`; no
+  strategy reads that column.
+
 ## Next
 
 1. ~~Verify the miners bootstrap~~ **DONE 2026-07-18 pm** (see above — fundamentals 4,118,
@@ -682,11 +759,15 @@ conflict; execution design §7 has exit criteria).
    underused asset.** 32 cores / 62 GiB, load-avg ~0.16, nightly busy ~26 min/weekday —
    §12.3's compute goal ("work the box fully") is not met. The remaining designed-but-unbuilt
    §12.3 workloads, in priority order: (a) weekly walk-forward re-validation of every active
-   league rule (feeds the Sunday review loop, exec-design §6); (b) weekend deep sweeps
-   (parameter grids, bootstrap robustness, regime splits, cost-sensitivity) through the job
-   queue at ≤24 nice-19 workers; (c) generalize the E1 forward runner's rule dispatch so the
-   next pre-registered experiment doesn't need new plumbing. All run behind §12.7 caps;
-   none block the mission's Done gate.
+   league rule (feeds the Sunday review loop, exec-design §6) — **STILL OPEN**; (b) weekend
+   deep sweeps (parameter grids, bootstrap robustness, regime splits, cost-sensitivity)
+   through the job queue at ≤24 nice-19 workers — **PARTLY DONE 2026-07-29**: the queue-driven
+   farm workload now exists (`farm/backtest/`, job kind `backtest`, 78-job grid enqueued at
+   priorities 140–165) and its first workload — replaying every league book over 6mo/1y/3y/5y/
+   15y windows — is built and proven; **parameter grids, bootstrap robustness, regime splits
+   and cost-sensitivity are still open**, as is walk-forward re-validation; (c) generalize the
+   E1 forward runner's rule dispatch so the next pre-registered experiment doesn't need new
+   plumbing — **STILL OPEN**. All run behind §12.7 caps; none block the mission's Done gate.
 14. **Fold `farm/execution_drag.py` into the weekly review loop** (exec-design §6) once the
    7-clean-run streak completes — a one-line stage or a review-skill step; until then run it
    manually. Revisit the MOC close-execution question only when its pre-committed decision
