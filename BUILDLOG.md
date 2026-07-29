@@ -367,8 +367,9 @@ conflict; execution design §7 has exit criteria).
 - 2026-07-29 · **Corporate actions (splits + dividends) built, proven on throwaway copies and
   merged to `master` ahead of tonight's cron** (branch `corporate-actions`, commits `9128516`
   schema → `cd92941` collector+reconciler → `ca1af0a` dividend crediting → `d86cfdf`
-  total-return signals → `f08b799` nightly wiring → `400fa67` shakedown → `4d4e1e9` log cap,
-  merged `d5cc1c1`). Closes two silent-corruption holes found by the 07-29 audit.
+  total-return signals → `f08b799` nightly wiring → `400fa67` shakedown → `85b22a2` log cap
+  → `b7ee0ab` this entry, merged no-ff as `45462cf`). Closes two silent-corruption holes
+  found by the 07-29 audit.
   **(1) Splits.** `collect.py` fetches `auto_adjust=False`, but Yahoo restates raw OHLC at
   fetch time while incremental collection only re-fetches `period="5d"` with INSERT OR
   REPLACE. So the first split in any stored name leaves a PERMANENT scale break ~5 sessions
