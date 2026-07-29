@@ -588,6 +588,22 @@ conflict; execution design §7 has exit criteria).
   a second forward experiment with different mechanics needs the rule dispatch generalized,
   which is not worth building before there is a second experiment.
 
+- 2026-07-29 (pm) · **"Should the bot react intraday?" — measured instead of assumed.**
+  Owner asked whether after-hours-only trading is missing opportunity. New read-only tool
+  `farm/execution_drag.py` computes, from the bot's own fills, the signed cost of filling at
+  next-open vs the signal-day close → `data/reports/execution-drag.md`. First result over
+  all 124 fills: overnight delay costs **+7.7 bp/fill mean, t = 0.63 — indistinguishable
+  from zero**, and it decomposes with opposite signs by strategy: momentum books pay
+  +23–30 bp (t ≈ 0.7–0.8, not significant), mean-reversion books **gain** −21 bp (the delay
+  buys the dip cheaper). Verified against an independent hand computation (same numbers).
+  Decision rule pre-committed in the report: MOC-style close-execution A/B variants are
+  considered only for a book whose drag is adverse with t > 2 at n ≥ 100 own fills; MR
+  books excluded (favorable sign is structural). Intraday *selection* stays rejected on the
+  2026-07-29 cadence research (short-horizon reversal + turnover; store note
+  `research/selection-cadence-vs-volatility.md`); live-broker reactivity remains M5,
+  deferred, personal hardware only. Not wired into the nightly on purpose (streak at 3/7,
+  monthly debut Friday) — run manually or from the weekly review.
+
 ## Next
 
 1. ~~Verify the miners bootstrap~~ **DONE 2026-07-18 pm** (see above — fundamentals 4,118,
@@ -671,6 +687,12 @@ conflict; execution design §7 has exit criteria).
    queue at ≤24 nice-19 workers; (c) generalize the E1 forward runner's rule dispatch so the
    next pre-registered experiment doesn't need new plumbing. All run behind §12.7 caps;
    none block the mission's Done gate.
+14. **Fold `farm/execution_drag.py` into the weekly review loop** (exec-design §6) once the
+   7-clean-run streak completes — a one-line stage or a review-skill step; until then run it
+   manually. Revisit the MOC close-execution question only when its pre-committed decision
+   rule (adverse drag, t > 2, n ≥ 100 per book) actually triggers. Intraday stop-check A/B
+   variants: deferred until momo_stopped's close-checked stop has a judgeable record — the
+   coarser A/B answers first whether stops help at all.
 
 ## Blockers
 
