@@ -1,6 +1,6 @@
 # Turtle Breakout (ATR-stopped) (`turtle_breakout`) — historical windows
 
-_strategy `turtle_breakout` · cadence daily · generated 2026-07-29 07:55 UTC_
+_strategy `turtle_breakout` · cadence daily · generated 2026-07-29 07:56 UTC_
 
 ## Disclosures — read before any number below
 

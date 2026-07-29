@@ -1,6 +1,6 @@
 # Mean-Reversion Overlay (`mr_overlay`) — historical windows
 
-_strategy `mr_overlay` · cadence daily · generated 2026-07-29 07:55 UTC_
+_strategy `mr_overlay` · cadence daily · generated 2026-07-29 07:56 UTC_
 
 ## Disclosures — read before any number below
 

@@ -1,6 +1,6 @@
 # Historical backtests of the league books — IN-SAMPLE-CONTEXT
 
-_32 of 78 planned (book, window) replays complete · generated 2026-07-29 07:55 UTC._
+_32 of 78 planned (book, window) replays complete · generated 2026-07-29 07:56 UTC._
 
 Every book below is replayed by its OWN live strategy code through the real `sim/league.py` day-step: real orders, real t+1-open fills with the league's slippage and liquidity guards, real dividend crediting. Nothing is reimplemented for the backtest, and no bar is ever invented.
 
