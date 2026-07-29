@@ -90,6 +90,12 @@ def _load_experiment_forward():
     return experiment_runner.run_job
 
 
+def _load_backtest():
+    sys.path.insert(0, str(REPO_ROOT))
+    from farm.backtest import replay
+    return replay.run_job
+
+
 JOB_TYPES: dict[str, dict] = {
     # type      loader (lazy)        archive?  default declared memory (MB)
     "intraday":     {"loader": _load_intraday,     "archive": True,  "mem_mb": 4000},
@@ -103,6 +109,12 @@ JOB_TYPES: dict[str, dict] = {
     # the normal job path.
     "experiment_forward": {"loader": _load_experiment_forward,
                            "archive": False, "mem_mb": 500},
+    # §12.3 historical-backtest farm: one (book, window) replay per job on a
+    # scratch copy of the store. archive=False — a backtest writes only into
+    # scratch/ (deleted per job) and data/reports/, never into store/, so the
+    # disk watchdog's archive gate does not apply to it; the guard that matters
+    # is the load/RAM one, which applies to every job.
+    "backtest":     {"loader": _load_backtest,     "archive": False, "mem_mb": 8000},
 }
 
 
