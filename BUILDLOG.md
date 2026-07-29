@@ -490,6 +490,103 @@ conflict; execution design §7 has exit criteria).
   because the nightly reconcile decides every split within a session of its ex-date, well
   inside the 5-day refetch window, but it is the assumption that would break if the nightly
   stopped running for a week across a split in a held name.
+- 2026-07-29 · **E1 forward (out-of-sample) runner built — the experiment's second half, and
+  the first out-of-sample Mondays are on the record.** §12.3 froze E1 (buy SPY Monday open,
+  sell that Monday's close) on 07-16 and `9568cec` published the BACKTEST half on 07-18
+  (in-sample + a locked holdout, computed once). The half that actually decides E1's fate —
+  the forward window that "starts with the league", running to 40 Mondays and then a kill
+  test — did not exist. It does now: `farm/experiment_runner.py`, one append-only row per
+  settled out-of-sample Monday, plus `data/reports/experiments/e1-spy-monday-forward.md`
+  regenerated every night. Branch `e1-experiment`, five commits, merged to master.
+  **Decisions.**
+  (D-E1a) *The forward phase is registered in its OWN frozen file*
+  (`farm/experiments/e1-spy-monday.forward.json`), not as an `oos_start` key added to the
+  pre-registered YAML. That YAML already has result rows, so its hash is frozen and editing
+  it would — correctly — trip `experiment.py`'s immutability check. Forward rows therefore
+  carry the **YAML's** hash as their `params_hash`, so `check_immutable` still sees exactly
+  one hash under the id; the forward file's own hash rides in `meta_json`. The runner
+  recomputes the parent hash and refuses to write if it has drifted (proven: a one-character
+  edit to the YAML's `gross_annual` produced `FROZEN CONFIG CHANGED … Refusing to write`).
+  (D-E1b) *Two things §12.3 leaves open were registered in advance, before the evidence
+  existed.* The **cost model** is the paper league's own fill model — `sim/fills.py`
+  `slippage_bps_for(median_dollar_vol('SPY', monday))` = `max(half_spread_bps, 5) + 5` =
+  **10.0 bp/side, 20 bp round-trip** (SPY's 60-bar median dollar volume is ~$36bn, far above
+  the $50M top tier), which is **6.7× stricter** than the 3bp the backtest registered; a
+  forward test must be at least as honest as the league beside it. The **kill test reads the
+  NET series** — the conservative reading of "≈+10%/yr gross vs ~1.2–1.5%/yr costs". Gross
+  and 3bp-net are published alongside so either reading stays available to a reader. Both
+  choices are in the frozen file, so neither can be picked after seeing the data.
+  (D-E1c) *Storage extends `experiment_results` rather than adding a table.* That table was
+  shaped for per-PARTITION statistics, so three additive columns carry what a single dated
+  trade needs (`trade_date`, `gross_ret`, `net_ret`); backtest rows read NULL there, which is
+  also how the two series are separated in SQL (`trade_date IS NULL` = backtest stats). A
+  forward row is `partition = 'oos:<date>'`, so the existing primary key does the idempotence
+  work too. The stat columns that mean nothing for one observation (`std_ret`, `t_stat`, the
+  CAGR/Sharpe family) are left NULL rather than filled with a figure that would read like a
+  result.
+  (D-E1d) *Settled-bar guard.* A Monday is recorded only after **21:15 UTC that day** — past
+  the 16:00 ET close under both DST regimes, and well before the 22:30 UTC nightly. The table
+  is append-only, so recording a mid-session close would be permanently wrong. Proven by
+  running with a faked `now` of Monday 18:00 UTC: the Monday is skipped, and picked up at
+  21:20 UTC.
+  (D-E1e) *Nightly position: between league and sync, inline, non-fatal.* AFTER league so the
+  row lands with the night's other forward evidence; **BEFORE sync** so the regenerated report
+  is committed the same night — the farm section runs post-sync and would miss the commit by
+  a day. Inline rather than queued because the job is one SPY row in milliseconds and §12.7's
+  queue is for heavy work; the dispatch entry `experiment_forward` is registered anyway so a
+  missed night can be replayed through the normal job path (proven end-to-end through
+  `queue_runner --run`). `|| WARN` under `set -e`: experiment reporting must never block
+  trading data, and the runner is idempotent so a failed night is simply picked up by the next.
+  **Bug found and fixed on the way (this one would have bitten).** `experiment.py`'s
+  `append_results` did a bare `INSERT INTO experiment_results SELECT …` — **positional**, so
+  it requires row width to equal table width and breaks the moment the table gains a column.
+  Adding the three forward columns does exactly that. Caught on a throwaway copy by clearing
+  the table and re-running a first registration against the widened schema; fixed by naming
+  the columns. The first compatibility test had *passed* only because `check_immutable`
+  short-circuits the append when the config already has results — a green test that proved
+  nothing, which is why the cleared-table run was worth doing.
+  **Evidence (all copy-first; live store touched only by the runner's production write path).**
+  * *Hand check.* SPY 2026-07-20 open **747.0599975585938** close **742.0900268554688** →
+    gross **−0.66527062%**; net at 10bp/side **−0.86374161%**. SPY 2026-07-27 open
+    **744.9099731445312** close **739.0900268554688** → gross **−0.78129526%**, net
+    **−0.97953443%**. Recomputed independently from the stored bars, matched the stored
+    `gross_ret`/`net_ret` to <1e-15.
+  * *Idempotence.* Three consecutive runs on a copy: 13 backtest rows + 2 forward rows, and
+    still 15 after runs 2 and 3. On the LIVE store a second run appended nothing (15 rows).
+  * *Nightly-equivalent tail.* league → experiment → sync on a copy, mirroring `run_daily.sh`'s
+    structure under `set -euo pipefail`: **exit 0**. A deliberately broken `--id` in the same
+    sequence printed the WARN and the sequence still exited 0 (non-fatality proven, not
+    asserted). `sync.py --dry-run` staged
+    `data/reports/experiments/e1-spy-monday-forward.md` — it stages `data/` wholesale, so
+    **sync needed no change**, as the spec asked to verify.
+  * *Live store.* First real run appended 2 rows; afterwards the 13 pre-existing backtest rows
+    were verified **byte-identical**, still one distinct `config_hash`, and prices /
+    sim_positions / jobs untouched (job 18, the actions backfill, still pending for tonight).
+  **The result so far is negative, and published that way.** Both out-of-sample Mondays lost:
+  cum gross **−1.44%**, cum net **−1.83%**, 0/2 winners. The report leads with
+  "**NO RESULT YET — 2 of 40**", prints "38 Mondays to go", and states that the kill test
+  runs once, at n=40. It also shows what the criterion *would* say today while saying plainly
+  that it is not being applied — the point being that no peek can change the frozen plan.
+  For context (report-only, never in the statistics), the 2 years of Mondays before the
+  out-of-sample start ran gross +0.1655%/Monday (t 2.30) but **−0.0347%/Monday net at the
+  league's 20bp** (t −0.48) — i.e. the pre-registered decayed edge was already inside the
+  spread before the forward window opened.
+  **M4 stamp.** M4 was stamped DONE 2026-07-18 on the backtest report; its exit criterion
+  ("first pre-registered experiment report published") is now satisfied in the sense that
+  actually matters — a **forward, out-of-sample** record exists and is accumulating, not just
+  a backtest. M4's other criterion (intraday archive accumulating under the disk watchdog)
+  has kept running since: the archive is enqueued nightly and store/ is ~2.05 GiB against the
+  60/80 GB caps.
+  **KNOWN LIMITATIONS (deliberate).**
+  (i) *No holiday-Monday substitution.* A market-holiday Monday produces no row at all —
+  never a synthetic flat trade — so 40 Mondays is ~10 calendar months, not 40 weeks.
+  (ii) *The forward series is unadjusted for corporate actions* in the sense that it reads
+  `prices` as stored; SPY's dividends do not enter an intraday open→close return, and the
+  reconciler keeps the scale coherent, so this is correct today but would need thought for a
+  name that splits mid-window.
+  (iii) *One experiment only.* The runner is E1-shaped (`weekday_open` → `same_day_close`);
+  a second forward experiment with different mechanics needs the rule dispatch generalized,
+  which is not worth building before there is a second experiment.
 
 ## Next
 
@@ -557,6 +654,14 @@ conflict; execution design §7 has exit criteria).
    surprises; post-farm second sync if a same-night intraday `_meta` commit is wanted;
    walk-forward re-validation job type for active league strategies (weekly, §12.3);
    weekly-review integration (exec-design §6 Sunday loop) once a week of league history exists.
+12. **E1 forward record: check the first unattended write on Monday 2026-08-03's nightly.** The
+   two rows on the board now were written by hand-run production commands; 08-03 is the first
+   time the `experiment` stage fires from cron. Confirm in `logs/run-2026-08-03.log` that the
+   stage sits between league and sync, that it prints `+oos 2026-08-03`, and that the sync
+   commit that night includes `data/reports/experiments/e1-spy-monday-forward.md`. A
+   non-Monday nightly should print "no new settled Mondays" and nothing else. **The kill
+   evaluation is at n=40 — roughly 2027-05, ~10 calendar months out given holiday Mondays —
+   and until then the correct action on any interim number is none.**
 
 ## Blockers
 

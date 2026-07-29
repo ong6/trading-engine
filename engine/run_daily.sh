@@ -85,6 +85,20 @@ stage() { echo "$1" > "${STAGE_FILE}"; }
   stage league
   "${PY}" -m sim.league --init --skip-if-done
 
+  # --- E1 forward (out-of-sample) experiment record (§12.3). Milliseconds of
+  # work — one SPY row per Monday — so it runs INLINE here rather than through
+  # the farm queue. Position matters twice:
+  #  * AFTER league, so it sits with the rest of the forward evidence;
+  #  * BEFORE sync, so the regenerated report is committed the same night
+  #    (the farm section runs post-sync and would miss the commit by a day).
+  # Non-fatal by design: experiment reporting must NEVER block trading data.
+  # On a non-Monday this is a no-op that just refreshes the report.
+  stage experiment
+  "${PY}" farm/experiment_runner.py --id e1-spy-monday \
+    || echo "WARN: E1 forward experiment runner failed (exit $?) — no trading data" \
+            "is affected; the runner is idempotent and will pick the Monday up" \
+            "on the next run"
+
   # Sync is best-effort: a failure must NOT fail the nightly — the league/screen
   # results are already safe in DuckDB + data/ and will re-stage next nightly.
   stage sync

@@ -77,4 +77,5 @@ _(37 early in-sample Mondays had < 200 prior bars to define a regime and are exc
 ## Forward (out-of-sample) plan
 - The kill criterion runs FORWARD from league go-live: FORWARD phase (starts with the paper league): after 40 out-of-sample Mondays, if mean <= 0 OR t-stat < 0.5, the strategy is killed. No re-optimization, no parameter search to rescue it.
 - The holdout above was touched exactly once, at this publication, and is not the forward test — the forward test is new Mondays after go-live.
+- **The forward record is live and published separately: [`e1-spy-monday-forward.md`](./e1-spy-monday-forward.md)** — one row per out-of-sample Monday from 2026-07-20, written nightly by `farm/experiment_runner.py`, accumulating toward the 40-Monday kill evaluation.
 

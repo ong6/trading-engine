@@ -459,7 +459,16 @@ def append_results(con, rows: list[dict]) -> None:
     df = pd.DataFrame(rows)
     cols = list(df.columns)
     con.register("_exp_rows", df)
-    con.execute(f"INSERT INTO experiment_results SELECT {', '.join(cols)} FROM _exp_rows")
+    # NAME the target columns. A bare `INSERT INTO t SELECT ...` is positional and
+    # requires the row width to equal the table width — which silently breaks the
+    # moment the table gains a column. It has: the forward phase
+    # (farm/experiment_runner.py) added trade_date/gross_ret/net_ret, which a
+    # backtest row leaves NULL. Naming the columns makes this append independent
+    # of the table's shape.
+    quoted = ", ".join(f'"{c}"' for c in cols)
+    con.execute(
+        f"INSERT INTO experiment_results ({quoted}) SELECT {quoted} FROM _exp_rows"
+    )
     con.unregister("_exp_rows")
 
 
@@ -632,6 +641,11 @@ def render_report(cfg: dict, chash: str, res: dict, run_at, storage_note: str) -
              f"{' '.join(str(cfg.get('kill_criterion','')).split())}")
     L.append("- The holdout above was touched exactly once, at this publication, and is "
              "not the forward test — the forward test is new Mondays after go-live.")
+    L.append(f"- **The forward record is live and published separately: "
+             f"[`{cfg['id']}-forward.md`](./{cfg['id']}-forward.md)** — one row per "
+             f"out-of-sample Monday from 2026-07-20, written nightly by "
+             f"`farm/experiment_runner.py`, accumulating toward the 40-Monday kill "
+             f"evaluation.")
     L.append("")
     return "\n".join(L) + "\n"
 
