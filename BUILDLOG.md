@@ -705,6 +705,26 @@ conflict; execution design §7 has exit criteria).
   broken one. Reports regenerate after every job; because the farm drains AFTER sync in
   `run_daily.sh`, each night's backtest reports are committed by the FOLLOWING night's sync.
 
+- 2026-07-29 (eve) · **Full backtest grid COMPLETE same-day — the box was drained manually
+  instead of waiting nights.** Two manual `queue_runner --run` drains (harness-tracked,
+  nohup, `logs/manual-drain-2026-07-29.log`): job 18 actions backfill (409,684 rows /
+  8,582 tickers — dividend coverage now full) + all 78 backtest jobs (19–96), zero
+  failures; second drain finished ~14:30 UTC, ~8 h before cron. Every window in
+  `data/reports/backtests/README.md` is now populated with full-dividend totals.
+  Headlines (survivor-universe caveat applies to every absolute number; vs-EW is the
+  honest read): **no stock-picking book beats its own EW-same-universe benchmark on any
+  window ≥ 3y**; SPY's 15y Sharpe 0.86 beats every book except **low_vol at 0.95** (11.4%
+  CAGR at 12.1% vol — the one book doing its job across cycles); **template_top5 15y max
+  DD −83%** even with the survivor tailwind (its live kill criterion will do its work);
+  **mr_overlay standalone ≈ 0% total over 15y** (Sharpe 0.06 — "overlay only, never
+  standalone" confirmed; note ~90% idle cash at sim's 0% — a BIL-parked variant would
+  read ~+1–2pp/yr higher, still nowhere); **the regime gate loses money in the 3y/5y
+  risk-on windows but pays over 15y** (template_top5_gated +808% vs ungated +272%; DD
+  −74% vs −83%) — drawdown insurance, priced exactly as the July lesson said;
+  momo_stopped's daily stop adds modestly over 15y (+673% vs +621% banded, similar
+  Sharpe). Findings mirrored to the store: `research/league-strategy-backtests.md` +
+  two lessons.md lines.
+
 ## Next
 
 1. ~~Verify the miners bootstrap~~ **DONE 2026-07-18 pm** (see above — fundamentals 4,118,

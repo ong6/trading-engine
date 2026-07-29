@@ -1,15 +1,15 @@
 {
   "bil_coverage": 1.0,
   "cadence": "monthly",
-  "cagr": 0.11015773068378154,
+  "cagr": 0.15227332987288444,
   "clamped_to_data_floor": false,
   "config_id": "low_vol",
-  "corporate_actions_dividend_rows": 1837,
-  "dividend_cash": 0.0,
+  "corporate_actions_dividend_rows": 400240,
+  "dividend_cash": 769.3176553186586,
   "end_date": "2026-07-16",
-  "equity_end": 41072.86842820672,
+  "equity_end": 41837.76739796034,
   "equity_start": 39000.0,
-  "max_dd": -0.056348329562903476,
+  "max_dd": -0.05377483232223734,
   "monthly_equity": [
     [
       "2026-01",
@@ -17,47 +17,47 @@
     ],
     [
       "2026-02",
-      41412.2786118471
+      41541.12057777861
     ],
     [
       "2026-03",
-      39450.392883638706
+      39687.762835135625
     ],
     [
       "2026-04",
-      40455.83650422359
+      40788.69963791089
     ],
     [
       "2026-05",
-      39545.221572864655
+      40034.52116200773
     ],
     [
       "2026-06",
-      40162.47133140188
+      40801.68898255575
     ],
     [
       "2026-07",
-      41072.86842820672
+      41837.76739796034
     ]
   ],
-  "n_dividend_credits": 0,
-  "n_fills": 96,
-  "n_rejected": 2,
+  "n_dividend_credits": 66,
+  "n_fills": 93,
+  "n_rejected": 3,
   "n_sessions": 124,
   "name": "Low-Volatility Defensive",
-  "runtime_s": 16.0,
+  "runtime_s": 16.4,
   "screen_rows": 0,
   "screen_s": 0.0,
   "screen_source": "not-used",
-  "sharpe": 1.138979850085768,
-  "sharpe_ex_bil": 0.7759588120471994,
+  "sharpe": 1.5308054112430587,
+  "sharpe_ex_bil": 1.1671107055639662,
   "start_date": "2026-01-16",
-  "step_s": 12.2,
+  "step_s": 11.9,
   "strategy": "low_vol",
-  "total_return": 0.053150472518121106,
-  "vol_ann": 0.0972870163175806,
+  "total_return": 0.07276326661436783,
+  "vol_ann": 0.09707924149299732,
   "window": "6mo",
   "window_end_target": "2026-07-16",
-  "worst_month": -0.04737449360362267,
+  "worst_month": -0.04461501560057557,
   "years": 0.49555099247091033
 }

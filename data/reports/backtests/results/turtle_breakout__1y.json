@@ -1,15 +1,15 @@
 {
   "bil_coverage": 1.0,
   "cadence": "daily",
-  "cagr": -0.15921412053445316,
+  "cagr": -0.15900165585749304,
   "clamped_to_data_floor": false,
   "config_id": "turtle_breakout",
-  "corporate_actions_dividend_rows": 1837,
-  "dividend_cash": 0.0,
+  "corporate_actions_dividend_rows": 400240,
+  "dividend_cash": 8.734881590506845,
   "end_date": "2026-07-16",
-  "equity_end": 32794.541725331685,
+  "equity_end": 32802.82315840931,
   "equity_start": 39000.0,
-  "max_dd": -0.2593631432477974,
+  "max_dd": -0.25917611411912755,
   "monthly_equity": [
     [
       "2025-07",
@@ -45,43 +45,43 @@
     ],
     [
       "2026-03",
-      36309.996401879296
+      36314.41561472572
     ],
     [
       "2026-04",
-      36907.64430041172
+      36912.235999658486
     ],
     [
       "2026-05",
-      38862.02577797964
+      38866.836761177896
     ],
     [
       "2026-06",
-      36854.267681918864
+      36863.03695703934
     ],
     [
       "2026-07",
-      32794.541725331685
+      32802.82315840931
     ]
   ],
-  "n_dividend_credits": 0,
+  "n_dividend_credits": 3,
   "n_fills": 162,
   "n_rejected": 0,
   "n_sessions": 252,
   "name": "Turtle Breakout (ATR-stopped)",
-  "runtime_s": 38.6,
+  "runtime_s": 52.1,
   "screen_rows": 160706,
-  "screen_s": 6.2,
+  "screen_s": 6.7,
   "screen_source": "hist",
-  "sharpe": -0.44101859066196447,
-  "sharpe_ex_bil": -0.5675923167829751,
+  "sharpe": -0.4401689146429194,
+  "sharpe_ex_bil": -0.5667452229768172,
   "start_date": "2025-07-16",
-  "step_s": 28.3,
+  "step_s": 40.5,
   "strategy": "turtle_breakout",
-  "total_return": -0.15911431473508497,
-  "vol_ann": 0.29486913588962893,
+  "total_return": -0.15890197029719721,
+  "vol_ann": 0.29486539285753327,
   "window": "1y",
   "window_end_target": "2026-07-16",
-  "worst_month": -0.11839519612909499,
+  "worst_month": -0.1182878978734957,
   "years": 0.999315537303217
 }
