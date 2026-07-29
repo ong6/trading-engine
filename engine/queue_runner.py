@@ -73,6 +73,11 @@ def _load_earnings():
     return earnings.run
 
 
+def _load_actions():
+    import actions
+    return actions.run
+
+
 def _load_experiment():
     sys.path.insert(0, str(REPO_ROOT / "farm"))
     import experiment
@@ -84,6 +89,7 @@ JOB_TYPES: dict[str, dict] = {
     "intraday":     {"loader": _load_intraday,     "archive": True,  "mem_mb": 4000},
     "fundamentals": {"loader": _load_fundamentals, "archive": True,  "mem_mb": 2000},
     "earnings":     {"loader": _load_earnings,     "archive": True,  "mem_mb": 1000},
+    "actions":      {"loader": _load_actions,      "archive": True,  "mem_mb": 1000},
     "experiment":   {"loader": _load_experiment,   "archive": False, "mem_mb": 2000},
 }
 

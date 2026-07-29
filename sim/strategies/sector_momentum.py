@@ -1,6 +1,10 @@
 """sector_momentum — monthly rotation across the eleven SPDR sector ETFs.
 
-Score per ETF = the mean of its total return over each lookback in `lookbacks`;
+Score per ETF = the mean of its total return over each lookback in `lookbacks` —
+a real total return (price + dividends going ex in the window), which is what the
+description always claimed and, since the SPDR sector ETFs yield roughly 1–3%,
+what keeps the higher-yielding sleeves (XLP, XLU, XLE) from being ranked short by
+the distributions they pay out;
 an ETF with insufficient history for any lookback is skipped rather than scored
 on a shorter window. Hold the top `n` by score, but a slot whose ETF has a
 non-positive long-lookback return goes to cash instead — the absolute-momentum
