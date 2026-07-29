@@ -680,6 +680,30 @@ conflict; execution design §7 has exit criteria).
   human book — both said plainly rather than faked. (iv) `new_today` is defined against the
   previous session in the replay window rather than the previous stored `run_date`; no
   strategy reads that column.
+  **MEASURED RUNTIME + the enqueued grid.** Per-job 6mo (124 sessions, one book, nice 19,
+  8 threads): ETF books 7.5 s · template family 13–20 s · turtle 23 s · momo_stopped 32 s ·
+  ew_benchmark 38 s · mr_overlay 85 s. Anchored on real long runs, the day-step cost is
+  **linear in sessions** — mr_overlay 3y = 405.7 s over 753 sessions (250/500/750 at
+  135/269/389 s → 0.52 s/session flat), turtle_breakout 3y = 130.7 s (0.152 s/session) — and
+  the vectorized screen is nearly free: **753 sessions screened in 9 s** (396,728 passing
+  rows). **15y (3,775 sessions) estimate: mr_overlay ~30–34 min (the worst book),
+  mr_overlay_gated ~24 min, momo_stopped ~12 min, ew_benchmark ~11 min, turtle ~8–11 min,
+  the template family ~5–6 min, low_vol/high_52wk ~5–6 min, the ETF books ~2 min. The whole
+  15y tier ~2 h; the ENTIRE 78-job grid ~3.5 h sequential.** No single job comes near the
+  spec's 6 h flag, so the nightly's flock overlap guard is not at risk (the drain budget
+  stops STARTING jobs at 4 h but never kills one in flight).
+  **Grid enqueued on the live store: jobs 19–96** (78 jobs = 15 books × {6mo,1y,3y,5y,15y}
+  + `max` for the three ETF-only books), priorities staggered so short windows land first —
+  **140** 6mo (19–33) · **145** 1y (34–48) · **150** 3y (49–63) · **155** 5y (64–78) ·
+  **160** 15y (79–93) · **165** max (94–96). The corporate-actions backfill (**job 18,
+  priority 130**) was verified still pending at enqueue time and drains FIRST; the runner's
+  own `ORDER BY priority ASC, created_at ASC` was checked empirically on a copy (a 15y job
+  enqueued *before* a 6mo job still sorts behind it). `grid.py --enqueue` refuses to run at
+  all if a pending `actions` job would not outrank the grid. Tonight's 4 h drain minus job
+  18's ~1.5–2 h leaves ~2 h, so expect the 6mo/1y/3y tiers to land tonight and the rest over
+  the following nights — jobs are independent, so a partial grid is a partial report, not a
+  broken one. Reports regenerate after every job; because the farm drains AFTER sync in
+  `run_daily.sh`, each night's backtest reports are committed by the FOLLOWING night's sync.
 
 ## Next
 

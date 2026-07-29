@@ -1,0 +1,63 @@
+{
+  "bil_coverage": 1.0,
+  "cadence": "once",
+  "cagr": 0.22200581603933633,
+  "clamped_to_data_floor": false,
+  "config_id": "spy_benchmark",
+  "corporate_actions_dividend_rows": 1837,
+  "dividend_cash": 208.68491108974223,
+  "end_date": "2026-07-16",
+  "equity_end": 43073.86611639779,
+  "equity_start": 39000.0,
+  "max_dd": -0.08755305446356565,
+  "monthly_equity": [
+    [
+      "2026-01",
+      39552.49854480484
+    ],
+    [
+      "2026-02",
+      39215.31084082227
+    ],
+    [
+      "2026-03",
+      37306.47467415074
+    ],
+    [
+      "2026-04",
+      41158.769166717335
+    ],
+    [
+      "2026-05",
+      43291.291421747854
+    ],
+    [
+      "2026-06",
+      42851.143822663245
+    ],
+    [
+      "2026-07",
+      43073.86611639779
+    ]
+  ],
+  "n_dividend_credits": 2,
+  "n_fills": 1,
+  "n_rejected": 0,
+  "n_sessions": 124,
+  "name": "SPY Buy & Hold",
+  "runtime_s": 7.5,
+  "screen_rows": 0,
+  "screen_s": 0.0,
+  "screen_source": "not-used",
+  "sharpe": 1.542063178647453,
+  "sharpe_ex_bil": 1.2830998759243915,
+  "start_date": "2026-01-16",
+  "step_s": 3.6,
+  "strategy": "spy_benchmark",
+  "total_return": 0.1044581055486613,
+  "vol_ann": 0.13819272888480347,
+  "window": "6mo",
+  "window_end_target": "2026-07-16",
+  "worst_month": -0.048675788250656216,
+  "years": 0.49555099247091033
+}
