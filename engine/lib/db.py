@@ -249,6 +249,106 @@ def init_mining_schema(con: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+def init_actions_schema(con: duckdb.DuckDBPyConnection) -> None:
+    """Corporate-actions additions: `corporate_actions` (the point-in-time record
+    of splits + dividends as reported by the source), `split_adjustments` (the
+    reconciliation watermark — one row per split we have DECIDED about, so a
+    restatement is never applied twice) and `actions_fetch_log` (per-name pull
+    bookkeeping, the backfill's resume set).
+
+    Kept SEPARATE from init_schema so the nightly collect path is untouched; every
+    statement is CREATE TABLE IF NOT EXISTS so it is safe against the live store.
+
+    `corporate_actions` is append-only in spirit: INSERT OR REPLACE on the PK is a
+    same-value idempotent re-fetch, never a rewrite of history with new meaning.
+    """
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS corporate_actions (
+            ticker     VARCHAR NOT NULL,
+            ex_date    DATE    NOT NULL,
+            kind       VARCHAR NOT NULL,   -- 'split' | 'dividend'
+            value      DOUBLE  NOT NULL,   -- split: ratio new/old; dividend: $/share
+            source     VARCHAR DEFAULT 'yfinance',
+            fetched_at TIMESTAMP,
+            PRIMARY KEY (ticker, ex_date, kind)
+        )
+        """
+    )
+    # The reconciliation watermark. One row per (ticker, ex_date) split the
+    # reconciler has ADJUDICATED, whatever the verdict:
+    #   applied           - the stored series showed the pre-split scale, we restated
+    #   noop_restated     - the stored series already matched the post-split scale
+    #                       (the normal case for history the July backfill pulled)
+    #   skipped_sanity    - observed move disagrees with BOTH hypotheses -> never guess
+    #   skipped_ambiguous - ratio too close to 1 to tell the cases apart
+    #   skipped_no_bars   - not enough stored bars around ex_date to decide
+    # Presence of a row is what makes reconciliation idempotent: a split is only
+    # ever considered once.
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS split_adjustments (
+            ticker        VARCHAR NOT NULL,
+            ex_date       DATE    NOT NULL,
+            ratio         DOUBLE,
+            outcome       VARCHAR,
+            observed      DOUBLE,   -- stored close(prev session) / close(ex_date)
+            rows_restated BIGINT,
+            applied_at    TIMESTAMP,
+            PRIMARY KEY (ticker, ex_date)
+        )
+        """
+    )
+    # Per-name pull bookkeeping so a killed backfill resumes where it stopped and
+    # a same-day re-run is a no-op. status: 'ok' | 'empty' | 'failed'.
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS actions_fetch_log (
+            ticker     VARCHAR NOT NULL,
+            fetched_on DATE    NOT NULL,
+            n_splits   INTEGER,
+            n_dividends INTEGER,
+            status     VARCHAR,
+            PRIMARY KEY (ticker, fetched_on)
+        )
+        """
+    )
+
+
+def upsert_actions(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
+    """INSERT OR REPLACE corporate-action rows.
+
+    df columns: ticker, ex_date, kind, value. Rows with a NaN/None value, a NaT
+    ex_date or a non-positive value are dropped — a split ratio of 0 or a NaN
+    dividend is not a fact, and we never store a fabricated action. Returns the
+    number of rows written.
+    """
+    cols = ["ticker", "ex_date", "kind", "value"]
+    if df is None or df.empty:
+        return 0
+    df = df[cols].copy()
+    df = df.dropna(subset=["ex_date", "value"])
+    df = df[df["value"] > 0]
+    df = df.drop_duplicates(subset=["ticker", "ex_date", "kind"])
+    if df.empty:
+        return 0
+
+    df["source"] = "yfinance"
+    df["fetched_at"] = datetime.now(timezone.utc)
+
+    con.register("_incoming_actions", df)
+    con.execute(
+        """
+        INSERT OR REPLACE INTO corporate_actions
+            (ticker, ex_date, kind, value, source, fetched_at)
+        SELECT ticker, ex_date, kind, value, source, fetched_at
+        FROM _incoming_actions
+        """
+    )
+    con.unregister("_incoming_actions")
+    return len(df)
+
+
 # Columns the fundamentals miner supplies (order-independent; as_of/source/
 # fetched_at are stamped by insert_fundamentals). Kept next to the schema so the
 # two never drift.
