@@ -1,0 +1,73 @@
+{
+  "_comment": [
+    "E1 FORWARD-PHASE registration (trading-engine-design.md §12.3). FROZEN.",
+    "",
+    "This file registers the OUT-OF-SAMPLE phase of experiment 'e1-spy-monday'.",
+    "It is deliberately SEPARATE from farm/experiments/e1-spy-monday.yaml: that",
+    "config was pre-registered 2026-07-18 and already has result rows, so its",
+    "hash is frozen and adding an 'oos_start' key to it would trip",
+    "farm/experiment.py's immutability check. The backtest phase (in-sample +",
+    "locked holdout) is owned by the YAML; the forward phase is owned by this",
+    "file. Both write to experiment_results under the SAME experiment_id and the",
+    "SAME params_hash (the YAML's hash, recorded below) — the forward rows are",
+    "distinguished by partition = 'oos:<date>' and a non-null trade_date.",
+    "",
+    "Once a forward result row exists, THIS FILE IS FROZEN TOO. Do not edit.",
+    "Runner: farm/experiment_runner.py"
+  ],
+
+  "id": "e1-spy-monday",
+  "phase": "forward",
+  "registered": "2026-07-29",
+
+  "parent_config": "farm/experiments/e1-spy-monday.yaml",
+  "parent_config_hash": "5dc40ff465de67a9b887966ba853bf5dfcb310076edd171739c4fd7ebe925d35",
+
+  "hypothesis": "SPY shows a positive Monday intraday drift: buying the Monday open and selling the same Monday's close earns a small positive average per-trade return. Null hypothesis: mean Monday open->close return <= 0 net of costs.",
+
+  "params": {
+    "ticker": "SPY",
+    "universe": "single",
+    "weekday": "monday",
+    "entry": "open",
+    "exit": "close",
+    "bar": "daily",
+    "note": "Same-bar open->close on calendar Mondays. Holiday Mondays have no bar and are simply skipped (no trade that week). No signal or filter reads any data at/after the Monday open, so there is no look-ahead beyond the experiment's own registered open->close mechanics."
+  },
+
+  "expectation": {
+    "direction": "positive",
+    "gross_annual": 0.10,
+    "cost_annual_range": [0.012, 0.015],
+    "source": "trading-engine-design.md §12.3 experiment backlog (E1, approved/pre-registered 2026-07-16). The +10%/yr gross figure is the decayed prior, NOT a fitted value."
+  },
+
+  "oos_start": "2026-07-17",
+  "oos_start_note": "Forward window starts with the paper league (§12.3). The first out-of-sample Monday is the first Monday on or after 2026-07-17, i.e. 2026-07-20. Everything before this date is BACKTEST CONTEXT ONLY and never enters the out-of-sample record.",
+
+  "cost_model": {
+    "source": "sim/fills.py slippage_bps_for(median_dollar_vol('SPY', monday))",
+    "formula": "per_side_bps = max(half_spread_bps(mdv), 5) + 5",
+    "spy_tier": "SPY's 60-bar median dollar volume is ~$36bn, far above the $50M top tier, so half_spread_bps = 5 -> per_side_bps = 10.0 -> ROUND-TRIP 20.0 bp",
+    "roundtrip_bps": 20.0,
+    "application": "buy at open*(1 + s/1e4), sell at close*(1 - s/1e4); s recomputed per Monday from bars STRICTLY BEFORE that Monday (median_dollar_vol uses date < as_of), so the cost itself carries no look-ahead.",
+    "registered_roundtrip_bps": 3.0,
+    "registered_note": "The frozen YAML registered a 3bp round-trip assumption (~1.5%/yr, the §12.3 cost anchor). The forward record uses the LEAGUE's own fill model instead — 20bp round-trip, ~6.6x stricter — because the forward test must be at least as honest as the paper league it runs beside. Both are reported; the kill test uses the league model."
+  },
+
+  "kill_criterion": {
+    "n_oos_mondays": 40,
+    "rule": "after 40 out-of-sample Mondays, if mean <= 0 OR t-stat < 0.5 the strategy is KILLED",
+    "series": "net (league cost model, 20bp round-trip)",
+    "no_reoptimization": true,
+    "verbatim_design": "Kill: after 40 out-of-sample Mondays, mean <= 0 or t < 0.5 - no re-optimization.",
+    "series_note": "§12.3 does not state which series the kill test reads. Registered here, BEFORE the evidence exists, as NET at the league cost model - the conservative reading, consistent with the registration framing 'decayed expectation ~ +10%/yr gross vs ~1.2-1.5%/yr costs' (i.e. the edge must survive costs). Gross and 3bp-net statistics are published alongside so any reader can apply either reading."
+  },
+
+  "backtest_context": {
+    "lookback_years": 2,
+    "note": "Report-only. Mondays in [oos_start - 2y, oos_start) computed identically, shown for context. NEVER written to experiment_results as forward rows and NEVER mixed into the out-of-sample statistics."
+  },
+
+  "report": "data/reports/experiments/e1-spy-monday-forward.md"
+}
