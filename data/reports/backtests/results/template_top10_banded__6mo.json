@@ -1,15 +1,15 @@
 {
   "bil_coverage": 1.0,
   "cadence": "weekly",
-  "cagr": -0.15886752832838036,
+  "cagr": -0.1572855827088263,
   "clamped_to_data_floor": false,
   "config_id": "template_top10_banded",
-  "corporate_actions_dividend_rows": 1837,
-  "dividend_cash": 0.0,
+  "corporate_actions_dividend_rows": 400240,
+  "dividend_cash": 25.785092434797587,
   "end_date": "2026-07-16",
-  "equity_end": 35795.718609964475,
+  "equity_end": 35829.06437741904,
   "equity_start": 39000.0,
-  "max_dd": -0.37248089008122875,
+  "max_dd": -0.3722666708757657,
   "monthly_equity": [
     [
       "2026-01",
@@ -21,43 +21,43 @@
     ],
     [
       "2026-03",
-      31188.364145821273
+      31199.020238883153
     ],
     [
       "2026-04",
-      39394.0551694028
+      39407.422242892484
     ],
     [
       "2026-05",
-      48747.50225375431
+      48771.649091543586
     ],
     [
       "2026-06",
-      50578.11765396652
+      50623.88998835353
     ],
     [
       "2026-07",
-      35795.718609964475
+      35829.06437741904
     ]
   ],
-  "n_dividend_credits": 0,
+  "n_dividend_credits": 4,
   "n_fills": 371,
   "n_rejected": 4,
   "n_sessions": 124,
   "name": "Template Top 10 (banded)",
-  "runtime_s": 20.4,
+  "runtime_s": 18.2,
   "screen_rows": 85638,
-  "screen_s": 5.2,
+  "screen_s": 5.3,
   "screen_source": "hist",
-  "sharpe": 0.24474913031693038,
-  "sharpe_ex_bil": 0.203981286953214,
+  "sharpe": 0.24685988365167216,
+  "sharpe_ex_bil": 0.20608629644340784,
   "start_date": "2026-01-16",
-  "step_s": 11.3,
+  "step_s": 8.3,
   "strategy": "template_top10_banded",
-  "total_return": -0.08216106128296219,
-  "vol_ann": 0.8689864203308214,
+  "total_return": -0.08130604160464006,
+  "vol_ann": 0.8688898449647825,
   "window": "6mo",
   "window_end_target": "2026-07-16",
-  "worst_month": -0.29226866735406776,
+  "worst_month": -0.29224987677434844,
   "years": 0.49555099247091033
 }

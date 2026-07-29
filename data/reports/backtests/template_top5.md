@@ -1,6 +1,6 @@
 # Template Top 5 (`template_top5`) — historical windows
 
-_strategy `template_top5` · cadence weekly · generated 2026-07-29 07:56 UTC_
+_strategy `template_top5` · cadence weekly · generated 2026-07-29 14:04 UTC_
 
 ## Disclosures — read before any number below
 
@@ -47,16 +47,19 @@ _strategy `template_top5` · cadence weekly · generated 2026-07-29 07:56 UTC_
 
 | Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| template_top5 | 2026-01-16→2026-07-16 | −3.32% | −6.58% | +85.75% | +0.35 | +0.31 | −37.76% | −21.38% | −8.02% | −13.76% | 169 |
-| template_top5 | 2025-07-16→2026-07-16 | +30.63% | +30.66% | +73.19% | +0.74 | +0.68 | −37.76% | −21.39% | −14.73% | +9.45% | 340 |
+| template_top5 | 2026-01-16→2026-07-16 | −3.26% | −6.46% | +85.74% | +0.36 | +0.31 | −37.73% | −21.38% | −8.03% | −13.70% | 169 |
+| template_top5 | 2025-07-16→2026-07-16 | +30.71% | +30.74% | +73.18% | +0.74 | +0.69 | −37.73% | −21.39% | −15.41% | +9.53% | 340 |
+| template_top5 | 2023-07-17→2026-07-16 | −51.67% | −21.54% | +65.29% | −0.04 | −0.11 | −76.20% | −26.82% | −112.26% | −122.52% | 1026 |
+| template_top5 | 2021-07-16→2026-07-16 | −51.28% | −13.40% | +59.53% | +0.06 | −0.00 | −83.39% | −26.84% | −114.85% | −134.32% | 1711 |
+| template_top5 | 2011-07-18→2026-07-16 | +271.99% | +9.16% | +52.29% | +0.43 | +0.40 | −83.31% | −26.89% | −870.24% | −257.48% | 4987 |
 
 ## Equity-curve detail
 
 ### 6mo — 2026-01-16 → 2026-07-16
 
-- sessions 124 · fills 169 · rejected orders 2 · dividend credits 0 ($0)
-- equity $39,000 → $37,707 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
-- replay runtime 13.8s (screen 5.0s, day-steps 5.1s) · screen rows 85638 · dividend rows in force 1837
+- sessions 124 · fills 169 · rejected orders 2 · dividend credits 1 ($25)
+- equity $39,000 → $37,730 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
+- replay runtime 17.6s (screen 5.3s, day-steps 7.5s) · screen rows 85638 · dividend rows in force 400240
 
 | Month | Equity |
 |---|---|
@@ -65,14 +68,14 @@ _strategy `template_top5` · cadence weekly · generated 2026-07-29 07:56 UTC_
 | 2026-03 | $39,372 |
 | 2026-04 | $51,023 |
 | 2026-05 | $53,811 |
-| 2026-06 | $47,964 |
-| 2026-07 | $37,707 |
+| 2026-06 | $47,993 |
+| 2026-07 | $37,730 |
 
 ### 1y — 2025-07-16 → 2026-07-16
 
-- sessions 252 · fills 340 · rejected orders 3 · dividend credits 0 ($0)
-- equity $39,000 → $50,946 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
-- replay runtime 25.3s (screen 6.2s, day-steps 14.8s) · screen rows 160706 · dividend rows in force 1837
+- sessions 252 · fills 340 · rejected orders 3 · dividend credits 1 ($34)
+- equity $39,000 → $50,978 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
+- replay runtime 23.0s (screen 6.4s, day-steps 11.8s) · screen rows 160706 · dividend rows in force 400240
 
 | Month | Equity |
 |---|---|
@@ -87,5 +90,110 @@ _strategy `template_top5` · cadence weekly · generated 2026-07-29 07:56 UTC_
 | 2026-03 | $53,200 |
 | 2026-04 | $68,942 |
 | 2026-05 | $72,706 |
-| 2026-06 | $64,807 |
-| 2026-07 | $50,946 |
+| 2026-06 | $64,846 |
+| 2026-07 | $50,978 |
+
+### 3y — 2023-07-17 → 2026-07-16
+
+- sessions 753 · fills 1026 · rejected orders 7 · dividend credits 1 ($13)
+- equity $39,000 → $18,849 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
+- replay runtime 53.3s (screen 9.1s, day-steps 37.1s) · screen rows 396728 · dividend rows in force 400240
+
+| Month | Equity |
+|---|---|
+| 2024-08 | $29,449 |
+| 2024-09 | $28,226 |
+| 2024-10 | $28,294 |
+| 2024-11 | $28,035 |
+| 2024-12 | $25,529 |
+| 2025-01 | $22,692 |
+| 2025-02 | $18,560 |
+| 2025-03 | $14,684 |
+| 2025-04 | $11,600 |
+| 2025-05 | $11,474 |
+| 2025-06 | $13,990 |
+| 2025-07 | $12,338 |
+| 2025-08 | $13,153 |
+| 2025-09 | $14,075 |
+| 2025-10 | $17,910 |
+| 2025-11 | $17,315 |
+| 2025-12 | $16,347 |
+| 2026-01 | $18,275 |
+| 2026-02 | $19,825 |
+| 2026-03 | $19,670 |
+| 2026-04 | $25,490 |
+| 2026-05 | $26,885 |
+| 2026-06 | $23,973 |
+| 2026-07 | $18,849 |
+
+_… last 24 of 37 months shown._
+
+### 5y — 2021-07-16 → 2026-07-16
+
+- sessions 1255 · fills 1711 · rejected orders 11 · dividend credits 13 ($1,474)
+- equity $39,000 → $19,001 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
+- replay runtime 85.9s (screen 11.0s, day-steps 65.9s) · screen rows 543363 · dividend rows in force 400240
+
+| Month | Equity |
+|---|---|
+| 2024-08 | $29,627 |
+| 2024-09 | $28,396 |
+| 2024-10 | $28,465 |
+| 2024-11 | $28,198 |
+| 2024-12 | $25,681 |
+| 2025-01 | $22,835 |
+| 2025-02 | $18,682 |
+| 2025-03 | $14,793 |
+| 2025-04 | $11,695 |
+| 2025-05 | $11,571 |
+| 2025-06 | $14,108 |
+| 2025-07 | $12,442 |
+| 2025-08 | $13,264 |
+| 2025-09 | $14,192 |
+| 2025-10 | $18,052 |
+| 2025-11 | $17,452 |
+| 2025-12 | $16,479 |
+| 2026-01 | $18,419 |
+| 2026-02 | $19,983 |
+| 2026-03 | $19,827 |
+| 2026-04 | $25,692 |
+| 2026-05 | $27,099 |
+| 2026-06 | $24,170 |
+| 2026-07 | $19,001 |
+
+_… last 24 of 61 months shown._
+
+### 15y — 2011-07-18 → 2026-07-16
+
+- sessions 3771 · fills 4987 · rejected orders 86 · dividend credits 46 ($16,639)
+- equity $39,000 → $145,077 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
+- replay runtime 309.2s (screen 20.6s, day-steps 272.3s) · screen rows 1280417 · dividend rows in force 400240
+
+| Month | Equity |
+|---|---|
+| 2024-08 | $227,168 |
+| 2024-09 | $217,740 |
+| 2024-10 | $218,275 |
+| 2024-11 | $216,175 |
+| 2024-12 | $196,537 |
+| 2025-01 | $174,740 |
+| 2025-02 | $142,912 |
+| 2025-03 | $113,162 |
+| 2025-04 | $89,441 |
+| 2025-05 | $88,477 |
+| 2025-06 | $107,845 |
+| 2025-07 | $95,103 |
+| 2025-08 | $101,423 |
+| 2025-09 | $108,461 |
+| 2025-10 | $138,078 |
+| 2025-11 | $133,491 |
+| 2025-12 | $125,933 |
+| 2026-01 | $140,800 |
+| 2026-02 | $152,653 |
+| 2026-03 | $151,397 |
+| 2026-04 | $196,197 |
+| 2026-05 | $206,925 |
+| 2026-06 | $184,549 |
+| 2026-07 | $145,077 |
+
+_… last 24 of 181 months shown._

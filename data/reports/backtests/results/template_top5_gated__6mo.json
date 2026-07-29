@@ -1,15 +1,15 @@
 {
   "bil_coverage": 1.0,
   "cadence": "weekly",
-  "cagr": -0.31577136293200214,
+  "cagr": -0.31492542777862464,
   "clamped_to_data_floor": false,
   "config_id": "template_top5_gated",
-  "corporate_actions_dividend_rows": 1837,
-  "dividend_cash": 0.0,
+  "corporate_actions_dividend_rows": 400240,
+  "dividend_cash": 21.496423294312166,
   "end_date": "2026-07-16",
-  "equity_end": 32314.57297916546,
+  "equity_end": 32334.364867528897,
   "equity_start": 39000.0,
-  "max_dd": -0.37764872190844356,
+  "max_dd": -0.3772675469188569,
   "monthly_equity": [
     [
       "2026-01",
@@ -33,31 +33,31 @@
     ],
     [
       "2026-06",
-      41105.92508634931
+      41130.75302333453
     ],
     [
       "2026-07",
-      32314.57297916546
+      32334.364867528897
     ]
   ],
-  "n_dividend_credits": 0,
+  "n_dividend_credits": 1,
   "n_fills": 151,
   "n_rejected": 2,
   "n_sessions": 124,
   "name": "Template Top 5 (regime-gated)",
-  "runtime_s": 15.8,
+  "runtime_s": 17.6,
   "screen_rows": 85638,
-  "screen_s": 5.0,
+  "screen_s": 5.4,
   "screen_source": "hist",
-  "sharpe": -0.045076219010748514,
-  "sharpe_ex_bil": -0.08768671782789399,
+  "sharpe": -0.043737811291176,
+  "sharpe_ex_bil": -0.08635675544060031,
   "start_date": "2026-01-16",
-  "step_s": 6.8,
+  "step_s": 7.5,
   "strategy": "template_top5",
-  "total_return": -0.17142120566242414,
-  "vol_ann": 0.828179263689301,
+  "total_return": -0.17091372134541294,
+  "vol_ann": 0.828028086514434,
   "window": "6mo",
   "window_end_target": "2026-07-16",
-  "worst_month": -0.21387067895239587,
+  "worst_month": -0.21386401923677933,
   "years": 0.49555099247091033
 }
