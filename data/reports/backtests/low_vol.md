@@ -1,6 +1,6 @@
 # Low-Volatility Defensive (`low_vol`) — historical windows
 
-_strategy `low_vol` · cadence monthly · generated 2026-07-29 07:55 UTC_
+_strategy `low_vol` · cadence monthly · generated 2026-07-29 07:56 UTC_
 
 ## Disclosures — read before any number below
 

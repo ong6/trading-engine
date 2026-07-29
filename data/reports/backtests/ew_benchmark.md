@@ -1,6 +1,6 @@
 # Equal-Weight Benchmark (`ew_benchmark`) — historical windows
 
-_strategy `ew_benchmark` · cadence monthly · generated 2026-07-29 07:55 UTC_
+_strategy `ew_benchmark` · cadence monthly · generated 2026-07-29 07:56 UTC_
 
 ## Disclosures — read before any number below
 

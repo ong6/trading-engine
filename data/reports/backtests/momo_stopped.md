@@ -1,6 +1,6 @@
 # Momentum Top 10 (stop-managed) (`momo_stopped`) — historical windows
 
-_strategy `momo_stopped` · cadence daily · generated 2026-07-29 07:55 UTC_
+_strategy `momo_stopped` · cadence daily · generated 2026-07-29 07:56 UTC_
 
 ## Disclosures — read before any number below
 

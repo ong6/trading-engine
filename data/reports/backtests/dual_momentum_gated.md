@@ -1,6 +1,6 @@
 # Dual Momentum (regime-gated) (`dual_momentum_gated`) — historical windows
 
-_strategy `dual_momentum` · cadence monthly · generated 2026-07-29 07:55 UTC_
+_strategy `dual_momentum` · cadence monthly · generated 2026-07-29 07:56 UTC_
 
 ## Disclosures — read before any number below
 

@@ -1,6 +1,6 @@
 # 52-Week-High Momentum (`high_52wk`) — historical windows
 
-_strategy `high_52wk` · cadence monthly · generated 2026-07-29 07:55 UTC_
+_strategy `high_52wk` · cadence monthly · generated 2026-07-29 07:56 UTC_
 
 ## Disclosures — read before any number below
 
@@ -72,7 +72,7 @@ _strategy `high_52wk` · cadence monthly · generated 2026-07-29 07:55 UTC_
 
 - sessions 252 · fills 538 · rejected orders 0 · dividend credits 0 ($0)
 - equity $39,000 → $45,956 · Sharpe-excess computed over 100% of the window (BIL's first bar is 2007-05-30)
-- replay runtime 27.8s (screen 0.0s, day-steps 23.2s) · screen rows 0 · dividend rows in force 1837
+- replay runtime 27.3s (screen 0.0s, day-steps 23.0s) · screen rows 0 · dividend rows in force 1837
 
 | Month | Equity |
 |---|---|

@@ -250,7 +250,7 @@ def run_replay(live_con, config_id: str, window: str, *,
                scratch_root: Path = SCRATCH_ROOT, screen_source: str = "hist",
                keep_scratch: bool = False, results_dir: Path = RESULTS_DIR,
                write_result: bool = True, verbose: bool = True,
-               threads: int | None = 16,
+               threads: int | None = 16, mem_mb: int | None = 8000,
                override: tuple[date, date] | None = None) -> dict:
     """Replay one (book, window). Returns the result dict (also written as JSON)."""
     if config_id in EXCLUDED:
@@ -271,6 +271,14 @@ def run_replay(live_con, config_id: str, window: str, *,
         con = db.connect(db_path)
         if threads:
             con.execute(f"SET threads = {int(threads)}")
+        # Honour the job's DECLARED memory (queue_runner budgets 8 GB for a
+        # backtest). Without this DuckDB would help itself to ~80% of the box's
+        # 62 GiB, which is fine for one interactive run and wrong for 78 jobs
+        # draining unattended next to the nightly. DuckDB spills to disk past
+        # the limit — slower, never an OOM.
+        if mem_mb:
+            con.execute(f"SET memory_limit = '{int(mem_mb)}MB'")
+        con.execute(f"SET temp_directory = '{scratch_dir}'")
 
         t_screen = time.time()
         n_screen = 0
@@ -387,7 +395,8 @@ def run_job(params: dict, con, meta_path=None) -> None:
     if not cfg_id:
         raise ValueError("backtest job needs params {'config_id': …, 'window': …}")
     run_replay(con, cfg_id, window,
-               screen_source=params.get("screen_source", "hist"))
+               screen_source=params.get("screen_source", "hist"),
+               mem_mb=params.get("mem_mb", 8000))
     from farm.backtest import report
     report.write_reports()
 

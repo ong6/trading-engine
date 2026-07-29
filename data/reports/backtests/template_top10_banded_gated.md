@@ -1,6 +1,6 @@
 # Template Top 10 banded (regime-gated) (`template_top10_banded_gated`) — historical windows
 
-_strategy `template_top10_banded` · cadence weekly · generated 2026-07-29 07:55 UTC_
+_strategy `template_top10_banded` · cadence weekly · generated 2026-07-29 07:56 UTC_
 
 ## Disclosures — read before any number below
 
