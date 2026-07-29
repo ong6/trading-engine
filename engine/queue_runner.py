@@ -84,6 +84,12 @@ def _load_experiment():
     return experiment.run_job
 
 
+def _load_experiment_forward():
+    sys.path.insert(0, str(REPO_ROOT / "farm"))
+    import experiment_runner
+    return experiment_runner.run_job
+
+
 JOB_TYPES: dict[str, dict] = {
     # type      loader (lazy)        archive?  default declared memory (MB)
     "intraday":     {"loader": _load_intraday,     "archive": True,  "mem_mb": 4000},
@@ -91,6 +97,12 @@ JOB_TYPES: dict[str, dict] = {
     "earnings":     {"loader": _load_earnings,     "archive": True,  "mem_mb": 1000},
     "actions":      {"loader": _load_actions,      "archive": True,  "mem_mb": 1000},
     "experiment":   {"loader": _load_experiment,   "archive": False, "mem_mb": 2000},
+    # Forward (out-of-sample) experiment record. Milliseconds of work, so the
+    # nightly runs it inline after the league (see run_daily.sh) rather than
+    # queueing it; this entry exists so a missed night can be replayed through
+    # the normal job path.
+    "experiment_forward": {"loader": _load_experiment_forward,
+                           "archive": False, "mem_mb": 500},
 }
 
 
