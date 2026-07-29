@@ -113,8 +113,15 @@ def recent_ohlc(con, ticker: str, as_of: date, n: int):
     return list(reversed(rows))
 
 
-def total_return(con, ticker: str, as_of: date, lookback: int) -> float | None:
-    """close(as_of) / close(lookback sessions ago) - 1, or None if too short."""
+def price_return(con, ticker: str, as_of: date, lookback: int) -> float | None:
+    """close(as_of) / close(lookback sessions ago) - 1, or None if too short.
+
+    PRICE only — no dividends. Correct for the conventional price-based signals
+    (52-week-high ratio, realised vol, RS, ATR, breakouts). For anything that
+    compares assets on the return an investor actually earns, use total_return:
+    a price-only comparison against a distributing asset is badly wrong (BIL's
+    price is ~flat by construction and essentially all its return is coupon).
+    """
     rows = con.execute(
         "SELECT close FROM prices WHERE ticker = ? AND date <= ? "
         "ORDER BY date DESC LIMIT ?",
@@ -127,6 +134,71 @@ def total_return(con, ticker: str, as_of: date, lookback: int) -> float | None:
     if past in (None, 0) or last is None:
         return None
     return last / past - 1
+
+
+def dividends_between(con, ticker: str, start: date, end: date) -> float:
+    """Σ cash dividends per share going ex in (start, end].
+
+    Zero — never an error — when the store has no corporate_actions table (an old
+    copy, or a fresh store before the first actions pull). A missing dividend
+    history degrades a total return to a price return, which is the honest
+    conservative direction, not a fabricated number.
+    """
+    try:
+        row = con.execute(
+            "SELECT COALESCE(SUM(value), 0) FROM corporate_actions "
+            "WHERE ticker = ? AND kind = 'dividend' AND ex_date > ? AND ex_date <= ?",
+            [ticker, start, end],
+        ).fetchone()
+    except Exception:  # noqa: BLE001 - table absent on an old store
+        return 0.0
+    return 0.0 if row is None or row[0] is None else float(row[0])
+
+
+def total_return(con, ticker: str, as_of: date, lookback: int) -> float | None:
+    """Total return over `lookback` sessions ending at as_of, or None if short.
+
+        (P_end + Σ dividends ex in (start, as_of]) / P_start − 1
+
+    v1 approximation: distributions are treated as accruing UNREINVESTED cash
+    rather than buying more shares at the ex-date close. It slightly understates
+    a true reinvested total return (by the compounding on interim distributions —
+    for a ~4% yielder over 12 months, single-digit basis points), and it is the
+    same convention the books themselves run on, since sim dividends land in cash
+    and are only redeployed at the next rebalance. Exact enough for a momentum
+    ranking and honest about what it is.
+
+    Dividend share-basis note: yfinance back-adjusts historical dividends for
+    later splits, which matches the split-restated price convention `prices`
+    holds, so dps and P are on the same scale on both ends of the window.
+    """
+    rows = con.execute(
+        "SELECT date, close FROM prices WHERE ticker = ? AND date <= ? "
+        "ORDER BY date DESC LIMIT ?",
+        [ticker, as_of, lookback + 1],
+    ).fetchall()
+    if len(rows) < lookback + 1:
+        return None
+    end_date, last = rows[0]
+    start_date, past = rows[lookback]
+    if past in (None, 0) or last is None:
+        return None
+    return (float(last) + dividends_between(con, ticker, start_date, end_date)) \
+        / float(past) - 1
+
+
+def total_return_between(con, ticker: str, start: date, end: date) -> float | None:
+    """Total return between two DATES (not a session count) — for benchmarking a
+    book against its own inception date. Uses the close on, or last known before,
+    each endpoint; None if either side has no price at all."""
+    a = con.execute("SELECT date, close FROM prices WHERE ticker = ? AND date <= ? "
+                    "ORDER BY date DESC LIMIT 1", [ticker, start]).fetchone()
+    b = con.execute("SELECT date, close FROM prices WHERE ticker = ? AND date <= ? "
+                    "ORDER BY date DESC LIMIT 1", [ticker, end]).fetchone()
+    if not a or not b or not a[1] or not b[1]:
+        return None
+    return (float(b[1]) + dividends_between(con, ticker, a[0], b[0])) \
+        / float(a[1]) - 1
 
 
 # --------------------------------------------------------------------------- #

@@ -195,27 +195,137 @@ def mark_to_market(con: duckdb.DuckDBPyConnection, pf_id: str, d: date) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# corporate actions
+# --------------------------------------------------------------------------- #
+def _has_table(con: duckdb.DuckDBPyConnection, name: str) -> bool:
+    return con.execute(
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [name]
+    ).fetchone()[0] > 0
+
+
+def credit_dividends(con: duckdb.DuckDBPyConnection, d: date) -> dict:
+    """Phase a0 of the league day-step: pay every cash dividend going ex on `d`.
+
+    Entitlement is the position held at the close of d−1 — which is exactly the
+    current sim_positions state, because this runs BEFORE the day's fills. For
+    each active portfolio and each held name with a `corporate_actions` dividend
+    row on `d`: cash += qty × dps, and one append-only sim_dividends row.
+
+    Returns {'credited': n_rows, 'amount': total_cash}. A store without a
+    corporate_actions table (an old copy) credits nothing rather than failing.
+    """
+    out = {"credited": 0, "amount": 0.0}
+    if not _has_table(con, "corporate_actions"):
+        return out
+    divs = con.execute(
+        "SELECT ticker, value FROM corporate_actions "
+        "WHERE kind = 'dividend' AND ex_date = ?", [d]
+    ).fetchall()
+    if not divs:
+        return out
+    dps_by_ticker = {tk: float(v) for tk, v in divs if v is not None and v > 0}
+    if not dps_by_ticker:
+        return out
+
+    for (pf_id,) in con.execute(
+        "SELECT id FROM portfolios WHERE active ORDER BY id"
+    ).fetchall():
+        for tk, qty in con.execute(
+            "SELECT ticker, qty FROM sim_positions "
+            "WHERE portfolio_id = ? AND qty > 0 ORDER BY ticker", [pf_id]
+        ).fetchall():
+            dps = dps_by_ticker.get(tk)
+            if dps is None:
+                continue
+            amount = float(qty) * dps
+            con.execute("UPDATE portfolios SET cash = cash + ? WHERE id = ?",
+                        [amount, pf_id])
+            con.execute(
+                "INSERT OR REPLACE INTO sim_dividends "
+                "(portfolio_id, ticker, ex_date, qty, dps, amount) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                [pf_id, tk, d, float(qty), dps, amount],
+            )
+            out["credited"] += 1
+            out["amount"] += amount
+    return out
+
+
+def _split_factors(con: duckdb.DuckDBPyConnection) -> dict[str, list[tuple[date, float]]]:
+    """{ticker: [(ex_date, ratio), …]} for splits the reconciler actually APPLIED.
+
+    A fill that happened BEFORE a split's ex-date was executed at pre-split
+    prices, so replaying it verbatim would rebuild a pre-split share count. The
+    boundary here is the ex_date (economics), deliberately NOT the storage
+    break_date the price restatement used (see engine/actions.py).
+    """
+    if not _has_table(con, "split_adjustments"):
+        return {}
+    out: dict[str, list[tuple[date, float]]] = {}
+    for tk, ex, ratio in con.execute(
+        "SELECT ticker, ex_date, ratio FROM split_adjustments "
+        "WHERE outcome = 'applied' AND ratio IS NOT NULL AND ratio > 0"
+    ).fetchall():
+        out.setdefault(tk, []).append((ex, float(ratio)))
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # reconstruction (used by --rerun)
 # --------------------------------------------------------------------------- #
 def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
-    """Replay every surviving sim_fill to recompute sim_positions + cash exactly.
+    """Replay every surviving sim_fill + sim_dividend to recompute sim_positions
+    and cash exactly.
 
-    Cash starts at INITIAL_CASH per portfolio; fills are replayed in
-    (fill_date, sells-before-buys, order_id) order — the SAME order fill_pending
-    applies them live, so the cash-bounded buy clamp in apply_fill sees an
-    identical cash trajectory and never re-clamps a stored fill. This makes state
-    a pure function of the fill log, so deleting a date's fills and rebuilding
-    restores prior state exactly.
+    Cash starts at INITIAL_CASH per portfolio; events are replayed in date order
+    with dividends BEFORE fills within a date — the SAME order the live day-step
+    applies them (phase a0 then phase a), so the cash-bounded buy clamp in
+    apply_fill sees an identical cash trajectory and never re-clamps a stored
+    fill. Fills within a date keep the live (sells-before-buys, order_id) order.
+    This makes state a pure function of (sim_fills, sim_dividends).
+
+    Splits: a fill recorded before an APPLIED split's ex-date is replayed with
+    qty × ratio and fill_px ÷ ratio. Notional (and therefore the cash trajectory)
+    is unchanged, while the rebuilt share count and avg_cost land on the current,
+    post-split scale — without this, any --rerun after a split would silently
+    revert the reconciler's position adjustment. Dividends are replayed at their
+    RECORDED amount: the cash was received at the share count of the day, and a
+    later split does not retroactively change what was paid.
     """
     pf_ids = [r[0] for r in con.execute("SELECT id FROM portfolios").fetchall()]
     con.execute("DELETE FROM sim_positions")
     for pf_id in pf_ids:
         con.execute("UPDATE portfolios SET cash = ? WHERE id = ?",
                     [INITIAL_CASH, pf_id])
-    fills = con.execute(
-        "SELECT portfolio_id, ticker, side, qty, fill_px FROM sim_fills "
+
+    splits = _split_factors(con)
+
+    # (date, phase, seq, kind, payload) — phase 0 = dividends, 1 = fills.
+    events: list[tuple] = []
+    if _has_table(con, "sim_dividends"):
+        for i, (pf_id, tk, ex, amount) in enumerate(con.execute(
+            "SELECT portfolio_id, ticker, ex_date, amount FROM sim_dividends "
+            "ORDER BY ex_date, portfolio_id, ticker"
+        ).fetchall()):
+            events.append((ex, 0, i, "div", (pf_id, tk, float(amount))))
+    for i, (pf_id, tk, side, qty, px, fd, oid) in enumerate(con.execute(
+        "SELECT portfolio_id, ticker, side, qty, fill_px, fill_date, order_id "
+        "FROM sim_fills "
         "ORDER BY fill_date, CASE side WHEN 'sell' THEN 0 ELSE 1 END, order_id"
-    ).fetchall()
-    for pf_id, tk, side, qty, px in fills:
+    ).fetchall()):
+        events.append((fd, 1, i, "fill", (pf_id, tk, side, qty, px, fd)))
+    events.sort(key=lambda e: (e[0], e[1], e[2]))
+
+    for _d, _phase, _seq, kind, payload in events:
+        if kind == "div":
+            pf_id, _tk, amount = payload
+            con.execute("UPDATE portfolios SET cash = cash + ? WHERE id = ?",
+                        [amount, pf_id])
+            continue
+        pf_id, tk, side, qty, px, fd = payload
+        factor = 1.0
+        for ex, ratio in splits.get(tk, ()):
+            if fd < ex:
+                factor *= ratio
         apply_fill(con, {"portfolio_id": pf_id, "ticker": tk, "side": side,
-                         "qty": qty, "fill_px": px})
+                         "qty": qty * factor, "fill_px": px / factor})

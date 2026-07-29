@@ -54,6 +54,29 @@ stage() { echo "$1" > "${STAGE_FILE}"; }
   stage screen
   "${PY}" engine/screen.py --skip-if-done
 
+  # --- Corporate actions: fetch, then reconcile. MUST sit between screen and
+  # league, because the league steps the books against `prices` and a stored
+  # scale break makes a held name look like it crashed ~(1−1/ratio) overnight.
+  #
+  # Fatality semantics differ between the two on purpose:
+  #  * the FETCH is warn-and-continue. It is a network call, and a night with no
+  #    fresh actions data is not a night with wrong data: the reconciler still
+  #    adjudicates everything already stored, and the independent >40%-move
+  #    tripwire fires regardless of whether the fetch succeeded. Failing the
+  #    nightly on a Yahoo hiccup would cost fills and league continuity for no
+  #    correctness gain.
+  #  * the RECONCILE is FATAL (deliberately un-`||`-guarded under set -e). If it
+  #    cannot run we do not know whether the price scale the league is about to
+  #    trade on is coherent, and trading on a broken scale is strictly worse than
+  #    skipping a night. Note that a skipped_sanity verdict is NOT a failure — it
+  #    is the designed "never guess" outcome and surfaces as a TODO breadcrumb in
+  #    this log plus an audit_log row.
+  stage actions
+  "${PY}" engine/actions.py --mode incremental \
+    || echo "WARN: corporate-actions fetch failed (exit $?) — reconcile still runs over stored actions; the >40% move tripwire is independent of this fetch"
+  stage reconcile
+  "${PY}" engine/actions.py --mode reconcile
+
   # Paper league (exec-design §1 nightly order: … → screen → league → report → sync).
   # --init is idempotent (creates only absent portfolios); the step writes
   # data/reports/league.md + league.csv itself. --skip-if-done keeps a weekend/

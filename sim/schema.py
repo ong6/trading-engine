@@ -88,6 +88,24 @@ def init_sim_schema(con: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
+    # Append-only cash-dividend ledger: one row per (portfolio, ticker, ex_date)
+    # credited by the league day-step's phase a0. Entitlement is the position held
+    # at the close of ex_date−1, i.e. sim_positions BEFORE that day's fills.
+    # `--rerun` deletes the day's rows and the state rebuild replays them, so cash
+    # stays a pure function of (sim_fills, sim_dividends).
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sim_dividends (
+            portfolio_id VARCHAR,
+            ticker       VARCHAR,
+            ex_date      DATE,
+            qty          DOUBLE,
+            dps          DOUBLE,
+            amount       DOUBLE,
+            PRIMARY KEY (portfolio_id, ticker, ex_date)
+        )
+        """
+    )
     # --- M3 discretionary paper-trading (server/) tables --------------------- #
     # A discretionary ticket is a human trade intent gated server-side before it
     # becomes a sim_orders row. disc_tickets is append-only except `status`/
