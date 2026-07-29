@@ -662,6 +662,15 @@ conflict; execution design §7 has exit criteria).
    non-Monday nightly should print "no new settled Mondays" and nothing else. **The kill
    evaluation is at n=40 — roughly 2027-05, ~10 calendar months out given holiday Mondays —
    and until then the correct action on any interim number is none.**
+13. **Compute-utilization gap (owner audit 2026-07-29): the box is the mission's most
+   underused asset.** 32 cores / 62 GiB, load-avg ~0.16, nightly busy ~26 min/weekday —
+   §12.3's compute goal ("work the box fully") is not met. The remaining designed-but-unbuilt
+   §12.3 workloads, in priority order: (a) weekly walk-forward re-validation of every active
+   league rule (feeds the Sunday review loop, exec-design §6); (b) weekend deep sweeps
+   (parameter grids, bootstrap robustness, regime splits, cost-sensitivity) through the job
+   queue at ≤24 nice-19 workers; (c) generalize the E1 forward runner's rule dispatch so the
+   next pre-registered experiment doesn't need new plumbing. All run behind §12.7 caps;
+   none block the mission's Done gate.
 
 ## Blockers
 
