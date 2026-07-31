@@ -45,9 +45,12 @@ Sources (verified 2026-07-31 from this box):
                            window regardless of cosd (ICE licensing) — we take
                            what it gives and WARN once, never fabricate the rest.
   pc_total, pc_equity      CBOE, TWO ERAS: the archived era-1 CSVs (2006-11 →
-                           2019-10-04) and the era-2 per-day JSON (2023-01-01 →).
-                           GAP 2019-10-05 → 2022-12-31 is real and unfilled: CBOE
-                           publishes no free archive for it. Stated, not faked.
+                           2019-10-04) and the era-2 per-day JSON, backfilled
+                           from PC_ERA2_BACKFILL_START. GAP 2019-10-05 →
+                           2022-12-31: the data EXISTS (era-2 files were spot-
+                           checked back to 2019-10-07 and return ratios), the gap
+                           is OUR request-budget bound, not CBOE's absence. See
+                           PC_ERA2_BACKFILL_START to close it.
   naaim_exposure           NAAIM weekly (Wednesday) exposure index, .xlsx
   aaii_bull, aaii_bear     AAII weekly sentiment survey, legacy .xls (1987 →)
   margin_debt, free_credit FINRA monthly margin statistics .xlsx (1997 →)
@@ -104,9 +107,13 @@ LAG_DAYS: dict[str, int] = {
     "breadth_pct_200": 0, "breadth_nh_nl": 0, "zweig_ratio": 0,
 }
 
-# Era-2 put/call backfill bound. ~900 polite GETs at HOST_SLEEP — declared here
-# (and logged at run time) rather than silently capped, per the no-silent-caps
-# rule. Earlier era-2 days exist but CBOE's free archive starts thinning out.
+# Era-2 put/call backfill bound: one GET per weekday, so ~935 polite requests
+# from 2023-01-01. Declared here and logged at run time rather than silently
+# capped, per the no-silent-caps rule. NOT a data boundary — era-2 files were
+# spot-checked live on 2026-07-31 back to 2019-10-07 and all returned ratios, so
+# moving this to date(2019, 10, 7) closes the era-1/era-2 gap entirely at the
+# cost of ~830 more requests (~12 min). Left at 2023 because that is the window
+# the strategy's put/call reads (252 obs) actually need.
 PC_ERA2_BACKFILL_START = date(2023, 1, 1)
 SI_BACKFILL_YEARS = 3           # FINRA consolidated short interest
 BREADTH_BACKFILL_START = date(2012, 1, 1)
@@ -783,7 +790,17 @@ def collect(con, params: dict, mode: str) -> dict:
             continue
         total += n
         series = sorted({r[0] for r in rows})
-        per_source[name] = {"status": "ok", "rows_fetched": len(rows),
+        if not rows:
+            # The source did not raise, but it handed back nothing. Sources that
+            # fetch several endpoints (fred, putcall, short_interest) swallow a
+            # per-endpoint failure into their own WARN and return what they got,
+            # so "0 rows" is the only remaining tell that the source is down.
+            # Count it as degraded rather than letting it read as a clean run.
+            line = f"{name} returned no rows this run"
+            warnings.append(line)
+            print(f"[signals] WARN {line}")
+        per_source[name] = {"status": "ok" if rows else "empty",
+                            "rows_fetched": len(rows),
                             "rows_inserted": n, "series": series,
                             "secs": round(time.time() - t0, 1)}
         print(f"[signals] {name}: fetched {len(rows):,} → inserted {n:,} new "
