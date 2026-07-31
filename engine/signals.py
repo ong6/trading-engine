@@ -172,6 +172,29 @@ def _get(url: str, **kw):
     return _request("GET", url, **kw)
 
 
+# Spreadsheet magic bytes: legacy BIFF .xls (OLE2) and .xlsx (a zip).
+XLS_MAGIC = b"\xd0\xcf\x11\xe0"
+XLSX_MAGIC = b"PK\x03\x04"
+
+
+def _expect_spreadsheet(body: bytes, magic: bytes, what: str) -> bytes:
+    """Fail with a USEFUL message when a spreadsheet URL serves something else.
+
+    Observed live 2026-07-31: aaii.com intermittently answers the .xls URL with
+    an HTML interstitial and HTTP 200. Handed straight to xlrd that surfaces as
+    "Expected BOF record; found b'<!DOCTYP'", which reads like data corruption
+    and sends the next reader hunting for a parser bug. It is a blocked fetch,
+    and the WARN should say so.
+    """
+    if body[:len(magic)] != magic:
+        head = body[:40]
+        kind = ("an HTML page (bot challenge / interstitial)"
+                if head.lstrip()[:1] == b"<" else f"unexpected bytes {head!r}")
+        raise RuntimeError(f"{what}: server returned {kind}, not a spreadsheet "
+                           f"({len(body)} bytes) — treating as a blocked fetch")
+    return body
+
+
 def _num(x) -> float | None:
     """Parse a CSV/JSON cell to a float, or None. '.' is FRED's missing marker."""
     if x is None:
@@ -410,9 +433,10 @@ def src_naaim(con, mode: str) -> list[tuple]:
         print(f"[signals] WARN naaim: {len(hrefs)} spreadsheet links on the page, "
               f"using the first ({hrefs[0]})")
     rr = _get(hrefs[0])
+    body = _expect_spreadsheet(rr.content, XLSX_MAGIC, "naaim")
 
     import openpyxl
-    wb = openpyxl.load_workbook(io.BytesIO(rr.content), read_only=True, data_only=True)
+    wb = openpyxl.load_workbook(io.BytesIO(body), read_only=True, data_only=True)
     ws = wb[wb.sheetnames[0]]
     out = []
     for row in ws.iter_rows(values_only=True):
@@ -432,10 +456,19 @@ def src_aaii(con, mode: str) -> list[tuple]:
     per-year count rows; we keep only rows whose date cell is a real Excel serial
     and whose bull/bear cells are numeric, and store PERCENT 0-100 so the
     strategy's percentile thresholds read in the units everyone quotes.
+
+    INTERMITTENT BLOCK (observed 2026-07-31): aaii.com sits behind Imperva and
+    starts answering this URL with a "Pardon Our Interruption" HTML page (HTTP
+    200) after a handful of pulls in a short window. Nothing to defeat here and
+    nothing to fix: the nightly asks once a day, _expect_spreadsheet turns the
+    interstitial into a clear WARN, and because the file carries the WHOLE
+    history back to 1987 a missed night is fully recovered by the next
+    successful one — the anti-join simply fills the gap.
     """
     r = _get("https://www.aaii.com/files/surveys/sentiment.xls")
+    body = _expect_spreadsheet(r.content, XLS_MAGIC, "aaii")
     import xlrd
-    bk = xlrd.open_workbook(file_contents=r.content)
+    bk = xlrd.open_workbook(file_contents=body)
     sh = bk.sheet_by_name("SENTIMENT") if "SENTIMENT" in bk.sheet_names() \
         else bk.sheet_by_index(0)
 
@@ -478,8 +511,9 @@ def src_finra_margin(con, mode: str) -> list[tuple]:
     """
     r = _get("https://www.finra.org/sites/default/files/2021-03/"
              "margin-statistics.xlsx")
+    body = _expect_spreadsheet(r.content, XLSX_MAGIC, "finra_margin")
     import openpyxl
-    wb = openpyxl.load_workbook(io.BytesIO(r.content), read_only=True, data_only=True)
+    wb = openpyxl.load_workbook(io.BytesIO(body), read_only=True, data_only=True)
     ws = wb[wb.sheetnames[0]]
     out = []
     for row in ws.iter_rows(values_only=True):
