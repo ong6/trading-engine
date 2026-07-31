@@ -78,6 +78,11 @@ def _load_actions():
     return actions.run
 
 
+def _load_signals():
+    import signals
+    return signals.run
+
+
 def _load_experiment():
     sys.path.insert(0, str(REPO_ROOT / "farm"))
     import experiment
@@ -102,6 +107,12 @@ JOB_TYPES: dict[str, dict] = {
     "fundamentals": {"loader": _load_fundamentals, "archive": True,  "mem_mb": 2000},
     "earnings":     {"loader": _load_earnings,     "archive": True,  "mem_mb": 1000},
     "actions":      {"loader": _load_actions,      "archive": True,  "mem_mb": 1000},
+    # Macro/regime signal collector. archive=False: `macro_signals` is a few tens
+    # of thousands of small rows a year, nothing the disk watchdog needs to gate.
+    # The nightly (incremental) pass is a handful of small HTTP fetches plus one
+    # session of breadth SQL; a --mode backfill job is the heavy one and is run
+    # by hand, not by cron.
+    "signals":      {"loader": _load_signals,      "archive": False, "mem_mb": 500},
     "experiment":   {"loader": _load_experiment,   "archive": False, "mem_mb": 2000},
     # Forward (out-of-sample) experiment record. Milliseconds of work, so the
     # nightly runs it inline after the league (see run_daily.sh) rather than
