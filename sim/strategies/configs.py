@@ -1,4 +1,4 @@
-"""Pre-registered strategy configs — the paper league's 16 portfolios.
+"""Pre-registered strategy configs — the paper league's 17 portfolios.
 
 Each config is frozen up front (id, name, description, cadence, params,
 expectation, kill_criterion) so the forward record is honest out-of-sample:
@@ -234,6 +234,28 @@ CONFIGS: list[dict] = [
                        "return driver.",
         "kill_criterion": "Expectancy turns negative after 30+ closed trades, or "
                           "max drawdown exceeds 15%.",
+    },
+    {
+        "id": "macro_composite",
+        "name": "Macro Composite (all-signals)",
+        "strategy": "macro_composite",
+        "cadence": "weekly",
+        "params": {},
+        "description": "Weekly SPY allocation in {0,25,50,75,100}% from four "
+                       "pre-registered signal blocks — internal breadth, credit "
+                       "(HY OAS / HYG-LQD), VIX term structure, macro "
+                       "(claims+NFCI+curve-resteepen) — plus a fear-extremes "
+                       "add-back and a leverage/short-interest cap. Signals from "
+                       "the point-in-time macro_signals table (engine/signals.py); "
+                       "thresholds frozen 2026-07-31 per "
+                       "research/market-regime-signals.md.",
+        "expectation": "Drawdown reducer, not alpha: lower max DD than "
+                       "spy_benchmark across a full risk-off episode at a 2-4pp "
+                       "CAGR toll; lags in strong bull years.",
+        "kill_criterion": "Fails to reduce max drawdown vs spy_benchmark across a "
+                          "full risk-off episode, or trails spy_benchmark by >20% "
+                          "over 2 years without a lower max drawdown over the "
+                          "same window.",
     },
 ]
 
