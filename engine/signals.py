@@ -396,6 +396,11 @@ def src_naaim(con, mode: str) -> list[tuple]:
 
     The .xlsx is re-dated every week, so the filename is scraped from the page
     rather than guessed. Both modes take the whole file (one request, ~85 KB).
+
+    The sheet carries two duplicated legacy rows at the very start of the series
+    (2006-07-05 and 2006-07-12 each appear twice, once rounded). The insert's
+    in-batch dedup keeps the first occurrence, which is why a fetch of 1,049 rows
+    stores 1,047 — expected, not a parse bug.
     """
     r = _get("https://naaim.org/programs/naaim-exposure-index/")
     hrefs = re.findall(r'href=["\']([^"\']+\.xlsx?)["\']', r.text, flags=re.I)
@@ -461,6 +466,15 @@ def src_finra_margin(con, mode: str) -> list[tuple]:
                   — the two columns summed, which is the "net investor credit"
                   numerator everyone quotes against margin debt.
     obs_date    = the last calendar day of the stat month.
+
+    KNOWN COVERAGE GAP (verified 2026-07-31): FINRA split free credit into the
+    two columns only from 2010-02. Rows before that carry a single free-credit
+    figure and a NULL in the second column, so `free_credit` starts 2010-02 while
+    `margin_debt` runs from 1997-01. We do NOT relabel the older single column as
+    the total — it is headed "cash accounts", and quietly redefining a column is
+    exactly the kind of invented fact this store forbids. No strategy reads
+    free_credit today; if one ever needs pre-2010 net credit, add it as a
+    separate, differently-named series.
     """
     r = _get("https://www.finra.org/sites/default/files/2021-03/"
              "margin-statistics.xlsx")
@@ -533,6 +547,14 @@ def src_short_interest(con, mode: str) -> list[tuple]:
     Σ(current short position) / Σ(average daily volume) over every reported
     security — a breadth-weighted DTC rather than a mean of ratios, so thin
     names cannot swing it. Guarded against a zero denominator.
+
+    READ THE DENOMINATOR. This is a ratio of two market-wide sums and the ADV
+    sum moves far more than the short sum, so a quiet fortnight can lift DTC
+    without a single new short being opened. Measured 2026-07-31 on real data:
+    settlement 2026-06-30 Σshort 56.81bn / Σadv 27.35bn = 2.077; settlement
+    2026-07-15 Σshort 56.71bn (−0.2%) / Σadv 19.14bn (−30%) = 2.963. Same shorts,
+    a summer volume lull, and a +43% "signal". Anything reading this series
+    should treat a spike as a volume question first.
 
     Backfill walks SI_BACKFILL_YEARS one MONTH at a time: the range filter is
     fine with three years, but the offset would climb past 700k and month chunks
