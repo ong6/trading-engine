@@ -313,7 +313,16 @@ def _slow_conditioners(con, as_of: date) -> tuple[bool, dict]:
     Margin debt rolling to a negative year-on-year change AFTER a >25% YoY
     build-up inside the trailing year is the deleveraging pattern that turns a
     correction into a drawdown. Market-wide days-to-cover 1.5 standard deviations
-    above its three-year mean is the crowded-short condition."""
+    above its three-year mean is the crowded-short condition.
+
+    KNOWN WEAKNESS in the short-interest leg, found while proving the collector
+    (2026-07-31): `short_interest_dtc` is Σshort / Σaverage-daily-volume, and the
+    denominator is the volatile half. The 2026-07-15 settlement printed +43% on
+    a flat short base and a 30% volume lull, which is enough to trip this cap on
+    its own. The threshold is FROZEN — pre-registration means we live with it and
+    let the forward record judge it — but if this leg is the thing capping the
+    book in a quiet tape, that is the first place to look, and the honest fix is
+    a better metric (short interest as a share of float), not a tuned sigma."""
     info: dict = {}
     capped = False
 
