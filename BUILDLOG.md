@@ -725,6 +725,49 @@ conflict; execution design §7 has exit criteria).
   Sharpe). Findings mirrored to the store: `research/league-strategy-backtests.md` +
   two lessons.md lines.
 
+- 2026-07-31 · **`macro_composite` book + `engine/signals.py` collector built and proven on
+  branch `macro-composite` — NOT merged (deliberate: tonight is the first monthly-signal
+  nightly, mid-streak; merge only after it verifies clean).** The league's first non-price
+  book. Research first (three web passes + a live endpoint probe from this box, full cited
+  report in the store at `research/market-regime-signals.md`): short interest is the strongest
+  peer-reviewed aggregate predictor (Rapach JFE 2016); margin debt is coincident-to-lagging
+  once its 3-week lag counts; Fama–French 2019 kills yield-curve-inversion timing (the
+  re-steepen is the signal); "net liquidity" rejected as spurious; FINRA ATS dark-pool data
+  rejected for timing (2–4wk lag) — DIX is the honest daily dark-pool read; breadth computed
+  internally from our own prices has the best evidence-to-lag ratio (Zweig thrust). Built by
+  an Opus subagent to a frozen spec, verified by it, branch commits `057001b`..`d6e0341`:
+  append-only point-in-time `macro_signals` (series, obs_date, value, fetch_as_of; D-MS1
+  first-observed-wins), 10-source collector (curl_cffi chrome impersonation — this network
+  TLS-fingerprint-kills plain curl on FRED; warn-and-continue per source; LAG_DAYS registry;
+  internal breadth set-based), queue job kind `signals` + nightly enqueue at priority 105,
+  and the weekly book: four frozen blocks (breadth / credit / vol structure / macro) → SPY
+  tier {0,25,50,75,100}%, fear-extremes add-back, margin+short-interest cap, 0.20 hysteresis.
+  Thresholds pre-registered 2026-07-31 in configs.py before any evidence.
+  **Proofs (all on copies; live store never RW):** 66,563-row backfill across 20 series
+  (AAII→1987, VIX→1990, margin→1997); 3 independent-refetch spot checks exact (VIX vs
+  yfinance, DIX re-download incl. 2020-03-23, ICSA vs fresh FRED); second backfill inserts 0;
+  point-in-time gate proven both directions (fetch_as_of tomorrow → invisible today); 28-session
+  shakedown exit 0 with sane tier moves (0.25→0.75, then hysteresis holds) and the other 16
+  books **byte-identical to a master run on the same copy** (md5-matched dumps); queue
+  end-to-end done; nightly tail exit 0 including a broken-network run (9 sources degraded,
+  breadth still computed, zero wrong rows). D-MS2: `--pit-lag` backfill mode stamps
+  fetch_as_of = obs_date + LAG_DAYS as a labelled reconstruction so historical replays can see
+  the series; default backfill stamps today (honest, invisible to the past).
+  **Open items:** (i) put/call 2019-10→2022-12 gap is our request-budget choice, not CBOE's —
+  `PC_ERA2_BACKFILL_START` to 2019-10-07 closes it (~830 requests); (ii) the pre-registered
+  short-interest cap is firing on a **denominator artifact** (settlement 07-15 Σadv fell 30%,
+  short base flat → dtc 2.08→2.96 = fake +43%) — live read today would be composite +3 →
+  1.00 capped to 0.50; threshold stays frozen, the honest fix if the forward record indicts
+  it is SI/float, not a tuned sigma; (iii) AAII sits behind Imperva and intermittently serves
+  a block page at HTTP 200 — magic-byte guard WARNs honestly, file self-heals (full history
+  each pull); (iv) hy_oas keyless-capped to 3y (ICE) — free FRED API key is the fix, flagged
+  to owner; HYG/LQD internal substitute covers; (v) breadth is survivor-biased (today's
+  universe_snapshot) — same disclosure as the backtest farm.
+  **Incident avoided:** the build agent left the working tree checked out on the branch;
+  caught ~hours before cron and switched back to master. Lesson for every future delegated
+  build: **cron runs the working tree — an implementation agent's last act must be
+  `git checkout master`**, and the orchestrator must verify it.
+
 ## Next
 
 1. ~~Verify the miners bootstrap~~ **DONE 2026-07-18 pm** (see above — fundamentals 4,118,
@@ -812,6 +855,13 @@ conflict; execution design §7 has exit criteria).
    and cost-sensitivity are still open**, as is walk-forward re-validation; (c) generalize the
    E1 forward runner's rule dispatch so the next pre-registered experiment doesn't need new
    plumbing — **STILL OPEN**. All run behind §12.7 caps; none block the mission's Done gate.
+15. **Merge `macro-composite` after Fri 07-31's nightly verifies clean** (streak intact,
+   monthly sleeves fired correctly): `git merge --no-ff macro-composite`, then run the one-time
+   signals backfill on the live store through the queue (`queue_runner.py --enqueue signals
+   --params '{"mode":"backfill"}'` + drain, ~15–20 min network time), then league `--init` on
+   the next nightly creates the book — first live weekly signal the following Monday. Watch
+   the first nightly with the signals job for per-source WARNs (AAII/Imperva expected
+   occasionally). Owner decision pending: free FRED API key for full hy_oas history.
 14. **Fold `farm/execution_drag.py` into the weekly review loop** (exec-design §6) once the
    7-clean-run streak completes — a one-line stage or a review-skill step; until then run it
    manually. Revisit the MOC close-execution question only when its pre-committed decision
