@@ -1,52 +1,53 @@
 {
-  "last_run": "2026-07-31T22:32:10.815922+00:00",
+  "last_run": "2026-08-03T22:31:53.831764+00:00",
   "mode": "incremental",
-  "universe_size": 12306,
-  "active_count": 12246,
+  "universe_size": 12315,
+  "active_count": 12241,
   "liquid_count": 4118,
-  "prices_rows": 19862461,
+  "prices_rows": 19866576,
   "tickers_with_data": 12105,
   "stale_tickers": {
-    "count": 3,
+    "count": 4,
     "list": [
       "AVNS",
+      "CCRN",
       "NSA",
       "TMHC"
     ]
   },
-  "failed_this_run": 4,
+  "failed_this_run": 3,
   "sources": {
     "stooq": "blocked",
     "yfinance": "ok"
   },
   "regime": "risk-on",
-  "last_screen": "2026-07-31T22:32:13.817957+00:00",
-  "passing_count": 631,
-  "new_today_count": 58,
-  "screened": 3884,
+  "last_screen": "2026-08-03T22:31:56.909902+00:00",
+  "passing_count": 647,
+  "new_today_count": 80,
+  "screened": 3883,
   "skipped_stale": 0,
-  "skipped_short": 229,
+  "skipped_short": 228,
   "actions_incremental": {
     "mode": "incremental",
-    "universe": 82,
+    "universe": 141,
     "universe_source": "held \u222a pending \u222a core-ETFs \u222a screen-top-N",
-    "pulled_this_run": 82,
-    "with_actions": 41,
-    "no_actions": 41,
+    "pulled_this_run": 141,
+    "with_actions": 93,
+    "no_actions": 48,
     "failed_tickers": 0,
-    "rows_written_this_run": 2218,
+    "rows_written_this_run": 7579,
     "total_splits": 8706,
-    "total_dividends": 400978,
-    "last_run": "2026-07-31T22:33:42.952670+00:00",
-    "store_gb": 2.23
+    "total_dividends": 400983,
+    "last_run": "2026-08-03T22:33:49.850851+00:00",
+    "store_gb": 2.27
   },
   "disk_warning": null,
   "actions_reconcile": {
     "candidates": 0,
     "rows_restated": 0,
     "outcomes": {},
-    "warnings": 1,
-    "last_run": "2026-07-31T22:33:43.899402+00:00",
-    "store_gb": 2.23
+    "warnings": 0,
+    "last_run": "2026-08-03T22:33:51.106050+00:00",
+    "store_gb": 2.27
   }
 }

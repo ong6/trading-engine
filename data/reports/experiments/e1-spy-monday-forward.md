@@ -1,8 +1,8 @@
 # Experiment e1-spy-monday — FORWARD (out-of-sample) record
 
-*Forward phase registered 2026-07-29 · report generated 2026-07-31 22:33 UTC · params hash `5dc40ff465de67a9` · forward-config hash `399ce03bee8bab4e`*
+*Forward phase registered 2026-07-29 · report generated 2026-08-03 22:33 UTC · params hash `5dc40ff465de67a9` · forward-config hash `399ce03bee8bab4e`*
 
-> **NO RESULT YET — 2 of 40 out-of-sample Mondays.** This experiment is not evaluated until the pre-registered sample is complete. Anything below is an accumulating record, **not** a verdict: reading a mean or a t-stat at n=2 and calling it a finding is exactly the peeking the §12.3 protocol exists to prevent. **38 Mondays to go.**
+> **NO RESULT YET — 3 of 40 out-of-sample Mondays.** This experiment is not evaluated until the pre-registered sample is complete. Anything below is an accumulating record, **not** a verdict: reading a mean or a t-stat at n=3 and calling it a finding is exactly the peeking the §12.3 protocol exists to prevent. **37 Mondays to go.**
 
 ## Frozen registration
 
@@ -24,6 +24,7 @@ Registration source: `farm/experiments/e1-spy-monday.yaml` (pre-registered 2026-
 |--:|---|--:|--:|--:|--:|--:|--:|
 | 1 | 2026-07-20 | 747.06 | 742.09 | -0.6653% | -0.8637% | -0.6653% | -0.8637% |
 | 2 | 2026-07-27 | 744.91 | 739.09 | -0.7813% | -0.9795% | -1.4414% | -1.8348% |
+| 3 | 2026-08-03 | 749.44 | 757.67 | +1.0982% | +0.8962% | -0.3590% | -0.9551% |
 
 _Every row is one real stored SPY daily bar; holiday Mondays have no bar and are simply absent (no trade that week). Rows are append-only — a Monday is written once, after its session has settled, and never revised._
 
@@ -31,12 +32,12 @@ _Every row is one real stored SPY daily bar; holiday Mondays have no bar and are
 
 | Series | n | mean/Monday | sd | t-stat | cumulative | win rate |
 |---|--:|--:|--:|--:|--:|--:|
-| gross | 2 | -0.7233% | 0.0820% | -12.47 | -1.441% | 0/2 |
-| **net — 20bp r/t (kill series)** | 2 | -0.9216% | 0.0819% | -15.92 | -1.835% | 0/2 |
-| net — 3bp r/t (registered) | 2 | -0.7531% | 0.0820% | -12.98 | -1.500% | 0/2 |
+| gross | 3 | -0.1161% | 1.0532% | -0.19 | -0.359% | 1/3 |
+| **net — 20bp r/t (kill series)** | 3 | -0.3157% | 1.0511% | -0.52 | -0.955% | 1/3 |
+| net — 3bp r/t (registered) | 3 | -0.1461% | 1.0529% | -0.24 | -0.449% | 1/3 |
 
-- **Mondays recorded:** 2 / 40 · **Mondays to kill-evaluation:** **38**.
-- **Kill test (runs once, at n = 40):** kill if `mean <= 0` **or** `t < 0.5` on the net series. Current standing — mean -0.9216%, t -15.92 — **would KILL** if the criterion were applied today, which it is **not**.
+- **Mondays recorded:** 3 / 40 · **Mondays to kill-evaluation:** **37**.
+- **Kill test (runs once, at n = 40):** kill if `mean <= 0` **or** `t < 0.5` on the net series. Current standing — mean -0.3157%, t -0.52 — **would KILL** if the criterion were applied today, which it is **not**.
 - **Costs are real, not assumed:** net uses the paper league's own fill model (`sim/fills.py`), 20bp round-trip for SPY's liquidity tier — 6.7× stricter than the 3bp the backtest registered. The registered-cost row is shown so the forward record can also be read against the original pre-registration.
 
 ## Backtest context — NOT part of the out-of-sample record
@@ -56,5 +57,5 @@ The full pre-registered backtest (1990→2026, in-sample vs a locked holdout, de
 - **No fabricated bars.** A Monday without a real stored open+close (market holiday) produces no row at all, rather than a synthetic flat trade.
 - **No peeking-driven change.** The config, the cost model, the kill rule and the sample size were all frozen before this evidence existed. If E1 is killed at n=40 it is killed; there is no re-optimization branch.
 - **Negative results are published exactly like positive ones** — the farm exists to kill bad ideas cheaply (§12.3).
-- **Storage:** no new settled Mondays — nothing appended; the report was regenerated from `experiment_results` (re-running is a no-op by design).
+- **Storage:** 1 row(s) appended to `experiment_results` (append-only, partition `oos:<date>`) at 2026-08-03 22:33 UTC.
 
