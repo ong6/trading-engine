@@ -4,7 +4,7 @@ Source of truth for build state. Read at the start of every loop iteration; trus
 remembered state. Specs live in `../personal-data-store/trading/` (engine design §12 wins on
 conflict; execution design §7 has exit criteria).
 
-## Current phase: post-Done — §12.3 utilization build-out (walk-forward, sweeps) + M1 remote pending
+## Current phase: post-Done — §12.3 utilization build-out (walk-forward DONE 2026-08-04; sweeps open) + M1 remote pending
 
 ## Phase exits stamped
 
@@ -812,6 +812,155 @@ conflict; execution design §7 has exit criteria).
   build: **cron runs the working tree — an implementation agent's last act must be
   `git checkout master`**, and the orchestrator must verify it.
 
+- 2026-08-04 · **Weekly walk-forward re-validation built and proven — Next item 13(a),
+  the top-priority designed-but-unbuilt §12.3 workload, is DONE.** New package
+  `farm/walkforward/` (`protocol.py` / `runner.py` / `report.py` / `grid.py`), queue job
+  kind `walkforward` registered in `engine/queue_runner.py`, and a Sunday driver
+  `engine/run_weekly_walkforward.sh`. Commits `a0e8a68` (package + queue) → `5d8016b`
+  (driver + docs) → this entry. **`engine/run_daily.sh`, `sim/league.py`, `sim/fills.py`
+  and every strategy file are untouched** — the walk-forward drives them, exactly as the
+  backtest farm does. This is the workload execution design §6 names ("Sunday cron:
+  /watchlist-scan + /trading-review + **the farm's walk-forward re-validation**").
+  **The protocol, registered before any evidence (D-WF1–D-WF5 written out in
+  `protocol.py`; D-WF6 in `runner.py`).**
+  (D-WF1) *Rolling-origin, train 24 months → validate 12 months, step = validate length,
+  6 folds, anchored on the latest session.* Step = validate length is what makes the six
+  validate windows DISJOINT — six independent out-of-sample measurements, no session
+  counted twice. 12 months of validate is the shortest window that gives a MONTHLY-cadence
+  book (dual_momentum, sector_momentum, low_vol, high_52wk, ew_benchmark) twelve real
+  decisions; anything shorter judges half the league on 2–3 rebalances. 6 folds ≈ six years
+  of validate coverage — COVID crash and recovery, the 2022 bear, the 2023-25 bull — at a
+  measured cost that fits inside one §12.7 drain budget. All four numbers are job params,
+  so a deeper run is an override, not a redesign.
+  (D-WF2) *Each fold is an INDEPENDENT replay starting fresh at the $39,000 reference
+  notional.* The cheaper alternative — one long continuous replay sliced into folds — lets a
+  book that halved its equity in fold 1 trade fold 6 at half size, where integer-share
+  rounding and the fill model's liquidity guard behave differently. A re-validation must
+  measure the RULE at its designed size, not the archaeology of an account opened in 2018.
+  The cost of that call is that fold returns do not compound into a multi-year number; that
+  number is the backtest farm's job and the reports say so.
+  (D-WF3) *The anchor is the LATEST session in the store, not league inception.* A weekly
+  re-validation feeding a weekly review has to include the most recent data. The newest
+  validate window therefore overlaps the live forward record by however many sessions have
+  passed since 2026-07-17 (17 sessions today, against a 252-session window). That overlap is
+  a *shadow* of the live book, not extra out-of-sample evidence, and every such fold is
+  flagged `◈` in the reports rather than quietly counted.
+  (D-WF4) *The replayed config is the row in the LIVE `portfolios` table, not
+  `sim/strategies/configs.py`.* `portfolios.config` is the JSON frozen at the book's creation
+  and is what `league.generate_all` actually reads; re-validating anything else would
+  re-validate a rule the league is not trading. The book list comes from the same query
+  (`WHERE active`), so a book the league stops running stops being re-validated.
+  (D-WF5) *Nothing is fitted anywhere in this workload.* The train window is a MEASUREMENT
+  baseline (what the rule did on the sessions immediately before), not a search — §12.3's
+  farm exists "to kill bad ideas cheaply, not to find a lucky parameter". Parameter grids
+  stay in item 13(b).
+  (D-WF6) *One job per BOOK, not per fold.* The fold windows overlap by construction, so a
+  per-fold job would rebuild the same ~8.5M-row price scratch and re-run the same screen six
+  times. One job builds one scratch, screens once over the whole span, then replays each
+  fold inside it — 6× less I/O for identical numbers.
+  **The verdict flag is mechanical and is NOT a kill.** Against `ew_benchmark` on the same
+  folds: **PASS** = beats EW in ≥ 50% of validate windows AND mean validate excess ≥ 0;
+  **WATCH** = one of those fails; **REVIEW** = both fail *and* the latest window also trails
+  EW. REVIEW puts the book on the Sunday agenda against its own pre-registered prose kill
+  criterion, which is printed on its page and is what actually decides. Benchmarks are
+  labelled `reference` and not judged.
+  **Evidence — every proof ran on a COPY of the store. The live store was opened read-write
+  exactly once by this session, by the production enqueue** (`grid.py --enqueue` writing 15
+  `jobs` rows); verified read-only afterwards that `prices` (19,866,576 rows), `portfolios`
+  (17) and `sim_equity` (161 rows, max date 2026-08-03) are unchanged. The copy was taken
+  after job 106's signals backfill checkpointed and released the writer lock (no `.wal` left
+  beside the file), so it is a clean snapshot, not a torn one.
+  * *Hand check against an independent reconstruction.* `spy_benchmark`, one fold
+    (train 2026-02-03→2026-05-01, validate 2026-05-01→2026-08-03), scratch kept. Equity
+    rebuilt from scratch out of `sim_fills` + `sim_dividends` + `prices` by a script that
+    imports nothing from `farm/`: equity@split `40758.775135742195` and equity@end
+    `42938.51681152345` **matched the stored `sim_equity` to 0.000000000000**; validate
+    total return, annualized vol, Sharpe and max drawdown all matched the result JSON to
+    **0.0 / 0.00e+00**. The train/validate split abuts and does not double-count: **train 62
+    rows + validate 64 rows − 1 shared split row = 125 = total `sim_equity` rows.** Economic
+    sanity: the book returned **+5.3479%** against SPY price-only **+5.1370%** and SPY with
+    dividends **+5.4012%** — i.e. it captured the dividend and gave back a sliver to the idle
+    cash left by `apply_fill`'s integer-share clamp (56 shares, ~$300 idle), which is exactly
+    what a $39k SPY holder should look like.
+  * *Queue end-to-end, every book.* `farm/walkforward/grid.py --enqueue` on the copy →
+    **jobs 107–121, all 15 eligible books**, drained by the real `queue_runner.py --run`
+    (nice 19, ionice idle, load/RAM guard, 8 GB declared per job): **15/15 `done`, 0
+    failures, 0 tracebacks** (`logs/wf-shakedown-2026-08-04.log`). Reduced protocol
+    (3mo/3mo, 2 folds, 187 sessions) so every book's code path ran cheaply — per job
+    12.3 s (dual_momentum) to 117.0 s (mr_overlay_gated), whole grid ~9.5 min. The
+    partially-drained report is honest: books that finished before `ew_benchmark` showed
+    verdict `no-benchmark` rather than a fabricated comparison, and resolved once it landed.
+  * *Full-protocol runs (the real 24/12/6 shape, 2018-08-03 → 2026-08-03, 2,009 sessions).*
+    Through the queue on the copy (jobs 122–124, all `done`, 0 tracebacks).
+    `spy_benchmark` **172.8 s**, `template_top5` **335.8 s**, `mr_overlay` **2,981.5 s**
+    (~50 min — the league's most expensive book by 9×, at 462–516 s per fold).
+    Scratch build **11 s** for **8,546,946 price rows**
+    (2016-10-05 onward — 460 sessions of warmup ahead of the span); the vectorized screen
+    **2,009 sessions → 796,463 passing rows in 14 s**. Sanity on the numbers, not just the
+    plumbing: `spy_benchmark`'s six validate windows read **+34.62% / −4.57% / +9.59% /
+    +19.66% / +17.57% / +22.49%**, with the −4.57% window (2021-08→2022-08) carrying a
+    **−22.27%** max drawdown — that is the 2022 bear market showing up where it belongs, on
+    a book that only ever buys SPY once.
+  * *Projected cost of the whole weekly grid.* Anchoring the backtest farm's measured
+    per-session cost table on these three (0.0356 s/session `spy_benchmark`, 0.0684
+    `template_top5`, 0.6515 `mr_overlay`, over 4,536 fold-sessions per book), the 15-book
+    grid is **≈ 2.7–3 h sequential**, with `mr_overlay` (~50 min) and `mr_overlay_gated`
+    (~37 min projected) as the only long poles. That fits inside one §12.7 drain budget
+    (4 h, and the budget only stops STARTING jobs), and no single job comes near the spec's
+    6 h flag. Each scratch store is **586 MB** and is deleted when its job finishes.
+  * *First real finding, and it is the one the median column exists for.* `template_top5`'s
+    six validate windows are **+389.99% / −18.02% / +8.38% / −40.26% / −52.86% / +44.29%** —
+    mean **+55.25%**, **median −4.82%**, win rate 50%, worst validate drawdown **−68.98%**.
+    The entire mean is one fold (2020-08→2021-08, the meme tape on a survivor universe). A
+    book judged on its average walk-forward window would look like a triumph; the same book
+    judged on its median window is a coin flip with a 69% drawdown. Both numbers are in the
+    report, which is the point. For contrast on the same six windows, `mr_overlay` reads
+    **+29.61% / −4.35% / −9.95% / −3.36% / +11.06% / +9.36%** (mean +5.40%, win rate 50%,
+    worst validate drawdown −17.30%) — a book whose 15-year standalone total was ≈ 0% in the
+    backtest farm looks materially better over the last six years, which is exactly the kind
+    of regime-dependence a rolling walk-forward exists to surface. None of this is the real
+    grid's output; it is three books measured to prove the machinery. The live grid
+    (jobs 107–121) writes the numbers that count.
+  **Cadence: a separate Sunday cron, deliberately NOT a stage in the nightly.**
+  `engine/run_daily.sh` is a weekday-only cron (`30 22 * * 1-5`), so the `date -u +%u`
+  cadence gate the Friday fundamentals stage uses would be **dead code** for a Sunday
+  workload — the spec's gating pattern does not support this cleanly, so the workload got its
+  own driver instead. `engine/run_weekly_walkforward.sh` (flock guard, enqueue → drain →
+  sync) is committed and executable but **NOT installed in cron by the build loop**. Intended
+  entry, documented in the script header and here (owner action):
+  ```
+  0 6 * * 0 /data00/home/jun.ong/trading-engine/engine/run_weekly_walkforward.sh \
+      >> /data00/home/jun.ong/trading-engine/logs/walkforward-cron.log 2>&1
+  ```
+  Sunday 06:00 UTC is clear of everything (nightly 22:30 Mon-Fri, news analyst 11:00 Mon-Fri)
+  and the measured grid lands long before Monday's nightly. Until that line exists the script
+  is run by hand; it re-anchors to the latest session, so an off-day run is simply a
+  re-validation as of that day.
+  **Grid enqueued on the live store: jobs 107–121** (15 books), priorities **170/172/174/176**
+  staggered by measured cost (ETF sleeves first, `mr_overlay` last) — strictly BELOW the
+  nightly archive/miner jobs (100–130) and the historical-backtest grid (140–165), so a
+  walk-forward can never delay a nightly stage. Job 106 (the signals backfill) had already
+  drained, so nothing was forced to run concurrently; **the grid will drain with tonight's
+  nightly farm section** (post-sync, 4 h budget) and each night's reports are committed by
+  the FOLLOWING night's sync, same as the backtest farm.
+  **KNOWN LIMITATIONS (documented, deliberately not built now).**
+  (i) *`macro_composite` is excluded* — its inputs are point-in-time by `fetch_as_of` and the
+  production backfill honestly stamps `fetch_as_of = today`, so a historical replay sees an
+  empty signal table and the book is inert rather than wrong. It needs the labelled
+  `--pit-lag` reconstruction backfill (D-MS2) before it can be walk-forwarded. `pead_ear`
+  (no historical earnings dates) and `discretionary` (human book) are excluded for the same
+  reasons the backtest farm excludes them.
+  (ii) *Same survivor-universe and static-cap caveats as the backtest farm*, disclosed at the
+  top of every walk-forward report — which is why **vs EW on the same universe, fold by
+  fold** is the headline comparison and absolute return is context.
+  (iii) *Out-of-sample in the DATA, not in the RULE.* These books were written by someone who
+  has lived through this market. The league's live forward record is still the only true
+  out-of-sample evidence; this report answers the narrower question of whether a rule is
+  behaving now the way it behaved on the sessions immediately before.
+  (iv) *No cross-fold significance test.* Six validate windows is enough for a win rate and a
+  median, not for a t-stat worth printing. Bootstrap robustness is item 13(b) and stays
+  there.
+
 ## Next
 
 1. ~~Verify the miners bootstrap~~ **DONE 2026-07-18 pm** (see above — fundamentals 4,118,
@@ -876,8 +1025,11 @@ conflict; execution design §7 has exit criteria).
    today; guard it (skip + WARN) next time league.py is touched.
 7. Nice-to-haves surfaced this session (not blocking): `lxml` for historical earnings
    surprises; post-farm second sync if a same-night intraday `_meta` commit is wanted;
-   walk-forward re-validation job type for active league strategies (weekly, §12.3);
-   weekly-review integration (exec-design §6 Sunday loop) once a week of league history exists.
+   ~~walk-forward re-validation job type for active league strategies (weekly, §12.3)~~
+   **DONE 2026-08-04** (`farm/walkforward/`); weekly-review integration (exec-design §6
+   Sunday loop) — the walk-forward half now exists and is the input that loop was waiting
+   for; still to wire: `/watchlist-scan` + `/trading-review` alongside it, plus
+   `farm/execution_drag.py` (item 14).
 12. **E1 forward record: check the first unattended write on Monday 2026-08-03's nightly.** The
    two rows on the board now were written by hand-run production commands; 08-03 is the first
    time the `experiment` stage fires from cron. Confirm in `logs/run-2026-08-03.log` that the
@@ -890,7 +1042,10 @@ conflict; execution design §7 has exit criteria).
    underused asset.** 32 cores / 62 GiB, load-avg ~0.16, nightly busy ~26 min/weekday —
    §12.3's compute goal ("work the box fully") is not met. The remaining designed-but-unbuilt
    §12.3 workloads, in priority order: (a) weekly walk-forward re-validation of every active
-   league rule (feeds the Sunday review loop, exec-design §6) — **STILL OPEN**; (b) weekend
+   league rule (feeds the Sunday review loop, exec-design §6) — **DONE 2026-08-04**
+   (`farm/walkforward/`, job kind `walkforward`, 15-book grid enqueued; see the entry above.
+   Open follow-ups: install the Sunday cron line, and revisit once `macro_composite` has a
+   `--pit-lag` signal reconstruction to walk-forward against); (b) weekend
    deep sweeps (parameter grids, bootstrap robustness, regime splits, cost-sensitivity)
    through the job queue at ≤24 nice-19 workers — **PARTLY DONE 2026-07-29**: the queue-driven
    farm workload now exists (`farm/backtest/`, job kind `backtest`, 78-job grid enqueued at
