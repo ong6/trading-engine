@@ -7,6 +7,7 @@ from .dual_momentum import DualMomentum
 from .ew_benchmark import EwBenchmark
 from .high_52wk import High52Week
 from .low_vol import LowVol
+from .macro_composite import MacroComposite
 from .momo_stopped import MomoStopped
 from .mr_overlay import MrOverlay
 from .pead_ear import PeadEar
@@ -28,6 +29,7 @@ REGISTRY: dict[str, type[Strategy]] = {
     "momo_stopped": MomoStopped,
     "sector_momentum": SectorMomentum,
     "low_vol": LowVol,
+    "macro_composite": MacroComposite,
     "high_52wk": High52Week,
     "pead_ear": PeadEar,
 }
