@@ -8,3 +8,5 @@ __pycache__/
 .walkforward.lock
 scratch/
 .news-analyst.lock
+.agentic-gater.lock
+.agentic-tuner.lock
