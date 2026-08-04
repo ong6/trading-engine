@@ -73,7 +73,9 @@ jread() {  # jread <file> <jq-filter> <python-expression over `d`>
 }
 
 NEW_COUNT="$(jread "${META}" '.new_count' 'd["new_count"]')"
-[ -n "${NEW_COUNT}" ] || NEW_COUNT=0
+# Treat anything non-numeric as zero: a garbled meta must degrade to "skip the
+# model call", never to an arithmetic error that silently falls through.
+case "${NEW_COUNT}" in ''|*[!0-9]*) log "WARN: unreadable new_count '${NEW_COUNT}' — treating as 0"; NEW_COUNT=0 ;; esac
 
 # --- 2. No new headlines → skip the model call entirely ---------------------
 if [ "${NEW_COUNT}" -eq 0 ]; then
@@ -85,14 +87,39 @@ POSITIONS_OK="$(jread "${META}" '.positions_ok' 'd["positions_ok"]')"
 log "INFO: ${NEW_COUNT} new headlines; positions_ok=${POSITIONS_OK}; prompt $(wc -c < "${PROMPT}") bytes"
 
 # --- 3. The model call: zero tools, one turn, subscription auth --------------
-if ! "${CLAUDE}" -p "$(cat "${PROMPT}")" \
-      --bare \
+#
+# NOT `--bare`, despite the design note. Verified 2026-08-04: `--bare` reads
+# "strictly ANTHROPIC_API_KEY or apiKeyHelper ... OAuth and keychain are never
+# read", so every --bare call returns is_error with "Not logged in · Please run
+# /login". The design's whole billing premise is the subscription OAuth login, so
+# --bare is simply incompatible with it. The properties --bare was chosen for are
+# reproduced explicitly instead:
+#   --settings '{"permissions":{"deny":[...]}}'  removes the tools outright
+#                                                (verified: "no Bash tool is
+#                                                available in this session")
+#   --strict-mcp-config                          no MCP servers load
+#   --permission-mode dontAsk                    never blocks on a prompt
+#   --max-turns 1                                one turn, bounded
+# `timeout` is the last line of defence: cron must never inherit a wedged call.
+NO_TOOLS='{"permissions":{"deny":["Bash","Edit","Write","Read","Agent","WebFetch","WebSearch","Skill","NotebookEdit","Glob","Grep","Task","TodoWrite"]}}'
+if ! timeout 900 "${CLAUDE}" -p "$(cat "${PROMPT}")" \
       --permission-mode dontAsk \
+      --strict-mcp-config \
+      --settings "${NO_TOOLS}" \
       --max-turns 1 \
       --output-format json > "${OUT_JSON}" 2>>"${LOG}"; then
   log "TODO: claude -p exited non-zero (quota window exhausted / auth / network?) —" \
       "no brief written for ${RUN_DATE}, state NOT advanced so these ${NEW_COUNT}" \
       "headlines are re-covered next run. Inspect ${LOG}."
+  exit 0
+fi
+
+# The CLI can also report failure in-band (is_error=true with the message sitting
+# in .result), so an exit code of 0 is not on its own proof of a usable brief.
+IS_ERROR="$(jread "${OUT_JSON}" '.is_error' 'd.get("is_error", False)' 2>>"${LOG}")"
+if [ "${IS_ERROR}" = "true" ] || [ "${IS_ERROR}" = "True" ]; then
+  log "TODO: claude reported is_error=true ($(jread "${OUT_JSON}" '.result' 'str(d.get("result",""))[:200]')) —" \
+      "no brief written, state NOT advanced"
   exit 0
 fi
 
