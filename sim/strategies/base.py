@@ -7,13 +7,27 @@ price they execute (always at a later bar's open).
 """
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 
 import duckdb
 import numpy as np
 
 MIN_ORDER_USD = 50.0  # skip dust rebalancing below this notional
+
+# Where the agentic books keep their per-book state (charter / lessons /
+# changes / daily gate files). Overridable so a shakedown on a store COPY can
+# point at a scratch tree without touching the live one.
+AGENTS_DIR = Path(os.environ.get(
+    "TRADING_ENGINE_AGENTS_DIR",
+    str(Path(__file__).resolve().parents[2] / "agents")))
+# Hard floor on how far an agent may downscale an algo entry. A "downscale" that
+# rounds a position to nothing is a veto wearing a disguise, and the two are
+# accounted for separately.
+MIN_GATE_SCALE = 0.25
 
 
 @dataclass
@@ -264,6 +278,90 @@ def n_down_closes(closes: np.ndarray) -> int:
         else:
             break
     return n
+
+
+# --------------------------------------------------------------------------- #
+# agent entry gate (books `news_gated_momo` and `earnings_context_pead`)
+# --------------------------------------------------------------------------- #
+def apply_agent_gate(pf: PortfolioView, as_of: date,
+                     orders: list[Order]) -> list[Order]:
+    """Let a daily agent session VETO or DOWNSCALE algo-proposed entries.
+
+    Asymmetric by construction (agentic-strategies-design §The discipline, 4):
+    the gate can only subtract. It never adds a name, never raises a size, and
+    never touches a SELL — an agent that can only subtract cannot invent trades
+    out of headlines, and can never trap a position the algo wants out of.
+
+    **Twin safety.** A book without `agent_gate` in its params returns on the
+    first line with the SAME list object it was handed. The frozen twins
+    (`momo_stopped`, `pead_ear`) execute exactly one dict lookup more than they
+    did before this function existed, and no other line of this module.
+
+    **Fail-open, always.** No gate file for the date (agent session skipped,
+    quota exhausted, box rebooted, weekend) → pure algo output. A malformed or
+    unreadable file → pure algo output plus a WARN. The nightly must never
+    depend on an agent session having run; the agent is an overlay, not a
+    prerequisite.
+    """
+    if not pf.params.get("agent_gate"):
+        return orders
+
+    path = AGENTS_DIR / pf.id / f"gate-{as_of.isoformat()}.json"
+    try:
+        gate = json.loads(path.read_text())
+    except FileNotFoundError:
+        print(f"[gate] {pf.id} {as_of}: no gate file — fail-open, pure algo "
+              f"({sum(1 for o in orders if o.side == 'buy')} buy order(s) unchanged)")
+        return orders
+    except Exception as exc:  # noqa: BLE001 — malformed JSON, bad permissions…
+        print(f"[gate] WARN {pf.id} {as_of}: unreadable gate file ({exc}) — "
+              f"fail-open, pure algo")
+        return orders
+
+    # A gate file stamped with a different date is not this session's decision.
+    if gate.get("date") not in (None, as_of.isoformat()):
+        print(f"[gate] WARN {pf.id} {as_of}: gate file is stamped "
+              f"{gate.get('date')!r} — ignoring, fail-open")
+        return orders
+
+    decisions: dict[str, dict] = {}
+    for d in gate.get("decisions") or []:
+        tk = (d.get("ticker") or "").strip().upper()
+        if tk and d.get("action") in ("veto", "downscale"):
+            decisions[tk] = d
+    if not decisions:
+        print(f"[gate] {pf.id} {as_of}: gate file present, 0 vetoes/downscales")
+        return orders
+
+    out: list[Order] = []
+    n_veto = n_scaled = 0
+    for o in orders:
+        d = decisions.get(o.ticker) if o.side == "buy" else None
+        if d is None:
+            out.append(o)
+            continue
+        if d["action"] == "veto":
+            n_veto += 1
+            print(f"[gate] {pf.id} {as_of}: VETO buy {o.ticker} — "
+                  f"{str(d.get('reason', ''))[:120]}")
+            continue
+        try:
+            scale = float(d.get("scale", 1.0))
+        except (TypeError, ValueError):
+            scale = 1.0
+        scale = min(1.0, max(MIN_GATE_SCALE, scale))
+        if scale >= 1.0:
+            out.append(o)
+            continue
+        n_scaled += 1
+        print(f"[gate] {pf.id} {as_of}: DOWNSCALE buy {o.ticker} ×{scale:.2f} — "
+              f"{str(d.get('reason', ''))[:120]}")
+        out.append(Order(o.portfolio_id, o.ticker, o.side, o.qty * scale,
+                         o.signal_date))
+    print(f"[gate] {pf.id} {as_of}: applied {n_veto} veto(es), "
+          f"{n_scaled} downscale(s) over "
+          f"{sum(1 for o in orders if o.side == 'buy')} buy order(s)")
+    return out
 
 
 # --------------------------------------------------------------------------- #
