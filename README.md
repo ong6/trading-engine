@@ -14,6 +14,9 @@ pipeline, the honesty rules, the ops runbook, and how to view the UI over SSH.
 - Build state + every decision and incident: [`BUILDLOG.md`](BUILDLOG.md).
 - Current league standings: [`data/reports/league.md`](data/reports/league.md).
 - Historical replays of every book: [`data/reports/backtests/`](data/reports/backtests/).
+- Weekly walk-forward re-validation (feeds the Sunday review):
+  [`data/reports/walkforward/`](data/reports/walkforward/) — run by
+  `engine/run_weekly_walkforward.sh`, not by the weekday nightly.
 
 ## Daily rhythm
 

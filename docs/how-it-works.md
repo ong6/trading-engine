@@ -111,6 +111,14 @@ carries an expectation and a **kill criterion**; the weekly review judges proces
 outcome. Current standings: `data/reports/league.md`. Historical replays of every book
 over 6mo→15y windows: `data/reports/backtests/`.
 
+**Weekly walk-forward re-validation** (`farm/walkforward/`, job kind `walkforward`) is the
+input to that review: every active book is re-run over rolling train→validate folds
+(24 months train, 12 months validate, stepped 12 months, 6 folds, anchored on the latest
+session), one independent replay per fold through the same league day-step. Reports —
+including a mechanical PASS / WATCH / REVIEW flag against `ew_benchmark` on the same folds
+— land in `data/reports/walkforward/`. It is NOT part of the weekday nightly: run
+`engine/run_weekly_walkforward.sh` (intended cadence: Sunday).
+
 ## The discretionary path (the UI's reason to exist)
 
 `ui/` (Next, :3000) → `/api` proxy → FastAPI (:8000, localhost-only) → 8 risk gates from
