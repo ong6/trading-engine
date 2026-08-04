@@ -5,3 +5,9 @@ yfinance>=1.5
 pandas_market_calendars>=5.4
 fastapi>=0.139
 uvicorn[standard]>=0.51
+# engine/signals.py: this network filters on TLS fingerprint (plain requests dies
+# mid-stream on FRED), so the macro collector uses curl_cffi's chrome impersonation.
+curl_cffi>=0.15
+openpyxl>=3.1
+# AAII publishes the sentiment survey as a legacy BIFF .xls, which only xlrd reads.
+xlrd>=2.0
