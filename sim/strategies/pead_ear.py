@@ -15,7 +15,9 @@ from datetime import timedelta
 
 from .. import calendar
 from ..portfolio import position_open_since
-from .base import MIN_ORDER_USD, Order, PortfolioView, Strategy, close_on
+from .base import (
+    MIN_ORDER_USD, Order, PortfolioView, Strategy, apply_agent_gate, close_on,
+)
 
 REACTION_SQL = """
 WITH ev AS (
@@ -74,17 +76,17 @@ class PeadEar(Strategy):
 
         slots = p.get("max_concurrent", 10) - len(pf.positions)
         if slots <= 0:
-            return orders
+            return apply_agent_gate(pf, as_of, orders)
         sessions = [r[0] for r in con.execute(
             "SELECT DISTINCT date FROM prices WHERE date <= ? ORDER BY date DESC LIMIT 2",
             [as_of],
         ).fetchall()]
         if len(sessions) < 2:
-            return orders
+            return apply_agent_gate(pf, as_of, orders)
         day, prev_day = sessions
         spy_now, spy_prev = close_on(con, "SPY", day), close_on(con, "SPY", prev_day)
         if spy_now is None or spy_prev is None or spy_prev <= 0:
-            return orders
+            return apply_agent_gate(pf, as_of, orders)
 
         weight = p.get("weight", 0.04)
         rows = con.execute(REACTION_SQL, [
@@ -104,4 +106,6 @@ class PeadEar(Strategy):
                 continue
             orders.append(Order(pf.id, tk, "buy", qty, as_of))
             slots -= 1
-        return orders
+        # Agent gate LAST, so it sees the final algo intent. It only ever
+        # removes or shrinks BUYs; a book without `agent_gate` is untouched.
+        return apply_agent_gate(pf, as_of, orders)

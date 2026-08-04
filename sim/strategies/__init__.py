@@ -12,6 +12,7 @@ from .momo_stopped import MomoStopped
 from .mr_overlay import MrOverlay
 from .pead_ear import PeadEar
 from .sector_momentum import SectorMomentum
+from .sleeve_alloc import SleeveAlloc
 from .spy_benchmark import SpyBenchmark
 from .template_top10_banded import TemplateTop10Banded
 from .template_top5 import TemplateTop5
@@ -32,6 +33,7 @@ REGISTRY: dict[str, type[Strategy]] = {
     "macro_composite": MacroComposite,
     "high_52wk": High52Week,
     "pead_ear": PeadEar,
+    "sleeve_alloc": SleeveAlloc,
 }
 
 
