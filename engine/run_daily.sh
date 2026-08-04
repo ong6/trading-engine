@@ -113,6 +113,13 @@ stage() { echo "$1" > "${STAGE_FILE}"; }
     echo "--- farm (post-sync, lowest priority §12.7): mining enqueue + drain ---"
     "${PY}" engine/queue_runner.py --enqueue intraday --priority 100
     eq=$?
+    # Macro / market-regime signals: daily, incremental (feeds macro_composite).
+    # Sits between intraday and earnings by priority. Nothing in the fatal path
+    # depends on it: the collector warns-and-continues per source, and the book
+    # votes 0 on any series it cannot see.
+    "${PY}" engine/queue_runner.py --enqueue signals --priority 105 \
+      --params '{"mode": "incremental"}'
+    es=$?
     # Earnings calendar: daily (§12.2 — feeds the earnings risk gate).
     "${PY}" engine/queue_runner.py --enqueue earnings --priority 110
     ee=$?
@@ -125,9 +132,10 @@ stage() { echo "$1" > "${STAGE_FILE}"; }
     fi
     "${PY}" engine/queue_runner.py --run
     rn=$?
-    if [ "${eq}" -ne 0 ] || [ "${ee}" -ne 0 ] || [ "${ef}" -ne 0 ] || [ "${rn}" -ne 0 ]; then
-      echo "WARN: farm section had failures (intraday=${eq} earnings=${ee}" \
-           "fundamentals=${ef} run=${rn}) — nightly NOT failed;" \
+    if [ "${eq}" -ne 0 ] || [ "${es}" -ne 0 ] || [ "${ee}" -ne 0 ] \
+       || [ "${ef}" -ne 0 ] || [ "${rn}" -ne 0 ]; then
+      echo "WARN: farm section had failures (intraday=${eq} signals=${es}" \
+           "earnings=${ee} fundamentals=${ef} run=${rn}) — nightly NOT failed;" \
            "collect/screen/league/sync already succeeded"
     else
       echo "INFO: farm section OK (mining enqueued + queue drained)"

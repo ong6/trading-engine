@@ -249,6 +249,106 @@ def init_mining_schema(con: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+def init_signals_schema(con: duckdb.DuckDBPyConnection) -> None:
+    """Macro/market-regime signal additions: the append-only, point-in-time
+    `macro_signals` table (engine/signals.py writes it, sim/strategies/
+    macro_composite.py reads it).
+
+    Kept SEPARATE from init_schema so the nightly collect path is untouched;
+    every statement is CREATE TABLE IF NOT EXISTS so it is safe against the live
+    single-writer DB and a first run on the real store just works.
+
+    Two dates per row, and the distinction is the whole point:
+      * obs_date    — the date the DATA is about (a VIX close, a claims week, a
+                      margin-debt month-end).
+      * fetch_as_of — the date WE first stored the value. A strategy reading
+                      as-of D must gate on BOTH (obs_date <= D AND
+                      fetch_as_of <= D), which makes publication lag and
+                      backfill-after-the-fact impossible to accidentally
+                      look-ahead through.
+
+    DECISION D-MS1 — first-observed value wins, no restatement. Inserts are
+    append-only via an anti-join on (series, obs_date): a value that arrives
+    REVISED later (ICSA is revised weekly; NFCI and the FINRA margin series get
+    restated; CFTC reissues reports) is silently dropped rather than overwriting
+    what we first saw. That is the honest real-time series — the number a
+    decision made on fetch_as_of actually had in front of it. Revisions are only
+    ever accepted as NEW obs_dates. If a fully-revised (non-real-time) history is
+    ever wanted it belongs in a separate table, not by rewriting this one.
+    """
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS macro_signals (
+            series      VARCHAR NOT NULL,   -- e.g. 'dix', 'vix', 'icsa'
+            obs_date    DATE    NOT NULL,   -- the data's own date
+            value       DOUBLE  NOT NULL,
+            fetch_as_of DATE    NOT NULL,   -- when WE first stored it
+            PRIMARY KEY (series, obs_date)
+        )
+        """
+    )
+
+
+def insert_macro_signals(con: duckdb.DuckDBPyConnection,
+                         rows: "list[tuple[str, date, float]]",
+                         fetch_as_of: date | None = None) -> int:
+    """Append-only insert into `macro_signals` via anti-join. Returns rows added.
+
+    `rows` is [(series, obs_date, value)]. fetch_as_of defaults to today (UTC).
+    Rows with a None/NaN value or a missing date are dropped — we never store a
+    fabricated observation. Existing (series, obs_date) keys are NEVER updated
+    (decision D-MS1 above), so a re-run of the same backfill inserts 0 rows.
+
+    `fetch_as_of` may be a single date (the normal case: the run's own date) or a
+    per-row callable taking (series, obs_date) and returning a date — used ONLY
+    by the opt-in `--pit-lag` reconstruction (decision D-MS2 in engine/signals.py)
+    on scratch copies, never by the nightly.
+    """
+    if not rows:
+        return 0
+    stamp = fetch_as_of or datetime.now(timezone.utc).date()
+    per_row = callable(stamp)
+
+    clean: list[tuple[str, date, float, date]] = []
+    seen: set[tuple[str, date]] = set()
+    for series, obs_date, value in rows:
+        if series is None or obs_date is None or value is None:
+            continue
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isnan(value) or math.isinf(value):
+            continue
+        if isinstance(obs_date, datetime):
+            obs_date = obs_date.date()
+        key = (series, obs_date)
+        if key in seen:      # guard the PK against dupes inside one batch
+            continue
+        seen.add(key)
+        clean.append((series, obs_date, value,
+                      stamp(series, obs_date) if per_row else stamp))
+    if not clean:
+        return 0
+
+    df = pd.DataFrame(clean, columns=["series", "obs_date", "value", "fetch_as_of"])
+    before = con.execute("SELECT COUNT(*) FROM macro_signals").fetchone()[0]
+    con.register("_incoming_signals", df)
+    con.execute(
+        """
+        INSERT INTO macro_signals (series, obs_date, value, fetch_as_of)
+        SELECT i.series, i.obs_date, i.value, i.fetch_as_of
+        FROM _incoming_signals i
+        LEFT JOIN macro_signals m
+               ON m.series = i.series AND m.obs_date = i.obs_date
+        WHERE m.series IS NULL
+        """
+    )
+    con.unregister("_incoming_signals")
+    after = con.execute("SELECT COUNT(*) FROM macro_signals").fetchone()[0]
+    return after - before
+
+
 def init_actions_schema(con: duckdb.DuckDBPyConnection) -> None:
     """Corporate-actions additions: `corporate_actions` (the point-in-time record
     of splits + dividends as reported by the source), `split_adjustments` (the
