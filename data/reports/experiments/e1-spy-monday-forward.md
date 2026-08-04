@@ -1,6 +1,6 @@
 # Experiment e1-spy-monday — FORWARD (out-of-sample) record
 
-*Forward phase registered 2026-07-29 · report generated 2026-08-03 22:33 UTC · params hash `5dc40ff465de67a9` · forward-config hash `399ce03bee8bab4e`*
+*Forward phase registered 2026-07-29 · report generated 2026-08-04 22:33 UTC · params hash `5dc40ff465de67a9` · forward-config hash `399ce03bee8bab4e`*
 
 > **NO RESULT YET — 3 of 40 out-of-sample Mondays.** This experiment is not evaluated until the pre-registered sample is complete. Anything below is an accumulating record, **not** a verdict: reading a mean or a t-stat at n=3 and calling it a finding is exactly the peeking the §12.3 protocol exists to prevent. **37 Mondays to go.**
 
@@ -57,5 +57,5 @@ The full pre-registered backtest (1990→2026, in-sample vs a locked holdout, de
 - **No fabricated bars.** A Monday without a real stored open+close (market holiday) produces no row at all, rather than a synthetic flat trade.
 - **No peeking-driven change.** The config, the cost model, the kill rule and the sample size were all frozen before this evidence existed. If E1 is killed at n=40 it is killed; there is no re-optimization branch.
 - **Negative results are published exactly like positive ones** — the farm exists to kill bad ideas cheaply (§12.3).
-- **Storage:** 1 row(s) appended to `experiment_results` (append-only, partition `oos:<date>`) at 2026-08-03 22:33 UTC.
+- **Storage:** no new settled Mondays — nothing appended; the report was regenerated from `experiment_results` (re-running is a no-op by design).
 
