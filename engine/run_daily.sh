@@ -99,6 +99,19 @@ stage() { echo "$1" > "${STAGE_FILE}"; }
             "is affected; the runner is idempotent and will pick the Monday up" \
             "on the next run"
 
+  # --- Agentic books: AI-vs-twin spread, applied/rejected changes, veto
+  # hit-rate (agentic-strategies-design "Success / failure, pre-registered").
+  # Pure render over sim_equity + agents/<book>/ state — read-only, seconds, so
+  # it runs inline rather than through the farm queue, and BEFORE sync so the
+  # regenerated reports are committed the same night. NIGHTLY rather than
+  # weekly: the spread is the only number that decides these books' fate, and a
+  # number the owner can see every morning is a number nobody can quietly
+  # re-baseline later. Non-fatal by design — reporting must never block trading.
+  stage agentic-report
+  "${PY}" agents/report.py \
+    || echo "WARN: agentic report failed (exit $?) — no trading data is affected;" \
+            "the report is a pure re-render and the next run picks it up"
+
   # Sync is best-effort: a failure must NOT fail the nightly — the league/screen
   # results are already safe in DuckDB + data/ and will re-stage next nightly.
   stage sync
