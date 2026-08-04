@@ -49,5 +49,28 @@
     "warnings": 0,
     "last_run": "2026-08-03T22:33:51.106050+00:00",
     "store_gb": 2.27
+  },
+  "intraday": {
+    "last_run": "2026-08-03T22:36:58.178876+00:00",
+    "tickers_requested": 1075,
+    "tickers_with_data": 1075,
+    "new_rows_1m": 427746,
+    "new_rows_5m": 195006,
+    "failed_tickers": 0,
+    "failed_batches": 0,
+    "store_gb": 2.28
+  },
+  "earnings": {
+    "last_run": "2026-08-03T22:57:44.630093+00:00",
+    "as_of": "2026-08-03",
+    "universe": 2916,
+    "universe_source": "fundamentals-coverage \u222a screen-passers",
+    "pulled_this_run": 2916,
+    "with_upcoming_date": 2798,
+    "no_upcoming_date": 118,
+    "failed_tickers": 0,
+    "rows_inserted_this_run": 2798,
+    "rows_for_as_of": 2798,
+    "store_gb": 2.28
   }
 }
