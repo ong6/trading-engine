@@ -76,6 +76,38 @@ conflict; execution design §7 has exit criteria).
 - 2026-07-16 · Full-universe `--bootstrap-floor` **done**: active=12,209 · priced=12,105 · **liquid=4,118** · failed=106 (dead tickers, honest). 785k price rows.
 - 2026-07-16 · Full `--backfill` (max history, 4,118 liquid names) **running** (nice 19, logs/backfill-2026-07-16.log; resumable — if interrupted just rerun `collect.py --backfill`).
 - 2026-07-16 · **M1 code committed** (screen.py, sync.py, run_daily.sh wired). Proven on a 37-name real-bar fixture incl. independent math recheck (zero diff) + append-only/--rerun/new_today diff tests. Full-DB verification queued behind backfill. Post-backfill TODO: retry stragglers (`collect.py --backfill` again — resumable), then real screen run.
+- 2026-08-04 · **News analyst built & proven end-to-end** (phase-4 `claude -p` cron row of
+  trading-engine-design §10; spec: store `trading/trading-engine/news-analyst-design.md`).
+  Zero-tool, wrapper-assembled: `engine/news_analyst.sh` (flock `.news-analyst.lock`, own
+  `logs/news-analyst.log`) slices `~/news-scraper/data/news.jsonl` since the watermark in
+  `data/news_analyst_state.json`, assembles ONE prompt from `engine/news_analyst_prompt.md`
+  (standing instructions / output contract) + headlines + the store's `watchlist.md` and
+  `market-context.md` + league open positions (read-only DuckDB), calls the CLI, and writes
+  `data/reports/news/<date>.md` + `latest.md` (sync.py commits them with the nightly artifacts).
+  **First real run 2026-08-04 08:03Z**: 133 headlines → a brief whose every number traced back
+  to a verbatim headline on spot-check (BMY/AstraZeneca $400bn merger-talk report — BMY is
+  genuinely held in book 1; Iran/oil, yen-intervention, semi/CXMT items against market-context).
+  A second immediate run correctly logged "0 new headlines — no claude call, no brief" and left
+  the watermark untouched. Failure posture: **news is non-critical**, every path logs a
+  breadcrumb and exits 0, and the watermark advances ONLY after a brief is on disk, so a failed
+  run's headlines are re-covered by the next one.
+  - **`--bare` does not work and was dropped** (design assumed it from `--help` presence).
+    Verified: `--bare` reads "strictly ANTHROPIC_API_KEY or apiKeyHelper … OAuth and keychain
+    are never read", so on this box's subscription login every `--bare` call returns
+    `is_error` + "Not logged in · Please run /login" in ~70ms. The properties it was chosen for
+    are reproduced explicitly: `--settings '{"permissions":{"deny":[…]}}'` (tools removed —
+    verified the model reports no Bash tool available), `--strict-mcp-config`,
+    `--permission-mode dontAsk`, `--max-turns 1`, wrapped in `timeout 900`.
+  - `jq` is **not installed** on this box; JSON is parsed with the venv python (the wrapper
+    prefers jq if it ever appears).
+  - DuckDB is single-writer and the farm can hold the lock through a long drain, so the
+    positions read retries ~30s then degrades to a dated `data/news_positions_cache.json`
+    snapshot rather than failing the run.
+  - Cron (appended, existing nightly untouched): `0 11 * * 1-5` news analyst; plus the design's
+    open scraper-persistence item — `@reboot` **and** hourly `17 * * * *`
+    `~/news-scraper/ensure_scraper.sh`, an idempotent relaunch guard (PID-alive + cmdline check
+    against PID reuse, own flock; the launched scraper gets `9>&-` so it does not inherit and
+    hold the guard's lock for its whole life — caught in a sandbox test).
 
 ## Decisions
 
