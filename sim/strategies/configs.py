@@ -257,6 +257,157 @@ CONFIGS: list[dict] = [
                           "over 2 years without a lower max drawdown over the "
                           "same window.",
     },
+
+    # ----------------------------------------------------------------- #
+    # Agentic books (registered 2026-08-04, spec:
+    # trading/trading-engine/agentic-strategies-design.md).
+    #
+    # Five books whose CORE IS CODE and whose agent may only make bounded,
+    # pre-registered adjustments — plus the two frozen twins that did not
+    # already exist as live books. Every AI book is judged ONLY by its spread
+    # against its twin, at 26 weeks (2027-02-01). The kill criterion below
+    # kills the AGENT LOOP, never the algo book: an algo that survives its
+    # agent being switched off is exactly what the discipline is protecting.
+    #
+    # `agent_gate` / `agent_tuned` are the ONLY flags that change behaviour,
+    # and only in the book that carries them. `agent_version` is stamped here
+    # and bumped by agents/validator.py so any equity period maps to the
+    # parameters it actually ran (history in agents/<book>/changes.jsonl).
+    # ----------------------------------------------------------------- #
+    {
+        "id": "news_gated_momo",
+        "name": "News-Gated Momentum (AI)",
+        "strategy": "momo_stopped",
+        "cadence": "daily",
+        "params": {"n": 10, "band_rank": 20, "stop_frac": 0.85,
+                   "agent_gate": True, "agent_version": 1},
+        "description": "momo_stopped's algo EXACTLY (weekly top-10 banded "
+                       "selection + the daily 15% stop), plus a pre-open agent "
+                       "session that may veto or downscale — never add, never "
+                       "enlarge — that day's proposed entries on adverse binary "
+                       "news (M&A, guidance cuts, regulatory action). No gate "
+                       "file for a date means pure algo.",
+        "expectation": "Same book as momo_stopped minus a handful of entries "
+                       "that headlines said were about to break. If the agent "
+                       "adds value it shows up as a positive spread vs the "
+                       "twin with fewer, not more, trades.",
+        "kill_criterion": "AGENT LOOP killed if the AI book trails momo_stopped "
+                          "net of costs at the 26-week evaluation (2027-02-01). "
+                          "The algo book itself is never killed by this test.",
+    },
+    {
+        "id": "adaptive_mr",
+        "name": "Adaptive Mean-Reversion (AI)",
+        "strategy": "mr_overlay",
+        "cadence": "daily",
+        "params": {"rsi_max": 10, "down_closes": 3, "weight": 0.10,
+                   "max_concurrent": 5, "time_stop": 10,
+                   "agent_tuned": True, "agent_version": 1},
+        "description": "mr_overlay's algo with entry threshold, down-close "
+                       "count, slot weight, concurrency and time stop tunable "
+                       "by a weekly Sunday agent session inside frozen bounds "
+                       "(agents/adaptive_mr/charter.md). Starts at the live "
+                       "book's exact parameters.",
+        "expectation": "If trade autopsies carry information — premature time "
+                       "stops, entries too early on the RSI — a bounded weekly "
+                       "adjustment beats a static rule. The honest prior is "
+                       "that it does not.",
+        "kill_criterion": "AGENT LOOP killed if the AI book trails "
+                          "adaptive_mr_frozen net of costs at 26 weeks "
+                          "(2027-02-01).",
+    },
+    {
+        "id": "adaptive_mr_frozen",
+        "name": "Adaptive MR — Frozen Twin",
+        "strategy": "mr_overlay",
+        "cadence": "daily",
+        "params": {"rsi_max": 10, "down_closes": 3, "weight": 0.10,
+                   "max_concurrent": 5, "time_stop": 10},
+        "description": "The control for adaptive_mr: identical algo, identical "
+                       "starting parameters, NEVER adjusted. Distinct from the "
+                       "live mr_overlay book only in inception date, which is "
+                       "why the twin exists — a spread must be measured over a "
+                       "common window.",
+        "expectation": "Tracks mr_overlay closely from its own inception.",
+        "kill_criterion": "Control book — not killed.",
+    },
+    {
+        "id": "agentic_alloc",
+        "name": "Agentic Sleeve Allocator (AI)",
+        "strategy": "sleeve_alloc",
+        "cadence": "weekly",
+        "params": {"sleeve_weights": {"trend": 0.25, "mr": 0.25,
+                                      "defensive": 0.25, "cash": 0.25},
+                   "trend_n": 3, "mr_rsi_max": 30,
+                   "agent_tuned": True, "agent_version": 1},
+        "description": "Four algorithmic sleeves (trend = top-3 SPDR sectors by "
+                       "mean 3/6/12-mo total return; mr = SPY while RSI(2)<30; "
+                       "defensive = XLU/XLP/XLV; cash = BIL). The agent sets "
+                       "only the four sleeve WEIGHTS each Sunday — each 0–40%, "
+                       "summing to 100% — from macro_signals and per-sleeve "
+                       "walk-forward health.",
+        "expectation": "A regime-aware weighting should beat a fixed one mainly "
+                       "by being defensive at the right times; expect the "
+                       "spread to be made in drawdowns, not in melt-ups.",
+        "kill_criterion": "AGENT LOOP killed if the AI book trails "
+                          "agentic_alloc_frozen net of costs at 26 weeks "
+                          "(2027-02-01).",
+    },
+    {
+        "id": "agentic_alloc_frozen",
+        "name": "Sleeve Allocator — Frozen Twin",
+        "strategy": "sleeve_alloc",
+        "cadence": "weekly",
+        "params": {"sleeve_weights": {"trend": 0.25, "mr": 0.25,
+                                      "defensive": 0.25, "cash": 0.25},
+                   "trend_n": 3, "mr_rsi_max": 30},
+        "description": "The control for agentic_alloc: the same four sleeves at "
+                       "permanently equal weight. Isolates the allocation "
+                       "decision — sleeve contents are identical by construction.",
+        "expectation": "A naive equal-weight sleeve portfolio; the bar the "
+                       "allocator has to clear.",
+        "kill_criterion": "Control book — not killed.",
+    },
+    {
+        "id": "stop_tuner_turtle",
+        "name": "Stop-Tuned Turtle (AI)",
+        "strategy": "turtle_breakout",
+        "cadence": "daily",
+        "params": {"entry_lookback": 55, "atr_period": 20, "stop_mult": 2.5,
+                   "trail_mult": 3.0, "risk_frac": 0.0075, "max_positions": 10,
+                   "max_weight": 0.15, "agent_tuned": True, "agent_version": 1},
+        "description": "turtle_breakout's algo with the ATR stop multiple, "
+                       "chandelier trail multiple, breakout lookback and risk "
+                       "fraction tunable weekly inside frozen bounds, from the "
+                       "stopped-trade autopsy (premature stops vs disasters "
+                       "avoided). Starts at the live book's exact parameters.",
+        "expectation": "The stop multiple is the single parameter a trend book "
+                       "is most sensitive to; if any tuning loop pays, this is "
+                       "the one. It still has to beat leaving it alone.",
+        "kill_criterion": "AGENT LOOP killed if the AI book trails "
+                          "turtle_breakout net of costs at 26 weeks "
+                          "(2027-02-01).",
+    },
+    {
+        "id": "earnings_context_pead",
+        "name": "Earnings-Context PEAD (AI)",
+        "strategy": "pead_ear",
+        "cadence": "daily",
+        "params": {"min_ear": 0.05, "vol_mult": 2.0, "weight": 0.04,
+                   "max_concurrent": 10, "max_hold": 45, "stop_frac": 0.92,
+                   "agent_gate": True, "agent_version": 1},
+        "description": "pead_ear's algo EXACTLY, plus a pre-open agent session "
+                       "that classifies each earnings reaction from headlines "
+                       "(guidance-driven vs one-off vs sympathy move) and may "
+                       "veto or downscale weak-class entries. Never adds a "
+                       "name. No gate file means pure algo.",
+        "expectation": "PEAD drift is stronger after guidance-driven surprises "
+                       "than after one-offs; if headlines separate those "
+                       "classes, vetoing the weak class should raise the "
+                       "sleeve's hit rate.",
+        "kill_criterion": "AGENT LOOP killed if the AI book trails pead_ear net "
+                          "of costs at 26 weeks (2027-02-01).",
+    },
 ]
 
 
