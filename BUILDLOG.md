@@ -4,9 +4,21 @@ Source of truth for build state. Read at the start of every loop iteration; trus
 remembered state. Specs live in `../personal-data-store/trading/` (engine design §12 wins on
 conflict; execution design §7 has exit criteria).
 
-## Current phase: M3/M4 — league go-live + nightly wiring, M3 exit demo, experiment framework
+## Current phase: post-Done — §12.3 utilization build-out (walk-forward, sweeps) + M1 remote pending
 
 ## Phase exits stamped
+
+- **Mission Done gate (7 consecutive clean unattended nightlies) — DONE 2026-08-04.**
+  Criterion: 7 consecutive clean unattended nightly runs, counting from Fri 2026-07-24
+  (post-incident reset). Evidence: `logs/run-2026-07-{24,27,28,29,30,31}.log` +
+  `logs/run-2026-08-03.log` — all 7 end `=== done … ===` with 0 FATAL/ERROR/Traceback;
+  league.md advanced to 2026-08-03 (17 books); farm section `OK` each night; the two risk
+  nights inside the streak both passed (07-28 six new books' first live signals; 07-31 first
+  monthly-sleeve execution — dual_momentum vs real BIL hurdle +3.72%, sector_momentum,
+  low_vol first signals — long night, done 2026-08-01T00:16:49Z, clean). E1's first
+  unattended forward write confirmed on 08-03 (`+oos 2026-08-03`, 3/40 Mondays).
+  **M1 remains the only open milestone** (needs owner-created GitHub remote).
+  Stamped by the store-session agent (owner-directed review), not the build loop.
 
 - **M0 — DONE 2026-07-18.** Criterion: `_meta.json` shows a clean nightly run over ~4k+ names,
   from cron, max-history backfill done. Evidence: cron run of 2026-07-17 22:30 UTC completed
@@ -855,7 +867,9 @@ conflict; execution design §7 has exit criteria).
    and cost-sensitivity are still open**, as is walk-forward re-validation; (c) generalize the
    E1 forward runner's rule dispatch so the next pre-registered experiment doesn't need new
    plumbing — **STILL OPEN**. All run behind §12.7 caps; none block the mission's Done gate.
-15. **Merge `macro-composite` after Fri 07-31's nightly verifies clean** (streak intact,
+15. **DONE 2026-08-04 (merge + backfill enqueued/draining; watch tonight's nightly for the
+   signals stage + league `--init` creating the book).** Original item:
+   **Merge `macro-composite` after Fri 07-31's nightly verifies clean** (streak intact,
    monthly sleeves fired correctly): `git merge --no-ff macro-composite`, then run the one-time
    signals backfill on the live store through the queue (`queue_runner.py --enqueue signals
    --params '{"mode":"backfill"}'` + drain, ~15–20 min network time), then league `--init` on
