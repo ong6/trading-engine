@@ -1,18 +1,61 @@
 # earnings_context_pead — vs frozen twin `pead_ear`
 
-_role **gater** (vetoes / downscales entries on earnings context) · param version **v1** · 0 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-04 09:54 UTC._
+_role **gater** (vetoes / downscales entries on earnings context) · param version **v1** · 1 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-04 22:33 UTC._
 
 Charter: `agents/earnings_context_pead/charter.md` (frozen — bounds, objective and kill criterion are not re-registrable mid-stream).
 
-> **No data yet — no `sim_equity` rows yet: earnings_context_pead.** Nothing below is measurable until both this book and `pead_ear` have `sim_equity` rows on a shared session.
+## Spread vs the frozen twin
+
+Common window **2026-08-04 → 2026-08-04** (1 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-07-28 — **different**, which is exactly why the raw total returns of these two books are never subtracted from each other here.
+
+* AI return over the window: **+0.00%**
+* Twin return over the window: **+0.00%**
+* **Spread (AI − twin): +0.00%**
+* Max drawdown over the same window — AI +0.00%, twin +0.00%
+* Elapsed: **0.1 / 26 weeks**, evaluated 2027-02-01
+
+### Last 1 session(s)
+
+| Session | earnings_context_pead equity | idx | pead_ear equity | idx | Cumulative spread |
+|---|---|---|---|---|---|
+| 2026-08-04 | $39,000 | 1.0000 | $38,854 | 1.0000 | **+0.00%** |
 
 ## Change log
 
-_No `changes.jsonl` yet — the agent has made no recorded proposal for this book._
+_1 proposal(s) from `changes.jsonl` (1 applied, 0 rejected). Append-only: rejected proposals are shown, not hidden._
+
+| Date | Status | Version | Diff | Rationale | Evidence | Reject reason |
+|---|---|---|---|---|---|---|
+| 2026-08-04 | **applied** | vNone | `gate` →0 veto / 0 downscale | None of the 8 preview candidates (ATKR, NWL, LIND, LIFE, NPK, TWST, WT, SNAP) appear anywhere in today's brief, which covers watchlist names (CBOE, VIRT, FTNT, etc.) and macro only. No adverse news, no vetoes, no downscales — all 8 recorded as class unclear per D-A5b and taken at full size. | · | · |
 
 ## Veto ledger and hit rate
 
-_No `gate-<date>.json` decision file exists yet — this book has made no recorded gating call, so there is nothing to score._
+_1 gate file(s) · 0 veto(es) · 0 downscale(s) · 0 entry(ies) the book took on the same sessions._
+
+**How a veto is scored.** A veto's counterfactual is only observable through the twin: the AI book never bought the name, so the only evidence of what the veto cost or saved is whether the FROZEN TWIN bought it on the next session, and what happened to it afterwards. Where the twin bought, the name's +5-session return is measured from the twin's fill price, and the veto counts as **correct** when that return is negative. Where the twin also skipped the name there is no counterfactual and the veto is excluded from the hit rate — it is not scored as a win. **A downscale is never counted in the hit rate**: it changes position size, not selection, so it cannot be right or wrong about a name. Names whose +5-session bar does not exist yet are shown as `pending` and are never extrapolated.
+
+| Measure | Value |
+|---|---|
+| Vetoes issued | 0 |
+| …that the twin actually bought (scoreable) | 0 |
+| …with no twin entry (no counterfactual, excluded) | 0 |
+| …resolved (+5 bar exists) | 0 |
+| …pending | 0 |
+| Vetoes correct (subsequent return negative) | 0 |
+| **Veto hit rate** | **·** |
+| Mean +5d return, vetoed-and-twin-bought | · |
+| Median +5d return, vetoed-and-twin-bought | · |
+| Entries taken (resolved / pending) | 0 / 0 |
+| Mean +5d return, taken | · |
+| Median +5d return, taken | · |
+| **Difference (vetoed − taken)** | **·** |
+
+A gater that is selecting well shows a **negative** difference: the names it refused did worse than the names it let through. A positive difference means the gate is vetoing the wrong names.
+
+### Veto ledger
+
+| Gate date | Bites on | Ticker | Twin bought? | Twin fill | +5d | Verdict | Reason |
+|---|---|---|---|---|---|---|---|
 
 ## Disclosures — read before any number below
 
