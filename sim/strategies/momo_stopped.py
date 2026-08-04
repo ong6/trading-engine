@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from .. import calendar
 from .base import (
-    Order, PortfolioView, Strategy, close_on, latest_screen_date,
-    passing_ranked, rank_position, rebalance_orders,
+    Order, PortfolioView, Strategy, apply_agent_gate, close_on,
+    latest_screen_date, passing_ranked, rank_position, rebalance_orders,
 )
 
 
@@ -61,10 +61,10 @@ class MomoStopped(Strategy):
                 stopped.add(tk)
 
         if not calendar.is_week_signal(con, as_of):
-            return orders
+            return apply_agent_gate(pf, as_of, orders)
         sd = latest_screen_date(con, as_of)
         if sd is None:
-            return orders
+            return apply_agent_gate(pf, as_of, orders)
         n = p.get("n", 10)
         band = p.get("band_rank", 20)
         ranks = rank_position(con, sd)
@@ -78,4 +78,6 @@ class MomoStopped(Strategy):
             targets = {t: w for t in target_names}
         orders += [o for o in rebalance_orders(con, pf, as_of, targets)
                    if o.ticker not in stopped]
-        return orders
+        # Agent gate LAST, so it sees the final algo intent. It only ever
+        # removes or shrinks BUYs; a book without `agent_gate` is untouched.
+        return apply_agent_gate(pf, as_of, orders)
