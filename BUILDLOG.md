@@ -961,6 +961,160 @@ conflict; execution design §7 has exit criteria).
   median, not for a t-stat worth printing. Bootstrap robustness is item 13(b) and stays
   there.
 
+- 2026-08-04 (pm) · **Five agentic self-improving books built, proven and live** (spec: store
+  `trading/trading-engine/agentic-strategies-design.md`). Branch `agentic-strategies`, four
+  commits `993cbc0` (configs + `sleeve_alloc`) → `0fceee9` (the entry gate) → `b79bf4c`
+  (charters + validator + autopsy + both harnesses) → `5f42c19` (nightly report stage),
+  merged no-ff as `a097fdf`. **Working tree left on `master`.**
+  **The shape.** Five books whose CORE IS CODE and whose agent may only make bounded,
+  pre-registered adjustments, each measured against a frozen twin and nothing else:
+
+  | Book | Algo | Agent role | Twin |
+  |---|---|---|---|
+  | `news_gated_momo` | `momo_stopped` | daily veto/downscale on adverse news | `momo_stopped` (live) |
+  | `adaptive_mr` | `mr_overlay` | weekly tune of 5 params | **new** `adaptive_mr_frozen` |
+  | `agentic_alloc` | **new** `sleeve_alloc` | weekly sleeve weights | **new** `agentic_alloc_frozen` |
+  | `stop_tuner_turtle` | `turtle_breakout` | weekly stop geometry | `turtle_breakout` (live) |
+  | `earnings_context_pead` | `pead_ear` | daily reaction-class veto/downscale | `pead_ear` (live) |
+
+  **Decisions.**
+  (D-AG1) *The twin for books 1/4/5 is the PRE-EXISTING live book, not a fresh clone.* It runs
+  the identical algorithm and already has a forward record; a second clone would burn a book
+  slot to answer a question the existing one answers. The cost is a 7-session inception gap
+  (twins 07-28, AI books 08-03), so **every spread is computed on the COMMON WINDOW** — both
+  curves rebased to 1.00 on the first session both have equity. Books 2 and 3 get purpose-built
+  twins instead: `mr_overlay`'s record carries the pre-fix `trading_days_between` calendar-bug
+  artefact, and the sleeve allocator has no ancestor at all.
+  (D-AG2) *The gate is a FILE the strategy reads, not a model call inside the nightly.* A
+  `claude -p` call inside `generate_orders` would put an LLM, a network dependency and a quota
+  on the critical path of the FATAL league stage. A file written 50 minutes earlier by an
+  independent fail-soft session cannot break the nightly at all: **no gate file means pure
+  algo**, and that is the behaviour on every failure path.
+  (D-AG3) *Bounds live in the charter and are parsed FROM it.* One source of truth, so the
+  numbers a human reviews in `agents/<book>/charter.md` are literally the numbers
+  `agents/validator.py` enforces. There is no second bounds file to drift.
+  (D-AG4) *Tuner proposals are ALL-OR-NOTHING; gater proposals are two-severity.* Partially
+  applying a tuner proposal would apply a change stripped of the reasoning that justified it,
+  and the rationale stored beside it would then describe something that never happened. For a
+  gate, discarding nine sound vetoes because a tenth row was malformed is worse than the
+  malformed row — so file-level violations (wrong book, too many decisions, veto share above
+  the cap) reject the whole gate, row-level ones drop that row and are logged.
+  (D-AG5) *Registered cross-checks the bounds alone cannot catch.* `weight × max_concurrent
+  ≤ 1.00` (0.15 and 8 are each in-bounds but their product is 120% of equity — `apply_fill`
+  would clamp it to cash and the book would silently run at a different concurrency than its
+  config claims) and `trail_mult ≥ stop_mult` (a trail tighter than the initial stop trails a
+  position out before it was ever at initial risk). Anything checkable in code is checked in
+  code, never left to the model's judgement.
+  (D-AG6) *The cash sleeve holds BIL, not idle cash.* Idle cash earns 0% in this engine by
+  design; a cash sleeve that earns nothing would make "be defensive" a structural loser and
+  would understate what a real cash allocation does. BIL is already priced and already
+  dividend-credited — the same proxy `dual_momentum` uses.
+  (D-AG7) *The agentic report is NIGHTLY, inline, between the E1 stage and sync.* The
+  AI-minus-twin spread is the only number that decides these books' fate at 2027-02-01, and a
+  number the owner sees every morning is a number nobody can quietly re-baseline later. Pure
+  render, read-only, seconds — so it does not belong in the §12.7 queue — and `|| WARN` so
+  reporting can never block trading data.
+  (D-AG8) *The tuner's evidence diet includes same-STRATEGY peer books, labelled.* An AI book
+  and its purpose-built twin are both born on day one, so for their first weeks NEITHER has a
+  closed trade and the tuner has literally nothing to read. The ancestor running the identical
+  module has weeks of trades. Peer records are presented as evidence about the ALGORITHM, never
+  about this book's spread — and the first real session honoured exactly that distinction.
+  **Evidence — every proof ran on a COPY. The live store was opened read-write exactly once,
+  by the production `--init`.**
+  * *Twin safety, the strict version.* `git archive master` into a scratch tree, two
+    byte-identical copies of the store (`md5sum` equal), `python -m sim.league --rerun
+    --date 2026-08-03` under each code tree. **All six sim tables byte-identical across all 17
+    pre-existing books** (`sim_orders` 329, `sim_fills` 325, `sim_equity` 161, `sim_positions`
+    236, `portfolios` 17, `sim_dividends` 0) and `league.md`/`league.csv` identical by `diff`.
+    This matters more than usual tonight: the 15 pending walk-forward jobs (107–121) import
+    strategy code from the working tree.
+  * *`--init` on a copy* created the 7 new books **plus `macro_composite`** — the latter was
+    already queued for tonight's `--init` by the 2026-08-04 merge and is not something this
+    build introduced. One league step ran clean, 25 books, exit 0.
+  * *The sleeve allocator, hand-checked.* Replayed the real week-signal session 2026-07-31 on
+    a rewound copy: **BIL 25.00% ($9,750) · XLE/XLK 8.33% each · XLV 16.67%** (8.33% as a trend
+    pick *plus* 8.33% as a defensive holding — the accumulation path) **· XLU/XLP 8.33% each ·
+    total deployed 75.00%**, because SPY's RSI(2) was not below 30 so the MR sleeve correctly
+    sat in cash. AI book and frozen twin identical at equal weights, as they must be at
+    inception. Filled 6/6 on 08-03.
+  * *Three REAL `claude -p` tuner sessions, and all three declined to change anything —
+    correctly.* `stop_tuner_turtle` and `adaptive_mr` against the live store's data both
+    returned no-change citing zero closed trades. The second `adaptive_mr` session, after the
+    peer-autopsy widening (D-AG8), reasoned properly from the peer record: *"time-stop hit rate
+    0.00%, hold median 2.0 sessions vs a 10-session stop — the time stop is simply not binding,
+    which argues for leaving it alone, not moving it."*
+    **Then the one worth writing down.** To exercise the apply path, a synthetic autopsy
+    fixture was built on a copy (14 manufactured round trips, every one held exactly 10
+    sessions, 100% time-stop rate — a screaming "loosen the time stop" signal). The session
+    **detected the fixture and refused it**: *"the tickers are alphabetically consecutive,
+    every one of the 14 was held exactly 10 sessions, and the time-stop rate reads 100.00%,
+    while the same algorithm running live in mr_overlay has a median hold of 2.0 sessions and a
+    0.00% time-stop rate … I will not tune off that block"* — and wrote a lesson saying so.
+    The prompt's "never invent a number / unavailable is absent evidence, not neutral" rules
+    are doing real work. It also means **the apply path could not be proven from a model
+    output**, so it was proven from a hand-written proposal instead, labelled as such.
+  * *Validator, both directions, against a copy.* In-bounds `time_stop 10 → 12` → **APPLIED
+    v1 → v2**, `portfolios.config` params now carry `agent_version: 2` and
+    `agent_version_since: 2026-08-04`. Out-of-bounds `rsi_max → 30` (registered [5,15]) →
+    **REJECTED**, config untouched, still v2. Both rows in `changes.jsonl`. Unit-level: 21
+    bounds cases exercised — step cap, change count, integer typing, unlisted parameter, wrong
+    book, both cross-checks, and every simplex constraint (per-sleeve cap, sum, turnover,
+    missing keys).
+  * *A REAL `claude -p` gater session against today's ACTUAL news brief.* `news_gated_momo`
+    had 0 candidates so the wrapper skipped the call entirely (no quota spent).
+    `earnings_context_pead` saw 8 candidates and classified all eight `unclear` with **zero
+    vetoes** — *"none appears in today's 133-headline brief (the only direct name hit is BMY,
+    which is not a candidate)"* — which is charter D-A5a working exactly as registered:
+    `unclear` defaults to TAKE, because vetoing the unexplained would quietly turn a PEAD
+    sleeve into a large-cap PEAD sleeve as a function of news coverage.
+  * *The gate MECHANISM, proven separately with a hand-written gate file* (veto SNAP,
+    downscale TWST ×0.5) through a full league step on two copies: **exactly one book's orders
+    changed.** SNAP's 309.52-share buy gone, TWST 15.4364 → 7.7182 (exactly ×0.5), six
+    candidates untouched; the frozen twin `pead_ear` and all 24 other books byte-identical, and
+    `sim_equity` and `sim_fills` identical across every book.
+  * *Live store integrity after `--init`.* `prices` 19,866,576 · `sim_equity` 161 ·
+    `sim_fills` 325 · `sim_orders` 329 · `sim_positions` 236 — **all unchanged**; `portfolios`
+    17 → 25, the only table that moved. The 15 pending walk-forward jobs (107–121) untouched,
+    no `.wal` left. The new books have 0 equity rows and 0 orders until tonight's nightly.
+  **Scraper feeds widened 4 → 11** (`~/news-scraper/stock_news_scraper.py`; that directory is
+  deliberately NOT a git repo, so the change is documented in a new `~/news-scraper/NOTES.md`
+  rather than committed). The four original feeds are kept unchanged; added five Yahoo
+  headline feeds covering the owner's watchlist and two macro/business feeds (MarketWatch
+  MarketPulse, Federal Reserve press releases). Every added feed was verified to return real
+  items from this box BEFORE being added, not merely to return HTTP 200. Yahoo's multi-symbol
+  form works and genuinely mixes symbols, but caps at ~20 items per feed — hence five small
+  thematic groups rather than one 13-symbol feed where the newsiest name would crowd the rest
+  out. Restarted (`kill $(cat scraper.pid)` + `ensure_scraper.sh`; the hourly watchdog will not
+  do it for you, since from its point of view a live scraper is a healthy one):
+  **`START pid=525401 feeds=11`, first cycle `new_items=145`, all 7 new feeds represented**
+  (fed_press 20 · mw_marketpulse 30 · wl_data 18 · wl_exchanges 20 · wl_megacap 17 ·
+  wl_security 20 · wl_semis 20; the original four contributed 0 because their items were
+  already deduped — correct).
+  **Cron appended** (`crontab -l` + append + reload; the 11 pre-existing lines verified
+  byte-identical afterwards):
+  ```
+  40 21 * * 1-5 …/agents/run_gaters.sh >> …/logs/agentic-gater-cron.log 2>&1
+  30 10 * * 0   …/agents/run_tuners.sh  >> …/logs/agentic-tuner-cron.log 2>&1
+  ```
+  **KNOWN LIMITATIONS (documented, deliberately not built now).**
+  (i) *The apply path has never been exercised by a model-authored change* — all three real
+  sessions correctly declined, which is the right behaviour at 13 sessions of league history
+  but leaves that path proven only by hand. First genuine test is a Sunday tuner cycle with
+  real closed trades behind it.
+  (ii) *A veto's counterfactual is only observable through the twin.* The hit-rate report scores
+  a veto only when the twin actually bought the name; a veto on a name the twin never took is
+  reported as unscored rather than assumed correct. Downscales are excluded from the hit rate
+  entirely — they change size, not selection.
+  (iii) *The candidate preview the gater sees is the LAST STORED session's*, because at 21:40
+  UTC today's bars are not collected yet. Vetoes are by ticker, so a decision on a name that
+  does not end up proposed is simply inert — but the agent is choosing from an indication, not
+  a promise, and the prompt says so.
+  (iv) *`macro_composite` and `pead_ear` are excluded from walk-forward*, so two of the five
+  books' tuner sessions will read "walkforward unavailable" for a while yet.
+  (v) *Books were created with `created = 2026-08-03`* (the store's MAX(date) at `--init`
+  time), a day before the charters' registration date. Immaterial to the 26-week clock, which
+  runs to a fixed 2027-02-01, and the spreads key off `sim_equity`, not `created`.
+
 ## Next
 
 1. ~~Verify the miners bootstrap~~ **DONE 2026-07-18 pm** (see above — fundamentals 4,118,
@@ -1069,6 +1223,23 @@ conflict; execution design §7 has exit criteria).
    rule (adverse drag, t > 2, n ≥ 100 per book) actually triggers. Intraday stop-check A/B
    variants: deferred until momo_stopped's close-checked stop has a judgeable record — the
    coarser A/B answers first whether stops help at all.
+
+16. **Agentic books — the three dates that matter.** (a) **First live gater session tonight,
+   2026-08-04 21:40 UTC** — the first time `agents/run_gaters.sh` fires from cron, ~50 minutes
+   ahead of the nightly. Confirm in `logs/agentic-gater.log` that both books are found in the
+   store, that a gate file is written (or an honest "0 candidates / no claude call" line), and
+   that the 22:30 league stage prints a `[gate]` line for `news_gated_momo` and
+   `earnings_context_pead` — "no gate file — fail-open" is a perfectly good outcome and is what
+   the twins' code path must keep looking like. Also confirm the new `agentic-report` stage runs
+   between `experiment` and `sync` and that `data/reports/agentic/` lands in the night's sync
+   commit. (b) **First Sunday tuner cycle, 2026-08-09 10:30 UTC** — the first cycle behind a
+   real walk-forward grid (jobs 107–121 drain tonight), so it is also the first time the tuner
+   prompt has out-of-sample evidence in it rather than "unavailable". Watch for whether any
+   book proposes an actual change: three real sessions so far have all declined, correctly, and
+   **the apply path has still never been exercised by a model-authored proposal.** (c) **26-week
+   evaluation, 2027-02-01** — AI vs frozen twin, net of costs, on the common window. Until then
+   the correct action on any interim spread is none; the number is published nightly for honesty,
+   not for steering. A book that trails loses its AGENT LOOP, never its algorithm.
 
 ## Blockers
 
