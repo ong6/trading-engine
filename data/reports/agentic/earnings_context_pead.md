@@ -1,24 +1,25 @@
 # earnings_context_pead — vs frozen twin `pead_ear`
 
-_role **gater** (vetoes / downscales entries on earnings context) · param version **v1** · 1 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-04 22:33 UTC._
+_role **gater** (vetoes / downscales entries on earnings context) · param version **v1** · 1 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-05 22:33 UTC._
 
 Charter: `agents/earnings_context_pead/charter.md` (frozen — bounds, objective and kill criterion are not re-registrable mid-stream).
 
 ## Spread vs the frozen twin
 
-Common window **2026-08-04 → 2026-08-04** (1 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-07-28 — **different**, which is exactly why the raw total returns of these two books are never subtracted from each other here.
+Common window **2026-08-04 → 2026-08-05** (2 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-07-28 — **different**, which is exactly why the raw total returns of these two books are never subtracted from each other here.
 
-* AI return over the window: **+0.00%**
-* Twin return over the window: **+0.00%**
-* **Spread (AI − twin): +0.00%**
-* Max drawdown over the same window — AI +0.00%, twin +0.00%
-* Elapsed: **0.1 / 26 weeks**, evaluated 2027-02-01
+* AI return over the window: **−1.93%**
+* Twin return over the window: **−0.13%**
+* **Spread (AI − twin): −1.80%**
+* Max drawdown over the same window — AI −1.93%, twin −0.13%
+* Elapsed: **0.3 / 26 weeks**, evaluated 2027-02-01
 
-### Last 1 session(s)
+### Last 2 session(s)
 
 | Session | earnings_context_pead equity | idx | pead_ear equity | idx | Cumulative spread |
 |---|---|---|---|---|---|
 | 2026-08-04 | $39,000 | 1.0000 | $38,854 | 1.0000 | **+0.00%** |
+| 2026-08-05 | $38,246 | 0.9807 | $38,803 | 0.9987 | **−1.80%** |
 
 ## Change log
 
@@ -30,7 +31,7 @@ _1 proposal(s) from `changes.jsonl` (1 applied, 0 rejected). Append-only: reject
 
 ## Veto ledger and hit rate
 
-_1 gate file(s) · 0 veto(es) · 0 downscale(s) · 0 entry(ies) the book took on the same sessions._
+_1 gate file(s) · 0 veto(es) · 0 downscale(s) · 10 entry(ies) the book took on the same sessions._
 
 **How a veto is scored.** A veto's counterfactual is only observable through the twin: the AI book never bought the name, so the only evidence of what the veto cost or saved is whether the FROZEN TWIN bought it on the next session, and what happened to it afterwards. Where the twin bought, the name's +5-session return is measured from the twin's fill price, and the veto counts as **correct** when that return is negative. Where the twin also skipped the name there is no counterfactual and the veto is excluded from the hit rate — it is not scored as a win. **A downscale is never counted in the hit rate**: it changes position size, not selection, so it cannot be right or wrong about a name. Names whose +5-session bar does not exist yet are shown as `pending` and are never extrapolated.
 
@@ -45,7 +46,7 @@ _1 gate file(s) · 0 veto(es) · 0 downscale(s) · 0 entry(ies) the book took on
 | **Veto hit rate** | **·** |
 | Mean +5d return, vetoed-and-twin-bought | · |
 | Median +5d return, vetoed-and-twin-bought | · |
-| Entries taken (resolved / pending) | 0 / 0 |
+| Entries taken (resolved / pending) | 0 / 10 |
 | Mean +5d return, taken | · |
 | Median +5d return, taken | · |
 | **Difference (vetoed − taken)** | **·** |
@@ -56,6 +57,21 @@ A gater that is selecting well shows a **negative** difference: the names it ref
 
 | Gate date | Bites on | Ticker | Twin bought? | Twin fill | +5d | Verdict | Reason |
 |---|---|---|---|---|---|---|---|
+
+### Entries taken on gated sessions (+5d)
+
+| Session | Ticker | Fill | +5d |
+|---|---|---|---|
+| 2026-08-05 | AMRC | $27.72 | `pending` |
+| 2026-08-05 | BLZE | $19.83 | `pending` |
+| 2026-08-05 | IBTA | $37.68 | `pending` |
+| 2026-08-05 | INSP | $63.41 | `pending` |
+| 2026-08-05 | ORIC | $13.66 | `pending` |
+| 2026-08-05 | PAY | $43.19 | `pending` |
+| 2026-08-05 | PLTR | $162.21 | `pending` |
+| 2026-08-05 | UFPT | $328.98 | `pending` |
+| 2026-08-05 | W | $115.00 | `pending` |
+| 2026-08-05 | ZBRA | $369.01 | `pending` |
 
 ## Disclosures — read before any number below
 
