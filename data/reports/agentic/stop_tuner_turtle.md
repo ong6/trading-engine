@@ -1,24 +1,25 @@
 # stop_tuner_turtle — vs frozen twin `turtle_breakout`
 
-_role **tuner** (weekly stop / breakout params) · param version **v1** · 0 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-04 22:33 UTC._
+_role **tuner** (weekly stop / breakout params) · param version **v1** · 0 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-05 22:33 UTC._
 
 Charter: `agents/stop_tuner_turtle/charter.md` (frozen — bounds, objective and kill criterion are not re-registrable mid-stream).
 
 ## Spread vs the frozen twin
 
-Common window **2026-08-04 → 2026-08-04** (1 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-07-28 — **different**, which is exactly why the raw total returns of these two books are never subtracted from each other here.
+Common window **2026-08-04 → 2026-08-05** (2 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-07-28 — **different**, which is exactly why the raw total returns of these two books are never subtracted from each other here.
 
-* AI return over the window: **+0.00%**
-* Twin return over the window: **+0.00%**
-* **Spread (AI − twin): +0.00%**
-* Max drawdown over the same window — AI +0.00%, twin +0.00%
-* Elapsed: **0.1 / 26 weeks**, evaluated 2027-02-01
+* AI return over the window: **−0.36%**
+* Twin return over the window: **−1.20%**
+* **Spread (AI − twin): +0.84%**
+* Max drawdown over the same window — AI −0.36%, twin −1.20%
+* Elapsed: **0.3 / 26 weeks**, evaluated 2027-02-01
 
-### Last 1 session(s)
+### Last 2 session(s)
 
 | Session | stop_tuner_turtle equity | idx | turtle_breakout equity | idx | Cumulative spread |
 |---|---|---|---|---|---|
 | 2026-08-04 | $39,000 | 1.0000 | $38,913 | 1.0000 | **+0.00%** |
+| 2026-08-05 | $38,858 | 0.9964 | $38,445 | 0.9880 | **+0.84%** |
 
 ## Change log
 
