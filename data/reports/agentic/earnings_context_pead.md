@@ -1,25 +1,26 @@
 # earnings_context_pead — vs frozen twin `pead_ear`
 
-_role **gater** (vetoes / downscales entries on earnings context) · param version **v1** · 1 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-05 22:33 UTC._
+_role **gater** (vetoes / downscales entries on earnings context) · param version **v1** · 1 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-06 22:33 UTC._
 
 Charter: `agents/earnings_context_pead/charter.md` (frozen — bounds, objective and kill criterion are not re-registrable mid-stream).
 
 ## Spread vs the frozen twin
 
-Common window **2026-08-04 → 2026-08-05** (2 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-07-28 — **different**, which is exactly why the raw total returns of these two books are never subtracted from each other here.
+Common window **2026-08-04 → 2026-08-06** (3 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-07-28 — **different**, which is exactly why the raw total returns of these two books are never subtracted from each other here.
 
-* AI return over the window: **−1.93%**
-* Twin return over the window: **−0.13%**
-* **Spread (AI − twin): −1.80%**
-* Max drawdown over the same window — AI −1.93%, twin −0.13%
-* Elapsed: **0.3 / 26 weeks**, evaluated 2027-02-01
+* AI return over the window: **−2.40%**
+* Twin return over the window: **−1.05%**
+* **Spread (AI − twin): −1.36%**
+* Max drawdown over the same window — AI −2.40%, twin −1.05%
+* Elapsed: **0.4 / 26 weeks**, evaluated 2027-02-01
 
-### Last 2 session(s)
+### Last 3 session(s)
 
 | Session | earnings_context_pead equity | idx | pead_ear equity | idx | Cumulative spread |
 |---|---|---|---|---|---|
 | 2026-08-04 | $39,000 | 1.0000 | $38,854 | 1.0000 | **+0.00%** |
 | 2026-08-05 | $38,246 | 0.9807 | $38,803 | 0.9987 | **−1.80%** |
+| 2026-08-06 | $38,062 | 0.9760 | $38,447 | 0.9895 | **−1.36%** |
 
 ## Change log
 

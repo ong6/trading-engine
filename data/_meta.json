@@ -1,17 +1,18 @@
 {
-  "last_run": "2026-08-05T22:32:03.531960+00:00",
+  "last_run": "2026-08-06T22:32:16.149101+00:00",
   "mode": "incremental",
-  "universe_size": 12344,
-  "active_count": 12265,
+  "universe_size": 12354,
+  "active_count": 12274,
   "liquid_count": 4118,
-  "prices_rows": 19874802,
+  "prices_rows": 19878914,
   "tickers_with_data": 12105,
   "stale_tickers": {
-    "count": 4,
+    "count": 5,
     "list": [
       "AVNS",
       "CCRN",
       "NSA",
+      "ORLA",
       "TMHC"
     ]
   },
@@ -21,25 +22,25 @@
     "yfinance": "ok"
   },
   "regime": "risk-on",
-  "last_screen": "2026-08-05T22:32:06.646162+00:00",
-  "passing_count": 678,
-  "new_today_count": 38,
-  "screened": 3882,
+  "last_screen": "2026-08-06T22:32:19.169981+00:00",
+  "passing_count": 645,
+  "new_today_count": 48,
+  "screened": 3883,
   "skipped_stale": 0,
-  "skipped_short": 228,
+  "skipped_short": 227,
   "actions_incremental": {
     "mode": "incremental",
-    "universe": 159,
+    "universe": 161,
     "universe_source": "held \u222a pending \u222a core-ETFs \u222a screen-top-N",
-    "pulled_this_run": 159,
+    "pulled_this_run": 161,
     "with_actions": 101,
-    "no_actions": 58,
+    "no_actions": 60,
     "failed_tickers": 0,
-    "rows_written_this_run": 8389,
+    "rows_written_this_run": 8267,
     "total_splits": 8706,
     "total_dividends": 400987,
-    "last_run": "2026-08-05T22:33:29.629720+00:00",
-    "store_gb": 2.38
+    "last_run": "2026-08-06T22:33:43.100348+00:00",
+    "store_gb": 2.44
   },
   "disk_warning": null,
   "actions_reconcile": {
@@ -47,7 +48,7 @@
     "rows_restated": 0,
     "outcomes": {},
     "warnings": 0,
-    "last_run": "2026-08-05T22:33:30.934074+00:00",
-    "store_gb": 2.38
+    "last_run": "2026-08-06T22:33:44.309090+00:00",
+    "store_gb": 2.44
   }
 }

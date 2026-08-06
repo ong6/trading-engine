@@ -1,25 +1,26 @@
 # news_gated_momo — vs frozen twin `momo_stopped`
 
-_role **gater** (vetoes / downscales entries on news) · param version **v1** · 0 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-05 22:33 UTC._
+_role **gater** (vetoes / downscales entries on news) · param version **v1** · 0 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-06 22:33 UTC._
 
 Charter: `agents/news_gated_momo/charter.md` (frozen — bounds, objective and kill criterion are not re-registrable mid-stream).
 
 ## Spread vs the frozen twin
 
-Common window **2026-08-04 → 2026-08-05** (2 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-07-28 — **different**, which is exactly why the raw total returns of these two books are never subtracted from each other here.
+Common window **2026-08-04 → 2026-08-06** (3 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-07-28 — **different**, which is exactly why the raw total returns of these two books are never subtracted from each other here.
 
 * AI return over the window: **+0.00%**
-* Twin return over the window: **−0.80%**
-* **Spread (AI − twin): +0.80%**
+* Twin return over the window: **−0.35%**
+* **Spread (AI − twin): +0.35%**
 * Max drawdown over the same window — AI +0.00%, twin −0.80%
-* Elapsed: **0.3 / 26 weeks**, evaluated 2027-02-01
+* Elapsed: **0.4 / 26 weeks**, evaluated 2027-02-01
 
-### Last 2 session(s)
+### Last 3 session(s)
 
 | Session | news_gated_momo equity | idx | momo_stopped equity | idx | Cumulative spread |
 |---|---|---|---|---|---|
 | 2026-08-04 | $39,000 | 1.0000 | $40,097 | 1.0000 | **+0.00%** |
 | 2026-08-05 | $39,000 | 1.0000 | $39,778 | 0.9920 | **+0.80%** |
+| 2026-08-06 | $39,000 | 1.0000 | $39,957 | 0.9965 | **+0.35%** |
 
 ## Change log
 
