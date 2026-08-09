@@ -1,14 +1,14 @@
 # Sector ETF Rotation — walk-forward re-validation
 
-_`sector_momentum` · sector_momentum · monthly cadence · verdict **REVIEW** · generated 2026-08-04T23:08:28+00:00_
+_`sector_momentum` · sector_momentum · monthly cadence · verdict **REVIEW** · generated 2026-08-09T06:09:13+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-04. Each fold is an independent replay starting at $39,000. Span 2018-08-06 → 2026-08-04 (2009 sessions); data floor 2016-10-07; screen source `not-used`.
+**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-07. Each fold is an independent replay starting at $39,000. Span 2018-08-07 → 2026-08-07 (2011 sessions); data floor 2016-10-07; screen source `not-used`.
 
 **Pre-registered expectation.** Market-like return with lower drawdown — it wins by losing less in downturns, not by out-running the index.
 
 **Pre-registered kill criterion.** Trails spy_benchmark by >10% over 12 months without delivering a lower max drawdown.
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess −12.66%, latest −4.08% → **REVIEW**.
+**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess −13.63%, latest −5.61% → **REVIEW**.
 
 ## Disclosures — read before any number below
 
@@ -48,21 +48,21 @@ _`sector_momentum` · sector_momentum · monthly cadence · verdict **REVIEW** �
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2018-08-06→2020-08-04 | +5.60% | +2.77% | 2020-08-04→2021-08-04 | **+23.57%** | +23.58% | +18.05% | +1.26 | −10.92% | −93.65% | −9.88% | 39 |
-| 2 | 2019-08-05→2021-08-04 | +32.04% | +14.92% | 2021-08-04→2022-08-04 | **+13.30%** | +13.31% | +18.66% | +0.76 | −14.86% | +25.63% | +17.47% | 49 |
-| 3 | 2020-08-04→2022-08-04 | +28.22% | +13.24% | 2022-08-04→2023-08-04 | **+6.45%** | +6.46% | +15.11% | +0.49 | −13.21% | −4.63% | −2.71% | 38 |
-| 4 | 2021-08-04→2023-08-04 | +15.66% | +7.55% | 2023-08-04→2024-08-02 | **+8.47%** | +8.50% | +13.58% | +0.67 | −9.36% | +12.02% | −11.66% | 36 |
-| 5 | 2022-08-04→2024-08-02 | +13.95% | +6.76% | 2024-08-02→2025-08-04 | **+16.67%** | +16.58% | +17.71% | +0.97 | −17.18% | −11.27% | −2.49% | 42 |
-| 6 ◈ | 2023-08-04→2025-08-04 | +24.53% | +11.58% | 2025-08-04→2026-08-04 | **+26.35%** | +26.37% | +13.57% | +1.80 | −7.91% | −4.08% | +3.61% | 40 |
+| 1 | 2018-08-07→2020-08-07 | +7.17% | +3.52% | 2020-08-07→2021-08-06 | **+23.68%** | +23.77% | +18.04% | +1.27 | −10.92% | −99.10% | −9.04% | 39 |
+| 2 | 2019-08-07→2021-08-06 | +34.12% | +15.82% | 2021-08-06→2022-08-05 | **+12.08%** | +12.12% | +18.67% | +0.71 | −14.86% | +24.68% | +17.14% | 49 |
+| 3 | 2020-08-07→2022-08-05 | +28.84% | +13.56% | 2022-08-05→2023-08-07 | **+6.95%** | +6.92% | +15.13% | +0.52 | −13.21% | −1.42% | −3.32% | 38 |
+| 4 | 2021-08-09→2023-08-07 | +16.76% | +8.08% | 2023-08-07→2024-08-07 | **+4.92%** | +4.91% | +13.92% | +0.41 | −9.36% | +12.37% | −11.22% | 36 |
+| 5 | 2022-08-08→2024-08-07 | +11.29% | +5.50% | 2024-08-07→2025-08-07 | **+19.17%** | +19.19% | +17.39% | +1.10 | −17.18% | −12.69% | −3.51% | 42 |
+| 6 ◈ | 2023-08-07→2025-08-07 | +24.23% | +11.45% | 2025-08-07→2026-08-07 | **+27.10%** | +27.12% | +13.56% | +1.84 | −7.91% | −5.61% | +4.20% | 40 |
 
 ## Summary
 
 * validate windows: **6**, win rate **100%**
-* mean validate return **+15.80%** (median +14.98%, worst +6.45%, best +26.35%)
-* mean validate CAGR **+15.80%** vs mean train CAGR +9.47% → decay **+6.33%**
-* mean validate Sharpe +0.99, worst validate max drawdown −17.18%
+* mean validate return **+15.65%** (median +15.62%, worst +4.92%, best +27.10%)
+* mean validate CAGR **+15.67%** vs mean train CAGR +9.66% → decay **+6.02%**
+* mean validate Sharpe +0.98, worst validate max drawdown −17.18%
 * 244 fill(s) inside validate windows
-* runtime 248.1s (scratch 11.2s, screen 0.0s)
+* runtime 195.0s (scratch 11.2s, screen 0.0s)
 
 **Verdict rule (pre-registered, mechanical, and NOT an automatic kill).** For
 each book, against `ew_benchmark` on the same folds:

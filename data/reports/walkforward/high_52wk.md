@@ -1,14 +1,14 @@
 # 52-Week-High Momentum — walk-forward re-validation
 
-_`high_52wk` · high_52wk · monthly cadence · verdict **REVIEW** · generated 2026-08-04T23:17:47+00:00_
+_`high_52wk` · high_52wk · monthly cadence · verdict **REVIEW** · generated 2026-08-09T06:18:28+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-04. Each fold is an independent replay starting at $39,000. Span 2018-08-06 → 2026-08-04 (2009 sessions); data floor 1994-01-27; screen source `not-used`.
+**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-07. Each fold is an independent replay starting at $39,000. Span 2018-08-07 → 2026-08-07 (2011 sessions); data floor 1994-01-27; screen source `not-used`.
 
 **Pre-registered expectation.** Momentum-like returns without the long-run reversal that dogs raw RS ranking, and lower churn than the RS books.
 
 **Pre-registered kill criterion.** Trails ew_benchmark by >15% over any rolling 6 months, or max drawdown exceeds 35%.
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess −18.51%, latest −11.65% → **REVIEW**.
+**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess −19.31%, latest −13.39% → **REVIEW**.
 
 ## Disclosures — read before any number below
 
@@ -48,21 +48,21 @@ _`high_52wk` · high_52wk · monthly cadence · verdict **REVIEW** · generated 
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2018-08-06→2020-08-04 | +14.04% | +6.81% | 2020-08-04→2021-08-04 | **+19.66%** | +19.67% | +18.80% | +1.05 | −10.42% | −97.56% | −13.79% | 526 |
-| 2 | 2019-08-05→2021-08-04 | +43.45% | +19.79% | 2021-08-04→2022-08-04 | **+2.50%** | +2.50% | +16.51% | +0.23 | −11.68% | +14.83% | +6.67% | 506 |
-| 3 | 2020-08-04→2022-08-04 | +22.16% | +10.53% | 2022-08-04→2023-08-04 | **−14.45%** | −14.46% | +19.38% | −0.71 | −21.54% | −25.54% | −23.61% | 502 |
-| 4 | 2021-08-04→2023-08-04 | −15.90% | −8.30% | 2023-08-04→2024-08-02 | **+10.70%** | +10.74% | +11.47% | +0.95 | −7.63% | +14.26% | −9.42% | 524 |
-| 5 | 2022-08-04→2024-08-02 | −4.39% | −2.22% | 2024-08-02→2025-08-04 | **+22.55%** | +22.43% | +13.85% | +1.55 | −8.72% | −5.38% | +3.39% | 526 |
-| 6 ◈ | 2023-08-04→2025-08-04 | +34.46% | +15.95% | 2025-08-04→2026-08-04 | **+18.78%** | +18.79% | +16.09% | +1.15 | −11.71% | −11.65% | −3.96% | 561 |
+| 1 | 2018-08-07→2020-08-07 | +13.35% | +6.46% | 2020-08-07→2021-08-06 | **+20.26%** | +20.34% | +18.80% | +1.08 | −10.42% | −102.52% | −12.46% | 526 |
+| 2 | 2019-08-07→2021-08-06 | +43.31% | +19.73% | 2021-08-06→2022-08-05 | **+3.32%** | +3.33% | +16.58% | +0.28 | −11.68% | +15.93% | +8.38% | 506 |
+| 3 | 2020-08-07→2022-08-05 | +23.57% | +11.20% | 2022-08-05→2023-08-07 | **−14.81%** | −14.75% | +19.36% | −0.74 | −21.54% | −23.19% | −25.09% | 502 |
+| 4 | 2021-08-09→2023-08-07 | −15.29% | −7.99% | 2023-08-07→2024-08-07 | **+7.45%** | +7.44% | +11.76% | +0.67 | −7.63% | +14.90% | −8.69% | 524 |
+| 5 | 2022-08-08→2024-08-07 | −6.52% | −3.32% | 2024-08-07→2025-08-07 | **+24.28%** | +24.30% | +13.56% | +1.68 | −8.72% | −7.59% | +1.59% | 526 |
+| 6 ◈ | 2023-08-07→2025-08-07 | +33.31% | +15.45% | 2025-08-07→2026-08-07 | **+19.33%** | +19.35% | +16.07% | +1.18 | −11.67% | −13.39% | −3.57% | 562 |
 
 ## Summary
 
 * validate windows: **6**, win rate **83%**
-* mean validate return **+9.96%** (median +14.74%, worst −14.45%, best +22.55%)
-* mean validate CAGR **+9.95%** vs mean train CAGR +7.09% → decay **+2.85%**
-* mean validate Sharpe +0.70, worst validate max drawdown −21.54%
-* 3145 fill(s) inside validate windows
-* runtime 383.3s (scratch 11.1s, screen 0.0s)
+* mean validate return **+9.97%** (median +13.39%, worst −14.81%, best +24.28%)
+* mean validate CAGR **+10.00%** vs mean train CAGR +6.92% → decay **+3.08%**
+* mean validate Sharpe +0.69, worst validate max drawdown −21.54%
+* 3146 fill(s) inside validate windows
+* runtime 399.3s (scratch 11.3s, screen 0.0s)
 
 **Verdict rule (pre-registered, mechanical, and NOT an automatic kill).** For
 each book, against `ew_benchmark` on the same folds:

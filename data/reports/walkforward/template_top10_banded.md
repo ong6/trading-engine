@@ -1,14 +1,14 @@
 # Template Top 10 (banded) — walk-forward re-validation
 
-_`template_top10_banded` · template_top10_banded · weekly cadence · verdict **WATCH** · generated 2026-08-04T23:30:22+00:00_
+_`template_top10_banded` · template_top10_banded · weekly cadence · verdict **WATCH** · generated 2026-08-09T06:33:06+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-04. Each fold is an independent replay starting at $39,000. Span 2018-08-06 → 2026-08-04 (2009 sessions); data floor 1994-01-27; screen source `hist` (796,840 passing rows).
+**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-07. Each fold is an independent replay starting at $39,000. Span 2018-08-07 → 2026-08-07 (2011 sessions); data floor 1994-01-27; screen source `hist` (798,415 passing rows).
 
 **Pre-registered expectation.** Similar return to top5 with lower turnover and drawdown; banding cuts whipsaw churn.
 
 **Pre-registered kill criterion.** Turnover fails to fall below template_top5, or trails ew_benchmark by >15% over 6 months.
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess +11.68%, latest −22.50% → **WATCH**.
+**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess +11.78%, latest −18.19% → **WATCH**.
 
 ## Disclosures — read before any number below
 
@@ -48,21 +48,21 @@ _`template_top10_banded` · template_top10_banded · weekly cadence · verdict *
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2018-08-06→2020-08-04 | +27.14% | +12.78% | 2020-08-04→2021-08-04 | **+255.10%** | +255.41% | +58.79% | +2.45 | −30.38% | +137.89% | +221.66% | 778 |
-| 2 | 2019-08-05→2021-08-04 | +366.04% | +115.99% | 2021-08-04→2022-08-04 | **−10.49%** | −10.49% | +43.73% | −0.03 | −35.77% | +1.85% | −6.31% | 787 |
-| 3 | 2020-08-04→2022-08-04 | +211.87% | +76.67% | 2022-08-04→2023-08-04 | **+3.79%** | +3.79% | +34.48% | +0.28 | −22.82% | −7.30% | −5.38% | 749 |
-| 4 | 2021-08-04→2023-08-04 | −8.85% | −4.53% | 2023-08-04→2024-08-02 | **−23.14%** | −23.21% | +41.61% | −0.43 | −30.10% | −19.58% | −43.26% | 760 |
-| 5 | 2022-08-04→2024-08-02 | −21.92% | −11.66% | 2024-08-02→2025-08-04 | **+7.66%** | +7.62% | +55.27% | +0.41 | −47.81% | −20.27% | −11.50% | 766 |
-| 6 ◈ | 2023-08-04→2025-08-04 | −14.83% | −7.71% | 2025-08-04→2026-08-04 | **+7.93%** | +7.93% | +71.23% | +0.47 | −43.69% | −22.50% | −14.81% | 741 |
+| 1 | 2018-08-07→2020-08-07 | +26.64% | +12.53% | 2020-08-07→2021-08-06 | **+259.59%** | +261.18% | +58.71% | +2.49 | −30.38% | +136.81% | +226.87% | 778 |
+| 2 | 2019-08-07→2021-08-06 | +370.07% | +116.93% | 2021-08-06→2022-08-05 | **−8.84%** | −8.87% | +43.88% | +0.01 | −35.77% | +3.77% | −3.78% | 787 |
+| 3 | 2020-08-07→2022-08-05 | +220.36% | +79.34% | 2022-08-05→2023-08-07 | **−0.83%** | −0.82% | +34.43% | +0.15 | −22.82% | −9.20% | −11.10% | 767 |
+| 4 | 2021-08-09→2023-08-07 | −8.06% | −4.13% | 2023-08-07→2024-08-07 | **−24.62%** | −24.57% | +41.96% | −0.46 | −30.09% | −17.17% | −40.76% | 758 |
+| 5 | 2022-08-08→2024-08-07 | −28.04% | −15.18% | 2024-08-07→2025-08-07 | **+6.54%** | +6.54% | +55.15% | +0.39 | −47.81% | −25.33% | −16.15% | 752 |
+| 6 ◈ | 2023-08-07→2025-08-07 | −13.11% | −6.78% | 2025-08-07→2026-08-07 | **+14.52%** | +14.53% | +71.00% | +0.56 | −43.69% | −18.19% | −8.38% | 743 |
 
 ## Summary
 
-* validate windows: **6**, win rate **67%**
-* mean validate return **+40.14%** (median +5.72%, worst −23.14%, best +255.10%)
-* mean validate CAGR **+40.18%** vs mean train CAGR +30.26% → decay **+9.92%**
-* mean validate Sharpe +0.53, worst validate max drawdown −47.81%
-* 4581 fill(s) inside validate windows
-* runtime 395.6s (scratch 11.4s, screen 14.7s)
+* validate windows: **6**, win rate **50%**
+* mean validate return **+41.06%** (median +2.85%, worst −24.62%, best +259.59%)
+* mean validate CAGR **+41.33%** vs mean train CAGR +30.45% → decay **+10.88%**
+* mean validate Sharpe +0.52, worst validate max drawdown −47.81%
+* 4585 fill(s) inside validate windows
+* runtime 386.9s (scratch 11.2s, screen 14.4s)
 
 **Verdict rule (pre-registered, mechanical, and NOT an automatic kill).** For
 each book, against `ew_benchmark` on the same folds:
