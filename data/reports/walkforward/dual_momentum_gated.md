@@ -1,14 +1,14 @@
 # Dual Momentum (regime-gated) — walk-forward re-validation
 
-_`dual_momentum_gated` · dual_momentum · monthly cadence · verdict **REVIEW** · generated 2026-08-04T23:04:20+00:00_
+_`dual_momentum_gated` · dual_momentum · monthly cadence · verdict **REVIEW** · generated 2026-08-09T06:05:58+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-04. Each fold is an independent replay starting at $39,000. Span 2018-08-06 → 2026-08-04 (2009 sessions); data floor 2008-05-29; screen source `not-used`.
+**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-07. Each fold is an independent replay starting at $39,000. Span 2018-08-07 → 2026-08-07 (2011 sessions); data floor 2008-05-29; screen source `not-used`.
 
 **Pre-registered expectation.** Near-identical to ungated GEM; gate is a belt-and-braces check.
 
 **Pre-registered kill criterion.** Diverges materially from ungated GEM (would signal a gate bug).
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess −18.67%, latest −9.01% → **REVIEW**.
+**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess −19.52%, latest −10.12% → **REVIEW**.
 
 ## Disclosures — read before any number below
 
@@ -48,21 +48,21 @@ _`dual_momentum_gated` · dual_momentum · monthly cadence · verdict **REVIEW**
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2018-08-06→2020-08-04 | +2.08% | +1.04% | 2020-08-04→2021-08-04 | **+34.79%** | +34.82% | +14.80% | +2.09 | −9.38% | −82.42% | +1.34% | 2 |
-| 2 | 2019-08-05→2021-08-04 | +52.06% | +23.33% | 2021-08-04→2022-08-04 | **−9.52%** | −9.53% | +13.53% | −0.67 | −17.42% | +2.81% | −5.35% | 4 |
-| 3 | 2020-08-04→2022-08-04 | +14.90% | +7.19% | 2022-08-04→2023-08-04 | **−3.27%** | −3.27% | +4.79% | −0.67 | −4.99% | −14.36% | −12.44% | 5 |
-| 4 | 2021-08-04→2023-08-04 | −15.21% | −7.92% | 2023-08-04→2024-08-02 | **+9.62%** | +9.65% | +11.28% | +0.88 | −9.52% | +13.18% | −10.50% | 5 |
-| 5 | 2022-08-04→2024-08-02 | +6.03% | +2.98% | 2024-08-02→2025-08-04 | **+5.71%** | +5.68% | +13.19% | +0.49 | −10.10% | −22.22% | −13.45% | 7 |
-| 6 ◈ | 2023-08-04→2025-08-04 | +15.78% | +7.60% | 2025-08-04→2026-08-04 | **+21.42%** | +21.43% | +13.75% | +1.49 | −11.42% | −9.01% | −1.32% | 11 |
+| 1 | 2018-08-07→2020-08-07 | +3.47% | +1.72% | 2020-08-07→2021-08-06 | **+34.05%** | +34.18% | +14.82% | +2.06 | −9.38% | −88.74% | +1.32% | 2 |
+| 2 | 2019-08-07→2021-08-06 | +53.27% | +23.82% | 2021-08-06→2022-08-05 | **−10.23%** | −10.27% | +13.54% | −0.73 | −17.42% | +2.37% | −5.18% | 4 |
+| 3 | 2020-08-07→2022-08-05 | +14.90% | +7.22% | 2022-08-05→2023-08-07 | **−2.46%** | −2.44% | +4.87% | −0.49 | −4.99% | −10.83% | −12.73% | 5 |
+| 4 | 2021-08-09→2023-08-07 | −14.50% | −7.56% | 2023-08-07→2024-08-07 | **+5.81%** | +5.80% | +11.64% | +0.54 | −9.52% | +13.26% | −10.33% | 5 |
+| 5 | 2022-08-08→2024-08-07 | +3.20% | +1.59% | 2024-08-07→2025-08-07 | **+8.79%** | +8.80% | +12.84% | +0.73 | −10.10% | −23.07% | −13.89% | 7 |
+| 6 ◈ | 2023-08-07→2025-08-07 | +15.98% | +7.69% | 2025-08-07→2026-08-07 | **+22.60%** | +22.61% | +13.76% | +1.56 | −11.42% | −10.12% | −0.31% | 11 |
 
 ## Summary
 
 * validate windows: **6**, win rate **67%**
-* mean validate return **+9.79%** (median +7.67%, worst −9.52%, best +34.79%)
-* mean validate CAGR **+9.80%** vs mean train CAGR +5.70% → decay **+4.10%**
-* mean validate Sharpe +0.60, worst validate max drawdown −17.42%
+* mean validate return **+9.76%** (median +7.30%, worst −10.23%, best +34.05%)
+* mean validate CAGR **+9.78%** vs mean train CAGR +5.75% → decay **+4.03%**
+* mean validate Sharpe +0.61, worst validate max drawdown −17.42%
 * 34 fill(s) inside validate windows
-* runtime 159.6s (scratch 11.3s, screen 0.0s)
+* runtime 168.7s (scratch 11.5s, screen 0.0s)
 
 **Verdict rule (pre-registered, mechanical, and NOT an automatic kill).** For
 each book, against `ew_benchmark` on the same folds:

@@ -1,14 +1,14 @@
 # Dual Momentum (GEM) — walk-forward re-validation
 
-_`dual_momentum` · dual_momentum · monthly cadence · verdict **REVIEW** · generated 2026-08-04T23:01:40+00:00_
+_`dual_momentum` · dual_momentum · monthly cadence · verdict **REVIEW** · generated 2026-08-09T06:03:10+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-04. Each fold is an independent replay starting at $39,000. Span 2018-08-06 → 2026-08-04 (2009 sessions); data floor 2008-05-29; screen source `not-used`.
+**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-07. Each fold is an independent replay starting at $39,000. Span 2018-08-07 → 2026-08-07 (2011 sessions); data floor 2008-05-29; screen source `not-used`.
 
 **Pre-registered expectation.** Lower drawdown than buy-and-hold via the cash switch; lags in strong bull runs.
 
 **Pre-registered kill criterion.** Underperforms spy_benchmark by >20% over 2 years while not delivering a lower max drawdown.
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess −14.74%, latest −4.43% → **REVIEW**.
+**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess −15.61%, latest −5.49% → **REVIEW**.
 
 ## Disclosures — read before any number below
 
@@ -48,21 +48,21 @@ _`dual_momentum` · dual_momentum · monthly cadence · verdict **REVIEW** · ge
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2018-08-06→2020-08-04 | −15.57% | −8.13% | 2020-08-04→2021-08-04 | **+34.70%** | +34.73% | +14.78% | +2.09 | −9.38% | −82.51% | +1.26% | 1 |
-| 2 | 2019-08-05→2021-08-04 | +27.15% | +12.77% | 2021-08-04→2022-08-04 | **−4.54%** | −4.54% | +17.56% | −0.18 | −18.13% | +7.79% | −0.37% | 2 |
-| 3 | 2020-08-04→2022-08-04 | +21.17% | +10.09% | 2022-08-04→2023-08-04 | **−3.28%** | −3.28% | +4.79% | −0.67 | −4.99% | −14.37% | −12.44% | 5 |
-| 4 | 2021-08-04→2023-08-04 | −10.52% | −5.41% | 2023-08-04→2024-08-02 | **+18.24%** | +18.31% | +11.96% | +1.47 | −9.52% | +21.80% | −1.88% | 5 |
-| 5 | 2022-08-04→2024-08-02 | +14.35% | +6.95% | 2024-08-02→2025-08-04 | **+11.23%** | +11.17% | +20.20% | +0.63 | −18.75% | −16.70% | −7.93% | 9 |
-| 6 ◈ | 2023-08-04→2025-08-04 | +31.41% | +14.62% | 2025-08-04→2026-08-04 | **+26.00%** | +26.02% | +14.86% | +1.64 | −11.41% | −4.43% | +3.26% | 12 |
+| 1 | 2018-08-07→2020-08-07 | −14.43% | −7.49% | 2020-08-07→2021-08-06 | **+33.95%** | +34.09% | +14.80% | +2.06 | −9.38% | −88.83% | +1.23% | 1 |
+| 2 | 2019-08-07→2021-08-06 | +28.16% | +13.22% | 2021-08-06→2022-08-05 | **−5.30%** | −5.31% | +17.58% | −0.22 | −18.13% | +7.31% | −0.24% | 2 |
+| 3 | 2020-08-07→2022-08-05 | +21.17% | +10.11% | 2022-08-05→2023-08-07 | **−2.46%** | −2.45% | +4.86% | −0.49 | −4.99% | −10.83% | −12.74% | 5 |
+| 4 | 2021-08-09→2023-08-07 | −9.77% | −5.03% | 2023-08-07→2024-08-07 | **+14.13%** | +14.10% | +12.30% | +1.14 | −9.52% | +21.58% | −2.01% | 5 |
+| 5 | 2022-08-08→2024-08-07 | +11.31% | +5.51% | 2024-08-07→2025-08-07 | **+14.47%** | +14.48% | +19.97% | +0.78 | −18.75% | −17.40% | −8.22% | 9 |
+| 6 ◈ | 2023-08-07→2025-08-07 | +31.64% | +14.72% | 2025-08-07→2026-08-07 | **+27.23%** | +27.25% | +14.86% | +1.70 | −11.41% | −5.49% | +4.32% | 12 |
 
 ## Summary
 
 * validate windows: **6**, win rate **67%**
-* mean validate return **+13.73%** (median +14.73%, worst −4.54%, best +34.70%)
-* mean validate CAGR **+13.74%** vs mean train CAGR +5.15% → decay **+8.59%**
+* mean validate return **+13.67%** (median +14.30%, worst −5.30%, best +33.95%)
+* mean validate CAGR **+13.69%** vs mean train CAGR +5.17% → decay **+8.52%**
 * mean validate Sharpe +0.83, worst validate max drawdown −18.75%
 * 34 fill(s) inside validate windows
-* runtime 162.6s (scratch 11.5s, screen 0.0s)
+* runtime 187.5s (scratch 12.1s, screen 0.0s)
 
 **Verdict rule (pre-registered, mechanical, and NOT an automatic kill).** For
 each book, against `ew_benchmark` on the same folds:
