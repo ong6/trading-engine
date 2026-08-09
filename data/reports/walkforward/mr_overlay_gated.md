@@ -1,6 +1,6 @@
 # Mean-Reversion Overlay (regime-gated) — walk-forward re-validation
 
-_`mr_overlay_gated` · mr_overlay · daily cadence · verdict **REVIEW** · generated 2026-08-05T01:47:59+00:00_
+_`mr_overlay_gated` · mr_overlay · daily cadence · verdict **no-benchmark** · generated 2026-08-05T01:47:59+00:00_
 
 **Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-04. Each fold is an independent replay starting at $39,000. Span 2018-08-06 → 2026-08-04 (2009 sessions); data floor 1994-01-27; screen source `hist` (796,840 passing rows).
 
@@ -8,7 +8,7 @@ _`mr_overlay_gated` · mr_overlay · daily cadence · verdict **REVIEW** · gene
 
 **Pre-registered kill criterion.** No drawdown/expectancy improvement vs ungated MR.
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess −21.65%, latest −20.59% → **REVIEW**.
+**Measured against `ew_benchmark` on the same folds:** beats it in · of 0 window(s), mean excess ·, latest · → **no-benchmark**.
 
 ## Disclosures — read before any number below
 
@@ -48,12 +48,12 @@ _`mr_overlay_gated` · mr_overlay · daily cadence · verdict **REVIEW** · gene
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2018-08-06→2020-08-04 | −4.39% | −2.22% | 2020-08-04→2021-08-04 | **+28.32%** | +28.34% | +15.93% | +1.65 | −12.55% | −88.89% | −5.13% | 441 |
-| 2 | 2019-08-05→2021-08-04 | +22.66% | +10.76% | 2021-08-04→2022-08-04 | **−5.80%** | −5.80% | +9.92% | −0.55 | −12.33% | +6.53% | −1.63% | 226 |
-| 3 | 2020-08-04→2022-08-04 | +20.55% | +9.80% | 2022-08-04→2023-08-04 | **−3.69%** | −3.69% | +8.03% | −0.43 | −8.29% | −14.78% | −12.85% | 244 |
-| 4 | 2021-08-04→2023-08-04 | −8.63% | −4.42% | 2023-08-04→2024-08-02 | **−2.96%** | −2.97% | +11.28% | −0.21 | −9.47% | +0.59% | −23.09% | 441 |
-| 5 | 2022-08-04→2024-08-02 | −6.54% | −3.33% | 2024-08-02→2025-08-04 | **+15.17%** | +15.09% | +12.97% | +1.16 | −13.64% | −12.76% | −3.99% | 401 |
-| 6 ◈ | 2023-08-04→2025-08-04 | +11.15% | +5.42% | 2025-08-04→2026-08-04 | **+9.84%** | +9.85% | +16.19% | +0.66 | −8.04% | −20.59% | −12.90% | 453 |
+| 1 | 2018-08-06→2020-08-04 | −4.39% | −2.22% | 2020-08-04→2021-08-04 | **+28.32%** | +28.34% | +15.93% | +1.65 | −12.55% | · | · | 441 |
+| 2 | 2019-08-05→2021-08-04 | +22.66% | +10.76% | 2021-08-04→2022-08-04 | **−5.80%** | −5.80% | +9.92% | −0.55 | −12.33% | · | · | 226 |
+| 3 | 2020-08-04→2022-08-04 | +20.55% | +9.80% | 2022-08-04→2023-08-04 | **−3.69%** | −3.69% | +8.03% | −0.43 | −8.29% | · | · | 244 |
+| 4 | 2021-08-04→2023-08-04 | −8.63% | −4.42% | 2023-08-04→2024-08-02 | **−2.96%** | −2.97% | +11.28% | −0.21 | −9.47% | · | · | 441 |
+| 5 | 2022-08-04→2024-08-02 | −6.54% | −3.33% | 2024-08-02→2025-08-04 | **+15.17%** | +15.09% | +12.97% | +1.16 | −13.64% | · | · | 401 |
+| 6 ◈ | 2023-08-04→2025-08-04 | +11.15% | +5.42% | 2025-08-04→2026-08-04 | **+9.84%** | +9.85% | +16.19% | +0.66 | −8.04% | · | · | 453 |
 
 ## Summary
 
