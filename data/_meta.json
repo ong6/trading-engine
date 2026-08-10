@@ -1,10 +1,10 @@
 {
-  "last_run": "2026-08-07T22:32:22.896335+00:00",
+  "last_run": "2026-08-10T22:32:14.380678+00:00",
   "mode": "incremental",
-  "universe_size": 12361,
-  "active_count": 12278,
+  "universe_size": 12369,
+  "active_count": 12282,
   "liquid_count": 4118,
-  "prices_rows": 19883026,
+  "prices_rows": 19887139,
   "tickers_with_data": 12105,
   "stale_tickers": {
     "count": 5,
@@ -22,25 +22,25 @@
     "yfinance": "ok"
   },
   "regime": "risk-on",
-  "last_screen": "2026-08-07T22:32:26.014307+00:00",
-  "passing_count": 626,
-  "new_today_count": 55,
-  "screened": 3882,
+  "last_screen": "2026-08-10T22:32:17.475898+00:00",
+  "passing_count": 631,
+  "new_today_count": 63,
+  "screened": 3886,
   "skipped_stale": 0,
-  "skipped_short": 227,
+  "skipped_short": 223,
   "actions_incremental": {
     "mode": "incremental",
-    "universe": 159,
+    "universe": 162,
     "universe_source": "held \u222a pending \u222a core-ETFs \u222a screen-top-N",
-    "pulled_this_run": 159,
-    "with_actions": 101,
-    "no_actions": 58,
+    "pulled_this_run": 162,
+    "with_actions": 99,
+    "no_actions": 63,
     "failed_tickers": 0,
-    "rows_written_this_run": 8066,
+    "rows_written_this_run": 7905,
     "total_splits": 8706,
-    "total_dividends": 400988,
-    "last_run": "2026-08-07T22:33:48.934854+00:00",
-    "store_gb": 2.49
+    "total_dividends": 400990,
+    "last_run": "2026-08-10T22:34:46.903238+00:00",
+    "store_gb": 2.54
   },
   "disk_warning": null,
   "actions_reconcile": {
@@ -48,172 +48,7 @@
     "rows_restated": 0,
     "outcomes": {},
     "warnings": 0,
-    "last_run": "2026-08-07T22:33:50.217749+00:00",
-    "store_gb": 2.49
-  },
-  "intraday": {
-    "last_run": "2026-08-07T22:37:16.635913+00:00",
-    "tickers_requested": 1050,
-    "tickers_with_data": 1050,
-    "new_rows_1m": 380047,
-    "new_rows_5m": 151886,
-    "failed_tickers": 0,
-    "failed_batches": 0,
-    "store_gb": 2.55
-  },
-  "signals_incremental": {
-    "mode": "incremental",
-    "pit_lag": false,
-    "sources": {
-      "squeezemetrics": {
-        "status": "ok",
-        "rows_fetched": 7680,
-        "rows_inserted": 2,
-        "series": [
-          "dix",
-          "gex"
-        ],
-        "secs": 11.0
-      },
-      "vix": {
-        "status": "ok",
-        "rows_fetched": 13492,
-        "rows_inserted": 2,
-        "series": [
-          "vix",
-          "vix3m"
-        ],
-        "secs": 1.7
-      },
-      "fred": {
-        "status": "ok",
-        "rows_fetched": 103,
-        "rows_inserted": 2,
-        "series": [
-          "hy_oas",
-          "icsa",
-          "nfci",
-          "t10y2y"
-        ],
-        "secs": 2.2
-      },
-      "putcall": {
-        "status": "ok",
-        "rows_fetched": 18,
-        "rows_inserted": 2,
-        "series": [
-          "pc_equity",
-          "pc_total"
-        ],
-        "secs": 6.8
-      },
-      "naaim": {
-        "status": "failed",
-        "error": "naaim: no .xlsx link found on the programme page",
-        "rows_fetched": 0,
-        "rows_inserted": 0
-      },
-      "aaii": {
-        "status": "ok",
-        "rows_fetched": 4072,
-        "rows_inserted": 0,
-        "series": [
-          "aaii_bear",
-          "aaii_bull"
-        ],
-        "secs": 1.1
-      },
-      "finra_margin": {
-        "status": "ok",
-        "rows_fetched": 551,
-        "rows_inserted": 0,
-        "series": [
-          "free_credit",
-          "margin_debt"
-        ],
-        "secs": 1.0
-      },
-      "short_interest": {
-        "status": "ok",
-        "rows_fetched": 2,
-        "rows_inserted": 0,
-        "series": [
-          "short_interest_dtc"
-        ],
-        "secs": 12.2
-      },
-      "cot": {
-        "status": "ok",
-        "rows_fetched": 10,
-        "rows_inserted": 1,
-        "series": [
-          "cot_es_lev_net"
-        ],
-        "secs": 1.9
-      },
-      "breadth": {
-        "status": "ok",
-        "rows_fetched": 3,
-        "rows_inserted": 3,
-        "series": [
-          "breadth_nh_nl",
-          "breadth_pct_200",
-          "zweig_ratio"
-        ],
-        "secs": 0.3
-      }
-    },
-    "rows_inserted": 12,
-    "warnings": [
-      "naaim failed: RuntimeError: naaim: no .xlsx link found on the programme page"
-    ],
-    "series_totals": {
-      "aaii_bear": 2036,
-      "aaii_bull": 2036,
-      "breadth_nh_nl": 3670,
-      "breadth_pct_200": 3670,
-      "cot_es_lev_net": 1052,
-      "dix": 3840,
-      "free_credit": 197,
-      "gex": 3840,
-      "hy_oas": 792,
-      "icsa": 3109,
-      "margin_debt": 354,
-      "nfci": 2900,
-      "pc_equity": 4155,
-      "pc_total": 4155,
-      "short_interest_dtc": 71,
-      "t10y2y": 12543,
-      "vix": 9245,
-      "vix3m": 4247,
-      "zweig_ratio": 3670
-    },
-    "last_run": "2026-08-07T22:37:55.098671+00:00",
-    "store_gb": 2.55
-  },
-  "earnings": {
-    "last_run": "2026-08-07T23:10:57.729154+00:00",
-    "as_of": "2026-08-07",
-    "universe": 2933,
-    "universe_source": "fundamentals-coverage \u222a screen-passers",
-    "pulled_this_run": 2933,
-    "with_upcoming_date": 2800,
-    "no_upcoming_date": 133,
-    "failed_tickers": 0,
-    "rows_inserted_this_run": 2800,
-    "rows_for_as_of": 2800,
-    "store_gb": 2.55
-  },
-  "fundamentals": {
-    "last_run": "2026-08-07T23:59:46.352396+00:00",
-    "as_of": "2026-08-07",
-    "universe": 4118,
-    "pulled_this_run": 4118,
-    "with_data": 4118,
-    "with_market_cap": 2868,
-    "failed_tickers": 0,
-    "rows_inserted_this_run": 4118,
-    "rows_for_as_of": 4118,
-    "store_gb": 2.55
+    "last_run": "2026-08-10T22:34:48.225889+00:00",
+    "store_gb": 2.54
   }
 }

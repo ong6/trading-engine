@@ -1,20 +1,20 @@
 # news_gated_momo — vs frozen twin `momo_stopped`
 
-_role **gater** (vetoes / downscales entries on news) · param version **v1** · 0 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-07 22:33 UTC._
+_role **gater** (vetoes / downscales entries on news) · param version **v1** · 0 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-10 22:34 UTC._
 
 Charter: `agents/news_gated_momo/charter.md` (frozen — bounds, objective and kill criterion are not re-registrable mid-stream).
 
 ## Spread vs the frozen twin
 
-Common window **2026-08-04 → 2026-08-07** (4 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-07-28 — **different**, which is exactly why the raw total returns of these two books are never subtracted from each other here.
+Common window **2026-08-04 → 2026-08-10** (5 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-07-28 — **different**, which is exactly why the raw total returns of these two books are never subtracted from each other here.
 
-* AI return over the window: **+0.00%**
-* Twin return over the window: **+1.01%**
-* **Spread (AI − twin): −1.01%**
-* Max drawdown over the same window — AI +0.00%, twin −0.80%
-* Elapsed: **0.6 / 26 weeks**, evaluated 2027-02-01
+* AI return over the window: **−0.40%**
+* Twin return over the window: **+0.36%**
+* **Spread (AI − twin): −0.76%**
+* Max drawdown over the same window — AI −0.40%, twin −0.80%
+* Elapsed: **1.0 / 26 weeks**, evaluated 2027-02-01
 
-### Last 4 session(s)
+### Last 5 session(s)
 
 | Session | news_gated_momo equity | idx | momo_stopped equity | idx | Cumulative spread |
 |---|---|---|---|---|---|
@@ -22,6 +22,7 @@ Common window **2026-08-04 → 2026-08-07** (4 session(s)); both curves rebased 
 | 2026-08-05 | $39,000 | 1.0000 | $39,778 | 0.9920 | **+0.80%** |
 | 2026-08-06 | $39,000 | 1.0000 | $39,957 | 0.9965 | **+0.35%** |
 | 2026-08-07 | $39,000 | 1.0000 | $40,501 | 1.0101 | **−1.01%** |
+| 2026-08-10 | $38,845 | 0.9960 | $40,243 | 1.0036 | **−0.76%** |
 
 ## Change log
 
