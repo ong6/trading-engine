@@ -1,10 +1,10 @@
 {
-  "last_run": "2026-08-11T22:32:35.217995+00:00",
+  "last_run": "2026-08-12T22:32:23.329713+00:00",
   "mode": "incremental",
-  "universe_size": 12379,
-  "active_count": 12292,
+  "universe_size": 12391,
+  "active_count": 12302,
   "liquid_count": 4118,
-  "prices_rows": 19891251,
+  "prices_rows": 19895361,
   "tickers_with_data": 12105,
   "stale_tickers": {
     "count": 5,
@@ -16,31 +16,31 @@
       "TMHC"
     ]
   },
-  "failed_this_run": 5,
+  "failed_this_run": 6,
   "sources": {
     "stooq": "blocked",
     "yfinance": "ok"
   },
   "regime": "risk-on",
-  "last_screen": "2026-08-11T22:32:38.282503+00:00",
-  "passing_count": 621,
-  "new_today_count": 45,
-  "screened": 3886,
+  "last_screen": "2026-08-12T22:32:26.340825+00:00",
+  "passing_count": 656,
+  "new_today_count": 65,
+  "screened": 3889,
   "skipped_stale": 0,
-  "skipped_short": 223,
+  "skipped_short": 220,
   "actions_incremental": {
     "mode": "incremental",
     "universe": 162,
     "universe_source": "held \u222a pending \u222a core-ETFs \u222a screen-top-N",
     "pulled_this_run": 162,
-    "with_actions": 98,
-    "no_actions": 64,
+    "with_actions": 99,
+    "no_actions": 63,
     "failed_tickers": 0,
-    "rows_written_this_run": 7746,
+    "rows_written_this_run": 7773,
     "total_splits": 8706,
     "total_dividends": 400992,
-    "last_run": "2026-08-11T22:34:01.024218+00:00",
-    "store_gb": 2.63
+    "last_run": "2026-08-12T22:33:49.694178+00:00",
+    "store_gb": 2.69
   },
   "disk_warning": null,
   "actions_reconcile": {
@@ -48,7 +48,7 @@
     "rows_restated": 0,
     "outcomes": {},
     "warnings": 0,
-    "last_run": "2026-08-11T22:34:02.326273+00:00",
-    "store_gb": 2.63
+    "last_run": "2026-08-12T22:33:50.949545+00:00",
+    "store_gb": 2.69
   }
 }

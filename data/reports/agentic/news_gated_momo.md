@@ -1,20 +1,20 @@
 # news_gated_momo — vs frozen twin `momo_stopped`
 
-_role **gater** (vetoes / downscales entries on news) · param version **v1** · 0 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-11 22:34 UTC._
+_role **gater** (vetoes / downscales entries on news) · param version **v1** · 0 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-12 22:33 UTC._
 
 Charter: `agents/news_gated_momo/charter.md` (frozen — bounds, objective and kill criterion are not re-registrable mid-stream).
 
 ## Spread vs the frozen twin
 
-Common window **2026-08-04 → 2026-08-11** (6 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-07-28 — **different**, which is exactly why the raw total returns of these two books are never subtracted from each other here.
+Common window **2026-08-04 → 2026-08-12** (7 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-07-28 — **different**, which is exactly why the raw total returns of these two books are never subtracted from each other here.
 
-* AI return over the window: **−1.76%**
-* Twin return over the window: **−1.29%**
-* **Spread (AI − twin): −0.46%**
+* AI return over the window: **+1.36%**
+* Twin return over the window: **+1.50%**
+* **Spread (AI − twin): −0.14%**
 * Max drawdown over the same window — AI −1.76%, twin −2.28%
-* Elapsed: **1.1 / 26 weeks**, evaluated 2027-02-01
+* Elapsed: **1.3 / 26 weeks**, evaluated 2027-02-01
 
-### Last 6 session(s)
+### Last 7 session(s)
 
 | Session | news_gated_momo equity | idx | momo_stopped equity | idx | Cumulative spread |
 |---|---|---|---|---|---|
@@ -24,6 +24,7 @@ Common window **2026-08-04 → 2026-08-11** (6 session(s)); both curves rebased 
 | 2026-08-07 | $39,000 | 1.0000 | $40,501 | 1.0101 | **−1.01%** |
 | 2026-08-10 | $38,845 | 0.9960 | $40,243 | 1.0036 | **−0.76%** |
 | 2026-08-11 | $38,315 | 0.9824 | $39,579 | 0.9871 | **−0.46%** |
+| 2026-08-12 | $39,529 | 1.0136 | $40,698 | 1.0150 | **−0.14%** |
 
 ## Change log
 
