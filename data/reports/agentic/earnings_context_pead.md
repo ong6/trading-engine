@@ -1,20 +1,20 @@
 # earnings_context_pead — vs frozen twin `pead_ear`
 
-_role **gater** (vetoes / downscales entries on earnings context) · param version **v1** · 1 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-11 22:34 UTC._
+_role **gater** (vetoes / downscales entries on earnings context) · param version **v1** · 1 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-12 22:33 UTC._
 
 Charter: `agents/earnings_context_pead/charter.md` (frozen — bounds, objective and kill criterion are not re-registrable mid-stream).
 
 ## Spread vs the frozen twin
 
-Common window **2026-08-04 → 2026-08-11** (6 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-07-28 — **different**, which is exactly why the raw total returns of these two books are never subtracted from each other here.
+Common window **2026-08-04 → 2026-08-12** (7 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-07-28 — **different**, which is exactly why the raw total returns of these two books are never subtracted from each other here.
 
-* AI return over the window: **−1.31%**
-* Twin return over the window: **−1.08%**
-* **Spread (AI − twin): −0.23%**
+* AI return over the window: **−1.36%**
+* Twin return over the window: **−0.88%**
+* **Spread (AI − twin): −0.48%**
 * Max drawdown over the same window — AI −2.40%, twin −1.32%
-* Elapsed: **1.1 / 26 weeks**, evaluated 2027-02-01
+* Elapsed: **1.3 / 26 weeks**, evaluated 2027-02-01
 
-### Last 6 session(s)
+### Last 7 session(s)
 
 | Session | earnings_context_pead equity | idx | pead_ear equity | idx | Cumulative spread |
 |---|---|---|---|---|---|
@@ -24,6 +24,7 @@ Common window **2026-08-04 → 2026-08-11** (6 session(s)); both curves rebased 
 | 2026-08-07 | $38,493 | 0.9870 | $38,614 | 0.9938 | **−0.68%** |
 | 2026-08-10 | $38,482 | 0.9867 | $38,340 | 0.9868 | **−0.01%** |
 | 2026-08-11 | $38,488 | 0.9869 | $38,435 | 0.9892 | **−0.23%** |
+| 2026-08-12 | $38,471 | 0.9864 | $38,513 | 0.9912 | **−0.48%** |
 
 ## Change log
 
@@ -50,9 +51,9 @@ _1 gate file(s) · 0 veto(es) · 0 downscale(s) · 10 entry(ies) the book took o
 | **Veto hit rate** | **·** |
 | Mean +5d return, vetoed-and-twin-bought | · |
 | Median +5d return, vetoed-and-twin-bought | · |
-| Entries taken (resolved / pending) | 0 / 10 |
-| Mean +5d return, taken | · |
-| Median +5d return, taken | · |
+| Entries taken (resolved / pending) | 10 / 0 |
+| Mean +5d return, taken | −2.62% |
+| Median +5d return, taken | −2.23% |
 | **Difference (vetoed − taken)** | **·** |
 
 A gater that is selecting well shows a **negative** difference: the names it refused did worse than the names it let through. A positive difference means the gate is vetoing the wrong names.
@@ -66,16 +67,16 @@ A gater that is selecting well shows a **negative** difference: the names it ref
 
 | Session | Ticker | Fill | +5d |
 |---|---|---|---|
-| 2026-08-05 | AMRC | $27.72 | `pending` |
-| 2026-08-05 | BLZE | $19.83 | `pending` |
-| 2026-08-05 | IBTA | $37.68 | `pending` |
-| 2026-08-05 | INSP | $63.41 | `pending` |
-| 2026-08-05 | ORIC | $13.66 | `pending` |
-| 2026-08-05 | PAY | $43.19 | `pending` |
-| 2026-08-05 | PLTR | $162.21 | `pending` |
-| 2026-08-05 | UFPT | $328.98 | `pending` |
-| 2026-08-05 | W | $115.00 | `pending` |
-| 2026-08-05 | ZBRA | $369.01 | `pending` |
+| 2026-08-05 | AMRC | $27.72 | −0.38% |
+| 2026-08-05 | BLZE | $19.83 | −2.47% |
+| 2026-08-05 | IBTA | $37.68 | −4.84% |
+| 2026-08-05 | INSP | $63.41 | −8.10% |
+| 2026-08-05 | ORIC | $13.66 | +0.64% |
+| 2026-08-05 | PAY | $43.19 | −6.56% |
+| 2026-08-05 | PLTR | $162.21 | +5.44% |
+| 2026-08-05 | UFPT | $328.98 | −1.98% |
+| 2026-08-05 | W | $115.00 | −10.49% |
+| 2026-08-05 | ZBRA | $369.01 | +2.54% |
 
 ## Disclosures — read before any number below
 
