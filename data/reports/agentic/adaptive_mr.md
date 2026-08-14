@@ -1,20 +1,20 @@
 # adaptive_mr — vs frozen twin `adaptive_mr_frozen`
 
-_role **tuner** (weekly mean-reversion params) · param version **v1** · 0 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-13 22:35 UTC._
+_role **tuner** (weekly mean-reversion params) · param version **v1** · 0 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-14 22:35 UTC._
 
 Charter: `agents/adaptive_mr/charter.md` (frozen — bounds, objective and kill criterion are not re-registrable mid-stream).
 
 ## Spread vs the frozen twin
 
-Common window **2026-08-04 → 2026-08-13** (8 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-08-03 — identical, so the common window is the whole life of both books.
+Common window **2026-08-04 → 2026-08-14** (9 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-08-03 — identical, so the common window is the whole life of both books.
 
-* AI return over the window: **−0.34%**
-* Twin return over the window: **−0.34%**
+* AI return over the window: **+3.88%**
+* Twin return over the window: **+3.88%**
 * **Spread (AI − twin): +0.00%**
 * Max drawdown over the same window — AI −1.06%, twin −1.06%
-* Elapsed: **1.4 / 26 weeks**, evaluated 2027-02-01
+* Elapsed: **1.6 / 26 weeks**, evaluated 2027-02-01
 
-### Last 8 session(s)
+### Last 9 session(s)
 
 | Session | adaptive_mr equity | idx | adaptive_mr_frozen equity | idx | Cumulative spread |
 |---|---|---|---|---|---|
@@ -26,6 +26,7 @@ Common window **2026-08-04 → 2026-08-13** (8 session(s)); both curves rebased 
 | 2026-08-11 | $38,750 | 0.9936 | $38,750 | 0.9936 | **+0.00%** |
 | 2026-08-12 | $38,900 | 0.9974 | $38,900 | 0.9974 | **+0.00%** |
 | 2026-08-13 | $38,868 | 0.9966 | $38,868 | 0.9966 | **+0.00%** |
+| 2026-08-14 | $40,514 | 1.0388 | $40,514 | 1.0388 | **+0.00%** |
 
 ## Change log
 
