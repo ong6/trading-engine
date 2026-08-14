@@ -1,20 +1,20 @@
 # stop_tuner_turtle — vs frozen twin `turtle_breakout`
 
-_role **tuner** (weekly stop / breakout params) · param version **v1** · 0 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-13 22:35 UTC._
+_role **tuner** (weekly stop / breakout params) · param version **v1** · 0 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-14 22:35 UTC._
 
 Charter: `agents/stop_tuner_turtle/charter.md` (frozen — bounds, objective and kill criterion are not re-registrable mid-stream).
 
 ## Spread vs the frozen twin
 
-Common window **2026-08-04 → 2026-08-13** (8 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-07-28 — **different**, which is exactly why the raw total returns of these two books are never subtracted from each other here.
+Common window **2026-08-04 → 2026-08-14** (9 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-07-28 — **different**, which is exactly why the raw total returns of these two books are never subtracted from each other here.
 
-* AI return over the window: **+0.26%**
-* Twin return over the window: **−1.77%**
-* **Spread (AI − twin): +2.03%**
-* Max drawdown over the same window — AI −0.94%, twin −1.79%
-* Elapsed: **1.4 / 26 weeks**, evaluated 2027-02-01
+* AI return over the window: **+0.27%**
+* Twin return over the window: **−2.10%**
+* **Spread (AI − twin): +2.37%**
+* Max drawdown over the same window — AI −0.94%, twin −2.10%
+* Elapsed: **1.6 / 26 weeks**, evaluated 2027-02-01
 
-### Last 8 session(s)
+### Last 9 session(s)
 
 | Session | stop_tuner_turtle equity | idx | turtle_breakout equity | idx | Cumulative spread |
 |---|---|---|---|---|---|
@@ -26,6 +26,7 @@ Common window **2026-08-04 → 2026-08-13** (8 session(s)); both curves rebased 
 | 2026-08-11 | $38,772 | 0.9942 | $38,216 | 0.9821 | **+1.21%** |
 | 2026-08-12 | $39,072 | 1.0018 | $38,237 | 0.9826 | **+1.92%** |
 | 2026-08-13 | $39,101 | 1.0026 | $38,223 | 0.9823 | **+2.03%** |
+| 2026-08-14 | $39,105 | 1.0027 | $38,094 | 0.9790 | **+2.37%** |
 
 ## Change log
 
