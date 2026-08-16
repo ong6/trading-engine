@@ -1,14 +1,14 @@
 # SPY Buy & Hold — walk-forward re-validation
 
-_`spy_benchmark` · spy_benchmark · once cadence · verdict **reference** · generated 2026-08-09T06:11:48+00:00_
+_`spy_benchmark` · spy_benchmark · once cadence · verdict **reference** · generated 2026-08-16T06:11:41+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-07. Each fold is an independent replay starting at $39,000. Span 2018-08-07 → 2026-08-07 (2011 sessions); data floor 1994-01-27; screen source `not-used`.
+**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-14. Each fold is an independent replay starting at $39,000. Span 2018-08-14 → 2026-08-14 (2011 sessions); data floor 1994-01-27; screen source `not-used`.
 
 **Pre-registered expectation.** Baseline market return; the absolute-return yardstick.
 
 **Pre-registered kill criterion.** Reference benchmark — not killed.
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 50% of 6 window(s), mean excess −12.67%, latest −9.81% → **reference**.
+**Measured against `ew_benchmark` on the same folds:** beats it in 50% of 6 window(s), mean excess −14.07%, latest −12.63% → **reference**.
 
 ## Disclosures — read before any number below
 
@@ -48,21 +48,21 @@ _`spy_benchmark` · spy_benchmark · once cadence · verdict **reference** · ge
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2018-08-07→2020-08-07 | +20.94% | +9.96% | 2020-08-07→2021-08-06 | **+32.72%** | +32.85% | +14.33% | +2.06 | −9.12% | −90.06% | +0.00% | 0 |
-| 2 | 2019-08-07→2021-08-06 | +56.31% | +25.04% | 2021-08-06→2022-08-05 | **−5.06%** | −5.08% | +19.74% | −0.17 | −22.24% | +7.55% | +0.00% | 0 |
-| 3 | 2020-08-07→2022-08-05 | +26.67% | +12.59% | 2022-08-05→2023-08-07 | **+10.28%** | +10.22% | +18.05% | +0.63 | −16.18% | +1.90% | +0.00% | 0 |
-| 4 | 2021-08-09→2023-08-07 | +4.55% | +2.26% | 2023-08-07→2024-08-07 | **+16.14%** | +16.11% | +11.77% | +1.33 | −8.39% | +23.59% | +0.00% | 0 |
-| 5 | 2022-08-08→2024-08-07 | +28.91% | +13.55% | 2024-08-07→2025-08-07 | **+22.68%** | +22.70% | +19.31% | +1.16 | −18.20% | −9.18% | +0.00% | 0 |
-| 6 ◈ | 2023-08-07→2025-08-07 | +43.87% | +19.93% | 2025-08-07→2026-08-07 | **+22.91%** | +22.92% | +12.51% | +1.72 | −8.63% | −9.81% | +0.00% | 0 |
+| 1 | 2018-08-14→2020-08-14 | +23.01% | +10.90% | 2020-08-14→2021-08-13 | **+32.83%** | +32.96% | +14.24% | +2.07 | −9.11% | −98.29% | +0.00% | 0 |
+| 2 | 2019-08-14→2021-08-13 | +60.00% | +26.51% | 2021-08-13→2022-08-12 | **−2.79%** | −2.80% | +19.89% | −0.04 | −22.22% | +5.18% | +0.00% | 0 |
+| 3 | 2020-08-14→2022-08-12 | +29.60% | +13.89% | 2022-08-12→2023-08-14 | **+6.26%** | +6.23% | +17.88% | +0.43 | −16.18% | +6.35% | +0.00% | 0 |
+| 4 | 2021-08-16→2023-08-14 | +3.57% | +1.77% | 2023-08-14→2024-08-14 | **+22.14%** | +22.09% | +11.98% | +1.73 | −8.35% | +20.68% | +0.00% | 0 |
+| 5 | 2022-08-15→2024-08-14 | +30.07% | +14.06% | 2024-08-14→2025-08-14 | **+19.43%** | +19.44% | +19.15% | +1.03 | −18.19% | −5.68% | +0.00% | 0 |
+| 6 ◈ | 2023-08-14→2025-08-14 | +47.36% | +21.38% | 2025-08-14→2026-08-14 | **+21.04%** | +21.05% | +12.49% | +1.60 | −8.64% | −12.63% | +0.00% | 0 |
 
 ## Summary
 
 * validate windows: **6**, win rate **83%**
-* mean validate return **+16.61%** (median +19.41%, worst −5.06%, best +32.72%)
-* mean validate CAGR **+16.62%** vs mean train CAGR +13.89% → decay **+2.73%**
-* mean validate Sharpe +1.12, worst validate max drawdown −22.24%
+* mean validate return **+16.48%** (median +20.23%, worst −2.79%, best +32.83%)
+* mean validate CAGR **+16.50%** vs mean train CAGR +14.75% → decay **+1.74%**
+* mean validate Sharpe +1.14, worst validate max drawdown −22.22%
 * 0 fill(s) inside validate windows
-* runtime 154.8s (scratch 11.4s, screen 0.0s)
+* runtime 147.2s (scratch 11.3s, screen 0.0s)
 
 **Verdict rule (pre-registered, mechanical, and NOT an automatic kill).** For
 each book, against `ew_benchmark` on the same folds:
