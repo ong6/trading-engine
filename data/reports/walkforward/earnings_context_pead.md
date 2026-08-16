@@ -1,14 +1,14 @@
 # Earnings-Context PEAD (AI) — walk-forward re-validation
 
-_`earnings_context_pead` · pead_ear · daily cadence · verdict **REVIEW** · generated 2026-08-09T07:07:50+00:00_
+_`earnings_context_pead` · pead_ear · daily cadence · verdict **REVIEW** · generated 2026-08-16T07:02:49+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-07. Each fold is an independent replay starting at $39,000. Span 2018-08-07 → 2026-08-07 (2011 sessions); data floor 1994-01-27; screen source `not-used`.
+**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-14. Each fold is an independent replay starting at $39,000. Span 2018-08-14 → 2026-08-14 (2011 sessions); data floor 1994-01-27; screen source `not-used`.
 
 **Pre-registered expectation.** PEAD drift is stronger after guidance-driven surprises than after one-offs; if headlines separate those classes, vetoing the weak class should raise the sleeve's hit rate.
 
 **Pre-registered kill criterion.** AGENT LOOP killed if the AI book trails pead_ear net of costs at 26 weeks (2027-02-01).
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess −29.28%, latest −32.72% → **REVIEW**.
+**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess −30.55%, latest −33.67% → **REVIEW**.
 
 ## Disclosures — read before any number below
 
@@ -48,12 +48,12 @@ _`earnings_context_pead` · pead_ear · daily cadence · verdict **REVIEW** · g
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2018-08-07→2020-08-07 | +0.00% | +0.00% | 2020-08-07→2021-08-06 | **+0.00%** | +0.00% | +0.00% | · | +0.00% | −122.78% | −32.72% | 0 |
-| 2 | 2019-08-07→2021-08-06 | +0.00% | +0.00% | 2021-08-06→2022-08-05 | **+0.00%** | +0.00% | +0.00% | · | +0.00% | +12.61% | +5.06% | 0 |
-| 3 | 2020-08-07→2022-08-05 | +0.00% | +0.00% | 2022-08-05→2023-08-07 | **+0.00%** | +0.00% | +0.00% | · | +0.00% | −8.37% | −10.28% | 0 |
-| 4 | 2021-08-09→2023-08-07 | +0.00% | +0.00% | 2023-08-07→2024-08-07 | **+0.00%** | +0.00% | +0.00% | · | +0.00% | +7.45% | −16.14% | 0 |
-| 5 | 2022-08-08→2024-08-07 | +0.00% | +0.00% | 2024-08-07→2025-08-07 | **+0.00%** | +0.00% | +0.00% | · | +0.00% | −31.86% | −22.68% | 0 |
-| 6 ◈ | 2023-08-07→2025-08-07 | +0.00% | +0.00% | 2025-08-07→2026-08-07 | **+0.00%** | +0.00% | +0.00% | · | +0.00% | −32.72% | −22.91% | 0 |
+| 1 | 2018-08-14→2020-08-14 | +0.00% | +0.00% | 2020-08-14→2021-08-13 | **+0.00%** | +0.00% | +0.00% | · | +0.00% | −131.12% | −32.83% | 0 |
+| 2 | 2019-08-14→2021-08-13 | +0.00% | +0.00% | 2021-08-13→2022-08-12 | **+0.00%** | +0.00% | +0.00% | · | +0.00% | +7.97% | +2.79% | 0 |
+| 3 | 2020-08-14→2022-08-12 | +0.00% | +0.00% | 2022-08-12→2023-08-14 | **+0.00%** | +0.00% | +0.00% | · | +0.00% | +0.08% | −6.26% | 0 |
+| 4 | 2021-08-16→2023-08-14 | +0.00% | +0.00% | 2023-08-14→2024-08-14 | **+0.00%** | +0.00% | +0.00% | · | +0.00% | −1.45% | −22.14% | 0 |
+| 5 | 2022-08-15→2024-08-14 | +0.00% | +0.00% | 2024-08-14→2025-08-14 | **+0.00%** | +0.00% | +0.00% | · | +0.00% | −25.11% | −19.43% | 0 |
+| 6 ◈ | 2023-08-14→2025-08-14 | +0.00% | +0.00% | 2025-08-14→2026-08-14 | **+0.00%** | +0.00% | +0.00% | · | +0.00% | −33.67% | −21.04% | 0 |
 
 ## Summary
 
@@ -62,7 +62,7 @@ _`earnings_context_pead` · pead_ear · daily cadence · verdict **REVIEW** · g
 * mean validate CAGR **+0.00%** vs mean train CAGR +0.00% → decay **+0.00%**
 * mean validate Sharpe ·, worst validate max drawdown +0.00%
 * 0 fill(s) inside validate windows
-* runtime 254.5s (scratch 11.3s, screen 0.0s)
+* runtime 296.7s (scratch 11.2s, screen 0.0s)
 
 **Verdict rule (pre-registered, mechanical, and NOT an automatic kill).** For
 each book, against `ew_benchmark` on the same folds:

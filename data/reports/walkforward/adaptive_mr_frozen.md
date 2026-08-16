@@ -1,14 +1,14 @@
 # Adaptive MR — Frozen Twin — walk-forward re-validation
 
-_`adaptive_mr_frozen` · mr_overlay · daily cadence · verdict **REVIEW** · generated 2026-08-09T09:55:23+00:00_
+_`adaptive_mr_frozen` · mr_overlay · daily cadence · verdict **REVIEW** · generated 2026-08-16T09:32:03+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-07. Each fold is an independent replay starting at $39,000. Span 2018-08-07 → 2026-08-07 (2011 sessions); data floor 1994-01-27; screen source `hist` (798,415 passing rows).
+**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-14. Each fold is an independent replay starting at $39,000. Span 2018-08-14 → 2026-08-14 (2011 sessions); data floor 1994-01-27; screen source `hist` (799,705 passing rows).
 
 **Pre-registered expectation.** Tracks mr_overlay closely from its own inception.
 
 **Pre-registered kill criterion.** Control book — not killed.
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess −23.80%, latest −24.87% → **REVIEW**.
+**Measured against `ew_benchmark` on the same folds:** beats it in 17% of 6 window(s), mean excess −25.09%, latest −25.07% → **REVIEW**.
 
 ## Disclosures — read before any number below
 
@@ -48,21 +48,21 @@ _`adaptive_mr_frozen` · mr_overlay · daily cadence · verdict **REVIEW** · ge
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2018-08-07→2020-08-07 | −6.51% | −3.31% | 2020-08-07→2021-08-06 | **+31.58%** | +31.70% | +16.11% | +1.79 | −12.55% | −91.21% | −1.15% | 436 |
-| 2 | 2019-08-07→2021-08-06 | +35.23% | +16.30% | 2021-08-06→2022-08-05 | **−6.17%** | −6.19% | +12.33% | −0.46 | −14.94% | +6.44% | −1.11% | 380 |
-| 3 | 2020-08-07→2022-08-05 | +22.33% | +10.64% | 2022-08-05→2023-08-07 | **−11.24%** | −11.19% | +13.60% | −0.81 | −16.96% | −19.61% | −21.52% | 438 |
-| 4 | 2021-08-09→2023-08-07 | −17.24% | −9.06% | 2023-08-07→2024-08-07 | **−2.81%** | −2.81% | +11.29% | −0.20 | −10.20% | +4.64% | −18.95% | 444 |
-| 5 | 2022-08-08→2024-08-07 | −14.17% | −7.36% | 2024-08-07→2025-08-07 | **+13.70%** | +13.71% | +14.33% | +0.97 | −17.30% | −18.17% | −8.99% | 459 |
-| 6 ◈ | 2023-08-07→2025-08-07 | +9.78% | +4.77% | 2025-08-07→2026-08-07 | **+7.85%** | +7.86% | +16.57% | +0.54 | −8.96% | −24.87% | −15.06% | 466 |
+| 1 | 2018-08-14→2020-08-14 | −3.80% | −1.92% | 2020-08-14→2021-08-13 | **+32.18%** | +32.31% | +15.97% | +1.83 | −12.55% | −98.94% | −0.65% | 439 |
+| 2 | 2019-08-14→2021-08-13 | +34.26% | +15.88% | 2021-08-13→2022-08-12 | **−6.88%** | −6.90% | +12.34% | −0.52 | −14.94% | +1.09% | −4.08% | 378 |
+| 3 | 2020-08-14→2022-08-12 | +20.03% | +9.59% | 2022-08-12→2023-08-14 | **−8.36%** | −8.32% | +13.71% | −0.57 | −16.96% | −8.28% | −14.63% | 437 |
+| 4 | 2021-08-16→2023-08-14 | −13.98% | −7.28% | 2023-08-14→2024-08-14 | **−2.50%** | −2.49% | +11.28% | −0.17 | −10.20% | −3.95% | −24.64% | 446 |
+| 5 | 2022-08-15→2024-08-14 | −10.61% | −5.46% | 2024-08-14→2025-08-14 | **+9.70%** | +9.70% | +14.48% | +0.72 | −17.30% | −15.41% | −9.73% | 460 |
+| 6 ◈ | 2023-08-14→2025-08-14 | +7.03% | +3.45% | 2025-08-14→2026-08-14 | **+8.60%** | +8.60% | +16.41% | +0.59 | −8.96% | −25.07% | −12.44% | 462 |
 
 ## Summary
 
 * validate windows: **6**, win rate **50%**
-* mean validate return **+5.48%** (median +2.52%, worst −11.24%, best +31.58%)
-* mean validate CAGR **+5.51%** vs mean train CAGR +2.00% → decay **+3.51%**
+* mean validate return **+5.46%** (median +3.05%, worst −8.36%, best +32.18%)
+* mean validate CAGR **+5.48%** vs mean train CAGR +2.38% → decay **+3.10%**
 * mean validate Sharpe +0.31, worst validate max drawdown −17.30%
-* 2623 fill(s) inside validate windows
-* runtime 2985.4s (scratch 11.3s, screen 14.5s)
+* 2622 fill(s) inside validate windows
+* runtime 3047.3s (scratch 11.2s, screen 14.6s)
 
 **Verdict rule (pre-registered, mechanical, and NOT an automatic kill).** For
 each book, against `ew_benchmark` on the same folds:
