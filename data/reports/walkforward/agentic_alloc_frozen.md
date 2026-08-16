@@ -1,14 +1,14 @@
 # Sleeve Allocator — Frozen Twin — walk-forward re-validation
 
-_`agentic_alloc_frozen` · sleeve_alloc · weekly cadence · verdict **REVIEW** · generated 2026-08-09T07:03:35+00:00_
+_`agentic_alloc_frozen` · sleeve_alloc · weekly cadence · verdict **REVIEW** · generated 2026-08-16T06:57:52+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-07. Each fold is an independent replay starting at $39,000. Span 2018-08-07 → 2026-08-07 (2011 sessions); data floor 1994-01-27; screen source `not-used`.
+**Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-14. Each fold is an independent replay starting at $39,000. Span 2018-08-14 → 2026-08-14 (2011 sessions); data floor 1994-01-27; screen source `not-used`.
 
 **Pre-registered expectation.** A naive equal-weight sleeve portfolio; the bar the allocator has to clear.
 
 **Pre-registered kill criterion.** Control book — not killed.
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess −21.88%, latest −22.97% → **REVIEW**.
+**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess −22.97%, latest −23.60% → **REVIEW**.
 
 ## Disclosures — read before any number below
 
@@ -48,21 +48,21 @@ _`agentic_alloc_frozen` · sleeve_alloc · weekly cadence · verdict **REVIEW** 
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2018-08-07→2020-08-07 | +7.63% | +3.74% | 2020-08-07→2021-08-06 | **+14.83%** | +14.89% | +8.27% | +1.72 | −5.22% | −107.95% | −17.89% | 225 |
-| 2 | 2019-08-07→2021-08-06 | +16.51% | +7.95% | 2021-08-06→2022-08-05 | **+0.88%** | +0.89% | +10.04% | +0.14 | −9.37% | +13.49% | +5.94% | 238 |
-| 3 | 2020-08-07→2022-08-05 | +15.65% | +7.57% | 2022-08-05→2023-08-07 | **−0.22%** | −0.21% | +8.56% | +0.02 | −8.26% | −8.59% | −10.49% | 202 |
-| 4 | 2021-08-09→2023-08-07 | +0.16% | +0.08% | 2023-08-07→2024-08-07 | **+5.93%** | +5.92% | +6.24% | +0.95 | −6.08% | +13.38% | −10.21% | 174 |
-| 5 | 2022-08-08→2024-08-07 | +4.48% | +2.22% | 2024-08-07→2025-08-07 | **+13.20%** | +13.21% | +9.57% | +1.35 | −8.39% | −18.66% | −9.48% | 198 |
-| 6 ◈ | 2023-08-07→2025-08-07 | +20.14% | +9.60% | 2025-08-07→2026-08-07 | **+9.75%** | +9.76% | +5.58% | +1.70 | −4.59% | −22.97% | −13.16% | 229 |
+| 1 | 2018-08-14→2020-08-14 | +6.78% | +3.33% | 2020-08-14→2021-08-13 | **+15.26%** | +15.31% | +8.22% | +1.78 | −5.22% | −115.86% | −17.57% | 224 |
+| 2 | 2019-08-14→2021-08-13 | +16.38% | +7.89% | 2021-08-13→2022-08-12 | **+1.83%** | +1.84% | +10.07% | +0.23 | −9.36% | +9.80% | +4.63% | 236 |
+| 3 | 2020-08-14→2022-08-12 | +17.05% | +8.22% | 2022-08-12→2023-08-14 | **−1.66%** | −1.65% | +8.53% | −0.15 | −8.26% | −1.58% | −7.92% | 200 |
+| 4 | 2021-08-16→2023-08-14 | −0.24% | −0.12% | 2023-08-14→2024-08-14 | **+7.79%** | +7.77% | +6.34% | +1.21 | −6.08% | +6.33% | −14.35% | 173 |
+| 5 | 2022-08-15→2024-08-14 | +5.97% | +2.94% | 2024-08-14→2025-08-14 | **+12.18%** | +12.19% | +9.52% | +1.26 | −8.39% | −12.93% | −7.24% | 201 |
+| 6 ◈ | 2023-08-14→2025-08-14 | +22.67% | +10.75% | 2025-08-14→2026-08-14 | **+10.07%** | +10.08% | +5.57% | +1.76 | −4.59% | −23.60% | −10.97% | 230 |
 
 ## Summary
 
 * validate windows: **6**, win rate **83%**
-* mean validate return **+7.40%** (median +7.84%, worst −0.22%, best +14.83%)
-* mean validate CAGR **+7.41%** vs mean train CAGR +5.19% → decay **+2.22%**
-* mean validate Sharpe +0.98, worst validate max drawdown −9.37%
-* 1266 fill(s) inside validate windows
-* runtime 471.8s (scratch 11.3s, screen 0.0s)
+* mean validate return **+7.58%** (median +8.93%, worst −1.66%, best +15.26%)
+* mean validate CAGR **+7.59%** vs mean train CAGR +5.50% → decay **+2.09%**
+* mean validate Sharpe +1.01, worst validate max drawdown −9.36%
+* 1264 fill(s) inside validate windows
+* runtime 350.7s (scratch 11.2s, screen 0.0s)
 
 **Verdict rule (pre-registered, mechanical, and NOT an automatic kill).** For
 each book, against `ew_benchmark` on the same folds:

@@ -1,6 +1,6 @@
 # Walk-forward re-validation of the active league rules
 
-_22 book(s) re-validated · protocol **train 24mo → validate 12mo, step 12mo, 6 folds, anchored 2026-08-07** · generated 2026-08-10 23:38 UTC._
+_22 book(s) re-validated · protocol **train 24mo → validate 12mo, step 12mo, 6 folds, anchored 2026-08-14** · generated 2026-08-16 10:05 UTC._
 
 Every book below is replayed by its OWN live strategy code through the real `sim/league.py` day-step — real orders, real t+1-open fills with the league's slippage and liquidity guards, real dividend crediting. The config replayed is the JSON frozen in the live `portfolios` row (D-WF4), i.e. the rule the league is actually trading. Nothing is reimplemented for this report and no bar is ever invented.
 
@@ -58,34 +58,54 @@ decides; this flag only decides what gets read. Benchmarks are not judged.
 
 | Book | Verdict | Folds | Validate win rate | Beats EW | Mean validate | Mean excess vs EW | Latest validate | Latest vs EW | Mean decay (CAGR) | Worst validate DD |
 |---|---|---|---|---|---|---|---|---|---|---|
-| [sector_momentum](sector_momentum.md) | REVIEW | 6 | 100% | 33% | +15.65% | −13.63% | +27.10% | −5.61% | +6.02% | −17.18% |
-| [dual_momentum](dual_momentum.md) | REVIEW | 6 | 67% | 33% | +13.67% | −15.61% | +27.23% | −5.49% | +8.52% | −18.75% |
-| [low_vol](low_vol.md) | REVIEW | 6 | 83% | 33% | +10.64% | −18.64% | +6.74% | −25.98% | +0.80% | −13.95% |
-| [high_52wk](high_52wk.md) | REVIEW | 6 | 83% | 33% | +9.97% | −19.31% | +19.33% | −13.39% | +3.08% | −21.54% |
-| [dual_momentum_gated](dual_momentum_gated.md) | REVIEW | 6 | 67% | 33% | +9.76% | −19.52% | +22.60% | −10.12% | +4.03% | −17.42% |
-| [agentic_alloc](agentic_alloc.md) | REVIEW | 6 | 83% | 33% | +7.40% | −21.88% | +9.75% | −22.97% | +2.22% | −9.37% |
-| [agentic_alloc_frozen](agentic_alloc_frozen.md) | REVIEW | 6 | 83% | 33% | +7.40% | −21.88% | +9.75% | −22.97% | +2.22% | −9.37% |
-| [stop_tuner_turtle](stop_tuner_turtle.md) | REVIEW | 6 | 33% | 33% | +5.71% | −23.57% | −5.12% | −37.84% | +1.85% | −31.00% |
-| [turtle_breakout](turtle_breakout.md) | REVIEW | 6 | 33% | 33% | +5.71% | −23.57% | −5.12% | −37.84% | +1.85% | −31.00% |
-| [adaptive_mr](adaptive_mr.md) | REVIEW | 6 | 50% | 33% | +5.48% | −23.80% | +7.85% | −24.87% | +3.51% | −17.30% |
-| [adaptive_mr_frozen](adaptive_mr_frozen.md) | REVIEW | 6 | 50% | 33% | +5.48% | −23.80% | +7.85% | −24.87% | +3.51% | −17.30% |
-| [mr_overlay](mr_overlay.md) | REVIEW | 6 | 50% | 33% | +5.48% | −23.80% | +7.85% | −24.87% | +3.51% | −17.30% |
-| [earnings_context_pead](earnings_context_pead.md) | REVIEW | 6 | 0% | 33% | +0.00% | −29.28% | +0.00% | −32.72% | +0.00% | +0.00% |
-| [template_top5](template_top5.md) | WATCH | 6 | 50% | 33% | +59.26% | +29.98% | +47.97% | +15.25% | +15.94% | −69.02% |
-| [template_top5_gated](template_top5_gated.md) | WATCH | 6 | 33% | 33% | +56.59% | +27.31% | +26.74% | −5.98% | +12.65% | −55.20% |
-| [template_top10_banded](template_top10_banded.md) | WATCH | 6 | 50% | 33% | +41.06% | +11.78% | +14.52% | −18.19% | +10.88% | −47.81% |
-| [template_top10_banded_gated](template_top10_banded_gated.md) | WATCH | 6 | 67% | 33% | +40.21% | +10.93% | +7.21% | −25.51% | +8.00% | −43.69% |
-| [momo_stopped](momo_stopped.md) | WATCH | 6 | 50% | 33% | +34.16% | +4.88% | +8.09% | −24.62% | +2.80% | −48.01% |
-| [news_gated_momo](news_gated_momo.md) | WATCH | 6 | 50% | 33% | +34.16% | +4.88% | +8.09% | −24.62% | +2.80% | −48.01% |
+| [dual_momentum](dual_momentum.md) | REVIEW | 6 | 67% | 33% | +13.63% | −16.92% | +24.83% | −8.84% | +7.84% | −18.75% |
+| [low_vol](low_vol.md) | REVIEW | 6 | 83% | 33% | +10.60% | −19.95% | +7.00% | −26.68% | +0.27% | −13.95% |
+| [high_52wk](high_52wk.md) | REVIEW | 6 | 83% | 33% | +10.47% | −20.08% | +18.47% | −15.21% | +3.36% | −21.54% |
+| [dual_momentum_gated](dual_momentum_gated.md) | REVIEW | 6 | 67% | 17% | +9.68% | −20.87% | +20.29% | −13.38% | +3.33% | −17.42% |
+| [agentic_alloc](agentic_alloc.md) | REVIEW | 6 | 83% | 33% | +7.58% | −22.97% | +10.07% | −23.60% | +2.09% | −9.36% |
+| [agentic_alloc_frozen](agentic_alloc_frozen.md) | REVIEW | 6 | 83% | 33% | +7.58% | −22.97% | +10.07% | −23.60% | +2.09% | −9.36% |
+| [adaptive_mr](adaptive_mr.md) | REVIEW | 6 | 50% | 17% | +5.46% | −25.09% | +8.60% | −25.07% | +3.10% | −17.30% |
+| [adaptive_mr_frozen](adaptive_mr_frozen.md) | REVIEW | 6 | 50% | 17% | +5.46% | −25.09% | +8.60% | −25.07% | +3.10% | −17.30% |
+| [mr_overlay](mr_overlay.md) | REVIEW | 6 | 50% | 17% | +5.46% | −25.09% | +8.60% | −25.07% | +3.10% | −17.30% |
+| [stop_tuner_turtle](stop_tuner_turtle.md) | REVIEW | 6 | 33% | 17% | +5.18% | −25.37% | −5.86% | −39.53% | +0.91% | −31.00% |
+| [turtle_breakout](turtle_breakout.md) | REVIEW | 6 | 33% | 17% | +5.18% | −25.37% | −5.86% | −39.53% | +0.91% | −31.00% |
+| [earnings_context_pead](earnings_context_pead.md) | REVIEW | 6 | 0% | 33% | +0.00% | −30.55% | +0.00% | −33.67% | +0.00% | +0.00% |
+| [template_top5](template_top5.md) | WATCH | 6 | 33% | 33% | +63.41% | +32.85% | +68.78% | +35.11% | +17.22% | −68.96% |
+| [template_top5_gated](template_top5_gated.md) | WATCH | 6 | 33% | 33% | +60.65% | +30.10% | +44.53% | +10.86% | +14.71% | −55.20% |
+| [template_top10_banded](template_top10_banded.md) | WATCH | 6 | 33% | 33% | +42.05% | +11.50% | +27.43% | −6.24% | +10.70% | −47.81% |
+| [template_top10_banded_gated](template_top10_banded_gated.md) | WATCH | 6 | 50% | 33% | +40.92% | +10.37% | +19.23% | −14.44% | +8.19% | −43.69% |
+| [momo_stopped](momo_stopped.md) | WATCH | 6 | 50% | 33% | +35.34% | +4.79% | +19.17% | −14.50% | +2.50% | −48.01% |
+| [news_gated_momo](news_gated_momo.md) | WATCH | 6 | 50% | 33% | +35.34% | +4.79% | +19.17% | −14.50% | +2.50% | −48.01% |
+| [sector_momentum](sector_momentum.md) | WATCH | 6 | 100% | 50% | +16.14% | −14.41% | +28.69% | −4.98% | +5.49% | −17.18% |
 | [mr_overlay_gated](mr_overlay_gated.md) | no-benchmark | 6 | 50% | · | +7.12% | · | +12.55% | · | +4.58% | −13.64% |
-| [ew_benchmark](ew_benchmark.md) | reference | 6 | 67% | 0% | +29.28% | +0.00% | +32.72% | +0.00% | +9.23% | −36.48% |
-| [spy_benchmark](spy_benchmark.md) | reference | 6 | 83% | 50% | +16.61% | −12.67% | +22.91% | −9.81% | +2.73% | −22.24% |
+| [ew_benchmark](ew_benchmark.md) | reference | 6 | 67% | 0% | +30.55% | +0.00% | +33.67% | +0.00% | +9.62% | −36.48% |
+| [spy_benchmark](spy_benchmark.md) | reference | 6 | 83% | 50% | +16.48% | −14.07% | +21.04% | −12.63% | +1.74% | −22.22% |
 
-## Latest validate window (2025-08-10 → 2026-08-10)
+## Latest validate window (2025-08-14 → 2026-08-14)
 
 | Book | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| mr_overlay_gated | 2023-08-10→2025-08-08 | +7.88% | +3.87% | 2025-08-08→2026-08-10 | **+12.55%** | +12.49% | +16.03% | +0.82 | −8.04% | · | · | 451 |
+| template_top5 | 2023-08-14→2025-08-14 | −68.25% | −43.63% | 2025-08-14→2026-08-14 | **+68.78%** | +68.85% | +72.57% | +1.09 | −45.98% | +35.11% | +47.75% | 330 |
+| template_top5_gated | 2023-08-14→2025-08-14 | −54.07% | −32.21% | 2025-08-14→2026-08-14 | **+44.53%** | +44.56% | +70.97% | +0.88 | −45.98% | +10.86% | +23.49% | 317 |
+| ew_benchmark | 2023-08-14→2025-08-14 | +25.33% | +11.94% | 2025-08-14→2026-08-14 | **+33.67%** | +33.70% | +56.44% | +0.80 | −36.48% | +0.00% | +12.63% | 909 |
+| sector_momentum | 2023-08-14→2025-08-14 | +26.56% | +12.49% | 2025-08-14→2026-08-14 | **+28.69%** | +28.71% | +13.58% | +1.93 | −7.91% | −4.98% | +7.65% | 40 |
+| template_top10_banded | 2023-08-14→2025-08-14 | −15.38% | −8.01% | 2025-08-14→2026-08-14 | **+27.43%** | +27.45% | +70.73% | +0.71 | −43.70% | −6.24% | +6.40% | 742 |
+| dual_momentum | 2023-08-14→2025-08-14 | +34.27% | +15.86% | 2025-08-14→2026-08-14 | **+24.83%** | +24.85% | +14.83% | +1.58 | −11.41% | −8.84% | +3.80% | 12 |
+| spy_benchmark | 2023-08-14→2025-08-14 | +47.36% | +21.38% | 2025-08-14→2026-08-14 | **+21.04%** | +21.05% | +12.49% | +1.60 | −8.64% | −12.63% | +0.00% | 0 |
+| dual_momentum_gated | 2023-08-14→2025-08-14 | +18.30% | +8.76% | 2025-08-14→2026-08-14 | **+20.29%** | +20.31% | +13.72% | +1.42 | −11.42% | −13.38% | −0.75% | 11 |
+| template_top10_banded_gated | 2023-08-14→2025-08-14 | −16.83% | −8.80% | 2025-08-14→2026-08-14 | **+19.23%** | +19.25% | +69.64% | +0.61 | −43.69% | −14.44% | −1.80% | 714 |
+| momo_stopped | 2023-08-14→2025-08-14 | −10.10% | −5.18% | 2025-08-14→2026-08-14 | **+19.17%** | +19.19% | +68.10% | +0.61 | −44.28% | −14.50% | −1.86% | 755 |
+| news_gated_momo | 2023-08-14→2025-08-14 | −10.10% | −5.18% | 2025-08-14→2026-08-14 | **+19.17%** | +19.19% | +68.10% | +0.61 | −44.28% | −14.50% | −1.86% | 755 |
+| high_52wk | 2023-08-14→2025-08-14 | +34.41% | +15.92% | 2025-08-14→2026-08-14 | **+18.47%** | +18.48% | +16.03% | +1.14 | −11.67% | −15.21% | −2.57% | 562 |
+| agentic_alloc | 2023-08-14→2025-08-14 | +22.67% | +10.75% | 2025-08-14→2026-08-14 | **+10.07%** | +10.08% | +5.57% | +1.76 | −4.59% | −23.60% | −10.97% | 230 |
+| agentic_alloc_frozen | 2023-08-14→2025-08-14 | +22.67% | +10.75% | 2025-08-14→2026-08-14 | **+10.07%** | +10.08% | +5.57% | +1.76 | −4.59% | −23.60% | −10.97% | 230 |
+| adaptive_mr | 2023-08-14→2025-08-14 | +7.03% | +3.45% | 2025-08-14→2026-08-14 | **+8.60%** | +8.60% | +16.41% | +0.59 | −8.96% | −25.07% | −12.44% | 462 |
+| adaptive_mr_frozen | 2023-08-14→2025-08-14 | +7.03% | +3.45% | 2025-08-14→2026-08-14 | **+8.60%** | +8.60% | +16.41% | +0.59 | −8.96% | −25.07% | −12.44% | 462 |
+| mr_overlay | 2023-08-14→2025-08-14 | +7.03% | +3.45% | 2025-08-14→2026-08-14 | **+8.60%** | +8.60% | +16.41% | +0.59 | −8.96% | −25.07% | −12.44% | 462 |
+| low_vol | 2023-08-14→2025-08-14 | +32.96% | +15.30% | 2025-08-14→2026-08-14 | **+7.00%** | +7.00% | +9.14% | +0.79 | −5.54% | −26.68% | −14.04% | 188 |
+| stop_tuner_turtle | 2023-08-14→2025-08-14 | −10.03% | −5.14% | 2025-08-14→2026-08-14 | **−5.86%** | −5.86% | +30.15% | −0.05 | −29.03% | −39.53% | −26.90% | 160 |
+| turtle_breakout | 2023-08-14→2025-08-14 | −10.03% | −5.14% | 2025-08-14→2026-08-14 | **−5.86%** | −5.86% | +30.15% | −0.05 | −29.03% | −39.53% | −26.90% | 160 |
+| earnings_context_pead | 2023-08-14→2025-08-14 | +0.00% | +0.00% | 2025-08-14→2026-08-14 | **+0.00%** | +0.00% | +0.00% | · | +0.00% | −33.67% | −21.04% | 0 |
 
 ## Books NOT walk-forwarded
 
