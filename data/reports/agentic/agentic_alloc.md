@@ -1,20 +1,20 @@
 # agentic_alloc — vs frozen twin `agentic_alloc_frozen`
 
-_role **tuner** (weekly sleeve weights) · param version **v1** · 0 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-14 22:35 UTC._
+_role **tuner** (weekly sleeve weights) · param version **v1** · 0 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-17 22:34 UTC._
 
 Charter: `agents/agentic_alloc/charter.md` (frozen — bounds, objective and kill criterion are not re-registrable mid-stream).
 
 ## Spread vs the frozen twin
 
-Common window **2026-08-04 → 2026-08-14** (9 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-08-03 — identical, so the common window is the whole life of both books.
+Common window **2026-08-04 → 2026-08-17** (10 session(s)); both curves rebased to 1.0000 at 2026-08-04. AI inception 2026-08-03, twin inception 2026-08-03 — identical, so the common window is the whole life of both books.
 
-* AI return over the window: **+1.04%**
-* Twin return over the window: **+1.04%**
+* AI return over the window: **+0.96%**
+* Twin return over the window: **+0.96%**
 * **Spread (AI − twin): +0.00%**
-* Max drawdown over the same window — AI +0.00%, twin +0.00%
-* Elapsed: **1.6 / 26 weeks**, evaluated 2027-02-01
+* Max drawdown over the same window — AI −0.08%, twin −0.08%
+* Elapsed: **2.0 / 26 weeks**, evaluated 2027-02-01
 
-### Last 9 session(s)
+### Last 10 session(s)
 
 | Session | agentic_alloc equity | idx | agentic_alloc_frozen equity | idx | Cumulative spread |
 |---|---|---|---|---|---|
@@ -27,6 +27,7 @@ Common window **2026-08-04 → 2026-08-14** (9 session(s)); both curves rebased 
 | 2026-08-12 | $39,302 | 1.0077 | $39,302 | 1.0077 | **+0.00%** |
 | 2026-08-13 | $39,384 | 1.0098 | $39,384 | 1.0098 | **+0.00%** |
 | 2026-08-14 | $39,405 | 1.0104 | $39,405 | 1.0104 | **+0.00%** |
+| 2026-08-17 | $39,373 | 1.0096 | $39,373 | 1.0096 | **+0.00%** |
 
 ## Change log
 
