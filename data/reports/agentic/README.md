@@ -1,6 +1,6 @@
 # Agentic books — AI vs frozen twin
 
-_5 paired book(s) · 5 of 5 AI book(s) exist in `portfolios` · generated 2026-08-14 22:35 UTC._
+_5 paired book(s) · 5 of 5 AI book(s) exist in `portfolios` · generated 2026-08-17 22:34 UTC._
 
 Each row is one AI book and the frozen twin it is measured against. The twin runs the SAME algorithm with never-adjusted parameters; the AI book runs that algorithm plus an agent whose authority is bounded by a frozen charter. **The spread between them is the whole experiment** — everything else on this page is context.
 
@@ -51,11 +51,11 @@ Spreads are computed on the common overlapping window only, because three of the
 
 | AI book | Frozen twin | Role | Common window from | AI ret | Twin ret | **Spread** | AI max DD | Twin max DD | Param v | Applied | Rejected | Veto hit rate | Weeks | Evaluation |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| [news_gated_momo](news_gated_momo.md) | `momo_stopped` | gater | 2026-08-04 (9 sess) | +5.70% | +5.95% | **−0.24%** | −1.76% | −2.28% | v1 | 0 | 0 | · | 1.6/26 | 2027-02-01 |
-| [adaptive_mr](adaptive_mr.md) | `adaptive_mr_frozen` | tuner | 2026-08-04 (9 sess) | +3.88% | +3.88% | **+0.00%** | −1.06% | −1.06% | v1 | 0 | 0 | — | 1.6/26 | 2027-02-01 |
-| [agentic_alloc](agentic_alloc.md) | `agentic_alloc_frozen` | tuner | 2026-08-04 (9 sess) | +1.04% | +1.04% | **+0.00%** | +0.00% | +0.00% | v1 | 0 | 0 | — | 1.6/26 | 2027-02-01 |
-| [stop_tuner_turtle](stop_tuner_turtle.md) | `turtle_breakout` | tuner | 2026-08-04 (9 sess) | +0.27% | −2.10% | **+2.37%** | −0.94% | −2.10% | v1 | 0 | 0 | — | 1.6/26 | 2027-02-01 |
-| [earnings_context_pead](earnings_context_pead.md) | `pead_ear` | gater | 2026-08-04 (9 sess) | +0.16% | +0.19% | **−0.03%** | −2.40% | −1.32% | v1 | 1 | 0 | · | 1.6/26 | 2027-02-01 |
+| [news_gated_momo](news_gated_momo.md) | `momo_stopped` | gater | 2026-08-04 (10 sess) | +7.72% | +7.87% | **−0.15%** | −1.76% | −2.28% | v1 | 0 | 0 | · | 2.0/26 | 2027-02-01 |
+| [adaptive_mr](adaptive_mr.md) | `adaptive_mr_frozen` | tuner | 2026-08-04 (10 sess) | +3.66% | +3.66% | **+0.00%** | −1.06% | −1.06% | v1 | 0 | 0 | — | 2.0/26 | 2027-02-01 |
+| [agentic_alloc](agentic_alloc.md) | `agentic_alloc_frozen` | tuner | 2026-08-04 (10 sess) | +0.96% | +0.96% | **+0.00%** | −0.08% | −0.08% | v1 | 0 | 0 | — | 2.0/26 | 2027-02-01 |
+| [stop_tuner_turtle](stop_tuner_turtle.md) | `turtle_breakout` | tuner | 2026-08-04 (10 sess) | +0.87% | −1.84% | **+2.70%** | −0.94% | −2.10% | v1 | 0 | 0 | — | 2.0/26 | 2027-02-01 |
+| [earnings_context_pead](earnings_context_pead.md) | `pead_ear` | gater | 2026-08-04 (10 sess) | −0.87% | −0.74% | **−0.13%** | −2.40% | −1.32% | v1 | 1 | 0 | · | 2.0/26 | 2027-02-01 |
 
 _`Param v` is `portfolios.config → agent_version` (1 when the key is absent). `Applied`/`Rejected` count rows in `changes.jsonl`. `Weeks` counts from the AI book's own inception to the last shared session, against the 26-week horizon; the loop is evaluated 2027-02-01._
 
