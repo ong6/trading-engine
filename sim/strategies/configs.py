@@ -126,6 +126,55 @@ CONFIGS: list[dict] = [
                        "strategy must clear.",
         "kill_criterion": "Reference benchmark — not killed.",
     },
+    # --- Drawdown probes on the ew_benchmark basket, pre-registered 2026-08-18.
+    # The 2026-08-17 walk-forward put ew_benchmark at +30.55% mean validate with
+    # no active book beating it in >50% of folds: the screen is the edge. Its one
+    # weakness is a -36.48% worst-fold drawdown. These two books attack that
+    # weakness from independent directions -- sizing (voltarget) and timing
+    # (trend gate) -- and change NOTHING else about the basket, so any spread is
+    # attributable to the one rule under test. Both are judged against
+    # ew_benchmark, never against SPY.
+    {
+        "id": "ew_voltarget",
+        "name": "EW Screen — Inverse-Vol Weighted",
+        "strategy": "ew_voltarget",
+        "cadence": "monthly",
+        "params": {"cap": 50, "vol_lookback": 60, "min_obs": 40,
+                   "max_weight_mult": 3.0},
+        "description": "ew_benchmark's universe and cadence exactly (top 50 by RS, "
+                       "monthly), weighted proportional to 1/sigma over 60 daily "
+                       "log returns instead of equally. Names with <40 bars or "
+                       "zero measured vol are EXCLUDED, never guessed; single-name "
+                       "weight is capped at 3x equal weight and the book renormalised.",
+        "expectation": "Lower drawdown and lower volatility than ew_benchmark at a "
+                       "small CAGR toll, because the screen's worst drawdowns are "
+                       "driven by its highest-vol names. The honest prior is that "
+                       "inverse-vol weighting mostly re-expresses a low-vol tilt, "
+                       "and low_vol already trails EW by -19.95% mean excess.",
+        "kill_criterion": "Fails to reduce max drawdown vs ew_benchmark across a "
+                          "full risk-off fold, or trails ew_benchmark by >10% "
+                          "cumulative over 12 months without a lower max drawdown.",
+    },
+    {
+        "id": "ew_trend_gated",
+        "name": "EW Screen — 200d Trend Gated",
+        "strategy": "ew_trend_gated",
+        "cadence": "monthly",
+        "params": {"cap": 50, "cash_proxy": "BIL"},
+        "description": "ew_benchmark's basket held only while SPY > its 200-session "
+                       "SMA; on risk-off the book ROTATES OUT to BIL rather than "
+                       "merely blocking new entries the way the house *_gated books "
+                       "do. Same regime_risk_off definition as the rest of the league.",
+        "expectation": "Materially lower max drawdown than ew_benchmark across a "
+                       "full risk-off episode, paid for in whipsaw during choppy "
+                       "sideways tapes. The honest prior is negative: the existing "
+                       "entry-block gates bought only ~4pp of drawdown relief "
+                       "(top10_banded -47.81% ungated vs -43.69% gated), and a "
+                       "200-day filter on a monthly basket is slow.",
+        "kill_criterion": "No max-drawdown improvement vs ew_benchmark across a full "
+                          "risk-off fold, or trails ew_benchmark by >15% cumulative "
+                          "over 12 months without a lower max drawdown.",
+    },
     {
         "id": "spy_benchmark",
         "name": "SPY Buy & Hold",

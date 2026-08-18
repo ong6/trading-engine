@@ -49,7 +49,11 @@ LOG="${REPO_ROOT}/logs/walkforward-$(date +%F).log"
   # The drain honours every §12.7 cap (nice 19 + ionice idle, load/RAM guard,
   # per-job memory budget, wall-clock drain budget). Jobs left pending by the
   # budget are picked up by the next drain — including the nightly's.
-  "${PY}" engine/queue_runner.py --run
+  # --jobs 4: walkforward is `parallel_safe` (read-only on the store, writes only
+  # its own scratch), so the per-book jobs batch. Measured ~2.3x on a mixed
+  # 4-job batch; a batch is bounded by its SLOWEST member. Width 4 keeps peak
+  # declared RAM at 32 GB inside the 48 GB engine budget.
+  "${PY}" engine/queue_runner.py --run --jobs 4
 
   # Commit the regenerated reports. Best-effort: the results JSON and the
   # markdown are already on disk, and the next nightly's sync stages data/
