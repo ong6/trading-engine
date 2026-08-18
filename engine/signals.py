@@ -51,7 +51,8 @@ Sources (verified 2026-07-31 from this box):
                            checked back to 2019-10-07 and return ratios), the gap
                            is OUR request-budget bound, not CBOE's absence. See
                            PC_ERA2_BACKFILL_START to close it.
-  naaim_exposure           NAAIM weekly (Wednesday) exposure index, .xlsx
+  naaim_exposure           RETIRED 2026-08-18 - never loaded a row, no readers.
+                           Was: NAAIM weekly (Wednesday) exposure index, .xlsx
   aaii_bull, aaii_bear     AAII weekly sentiment survey, legacy .xls (1987 →)
   margin_debt, free_credit FINRA monthly margin statistics .xlsx (1997 →)
   short_interest_dtc       FINRA consolidated short interest, aggregated to one
@@ -416,6 +417,20 @@ def src_putcall(con, mode: str) -> list[tuple]:
 
 def src_naaim(con, mode: str) -> list[tuple]:
     """NAAIM Exposure Index — weekly (Wednesday) mean manager equity exposure.
+
+    RETIRED 2026-08-18 — unregistered from SOURCES, kept for the record only.
+
+    This collector never stored a single row: `macro_signals` holds 0 rows for
+    `naaim_exposure`, and no strategy reads the series (macro_composite's four
+    blocks are breadth / credit / VIX term / macro — NAAIM is not among them).
+    NAAIM has since replaced the .xlsx download with a Symfony widget, so the
+    href scrape below cannot match and raised a WARN on every nightly run.
+
+    Re-registering it is a rewrite, not a re-enable: the data now lives at
+    https://index.naaim.org/embeddable/table as an HTML table (~131 weekly rows,
+    columns Date / NAAIM Number / Bearish / Q1-Q3 / Bullish / Deviation).
+    Verified 2026-08-18 — but that widget's own freshest row was 2026-05-13,
+    i.e. NAAIM is ~3 months stale at source. Give it a reader first.
 
     The .xlsx is re-dated every week, so the filename is scraped from the page
     rather than guessed. Both modes take the whole file (one request, ~85 KB).
@@ -788,7 +803,7 @@ SOURCES: dict[str, callable] = {
     "vix": src_vix,
     "fred": src_fred,
     "putcall": src_putcall,
-    "naaim": src_naaim,
+    # "naaim": src_naaim,   # RETIRED 2026-08-18 - see src_naaim() docstring
     "aaii": src_aaii,
     "finra_margin": src_finra_margin,
     "short_interest": src_short_interest,

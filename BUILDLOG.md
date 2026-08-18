@@ -1241,6 +1241,58 @@ conflict; execution design §7 has exit criteria).
    the correct action on any interim spread is none; the number is published nightly for honesty,
    not for steering. A book that trails loses its AGENT LOOP, never its algorithm.
 
+## 2026-08-18 · Agentic layer retired; NAAIM collector unregistered
+
+- **The AI layer had been silently dead for 13 days.** Every `claude -p` session failed from
+  **2026-08-05** through 2026-08-17 — the news analyst (10 consecutive weekdays), both daily
+  gaters, and all three weekly tuners. Root cause was an **expired subscription OAuth token**,
+  not a code fault: re-authenticating on 2026-08-18 and replaying the exact cron invocation
+  (`--permission-mode dontAsk --strict-mcp-config --settings <deny-list> --max-turns 1
+  --output-format json`) returned `is_error:false` on the first try. The fail-soft contract
+  held perfectly — no gate file meant pure algo, every night, and nothing traded on stale or
+  guessed input. **The defect was not the failure, it was the silence.** A 13-day outage
+  surfaced only as `TODO:` lines in a log nobody tails; `data/_meta.json` never knew.
+
+- **Decision: remove the agentic crons rather than repair them** (operator call, 2026-08-18).
+  The token spend is not wanted. Removed from crontab: `news_analyst.sh` (11:00 weekdays),
+  `run_gaters.sh` (21:40 weekdays), `run_tuners.sh` (Sunday 10:30). The nightly, the weekly
+  walk-forward, and the RSS scraper watchdog are untouched. The scripts and charters stay on
+  disk, unreferenced — re-enabling is a crontab edit, not a rebuild.
+
+- **Consequence: the five AI books and two frozen twins are retired** (`active = FALSE`, seven
+  `portfolio_retired` rows in `audit_log`, actor `operator.retire_agentic`). With no agent
+  driving them, `news_gated_momo`, `earnings_context_pead`, `adaptive_mr`, `agentic_alloc` and
+  `stop_tuner_turtle` are byte-identical to their controls, and `adaptive_mr_frozen` /
+  `agentic_alloc_frozen` have nothing left to control for. The league goes 25 → 18 books.
+  **These books were RETIRED, not KILLED.** The pre-registered 26-week criterion (2027-02-01,
+  AI vs twin net of costs) never accrued valid evidence: the AI acted on exactly one session
+  (2026-08-04) out of ~15 since inception, which is why the pairs sat at identical returns
+  (+3.66%/+3.66% and +0.96%/+0.96%) in the 08-17 standings. Reporting that spread as an AI
+  result would have been the dishonest outcome. `sim_equity` history is preserved; the books
+  simply stop stepping, stop generating orders, and drop out of `league.md`.
+
+- **NAAIM unregistered from `SOURCES`.** It never stored a single row — `macro_signals` holds
+  **0 rows** for `naaim_exposure` — and **no strategy reads the series** (`macro_composite`'s
+  four blocks are breadth / credit / VIX term / macro). NAAIM replaced the `.xlsx` download
+  with a Symfony widget, so the href scrape could not match and raised a WARN on every nightly.
+  Retiring it costs nothing and takes the nightly to zero signal warnings. The replacement
+  source is recorded in `src_naaim()`'s docstring for whoever wants it back —
+  `https://index.naaim.org/embeddable/table`, ~131 weekly rows — with the caveat that
+  **that widget's own freshest row was 2026-05-13**, i.e. NAAIM is ~3 months stale at source.
+  Give the series a reader before giving it a collector.
+
+- **`stooq` is permanently blocked, and the flag was never a probe.** `collect.py:311` writes
+  the literal string `"blocked"`; it has never reflected a live check. Verified 2026-08-18:
+  stooq now answers with a JavaScript proof-of-work browser challenge, so it is unusable
+  without a headless browser. Price collection is therefore **single-sourced on yfinance** —
+  not a data-loss issue today, but the redundancy the design assumed does not exist.
+
+
 ## Blockers
 
-- None hard. Soft: GitHub remote needed before M1 exit (owner action — create the repo).
+- **GitHub remote still needed (owner action).** The box has working SSH auth to GitHub as
+  `ong6` (`~/.ssh/id_ed25519_github`, `ssh.github.com:443` available if port 22 throttles),
+  but no GitHub CLI and no API token — `/usr/local/bin/gh` is an unrelated internal tool.
+  Create an EMPTY PRIVATE repo, then `git remote add origin` + push; `store/` and `logs/`
+  are already gitignored so the 2.9 GiB DuckDB stays local. Until then every commit and the
+  entire BUILDLOG exist on exactly one disk.
