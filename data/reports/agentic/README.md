@@ -1,6 +1,11 @@
 # Agentic books — AI vs frozen twin
 
-_5 paired book(s) · 5 of 5 AI book(s) exist in `portfolios` · generated 2026-08-17 22:34 UTC._
+> **RETIRED 2026-08-18.** The agentic layer was switched off and this book is
+> `active = FALSE`. The numbers below are frozen at 2026-08-17 and will not
+> change again; any "n / 26 weeks" clock or spread-vs-twin figure is a historical
+> artefact, not a live result. See BUILDLOG 2026-08-18.
+
+_5 paired book(s) · 5 of 5 AI book(s) exist in `portfolios` · generated 2026-08-18 09:22 UTC._
 
 Each row is one AI book and the frozen twin it is measured against. The twin runs the SAME algorithm with never-adjusted parameters; the AI book runs that algorithm plus an agent whose authority is bounded by a frozen charter. **The spread between them is the whole experiment** — everything else on this page is context.
 

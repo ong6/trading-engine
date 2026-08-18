@@ -1,6 +1,11 @@
 # adaptive_mr — vs frozen twin `adaptive_mr_frozen`
 
-_role **tuner** (weekly mean-reversion params) · param version **v1** · 0 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-17 22:34 UTC._
+> **RETIRED 2026-08-18.** The agentic layer was switched off and this book is
+> `active = FALSE`. The numbers below are frozen at 2026-08-17 and will not
+> change again; any "n / 26 weeks" clock or spread-vs-twin figure is a historical
+> artefact, not a live result. See BUILDLOG 2026-08-18.
+
+_role **tuner** (weekly mean-reversion params) · param version **v1** · 0 applied / 0 rejected change(s) · 1 lesson(s) · generated 2026-08-18 09:22 UTC._
 
 Charter: `agents/adaptive_mr/charter.md` (frozen — bounds, objective and kill criterion are not re-registrable mid-stream).
 

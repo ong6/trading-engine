@@ -107,10 +107,12 @@ stage() { echo "$1" > "${STAGE_FILE}"; }
   # weekly: the spread is the only number that decides these books' fate, and a
   # number the owner can see every morning is a number nobody can quietly
   # re-baseline later. Non-fatal by design — reporting must never block trading.
-  stage agentic-report
-  "${PY}" agents/report.py \
-    || echo "WARN: agentic report failed (exit $?) — no trading data is affected;" \
-            "the report is a pure re-render and the next run picks it up"
+  # RETIRED 2026-08-18 with the agentic layer. report.py selects books from
+  # `portfolios` WITHOUT the `active` filter, so it kept rendering the five
+  # retired books as live — a running "2.0 / 26 weeks, evaluated 2027-02-01"
+  # clock over frozen curves that can never diverge again. The reports in
+  # data/reports/agentic/ are kept as the historical record, stamped RETIRED.
+  #   was: stage agentic-report && "${PY}" agents/report.py
 
   # Sync is best-effort: a failure must NOT fail the nightly — the league/screen
   # results are already safe in DuckDB + data/ and will re-stage next nightly.
