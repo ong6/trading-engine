@@ -213,8 +213,15 @@ def run_book(live_con, config_id: str, *,
              results_dir: Path = RESULTS_DIR,
              keep_scratch: bool = False, write_result: bool = True,
              verbose: bool = True, threads: int | None = 16,
-             mem_mb: int | None = 8000) -> dict:
-    book = book_by_id(live_con, config_id)
+             mem_mb: int | None = 8000, book: dict | None = None) -> dict:
+    # `book` is the CANDIDATE seam (farm/sweep). Production passes nothing and
+    # the config is read from the live `portfolios` row, which is the whole
+    # point of the walk-forward: it re-validates the rule the league is actually
+    # trading, not a re-typed copy of it. A caller that passes `book` is
+    # explicitly testing something that is NOT in the league -- a parameter
+    # variant or a proposed rule -- and such a run must write to its own
+    # results_dir so a candidate can never be mistaken for a live book's record.
+    book = book if book is not None else book_by_id(live_con, config_id)
     if book["excluded"]:
         raise SystemExit(f"[wf] {config_id} is excluded: {book['excluded']}")
 

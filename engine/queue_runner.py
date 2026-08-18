@@ -106,6 +106,12 @@ def _load_backtest():
     return replay.run_job
 
 
+def _load_sweep():
+    sys.path.insert(0, str(REPO_ROOT))
+    from farm.sweep import sweep
+    return sweep.run_job
+
+
 def _load_walkforward():
     sys.path.insert(0, str(REPO_ROOT))
     from farm.walkforward import runner
@@ -143,6 +149,13 @@ JOB_TYPES: dict[str, dict] = {
     # as `backtest` — it writes scratch/ (deleted per job) and data/reports/,
     # never store/. Feeds the Sunday review loop (execution design §6).
     "walkforward":  {"loader": _load_walkforward,  "archive": False, "mem_mb": 8000,
+                     "parallel_safe": True},
+    # Parameter sweep over an existing strategy class (farm/sweep/sweep.py). Same
+    # profile as walkforward -- read-only on the store, writes only scratch/ and
+    # data/reports/sweeps/ -- so it batches the same way. One job = one GRID, and
+    # the grid runs its candidates in-process, so the batch width multiplies with
+    # the candidate count: keep sweep jobs to a couple per drain.
+    "sweep":        {"loader": _load_sweep,        "archive": False, "mem_mb": 8000,
                      "parallel_safe": True},
 }
 

@@ -66,7 +66,19 @@ from datetime import date
 TRAIN_MONTHS = 24
 VALIDATE_MONTHS = 12
 STEP_MONTHS = 12          # == VALIDATE_MONTHS ⇒ disjoint validate windows
-N_FOLDS = 6
+# 2026-08-18: 6 -> 10. NOT a fishing expedition; the reason is on the record.
+# The 6-fold grid showed every momentum book's entire excess living in ONE fold
+# (2018-08 -> 2021-08, COVID crash + recovery): drop that single window and
+# template_top5 goes +32.9% -> -17.5%, template_top10_banded +11.5% -> -11.9%,
+# momo_stopped +4.8% -> -12.4%. A protocol whose verdict can be flipped by one
+# of six windows is measuring the window, not the rule. 10 folds reaches back to
+# 2014 and costs 15% of the universe (2,827 -> 2,391 tickers with the required
+# history) -- affordable now that the grid runs parallel (engine/queue_runner.py
+# --jobs). The change is DIRECTIONAL and pre-committed: more evidence, never
+# less, and it was chosen before re-running anything. Folds whose validate
+# window opens at or before a book's data floor are still dropped and disclosed
+# rather than silently shortened.
+N_FOLDS = 10
 
 # Books that cannot be walk-forwarded, with the reason printed in every report.
 # Same shape (and the same two first entries) as the historical-backtest farm's

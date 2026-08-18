@@ -1369,6 +1369,56 @@ conflict; execution design §7 has exit criteria).
   for a rate-limit ban on the only data feed is a bad trade. Left alone, on purpose.
 
 
+## 2026-08-18c · 10-fold protocol; the sweep farm; and where AI is worth spending
+
+- **Walk-forward grid 6 -> 10 folds** (`protocol.N_FOLDS`), reaching back to 2014-08.
+  Pre-committed and directional -- more evidence, never less -- and decided BEFORE re-running
+  anything, because the 6-fold result was fragile in a specific, measurable way: drop the single
+  2018-2021 window and template_top5 goes +32.9% -> -17.5%, template_top10_banded +11.5% ->
+  -11.9%, momo_stopped +4.8% -> -12.4%. A protocol a single window can flip is measuring the
+  window. 10 folds costs 15% of the universe (2,827 -> 2,391 tickers with the required history)
+  and is affordable only because the grid now runs parallel.
+
+- **`farm/sweep/` — parameter sweeps over the EXISTING strategy classes.** The walk-forward
+  judged each book at the one parameter set it happens to be registered with; whether a book is
+  bad or merely badly parameterised is a question live trading cannot answer in useful time and
+  pure compute can. Six grids, 51 candidates, no new strategy code and **no tokens**. A sweep
+  never creates or modifies a league book: it writes to `data/reports/sweeps/<grid>/`, and a
+  candidate becomes a book only when a human pre-registers it with an expectation and a kill
+  criterion like everything else.
+
+  Two design choices carry the honesty here. (a) **Ranked by MEDIAN excess vs ew_benchmark, not
+  mean** — the mean is what the 2018-2021 fold hijacked. (b) **The trial count is printed in
+  every report**, because the best of 51 draws looks good whether or not any skill is present;
+  that count is exactly the input `farm/stats.py:deflated_sharpe` needs, and a sweep number
+  quoted without it is not a result.
+
+- **A seam, not a fork.** `run_book(..., book=...)` lets a candidate be walk-forwarded without
+  existing in `portfolios`. Production passes nothing and still reads the live row, which is the
+  entire point of the walk-forward: it re-validates the rule the league is actually trading.
+
+- **Two bugs the smoke test caught, both silent-by-default.** A candidate built with
+  `config_json=None` threw deep inside the replay (`portfolios.config` is TEXT that
+  `league.generate_all` json.loads), and a candidate with a null `cadence` would have produced a
+  book that simply never fires — a plausible-looking 0% row rather than an error. Cadence is now
+  read from the strategy registry. Same failure mode as the `NEEDS_SCREEN` bug earlier today:
+  **in this codebase the dangerous outcome is not a crash, it is a book that quietly does
+  nothing and reports a number for it.**
+
+- **Where AI is worth spending, and where it demonstrably is not.** The layer retired this
+  morning made ~18 `claude -p` calls a week to make per-trade gating decisions, and its apply
+  path was never once exercised by a model-authored proposal — every session correctly declined.
+  That is the shape of the mistake: **frequent, low-stakes, mechanically-decidable calls are the
+  worst possible use of an LLM**, and they are exactly what a trading loop generates most of.
+  The right split follows from what is scarce. CPU is abundant here (32 cores, load 0.17) and
+  tokens are not, so anything a grid can decide should be decided by a grid. That leaves AI one
+  job worth paying for: proposing *structurally new* rules — the search step no sweep can perform
+  because a sweep can only vary parameters of rules that already exist. Cadence should be monthly
+  and batched (one call proposing many candidates), reading the sweep and walk-forward reports as
+  input and emitting candidate specs as OUTPUT — never touching a live book, never in the
+  nightly's path, and always landing in the same human pre-registration gate as everything else.
+
+
 ## Blockers
 
 - **GitHub remote still needed (owner action).** The box has working SSH auth to GitHub as
