@@ -1,0 +1,58 @@
+{
+  "book": "earnings_context_pead",
+  "date": "2026-08-04",
+  "decisions": [
+    {
+      "action": null,
+      "class": "unclear",
+      "reason": "No headline in the 2026-08-04 brief mentions ATKR or explains its earnings-day move; algo default stands",
+      "ticker": "ATKR"
+    },
+    {
+      "action": null,
+      "class": "unclear",
+      "reason": "No headline in the 2026-08-04 brief mentions NWL or explains its earnings-day move; algo default stands",
+      "ticker": "NWL"
+    },
+    {
+      "action": null,
+      "class": "unclear",
+      "reason": "No headline in the 2026-08-04 brief mentions LIND or explains its earnings-day move; algo default stands",
+      "ticker": "LIND"
+    },
+    {
+      "action": null,
+      "class": "unclear",
+      "reason": "No headline in the 2026-08-04 brief mentions LIFE or explains its earnings-day move; algo default stands",
+      "ticker": "LIFE"
+    },
+    {
+      "action": null,
+      "class": "unclear",
+      "reason": "No headline in the 2026-08-04 brief mentions NPK or explains its earnings-day move; algo default stands",
+      "ticker": "NPK"
+    },
+    {
+      "action": null,
+      "class": "unclear",
+      "reason": "No headline in the 2026-08-04 brief mentions TWST or explains its earnings-day move; algo default stands",
+      "ticker": "TWST"
+    },
+    {
+      "action": null,
+      "class": "unclear",
+      "reason": "No headline in the 2026-08-04 brief mentions WT or explains its earnings-day move; algo default stands",
+      "ticker": "WT"
+    },
+    {
+      "action": null,
+      "class": "unclear",
+      "reason": "No headline in the 2026-08-04 brief mentions SNAP or explains its earnings-day move; algo default stands",
+      "ticker": "SNAP"
+    }
+  ],
+  "dropped": [],
+  "generated_utc": "2026-08-04T21:40:16Z",
+  "n_candidates_seen": 8,
+  "notes": "None of the 8 preview candidates (ATKR, NWL, LIND, LIFE, NPK, TWST, WT, SNAP) appear anywhere in today's brief, which covers watchlist names (CBOE, VIRT, FTNT, etc.) and macro only. No adverse news, no vetoes, no downscales \u2014 all 8 recorded as class unclear per D-A5b and taken at full size."
+}
