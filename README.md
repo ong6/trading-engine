@@ -25,6 +25,10 @@ reconcile → league step → sync → farm (intraday/earnings/fundamentals/back
 resource-capped job queue). Health snapshot lands in `data/_meta.json`; the run log in
 `logs/cron.log`.
 
+The agentic layer (`agents/`, `engine/news_analyst.sh`) was **retired 2026-08-18** — its crons
+are removed and the five AI books plus their two frozen twins are `active = FALSE`. The scripts
+and charters remain on disk; re-enabling is a crontab edit. See BUILDLOG 2026-08-18.
+
 ## Quick checks
 
 ```bash
