@@ -48,6 +48,11 @@ ENGINE_RAM_BUDGET_MB = 48000  # combined engine budget; sequential => one job
 STORE_SOFT_GB = 60.0        # soft cap -> warn in _meta.json
 STORE_HARD_GB = 80.0        # hard cap -> refuse archive jobs
 ROOT_FREE_MIN_GB = 10.0     # refuse archive jobs below this root free space
+# Concurrency for `parallel_safe` job kinds ONLY (see JOB_TYPES). Default 1 =
+# the historical strictly-sequential drain; nothing changes unless --jobs is
+# passed. Capped so a wide fan-out cannot starve the box or blow the RAM
+# budget: each walkforward/backtest worker declares 8 GB.
+PARALLEL_JOBS_MAX = 8
 
 # Wall-clock ceiling for a single drain (env-tunable). Once elapsed exceeds this
 # we STOP starting new jobs and exit 0, leaving them pending for the next drain —
@@ -131,12 +136,14 @@ JOB_TYPES: dict[str, dict] = {
     # scratch/ (deleted per job) and data/reports/, never into store/, so the
     # disk watchdog's archive gate does not apply to it; the guard that matters
     # is the load/RAM one, which applies to every job.
-    "backtest":     {"loader": _load_backtest,     "archive": False, "mem_mb": 8000},
+    "backtest":     {"loader": _load_backtest,     "archive": False, "mem_mb": 8000,
+                     "parallel_safe": True},
     # §12.3 weekly walk-forward re-validation: one job per ACTIVE league book,
     # every fold replayed on a scratch copy. archive=False for the same reason
     # as `backtest` — it writes scratch/ (deleted per job) and data/reports/,
     # never store/. Feeds the Sunday review loop (execution design §6).
-    "walkforward":  {"loader": _load_walkforward,  "archive": False, "mem_mb": 8000},
+    "walkforward":  {"loader": _load_walkforward,  "archive": False, "mem_mb": 8000,
+                     "parallel_safe": True},
 }
 
 
@@ -220,10 +227,99 @@ def cmd_status(con) -> int:
     return 0
 
 
+
+# --------------------------------------------------------------------------- #
+# parallel execution of `parallel_safe` job kinds
+# --------------------------------------------------------------------------- #
+# WHY SUBPROCESSES AND NOT THREADS. DuckDB is single-writer and a connection is
+# not shareable across workers, so a parallel batch cannot borrow the drain's
+# write connection. Each child opens its OWN READ-ONLY connection, which is why
+# only kinds that never write `store/` may be marked `parallel_safe`: they work
+# inside their own scratch/ store and emit JSON/markdown reports. A kind that
+# writes the store (intraday, signals, earnings, fundamentals, actions) must
+# stay sequential and is simply never batched.
+#
+# The parent RELEASES its write connection for the duration of the batch --
+# otherwise the children could not open the file at all (DuckDB permits many
+# readers OR one writer, never both) -- then reopens it to record outcomes.
+# Children never touch the `jobs` table; the parent owns all state transitions,
+# so a killed child is reclaimed by the usual orphan sweep on the next drain.
+
+def cmd_run_one(jid: int, db_path: str | None, meta_path: str | Path) -> int:
+    """Child entry: execute ONE job against a read-only connection.
+
+    Exit code is the whole protocol -- 0 done, non-zero failed. State is the
+    parent's business, deliberately: a child that dies mid-job leaves the row
+    'running' and the next drain's orphan sweep returns it to 'pending'.
+    """
+    import duckdb
+    rsc.apply_niceness()
+    path = str(db_path or db.DEFAULT_DB)
+    con = duckdb.connect(path, read_only=True)
+    try:
+        row = con.execute("SELECT kind, params FROM jobs WHERE id = ?", [jid]).fetchone()
+        if row is None:
+            print(f"[queue:{jid}] no such job")
+            return 2
+        kind, params_json = row
+        spec = JOB_TYPES.get(kind)
+        if spec is None:
+            print(f"[queue:{jid}] no dispatch entry for '{kind}'")
+            return 2
+        if not spec.get("parallel_safe"):
+            print(f"[queue:{jid}] '{kind}' is not parallel_safe - refusing")
+            return 2
+        params = json.loads(params_json) if params_json else {}
+        spec["loader"]()(params, con, meta_path=meta_path)
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        print(f"[queue:{jid}] FAILED: {exc}")
+        return 1
+    finally:
+        con.close()
+
+
+def _run_parallel_batch(batch, db_path, meta_path, con) -> tuple[dict, object]:
+    """Run `batch` [(jid, kind)] concurrently. Returns (results, new_con).
+
+    Closes `con` for the duration (children need the file) and returns a fresh
+    write connection, so the caller MUST rebind its connection to the second
+    element.
+    """
+    import subprocess
+
+    for jid, _k in batch:
+        _set_state(con, jid, "running", progress="started (parallel)")
+    con.close()
+
+    procs = []
+    for jid, kind in batch:
+        cmd = [sys.executable, str(Path(__file__).resolve()),
+               "--run-one", str(jid), "--meta", str(meta_path)]
+        if db_path:
+            cmd += ["--db", str(db_path)]
+        procs.append((jid, kind, subprocess.Popen(cmd)))
+
+    results = {}
+    for jid, kind, pr in procs:
+        rc = pr.wait()
+        results[jid] = rc
+        print(f"[queue] job {jid} ({kind}) {'done' if rc == 0 else f'FAILED rc={rc}'}")
+
+    new_con = db.connect(db_path) if db_path else db.connect()
+    for jid, rc in results.items():
+        if rc == 0:
+            _set_state(new_con, jid, "done", progress="complete")
+        else:
+            _set_state(new_con, jid, "failed",
+                       last_error=f"parallel worker exited {rc}")
+    return results, new_con
+
+
 # --------------------------------------------------------------------------- #
 # the drain loop
 # --------------------------------------------------------------------------- #
-def cmd_run(con, meta_path: str | Path) -> int:
+def cmd_run(con, meta_path: str | Path, *, db_path=None, jobs: int = 1) -> int:
     rsc.apply_niceness()
 
     # Reclaim jobs a killed drain left in 'running'. Safe: DuckDB has a single
@@ -245,6 +341,45 @@ def cmd_run(con, meta_path: str | Path) -> int:
     budget_s = float(os.environ.get("TRADING_ENGINE_DRAIN_BUDGET_S",
                                     DRAIN_BUDGET_DEFAULT_S))
     drain_start = time.monotonic()
+
+    # --- parallel pre-pass over `parallel_safe` kinds -----------------------
+    # Runs BEFORE the sequential loop rather than inside it: the store-writing
+    # kinds must keep the single writer to themselves, and interleaving a batch
+    # with them would mean closing/reopening the write connection repeatedly.
+    # Batches are sized by the SAME RAM budget the sequential path uses, so a
+    # fan-out can never declare more memory than one sequential job was allowed.
+    jobs = max(1, min(int(jobs), PARALLEL_JOBS_MAX))
+    if jobs > 1:
+        par = [(jid, kind, mem_mb or 0) for jid, kind, _pj, mem_mb in pending
+               if JOB_TYPES.get(kind, {}).get("parallel_safe")]
+        if par:
+            per_batch = max(1, min(jobs, ENGINE_RAM_BUDGET_MB // max(
+                1, max(m for _j, _k, m in par))))
+            if per_batch < jobs:
+                print(f"[queue] parallel width {jobs} -> {per_batch} "
+                      f"(RAM budget {ENGINE_RAM_BUDGET_MB} MB / "
+                      f"{max(m for _j, _k, m in par)} MB per worker)")
+            print(f"[queue] {len(par)} parallel-safe job(s), width {per_batch}")
+            for i in range(0, len(par), per_batch):
+                if time.monotonic() - drain_start > budget_s:
+                    print("[queue] drain budget exhausted - leaving the rest pending")
+                    return 0
+                load5, free_gb = rsc.load_5min(), rsc.free_ram_gb()
+                if load5 > LOAD_5MIN_MAX or free_gb < FREE_RAM_MIN_GB:
+                    print(f"[queue] resource guard tripped (load {load5:.1f}, "
+                          f"free RAM {free_gb:.1f} GiB) - leaving the rest pending")
+                    return 0
+                batch = [(j, k) for j, k, _m in par[i:i + per_batch]]
+                print(f"[queue] --- parallel batch {[j for j, _ in batch]} "
+                      f"(load {load5:.1f}, free RAM {free_gb:.1f} GiB) ---")
+                _res, con = _run_parallel_batch(batch, db_path, meta_path, con)
+            # states changed underneath us; re-read what is still pending
+            pending = con.execute(
+                "SELECT id, kind, params, mem_mb FROM jobs WHERE state = 'pending' "
+                "ORDER BY priority ASC, created_at ASC").fetchall()
+            if not pending:
+                print("[queue] all jobs drained")
+                return 0
 
     for idx, (jid, kind, params_json, mem_mb) in enumerate(pending):
         remaining = len(pending) - idx
@@ -329,6 +464,9 @@ def main() -> int:
     g.add_argument("--enqueue", metavar="TYPE", help="enqueue a job of this type")
     g.add_argument("--run", action="store_true", help="drain pending jobs (guarded)")
     g.add_argument("--status", action="store_true", help="print the jobs table")
+    g.add_argument("--run-one", type=int, metavar="JOB_ID",
+                   help="internal: execute ONE parallel_safe job read-only "
+                        "(spawned by --run --jobs N; not for manual use)")
     ap.add_argument("--params", default="{}", help="params JSON for --enqueue")
     ap.add_argument("--priority", type=int, default=100,
                     help="lower runs first (nightly loop < farm); default 100")
@@ -336,7 +474,16 @@ def main() -> int:
                     help="declared memory need MB (default: per-type)")
     ap.add_argument("--db", default=None, help="DuckDB path (default store/market.duckdb)")
     ap.add_argument("--meta", default=str(DEFAULT_META), help="_meta.json path")
+    ap.add_argument("--jobs", type=int, default=1,
+                    help=f"max concurrent parallel_safe jobs (1 = sequential, "
+                         f"max {PARALLEL_JOBS_MAX}); store-writing kinds always "
+                         f"run one at a time")
     args = ap.parse_args()
+
+    # Child mode opens its own READ-ONLY connection inside cmd_run_one; taking
+    # the write lock here would deadlock it against its own parent.
+    if args.run_one is not None:
+        return cmd_run_one(args.run_one, args.db, args.meta)
 
     con = db.connect(args.db) if args.db else db.connect()
     db.init_schema(con)
@@ -347,7 +494,7 @@ def main() -> int:
             return cmd_enqueue(con, args.enqueue, args.params, args.priority, args.mem_mb)
         if args.status:
             return cmd_status(con)
-        return cmd_run(con, args.meta)
+        return cmd_run(con, args.meta, db_path=args.db, jobs=args.jobs)
     finally:
         con.close()
 

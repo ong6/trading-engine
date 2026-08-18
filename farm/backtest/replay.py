@@ -96,7 +96,14 @@ EXCLUDED = {
 
 # Books that read `screen_results` (everything else skips the screen build).
 NEEDS_SCREEN = {"template_top5", "template_top10_banded", "mr_overlay",
-                "momo_stopped", "turtle_breakout", "ew_benchmark"}
+                "momo_stopped", "turtle_breakout", "ew_benchmark",
+                # Both 2026-08-18 drawdown probes trade the ew_benchmark basket,
+                # so they need the screen for exactly the same reason it does.
+                # Omitting them here does NOT error -- `latest_screen_date`
+                # simply returns None and the book silently posts zero orders,
+                # which is how the first walk-forward of ew_voltarget came back
+                # "0 fills, +0.00%" instead of failing loudly.
+                "ew_voltarget", "ew_trend_gated"}
 
 # Tickers a book cannot start without, each needing 252 sessions of lookback.
 # XLC (2018-06) is deliberately absent from sector_momentum's list: the strategy
@@ -107,6 +114,10 @@ REQUIRED: dict[str, list[str]] = {
     "dual_momentum": ["SPY", "EFA", "BIL"],
     "sector_momentum": ["XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU",
                         "XLB", "XLRE"],
+    # BIL is where the book actually sits whenever SPY is below its 200d, so it
+    # is as load-bearing as SPY here and its 2007-05 listing must clamp the
+    # window floor rather than silently producing un-funded risk-off stretches.
+    "ew_trend_gated": ["SPY", "BIL"],
 }
 DEFAULT_REQUIRED = ["SPY"]     # SPY-200d regime + the report's vs-SPY column
 REQUIRED_LOOKBACK = 252
