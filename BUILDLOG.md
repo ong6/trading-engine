@@ -1288,6 +1288,87 @@ conflict; execution design §7 has exit criteria).
   not a data-loss issue today, but the redundancy the design assumed does not exist.
 
 
+## 2026-08-18b · Two drawdown probes on the EW basket; bounded parallelism in the queue
+
+- **What the live league can and cannot say.** Asked to "adjust strategies since we have been
+  running on live markets for a while", the first honest step was to measure how much evidence
+  actually exists. It is 22 sessions for the oldest book and **15 for the current leader**
+  (`momo_stopped`, 37 fills). Testing every active book's daily excess return vs `spy_benchmark`:
+  **not one book reaches |t| = 2.** The leader sits at t = +1.06, `mr_overlay` at t = +0.04.
+  Nothing here is distinguishable from luck, so **no existing book was tuned, re-weighted or
+  killed on live P&L** — doing so would be fitting to three weeks of noise and is exactly what
+  the pre-registration rules exist to prevent. Existing books keep their frozen parameters.
+
+- **What the walk-forward CAN say**, over six folds and eight years: `ew_benchmark` posts
+  +30.55% mean validate return and **no active book beats it in more than 50% of folds**. The
+  momentum family is the only one with positive mean excess (top5 +32.85%, top10 +11.50%,
+  momo_stopped +4.79%) and it buys that with −48% to −69% worst-fold drawdowns. Every other
+  family is strongly negative vs EW (mr −25.09%, turtle −25.37%, low_vol −19.95%, dual momentum
+  −16.92%). **The screen is the edge; most rules layered on top subtract from it.** EW's one
+  real weakness is a −36.48% worst-fold drawdown, so that is what the new books attack.
+
+- **Two books pre-registered 2026-08-18**, both changing exactly ONE thing versus `ew_benchmark`
+  so any spread is attributable to the rule under test:
+  * `ew_voltarget` — same basket, weights proportional to 1/sigma over 60 daily log returns,
+    single name capped at 3x equal weight; names with <40 bars or zero measured vol are
+    EXCLUDED rather than guessed.
+  * `ew_trend_gated` — same basket, held only while SPY > 200d SMA, otherwise **rotated fully
+    into BIL**. Deliberately the STRONGER form of the house gate: the existing `*_gated` books
+    only block new entries, which bought `template_top10_banded` just ~4pp of drawdown relief
+    (−47.81% ungated vs −43.69% gated).
+  Both carry a pre-registered expectation with an honest negative prior and a kill criterion,
+  and both are judged against `ew_benchmark`, never against SPY.
+
+- **First walk-forward evidence (ONE fold, 2025-08-15 → 2026-08-17 — preliminary, not a verdict;
+  this window also overlaps the live league):**
+
+  | book | validate | max DD | Sharpe |
+  |---|---|---|---|
+  | ew_benchmark | +36.70% | −36.48% | · |
+  | ew_voltarget | +35.38% | **−31.72%** | 0.85 |
+  | ew_trend_gated | +13.69% | −36.36% | 0.51 |
+
+  `ew_voltarget` gave up 1.3pp of return for 4.8pp of drawdown — directionally the hypothesis,
+  modest. `ew_trend_gated` gave up **23pp of return for 0.1pp of drawdown**, i.e. the honest
+  negative prior written into its own charter is looking correct on the first window. Neither
+  is judged until its pre-registered criterion has a full risk-off fold to bite on.
+
+- **A bug the first walk-forward caught, and why it was silent.** `ew_voltarget`'s first replay
+  returned "0 fills, +0.00%" — not an error, a book that did nothing. Cause: `NEEDS_SCREEN` in
+  `farm/backtest/replay.py` is an explicit allow-list, and a strategy missing from it gets a
+  scratch store with no screen results, so `latest_screen_date()` returns None and the book
+  posts zero orders **silently**. Both new books added there, plus `ew_trend_gated: [SPY, BIL]`
+  in `REQUIRED` so BIL's 2007-05 listing clamps the window floor instead of producing
+  un-funded risk-off stretches. Re-run after the fix: 2,641 and 2,337 fills. **Prove by running.**
+
+- **Bounded parallelism for `parallel_safe` job kinds.** The box is 32 cores and the queue drained
+  at load 0.1-0.8 — one job at a time, by design ("sequential => one job"). `walkforward` and
+  `backtest` are now flagged `parallel_safe` because they read the live store READ-ONLY and write
+  only their own scratch plus JSON/markdown; every store-writing kind (intraday, signals,
+  earnings, fundamentals, actions) stays strictly sequential and is never batched. `--jobs N`
+  (default **1**, so nothing changes unless asked; hard cap 8) runs a batch as subprocesses, each
+  with its own read-only connection — the parent releases the write lock for the batch and
+  reopens it to record outcomes, since DuckDB permits many readers OR one writer, never both.
+  Children never touch the `jobs` table, so a killed child is reclaimed by the existing orphan
+  sweep. Batch width is additionally clamped by the SAME `ENGINE_RAM_BUDGET_MB` the sequential
+  path uses.
+
+- **Measured, and less than projected.** A 4-job batch ran in **114s against ~260s sequential —
+  ~2.3x, not the ~5x first sketched.** Two reasons, both worth recording. (a) The original idea
+  of parallelising *folds* is impossible: all folds of a book share ONE scratch DuckDB and wipe
+  it between folds, so the only safe axis is ACROSS books. (b) A batch's wall-clock is its
+  SLOWEST member — in that batch one fold took 90.6s while the other three took 22-29s. On the
+  real weekly grid (20 books x 6 folds, ~3-4h sequential) the jobs are far more uniform, so the
+  gain should be closer to the batch width; that is a projection, not a measurement.
+
+- **Earnings fetch deliberately NOT parallelised.** It looked like the biggest win (~35 of the
+  nightly's 72 min) until the reason showed up: `PER_NAME_SLEEP = 0.4` x 2,965 names = **1,186s
+  of intentional politeness pause**, not inefficiency. Since `stooq` is permanently blocked,
+  **yfinance is the sole price source for the entire engine**, and the nightly already finishes
+  at 23:42 with ~10h of headroom before the next open. Trading ~25 min of idle-time wall clock
+  for a rate-limit ban on the only data feed is a bad trade. Left alone, on purpose.
+
+
 ## Blockers
 
 - **GitHub remote still needed (owner action).** The box has working SSH auth to GitHub as

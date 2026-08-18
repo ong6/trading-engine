@@ -5,6 +5,8 @@ from .base import Order, PortfolioView, Strategy
 from .discretionary import Discretionary
 from .dual_momentum import DualMomentum
 from .ew_benchmark import EwBenchmark
+from .ew_trend_gated import EwTrendGated
+from .ew_voltarget import EwVolTarget
 from .high_52wk import High52Week
 from .low_vol import LowVol
 from .macro_composite import MacroComposite
@@ -25,6 +27,8 @@ REGISTRY: dict[str, type[Strategy]] = {
     "dual_momentum": DualMomentum,
     "mr_overlay": MrOverlay,
     "ew_benchmark": EwBenchmark,
+    "ew_voltarget": EwVolTarget,
+    "ew_trend_gated": EwTrendGated,
     "spy_benchmark": SpyBenchmark,
     "turtle_breakout": TurtleBreakout,
     "momo_stopped": MomoStopped,
