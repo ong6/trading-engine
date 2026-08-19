@@ -1,0 +1,61 @@
+{
+  "sweep": "concentration",
+  "n_trials": 6,
+  "generated": "2026-08-19 01:34 UTC",
+  "rows": [
+    {
+      "id": "sweep__concentration__cap-50",
+      "n_folds": 10,
+      "median_excess": 0.0,
+      "mean_excess": 0.0,
+      "beat_bench": 0.0,
+      "worst_dd": -0.37530057933902905,
+      "median_validate": 0.17206985087610904
+    },
+    {
+      "id": "sweep__concentration__cap-10",
+      "n_folds": 10,
+      "median_excess": -0.0038651385395890303,
+      "mean_excess": 0.07549948220613589,
+      "beat_bench": 0.5,
+      "worst_dd": -0.48190723838023763,
+      "median_validate": 0.2872953743541936
+    },
+    {
+      "id": "sweep__concentration__cap-75",
+      "n_folds": 10,
+      "median_excess": -0.02044708630835257,
+      "mean_excess": -0.021632344739810582,
+      "beat_bench": 0.4,
+      "worst_dd": -0.3626228706126181,
+      "median_validate": 0.20056092864455688
+    },
+    {
+      "id": "sweep__concentration__cap-100",
+      "n_folds": 10,
+      "median_excess": -0.032943154241672046,
+      "mean_excess": -0.05008604654109945,
+      "beat_bench": 0.3,
+      "worst_dd": -0.36103142438843216,
+      "median_validate": 0.17379376246245226
+    },
+    {
+      "id": "sweep__concentration__cap-30",
+      "n_folds": 10,
+      "median_excess": -0.037450466721843156,
+      "mean_excess": 0.015387469470195292,
+      "beat_bench": 0.4,
+      "worst_dd": -0.4257542408835234,
+      "median_validate": 0.07517900810118872
+    },
+    {
+      "id": "sweep__concentration__cap-20",
+      "n_folds": 10,
+      "median_excess": -0.05492481892416007,
+      "mean_excess": 0.044139175980760295,
+      "beat_bench": 0.4,
+      "worst_dd": -0.46399987529192943,
+      "median_validate": 0.09843065692254804
+    }
+  ]
+}
