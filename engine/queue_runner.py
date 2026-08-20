@@ -333,6 +333,15 @@ def _run_parallel_batch(batch, db_path, meta_path, con) -> tuple[dict, object]:
 # the drain loop
 # --------------------------------------------------------------------------- #
 def cmd_run(con, meta_path: str | Path, *, db_path=None, jobs: int = 1) -> int:
+    # Line-buffer the drain's own stdout. Redirected to a log it is otherwise
+    # block-buffered, so a batch's children (separate processes, own buffers)
+    # write through while the parent's "--- parallel batch [...] ---" line sits
+    # unflushed for minutes — a tailed log then shows work with no record of
+    # what started it.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:  # noqa: BLE001 - observability only, never fatal
+        pass
     rsc.apply_niceness()
 
     # Reclaim jobs a killed drain left in 'running'. Safe: DuckDB has a single
@@ -355,46 +364,21 @@ def cmd_run(con, meta_path: str | Path, *, db_path=None, jobs: int = 1) -> int:
                                     DRAIN_BUDGET_DEFAULT_S))
     drain_start = time.monotonic()
 
-    # --- parallel pre-pass over `parallel_safe` kinds -----------------------
-    # Runs BEFORE the sequential loop rather than inside it: the store-writing
-    # kinds must keep the single writer to themselves, and interleaving a batch
-    # with them would mean closing/reopening the write connection repeatedly.
-    # Batches are sized by the SAME RAM budget the sequential path uses, so a
-    # fan-out can never declare more memory than one sequential job was allowed.
+    # --- concurrency for `parallel_safe` kinds, IN PRIORITY ORDER -----------
+    # An earlier version drained every parallel_safe job in a pre-pass before
+    # the sequential loop. That inverted the queue's own priorities: a weekend
+    # sweep at priority 150 would overtake the nightly's own intraday/signals/
+    # earnings jobs at 100-110 and delay them by hours. Batches are therefore
+    # formed only from jobs that are ALREADY ADJACENT in priority order, so
+    # parallelism can reorder nothing — it only widens a run.
     jobs = max(1, min(int(jobs), PARALLEL_JOBS_MAX))
     if jobs > 1:
-        par = [(jid, kind, mem_mb or 0) for jid, kind, _pj, mem_mb in pending
-               if JOB_TYPES.get(kind, {}).get("parallel_safe")]
-        if par:
-            per_batch = max(1, min(jobs, ENGINE_RAM_BUDGET_MB // max(
-                1, max(m for _j, _k, m in par))))
-            if per_batch < jobs:
-                print(f"[queue] parallel width {jobs} -> {per_batch} "
-                      f"(RAM budget {ENGINE_RAM_BUDGET_MB} MB / "
-                      f"{max(m for _j, _k, m in par)} MB per worker)")
-            print(f"[queue] {len(par)} parallel-safe job(s), width {per_batch}")
-            for i in range(0, len(par), per_batch):
-                if time.monotonic() - drain_start > budget_s:
-                    print("[queue] drain budget exhausted - leaving the rest pending")
-                    return 0
-                load5, free_gb = rsc.load_5min(), rsc.free_ram_gb()
-                if load5 > LOAD_5MIN_MAX or free_gb < FREE_RAM_MIN_GB:
-                    print(f"[queue] resource guard tripped (load {load5:.1f}, "
-                          f"free RAM {free_gb:.1f} GiB) - leaving the rest pending")
-                    return 0
-                batch = [(j, k) for j, k, _m in par[i:i + per_batch]]
-                print(f"[queue] --- parallel batch {[j for j, _ in batch]} "
-                      f"(load {load5:.1f}, free RAM {free_gb:.1f} GiB) ---")
-                _res, con = _run_parallel_batch(batch, db_path, meta_path, con)
-            # states changed underneath us; re-read what is still pending
-            pending = con.execute(
-                "SELECT id, kind, params, mem_mb FROM jobs WHERE state = 'pending' "
-                "ORDER BY priority ASC, created_at ASC").fetchall()
-            if not pending:
-                print("[queue] all jobs drained")
-                return 0
+        print(f"[queue] parallel width {jobs} for parallel_safe kinds "
+              f"(store-writing kinds stay strictly sequential)")
 
-    for idx, (jid, kind, params_json, mem_mb) in enumerate(pending):
+    idx = 0
+    while idx < len(pending):
+        jid, kind, params_json, mem_mb = pending[idx]
         remaining = len(pending) - idx
 
         # --- wall-clock budget: stop STARTING new jobs once the window is up ---
@@ -416,6 +400,37 @@ def cmd_run(con, meta_path: str | Path, *, db_path=None, jobs: int = 1) -> int:
             print(f"[queue] resource guard tripped ({'; '.join(reason)}); "
                   f"leaving {remaining} job(s) pending and exiting 0 (resumable)")
             return 0
+
+        # --- batch a RUN of consecutive parallel_safe jobs ---------------
+        # Children open their own READ-ONLY connections, so the parent must let
+        # go of the write lock for the batch. That is also why this matters
+        # operationally: a sweep run in-process pins the single writer for its
+        # whole life, and the API/UI answer 503 for as long as it lasts.
+        if jobs > 1 and JOB_TYPES.get(kind, {}).get("parallel_safe"):
+            run = []
+            j = idx
+            while j < len(pending) and JOB_TYPES.get(
+                    pending[j][1], {}).get("parallel_safe"):
+                run.append(pending[j])
+                j += 1
+            widest = max((r[3] or 0) for r in run) or 1
+            per_batch = max(1, min(jobs, ENGINE_RAM_BUDGET_MB // widest))
+            batch = [(r[0], r[1]) for r in run[:per_batch]]
+            if per_batch < jobs:
+                print(f"[queue] parallel width {jobs} -> {per_batch} "
+                      f"(RAM budget {ENGINE_RAM_BUDGET_MB} MB / {widest} MB "
+                      f"per worker)")
+            print(f"[queue] --- parallel batch {[b for b, _ in batch]} "
+                  f"({', '.join(sorted({k for _, k in batch}))}, load {load5:.1f}, "
+                  f"free RAM {free_gb:.1f} GiB) ---")
+            _res, con = _run_parallel_batch(batch, db_path, meta_path, con)
+            idx += len(batch)
+            continue
+
+        # Everything below runs the job IN-PROCESS on the write connection.
+        # Advance the cursor here so the body's `continue`s (refused / skipped
+        # / failed job) cannot spin.
+        idx += 1
 
         # --- per-job memory budget guard (sequential => budget is one job) ---
         declared = mem_mb or 0

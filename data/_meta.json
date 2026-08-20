@@ -53,5 +53,150 @@
     "warnings": 0,
     "last_run": "2026-08-19T22:35:08.681828+00:00",
     "store_gb": 2.93
+  },
+  "intraday": {
+    "last_run": "2026-08-19T22:37:59.751099+00:00",
+    "tickers_requested": 970,
+    "tickers_with_data": 970,
+    "new_rows_1m": 354773,
+    "new_rows_5m": 106439,
+    "failed_tickers": 0,
+    "failed_batches": 0,
+    "store_gb": 2.98
+  },
+  "signals_incremental": {
+    "mode": "incremental",
+    "pit_lag": false,
+    "sources": {
+      "squeezemetrics": {
+        "status": "ok",
+        "rows_fetched": 7696,
+        "rows_inserted": 0,
+        "series": [
+          "dix",
+          "gex"
+        ],
+        "secs": 17.5
+      },
+      "vix": {
+        "status": "ok",
+        "rows_fetched": 13509,
+        "rows_inserted": 1,
+        "series": [
+          "vix",
+          "vix3m"
+        ],
+        "secs": 1.6
+      },
+      "fred": {
+        "status": "ok",
+        "rows_fetched": 99,
+        "rows_inserted": 0,
+        "series": [
+          "hy_oas",
+          "icsa",
+          "nfci",
+          "t10y2y"
+        ],
+        "secs": 2.0
+      },
+      "putcall": {
+        "status": "ok",
+        "rows_fetched": 18,
+        "rows_inserted": 2,
+        "series": [
+          "pc_equity",
+          "pc_total"
+        ],
+        "secs": 7.1
+      },
+      "aaii": {
+        "status": "ok",
+        "rows_fetched": 4074,
+        "rows_inserted": 0,
+        "series": [
+          "aaii_bear",
+          "aaii_bull"
+        ],
+        "secs": 4.5
+      },
+      "finra_margin": {
+        "status": "ok",
+        "rows_fetched": 553,
+        "rows_inserted": 0,
+        "series": [
+          "free_credit",
+          "margin_debt"
+        ],
+        "secs": 1.0
+      },
+      "short_interest": {
+        "status": "ok",
+        "rows_fetched": 2,
+        "rows_inserted": 0,
+        "series": [
+          "short_interest_dtc"
+        ],
+        "secs": 11.3
+      },
+      "cot": {
+        "status": "ok",
+        "rows_fetched": 10,
+        "rows_inserted": 0,
+        "series": [
+          "cot_es_lev_net"
+        ],
+        "secs": 2.5
+      },
+      "breadth": {
+        "status": "ok",
+        "rows_fetched": 3,
+        "rows_inserted": 0,
+        "series": [
+          "breadth_nh_nl",
+          "breadth_pct_200",
+          "zweig_ratio"
+        ],
+        "secs": 0.3
+      }
+    },
+    "rows_inserted": 3,
+    "warnings": [],
+    "series_totals": {
+      "aaii_bear": 2037,
+      "aaii_bull": 2037,
+      "breadth_nh_nl": 3678,
+      "breadth_pct_200": 3678,
+      "cot_es_lev_net": 1053,
+      "dix": 3848,
+      "free_credit": 198,
+      "gex": 3848,
+      "hy_oas": 800,
+      "icsa": 3110,
+      "margin_debt": 355,
+      "nfci": 2902,
+      "pc_equity": 4164,
+      "pc_total": 4164,
+      "short_interest_dtc": 72,
+      "t10y2y": 12551,
+      "vix": 9254,
+      "vix3m": 4255,
+      "zweig_ratio": 3678
+    },
+    "last_run": "2026-08-20T06:54:10.882839+00:00",
+    "store_gb": 2.98
+  },
+  "earnings": {
+    "last_run": "2026-08-19T23:21:09.195004+00:00",
+    "as_of": "2026-08-19",
+    "universe": 2929,
+    "universe_source": "fundamentals-coverage \u222a screen-passers",
+    "pulled_this_run": 2929,
+    "with_upcoming_date": 2799,
+    "no_upcoming_date": 130,
+    "failed_tickers": 0,
+    "rows_inserted_this_run": 2799,
+    "rows_for_as_of": 2799,
+    "store_gb": 2.98
   }
 }

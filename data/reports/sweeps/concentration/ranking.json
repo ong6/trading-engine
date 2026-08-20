@@ -1,9 +1,10 @@
 {
   "sweep": "concentration",
   "n_trials": 6,
-  "generated": "2026-08-19 01:34 UTC",
+  "generated": "2026-08-20 06:52 UTC",
   "rows": [
     {
+      "identical_to_benchmark": true,
       "id": "sweep__concentration__cap-50",
       "n_folds": 10,
       "median_excess": 0.0,
@@ -13,6 +14,7 @@
       "median_validate": 0.17206985087610904
     },
     {
+      "identical_to_benchmark": false,
       "id": "sweep__concentration__cap-10",
       "n_folds": 10,
       "median_excess": -0.0038651385395890303,
@@ -22,6 +24,7 @@
       "median_validate": 0.2872953743541936
     },
     {
+      "identical_to_benchmark": false,
       "id": "sweep__concentration__cap-75",
       "n_folds": 10,
       "median_excess": -0.02044708630835257,
@@ -31,6 +34,7 @@
       "median_validate": 0.20056092864455688
     },
     {
+      "identical_to_benchmark": false,
       "id": "sweep__concentration__cap-100",
       "n_folds": 10,
       "median_excess": -0.032943154241672046,
@@ -40,6 +44,7 @@
       "median_validate": 0.17379376246245226
     },
     {
+      "identical_to_benchmark": false,
       "id": "sweep__concentration__cap-30",
       "n_folds": 10,
       "median_excess": -0.037450466721843156,
@@ -49,6 +54,7 @@
       "median_validate": 0.07517900810118872
     },
     {
+      "identical_to_benchmark": false,
       "id": "sweep__concentration__cap-20",
       "n_folds": 10,
       "median_excess": -0.05492481892416007,
@@ -57,5 +63,6 @@
       "worst_dd": -0.46399987529192943,
       "median_validate": 0.09843065692254804
     }
-  ]
+  ],
+  "excluded": []
 }
