@@ -333,27 +333,39 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
     # belongs where the equity is READ, not only in a WARN nobody tails: the
     # 2026-08-20 verifier found EA (last print 2026-08-10) and TALK held by
     # `high_52wk` and `low_vol` with nothing anywhere saying so.
+    # Keyed on the last bar that actually TRADED, not the last bar that exists.
+    # yfinance keeps emitting a dead quote as a bar after a name stops trading:
+    # EA's last real session was 2026-08-04 (volume 48,713,698 — a ~10x spike,
+    # the acquisition-close signature) at $209.699997, followed by FOUR bars at
+    # that identical price with volume 0, and then nothing. A detector keyed on
+    # MAX(date) reported EA as 7 sessions stale when the truth was 11: the
+    # phantom bars made a dead position look fresher than it was, and
+    # `mark_to_market` saw a bar and did not flag a carried price at all.
     stale = con.execute(
         """
-        SELECT p.portfolio_id, p.ticker, p.qty, MAX(pr.date) AS last_bar
+        SELECT p.portfolio_id, p.ticker, p.qty,
+               MAX(pr.date) FILTER (WHERE pr.volume > 0) AS last_traded
         FROM sim_positions p
         JOIN prices pr ON pr.ticker = p.ticker
         WHERE p.qty > 0
         GROUP BY p.portfolio_id, p.ticker, p.qty
-        HAVING MAX(pr.date) < ?
-        ORDER BY last_bar, p.portfolio_id, p.ticker
+        HAVING MAX(pr.date) FILTER (WHERE pr.volume > 0) < ?
+        ORDER BY last_traded, p.portfolio_id, p.ticker
         """, [d]).fetchall()
     if stale:
         lines += [
             f"## ⚠ Stale marks — {len(stale)} position(s) carried at an old close",
             "",
-            "These names printed no bar on the as-of date, so they are valued at "
-            "their last available close and that value cannot change until the "
-            "name prints again. A halt resolves itself; a delisting or "
-            "acquisition needs the position settled by hand. **The equity above "
-            "includes these marks.**",
+            "These names have not TRADED since the date shown, so they are "
+            "valued at a close that cannot change until they trade again. "
+            "**Sessions stale counts from the last bar with real volume, not "
+            "the last bar on file** — yfinance keeps emitting a dead quote as a "
+            "zero-volume bar after a name stops trading, which makes a dead "
+            "position look fresher than it is. A halt resolves itself; a "
+            "delisting or acquisition needs the position settled by hand. "
+            "**The equity above includes these marks.**",
             "",
-            "| Book | Ticker | Qty | Last bar | Sessions stale | Frozen value | % of equity |",
+            "| Book | Ticker | Qty | Last traded | Sessions stale | Frozen value | % of equity |",
             "|---|---|---|---|---|---|---|",
         ]
         eq_by_book = {r["id"]: r["equity"] for r in rows}
