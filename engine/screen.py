@@ -16,6 +16,15 @@ screen date): the latest bar is within 3 trading days of the screen session AND
 there are >= 252 daily bars (needed for the 252-day return, the 200-day SMA and
 the 52-week range). Names that fail are reported honestly as stale vs short.
 
+Universe policy (`--universe-policy`, default `all`). `ex-leveraged` drops
+leveraged/inverse ETPs (see engine/lib/leverage.py) from the eligible set
+BEFORE anything is ranked. It is OFF by default on purpose: the passing set
+defines `ew_benchmark`, which is the yardstick every other book is scored
+against, so flipping it is a versioned decision, not a default. Whichever
+policy ran is stamped on every screen_results row, in the report header and in
+_meta.json, so two screens built under different policies can never be
+compared by accident.
+
 Append-only discipline: if screen_results already holds rows for the screen
 date the run ABORTS. `--rerun` deletes that date's rows first, then rewrites —
 this is a same-day correction only, never a way to rewrite history.
@@ -36,6 +45,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib import db  # noqa: E402
+from lib import leverage as lev  # noqa: E402
 from lib import resources as rsc  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -233,11 +243,20 @@ def fmt_pct(v: float) -> str:
     return f"{sign}{abs(n)}%"
 
 
-def render_md(screen_date, eligible_n, passing, near, regime, new_n, truncated) -> str:
+def render_md(screen_date, eligible_n, passing, near, regime, new_n, truncated,
+              policy: str, n_excluded: int) -> str:
+    # The policy is in the H1, not a footnote: this file gets pasted into
+    # chats and diffed against other days, and a reader must not have to know
+    # that a universe policy exists in order to notice one was applied.
     lines = [
         f"# Screen — {screen_date.isoformat()}  "
         f"(universe: {eligible_n} · passing: {len(passing)} · "
-        f"new today: {new_n} · regime: {regime})",
+        f"new today: {new_n} · regime: {regime} · policy: {policy})",
+        "",
+        (f"_Universe policy `{policy}`: {n_excluded} leveraged/inverse ETP"
+         f"{'s' if n_excluded != 1 else ''} removed before ranking._"
+         if policy != lev.POLICY_ALL else
+         "_Universe policy `all`: no names excluded._"),
         "",
         "## ✅ Passing (template 8/8, RS ≥ 70) — RS-ranked",
         "| Ticker | Close | RS | 50d | 200d | off low | off high | base | vol | new |",
@@ -336,9 +355,12 @@ def update_meta(meta_path: Path, **updates) -> None:
 # main
 # --------------------------------------------------------------------------- #
 def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
-        skip_if_done: bool = False) -> int:
+        skip_if_done: bool = False, universe_policy: str | None = None) -> int:
+    policy = lev.resolve_policy(universe_policy)
     con = db.connect(db_path)
     db.init_schema(con)
+    db.init_screen_policy_schema(con)
+    print(f"[screen] universe policy = {policy}")
 
     screen_date = resolve_screen_date(con, requested_date)
     print(f"[screen] screen date = {screen_date.isoformat()}")
@@ -373,8 +395,17 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
                 )
                 con.execute("DELETE FROM screen_results WHERE run_date = ?", [screen_date])
             else:
+                # Name the STORED policy too: a rerun request under a different
+                # policy is the case where "just pass --rerun" is exactly the
+                # wrong advice, and the operator needs to see the mismatch.
+                stored = con.execute(
+                    "SELECT DISTINCT COALESCE(universe_policy, 'all') "
+                    "FROM screen_results WHERE run_date = ?", [screen_date]
+                ).fetchall()
+                stored_s = ", ".join(sorted(r[0] for r in stored)) or "unknown"
                 print(
                     f"[screen] ABORT: {existing} rows already exist for {screen_date} "
+                    f"(policy: {stored_s}; this run: {policy}) "
                     f"— screen_results is append-only. Pass --rerun to overwrite this "
                     f"date (same-day correction only)."
                 )
@@ -386,6 +417,18 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
 
     cutoff = stale_cutoff(con, screen_date)
     eligible, n_stale, n_short = classify_universe(con, screen_date, cutoff)
+    # Universe policy applies HERE — before any ranking. It has to: rs_rank is a
+    # cross-sectional percentile, so dropping names after the rank is computed
+    # would leave every survivor holding a rank that was scored against a
+    # universe it is no longer in.
+    n_excluded = 0
+    if policy == lev.POLICY_EX_LEVERAGED:
+        flagged = lev.flagged_tickers(con)
+        before = len(eligible)
+        eligible = [t for t in eligible if t not in flagged]
+        n_excluded = before - len(eligible)
+        print(f"[screen] policy {policy}: excluded {n_excluded} leveraged/inverse "
+              f"ETPs from the eligible set ({before} → {len(eligible)})")
     print(
         f"[screen] active&liquid → screened={len(eligible)} "
         f"skipped_stale={n_stale} skipped_short={n_short}"
@@ -435,10 +478,12 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
 
     # Persist screen_results (append-only; rerun already cleared the date).
     res["run_date"] = screen_date
+    res["universe_policy"] = policy
     out_cols = [
         "run_date", "ticker", "close", "rs_rank", "template_score",
         "passes_template", "dist_50d", "dist_200d", "off_52w_low",
         "off_52w_high", "base_tight", "vol_dryup", "new_today",
+        "universe_policy",
     ]
     con.register("_res", res[out_cols])
     con.execute(f"INSERT INTO screen_results SELECT {', '.join(out_cols)} FROM _res")
@@ -473,7 +518,8 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
     truncated = {"passing": len(passing) > TABLE_CAP, "near": len(near) > TABLE_CAP}
 
     md = render_md(
-        screen_date, len(eligible), passing, near, regime, new_n, truncated
+        screen_date, len(eligible), passing, near, regime, new_n, truncated,
+        policy, n_excluded
     )
 
     screens_dir = data_dir / "screens"
@@ -512,6 +558,8 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
         screened=len(eligible),
         skipped_stale=n_stale,
         skipped_short=n_short,
+        universe_policy=policy,
+        excluded_leveraged=n_excluded,
     )
 
     print(f"[screen] wrote {md_path} (+ latest.md, csv, {len(eod_set) - len(missing)} eod files)")
@@ -530,9 +578,16 @@ def main() -> int:
                          "same MAX(date). Real failures still return 1.")
     ap.add_argument("--rerun", action="store_true",
                     help="overwrite an existing run_date (same-day correction only)")
+    ap.add_argument("--universe-policy", default=None, choices=list(lev.POLICIES),
+                    help="'all' (DEFAULT — no exclusions, what every stored screen "
+                         "was built with) or 'ex-leveraged' to drop leveraged/inverse "
+                         f"ETPs before ranking. Env: {lev.POLICY_ENV}. Turning this on "
+                         "changes ew_benchmark and therefore every book's excess — "
+                         "a versioned decision, not a default.")
     args = ap.parse_args()
     return run(args.db, Path(args.data_dir), args.date, args.rerun,
-               skip_if_done=args.skip_if_done)
+               skip_if_done=args.skip_if_done,
+               universe_policy=args.universe_policy)
 
 
 if __name__ == "__main__":

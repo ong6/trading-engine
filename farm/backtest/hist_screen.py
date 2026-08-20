@@ -40,6 +40,15 @@ Universe membership (the one honest divergence, `membership=`):
                TODAY, so this membership is survivor-biased — delisted names are
                absent entirely, not mis-dated.
 
+Universe policy (`universe_policy=`, default `all`). `ex-leveraged` anti-joins
+the leveraged/inverse ETPs that `engine/lib/leverage.py` flags out of the
+eligible set. It matters MORE here than in the live screen: a 15-year replay
+holds these funds through their reverse splits, and the stored back-adjusted
+closes for 35 of them exceed $2,000 (SPXU's peaks at $666,400), which produces
+order sizes no fill model can honour. Default OFF so a replay reproduces the
+live screen exactly unless somebody asks for otherwise, and the chosen policy
+is returned to the caller for the result JSON.
+
 Output: rows written into `screen_results` (or another table with that shape).
 By default only `passes_template = TRUE` rows are stored (`passing_only`),
 because every sim/strategies/* read goes through `passing_ranked` /
@@ -61,6 +70,7 @@ for _p in (str(REPO_ROOT), str(REPO_ROOT / "engine")):
         sys.path.insert(0, _p)
 
 from lib import db  # noqa: E402
+from lib import leverage as lev  # noqa: E402
 
 MIN_BARS = 253          # same constant as engine/screen.py
 STALE_TRADING_DAYS = 3  # same
@@ -203,6 +213,7 @@ FROM k
 def screen_sessions(con, sessions: list[date], *, membership: str = "prices",
                     passing_only: bool = True, table: str = "screen_results",
                     chunk_tickers: int = 1500, tickers: list[str] | None = None,
+                    universe_policy: str | None = None,
                     verbose: bool = True) -> int:
     """Compute + insert screen rows for every date in `sessions`. Returns rows.
 
@@ -214,6 +225,7 @@ def screen_sessions(con, sessions: list[date], *, membership: str = "prices",
         return 0
     if membership not in ("prices", "live"):
         raise ValueError(f"membership must be 'prices' or 'live', got {membership!r}")
+    policy = lev.resolve_policy(universe_policy)
     t0 = time.time()
     end = max(sessions)
     warm_start = session_n_back(con, min(sessions), WARMUP_SESSIONS)
@@ -243,6 +255,18 @@ def screen_sessions(con, sessions: list[date], *, membership: str = "prices",
     else:
         join = ""
         where = (f"WHERE m.close >= {LIQ_MIN_CLOSE} AND m.mdv >= {LIQ_MIN_MDV}")
+
+    # The exclusion is an anti-join on a ticker list classified in PYTHON, not a
+    # regex rewritten in SQL: one implementation of the rules, no drift. It is
+    # appended to whichever membership WHERE clause is in force, so the two
+    # filters compose instead of one silently replacing the other.
+    n_excluded = 0
+    if policy == lev.POLICY_EX_LEVERAGED:
+        n_excluded = lev.register_exclusion(con)
+        where += " AND m.ticker NOT IN (SELECT ticker FROM _lev_excluded)"
+        if verbose:
+            print(f"[hist_screen] policy {policy}: {n_excluded} leveraged/inverse "
+                  f"ETPs excluded from every session", flush=True)
 
     all_tickers = tickers if tickers is not None else _tickers(con, end)
     bar_sql = _BAR_SQL.format(min_bars=MIN_BARS, stale=STALE_TRADING_DAYS,
@@ -286,12 +310,12 @@ def screen_sessions(con, sessions: list[date], *, membership: str = "prices",
     """)
     n = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
     for t in ("_hs_bar", "_hs_raw", "_hs_ranked", "_hs_chunk", "_hs_sessions",
-              "_hs_window", "_hs_prev"):
+              "_hs_window", "_hs_prev", "_lev_excluded"):
         con.execute(f"DROP TABLE IF EXISTS {t}")
     if verbose:
         print(f"[hist_screen] {len(sessions)} sessions → {n:,} rows in "
               f"{time.time() - t0:.0f}s ({'passing only' if passing_only else 'all rows'}, "
-              f"membership={membership})", flush=True)
+              f"membership={membership}, policy={policy})", flush=True)
     return n
 
 
@@ -305,6 +329,8 @@ def main() -> int:
     ap.add_argument("--all-rows", action="store_true",
                     help="store non-passing rows too (equivalence proof)")
     ap.add_argument("--table", default="screen_results")
+    ap.add_argument("--universe-policy", default=None, choices=list(lev.POLICIES),
+                    help=f"'all' (DEFAULT) or 'ex-leveraged'. Env: {lev.POLICY_ENV}")
     args = ap.parse_args()
 
     con = db.connect(args.db)
@@ -313,7 +339,8 @@ def main() -> int:
                             date.fromisoformat(args.end))
     print(f"[hist_screen] {len(days)} sessions {days[0]} → {days[-1]}")
     screen_sessions(con, days, membership=args.membership,
-                    passing_only=not args.all_rows, table=args.table)
+                    passing_only=not args.all_rows, table=args.table,
+                    universe_policy=args.universe_policy)
     con.close()
     return 0
 

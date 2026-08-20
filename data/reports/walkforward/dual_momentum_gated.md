@@ -10,6 +10,8 @@ _`dual_momentum_gated` · dual_momentum · monthly cadence · verdict **REVIEW**
 
 **Measured against `ew_benchmark` on the same folds:** beats it in 17% of 6 window(s), mean excess −20.87%, latest −13.38% → **REVIEW**.
 
+**90% CI on mean excess vs `ew_benchmark`:** [−49.49%, −1.16%] → **distinguishable −**. The verdict above is unchanged by this interval — see the note below the fold table.
+
 ## Disclosures — read before any number below
 
 1. **Survivor universe.** `prices` holds only tickers listed TODAY, so every
@@ -74,4 +76,34 @@ each book, against `ew_benchmark` on the same folds:
 REVIEW means the book goes on the Sunday review agenda against its own
 pre-registered kill criterion (printed on its page). The prose criterion
 decides; this flag only decides what gets read. Benchmarks are not judged.
+
+
+**The interval is new information, not a new rule (added 2026-08-20).** The
+PASS / WATCH / REVIEW rule above is unchanged: it still reads the beat rate and
+the *mean* excess exactly as it was pre-registered, and no verdict in this
+report has been recomputed, softened or overridden by an interval. What is new
+is the **90% bootstrap CI on mean excess vs EW** in the column beside it, and a
+mechanical `INDISTINGUISHABLE` label for any book whose interval contains 0.
+
+Read the two together: a **PASS whose interval straddles zero is a PASS on a
+number this evidence cannot separate from the benchmark**, and a REVIEW whose
+interval straddles zero is not proof the book is broken either. The verdict says
+what gets read on Sunday. The interval says how much the number underneath it
+is worth.
+
+**Method.** Percentile bootstrap over FOLDS, 10,000 resamples, fixed seed
+`20260820` so the report re-renders identically from unchanged inputs. Folds are
+the resampling unit because each is an independent replay from the reference
+notional (D-WF2) over a validate window no other fold's validate window touches
+(D-WF1). Folds with status other than `ok` — including `inert`, a book that
+placed zero fills — are excluded before resampling; an inert fold is not
+evidence. Fewer than 3 comparable folds gets **no interval**, printed as
+`·`, never a zero.
+
+**Caveat that cuts against us.** Adjacent folds share twelve months of TRAIN
+window (train 24mo, step 12mo) and all folds come from one market history, so an
+i.i.d. bootstrap UNDERSTATES the true uncertainty. These intervals are a floor
+on the error bar. At 10 folds the bootstrap can reject a large effect and cannot
+confirm a small one; methods that could (block or stationary bootstrap) need a
+fold count in the high tens and are deliberately not used here.
 

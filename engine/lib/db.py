@@ -196,6 +196,32 @@ def init_queue_schema(con: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+def init_screen_policy_schema(con: duckdb.DuckDBPyConnection) -> None:
+    """Stamp every screen row with the UNIVERSE POLICY that produced it.
+
+    WHY a column and not a note in the report: `ew_benchmark` is the yardstick
+    every other book is scored against, and it is defined by whatever the screen
+    passed that day. If the screen's universe policy can change without leaving
+    a trace in the row, two screens built under different policies look
+    identical in `screen_results` and every downstream comparison silently mixes
+    them. Making the row self-describing is the only place the check cannot be
+    forgotten.
+
+    DEFAULT 'all' is deliberate and it is TRUE of the existing rows: every
+    screen stored before 2026-08-20 ran with no exclusions, so backfilling them
+    as 'all' states a fact rather than guessing one.
+
+    Kept SEPARATE from init_schema (same reasoning as init_queue_schema) and
+    written as ADD COLUMN IF NOT EXISTS so it is safe against the live
+    single-writer store. Assumes `screen_results` exists — call init_schema
+    first.
+    """
+    con.execute(
+        "ALTER TABLE screen_results ADD COLUMN IF NOT EXISTS "
+        "universe_policy VARCHAR DEFAULT 'all'"
+    )
+
+
 def init_mining_schema(con: duckdb.DuckDBPyConnection) -> None:
     """M4 §12.2 additions: the append-only, point-in-time `fundamentals`
     (weekly snapshot) and `earnings_calendar` (daily) tables.

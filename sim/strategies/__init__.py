@@ -5,6 +5,9 @@ from .base import Order, PortfolioView, Strategy
 from .discretionary import Discretionary
 from .dual_momentum import DualMomentum
 from .ew_benchmark import EwBenchmark
+from .ew_dd_throttle import EwDdThrottle
+from .ew_gross_voltarget import EwGrossVolTarget
+from .ew_sector_capped import EwSectorCapped
 from .ew_trend_gated import EwTrendGated
 from .ew_voltarget import EwVolTarget
 from .high_52wk import High52Week
@@ -29,6 +32,14 @@ REGISTRY: dict[str, type[Strategy]] = {
     "ew_benchmark": EwBenchmark,
     "ew_voltarget": EwVolTarget,
     "ew_trend_gated": EwTrendGated,
+    # Three 2026-08-20 drawdown candidates. They are WALK-FORWARD
+    # CANDIDATES, not league books: registering a class here does not
+    # create a `portfolios` row, and a candidate becomes a book only when
+    # a human pre-registers it in configs.py with an expectation and a
+    # kill criterion. Charters live in docs/charters/.
+    "ew_gross_voltarget": EwGrossVolTarget,
+    "ew_sector_capped": EwSectorCapped,
+    "ew_dd_throttle": EwDdThrottle,
     "spy_benchmark": SpyBenchmark,
     "turtle_breakout": TurtleBreakout,
     "momo_stopped": MomoStopped,
