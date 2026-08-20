@@ -1,7 +1,25 @@
 {
   "sweep": "concentration",
   "n_trials": 6,
-  "generated": "2026-08-20 06:52 UTC",
+  "generated": "2026-08-20 09:29 UTC",
+  "bootstrap": {
+    "seed": 20260820,
+    "draws": 10000,
+    "conf": 0.9,
+    "statistic": "median",
+    "unit": "fold",
+    "n_indistinguishable": 6
+  },
+  "deflated_sharpe": {
+    "id": "sweep__concentration__cap-10",
+    "n_obs": 10,
+    "n_trials": 6,
+    "sharpe_raw": 0.2056401154471417,
+    "sr0_benchmark": 0.4034331647505886,
+    "deflated_sharpe": 0.24159651088875045,
+    "var_sr": 0.09628584096703377,
+    "var_source": "observed variance of the 5 trial excess Sharpes in this grid"
+  },
   "rows": [
     {
       "identical_to_benchmark": true,
@@ -11,7 +29,32 @@
       "mean_excess": 0.0,
       "beat_bench": 0.0,
       "worst_dd": -0.37530057933902905,
-      "median_validate": 0.17206985087610904
+      "median_validate": 0.17206985087610904,
+      "median_excess_ci": {
+        "stat": "median",
+        "n": 10,
+        "point": 0.0,
+        "lo": 0.0,
+        "hi": 0.0,
+        "conf": 0.9,
+        "n_boot": 10000,
+        "seed": 20260820,
+        "contains_zero": true
+      },
+      "distinguishable": "INDISTINGUISHABLE",
+      "excess_sharpe_per_fold": null,
+      "fold_excess": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
     },
     {
       "identical_to_benchmark": false,
@@ -21,7 +64,32 @@
       "mean_excess": 0.07549948220613589,
       "beat_bench": 0.5,
       "worst_dd": -0.48190723838023763,
-      "median_validate": 0.2872953743541936
+      "median_validate": 0.2872953743541936,
+      "median_excess_ci": {
+        "stat": "median",
+        "n": 10,
+        "point": -0.0038651385395890303,
+        "lo": -0.14845754471353012,
+        "hi": 0.044066140358885564,
+        "conf": 0.9,
+        "n_boot": 10000,
+        "seed": 20260820,
+        "contains_zero": true
+      },
+      "distinguishable": "INDISTINGUISHABLE",
+      "excess_sharpe_per_fold": 0.2056401154471417,
+      "fold_excess": [
+        -0.20118254243124267,
+        -0.022280347012360924,
+        0.4788282637501162,
+        0.9477922087498112,
+        -0.24401515391245465,
+        -0.13240455224854497,
+        0.014550069933182863,
+        -0.14845754471353012,
+        0.018098279587496435,
+        0.044066140358885564
+      ]
     },
     {
       "identical_to_benchmark": false,
@@ -31,7 +99,32 @@
       "mean_excess": -0.021632344739810582,
       "beat_bench": 0.4,
       "worst_dd": -0.3626228706126181,
-      "median_validate": 0.20056092864455688
+      "median_validate": 0.20056092864455688,
+      "median_excess_ci": {
+        "stat": "median",
+        "n": 10,
+        "point": -0.02044708630835257,
+        "lo": -0.0366723977866279,
+        "hi": 0.02089717009773645,
+        "conf": 0.9,
+        "n_boot": 10000,
+        "seed": 20260820,
+        "contains_zero": true
+      },
+      "distinguishable": "INDISTINGUISHABLE",
+      "excess_sharpe_per_fold": -0.29338465036280953,
+      "fold_excess": [
+        0.07294418398903046,
+        -0.03831663513891703,
+        -0.0073116064028144745,
+        -0.03358256621389066,
+        -0.20324208280719747,
+        -0.03690371509390167,
+        0.0081349791670281,
+        0.0336593610284448,
+        0.023322794508450873,
+        -0.03502816043433876
+      ]
     },
     {
       "identical_to_benchmark": false,
@@ -41,7 +134,32 @@
       "mean_excess": -0.05008604654109945,
       "beat_bench": 0.3,
       "worst_dd": -0.36103142438843216,
-      "median_validate": 0.17379376246245226
+      "median_validate": 0.17379376246245226,
+      "median_excess_ci": {
+        "stat": "median",
+        "n": 10,
+        "point": -0.032943154241672046,
+        "lo": -0.05321748912405666,
+        "hi": 0.0021834107780253076,
+        "conf": 0.9,
+        "n_boot": 10000,
+        "seed": 20260820,
+        "contains_zero": true
+      },
+      "distinguishable": "INDISTINGUISHABLE",
+      "excess_sharpe_per_fold": -0.47368625416772014,
+      "fold_excess": [
+        0.06358533247057718,
+        -0.022044429552420697,
+        -0.04340441050250532,
+        -0.08604225097770524,
+        -0.325522936753994,
+        -0.05321748912405666,
+        0.005260776403983036,
+        0.026411251108471312,
+        -0.022963427935784875,
+        -0.04292288054755922
+      ]
     },
     {
       "identical_to_benchmark": false,
@@ -51,7 +169,32 @@
       "mean_excess": 0.015387469470195292,
       "beat_bench": 0.4,
       "worst_dd": -0.4257542408835234,
-      "median_validate": 0.07517900810118872
+      "median_validate": 0.07517900810118872,
+      "median_excess_ci": {
+        "stat": "median",
+        "n": 10,
+        "point": -0.037450466721843156,
+        "lo": -0.05819912052734555,
+        "hi": 0.07590162092888875,
+        "conf": 0.9,
+        "n_boot": 10000,
+        "seed": 20260820,
+        "contains_zero": true
+      },
+      "distinguishable": "INDISTINGUISHABLE",
+      "excess_sharpe_per_fold": 0.0990815281551214,
+      "fold_excess": [
+        -0.056602315596314345,
+        -0.025410547093285496,
+        0.008872607005574906,
+        0.20251663503251316,
+        0.07590162092888875,
+        -0.05819912052734555,
+        -0.062140194402024895,
+        -0.04949038635040082,
+        -0.2164868867665195,
+        0.3349132824708667
+      ]
     },
     {
       "identical_to_benchmark": false,
@@ -61,7 +204,32 @@
       "mean_excess": 0.044139175980760295,
       "beat_bench": 0.4,
       "worst_dd": -0.46399987529192943,
-      "median_validate": 0.09843065692254804
+      "median_validate": 0.09843065692254804,
+      "median_excess_ci": {
+        "stat": "median",
+        "n": 10,
+        "point": -0.05492481892416007,
+        "lo": -0.13108062141886334,
+        "hi": 0.2581280750409425,
+        "conf": 0.9,
+        "n_boot": 10000,
+        "seed": 20260820,
+        "contains_zero": true
+      },
+      "distinguishable": "INDISTINGUISHABLE",
+      "excess_sharpe_per_fold": 0.1926878193468957,
+      "fold_excess": [
+        -0.13108062141886334,
+        -0.09220041812131785,
+        0.15291168463809113,
+        0.3748820855856483,
+        0.3879372174796245,
+        -0.017649219727002285,
+        -0.1289831143969693,
+        -0.14702616634019838,
+        -0.21552776293235232,
+        0.2581280750409425
+      ]
     }
   ],
   "excluded": []

@@ -27,6 +27,8 @@ if str(REPO_ROOT) not in sys.path:
 WF_DIR = REPO_ROOT / "data" / "reports" / "walkforward"
 RESULTS_DIR = WF_DIR / "results"
 
+from farm import stats as fstats  # noqa: E402
+
 EW = "ew_benchmark"
 SPY = "spy_benchmark"
 BENCHMARKS = (EW, SPY)
@@ -81,6 +83,39 @@ pre-registered kill criterion (printed on its page). The prose criterion
 decides; this flag only decides what gets read. Benchmarks are not judged.
 """
 
+# The rule above is FROZEN. What follows is an error bar printed BESIDE it.
+INTERVAL_NOTE = """\
+**The interval is new information, not a new rule (added 2026-08-20).** The
+PASS / WATCH / REVIEW rule above is unchanged: it still reads the beat rate and
+the *mean* excess exactly as it was pre-registered, and no verdict in this
+report has been recomputed, softened or overridden by an interval. What is new
+is the **90% bootstrap CI on mean excess vs EW** in the column beside it, and a
+mechanical `INDISTINGUISHABLE` label for any book whose interval contains 0.
+
+Read the two together: a **PASS whose interval straddles zero is a PASS on a
+number this evidence cannot separate from the benchmark**, and a REVIEW whose
+interval straddles zero is not proof the book is broken either. The verdict says
+what gets read on Sunday. The interval says how much the number underneath it
+is worth.
+
+**Method.** Percentile bootstrap over FOLDS, {draws:,} resamples, fixed seed
+`{seed}` so the report re-renders identically from unchanged inputs. Folds are
+the resampling unit because each is an independent replay from the reference
+notional (D-WF2) over a validate window no other fold's validate window touches
+(D-WF1). Folds with status other than `ok` — including `inert`, a book that
+placed zero fills — are excluded before resampling; an inert fold is not
+evidence. Fewer than {min_n} comparable folds gets **no interval**, printed as
+`·`, never a zero.
+
+**Caveat that cuts against us.** Adjacent folds share twelve months of TRAIN
+window (train 24mo, step 12mo) and all folds come from one market history, so an
+i.i.d. bootstrap UNDERSTATES the true uncertainty. These intervals are a floor
+on the error bar. At 10 folds the bootstrap can reject a large effect and cannot
+confirm a small one; methods that could (block or stationary bootstrap) need a
+fold count in the high tens and are deliberately not used here.
+""".format(draws=fstats.BOOTSTRAP_DRAWS, seed=fstats.BOOTSTRAP_SEED,
+           min_n=fstats.MIN_BOOTSTRAP_N)
+
 
 # --------------------------------------------------------------------------- #
 def load_results(results_dir: Path = RESULTS_DIR) -> list[dict]:
@@ -89,10 +124,40 @@ def load_results(results_dir: Path = RESULTS_DIR) -> list[dict]:
     out = []
     for p in sorted(results_dir.glob("*.json")):
         try:
-            out.append(json.loads(p.read_text()))
+            out.append(_relabel_stale_inert(json.loads(p.read_text())))
         except json.JSONDecodeError:
             print(f"[wf-report] skipping unreadable {p}")
     return out
+
+
+def _relabel_stale_inert(r: dict) -> dict:
+    """Apply the runner's inert guard to results written BEFORE it existed.
+
+    `runner.run_fold` has returned `status: "inert"` for a zero-fill fold since
+    2026-08-20, but every result JSON on disk from before that date still says
+    `"ok"` with `n_fills: 0` — `earnings_context_pead` is the known one, and it
+    is the row that got published as `+0.00% mean validate / −30.55% vs EW /
+    REVIEW`. Re-reading those files without re-labelling would keep that row in
+    the table, and it would now carry a bootstrap CI as well: an error bar
+    around a number that was never a measurement, which is worse than the point
+    estimate alone. The guard belongs at the measurement layer wherever the
+    measurement is read, and re-running twenty-two replays to fix a label is not
+    the honest cost here. Only an exact 0 triggers it; a fold whose JSON has no
+    `n_fills` key at all is left alone rather than guessed at.
+    """
+    for f in r.get("folds", []):
+        if f.get("status") == "ok" and f.get("n_fills") == 0:
+            f["status"] = "inert"
+            f["reason"] = ("0 fills over the whole fold — the book never traded, "
+                           "so its flat equity is not a result (re-labelled at "
+                           "report time; this result predates the runner guard)")
+    if any(f.get("status") == "inert" for f in r.get("folds", [])):
+        if __package__:
+            from . import runner as _runner
+        else:  # pragma: no cover
+            from farm.walkforward import runner as _runner
+        r["summary"] = _runner.summarize(r["folds"])
+    return r
 
 
 def _pct(v) -> str:
@@ -145,11 +210,17 @@ def book_verdict(r: dict, bench: dict[str, dict[tuple, dict]]) -> tuple[str, dic
     ew = bench.get(EW)
     exc = [(_excess(f, ew)) for f in ok]
     exc = [e for e in exc if e is not None]
+    # The CI is on the MEAN excess, because the mean is the quantity the frozen
+    # verdict rule reads. Interval-ing the median here would be adding an error
+    # bar to a statistic no verdict uses — informative-looking and misaligned.
+    ci = fstats.bootstrap_ci(exc, stat="mean")
     stats = {
         "n_compared": len(exc),
         "beat_rate": (sum(1 for e in exc if e > 0) / len(exc)) if exc else None,
         "mean_excess": (sum(exc) / len(exc)) if exc else None,
         "latest_excess": exc[-1] if exc else None,
+        "mean_excess_ci": ci,
+        "distinguishable": fstats.ci_verdict(ci),
     }
     if r["config_id"] in BENCHMARKS:
         return "reference", stats
@@ -189,18 +260,41 @@ def _fold_row(f: dict, bench: dict[str, dict[tuple, dict]]) -> str:
             f"| {_pct(_excess(f, bench.get(SPY)))} | {f.get('n_validate_fills')} |")
 
 
-SUMMARY_HEADER = ("| Book | Verdict | Folds | Validate win rate | Beats EW | "
-                  "Mean validate | Mean excess vs EW | Latest validate | "
+SUMMARY_HEADER = ("| Book | Verdict | Distinguishable from EW? | Folds | "
+                  "Validate win rate | Beats EW | Mean validate | "
+                  "Mean excess vs EW | 90% CI on mean excess | Latest validate | "
                   "Latest vs EW | Mean decay (CAGR) | Worst validate DD |")
-SUMMARY_RULE = "|---|---|---|---|---|---|---|---|---|---|---|"
+SUMMARY_RULE = "|---|---|---|---|---|---|---|---|---|---|---|---|---|"
+
+
+def _ci_cell(ci: dict | None) -> str:
+    """No interval is printed as an absence. A zero-filled CI would be a claim."""
+    if ci is None:
+        return "·"
+    return f"[{_pct(ci['lo'])}, {_pct(ci['hi'])}]"
+
+
+def _distinguishable_cell(v: str, is_reference: bool) -> str:
+    """Loud on purpose: for most books this is the honest headline and it must
+    not be readable as a footnote next to a bold verdict."""
+    if is_reference:
+        return "—"
+    if v == "INDISTINGUISHABLE":
+        return "**INDISTINGUISHABLE**"
+    if v == "NO-CI":
+        return "_no interval_"
+    return f"**{v}**"
 
 
 def _summary_row(r: dict, verdict: str, vs: dict) -> str:
     s = r["summary"]
+    ref = r["config_id"] in BENCHMARKS
     return (f"| [{r['config_id']}]({r['config_id']}.md) | {verdict} "
+            f"| {_distinguishable_cell(vs.get('distinguishable', 'NO-CI'), ref)} "
             f"| {s.get('n_folds_ok')} | {_rate(s.get('validate_win_rate'))} "
             f"| {_rate(vs.get('beat_rate'))} | {_pct(s.get('mean_validate_total'))} "
-            f"| {_pct(vs.get('mean_excess'))} | {_pct(s.get('latest_validate_total'))} "
+            f"| {_pct(vs.get('mean_excess'))} | {_ci_cell(vs.get('mean_excess_ci'))} "
+            f"| {_pct(s.get('latest_validate_total'))} "
             f"| {_pct(vs.get('latest_excess'))} | {_pct(s.get('mean_decay_cagr'))} "
             f"| {_pct(s.get('worst_validate_max_dd'))} |")
 
@@ -245,6 +339,8 @@ def write_reports(results_dir: Path = RESULTS_DIR,
         "",
         VERDICT_RULE,
         "",
+        INTERVAL_NOTE,
+        "",
         "⚑ = the fold's train window was clamped to the book's data floor. "
         "◈ = the validate window extends past league inception "
         f"({LEAGUE_INCEPTION}) and so partly shadows the live record.",
@@ -262,11 +358,20 @@ def write_reports(results_dir: Path = RESULTS_DIR,
 
     if results:
         rows = []
+        n_judged = n_indistinct = 0
         for r in results:
             verdict, vs = book_verdict(r, bench)
+            if r["config_id"] not in BENCHMARKS and vs.get("distinguishable"):
+                n_judged += 1
+                n_indistinct += vs["distinguishable"] == "INDISTINGUISHABLE"
             rows.append((VERDICT_ORDER.get(verdict, 9),
                          -(r["summary"].get("mean_validate_total") or 0),
                          _summary_row(r, verdict, vs)))
+        if n_judged:
+            lines += [f"**{n_indistinct} of {n_judged} judged book(s) are "
+                      f"`INDISTINGUISHABLE` from `ew_benchmark`** at 90% "
+                      f"confidence on mean excess. Read every verdict in the "
+                      f"next column with that column beside it.", ""]
         lines += [SUMMARY_HEADER, SUMMARY_RULE] + [x[2] for x in sorted(rows)]
     else:
         lines.append("_No book has been re-validated yet._")
@@ -359,6 +464,12 @@ def write_reports(results_dir: Path = RESULTS_DIR,
             f"mean excess {_pct(vs.get('mean_excess'))}, latest "
             f"{_pct(vs.get('latest_excess'))} → **{verdict}**.",
             "",
+            f"**90% CI on mean excess vs `{EW}`:** "
+            f"{_ci_cell(vs.get('mean_excess_ci'))} → "
+            f"{_distinguishable_cell(vs.get('distinguishable', 'NO-CI'), r['config_id'] in BENCHMARKS)}. "
+            f"The verdict above is unchanged by this interval — see the note "
+            f"below the fold table.",
+            "",
             DISCLOSURES,
             "",
             "## Folds", "", FOLD_HEADER, FOLD_RULE,
@@ -389,6 +500,8 @@ def write_reports(results_dir: Path = RESULTS_DIR,
             f"(scratch {r.get('scratch_s')}s, screen {r.get('screen_s')}s)",
             "",
             VERDICT_RULE,
+            "",
+            INTERVAL_NOTE,
             "",
         ]
         f = out_dir / f"{r['config_id']}.md"
