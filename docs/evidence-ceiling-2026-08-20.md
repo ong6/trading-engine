@@ -28,6 +28,21 @@ against `prices`):
 | 1996 | 937 | **8,090** (all-time high) | **~12%** |
 | 2003 | 1,362 | 5,295 | ~26% |
 | 2014 | 2,360 | ~4,300 | ~55% |
+
+**CORRECTED (adversarial audit, same day).** The rows above compare a store count that
+INCLUDES ETFs against a World Bank series that counts operating companies only. Recomputed
+ex-ETF via `universe.etf`:
+
+| year | in store, ex-ETF | ETFs excluded | coverage |
+|---|---|---|---|
+| 1996 | **919** | 18 | **11.4%** |
+| 2003 | 1,261 | 101 | **23.8%** |
+| 2014 | 1,825 | 535 | **42%** — not the ~55% first claimed |
+
+The 1996 headline survives essentially unchanged, because there were almost no ETFs then.
+The middle rows were inflated and are corrected here. ADRs and multiple share classes still
+in the store would push every figure lower, so these remain upper bounds on coverage — the
+argument gets stronger, not weaker.
 | 2025 | 3,858 | ~4,300 | — (see caveat) |
 
 **Caveat on the last row, stated because it cuts against the argument:** the store's counts

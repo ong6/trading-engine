@@ -98,6 +98,17 @@ GRIDS: dict[str, dict] = {
     },
     # Banding is a turnover control. Wider bands mean fewer trades; the question
     # is whether the drawdown follows the turnover down.
+    # The CONTROL for `gross_voltarget`. ew_gross_voltarget ran at 47% / 31% of
+    # the benchmark's vol over its first two folds, so comparing it to
+    # ew_benchmark measures de-risking PLUS timing and credits all of it to the
+    # timing. This grid supplies the de-risking-only leg; the difference between
+    # the two grids is what varying exposure over time is actually worth.
+    "static_exposure": {
+        "strategy": "ew_static_exposure",
+        "base": {"cap": 50, "exposure": 0.5, "cash_proxy": "BIL"},
+        "grid": {"exposure": [0.3, 0.4, 0.5, 0.6, 0.8]},
+        "feasible": lambda p: 0 < p["exposure"] <= 1,
+    },
     "banding": {
         "strategy": "template_top10_banded",
         "base": {"n": 10, "band_rank": 20},
