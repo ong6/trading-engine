@@ -47,7 +47,10 @@ export TRADING_ENGINE_DRAIN_BUDGET_S="${TRADING_ENGINE_DRAIN_BUDGET_S:-43200}"
 # 100-130, historical backtests 140-165, walk-forward grid 170-176), so a sweep
 # can never delay a stage that feeds the live league.
 SWEEP_PRIORITY=900
-SWEEP_MEM_MB=8000
+# 8000 -> 4500 (2026-08-20): measured — the live meanrev 10-fold sweep
+# worker's lifetime peak RSS (VmHWM) was 3,409 MB; 4500 = peak +32% headroom.
+# Must match JOB_TYPES["sweep"]["mem_mb"] in engine/queue_runner.py.
+SWEEP_MEM_MB=4500
 
 {
   echo "=== run_weekend_sweeps $(date -u +%FT%TZ) ==="
@@ -71,10 +74,14 @@ SWEEP_MEM_MB=8000
       --params "{\"grid\": \"${g}\"}"
   done
 
-  # --jobs 4: `sweep` is parallel_safe (read-only on the store, writes only its
-  # own pid-namespaced scratch), so grids run four at a time and the parent
-  # RELEASES the write lock for the batch — the API/UI stay up throughout.
-  "${PY}" engine/queue_runner.py --run --jobs 4
+  # --jobs 8: `sweep` is parallel_safe (read-only on the store, writes only its
+  # own pid-namespaced scratch), so grids batch and the parent RELEASES the
+  # write lock for the batch — the API/UI stay up throughout. Width 4 -> 8
+  # (2026-08-20, measured): 355 -> 523 jobs/h on a fixed 8-replay unit; worker
+  # peak RSS 3.4 GB measured vs 4.5 GB declared, 8 x 4.5 = 36 GB in the 48 GB
+  # budget; sustained load ~20-24 of 32 cores under LOAD_5MIN_MAX=28. There
+  # are only 6 grids today, so real width is min(8, pending grids).
+  "${PY}" engine/queue_runner.py --run --jobs 8
 
   "${PY}" engine/sync.py || echo "WARN: sync failed (exit $?) — reports are on disk; next nightly's sync will stage them"
 
