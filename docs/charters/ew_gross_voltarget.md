@@ -99,3 +99,60 @@ Kill (do not promote; if promoted, retire) if **any** of:
   is a missing measurement, not infinite risk capacity.
 - Infeasible configs raise: `min_obs > vol_lookback`, `vol_target <= 0`,
   `max_leverage <= 0`. None of them may reach a report as a number.
+
+---
+
+## Amendment, 2026-08-20 — the control, and a pre-registered sub-hypothesis
+
+**Why this amendment exists.** The book's first evidence (2 folds) was reported as "worst
+validate drawdown −18.22% vs the benchmark's −36.48%", i.e. drawdown halved. An adversarial
+audit the same day showed that reading is not supportable: the book ran at `vol_ann`
+**17.31% / 17.70%** against the benchmark's **37.02% / 56.24%**, so it held roughly a third
+to a half of the benchmark's risk. **Most of the drawdown relief is the arithmetic
+consequence of holding less equity and says nothing about whether varying exposure over time
+helped.** `ew_static_exposure` was built as the control and run over the same two folds.
+
+| fold (benchmark vol) | book | ret | vol_ann | max DD | ret/vol |
+|---|---|---|---|---|---|
+| **1** (37.02%) | ew_benchmark | +10.18% | 37.02% | −33.25% | 0.27 |
+| | ew_gross_voltarget | +6.15% | 17.31% | −18.22% | 0.36 |
+| | **static @ 0.5** | **+8.50%** | 18.41% | −17.42% | **0.46** |
+| | static @ 0.3 | +7.08% | 11.06% | −10.62% | 0.64 |
+| **2** (56.24%) | ew_benchmark | +43.13% | 56.24% | −36.48% | 0.77 |
+| | **ew_gross_voltarget** | **+27.52%** | 17.70% | −11.48% | **1.55** |
+| | static @ 0.5 | +26.23% | 27.55% | −18.32% | 0.95 |
+| | static @ 0.3 | +17.83% | 16.52% | −10.81% | 1.08 |
+
+**Fold 1 is a loss for this book.** At matched risk (17.31% vs 18.41% vol; −18.22% vs
+−17.42% drawdown) the control returned **+8.50% against this book's +6.15%**. The timing
+subtracted 2.35pp. **Fold 2 is a clear win**: the same return as `static @ 0.5` (+27.52% vs
++26.23%) at **64% of its volatility** and two thirds of its drawdown.
+
+### Pre-registered sub-hypothesis (written BEFORE the 10-fold grid runs)
+
+**H:** the timing benefit — `ew_gross_voltarget` minus the vol-matched `ew_static_exposure`
+cell — is **positively correlated with the fold's benchmark realized volatility**. Vol
+targeting should earn its keep when realized vol is high and varying, and cost something
+when it is low and stable. The two folds so far are consistent with this (benchmark vol
+37.02% → timing −2.35pp; 56.24% → timing strongly positive) and **two points are not
+evidence for a correlation** — they are the reason to state the hypothesis before there are
+ten.
+
+**Test:** over the 10-fold grid, regress (voltarget − matched static) validate excess on the
+fold's `ew_benchmark` `vol_ann`. Report the slope with a bootstrap CI on the same protocol
+as everything else.
+
+**Honest negative case, stated because it is likely:** at n=10 the power analysis on this
+protocol gives 50% power near +7pp/yr, so a slope of the size implied here will very probably
+come back INDISTINGUISHABLE. **That outcome is not a failure of the hypothesis — it is the
+evidence ceiling**, and it must be reported as such rather than dressed up either way.
+
+**Comparison rule, superseding the original charter:** this book is judged against
+`ew_static_exposure` at the cell whose realized vol is closest to its own, **not** against
+`ew_benchmark`. A comparison to `ew_benchmark` measures de-risking plus timing and credits
+all of it to the rule under test. Any grid that omits the static control is invalid for
+this book.
+
+**Kill criterion, unchanged in spirit and sharpened:** the AGENT-free rule is killed if,
+over the 10-fold grid, it fails to beat the vol-matched static control on risk-adjusted
+return in at least 50% of folds. Beating `ew_benchmark` is not sufficient and never was.
