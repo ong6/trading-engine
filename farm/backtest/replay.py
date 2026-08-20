@@ -64,6 +64,7 @@ for _p in (str(REPO_ROOT), str(REPO_ROOT / "engine")):
 from lib import db  # noqa: E402
 from lib import leverage as lev  # noqa: E402
 
+from sim import portfolio as _pf
 from sim import league  # noqa: E402
 from sim.schema import init_sim_schema  # noqa: E402
 from sim.strategies.configs import CONFIGS, config_by_id  # noqa: E402
@@ -369,6 +370,7 @@ def run_replay(live_con, config_id: str, window: str, *,
 
         result = {
             "config_id": config_id,
+            "fill_model": _pf.FILL_MODEL_VERSION,
             "name": cfg["name"],
             "strategy": cfg["strategy"],
             "cadence": cfg["cadence"],
