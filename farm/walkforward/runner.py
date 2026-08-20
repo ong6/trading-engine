@@ -11,7 +11,7 @@ decides WHICH sessions each fold covers and where the equity curve is cut.
 Shape of one job (one book, all its folds):
 
     live store (READ ONLY)
-      └─ scratch/wf__<book>/replay.duckdb          built ONCE for the whole span
+      └─ scratch/wf__<book>__p<pid>/replay.duckdb  built ONCE for the whole span
            ├─ hist_screen over the span's sessions ONCE (books that read it)
            └─ per fold: wipe sim tables → insert the LIVE portfolios row →
               step every session train_start…validate_end → slice sim_equity at
@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 import time
@@ -173,6 +174,22 @@ def run_fold(con, book: dict, fold: protocol.Fold, sessions: list[date],
         "SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM sim_dividends "
         "WHERE portfolio_id = ?", [book["id"]]).fetchone()
 
+    # A book that never bought anything did not "return 0.00%" — it did nothing.
+    # Its equity curve is the initial cash, flat, and every stat derived from it
+    # (return, drawdown, Sharpe) is an artefact of that, not a measurement. Three
+    # separate defects in this codebase have surfaced as a plausible-looking 0%
+    # row rather than an error (NEEDS_SCREEN allow-list, null cadence, and
+    # ew_voltarget's min_obs > lookback), so the fold is labelled INERT and
+    # excluded from every summary rather than ranked against real candidates.
+    if n_fills == 0:
+        return {**fold.as_dict(), "status": "inert",
+                "sessions": len(sessions),
+                "first_session": sessions[0].isoformat(),
+                "last_session": sessions[-1].isoformat(),
+                "runtime_s": round(time.time() - t0, 1),
+                "reason": "0 fills over the whole fold — the book never traded, "
+                          "so its flat equity is not a result"}
+
     out = {
         **fold.as_dict(),
         "status": "ok",
@@ -271,7 +288,14 @@ def run_book(live_con, config_id: str, *,
                             validate_months=validate_months,
                             step_months=step_months), flush=True)
 
-    scratch_dir = Path(scratch_root) / f"wf__{config_id}"
+    # The scratch dir is namespaced by PID, not by config_id alone. Every sweep
+    # injects `ew_benchmark` as its benchmark book, so two sweeps running
+    # concurrently as batch children both derived `scratch/wf__ew_benchmark/`
+    # and destroyed each other — one died on the replay.duckdb.wal lock, the
+    # other on a corporate_actions.parquet the first had just rmtree'd
+    # (measured 2026-08-20, jobs 209/210). Folds of ONE book still share ONE
+    # scratch store, which is the invariant that matters; processes never do.
+    scratch_dir = Path(scratch_root) / f"wf__{config_id}__p{os.getpid()}"
     shutil.rmtree(scratch_dir, ignore_errors=True)
     result: dict = {}
     try:
@@ -342,6 +366,10 @@ def run_book(live_con, config_id: str, *,
 
     s = result.get("summary", {})
     wr = s.get("validate_win_rate")
+    n_inert = s.get("n_folds_inert") or 0
+    if n_inert:
+        print(f"[wf] {config_id}: {n_inert} INERT fold(s) — the book placed 0 "
+              f"fills there; excluded from the summary", flush=True)
     print(f"[wf] {config_id} done in {result.get('runtime_s')}s: "
           f"{s.get('n_folds_ok')} fold(s), validate win rate "
           f"{'·' if wr is None else f'{wr * 100:.0f}%'}, mean validate "
@@ -365,8 +393,13 @@ def summarize(folds: list[dict]) -> dict:
     decay = [f["validate"]["cagr"] - f["train"]["cagr"] for f in ok
              if f["validate"].get("cagr") is not None
              and f["train"].get("cagr") is not None]
+    inert = [f for f in folds if f.get("status") == "inert"]
     return {
         "n_folds_ok": len(ok),
+        # Counted and carried, never dropped quietly: a candidate that is inert
+        # in most of its folds is a broken config, and that has to be readable
+        # off the summary without opening the fold list.
+        "n_folds_inert": len(inert),
         "validate_win_rate": (sum(1 for v in vt if v > 0) / len(vt)) if vt else None,
         "mean_validate_total": (sum(vt) / len(vt)) if vt else None,
         "median_validate_total": _median(vt),
