@@ -9,16 +9,18 @@
 # `date -u +%u = 7` gate inside it — the pattern the Friday fundamentals stage
 # uses — would be dead code that never runs. This is the honest alternative.
 #
-# NOT INSTALLED IN CRON by the build loop. The intended entry (owner action):
+# INSTALLED IN CRON (owner, 2026-08-09) as:
 #
 #   0 6 * * 0 ~/trading-engine/engine/run_weekly_walkforward.sh \
 #       >> ~/trading-engine/logs/walkforward-cron.log 2>&1
 #
+# Its Saturday sibling is engine/run_weekend_sweeps.sh (parameter grids).
+#
 # Sunday 06:00 UTC is clear of everything: the nightly is 22:30 Mon-Fri, the
 # news analyst is 11:00 Mon-Fri, and the full grid measures at roughly 3-4 h,
-# so it lands long before Monday's nightly. Until that line exists, run this
-# script by hand (or on any day — it re-anchors to the latest session in the
-# store, so an off-day run is simply a re-validation as of that day).
+# so it lands long before Monday's nightly. It can also be run by hand on any
+# day — it re-anchors to the latest session in the store, so an off-day run is
+# simply a re-validation as of that day.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
