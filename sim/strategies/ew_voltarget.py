@@ -53,6 +53,18 @@ class EwVolTarget(Strategy):
         min_obs = int(pf.params.get("min_obs", 40))
         max_mult = float(pf.params.get("max_weight_mult", 3.0))
 
+        # The vol window is fetched as `lookback + 1` closes, so a `min_obs`
+        # above that can never be met by ANY name: every candidate is dropped,
+        # `inv_vol` is empty, and the book silently posts no orders forever.
+        # That is a config error, and it fails loudly here rather than being
+        # reported downstream as a flat 0.00% return (2026-08-20: the
+        # `vol_lookback=20` cells of the `voltarget` sweep did exactly that).
+        if min_obs > lookback + 1:
+            raise ValueError(
+                f"ew_voltarget config is infeasible: min_obs={min_obs} exceeds "
+                f"the {lookback + 1} closes a vol_lookback={lookback} window "
+                f"can supply, so no name can ever be weighted")
+
         names = [t for t, _ in passing_ranked(con, sd)[:cap]]
         if not names:
             return []

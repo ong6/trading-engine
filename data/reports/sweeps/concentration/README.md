@@ -1,6 +1,6 @@
 # Sweep — `concentration`
 
-_6 candidate(s) · **6 trials** · 10-fold protocol · generated 2026-08-19 01:34 UTC._
+_6 candidate(s) · **6 trials** · 10-fold protocol · generated 2026-08-20 06:52 UTC._
 
 ## Read this before the table
 
@@ -12,7 +12,7 @@ Benchmark on these folds: median validate **+17.21%**, worst-fold drawdown **-37
 
 | Candidate | Folds | Median excess | Mean excess | Beats EW | Worst DD |
 |---|---|---|---|---|---|
-| `cap-50` | 10 | **+0.00%** | +0.00% | 0% | -37.53% |
+| `cap-50` — _identical to the benchmark; not a result_ | 10 | **+0.00%** | +0.00% | 0% | -37.53% |
 | `cap-10` | 10 | **-0.39%** | +7.55% | 50% | -48.19% |
 | `cap-75` | 10 | **-2.04%** | -2.16% | 40% | -36.26% |
 | `cap-100` | 10 | **-3.29%** | -5.01% | 30% | -36.10% |

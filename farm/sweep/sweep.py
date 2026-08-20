@@ -80,6 +80,11 @@ GRIDS: dict[str, dict] = {
         "strategy": "ew_voltarget",
         "base": {"cap": 50, "vol_lookback": 60, "min_obs": 40, "max_weight_mult": 3.0},
         "grid": {"vol_lookback": [20, 60, 120], "max_weight_mult": [1.5, 3.0, 5.0]},
+        # vol_lookback=20 supplies 21 closes, below the base min_obs of 40, so
+        # those three cells can never weight a name. They are dropped at expand()
+        # time and named in the log — an impossible cell must not inflate the
+        # trial count, and it must not be run and then reported as a 0% return.
+        "feasible": lambda p: p["min_obs"] <= p["vol_lookback"] + 1,
     },
     # momo_stopped's whole thesis is the daily stop. Is 15% the right number, and
     # does the edge depend on holding 10 names rather than 5 or 20?
@@ -138,6 +143,11 @@ def expand(name: str) -> list[dict]:
         # this config into a scratch `portfolios` row and sim/league.py reads the
         # cadence back out to decide which sessions the book trades on. A null
         # cadence silently produces a book that never fires.
+        ok = spec.get("feasible")
+        if ok is not None and not ok(params):
+            print(f"[sweep] {name}: skipping infeasible cell {slug} "
+                  f"(params the strategy can never satisfy)")
+            continue
         cfg = {"id": cid, "name": label, "strategy": spec["strategy"],
                "cadence": _cadence(spec["strategy"]), "params": params}
         out.append({
@@ -195,16 +205,37 @@ def rank(name: str, *, out_root: Path = SWEEPS_DIR, n_trials: int | None = None)
     bench = _folds(bench_p)
 
     rows = []
+    excluded = []          # candidates with no rankable fold, and WHY
     for p in sorted(res_dir.glob("sweep__*.json")):
+        raw = json.loads(p.read_text())
         f = _folds(p)
         common = [k for k in f if k in bench]
         if not common:
+            # NEVER a silent `continue`: a candidate that produced nothing
+            # comparable is a finding about the candidate (usually an infeasible
+            # parameter combination), and dropping it off the table makes the
+            # sweep look like it tested more than it did.
+            n_inert = sum(1 for fo in raw.get("folds", [])
+                          if fo.get("status") == "inert")
+            n_folds = len(raw.get("folds", []))
+            why = (f"INERT — 0 fills in {n_inert}/{n_folds} fold(s); the book "
+                   f"never traded, so it has no return to rank"
+                   if n_inert else
+                   "no fold shares a window with the benchmark")
+            excluded.append({"id": raw["config_id"], "reason": why})
             continue
         ex = [f[k]["validate"]["total_return"] - bench[k]["validate"]["total_return"]
               for k in common]
         dds = [f[k]["validate"]["max_dd"] for k in common]
+        # A cell whose base params ARE the benchmark's re-runs the benchmark and
+        # scores an exact 0.00% excess in every fold — which sorts it to the top
+        # of a table ranked by median excess. That is a self-comparison, not a
+        # winner, and it gets said so rather than quietly leading the ranking
+        # (2026-08-20: `concentration/cap-50` did exactly this).
+        identical = all(e == 0.0 for e in ex)
         rows.append({
-            "id": json.loads(p.read_text())["config_id"],
+            "identical_to_benchmark": identical,
+            "id": raw["config_id"],
             "n_folds": len(common),
             "median_excess": statistics.median(ex),
             "mean_excess": statistics.mean(ex),
@@ -247,11 +278,24 @@ def rank(name: str, *, out_root: Path = SWEEPS_DIR, n_trials: int | None = None)
         "|---|---|---|---|---|---|",
     ]
     for r in rows:
-        md.append(f"| `{r['id'].replace(f'sweep__{name}__', '')}` | {r['n_folds']} | "
+        tag = " — _identical to the benchmark; not a result_" if r.get(
+            "identical_to_benchmark") else ""
+        md.append(f"| `{r['id'].replace(f'sweep__{name}__', '')}`{tag} | {r['n_folds']} | "
                   f"**{r['median_excess'] * 100:+.2f}%** | {r['mean_excess'] * 100:+.2f}% | "
                   f"{r['beat_bench'] * 100:.0f}% | {r['worst_dd'] * 100:.2f}% |")
     if not rows:
         md.append("| _no candidate produced a comparable fold_ | | | | | |")
+    if excluded:
+        md += ["",
+               f"## Excluded — {len(excluded)} of {n_trials} candidate(s) produced no result",
+               "",
+               "These ran and are counted in the trial total; they are not ranked "
+               "because they have nothing to rank. An inert candidate is a config "
+               "defect, not a flat return.",
+               "",
+               "| Candidate | Why |", "|---|---|"]
+        for e in excluded:
+            md.append(f"| `{e['id'].replace(f'sweep__{name}__', '')}` | {e['reason']} |")
     md += ["",
            "## What a good row would look like",
            "",
@@ -261,7 +305,8 @@ def rank(name: str, *, out_root: Path = SWEEPS_DIR, n_trials: int | None = None)
            "the distinction matters more than the headline number.",
            ""]
     (out_dir / "README.md").write_text("\n".join(md) + "\n")
-    payload = {"sweep": name, "n_trials": n_trials, "generated": stamp, "rows": rows}
+    payload = {"sweep": name, "n_trials": n_trials, "generated": stamp,
+               "rows": rows, "excluded": excluded}
     (out_dir / "ranking.json").write_text(json.dumps(payload, indent=2, default=str) + "\n")
     print(f"[sweep] wrote {out_dir / 'README.md'}")
     return payload

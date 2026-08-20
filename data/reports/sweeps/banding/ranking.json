@@ -1,0 +1,98 @@
+{
+  "sweep": "banding",
+  "n_trials": 9,
+  "generated": "2026-08-20 06:52 UTC",
+  "rows": [
+    {
+      "identical_to_benchmark": false,
+      "id": "sweep__banding__band_rank-15__n-5",
+      "n_folds": 10,
+      "median_excess": -0.03048635234911551,
+      "mean_excess": 0.1505154182893181,
+      "beat_bench": 0.5,
+      "worst_dd": -0.6132133341241782,
+      "median_validate": 0.07799302772207906
+    },
+    {
+      "identical_to_benchmark": false,
+      "id": "sweep__banding__band_rank-20__n-5",
+      "n_folds": 10,
+      "median_excess": -0.03388977103533852,
+      "mean_excess": 0.12297608118008946,
+      "beat_bench": 0.5,
+      "worst_dd": -0.5940434821877834,
+      "median_validate": 0.07760438579149775
+    },
+    {
+      "identical_to_benchmark": false,
+      "id": "sweep__banding__band_rank-30__n-5",
+      "n_folds": 10,
+      "median_excess": -0.04880927857214923,
+      "mean_excess": 0.08512429377097364,
+      "beat_bench": 0.4,
+      "worst_dd": -0.5788091980355158,
+      "median_validate": 0.11366012430965411
+    },
+    {
+      "identical_to_benchmark": false,
+      "id": "sweep__banding__band_rank-30__n-20",
+      "n_folds": 10,
+      "median_excess": -0.05644784696143873,
+      "mean_excess": -0.035630025539238476,
+      "beat_bench": 0.3,
+      "worst_dd": -0.45404348719936183,
+      "median_validate": 0.05818077358168222
+    },
+    {
+      "identical_to_benchmark": false,
+      "id": "sweep__banding__band_rank-15__n-10",
+      "n_folds": 10,
+      "median_excess": -0.05908845883917152,
+      "mean_excess": 0.018411604767648204,
+      "beat_bench": 0.3,
+      "worst_dd": -0.4913759277190689,
+      "median_validate": 0.041311266132753155
+    },
+    {
+      "identical_to_benchmark": false,
+      "id": "sweep__banding__band_rank-30__n-10",
+      "n_folds": 10,
+      "median_excess": -0.07052709278991032,
+      "mean_excess": -0.00959310533851394,
+      "beat_bench": 0.2,
+      "worst_dd": -0.47348142093937207,
+      "median_validate": 0.06324864385154955
+    },
+    {
+      "identical_to_benchmark": false,
+      "id": "sweep__banding__band_rank-15__n-20",
+      "n_folds": 10,
+      "median_excess": -0.07481746571981451,
+      "mean_excess": -0.03765334082498358,
+      "beat_bench": 0.2,
+      "worst_dd": -0.45721768338995306,
+      "median_validate": 0.04550808681990054
+    },
+    {
+      "identical_to_benchmark": false,
+      "id": "sweep__banding__band_rank-20__n-20",
+      "n_folds": 10,
+      "median_excess": -0.07481746571981451,
+      "mean_excess": -0.03765334082498358,
+      "beat_bench": 0.2,
+      "worst_dd": -0.45721768338995306,
+      "median_validate": 0.04550808681990054
+    },
+    {
+      "identical_to_benchmark": false,
+      "id": "sweep__banding__band_rank-20__n-10",
+      "n_folds": 10,
+      "median_excess": -0.0798447285510151,
+      "mean_excess": 0.03245043261461862,
+      "beat_bench": 0.3,
+      "worst_dd": -0.4860637962393325,
+      "median_validate": 0.05625104106836054
+    }
+  ],
+  "excluded": []
+}

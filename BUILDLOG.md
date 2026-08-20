@@ -1419,6 +1419,139 @@ conflict; execution design §7 has exit criteria).
   nightly's path, and always landing in the same human pre-registration gate as everything else.
 
 
+## 2026-08-20 · A book that never traded is not a 0.00% return; and the drain stops holding the writer
+
+- **The defect: four sweep/walk-forward rows published a flat equity curve as a result.**
+  `voltarget`'s three `vol_lookback=20` cells were ranked at **-17.21% median excess,
+  0.00% worst drawdown** over 10 folds. That is not a return. Those books placed **zero
+  fills in every fold** and their equity sat at the initial cash for twelve years.
+  `sim/strategies/ew_voltarget.py` fetches `lookback + 1` closes, so with `vol_lookback=20`
+  every name fails the `min_obs=40` test, `inv_vol` comes back empty and the book returns
+  no orders — forever. The grid varied `vol_lookback` while holding `min_obs` at 40, making
+  three of nine cells structurally impossible to satisfy.
+
+- **It had already reached a published verdict.** `earnings_context_pead` in
+  `data/reports/walkforward/README.md` (2026-08-17): 6 folds, all `status: ok`, **0 fills**,
+  printed as `+0.00% mean validate / -30.55% vs EW / **REVIEW**`. Disclosure 6 of that same
+  report promises "books that cannot be replayed are absent, not zero. Nothing is faked to
+  fill a row." It was not true. Root cause behind that one: `protocol.EXCLUDED` is keyed by
+  **config_id**, and `pead_ear` is excluded there ("no historical earnings dates") while its
+  AI twin `earnings_context_pead`, running the identical strategy, was not — an exclusion
+  list keyed by config cannot cover a strategy's twins by construction.
+
+- **This is the FOURTH instance of one failure class**, after the `NEEDS_SCREEN` allow-list,
+  the null `cadence`, and the null `config_json`. Stated once, as the house rule it now is:
+  **in this codebase the dangerous outcome is never a crash — it is a book that quietly does
+  nothing and reports a number for it.** So the guard goes at the measurement layer, where
+  it catches the instances nobody has thought of yet, not only at each new call site:
+
+  * `farm/walkforward/runner.py` — a fold with `n_fills == 0` returns `status: "inert"` and
+    a reason, never `"ok"`. `summarize()` carries `n_folds_inert` and excludes those folds
+    from every statistic; `run_book` prints the inert count.
+  * `farm/walkforward/report.py` — a book with no `ok` fold drops out of the summary table
+    into "Books NOT walk-forwarded", named with its reason. Disclosure 6 is now true.
+  * `farm/sweep/sweep.py` — a candidate with nothing rankable gets an **Excluded** table
+    saying why, instead of the silent `continue` that dropped it off the page. A cell whose
+    excess is exactly 0.00 in every fold is tagged _identical to the benchmark; not a
+    result_ — `concentration/cap-50` re-runs `ew_benchmark`'s own params and was sorting to
+    the TOP of a table ranked by median excess.
+  * Grids take an optional `feasible` predicate. `voltarget` declares
+    `min_obs <= vol_lookback + 1` and expands to **6** cells, not 9 — an impossible cell must
+    not inflate the trial count that every result is deflated against.
+  * `sim/strategies/ew_voltarget.py` raises on `min_obs > lookback + 1` rather than posting
+    no orders forever. The live book (`min_obs=40, vol_lookback=60`) is unaffected.
+
+  **Proof (run, not inspected):** `ew_benchmark` with `cap=0` — a config that genuinely
+  selects no names — walk-forwarded over 2 folds returns
+  `fold statuses ['inert','inert'] · n_folds_ok 0 · n_folds_inert 2 · mean_validate_total None`.
+  Before the change that book would have reported +0.00% twice. The historical-backtest farm
+  was checked for the same leak and is clean: **0 of 78** stored runs have `n_fills == 0`.
+
+- **Re-ranked, and the answer did not change.** `voltarget`'s best of 6 genuine cells is
+  `max_weight_mult-1.5, vol_lookback-120` at **+0.02%** median excess, 50% beat rate,
+  -35.70% worst DD vs EW's -37.53%. Inverse-vol weighting buys approximately nothing; the
+  three phantom rows were the only thing that made the grid look like it had a shape.
+
+- **`momo_stop` sweep completed (9 trials, 10 folds).** Every cell is NEGATIVE on median
+  excess vs `ew_benchmark`; best is `n-20__stop_frac-0.9` at **-3.19%**, beating EW in 30% of
+  folds. The cells with positive MEAN excess (`n-5`, +8% to +14%) carry **-63% to -65%**
+  worst-fold drawdowns — the 2018-2021 skew again, which is exactly why the ranking is by
+  median. **`momo_stopped` is not badly parameterised; the rule does not clear the screen.**
+  Its live +8.08% lead is 15 sessions and |t| ~ 1.1.
+
+- **Four grids, 30 genuine trials, and the best median excess anywhere is +0.02%.**
+
+  | grid | trials | best cell | median excess | beats EW | worst DD |
+  |---|---|---|---|---|---|
+  | banding | 9 | `band_rank-15__n-5` | -3.05% | 50% | -61.32% |
+  | concentration | 6 | `cap-10` (cap-50 = the benchmark itself) | -0.39% | 50% | -48.19% |
+  | momo_stop | 9 | `n-20__stop_frac-0.9` | -3.19% | 30% | -42.76% |
+  | voltarget | 6 | `max_weight_mult-1.5__vol_lookback-120` | +0.02% | 50% | -35.70% |
+
+  The 2026-08-17 walk-forward said the screen is the edge and rules layered on it subtract.
+  The sweeps now say the same thing about those rules' PARAMETER SPACES, which is the
+  stronger claim and the one the walk-forward could not make. `meanrev` and `turtle_stops`
+  are the two grids left (jobs 209/210, draining).
+
+- **The drain held the DuckDB write lock for 7h40m and the UI was down for all of it.**
+  The 08-19 nightly finished its own stages at 23:42 as usual, then drained two sweeps
+  in-process until **06:51:49Z** — through the whole night and into the next session.
+  DuckDB is single-writer, so `GET /league` answered `503 database busy` the entire time,
+  and the box ran at load 2.9 on 32 cores. Two causes, both fixed:
+
+  * `engine/run_daily.sh` drained with a bare `--run` (width 1). Only
+    `run_weekly_walkforward.sh` ever passed `--jobs`. The nightly now passes **`--jobs 4`**,
+    so `parallel_safe` kinds run as read-only children while the parent RELEASES the writer.
+  * **The parallel pre-pass inverted the queue's own priorities** and could not simply be
+    switched on: it drained EVERY `parallel_safe` job before the sequential loop, so a
+    priority-900 sweep would have overtaken the nightly's own priority-100 intraday pull.
+    `cmd_run` is now a single index loop that batches only jobs **already adjacent in
+    priority order** — parallelism widens a run, it can never reorder one.
+
+- **The proof found a real bug in the pre-existing parallel path.** First batched run of
+  jobs 209/210: both children died — one on
+  `Could not set lock on scratch/wf__ew_benchmark/replay.duckdb.wal`, the other on a
+  `corporate_actions.parquet` the first had just `rmtree`'d. **Every sweep injects
+  `ew_benchmark` as its benchmark**, and `run_book` derived the scratch dir from the
+  config_id alone, so two concurrent sweeps always collide on `scratch/wf__ew_benchmark/`.
+  The weekly walk-forward's `--jobs 4` never hit this because its jobs are all distinct
+  books. `scratch_dir` is now `wf__<config_id>__p<pid>`: folds of one book still share one
+  scratch store (the invariant that matters), processes never do.
+
+  **Proof after the fix** — `signals` (priority 105) ran alone, in-process, FIRST; then
+  `[queue] --- parallel batch [209, 210] (sweep, load 2.9, free RAM 49.1 GiB) ---`; two
+  distinct scratch dirs `wf__ew_benchmark__p2694022` / `__p2694023`; both children alive and
+  progressing; **`GET /league` = 200, 200, 200** during the batch, against 503 for the seven
+  hours before it. Load 6.36 vs 2.9 sequential.
+
+- **`sys.stdout.reconfigure(line_buffering=True)` in `cmd_run`.** Redirected to a log the
+  parent is block-buffered while its children (own processes, own buffers) write straight
+  through, so a tailed drain log showed a sweep running with no record of the batch line
+  that started it. Same lesson as the agentic outage: the defect is the silence.
+
+- **Requeued 209/210 by hand** (`state='pending'`, `progress='requeued: scratch-dir
+  collision fixed 2026-08-20'`) after the collision failure — an infrastructure fault, not a
+  job fault, so re-running is the honest action rather than leaving two `failed` rows.
+
+### Next
+
+1. **`protocol.EXCLUDED` is keyed by config_id and should be keyed by strategy** (or checked
+   against both). The inert guard now catches the consequence, but a twin of an excluded
+   strategy still burns a full replay to learn what the exclusion list already knew.
+2. **Every sweep re-runs `ew_benchmark` from scratch** — 977s in the `banding` job, 1361s in
+   `momo_stop`, for a result identical in both because the protocol and anchor match. Cache
+   the benchmark result by (protocol hash, anchor, n_folds) and a sweep gets ~20 min cheaper.
+3. **Retire or re-scope the four regime-gated twins.** `mr_overlay`/`_gated`,
+   `template_top5`/`_gated`, `dual_momentum`/`_gated`, `template_top10_banded`/`_gated` are
+   identical to the cent in `league.md` because the regime has been risk-on every session
+   since inception. Four books, four rows in every report, zero information until the first
+   risk-off stretch. Not a bug — but the gate they test is untested, and the board should say
+   so rather than printing the pair twice.
+4. **The two EW drawdown probes fire their first orders at the 08-31 month signal.** Both are
+   monthly and were created 2026-08-18, so `+0.00%` on the board is correct, not inert.
+   Confirm fills on the 09-01 nightly.
+
+
 ## Blockers
 
 - **GitHub remote still needed (owner action).** The box has working SSH auth to GitHub as

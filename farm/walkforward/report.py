@@ -252,6 +252,14 @@ def write_reports(results_dir: Path = RESULTS_DIR,
         "## Summary — all books, all folds",
         "",
     ]
+    # A book with no `ok` fold has no measurement, only an absence. Disclosure 6
+    # says such a book is "absent, not zero" — before 2026-08-20 that was not
+    # true: `earnings_context_pead` placed 0 fills in all 6 folds and was
+    # published as +0.00% mean validate, −30.55% excess and a REVIEW verdict.
+    # Inert books are split out here and named in the exclusions section.
+    inert = [r for r in results if not (r["summary"].get("n_folds_ok") or 0)]
+    results = [r for r in results if (r["summary"].get("n_folds_ok") or 0)]
+
     if results:
         rows = []
         for r in results:
@@ -297,6 +305,13 @@ def write_reports(results_dir: Path = RESULTS_DIR,
     lines += ["## Books NOT walk-forwarded", ""]
     for cid, why in _proto.EXCLUDED.items():
         lines.append(f"* **{cid}** — {why}")
+    for r in inert:
+        n_inert = r["summary"].get("n_folds_inert") or 0
+        lines.append(
+            f"* **{r['config_id']}** — INERT: 0 fills in {n_inert} fold(s). The "
+            f"book replayed without error and never traded, so it has no return, "
+            f"no drawdown and no verdict. Usually a config the strategy can never "
+            f"satisfy — check its params before reading anything into it.")
     lines += ["",
               "## How this is produced", "",
               "```sh",
