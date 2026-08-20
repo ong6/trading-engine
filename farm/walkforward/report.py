@@ -38,12 +38,21 @@ LEAGUE_INCEPTION = "2026-07-17"
 DISCLOSURES = """\
 ## Disclosures — read before any number below
 
-1. **Survivor universe.** `prices` holds only tickers listed TODAY, so every
-   name delisted, acquired or bankrupted inside a fold is absent entirely. The
-   house lesson prices this at roughly **+7pp/yr of fake return** for a
-   screen-driven book. That is WHY the headline comparison here is **vs EW
-   (same universe, same screen), fold by fold** — the bias is largely common to
-   both sides of that difference. Absolute return is context, not evidence.
+1. **Survivor universe, and it is NOT a constant.** `prices` holds only tickers
+   listed TODAY, so every name delisted, acquired or bankrupted inside a fold is
+   absent entirely. The house lesson has priced this at roughly **+7pp/yr of fake
+   return** for a screen-driven book — but that flat figure is wrong in SHAPE, and
+   the `Universe` column on every fold table below exists to show it. Measured
+   2026-08-20 against World Bank listed-company counts, the store covers
+   **~11% of the companies that existed in 1996, ~24% in 2003 and ~42% in 2014**
+   (ex-ETF). The bias therefore grows monotonically as a window moves back, and an
+   early fold rests on a thinner, more winner-selected cross-section than a late
+   one. Not one 2008 casualty is present: LEH, BSC, ENE, WCOM, CFC, MER, SIVB and
+   FRC are all absent, so **a fold spanning 2008 is one in which those names cannot
+   lose money.** That is WHY the headline comparison here is **vs EW (same
+   universe, same screen), fold by fold** — the bias is largely common to both
+   sides of that difference. Absolute return is context, not evidence, and a fold
+   with a small `Universe` count deserves proportionally less weight.
 2. **Out-of-sample in the DATA, not in the RULE.** Each validate window is data
    the preceding train window never saw, and nothing is fitted anywhere in this
    workload (see D-WF5). But these books were written by a human who has lived
@@ -238,15 +247,15 @@ def book_verdict(r: dict, bench: dict[str, dict[tuple, dict]]) -> tuple[str, dic
 # --------------------------------------------------------------------------- #
 FOLD_HEADER = ("| Fold | Train window | Train ret | Train CAGR | Validate window | "
                "Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | "
-               "Fills |")
-FOLD_RULE = "|---|---|---|---|---|---|---|---|---|---|---|---|---|"
+               "Fills | Universe |")
+FOLD_RULE = "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
 
 
 def _fold_row(f: dict, bench: dict[str, dict[tuple, dict]]) -> str:
     if f.get("status") != "ok":
         return (f"| {f.get('index')} | {f.get('train_start')}→{f.get('split_date')} "
                 f"| — | — | {f.get('split_date')}→{f.get('validate_end')} | "
-                f"**{f.get('status')}**: {f.get('reason', '')} | | | | | | | |")
+                f"**{f.get('status')}**: {f.get('reason', '')} | | | | | | | | |")
     t, v = f["train"], f["validate"]
     flag = " ⚑" if f.get("train_start_clamped_to_data_floor") else ""
     overlap = " ◈" if (f.get("validate", {}).get("end_date") or "") > LEAGUE_INCEPTION \
@@ -257,7 +266,14 @@ def _fold_row(f: dict, bench: dict[str, dict[tuple, dict]]) -> str:
             f"| **{_pct(v.get('total_return'))}** | {_pct(v.get('cagr'))} "
             f"| {_pct(v.get('vol_ann'))} | {_num(v.get('sharpe'))} "
             f"| {_pct(v.get('max_dd'))} | {_pct(_excess(f, bench.get(EW)))} "
-            f"| {_pct(_excess(f, bench.get(SPY)))} | {f.get('n_validate_fills')} |")
+            f"| {_pct(_excess(f, bench.get(SPY)))} | {f.get('n_validate_fills')} "
+            f"| {_num_int(f.get('validate_universe'))} |")
+
+
+def _num_int(v) -> str:
+    """Fold universe size — '·' when the run predates the field, never 0.
+    A missing measurement is not a measurement of zero."""
+    return "·" if v is None else f"{int(v):,}"
 
 
 SUMMARY_HEADER = ("| Book | Verdict | Distinguishable from EW? | Folds | "

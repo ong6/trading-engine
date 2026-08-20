@@ -14,12 +14,21 @@ _`news_gated_momo` · momo_stopped · daily cadence · verdict **WATCH** · gene
 
 ## Disclosures — read before any number below
 
-1. **Survivor universe.** `prices` holds only tickers listed TODAY, so every
-   name delisted, acquired or bankrupted inside a fold is absent entirely. The
-   house lesson prices this at roughly **+7pp/yr of fake return** for a
-   screen-driven book. That is WHY the headline comparison here is **vs EW
-   (same universe, same screen), fold by fold** — the bias is largely common to
-   both sides of that difference. Absolute return is context, not evidence.
+1. **Survivor universe, and it is NOT a constant.** `prices` holds only tickers
+   listed TODAY, so every name delisted, acquired or bankrupted inside a fold is
+   absent entirely. The house lesson has priced this at roughly **+7pp/yr of fake
+   return** for a screen-driven book — but that flat figure is wrong in SHAPE, and
+   the `Universe` column on every fold table below exists to show it. Measured
+   2026-08-20 against World Bank listed-company counts, the store covers
+   **~11% of the companies that existed in 1996, ~24% in 2003 and ~42% in 2014**
+   (ex-ETF). The bias therefore grows monotonically as a window moves back, and an
+   early fold rests on a thinner, more winner-selected cross-section than a late
+   one. Not one 2008 casualty is present: LEH, BSC, ENE, WCOM, CFC, MER, SIVB and
+   FRC are all absent, so **a fold spanning 2008 is one in which those names cannot
+   lose money.** That is WHY the headline comparison here is **vs EW (same
+   universe, same screen), fold by fold** — the bias is largely common to both
+   sides of that difference. Absolute return is context, not evidence, and a fold
+   with a small `Universe` count deserves proportionally less weight.
 2. **Out-of-sample in the DATA, not in the RULE.** Each validate window is data
    the preceding train window never saw, and nothing is fitted anywhere in this
    workload (see D-WF5). But these books were written by a human who has lived
@@ -48,14 +57,14 @@ _`news_gated_momo` · momo_stopped · daily cadence · verdict **WATCH** · gene
 
 ## Folds
 
-| Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2018-08-14→2020-08-14 | +50.87% | +22.81% | 2020-08-14→2021-08-13 | **+221.61%** | +222.90% | +56.79% | +2.35 | −33.77% | +90.49% | +188.78% | 778 |
-| 2 | 2019-08-14→2021-08-13 | +383.27% | +119.95% | 2021-08-13→2022-08-12 | **+0.33%** | +0.33% | +42.60% | +0.22 | −34.22% | +8.30% | +3.12% | 802 |
-| 3 | 2020-08-14→2022-08-12 | +212.66% | +77.17% | 2022-08-12→2023-08-14 | **−11.55%** | −11.50% | +34.78% | −0.18 | −22.81% | −11.47% | −17.81% | 771 |
-| 4 | 2021-08-16→2023-08-14 | −10.81% | −5.58% | 2023-08-14→2024-08-14 | **−10.15%** | −10.13% | +40.70% | −0.06 | −29.68% | −11.60% | −32.28% | 761 |
-| 5 | 2022-08-15→2024-08-14 | −20.43% | −10.81% | 2024-08-14→2025-08-14 | **−7.40%** | −7.40% | +54.05% | +0.13 | −48.01% | −32.51% | −26.82% | 773 |
-| 6 ◈ | 2023-08-14→2025-08-14 | −10.10% | −5.18% | 2025-08-14→2026-08-14 | **+19.17%** | +19.19% | +68.10% | +0.61 | −44.28% | −14.50% | −1.86% | 755 |
+| Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills | Universe |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 2018-08-14→2020-08-14 | +50.87% | +22.81% | 2020-08-14→2021-08-13 | **+221.61%** | +222.90% | +56.79% | +2.35 | −33.77% | +90.49% | +188.78% | 778 | · |
+| 2 | 2019-08-14→2021-08-13 | +383.27% | +119.95% | 2021-08-13→2022-08-12 | **+0.33%** | +0.33% | +42.60% | +0.22 | −34.22% | +8.30% | +3.12% | 802 | · |
+| 3 | 2020-08-14→2022-08-12 | +212.66% | +77.17% | 2022-08-12→2023-08-14 | **−11.55%** | −11.50% | +34.78% | −0.18 | −22.81% | −11.47% | −17.81% | 771 | · |
+| 4 | 2021-08-16→2023-08-14 | −10.81% | −5.58% | 2023-08-14→2024-08-14 | **−10.15%** | −10.13% | +40.70% | −0.06 | −29.68% | −11.60% | −32.28% | 761 | · |
+| 5 | 2022-08-15→2024-08-14 | −20.43% | −10.81% | 2024-08-14→2025-08-14 | **−7.40%** | −7.40% | +54.05% | +0.13 | −48.01% | −32.51% | −26.82% | 773 | · |
+| 6 ◈ | 2023-08-14→2025-08-14 | −10.10% | −5.18% | 2025-08-14→2026-08-14 | **+19.17%** | +19.19% | +68.10% | +0.61 | −44.28% | −14.50% | −1.86% | 755 | · |
 
 ## Summary
 
