@@ -1656,8 +1656,34 @@ Risk-adjusted it does lead in both folds, which is the defensible version of the
 | 2 | ew_gross_voltarget | +27.52% | 17.70% | **1.55** | **2.40** |
 
 **The honest statement: de-risking halved the drawdown and improved risk-adjusted return in
-both folds; whether the vol-TARGETING beats simply holding less equity is 1-for-2 and
-unresolved at n=2.** No look-ahead — the vol estimate reads closes `date <= as_of` and fills
+both folds; whether the vol-TARGETING beats simply holding less equity is 1-for-1 and
+unresolved at n=2.**
+
+**The control was then built and RUN** (`ew_static_exposure`, same basket at constant gross,
+rest in BIL, no signal and no state), which replaced the audit's log-scaling approximation
+with a measurement:
+
+| fold (bench vol) | book | ret | vol_ann | max DD | ret/vol |
+|---|---|---|---|---|---|
+| **1** (37.02%) | ew_gross_voltarget | +6.15% | 17.31% | −18.22% | 0.36 |
+| | **static @ 0.5** | **+8.50%** | 18.41% | −17.42% | **0.46** |
+| **2** (56.24%) | **ew_gross_voltarget** | **+27.52%** | 17.70% | −11.48% | **1.55** |
+| | static @ 0.5 | +26.23% | 27.55% | −18.32% | 0.95 |
+
+**Fold 1 is a LOSS for the book.** At matched risk the dumb control returned +8.50% against
+its +6.15% — the timing subtracted 2.35pp. **Fold 2 is a clear win**: the same return as the
+control at **64% of its volatility** and two thirds of its drawdown. The discriminator is the
+fold's own volatility, which is mechanistically what vol targeting is for.
+
+**Pre-registered BEFORE the 10-fold grid runs** (charter amendment): the timing benefit
+should correlate positively with the fold's benchmark realized vol; test by regressing
+(voltarget − vol-matched static) on `ew_benchmark`'s fold `vol_ann`, bootstrap CI on the same
+protocol. **Two points are not evidence for a correlation — they are the reason to write the
+hypothesis down before there are ten.** Honest negative case: at n=10 this will very probably
+return INDISTINGUISHABLE, and that is the evidence ceiling rather than a verdict.
+**The book's comparison rule is superseded: it is judged against the vol-matched static
+control, never against `ew_benchmark`, and its kill criterion now requires beating that
+control on risk-adjusted return in ≥50% of folds.** No look-ahead — the vol estimate reads closes `date <= as_of` and fills
 are t+1 open (audited, CONFIRMED). Against `ew_trend_gated`'s binary version — 23pp of
 return for 0.1pp of relief — the continuous form is still a different animal.
 **Any 10-fold grid MUST carry a static-exposure control**, or it will re-measure de-risking
