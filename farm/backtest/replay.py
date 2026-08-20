@@ -112,6 +112,7 @@ NEEDS_SCREEN = {"template_top5", "template_top10_banded", "mr_overlay",
                 # strategy here does NOT error: latest_screen_date returns
                 # None and the book posts ZERO orders, silently, forever.
                 "ew_gross_voltarget", "ew_sector_capped",
+                "ew_static_exposure",
                 "ew_dd_throttle"}
 
 # Tickers a book cannot start without, each needing 252 sessions of lookback.
@@ -134,6 +135,7 @@ REQUIRED: dict[str, list[str]] = {
     # is 100% invested in screen names at all times, so clamping its
     # floor to BIL would cost it folds for no reason.
     "ew_gross_voltarget": ["SPY", "BIL"],
+    "ew_static_exposure": ["SPY", "BIL"],
     "ew_dd_throttle": ["SPY", "BIL"],
 }
 DEFAULT_REQUIRED = ["SPY"]     # SPY-200d regime + the report's vs-SPY column
