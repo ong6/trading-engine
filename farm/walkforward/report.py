@@ -508,6 +508,46 @@ def write_reports(results_dir: Path = RESULTS_DIR,
         f.write_text("\n".join(b))
         written.append(f)
 
+    # --- inert books get an honest page, not a stale one -------------------
+    # Filtering inert books out of `results` keeps them off the summary table,
+    # but it also means their OLD page is never regenerated. On 2026-08-20 that
+    # left `earnings_context_pead.md` on disk still reading "verdict **REVIEW**
+    # … mean excess −30.55%" beside a README that had just declared the same run
+    # not a measurement. Deleting the page would break the README's own link, so
+    # it is REWRITTEN to say what is true.
+    for r in inert:
+        s_ = r.get("summary", {})
+        n_inert = s_.get("n_folds_inert") or 0
+        page = [
+            f"# {r.get('name', r['config_id'])} — walk-forward re-validation",
+            "",
+            f"_`{r['config_id']}` · {r.get('strategy', '·')} · "
+            f"{r.get('cadence', '·')} cadence · verdict **INERT — no result** · "
+            f"generated {r.get('generated_utc', '·')}_",
+            "",
+            "## This book placed no trades, so it has no result",
+            "",
+            f"The replay ran without error across **{n_inert} fold(s)** and the "
+            f"book posted **zero fills** in every one of them. Its equity "
+            f"therefore sat at the reference notional for the whole span, and "
+            f"every statistic derived from that curve — return, drawdown, "
+            f"Sharpe, excess versus any benchmark — is an artefact of the book "
+            f"never trading, not a measurement of the rule.",
+            "",
+            "**There is no verdict here and there should not be one.** A number "
+            "computed over a flat line is not evidence, and this page previously "
+            "carried one. Usually the cause is a config the strategy can never "
+            "satisfy, or a strategy whose inputs do not exist over the replay "
+            "window — check the params and the data floor before reading "
+            "anything into this book.",
+            "",
+            "See the exclusions section of [README.md](README.md).",
+            "",
+        ]
+        f = out_dir / f"{r['config_id']}.md"
+        f.write_text("\n".join(page))
+        written.append(f)
+
     print(f"[wf-report] wrote {len(written)} file(s) to {out_dir}")
     return written
 
