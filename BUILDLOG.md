@@ -1828,6 +1828,106 @@ urgency. Full reasoning: `docs/synthesis-price-adjustment-and-fills-2026-08-20.m
    size. The flat "~+7pp/yr" understates the early folds badly.
 
 
+## 2026-08-20c · Working the box from measurement; and phantom bars
+
+- **The farm was throttled by a guessed constant.** A `sweep`/`walkforward`/`backtest` job
+  declared `mem_mb = 8000`. Measured (VmHWM + 1 s sampling): **peak 3,409 MB**, steady-state
+  ~1.55 GB — so the declaration was **2.3x the true PEAK**, and it was the active brake,
+  because `per_batch = ENGINE_RAM_BUDGET_MB // widest` = `48000 // 8000` = 6, then
+  `min(--jobs 4, 6)` = **4**. The box ran four workers on ~6 GB and ~15 cores out of 62 GB
+  and 32.
+
+- **Throughput matrix, measured** — identical 1-fold `ew_benchmark` replays, unit
+  deliberately shortened to 187 sessions so the matrix fit the load budget (relative
+  throughput is the point, and the shortening is disclosed); baseline load ~5.5 including
+  the live sweep worker:
+
+  | config | wall (8 jobs) | jobs/hour | peak 1-min load |
+  |---|---|---|---|
+  | 2 workers x 8 threads | 140 s | 205 | 10.6 |
+  | 4 x 4 | 81 s | 355 | 13.0 |
+  | 8 x 2 | 57 s | 505 | 15.1 |
+  | 8 x 4 | 55 s | **523** | 22.6 |
+  | 16 x 2 | 86 s (16 jobs) | 670 | 28.4, free RAM to 21 G |
+
+  **WIDTH is the lever; DuckDB threads beyond 2-4 buy nothing** (8x4 ~ 8x2). 16-wide still
+  gains but hits the load ceiling and, at production job sizes, `16 x 3.4 GB = 54 GB` on a
+  62 GB box — infeasible. Set from this: `mem_mb` 8000 -> **4500** (measured peak + 32%
+  headroom), `--jobs` 4 -> **8** in all three drivers, `threads` 8 -> **4**. Effective width
+  **4 -> 8**, ~1.5x farm throughput at ~65% of the load ceiling.
+
+- **`LOAD_5MIN_MAX` stays 28.0**, deliberately. Width 8 sustains 20-24 including nightly
+  stages, and the guard **exits the drain** rather than waiting — a trip parks a Sunday grid
+  until Monday — so margin is worth more than the last increment of width. Raising it would
+  only matter at width >= ~10, which RAM rules out anyway.
+
+- **Batch starts are STAGGERED 4 s, added on review of the measurement rather than from it.**
+  The peak is not spread over a job's life: it lands in the first ~15 s, in
+  `build_scratch`'s parquet export. Launching a batch simultaneously therefore **aligns all
+  eight peaks** — the worst case, not an unlucky one. 8 x 3.4 GB arriving at once leaves
+  ~1.9 GB above `FREE_RAM_MIN_GB`, and tripping that floor parks the rest of the drain.
+  Four seconds between launches decorrelates the peaks and costs nothing against jobs that
+  run minutes to hours.
+
+- **The real idle capacity is the CALENDAR, not the width.** The box sits near load 2 for
+  roughly 150 h/week outside a ~72-minute weekday nightly and the two weekend windows. Per
+  the evidence ceiling, **more parameter search is not the filler** — the return on it is
+  measurably ~zero — so the slot goes to data quality:
+  `engine/run_weekly_verify.sh`, **Saturday 02:00 UTC**, widening the nightly's ~40-name
+  price cross-check to the whole liquid universe (~2 h at the measured 2.4 s/name). Four
+  cron entries now cover the engine: nightly 22:30 Mon-Fri, full verify Sat 02:00, sweeps
+  Sat 06:00, walk-forward Sun 06:00.
+
+### Phantom bars — the store contains rows that were never market data
+
+- Chasing EA's stale mark turned up something worse than staleness:
+
+  | date | close | volume |
+  |---|---|---|
+  | 2026-08-03 | 209.910004 | 4,470,400 |
+  | 2026-08-04 | 209.699997 | **48,713,698** |
+  | 2026-08-05 | 209.699997 | **0** |
+  | 2026-08-06 | 209.699997 | **0** |
+  | 2026-08-07 | 209.699997 | **0** |
+  | 2026-08-10 | 209.699997 | **0** |
+
+  EA's last real session was **2026-08-04** — volume roughly 10x normal, the acquisition
+  close — at $209.70, then **four bars at that identical price with zero volume**, then
+  nothing. **yfinance keeps emitting a dead quote as a bar after a name stops trading, and
+  those rows are indistinguishable from real ones to every consumer in the engine.**
+  `mark_to_market` sees a bar and does not flag a carried price at all; the stale-mark
+  detector added earlier the same day reported EA as **7 sessions stale when the truth was
+  11**. A dead position looked fresher than it was.
+
+- Detector re-keyed on `MAX(date) FILTER (WHERE volume > 0)`. **`volume = 0` alone is NOT
+  proof of a phantom** — `JONEU`, a thin SPAC unit, has 13 legitimate zero-volume days — but
+  for a HELD position "has not traded since" is the honest measure of staleness either way.
+  Scale measured: 5 zero-volume bars on the worst recent session, 2 liquid tickers with >= 3
+  in fourteen days. **Narrow, not systemic — and it landed on a held position.**
+
+- **EA looks acquired at $209.70 on 2026-08-04. It was NOT settled.** The engine has no
+  delisting handler, and inferring acquisition terms from a price and a volume spike would be
+  inventing a fact. It is on the dashboard with the frozen value and its share of equity
+  (`high_52wk` 7.96% across EA + TALK, `low_vol` 3.38%); the decision is the owner's.
+
+- **Independent confirmation of the settlement-lag call**: a live verifier run over 30 volume
+  comparisons returns **median absolute difference 0.0%** on settled sessions, with the only
+  over-tolerance reading on the newest session. The exemption is doing exactly what it was
+  designed to do.
+
+### Next
+
+1. **Resolve EA and TALK** (unchanged, and now quantified on the dashboard).
+2. **`ew_gross_voltarget` is judged against the vol-matched `ew_static_exposure` cell**, never
+   against `ew_benchmark`, with the pre-registered vol-correlation sub-hypothesis. Saturday's
+   sweep runs both grids.
+3. **The historical-backtest farm is 22 days stale and its 78 stored runs are `fillmodel=v1`.**
+   Deliberately NOT put on a cron — it is in-sample by its own title and re-running it weekly
+   buys compute, not confidence — but its README should say which fill model produced it.
+4. **Benchmark-result caching** (~20 min per sweep): every grid re-runs `ew_benchmark` from
+   scratch under an identical protocol and anchor.
+
+
 ## Blockers
 
 - **GitHub remote still needed (owner action).** The box has working SSH auth to GitHub as
