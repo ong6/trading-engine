@@ -1559,6 +1559,172 @@ conflict; execution design §7 has exit criteria).
    Confirm fills on the 09-01 nightly.
 
 
+## 2026-08-20b · Error bars change the answer; and the one axis nothing had varied
+
+Six parallel tracks. The confidence track reframed the other five, so it goes first.
+
+- **26 of 30 swept candidates are `INDISTINGUISHABLE` from `ew_benchmark`. Zero are
+  distinguishably better. All four that separate, separate DOWNWARD.** 90% percentile
+  bootstrap on fold excesses, 10,000 resamples, seed `20260820` printed in every report.
+  The top `banding` cell — the `-3.05%` row that had been sitting at the head of a ranked
+  table — has a CI of **[-11.83%, +27.06%]**, and its entire `+15.05%` mean excess is ONE
+  fold out of ten: `[-13.7, +27.1, +5.0, +66.5, +160.7, -11.8, -11.1, -11.7, -71.3, +10.8]`.
+  **That table's ordering carried no information and had been read as though it did.**
+
+- Same instrument on the LIVE book set: **every WATCH book is `INDISTINGUISHABLE`**, and
+  every book that separates from EW loses to it. `template_top5`'s `+32.85%` mean excess
+  carries a CI of **[-33.86%, +127.67%]**. The pre-registered PASS/WATCH/REVIEW rule is
+  unchanged byte-for-byte; the interval sits beside it as new information, not a
+  redefinition.
+
+- `farm/stats.py:deflated_sharpe` **had never been called from the sweep path** despite
+  `sweep.py`'s own docstring saying the trial count exists to feed it. Wired in, with a new
+  optional `var_sr` so the sweep passes the observed cross-trial variance rather than the
+  estimator fallback. Top `banding` cell: raw SR +0.243, SR0 +0.289, **DSR 0.437** against a
+  ~0.95 bar. The folds are the resampling unit and the reports say plainly that adjacent
+  folds share 12 months of TRAIN window, so an i.i.d. bootstrap **understates** the
+  uncertainty — the intervals are a FLOOR, which makes an INDISTINGUISHABLE verdict
+  stronger than it looks and a distinguishable one weaker.
+
+- **`N_FOLDS = 10` is not a compute budget. It is the honest maximum.** The obvious reply
+  to wide intervals is "run more folds", and it was tested rather than assumed. Distinct
+  tickers in `prices`, first week of June: **1996 → 937** against a World Bank count of
+  **8,090** US listed domestic companies that year, i.e. **~12% coverage**; 2003 → 1,362 of
+  5,295 (~26%); 2014 → 2,360 of ~4,300 (~55%). Those 937 are not a sample — they are
+  precisely the names that survived thirty years. Confirmed by looking for names whose fate
+  is not in dispute: **LEH, BSC, ENE, WCOM, CFC, MER, NT, CPQ, SIVB, FRC, TWX, YHOO, MON,
+  CELG, ATVI are ABSENT ENTIRELY.** Not one 2008 casualty is in the store. **Any backtest
+  spanning 2008 is one in which Lehman, Bear Stearns, Countrywide and Merrill cannot lose
+  money.** Folds 11-30 would reach into the 12-26% region where the answer is guaranteed to
+  look good. The survivorship disclosure printed in every report as a flat "~+7pp/yr" is
+  wrong in shape: the bias grows monotonically as the window moves back.
+  **Consequence: the evidence ceiling is structural, not computational.** 32 idle cores
+  cannot resolve a +0.5% edge from ten overlapping folds of survivor-only data. That is why
+  30 trials found nothing and why the 31st would not. Full argument in
+  `docs/evidence-ceiling-2026-08-20.md`. **Stop expanding parameter search; spend on data
+  quality and on the forward record instead.**
+
+### The one axis nothing had ever varied
+
+Every rule ever tried here changes WHICH names are held or HOW they are weighted against
+each other, always at 100% gross exposure. A -36% worst-fold drawdown is a MARKET drawdown,
+and per-name reweighting cannot fix one because the names fall together. That is why
+`ew_voltarget` bought 1.8pp of drawdown for +0.02% median excess.
+
+Three candidates, monthly, judged against `ew_benchmark`, charters with honest expectations
+and kill criteria in `docs/charters/`. **None is a league book** — promotion remains a human
+pre-registration. 2-fold proof against the live store (read-only), vs EW's -36.48%:
+
+| candidate | worst validate DD | fold 1 / fold 2 (EW: +10.18% / +43.13%) |
+|---|---|---|
+| **`ew_gross_voltarget`** — gross exposure scaled to target portfolio vol, rest in BIL | **-18.22%** | +6.15% / +27.52% |
+| `ew_sector_capped` — max names per sector | -35.11% | +9.47% / +41.90% |
+| `ew_dd_throttle` — cut exposure below a peak drawdown | -36.46% | +7.41% / **+1.81%** |
+
+**Drawdown halved, on the axis the hypothesis named.** Against `ew_trend_gated`'s binary
+version of the same idea — 23pp of return for 0.1pp of relief — the continuous form is a
+different animal. Two folds is not a verdict and the cost is real (fold 2 gave up 15.6pp in
+a strong year, exactly where vol-targeting is supposed to cost); it is the first candidate
+whose effect is large enough that 10 folds and a CI can resolve it.
+`ew_dd_throttle` did what its own charter's negative prior predicted — whipsawed to +1.81%
+with **no** drawdown relief. Pre-registered, then observed.
+
+- **Sector data exists but is NOT point-in-time** (`fundamentals.sector`, five weekly
+  snapshots from 2026-07-18). `ew_sector_capped` therefore carries a static-sector
+  look-ahead, disclosed loudly in the class docstring, the grid comment and the charter,
+  mirroring `low_vol`'s static-market-cap disclosure. **Live: 37 of the top 50 by RS on
+  2026-08-19 are Healthcare** — `ew_benchmark` holds that basket equal-weighted, so the
+  "diversified benchmark" is currently a ~74% healthcare bet. That is a live risk fact
+  independent of any strategy decision.
+
+### Data quality
+
+- **A second EOD source exists and is verified.** `api.nasdaq.com/api/quote/{T}/historical`
+  is free, key-free and genuinely independent (Yahoo's chart API is what yfinance already
+  wraps, so it is not redundancy). It agrees with the store **to the cent** on OHLC for both
+  an ETF and a small-cap, and differs **1-5% on VOLUME** — consolidated vs composite tape.
+  That is the load-bearing operational fact: **compare closes, treat volume differences as
+  expected.** A verifier that alarms on volume would cry wolf nightly and be ignored inside
+  a week. `assetclass` is required and not guessable — SPY with `assetclass=stocks` returns
+  `Symbol not exists`; the `universe.etf` column supplies it. Built as a VERIFIER, not a
+  failover: a one-day yfinance outage costs nothing on a resumable collector, but a silently
+  wrong split costs money and nobody would notice.
+- **Survivorship cannot be back-filled for free.** Nasdaq publishes no dated historical
+  symbol-directory archive; SEC EDGAR's `company_tickers.json` is itself current-issuer-only
+  (verified by the absence of SIVB and FRC from it). **`universe_snapshot` is the only lever
+  that compounds** — append-only, 26 dates and 320,233 rows since 2026-07-16, and it fixes
+  the future rather than the past.
+- **Leveraged/inverse ETFs: 812 of 12,459 names flagged**, 265 liquid, from `universe.name`
+  alone (recall 94/94 on a hand list, 0 false positives on a 33-name control). **Every
+  stored screen has passed 6-25 of them**, median 17, 42 distinct tickers — including
+  **`SPYU`, a 4X ETN, 15 times**. Four live books hold `DLLL` (2x DELL) today. Behind
+  `--universe-policy ex-leveraged`, **DEFAULT OFF**, with the policy stamped on every
+  `screen_results` row so two policies can never be silently compared. **Not flipped**: it
+  would redefine `ew_benchmark`, invalidate 65 stored folds, cost 4 legitimate names to the
+  RS percentile shift, and still not fix TNXP. Equivalence proof: a scratch run under `all`
+  reproduces the live 2026-08-19 screen exactly (534 passers, identical set).
+
+### The fill model — and why the fix is the clamp, not the prices
+
+The premise going in was that the cash-clamp warnings meant systematic under-investment.
+**That premise was wrong**, and the audit says so with numbers: steady-state idle cash is
+5.3-47.4 bp and the drag is **1-3 bp/yr**. 88% of the gap is correct behaviour (slippage
+plus overnight gap on a fully-sized book).
+
+The real finding is in the tail. **436 of 2,634 rejects (16.6%) are leveraged/inverse ETFs
+carrying 90.8% of all stranded cash**; 50 rejects strand >10% of a book. Cause, traced:
+`collect.py:88` fetches `auto_adjust=False`, which still SPLIT-adjusts OHLC, so a name with
+heavy cumulative REVERSE splits has its old prices multiplied without limit. `DRIP` spans
+$35.57 to **$83,000**; `TNXP` — not leveraged at all — reaches **$19.2 BILLION** in 2012;
+32 tickers exceed $100,000.
+
+**Volume is divided by the same factor the price is multiplied by**, so median dollar-volume
+is preserved (TNXP: $76.3M in 2018 at 2 shares/day, $20.5M in 2025 at 842k shares/day).
+**The liquidity filter is therefore SOUND and the prices are not wrong** — back-adjustment
+preserves returns, which is what a backtest consumes. Exactly one rule keys on absolute
+price per share, and it is the bug: `sim/portfolio.py:128` does
+`affordable = math.floor(cash / px)`, so a $39,000 book facing a $31.7M adjusted price
+computes `floor(0.0012) = 0`, rejects, and strands the allocation.
+
+**Decisive detail: the live books already hold FRACTIONAL quantities** (`template_top10_banded`
+holds `DLLL qty 102.384263`). Every sizing path in the engine is fractional; the exec design
+§2 specifies fills, slippage and the 1%-of-dollar-volume guard and says NOTHING about lot
+size; `BUILDLOG.md:284` records the `floor()` as a 2026-07-18 negative-cash safety fix.
+**Whole-share trading is incidental, not designed.**
+
+**Decision: fix the clamp (`affordable = cash / px` plus a dust floor on the reject branch).
+Do not touch the universe for this and do not "correct" the prices.** It resolves 90.8% of
+the stranded dollars as a side effect, fixes TNXP-class names that the leverage exclusion
+would NOT have fixed, and costs no legitimate names. It invalidates all 65 fold JSONs, the
+sweep grids and the live record since 2026-07-17, so it lands **version-stamped
+(`fillmodel=v2`) with a scheduled regeneration, never silently.** At 1-3 bp/yr there is no
+urgency. Full reasoning: `docs/synthesis-price-adjustment-and-fills-2026-08-20.md`.
+
+### Also
+
+- **The sweep farm is on cron** (`0 6 * * 6`, `engine/run_weekend_sweeps.sh`). Grids are
+  read from `GRIDS` itself, so the three new candidate grids sweep from the next Saturday
+  with no edit — 9 grids, 19 new cells. Priority 900, `--jobs 4`, 12 h budget.
+- **Walk-forward exclusions are keyed by strategy as well as config_id.**
+  `earnings_context_pead` — the book that started all of this — now appears under "Books NOT
+  walk-forwarded" with an honest reason instead of a `+0.00% / REVIEW` row.
+- The batched drain held through five hours of live sweeping with the API answering **200**
+  throughout, against 503 for the seven hours before the fix.
+
+### Next
+
+1. **`fillmodel=v2`** — the fractional clamp, version-stamped, with a full regeneration.
+2. **Run `ew_benchmark` under both universe policies and publish the pair** rather than
+   flipping a default. Decide `SPYU` (4X ETN) on its own merits either way.
+3. **Price-sanity reporting**: 32 tickers over $100,000 adjusted are not a bug to fix but a
+   fact to surface — a book holding one should say so.
+4. **The three candidates need their 10-fold grids** (Saturday's cron will run them) and
+   then a CI before any promotion conversation. `ew_gross_voltarget` is the only one worth
+   the conversation on current evidence.
+5. **Report the survivorship bias as time-varying**, with each fold carrying its universe
+   size. The flat "~+7pp/yr" understates the early folds badly.
+
+
 ## Blockers
 
 - **GitHub remote still needed (owner action).** The box has working SSH auth to GitHub as
