@@ -41,7 +41,11 @@ else:  # pragma: no cover
 
 from farm.walkforward.runner import active_books  # noqa: E402
 
-MEM_MB = 8000
+# 8000 -> 4500 (2026-08-20): measured peak RSS, not a guess. Live 10-fold
+# sweep worker VmHWM 3,409 MB after 4.5 h; 2-fold walkforward replay peak
+# 2,308 MB (1s RSS sampling; peak = build_scratch parquet export). 4500 =
+# worst case +32% headroom. Must match JOB_TYPES["walkforward"]["mem_mb"].
+MEM_MB = 4500
 DEFAULT_PRIORITY = 174
 PRIORITY_BY_STRATEGY = {
     "spy_benchmark": 170, "dual_momentum": 170, "sector_momentum": 170,

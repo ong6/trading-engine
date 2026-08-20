@@ -231,7 +231,12 @@ def _bench_book(live_con) -> dict:
 # --------------------------------------------------------------------------- #
 def run_sweep(live_con, name: str, *, anchor: date | None = None,
               n_folds: int = protocol.N_FOLDS, out_root: Path = SWEEPS_DIR,
-              scratch_root: Path = SCRATCH_ROOT, threads: int | None = 8,
+              # threads 8 -> 4 (2026-08-20): measured — at width 8, 4 DuckDB
+              # threads per worker matched 2 (8 jobs in 55 s vs 57 s) and the
+              # single-worker fold loop runs ~2.5 cores regardless; extra
+              # threads only inflate load (a threads=8 sweep worker showed
+              # 374% CPU / 101 OS threads for the same work).
+              scratch_root: Path = SCRATCH_ROOT, threads: int | None = 4,
               limit: int | None = None) -> dict:
     cands = expand(name)
     if limit:

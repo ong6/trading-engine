@@ -244,7 +244,12 @@ def run_book(live_con, config_id: str, *,
              scratch_root: Path = SCRATCH_ROOT,
              results_dir: Path = RESULTS_DIR,
              keep_scratch: bool = False, write_result: bool = True,
-             verbose: bool = True, threads: int | None = 16,
+             # threads 16 -> 4 (2026-08-20): measured — throughput at batch
+             # width 8 is identical with 4 threads vs 2 (and vs 8); DuckDB
+             # threads only help the short scratch/screen phase while the
+             # fold loop is Python-bound. Lower default keeps a width-8 batch
+             # near ~2.5-3 cores/worker, under the load guard.
+             verbose: bool = True, threads: int | None = 4,
              mem_mb: int | None = 8000, book: dict | None = None) -> dict:
     # `book` is the CANDIDATE seam (farm/sweep). Production passes nothing and
     # the config is read from the live `portfolios` row, which is the whole
@@ -506,7 +511,7 @@ def main() -> int:
     ap.add_argument("--keep-scratch", action="store_true")
     ap.add_argument("--no-result", action="store_true")
     ap.add_argument("--no-report", action="store_true")
-    ap.add_argument("--threads", type=int, default=16)
+    ap.add_argument("--threads", type=int, default=4)  # measured 2026-08-20: see run_book
     args = ap.parse_args()
 
     import duckdb

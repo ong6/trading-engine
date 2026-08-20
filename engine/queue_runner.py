@@ -43,7 +43,15 @@ DEFAULT_META = REPO_ROOT / "data" / "_meta.json"
 STORE_DIR = REPO_ROOT / "store"
 
 # §12.7 caps
-LOAD_5MIN_MAX = 28.0        # 5-min load average ceiling
+# 5-min load ceiling. Kept at 28 after measurement (2026-08-20): a width-8
+# parallel batch of replay workers at 4 DuckDB threads each sustains ~2.5-3
+# cores per worker (~20-24 load incl. nightly stages), and even a deliberate
+# 16-worker burst only pushed the 5-MIN average to ~16 (1-min hit 28.4). The
+# guard EXITS the drain rather than waiting, so margin matters: tripping it on
+# a Sunday grid parks the remaining jobs until Monday's nightly. Raising it is
+# not needed for width 8 and would erode the §12.7 promise that the farm never
+# starves the nightly or the interactive API (~24 of 32 cores for the farm).
+LOAD_5MIN_MAX = 28.0
 FREE_RAM_MIN_GB = 8.0       # refuse to start below this much free RAM
 ENGINE_RAM_BUDGET_MB = 48000  # combined engine budget; sequential => one job
 STORE_SOFT_GB = 60.0        # soft cap -> warn in _meta.json
@@ -52,8 +60,22 @@ ROOT_FREE_MIN_GB = 10.0     # refuse archive jobs below this root free space
 # Concurrency for `parallel_safe` job kinds ONLY (see JOB_TYPES). Default 1 =
 # the historical strictly-sequential drain; nothing changes unless --jobs is
 # passed. Capped so a wide fan-out cannot starve the box or blow the RAM
-# budget: each walkforward/backtest worker declares 8 GB.
+# budget: each walkforward/backtest/sweep worker declares 4.5 GB (measured
+# 2026-08-20, see JOB_TYPES).
+#
+# Width 8 chosen from measurement (2026-08-20, 32-core box, baseline load ~6
+# incl. one live sweep worker at ~3.7 cores): a fixed unit of 8 identical
+# 1-fold ew_benchmark replays ran at 205 jobs/h with 2 workers x 8 DuckDB
+# threads, 355 with 4x4, 505 with 8x2, and 523 with 8x4 — width, not threads,
+# is the throughput lever. 16 workers measured 670 jobs/h but drove the 1-min
+# load to 28.4 and would put 16 x 3.4 GB = ~54 GB of real peak RSS on a 62 GB
+# box for production 10-fold jobs — infeasible. 8 wide keeps sustained load
+# ~20-24 with the nightly's own stages on top, under LOAD_5MIN_MAX with margin.
 PARALLEL_JOBS_MAX = 8
+# Seconds between launching successive workers in a batch. See the stagger
+# comment in _run_parallel_batch: the RSS peak is front-loaded into
+# build_scratch, so simultaneous starts stack every peak at the same instant.
+BATCH_STAGGER_S = 4.0
 # How long the drain waits to reacquire the write lock after a parallel batch.
 # Must exceed the longest single writer stage a nightly can hold (collect,
 # ~4 min) or a batch that ends inside that window sinks the whole drain.
@@ -147,20 +169,29 @@ JOB_TYPES: dict[str, dict] = {
     # scratch/ (deleted per job) and data/reports/, never into store/, so the
     # disk watchdog's archive gate does not apply to it; the guard that matters
     # is the load/RAM one, which applies to every job.
-    "backtest":     {"loader": _load_backtest,     "archive": False, "mem_mb": 8000,
+    # mem_mb 8000 -> 4500 (2026-08-20): measured, not guessed. A live 10-fold
+    # sweep worker's lifetime peak RSS (VmHWM) after 4.5 h of a full grid was
+    # 3,409 MB; a 2-fold walkforward replay peaked at 2,308 MB (1s sampling —
+    # the peak is the build_scratch parquet export, first ~15 s). 4500 MB =
+    # measured worst case +32% headroom. The old 8000 was a 5.3x over-
+    # declaration of steady-state and throttled batches to 48000//8000 = 6.
+    "backtest":     {"loader": _load_backtest,     "archive": False, "mem_mb": 4500,
                      "parallel_safe": True},
     # §12.3 weekly walk-forward re-validation: one job per ACTIVE league book,
     # every fold replayed on a scratch copy. archive=False for the same reason
     # as `backtest` — it writes scratch/ (deleted per job) and data/reports/,
     # never store/. Feeds the Sunday review loop (execution design §6).
-    "walkforward":  {"loader": _load_walkforward,  "archive": False, "mem_mb": 8000,
+    # mem_mb 4500: same measurement as `backtest` above (2026-08-20).
+    "walkforward":  {"loader": _load_walkforward,  "archive": False, "mem_mb": 4500,
                      "parallel_safe": True},
     # Parameter sweep over an existing strategy class (farm/sweep/sweep.py). Same
     # profile as walkforward -- read-only on the store, writes only scratch/ and
     # data/reports/sweeps/ -- so it batches the same way. One job = one GRID, and
     # the grid runs its candidates in-process, so the batch width multiplies with
     # the candidate count: keep sweep jobs to a couple per drain.
-    "sweep":        {"loader": _load_sweep,        "archive": False, "mem_mb": 8000,
+    # mem_mb 4500: measured on THIS kind — the live meanrev sweep worker's
+    # VmHWM was 3,409 MB four+ hours into a 10-fold grid (2026-08-20).
+    "sweep":        {"loader": _load_sweep,        "archive": False, "mem_mb": 4500,
                      "parallel_safe": True},
 }
 
@@ -311,7 +342,20 @@ def _run_parallel_batch(batch, db_path, meta_path, con) -> tuple[dict, object]:
     con.close()
 
     procs = []
-    for jid, kind in batch:
+    for i, (jid, kind) in enumerate(batch):
+        # STAGGER THE STARTS. A worker's RSS peak is not spread over its life —
+        # it lands in the first ~15 s, during `build_scratch`'s parquet export
+        # (measured 2026-08-20: 3,409 MB peak on a 10-fold sweep worker, ~1.2-1.5
+        # GB steady-state after). Launching a batch simultaneously therefore
+        # ALIGNS every worker's peak, which is the worst case rather than an
+        # unlucky one: 8 x 3.4 GB = 26.6 GB arriving at once leaves roughly
+        # 1.9 GB above the FREE_RAM_MIN_GB floor, and tripping that floor parks
+        # the rest of the drain until the next run.
+        #
+        # A few seconds between launches decorrelates the peaks almost entirely
+        # and costs nothing: these jobs run for minutes to hours.
+        if i:
+            time.sleep(BATCH_STAGGER_S)
         cmd = [sys.executable, str(Path(__file__).resolve()),
                "--run-one", str(jid), "--meta", str(meta_path)]
         if db_path:
