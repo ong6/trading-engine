@@ -125,12 +125,40 @@ def fill_pending(con, d: date) -> dict:
     return counts
 
 
-def mtm_all(con, d: date) -> None:
-    """Phase b. Mark every active portfolio to market → append sim_equity."""
+def mtm_all(con, d: date, verbose: bool = True) -> dict:
+    """Phase b. Mark every active portfolio to market → append sim_equity.
+
+    Returns {"carried": {pf_id: [ticker, ...]}} — the positions valued at a
+    CARRIED close because the name printed no bar on `d`.
+
+    WHY THIS RETURN VALUE EXISTS. `portfolio.mark_to_market` has always computed
+    this flag honestly and returned it, and nothing ever read it. On 2026-08-20
+    the new price verifier found `EA` and `TALK` — both `active = FALSE` in
+    `universe`, both still HELD — being marked forever at their last print (EA's
+    was 2026-08-10, ten days stale) by `high_52wk` and `low_vol`. The equity of
+    those books therefore contains a number that will never move again, and
+    NOTHING said so: not the log, not `league.md`, not `_meta.json`.
+
+    That is the same defect this codebase keeps producing — the honest
+    computation happens and then the result goes nowhere — so the flag is now
+    surfaced at the only place that can act on it. A carried mark is not an
+    error and must not fail the run: a halted name resumes, and a genuinely
+    delisted one needs a human decision about the position, not an exception.
+    """
+    carried: dict[str, list[str]] = {}
     for (pf_id,) in con.execute(
         "SELECT id FROM portfolios WHERE active ORDER BY id"
     ).fetchall():
-        portfolio.mark_to_market(con, pf_id, d)
+        res = portfolio.mark_to_market(con, pf_id, d)
+        if res.get("carried"):
+            carried[pf_id] = sorted(res["carried"])
+    if carried and verbose:
+        n = sum(len(v) for v in carried.values())
+        print(f"[league] WARN {n} position(s) in {len(carried)} book(s) marked "
+              f"at a CARRIED close on {d} — the name printed no bar:")
+        for pf_id, tks in sorted(carried.items()):
+            print(f"[league]   {pf_id}: {', '.join(tks)}")
+    return {"carried": carried}
 
 
 def generate_all(con, d: date) -> int:
@@ -377,7 +405,10 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
                 print(f"[league] --rerun: cleared {d} sim rows, rebuilt state")
         dv = portfolio.credit_dividends(con, d)
         fc = fill_pending(con, d)
-        mtm_all(con, d)
+        # verbose is threaded through so a walk-forward replay (thousands of
+        # sessions, verbose=False) does not print a carried-mark line per day,
+        # while the nightly — the one run a human reads — always does.
+        mm = mtm_all(con, d, verbose=verbose)
         nn = generate_all(con, d)
         con.execute("COMMIT")
     except Exception:
@@ -388,8 +419,11 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
     if verbose:
         div_note = (f" divs={dv['credited']}/${dv['amount']:,.2f}"
                     if dv["credited"] else "")
+        n_carried = sum(len(v) for v in mm["carried"].values())
+        carry_note = f" carried_marks={n_carried}" if n_carried else ""
         print(f"[league] {d}: fills={fc['filled']} rejected={fc['rejected']} "
-              f"still_pending={fc['pending']} new_orders={nn}{div_note} → {md_path}")
+              f"still_pending={fc['pending']} new_orders={nn}{div_note}"
+              f"{carry_note} → {md_path}")
     return 0
 
 
