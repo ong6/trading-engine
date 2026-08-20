@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Weekend parameter-sweep driver (design §12.3b — "weekend deep sweeps").
+#
+# Enqueues one `sweep` job per grid in farm/sweep/sweep.py's GRIDS and drains
+# the queue. Intended cadence: SATURDAY, so it is clear of the Sunday 06:00
+# walk-forward grid and of the weekday 22:30 nightly.
+#
+# WHY THIS EXISTS. Until 2026-08-20 sweeps were enqueued by hand, which is why
+# only four of six grids had ever run and why two of them sat pending for two
+# days before a nightly happened to drain them. A search workload that costs
+# CPU and zero tokens should not depend on someone remembering to start it.
+#
+# WHAT A SWEEP IS NOT. It never creates, promotes or modifies a league book. It
+# writes candidates to data/reports/sweeps/<grid>/ and stops. A candidate
+# becomes a book only when a human pre-registers it with an expectation and a
+# kill criterion. This script widens the search; it never acts on the result.
+#
+# Cron entry (owner action — this script does not install it):
+#
+#   0 6 * * 6 /data00/home/jun.ong/trading-engine/engine/run_weekend_sweeps.sh \
+#       >> /data00/home/jun.ong/trading-engine/logs/sweeps-cron.log 2>&1
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${REPO_ROOT}"
+
+# Overlap guard, same shape as the nightly's and the walk-forward's.
+exec 9>"${REPO_ROOT}/.sweeps.lock"
+if ! flock -n 9; then
+  echo "ERROR: another sweep run is still going (lock held) — aborting"
+  exit 1
+fi
+
+PY="${REPO_ROOT}/.venv/bin/python"
+export PYTHONUNBUFFERED=1
+mkdir -p "${REPO_ROOT}/logs"
+LOG="${REPO_ROOT}/logs/sweeps-$(date +%F).log"
+
+# Saturday is completely free — the nightly is Mon-Fri 22:30 and the
+# walk-forward is Sunday 06:00 — so the drain gets a 12 h window instead of the
+# 4 h default. A grid that still does not finish is left pending and picked up
+# by the next drain; jobs are resumable and nothing is killed mid-flight.
+export TRADING_ENGINE_DRAIN_BUDGET_S="${TRADING_ENGINE_DRAIN_BUDGET_S:-43200}"
+
+# Priority 900 keeps sweeps BELOW every other farm workload (nightly miners
+# 100-130, historical backtests 140-165, walk-forward grid 170-176), so a sweep
+# can never delay a stage that feeds the live league.
+SWEEP_PRIORITY=900
+SWEEP_MEM_MB=8000
+
+{
+  echo "=== run_weekend_sweeps $(date -u +%FT%TZ) ==="
+
+  # Grid names come from the module itself, so a grid added to GRIDS is swept
+  # from the next Saturday with no edit here. `--grid list` also prints
+  # bracketed diagnostics (e.g. infeasible cells being skipped); those are
+  # filtered out rather than parsed.
+  GRIDS="$("${PY}" farm/sweep/sweep.py --grid list | grep -v '^\[' | awk 'NF {print $1}')"
+  if [ -z "${GRIDS}" ]; then
+    echo "ERROR: no grids enumerated — refusing to drain an empty plan"
+    exit 1
+  fi
+  echo "grids: $(echo "${GRIDS}" | tr '\n' ' ')"
+
+  # Enqueue is idempotent: queue_runner dedups an identical pending
+  # (kind, params), so a re-run after a partial drain adds nothing.
+  for g in ${GRIDS}; do
+    "${PY}" engine/queue_runner.py --enqueue sweep \
+      --priority "${SWEEP_PRIORITY}" --mem-mb "${SWEEP_MEM_MB}" \
+      --params "{\"grid\": \"${g}\"}"
+  done
+
+  # --jobs 4: `sweep` is parallel_safe (read-only on the store, writes only its
+  # own pid-namespaced scratch), so grids run four at a time and the parent
+  # RELEASES the write lock for the batch — the API/UI stay up throughout.
+  "${PY}" engine/queue_runner.py --run --jobs 4
+
+  "${PY}" engine/sync.py || echo "WARN: sync failed (exit $?) — reports are on disk; next nightly's sync will stage them"
+
+  echo "=== done $(date -u +%FT%TZ) ==="
+} 2>&1 | tee -a "${LOG}"
