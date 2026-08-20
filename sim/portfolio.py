@@ -6,7 +6,22 @@ is how `--rerun` restores exact cash/positions after deleting a date's rows.
 """
 from __future__ import annotations
 
-import math
+# --------------------------------------------------------------------------- #
+# fill model version — STAMPED INTO EVERY STORED RESULT
+# --------------------------------------------------------------------------- #
+# Bump this whenever apply_fill's arithmetic changes. Results produced under
+# different versions are NOT comparable, and the only way that stays true rather
+# than aspirational is for the version to travel with the numbers.
+#   v1  (2026-07-18 → 2026-08-20)  buys clamped to floor(cash / px)
+#   v2  (2026-08-20 → )            buys clamped to cash / px, MIN_FILL_USD floor
+FILL_MODEL_VERSION = "v2"
+
+# A buy whose affordable notional falls below this is dust, not a position:
+# filling it writes a sim_fills row and an avg_cost for an amount that cannot
+# move the book, and rejecting it is the honest outcome. v1 had no explicit
+# floor — its effective floor was one whole share, which is $1 for a penny
+# stock and $47,988 for a reverse-split-mangled leveraged ETF.
+MIN_FILL_USD = 1.0
 from datetime import date
 
 import duckdb
@@ -105,9 +120,33 @@ def apply_fill(con: duckdb.DuckDBPyConnection, fill: dict) -> float:
     - Sells are close-only: if the requested qty exceeds the held qty it is
       clamped to the held qty (never go negative) and a WARN is printed.
     - Buys are cash-bounded: if the notional exceeds available cash the qty is
-      reduced to floor(cash / fill_px) so cash never goes negative (no phantom
-      leverage from a signal-day → next-open gap-up). If that floors to 0 the
-      fill is rejected (returns 0.0, nothing written) and a WARN is printed.
+      reduced to cash / fill_px so cash never goes negative (no phantom leverage
+      from a signal-day → next-open gap-up). If the affordable notional is below
+      MIN_FILL_USD the fill is rejected (returns 0.0, nothing written) and a
+      WARN is printed — that residual is dust, not a position.
+
+      **fillmodel v2 (2026-08-20): the clamp is FRACTIONAL.** v1 used
+      `floor(cash / px)`, which was the one place in the engine that rounded to
+      whole shares. Every sizing path is fractional (`base.py`,
+      `turtle_breakout.py`, `pead_ear.py`) and the live books hold fractional
+      quantities (`DLLL qty 102.384263`); `trading-execution-design.md` §2
+      specifies fills, slippage and the liquidity guard and says NOTHING about
+      lot size. The `floor()` was a 2026-07-18 negative-cash safety fix
+      (BUILDLOG:284) and whole-share trading was its incidental side effect.
+
+      Why it mattered: `collect.py` fetches `auto_adjust=False`, which still
+      SPLIT-adjusts OHLC, so a name with heavy cumulative REVERSE splits has its
+      old prices multiplied without limit — `TNXP` reaches $19.2bn in 2012,
+      `DRIP` $83,000, and 32 tickers exceed $100,000. A $39,000 book facing a
+      $31.7M adjusted price computed `floor(0.0012) = 0`, rejected the order and
+      stranded the whole allocation. Measured across the fold replays: 2,634
+      rejects, of which 436 (16.6%) were leveraged/inverse ETFs carrying 90.8%
+      of ALL stranded cash, and 50 rejects stranded >10% of a book.
+
+      The prices are not wrong — back-adjustment preserves returns, which is
+      what a backtest consumes, and dollar-volume stays split-invariant so the
+      liquidity filter is sound. Exactly one rule keyed on absolute price per
+      share, and this was it.
 
     A return of 0.0 means nothing was applied — the caller must not record a
     sim_fills row and should mark the order rejected. Callers that record a
@@ -125,14 +164,19 @@ def apply_fill(con: duckdb.DuckDBPyConnection, fill: dict) -> float:
     if side == "buy":
         cash = get_cash(con, pf_id)
         if px > 0 and qty * px > cash:
-            affordable = math.floor(cash / px) if cash > 0 else 0
-            if affordable <= 0:
+            # Shave a floating-point epsilon so `qty * px` can never round up
+            # past `cash` and drive the balance negative — the invariant the
+            # v1 floor() was protecting, kept without the whole-share side
+            # effect.
+            affordable = (cash / px) * (1.0 - 1e-12) if cash > 0 else 0.0
+            if affordable * px < MIN_FILL_USD:
                 print(f"[apply_fill] WARN insufficient_cash: {pf_id} {tk} buy "
                       f"{qty} @ {px:.4f} (notional ${qty * px:,.2f} > cash "
-                      f"${cash:,.2f}) — fill rejected")
+                      f"${cash:,.2f}; affordable ${affordable * px:,.2f} < "
+                      f"${MIN_FILL_USD:g} dust floor) — fill rejected")
                 return 0.0
             print(f"[apply_fill] WARN cash-clamp: {pf_id} {tk} buy {qty} → "
-                  f"{affordable} @ {px:.4f} (cash ${cash:,.2f})")
+                  f"{affordable:.6f} @ {px:.4f} (cash ${cash:,.2f})")
             qty = float(affordable)
         new_qty = cur_qty + qty
         new_cost = ((cur_qty * cur_cost) + (qty * px)) / new_qty if new_qty else 0.0
