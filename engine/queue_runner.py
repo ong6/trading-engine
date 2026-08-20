@@ -26,6 +26,7 @@ Common: --db (default store/market.duckdb), --meta (default data/_meta.json).
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import sys
@@ -340,6 +341,34 @@ def _run_parallel_batch(batch, db_path, meta_path, con) -> tuple[dict, object]:
 # --------------------------------------------------------------------------- #
 # the drain loop
 # --------------------------------------------------------------------------- #
+_DRAIN_LOCK_FD: int | None = None
+
+
+def acquire_drain_lock() -> bool:
+    """Take the exclusive drain lock, or return False if another drain holds it.
+
+    MUST be called BEFORE opening the DuckDB write connection. Order matters:
+    a second drain that connects first would sit through db.connect's retry
+    window and then die non-zero, which in the nightly's farm subshell reads as
+    a farm failure. Declining early and cleanly is the correct outcome — the
+    queue is already being worked, and the jobs stay pending for the next drain.
+
+    The fd is deliberately leaked for the process lifetime: the lock must
+    outlive this function and be released by process exit.
+    """
+    global _DRAIN_LOCK_FD
+    fd = os.open(str(REPO_ROOT / ".queue-drain.lock"), os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return False
+    os.ftruncate(fd, 0)
+    os.write(fd, f"{os.getpid()}\n".encode())
+    _DRAIN_LOCK_FD = fd
+    return True
+
+
 def cmd_run(con, meta_path: str | Path, *, db_path=None, jobs: int = 1) -> int:
     # Line-buffer the drain's own stdout. Redirected to a log it is otherwise
     # block-buffered, so a batch's children (separate processes, own buffers)
@@ -352,9 +381,41 @@ def cmd_run(con, meta_path: str | Path, *, db_path=None, jobs: int = 1) -> int:
         pass
     rsc.apply_niceness()
 
-    # Reclaim jobs a killed drain left in 'running'. Safe: DuckDB has a single
-    # write lock, so holding this write connection proves no other drain is
-    # alive — any 'running' row here is an orphan. Jobs are resumable by design.
+    # --- ONE DRAIN AT A TIME, enforced independently of the DuckDB writer ----
+    # The orphan sweep below reclaims every 'running' row on the grounds that no
+    # other drain can be alive. Until 2026-08-20 that was guaranteed by holding
+    # the DuckDB write connection, since DuckDB permits exactly one writer.
+    #
+    # BATCHING BROKE THAT INVARIANT. `_run_parallel_batch` RELEASES the writer
+    # for the batch's whole duration — which, now that the nightly drains with
+    # --jobs 4, is most of a drain's life. A second drain starting in that
+    # window (the 22:30 nightly landing while a weekend sweep is still going)
+    # would acquire the writer, see the first drain's live children as orphans,
+    # reclaim them to 'pending' and RE-RUN THEM: two processes writing the same
+    # data/reports/sweeps/<grid>/results/*.json, after which the first drain's
+    # reacquire stamps them 'done'. Verified reachable on 2026-08-20 with jobs
+    # 209/210 'running', a live child, and the writer free.
+    #
+    # The per-script flocks (.sweeps.lock, .walkforward.lock) do not help: they
+    # guard their own script, not the drain. So the drain takes its own lock and
+    # holds it for its ENTIRE life, batches included, restoring the invariant
+    # the orphan sweep depends on. A second drain exits 0 leaving jobs pending,
+    # which is the correct non-fatal outcome — the nightly must never fail
+    # because the farm is busy.
+    # main() takes the lock BEFORE opening the write connection (see
+    # acquire_drain_lock); reaching here without it is a programming error.
+    if _DRAIN_LOCK_FD is None:
+        raise RuntimeError("cmd_run called without the drain lock — call "
+                           "acquire_drain_lock() first")
+    return _drain(con, meta_path, db_path=db_path, jobs=jobs)
+
+
+def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1) -> int:
+    """The drain proper. Called ONLY by cmd_run, which holds the drain lock —
+    the precondition the orphan sweep below relies on."""
+    # Reclaim jobs a killed drain left in 'running'. Safe ONLY because the drain
+    # lock above proves no other drain is alive; the DuckDB writer no longer
+    # proves it, since batches release it.
     for (sid,) in con.execute("SELECT id FROM jobs WHERE state = 'running'").fetchall():
         _set_state(con, sid, "pending", progress="reclaimed")
         print(f"[queue] reclaimed stale running job {sid} -> pending (prior drain died)")
@@ -520,6 +581,11 @@ def main() -> int:
     # the write lock here would deadlock it against its own parent.
     if args.run_one is not None:
         return cmd_run_one(args.run_one, args.db, args.meta)
+
+    if args.run and not acquire_drain_lock():
+        print("[queue] another drain holds the drain lock — leaving all jobs "
+              "pending and exiting 0 (the queue is already being worked)")
+        return 0
 
     con = db.connect(args.db) if args.db else db.connect()
     db.init_schema(con)

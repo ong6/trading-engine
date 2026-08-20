@@ -1571,6 +1571,16 @@ Six parallel tracks. The confidence track reframed the other five, so it goes fi
   fold out of ten: `[-13.7, +27.1, +5.0, +66.5, +160.7, -11.8, -11.1, -11.7, -71.3, +10.8]`.
   **That table's ordering carried no information and had been read as though it did.**
 
+- **How much this test can actually see, measured rather than asserted** (2,000 simulations
+  per effect size on the pooled empirical fold-excess distribution, sd ~30pp): the
+  probability of returning `distinguishable +` is **20% at a true +2pp median excess, 36% at
+  +5pp, 66% at +10pp, 93% at +20pp**. **50% power sits near +7pp/yr and 90% near +18pp/yr.**
+  So "zero distinguishably better" would still be the outcome roughly two thirds of the time
+  if a genuine +5pp/yr edge were sitting in the grid. The per-grid README already says this
+  in prose — "can reject a large effect and cannot confirm a small one" — and the number
+  belongs beside the headline: **this pass rules out large edges; it cannot rule out useful
+  ones.**
+
 - Same instrument on the LIVE book set: **every WATCH book is `INDISTINGUISHABLE`**, and
   every book that separates from EW loses to it. `template_top5`'s `+32.85%` mean excess
   carries a CI of **[-33.86%, +127.67%]**. The pre-registered PASS/WATCH/REVIEW rule is
@@ -1589,8 +1599,13 @@ Six parallel tracks. The confidence track reframed the other five, so it goes fi
 - **`N_FOLDS = 10` is not a compute budget. It is the honest maximum.** The obvious reply
   to wide intervals is "run more folds", and it was tested rather than assumed. Distinct
   tickers in `prices`, first week of June: **1996 → 937** against a World Bank count of
-  **8,090** US listed domestic companies that year, i.e. **~12% coverage**; 2003 → 1,362 of
-  5,295 (~26%); 2014 → 2,360 of ~4,300 (~55%). Those 937 are not a sample — they are
+  **8,090** US listed domestic companies that year. The store's counts include ETFs while the
+  World Bank series counts operating companies, so the audit recomputed it EX-ETF via
+  `universe.etf`: June 1996 holds just **18** ETFs, so the clean figure is **919/8,090 =
+  11.4%** — the headline survives the apples-to-apples fix. The middle rows did NOT and are
+  corrected: 2003 is **23.8%** ex-ETF (claimed ~26%) and **2014 is 42%, not ~55%**. ADRs and
+  multiple share classes in the store would push all three lower still, which strengthens
+  the argument rather than weakening it. Those 937 are not a sample — they are
   precisely the names that survived thirty years. Confirmed by looking for names whose fate
   is not in dispute: **LEH, BSC, ENE, WCOM, CFC, MER, NT, CPQ, SIVB, FRC, TWX, YHOO, MON,
   CELG, ATVI are ABSENT ENTIRELY.** Not one 2008 casualty is in the store. **Any backtest
@@ -1621,11 +1636,32 @@ pre-registration. 2-fold proof against the live store (read-only), vs EW's -36.4
 | `ew_sector_capped` — max names per sector | -35.11% | +9.47% / +41.90% |
 | `ew_dd_throttle` — cut exposure below a peak drawdown | -36.46% | +7.41% / **+1.81%** |
 
-**Drawdown halved, on the axis the hypothesis named.** Against `ew_trend_gated`'s binary
-version of the same idea — 23pp of return for 0.1pp of relief — the continuous form is a
-different animal. Two folds is not a verdict and the cost is real (fold 2 gave up 15.6pp in
-a strong year, exactly where vol-targeting is supposed to cost); it is the first candidate
-whose effect is large enough that 10 folds and a CI can resolve it.
+**Drawdown halved — and an adversarial audit the same day showed that headline is
+OVERSTATED, so it is corrected here rather than left standing.** The book ran at
+`vol_ann` **17.31% / 17.70%** against the benchmark's **37.02% / 56.24%**, i.e. roughly 47%
+and 31% of the benchmark's risk. It hit its 15% target, so the mechanism works — but **most
+of the drawdown relief is mechanical de-risking, not evidence that the TIMING adds
+anything.** Tested against the alternative hypothesis (a STATIC partial-exposure blend
+matched to the same drawdown): static wins fold 1 (+7.3% vs +6.15%) and loses fold 2
+(+14.4% vs +27.52%, where a 60/40 would have matched the return at double the drawdown).
+**Dynamic sizing beat its static equivalent in exactly one fold out of two — unresolved.**
+
+Risk-adjusted it does lead in both folds, which is the defensible version of the claim:
+
+| fold | book | ret | vol_ann | ret/vol | ret/\|DD\| |
+|---|---|---|---|---|---|
+| 1 | ew_benchmark | +10.18% | 37.02% | 0.27 | 0.31 |
+| 1 | ew_gross_voltarget | +6.15% | 17.31% | **0.36** | **0.34** |
+| 2 | ew_benchmark | +43.13% | 56.24% | 0.77 | 1.18 |
+| 2 | ew_gross_voltarget | +27.52% | 17.70% | **1.55** | **2.40** |
+
+**The honest statement: de-risking halved the drawdown and improved risk-adjusted return in
+both folds; whether the vol-TARGETING beats simply holding less equity is 1-for-2 and
+unresolved at n=2.** No look-ahead — the vol estimate reads closes `date <= as_of` and fills
+are t+1 open (audited, CONFIRMED). Against `ew_trend_gated`'s binary version — 23pp of
+return for 0.1pp of relief — the continuous form is still a different animal.
+**Any 10-fold grid MUST carry a static-exposure control**, or it will re-measure de-risking
+and call it timing.
 `ew_dd_throttle` did what its own charter's negative prior predicted — whipsawed to +1.81%
 with **no** drawdown relief. Pre-registered, then observed.
 

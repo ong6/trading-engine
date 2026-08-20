@@ -7,6 +7,7 @@ from .dual_momentum import DualMomentum
 from .ew_benchmark import EwBenchmark
 from .ew_dd_throttle import EwDdThrottle
 from .ew_gross_voltarget import EwGrossVolTarget
+from .ew_static_exposure import EwStaticExposure
 from .ew_sector_capped import EwSectorCapped
 from .ew_trend_gated import EwTrendGated
 from .ew_voltarget import EwVolTarget
@@ -38,6 +39,7 @@ REGISTRY: dict[str, type[Strategy]] = {
     # a human pre-registers it in configs.py with an expectation and a
     # kill criterion. Charters live in docs/charters/.
     "ew_gross_voltarget": EwGrossVolTarget,
+    "ew_static_exposure": EwStaticExposure,
     "ew_sector_capped": EwSectorCapped,
     "ew_dd_throttle": EwDdThrottle,
     "spy_benchmark": SpyBenchmark,
