@@ -1529,6 +1529,13 @@ conflict; execution design §7 has exit criteria).
   through, so a tailed drain log showed a sweep running with no record of the batch line
   that started it. Same lesson as the agentic outage: the defect is the silence.
 
+- **The batch reacquire needed a longer lock wait than the 60s default.** Releasing the
+  writer for a batch creates a window the old always-held design did not have: a batch can
+  end inside a nightly's ~4-minute `collect` stage, and `db.connect`'s 60s retry budget
+  would lose that race, crash the drain and bounce every batched job back to `pending`.
+  `db.connect(path, wait_s=...)` now takes an explicit floor (the env var still wins when
+  larger) and `_run_parallel_batch` passes **900s**.
+
 - **Requeued 209/210 by hand** (`state='pending'`, `progress='requeued: scratch-dir
   collision fixed 2026-08-20'`) after the collision failure — an infrastructure fault, not a
   job fault, so re-running is the honest action rather than leaving two `failed` rows.

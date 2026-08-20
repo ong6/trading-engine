@@ -53,6 +53,10 @@ ROOT_FREE_MIN_GB = 10.0     # refuse archive jobs below this root free space
 # passed. Capped so a wide fan-out cannot starve the box or blow the RAM
 # budget: each walkforward/backtest worker declares 8 GB.
 PARALLEL_JOBS_MAX = 8
+# How long the drain waits to reacquire the write lock after a parallel batch.
+# Must exceed the longest single writer stage a nightly can hold (collect,
+# ~4 min) or a batch that ends inside that window sinks the whole drain.
+BATCH_REACQUIRE_WAIT_S = 900.0
 
 # Wall-clock ceiling for a single drain (env-tunable). Once elapsed exceeds this
 # we STOP starting new jobs and exit 0, leaving them pending for the next drain —
@@ -319,7 +323,11 @@ def _run_parallel_batch(batch, db_path, meta_path, con) -> tuple[dict, object]:
         results[jid] = rc
         print(f"[queue] job {jid} ({kind}) {'done' if rc == 0 else f'FAILED rc={rc}'}")
 
-    new_con = db.connect(db_path) if db_path else db.connect()
+    # Reacquiring the writer can collide with a nightly that started while the
+    # batch ran (collect holds it for ~4 min), and losing the race would crash
+    # the drain and bounce every batched job back to 'pending'. Wait 15 min.
+    new_con = (db.connect(db_path, wait_s=BATCH_REACQUIRE_WAIT_S) if db_path
+               else db.connect(wait_s=BATCH_REACQUIRE_WAIT_S))
     for jid, rc in results.items():
         if rc == 0:
             _set_state(new_con, jid, "done", progress="complete")
