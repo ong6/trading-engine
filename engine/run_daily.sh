@@ -171,7 +171,7 @@ stage() { echo "$1" > "${STAGE_FILE}"; }
       "${PY}" engine/queue_runner.py --enqueue fundamentals --priority 120
       ef=$?
     fi
-    # --jobs 4: `parallel_safe` kinds (walkforward, backtest, sweep) run as
+    # --jobs 8: `parallel_safe` kinds (walkforward, backtest, sweep) run as
     # read-only children while the parent DROPS the write lock; store-writing
     # kinds (intraday, signals, earnings, fundamentals, actions) are never
     # batched and keep the single writer to themselves. Batches form only from
@@ -179,7 +179,12 @@ stage() { echo "$1" > "${STAGE_FILE}"; }
     # still run first. Without this a sweep landing in the nightly's drain pins
     # the writer for hours and the API/UI answer 503 all through the next
     # session (measured 2026-08-20: 7.5 h, load 2.9 on a 32-core box).
-    "${PY}" engine/queue_runner.py --run --jobs 4
+    # Width 4 -> 8 (2026-08-20, measured): a fixed unit of 8 identical 1-fold
+    # replays ran 355 jobs/h at 4 workers x 4 threads vs 523 at 8x4 (+47%);
+    # peak RSS per worker is 3.4 GB measured (declared 4.5 GB, 8 x 4.5 = 36 GB
+    # inside the 48 GB engine budget), and sustained load stays ~20-24 of 32
+    # cores, under the LOAD_5MIN_MAX=28 guard.
+    "${PY}" engine/queue_runner.py --run --jobs 8
     rn=$?
     if [ "${eq}" -ne 0 ] || [ "${es}" -ne 0 ] || [ "${ee}" -ne 0 ] \
        || [ "${ef}" -ne 0 ] || [ "${rn}" -ne 0 ]; then
