@@ -85,7 +85,7 @@ def active_books(live_con) -> list[dict]:
             cfg = {}
         out.append({"id": pid, "name": name, "strategy": strat, "config": cfg,
                     "config_json": cfg_json,
-                    "excluded": protocol.EXCLUDED.get(pid)})
+                    "excluded": protocol.excluded_reason(pid, strat)})
     return out
 
 

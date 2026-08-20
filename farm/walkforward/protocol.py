@@ -83,6 +83,17 @@ N_FOLDS = 10
 # Books that cannot be walk-forwarded, with the reason printed in every report.
 # Same shape (and the same two first entries) as the historical-backtest farm's
 # exclusion list — a book is left OUT and said so, never faked to fill a row.
+#
+# KEYED BY CONFIG_ID, WHICH IS WHY `excluded_reason()` BELOW ALSO CHECKS THE
+# STRATEGY. Every reason here is a property of the STRATEGY, not of one config:
+# "no historical earnings dates" is true of anything running `pead_ear`'s rule.
+# A config-keyed list therefore cannot cover a strategy's twins or a sweep's
+# candidates by construction — and it did not. `earnings_context_pead`, the
+# retired AI twin of `pead_ear`, ran the identical excluded strategy, was absent
+# from this dict, replayed to 0 fills in all 6 folds, and was published in the
+# 2026-08-17 walk-forward summary as `+0.00% mean validate / -30.55% vs EW /
+# REVIEW`. The inert guard in runner.py now catches the consequence; this
+# catches the cause, one replay earlier and for free.
 EXCLUDED: dict[str, str] = {
     "pead_ear": "no historical earnings dates — `earnings_calendar` spans only "
                 "2026-04→2026-10, so the entry signal cannot be computed. "
@@ -96,6 +107,32 @@ EXCLUDED: dict[str, str] = {
                        "Needs a labelled `--pit-lag` reconstruction backfill "
                        "before it can be walk-forwarded.",
 }
+
+# The same reasons, reachable by strategy so that ANY config running the rule is
+# covered — twins, sweep candidates, and configs nobody has written yet.
+EXCLUDED_STRATEGIES: dict[str, str] = {
+    "pead_ear": EXCLUDED["pead_ear"],
+    "discretionary": EXCLUDED["discretionary"],
+    "macro_composite": EXCLUDED["macro_composite"],
+}
+
+
+def excluded_reason(config_id: str, strategy: str | None = None) -> str | None:
+    """Why this book cannot be walk-forwarded, or None.
+
+    Checks the config_id first so a one-off exclusion can name a single book,
+    then falls back to the strategy so every config of an excluded rule is
+    covered without anyone having to remember to list it.
+    """
+    hit = EXCLUDED.get(config_id)
+    if hit is not None:
+        return hit
+    if strategy is None:
+        return None
+    hit = EXCLUDED_STRATEGIES.get(strategy)
+    if hit is None:
+        return None
+    return f"{hit} (excluded via strategy `{strategy}`)"
 
 
 # --------------------------------------------------------------------------- #
