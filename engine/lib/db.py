@@ -37,7 +37,8 @@ def _is_lock_error(exc: Exception) -> bool:
     return any(m in msg for m in _LOCK_MARKERS)
 
 
-def connect(path: str | Path = DEFAULT_DB) -> duckdb.DuckDBPyConnection:
+def connect(path: str | Path = DEFAULT_DB,
+            wait_s: float | None = None) -> duckdb.DuckDBPyConnection:
     """Open (creating parent dirs) a DuckDB connection.
 
     On a lock conflict (another process holds the single-writer lock — e.g. a
@@ -48,7 +49,13 @@ def connect(path: str | Path = DEFAULT_DB) -> duckdb.DuckDBPyConnection:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    wait_s = float(os.environ.get("TRADING_ENGINE_LOCK_WAIT_S", _LOCK_WAIT_DEFAULT_S))
+    # An explicit `wait_s` raises the floor for callers that KNOW they may be
+    # racing a long writer — the queue drain reacquiring the store after a
+    # parallel batch can land inside a nightly's ~4-minute collect stage, which
+    # the 60s default would lose. The env var still wins when it is larger.
+    env_wait = float(os.environ.get("TRADING_ENGINE_LOCK_WAIT_S",
+                                    _LOCK_WAIT_DEFAULT_S))
+    wait_s = env_wait if wait_s is None else max(env_wait, float(wait_s))
     # ceil so the window is at least covered: 60s/5s -> 12 tries, 6s/5s -> 2.
     tries = max(1, math.ceil(wait_s / _LOCK_RETRY_S)) if wait_s > 0 else 1
     for attempt in range(1, tries + 1):
