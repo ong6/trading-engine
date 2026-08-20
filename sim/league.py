@@ -327,6 +327,54 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
         "",
     ]
 
+    # --- stale marks, on the dashboard rather than only in a log line -------
+    # A held name that stopped printing is carried at its last close forever, so
+    # the book's equity above contains a number that will never move again. That
+    # belongs where the equity is READ, not only in a WARN nobody tails: the
+    # 2026-08-20 verifier found EA (last print 2026-08-10) and TALK held by
+    # `high_52wk` and `low_vol` with nothing anywhere saying so.
+    stale = con.execute(
+        """
+        SELECT p.portfolio_id, p.ticker, p.qty, MAX(pr.date) AS last_bar
+        FROM sim_positions p
+        JOIN prices pr ON pr.ticker = p.ticker
+        WHERE p.qty > 0
+        GROUP BY p.portfolio_id, p.ticker, p.qty
+        HAVING MAX(pr.date) < ?
+        ORDER BY last_bar, p.portfolio_id, p.ticker
+        """, [d]).fetchall()
+    if stale:
+        lines += [
+            f"## ⚠ Stale marks — {len(stale)} position(s) carried at an old close",
+            "",
+            "These names printed no bar on the as-of date, so they are valued at "
+            "their last available close and that value cannot change until the "
+            "name prints again. A halt resolves itself; a delisting or "
+            "acquisition needs the position settled by hand. **The equity above "
+            "includes these marks.**",
+            "",
+            "| Book | Ticker | Qty | Last bar | Sessions stale | Frozen value | % of equity |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        eq_by_book = {r["id"]: r["equity"] for r in rows}
+        for pf_id, tk, qty, last_bar in stale:
+            # Sessions counted off SPY's calendar, not off `prices` for the dead
+            # name itself — which by definition has none.
+            n_sess = con.execute(
+                "SELECT COUNT(DISTINCT date) FROM prices WHERE ticker = 'SPY' "
+                "AND date > ? AND date <= ?", [last_bar, d]).fetchone()[0]
+            px = con.execute(
+                "SELECT close FROM prices WHERE ticker = ? AND date = ?",
+                [tk, last_bar]).fetchone()
+            val = qty * float(px[0]) if px else None
+            eq = eq_by_book.get(pf_id)
+            pct = (val / eq * 100) if (val is not None and eq) else None
+            lines.append(
+                f"| {pf_id} | {tk} | {qty:,.4f} | {last_bar} | {n_sess} | "
+                f"{'·' if val is None else f'${val:,.2f}'} | "
+                f"{'·' if pct is None else f'{pct:.2f}%'} |")
+        lines.append("")
+
     reports_dir = data_dir / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
     md_path = reports_dir / "league.md"

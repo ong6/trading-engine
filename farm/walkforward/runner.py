@@ -43,6 +43,7 @@ for _p in (str(REPO_ROOT), str(REPO_ROOT / "engine")):
         sys.path.insert(0, _p)
 
 from lib import db  # noqa: E402
+from sim import portfolio as _pf  # noqa: E402
 from lib import leverage as lev  # noqa: E402
 
 from sim import league  # noqa: E402
@@ -342,6 +343,9 @@ def run_book(live_con, config_id: str, *,
             "kill_criterion": book["config"].get("kill_criterion"),
             "description": book["config"].get("description"),
             "initial_cash": INITIAL_CASH,
+            # Stamped so results produced under different fill arithmetic can
+            # never be silently compared. See sim/portfolio.FILL_MODEL_VERSION.
+            "fill_model": _pf.FILL_MODEL_VERSION,
             "data_floor": floor.isoformat(),
             "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "protocol": protocol.protocol_dict(
