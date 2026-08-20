@@ -1642,13 +1642,51 @@ with **no** drawdown relief. Pre-registered, then observed.
 - **A second EOD source exists and is verified.** `api.nasdaq.com/api/quote/{T}/historical`
   is free, key-free and genuinely independent (Yahoo's chart API is what yfinance already
   wraps, so it is not redundancy). It agrees with the store **to the cent** on OHLC for both
-  an ETF and a small-cap, and differs **1-5% on VOLUME** — consolidated vs composite tape.
-  That is the load-bearing operational fact: **compare closes, treat volume differences as
-  expected.** A verifier that alarms on volume would cry wolf nightly and be ignored inside
-  a week. `assetclass` is required and not guessable — SPY with `assetclass=stocks` returns
+  an ETF and a small-cap. `assetclass` is required and not guessable — SPY with `assetclass=stocks` returns
   `Symbol not exists`; the `universe.etf` column supplies it. Built as a VERIFIER, not a
   failover: a one-day yfinance outage costs nothing on a resumable collector, but a silently
   wrong split costs money and nobody would notice.
+- **The volume gap is a SETTLEMENT LAG, not a tape difference — an earlier reading in this
+  entry was wrong and is corrected here.** The first full verifier run flagged 46 of 175
+  names at up to 180bp; every one sat on the `as_of` session and on open/high/low only.
+  Re-probing the worst 18 across their settled sessions gave a worst gap of **3.1bp**, and
+  **close never disagreed on any session anywhere**. Volume has the same shape: settled
+  sessions match **to the share** (NVDA 2026-08-18: 103,128,200 both sides), only the newest
+  session differs. yfinance captures same-day O/H/L and volume before the tape settles and
+  then restates. **Shipping rule: on a settled session all four fields count; on `as_of`
+  only the CLOSE counts** — that is the number the league marks books against — while O/H/L
+  and volume are measured but never flagged, published as `provisional_ohl_max_bp` so the
+  exemption stays auditable. Without that rule this stage would flag a quarter of the
+  universe nightly and be ignored inside a week.
+- **First real run: 175 checked, 175 agreed, 0 disagreed, 2 not_checked.** Tolerance
+  (pre-registered in-file): >10bp relative AND >=1c absolute; Nasdaq publishes <=4dp so
+  worst-case rounding at the $3 liquidity floor is 1.7bp, ~6x headroom, while every defect
+  class targeted is 1-3 orders larger (a missed 2:1 split is 5000bp). **Detector proved to
+  FIRE**, not merely to stay quiet: a corrupted stored close agrees at 5bp and disagrees at
+  12bp / 50bp / 10000bp. A verifier that has never fired is indistinguishable from one that
+  cannot.
+
+### The verifier's first find: three live positions marked at a price that will never move
+
+- **The 2 `not_checked` names are `EA` and `TALK`, and BOTH are HELD.** Both are
+  `active = FALSE` in `universe`, both return `symbol_not_found` from the second source, and
+  **EA's last stored print is 2026-08-10** — ten days stale. `high_52wk` holds EA (7.43sh)
+  and TALK (298.85sh); `low_vol` holds EA (6.19sh). Their equity contains a number that will
+  never move again.
+- **`portfolio.mark_to_market` had computed and returned the `carried` flag since it was
+  written, and `sim/league.py` never read it.** Not the log, not `league.md`, not
+  `_meta.json`. The same defect this codebase keeps producing: the honest computation
+  happens and the result goes nowhere. `mtm_all` now returns `{"carried": {pf_id: [...]}}`,
+  prints a WARN naming every book and ticker, and `step` appends `carried_marks=N` to its
+  summary line. `verbose` is threaded so a walk-forward replay does not print it per session.
+  **Proof:** a scratch book holding one live and one dead name returns
+  `{'carried': {'bookA': ['DEAD']}}`, still values the position at the carried close
+  (equity 1610.00 = 1000 cash + 10x51 + 5x20), and prints nothing under `verbose=False`.
+- **A carried mark is deliberately NOT an error.** A halted name resumes; a genuinely
+  delisted one needs a human decision about the position, not an exception. The engine has
+  no delisting handler — `sim/fills.py` covers a missing bar on the FILL date, nothing
+  covers a HELD name that stops printing. That is now visible rather than silent, which is
+  the prerequisite for deciding what to do about it.
 - **Survivorship cannot be back-filled for free.** Nasdaq publishes no dated historical
   symbol-directory archive; SEC EDGAR's `company_tickers.json` is itself current-issuer-only
   (verified by the absence of SIVB and FRC from it). **`universe_snapshot` is the only lever
@@ -1713,6 +1751,9 @@ urgency. Full reasoning: `docs/synthesis-price-adjustment-and-fills-2026-08-20.m
 
 ### Next
 
+0. **Resolve EA and TALK.** Two books hold three positions in names that stopped printing.
+   Decide the corporate action (EA looks acquired) and settle them to cash rather than
+   carrying a frozen mark; then decide whether a delisting handler belongs in `sim/`.
 1. **`fillmodel=v2`** — the fractional clamp, version-stamped, with a full regeneration.
 2. **Run `ew_benchmark` under both universe policies and publish the pair** rather than
    flipping a default. Decide `SPYU` (4X ETN) on its own merits either way.

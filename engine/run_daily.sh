@@ -119,6 +119,32 @@ stage() { echo "$1" > "${STAGE_FILE}"; }
   stage sync
   "${PY}" engine/sync.py || echo "WARN: sync failed (exit $?) — league/screen results are safe in DuckDB + data/; will re-stage next nightly"
 
+  # --- EOD price cross-check against a SECOND, independent source (Nasdaq's own
+  # quote-history API). Samples ~40 names + the core ETFs + everything a league
+  # book actually holds, and compares the last 5 sessions of OHLC against the
+  # store. It NEVER writes a price row and NEVER corrects one: the store has a
+  # single price source, and the risk it cannot see is yfinance being silently
+  # WRONG (bad split adjustment, stale bar, restated close) rather than
+  # yfinance being down — collect is incremental and resumable, so an outage
+  # costs a day, while a bad price costs fills.
+  #
+  # Placement: AFTER league and sync, so it can never delay a trade or a commit,
+  # and BEFORE the farm subshell, which takes the DuckDB writer for hours (this
+  # stage needs a read-only handle and would otherwise wait behind it).
+  #
+  # Non-fatal by construction — the script itself always exits 0 (news_analyst.sh
+  # posture: a network failure or a source change logs a breadcrumb and leaves
+  # the nightly untouched), and the `||` is belt-and-braces under set -e.
+  # Its only output is the `price_verify` key of data/_meta.json, merged. That
+  # key is written after sync, so it reaches git on the FOLLOWING night's commit
+  # — acceptable for an observability stage; moving it earlier would put a
+  # multi-minute network call in front of the league's own commit.
+  stage verify-prices
+  "${PY}" engine/verify_prices.py --sample 40 --sessions 5 \
+    || echo "WARN: price verify exited non-zero (exit $?) — it is designed to" \
+            "exit 0 on every failure path, so this means the script itself" \
+            "broke; no trading data is affected"
+
   # --- Farm work: LOWEST priority (§12.7 — the nightly loop preempts the farm).
   # Runs AFTER sync so data collection + the committed screen/league are already
   # safe. A failure here is logged but must NOT fail the nightly: subshell pins

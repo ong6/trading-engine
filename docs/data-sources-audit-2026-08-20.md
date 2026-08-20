@@ -236,9 +236,17 @@ duckdb read_only: SELECT ticker,date,open,high,low,close,volume FROM prices
 | SPY 2026-08-19 volume | 40,306,020 | 39,805,642 | **differs 1.3%** |
 | VITL 2026-08-19 volume | 879,616 | 833,567 | **differs 5.5%** |
 
-**Prices agree exactly; volumes do not.** Almost certainly consolidated versus composite
-tape. This is the single most important operational fact about the source and it has a
-direct consequence: **the liquidity floor is a dollar-VOLUME test**, so the two sources
+**Prices agree exactly; volumes do not.**
+
+> **CORRECTION (verifier build, same day).** The "consolidated versus composite tape"
+> reading below is **WRONG**. Measured over five sessions: settled sessions match **to the
+> share** (NVDA 2026-08-18: 103,128,200 on both sides; median difference 0.0%), and only the
+> newest session differs. It is a **settlement lag** — yfinance captures same-day O/H/L and
+> volume before the tape settles, then restates. The shipping rule that follows is therefore
+> stronger than the one below: on a SETTLED session all four price fields AND volume count;
+> on `as_of` only the CLOSE counts, because that is what the league marks books against.
+
+The original (superseded) reasoning: **the liquidity floor is a dollar-VOLUME test**, so the two sources
 would disagree about which names are liquid at the margin. Any cross-check must compare
 CLOSES and treat a volume difference as expected, not as a discrepancy — a verifier that
 alarms on volume would cry wolf every night and be ignored within a week.
