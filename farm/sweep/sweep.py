@@ -51,6 +51,9 @@ for _p in (str(REPO_ROOT), str(REPO_ROOT / "engine")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import numpy as np  # noqa: E402
+
+from farm import stats as fstats  # noqa: E402
 from farm.walkforward import protocol, runner  # noqa: E402
 
 SWEEPS_DIR = REPO_ROOT / "data" / "reports" / "sweeps"
@@ -107,6 +110,52 @@ GRIDS: dict[str, dict] = {
         "base": {"rsi_max": 10, "down_closes": 3, "weight": 0.1,
                  "max_concurrent": 5, "time_stop": 10},
         "grid": {"rsi_max": [5, 10, 15], "time_stop": [5, 10, 20]},
+    },
+    # ----------------------------------------------------------------- #
+    # The 2026-08-20 drawdown family. Every grid above varies WHICH names are
+    # held or HOW they are weighted relative to one another, always at 100%
+    # gross; the first and third of these vary GROSS EXPOSURE, which nothing in
+    # this repo had ever done, and the second varies sector spread, which the
+    # `concentration` grid did not (it varied total name COUNT).
+    # ----------------------------------------------------------------- #
+    # How hard should the exposure react, and over what window? max_leverage is
+    # NOT swept: it stays at 1.0 (de-risk only) because levering a
+    # survivorship-biased history manufactures return from a known data defect.
+    "gross_voltarget": {
+        "strategy": "ew_gross_voltarget",
+        "base": {"cap": 50, "vol_target": 0.15, "vol_lookback": 60,
+                 "max_leverage": 1.0, "min_obs": 20, "min_name_frac": 0.8,
+                 "cash_proxy": "BIL"},
+        "grid": {"vol_target": [0.10, 0.15, 0.20],
+                 "vol_lookback": [40, 60, 120]},
+        # A vol_lookback shorter than min_obs can never yield an estimate. No
+        # cell of THIS grid violates it (40/60/120 all exceed min_obs=20), but
+        # the predicate is declared anyway so widening the grid later cannot
+        # reintroduce the `voltarget` vol_lookback=20 defect by accident.
+        "feasible": lambda p: p["min_obs"] <= p["vol_lookback"],
+    },
+    # The screen put 38 of its top 50 names in ONE sector on 2026-08-19. Does
+    # forcing spread cost return, buy drawdown relief, or neither?
+    # NOTE: sector data in this store is a 2026 snapshot with no history — see
+    # the look-ahead disclosure in sim/strategies/ew_sector_capped.py. Every
+    # number this grid produces carries it.
+    "sector_cap": {
+        "strategy": "ew_sector_capped",
+        "base": {"cap": 50, "max_per_sector": 10},
+        "grid": {"max_per_sector": [5, 8, 10, 15]},
+    },
+    # A portfolio-level stop, against a written-down NEGATIVE prior: path
+    # dependent de-risking usually whipsaws and loses more to re-entry than it
+    # saves. dd_restore is held fixed rather than swept — a third axis would
+    # triple the trial count every result is deflated against.
+    "dd_throttle": {
+        "strategy": "ew_dd_throttle",
+        "base": {"cap": 50, "dd_trigger": 0.15, "derisk_frac": 0.5,
+                 "dd_restore": 0.05, "cash_proxy": "BIL"},
+        "grid": {"dd_trigger": [0.10, 0.15, 0.20], "derisk_frac": [0.0, 0.5]},
+        # Without a hysteresis band the throttle trips and restores on one
+        # reading; the strategy raises on it, so the cell must never be run.
+        "feasible": lambda p: p["dd_restore"] < p["dd_trigger"],
     },
     # The stop multiple is the parameter a trend book is most sensitive to.
     "turtle_stops": {
@@ -196,6 +245,40 @@ def _folds(path: Path) -> dict:
             for f in d.get("folds", []) if f.get("status") == "ok"}
 
 
+def _grid_trial_count(name: str) -> int | None:
+    """How many cells this grid ACTUALLY tries, read from the grid definition.
+
+    `n_trials` is not decoration: it is the N that `farm/stats.py:deflated_sharpe`
+    haircuts against, and a sweep result quoted without it is not a result. It
+    used to default to `len(rows)` on a re-rank, which silently SHRINKS the trial
+    count whenever a candidate was excluded (inert, or no shared fold) — i.e. the
+    exact case where the grid tried more than it could rank, and the haircut
+    should have got bigger rather than smaller. Read it from `expand()` instead,
+    which already drops infeasible cells so an impossible parameter combination
+    cannot inflate it either.
+    """
+    try:
+        return len(expand(name))
+    except SystemExit:
+        return None          # ad-hoc grid name (a shakedown dir) — caller falls back
+
+
+def _excess_sharpe(ex: list[float]) -> float | None:
+    """Per-FOLD Sharpe of a candidate's excess-vs-EW series.
+
+    The validate window is 12 months (D-WF1) and the windows are disjoint, so one
+    fold excess is one annual excess return and this ratio is already at annual
+    frequency — no sqrt(periods) rescaling, which would be inventing frequency
+    the sample does not have.
+    """
+    if len(ex) < 2:
+        return None
+    sd = float(np.std(np.asarray(ex, dtype=float), ddof=1))
+    if sd <= 0:
+        return None
+    return float(np.mean(ex)) / sd
+
+
 def rank(name: str, *, out_root: Path = SWEEPS_DIR, n_trials: int | None = None) -> dict:
     out_dir = Path(out_root) / name
     res_dir = out_dir / "results"
@@ -227,6 +310,11 @@ def rank(name: str, *, out_root: Path = SWEEPS_DIR, n_trials: int | None = None)
         ex = [f[k]["validate"]["total_return"] - bench[k]["validate"]["total_return"]
               for k in common]
         dds = [f[k]["validate"]["max_dd"] for k in common]
+        # `_folds()` already keeps only status == "ok" folds, so an inert fold
+        # never reaches `ex` and is never resampled. That matters: the bootstrap
+        # below would happily treat a flat "book placed 0 fills" curve as an
+        # observation, which is precisely the 2026-08-20 defect one layer up.
+        ci = fstats.bootstrap_ci(ex, stat="median")
         # A cell whose base params ARE the benchmark's re-runs the benchmark and
         # scores an exact 0.00% excess in every fold — which sorts it to the top
         # of a table ranked by median excess. That is a self-comparison, not a
@@ -243,21 +331,43 @@ def rank(name: str, *, out_root: Path = SWEEPS_DIR, n_trials: int | None = None)
             "worst_dd": min(dds),
             "median_validate": statistics.median(
                 [f[k]["validate"]["total_return"] for k in common]),
+            # The error bar, and the pre-registered verdict read straight off it.
+            "median_excess_ci": ci,
+            "distinguishable": fstats.ci_verdict(ci),
+            "excess_sharpe_per_fold": _excess_sharpe(ex),
+            # The raw sample, so any interval in this file can be recomputed by
+            # hand from the numbers stored beside it.
+            "fold_excess": ex,
         })
     rows.sort(key=lambda r: -r["median_excess"])
-    n_trials = n_trials if n_trials is not None else len(rows)
+    # Ranking order is UNCHANGED — still median excess, still descending. The CI
+    # column is new information about each row, not a re-sort of the table.
+    if n_trials is None:
+        n_trials = _grid_trial_count(name)
+    if n_trials is None:
+        n_trials = len(rows) + len(excluded)
 
     bench_dd = min(v["validate"]["max_dd"] for v in bench.values())
     bench_med = statistics.median([v["validate"]["total_return"] for v in bench.values()])
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
+    n_indistinct = sum(1 for r in rows if r["distinguishable"] == "INDISTINGUISHABLE")
+    dsr = _deflate_top(rows, n_trials)
+
     md = [
         f"# Sweep — `{name}`",
         "",
         f"_{len(rows)} candidate(s) · **{n_trials} trials** · {protocol.N_FOLDS}-fold "
-        f"protocol · generated {stamp}._",
+        f"protocol · bootstrap seed {fstats.BOOTSTRAP_SEED} · generated {stamp}._",
         "",
         "## Read this before the table",
+        "",
+        f"**{n_indistinct} of {len(rows)} ranked candidate(s) are "
+        f"`INDISTINGUISHABLE` from `ew_benchmark`** — their 90% confidence "
+        "interval on median excess contains 0, so this evidence does not "
+        "establish even the SIGN of their edge, let alone its size. That is the "
+        "headline of this table; the ordering below it is a tie-break among rows "
+        "most of which are not separated from the benchmark at all.",
         "",
         f"**Every row here is one of {n_trials} parameter sets tried on the same data.** "
         "The best of N trials looks good at N=1 and looks good at N=60 for entirely "
@@ -274,17 +384,24 @@ def rank(name: str, *, out_root: Path = SWEEPS_DIR, n_trials: int | None = None)
         f"Benchmark on these folds: median validate **{bench_med * 100:+.2f}%**, "
         f"worst-fold drawdown **{bench_dd * 100:.2f}%**.",
         "",
-        "| Candidate | Folds | Median excess | Mean excess | Beats EW | Worst DD |",
-        "|---|---|---|---|---|---|",
+        "| Candidate | Distinguishable from EW? | Folds | Median excess | "
+        "90% CI on median excess | Mean excess | Beats EW | Worst DD |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
         tag = " — _identical to the benchmark; not a result_" if r.get(
             "identical_to_benchmark") else ""
-        md.append(f"| `{r['id'].replace(f'sweep__{name}__', '')}`{tag} | {r['n_folds']} | "
-                  f"**{r['median_excess'] * 100:+.2f}%** | {r['mean_excess'] * 100:+.2f}% | "
+        md.append(f"| `{r['id'].replace(f'sweep__{name}__', '')}`{tag} "
+                  f"| {_verdict_cell(r['distinguishable'])} | {r['n_folds']} | "
+                  f"{r['median_excess'] * 100:+.2f}% | {_ci_cell(r['median_excess_ci'])} "
+                  f"| {r['mean_excess'] * 100:+.2f}% | "
                   f"{r['beat_bench'] * 100:.0f}% | {r['worst_dd'] * 100:.2f}% |")
     if not rows:
-        md.append("| _no candidate produced a comparable fold_ | | | | | |")
+        md.append("| _no candidate produced a comparable fold_ | | | | | | | |")
+
+    md += _ci_method_block(rows)
+    md += _dsr_block(dsr, n_trials)
+
     if excluded:
         md += ["",
                f"## Excluded — {len(excluded)} of {n_trials} candidate(s) produced no result",
@@ -300,16 +417,183 @@ def rank(name: str, *, out_root: Path = SWEEPS_DIR, n_trials: int | None = None)
            "## What a good row would look like",
            "",
            "Positive median excess AND beats-EW comfortably above 50% AND a worst-fold "
-           "drawdown no worse than the benchmark's. A row that is positive on median "
+           "drawdown no worse than the benchmark's — **and a 90% CI on median excess "
+           "that stays above 0**. Before 2026-08-20 only the first three were checked, "
+           "which is how a -3.05% row came to sit at the top of a table as though the "
+           "position meant something. A row that is positive on median "
            "excess but beats EW in under half its folds is a skew bet, not an edge, and "
            "the distinction matters more than the headline number.",
            ""]
     (out_dir / "README.md").write_text("\n".join(md) + "\n")
     payload = {"sweep": name, "n_trials": n_trials, "generated": stamp,
+               "bootstrap": {"seed": fstats.BOOTSTRAP_SEED,
+                             "draws": fstats.BOOTSTRAP_DRAWS,
+                             "conf": fstats.BOOTSTRAP_CONF,
+                             "statistic": "median",
+                             "unit": "fold",
+                             "n_indistinguishable": n_indistinct},
+               "deflated_sharpe": dsr,
                "rows": rows, "excluded": excluded}
     (out_dir / "ranking.json").write_text(json.dumps(payload, indent=2, default=str) + "\n")
-    print(f"[sweep] wrote {out_dir / 'README.md'}")
+    print(f"[sweep] wrote {out_dir / 'README.md'} "
+          f"({n_indistinct}/{len(rows)} INDISTINGUISHABLE)")
     return payload
+
+
+# --------------------------------------------------------------------------- #
+# report fragments
+# --------------------------------------------------------------------------- #
+def _verdict_cell(v: str) -> str:
+    """The verdict is the honest headline for nearly every row, so it is bold and
+    shouty in the table rather than a footnote somebody has to go looking for."""
+    if v == "INDISTINGUISHABLE":
+        return "**INDISTINGUISHABLE**"
+    if v == "NO-CI":
+        return "_no interval — too few folds_"
+    return f"**{v}**"
+
+
+def _ci_cell(ci: dict | None) -> str:
+    if ci is None:
+        # Never a zero-filled interval. Fewer than three comparable folds means
+        # there is nothing to resample and the cell says so.
+        return "·"
+    return f"[{ci['lo'] * 100:+.2f}%, {ci['hi'] * 100:+.2f}%]"
+
+
+def _ci_method_block(rows: list[dict]) -> list[str]:
+    ns = sorted({r["n_folds"] for r in rows})
+    n_txt = str(ns[0]) if len(ns) == 1 else f"{min(ns)}–{max(ns)}"
+    return [
+        "",
+        "## The interval, and what it is not",
+        "",
+        f"**Method.** Percentile bootstrap on the fold excesses, "
+        f"{fstats.BOOTSTRAP_DRAWS:,} resamples, seed `{fstats.BOOTSTRAP_SEED}` "
+        f"(fixed, so this table re-renders identically from unchanged inputs). "
+        f"The resampling unit is the **fold** — n={n_txt} here — because a fold "
+        "is one independent replay from the reference notional (D-WF2) over a "
+        "validate window no other fold's validate window touches (D-WF1). Folds "
+        "with status other than `ok` — including the `inert` status for a book "
+        "that placed zero fills — are excluded before resampling; an inert fold "
+        "is not evidence.",
+        "",
+        "**Verdict rule (pre-registered, mechanical).** If the 90% CI on median "
+        "excess contains 0, the candidate is `INDISTINGUISHABLE` from "
+        "`ew_benchmark` — **regardless of where it sits in the ranking**. No "
+        "discretion, no exceptions for a good-looking point estimate.",
+        "",
+        "**Caveat, stated because it cuts against us.** Adjacent folds share "
+        "twelve months of TRAIN window (train 24mo, step 12mo), and all folds "
+        "come from one market history rather than ten independent ones. An "
+        "i.i.d. bootstrap over overlapping folds therefore UNDERSTATES the true "
+        "uncertainty: these intervals are a floor on the error bar. That makes "
+        "an `INDISTINGUISHABLE` verdict stronger than it looks and any "
+        "distinguishable verdict weaker.",
+        "",
+        "**At n=10 folds this is a crude instrument, and it is the right one.** "
+        "A percentile bootstrap of a median at n=10 resolves roughly to the "
+        "gaps between order statistics — it will not separate +0.5% from 0. "
+        "Methods that would (block bootstrap over fold blocks, a stationary "
+        "bootstrap, White's Reality Check across the grid) need a fold count in "
+        "the high tens to mean anything, so they are named here and NOT used. "
+        "The honest summary of a 10-fold sweep is that it can reject a large "
+        "effect and cannot confirm a small one.",
+    ]
+
+
+def _deflate_top(rows: list[dict], n_trials: int) -> dict | None:
+    """Multiple-testing haircut on the TOP genuine candidate's excess Sharpe.
+
+    `farm/stats.py:deflated_sharpe` has existed since the historical-backtest
+    farm was built and — until now — nothing in the sweep path called it, even
+    though the sweep is the only workload in this repo that KNOWS its own trial
+    count. That was the gap: the module docstring in this file has always said
+    "the count is the input `farm/stats.py:deflated_sharpe` needs", and the
+    count was being printed and then dropped on the floor.
+
+    Two deliberate choices:
+
+    * The series deflated is the candidate's **excess vs EW**, not its absolute
+      return. The haircut has to apply to the statistic the selection was made
+      on, and this table selects on excess. Deflating the absolute Sharpe would
+      also be deflating ~+7pp/yr of survivorship inflation, which is not a skill
+      claim anybody made.
+    * V (the variance of trial Sharpes in the SR0 formula) is the OBSERVED
+      cross-trial variance of this grid's excess Sharpes, not the estimator
+      fallback in `stats.py`'s docstring. The fallback exists for callers that
+      cannot see the other trials; a sweep can, so it uses the real thing and
+      says so.
+    """
+    live = [r for r in rows if not r.get("identical_to_benchmark")]
+    if not live:
+        return None
+    top = live[0]
+    ex = top.get("fold_excess") or []
+    if len(ex) < 3:
+        # PSR/DSR needs a third and fourth moment. Two folds do not have one,
+        # and a number would be invented rather than measured.
+        return {"id": top["id"], "unavailable":
+                f"only {len(ex)} comparable fold(s); DSR needs at least 3"}
+
+    srs = [r["excess_sharpe_per_fold"] for r in live
+           if r.get("excess_sharpe_per_fold") is not None]
+    var_sr = None
+    var_source = "estimator fallback (fewer than 3 trial Sharpes available)"
+    if len(srs) >= 3:
+        var_sr = float(np.var(np.asarray(srs, dtype=float), ddof=1))
+        var_source = (f"observed variance of the {len(srs)} trial excess Sharpes "
+                      f"in this grid")
+    dsr, sr, sr0 = fstats.deflated_sharpe(np.asarray(ex, dtype=float),
+                                          n_trials, var_sr=var_sr)
+    return {"id": top["id"], "n_obs": len(ex), "n_trials": n_trials,
+            "sharpe_raw": sr, "sr0_benchmark": sr0, "deflated_sharpe": dsr,
+            "var_sr": var_sr, "var_source": var_source}
+
+
+def _dsr_block(d: dict | None, n_trials: int) -> list[str]:
+    if d is None:
+        return []
+    head = ["", "## Deflated Sharpe — the multiple-testing haircut", ""]
+    if d.get("unavailable"):
+        return head + [f"Not computed for `{d['id']}`: {d['unavailable']}. "
+                       "No substitute number is printed."]
+    name_only = d["id"].split("__", 2)[-1]
+    return head + [
+        f"Top genuine candidate `{name_only}`, on its **excess-vs-EW** series "
+        f"({d['n_obs']} folds; each fold is a 12-month validate window, so this "
+        f"is already an annual-frequency Sharpe and is NOT rescaled).",
+        "",
+        "| | |",
+        "|---|---|",
+        f"| Raw Sharpe (excess vs EW, per fold) | **{d['sharpe_raw']:+.3f}** |",
+        f"| Trials searched (N) | {d['n_trials']} |",
+        f"| SR0 — Sharpe the luckiest of {d['n_trials']} zero-skill trials would "
+        f"be expected to show | {d['sr0_benchmark']:+.3f} |",
+        f"| **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | "
+        f"**{d['deflated_sharpe']:.3f}** |",
+        "",
+        f"V in the SR0 formula is the {d['var_source']}.",
+        "",
+        "**How to read it.** DSR is a probability, not a Sharpe. Above ~0.95 the "
+        "top cell's Sharpe is hard to explain as the best of N lucky draws; "
+        "below that it is not distinguishable from the maximum a zero-skill "
+        "search of this size produces by construction. Bailey & Lopez de Prado "
+        "(2014).",
+        "",
+        f"**Small-sample warning.** The PSR machinery underneath DSR is a normal "
+        f"approximation whose accuracy comes from the observation count, and "
+        f"there are {d['n_obs']} observations here — not the hundreds the "
+        f"formula was written for. Skew and kurtosis estimated from "
+        f"{d['n_obs']} points are themselves very noisy. Treat this number as a "
+        "direction-of-travel check on the haircut, not as a test.",
+        "",
+        f"**N counts this grid only.** {n_trials} cells were tried here; the "
+        "store has run more parameter sets than that across all grids, and a "
+        "reader picking the best cell across grids is searching a larger N than "
+        "this row is deflated against. The haircut below is therefore a LOWER "
+        "bound.",
+    ]
 
 
 # --------------------------------------------------------------------------- #

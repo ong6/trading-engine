@@ -1,6 +1,6 @@
 # Walk-forward re-validation of the active league rules
 
-_22 book(s) re-validated · protocol **train 24mo → validate 12mo, step 12mo, 6 folds, anchored 2026-08-14** · generated 2026-08-17 23:42 UTC._
+_22 book(s) re-validated · protocol **train 24mo → validate 12mo, step 12mo, 6 folds, anchored 2026-08-14** · generated 2026-08-20 09:31 UTC._
 
 Every book below is replayed by its OWN live strategy code through the real `sim/league.py` day-step — real orders, real t+1-open fills with the league's slippage and liquidity guards, real dividend crediting. The config replayed is the JSON frozen in the live `portfolios` row (D-WF4), i.e. the rule the league is actually trading. Nothing is reimplemented for this report and no bar is ever invented.
 
@@ -52,34 +52,65 @@ pre-registered kill criterion (printed on its page). The prose criterion
 decides; this flag only decides what gets read. Benchmarks are not judged.
 
 
+**The interval is new information, not a new rule (added 2026-08-20).** The
+PASS / WATCH / REVIEW rule above is unchanged: it still reads the beat rate and
+the *mean* excess exactly as it was pre-registered, and no verdict in this
+report has been recomputed, softened or overridden by an interval. What is new
+is the **90% bootstrap CI on mean excess vs EW** in the column beside it, and a
+mechanical `INDISTINGUISHABLE` label for any book whose interval contains 0.
+
+Read the two together: a **PASS whose interval straddles zero is a PASS on a
+number this evidence cannot separate from the benchmark**, and a REVIEW whose
+interval straddles zero is not proof the book is broken either. The verdict says
+what gets read on Sunday. The interval says how much the number underneath it
+is worth.
+
+**Method.** Percentile bootstrap over FOLDS, 10,000 resamples, fixed seed
+`20260820` so the report re-renders identically from unchanged inputs. Folds are
+the resampling unit because each is an independent replay from the reference
+notional (D-WF2) over a validate window no other fold's validate window touches
+(D-WF1). Folds with status other than `ok` — including `inert`, a book that
+placed zero fills — are excluded before resampling; an inert fold is not
+evidence. Fewer than 3 comparable folds gets **no interval**, printed as
+`·`, never a zero.
+
+**Caveat that cuts against us.** Adjacent folds share twelve months of TRAIN
+window (train 24mo, step 12mo) and all folds come from one market history, so an
+i.i.d. bootstrap UNDERSTATES the true uncertainty. These intervals are a floor
+on the error bar. At 10 folds the bootstrap can reject a large effect and cannot
+confirm a small one; methods that could (block or stationary bootstrap) need a
+fold count in the high tens and are deliberately not used here.
+
+
 ⚑ = the fold's train window was clamped to the book's data floor. ◈ = the validate window extends past league inception (2026-07-17) and so partly shadows the live record.
 
 ## Summary — all books, all folds
 
-| Book | Verdict | Folds | Validate win rate | Beats EW | Mean validate | Mean excess vs EW | Latest validate | Latest vs EW | Mean decay (CAGR) | Worst validate DD |
-|---|---|---|---|---|---|---|---|---|---|---|
-| [dual_momentum](dual_momentum.md) | REVIEW | 6 | 67% | 33% | +13.63% | −16.92% | +24.83% | −8.84% | +7.84% | −18.75% |
-| [low_vol](low_vol.md) | REVIEW | 6 | 83% | 33% | +10.60% | −19.95% | +7.00% | −26.68% | +0.27% | −13.95% |
-| [high_52wk](high_52wk.md) | REVIEW | 6 | 83% | 33% | +10.47% | −20.08% | +18.47% | −15.21% | +3.36% | −21.54% |
-| [dual_momentum_gated](dual_momentum_gated.md) | REVIEW | 6 | 67% | 17% | +9.68% | −20.87% | +20.29% | −13.38% | +3.33% | −17.42% |
-| [agentic_alloc](agentic_alloc.md) | REVIEW | 6 | 83% | 33% | +7.58% | −22.97% | +10.07% | −23.60% | +2.09% | −9.36% |
-| [agentic_alloc_frozen](agentic_alloc_frozen.md) | REVIEW | 6 | 83% | 33% | +7.58% | −22.97% | +10.07% | −23.60% | +2.09% | −9.36% |
-| [adaptive_mr](adaptive_mr.md) | REVIEW | 6 | 50% | 17% | +5.46% | −25.09% | +8.60% | −25.07% | +3.10% | −17.30% |
-| [adaptive_mr_frozen](adaptive_mr_frozen.md) | REVIEW | 6 | 50% | 17% | +5.46% | −25.09% | +8.60% | −25.07% | +3.10% | −17.30% |
-| [mr_overlay](mr_overlay.md) | REVIEW | 6 | 50% | 17% | +5.46% | −25.09% | +8.60% | −25.07% | +3.10% | −17.30% |
-| [stop_tuner_turtle](stop_tuner_turtle.md) | REVIEW | 6 | 33% | 17% | +5.18% | −25.37% | −5.86% | −39.53% | +0.91% | −31.00% |
-| [turtle_breakout](turtle_breakout.md) | REVIEW | 6 | 33% | 17% | +5.18% | −25.37% | −5.86% | −39.53% | +0.91% | −31.00% |
-| [earnings_context_pead](earnings_context_pead.md) | REVIEW | 6 | 0% | 33% | +0.00% | −30.55% | +0.00% | −33.67% | +0.00% | +0.00% |
-| [template_top5](template_top5.md) | WATCH | 6 | 33% | 33% | +63.41% | +32.85% | +68.78% | +35.11% | +17.22% | −68.96% |
-| [template_top5_gated](template_top5_gated.md) | WATCH | 6 | 33% | 33% | +60.65% | +30.10% | +44.53% | +10.86% | +14.71% | −55.20% |
-| [template_top10_banded](template_top10_banded.md) | WATCH | 6 | 33% | 33% | +42.05% | +11.50% | +27.43% | −6.24% | +10.70% | −47.81% |
-| [template_top10_banded_gated](template_top10_banded_gated.md) | WATCH | 6 | 50% | 33% | +40.92% | +10.37% | +19.23% | −14.44% | +8.19% | −43.69% |
-| [momo_stopped](momo_stopped.md) | WATCH | 6 | 50% | 33% | +35.34% | +4.79% | +19.17% | −14.50% | +2.50% | −48.01% |
-| [news_gated_momo](news_gated_momo.md) | WATCH | 6 | 50% | 33% | +35.34% | +4.79% | +19.17% | −14.50% | +2.50% | −48.01% |
-| [sector_momentum](sector_momentum.md) | WATCH | 6 | 100% | 50% | +16.14% | −14.41% | +28.69% | −4.98% | +5.49% | −17.18% |
-| [mr_overlay_gated](mr_overlay_gated.md) | no-benchmark | 6 | 67% | · | +6.96% | · | +11.38% | · | +3.81% | −13.64% |
-| [ew_benchmark](ew_benchmark.md) | reference | 6 | 67% | 0% | +30.55% | +0.00% | +33.67% | +0.00% | +9.62% | −36.48% |
-| [spy_benchmark](spy_benchmark.md) | reference | 6 | 83% | 50% | +16.48% | −14.07% | +21.04% | −12.63% | +1.74% | −22.22% |
+**12 of 19 judged book(s) are `INDISTINGUISHABLE` from `ew_benchmark`** at 90% confidence on mean excess. Read every verdict in the next column with that column beside it.
+
+| Book | Verdict | Distinguishable from EW? | Folds | Validate win rate | Beats EW | Mean validate | Mean excess vs EW | 90% CI on mean excess | Latest validate | Latest vs EW | Mean decay (CAGR) | Worst validate DD |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| [dual_momentum](dual_momentum.md) | REVIEW | **INDISTINGUISHABLE** | 6 | 67% | 33% | +13.63% | −16.92% | [−47.31%, +4.29%] | +24.83% | −8.84% | +7.84% | −18.75% |
+| [low_vol](low_vol.md) | REVIEW | **INDISTINGUISHABLE** | 6 | 83% | 33% | +10.60% | −19.95% | [−52.39%, +3.75%] | +7.00% | −26.68% | +0.27% | −13.95% |
+| [high_52wk](high_52wk.md) | REVIEW | **INDISTINGUISHABLE** | 6 | 83% | 33% | +10.47% | −20.08% | [−53.13%, +2.59%] | +18.47% | −15.21% | +3.36% | −21.54% |
+| [dual_momentum_gated](dual_momentum_gated.md) | REVIEW | **distinguishable −** | 6 | 67% | 17% | +9.68% | −20.87% | [−49.49%, −1.16%] | +20.29% | −13.38% | +3.33% | −17.42% |
+| [agentic_alloc](agentic_alloc.md) | REVIEW | **INDISTINGUISHABLE** | 6 | 83% | 33% | +7.58% | −22.97% | [−58.60%, +1.07%] | +10.07% | −23.60% | +2.09% | −9.36% |
+| [agentic_alloc_frozen](agentic_alloc_frozen.md) | REVIEW | **INDISTINGUISHABLE** | 6 | 83% | 33% | +7.58% | −22.97% | [−58.60%, +1.07%] | +10.07% | −23.60% | +2.09% | −9.36% |
+| [adaptive_mr](adaptive_mr.md) | REVIEW | **distinguishable −** | 6 | 50% | 17% | +5.46% | −25.09% | [−53.24%, −6.46%] | +8.60% | −25.07% | +3.10% | −17.30% |
+| [adaptive_mr_frozen](adaptive_mr_frozen.md) | REVIEW | **distinguishable −** | 6 | 50% | 17% | +5.46% | −25.09% | [−53.24%, −6.46%] | +8.60% | −25.07% | +3.10% | −17.30% |
+| [mr_overlay](mr_overlay.md) | REVIEW | **distinguishable −** | 6 | 50% | 17% | +5.46% | −25.09% | [−53.24%, −6.46%] | +8.60% | −25.07% | +3.10% | −17.30% |
+| [stop_tuner_turtle](stop_tuner_turtle.md) | REVIEW | **distinguishable −** | 6 | 33% | 17% | +5.18% | −25.37% | [−45.20%, −7.45%] | −5.86% | −39.53% | +0.91% | −31.00% |
+| [turtle_breakout](turtle_breakout.md) | REVIEW | **distinguishable −** | 6 | 33% | 17% | +5.18% | −25.37% | [−45.20%, −7.45%] | −5.86% | −39.53% | +0.91% | −31.00% |
+| [template_top5](template_top5.md) | WATCH | **INDISTINGUISHABLE** | 6 | 33% | 33% | +63.41% | +32.85% | [−33.86%, +127.67%] | +68.78% | +35.11% | +17.22% | −68.96% |
+| [template_top5_gated](template_top5_gated.md) | WATCH | **INDISTINGUISHABLE** | 6 | 33% | 33% | +60.65% | +30.10% | [−31.33%, +125.94%] | +44.53% | +10.86% | +14.71% | −55.20% |
+| [template_top10_banded](template_top10_banded.md) | WATCH | **INDISTINGUISHABLE** | 6 | 33% | 33% | +42.05% | +11.50% | [−17.83%, +56.37%] | +27.43% | −6.24% | +10.70% | −47.81% |
+| [template_top10_banded_gated](template_top10_banded_gated.md) | WATCH | **INDISTINGUISHABLE** | 6 | 50% | 33% | +40.92% | +10.37% | [−19.69%, +54.56%] | +19.23% | −14.44% | +8.19% | −43.69% |
+| [momo_stopped](momo_stopped.md) | WATCH | **INDISTINGUISHABLE** | 6 | 50% | 33% | +35.34% | +4.79% | [−18.53%, +36.00%] | +19.17% | −14.50% | +2.50% | −48.01% |
+| [news_gated_momo](news_gated_momo.md) | WATCH | **INDISTINGUISHABLE** | 6 | 50% | 33% | +35.34% | +4.79% | [−18.53%, +36.00%] | +19.17% | −14.50% | +2.50% | −48.01% |
+| [sector_momentum](sector_momentum.md) | WATCH | **INDISTINGUISHABLE** | 6 | 100% | 50% | +16.14% | −14.41% | [−50.30%, +9.27%] | +28.69% | −4.98% | +5.49% | −17.18% |
+| [mr_overlay_gated](mr_overlay_gated.md) | no-benchmark | _no interval_ | 6 | 67% | · | +6.96% | · | · | +11.38% | · | +3.81% | −13.64% |
+| [ew_benchmark](ew_benchmark.md) | reference | — | 6 | 67% | 0% | +30.55% | +0.00% | [+0.00%, +0.00%] | +33.67% | +0.00% | +9.62% | −36.48% |
+| [spy_benchmark](spy_benchmark.md) | reference | — | 6 | 83% | 50% | +16.48% | −14.07% | [−46.17%, +7.77%] | +21.04% | −12.63% | +1.74% | −22.22% |
 
 ## Latest validate window (2025-08-17 → 2026-08-17)
 
@@ -92,6 +123,7 @@ decides; this flag only decides what gets read. Benchmarks are not judged.
 * **pead_ear** — no historical earnings dates — `earnings_calendar` spans only 2026-04→2026-10, so the entry signal cannot be computed. Forward record only.
 * **discretionary** — human book — orders come from UI tickets, not code.
 * **macro_composite** — its inputs are point-in-time by `fetch_as_of`, and the production `macro_signals` backfill stamps fetch_as_of = today (honest: we did not have those series in 2019). A historical replay therefore sees an empty signal table and the book is inert, not wrong. Needs a labelled `--pit-lag` reconstruction backfill before it can be walk-forwarded.
+* **earnings_context_pead** — INERT: 0 fills in 6 fold(s). The book replayed without error and never traded, so it has no return, no drawdown and no verdict. Usually a config the strategy can never satisfy — check its params before reading anything into it.
 
 ## How this is produced
 

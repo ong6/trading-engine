@@ -62,6 +62,7 @@ for _p in (str(REPO_ROOT), str(REPO_ROOT / "engine")):
         sys.path.insert(0, _p)
 
 from lib import db  # noqa: E402
+from lib import leverage as lev  # noqa: E402
 
 from sim import league  # noqa: E402
 from sim.schema import init_sim_schema  # noqa: E402
@@ -103,7 +104,14 @@ NEEDS_SCREEN = {"template_top5", "template_top10_banded", "mr_overlay",
                 # simply returns None and the book silently posts zero orders,
                 # which is how the first walk-forward of ew_voltarget came back
                 # "0 fills, +0.00%" instead of failing loudly.
-                "ew_voltarget", "ew_trend_gated"}
+                "ew_voltarget", "ew_trend_gated",
+                # The 2026-08-20 gross-exposure / sector / drawdown
+                # candidates trade the same ew_benchmark basket, so they
+                # need the screen for the same reason it does. Omitting a
+                # strategy here does NOT error: latest_screen_date returns
+                # None and the book posts ZERO orders, silently, forever.
+                "ew_gross_voltarget", "ew_sector_capped",
+                "ew_dd_throttle"}
 
 # Tickers a book cannot start without, each needing 252 sessions of lookback.
 # XLC (2018-06) is deliberately absent from sector_momentum's list: the strategy
@@ -118,6 +126,14 @@ REQUIRED: dict[str, list[str]] = {
     # is as load-bearing as SPY here and its 2007-05 listing must clamp the
     # window floor rather than silently producing un-funded risk-off stretches.
     "ew_trend_gated": ["SPY", "BIL"],
+    # Both rotate their de-risked fraction into BIL, so BIL is as
+    # load-bearing as SPY and its 2007-05 listing must clamp the window
+    # floor rather than producing un-funded risk-off stretches.
+    # ew_sector_capped is deliberately ABSENT: it never touches BIL, it
+    # is 100% invested in screen names at all times, so clamping its
+    # floor to BIL would cost it folds for no reason.
+    "ew_gross_voltarget": ["SPY", "BIL"],
+    "ew_dd_throttle": ["SPY", "BIL"],
 }
 DEFAULT_REQUIRED = ["SPY"]     # SPY-200d regime + the report's vs-SPY column
 REQUIRED_LOOKBACK = 252
@@ -293,11 +309,16 @@ def run_replay(live_con, config_id: str, window: str, *,
 
         t_screen = time.time()
         n_screen = 0
+        # Resolved once per replay and RECORDED in the result JSON below. A
+        # result whose screen policy is unknown cannot be compared to any other
+        # result, so the policy travels with the number, not with the operator's
+        # memory of how the job was launched.
+        policy = lev.resolve_policy(None)
         if cfg["strategy"] in NEEDS_SCREEN:
             if screen_source == "hist":
                 n_screen = hist_screen.screen_sessions(
                     con, sessions, membership="prices", passing_only=True,
-                    verbose=verbose)
+                    universe_policy=policy, verbose=verbose)
             elif screen_source == "m1":
                 n_screen = _copy_live_screens(live_con, con, start, end)
                 con.close()
@@ -357,6 +378,7 @@ def run_replay(live_con, config_id: str, window: str, *,
             "screen_source": screen_source if cfg["strategy"] in NEEDS_SCREEN
                              else "not-used",
             "screen_rows": n_screen,
+            "universe_policy": policy,
             "n_fills": n_fills,
             "n_rejected": n_rej,
             "n_dividend_credits": n_div[0],

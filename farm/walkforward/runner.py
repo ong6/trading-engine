@@ -43,6 +43,7 @@ for _p in (str(REPO_ROOT), str(REPO_ROOT / "engine")):
         sys.path.insert(0, _p)
 
 from lib import db  # noqa: E402
+from lib import leverage as lev  # noqa: E402
 
 from sim import league  # noqa: E402
 from sim.schema import INITIAL_CASH  # noqa: E402
@@ -313,10 +314,14 @@ def run_book(live_con, config_id: str, *,
 
         t_screen = time.time()
         n_screen = 0
+        # Resolved once per book and RECORDED in the result JSON below — see the
+        # same note in farm/backtest/replay.py. Every fold of a book shares one
+        # screen, so one policy per book is the right granularity.
+        policy = lev.resolve_policy(None)
         if book["strategy"] in NEEDS_SCREEN:
             n_screen = hist_screen.screen_sessions(
                 con, all_sessions, membership="prices", passing_only=True,
-                verbose=verbose)
+                universe_policy=policy, verbose=verbose)
         screen_s = time.time() - t_screen
 
         fold_results = []
@@ -344,6 +349,7 @@ def run_book(live_con, config_id: str, *,
                 validate_months=validate_months, step_months=step_months),
             "dropped_folds": [d for d in dropped if d],
             "screen_rows": n_screen,
+            "universe_policy": policy,
             "screen_source": "hist" if book["strategy"] in NEEDS_SCREEN
                              else "not-used",
             "span_start": span_start.isoformat(),
