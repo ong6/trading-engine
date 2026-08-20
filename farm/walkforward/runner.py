@@ -176,6 +176,18 @@ def run_fold(con, book: dict, fold: protocol.Fold, sessions: list[date],
         "SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM sim_dividends "
         "WHERE portfolio_id = ?", [book["id"]]).fetchone()
 
+    # How many names this fold could actually see. The survivorship disclosure
+    # printed in every report is a FLAT "~+7pp/yr", and that is wrong in shape:
+    # `prices` holds only tickers listed TODAY, so the further back a fold
+    # reaches the smaller and more winner-selected its cross-section becomes.
+    # Measured 2026-08-20 against World Bank listing counts: the store covers
+    # ~11% of the companies that existed in 1996, ~24% in 2003 and ~42% in 2014.
+    # A reader comparing fold 1 to fold 10 is comparing two different universes,
+    # and until now nothing on the page said so.
+    n_universe = con.execute(
+        "SELECT COUNT(DISTINCT ticker) FROM prices WHERE date BETWEEN ? AND ?",
+        [split, sessions[-1]]).fetchone()[0]
+
     # A book that never bought anything did not "return 0.00%" — it did nothing.
     # Its equity curve is the initial cash, flat, and every stat derived from it
     # (return, drawdown, Sharpe) is an artefact of that, not a measurement. Three
@@ -203,6 +215,7 @@ def run_fold(con, book: dict, fold: protocol.Fold, sessions: list[date],
         "n_validate_fills": n_val_fills,
         "n_rejected": n_rej,
         "n_dividend_credits": n_div[0],
+        "validate_universe": n_universe,
         "dividend_cash": float(n_div[1]),
         "runtime_s": round(time.time() - t0, 1),
         "train": stats.equity_stats(tr_d, tr_e, bil),

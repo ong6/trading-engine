@@ -14,12 +14,21 @@ _`ew_benchmark` · ew_benchmark · monthly cadence · verdict **reference** · g
 
 ## Disclosures — read before any number below
 
-1. **Survivor universe.** `prices` holds only tickers listed TODAY, so every
-   name delisted, acquired or bankrupted inside a fold is absent entirely. The
-   house lesson prices this at roughly **+7pp/yr of fake return** for a
-   screen-driven book. That is WHY the headline comparison here is **vs EW
-   (same universe, same screen), fold by fold** — the bias is largely common to
-   both sides of that difference. Absolute return is context, not evidence.
+1. **Survivor universe, and it is NOT a constant.** `prices` holds only tickers
+   listed TODAY, so every name delisted, acquired or bankrupted inside a fold is
+   absent entirely. The house lesson has priced this at roughly **+7pp/yr of fake
+   return** for a screen-driven book — but that flat figure is wrong in SHAPE, and
+   the `Universe` column on every fold table below exists to show it. Measured
+   2026-08-20 against World Bank listed-company counts, the store covers
+   **~11% of the companies that existed in 1996, ~24% in 2003 and ~42% in 2014**
+   (ex-ETF). The bias therefore grows monotonically as a window moves back, and an
+   early fold rests on a thinner, more winner-selected cross-section than a late
+   one. Not one 2008 casualty is present: LEH, BSC, ENE, WCOM, CFC, MER, SIVB and
+   FRC are all absent, so **a fold spanning 2008 is one in which those names cannot
+   lose money.** That is WHY the headline comparison here is **vs EW (same
+   universe, same screen), fold by fold** — the bias is largely common to both
+   sides of that difference. Absolute return is context, not evidence, and a fold
+   with a small `Universe` count deserves proportionally less weight.
 2. **Out-of-sample in the DATA, not in the RULE.** Each validate window is data
    the preceding train window never saw, and nothing is fitted anywhere in this
    workload (see D-WF5). But these books were written by a human who has lived
@@ -48,14 +57,14 @@ _`ew_benchmark` · ew_benchmark · monthly cadence · verdict **reference** · g
 
 ## Folds
 
-| Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2018-08-14→2020-08-14 | +18.34% | +8.78% | 2020-08-14→2021-08-13 | **+131.12%** | +131.78% | +43.92% | +2.14 | −22.59% | +0.00% | +98.29% | 850 |
-| 2 | 2019-08-14→2021-08-13 | +179.81% | +67.34% | 2021-08-13→2022-08-12 | **−7.97%** | −8.00% | +37.14% | −0.04 | −34.16% | +0.00% | −5.18% | 886 |
-| 3 | 2020-08-14→2022-08-12 | +100.64% | +41.82% | 2022-08-12→2023-08-14 | **−0.08%** | −0.08% | +24.83% | +0.12 | −15.77% | +0.00% | −6.35% | 859 |
-| 4 | 2021-08-16→2023-08-14 | −10.37% | −5.34% | 2023-08-14→2024-08-14 | **+1.45%** | +1.45% | +31.12% | +0.20 | −20.53% | +0.00% | −20.68% | 829 |
-| 5 | 2022-08-15→2024-08-14 | +3.55% | +1.76% | 2024-08-14→2025-08-14 | **+25.11%** | +25.13% | +36.99% | +0.80 | −33.25% | +0.00% | +5.68% | 850 |
-| 6 ◈ | 2023-08-14→2025-08-14 | +25.33% | +11.94% | 2025-08-14→2026-08-14 | **+33.67%** | +33.70% | +56.44% | +0.80 | −36.48% | +0.00% | +12.63% | 909 |
+| Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills | Universe |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 2018-08-14→2020-08-14 | +18.34% | +8.78% | 2020-08-14→2021-08-13 | **+131.12%** | +131.78% | +43.92% | +2.14 | −22.59% | +0.00% | +98.29% | 850 | · |
+| 2 | 2019-08-14→2021-08-13 | +179.81% | +67.34% | 2021-08-13→2022-08-12 | **−7.97%** | −8.00% | +37.14% | −0.04 | −34.16% | +0.00% | −5.18% | 886 | · |
+| 3 | 2020-08-14→2022-08-12 | +100.64% | +41.82% | 2022-08-12→2023-08-14 | **−0.08%** | −0.08% | +24.83% | +0.12 | −15.77% | +0.00% | −6.35% | 859 | · |
+| 4 | 2021-08-16→2023-08-14 | −10.37% | −5.34% | 2023-08-14→2024-08-14 | **+1.45%** | +1.45% | +31.12% | +0.20 | −20.53% | +0.00% | −20.68% | 829 | · |
+| 5 | 2022-08-15→2024-08-14 | +3.55% | +1.76% | 2024-08-14→2025-08-14 | **+25.11%** | +25.13% | +36.99% | +0.80 | −33.25% | +0.00% | +5.68% | 850 | · |
+| 6 ◈ | 2023-08-14→2025-08-14 | +25.33% | +11.94% | 2025-08-14→2026-08-14 | **+33.67%** | +33.70% | +56.44% | +0.80 | −36.48% | +0.00% | +12.63% | 909 | · |
 
 ## Summary
 
