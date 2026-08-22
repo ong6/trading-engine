@@ -1,6 +1,6 @@
 # Sweep — `momo_stop`
 
-_9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-20 09:29 UTC._
+_9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-22 13:20 UTC._
 
 ## Read this before the table
 
@@ -10,19 +10,19 @@ _9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 �
 
 Ranked by **median** excess vs `ew_benchmark` on shared folds, not mean: at 6 folds the mean excess of every momentum book was carried entirely by the 2018-2021 window. Excess vs EW (same universe, same screen) is used rather than absolute return because it cancels most of the ~+7pp/yr survivorship inflation in this store.
 
-Benchmark on these folds: median validate **+14.61%**, worst-fold drawdown **-37.53%**.
+Benchmark on these folds: median validate **+14.26%**, worst-fold drawdown **-37.54%**.
 
 | Candidate | Distinguishable from EW? | Folds | Median excess | 90% CI on median excess | Mean excess | Beats EW | Worst DD |
 |---|---|---|---|---|---|---|---|
-| `n-20__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -3.19% | [-13.69%, +3.99%] | -4.08% | 30% | -42.76% |
-| `n-10__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -5.06% | [-16.22%, +9.20%] | +1.85% | 50% | -52.47% |
-| `n-20__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -5.39% | [-16.25%, +3.55%] | -4.20% | 30% | -45.05% |
-| `n-20__stop_frac-0.8` | **distinguishable −** | 10 | -6.58% | [-16.33%, -2.64%] | -5.86% | 20% | -45.57% |
-| `n-5__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -6.92% | [-20.77%, +18.83%] | +8.67% | 40% | -63.72% |
-| `n-10__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -7.40% | [-15.17%, +8.09%] | +1.82% | 30% | -48.01% |
-| `n-5__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -7.44% | [-22.47%, +30.93%] | +13.97% | 40% | -63.43% |
-| `n-10__stop_frac-0.8` | **INDISTINGUISHABLE** | 10 | -8.81% | [-16.25%, +5.63%] | -0.05% | 30% | -49.73% |
-| `n-5__stop_frac-0.8` | **INDISTINGUISHABLE** | 10 | -10.38% | [-13.88%, +17.18%] | +8.11% | 40% | -65.45% |
+| `n-20__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -2.44% | [-14.40%, +6.54%] | -4.14% | 30% | -42.86% |
+| `n-10__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -3.47% | [-18.06%, +10.05%] | +1.85% | 50% | -52.82% |
+| `n-20__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -5.13% | [-16.54%, +7.00%] | -4.18% | 30% | -45.16% |
+| `n-5__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -5.29% | [-27.17%, +34.04%] | +13.86% | 40% | -63.00% |
+| `n-20__stop_frac-0.8` | **distinguishable −** | 10 | -6.31% | [-17.10%, -3.47%] | -5.86% | 20% | -45.54% |
+| `n-10__stop_frac-0.8` | **INDISTINGUISHABLE** | 10 | -7.37% | [-17.49%, +5.00%] | +0.36% | 30% | -49.71% |
+| `n-10__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -7.48% | [-14.73%, +7.40%] | +2.15% | 30% | -48.03% |
+| `n-5__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -8.65% | [-20.80%, +21.31%] | +9.20% | 40% | -63.23% |
+| `n-5__stop_frac-0.8` | **INDISTINGUISHABLE** | 10 | -9.59% | [-16.32%, +19.33%] | +9.42% | 40% | -65.06% |
 
 ## The interval, and what it is not
 
@@ -40,10 +40,10 @@ Top genuine candidate `n-20__stop_frac-0.9`, on its **excess-vs-EW** series (10 
 
 | | |
 |---|---|
-| Raw Sharpe (excess vs EW, per fold) | **-0.320** |
+| Raw Sharpe (excess vs EW, per fold) | **-0.329** |
 | Trials searched (N) | 9 |
-| SR0 — Sharpe the luckiest of 9 zero-skill trials would be expected to show | +0.349 |
-| **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.028** |
+| SR0 — Sharpe the luckiest of 9 zero-skill trials would be expected to show | +0.355 |
+| **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.022** |
 
 V in the SR0 formula is the observed variance of the 9 trial excess Sharpes in this grid.
 

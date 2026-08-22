@@ -1,0 +1,166 @@
+{
+  "sweep": "sector_cap",
+  "n_trials": 4,
+  "generated": "2026-08-22 08:40 UTC",
+  "bootstrap": {
+    "seed": 20260820,
+    "draws": 10000,
+    "conf": 0.9,
+    "statistic": "median",
+    "unit": "fold",
+    "n_indistinguishable": 3
+  },
+  "deflated_sharpe": {
+    "id": "sweep__sector_cap__max_per_sector-15",
+    "n_obs": 10,
+    "n_trials": 4,
+    "sharpe_raw": -0.06381203213009369,
+    "sr0_benchmark": 0.28193380521715816,
+    "deflated_sharpe": 0.1460170587824577,
+    "var_sr": 0.07180611360825824,
+    "var_source": "observed variance of the 4 trial excess Sharpes in this grid"
+  },
+  "rows": [
+    {
+      "identical_to_benchmark": false,
+      "id": "sweep__sector_cap__max_per_sector-15",
+      "n_folds": 10,
+      "median_excess": 0.0010032954838868902,
+      "mean_excess": -0.0018418614916847708,
+      "beat_bench": 0.5,
+      "worst_dd": -0.38045794202608074,
+      "median_validate": 0.14362050023806383,
+      "median_excess_ci": {
+        "stat": "median",
+        "n": 10,
+        "point": 0.0010032954838868902,
+        "lo": -0.015348105884783747,
+        "hi": 0.014400661532961934,
+        "conf": 0.9,
+        "n_boot": 10000,
+        "seed": 20260820,
+        "contains_zero": true
+      },
+      "distinguishable": "INDISTINGUISHABLE",
+      "excess_sharpe_per_fold": -0.06381203213009369,
+      "fold_excess": [
+        0.041179167658634386,
+        0.014400661532961934,
+        0.028328868698676457,
+        -0.004227852972762403,
+        0.006941972682708464,
+        -0.05999169397619386,
+        -0.020587970711841375,
+        -0.003172657110442678,
+        0.0051792480782164585,
+        -0.02646835879680509
+      ]
+    },
+    {
+      "identical_to_benchmark": false,
+      "id": "sweep__sector_cap__max_per_sector-10",
+      "n_folds": 10,
+      "median_excess": -0.0072312671778139714,
+      "mean_excess": -0.0046121350965403155,
+      "beat_bench": 0.4,
+      "worst_dd": -0.38823826198313904,
+      "median_validate": 0.13095519060913718,
+      "median_excess_ci": {
+        "stat": "median",
+        "n": 10,
+        "point": -0.0072312671778139714,
+        "lo": -0.0185907466552111,
+        "hi": 0.017369445611897794,
+        "conf": 0.9,
+        "n_boot": 10000,
+        "seed": 20260820,
+        "contains_zero": true
+      },
+      "distinguishable": "INDISTINGUISHABLE",
+      "excess_sharpe_per_fold": -0.09807006464901245,
+      "fold_excess": [
+        0.08795795330747569,
+        -0.06466613444537961,
+        0.030244274285543993,
+        -0.00972925272075953,
+        0.022737880806184663,
+        -0.07759947587417126,
+        0.004494616938251594,
+        -0.0185907466552111,
+        -0.004733281634868414,
+        -0.016237184972469176
+      ]
+    },
+    {
+      "identical_to_benchmark": false,
+      "id": "sweep__sector_cap__max_per_sector-8",
+      "n_folds": 10,
+      "median_excess": -0.00973353259644899,
+      "mean_excess": -0.0018628945469723157,
+      "beat_bench": 0.4,
+      "worst_dd": -0.3951959720443048,
+      "median_validate": 0.13459282543538675,
+      "median_excess_ci": {
+        "stat": "median",
+        "n": 10,
+        "point": -0.00973353259644899,
+        "lo": -0.04558800552861686,
+        "hi": 0.01721684295491155,
+        "conf": 0.9,
+        "n_boot": 10000,
+        "seed": 20260820,
+        "contains_zero": true
+      },
+      "distinguishable": "INDISTINGUISHABLE",
+      "excess_sharpe_per_fold": -0.034367783433971996,
+      "fold_excess": [
+        0.10263815514123853,
+        -0.03330997930276158,
+        -0.018115136390297826,
+        0.01721684295491155,
+        0.06951718326386036,
+        -0.06153100684975388,
+        -0.0013519288026001552,
+        0.010250930275240933,
+        -0.04558800552861686,
+        -0.05835600023094423
+      ]
+    },
+    {
+      "identical_to_benchmark": false,
+      "id": "sweep__sector_cap__max_per_sector-5",
+      "n_folds": 10,
+      "median_excess": -0.03538569341747966,
+      "mean_excess": -0.03913020926183299,
+      "beat_bench": 0.3,
+      "worst_dd": -0.4003334873110177,
+      "median_validate": 0.09428977209489353,
+      "median_excess_ci": {
+        "stat": "median",
+        "n": 10,
+        "point": -0.03538569341747966,
+        "lo": -0.08157885554534305,
+        "hi": -0.003556294027443563,
+        "conf": 0.9,
+        "n_boot": 10000,
+        "seed": 20260820,
+        "contains_zero": false
+      },
+      "distinguishable": "distinguishable \u2212",
+      "excess_sharpe_per_fold": -0.5988151499489874,
+      "fold_excess": [
+        0.07596533205439027,
+        -0.11290441850840116,
+        0.009981420847210432,
+        -0.04046247997151675,
+        -0.11947535777178886,
+        -0.030308906863442564,
+        -0.02761578430845113,
+        -0.04368235331889725,
+        -0.12330274103099692,
+        0.020503196253564004
+      ]
+    }
+  ],
+  "excluded": []
+}
