@@ -1,6 +1,6 @@
 # Stop-Tuned Turtle (AI) — walk-forward re-validation
 
-_`stop_tuner_turtle` · turtle_breakout · daily cadence · verdict **REVIEW** · generated 2026-08-16T07:51:51+00:00_
+_`stop_tuner_turtle` · turtle_breakout · daily cadence · verdict **no-benchmark** · generated 2026-08-16T07:51:51+00:00_
 
 **Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-14. Each fold is an independent replay starting at $39,000. Span 2018-08-14 → 2026-08-14 (2011 sessions); data floor 1994-01-27; screen source `hist` (799,705 passing rows).
 
@@ -8,9 +8,9 @@ _`stop_tuner_turtle` · turtle_breakout · daily cadence · verdict **REVIEW** �
 
 **Pre-registered kill criterion.** AGENT LOOP killed if the AI book trails turtle_breakout net of costs at 26 weeks (2027-02-01).
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 17% of 6 window(s), mean excess −25.37%, latest −39.53% → **REVIEW**.
+**Measured against `ew_benchmark` on the same folds:** beats it in · of 0 window(s), mean excess ·, latest · → **no-benchmark**.
 
-**90% CI on mean excess vs `ew_benchmark`:** [−45.20%, −7.45%] → **distinguishable −**. The verdict above is unchanged by this interval — see the note below the fold table.
+**90% CI on mean excess vs `ew_benchmark`:** · → _no interval_. The verdict above is unchanged by this interval — see the note below the fold table.
 
 ## Disclosures — read before any number below
 
@@ -59,12 +59,12 @@ _`stop_tuner_turtle` · turtle_breakout · daily cadence · verdict **REVIEW** �
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills | Universe |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2018-08-14→2020-08-14 | −9.07% | −4.64% | 2020-08-14→2021-08-13 | **+53.50%** | +53.72% | +36.27% | +1.36 | −17.02% | −77.62% | +20.67% | 164 | · |
-| 2 | 2019-08-14→2021-08-13 | +54.24% | +24.21% | 2021-08-13→2022-08-12 | **−9.53%** | −9.56% | +23.42% | −0.31 | −26.38% | −1.56% | −6.73% | 114 | · |
-| 3 | 2020-08-14→2022-08-12 | +42.34% | +19.38% | 2022-08-12→2023-08-14 | **−7.70%** | −7.66% | +15.71% | −0.43 | −13.34% | −7.62% | −13.96% | 97 | · |
-| 4 | 2021-08-16→2023-08-14 | −11.73% | −6.07% | 2023-08-14→2024-08-14 | **+4.23%** | +4.22% | +25.68% | +0.29 | −23.14% | +2.78% | −17.91% | 167 | · |
-| 5 | 2022-08-15→2024-08-14 | −3.80% | −1.92% | 2024-08-14→2025-08-14 | **−3.58%** | −3.59% | +25.37% | −0.02 | −31.00% | −28.69% | −23.01% | 157 | · |
-| 6 ◈ | 2023-08-14→2025-08-14 | −10.03% | −5.14% | 2025-08-14→2026-08-14 | **−5.86%** | −5.86% | +30.15% | −0.05 | −29.03% | −39.53% | −26.90% | 160 | · |
+| 1 | 2018-08-14→2020-08-14 | −9.07% | −4.64% | 2020-08-14→2021-08-13 | **+53.50%** | +53.72% | +36.27% | +1.36 | −17.02% | · | · | 164 | · |
+| 2 | 2019-08-14→2021-08-13 | +54.24% | +24.21% | 2021-08-13→2022-08-12 | **−9.53%** | −9.56% | +23.42% | −0.31 | −26.38% | · | · | 114 | · |
+| 3 | 2020-08-14→2022-08-12 | +42.34% | +19.38% | 2022-08-12→2023-08-14 | **−7.70%** | −7.66% | +15.71% | −0.43 | −13.34% | · | · | 97 | · |
+| 4 | 2021-08-16→2023-08-14 | −11.73% | −6.07% | 2023-08-14→2024-08-14 | **+4.23%** | +4.22% | +25.68% | +0.29 | −23.14% | · | · | 167 | · |
+| 5 | 2022-08-15→2024-08-14 | −3.80% | −1.92% | 2024-08-14→2025-08-14 | **−3.58%** | −3.59% | +25.37% | −0.02 | −31.00% | · | · | 157 | · |
+| 6 ◈ | 2023-08-14→2025-08-14 | −10.03% | −5.14% | 2025-08-14→2026-08-14 | **−5.86%** | −5.86% | +30.15% | −0.05 | −29.03% | · | · | 160 | · |
 
 ## Summary
 
