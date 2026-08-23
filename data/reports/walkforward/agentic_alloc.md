@@ -1,6 +1,6 @@
 # Agentic Sleeve Allocator (AI) — walk-forward re-validation
 
-_`agentic_alloc` · sleeve_alloc · weekly cadence · verdict **REVIEW** · generated 2026-08-16T06:52:02+00:00_
+_`agentic_alloc` · sleeve_alloc · weekly cadence · verdict **no-benchmark** · generated 2026-08-16T06:52:02+00:00_
 
 **Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-14. Each fold is an independent replay starting at $39,000. Span 2018-08-14 → 2026-08-14 (2011 sessions); data floor 1994-01-27; screen source `not-used`.
 
@@ -8,9 +8,9 @@ _`agentic_alloc` · sleeve_alloc · weekly cadence · verdict **REVIEW** · gene
 
 **Pre-registered kill criterion.** AGENT LOOP killed if the AI book trails agentic_alloc_frozen net of costs at 26 weeks (2027-02-01).
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess −22.97%, latest −23.60% → **REVIEW**.
+**Measured against `ew_benchmark` on the same folds:** beats it in · of 0 window(s), mean excess ·, latest · → **no-benchmark**.
 
-**90% CI on mean excess vs `ew_benchmark`:** [−58.60%, +1.07%] → **INDISTINGUISHABLE**. The verdict above is unchanged by this interval — see the note below the fold table.
+**90% CI on mean excess vs `ew_benchmark`:** · → _no interval_. The verdict above is unchanged by this interval — see the note below the fold table.
 
 ## Disclosures — read before any number below
 
@@ -59,12 +59,12 @@ _`agentic_alloc` · sleeve_alloc · weekly cadence · verdict **REVIEW** · gene
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills | Universe |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2018-08-14→2020-08-14 | +6.78% | +3.33% | 2020-08-14→2021-08-13 | **+15.26%** | +15.31% | +8.22% | +1.78 | −5.22% | −115.86% | −17.57% | 224 | · |
-| 2 | 2019-08-14→2021-08-13 | +16.38% | +7.89% | 2021-08-13→2022-08-12 | **+1.83%** | +1.84% | +10.07% | +0.23 | −9.36% | +9.80% | +4.63% | 236 | · |
-| 3 | 2020-08-14→2022-08-12 | +17.05% | +8.22% | 2022-08-12→2023-08-14 | **−1.66%** | −1.65% | +8.53% | −0.15 | −8.26% | −1.58% | −7.92% | 200 | · |
-| 4 | 2021-08-16→2023-08-14 | −0.24% | −0.12% | 2023-08-14→2024-08-14 | **+7.79%** | +7.77% | +6.34% | +1.21 | −6.08% | +6.33% | −14.35% | 173 | · |
-| 5 | 2022-08-15→2024-08-14 | +5.97% | +2.94% | 2024-08-14→2025-08-14 | **+12.18%** | +12.19% | +9.52% | +1.26 | −8.39% | −12.93% | −7.24% | 201 | · |
-| 6 ◈ | 2023-08-14→2025-08-14 | +22.67% | +10.75% | 2025-08-14→2026-08-14 | **+10.07%** | +10.08% | +5.57% | +1.76 | −4.59% | −23.60% | −10.97% | 230 | · |
+| 1 | 2018-08-14→2020-08-14 | +6.78% | +3.33% | 2020-08-14→2021-08-13 | **+15.26%** | +15.31% | +8.22% | +1.78 | −5.22% | · | · | 224 | · |
+| 2 | 2019-08-14→2021-08-13 | +16.38% | +7.89% | 2021-08-13→2022-08-12 | **+1.83%** | +1.84% | +10.07% | +0.23 | −9.36% | · | · | 236 | · |
+| 3 | 2020-08-14→2022-08-12 | +17.05% | +8.22% | 2022-08-12→2023-08-14 | **−1.66%** | −1.65% | +8.53% | −0.15 | −8.26% | · | · | 200 | · |
+| 4 | 2021-08-16→2023-08-14 | −0.24% | −0.12% | 2023-08-14→2024-08-14 | **+7.79%** | +7.77% | +6.34% | +1.21 | −6.08% | · | · | 173 | · |
+| 5 | 2022-08-15→2024-08-14 | +5.97% | +2.94% | 2024-08-14→2025-08-14 | **+12.18%** | +12.19% | +9.52% | +1.26 | −8.39% | · | · | 201 | · |
+| 6 ◈ | 2023-08-14→2025-08-14 | +22.67% | +10.75% | 2025-08-14→2026-08-14 | **+10.07%** | +10.08% | +5.57% | +1.76 | −4.59% | · | · | 230 | · |
 
 ## Summary
 
