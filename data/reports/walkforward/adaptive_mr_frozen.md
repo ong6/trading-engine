@@ -1,6 +1,6 @@
 # Adaptive MR — Frozen Twin — walk-forward re-validation
 
-_`adaptive_mr_frozen` · mr_overlay · daily cadence · verdict **REVIEW** · generated 2026-08-16T09:32:03+00:00_
+_`adaptive_mr_frozen` · mr_overlay · daily cadence · verdict **no-benchmark** · generated 2026-08-16T09:32:03+00:00_
 
 **Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-14. Each fold is an independent replay starting at $39,000. Span 2018-08-14 → 2026-08-14 (2011 sessions); data floor 1994-01-27; screen source `hist` (799,705 passing rows).
 
@@ -8,9 +8,9 @@ _`adaptive_mr_frozen` · mr_overlay · daily cadence · verdict **REVIEW** · ge
 
 **Pre-registered kill criterion.** Control book — not killed.
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 17% of 6 window(s), mean excess −25.09%, latest −25.07% → **REVIEW**.
+**Measured against `ew_benchmark` on the same folds:** beats it in · of 0 window(s), mean excess ·, latest · → **no-benchmark**.
 
-**90% CI on mean excess vs `ew_benchmark`:** [−53.24%, −6.46%] → **distinguishable −**. The verdict above is unchanged by this interval — see the note below the fold table.
+**90% CI on mean excess vs `ew_benchmark`:** · → _no interval_. The verdict above is unchanged by this interval — see the note below the fold table.
 
 ## Disclosures — read before any number below
 
@@ -59,12 +59,12 @@ _`adaptive_mr_frozen` · mr_overlay · daily cadence · verdict **REVIEW** · ge
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills | Universe |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2018-08-14→2020-08-14 | −3.80% | −1.92% | 2020-08-14→2021-08-13 | **+32.18%** | +32.31% | +15.97% | +1.83 | −12.55% | −98.94% | −0.65% | 439 | · |
-| 2 | 2019-08-14→2021-08-13 | +34.26% | +15.88% | 2021-08-13→2022-08-12 | **−6.88%** | −6.90% | +12.34% | −0.52 | −14.94% | +1.09% | −4.08% | 378 | · |
-| 3 | 2020-08-14→2022-08-12 | +20.03% | +9.59% | 2022-08-12→2023-08-14 | **−8.36%** | −8.32% | +13.71% | −0.57 | −16.96% | −8.28% | −14.63% | 437 | · |
-| 4 | 2021-08-16→2023-08-14 | −13.98% | −7.28% | 2023-08-14→2024-08-14 | **−2.50%** | −2.49% | +11.28% | −0.17 | −10.20% | −3.95% | −24.64% | 446 | · |
-| 5 | 2022-08-15→2024-08-14 | −10.61% | −5.46% | 2024-08-14→2025-08-14 | **+9.70%** | +9.70% | +14.48% | +0.72 | −17.30% | −15.41% | −9.73% | 460 | · |
-| 6 ◈ | 2023-08-14→2025-08-14 | +7.03% | +3.45% | 2025-08-14→2026-08-14 | **+8.60%** | +8.60% | +16.41% | +0.59 | −8.96% | −25.07% | −12.44% | 462 | · |
+| 1 | 2018-08-14→2020-08-14 | −3.80% | −1.92% | 2020-08-14→2021-08-13 | **+32.18%** | +32.31% | +15.97% | +1.83 | −12.55% | · | · | 439 | · |
+| 2 | 2019-08-14→2021-08-13 | +34.26% | +15.88% | 2021-08-13→2022-08-12 | **−6.88%** | −6.90% | +12.34% | −0.52 | −14.94% | · | · | 378 | · |
+| 3 | 2020-08-14→2022-08-12 | +20.03% | +9.59% | 2022-08-12→2023-08-14 | **−8.36%** | −8.32% | +13.71% | −0.57 | −16.96% | · | · | 437 | · |
+| 4 | 2021-08-16→2023-08-14 | −13.98% | −7.28% | 2023-08-14→2024-08-14 | **−2.50%** | −2.49% | +11.28% | −0.17 | −10.20% | · | · | 446 | · |
+| 5 | 2022-08-15→2024-08-14 | −10.61% | −5.46% | 2024-08-14→2025-08-14 | **+9.70%** | +9.70% | +14.48% | +0.72 | −17.30% | · | · | 460 | · |
+| 6 ◈ | 2023-08-14→2025-08-14 | +7.03% | +3.45% | 2025-08-14→2026-08-14 | **+8.60%** | +8.60% | +16.41% | +0.59 | −8.96% | · | · | 462 | · |
 
 ## Summary
 

@@ -1,6 +1,6 @@
 # News-Gated Momentum (AI) — walk-forward re-validation
 
-_`news_gated_momo` · momo_stopped · daily cadence · verdict **WATCH** · generated 2026-08-16T07:41:39+00:00_
+_`news_gated_momo` · momo_stopped · daily cadence · verdict **no-benchmark** · generated 2026-08-16T07:41:39+00:00_
 
 **Protocol.** train 24mo → validate 12mo, step 12mo, 6 fold(s), anchored 2026-08-14. Each fold is an independent replay starting at $39,000. Span 2018-08-14 → 2026-08-14 (2011 sessions); data floor 1994-01-27; screen source `hist` (799,705 passing rows).
 
@@ -8,9 +8,9 @@ _`news_gated_momo` · momo_stopped · daily cadence · verdict **WATCH** · gene
 
 **Pre-registered kill criterion.** AGENT LOOP killed if the AI book trails momo_stopped net of costs at the 26-week evaluation (2027-02-01). The algo book itself is never killed by this test.
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 33% of 6 window(s), mean excess +4.79%, latest −14.50% → **WATCH**.
+**Measured against `ew_benchmark` on the same folds:** beats it in · of 0 window(s), mean excess ·, latest · → **no-benchmark**.
 
-**90% CI on mean excess vs `ew_benchmark`:** [−18.53%, +36.00%] → **INDISTINGUISHABLE**. The verdict above is unchanged by this interval — see the note below the fold table.
+**90% CI on mean excess vs `ew_benchmark`:** · → _no interval_. The verdict above is unchanged by this interval — see the note below the fold table.
 
 ## Disclosures — read before any number below
 
@@ -59,12 +59,12 @@ _`news_gated_momo` · momo_stopped · daily cadence · verdict **WATCH** · gene
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills | Universe |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2018-08-14→2020-08-14 | +50.87% | +22.81% | 2020-08-14→2021-08-13 | **+221.61%** | +222.90% | +56.79% | +2.35 | −33.77% | +90.49% | +188.78% | 778 | · |
-| 2 | 2019-08-14→2021-08-13 | +383.27% | +119.95% | 2021-08-13→2022-08-12 | **+0.33%** | +0.33% | +42.60% | +0.22 | −34.22% | +8.30% | +3.12% | 802 | · |
-| 3 | 2020-08-14→2022-08-12 | +212.66% | +77.17% | 2022-08-12→2023-08-14 | **−11.55%** | −11.50% | +34.78% | −0.18 | −22.81% | −11.47% | −17.81% | 771 | · |
-| 4 | 2021-08-16→2023-08-14 | −10.81% | −5.58% | 2023-08-14→2024-08-14 | **−10.15%** | −10.13% | +40.70% | −0.06 | −29.68% | −11.60% | −32.28% | 761 | · |
-| 5 | 2022-08-15→2024-08-14 | −20.43% | −10.81% | 2024-08-14→2025-08-14 | **−7.40%** | −7.40% | +54.05% | +0.13 | −48.01% | −32.51% | −26.82% | 773 | · |
-| 6 ◈ | 2023-08-14→2025-08-14 | −10.10% | −5.18% | 2025-08-14→2026-08-14 | **+19.17%** | +19.19% | +68.10% | +0.61 | −44.28% | −14.50% | −1.86% | 755 | · |
+| 1 | 2018-08-14→2020-08-14 | +50.87% | +22.81% | 2020-08-14→2021-08-13 | **+221.61%** | +222.90% | +56.79% | +2.35 | −33.77% | · | · | 778 | · |
+| 2 | 2019-08-14→2021-08-13 | +383.27% | +119.95% | 2021-08-13→2022-08-12 | **+0.33%** | +0.33% | +42.60% | +0.22 | −34.22% | · | · | 802 | · |
+| 3 | 2020-08-14→2022-08-12 | +212.66% | +77.17% | 2022-08-12→2023-08-14 | **−11.55%** | −11.50% | +34.78% | −0.18 | −22.81% | · | · | 771 | · |
+| 4 | 2021-08-16→2023-08-14 | −10.81% | −5.58% | 2023-08-14→2024-08-14 | **−10.15%** | −10.13% | +40.70% | −0.06 | −29.68% | · | · | 761 | · |
+| 5 | 2022-08-15→2024-08-14 | −20.43% | −10.81% | 2024-08-14→2025-08-14 | **−7.40%** | −7.40% | +54.05% | +0.13 | −48.01% | · | · | 773 | · |
+| 6 ◈ | 2023-08-14→2025-08-14 | −10.10% | −5.18% | 2025-08-14→2026-08-14 | **+19.17%** | +19.19% | +68.10% | +0.61 | −44.28% | · | · | 755 | · |
 
 ## Summary
 
