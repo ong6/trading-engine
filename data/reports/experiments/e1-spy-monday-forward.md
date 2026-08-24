@@ -1,8 +1,8 @@
 # Experiment e1-spy-monday — FORWARD (out-of-sample) record
 
-*Forward phase registered 2026-07-29 · report generated 2026-08-21 22:33 UTC · params hash `5dc40ff465de67a9` · forward-config hash `399ce03bee8bab4e`*
+*Forward phase registered 2026-07-29 · report generated 2026-08-24 22:33 UTC · params hash `5dc40ff465de67a9` · forward-config hash `399ce03bee8bab4e`*
 
-> **NO RESULT YET — 5 of 40 out-of-sample Mondays.** This experiment is not evaluated until the pre-registered sample is complete. Anything below is an accumulating record, **not** a verdict: reading a mean or a t-stat at n=5 and calling it a finding is exactly the peeking the §12.3 protocol exists to prevent. **35 Mondays to go.**
+> **NO RESULT YET — 6 of 40 out-of-sample Mondays.** This experiment is not evaluated until the pre-registered sample is complete. Anything below is an accumulating record, **not** a verdict: reading a mean or a t-stat at n=6 and calling it a finding is exactly the peeking the §12.3 protocol exists to prevent. **34 Mondays to go.**
 
 ## Frozen registration
 
@@ -27,6 +27,7 @@ Registration source: `farm/experiments/e1-spy-monday.yaml` (pre-registered 2026-
 | 3 | 2026-08-03 | 749.44 | 757.67 | +1.0982% | +0.8962% | -0.3590% | -0.9551% |
 | 4 | 2026-08-10 | 772.60 | 773.03 | +0.0557% | -0.1442% | -0.3036% | -1.0980% |
 | 5 | 2026-08-17 | 776.18 | 772.67 | -0.4522% | -0.6511% | -0.7544% | -1.7419% |
+| 6 | 2026-08-24 | 764.78 | 763.47 | -0.1713% | -0.3708% | -0.9244% | -2.1062% |
 
 _Every row is one real stored SPY daily bar; holiday Mondays have no bar and are simply absent (no trade that week). Rows are append-only — a Monday is written once, after its session has settled, and never revised._
 
@@ -34,12 +35,12 @@ _Every row is one real stored SPY daily bar; holiday Mondays have no bar and are
 
 | Series | n | mean/Monday | sd | t-stat | cumulative | win rate |
 |---|--:|--:|--:|--:|--:|--:|
-| gross | 5 | -0.1490% | 0.7674% | -0.43 | -0.754% | 2/5 |
-| **net — 20bp r/t (kill series)** | 5 | -0.3485% | 0.7659% | -1.02 | -1.742% | 1/5 |
-| net — 3bp r/t (registered) | 5 | -0.1789% | 0.7672% | -0.52 | -0.903% | 2/5 |
+| gross | 6 | -0.1527% | 0.6864% | -0.54 | -0.924% | 2/6 |
+| **net — 20bp r/t (kill series)** | 6 | -0.3522% | 0.6851% | -1.26 | -2.106% | 1/6 |
+| net — 3bp r/t (registered) | 6 | -0.1827% | 0.6862% | -0.65 | -1.103% | 2/6 |
 
-- **Mondays recorded:** 5 / 40 · **Mondays to kill-evaluation:** **35**.
-- **Kill test (runs once, at n = 40):** kill if `mean <= 0` **or** `t < 0.5` on the net series. Current standing — mean -0.3485%, t -1.02 — **would KILL** if the criterion were applied today, which it is **not**.
+- **Mondays recorded:** 6 / 40 · **Mondays to kill-evaluation:** **34**.
+- **Kill test (runs once, at n = 40):** kill if `mean <= 0` **or** `t < 0.5` on the net series. Current standing — mean -0.3522%, t -1.26 — **would KILL** if the criterion were applied today, which it is **not**.
 - **Costs are real, not assumed:** net uses the paper league's own fill model (`sim/fills.py`), 20bp round-trip for SPY's liquidity tier — 6.7× stricter than the 3bp the backtest registered. The registered-cost row is shown so the forward record can also be read against the original pre-registration.
 
 ## Backtest context — NOT part of the out-of-sample record
@@ -59,5 +60,5 @@ The full pre-registered backtest (1990→2026, in-sample vs a locked holdout, de
 - **No fabricated bars.** A Monday without a real stored open+close (market holiday) produces no row at all, rather than a synthetic flat trade.
 - **No peeking-driven change.** The config, the cost model, the kill rule and the sample size were all frozen before this evidence existed. If E1 is killed at n=40 it is killed; there is no re-optimization branch.
 - **Negative results are published exactly like positive ones** — the farm exists to kill bad ideas cheaply (§12.3).
-- **Storage:** no new settled Mondays — nothing appended; the report was regenerated from `experiment_results` (re-running is a no-op by design).
+- **Storage:** 1 row(s) appended to `experiment_results` (append-only, partition `oos:<date>`) at 2026-08-24 22:33 UTC.
 
