@@ -1,19 +1,21 @@
 {
-  "last_run": "2026-08-27T22:32:00.989961+00:00",
+  "last_run": "2026-08-28T22:31:58.179577+00:00",
   "mode": "incremental",
-  "universe_size": 12524,
-  "active_count": 12357,
+  "universe_size": 12529,
+  "active_count": 12345,
   "liquid_count": 4118,
-  "prices_rows": 19940527,
+  "prices_rows": 19944626,
   "tickers_with_data": 12105,
   "stale_tickers": {
-    "count": 14,
+    "count": 17,
     "list": [
+      "AVB",
       "AVNS",
       "AXIA",
       "CCRN",
       "EA",
       "EQR",
+      "ISSC",
       "LBRDA",
       "LBRDK",
       "NSA",
@@ -22,21 +24,22 @@
       "TALK",
       "TMHC",
       "TOI",
+      "TWO",
       "WBS"
     ]
   },
-  "failed_this_run": 11,
+  "failed_this_run": 14,
   "sources": {
     "stooq": "blocked",
     "yfinance": "ok"
   },
   "regime": "risk-on",
-  "last_screen": "2026-08-27T22:32:04.114742+00:00",
-  "passing_count": 565,
-  "new_today_count": 50,
-  "screened": 3883,
+  "last_screen": "2026-08-28T22:32:01.359714+00:00",
+  "passing_count": 537,
+  "new_today_count": 32,
+  "screened": 3882,
   "skipped_stale": 0,
-  "skipped_short": 216,
+  "skipped_short": 215,
   "universe_policy": "all",
   "excluded_leveraged": 0,
   "actions_incremental": {
@@ -44,14 +47,14 @@
     "universe": 163,
     "universe_source": "held \u222a pending \u222a core-ETFs \u222a screen-top-N",
     "pulled_this_run": 163,
-    "with_actions": 97,
-    "no_actions": 66,
+    "with_actions": 98,
+    "no_actions": 65,
     "failed_tickers": 0,
-    "rows_written_this_run": 7633,
+    "rows_written_this_run": 7648,
     "total_splits": 8706,
-    "total_dividends": 401027,
-    "last_run": "2026-08-27T22:34:11.330261+00:00",
-    "store_gb": 3.22
+    "total_dividends": 401028,
+    "last_run": "2026-08-28T22:33:24.632930+00:00",
+    "store_gb": 3.26
   },
   "disk_warning": null,
   "actions_reconcile": {
@@ -59,7 +62,7 @@
     "rows_restated": 0,
     "outcomes": {},
     "warnings": 0,
-    "last_run": "2026-08-27T22:34:12.569866+00:00",
-    "store_gb": 3.22
+    "last_run": "2026-08-28T22:33:25.948525+00:00",
+    "store_gb": 3.26
   }
 }
