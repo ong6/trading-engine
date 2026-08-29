@@ -1,6 +1,6 @@
 # Sweep — `momo_stop`
 
-_9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-22 13:20 UTC._
+_9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-29 13:08 UTC._
 
 ## Read this before the table
 
@@ -10,19 +10,19 @@ _9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 �
 
 Ranked by **median** excess vs `ew_benchmark` on shared folds, not mean: at 6 folds the mean excess of every momentum book was carried entirely by the 2018-2021 window. Excess vs EW (same universe, same screen) is used rather than absolute return because it cancels most of the ~+7pp/yr survivorship inflation in this store.
 
-Benchmark on these folds: median validate **+14.26%**, worst-fold drawdown **-37.54%**.
+Benchmark on these folds: median validate **+17.98%**, worst-fold drawdown **-37.54%**.
 
 | Candidate | Distinguishable from EW? | Folds | Median excess | 90% CI on median excess | Mean excess | Beats EW | Worst DD |
 |---|---|---|---|---|---|---|---|
-| `n-20__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -2.44% | [-14.40%, +6.54%] | -4.14% | 30% | -42.86% |
-| `n-10__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -3.47% | [-18.06%, +10.05%] | +1.85% | 50% | -52.82% |
-| `n-20__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -5.13% | [-16.54%, +7.00%] | -4.18% | 30% | -45.16% |
-| `n-5__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -5.29% | [-27.17%, +34.04%] | +13.86% | 40% | -63.00% |
-| `n-20__stop_frac-0.8` | **distinguishable −** | 10 | -6.31% | [-17.10%, -3.47%] | -5.86% | 20% | -45.54% |
-| `n-10__stop_frac-0.8` | **INDISTINGUISHABLE** | 10 | -7.37% | [-17.49%, +5.00%] | +0.36% | 30% | -49.71% |
-| `n-10__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -7.48% | [-14.73%, +7.40%] | +2.15% | 30% | -48.03% |
-| `n-5__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -8.65% | [-20.80%, +21.31%] | +9.20% | 40% | -63.23% |
-| `n-5__stop_frac-0.8` | **INDISTINGUISHABLE** | 10 | -9.59% | [-16.32%, +19.33%] | +9.42% | 40% | -65.06% |
+| `n-10__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -3.23% | [-17.52%, +13.22%] | +3.02% | 50% | -52.80% |
+| `n-20__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -4.01% | [-12.73%, +5.78%] | -3.97% | 40% | -42.86% |
+| `n-5__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -4.07% | [-26.17%, +36.06%] | +16.31% | 50% | -61.86% |
+| `n-10__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -5.88% | [-15.96%, +9.05%] | +2.98% | 40% | -48.03% |
+| `n-20__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -6.03% | [-12.81%, +0.39%] | -4.23% | 40% | -45.17% |
+| `n-10__stop_frac-0.8` | **INDISTINGUISHABLE** | 10 | -6.22% | [-19.20%, +5.25%] | +1.12% | 30% | -49.71% |
+| `n-5__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -9.50% | [-15.63%, +26.61%] | +11.23% | 40% | -61.89% |
+| `n-20__stop_frac-0.8` | **distinguishable −** | 10 | -9.54% | [-15.02%, -1.29%] | -5.89% | 20% | -45.53% |
+| `n-5__stop_frac-0.8` | **INDISTINGUISHABLE** | 10 | -12.49% | [-16.59%, +20.64%] | +11.00% | 30% | -63.63% |
 
 ## The interval, and what it is not
 
@@ -36,14 +36,14 @@ Benchmark on these folds: median validate **+14.26%**, worst-fold drawdown **-37
 
 ## Deflated Sharpe — the multiple-testing haircut
 
-Top genuine candidate `n-20__stop_frac-0.9`, on its **excess-vs-EW** series (10 folds; each fold is a 12-month validate window, so this is already an annual-frequency Sharpe and is NOT rescaled).
+Top genuine candidate `n-10__stop_frac-0.9`, on its **excess-vs-EW** series (10 folds; each fold is a 12-month validate window, so this is already an annual-frequency Sharpe and is NOT rescaled).
 
 | | |
 |---|---|
-| Raw Sharpe (excess vs EW, per fold) | **-0.329** |
+| Raw Sharpe (excess vs EW, per fold) | **+0.084** |
 | Trials searched (N) | 9 |
-| SR0 — Sharpe the luckiest of 9 zero-skill trials would be expected to show | +0.355 |
-| **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.022** |
+| SR0 — Sharpe the luckiest of 9 zero-skill trials would be expected to show | +0.394 |
+| **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.167** |
 
 V in the SR0 formula is the observed variance of the 9 trial excess Sharpes in this grid.
 

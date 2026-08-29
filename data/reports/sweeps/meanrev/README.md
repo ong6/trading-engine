@@ -1,6 +1,6 @@
 # Sweep — `meanrev`
 
-_9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-22 22:26 UTC._
+_9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-29 21:59 UTC._
 
 ## Read this before the table
 
@@ -10,19 +10,19 @@ _9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 �
 
 Ranked by **median** excess vs `ew_benchmark` on shared folds, not mean: at 6 folds the mean excess of every momentum book was carried entirely by the 2018-2021 window. Excess vs EW (same universe, same screen) is used rather than absolute return because it cancels most of the ~+7pp/yr survivorship inflation in this store.
 
-Benchmark on these folds: median validate **+14.26%**, worst-fold drawdown **-37.54%**.
+Benchmark on these folds: median validate **+17.98%**, worst-fold drawdown **-37.54%**.
 
 | Candidate | Distinguishable from EW? | Folds | Median excess | 90% CI on median excess | Mean excess | Beats EW | Worst DD |
 |---|---|---|---|---|---|---|---|
-| `rsi_max-5__time_stop-10` | **distinguishable −** | 10 | -10.75% | [-14.02%, -7.97%] | -18.98% | 0% | -19.55% |
-| `rsi_max-5__time_stop-20` | **distinguishable −** | 10 | -10.83% | [-14.11%, -8.47%] | -18.85% | 0% | -17.97% |
-| `rsi_max-15__time_stop-10` | **distinguishable −** | 10 | -12.60% | [-28.13%, -5.93%] | -21.73% | 0% | -23.45% |
-| `rsi_max-5__time_stop-5` | **distinguishable −** | 10 | -13.31% | [-28.94%, -9.02%] | -24.77% | 0% | -18.33% |
-| `rsi_max-10__time_stop-20` | **distinguishable −** | 10 | -13.83% | [-28.42%, -5.07%] | -21.61% | 30% | -21.71% |
-| `rsi_max-10__time_stop-10` | **distinguishable −** | 10 | -14.14% | [-31.00%, -4.56%] | -21.82% | 0% | -17.95% |
-| `rsi_max-15__time_stop-20` | **distinguishable −** | 10 | -15.69% | [-30.26%, -9.32%] | -24.10% | 0% | -22.52% |
-| `rsi_max-15__time_stop-5` | **distinguishable −** | 10 | -17.28% | [-33.60%, -10.61%] | -25.81% | 10% | -21.70% |
-| `rsi_max-10__time_stop-5` | **distinguishable −** | 10 | -20.11% | [-30.03%, -7.86%] | -25.22% | 10% | -22.60% |
+| `rsi_max-5__time_stop-20` | **distinguishable −** | 10 | -10.74% | [-17.95%, -5.23%] | -19.65% | 20% | -18.02% |
+| `rsi_max-5__time_stop-10` | **distinguishable −** | 10 | -10.75% | [-15.88%, -7.15%] | -19.66% | 10% | -19.02% |
+| `rsi_max-15__time_stop-10` | **distinguishable −** | 10 | -12.85% | [-22.92%, -7.91%] | -22.48% | 0% | -23.45% |
+| `rsi_max-10__time_stop-20` | **distinguishable −** | 10 | -14.56% | [-28.37%, -7.76%] | -22.44% | 20% | -21.71% |
+| `rsi_max-10__time_stop-10` | **distinguishable −** | 10 | -15.27% | [-20.78%, -7.26%] | -22.65% | 10% | -17.95% |
+| `rsi_max-15__time_stop-20` | **distinguishable −** | 10 | -16.35% | [-23.57%, -10.66%] | -24.88% | 0% | -22.52% |
+| `rsi_max-10__time_stop-5` | **distinguishable −** | 10 | -16.95% | [-24.80%, -13.52%] | -25.88% | 10% | -22.60% |
+| `rsi_max-5__time_stop-5` | **distinguishable −** | 10 | -17.13% | [-21.23%, -10.16%] | -25.49% | 0% | -18.33% |
+| `rsi_max-15__time_stop-5` | **distinguishable −** | 10 | -19.33% | [-30.23%, -15.36%] | -26.53% | 20% | -21.70% |
 
 ## The interval, and what it is not
 
@@ -36,13 +36,13 @@ Benchmark on these folds: median validate **+14.26%**, worst-fold drawdown **-37
 
 ## Deflated Sharpe — the multiple-testing haircut
 
-Top genuine candidate `rsi_max-5__time_stop-10`, on its **excess-vs-EW** series (10 folds; each fold is a 12-month validate window, so this is already an annual-frequency Sharpe and is NOT rescaled).
+Top genuine candidate `rsi_max-5__time_stop-20`, on its **excess-vs-EW** series (10 folds; each fold is a 12-month validate window, so this is already an annual-frequency Sharpe and is NOT rescaled).
 
 | | |
 |---|---|
-| Raw Sharpe (excess vs EW, per fold) | **-0.805** |
+| Raw Sharpe (excess vs EW, per fold) | **-0.676** |
 | Trials searched (N) | 9 |
-| SR0 — Sharpe the luckiest of 9 zero-skill trials would be expected to show | +0.104 |
+| SR0 — Sharpe the luckiest of 9 zero-skill trials would be expected to show | +0.125 |
 | **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.000** |
 
 V in the SR0 formula is the observed variance of the 9 trial excess Sharpes in this grid.

@@ -1,6 +1,6 @@
 # Sweep — `gross_voltarget`
 
-_9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-22 10:50 UTC._
+_9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-29 10:54 UTC._
 
 ## Read this before the table
 
@@ -10,19 +10,19 @@ _9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 �
 
 Ranked by **median** excess vs `ew_benchmark` on shared folds, not mean: at 6 folds the mean excess of every momentum book was carried entirely by the 2018-2021 window. Excess vs EW (same universe, same screen) is used rather than absolute return because it cancels most of the ~+7pp/yr survivorship inflation in this store.
 
-Benchmark on these folds: median validate **+14.26%**, worst-fold drawdown **-37.54%**.
+Benchmark on these folds: median validate **+17.98%**, worst-fold drawdown **-37.54%**.
 
 | Candidate | Distinguishable from EW? | Folds | Median excess | 90% CI on median excess | Mean excess | Beats EW | Worst DD |
 |---|---|---|---|---|---|---|---|
-| `vol_lookback-40__vol_target-0.2` | **INDISTINGUISHABLE** | 10 | -0.88% | [-6.67%, +4.26%] | -7.12% | 40% | -37.54% |
-| `vol_lookback-40__vol_target-0.15` | **INDISTINGUISHABLE** | 10 | -2.49% | [-14.97%, +3.99%] | -10.61% | 40% | -32.82% |
-| `vol_lookback-60__vol_target-0.2` | **INDISTINGUISHABLE** | 10 | -2.52% | [-7.22%, +3.31%] | -8.23% | 40% | -37.54% |
-| `vol_lookback-120__vol_target-0.2` | **INDISTINGUISHABLE** | 10 | -3.16% | [-8.10%, +3.27%] | -8.51% | 40% | -37.54% |
-| `vol_lookback-40__vol_target-0.1` | **INDISTINGUISHABLE** | 10 | -4.19% | [-23.28%, +2.92%] | -14.52% | 40% | -23.28% |
-| `vol_lookback-60__vol_target-0.15` | **INDISTINGUISHABLE** | 10 | -4.22% | [-15.18%, +4.13%] | -11.74% | 40% | -36.20% |
-| `vol_lookback-120__vol_target-0.15` | **INDISTINGUISHABLE** | 10 | -4.57% | [-16.05%, +2.53%] | -12.13% | 30% | -34.65% |
-| `vol_lookback-60__vol_target-0.1` | **INDISTINGUISHABLE** | 10 | -5.58% | [-23.41%, +2.96%] | -15.48% | 40% | -26.48% |
-| `vol_lookback-120__vol_target-0.1` | **INDISTINGUISHABLE** | 10 | -5.92% | [-23.61%, +1.99%] | -15.47% | 30% | -23.92% |
+| `vol_lookback-40__vol_target-0.2` | **INDISTINGUISHABLE** | 10 | -0.24% | [-5.33%, +2.52%] | -7.85% | 50% | -37.54% |
+| `vol_lookback-120__vol_target-0.2` | **INDISTINGUISHABLE** | 10 | -1.54% | [-10.23%, +2.47%] | -9.31% | 40% | -37.54% |
+| `vol_lookback-60__vol_target-0.2` | **INDISTINGUISHABLE** | 10 | -1.55% | [-8.02%, +2.15%] | -9.03% | 40% | -37.54% |
+| `vol_lookback-40__vol_target-0.15` | **INDISTINGUISHABLE** | 10 | -3.93% | [-11.71%, +2.49%] | -11.46% | 40% | -32.82% |
+| `vol_lookback-60__vol_target-0.15` | **INDISTINGUISHABLE** | 10 | -4.80% | [-10.69%, +2.70%] | -12.65% | 40% | -36.20% |
+| `vol_lookback-120__vol_target-0.15` | **INDISTINGUISHABLE** | 10 | -4.94% | [-11.42%, +0.65%] | -13.06% | 30% | -34.65% |
+| `vol_lookback-40__vol_target-0.1` | **INDISTINGUISHABLE** | 10 | -6.72% | [-19.47%, +2.76%] | -15.48% | 30% | -23.28% |
+| `vol_lookback-60__vol_target-0.1` | **INDISTINGUISHABLE** | 10 | -8.24% | [-21.57%, +2.70%] | -16.48% | 30% | -26.48% |
+| `vol_lookback-120__vol_target-0.1` | **INDISTINGUISHABLE** | 10 | -8.60% | [-20.77%, +0.97%] | -16.47% | 30% | -23.92% |
 
 ## The interval, and what it is not
 
@@ -40,10 +40,10 @@ Top genuine candidate `vol_lookback-40__vol_target-0.2`, on its **excess-vs-EW**
 
 | | |
 |---|---|
-| Raw Sharpe (excess vs EW, per fold) | **-0.365** |
+| Raw Sharpe (excess vs EW, per fold) | **-0.362** |
 | Trials searched (N) | 9 |
-| SR0 — Sharpe the luckiest of 9 zero-skill trials would be expected to show | +0.093 |
-| **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.027** |
+| SR0 — Sharpe the luckiest of 9 zero-skill trials would be expected to show | +0.078 |
+| **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.026** |
 
 V in the SR0 formula is the observed variance of the 9 trial excess Sharpes in this grid.
 

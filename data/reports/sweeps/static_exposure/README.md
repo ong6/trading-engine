@@ -1,6 +1,6 @@
 # Sweep — `static_exposure`
 
-_5 candidate(s) · **5 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-22 08:48 UTC._
+_5 candidate(s) · **5 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-29 08:50 UTC._
 
 ## Read this before the table
 
@@ -10,15 +10,15 @@ _5 candidate(s) · **5 trials** · 10-fold protocol · bootstrap seed 20260820 �
 
 Ranked by **median** excess vs `ew_benchmark` on shared folds, not mean: at 6 folds the mean excess of every momentum book was carried entirely by the 2018-2021 window. Excess vs EW (same universe, same screen) is used rather than absolute return because it cancels most of the ~+7pp/yr survivorship inflation in this store.
 
-Benchmark on these folds: median validate **+14.26%**, worst-fold drawdown **-37.54%**.
+Benchmark on these folds: median validate **+17.98%**, worst-fold drawdown **-37.54%**.
 
 | Candidate | Distinguishable from EW? | Folds | Median excess | 90% CI on median excess | Mean excess | Beats EW | Worst DD |
 |---|---|---|---|---|---|---|---|
-| `exposure-0.8` | **INDISTINGUISHABLE** | 10 | -1.18% | [-5.78%, +0.89%] | -4.10% | 40% | -30.83% |
-| `exposure-0.6` | **INDISTINGUISHABLE** | 10 | -2.73% | [-12.75%, +1.31%] | -8.41% | 40% | -23.74% |
-| `exposure-0.5` | **INDISTINGUISHABLE** | 10 | -3.76% | [-16.51%, +1.41%] | -10.61% | 40% | -20.02% |
-| `exposure-0.4` | **INDISTINGUISHABLE** | 10 | -4.75% | [-19.93%, +1.69%] | -12.85% | 40% | -16.23% |
-| `exposure-0.3` | **INDISTINGUISHABLE** | 10 | -5.81% | [-23.00%, +1.70%] | -15.02% | 40% | -12.34% |
+| `exposure-0.8` | **INDISTINGUISHABLE** | 10 | -1.86% | [-3.93%, +0.83%] | -4.48% | 30% | -30.83% |
+| `exposure-0.6` | **INDISTINGUISHABLE** | 10 | -4.26% | [-8.52%, +1.25%] | -9.08% | 30% | -23.74% |
+| `exposure-0.5` | **INDISTINGUISHABLE** | 10 | -5.66% | [-11.01%, +1.41%] | -11.40% | 30% | -20.02% |
+| `exposure-0.4` | **INDISTINGUISHABLE** | 10 | -7.02% | [-13.60%, +1.59%] | -13.72% | 30% | -16.23% |
+| `exposure-0.3` | **INDISTINGUISHABLE** | 10 | -8.48% | [-16.22%, +1.63%] | -15.97% | 30% | -12.34% |
 
 ## The interval, and what it is not
 
@@ -36,9 +36,9 @@ Top genuine candidate `exposure-0.8`, on its **excess-vs-EW** series (10 folds; 
 
 | | |
 |---|---|
-| Raw Sharpe (excess vs EW, per fold) | **-0.496** |
+| Raw Sharpe (excess vs EW, per fold) | **-0.462** |
 | Trials searched (N) | 5 |
-| SR0 — Sharpe the luckiest of 5 zero-skill trials would be expected to show | +0.033 |
+| SR0 — Sharpe the luckiest of 5 zero-skill trials would be expected to show | +0.031 |
 | **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.004** |
 
 V in the SR0 formula is the observed variance of the 5 trial excess Sharpes in this grid.
