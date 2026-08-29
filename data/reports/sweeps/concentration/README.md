@@ -1,25 +1,25 @@
 # Sweep — `concentration`
 
-_6 candidate(s) · **6 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-22 09:12 UTC._
+_6 candidate(s) · **6 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-29 09:10 UTC._
 
 ## Read this before the table
 
-**6 of 6 ranked candidate(s) are `INDISTINGUISHABLE` from `ew_benchmark`** — their 90% confidence interval on median excess contains 0, so this evidence does not establish even the SIGN of their edge, let alone its size. That is the headline of this table; the ordering below it is a tie-break among rows most of which are not separated from the benchmark at all.
+**5 of 6 ranked candidate(s) are `INDISTINGUISHABLE` from `ew_benchmark`** — their 90% confidence interval on median excess contains 0, so this evidence does not establish even the SIGN of their edge, let alone its size. That is the headline of this table; the ordering below it is a tie-break among rows most of which are not separated from the benchmark at all.
 
 **Every row here is one of 6 parameter sets tried on the same data.** The best of N trials looks good at N=1 and looks good at N=60 for entirely different reasons, so the top row is NOT a finding — it is the starting point for one, and it has to survive a pre-registered forward test like anything else. Quote this table only with its trial count attached.
 
 Ranked by **median** excess vs `ew_benchmark` on shared folds, not mean: at 6 folds the mean excess of every momentum book was carried entirely by the 2018-2021 window. Excess vs EW (same universe, same screen) is used rather than absolute return because it cancels most of the ~+7pp/yr survivorship inflation in this store.
 
-Benchmark on these folds: median validate **+14.26%**, worst-fold drawdown **-37.54%**.
+Benchmark on these folds: median validate **+17.98%**, worst-fold drawdown **-37.54%**.
 
 | Candidate | Distinguishable from EW? | Folds | Median excess | 90% CI on median excess | Mean excess | Beats EW | Worst DD |
 |---|---|---|---|---|---|---|---|
+| `cap-10` | **INDISTINGUISHABLE** | 10 | +1.94% | [-12.51%, +7.35%] | +7.87% | 50% | -48.19% |
 | `cap-50` — _identical to the benchmark; not a result_ | **INDISTINGUISHABLE** | 10 | +0.00% | [+0.00%, +0.00%] | +0.00% | 0% | -37.54% |
-| `cap-10` | **INDISTINGUISHABLE** | 10 | -1.68% | [-15.40%, +5.90%] | +7.24% | 40% | -48.19% |
-| `cap-75` | **INDISTINGUISHABLE** | 10 | -1.99% | [-4.22%, +2.20%] | -2.19% | 40% | -36.26% |
-| `cap-100` | **INDISTINGUISHABLE** | 10 | -3.20% | [-6.37%, +0.63%] | -5.00% | 30% | -36.11% |
-| `cap-30` | **INDISTINGUISHABLE** | 10 | -3.77% | [-5.59%, +9.34%] | +1.75% | 40% | -42.60% |
-| `cap-20` | **INDISTINGUISHABLE** | 10 | -4.99% | [-12.96%, +24.45%] | +4.37% | 40% | -46.40% |
+| `cap-75` | **INDISTINGUISHABLE** | 10 | -0.99% | [-2.92%, +2.21%] | -2.42% | 40% | -36.26% |
+| `cap-30` | **INDISTINGUISHABLE** | 10 | -1.83% | [-6.21%, +12.70%] | +1.65% | 40% | -42.60% |
+| `cap-100` | **distinguishable −** | 10 | -3.07% | [-5.25%, -0.22%] | -5.39% | 30% | -36.11% |
+| `cap-20` | **INDISTINGUISHABLE** | 10 | -5.12% | [-11.76%, +20.83%] | +4.91% | 40% | -46.40% |
 
 ## The interval, and what it is not
 
@@ -37,10 +37,10 @@ Top genuine candidate `cap-10`, on its **excess-vs-EW** series (10 folds; each f
 
 | | |
 |---|---|
-| Raw Sharpe (excess vs EW, per fold) | **+0.205** |
+| Raw Sharpe (excess vs EW, per fold) | **+0.252** |
 | Trials searched (N) | 6 |
-| SR0 — Sharpe the luckiest of 6 zero-skill trials would be expected to show | +0.427 |
-| **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.221** |
+| SR0 — Sharpe the luckiest of 6 zero-skill trials would be expected to show | +0.431 |
+| **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.259** |
 
 V in the SR0 formula is the observed variance of the 5 trial excess Sharpes in this grid.
 
