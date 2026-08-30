@@ -1,28 +1,28 @@
 # Sweep — `turtle_stops`
 
-_9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-23 12:19 UTC._
+_9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-30 11:53 UTC._
 
 ## Read this before the table
 
-**5 of 9 ranked candidate(s) are `INDISTINGUISHABLE` from `ew_benchmark`** — their 90% confidence interval on median excess contains 0, so this evidence does not establish even the SIGN of their edge, let alone its size. That is the headline of this table; the ordering below it is a tie-break among rows most of which are not separated from the benchmark at all.
+**4 of 9 ranked candidate(s) are `INDISTINGUISHABLE` from `ew_benchmark`** — their 90% confidence interval on median excess contains 0, so this evidence does not establish even the SIGN of their edge, let alone its size. That is the headline of this table; the ordering below it is a tie-break among rows most of which are not separated from the benchmark at all.
 
 **Every row here is one of 9 parameter sets tried on the same data.** The best of N trials looks good at N=1 and looks good at N=60 for entirely different reasons, so the top row is NOT a finding — it is the starting point for one, and it has to survive a pre-registered forward test like anything else. Quote this table only with its trial count attached.
 
 Ranked by **median** excess vs `ew_benchmark` on shared folds, not mean: at 6 folds the mean excess of every momentum book was carried entirely by the 2018-2021 window. Excess vs EW (same universe, same screen) is used rather than absolute return because it cancels most of the ~+7pp/yr survivorship inflation in this store.
 
-Benchmark on these folds: median validate **+14.26%**, worst-fold drawdown **-37.54%**.
+Benchmark on these folds: median validate **+17.98%**, worst-fold drawdown **-37.54%**.
 
 | Candidate | Distinguishable from EW? | Folds | Median excess | 90% CI on median excess | Mean excess | Beats EW | Worst DD |
 |---|---|---|---|---|---|---|---|
-| `stop_mult-2.5__trail_mult-4.0` | **INDISTINGUISHABLE** | 10 | -3.27% | [-26.95%, +4.42%] | -14.68% | 50% | -36.76% |
-| `stop_mult-2.0__trail_mult-4.0` | **INDISTINGUISHABLE** | 10 | -6.56% | [-30.48%, +10.18%] | -11.03% | 50% | -41.02% |
-| `stop_mult-3.0__trail_mult-4.0` | **INDISTINGUISHABLE** | 10 | -7.04% | [-24.17%, +2.82%] | -16.09% | 40% | -33.35% |
-| `stop_mult-2.5__trail_mult-2.5` | **INDISTINGUISHABLE** | 10 | -8.70% | [-27.40%, +0.91%] | -14.26% | 30% | -30.92% |
-| `stop_mult-3.0__trail_mult-2.5` | **INDISTINGUISHABLE** | 10 | -10.39% | [-29.53%, +0.73%] | -16.09% | 30% | -26.38% |
-| `stop_mult-2.0__trail_mult-2.5` | **distinguishable −** | 10 | -12.40% | [-26.42%, -1.66%] | -15.03% | 20% | -37.22% |
-| `stop_mult-2.5__trail_mult-3.0` | **distinguishable −** | 10 | -15.49% | [-26.43%, -4.10%] | -19.47% | 20% | -31.00% |
-| `stop_mult-3.0__trail_mult-3.0` | **distinguishable −** | 10 | -16.17% | [-23.67%, -2.12%] | -19.69% | 20% | -26.57% |
-| `stop_mult-2.0__trail_mult-3.0` | **distinguishable −** | 10 | -20.14% | [-32.30%, -3.33%] | -20.12% | 20% | -35.60% |
+| `stop_mult-2.0__trail_mult-4.0` | **INDISTINGUISHABLE** | 10 | -2.79% | [-30.55%, +14.36%] | -11.21% | 50% | -41.02% |
+| `stop_mult-2.5__trail_mult-4.0` | **INDISTINGUISHABLE** | 10 | -3.50% | [-26.35%, +3.29%] | -19.05% | 50% | -33.08% |
+| `stop_mult-3.0__trail_mult-4.0` | **INDISTINGUISHABLE** | 10 | -3.60% | [-25.49%, +1.53%] | -19.95% | 40% | -28.49% |
+| `stop_mult-2.5__trail_mult-2.5` | **INDISTINGUISHABLE** | 10 | -6.52% | [-27.79%, +0.82%] | -14.90% | 30% | -29.42% |
+| `stop_mult-3.0__trail_mult-2.5` | **distinguishable −** | 10 | -7.93% | [-28.10%, -1.01%] | -16.88% | 20% | -25.03% |
+| `stop_mult-2.0__trail_mult-2.5` | **distinguishable −** | 10 | -10.52% | [-26.79%, -1.06%] | -15.10% | 10% | -35.54% |
+| `stop_mult-2.5__trail_mult-3.0` | **distinguishable −** | 10 | -15.60% | [-30.11%, -1.06%] | -20.11% | 20% | -31.00% |
+| `stop_mult-2.0__trail_mult-3.0` | **distinguishable −** | 10 | -16.16% | [-32.08%, -1.41%] | -19.74% | 20% | -36.19% |
+| `stop_mult-3.0__trail_mult-3.0` | **distinguishable −** | 10 | -16.32% | [-28.54%, -0.51%] | -20.48% | 20% | -26.57% |
 
 ## The interval, and what it is not
 
@@ -36,14 +36,14 @@ Benchmark on these folds: median validate **+14.26%**, worst-fold drawdown **-37
 
 ## Deflated Sharpe — the multiple-testing haircut
 
-Top genuine candidate `stop_mult-2.5__trail_mult-4.0`, on its **excess-vs-EW** series (10 folds; each fold is a 12-month validate window, so this is already an annual-frequency Sharpe and is NOT rescaled).
+Top genuine candidate `stop_mult-2.0__trail_mult-4.0`, on its **excess-vs-EW** series (10 folds; each fold is a 12-month validate window, so this is already an annual-frequency Sharpe and is NOT rescaled).
 
 | | |
 |---|---|
-| Raw Sharpe (excess vs EW, per fold) | **-0.517** |
+| Raw Sharpe (excess vs EW, per fold) | **-0.326** |
 | Trials searched (N) | 9 |
-| SR0 — Sharpe the luckiest of 9 zero-skill trials would be expected to show | +0.319 |
-| **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.000** |
+| SR0 — Sharpe the luckiest of 9 zero-skill trials would be expected to show | +0.316 |
+| **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.015** |
 
 V in the SR0 formula is the observed variance of the 9 trial excess Sharpes in this grid.
 

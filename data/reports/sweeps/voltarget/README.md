@@ -1,6 +1,6 @@
 # Sweep — `voltarget`
 
-_6 candidate(s) · **6 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-23 11:22 UTC._
+_6 candidate(s) · **6 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-30 11:00 UTC._
 
 ## Read this before the table
 
@@ -10,16 +10,16 @@ _6 candidate(s) · **6 trials** · 10-fold protocol · bootstrap seed 20260820 �
 
 Ranked by **median** excess vs `ew_benchmark` on shared folds, not mean: at 6 folds the mean excess of every momentum book was carried entirely by the 2018-2021 window. Excess vs EW (same universe, same screen) is used rather than absolute return because it cancels most of the ~+7pp/yr survivorship inflation in this store.
 
-Benchmark on these folds: median validate **+14.26%**, worst-fold drawdown **-37.54%**.
+Benchmark on these folds: median validate **+17.98%**, worst-fold drawdown **-37.54%**.
 
 | Candidate | Distinguishable from EW? | Folds | Median excess | 90% CI on median excess | Mean excess | Beats EW | Worst DD |
 |---|---|---|---|---|---|---|---|
-| `max_weight_mult-1.5__vol_lookback-120` | **INDISTINGUISHABLE** | 10 | -0.05% | [-3.89%, +3.30%] | -1.78% | 50% | -35.72% |
-| `max_weight_mult-1.5__vol_lookback-60` | **INDISTINGUISHABLE** | 10 | -0.20% | [-4.14%, +2.29%] | -1.98% | 50% | -35.45% |
-| `max_weight_mult-3.0__vol_lookback-120` | **INDISTINGUISHABLE** | 10 | -0.44% | [-3.98%, +3.34%] | -1.96% | 50% | -35.54% |
-| `max_weight_mult-5.0__vol_lookback-120` | **INDISTINGUISHABLE** | 10 | -0.44% | [-3.98%, +3.34%] | -1.96% | 50% | -35.54% |
-| `max_weight_mult-3.0__vol_lookback-60` | **INDISTINGUISHABLE** | 10 | -0.49% | [-3.69%, +2.87%] | -1.90% | 50% | -35.39% |
-| `max_weight_mult-5.0__vol_lookback-60` | **INDISTINGUISHABLE** | 10 | -0.77% | [-3.68%, +2.88%] | -1.91% | 50% | -35.39% |
+| `max_weight_mult-1.5__vol_lookback-120` | **INDISTINGUISHABLE** | 10 | -0.59% | [-3.44%, +2.75%] | -2.17% | 50% | -35.72% |
+| `max_weight_mult-3.0__vol_lookback-60` | **INDISTINGUISHABLE** | 10 | -0.60% | [-4.36%, +3.00%] | -2.29% | 50% | -35.39% |
+| `max_weight_mult-5.0__vol_lookback-60` | **INDISTINGUISHABLE** | 10 | -0.69% | [-4.12%, +2.82%] | -2.30% | 50% | -35.39% |
+| `max_weight_mult-1.5__vol_lookback-60` | **INDISTINGUISHABLE** | 10 | -0.81% | [-3.81%, +3.08%] | -2.36% | 50% | -35.45% |
+| `max_weight_mult-3.0__vol_lookback-120` | **INDISTINGUISHABLE** | 10 | -0.96% | [-3.55%, +2.53%] | -2.36% | 50% | -35.54% |
+| `max_weight_mult-5.0__vol_lookback-120` | **INDISTINGUISHABLE** | 10 | -0.96% | [-3.55%, +2.53%] | -2.36% | 50% | -35.54% |
 
 ## The interval, and what it is not
 
@@ -37,10 +37,10 @@ Top genuine candidate `max_weight_mult-1.5__vol_lookback-120`, on its **excess-v
 
 | | |
 |---|---|
-| Raw Sharpe (excess vs EW, per fold) | **-0.209** |
+| Raw Sharpe (excess vs EW, per fold) | **-0.220** |
 | Trials searched (N) | 6 |
-| SR0 — Sharpe the luckiest of 6 zero-skill trials would be expected to show | +0.009 |
-| **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.228** |
+| SR0 — Sharpe the luckiest of 6 zero-skill trials would be expected to show | +0.010 |
+| **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.203** |
 
 V in the SR0 formula is the observed variance of the 6 trial excess Sharpes in this grid.
 
