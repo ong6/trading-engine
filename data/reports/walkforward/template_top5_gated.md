@@ -1,16 +1,16 @@
 # Template Top 5 (regime-gated) — walk-forward re-validation
 
-_`template_top5_gated` · template_top5 · weekly cadence · verdict **PASS** · generated 2026-08-23T06:33:11+00:00_
+_`template_top5_gated` · template_top5 · weekly cadence · verdict **PASS** · generated 2026-08-30T06:27:34+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-08-21. Each fold is an independent replay starting at $39,000. Span 2014-08-21 → 2026-08-21 (3018 sessions); data floor 1994-01-27; screen source `hist` (1,104,935 passing rows).
+**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-08-28. Each fold is an independent replay starting at $39,000. Span 2014-08-28 → 2026-08-28 (3018 sessions); data floor 1994-01-27; screen source `hist` (1,106,099 passing rows).
 
 **Pre-registered expectation.** Same upside as top5 in risk-on, materially lower drawdown in bear markets (drifts to cash).
 
 **Pre-registered kill criterion.** Does not reduce max drawdown vs ungated top5 across a full risk-off episode.
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 50% of 10 window(s), mean excess +20.23%, latest +19.90% → **PASS**.
+**Measured against `ew_benchmark` on the same folds:** beats it in 50% of 10 window(s), mean excess +23.38%, latest −6.85% → **PASS**.
 
-**90% CI on mean excess vs `ew_benchmark`:** [−12.67%, +62.73%] → **INDISTINGUISHABLE**. The verdict above is unchanged by this interval — see the note below the fold table.
+**90% CI on mean excess vs `ew_benchmark`:** [−14.65%, +79.29%] → **INDISTINGUISHABLE**. The verdict above is unchanged by this interval — see the note below the fold table.
 
 ## Disclosures — read before any number below
 
@@ -59,25 +59,25 @@ _`template_top5_gated` · template_top5 · weekly cadence · verdict **PASS** ·
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills | Universe |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2014-08-21→2016-08-19 | +13.33% | +6.47% | 2016-08-19→2017-08-21 | **−3.27%** | −3.25% | +37.79% | +0.10 | −28.15% | −1.55% | −16.04% | 331 | 2,683 |
-| 2 | 2015-08-21→2017-08-21 | +35.79% | +16.52% | 2017-08-21→2018-08-21 | **+52.47%** | +52.51% | +40.49% | +1.24 | −23.33% | +11.17% | +34.01% | 324 | 2,827 |
-| 3 | 2016-08-22→2018-08-21 | +73.82% | +31.92% | 2018-08-21→2019-08-21 | **+7.38%** | +7.38% | +30.36% | +0.39 | −37.40% | +3.83% | +3.48% | 217 | 2,933 |
-| 4 | 2017-08-21→2019-08-21 | +61.71% | +27.19% | 2019-08-21→2020-08-21 | **+74.03%** | +73.84% | +46.74% | +1.41 | −31.80% | +48.28% | +56.61% | 251 | 3,047 |
-| 5 | 2018-08-21→2020-08-21 | +71.76% | +31.03% | 2020-08-21→2021-08-20 | **+338.59%** | +340.83% | +86.84% | +2.12 | −32.49% | +226.96% | +307.39% | 333 | 3,293 |
-| 6 | 2019-08-21→2021-08-20 | +646.32% | +173.38% | 2021-08-20→2022-08-19 | **−8.35%** | −8.38% | +41.49% | −0.00 | −46.16% | −5.28% | −5.01% | 198 | 3,435 |
-| 7 | 2020-08-21→2022-08-19 | +312.47% | +103.59% | 2022-08-19→2023-08-21 | **−16.16%** | −16.09% | +36.92% | −0.30 | −32.62% | −8.48% | −21.63% | 211 | 3,549 |
-| 8 | 2021-08-23→2023-08-21 | −26.85% | −14.52% | 2023-08-21→2024-08-21 | **−9.14%** | −9.12% | +56.37% | +0.11 | −44.49% | −26.48% | −37.49% | 330 | 3,710 |
-| 9 | 2022-08-22→2024-08-21 | −23.94% | −12.80% | 2024-08-21→2025-08-21 | **−54.89%** | −54.91% | +60.17% | −1.03 | −55.64% | −66.07% | −69.19% | 283 | 3,905 |
-| 10 ◈ | 2023-08-21→2025-08-21 | −56.63% | −34.12% | 2025-08-21→2026-08-21 | **+62.34%** | +62.40% | +70.86% | +1.05 | −45.99% | +19.90% | +41.15% | 321 | 12,105 |
+| 1 | 2014-08-28→2016-08-26 | −8.88% | −4.55% | 2016-08-26→2017-08-28 | **+12.58%** | +12.51% | +35.35% | +0.51 | −19.49% | +4.25% | −1.56% | 329 | 2,684 |
+| 2 | 2015-08-28→2017-08-28 | +36.34% | +16.75% | 2017-08-28→2018-08-28 | **+66.49%** | +66.55% | +40.63% | +1.46 | −23.33% | +23.72% | +46.74% | 322 | 2,827 |
+| 3 | 2016-08-29→2018-08-28 | +83.55% | +35.57% | 2018-08-28→2019-08-28 | **+1.37%** | +1.37% | +30.17% | +0.20 | −37.40% | +0.87% | −0.09% | 218 | 2,933 |
+| 4 | 2017-08-28→2019-08-28 | +65.39% | +28.63% | 2019-08-28→2020-08-28 | **+54.32%** | +54.18% | +47.17% | +1.15 | −31.76% | +29.46% | +31.89% | 250 | 3,049 |
+| 5 | 2018-08-28→2020-08-28 | +49.16% | +22.12% | 2020-08-28→2021-08-27 | **+417.96%** | +420.90% | +86.60% | +2.32 | −32.49% | +289.65% | +388.87% | 337 | 3,294 |
+| 6 | 2019-08-28→2021-08-27 | +748.10% | +191.44% | 2021-08-27→2022-08-26 | **−13.77%** | −13.81% | +40.88% | −0.16 | −45.74% | −5.62% | −5.33% | 188 | 3,438 |
+| 7 | 2020-08-28→2022-08-26 | +356.82% | +114.29% | 2022-08-26→2023-08-28 | **−22.62%** | −22.53% | +37.34% | −0.51 | −32.62% | −14.18% | −33.17% | 218 | 3,552 |
+| 8 | 2021-08-30→2023-08-28 | −38.39% | −21.57% | 2023-08-28→2024-08-28 | **−11.22%** | −11.20% | +56.51% | +0.07 | −43.89% | −25.92% | −38.10% | 328 | 3,713 |
+| 9 | 2022-08-29→2024-08-28 | −31.41% | −17.19% | 2024-08-28→2025-08-28 | **−40.33%** | −40.35% | +60.64% | −0.55 | −51.01% | −61.60% | −57.44% | 285 | 3,905 |
+| 10 ◈ | 2023-08-28→2025-08-28 | −46.63% | −26.93% | 2025-08-28→2026-08-28 | **+20.75%** | +20.76% | +70.81% | +0.63 | −45.99% | −6.85% | +1.45% | 320 | 12,105 |
 
 ## Summary
 
-* validate windows: **10**, win rate **50%**
-* mean validate return **+44.30%** (median +2.06%, worst −54.89%, best +338.59%)
-* mean validate CAGR **+44.52%** vs mean train CAGR +32.87% → decay **+11.66%**
-* mean validate Sharpe +0.51, worst validate max drawdown −55.64%
-* 2799 fill(s) inside validate windows
-* runtime 737.0s (scratch 19.8s, screen 25.5s)
+* validate windows: **10**, win rate **60%**
+* mean validate return **+48.55%** (median +6.98%, worst −40.33%, best +417.96%)
+* mean validate CAGR **+48.84%** vs mean train CAGR +33.85% → decay **+14.99%**
+* mean validate Sharpe +0.51, worst validate max drawdown −51.01%
+* 2795 fill(s) inside validate windows
+* runtime 621.3s (scratch 19.5s, screen 25.7s)
 
 **Verdict rule (pre-registered, mechanical, and NOT an automatic kill).** For
 each book, against `ew_benchmark` on the same folds:

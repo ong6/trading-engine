@@ -1,16 +1,16 @@
 # Template Top 5 — walk-forward re-validation
 
-_`template_top5` · template_top5 · weekly cadence · verdict **WATCH** · generated 2026-08-23T06:33:38+00:00_
+_`template_top5` · template_top5 · weekly cadence · verdict **PASS** · generated 2026-08-30T06:29:53+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-08-21. Each fold is an independent replay starting at $39,000. Span 2014-08-21 → 2026-08-21 (3018 sessions); data floor 1994-01-27; screen source `hist` (1,104,935 passing rows).
+**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-08-28. Each fold is an independent replay starting at $39,000. Span 2014-08-28 → 2026-08-28 (3018 sessions); data floor 1994-01-27; screen source `hist` (1,106,099 passing rows).
 
 **Pre-registered expectation.** Concentrated momentum: higher return and higher drawdown than the broad benchmark in risk-on regimes.
 
 **Pre-registered kill criterion.** Trails ew_benchmark by >15% over any rolling 6 months, or max drawdown exceeds 40%.
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 40% of 10 window(s), mean excess +24.39%, latest +47.12% → **WATCH**.
+**Measured against `ew_benchmark` on the same folds:** beats it in 60% of 10 window(s), mean excess +25.43%, latest +13.41% → **PASS**.
 
-**90% CI on mean excess vs `ew_benchmark`:** [−12.07%, +68.57%] → **INDISTINGUISHABLE**. The verdict above is unchanged by this interval — see the note below the fold table.
+**90% CI on mean excess vs `ew_benchmark`:** [−15.02%, +79.70%] → **INDISTINGUISHABLE**. The verdict above is unchanged by this interval — see the note below the fold table.
 
 ## Disclosures — read before any number below
 
@@ -59,25 +59,25 @@ _`template_top5` · template_top5 · weekly cadence · verdict **WATCH** · gene
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills | Universe |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2014-08-21→2016-08-19 | −32.02% | −17.58% | 2016-08-19→2017-08-21 | **−3.23%** | −3.21% | +37.79% | +0.10 | −28.16% | −1.51% | −16.00% | 321 | 2,683 |
-| 2 | 2015-08-21→2017-08-21 | −15.86% | −8.27% | 2017-08-21→2018-08-21 | **+52.83%** | +52.87% | +40.57% | +1.25 | −23.33% | +11.53% | +34.37% | 324 | 2,827 |
-| 3 | 2016-08-22→2018-08-21 | +74.23% | +32.07% | 2018-08-21→2019-08-21 | **−0.40%** | −0.40% | +39.07% | +0.19 | −55.87% | −3.95% | −4.30% | 350 | 2,933 |
-| 4 | 2017-08-21→2019-08-21 | +50.35% | +22.64% | 2019-08-21→2020-08-21 | **+95.40%** | +95.13% | +58.75% | +1.43 | −41.57% | +69.64% | +77.97% | 346 | 3,047 |
-| 5 | 2018-08-21→2020-08-21 | +78.90% | +33.73% | 2020-08-21→2021-08-20 | **+345.23%** | +347.52% | +86.39% | +2.15 | −32.49% | +233.60% | +314.03% | 327 | 3,293 |
-| 6 | 2019-08-21→2021-08-20 | +743.45% | +190.63% | 2021-08-20→2022-08-19 | **−3.74%** | −3.75% | +54.49% | +0.20 | −44.72% | −0.67% | −0.39% | 344 | 3,435 |
-| 7 | 2020-08-21→2022-08-19 | +331.46% | +108.24% | 2022-08-19→2023-08-21 | **−9.89%** | −9.84% | +44.07% | −0.02 | −30.80% | −2.21% | −15.36% | 351 | 3,549 |
-| 8 | 2021-08-23→2023-08-21 | −17.77% | −9.35% | 2023-08-21→2024-08-21 | **−14.01%** | −13.98% | +56.59% | +0.01 | −47.46% | −31.35% | −42.36% | 344 | 3,710 |
-| 9 | 2022-08-22→2024-08-21 | −23.98% | −12.82% | 2024-08-21→2025-08-21 | **−67.09%** | −67.11% | +65.07% | −1.39 | −68.54% | −78.27% | −81.39% | 348 | 3,905 |
-| 10 ◈ | 2023-08-21→2025-08-21 | −70.05% | −45.25% | 2025-08-21→2026-08-21 | **+89.57%** | +89.65% | +72.49% | +1.25 | −45.99% | +47.12% | +68.37% | 332 | 12,105 |
+| 1 | 2014-08-28→2016-08-26 | −45.34% | −26.11% | 2016-08-26→2017-08-28 | **+12.61%** | +12.55% | +35.35% | +0.51 | −19.49% | +4.28% | −1.53% | 319 | 2,684 |
+| 2 | 2015-08-28→2017-08-28 | −13.35% | −6.91% | 2017-08-28→2018-08-28 | **+66.89%** | +66.95% | +40.71% | +1.46 | −23.33% | +24.12% | +47.14% | 323 | 2,827 |
+| 3 | 2016-08-29→2018-08-28 | +83.98% | +35.72% | 2018-08-28→2019-08-28 | **−5.97%** | −5.97% | +38.93% | +0.04 | −55.87% | −6.47% | −7.44% | 351 | 2,933 |
+| 4 | 2017-08-28→2019-08-28 | +53.77% | +24.02% | 2019-08-28→2020-08-28 | **+73.26%** | +73.07% | +59.10% | +1.22 | −41.57% | +48.41% | +50.83% | 345 | 3,049 |
+| 5 | 2018-08-28→2020-08-28 | +55.36% | +24.62% | 2020-08-28→2021-08-27 | **+417.96%** | +420.90% | +86.60% | +2.32 | −32.49% | +289.65% | +388.87% | 337 | 3,294 |
+| 6 | 2019-08-28→2021-08-27 | +817.60% | +203.15% | 2021-08-27→2022-08-26 | **−7.68%** | −7.70% | +54.34% | +0.13 | −44.72% | +0.46% | +0.76% | 341 | 3,438 |
+| 7 | 2020-08-28→2022-08-26 | +394.73% | +123.04% | 2022-08-26→2023-08-28 | **−19.67%** | −19.59% | +44.23% | −0.28 | −30.05% | −11.23% | −30.22% | 352 | 3,552 |
+| 8 | 2021-08-30→2023-08-28 | −30.72% | −16.82% | 2023-08-28→2024-08-28 | **−15.90%** | −15.87% | +56.72% | −0.03 | −46.85% | −30.60% | −42.78% | 338 | 3,713 |
+| 9 | 2022-08-29→2024-08-28 | −26.76% | −14.43% | 2024-08-28→2025-08-28 | **−56.47%** | −56.49% | +65.56% | −0.95 | −65.26% | −77.74% | −73.57% | 350 | 3,905 |
+| 10 ◈ | 2023-08-28→2025-08-28 | −63.15% | −39.27% | 2025-08-28→2026-08-28 | **+41.01%** | +41.04% | +72.47% | +0.84 | −45.99% | +13.41% | +21.70% | 330 | 12,105 |
 
 ## Summary
 
-* validate windows: **10**, win rate **40%**
-* mean validate return **+48.47%** (median −1.81%, worst −67.09%, best +345.23%)
-* mean validate CAGR **+48.69%** vs mean train CAGR +29.40% → decay **+19.28%**
-* mean validate Sharpe +0.52, worst validate max drawdown −68.54%
-* 3387 fill(s) inside validate windows
-* runtime 768.0s (scratch 18.6s, screen 25.4s)
+* validate windows: **10**, win rate **50%**
+* mean validate return **+50.60%** (median +3.32%, worst −56.47%, best +417.96%)
+* mean validate CAGR **+50.89%** vs mean train CAGR +30.70% → decay **+20.19%**
+* mean validate Sharpe +0.53, worst validate max drawdown −65.26%
+* 3386 fill(s) inside validate windows
+* runtime 764.9s (scratch 17.7s, screen 25.6s)
 
 **Verdict rule (pre-registered, mechanical, and NOT an automatic kill).** For
 each book, against `ew_benchmark` on the same folds:
