@@ -1,16 +1,16 @@
 # EW Screen — 200d Trend Gated — walk-forward re-validation
 
-_`ew_trend_gated` · ew_trend_gated · monthly cadence · verdict **REVIEW** · generated 2026-08-23T06:48:00+00:00_
+_`ew_trend_gated` · ew_trend_gated · monthly cadence · verdict **REVIEW** · generated 2026-08-30T06:43:46+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-08-21. Each fold is an independent replay starting at $39,000. Span 2014-08-21 → 2026-08-21 (3018 sessions); data floor 2008-05-29; screen source `hist` (1,104,935 passing rows).
+**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-08-28. Each fold is an independent replay starting at $39,000. Span 2014-08-28 → 2026-08-28 (3018 sessions); data floor 2008-05-29; screen source `hist` (1,106,099 passing rows).
 
 **Pre-registered expectation.** Materially lower max drawdown than ew_benchmark across a full risk-off episode, paid for in whipsaw during choppy sideways tapes. The honest prior is negative: the existing entry-block gates bought only ~4pp of drawdown relief (top10_banded -47.81% ungated vs -43.69% gated), and a 200-day filter on a monthly basket is slow.
 
 **Pre-registered kill criterion.** No max-drawdown improvement vs ew_benchmark across a full risk-off fold, or trails ew_benchmark by >15% cumulative over 12 months without a lower max drawdown.
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 10% of 10 window(s), mean excess −4.61%, latest −24.07% → **REVIEW**.
+**Measured against `ew_benchmark` on the same folds:** beats it in 10% of 10 window(s), mean excess −4.34%, latest −21.56% → **REVIEW**.
 
-**90% CI on mean excess vs `ew_benchmark`:** [−8.75%, −1.68%] → **distinguishable −**. The verdict above is unchanged by this interval — see the note below the fold table.
+**90% CI on mean excess vs `ew_benchmark`:** [−8.04%, −1.63%] → **distinguishable −**. The verdict above is unchanged by this interval — see the note below the fold table.
 
 ## Disclosures — read before any number below
 
@@ -59,25 +59,25 @@ _`ew_trend_gated` · ew_trend_gated · monthly cadence · verdict **REVIEW** · 
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills | Universe |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2014-08-21→2016-08-19 | +8.32% | +4.09% | 2016-08-19→2017-08-21 | **−1.71%** | −1.71% | +21.85% | +0.03 | −16.34% | −0.00% | −14.49% | 772 | 2,683 |
-| 2 | 2015-08-21→2017-08-21 | +6.41% | +3.15% | 2017-08-21→2018-08-21 | **+41.33%** | +41.36% | +22.81% | +1.63 | −15.47% | +0.03% | +22.87% | 701 | 2,827 |
-| 3 | 2016-08-22→2018-08-21 | +56.65% | +25.22% | 2018-08-21→2019-08-21 | **−4.05%** | −4.05% | +20.24% | −0.10 | −22.52% | −7.60% | −7.95% | 510 | 2,933 |
-| 4 | 2017-08-21→2019-08-21 | +27.09% | +12.74% | 2019-08-21→2020-08-21 | **+23.83%** | +23.78% | +22.82% | +1.05 | −16.56% | −1.92% | +6.41% | 664 | 3,047 |
-| 5 | 2018-08-21→2020-08-21 | +12.20% | +5.92% | 2020-08-21→2021-08-20 | **+111.63%** | +112.17% | +43.94% | +1.93 | −22.59% | −0.01% | +80.43% | 846 | 3,293 |
-| 6 | 2019-08-21→2021-08-20 | +162.94% | +62.21% | 2021-08-20→2022-08-19 | **−5.86%** | −5.88% | +27.44% | −0.08 | −34.16% | −2.79% | −2.51% | 601 | 3,435 |
-| 7 | 2020-08-21→2022-08-19 | +95.79% | +40.09% | 2022-08-19→2023-08-21 | **−10.38%** | −10.34% | +20.46% | −0.44 | −17.10% | −2.70% | −15.85% | 576 | 3,549 |
-| 8 | 2021-08-23→2023-08-21 | −21.69% | −11.54% | 2023-08-21→2024-08-21 | **+14.18%** | +14.15% | +30.94% | +0.58 | −20.56% | −3.16% | −14.18% | 765 | 3,710 |
-| 9 | 2022-08-22→2024-08-21 | +2.21% | +1.10% | 2024-08-21→2025-08-21 | **+7.31%** | +7.32% | +33.72% | +0.38 | −26.86% | −3.87% | −6.99% | 723 | 3,905 |
-| 10 ◈ | 2023-08-21→2025-08-21 | +12.85% | +6.23% | 2025-08-21→2026-08-21 | **+18.37%** | +18.39% | +55.43% | +0.58 | −36.46% | −24.07% | −2.82% | 852 | 12,105 |
+| 1 | 2014-08-28→2016-08-26 | +0.67% | +0.34% | 2016-08-26→2017-08-28 | **+8.33%** | +8.29% | +21.01% | +0.49 | −11.00% | −0.00% | −5.81% | 772 | 2,684 |
+| 2 | 2015-08-28→2017-08-28 | +9.00% | +4.40% | 2017-08-28→2018-08-28 | **+42.80%** | +42.84% | +22.73% | +1.68 | −15.47% | +0.03% | +23.05% | 701 | 2,827 |
+| 3 | 2016-08-29→2018-08-28 | +62.14% | +27.40% | 2018-08-28→2019-08-28 | **−6.88%** | −6.88% | +20.24% | −0.25 | −22.52% | −7.38% | −8.34% | 510 | 2,933 |
+| 4 | 2017-08-28→2019-08-28 | +27.67% | +13.00% | 2019-08-28→2020-08-28 | **+22.97%** | +22.92% | +23.09% | +1.01 | −16.56% | −1.89% | +0.53% | 664 | 3,049 |
+| 5 | 2018-08-28→2020-08-28 | +11.91% | +5.78% | 2020-08-28→2021-08-27 | **+128.31%** | +128.96% | +44.01% | +2.10 | −22.59% | −0.01% | +99.21% | 846 | 3,294 |
+| 6 | 2019-08-28→2021-08-27 | +182.94% | +68.27% | 2021-08-27→2022-08-26 | **−12.48%** | −12.52% | +26.95% | −0.36 | −34.16% | −4.34% | −4.05% | 601 | 3,438 |
+| 7 | 2020-08-28→2022-08-26 | +95.86% | +40.11% | 2022-08-26→2023-08-28 | **−9.40%** | −9.35% | +21.10% | −0.36 | −17.10% | −0.95% | −19.94% | 576 | 3,552 |
+| 8 | 2021-08-30→2023-08-28 | −20.80% | −11.04% | 2023-08-28→2024-08-28 | **+11.59%** | +11.56% | +30.86% | +0.51 | −20.56% | −3.11% | −15.29% | 765 | 3,713 |
+| 9 | 2022-08-29→2024-08-28 | +1.05% | +0.53% | 2024-08-28→2025-08-28 | **+17.05%** | +17.06% | +33.77% | +0.64 | −26.86% | −4.22% | −0.05% | 723 | 3,905 |
+| 10 ◈ | 2023-08-28→2025-08-28 | +21.70% | +10.31% | 2025-08-28→2026-08-28 | **+6.03%** | +6.04% | +55.32% | +0.38 | −36.46% | −21.56% | −13.27% | 852 | 12,105 |
 
 ## Summary
 
-* validate windows: **10**, win rate **60%**
-* mean validate return **+19.46%** (median +10.75%, worst −10.38%, best +111.63%)
-* mean validate CAGR **+19.52%** vs mean train CAGR +14.92% → decay **+4.60%**
-* mean validate Sharpe +0.56, worst validate max drawdown −36.46%
+* validate windows: **10**, win rate **70%**
+* mean validate return **+20.83%** (median +9.96%, worst −12.48%, best +128.31%)
+* mean validate CAGR **+20.89%** vs mean train CAGR +15.91% → decay **+4.98%**
+* mean validate Sharpe +0.58, worst validate max drawdown −36.46%
 * 7010 fill(s) inside validate windows
-* runtime 1618.4s (scratch 24.5s, screen 23.3s)
+* runtime 1585.6s (scratch 22.5s, screen 24.0s)
 
 **Verdict rule (pre-registered, mechanical, and NOT an automatic kill).** For
 each book, against `ew_benchmark` on the same folds:
