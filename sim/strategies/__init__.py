@@ -14,6 +14,7 @@ from .ew_voltarget import EwVolTarget
 from .high_52wk import High52Week
 from .low_vol import LowVol
 from .macro_composite import MacroComposite
+from .multi_asset_trend import MultiAssetTrend
 from .momo_stopped import MomoStopped
 from .mr_overlay import MrOverlay
 from .pead_ear import PeadEar
@@ -23,6 +24,8 @@ from .spy_benchmark import SpyBenchmark
 from .template_top10_banded import TemplateTop10Banded
 from .template_top5 import TemplateTop5
 from .turtle_breakout import TurtleBreakout
+from .xs_momentum_12_1 import XsMomentum121
+from .xs_reversal_1m import XsReversal1m
 
 REGISTRY: dict[str, type[Strategy]] = {
     "discretionary": Discretionary,
@@ -51,6 +54,12 @@ REGISTRY: dict[str, type[Strategy]] = {
     "high_52wk": High52Week,
     "pead_ear": PeadEar,
     "sleeve_alloc": SleeveAlloc,
+    # 2026-09-02 gap-fillers (docs/evaluation-2026-09-02.md §5): the unscreened
+    # momentum CONTROL, a one-month reversal book, and a multi-asset TSMOM
+    # sleeve. Charters in docs/charters/, pre-registrations in configs.py.
+    "xs_momentum_12_1": XsMomentum121,
+    "xs_reversal_1m": XsReversal1m,
+    "multi_asset_trend": MultiAssetTrend,
 }
 
 
