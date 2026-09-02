@@ -19,9 +19,10 @@ Per-side cost is deliberately worse than any backtest assumption:
 
 Liquidity guard: order notional (qty * open) may not exceed 1% of the name's
 60-bar median daily dollar volume → the order is REJECTED (partial fills are not
-modeled in v1). If the fill-date bar is missing (halt / delisting) the order
-stays pending; after 3 trading days with still no bar it rejects as 'no_bar'.
-A bar is never invented.
+modeled in v1). If the fill-date bar is missing (halt / delisting), has a non-positive open,
+or printed zero volume (nobody traded — dead quotes from the feed look exactly
+like this) the order stays pending; after 3 trading days with still no
+tradeable bar it rejects as 'no_bar'. A bar is never invented.
 """
 from __future__ import annotations
 
@@ -111,12 +112,19 @@ def attempt_fill(
     )
 
     bar = con.execute(
-        "SELECT open FROM prices WHERE ticker = ? AND date = ?",
+        "SELECT open, volume FROM prices WHERE ticker = ? AND date = ?",
         [ticker, fill_date],
     ).fetchone()
 
-    if bar is None or bar[0] is None:
-        # No tradeable bar on the fill date — halt / delisting / missing data.
+    if bar is None or bar[0] is None or bar[0] <= 0 or not bar[1]:
+        # No TRADEABLE bar on the fill date — halt / delisting / missing data.
+        # Three shapes count as "no bar": the row is absent; `open` is NULL or
+        # non-positive (an `open = 0.0` row would fill a buy for $0 and book
+        # free shares — 4 such rows exist in the store); or `volume` is NULL/0.
+        # yfinance keeps emitting a dead quote as a zero-volume bar after a
+        # name stops trading (BUILDLOG 2026-08-20c), and nobody could have
+        # traded at it. A thin name's legitimate zero-volume day simply waits a
+        # session; after PENDING_MAX_DAYS it rejects as 'no_bar' like any halt.
         elapsed = calendar.trading_days_between(con, signal_date, fill_date)
         if elapsed >= PENDING_MAX_DAYS:
             return FillResult(status="rejected", reject_reason="no_bar")

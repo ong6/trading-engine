@@ -27,6 +27,7 @@ CB_CONSEC_LOSERS = 3     # circuit breaker: 3 straight losing round-trips
 CB_R_WINDOW_DAYS = 5     # ...or realized R ≤ -5 within trailing 5 trading days
 CB_R_FLOOR = -5.0
 EARNINGS_WINDOW_DAYS = 7  # fail if earnings fall within [today, today+7d]
+ENTRY_ANCHOR_MAX = 0.10   # entry_ref may sit at most 10% from the latest close
 
 # The known-playbook library: setups the book has vetted and sizes at the full
 # 1% risk. A setup NOT in this set is treated as an experiment and capped at
@@ -309,27 +310,68 @@ def evaluate_gates(con: duckdb.DuckDBPyConnection, t: dict) -> list[dict]:
     equity = state["equity"]
     gates: list[dict] = []
 
-    long_ok = (entry is not None and stop is not None and entry > stop)
-    r_per_share = (entry - stop) if long_ok else None
+    # Anchor to the market. entry_ref and stop are typed by the owner; sizing
+    # from them alone let `entry_ref=1000, stop=999.99` on a $100 stock size a
+    # 25x-the-book position through every gate (r/share 0.01). The order fills
+    # at the NEXT open, which is unknown, so the honest risk per share is
+    # measured from the worse of the typed entry and the latest close.
+    close = _latest_close(con, t.get("ticker")) if t.get("ticker") else None
+    ref = None
+    if entry is not None:
+        ref = entry if close is None else max(float(entry), close)
+    long_ok = (ref is not None and stop is not None and ref > stop
+               and (close is None or stop < close))
+    r_per_share = (ref - stop) if long_ok else None
     ticket_risk = qty * r_per_share if long_ok else None
 
-    # 1. stop_present
+    # 1. stop_present — and the stop must be below the LIVE price too: a stop
+    # above the latest close is already breached, not protection.
     if stop is None:
         gates.append(_g("stop_present", "fail", "no stop price given"))
     elif entry is None:
         gates.append(_g("stop_present", "fail", "no entry_ref to compare stop to"))
-    elif stop < entry:
-        gates.append(_g("stop_present", "pass", f"stop {stop} < entry {entry}"))
-    else:
+    elif stop >= entry:
         gates.append(_g("stop_present", "fail",
                         f"stop {stop} not below entry {entry} (long)"))
+    elif close is not None and stop >= close:
+        gates.append(_g("stop_present", "fail",
+                        f"stop {stop} not below latest close {close:.2f} "
+                        f"(already breached)"))
+    else:
+        gates.append(_g("stop_present", "pass",
+                        f"stop {stop} < entry {entry}"
+                        + (f" (risk/share from close {close:.2f})"
+                           if close is not None and close > entry else "")))
+
+    # 1b. entry_anchored — the typed entry must be near the market, or every
+    # downstream number is fiction. ±10% covers a gap; beyond that the ticket
+    # is stale or mistyped.
+    if entry is None or close is None:
+        gates.append(_g("entry_anchored", "unknown" if entry is not None else "fail",
+                        "no latest close for ticker" if entry is not None
+                        else "no entry_ref given"))
+    else:
+        dev = abs(float(entry) / close - 1.0)
+        gates.append(_g("entry_anchored", "pass" if dev <= ENTRY_ANCHOR_MAX else "fail",
+                        f"entry {entry} vs latest close {close:.2f} "
+                        f"({dev * 100:.1f}% away, max {ENTRY_ANCHOR_MAX * 100:.0f}%)"))
+
+    # 1c. notional_cap — paper book, no margin: qty × price may not exceed equity.
+    # apply_fill would clamp the buy to cash anyway, but a clamp is a surprise,
+    # not a gate.
+    if ref is None:
+        gates.append(_g("notional_cap", "fail", "cannot price the order"))
+    else:
+        notional = qty * ref
+        gates.append(_g("notional_cap", "pass" if notional <= equity else "fail",
+                        f"notional ${notional:,.0f} vs equity ${equity:,.0f}"))
 
     # 2. sizing_1pct
     if not long_ok:
         gates.append(_g("sizing_1pct", "fail",
                         "cannot size without entry > stop"))
     else:
-        max_qty = size_position(equity, entry, stop, RISK_PCT)["qty"]
+        max_qty = size_position(equity, ref, stop, RISK_PCT)["qty"]
         status = "pass" if qty <= max_qty else "fail"
         gates.append(_g("sizing_1pct", status,
                         f"qty {qty:g} vs 1%-risk max {max_qty} "
@@ -361,7 +403,7 @@ def evaluate_gates(con: duckdb.DuckDBPyConnection, t: dict) -> list[dict]:
         gates.append(_g("rr_at_least_2", "fail",
                         "cannot compute R:R without entry > stop"))
     else:
-        rr = (target - entry) / r_per_share
+        rr = (target - ref) / r_per_share
         status = "pass" if rr >= 2.0 else "fail"
         gates.append(_g("rr_at_least_2", status, f"R:R {rr:.2f} (need ≥ 2.0)"))
 
