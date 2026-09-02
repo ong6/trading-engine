@@ -398,6 +398,16 @@ def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
     revert the reconciler's position adjustment. Dividends are replayed at their
     RECORDED amount: the cash was received at the share count of the day, and a
     later split does not retroactively change what was paid.
+
+    Settlements (sim_settlements, owner-supplied terms for a name that stopped
+    trading — see sim/settle.py) are replayed at `effective`, phased AFTER that
+    date's dividends and BEFORE its fills, at their RECORDED qty/price. Why an
+    event and not a synthetic fill: a settlement is not a trade (no bar, no
+    slippage, no order) and must never look like one in sim_fills; and it must
+    survive `--rerun`, which deletes a date's fills/dividends but never the
+    owner's settlement rows. Phase order: dividends first because a final
+    dividend can go ex on the same day the shares are cancelled; fills after
+    because by `effective` the fill model can no longer produce one anyway.
     """
     pf_ids = [r[0] for r in con.execute("SELECT id FROM portfolios").fetchall()]
     con.execute("DELETE FROM sim_positions")
@@ -407,7 +417,8 @@ def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
 
     splits = _split_factors(con)
 
-    # (date, phase, seq, kind, payload) — phase 0 = dividends, 1 = fills.
+    # (date, phase, seq, kind, payload) — phase 0 = dividends, 1 = settlements,
+    # 2 = fills.
     events: list[tuple] = []
     if _has_table(con, "sim_dividends"):
         for i, (pf_id, tk, ex, amount) in enumerate(con.execute(
@@ -420,7 +431,13 @@ def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
         "FROM sim_fills "
         "ORDER BY fill_date, CASE side WHEN 'sell' THEN 0 ELSE 1 END, order_id"
     ).fetchall()):
-        events.append((fd, 1, i, "fill", (pf_id, tk, side, qty, px, fd)))
+        events.append((fd, 2, i, "fill", (pf_id, tk, side, qty, px, fd)))
+    if _has_table(con, "sim_settlements"):
+        for i, row in enumerate(con.execute(
+            "SELECT portfolio_id, ticker, kind, qty, price, into_ticker, ratio, "
+            "effective FROM sim_settlements ORDER BY effective, portfolio_id, ticker"
+        ).fetchall()):
+            events.append((row[7], 1, i, "settle", row[:7]))
     events.sort(key=lambda e: (e[0], e[1], e[2]))
 
     for _d, _phase, _seq, kind, payload in events:
@@ -428,6 +445,12 @@ def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
             pf_id, _tk, amount = payload
             con.execute("UPDATE portfolios SET cash = cash + ? WHERE id = ?",
                         [amount, pf_id])
+            continue
+        if kind == "settle":
+            from .settle import apply_settlement_event  # local: settle imports us
+            pf_id, tk, skind, qty, price, into, ratio = payload
+            apply_settlement_event(con, pf_id, tk, skind, float(qty), float(price),
+                                   into, None if ratio is None else float(ratio))
             continue
         pf_id, tk, side, qty, px, fd = payload
         factor = 1.0
