@@ -17,6 +17,18 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DB = REPO_ROOT / "store" / "market.duckdb"
 
+# A bar that represents an actual market session for the name. yfinance keeps
+# emitting a dead quote — the last close repeated as o=h=l=c with volume 0 —
+# for days after a name stops trading (BUILDLOG 2026-08-20c: EA, TALK), and
+# those rows are otherwise indistinguishable from real ones. Every consumer
+# that picks an "as-of" bar (screen, hist_screen, the stale list in _meta.json,
+# the league's stale-mark detector) keys on this predicate, not on MAX(date).
+# `volume = 0` alone is not proof of a phantom (thin names have legitimate
+# zero-volume days), so a zero-volume bar is excluded as an AS-OF bar but never
+# deleted from the series. Column names are bare so it composes into any query
+# whose FROM has `prices` in scope.
+REAL_BAR_SQL = "volume > 0 AND NOT (open = high AND high = low AND low = close)"
+
 # Substrings DuckDB uses when the single-writer on-disk lock is contended.
 # Duplicated (not imported) from server/db.py's _LOCK_MARKERS: server already
 # does `from lib import db`, so importing back would be a cycle. Keep in sync.

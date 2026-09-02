@@ -41,11 +41,20 @@ export PYTHONUNBUFFERED=1
 mkdir -p "${REPO_ROOT}/logs"
 LOG="${REPO_ROOT}/logs/walkforward-$(date +%F).log"
 
+# errexit is suspended around the tee pipeline and re-armed inside the block —
+# otherwise a failing stage exits the script before the breadcrumb below runs
+# (same fix as run_daily.sh, 2026-09-02; see the comment there).
+STAGE_FILE="${REPO_ROOT}/logs/.last_stage_walkforward"
+stage() { echo "$1" > "${STAGE_FILE}"; }
+: > "${STAGE_FILE}"
+set +e
 {
+  set -e
   echo "=== run_weekly_walkforward $(date -u +%FT%TZ) ==="
 
   # Enqueue is idempotent: queue_runner dedups an identical pending
   # (kind, params), so a re-run after a partial drain adds nothing.
+  stage enqueue
   "${PY}" farm/walkforward/grid.py --enqueue
 
   # The drain honours every §12.7 cap (nice 19 + ionice idle, load/RAM guard,
@@ -59,12 +68,21 @@ LOG="${REPO_ROOT}/logs/walkforward-$(date +%F).log"
   # so 8 x 4.5 GB declared = 36 GB inside the 48 GB engine budget, and
   # sustained load ~20-24 of 32 cores stays under LOAD_5MIN_MAX=28. A batch is
   # still bounded by its SLOWEST member.
+  stage drain
   "${PY}" engine/queue_runner.py --run --jobs 8
 
   # Commit the regenerated reports. Best-effort: the results JSON and the
   # markdown are already on disk, and the next nightly's sync stages data/
   # wholesale, so a failure here costs a day of visibility, not evidence.
+  stage sync
   "${PY}" engine/sync.py || echo "WARN: sync failed (exit $?) — reports are on disk; next nightly's sync will stage them"
 
   echo "=== done $(date -u +%FT%TZ) ==="
 } 2>&1 | tee -a "${LOG}"
+status="${PIPESTATUS[0]}"
+set -e
+if [ "${status}" -ne 0 ]; then
+  failed_stage="$(cat "${STAGE_FILE}" 2>/dev/null)"
+  echo "TODO: run_weekly_walkforward failed $(date -u +%FT%TZ) (stage=${failed_stage:-unknown} exit ${status}) — inspect ${LOG}" | tee -a "${LOG}"
+  exit "${status}"
+fi

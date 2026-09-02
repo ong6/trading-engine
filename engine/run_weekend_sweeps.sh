@@ -52,14 +52,26 @@ SWEEP_PRIORITY=900
 # Must match JOB_TYPES["sweep"]["mem_mb"] in engine/queue_runner.py.
 SWEEP_MEM_MB=4500
 
+# errexit is suspended around the tee pipeline and re-armed inside the block —
+# otherwise a failing stage exits the script before the breadcrumb below runs
+# (same fix as run_daily.sh, 2026-09-02; see the comment there).
+STAGE_FILE="${REPO_ROOT}/logs/.last_stage_sweeps"
+stage() { echo "$1" > "${STAGE_FILE}"; }
+: > "${STAGE_FILE}"
+set +e
 {
+  set -e
   echo "=== run_weekend_sweeps $(date -u +%FT%TZ) ==="
 
   # Grid names come from the module itself, so a grid added to GRIDS is swept
   # from the next Saturday with no edit here. `--grid list` also prints
   # bracketed diagnostics (e.g. infeasible cells being skipped); those are
-  # filtered out rather than parsed.
-  GRIDS="$("${PY}" farm/sweep/sweep.py --grid list | grep -v '^\[' | awk 'NF {print $1}')"
+  # filtered out rather than parsed. `grep -v` exits 1 when it selects NOTHING
+  # (every line was a diagnostic), which under pipefail failed the `$(...)`
+  # assignment and aborted the script before the "no grids" message — hence
+  # the `|| true` guard; the emptiness check below is the real gate.
+  stage list-grids
+  GRIDS="$("${PY}" farm/sweep/sweep.py --grid list | { grep -v '^\[' || true; } | awk 'NF {print $1}')"
   if [ -z "${GRIDS}" ]; then
     echo "ERROR: no grids enumerated — refusing to drain an empty plan"
     exit 1
@@ -68,6 +80,7 @@ SWEEP_MEM_MB=4500
 
   # Enqueue is idempotent: queue_runner dedups an identical pending
   # (kind, params), so a re-run after a partial drain adds nothing.
+  stage enqueue
   for g in ${GRIDS}; do
     "${PY}" engine/queue_runner.py --enqueue sweep \
       --priority "${SWEEP_PRIORITY}" --mem-mb "${SWEEP_MEM_MB}" \
@@ -81,9 +94,18 @@ SWEEP_MEM_MB=4500
   # peak RSS 3.4 GB measured vs 4.5 GB declared, 8 x 4.5 = 36 GB in the 48 GB
   # budget; sustained load ~20-24 of 32 cores under LOAD_5MIN_MAX=28. There
   # are only 6 grids today, so real width is min(8, pending grids).
+  stage drain
   "${PY}" engine/queue_runner.py --run --jobs 8
 
+  stage sync
   "${PY}" engine/sync.py || echo "WARN: sync failed (exit $?) — reports are on disk; next nightly's sync will stage them"
 
   echo "=== done $(date -u +%FT%TZ) ==="
 } 2>&1 | tee -a "${LOG}"
+status="${PIPESTATUS[0]}"
+set -e
+if [ "${status}" -ne 0 ]; then
+  failed_stage="$(cat "${STAGE_FILE}" 2>/dev/null)"
+  echo "TODO: run_weekend_sweeps failed $(date -u +%FT%TZ) (stage=${failed_stage:-unknown} exit ${status}) — inspect ${LOG}" | tee -a "${LOG}"
+  exit "${status}"
+fi
