@@ -55,6 +55,7 @@ else:  # pragma: no cover - script invocation
     from farm.walkforward import protocol
 
 from farm.backtest import hist_screen, stats  # noqa: E402
+from farm.walkforward import monthly as wf_monthly  # noqa: E402
 from farm.backtest.replay import (  # noqa: E402
     DEFAULT_REQUIRED, NEEDS_SCREEN, REQUIRED, REQUIRED_LOOKBACK, build_scratch,
 )
@@ -77,15 +78,16 @@ def active_books(live_con) -> list[dict]:
     """Every active row of the LIVE `portfolios` table — league.generate_all's
     exact source — with the excluded books removed and the reason kept."""
     rows = live_con.execute(
-        "SELECT id, name, strategy, config FROM portfolios WHERE active "
+        "SELECT id, name, strategy, config, created FROM portfolios WHERE active "
         "ORDER BY id").fetchall()
     out = []
-    for pid, name, strat, cfg_json in rows:
+    for pid, name, strat, cfg_json, created in rows:
         try:
             cfg = json.loads(cfg_json) if cfg_json else {}
         except (TypeError, json.JSONDecodeError):
             cfg = {}
         out.append({"id": pid, "name": name, "strategy": strat, "config": cfg,
+                    "created": created.isoformat() if created else None,
                     "config_json": cfg_json,
                     "excluded": protocol.excluded_reason(pid, strat)})
     return out
@@ -220,6 +222,10 @@ def run_fold(con, book: dict, fold: protocol.Fold, sessions: list[date],
         "runtime_s": round(time.time() - t0, 1),
         "train": stats.equity_stats(tr_d, tr_e, bil),
         "validate": stats.equity_stats(va_d, va_e, bil),
+        # Month-end equity of the validate slice (base row = the split
+        # session), so monthly.py can pool paired monthly excess across folds
+        # without a replay. Additive: nothing above reads it. (2026-09-02)
+        "validate_monthly_equity": wf_monthly.month_end_points(va_d, va_e),
     }
     if verbose:
         v, t = out["validate"], out["train"]
@@ -374,6 +380,7 @@ def run_book(live_con, config_id: str, *,
             "universe_policy": policy,
             "screen_source": "hist" if book["strategy"] in NEEDS_SCREEN
                              else "not-used",
+            "registered": book.get("created"),
             "span_start": span_start.isoformat(),
             "span_end": span_end.isoformat(),
             "sessions": len(all_sessions),
