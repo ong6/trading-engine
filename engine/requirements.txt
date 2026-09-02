@@ -11,3 +11,5 @@ curl_cffi>=0.15
 openpyxl>=3.1
 # AAII publishes the sentiment survey as a legacy BIFF .xls, which only xlrd reads.
 xlrd>=2.0
+# tests/ (dev only)
+pytest>=8
