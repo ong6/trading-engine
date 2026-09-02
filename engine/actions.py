@@ -35,10 +35,14 @@ gh#2174/#2183, cap-gain distributions conflated with dividends gh#2666, and
 Yahoo occasionally failing to restate past prices at all):
   (a) A split is only applied when the STORED series actually shows the break.
       We locate the break by scanning the one-session close ratios around the
-      ex-date for one that matches the reported ratio in log space. Two readings
-      are accepted — "break present, restate" and "already restated, no-op" —
-      and anything else is logged as skipped_sanity (audit_log WARN + a nightly
-      TODO breadcrumb) and left untouched for a human.
+      ex-date for one that matches the reported ratio in log space (±8%), and
+      the match must sit within BREAK_NEAR_EX_SESSIONS of the ex-date AND the
+      bars before it must have been stored BEFORE the ex-date (otherwise Yahoo
+      had already restated them when we fetched them, and the jump is a real
+      move). Two readings are accepted — "break present, restate" and "already
+      restated, no-op" — and anything else is logged as skipped_* (audit_log
+      WARN + a nightly TODO breadcrumb) and left untouched for a human. See
+      `_adjudicate` for the full rule and the 2026-09-02 incident behind it.
   (b) An INDEPENDENT tripwire, run regardless of what actions data says: any
       held-or-pending name whose latest one-session close move exceeds 40% with
       no corporate_actions row nearby is WARNed loudly (possible missed split).
@@ -83,15 +87,30 @@ CORE_ETFS = ["SPY", "EFA", "BIL", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY",
              "XLP", "XLU", "XLB", "XLRE", "XLC"]
 
 # --- reconciler tolerances (log space) ------------------------------------- #
-# A reading is accepted only if it lands within ±20% of one hypothesis...
-TOL_LOG = math.log(1.2)
-# ...and the two hypotheses (break present / already restated) must be further
-# apart than the two tolerance balls, or they overlap and nothing is decidable.
-# 2*TOL_LOG = 0.365 -> ratios inside [0.694, 1.44] are ambiguous by construction
-# (a 5:4 or 4:3 split; a 3:2 at ln 1.5 = 0.405 is still decidable).
-MIN_SEPARATION_LOG = 2 * TOL_LOG
+# The observed one-session close ratio must land within ±8% (log space) of the
+# reported split ratio. A split is an EXACT ratio; 8% absorbs the stock's own
+# move on the break session and nothing more. The original ±20% band let a 3:2
+# split match any −20%…−44% day, which is how three ordinary earnings crashes
+# (BH 2018-04-27, ORCL 1999-03-12, NEM 1987-10-16) were accepted as "the break"
+# and 14,816 pre-break rows were divided by 1.5 (found by the 2026-09-02 audit).
+TOL_LOG = math.log(1.08)
+# Ratios too close to 1 cannot be told apart from an ordinary move even at the
+# ex-date, so anything inside [1/1.44, 1.44] (1.1:1, 5:4, 4:3, …) is ambiguous
+# by construction and skipped. This band is deliberately NOT derived from
+# TOL_LOG any more: tightening the match tolerance must not widen the set of
+# splits the reconciler is willing to decide. (Unchanged value: 2·ln 1.2.)
+MIN_SEPARATION_LOG = math.log(1.44)
 SEARCH_BEFORE = 15         # sessions before ex_date to scan for the break
 SEARCH_AFTER = 10          # sessions after ex_date to scan for the break
+# A genuine break can only sit at the ex-date or at the edge of the nightly 5d
+# re-fetch window just before it (see module docstring). Anything further away
+# is a real price move, whatever its size.
+BREAK_NEAR_EX_SESSIONS = 5
+# ...except when the split is recent and collection had an outage: the first
+# bar re-fetched after the gap carries the break, which can then sit AFTER the
+# ex-date by more than the near window. Only allowed while ex_date is within
+# this many sessions of the latest stored bar.
+RECENT_EX_SESSIONS = 10
 # Independent tripwire: a one-session move beyond this with no action row nearby.
 TRIPWIRE_MOVE = 0.40
 TRIPWIRE_NEAR_DAYS = 7     # a corporate_actions row within ±N days explains it
@@ -282,34 +301,74 @@ def collect(con, params: dict, mode: str) -> dict:
 # --------------------------------------------------------------------------- #
 # split reconciliation
 # --------------------------------------------------------------------------- #
-def _session_window(con, ticker: str, ex_date: date) -> list[tuple[date, float]]:
-    """Stored (date, close) around ex_date: SEARCH_BEFORE sessions before through
-    SEARCH_AFTER sessions after, oldest first. Rows with a NULL close are dropped
-    (a break can't be measured against a hole)."""
+def _session_window(con, ticker: str, ex_date: date) -> list[tuple[date, float, object]]:
+    """Stored (date, close, fetched_at) around ex_date: SEARCH_BEFORE sessions
+    before through SEARCH_AFTER sessions after, oldest first. Rows with a NULL
+    close are dropped (a break can't be measured against a hole). fetched_at is
+    the row's provenance — when it was stored — and may be NULL on old copies."""
     before = con.execute(
-        "SELECT date, close FROM prices WHERE ticker = ? AND date < ? "
+        "SELECT date, close, fetched_at FROM prices WHERE ticker = ? AND date < ? "
         "AND close IS NOT NULL ORDER BY date DESC LIMIT ?",
         [ticker, ex_date, SEARCH_BEFORE],
     ).fetchall()
     after = con.execute(
-        "SELECT date, close FROM prices WHERE ticker = ? AND date >= ? "
+        "SELECT date, close, fetched_at FROM prices WHERE ticker = ? AND date >= ? "
         "AND close IS NOT NULL ORDER BY date ASC LIMIT ?",
         [ticker, ex_date, SEARCH_AFTER],
     ).fetchall()
-    return [(d, float(c)) for d, c in reversed(before)] + \
-           [(d, float(c)) for d, c in after]
+    return [(d, float(c), f) for d, c, f in reversed(before)] + \
+           [(d, float(c), f) for d, c, f in after]
+
+
+def _fetched_on(ts) -> date | None:
+    """fetched_at -> calendar date (None when the store never stamped it)."""
+    if ts is None:
+        return None
+    return ts.date() if isinstance(ts, datetime) else ts
 
 
 def _adjudicate(con, ticker: str, ex_date: date, ratio: float) -> dict:
     """Decide what the STORED series says about this split. Never guesses.
 
+    THE RULE (2026-09-02, after the BH/ORCL/NEM false breaks):
+      1. Scan one-session close ratios r = close(t-1)/close(t) over the window
+         SEARCH_BEFORE..SEARCH_AFTER sessions around ex_date. A candidate break
+         is a session whose r matches the split ratio within TOL_LOG (±8%).
+      2. LOCATION. The candidate must sit within BREAK_NEAR_EX_SESSIONS of the
+         ex-date: a genuine scale break lives at the ex-date itself, or at the
+         edge of the nightly 5d re-fetch just before it (module docstring). The
+         one exception is a recent split (ex within RECENT_EX_SESSIONS of the
+         latest bar) whose break sits later than the ex-date, i.e. the first bar
+         re-fetched after a collection gap. A ratio-sized jump anywhere else is a
+         real move -> `skipped_no_break_near_ex` (recorded, never restated).
+      3. CONTINUITY / PROVENANCE. The bars BEFORE the candidate must have been
+         stored before the ex-date (prices.fetched_at < ex_date). Yahoo
+         back-adjusts at fetch time, so bars fetched on/after the ex-date are
+         already on the post-split scale and the series is already continuous
+         across the split — there is nothing to restate, and the jump we found
+         is either a real move or Yahoo's own unadjusted data (gh#2174). Either
+         way: `skipped_already_adjusted`, hands off. (Rows with no fetched_at,
+         e.g. old copies, cannot fail this check.)
+      4. No candidate at all: a large unexplained move by the ex-date ->
+         `skipped_sanity`; otherwise the store already matches the post-split
+         scale -> `noop_restated`.
+
     Returns {outcome, break_date, observed}. Outcomes:
-      applied_pending  - break located; caller should restate `date < break_date`
-      noop_restated    - no break: the store already matches the post-split scale
-      noop_pre_history - the split predates our earliest stored bar
-      skipped_ambiguous- |ln ratio| too small to tell the two readings apart
-      skipped_no_bars  - not enough stored bars around ex_date to measure
-      skipped_sanity   - a large unexplained move sits by the ex-date: hands off
+      applied_pending          - break located and vetted; caller restates
+                                 `date < break_date`
+      noop_restated            - no break: the store already matches the
+                                 post-split scale
+      noop_pre_history         - the split predates our earliest stored bar
+      skipped_ambiguous        - |ln ratio| too small to tell the readings apart
+      skipped_no_bars          - not enough stored bars around ex_date to measure
+      skipped_sanity           - a large unexplained move sits by the ex-date
+      skipped_no_break_near_ex - a ratio-sized jump exists in the scan window but
+                                 not where a scale break can be (rule 2); the
+                                 jump's date is returned as break_date for the
+                                 record, rows_restated stays 0
+      skipped_already_adjusted - a ratio-sized jump sits by the ex-date, but the
+                                 bars before it were fetched on/after the ex-date
+                                 (rule 3)
     """
     if ratio <= 0:
         return {"outcome": "skipped_sanity", "break_date": None, "observed": None}
@@ -317,8 +376,9 @@ def _adjudicate(con, ticker: str, ex_date: date, ratio: float) -> dict:
     if abs(lr) < MIN_SEPARATION_LOG:
         return {"outcome": "skipped_ambiguous", "break_date": None, "observed": None}
 
-    first_bar = con.execute(
-        "SELECT MIN(date) FROM prices WHERE ticker = ?", [ticker]).fetchone()[0]
+    first_bar, latest_bar = con.execute(
+        "SELECT MIN(date), MAX(date) FROM prices WHERE ticker = ?", [ticker]
+    ).fetchone()
     if first_bar is None:
         return {"outcome": "skipped_no_bars", "break_date": None, "observed": None}
     if first_bar >= ex_date:
@@ -328,28 +388,54 @@ def _adjudicate(con, ticker: str, ex_date: date, ratio: float) -> dict:
     win = _session_window(con, ticker, ex_date)
     if len(win) < 2:
         return {"outcome": "skipped_no_bars", "break_date": None, "observed": None}
+    # Index of the ex session (the first stored session on/after ex_date).
+    ex_idx = next((i for i, (d, _c, _f) in enumerate(win) if d >= ex_date), None)
+    if ex_idx is None:
+        return {"outcome": "skipped_no_bars", "break_date": None, "observed": None}
+    # Rule 2's exception: sessions stored on/after ex_date, up to the latest bar.
+    n_after_ex = con.execute(
+        "SELECT COUNT(*) FROM prices WHERE ticker = ? AND date >= ? AND date <= ?",
+        [ticker, ex_date, latest_bar]).fetchone()[0]
+    recent = n_after_ex <= RECENT_EX_SESSIONS
 
     # One-session close ratios: r[i] = close(i-1) / close(i). At the scale break
     # r == ratio (old scale over new scale), for a forward AND a reverse split.
-    best = None       # (distance_to_ex_date, break_date, observed) matching `ratio`
+    near = None       # (|sessions from ex|, i, break_date, observed) — rule 2 ok
+    far = None        # same, for a matching jump that rule 2 rejects
     worst_move = 0.0  # largest |ln r| seen adjacent to the ex-date
     for i in range(1, len(win)):
-        prev_d, prev_c = win[i - 1]
-        cur_d, cur_c = win[i]
+        prev_c = win[i - 1][1]
+        cur_d, cur_c = win[i][0], win[i][1]
         if prev_c <= 0 or cur_c <= 0:
             continue
         obs = prev_c / cur_c
         lo = math.log(obs)
-        if abs(lo - lr) <= TOL_LOG:
-            key = abs((cur_d - ex_date).days)
-            if best is None or key < best[0]:
-                best = (key, cur_d, obs)
-        if abs((cur_d - ex_date).days) <= 4:
+        dist = i - ex_idx  # sessions from the ex session (negative = before)
+        if abs(dist) <= 4:
             worst_move = max(worst_move, abs(lo))
+        if abs(lo - lr) > TOL_LOG:
+            continue
+        cand = (abs(dist), i, cur_d, obs)
+        ok_location = abs(dist) <= BREAK_NEAR_EX_SESSIONS or (recent and dist > 0)
+        if ok_location:
+            if near is None or cand[0] < near[0]:
+                near = cand
+        elif far is None or cand[0] < far[0]:
+            far = cand
 
-    if best is not None:
-        return {"outcome": "applied_pending", "break_date": best[1],
-                "observed": best[2]}
+    if near is not None:
+        _dist, i, break_date, obs = near
+        # Rule 3: the bars before the break must predate the ex-date in storage.
+        fetched = [_fetched_on(f) for _d, _c, f in win[:i]]
+        fetched = [f for f in fetched if f is not None]
+        if fetched and max(fetched) >= ex_date:
+            return {"outcome": "skipped_already_adjusted", "break_date": break_date,
+                    "observed": obs}
+        return {"outcome": "applied_pending", "break_date": break_date,
+                "observed": obs}
+    if far is not None:
+        return {"outcome": "skipped_no_break_near_ex", "break_date": far[2],
+                "observed": far[3]}
     if worst_move > MIN_SEPARATION_LOG:
         # Something big happened right by the ex-date but it does NOT match the
         # reported ratio. Yahoo's split row or its restatement may be wrong
@@ -367,13 +453,34 @@ def _audit(con, action: str, payload: dict) -> None:
     )
 
 
+def _rebuild_sim_state(con) -> None:
+    """sim_positions + cash := pure function of (sim_fills, sim_dividends), on the
+    post-split scale for every split watermarked 'applied'. Lives in
+    sim/portfolio.py (the declared truth for --rerun); imported lazily so this
+    module keeps working from the queue and from a bare `python engine/actions.py`.
+    """
+    root = str(REPO_ROOT)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from sim import portfolio  # noqa: E402
+    portfolio.rebuild_state(con)
+
+
 def _restate(con, ticker: str, ex_date: date, ratio: float, break_date: date) -> int:
     """Restate the ticker's pre-break bars to the post-split scale and adjust the
     sim books, in ONE transaction with the watermark row. Returns rows restated.
 
     Prices: open/high/low/close ÷ ratio, volume × ratio for `date < break_date`.
-    Sim:    sim_positions.qty × ratio, avg_cost ÷ ratio (book value invariant);
-            pending sim_orders.qty × ratio (an unfilled intent is re-scaled too).
+    Orders: pending sim_orders.qty × ratio, but only orders SIGNALLED before the
+            ex-date — an order sized off a post-split close is already right.
+    Sim:    positions are NOT scaled in place. The watermark row is written
+            first and the books are rebuilt from sim_fills + sim_dividends via
+            portfolio.rebuild_state, which scales only fills with
+            fill_date < ex_date. Scaling every open position by the ratio (the
+            pre-2026-09-02 behaviour) doubled any lot bought AFTER the ex-date
+            and the next --rerun silently reverted it; rebuild is the one rule
+            both paths now share. rebuild_state reproduced the live store's 537
+            positions and every book's cash exactly before this was switched on.
     """
     n = con.execute(
         "SELECT COUNT(*) FROM prices WHERE ticker = ? AND date < ?",
@@ -387,13 +494,9 @@ def _restate(con, ticker: str, ex_date: date, ratio: float, break_date: date) ->
             [ratio, ratio, ratio, ratio, ratio, ticker, break_date],
         )
         con.execute(
-            "UPDATE sim_positions SET qty = qty * ?, avg_cost = avg_cost / ? "
-            "WHERE ticker = ? AND qty != 0",
-            [ratio, ratio, ticker],
-        )
-        con.execute(
-            "UPDATE sim_orders SET qty = qty * ? WHERE ticker = ? AND status = 'pending'",
-            [ratio, ticker],
+            "UPDATE sim_orders SET qty = qty * ? WHERE ticker = ? "
+            "AND status = 'pending' AND signal_date < ?",
+            [ratio, ticker, ex_date],
         )
         con.execute(
             "INSERT OR REPLACE INTO split_adjustments (ticker, ex_date, ratio, "
@@ -402,9 +505,11 @@ def _restate(con, ticker: str, ex_date: date, ratio: float, break_date: date) ->
             [ticker, ex_date, ratio, ratio, break_date, n,
              datetime.now(timezone.utc)],
         )
+        _rebuild_sim_state(con)
         _audit(con, "split_restated", {
             "ticker": ticker, "ex_date": ex_date, "ratio": ratio,
             "break_date": break_date, "rows_restated": n,
+            "positions": "rebuilt from sim_fills (fills before ex_date scaled)",
         })
         con.execute("COMMIT")
     except Exception:
@@ -495,7 +600,7 @@ def reconcile(con) -> dict:
             outcome = "applied"
             print(f"[actions] RESTATED {tk} split {ratio:g}:1 ex={ex} "
                   f"break={v['break_date']} rows={n} (obs {v['observed']:.4f}) "
-                  f"— positions/pending orders rescaled")
+                  f"— pre-ex pending orders rescaled, positions rebuilt from fills")
         else:
             _mark(con, tk, ex, ratio, v)
             if outcome.startswith("skipped"):
