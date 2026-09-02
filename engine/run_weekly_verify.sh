@@ -39,7 +39,12 @@ export PYTHONUNBUFFERED=1
 mkdir -p "${REPO_ROOT}/logs"
 LOG="${REPO_ROOT}/logs/verify-full-$(date +%F).log"
 
+# errexit is suspended around the tee pipeline and re-armed inside the block —
+# otherwise a failing stage exits the script before the breadcrumb below runs
+# (same fix as run_daily.sh, 2026-09-02; see the comment there).
+set +e
 {
+  set -e
   echo "=== run_weekly_verify $(date -u +%FT%TZ) ==="
   # --sample large enough to reach the whole liquid universe; --max-names is the
   # hard ceiling and --max-secs the wall-clock stop. Both are deliberate: a run
@@ -50,3 +55,9 @@ LOG="${REPO_ROOT}/logs/verify-full-$(date +%F).log"
     || echo "WARN: verification exited non-zero — it is fail-soft by design; see the log"
   echo "=== done $(date -u +%FT%TZ) ==="
 } 2>&1 | tee -a "${LOG}"
+status="${PIPESTATUS[0]}"
+set -e
+if [ "${status}" -ne 0 ]; then
+  echo "TODO: run_weekly_verify failed $(date -u +%FT%TZ) (exit ${status}) — inspect ${LOG}" | tee -a "${LOG}"
+  exit "${status}"
+fi

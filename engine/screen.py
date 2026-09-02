@@ -12,9 +12,13 @@ date, then writes:
   - data/_meta.json         (regime + run counts, read-modify-write).
 
 Eligibility (per active & liquid name, using bars up to and including the
-screen date): the latest bar is within 3 trading days of the screen session AND
+screen date): the latest TRADED bar is within 3 trading days of the screen
+session, the as-of bar (the latest bar on file) IS that traded bar — volume > 0
+and not an o=h=l=c dead quote (lib/db.REAL_BAR_SQL; TALK passed on 2026-08-17
+at rs_rank 85 on a zero-volume phantom whose last real trade was 08-14) — AND
 there are >= 252 daily bars (needed for the 252-day return, the 200-day SMA and
-the 52-week range). Names that fail are reported honestly as stale vs short.
+the 52-week range). Names that fail are reported honestly as stale vs phantom
+vs short (`skipped_stale` / `skipped_phantom` / `skipped_short` in _meta.json).
 
 Universe policy (`--universe-policy`, default `all`). `ex-leveraged` drops
 leveraged/inverse ETPs (see engine/lib/leverage.py) from the eligible set
@@ -172,14 +176,25 @@ def stale_cutoff(con, screen_date: date) -> date:
 
 
 def classify_universe(con, screen_date: date, cutoff: date):
-    """Split active & liquid names into eligible / stale / short.
-    Returns (eligible_tickers, n_stale, n_short)."""
+    """Split active & liquid names into eligible / stale / phantom / short.
+    Returns (eligible_tickers, n_stale, n_short, n_phantom).
+
+    Staleness is keyed on the last bar that actually TRADED (db.REAL_BAR_SQL),
+    the same rule as the league's stale-mark table, not on MAX(date). A name
+    whose last traded bar is fresh but whose as-of bar (MAX(date)) is a dead
+    quote is `phantom`: we do not fall back to the older real bar, because the
+    screen date's close would then be a price nobody traded at that day.
+    """
     rows = con.execute(
-        """
-        SELECT u.ticker, p.md AS max_date, COALESCE(p.nbars, 0) AS nbars
+        f"""
+        SELECT u.ticker, p.md AS max_date, p.lt AS last_traded,
+               COALESCE(p.nbars, 0) AS nbars
         FROM universe u
         LEFT JOIN (
-            SELECT ticker, MAX(date) AS md, COUNT(*) AS nbars
+            SELECT ticker,
+                   MAX(date)                                  AS md,
+                   MAX(date) FILTER (WHERE {db.REAL_BAR_SQL}) AS lt,
+                   COUNT(*)                                   AS nbars
             FROM prices WHERE date <= ? GROUP BY ticker
         ) p ON u.ticker = p.ticker
         WHERE u.active = TRUE AND u.liquid = TRUE
@@ -188,15 +203,18 @@ def classify_universe(con, screen_date: date, cutoff: date):
     ).fetch_df()
 
     cutoff_ts = pd.Timestamp(cutoff)
-    eligible, n_stale, n_short = [], 0, 0
-    for tk, md, nbars in zip(rows["ticker"], rows["max_date"], rows["nbars"]):
-        if pd.isna(md) or pd.Timestamp(md) < cutoff_ts:
+    eligible, n_stale, n_short, n_phantom = [], 0, 0, 0
+    for tk, md, lt, nbars in zip(rows["ticker"], rows["max_date"],
+                                 rows["last_traded"], rows["nbars"]):
+        if pd.isna(lt) or pd.Timestamp(lt) < cutoff_ts:
             n_stale += 1
+        elif pd.Timestamp(lt) != pd.Timestamp(md):
+            n_phantom += 1
         elif int(nbars) < MIN_BARS:
             n_short += 1
         else:
             eligible.append(tk)
-    return eligible, n_stale, n_short
+    return eligible, n_stale, n_short, n_phantom
 
 
 def pull_bars(con, screen_date: date, eligible: list[str]) -> pd.DataFrame:
@@ -420,7 +438,7 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
             print(f"[screen] --rerun: deleted {existing} existing rows for {screen_date}")
 
     cutoff = stale_cutoff(con, screen_date)
-    eligible, n_stale, n_short = classify_universe(con, screen_date, cutoff)
+    eligible, n_stale, n_short, n_phantom = classify_universe(con, screen_date, cutoff)
     # Universe policy applies HERE — before any ranking. It has to: rs_rank is a
     # cross-sectional percentile, so dropping names after the rank is computed
     # would leave every survivor holding a rank that was scored against a
@@ -435,7 +453,7 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
               f"ETPs from the eligible set ({before} → {len(eligible)})")
     print(
         f"[screen] active&liquid → screened={len(eligible)} "
-        f"skipped_stale={n_stale} skipped_short={n_short}"
+        f"skipped_stale={n_stale} skipped_phantom={n_phantom} skipped_short={n_short}"
     )
     if not eligible:
         print("[screen] no eligible names — nothing to screen")
@@ -561,6 +579,7 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
         new_today_count=new_n,
         screened=len(eligible),
         skipped_stale=n_stale,
+        skipped_phantom=n_phantom,
         skipped_short=n_short,
         universe_policy=policy,
         excluded_leveraged=n_excluded,

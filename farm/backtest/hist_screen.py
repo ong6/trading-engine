@@ -26,7 +26,11 @@ Formula parity with engine/screen.py — every lookback below is the live one:
 Point-in-time discipline. A date's row for a ticker is computed from that
 ticker's LAST BAR ON OR BEFORE the date — never a later one — and a name whose
 last bar is more than 3 trading sessions old is dropped, exactly like the live
-`stale_cutoff` rule. Nothing reads a bar after the run_date.
+`stale_cutoff` rule. Nothing reads a bar after the run_date. As in the live
+screen, the as-of bar must be a REAL bar (lib/db.REAL_BAR_SQL: volume > 0 and
+not an o=h=l=c dead quote); a phantom as-of bar drops the name for the dates it
+covers rather than falling back to the previous real bar. Phantom bars stay in
+the series for the window functions, so SMAs match the live screener bar-for-bar.
 
 Universe membership (the one honest divergence, `membership=`):
   * 'live'   — `universe.active AND universe.liquid`, the live screener's rule.
@@ -137,7 +141,8 @@ WITH b AS (
            LAG(p.close,  63) OVER w AS c63,
            LAG(p.close, 126) OVER w AS c126,
            LAG(p.close, 189) OVER w AS c189,
-           LAG(p.close, 252) OVER w AS c252
+           LAG(p.close, 252) OVER w AS c252,
+           ({real})                 AS real_bar
     FROM prices p
     JOIN _hs_chunk ch ON ch.ticker = p.ticker
     WHERE p.date <= ? AND p.date >= ?
@@ -152,7 +157,7 @@ FROM bx,
      LATERAL unnest(range(0, LEAST(COALESCE(bx.nidx, {maxidx} + 1) - bx.bidx,
                                    {stale} + 1))) AS g(gs)
 JOIN _hs_window s ON s.idx = bx.bidx + g.gs
-WHERE bx.rn >= {min_bars}
+WHERE bx.rn >= {min_bars} AND bx.real_bar
 """
 
 _ELIGIBLE_SQL = """
@@ -270,7 +275,8 @@ def screen_sessions(con, sessions: list[date], *, membership: str = "prices",
 
     all_tickers = tickers if tickers is not None else _tickers(con, end)
     bar_sql = _BAR_SQL.format(min_bars=MIN_BARS, stale=STALE_TRADING_DAYS,
-                              maxidx=maxidx, liq_prev=LIQ_BARS - 1)
+                              maxidx=maxidx, liq_prev=LIQ_BARS - 1,
+                              real=db.REAL_BAR_SQL)
     elig_sql = _ELIGIBLE_SQL.format(join=join, where=where)
 
     for i in range(0, len(all_tickers), chunk_tickers):

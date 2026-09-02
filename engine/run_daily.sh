@@ -30,7 +30,20 @@ stage() { echo "$1" > "${STAGE_FILE}"; }
 : > "${STAGE_FILE}"
 
 # Everything below is teed into the daily log.
+#
+# errexit + pipefail interplay (fixed 2026-09-02): with `set -e` armed in THIS
+# shell, a failing `{ … } | tee` pipeline exits the script right here, before
+# `status="${PIPESTATUS[0]}"` ever runs — the breadcrumb below was dead code
+# (4 Tracebacks in logs/cron.log, 0 "TODO: run_daily failed" lines). So errexit
+# is suspended in the parent around the pipeline ONLY, and re-armed as the first
+# statement inside the block: the block is a subshell that inherits `set +e`,
+# and a stage failure must still abort the remaining stages. Do NOT rewrite this
+# as `… | tee && status=0 || status=$?` — bash ignores errexit for every command
+# inside a compound command that sits on the left of `&&`/`||`, so a failed
+# collect would silently run on into screen/league (proven with a harness).
+set +e
 {
+  set -e
   echo "=== run_daily $(date -u +%FT%TZ) ==="
 
   # Pull latest if a git remote exists; tolerate failure (local-only is fine).
@@ -202,9 +215,12 @@ stage() { echo "$1" > "${STAGE_FILE}"; }
 
 # Propagate failure of any piped stage and drop a breadcrumb. The stage name was
 # written to STAGE_FILE from inside the (subshell) block, so it survives here.
+# PIPESTATUS[0] is the block's exit (the first failing stage's code); read it
+# BEFORE re-arming errexit, which is itself a command.
 status="${PIPESTATUS[0]}"
+set -e
 if [ "${status}" -ne 0 ]; then
   failed_stage="$(cat "${STAGE_FILE}" 2>/dev/null)"
-  echo "TODO: run_daily failed $(date -u +%FT%TZ) (stage=${failed_stage:-unknown} exit ${status}) — inspect ${LOG}" >> "${LOG}"
+  echo "TODO: run_daily failed $(date -u +%FT%TZ) (stage=${failed_stage:-unknown} exit ${status}) — inspect ${LOG}" | tee -a "${LOG}"
   exit "${status}"
 fi
