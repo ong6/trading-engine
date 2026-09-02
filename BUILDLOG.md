@@ -58,7 +58,7 @@ conflict; execution design §7 has exit criteria).
 | FTP (ftp.nasdaqtrader.com) | **BLOCKED** (timeout) | curl ftp:// hung >120s |
 | PyPI via uv | **WORKS** — no TLS interception problems | `uv pip install duckdb pandas yfinance …` clean |
 | uv + Python 3.12 | Installed: uv 0.11.29 → `~/.local/bin`, CPython 3.12.13; system python is 3.7 (never use) | `.venv` created at repo root |
-| gh CLI | **NOT AVAILABLE** — `/usr/local/bin/gh` is a corp tool (`galaxy_selector.py`), not GitHub CLI | repo is **local-only** for now; store's remote proves GitHub SSH (`ssh://git@ssh.github.com:443`) works, so a remote can be added once the owner creates the GitHub repo |
+| gh CLI | **NOT AVAILABLE** — `/usr/local/bin/gh` is an unrelated internal tool, not GitHub CLI | repo is **local-only** for now; store's remote proves GitHub SSH (`ssh://git@ssh.github.com:443`) works, so a remote can be added once the owner creates the GitHub repo |
 | Disk | Repo lives on `/data00` — **411 GB free** (root `/` has 99 GB free) | `df -h` 2026-07-16 |
 | Box | 32 cores, 62 GB RAM confirmed | `nproc`, `free -g` |
 | Node.js | Not installed, but nodejs.org tarball (HTTP 200) + registry.npmjs.org (HTTP 200) both reachable — install user-space at M3 | curl checks 2026-07-16 |
@@ -66,7 +66,7 @@ conflict; execution design §7 has exit criteria).
 ## Done
 
 - 2026-07-16 · Environment truth pass (table above). Stooq contingency triggered → yfinance is primary.
-- 2026-07-16 · Repo scaffolded at `/data00/home/jun.ong/trading-engine` (git init, local-only), `.venv` with Python 3.12 + deps.
+- 2026-07-16 · Repo scaffolded at `~/trading-engine` (git init, local-only), `.venv` with Python 3.12 + deps.
 - 2026-07-16 · **M0 code built & verified** (Opus subagent wrote, main loop verified end-to-end):
   `lib/db.py` (schema: prices/universe/universe_snapshot/screen_results/jobs),
   `universe.py` (13,053 parsed → 12,209 kept incl. 5,549 ETFs; append-only snapshot),
@@ -161,7 +161,7 @@ conflict; execution design §7 has exit criteria).
   gates — install Node user-space first); `/candidates` returns bars + latest close but no
   server-side sizing prefill — UI computes it (needs equity; expose via /league or add a
   sizing-suggest endpoint when building the ticket page).
-- 2026-07-17 · **Node.js 24.18.0 LTS installed user-space** at `/data00/home/jun.ong/tools/node`
+- 2026-07-17 · **Node.js 24.18.0 LTS installed user-space** at `~/tools/node`
   (npm 11.16.0; not on default PATH — scripts export it). npm registry reachable.
 - 2026-07-17 · **M3 UI built & committed** (`5e7e2fa`; Opus subagent wrote, verified end-to-end twice —
   builder pass + independent main-loop pass, both on DB copies). Next 16 App Router in `ui/`,
@@ -929,8 +929,8 @@ conflict; execution design §7 has exit criteria).
   sync) is committed and executable but **NOT installed in cron by the build loop**. Intended
   entry, documented in the script header and here (owner action):
   ```
-  0 6 * * 0 /data00/home/jun.ong/trading-engine/engine/run_weekly_walkforward.sh \
-      >> /data00/home/jun.ong/trading-engine/logs/walkforward-cron.log 2>&1
+  0 6 * * 0 ~/trading-engine/engine/run_weekly_walkforward.sh \
+      >> ~/trading-engine/logs/walkforward-cron.log 2>&1
   ```
   Sunday 06:00 UTC is clear of everything (nightly 22:30 Mon-Fri, news analyst 11:00 Mon-Fri)
   and the measured grid lands long before Monday's nightly. Until that line exists the script

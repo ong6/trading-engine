@@ -11,8 +11,8 @@
 #
 # INSTALLED IN CRON (owner, 2026-08-09) as:
 #
-#   0 6 * * 0 /data00/home/jun.ong/trading-engine/engine/run_weekly_walkforward.sh \
-#       >> /data00/home/jun.ong/trading-engine/logs/walkforward-cron.log 2>&1
+#   0 6 * * 0 ~/trading-engine/engine/run_weekly_walkforward.sh \
+#       >> ~/trading-engine/logs/walkforward-cron.log 2>&1
 #
 # Its Saturday sibling is engine/run_weekend_sweeps.sh (parameter grids).
 #

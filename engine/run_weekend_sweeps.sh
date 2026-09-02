@@ -17,8 +17,8 @@
 #
 # Cron entry (owner action — this script does not install it):
 #
-#   0 6 * * 6 /data00/home/jun.ong/trading-engine/engine/run_weekend_sweeps.sh \
-#       >> /data00/home/jun.ong/trading-engine/logs/sweeps-cron.log 2>&1
+#   0 6 * * 6 ~/trading-engine/engine/run_weekend_sweeps.sh \
+#       >> ~/trading-engine/logs/sweeps-cron.log 2>&1
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

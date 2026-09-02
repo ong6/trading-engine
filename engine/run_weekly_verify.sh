@@ -20,8 +20,8 @@
 #
 # Cron entry (owner action — this script does not install it):
 #
-#   0 2 * * 6 /data00/home/jun.ong/trading-engine/engine/run_weekly_verify.sh \
-#       >> /data00/home/jun.ong/trading-engine/logs/verify-cron.log 2>&1
+#   0 2 * * 6 ~/trading-engine/engine/run_weekly_verify.sh \
+#       >> ~/trading-engine/logs/verify-cron.log 2>&1
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

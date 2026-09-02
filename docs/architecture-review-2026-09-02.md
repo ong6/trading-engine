@@ -64,10 +64,10 @@ Grep `"/data00\|/home/jun.ong"` over `*.py *.sh *.md *.mjs *.js *.json` (excl. `
 
 | File:line | Content | Fix |
 |---|---|---|
-| `engine/screen.py:55` | `WATCHLIST_PATH = Path("/data00/home/jun.ong/personal-data-store/trading/watchlist.md")` | env `TRADING_ENGINE_WATCHLIST`, default None → skip |
-| `engine/news_analyst_prep.py:36` | `STORE = Path("/data00/home/jun.ong/personal-data-store/trading")` | same env; module is retired anyway |
-| `engine/news_analyst.sh:19`, `agents/run_gaters.sh:19`, `agents/run_tuners.sh:20` | `export HOME="${HOME:-/data00/home/jun.ong}"` | drop the default (cron sets HOME) |
-| `ui/run_ui.sh:10` | `export PATH=/data00/home/jun.ong/tools/node/bin:$PATH` | `NODE_BIN` env or rely on PATH |
+| `engine/screen.py:55` | `WATCHLIST_PATH = Path("~/personal-data-store/trading/watchlist.md")` | env `TRADING_ENGINE_WATCHLIST`, default None → skip |
+| `engine/news_analyst_prep.py:36` | `STORE = Path("~/personal-data-store/trading")` | same env; module is retired anyway |
+| `engine/news_analyst.sh:19`, `agents/run_gaters.sh:19`, `agents/run_tuners.sh:20` | `export HOME="${HOME:-~}"` | drop the default (cron sets HOME) |
+| `ui/run_ui.sh:10` | `export PATH=~/tools/node/bin:$PATH` | `NODE_BIN` env or rely on PATH |
 | `engine/run_weekly_verify.sh:23-24`, `run_weekend_sweeps.sh:20-21`, `run_weekly_walkforward.sh:14-15` | cron examples in comments | replace with `$REPO_ROOT` placeholder |
 | `docs/how-it-works.md:149,151` | restart instructions | placeholder |
 
@@ -168,7 +168,7 @@ the measurement layer is exactly the right place.
    installability, no tests.
 2. Single-writer discipline lives in four connect functions and comments, not one gateway.
 3. Zero automated tests; all proof requires the 3.4 GB live store.
-4. Config is scattered: hardcoded `/data00/home/jun.ong` in 10 files, DB path resolved two ways,
+4. Config is scattered: hardcoded `~` in 10 files, DB path resolved two ways,
    env knobs undocumented.
 5. Retired `agents/` still wired into `sim/strategies/base.py` and 7 near-identical shell
    preambles.
@@ -209,7 +209,7 @@ returned only prose ("Please supply a token" error tables, "zero tokens", ticker
 | Item | Where | Severity | Action |
 |---|---|---|---|
 | Git author on all 158 commits: `jun.ong <jun.ong@bytedance.com>` | history | **High** for public — reveals employer + corporate email | `git filter-repo --mailmap` to a personal identity before the *first* push; trivially done now with no remote, painful later |
-| Home path `/data00/home/jun.ong` | 10 files (A3) + ~10 BUILDLOG lines | Medium — username + corp box layout | fix per A3; BUILDLOG lines are history, scrub with sed |
+| Home path `~` | 10 files (A3) + ~10 BUILDLOG lines | Medium — username + corp box layout | fix per A3; BUILDLOG lines are history, scrub with sed |
 | GitHub handle `ong6`, SSH key filename `~/.ssh/id_ed25519_github` | `BUILDLOG.md:116,1129-1130,1934` | Low (public handle anyway); key *name* is harmless | optional |
 | "corp tool (`galaxy_selector.py`)" at `/usr/local/bin/gh`, box specs, network/TLS-interception notes | `BUILDLOG.md` Environment truth table, 2026-08-18 | Low-Medium — fingerprints an internal corporate environment | scrub the tool name; keep the rest |
 | Sibling `../personal-data-store/trading/` links | `README.md:12`, `docs/how-it-works.md:9-11`, `BUILDLOG.md:4`, `screen.py:55`, `news_analyst_prep.py:36` | Medium — broken for every reader; points at a private repo | replace with a `docs/design/` copy of the two spec files, or a "specs are private" note |
@@ -258,7 +258,7 @@ Recommended split: **public `master` = code + docs + markdown reports; `data/scr
 ### Sequencing for the push
 
 1. **Before any push** (private included, since history is what leaks): `git filter-repo` for
-   author identity and the three data paths; scrub `/data00/home/jun.ong` and the corp tool name
+   author identity and the three data paths; scrub `~` and the corp tool name
    from `BUILDLOG.md`; `git gc`.
 2. Push private. Add `LICENSE`, `pyproject.toml`, CI, `.gitignore` fixes (steps 0, 8, B3).
 3. Steps 1-6 of the refactor plan over 2-3 weeks, one per night, watching the cron.
