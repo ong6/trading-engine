@@ -12,6 +12,8 @@ from datetime import date
 
 import duckdb
 
+from . import nyse
+
 
 def next_trading_day(con: duckdb.DuckDBPyConnection, d: date) -> date | None:
     """First trading session strictly after d, or None if d is the latest."""
@@ -38,21 +40,27 @@ def is_week_signal(con: duckdb.DuckDBPyConnection, d: date) -> bool:
 
     Determined from the exchange calendar: the next trading session after d
     falls in a later ISO (year, week). If there is no next session in the DB
-    (d is the latest bar) we cannot yet know the week has closed, so fall back
-    to a Friday check — an honest, reproducible rule with no future price peek.
+    (d is the latest bar — ALWAYS the case for the live league) the question is
+    answered from the published NYSE holiday rules (`nyse.py`), which is public
+    calendar knowledge and not a price peek. The old fallback (`weekday() == 4`)
+    skipped every week whose last session was a Thursday (Good Friday,
+    Christmas 2026, New Year 2027, …).
     """
     nxt = next_trading_day(con, d)
     if nxt is None:
-        return d.weekday() == 4  # Friday
+        return nyse.is_last_session_of_week(d)
     return d.isocalendar()[:2] != nxt.isocalendar()[:2]
 
 
 def is_month_signal(con: duckdb.DuckDBPyConnection, d: date) -> bool:
-    """True if d is the last trading session of its calendar month."""
-    from datetime import timedelta
+    """True if d is the last trading session of its calendar month.
 
+    Latest-bar fallback uses the NYSE rule calendar (see is_week_signal). The old
+    fallback fired only when the NEXT CALENDAR DAY rolled the month, so a month
+    ending on a weekend (e.g. Oct 2026 → last session Fri 10-30) never produced a
+    monthly signal for any monthly book: ~29% of month-ends were silently skipped.
+    """
     nxt = next_trading_day(con, d)
     if nxt is None:
-        # Latest bar: signal only if the next calendar day rolls the month.
-        return (d + timedelta(days=1)).month != d.month
+        return nyse.is_last_session_of_month(d)
     return (d.year, d.month) != (nxt.year, nxt.month)

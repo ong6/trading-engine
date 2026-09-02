@@ -13,7 +13,8 @@ from __future__ import annotations
 import json
 import math
 import sys
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time as dtime, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import duckdb
@@ -67,6 +68,26 @@ def _audit(con, action: str, payload: dict) -> None:
 
 def _latest_prices_date(con) -> date | None:
     return con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
+
+
+_ET = ZoneInfo("America/New_York")
+_OPEN_ET = dtime(9, 30)
+
+
+def _ticket_signal_date(as_of: date, now: datetime | None = None) -> date:
+    """The signal date stamped on a discretionary order.
+
+    `as_of` is the latest bar in the store, which is collected after the close.
+    A ticket submitted during the NEXT US session (at/after 09:30 ET on a later
+    calendar day) would otherwise be stamped with yesterday's date and fill at
+    an open the owner has already watched print — a look-ahead the auto books
+    can never have. Stamp such a ticket with today's ET date so it fills at the
+    following session's open, exactly like any other close-of-day signal.
+    """
+    now_et = (now or datetime.now(timezone.utc)).astimezone(_ET)
+    if now_et.date() > as_of and now_et.time() >= _OPEN_ET:
+        return now_et.date()
+    return as_of
 
 
 def _table_exists(con, name: str) -> bool:
@@ -431,7 +452,8 @@ def create_ticket(body: dict = Body(...)):
                     "INSERT INTO sim_orders (id, portfolio_id, ticker, side, qty, "
                     "signal_date, status, reject_reason) "
                     "VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",
-                    [order_id, DISC_ID, ticker, side, ticket["qty"], as_of])
+                    [order_id, DISC_ID, ticker, side, ticket["qty"],
+                     _ticket_signal_date(as_of)])
                 status = "submitted"
 
             con.execute(

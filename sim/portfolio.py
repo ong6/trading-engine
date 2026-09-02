@@ -22,7 +22,7 @@ FILL_MODEL_VERSION = "v2"
 # floor — its effective floor was one whole share, which is $1 for a penny
 # stock and $47,988 for a reverse-split-mangled leveraged ETF.
 MIN_FILL_USD = 1.0
-from datetime import date
+from datetime import date, timedelta
 
 import duckdb
 
@@ -161,9 +161,18 @@ def apply_fill(con: duckdb.DuckDBPyConnection, fill: dict) -> float:
     ).fetchone()
     cur_qty, cur_cost = (row[0], row[1]) if row else (0.0, 0.0)
 
+    if px is None or not px > 0:
+        # A non-positive fill price is never a trade: a buy at 0 would book free
+        # shares (and skip the cash clamp), a sell at 0 would erase a position for
+        # nothing. fills.attempt_fill already refuses such bars; this is the
+        # last line of defence for any other caller.
+        print(f"[apply_fill] WARN bad_price: {pf_id} {tk} {side} {qty} @ {px!r} "
+              f"— fill rejected")
+        return 0.0
+
     if side == "buy":
         cash = get_cash(con, pf_id)
-        if px > 0 and qty * px > cash:
+        if qty * px > cash:
             # Shave a floating-point epsilon so `qty * px` can never round up
             # past `cash` and drive the balance negative — the invariant the
             # v1 floor() was protecting, kept without the whole-share side
@@ -247,13 +256,49 @@ def _has_table(con: duckdb.DuckDBPyConnection, name: str) -> bool:
     ).fetchone()[0] > 0
 
 
-def credit_dividends(con: duckdb.DuckDBPyConnection, d: date) -> dict:
-    """Phase a0 of the league day-step: pay every cash dividend going ex on `d`.
+DIVIDEND_LOOKBACK_DAYS = 10  # how far back phase a0 looks for late-arriving rows
 
-    Entitlement is the position held at the close of d−1 — which is exactly the
-    current sim_positions state, because this runs BEFORE the day's fills. For
-    each active portfolio and each held name with a `corporate_actions` dividend
-    row on `d`: cash += qty × dps, and one append-only sim_dividends row.
+
+def _position_as_of(con: duckdb.DuckDBPyConnection, pf_id: str, tk: str,
+                    as_of: date, splits: dict[str, list[tuple[date, float]]]) -> float:
+    """Shares of `tk` held by `pf_id` at the close of the session BEFORE `as_of`,
+    reconstructed from sim_fills (fill_date < as_of), on the current post-split
+    scale — the same replay rule rebuild_state uses."""
+    rows = con.execute(
+        "SELECT side, qty, fill_date FROM sim_fills "
+        "WHERE portfolio_id = ? AND ticker = ? AND fill_date < ?",
+        [pf_id, tk, as_of],
+    ).fetchall()
+    qty = 0.0
+    for side, q, fd in rows:
+        factor = 1.0
+        for ex, ratio in splits.get(tk, ()):
+            if fd < ex:
+                factor *= ratio
+        qty += float(q) * factor if side == "buy" else -float(q) * factor
+    return max(qty, 0.0)
+
+
+def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
+                     lookback_days: int = DIVIDEND_LOOKBACK_DAYS) -> dict:
+    """Phase a0 of the league day-step: pay every cash dividend with an ex-date in
+    (d − lookback_days, d] that has not been credited yet.
+
+    Why a window and not `ex_date = d`: the corporate-actions collector runs in
+    the same nightly, and yfinance publishes a dividend the session AFTER its
+    ex-date (actions_fetch_log: WBS ex 2026-08-10 appeared 08-11; JNJ ex 08-25
+    appeared 08-26). An exact-date match therefore never saw a row in time, and
+    from 2026-07-17 to 2026-09-01 not one dividend was credited to any book
+    while `vs SPY` was computed against SPY's TOTAL return. The window catches a
+    row whenever it lands; the (portfolio, ticker, ex_date) primary key on
+    sim_dividends keeps every credit exactly-once.
+
+    Entitlement is the position at the close of ex_date − 1. For ex_date == d
+    that is the current sim_positions state (this runs BEFORE the day's fills);
+    for an earlier ex_date it is reconstructed from sim_fills so a name bought
+    after the ex-date is not paid. Cash += qty × dps, one append-only
+    sim_dividends row per credit, stamped with the TRUE ex_date so rebuild_state
+    replays it at the right point in the cash trajectory.
 
     Returns {'credited': n_rows, 'amount': total_cash}. A store without a
     corporate_actions table (an old copy) credits nothing rather than failing.
@@ -261,34 +306,52 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date) -> dict:
     out = {"credited": 0, "amount": 0.0}
     if not _has_table(con, "corporate_actions"):
         return out
+    since = d - timedelta(days=lookback_days)
     divs = con.execute(
-        "SELECT ticker, value FROM corporate_actions "
-        "WHERE kind = 'dividend' AND ex_date = ?", [d]
+        "SELECT ticker, ex_date, value FROM corporate_actions "
+        "WHERE kind = 'dividend' AND ex_date > ? AND ex_date <= ? "
+        "AND value IS NOT NULL AND value > 0 ORDER BY ex_date, ticker",
+        [since, d],
     ).fetchall()
     if not divs:
         return out
-    dps_by_ticker = {tk: float(v) for tk, v in divs if v is not None and v > 0}
-    if not dps_by_ticker:
-        return out
+    already = set(con.execute(
+        "SELECT portfolio_id, ticker, ex_date FROM sim_dividends "
+        "WHERE ex_date > ? AND ex_date <= ?", [since, d]
+    ).fetchall())
+    splits = _split_factors(con)
 
     for (pf_id,) in con.execute(
         "SELECT id FROM portfolios WHERE active ORDER BY id"
     ).fetchall():
-        for tk, qty in con.execute(
-            "SELECT ticker, qty FROM sim_positions "
-            "WHERE portfolio_id = ? AND qty > 0 ORDER BY ticker", [pf_id]
-        ).fetchall():
-            dps = dps_by_ticker.get(tk)
-            if dps is None:
+        held_now = {
+            tk: float(q) for tk, q in con.execute(
+                "SELECT ticker, qty FROM sim_positions "
+                "WHERE portfolio_id = ? AND qty > 0", [pf_id]
+            ).fetchall()
+        }
+        # Any name the book has EVER filled is a candidate for a late credit.
+        ever = {r[0] for r in con.execute(
+            "SELECT DISTINCT ticker FROM sim_fills WHERE portfolio_id = ?", [pf_id]
+        ).fetchall()} | set(held_now)
+        for tk, ex, value in divs:
+            if tk not in ever or (pf_id, tk, ex) in already:
                 continue
-            amount = float(qty) * dps
+            if ex == d:
+                qty = held_now.get(tk, 0.0)
+            else:
+                qty = _position_as_of(con, pf_id, tk, ex, splits)
+            if qty <= 0:
+                continue
+            dps = float(value)
+            amount = qty * dps
             con.execute("UPDATE portfolios SET cash = cash + ? WHERE id = ?",
                         [amount, pf_id])
             con.execute(
-                "INSERT OR REPLACE INTO sim_dividends "
+                "INSERT INTO sim_dividends "
                 "(portfolio_id, ticker, ex_date, qty, dps, amount) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
-                [pf_id, tk, d, float(qty), dps, amount],
+                [pf_id, tk, ex, qty, dps, amount],
             )
             out["credited"] += 1
             out["amount"] += amount
