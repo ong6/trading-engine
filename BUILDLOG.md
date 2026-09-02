@@ -2039,6 +2039,29 @@ specs copied to `docs/design/` so no doc points at the private store; `data/eod/
 identity scrubbed; **history rewritten** (`git filter-repo`: author identity → personal, the two
 raw-data paths removed from every commit). Secret scan across full history: clean.
 
+### Round 2 (same day, after the usage-limit reset)
+
+- **`sim/settle.py`** — owner-supplied settlement of dead positions (cash / worthless / stock
+  conversion), dry-run by default, cited `--source` required, refuses a name that has traded on
+  or after the effective date. Own append-only ledger `sim_settlements`, replayed by
+  `rebuild_state` between dividends and fills so `--rerun` reproduces it; equity history before
+  the effective date is never restated. **Not applied to any name** — terms are the owner's to
+  look up; `docs/settlement-runbook.md` has the exact commands for EA / TALK / WBS / FBRX.
+- **Monthly-granularity walk-forward re-report** (`farm/walkforward/monthly.py`,
+  `data/reports/walkforward/monthly-2026-09-02.md`). No per-fold monthly series existed on disk;
+  `runner.py` now persists `validate_monthly_equity` per fold (additive) and the real table fills
+  after Sunday's run. The proxy cut from the 15y backtests (v1 fills, 108 paired months, 13
+  books) says: **no book is distinguishable from its control on the positive side** (best DSR
+  0.18); `template_top5` and the two gated PASS books lose PASS because it rested on the mean
+  while the median excess is ≤ 0; `mr_overlay*` and `turtle_breakout` are TRAILS with CIs wholly
+  negative. The evaluation's critique of the evidence-ceiling doc stands.
+- **Deferred, not done:** the JEM re-fetch (two agent attempts stalled under the rate limit; no
+  positions, no bars after 07-15, zero impact on any book), the re-audit of the 31 remaining
+  `applied` restatements under the new rule, and refactor steps 1–3 (packaging `engine/`, one
+  `connect(read_only=)`, settings module) — the last deliberately left for a session with room
+  to dry-run the whole nightly on a copy before 21:30 UTC.
+- Tests: **253 passed.**
+
 ### Decisions
 
 - Hand-rolled NYSE calendar over `pandas_market_calendars` (auditable, no data dependency,
@@ -2056,7 +2079,9 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 1. **Owner: install the `run_weekly_liquid.sh` crontab line** and decide the nine RETIRE slots.
 2. Settle EA / TALK / WBS / FBRX (still `symbol_not_found` at the verifier; 12.1% of `high_52wk`
    frozen) — a delisting handler for `sim/`.
-3. Re-fetch JEM; re-audit the remaining 31 `applied` restatements with the new rule on a copy.
+3. Re-fetch JEM (`engine/refetch_ticker.py` to be written: replace only JEM's rows with the source's
+   current view, watermark `superseded_by_refetch`); re-audit the remaining 31 `applied`
+   restatements with the new rule on a copy.
 4. Refactor step 1–3 of the architecture plan (package `engine/`, one `connect(read_only=)`,
    settings module) — each landable before 21:30 UTC with a store-copy dry run.
 5. Monthly-granularity re-reporting of walk-forward folds (block bootstrap on ~144 paired
