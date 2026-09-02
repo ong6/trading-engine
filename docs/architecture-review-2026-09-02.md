@@ -208,7 +208,7 @@ returned only prose ("Please supply a token" error tables, "zero tokens", ticker
 
 | Item | Where | Severity | Action |
 |---|---|---|---|
-| Git author on all 158 commits: `<user> <<redacted>>` | history | **High** for public — reveals employer + corporate email | `git filter-repo --mailmap` to a personal identity before the *first* push; trivially done now with no remote, painful later |
+| Git author on all 158 commits: a corporate work identity | history | **High** for public — reveals employer + corporate email | `git filter-repo --mailmap` to a personal identity before the *first* push; trivially done now with no remote, painful later |
 | Home path `~` | 10 files (A3) + ~10 BUILDLOG lines | Medium — username + corp box layout | fix per A3; BUILDLOG lines are history, scrub with sed |
 | GitHub handle `ong6`, SSH key filename `~/.ssh/id_ed25519_github` | `BUILDLOG.md:116,1129-1130,1934` | Low (public handle anyway); key *name* is harmless | optional |
 | "corp tool (`<internal tool>`)" at `/usr/local/bin/gh`, box specs, network/TLS-interception notes | `BUILDLOG.md` Environment truth table, 2026-08-18 | Low-Medium — fingerprints an internal corporate environment | scrub the tool name; keep the rest |
