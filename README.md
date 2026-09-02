@@ -9,8 +9,11 @@ credentials; nothing leaves the machine except public-data git pushes.
 **Start here: [`docs/how-it-works.md`](docs/how-it-works.md)** — architecture, the nightly
 pipeline, the honesty rules, the ops runbook, and how to view the UI over SSH.
 
-- Design specs (the law): [`../personal-data-store/trading/`](../personal-data-store/trading/)
-  — engine design (§12 wins on conflict) + execution design (§7 exit criteria).
+- Design specs (the law): [`docs/design/`](docs/design/) — engine design (§12 wins on
+  conflict) + execution design (§7 exit criteria).
+- Where things stand: [`docs/evaluation-2026-09-02.md`](docs/evaluation-2026-09-02.md)
+  (every book KEEP/WATCH/RETIRE with the deciding fact) and
+  [`docs/architecture-review-2026-09-02.md`](docs/architecture-review-2026-09-02.md).
 - Build state + every decision and incident: [`BUILDLOG.md`](BUILDLOG.md).
 - Current league standings: [`data/reports/league.md`](data/reports/league.md).
 - Historical replays of every book: [`data/reports/backtests/`](data/reports/backtests/).
@@ -28,6 +31,20 @@ resource-capped job queue). Health snapshot lands in `data/_meta.json`; the run 
 The agentic layer (`agents/`, `engine/news_analyst.sh`) was **retired 2026-08-18** — its crons
 are removed and the five AI books plus their two frozen twins are `active = FALSE`. The scripts
 and charters remain on disk; re-enabling is a crontab edit. See BUILDLOG 2026-08-18.
+
+## Running it yourself
+
+```bash
+python3.12 -m venv .venv && .venv/bin/pip install -r engine/requirements.txt
+.venv/bin/python -m pytest -q                      # 190+ tests, in-memory DuckDB, no network
+.venv/bin/python engine/universe.py                # build the ticker universe
+.venv/bin/python engine/collect.py --bootstrap-floor   # first backfill (hours; see how-it-works)
+engine/run_daily.sh                                # one nightly, end to end
+```
+
+The repo ships no market data and no credentials. `store/` (the DuckDB) and `data/eod/`
+are regenerated locally; `data/screens/` and `data/reports/` are the committed outputs.
+Paper trading only — see the notice in `LICENSE`.
 
 ## Quick checks
 

@@ -1,2 +1,24 @@
+[project]
+name = "trading-engine"
+version = "0.1.0"
+description = "Fully local paper-trading bot and research engine: DuckDB market store, nightly screen, pre-registered strategy league, conservative fill simulator, backtest and walk-forward farm."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["engine/requirements.txt"] }
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["ui", "scratch", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I"]
+ignore = ["E501"]

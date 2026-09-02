@@ -6,9 +6,9 @@ simulator, mines supporting datasets, and backtests itself — all locally, with
 leaving the machine except public-data git pushes. There is **no broker connection and no
 real money** (that is M5, deferred, personal-hardware-only by design).
 
-Specs live in the store: `../personal-data-store/trading/trading-engine-design.md` (§12
-wins on conflict) and `trading-execution-design.md`. Build history + every decision:
-[`BUILDLOG.md`](../BUILDLOG.md). This doc is the map, not the law — when it disagrees with
+Specs: [`design/trading-engine-design.md`](design/trading-engine-design.md) (§12 wins on
+conflict) and [`design/trading-execution-design.md`](design/trading-execution-design.md).
+Build history + every decision: [`BUILDLOG.md`](../BUILDLOG.md). This doc is the map, not the law — when it disagrees with
 the specs or BUILDLOG, they win.
 
 ## The honesty rules (why the design looks like this)
@@ -146,9 +146,9 @@ DB writer lock — wait for the drain or check `SELECT * FROM jobs WHERE status=
 Restart if needed (both log to `logs/`):
 
 ```bash
-cd ~/trading-engine
+cd trading-engine
 nohup server/run_server.sh >> logs/server.log 2>&1 &                  # FastAPI :8000
-cd ui && (export PATH=~/tools/node/bin:$PATH; nohup npm run dev >> ../logs/ui.log 2>&1 &)
+(cd ui && nohup ./run_ui.sh >> ../logs/ui.log 2>&1 &)                 # Next.js :3000
 ```
 
 ## Ops runbook — checking on it
