@@ -137,6 +137,11 @@ REQUIRED: dict[str, list[str]] = {
     "ew_gross_voltarget": ["SPY", "BIL"],
     "ew_static_exposure": ["SPY", "BIL"],
     "ew_dd_throttle": ["SPY", "BIL"],
+    # 2026-09-02: every slot of the sleeve can sit in BIL, and DBC (2006-02) is
+    # the youngest risk asset; a window opening before either would replay a
+    # book with un-funded slots rather than the book as registered.
+    "multi_asset_trend": ["SPY", "EFA", "EEM", "TLT", "IEF", "GLD", "DBC",
+                          "VNQ", "BIL"],
 }
 DEFAULT_REQUIRED = ["SPY"]     # SPY-200d regime + the report's vs-SPY column
 REQUIRED_LOOKBACK = 252

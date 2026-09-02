@@ -457,6 +457,68 @@ CONFIGS: list[dict] = [
         "kill_criterion": "AGENT LOOP killed if the AI book trails pead_ear net "
                           "of costs at 26 weeks (2027-02-01).",
     },
+
+    # ----------------------------------------------------------------- #
+    # 2026-09-02 — three gap-fillers from docs/evaluation-2026-09-02.md §5.
+    # Registered BEFORE any replay was run; charters in docs/charters/<id>.md
+    # carry the full hypothesis, falsification test and bias disclosures.
+    # All three are long-only, monthly, daily-EOD, and walk-forwardable today.
+    # None reads screen_results.
+    # ----------------------------------------------------------------- #
+    {
+        "id": "xs_momentum_12_1",
+        "name": "XS Momentum 12-1 (unscreened control)",
+        "strategy": "xs_momentum_12_1",
+        "cadence": "monthly",
+        "params": {"n": 50, "lookback": 252, "skip": 21, "min_bars": 253,
+                   "min_price": 5.0},
+        "description": "Monthly: rank every active, liquid, non-ETF name with "
+                       "253+ bars and close >= $5 by total return from 252 to "
+                       "21 sessions ago (12-1, skip-month); hold the top 50 "
+                       "equal-weight, no screen, no banding. THE CONTROL for "
+                       "the Minervini screen: ew_benchmark minus this book is "
+                       "the screen's marginal value.",
+        "expectation": "Market-beating in trending years with deep momentum "
+                       "crashes (2009-style, 2020-11, 2022). If the screen adds "
+                       "value beyond momentum, ew_benchmark beats this book on "
+                       "median excess AND drawdown across the 10 folds; the "
+                       "honest prior is that most of ew_benchmark's edge is "
+                       "plain momentum and the two are INDISTINGUISHABLE.",
+        "kill_criterion": "Control: retired only once its question is answered. "
+                          "Kill if ew_benchmark beats it in >= 70% of walk-"
+                          "forward folds with a 90% CI on median excess that "
+                          "excludes 0 AND a lower worst-fold drawdown (screen "
+                          "shown to add value), or if any fold is inert, or if "
+                          "live max drawdown exceeds 55%.",
+    },
+    {
+        "id": "multi_asset_trend",
+        "name": "Multi-Asset Trend (8 ETFs, BIL hurdle)",
+        "strategy": "multi_asset_trend",
+        "cadence": "monthly",
+        "params": {"assets": ["SPY", "EFA", "EEM", "TLT", "IEF", "GLD", "DBC",
+                              "VNQ"],
+                   "cash_proxy": "BIL", "lookback": 252},
+        "description": "Monthly: eight asset-class ETFs each own a fixed 12.5% "
+                       "slot, held in the ETF while its 12-month total return "
+                       "beats BIL's and parked in BIL otherwise. Extends "
+                       "dual_momentum from one winner to a diversified "
+                       "time-series-momentum sleeve.",
+        "expectation": "A drawdown reducer with equity-like long-run return: "
+                       "max drawdown well below spy_benchmark's (target: under "
+                       "half of SPY's in a full risk-off episode) and a higher "
+                       "Sharpe than dual_momentum, at the cost of lagging SPY "
+                       "in US-led bull runs. ETFs are the survivors, so this is "
+                       "the one new book whose backtest carries no single-name "
+                       "survivorship.",
+        "kill_criterion": "Fails to deliver a lower max drawdown than "
+                          "spy_benchmark across a full risk-off episode, or "
+                          "trails spy_benchmark by >20% over 2 years without a "
+                          "lower max drawdown, or has a lower median validate "
+                          "Sharpe than dual_momentum over the 10-fold "
+                          "walk-forward (the diversification claim is then "
+                          "false).",
+    },
 ]
 
 
@@ -465,3 +527,11 @@ def config_by_id(cid: str) -> dict:
         if c["id"] == cid:
             return c
     raise KeyError(cid)
+
+# Designed 2026-09-02 but NOT registered: `xs_reversal_1m` (long-only 1-month
+# cross-sectional reversal, trend-filtered). In the 3-year design replay its daily
+# excess return correlated 0.71 with ew_benchmark against its own pre-registered
+# kill line of 0.70 — it is a momentum-beta book in disguise. Registering a book
+# that already fails its charter would waste a slot; the class and charter stay
+# on disk (sim/strategies/xs_reversal_1m.py, docs/charters/xs_reversal_1m.md) for
+# a future re-registration with a different hypothesis (e.g. no trend filter).
