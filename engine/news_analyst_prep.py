@@ -33,7 +33,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NEWS_JSONL = Path(os.path.expanduser("~/news-scraper/data/news.jsonl"))
-STORE = Path("/data00/home/jun.ong/personal-data-store/trading")
+STORE = Path(os.environ.get(
+    "TRADING_ENGINE_STORE_DIR",
+    str(Path(__file__).resolve().parents[2] / "personal-data-store" / "trading"),
+))
 WATCHLIST = STORE / "watchlist.md"
 MARKET_CONTEXT = STORE / "market-context.md"
 DB_PATH = REPO_ROOT / "store" / "market.duckdb"

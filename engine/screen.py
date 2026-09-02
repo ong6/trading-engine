@@ -32,6 +32,7 @@ this is a same-day correction only, never a way to rewrite history.
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import math
 import re
@@ -50,10 +51,13 @@ from lib import resources as rsc  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA_DIR = REPO_ROOT / "data"
-# Watchlist lives in the owner's personal-data-store, outside this repo.
-WATCHLIST_PATH = Path(
-    "/data00/home/jun.ong/personal-data-store/trading/watchlist.md"
-)
+# Watchlist lives in the owner's personal-data-store, outside this repo. Point
+# TRADING_ENGINE_WATCHLIST at it; when unset or absent the screen runs without
+# a watchlist (eod exports then cover passing names only).
+WATCHLIST_PATH = Path(os.environ.get(
+    "TRADING_ENGINE_WATCHLIST",
+    str(REPO_ROOT.parent / "personal-data-store" / "trading" / "watchlist.md"),
+))
 
 MIN_BARS = 253          # 52-week window / 200d SMA / 252d return needs 253 bars
                         # (ret(252) reads close 252 positions back → 253rd bar)

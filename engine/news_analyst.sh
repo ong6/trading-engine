@@ -16,7 +16,7 @@ set -uo pipefail
 
 # cron gives a near-empty environment; the Claude CLI needs HOME to find its
 # subscription OAuth credentials (~/.claude/.credentials.json).
-export HOME="${HOME:-/data00/home/jun.ong}"
+export HOME="${HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)}"
 export PATH="${HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

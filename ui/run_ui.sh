@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 # Node 24 is not on the default PATH on this box.
-export PATH=/data00/home/jun.ong/tools/node/bin:$PATH
+export PATH="${NODE_BIN:-$HOME/tools/node/bin}:$PATH"
 
 # Dev server is fine for v1. Use `npm run build && npm run start -- ...` for prod.
 exec npm run dev -- --hostname 127.0.0.1 --port 3000
