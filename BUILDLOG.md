@@ -1928,9 +1928,144 @@ urgency. Full reasoning: `docs/synthesis-price-adjustment-and-fills-2026-08-20.m
    scratch under an identical protocol and anchor.
 
 
+## 2026-09-02 · Audit session: seven simulator bugs, three corrupted histories, first tests, two new books
+
+Owner-directed session from the store (not the build loop). Five parallel review agents,
+then fixes; everything below was proven by running (repro scripts, pytest, live before/after).
+
+### Simulator (`sim/`, `server/`) — commit 3b0268f
+
+1. **No dividend had ever been credited.** Phase a0 matched `ex_date = d`; yfinance publishes
+   a dividend the session AFTER its ex-date (`actions_fetch_log`: WBS ex 08-10 appeared 08-11,
+   JNJ ex 08-25 appeared 08-26). `sim_dividends` had 0 rows against 26 entitled events, while
+   `vs SPY` was computed against SPY's TOTAL return. Now a 10-day catch-up window keyed
+   exactly-once on (portfolio, ticker, ex_date), entitlement reconstructed as of ex_date−1
+   from `sim_fills`. **Backfilled live 2026-09-02: 26 credits, $230.42** (`engine/backfill_dividends.py`).
+2. **Monthly/weekly cadence silently skipped period ends** whenever the live latest bar was not
+   a Friday / the last calendar day (`weekday()==4`, `(d+1).month`). ~29% of month-ends and
+   every holiday week; Jul/Aug 2026 happened to end on weekdays so no live damage yet, but Oct
+   2026 (ends Saturday) would have skipped every monthly book. New `sim/nyse.py` rule calendar,
+   **0 disagreements against all 6,706 store sessions 2000-01-03..2026-09-01**, answers the
+   question at the latest bar. Decision: hand-rolled rules over `pandas_market_calendars`
+   because it is 120 auditable lines with no data dependency and it is now pinned by tests.
+3. **`open = 0.0` bars filled buys for $0** and booked free shares (4 such rows in the store);
+   `attempt_fill` and `apply_fill` refuse non-positive prices.
+4. **A discretionary ticket submitted between `collect` and `league`** carried `signal_date = d`,
+   tripped the look-ahead assert, and rolled back the entire day-step for every book.
+   `fill_pending` now only considers `signal_date < d`. Also: a ticket submitted during the
+   next US session (≥ 09:30 ET on a later calendar day) is stamped with THAT date, so the
+   discretionary book can no longer fill at an open the owner already watched print.
+5. **Risk gates trusted typed prices**: `entry_ref=1000, stop=999.99` on a $100 stock passed
+   every gate with a 25x-the-book position. Gates now anchor to the latest close: stop must be
+   below the live price, `entry_anchored` (±10%), `notional_cap` (≤ equity), and risk/share is
+   measured from the worse of typed entry and latest close.
+6. **`--rerun` deleted discretionary ticket orders** (dangling `disc_tickets.order_id`) and could
+   double-count when a later date had already been stepped; both closed.
+7. **Orders filled against zero-volume phantom bars**; volume 0/NULL is now "no bar" (pending →
+   `no_bar` after 3 sessions, like a halt).
+
+### Corporate actions (`engine/actions.py`) — commit 8f5b… (see git log)
+
+- **The split adjudicator restated three real crashes as split breaks.** It accepted any
+  one-session ratio within ln(1.2) of the split ratio anywhere in a 25-session window. BH
+  2018-04-27 (+19.9% in store vs −20.1% at Yahoo, 9,612 rows ÷1.5), ORCL 1999-03-12 (genuine
+  split already adjusted at ex 03-01; the "break" 8 sessions later was the earnings crash),
+  NEM 1987-10-16 (the $33 special dividend), and HWKN 1989-04-25 (a zero-volume bad print at
+  the ex-date). BH sits inside every walk-forward and backtest window since 2014.
+  **Rule now:** tolerance ln(1.08); the break must sit within 5 sessions of the ex-date (or
+  after a recent ex when a collection gap moved it); bars before the candidate must carry
+  `fetched_at < ex_date`, otherwise Yahoo already adjusted them (`skipped_already_adjusted`).
+  **Repaired live** (`engine/repair_restatements.py`, dry-run → store copy → live, with Yahoo
+  cross-check): all four names now 0 rows >1% off Yahoo over their full histories; watermark
+  `reverted_false_break`, `audit_log` rows appended. `split_adjustments`: applied 31, reverted 4.
+- **`_restate` scaled every open position by the ratio**, including lots opened after the
+  ex-date (which `rebuild_state` correctly leaves alone) — latent, no live position affected.
+  It now restates prices, scales only pre-ex pending orders, and calls `rebuild_state` inside
+  the same transaction (verified: rebuild reproduces the live ledger, 537 positions, 0 mismatches).
+- **Open: JEM 2026-07-14 (1:12 reverse).** Yahoo's July-16 pull was half-adjusted; the reconciler
+  ×12'd 58 rows of which 2 were right. Needs a full re-fetch of JEM, not the repair script. No
+  positions, no bars after 07-15 — low impact, TODO.
+
+### Engine (`engine/`) — see git log
+
+- **Failure breadcrumbs were dead code** in every `run_*.sh` (`set -e` exited the pipeline before
+  `PIPESTATUS` was read): 4 tracebacks in `cron.log`, 0 breadcrumbs. Fixed with a `set +e`
+  wrap; breadcrumbs also reach the cron log. `run_weekend_sweeps.sh`'s `grep -v` under
+  `pipefail` aborted an all-diagnostic listing before the "no grids" gate.
+- **`universe.liquid` was written once, at bootstrap.** 336 names added since 07-16 could never
+  qualify (inverse survivorship in the forward record). `collect.py --refresh-liquid` recomputes
+  from the bootstrap rule (close ≥ $3, 63-bar median $vol ≥ $5M), admits + max-history backfills,
+  demotes flag-only, never demotes a held name. **Dry run on a store copy: +122 / −141 today.**
+  New driver `engine/run_weekly_liquid.sh` for **Sunday 02:00 UTC** — crontab line in its header,
+  **not yet installed** (owner: add it).
+- **Phantom bars passed the screen** (TALK, 2026-08-17, rs_rank 85, on a zero-volume bar).
+  `REAL_BAR_SQL` (volume > 0 and not o=h=l=c) is shared by `screen.py`, `hist_screen.py` and the
+  `_meta.json` stale list; the screen reports `skipped_phantom`.
+
+### Tests — commit 2d4310c and later
+
+`tests/` did not exist. Now **228 tests** (in-memory DuckDB, no store, no network): fill model,
+portfolio math, calendar + NYSE rules, stats, risk gates, sizing, leverage classifier, resource
+guards, strategy base, screen volume rule, liquid refresh, split adjudicator, the seven
+regressions above, and the new strategies. `pyproject.toml` + `.github/workflows/ci.yml`.
+
+### Evaluation and architecture — `docs/evaluation-2026-09-02.md`, `docs/architecture-review-2026-09-02.md`
+
+Every book has a KEEP/WATCH/RETIRE verdict with the deciding fact; nine slots are RETIRE
+(the four gated twins are equal to the cent on all 33 live sessions; `template_top5` breaches
+its own 40% DD line in 5/10 folds; `turtle_breakout` WF DD −31% vs a 25% kill line; `mr_overlay`
+9/9 sweep cells worse). **Not acted on — retirement is the owner's call**; the list is in the doc.
+Architecture: `engine/` is not a package (40 `sys.path.insert` sites), the single-writer rule
+is convention not structure, zero `logging`, 7 shell drivers share a 25-line preamble. The
+9-step incremental refactor plan is in the review.
+
+### New books — `docs/charters/`
+
+- **`xs_momentum_12_1`** — the unscreened control (top-50 EW 12-1 momentum, monthly). Tests the
+  claim that the Minervini screen adds anything over plain momentum. 3y design replay (v2 fills):
+  +31.4% CAGR / −37% DD vs `ew_benchmark` +17.3% / −33% and `template_top10_banded` −0.3% / −48%.
+  Survivor universe — upper bound.
+- **`multi_asset_trend`** — 8 ETFs in fixed 12.5% slots, each held while its 12-mo total return
+  beats BIL, remainder BIL, monthly. Replay Sharpe 1.45, DD −7.2%; no risk-off episode in window.
+- **`xs_reversal_1m`** — designed, **withdrawn before registration**: replay correlation with EW
+  0.71 against its own 0.70 kill line. Class + charter kept.
+Both books are created by `league --init` at tonight's nightly; first signals last session of Sept.
+
+### Public-readiness — see git log
+
+LICENSE (MIT + paper-trading notice), CONTRIBUTING, SECURITY, CI, packaging; the two design
+specs copied to `docs/design/` so no doc points at the private store; `data/eod/` and
+`data/universe.csv` untracked (raw Yahoo-derived exports); box-specific paths and the work
+identity scrubbed; **history rewritten** (`git filter-repo`: author identity → personal, the two
+raw-data paths removed from every commit). Secret scan across full history: clean.
+
+### Decisions
+
+- Hand-rolled NYSE calendar over `pandas_market_calendars` (auditable, no data dependency,
+  validated against every stored session).
+- `xs_reversal_1m` not registered: a book that fails its charter in the design replay is not a
+  pre-registration.
+- Retirements left to the owner; kill criteria are the owner's rules.
+- `data/screens/` stays in git (it is the M1 deliverable); a data-branch split is deferred until
+  `sync.py` is changed and dry-run.
+
+### Next
+
+0. **Owner: create the empty private GitHub repo `ong6/trading-engine`**; the push is one
+   command away (`git remote add origin git@github.com:ong6/trading-engine.git && git push -u origin main`).
+1. **Owner: install the `run_weekly_liquid.sh` crontab line** and decide the nine RETIRE slots.
+2. Settle EA / TALK / WBS / FBRX (still `symbol_not_found` at the verifier; 12.1% of `high_52wk`
+   frozen) — a delisting handler for `sim/`.
+3. Re-fetch JEM; re-audit the remaining 31 `applied` restatements with the new rule on a copy.
+4. Refactor step 1–3 of the architecture plan (package `engine/`, one `connect(read_only=)`,
+   settings module) — each landable before 21:30 UTC with a store-copy dry run.
+5. Monthly-granularity re-reporting of walk-forward folds (block bootstrap on ~144 paired
+   monthly excess returns instead of n=10 fold means).
+
 ## Blockers
 
-- **GitHub remote still needed (owner action).** The box has working SSH auth to GitHub as
+- **GitHub remote still needed (owner action).** As of 2026-09-02 the repo `ong6/trading-engine`
+  does not exist (`git ls-remote` → "Repository not found"). The box has working SSH auth to GitHub as
   `ong6` (`~/.ssh/id_ed25519_github`, `ssh.github.com:443` available if port 22 throttles),
   but no GitHub CLI and no API token — `/usr/local/bin/gh` is an unrelated internal tool.
   Create an EMPTY PRIVATE repo, then `git remote add origin` + push; `store/` and `logs/`
