@@ -159,8 +159,9 @@ cat data/_meta.json                        # health snapshot: counts, failures, 
 cat data/reports/league.md                 # standings
 grep "TODO" logs/cron.log | tail           # reconciler items awaiting a human
 .venv/bin/python - <<'EOF'                 # queue state
-import duckdb; print(from engine.lib import db; db.connect(, read_only=True)
-  .execute("SELECT id,kind,status,created_at FROM jobs ORDER BY id DESC LIMIT 10").fetchall())
+from engine.lib import db
+print(db.connect(read_only=True)
+      .execute("SELECT id,kind,status,created_at FROM jobs ORDER BY id DESC LIMIT 10").fetchall())
 EOF
 ```
 
