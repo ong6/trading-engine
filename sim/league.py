@@ -19,23 +19,20 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from datetime import date
 from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
-from lib import db  # noqa: E402
+from engine.lib import db
+from engine.lib.settings import REPO_ROOT  # noqa: F401
+from engine.lib.settings import DATA_DIR as DEFAULT_DATA_DIR
 
-from . import calendar, fills, portfolio  # noqa: E402
-from .schema import INITIAL_CASH, init_sim_schema  # noqa: E402
-from .strategies import PortfolioView, get_strategy  # noqa: E402
-from .strategies.base import total_return_between  # noqa: E402
-from .strategies.configs import CONFIGS  # noqa: E402
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATA_DIR = REPO_ROOT / "data"
+from . import calendar, fills, portfolio
+from .schema import INITIAL_CASH, init_sim_schema
+from .strategies import PortfolioView, get_strategy
+from .strategies.base import total_return_between
+from .strategies.configs import CONFIGS
 
 
 # --------------------------------------------------------------------------- #

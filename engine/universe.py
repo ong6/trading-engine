@@ -8,7 +8,6 @@ full point-in-time snapshot (append-only) and writes data/universe.csv.
 """
 from __future__ import annotations
 
-import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,10 +15,8 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib import db  # noqa: E402
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
+from engine.lib import db
+from engine.lib.settings import DATA_DIR, STORE_DIR
 NASDAQ_URL = "https://www.nasdaqtrader.com/dynamic/symdir/nasdaqtraded.txt"
 FOOTER_PREFIX = "File Creation Time:"
 UA = "Mozilla/5.0"
@@ -52,7 +49,7 @@ def download_nasdaqtraded(max_retries: int = 5) -> str:
 
 def cache_raw(text: str) -> Path:
     """Persist the raw file to store/ for provenance."""
-    out = REPO_ROOT / "store" / f"nasdaqtraded-{datetime.now(timezone.utc).date().isoformat()}.txt"
+    out = STORE_DIR / f"nasdaqtraded-{datetime.now(timezone.utc).date().isoformat()}.txt"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text)
     return out
@@ -181,7 +178,7 @@ def append_snapshot(con) -> bool:
 
 
 def write_csv(con) -> Path:
-    out = REPO_ROOT / "data" / "universe.csv"
+    out = DATA_DIR / "universe.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     df = con.execute(
         """
@@ -194,12 +191,22 @@ def write_csv(con) -> Path:
 
 
 def main() -> int:
+    # argparse added 2026-09-03 so `--help` describes the run instead of
+    # performing it (a bare `python -m engine.universe --help` used to fetch the
+    # Nasdaq file and append today's snapshot to the store).
+    import argparse
+    ap = argparse.ArgumentParser(
+        description="Refresh `universe` from nasdaqtraded.txt and append today's "
+                    "point-in-time universe_snapshot; writes data/universe.csv.")
+    ap.add_argument("--db", default=str(db.DEFAULT_DB), help="DuckDB path (default: the store)")
+    args = ap.parse_args()
+
     text = download_nasdaqtraded()
     cache_raw(text)
     parsed = parse(text)
     total = parsed.attrs.get("total", 0)
 
-    con = db.connect()
+    con = db.connect(args.db)
     db.init_schema(con)
     new_count, deactivated = sync_universe(con, parsed)
     snap = append_snapshot(con)

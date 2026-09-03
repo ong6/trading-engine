@@ -32,8 +32,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import sys
-import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -41,14 +39,13 @@ import numpy as np
 import pandas as pd
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import stats as fstats  # noqa: E402
+from engine.lib import db as enginedb
+from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT  # noqa: F401
+from farm import stats as fstats
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DB = REPO_ROOT / "store" / "market.duckdb"
 EXPERIMENTS_DIR = Path(__file__).resolve().parent / "experiments"
 PENDING_DIR = Path(__file__).resolve().parent / "pending-results"
-REPORTS_DIR = REPO_ROOT / "data" / "reports" / "experiments"
+REPORTS_DIR = DATA_DIR / "reports" / "experiments"
 
 WEEKDAY_MAP = {"monday": 0, "tuesday": 1, "wednesday": 2,
                "thursday": 3, "friday": 4}
@@ -653,23 +650,14 @@ def render_report(cfg: dict, chash: str, res: dict, run_at, storage_note: str) -
 # --------------------------------------------------------------------------- #
 # orchestration
 # --------------------------------------------------------------------------- #
+# Both are thin wrappers over the one connection factory (engine.lib.db.connect);
+# the names stay because run_standalone reads as "RO compute, then brief RW append".
 def _connect_ro(db_path):
-    import duckdb
-    return duckdb.connect(str(db_path), read_only=True)
+    return enginedb.connect(db_path, read_only=True)
 
 
 def _connect_rw_retry(db_path):
-    import duckdb
-    last = None
-    for i in range(LOCK_RETRIES):
-        try:
-            return duckdb.connect(str(db_path), read_only=False)
-        except Exception as exc:  # noqa: BLE001 - lock contention is expected
-            last = exc
-            print(f"[farm] store locked (attempt {i+1}/{LOCK_RETRIES}): {exc}; "
-                  f"retrying in {LOCK_SLEEP_S:.0f}s")
-            time.sleep(LOCK_SLEEP_S)
-    raise last  # type: ignore[misc]
+    return enginedb.connect(db_path, wait_s=LOCK_RETRIES * LOCK_SLEEP_S)
 
 
 def _write_report(cfg, chash, res, run_at, storage_note):

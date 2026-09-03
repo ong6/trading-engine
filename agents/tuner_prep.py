@@ -21,18 +21,15 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
-import sys
-import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+from engine.lib import db
+from engine.lib.settings import DATA_DIR, REPO_ROOT
 
 AGENTS_DIR = REPO_ROOT / "agents"
-REPORTS = REPO_ROOT / "data" / "reports"
-DB_PATH = REPO_ROOT / "store" / "market.duckdb"
+REPORTS = DATA_DIR / "reports"
+DB_PATH = db.DEFAULT_DB
 PROMPT_FILE = AGENTS_DIR / "tuner_prompt.md"
 PY = REPO_ROOT / ".venv" / "bin" / "python"
 
@@ -75,15 +72,11 @@ def tail_jsonl(path: Path, n: int = 30) -> str:
 
 
 def connect_ro(db_path: Path = DB_PATH, retries: int = 6, sleep_s: float = 5.0):
-    import duckdb
-    last = None
-    for i in range(retries):
-        try:
-            return duckdb.connect(str(db_path), read_only=True)
-        except Exception as exc:  # noqa: BLE001
-            last = exc
-            time.sleep(sleep_s * (1 if i < 3 else 2))
-    raise RuntimeError(f"store locked after {retries} attempts: {last}")
+    # Thin wrapper over the one connection factory (engine.lib.db.connect).
+    try:
+        return db.connect(db_path, read_only=True, wait_s=retries * sleep_s)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"store locked after {retries} attempts: {exc}") from exc
 
 
 def current_params(con, book: str) -> tuple[dict, int]:
@@ -189,7 +182,7 @@ def autopsy_md(books: list[str], db_path: str) -> str:
         args += ["--book", b]
     try:
         r = subprocess.run(
-            [str(PY), str(REPO_ROOT / "farm" / "autopsy.py"), *args,
+            [str(PY), "-m", "farm.autopsy", *args,
              "--db", db_path],
             capture_output=True, text=True, timeout=600, cwd=str(REPO_ROOT))
         if r.returncode != 0:
@@ -212,7 +205,6 @@ def main() -> int:
     a = ap.parse_args()
 
     agents_dir = Path(a.agents_dir)
-    sys.path.insert(0, str(agents_dir.parent))
     from agents.validator import load_bounds  # noqa: PLC0415
 
     bounds = load_bounds(a.book, agents_dir)

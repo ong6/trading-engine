@@ -16,18 +16,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-# Importable both as `python -m farm.walkforward.report` and as a bare script path.
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-WF_DIR = REPO_ROOT / "data" / "reports" / "walkforward"
-RESULTS_DIR = WF_DIR / "results"
+from engine.lib.settings import DATA_DIR, REPO_ROOT  # noqa: F401
+from farm import stats as fstats
 
-from farm import stats as fstats  # noqa: E402
+WF_DIR = DATA_DIR / "reports" / "walkforward"
+RESULTS_DIR = WF_DIR / "results"
 
 EW = "ew_benchmark"
 SPY = "spy_benchmark"
@@ -437,9 +433,9 @@ def write_reports(results_dir: Path = RESULTS_DIR,
               "## How this is produced", "",
               "```sh",
               "# enumerate / enqueue the weekly grid (one job per active book)",
-              ".venv/bin/python farm/walkforward/grid.py --list",
-              ".venv/bin/python farm/walkforward/grid.py --enqueue",
-              ".venv/bin/python engine/queue_runner.py --run",
+              ".venv/bin/python -m farm.walkforward.grid --list",
+              ".venv/bin/python -m farm.walkforward.grid --enqueue",
+              ".venv/bin/python -m engine.queue_runner --run",
               "```", "",
               "Intended cadence: **Sunday**, ahead of the weekly review. The "
               "weekday nightly (`engine/run_daily.sh`, cron `30 22 * * 1-5`) "

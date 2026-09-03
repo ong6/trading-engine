@@ -55,7 +55,7 @@ set +e
   # Enqueue is idempotent: queue_runner dedups an identical pending
   # (kind, params), so a re-run after a partial drain adds nothing.
   stage enqueue
-  "${PY}" farm/walkforward/grid.py --enqueue
+  "${PY}" -m farm.walkforward.grid --enqueue
 
   # The drain honours every §12.7 cap (nice 19 + ionice idle, load/RAM guard,
   # per-job memory budget, wall-clock drain budget). Jobs left pending by the
@@ -69,13 +69,13 @@ set +e
   # sustained load ~20-24 of 32 cores stays under LOAD_5MIN_MAX=28. A batch is
   # still bounded by its SLOWEST member.
   stage drain
-  "${PY}" engine/queue_runner.py --run --jobs 8
+  "${PY}" -m engine.queue_runner --run --jobs 8
 
   # Commit the regenerated reports. Best-effort: the results JSON and the
   # markdown are already on disk, and the next nightly's sync stages data/
   # wholesale, so a failure here costs a day of visibility, not evidence.
   stage sync
-  "${PY}" engine/sync.py || echo "WARN: sync failed (exit $?) — reports are on disk; next nightly's sync will stage them"
+  "${PY}" -m engine.sync || echo "WARN: sync failed (exit $?) — reports are on disk; next nightly's sync will stage them"
 
   echo "=== done $(date -u +%FT%TZ) ==="
 } 2>&1 | tee -a "${LOG}"

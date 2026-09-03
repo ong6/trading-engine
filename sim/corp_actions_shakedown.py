@@ -35,17 +35,13 @@ from __future__ import annotations
 
 import argparse
 import shutil
-import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from lib import db  # noqa: E402
-import actions as eng_actions  # noqa: E402
-
-from sim import league, portfolio  # noqa: E402
-from sim.schema import init_sim_schema  # noqa: E402
+from engine import actions as eng_actions
+from engine.lib import db
+from sim import league, portfolio
+from sim.schema import init_sim_schema
 
 SPLIT_TICKER = "ATEX"     # held by mr_overlay x2 and template_top10_banded x2
 SPLIT_RATIO = 2.0

@@ -36,32 +36,25 @@ this is a same-day correction only, never a way to rewrite history.
 from __future__ import annotations
 
 import argparse
-import os
 import json
 import math
 import re
 import shutil
-import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib import db  # noqa: E402
-from lib import leverage as lev  # noqa: E402
-from lib import resources as rsc  # noqa: E402
+from engine.lib import db
+from engine.lib import leverage as lev
+from engine.lib import resources as rsc
+from engine.lib.settings import REPO_ROOT, WATCHLIST_PATH  # noqa: F401
+from engine.lib.settings import DATA_DIR as DEFAULT_DATA_DIR
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATA_DIR = REPO_ROOT / "data"
-# Watchlist lives in the owner's personal-data-store, outside this repo. Point
-# TRADING_ENGINE_WATCHLIST at it; when unset or absent the screen runs without
-# a watchlist (eod exports then cover passing names only).
-WATCHLIST_PATH = Path(os.environ.get(
-    "TRADING_ENGINE_WATCHLIST",
-    str(REPO_ROOT.parent / "personal-data-store" / "trading" / "watchlist.md"),
-))
+# Watchlist lives in the owner's personal-data-store, outside this repo
+# (settings.WATCHLIST_PATH, env TRADING_ENGINE_WATCHLIST); when unset or absent
+# the screen runs without a watchlist (eod exports then cover passing names only).
 
 MIN_BARS = 253          # 52-week window / 200d SMA / 252d return needs 253 bars
                         # (ret(252) reads close 252 positions back → 253rd bar)

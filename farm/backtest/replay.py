@@ -51,33 +51,21 @@ import argparse
 import calendar as _cal
 import json
 import shutil
-import sys
 import time
 from datetime import date
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-for _p in (str(REPO_ROOT), str(REPO_ROOT / "engine")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-from lib import db  # noqa: E402
-from lib import leverage as lev  # noqa: E402
-
+from engine.lib import db
+from engine.lib import leverage as lev
+from engine.lib.settings import DATA_DIR, REPO_ROOT
+from farm.backtest import hist_screen, stats
+from sim import league
 from sim import portfolio as _pf
-from sim import league  # noqa: E402
-from sim.schema import init_sim_schema  # noqa: E402
-from sim.strategies.configs import CONFIGS, config_by_id  # noqa: E402
-
-# Importable both as `python -m farm.backtest.replay` and as a bare script path
-# (REPO_ROOT is already on sys.path above, so the absolute form always resolves).
-if __package__:
-    from . import hist_screen, stats  # noqa: E402
-else:  # pragma: no cover - script invocation
-    from farm.backtest import hist_screen, stats  # noqa: E402
+from sim.schema import init_sim_schema
+from sim.strategies.configs import CONFIGS, config_by_id
 
 SCRATCH_ROOT = REPO_ROOT / "scratch"
-RESULTS_DIR = REPO_ROOT / "data" / "reports" / "backtests" / "results"
+RESULTS_DIR = DATA_DIR / "reports" / "backtests" / "results"
 
 # Every window ends the session before league inception (2026-07-17), so the
 # farm's evidence and the live forward record never overlap.
@@ -465,8 +453,7 @@ def main() -> int:
             print(f"{c['id']:<28} {c['strategy']:<24} {c['cadence']:<8}{mark}")
         return 0
 
-    import duckdb
-    live = duckdb.connect(args.db, read_only=True)
+    live = db.connect(args.db, read_only=True)
     try:
         run_replay(live, args.config, args.window,
                    scratch_root=Path(args.scratch_root),

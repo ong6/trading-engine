@@ -67,7 +67,7 @@ for BOOK in ${BOOKS}; do
   META="${WORK}/${BOOK}.meta.json"
   OUT_JSON="${WORK}/${BOOK}.out.json"
 
-  if ! "${PY}" "${SCRIPT_DIR}/gater_prep.py" --book "${BOOK}" \
+  if ! "${PY}" -m agents.gater_prep --book "${BOOK}" \
         --prompt-out "${PROMPT}" --meta-out "${META}" --date "${RUN_DATE}" \
         --agents-dir "${AGENTS_DIR}" ${DB_ARG:+--db "${DB_ARG}"} >>"${LOG}" 2>&1; then
     log "TODO: ${BOOK} prep failed — no gate file, book runs pure algo"
@@ -130,7 +130,7 @@ PYEOF
   # The validator is the only thing that may write a gate file. It enforces the
   # charter's bounds, drops row-level violations, rejects file-level ones, and
   # appends to changes.jsonl for applied AND rejected proposals alike.
-  "${PY}" "${SCRIPT_DIR}/validator.py" --book "${BOOK}" \
+  "${PY}" -m agents.validator --book "${BOOK}" \
       --proposal "${PROPOSAL}" --date "${RUN_DATE}" \
       --agents-dir "${AGENTS_DIR}" --n-candidates "${N_CAND}" \
       --session "gater-${RUN_DATE}" ${DB_ARG:+--db "${DB_ARG}"} >>"${LOG}" 2>&1 \

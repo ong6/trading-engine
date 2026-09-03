@@ -44,26 +44,17 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import sys
 from datetime import date, datetime, time as dtime, timedelta, timezone
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+from engine.lib import db as enginedb  # engine/lib/db.py — the lock-retrying connect factory
+from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT
+from farm import experiment as E  # farm/experiment.py — shared config/hash/table helpers
+from sim.fills import median_dollar_vol, slippage_bps_for
+
 FARM_DIR = Path(__file__).resolve().parent
-# engine/ is not a package (queue_runner.py does the same `sys.path` dance), so
-# put farm/, the repo root (for `sim.*`) and engine/ on the path explicitly.
-for _p in (str(FARM_DIR), str(REPO_ROOT), str(REPO_ROOT / "engine")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-import duckdb  # noqa: E402
-import experiment as E  # noqa: E402  (farm/experiment.py — shared config/hash/table helpers)
-from lib import db as enginedb  # noqa: E402  (engine/lib/db.py — lock-retrying connect)
-from sim.fills import median_dollar_vol, slippage_bps_for  # noqa: E402
-
 EXPERIMENTS_DIR = FARM_DIR / "experiments"
-REPORTS_DIR = REPO_ROOT / "data" / "reports" / "experiments"
-DEFAULT_DB = REPO_ROOT / "store" / "market.duckdb"
+REPORTS_DIR = DATA_DIR / "reports" / "experiments"
 
 # A Monday's daily bar is trusted only after its session has closed. 16:00 ET is
 # 20:00 UTC under EDT and 21:00 UTC under EST; 21:15 UTC clears both with margin
@@ -564,7 +555,7 @@ def main() -> int:
     print(f"[e1] forward config {path} (hash {forward_config_hash(cfg)[:16]})")
 
     if args.report_only:
-        con = duckdb.connect(args.db, read_only=True)
+        con = enginedb.connect(args.db, read_only=True)
         try:
             run(con, cfg, read_only=True)
         finally:
@@ -575,7 +566,7 @@ def main() -> int:
         con = enginedb.connect(args.db)
     except Exception as exc:  # noqa: BLE001 — reporting must never block the nightly
         print(f"[e1] store locked ({exc}); falling back to a read-only report refresh")
-        con = duckdb.connect(args.db, read_only=True)
+        con = enginedb.connect(args.db, read_only=True)
         try:
             run(con, cfg, read_only=True)
         finally:

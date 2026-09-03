@@ -14,16 +14,14 @@ a throwaway data-dir so the real screens are untouched.
 from __future__ import annotations
 
 import argparse
-import sys
 from datetime import date
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
-from lib import db  # noqa: E402
-import screen as m1_screen  # noqa: E402
+from engine import screen as m1_screen
+from engine.lib import db
 
-from . import league  # noqa: E402
-from .schema import init_sim_schema  # noqa: E402
+from . import league
+from .schema import init_sim_schema
 
 
 def window_days(con, start_n: int) -> list[date]:

@@ -32,14 +32,10 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "engine"))
+from engine.lib.settings import REPO_ROOT
 
 AGENTS_DIR = Path(__file__).resolve().parent
 BOUNDS_RE = re.compile(r"<!--\s*BOUNDS\s*-->\s*```json\s*(.*?)```", re.S)
@@ -346,7 +342,7 @@ def apply_proposal(db_path: str, book: str, proposal: dict, *,
     Returns a result dict; never raises for an out-of-bounds proposal — that is
     a normal, expected outcome and is recorded, not an error.
     """
-    from lib import db  # noqa: PLC0415 — engine path is set up at import time
+    from engine.lib import db  # noqa: PLC0415
 
     bounds = load_bounds(book, agents_dir)
     kind = bounds["kind"]
@@ -451,7 +447,7 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
 
-    from lib import db  # noqa: PLC0415
+    from engine.lib import db  # noqa: PLC0415
     db_path = a.db or str(db.DEFAULT_DB)
     try:
         proposal = json.loads(Path(a.proposal).read_text())

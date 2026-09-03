@@ -18,19 +18,16 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
-import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+from engine.lib import db
+from engine.lib.settings import DATA_DIR, REPO_ROOT
 
 AGENTS_DIR = REPO_ROOT / "agents"
-NEWS_LATEST = REPO_ROOT / "data" / "reports" / "news" / "latest.md"
-LEAGUE_MD = REPO_ROOT / "data" / "reports" / "league.md"
-DB_PATH = REPO_ROOT / "store" / "market.duckdb"
+NEWS_LATEST = DATA_DIR / "reports" / "news" / "latest.md"
+LEAGUE_MD = DATA_DIR / "reports" / "league.md"
+DB_PATH = db.DEFAULT_DB
 PROMPT_FILE = AGENTS_DIR / "gater_prompt.md"
 
 MAX_CANDIDATES = 40
@@ -58,15 +55,11 @@ def connect_ro(db_path: Path = DB_PATH, retries: int = 6, sleep_s: float = 5.0):
     candidate preview" — it does NOT fail, and it does NOT block anything,
     because no gate file simply means the book runs pure algo.
     """
-    import duckdb
-    last = None
-    for i in range(retries):
-        try:
-            return duckdb.connect(str(db_path), read_only=True)
-        except Exception as exc:  # noqa: BLE001
-            last = exc
-            time.sleep(sleep_s * (1 if i < 3 else 2))
-    raise RuntimeError(f"store locked after {retries} attempts: {last}")
+    # Thin wrapper over the one connection factory (engine.lib.db.connect).
+    try:
+        return db.connect(db_path, read_only=True, wait_s=retries * sleep_s)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"store locked after {retries} attempts: {exc}") from exc
 
 
 def algo_preview(con, book: str) -> tuple[list[dict], str, dict]:

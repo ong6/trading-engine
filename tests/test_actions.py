@@ -8,22 +8,15 @@ ex-date (the declared truth in sim/portfolio.rebuild_state).
 """
 from __future__ import annotations
 
-import sys
 from datetime import datetime, time, timedelta
-from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-for _p in (REPO_ROOT, REPO_ROOT / "engine"):
-    if str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
-
-import actions  # noqa: E402  (engine/actions.py)
-from lib import db  # noqa: E402
-from sim import portfolio  # noqa: E402
-from sim.schema import INITIAL_CASH  # noqa: E402
-from conftest import SESSIONS, insert_bars  # noqa: E402
+from conftest import SESSIONS, insert_bars
+from engine import actions
+from engine.lib import db
+from sim import portfolio
+from sim.schema import INITIAL_CASH
 
 TK = "AAA"
 RATIO = 1.5

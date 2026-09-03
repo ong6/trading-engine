@@ -72,12 +72,10 @@ from pathlib import Path
 import duckdb
 import requests
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib import resources as rsc  # noqa: E402
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DB = REPO_ROOT / "store" / "market.duckdb"
-DEFAULT_META = REPO_ROOT / "data" / "_meta.json"
+from engine.lib import db
+from engine.lib import resources as rsc
+from engine.lib.settings import DEFAULT_DB, REPO_ROOT  # noqa: F401
+from engine.lib.settings import META_PATH as DEFAULT_META
 META_KEY = "price_verify"
 
 API_URL = "https://api.nasdaq.com/api/quote/{sym}/historical"
@@ -623,18 +621,11 @@ def _connect_ro(path: str | Path, tries: int = 6, retry_s: float = 5.0):
     """Read-only handle, retrying while another process holds the writer lock.
     DuckDB is single-writer on disk, so a transient failure here is normal, not
     exceptional — and it is a `not_checked` night, never a failed nightly."""
-    last: Exception | None = None
-    for attempt in range(1, max(1, tries) + 1):
-        try:
-            return duckdb.connect(str(path), read_only=True)
-        except Exception as exc:
-            last = exc
-            if attempt >= tries:
-                break
-            print(f"[verify] store locked (attempt {attempt}/{tries}) — "
-                  f"retrying in {retry_s:.0f}s", file=sys.stderr)
-            time.sleep(retry_s)
-    raise RuntimeError(f"could not open {path} read-only after {tries} attempts: {last}")
+    # Thin wrapper over the one connection factory (engine.lib.db.connect).
+    try:
+        return db.connect(path, read_only=True, wait_s=max(1, tries) * retry_s)
+    except Exception as exc:
+        raise RuntimeError(f"could not open {path} read-only after {tries} attempts: {exc}") from exc
 
 
 def main() -> int:

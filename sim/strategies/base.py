@@ -8,22 +8,20 @@ price they execute (always at a later bar's open).
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from datetime import date
-from pathlib import Path
 
 import duckdb
 import numpy as np
+
+from engine.lib import settings
 
 MIN_ORDER_USD = 50.0  # skip dust rebalancing below this notional
 
 # Where the agentic books keep their per-book state (charter / lessons /
 # changes / daily gate files). Overridable so a shakedown on a store COPY can
 # point at a scratch tree without touching the live one.
-AGENTS_DIR = Path(os.environ.get(
-    "TRADING_ENGINE_AGENTS_DIR",
-    str(Path(__file__).resolve().parents[2] / "agents")))
+AGENTS_DIR = settings.AGENTS_DIR
 # Hard floor on how far an agent may downscale an algo entry. A "downscale" that
 # rounds a position to nothing is a veto wearing a disguise, and the two are
 # accounted for separately.

@@ -12,27 +12,20 @@ from __future__ import annotations
 
 import json
 import math
-import sys
 from datetime import date, datetime, time as dtime, timezone
 from zoneinfo import ZoneInfo
-from pathlib import Path
 
 import duckdb
 from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "engine"))
+from engine.lib import db as engine_db
+from engine.lib.settings import META_PATH
+from sim.league import _max_drawdown, _spy_return, regime_label
+from sim.schema import INITIAL_CASH, init_sim_schema
 
-from lib import db as engine_db  # noqa: E402
-from sim.league import (  # noqa: E402
-    _max_drawdown, _spy_return, regime_label,
-)
-from sim.schema import INITIAL_CASH, init_sim_schema  # noqa: E402
-
-from . import risk  # noqa: E402
-from .db import DBBusyError, db_path, read_con, write_con  # noqa: E402
+from . import risk
+from .db import DBBusyError, db_path, read_con, write_con
 
 app = FastAPI(title="trading-engine M3 backend", version="0.1.0")
 
@@ -118,7 +111,7 @@ def health():
 
 @app.get("/meta")
 def meta():
-    meta_path = REPO_ROOT / "data" / "_meta.json"
+    meta_path = META_PATH
     meta_json = json.loads(meta_path.read_text()) if meta_path.exists() else {}
     con = read_con()
     try:
