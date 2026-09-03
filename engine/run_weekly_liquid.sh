@@ -53,7 +53,7 @@ set +e
 {
   set -e
   echo "=== run_weekly_liquid $(date -u +%FT%TZ) ==="
-  "${PY}" engine/collect.py --refresh-liquid
+  "${PY}" -m engine.collect --refresh-liquid
   echo "=== done $(date -u +%FT%TZ) ==="
 } 2>&1 | tee -a "${LOG}"
 status="${PIPESTATUS[0]}"

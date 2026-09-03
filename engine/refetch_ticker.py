@@ -25,24 +25,18 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from datetime import date, datetime, timezone
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "engine"))
+import duckdb
 
-import duckdb  # noqa: E402
-
-from lib import db  # noqa: E402
+from engine.lib import db
 
 SHOW_DATES = ["2026-04-17", "2026-07-09", "2026-07-10", "2026-07-13", "2026-07-14"]
 
 
 def fetch_history(yf_ticker: str, canon: str):
     """Max-history pull through collect.py's own download + parse helpers."""
-    import collect  # noqa: E402  (engine/collect.py; on sys.path above)
+    from engine import collect
 
     raw = collect._download([yf_ticker], period="max", start=None)
     df, got = collect._extract_long(raw, {yf_ticker: canon})
@@ -132,7 +126,7 @@ def main() -> int:
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--force", action="store_true")
     a = ap.parse_args()
-    con = db.connect(a.db) if a.apply else duckdb.connect(a.db, read_only=True)
+    con = db.connect(a.db, read_only=not a.apply)
     try:
         refetch(con, a.ticker.upper(), apply=a.apply, force=a.force)
     finally:

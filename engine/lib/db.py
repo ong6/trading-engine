@@ -1,12 +1,16 @@
 """DuckDB storage layer for the trading engine.
 
-One connection helper, one schema initializer, and a price upsert that never
-stores a fabricated bar (rows with a NaN close are dropped).
+One connection factory (`connect`), one schema initializer, and a price upsert
+that never stores a fabricated bar (rows with a NaN close are dropped).
+
+`connect` is THE way to open the store — read-write or read-only — so the
+single-writer discipline (§12.7) lives in one function instead of nine
+hand-rolled retry loops (refactor step 2, 2026-09-03). tests/test_no_bare_connect.py
+fails the suite if `duckdb.connect(` appears anywhere else in the packages.
 """
 from __future__ import annotations
 
 import math
-import os
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -14,8 +18,10 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DB = REPO_ROOT / "store" / "market.duckdb"
+from engine.lib import settings
+
+REPO_ROOT = settings.REPO_ROOT
+DEFAULT_DB = settings.DEFAULT_DB
 
 # A bar that represents an actual market session for the name. yfinance keeps
 # emitting a dead quote — the last close repeated as o=h=l=c with volume 0 —
@@ -29,56 +35,75 @@ DEFAULT_DB = REPO_ROOT / "store" / "market.duckdb"
 # whose FROM has `prices` in scope.
 REAL_BAR_SQL = "volume > 0 AND NOT (open = high AND high = low AND low = close)"
 
-# Substrings DuckDB uses when the single-writer on-disk lock is contended.
-# Duplicated (not imported) from server/db.py's _LOCK_MARKERS: server already
-# does `from lib import db`, so importing back would be a cycle. Keep in sync.
+# Substrings DuckDB uses when the single-writer on-disk lock is contended or the
+# file is open elsewhere. The bare "lock" (formerly only in server/db.py) is the
+# superset the API relied on to answer 503 rather than 500; the specific
+# phrases stay for documentation.
 _LOCK_MARKERS = (
     "could not set lock on file",
     "conflicting lock is held",
     "already open",
     "being used",
+    "lock",
 )
-# Total seconds to keep retrying a locked open before re-raising (env-tunable so
-# tests can set it tiny). ~12 tries x 5s ≈ 60s covers a brief nightly overlap.
-_LOCK_WAIT_DEFAULT_S = 60.0
 _LOCK_RETRY_S = 5.0
 
 
-def _is_lock_error(exc: Exception) -> bool:
+class DBBusyError(RuntimeError):
+    """The DB could not be opened because another process holds a lock.
+
+    Raised by `connect(..., wait_s=0)` callers that must never wait (the API's
+    503 path). `connect` itself re-raises DuckDB's own exception after its
+    retry window; use `is_lock_error` to classify it.
+    """
+
+
+def is_lock_error(exc: Exception) -> bool:
     msg = str(exc).lower()
     return any(m in msg for m in _LOCK_MARKERS)
 
 
-def connect(path: str | Path = DEFAULT_DB,
+_is_lock_error = is_lock_error  # back-compat alias
+
+
+def connect(path: str | Path | None = None, *,
+            read_only: bool = False,
             wait_s: float | None = None) -> duckdb.DuckDBPyConnection:
-    """Open (creating parent dirs) a DuckDB connection.
+    """Open the store. The ONLY sanctioned `duckdb.connect` on a store path.
 
-    On a lock conflict (another process holds the single-writer lock — e.g. a
-    still-draining farm or an overlapping nightly) retry over a bounded window
-    (TRADING_ENGINE_LOCK_WAIT_S, default 60s) instead of failing immediately.
-    After the window the original exception is re-raised.
+    path       None -> settings.DEFAULT_DB (honours TRADING_ENGINE_DB).
+    read_only  False opens the single writer (creating parent dirs); True opens
+               a reader, which still needs the writer lock to be free.
+    wait_s     Lock-retry window when another process holds the lock:
+                 None  -> TRADING_ENGINE_LOCK_WAIT_S (default 60s);
+                 0     -> exactly one attempt, no retry (callers that must fail
+                          fast, e.g. the API mapping contention to HTTP 503);
+                 >0    -> max(env window, wait_s): an explicit value raises the
+                          floor for callers that KNOW they may race a long writer
+                          (the queue drain reacquiring the store after a parallel
+                          batch can land inside a nightly's ~4-minute collect).
+    After the window the original DuckDB exception is re-raised unchanged.
     """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = Path(path) if path is not None else settings.DEFAULT_DB
+    if not read_only:
+        path.parent.mkdir(parents=True, exist_ok=True)
 
-    # An explicit `wait_s` raises the floor for callers that KNOW they may be
-    # racing a long writer — the queue drain reacquiring the store after a
-    # parallel batch can land inside a nightly's ~4-minute collect stage, which
-    # the 60s default would lose. The env var still wins when it is larger.
-    env_wait = float(os.environ.get("TRADING_ENGINE_LOCK_WAIT_S",
-                                    _LOCK_WAIT_DEFAULT_S))
-    wait_s = env_wait if wait_s is None else max(env_wait, float(wait_s))
+    if wait_s is None:
+        wait_s = settings.lock_wait_s()
+    elif wait_s > 0:
+        wait_s = max(settings.lock_wait_s(), float(wait_s))
     # ceil so the window is at least covered: 60s/5s -> 12 tries, 6s/5s -> 2.
     tries = max(1, math.ceil(wait_s / _LOCK_RETRY_S)) if wait_s > 0 else 1
     for attempt in range(1, tries + 1):
         try:
-            return duckdb.connect(str(path))
+            return duckdb.connect(str(path), read_only=read_only)
         except Exception as exc:  # duckdb.IOException et al.
-            if not _is_lock_error(exc) or attempt >= tries:
+            if not is_lock_error(exc) or attempt >= tries:
                 raise
             print(f"[db] store locked (attempt {attempt}/{tries}) — "
                   f"retrying in {_LOCK_RETRY_S:.0f}s")
             time.sleep(_LOCK_RETRY_S)
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:

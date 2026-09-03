@@ -62,7 +62,6 @@ from __future__ import annotations
 
 import json
 import math
-import sys
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -70,13 +69,10 @@ from pathlib import Path
 import pandas as pd
 import yfinance as yf
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib import db  # noqa: E402
-from lib import resources as rsc  # noqa: E402
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_META = REPO_ROOT / "data" / "_meta.json"
-STORE_DIR = REPO_ROOT / "store"
+from engine.lib import db
+from engine.lib import resources as rsc
+from engine.lib.settings import STORE_DIR
+from engine.lib.settings import META_PATH as DEFAULT_META
 
 PER_NAME_SLEEP = 0.35      # politeness pause between per-name .actions requests
 RETRY_SLEEP = 15           # one backoff before recording a name as a gap
@@ -457,12 +453,9 @@ def _rebuild_sim_state(con) -> None:
     """sim_positions + cash := pure function of (sim_fills, sim_dividends), on the
     post-split scale for every split watermarked 'applied'. Lives in
     sim/portfolio.py (the declared truth for --rerun); imported lazily so this
-    module keeps working from the queue and from a bare `python engine/actions.py`.
+    module keeps working from the queue and from `python -m engine.actions`.
     """
-    root = str(REPO_ROOT)
-    if root not in sys.path:
-        sys.path.insert(0, root)
-    from sim import portfolio  # noqa: E402
+    from sim import portfolio
     portfolio.rebuild_state(con)
 
 
@@ -641,8 +634,7 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
     # incremental universe selection and the reconciler both read (and, on a
     # restatement, write) sim_positions / sim_orders / audit_log — make sure they
     # exist when the queue dispatches us against a store sim has never touched.
-    sys.path.insert(0, str(REPO_ROOT))
-    from sim.schema import init_sim_schema  # noqa: E402
+    from sim.schema import init_sim_schema
     init_sim_schema(con)
     mode = params.get("mode", "backfill")
 

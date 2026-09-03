@@ -64,7 +64,7 @@ for BOOK in ${BOOKS}; do
   META="${WORK}/${BOOK}.meta.json"
   OUT_JSON="${WORK}/${BOOK}.out.json"
 
-  if ! "${PY}" "${SCRIPT_DIR}/tuner_prep.py" --book "${BOOK}" \
+  if ! "${PY}" -m agents.tuner_prep --book "${BOOK}" \
         --prompt-out "${PROMPT}" --meta-out "${META}" --date "${RUN_DATE}" \
         --agents-dir "${AGENTS_DIR}" ${DB_ARG:+--db "${DB_ARG}"} >>"${LOG}" 2>&1; then
     log "TODO: ${BOOK} prep failed — no proposal, book keeps its current parameters"
@@ -116,7 +116,7 @@ PYEOF
   # whether or not it is applied: the 26-week review reads what the agent ASKED
   # for, not only what it got.
   # shellcheck disable=SC2086
-  "${PY}" "${SCRIPT_DIR}/validator.py" --book "${BOOK}" \
+  "${PY}" -m agents.validator --book "${BOOK}" \
       --proposal "${PROPOSAL}" --date "${RUN_DATE}" \
       --agents-dir "${AGENTS_DIR}" --session "tuner-${RUN_DATE}" \
       ${DB_ARG:+--db "${DB_ARG}"} >>"${LOG}" 2>&1 \
@@ -125,7 +125,7 @@ done
 
 # Refresh the agentic reports so the Sunday review reads this cycle's outcome.
 # shellcheck disable=SC2086
-"${PY}" "${SCRIPT_DIR}/report.py" ${DB_ARG:+--db "${DB_ARG}"} \
+"${PY}" -m agents.report ${DB_ARG:+--db "${DB_ARG}"} \
     --agents-dir "${AGENTS_DIR}" >>"${LOG}" 2>&1 \
   || log "WARN: agentic report refresh failed — reports are stale, nothing else affected"
 

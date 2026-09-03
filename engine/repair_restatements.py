@@ -22,9 +22,9 @@ ever been held).
 
 Usage (dry-run is the default and opens the store read-only):
 
-    .venv/bin/python engine/repair_restatements.py --db <copy>              # dry-run, defaults
-    .venv/bin/python engine/repair_restatements.py --db <copy> --apply --yahoo
-    .venv/bin/python engine/repair_restatements.py --apply --yahoo          # live store
+    .venv/bin/python -m engine.repair_restatements --db <copy>              # dry-run, defaults
+    .venv/bin/python -m engine.repair_restatements --db <copy> --apply --yahoo
+    .venv/bin/python -m engine.repair_restatements --apply --yahoo          # live store
 
 `--target TICKER:BREAK_DATE:RATIO` (repeatable) overrides the three defaults.
 `--yahoo` pulls each name's current yfinance history and reports
@@ -39,16 +39,13 @@ from __future__ import annotations
 import argparse
 import json
 import statistics
-import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-import duckdb
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib import db  # noqa: E402
+from engine.lib import db
+from engine.lib.settings import REPO_ROOT  # noqa: F401
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 REVERTED = "reverted_false_break"
 ACTOR = "actions.repair_restatements"
 DEFAULT_TARGETS = ["BH:2018-04-27:1.5", "ORCL:1999-03-12:1.5", "NEM:1987-10-16:1.5"]
@@ -127,9 +124,7 @@ def revert(con, tk: str, brk: date, ratio: float, apply: bool) -> bool:
         if n_fills:
             # The watermark is no longer 'applied', so rebuild_state stops scaling
             # this name's pre-ex fills — recompute the books from the ledger.
-            if str(REPO_ROOT) not in sys.path:
-                sys.path.insert(0, str(REPO_ROOT))
-            from sim import portfolio  # noqa: E402
+            from sim import portfolio
             portfolio.rebuild_state(con)
         con.execute(
             "INSERT INTO audit_log (ts, actor, action, payload) VALUES (?, ?, ?, ?)",
@@ -196,7 +191,7 @@ def main() -> int:
         con = db.connect(path)            # project writer path: lock retry discipline
         print(f"[repair] APPLY on {path}")
     else:
-        con = duckdb.connect(str(path), read_only=True)
+        con = db.connect(path, read_only=True)
         print(f"[repair] DRY-RUN (read-only) on {path}")
     try:
         for tk, brk, ratio in targets:

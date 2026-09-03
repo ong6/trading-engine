@@ -11,8 +11,8 @@ cost > 0 is adverse (buys that opened higher, sells that opened lower). This qua
 "we trade after hours, are we missing moves?" question from the bot's own record instead of
 assuming an answer. Run manually or from the weekly review:
 
-    .venv/bin/python farm/execution_drag.py            # print + write the report
-    .venv/bin/python farm/execution_drag.py --no-write # print only
+    .venv/bin/python -m farm.execution_drag            # print + write the report
+    .venv/bin/python -m farm.execution_drag --no-write # print only
 
 Interpretation guard: at small n this is noise-dominated (per-fill stdev is ~15-20x the
 mean). Do not act on it before the t-stat clears ~2, and read it per book — mean-reversion
@@ -25,13 +25,12 @@ import argparse
 import statistics
 import sys
 from datetime import date
-from pathlib import Path
 
-import duckdb
+from engine.lib import db
+from engine.lib.settings import DATA_DIR, REPO_ROOT  # noqa: F401
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-DB_PATH = REPO_ROOT / "store" / "market.duckdb"
-REPORT = REPO_ROOT / "data" / "reports" / "execution-drag.md"
+DB_PATH = db.DEFAULT_DB
+REPORT = DATA_DIR / "reports" / "execution-drag.md"
 
 QUERY = """
     SELECT f.portfolio_id, f.side, f.fill_date, o.signal_date, f.open_px, f.fill_px,
@@ -56,7 +55,7 @@ def main() -> int:
     ap.add_argument("--no-write", action="store_true", help="print only, skip the report file")
     args = ap.parse_args()
 
-    con = duckdb.connect(args.db, read_only=True)
+    con = db.connect(args.db, read_only=True)
     overnight: list[float] = []
     allin: list[float] = []
     per_book: dict[str, list[float]] = {}

@@ -42,17 +42,14 @@ Safety
 from __future__ import annotations
 
 import argparse
-import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
-from pathlib import Path
 
 import duckdb
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
-from lib import db  # noqa: E402
+from engine.lib import db
 
-from . import portfolio  # noqa: E402
+from . import portfolio
 
 KINDS = ("cash", "worthless", "stock")
 
@@ -350,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Dry run never opens the store for writing; --apply goes through the
     # project's single-writer path with its lock retry.
-    con = db.connect(args.db) if args.apply else duckdb.connect(args.db, read_only=True)
+    con = db.connect(args.db, read_only=not args.apply)
     try:
         if not args.apply:
             print(_render(t, settle(con, t, apply=False), applied=False))

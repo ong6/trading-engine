@@ -50,7 +50,7 @@ set +e
   # hard ceiling and --max-secs the wall-clock stop. Both are deliberate: a run
   # that cannot finish must stop and SAY it checked fewer names, never silently
   # report the subset it managed as if it were the universe.
-  "${PY}" engine/verify_prices.py \
+  "${PY}" -m engine.verify_prices \
     --sample 5000 --max-names 5000 --max-secs 10800 --sessions 5 \
     || echo "WARN: verification exited non-zero — it is fail-soft by design; see the log"
   echo "=== done $(date -u +%FT%TZ) ==="

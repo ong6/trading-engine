@@ -37,8 +37,8 @@ and charters remain on disk; re-enabling is a crontab edit. See BUILDLOG 2026-08
 ```bash
 python3.12 -m venv .venv && .venv/bin/pip install -r engine/requirements.txt
 .venv/bin/python -m pytest -q                      # 190+ tests, in-memory DuckDB, no network
-.venv/bin/python engine/universe.py                # build the ticker universe
-.venv/bin/python engine/collect.py --bootstrap-floor   # first backfill (hours; see how-it-works)
+.venv/bin/python -m engine.universe              # build the ticker universe
+.venv/bin/python -m engine.collect --bootstrap-floor   # first backfill (hours; see how-it-works)
 engine/run_daily.sh                                # one nightly, end to end
 ```
 

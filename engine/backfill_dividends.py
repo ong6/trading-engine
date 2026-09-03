@@ -14,21 +14,15 @@ ex_date - 1 reconstructed from sim_fills, so rebuild_state stays exact.
 from __future__ import annotations
 
 import argparse
-import sys
 from datetime import date
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "engine"))
-
-from lib import db  # noqa: E402
-from sim import portfolio  # noqa: E402
+from engine.lib import db
+from sim import portfolio
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db", default=str(REPO_ROOT / "store" / "market.duckdb"))
+    ap.add_argument("--db", default=str(db.DEFAULT_DB))
     ap.add_argument("--as-of", default=None, help="step date (default MAX(sim_equity.date))")
     ap.add_argument("--lookback-days", type=int, default=60)
     ap.add_argument("--apply", action="store_true")

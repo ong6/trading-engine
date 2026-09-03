@@ -27,24 +27,22 @@ import argparse
 import json
 import os
 import sys
-import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+from engine.lib import db
+from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT, WATCHLIST_PATH
+from engine.lib.settings import NOTES_DIR as STORE
+
 NEWS_JSONL = Path(os.path.expanduser("~/news-scraper/data/news.jsonl"))
-STORE = Path(os.environ.get(
-    "TRADING_ENGINE_STORE_DIR",
-    str(Path(__file__).resolve().parents[2] / "personal-data-store" / "trading"),
-))
-WATCHLIST = STORE / "watchlist.md"
+WATCHLIST = WATCHLIST_PATH
 MARKET_CONTEXT = STORE / "market-context.md"
-DB_PATH = REPO_ROOT / "store" / "market.duckdb"
+DB_PATH = DEFAULT_DB
 PROMPT_FILE = REPO_ROOT / "engine" / "news_analyst_prompt.md"
 # Last-good positions snapshot. DuckDB is single-writer and the farm/nightly can
 # hold the write lock for a long drain, so a locked DB degrades to yesterday's
 # holdings (clearly dated in the prompt) instead of no holdings at all.
-POS_CACHE = REPO_ROOT / "data" / "news_positions_cache.json"
+POS_CACHE = DATA_DIR / "news_positions_cache.json"
 
 # Cold-start window when there is no state file yet.
 DEFAULT_LOOKBACK_HOURS = 24
@@ -92,18 +90,12 @@ def open_positions() -> tuple[str, bool]:
     take a write lock, and DuckDB is single-writer, so a transient conflict is normal
     and must not fail a non-critical news run.
     """
-    try:
-        import duckdb
-    except Exception as e:  # pragma: no cover
-        return f"(unavailable: duckdb import failed — {e})", False
-
     last_err = None
-    for attempt in range(5):
+    for attempt in range(1):  # retry lives in db.connect (~30s window)
         try:
-            con = duckdb.connect(str(DB_PATH), read_only=True)
+            con = db.connect(DB_PATH, read_only=True, wait_s=30)
         except Exception as e:
             last_err = e
-            time.sleep(2 * (attempt + 1))
             continue
         try:
             rows = con.execute(

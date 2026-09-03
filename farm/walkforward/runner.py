@@ -32,36 +32,25 @@ import argparse
 import json
 import os
 import shutil
-import sys
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-for _p in (str(REPO_ROOT), str(REPO_ROOT / "engine")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-from lib import db  # noqa: E402
-from sim import portfolio as _pf  # noqa: E402
-from lib import leverage as lev  # noqa: E402
-
-from sim import league  # noqa: E402
-from sim.schema import INITIAL_CASH  # noqa: E402
-
-if __package__:
-    from . import protocol
-else:  # pragma: no cover - script invocation
-    from farm.walkforward import protocol
-
-from farm.backtest import hist_screen, stats  # noqa: E402
-from farm.walkforward import monthly as wf_monthly  # noqa: E402
-from farm.backtest.replay import (  # noqa: E402
+from engine.lib import db
+from engine.lib import leverage as lev
+from engine.lib.settings import DATA_DIR, REPO_ROOT
+from farm.backtest import hist_screen, stats
+from farm.backtest.replay import (
     DEFAULT_REQUIRED, NEEDS_SCREEN, REQUIRED, REQUIRED_LOOKBACK, build_scratch,
 )
+from farm.walkforward import monthly as wf_monthly
+from farm.walkforward import protocol
+from sim import league
+from sim import portfolio as _pf
+from sim.schema import INITIAL_CASH
 
 SCRATCH_ROOT = REPO_ROOT / "scratch"
-WF_DIR = REPO_ROOT / "data" / "reports" / "walkforward"
+WF_DIR = DATA_DIR / "reports" / "walkforward"
 RESULTS_DIR = WF_DIR / "results"
 
 # Sim tables wiped between folds. `portfolios` is included on purpose: each fold
@@ -521,8 +510,7 @@ def main() -> int:
     ap.add_argument("--threads", type=int, default=4)  # measured 2026-08-20: see run_book
     args = ap.parse_args()
 
-    import duckdb
-    live = duckdb.connect(args.db, read_only=True)
+    live = db.connect(args.db, read_only=True)
     try:
         if args.config == "list":
             for b in active_books(live):
