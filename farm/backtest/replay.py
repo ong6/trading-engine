@@ -63,6 +63,9 @@ from sim import league
 from sim import portfolio as _pf
 from sim.schema import init_sim_schema
 from sim.strategies.configs import CONFIGS, config_by_id
+from engine.lib.log import get_logger
+
+log = get_logger("replay")
 
 SCRATCH_ROOT = REPO_ROOT / "scratch"
 RESULTS_DIR = DATA_DIR / "reports" / "backtests" / "results"
@@ -233,9 +236,8 @@ def build_scratch(live_con, scratch_dir: Path, start: date, end: date,
     n_ca = con.execute("SELECT COUNT(*) FROM corporate_actions").fetchone()[0]
     shutil.rmtree(pq, ignore_errors=True)
     if verbose:
-        print(f"[replay] scratch {path} built in {time.time() - t0:.0f}s "
-              f"(prices {n_px:,} rows from {px_start}, actions {n_ca:,})",
-              flush=True)
+        log.info(f"[replay] scratch {path} built in {time.time() - t0:.0f}s "
+              f"(prices {n_px:,} rows from {px_start}, actions {n_ca:,})")
     return path
 
 
@@ -261,7 +263,7 @@ def _run_m1_screens(db_path: Path, sessions: list[date], data_dir: Path) -> None
         "SELECT DISTINCT run_date FROM screen_results").fetchall()}
     con.close()
     todo = [d for d in sessions if d not in have]
-    print(f"[replay] m1 screens: {len(todo)} of {len(sessions)} sessions missing")
+    log.info(f"[replay] m1 screens: {len(todo)} of {len(sessions)} sessions missing")
     for d in todo:
         m1_screen.run(str(db_path), data_dir, d.isoformat(), rerun=False)
 
@@ -282,9 +284,8 @@ def run_replay(live_con, config_id: str, window: str, *,
     start, end, clamped = resolve_window(live_con, config_id, window, override)
     sessions = hist_screen.sessions_between(live_con, start, end)
     t0 = time.time()
-    print(f"[replay] {config_id} / {window}: {len(sessions)} sessions "
-          f"{start} → {end}{' (CLAMPED to data floor)' if clamped else ''}",
-          flush=True)
+    log.info(f"[replay] {config_id} / {window}: {len(sessions)} sessions "
+          f"{start} → {end}{' (CLAMPED to data floor)' if clamped else ''}")
 
     scratch_dir = Path(scratch_root) / f"{config_id}__{window}"
     shutil.rmtree(scratch_dir, ignore_errors=True)
@@ -336,8 +337,8 @@ def run_replay(live_con, config_id: str, window: str, *,
         for i, d in enumerate(sessions):
             league.step(con, d, scratch_dir, rerun=False, verbose=False)
             if verbose and (i + 1) % 250 == 0:
-                print(f"[replay]   {i + 1}/{len(sessions)} sessions "
-                      f"({time.time() - t_step:.0f}s)", flush=True)
+                log.info(f"[replay]   {i + 1}/{len(sessions)} sessions "
+                      f"({time.time() - t_step:.0f}s)")
         step_s = time.time() - t_step
 
         eq = con.execute(
@@ -391,15 +392,15 @@ def run_replay(live_con, config_id: str, window: str, *,
             results_dir.mkdir(parents=True, exist_ok=True)
             out = results_dir / f"{config_id}__{window}.json"
             out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-            print(f"[replay] wrote {out}", flush=True)
+            log.info(f"[replay] wrote {out}")
     finally:
         if not keep_scratch:
             shutil.rmtree(scratch_dir, ignore_errors=True)
 
-    print(f"[replay] {config_id}/{window} done in {result.get('runtime_s')}s: "
+    log.info(f"[replay] {config_id}/{window} done in {result.get('runtime_s')}s: "
           f"CAGR {_pct(result.get('cagr'))} vol {_pct(result.get('vol_ann'))} "
           f"Sharpe {_num(result.get('sharpe'))} maxDD {_pct(result.get('max_dd'))} "
-          f"fills {result.get('n_fills')}", flush=True)
+          f"fills {result.get('n_fills')}")
     return result
 
 
@@ -450,7 +451,7 @@ def main() -> int:
     if args.config == "list":
         for c in CONFIGS:
             mark = f"  EXCLUDED: {EXCLUDED[c['id']]}" if c["id"] in EXCLUDED else ""
-            print(f"{c['id']:<28} {c['strategy']:<24} {c['cadence']:<8}{mark}")
+            log.info(f"{c['id']:<28} {c['strategy']:<24} {c['cadence']:<8}{mark}")
         return 0
 
     live = db.connect(args.db, read_only=True)
@@ -470,7 +471,7 @@ def main() -> int:
         # consistent with data/reports/backtests/results/.
         from farm.backtest import report
         for f in report.write_reports():
-            print(f"[replay] report → {f}")
+            log.info(f"[replay] report → {f}")
     return 0
 
 

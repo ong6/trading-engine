@@ -18,6 +18,9 @@ from datetime import date
 
 from engine.lib import db
 from sim import portfolio
+from engine.lib.log import get_logger
+
+log = get_logger("backfill-div")
 
 
 def main() -> int:
@@ -32,7 +35,7 @@ def main() -> int:
     d = (date.fromisoformat(a.as_of) if a.as_of
          else con.execute("SELECT MAX(date) FROM sim_equity").fetchone()[0])
     before = con.execute("SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM sim_dividends").fetchone()
-    print(f"[backfill-div] as_of={d} lookback={a.lookback_days}d  "
+    log.info(f"[backfill-div] as_of={d} lookback={a.lookback_days}d  "
           f"sim_dividends before: {before[0]} rows / ${before[1]:,.2f}")
     con.execute("BEGIN TRANSACTION")
     try:
@@ -41,15 +44,15 @@ def main() -> int:
             "SELECT portfolio_id, ticker, ex_date, qty, dps, amount FROM sim_dividends "
             "ORDER BY ex_date, portfolio_id, ticker").fetchall()
         for pf, tk, ex, q, dps, amt in rows:
-            print(f"    {ex}  {pf:<28} {tk:<6} {q:12.4f} x {dps:.4f} = ${amt:9.2f}")
-        print(f"[backfill-div] {'APPLY' if a.apply else 'DRY-RUN'}: credited "
+            log.info(f"    {ex}  {pf:<28} {tk:<6} {q:12.4f} x {dps:.4f} = ${amt:9.2f}")
+        log.info(f"[backfill-div] {'APPLY' if a.apply else 'DRY-RUN'}: credited "
               f"{out['credited']} rows / ${out['amount']:,.2f}")
         if a.apply:
             con.execute("COMMIT")
-            print("[backfill-div] committed")
+            log.info("[backfill-div] committed")
         else:
             con.execute("ROLLBACK")
-            print("[backfill-div] rolled back — nothing written")
+            log.info("[backfill-div] rolled back — nothing written")
     except Exception:
         con.execute("ROLLBACK")
         raise

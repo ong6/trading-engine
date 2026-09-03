@@ -42,6 +42,9 @@ import yaml
 from engine.lib import db as enginedb
 from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT  # noqa: F401
 from farm import stats as fstats
+from engine.lib.log import get_logger
+
+log = get_logger("farm")
 
 EXPERIMENTS_DIR = Path(__file__).resolve().parent / "experiments"
 PENDING_DIR = Path(__file__).resolve().parent / "pending-results"
@@ -672,7 +675,7 @@ def run_standalone(cfg_id, cfg_path, db_path) -> int:
     report. Falls back to pending-results/<id>.json if the store stays locked."""
     cfg, path = resolve_config(cfg_id, cfg_path)
     chash = config_hash(cfg)
-    print(f"[farm] {cfg['id']} config hash {chash[:16]} (from {path})")
+    log.info(f"[farm] {cfg['id']} config hash {chash[:16]} (from {path})")
 
     # 1) compute read-only (pin the data window so the holdout is reproducible)
     ro = _connect_ro(db_path)
@@ -694,7 +697,7 @@ def run_standalone(cfg_id, cfg_path, db_path) -> int:
         pend.write_text(json.dumps(rows, indent=2, default=str))
         storage_note = (f"store stayed LOCKED ({exc}); results written to {pend} "
                         f"(append to experiment_results later).")
-        print(f"[farm] {storage_note}")
+        log.info(f"[farm] {storage_note}")
         _write_report(cfg, chash, res, run_at, storage_note)
         return 0
 
@@ -704,18 +707,18 @@ def run_standalone(cfg_id, cfg_path, db_path) -> int:
         if state == "exists":
             storage_note = ("identical config already has results — append skipped "
                             "(holdout not re-touched); report refreshed.")
-            print(f"[farm] {storage_note}")
+            log.info(f"[farm] {storage_note}")
         else:
             append_results(rw, rows)
             _write_pin(cfg["id"], res["data_as_of"])   # pin at first registration
             storage_note = (f"{len(rows)} rows appended to experiment_results "
                             f"(append-only) at {run_at:%Y-%m-%d %H:%M UTC}.")
-            print(f"[farm] {storage_note}")
+            log.info(f"[farm] {storage_note}")
     finally:
         rw.close()
 
     p = _write_report(cfg, chash, res, run_at, storage_note)
-    print(f"[farm] report → {p}")
+    log.info(f"[farm] report → {p}")
     _print_summary(cfg, res)
     return 0
 
@@ -745,7 +748,7 @@ def run_job(params: dict, con, meta_path=None) -> None:
         _write_pin(cfg["id"], res["data_as_of"])   # pin at first registration
         note = f"{len(rows)} rows appended to experiment_results."
     _write_report(cfg, chash, res, run_at, note)
-    print(f"[farm] job {cfg['id']}: {note}")
+    log.info(f"[farm] job {cfg['id']}: {note}")
 
 
 def _print_summary(cfg, res):

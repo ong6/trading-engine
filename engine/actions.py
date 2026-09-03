@@ -73,6 +73,9 @@ from engine.lib import db
 from engine.lib import resources as rsc
 from engine.lib.settings import STORE_DIR
 from engine.lib.settings import META_PATH as DEFAULT_META
+from engine.lib.log import get_logger
+
+log = get_logger("actions")
 
 PER_NAME_SLEEP = 0.35      # politeness pause between per-name .actions requests
 RETRY_SLEEP = 15           # one backoff before recording a name as a gap
@@ -229,7 +232,7 @@ def collect(con, params: dict, mode: str) -> dict:
     resume = params.get("resume", True) and mode == "backfill"
     done = _already_done(con, on) if resume else set()
     pending = [(tk, yft) for tk, yft in pairs if tk not in done]
-    print(f"[actions] mode={mode} universe={len(pairs)} source='{source}' "
+    log.info(f"[actions] mode={mode} universe={len(pairs)} source='{source}' "
           f"already_done_today={len(done & {tk for tk, _ in pairs})} "
           f"pending={len(pending)}")
 
@@ -271,7 +274,7 @@ def collect(con, params: dict, mode: str) -> dict:
                             "status": "ok" if rows else "empty"})
         if i % FLUSH_EVERY == 0:
             _flush()
-            print(f"[actions] {i}/{len(pending)} pulled (with_actions={with_actions} "
+            log.info(f"[actions] {i}/{len(pending)} pulled (with_actions={with_actions} "
                   f"empty={empty} failed={failed} rows_written={inserted})")
         time.sleep(PER_NAME_SLEEP)
     _flush()
@@ -555,7 +558,7 @@ def tripwire(con) -> list[str]:
                 f"corporate_actions row within {TRIPWIRE_NEAR_DAYS}d — possible "
                 f"missed split")
         warns.append(line)
-        print(f"[actions] {line}")
+        log.info(f"[actions] {line}")
         _audit(con, "tripwire_unexplained_move",
                {"ticker": tk, "date": d, "move": move})
     return warns
@@ -567,7 +570,7 @@ def reconcile(con) -> dict:
     split_adjustments watermark means each split is decided exactly once."""
     latest = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
     if latest is None:
-        print("[actions] reconcile: prices table is empty; nothing to do")
+        log.info("[actions] reconcile: prices table is empty; nothing to do")
         return {"candidates": 0}
 
     cands = con.execute(
@@ -577,7 +580,7 @@ def reconcile(con) -> dict:
         "ORDER BY c.ex_date, c.ticker",
         [latest],
     ).fetchall()
-    print(f"[actions] reconcile: {len(cands)} unadjudicated split(s) "
+    log.info(f"[actions] reconcile: {len(cands)} unadjudicated split(s) "
           f"with ex_date <= {latest}")
 
     counts: dict[str, int] = {}
@@ -591,7 +594,7 @@ def reconcile(con) -> dict:
             n = _restate(con, tk, ex, ratio, v["break_date"])
             restated_rows += n
             outcome = "applied"
-            print(f"[actions] RESTATED {tk} split {ratio:g}:1 ex={ex} "
+            log.info(f"[actions] RESTATED {tk} split {ratio:g}:1 ex={ex} "
                   f"break={v['break_date']} rows={n} (obs {v['observed']:.4f}) "
                   f"— pre-ex pending orders rescaled, positions rebuilt from fills")
         else:
@@ -600,7 +603,7 @@ def reconcile(con) -> dict:
                 line = (f"WARN {outcome}: {tk} split {ratio:g}:1 ex={ex} "
                         f"(observed {v['observed']}) — NOT restated, needs a human")
                 todos.append(line)
-                print(f"[actions] {line}")
+                log.info(f"[actions] {line}")
                 _audit(con, f"split_{outcome}",
                        {"ticker": tk, "ex_date": ex, "ratio": ratio,
                         "observed": v["observed"]})
@@ -609,16 +612,16 @@ def reconcile(con) -> dict:
     todos += tripwire(con)
     summary = {"candidates": len(cands), "rows_restated": restated_rows,
                "outcomes": counts, "warnings": len(todos)}
-    print(f"[actions] reconcile DONE: {counts or '{}'} rows_restated={restated_rows}")
+    log.info(f"[actions] reconcile DONE: {counts or '{}'} rows_restated={restated_rows}")
     if todos:
         # The first reconcile after a full backfill adjudicates the entire split
         # history of ~12k names at once, so the never-guess skips arrive as a
         # one-time burst. Cap the nightly log; audit_log has every one of them.
-        print(f"TODO: corporate actions need review ({len(todos)}):")
+        log.error(f"TODO: corporate actions need review ({len(todos)}):")
         for t in todos[:TODO_LOG_CAP]:
-            print(f"TODO:   {t}")
+            log.error(f"TODO:   {t}")
         if len(todos) > TODO_LOG_CAP:
-            print(f"TODO:   … and {len(todos) - TODO_LOG_CAP} more — full list in "
+            log.error(f"TODO:   … and {len(todos) - TODO_LOG_CAP} more — full list in "
                   f"audit_log (actor='actions.reconcile')")
     return summary
 

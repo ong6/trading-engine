@@ -51,6 +51,9 @@ from engine.lib import db as enginedb  # engine/lib/db.py — the lock-retrying 
 from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT
 from farm import experiment as E  # farm/experiment.py — shared config/hash/table helpers
 from sim.fills import median_dollar_vol, slippage_bps_for
+from engine.lib.log import get_logger
+
+log = get_logger("e1")
 
 FARM_DIR = Path(__file__).resolve().parent
 EXPERIMENTS_DIR = FARM_DIR / "experiments"
@@ -510,11 +513,11 @@ def run(con, cfg: dict, *, now: datetime | None = None, read_only: bool = False)
     if new and not read_only:
         appended = append_oos_rows(con, cfg, phash, new, now)
     for t in new:
-        print(f"[e1] +oos {t['date']}: open {t['open']:.4f} close {t['close']:.4f} "
+        log.info(f"[e1] +oos {t['date']}: open {t['open']:.4f} close {t['close']:.4f} "
               f"gross {t['gross'] * 100:+.4f}% net {t['net'] * 100:+.4f}% "
               f"(slip {t['slip_bps_side']:.1f}bp/side)")
     for d in skipped_unsettled:
-        print(f"[e1] {d} not settled yet (before {SETTLE_UTC} UTC) — not recorded")
+        log.warning(f"[e1] {d} not settled yet (before {SETTLE_UTC} UTC) — not recorded")
 
     if read_only and new:
         note = (f"store was LOCKED — {len(new)} new Monday(s) NOT appended; report "
@@ -526,12 +529,12 @@ def run(con, cfg: dict, *, now: datetime | None = None, read_only: bool = False)
     else:
         note = ("no new settled Mondays — nothing appended; the report was regenerated "
                 "from `experiment_results` (re-running is a no-op by design).")
-    print(f"[e1] {note}")
+    log.info(f"[e1] {note}")
 
     oos = load_oos_series(con, cfg["id"]) if _has_results_table(con) else []
     ctx = backtest_context(con, cfg, oos_start)
     p = write_report(cfg, render_report(cfg, phash, oos, ctx, now, note))
-    print(f"[e1] report → {p} ({len(oos)} out-of-sample Monday(s), "
+    log.info(f"[e1] report → {p} ({len(oos)} out-of-sample Monday(s), "
           f"{max(0, int(cfg['kill_criterion']['n_oos_mondays']) - len(oos))} to kill-eval)")
     return {"appended": appended, "n_oos": len(oos), "report": str(p)}
 
@@ -552,7 +555,7 @@ def main() -> int:
     args = ap.parse_args()
 
     cfg, path = load_forward_config(args.id, args.config)
-    print(f"[e1] forward config {path} (hash {forward_config_hash(cfg)[:16]})")
+    log.info(f"[e1] forward config {path} (hash {forward_config_hash(cfg)[:16]})")
 
     if args.report_only:
         con = enginedb.connect(args.db, read_only=True)
@@ -565,7 +568,7 @@ def main() -> int:
     try:
         con = enginedb.connect(args.db)
     except Exception as exc:  # noqa: BLE001 — reporting must never block the nightly
-        print(f"[e1] store locked ({exc}); falling back to a read-only report refresh")
+        log.info(f"[e1] store locked ({exc}); falling back to a read-only report refresh")
         con = enginedb.connect(args.db, read_only=True)
         try:
             run(con, cfg, read_only=True)

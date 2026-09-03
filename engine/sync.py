@@ -15,6 +15,9 @@ import subprocess
 from datetime import datetime, timezone
 
 from engine.lib.settings import META_PATH, REPO_ROOT
+from engine.lib.log import get_logger
+
+log = get_logger("sync")
 
 
 def _git(*args: str) -> subprocess.CompletedProcess:
@@ -60,7 +63,7 @@ def main() -> int:
     # conflict. Bail loudly and leave it for the operator.
     marker = _rebase_in_progress()
     if marker is not None:
-        print(f"[sync] ABORT: a git {marker} is in progress "
+        log.error(f"[sync] ABORT: a git {marker} is in progress "
               f"({REPO_ROOT / '.git' / marker}) — resolve it "
               f"(git rebase --continue/--abort or resolve the merge) then re-run sync")
         return 1
@@ -72,36 +75,36 @@ def main() -> int:
     message = _commit_message()
 
     if not staged:
-        print("[sync] nothing staged — data/ is clean; nothing to commit")
+        log.info("[sync] nothing staged — data/ is clean; nothing to commit")
         return 0
 
     files = staged.splitlines()
-    print(f"[sync] {len(files)} staged file(s):")
+    log.info(f"[sync] {len(files)} staged file(s):")
     for f in files:
-        print(f"    {f}")
+        log.info(f"    {f}")
 
     if args.dry_run:
         # Unstage so a dry-run leaves the working tree exactly as it found it.
         _git("reset", "--quiet")
-        print(f"[sync] --dry-run: would commit with message: {message!r}")
+        log.info(f"[sync] --dry-run: would commit with message: {message!r}")
         return 0
 
     commit = _git("commit", "-m", message)
     if commit.returncode != 0:
-        print(f"[sync] commit failed:\n{commit.stderr.strip()}")
+        log.error(f"[sync] commit failed:\n{commit.stderr.strip()}")
         return 1
-    print(f"[sync] committed: {message}")
+    log.info(f"[sync] committed: {message}")
 
     has_remote = bool(_git("remote").stdout.strip())
     if not has_remote:
-        print("[sync] no remote — commit local only")
+        log.info("[sync] no remote — commit local only")
         return 0
 
     push = _git("push")
     if push.returncode != 0:
-        print(f"[sync] push failed:\n{push.stderr.strip()}")
+        log.error(f"[sync] push failed:\n{push.stderr.strip()}")
         return 1
-    print("[sync] pushed")
+    log.info("[sync] pushed")
     return 0
 
 

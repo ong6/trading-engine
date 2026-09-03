@@ -19,6 +19,9 @@ import duckdb
 import pandas as pd
 
 from engine.lib import settings
+from engine.lib.log import get_logger
+
+log = get_logger("db")
 
 REPO_ROOT = settings.REPO_ROOT
 DEFAULT_DB = settings.DEFAULT_DB
@@ -100,7 +103,7 @@ def connect(path: str | Path | None = None, *,
         except Exception as exc:  # duckdb.IOException et al.
             if not is_lock_error(exc) or attempt >= tries:
                 raise
-            print(f"[db] store locked (attempt {attempt}/{tries}) — "
+            log.info(f"[db] store locked (attempt {attempt}/{tries}) — "
                   f"retrying in {_LOCK_RETRY_S:.0f}s")
             time.sleep(_LOCK_RETRY_S)
     raise AssertionError("unreachable")  # pragma: no cover

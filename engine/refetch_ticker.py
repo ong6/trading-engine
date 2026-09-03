@@ -30,6 +30,9 @@ from datetime import date, datetime, timezone
 import duckdb
 
 from engine.lib import db
+from engine.lib.log import get_logger
+
+log = get_logger("refetch")
 
 SHOW_DATES = ["2026-04-17", "2026-07-09", "2026-07-10", "2026-07-13", "2026-07-14"]
 
@@ -46,14 +49,14 @@ def fetch_history(yf_ticker: str, canon: str):
 def _show(con, ticker: str, dates: list[str], label: str) -> None:
     n = con.execute("SELECT COUNT(*), MIN(date), MAX(date) FROM prices WHERE ticker = ?",
                     [ticker]).fetchone()
-    print(f"  [{label}] {ticker}: {n[0]} rows {n[1]}..{n[2]}")
+    log.info(f"  [{label}] {ticker}: {n[0]} rows {n[1]}..{n[2]}")
     for d in dates:
         r = con.execute("SELECT open, close, volume FROM prices WHERE ticker = ? AND date = ?",
                         [ticker, date.fromisoformat(d)]).fetchone()
         if r is None:
-            print(f"    {d}  (no row)")
+            log.info(f"    {d}  (no row)")
         else:
-            print(f"    {d}  open {r[0]:>12.4f}  close {r[1]:>12.4f}  vol {int(r[2] or 0):>12,}")
+            log.info(f"    {d}  open {r[0]:>12.4f}  close {r[1]:>12.4f}  vol {int(r[2] or 0):>12,}")
 
 
 def refetch(con: duckdb.DuckDBPyConnection, ticker: str, *, apply: bool, force: bool,
@@ -89,7 +92,7 @@ def refetch(con: duckdb.DuckDBPyConnection, ticker: str, *, apply: bool, force: 
     out = {"ticker": ticker, "yf_ticker": yf_ticker, "rows_before": old_n,
            "rows_after": int(len(s)), "applied": apply}
     if not apply:
-        print(f"[refetch] DRY-RUN: would replace {old_n} rows with {len(s)} fresh rows "
+        log.info(f"[refetch] DRY-RUN: would replace {old_n} rows with {len(s)} fresh rows "
               f"({s.date.min()}..{s.date.max()}); nothing written")
         return out
 
@@ -110,7 +113,7 @@ def refetch(con: duckdb.DuckDBPyConnection, ticker: str, *, apply: bool, force: 
         con.execute("ROLLBACK")
         raise
     _show(con, ticker, show_dates, "after")
-    print(f"[refetch] APPLIED: {ticker} {old_n} -> {n} rows; watermark superseded_by_refetch")
+    log.info(f"[refetch] APPLIED: {ticker} {old_n} -> {n} rows; watermark superseded_by_refetch")
     return out
 
 

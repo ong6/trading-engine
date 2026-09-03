@@ -43,6 +43,9 @@ import numpy as np
 from .base import (
     PortfolioView, Strategy, close_on, rebalance_orders, total_return,
 )
+from engine.lib.log import get_logger
+
+log = get_logger("macro_composite")
 
 # --- FROZEN THRESHOLDS (pre-registered 2026-07-31) -------------------------- #
 BREADTH_BULL = 55.0          # % of the liquid universe above its own 200d SMA
@@ -356,7 +359,7 @@ class MacroComposite(Strategy):
 
         def warn(msg: str) -> None:
             warned.append(msg)
-            print(f"[macro_composite] WARN {as_of}: {msg}")
+            log.warning(f"[macro_composite] WARN {as_of}: {msg}")
 
         vb, ib = _block_breadth(con, as_of, warn)
         vc, ic = _block_credit(con, as_of, warn)
@@ -380,7 +383,7 @@ class MacroComposite(Strategy):
         current = (held * px / pf.equity) if (px and pf.equity) else 0.0
         move = abs(target - current)
 
-        print(f"[macro_composite] {as_of} votes breadth={vb} credit={vc} "
+        log.info(f"[macro_composite] {as_of} votes breadth={vb} credit={vc} "
               f"vol={vv} macro={vm} → score {score:+d} → tier "
               f"{_tier(score):.2f}"
               f"{' +fear' if fear else ''}{' capped@0.50' if capped else ''}"
@@ -392,9 +395,9 @@ class MacroComposite(Strategy):
               f"{f' · {len(warned)} missing series' if warned else ''}")
 
         if move < HYSTERESIS:
-            print(f"[macro_composite] {as_of} hysteresis: |Δ| {move:.2f} < "
+            log.info(f"[macro_composite] {as_of} hysteresis: |Δ| {move:.2f} < "
                   f"{HYSTERESIS:.2f} — no trade")
             return []
-        print(f"[macro_composite] {as_of} ALLOCATION CHANGE "
+        log.info(f"[macro_composite] {as_of} ALLOCATION CHANGE "
               f"{current:.2f} → {target:.2f}")
         return rebalance_orders(con, pf, as_of, {"SPY": target})

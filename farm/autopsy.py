@@ -46,6 +46,9 @@ import duckdb
 
 from engine.lib import db
 from engine.lib.settings import REPO_ROOT  # noqa: F401
+from engine.lib.log import get_logger
+
+log = get_logger("autopsy")
 
 DB_PATH = db.DEFAULT_DB
 
@@ -577,12 +580,12 @@ def main(argv: list[str] | None = None) -> int:
         p = Path(a.json_out)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(result, indent=2, default=str) + "\n")
-        print(f"[autopsy] wrote {p}")
+        log.info(f"[autopsy] wrote {p}")
     if a.md_out:
         p = Path(a.md_out)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(md)
-        print(f"[autopsy] wrote {p}")
+        log.info(f"[autopsy] wrote {p}")
     if not a.json_out and not a.md_out:
         print(md)
     return 0

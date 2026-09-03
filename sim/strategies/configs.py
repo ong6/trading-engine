@@ -309,7 +309,8 @@ CONFIGS: list[dict] = [
 
     # ----------------------------------------------------------------- #
     # Agentic books (registered 2026-08-04, spec:
-    # trading/trading-engine/agentic-strategies-design.md).
+    # trading/trading-engine/agentic-strategies-design.md). RETIRED 2026-08-18
+    # (active = FALSE in `portfolios`); code + charters in archive/agentic-2026-08/.
     #
     # Five books whose CORE IS CODE and whose agent may only make bounded,
     # pre-registered adjustments — plus the two frozen twins that did not
@@ -320,8 +321,9 @@ CONFIGS: list[dict] = [
     #
     # `agent_gate` / `agent_tuned` are the ONLY flags that change behaviour,
     # and only in the book that carries them. `agent_version` is stamped here
-    # and bumped by agents/validator.py so any equity period maps to the
-    # parameters it actually ran (history in agents/<book>/changes.jsonl).
+    # and was bumped by agents/validator.py so any equity period maps to the
+    # parameters it actually ran (history in agents/<book>/changes.jsonl, both
+    # now under archive/agentic-2026-08/).
     # ----------------------------------------------------------------- #
     {
         "id": "news_gated_momo",

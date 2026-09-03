@@ -38,6 +38,9 @@ from engine.lib import db
 from engine.lib import resources as rsc
 from engine.lib.settings import STORE_DIR
 from engine.lib.settings import META_PATH as DEFAULT_META
+from engine.lib.log import get_logger
+
+log = get_logger("earnings")
 
 PER_NAME_SLEEP = 0.4       # politeness pause between per-name .calendar requests
 RETRY_SLEEP = 15           # one backoff before recording a name as a gap
@@ -172,7 +175,7 @@ def _dates_from_calendar(cal: dict | None, yf_ticker: str = "") -> tuple[list[da
         ts = pd.to_datetime(d, errors="coerce")
         if pd.isna(ts):
             # A non-null value we could not parse (finding B) — never fabricate.
-            print(f"[earnings] dropped unparseable earnings-date value {d!r}"
+            log.warning(f"[earnings] dropped unparseable earnings-date value {d!r}"
                   + (f" for {yf_ticker}" if yf_ticker else ""))
             continue
         dates.append(ts.date())
@@ -205,7 +208,7 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
 
     done = _already_done(con, as_of)
     pending = [(tk, yft) for tk, yft in pairs if tk not in done]
-    print(f"[earnings] as_of={as_of} universe={len(pairs)} source='{source}' "
+    log.info(f"[earnings] as_of={as_of} universe={len(pairs)} source='{source}' "
           f"already_done_today={len(done & {tk for tk, _ in pairs})} pending={len(pending)}")
 
     inserted = 0
@@ -236,7 +239,7 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
                                    "is_estimate": is_est})
         if i % FLUSH_EVERY == 0:
             _flush()
-            print(f"[earnings] {i}/{len(pending)} pulled (with_date={with_date} "
+            log.info(f"[earnings] {i}/{len(pending)} pulled (with_date={with_date} "
                   f"no_date={no_date} failed={failed} inserted={inserted})")
         time.sleep(PER_NAME_SLEEP)
     _flush()
@@ -261,7 +264,7 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
     rsc.merge_meta(meta_path, {"earnings": accounting})
     rsc.update_disk_warning(meta_path, store_gb)
 
-    print(f"[earnings] DONE as_of={as_of} pulled={len(pending)} with_date={with_date} "
+    log.info(f"[earnings] DONE as_of={as_of} pulled={len(pending)} with_date={with_date} "
           f"no_date={no_date} failed={failed} inserted={inserted} "
           f"rows_for_as_of={total_rows} store={store_gb:.2f}GiB")
     return accounting

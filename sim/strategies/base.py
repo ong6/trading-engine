@@ -15,12 +15,17 @@ import duckdb
 import numpy as np
 
 from engine.lib import settings
+from engine.lib.log import get_logger
+
+log = get_logger("gate")
 
 MIN_ORDER_USD = 50.0  # skip dust rebalancing below this notional
 
 # Where the agentic books keep their per-book state (charter / lessons /
 # changes / daily gate files). Overridable so a shakedown on a store COPY can
-# point at a scratch tree without touching the live one.
+# point at a scratch tree without touching the live one. The layer was retired
+# 2026-08-18 and lives in archive/agentic-2026-08/; while the directory is
+# absent, apply_agent_gate() is a silent no-op (fail-open, pure algo).
 AGENTS_DIR = settings.AGENTS_DIR
 # Hard floor on how far an agent may downscale an algo entry. A "downscale" that
 # rounds a position to nothing is a veto wearing a disguise, and the two are
@@ -303,22 +308,25 @@ def apply_agent_gate(pf: PortfolioView, as_of: date,
     """
     if not pf.params.get("agent_gate"):
         return orders
+    # Retired layer (archive/agentic-2026-08/): no agents tree → nothing to read.
+    if AGENTS_DIR is None or not AGENTS_DIR.is_dir():
+        return orders
 
     path = AGENTS_DIR / pf.id / f"gate-{as_of.isoformat()}.json"
     try:
         gate = json.loads(path.read_text())
     except FileNotFoundError:
-        print(f"[gate] {pf.id} {as_of}: no gate file — fail-open, pure algo "
+        log.info(f"[gate] {pf.id} {as_of}: no gate file — fail-open, pure algo "
               f"({sum(1 for o in orders if o.side == 'buy')} buy order(s) unchanged)")
         return orders
     except Exception as exc:  # noqa: BLE001 — malformed JSON, bad permissions…
-        print(f"[gate] WARN {pf.id} {as_of}: unreadable gate file ({exc}) — "
+        log.warning(f"[gate] WARN {pf.id} {as_of}: unreadable gate file ({exc}) — "
               f"fail-open, pure algo")
         return orders
 
     # A gate file stamped with a different date is not this session's decision.
     if gate.get("date") not in (None, as_of.isoformat()):
-        print(f"[gate] WARN {pf.id} {as_of}: gate file is stamped "
+        log.warning(f"[gate] WARN {pf.id} {as_of}: gate file is stamped "
               f"{gate.get('date')!r} — ignoring, fail-open")
         return orders
 
@@ -328,7 +336,7 @@ def apply_agent_gate(pf: PortfolioView, as_of: date,
         if tk and d.get("action") in ("veto", "downscale"):
             decisions[tk] = d
     if not decisions:
-        print(f"[gate] {pf.id} {as_of}: gate file present, 0 vetoes/downscales")
+        log.info(f"[gate] {pf.id} {as_of}: gate file present, 0 vetoes/downscales")
         return orders
 
     out: list[Order] = []
@@ -340,7 +348,7 @@ def apply_agent_gate(pf: PortfolioView, as_of: date,
             continue
         if d["action"] == "veto":
             n_veto += 1
-            print(f"[gate] {pf.id} {as_of}: VETO buy {o.ticker} — "
+            log.info(f"[gate] {pf.id} {as_of}: VETO buy {o.ticker} — "
                   f"{str(d.get('reason', ''))[:120]}")
             continue
         try:
@@ -352,11 +360,11 @@ def apply_agent_gate(pf: PortfolioView, as_of: date,
             out.append(o)
             continue
         n_scaled += 1
-        print(f"[gate] {pf.id} {as_of}: DOWNSCALE buy {o.ticker} ×{scale:.2f} — "
+        log.info(f"[gate] {pf.id} {as_of}: DOWNSCALE buy {o.ticker} ×{scale:.2f} — "
               f"{str(d.get('reason', ''))[:120]}")
         out.append(Order(o.portfolio_id, o.ticker, o.side, o.qty * scale,
                          o.signal_date))
-    print(f"[gate] {pf.id} {as_of}: applied {n_veto} veto(es), "
+    log.info(f"[gate] {pf.id} {as_of}: applied {n_veto} veto(es), "
           f"{n_scaled} downscale(s) over "
           f"{sum(1 for o in orders if o.side == 'buy')} buy order(s)")
     return out

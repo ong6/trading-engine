@@ -36,6 +36,9 @@ from engine.lib import db
 from engine.lib import resources as rsc
 from engine.lib.settings import STORE_DIR
 from engine.lib.settings import META_PATH as DEFAULT_META
+from engine.lib.log import get_logger
+
+log = get_logger("fundamentals")
 
 PER_NAME_SLEEP = 0.4       # politeness pause between per-name .info requests
 RETRY_SLEEP = 15           # one backoff before recording a name as a gap
@@ -152,7 +155,7 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
 
     done = _already_done(con, as_of)
     pending = [(tk, yft) for tk, yft in pairs if tk not in done]
-    print(f"[fundamentals] as_of={as_of} universe={len(pairs)} "
+    log.info(f"[fundamentals] as_of={as_of} universe={len(pairs)} "
           f"already_done_today={len(done & {tk for tk, _ in pairs})} "
           f"pending={len(pending)}")
 
@@ -180,7 +183,7 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
             buffer.append(row)
         if i % FLUSH_EVERY == 0:
             _flush()
-            print(f"[fundamentals] {i}/{len(pending)} pulled "
+            log.info(f"[fundamentals] {i}/{len(pending)} pulled "
                   f"(with_data={with_data} failed={failed} inserted={inserted})")
         time.sleep(PER_NAME_SLEEP)
     _flush()
@@ -204,7 +207,7 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
     rsc.merge_meta(meta_path, {"fundamentals": accounting})
     rsc.update_disk_warning(meta_path, store_gb)
 
-    print(f"[fundamentals] DONE as_of={as_of} pulled={len(pending)} "
+    log.info(f"[fundamentals] DONE as_of={as_of} pulled={len(pending)} "
           f"with_data={with_data} with_mcap={with_mcap} failed={failed} "
           f"inserted={inserted} rows_for_as_of={total_rows} store={store_gb:.2f}GiB")
     return accounting

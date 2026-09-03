@@ -22,6 +22,9 @@ from engine.lib import db
 
 from . import league
 from .schema import init_sim_schema
+from engine.lib.log import get_logger
+
+log = get_logger("shakedown")
 
 
 def window_days(con, start_n: int) -> list[date]:
@@ -37,7 +40,7 @@ def ensure_screens(db_path: str, days: list[date], screen_data_dir: Path) -> Non
         "SELECT DISTINCT run_date FROM screen_results").fetchall()}
     con.close()
     todo = [d for d in days if d not in have]
-    print(f"[shakedown] ensuring screens: {len(todo)} of {len(days)} sessions missing")
+    log.info(f"[shakedown] ensuring screens: {len(todo)} of {len(days)} sessions missing")
     for d in todo:
         m1_screen.run(db_path, screen_data_dir, d.isoformat(), rerun=False)
 
@@ -48,10 +51,10 @@ def run(db_path: str, data_dir: Path, start_n: int, do_screens: bool) -> int:
     init_sim_schema(con)
     days = window_days(con, start_n)
     if not days:
-        print("[shakedown] no trading days")
+        log.info("[shakedown] no trading days")
         return 1
     start, end = days[0], days[-1]
-    print(f"[shakedown] window {start} → {end} ({len(days)} sessions)")
+    log.info(f"[shakedown] window {start} → {end} ({len(days)} sessions)")
     con.close()
 
     if do_screens:
@@ -61,12 +64,12 @@ def run(db_path: str, data_dir: Path, start_n: int, do_screens: bool) -> int:
     db.init_schema(con)
     init_sim_schema(con)
     n = league.init_portfolios(con, start)
-    print(f"[shakedown] created {n} portfolios as of {start}")
+    log.info(f"[shakedown] created {n} portfolios as of {start}")
 
     for d in days:
         league.step(con, d, data_dir, rerun=False, verbose=True)
 
-    print("\n[shakedown] FINAL per-portfolio state")
+    log.info("\n[shakedown] FINAL per-portfolio state")
     print(f"{'portfolio':<32} {'equity':>12} {'fills':>7} {'rej':>5} {'open':>5}")
     for pf_id, name in con.execute(
         "SELECT id, name FROM portfolios ORDER BY id"

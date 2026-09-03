@@ -40,6 +40,9 @@ import yfinance as yf
 from engine.lib import db
 from engine.lib import resources as rsc
 from engine.lib.settings import META_PATH
+from engine.lib.log import get_logger
+
+log = get_logger("collect")
 
 _YF_FIELDS = {"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"}
 
@@ -113,12 +116,12 @@ def _download(yf_tickers: list[str], *, period: str | None, start: str | None,
     try:
         return yf.download(yf_tickers, **kwargs)
     except Exception as exc:  # noqa: BLE001 - be resilient, retry once
-        print(f"[collect] batch download failed ({exc}); retry in {retry_sleep}s")
+        log.warning(f"[collect] batch download failed ({exc}); retry in {retry_sleep}s")
         time.sleep(retry_sleep)
         try:
             return yf.download(yf_tickers, **kwargs)
         except Exception as exc2:  # noqa: BLE001
-            print(f"[collect] batch retry failed ({exc2}); marking batch failed")
+            log.warning(f"[collect] batch retry failed ({exc2}); marking batch failed")
             return pd.DataFrame()
 
 
@@ -169,7 +172,7 @@ def mode_bootstrap_floor(con, limit: int | None) -> tuple[int, int]:
         df, got = _extract_long(raw, sub_map)
         n = db.upsert_prices(con, df)
         got_all |= got
-        print(f"[bootstrap] batch {len(batch)} tickers -> {n} rows ({len(got)} with data)")
+        log.info(f"[bootstrap] batch {len(batch)} tickers -> {n} rows ({len(got)} with data)")
         time.sleep(2)
 
     # Liquidity floor computed from OUR stored prices, over the window we have.
@@ -198,7 +201,7 @@ def mode_bootstrap_floor(con, limit: int | None) -> tuple[int, int]:
     priced = con.execute("SELECT COUNT(DISTINCT ticker) FROM prices").fetchone()[0]
     liquid = con.execute("SELECT COUNT(*) FROM universe WHERE liquid = TRUE").fetchone()[0]
     failed = len(all_yf) - len(got_all)
-    print(f"[bootstrap] active={active} priced={priced} liquid={liquid} failed={failed}")
+    log.info(f"[bootstrap] active={active} priced={priced} liquid={liquid} failed={failed}")
     return len(all_yf), failed
 
 
@@ -214,7 +217,7 @@ def mode_backfill(con, limit: int | None) -> tuple[int, int]:
     all_yf = list(yf_to_canon)
     total = len(all_yf)
     if total == 0:
-        print("[backfill] nothing pending")
+        log.info("[backfill] nothing pending")
         return 0, 0
 
     jid = _start_job(con, "backfill", f"limit={limit}", total)
@@ -235,12 +238,12 @@ def mode_backfill(con, limit: int | None) -> tuple[int, int]:
             )
         n_done += len(batch)
         _update_job(con, jid, f"{n_done}/{total}")
-        print(f"[backfill] batch {len(batch)} -> {n} rows ({len(got)} done); progress {n_done}/{total}")
+        log.info(f"[backfill] batch {len(batch)} -> {n} rows ({len(got)} done); progress {n_done}/{total}")
         time.sleep(2)
 
     _update_job(con, jid, f"{n_done}/{total}", state="done")
     failed = total - len(got_all)
-    print(f"[backfill] processed={total} with_data={len(got_all)} failed={failed}")
+    log.info(f"[backfill] processed={total} with_data={len(got_all)} failed={failed}")
     return total, failed
 
 
@@ -350,7 +353,7 @@ def mode_refresh_liquid(con, limit: int | None, dry_run: bool) -> tuple[int, int
         df, got = _extract_long(raw, sub_map)
         n = db.upsert_prices(con, df)
         got_all |= got
-        print(f"[refresh-liquid] candidates batch {i} ({len(batch)} tickers) -> {n} rows ({len(got)} with data)")
+        log.info(f"[refresh-liquid] candidates batch {i} ({len(batch)} tickers) -> {n} rows ({len(got)} with data)")
         time.sleep(2)
     failed = len(all_yf) - len(got_all)
 
@@ -363,15 +366,15 @@ def mode_refresh_liquid(con, limit: int | None, dry_run: bool) -> tuple[int, int
                 f"{LIQ_MIN_MDV:g} over trailing {LIQ_BARS} sessions",
     })
     tag = "DRY-RUN would" if dry_run else "did"
-    print(f"[refresh-liquid] {tag} admit={len(summary['admitted'])} "
+    log.info(f"[refresh-liquid] {tag} admit={len(summary['admitted'])} "
           f"demote={len(summary['demoted'])} kept_held={len(summary['kept_held'])} "
           f"liquid_after={summary['liquid_after']} (as_of {summary['as_of']})")
     for key in ("admitted", "demoted", "kept_held"):
         if summary[key]:
-            print(f"[refresh-liquid]   {key}: {' '.join(summary[key])}")
+            log.info(f"[refresh-liquid]   {key}: {' '.join(summary[key])}")
 
     if not dry_run and summary["admitted"]:
-        print(f"[refresh-liquid] backfilling {len(summary['admitted'])} admitted names (max history)")
+        log.info(f"[refresh-liquid] backfilling {len(summary['admitted'])} admitted names (max history)")
         bf_total, bf_failed = mode_backfill(con, None)
         summary["backfill"] = {"processed": bf_total, "failed": bf_failed}
     return len(all_yf), failed, summary
@@ -389,7 +392,7 @@ def mode_incremental(con, force: bool) -> tuple[int, int]:
     """Daily pull of the last few sessions for liquid names. Calendar-gated."""
     today = datetime.now(timezone.utc).date()
     if not force and not _is_trading_day(today):
-        print(f"[incremental] {today} is not an NYSE trading day; skipping (use --force to override)")
+        log.warning(f"[incremental] {today} is not an NYSE trading day; skipping (use --force to override)")
         return 0, 0
 
     rows = con.execute(
@@ -405,11 +408,11 @@ def mode_incremental(con, force: bool) -> tuple[int, int]:
         df, got = _extract_long(raw, sub_map)
         n = db.upsert_prices(con, df)
         got_all |= got
-        print(f"[incremental] batch {len(batch)} -> {n} rows ({len(got)} with data)")
+        log.info(f"[incremental] batch {len(batch)} -> {n} rows ({len(got)} with data)")
         time.sleep(2)
 
     failed = len(all_yf) - len(got_all)
-    print(f"[incremental] liquid={len(all_yf)} with_data={len(got_all)} failed={failed}")
+    log.info(f"[incremental] liquid={len(all_yf)} with_data={len(got_all)} failed={failed}")
     return len(all_yf), failed
 
 
@@ -470,7 +473,7 @@ def write_meta(con, mode: str, requested: int, failed: int) -> None:
         "regime": None,
     }
     rsc.write_text_atomic(META_PATH, json.dumps(meta, indent=2))
-    print(f"[meta] wrote {META_PATH} (prices_rows={prices_rows}, liquid={liquid_count}, stale={len(stale_list)})")
+    log.info(f"[meta] wrote {META_PATH} (prices_rows={prices_rows}, liquid={liquid_count}, stale={len(stale_list)})")
 
 
 def update_meta(**updates) -> None:
@@ -518,7 +521,7 @@ def main() -> int:
         if not args.dry_run:
             summary["last_run"] = datetime.now(timezone.utc).isoformat()
             update_meta(liquid_refresh=summary)
-            print(f"[meta] updated liquid_refresh in {META_PATH}")
+            log.info(f"[meta] updated liquid_refresh in {META_PATH}")
         return 0
     else:
         mode = "incremental"

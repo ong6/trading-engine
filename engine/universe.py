@@ -17,6 +17,9 @@ import requests
 
 from engine.lib import db
 from engine.lib.settings import DATA_DIR, STORE_DIR
+from engine.lib.log import get_logger
+
+log = get_logger("universe")
 NASDAQ_URL = "https://www.nasdaqtrader.com/dynamic/symdir/nasdaqtraded.txt"
 FOOTER_PREFIX = "File Creation Time:"
 UA = "Mozilla/5.0"
@@ -39,7 +42,7 @@ def download_nasdaqtraded(max_retries: int = 5) -> str:
         except requests.RequestException as exc:
             last_err = str(exc)
         backoff = 2 ** attempt
-        print(f"[universe] attempt {attempt} failed: {last_err}; retrying in {backoff}s")
+        log.warning(f"[universe] attempt {attempt} failed: {last_err}; retrying in {backoff}s")
         time.sleep(backoff)
     raise RuntimeError(
         f"nasdaqtraded.txt still incomplete after {max_retries} attempts: {last_err}. "
@@ -214,7 +217,7 @@ def main() -> int:
     kept = len(parsed)
     con.close()
 
-    print(
+    log.info(
         f"[universe] total parsed={total} kept={kept} new={new_count} "
         f"deactivated={deactivated} snapshot={'appended' if snap else 'exists'}"
     )

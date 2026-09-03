@@ -80,6 +80,9 @@ from engine.lib import db
 from engine.lib import resources as rsc
 from engine.lib.settings import STORE_DIR
 from engine.lib.settings import META_PATH as DEFAULT_META
+from engine.lib.log import get_logger
+
+log = get_logger("signals")
 
 HTTP_TIMEOUT = 120         # seconds; the FRED/AAII files are big and slow
 HOST_SLEEP = 0.3           # politeness pause between requests to the SAME host
@@ -285,7 +288,7 @@ def src_fred(con, mode: str) -> list[tuple]:
         try:
             r = _get(url)
         except Exception as exc:  # noqa: BLE001 - one FRED id must not sink the rest
-            print(f"[signals] WARN fred/{series}: {type(exc).__name__}: {exc}")
+            log.warning(f"[signals] WARN fred/{series}: {type(exc).__name__}: {exc}")
             continue
         rows = []
         for line in r.text.splitlines()[1:]:
@@ -302,7 +305,7 @@ def src_fred(con, mode: str) -> list[tuple]:
         if series == "hy_oas" and rows and mode == "backfill":
             span_years = (rows[-1][1] - rows[0][1]).days / 365.25
             if span_years < 10:
-                print(f"[signals] WARN hy_oas: FRED served only "
+                log.warning(f"[signals] WARN hy_oas: FRED served only "
                       f"{rows[0][1]} → {rows[-1][1]} ({span_years:.1f}y) despite "
                       f"cosd={cosd} — BAMLH0A0HYM2 is hard-capped to a trailing "
                       f"window by ICE licensing. Taking what it gives; the credit "
@@ -383,7 +386,7 @@ def src_putcall(con, mode: str) -> list[tuple]:
         days = [PC_ERA2_BACKFILL_START + timedelta(days=i)
                 for i in range((today - PC_ERA2_BACKFILL_START).days + 1)]
         days = [d for d in days if d.weekday() < 5]
-        print(f"[signals] pc: era-2 backfill bound = {len(days)} weekday requests "
+        log.info(f"[signals] pc: era-2 backfill bound = {len(days)} weekday requests "
               f"({PC_ERA2_BACKFILL_START} → {today}) at {HOST_SLEEP}s pacing "
               f"≈ {len(days) * (HOST_SLEEP + 0.15) / 60:.0f} min")
     else:
@@ -395,7 +398,7 @@ def src_putcall(con, mode: str) -> list[tuple]:
         try:
             rows = _pc_era2_day(d)
         except Exception as exc:  # noqa: BLE001 - one day must not sink the source
-            print(f"[signals] WARN pc {d}: {type(exc).__name__}: {exc}")
+            log.warning(f"[signals] WARN pc {d}: {type(exc).__name__}: {exc}")
             miss += 1
             continue
         if rows:
@@ -404,9 +407,9 @@ def src_putcall(con, mode: str) -> list[tuple]:
         else:
             miss += 1
         if mode == "backfill" and i % 100 == 0:
-            print(f"[signals] pc era-2 {i}/{len(days)} days "
-                  f"(with_data={got} empty_or_holiday={miss})", flush=True)
-    print(f"[signals] pc era-2: {got} days with data, {miss} without "
+            log.info(f"[signals] pc era-2 {i}/{len(days)} days "
+                  f"(with_data={got} empty_or_holiday={miss})")
+    log.info(f"[signals] pc era-2: {got} days with data, {miss} without "
           f"(holidays/404s), {len(days)} requested")
     return out
 
@@ -441,7 +444,7 @@ def src_naaim(con, mode: str) -> list[tuple]:
     if not hrefs:
         raise RuntimeError("naaim: no .xlsx link found on the programme page")
     if len(hrefs) > 1:
-        print(f"[signals] WARN naaim: {len(hrefs)} spreadsheet links on the page, "
+        log.warning(f"[signals] WARN naaim: {len(hrefs)} spreadsheet links on the page, "
               f"using the first ({hrefs[0]})")
     rr = _get(hrefs[0])
     body = _expect_spreadsheet(rr.content, XLSX_MAGIC, "naaim")
@@ -613,7 +616,7 @@ def src_short_interest(con, mode: str) -> list[tuple]:
         while date(y, m, 1) <= today:
             chunks.append((date(y, m, 1), _month_end(y, m)))
             y, m = (y + 1, 1) if m == 12 else (y, m + 1)
-        print(f"[signals] short_interest backfill bound = {len(chunks)} month "
+        log.info(f"[signals] short_interest backfill bound = {len(chunks)} month "
               f"chunks ({start} → {today}), ~5 paginated requests each")
     else:
         chunks = [(today - timedelta(days=40), today)]
@@ -626,16 +629,16 @@ def src_short_interest(con, mode: str) -> list[tuple]:
                 slot[0] += sq
                 slot[1] += av
         except Exception as exc:  # noqa: BLE001 - one month must not sink the rest
-            print(f"[signals] WARN short_interest {a}..{b}: "
+            log.warning(f"[signals] WARN short_interest {a}..{b}: "
                   f"{type(exc).__name__}: {exc}")
         if mode == "backfill" and i % 6 == 0:
-            print(f"[signals] short_interest {i}/{len(chunks)} months "
-                  f"({len(agg)} settlement dates)", flush=True)
+            log.info(f"[signals] short_interest {i}/{len(chunks)} months "
+                  f"({len(agg)} settlement dates)")
 
     out = []
     for d, (sq, av) in sorted(agg.items()):
         if av <= 0:
-            print(f"[signals] WARN short_interest {d}: zero total ADV — skipped")
+            log.warning(f"[signals] WARN short_interest {d}: zero total ADV — skipped")
             continue
         out.append(("short_interest_dtc", d, sq / av))
     if mode != "backfill" and out:
@@ -775,7 +778,7 @@ def src_breadth(con, mode: str) -> list[tuple]:
         raise RuntimeError(f"breadth: prices empty or universe empty (n={n_u})")
 
     if mode == "backfill":
-        print(f"[signals] breadth: {n_u} liquid names, "
+        log.info(f"[signals] breadth: {n_u} liquid names, "
               f"{BREADTH_BACKFILL_START} → {latest}, one year per pass")
         out: list[tuple] = []
         for y in range(BREADTH_BACKFILL_START.year, latest.year + 1):
@@ -786,8 +789,8 @@ def src_breadth(con, mode: str) -> list[tuple]:
             t0 = time.time()
             chunk = _breadth_chunk(con, a, b)
             out.extend(chunk)
-            print(f"[signals] breadth {y}: {len(chunk):,} rows "
-                  f"[{time.time() - t0:.0f}s]", flush=True)
+            log.info(f"[signals] breadth {y}: {len(chunk):,} rows "
+                  f"[{time.time() - t0:.0f}s]")
     else:
         out = _breadth_chunk(con, latest, latest)
     con.execute("DROP TABLE IF EXISTS _sig_universe")
@@ -820,7 +823,7 @@ def collect(con, params: dict, mode: str) -> dict:
     pit_lag = bool(params.get("pit_lag")) and mode == "backfill"
     today = datetime.now(timezone.utc).date()
     if pit_lag:
-        print("[signals] *** --pit-lag: fetch_as_of stamped as "
+        log.info("[signals] *** --pit-lag: fetch_as_of stamped as "
               "obs_date + LAG_DAYS (a RECONSTRUCTION of public availability, "
               "decision D-MS2). Scratch copies only — never the live store. ***")
 
@@ -829,7 +832,7 @@ def collect(con, params: dict, mode: str) -> dict:
     else:
         stamp = today
 
-    print(f"[signals] mode={mode} sources={len(names)} "
+    log.info(f"[signals] mode={mode} sources={len(names)} "
           f"({', '.join(names)}) fetch_as_of={'obs+lag' if pit_lag else today}")
 
     per_source: dict[str, dict] = {}
@@ -842,7 +845,7 @@ def collect(con, params: dict, mode: str) -> dict:
         except Exception as exc:  # noqa: BLE001 - warn-and-continue, ALWAYS
             line = f"{name} failed: {type(exc).__name__}: {exc}"
             warnings.append(line)
-            print(f"[signals] WARN {line} — continuing with the other sources")
+            log.warning(f"[signals] WARN {line} — continuing with the other sources")
             per_source[name] = {"status": "failed", "error": str(exc)[:300],
                                 "rows_fetched": 0, "rows_inserted": 0}
             continue
@@ -851,7 +854,7 @@ def collect(con, params: dict, mode: str) -> dict:
         except Exception as exc:  # noqa: BLE001 - a bad batch is not a bad night
             line = f"{name} insert failed: {type(exc).__name__}: {exc}"
             warnings.append(line)
-            print(f"[signals] WARN {line}")
+            log.warning(f"[signals] WARN {line}")
             per_source[name] = {"status": "insert_failed", "error": str(exc)[:300],
                                 "rows_fetched": len(rows), "rows_inserted": 0}
             continue
@@ -865,25 +868,25 @@ def collect(con, params: dict, mode: str) -> dict:
             # Count it as degraded rather than letting it read as a clean run.
             line = f"{name} returned no rows this run"
             warnings.append(line)
-            print(f"[signals] WARN {line}")
+            log.warning(f"[signals] WARN {line}")
         per_source[name] = {"status": "ok" if rows else "empty",
                             "rows_fetched": len(rows),
                             "rows_inserted": n, "series": series,
                             "secs": round(time.time() - t0, 1)}
-        print(f"[signals] {name}: fetched {len(rows):,} → inserted {n:,} new "
+        log.info(f"[signals] {name}: fetched {len(rows):,} → inserted {n:,} new "
               f"({', '.join(series) or 'none'}) [{time.time() - t0:.0f}s]")
 
     table = con.execute(
         "SELECT series, COUNT(*), MIN(obs_date), MAX(obs_date), MAX(fetch_as_of) "
         "FROM macro_signals GROUP BY series ORDER BY series").fetchall()
-    print(f"\n[signals] macro_signals now holds {sum(r[1] for r in table):,} rows")
+    log.info(f"\n[signals] macro_signals now holds {sum(r[1] for r in table):,} rows")
     print(f"{'series':<20} {'rows':>8}  {'first':<12} {'last':<12} last_fetch")
     for s, n, lo, hi, fa in table:
         print(f"{s:<20} {n:>8,}  {str(lo):<12} {str(hi):<12} {fa}")
     if warnings:
-        print(f"\n[signals] {len(warnings)} source(s) degraded this run:")
+        log.info(f"\n[signals] {len(warnings)} source(s) degraded this run:")
         for w in warnings:
-            print(f"[signals]   WARN {w}")
+            log.warning(f"[signals]   WARN {w}")
 
     return {
         "mode": mode,
