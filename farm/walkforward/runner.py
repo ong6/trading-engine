@@ -38,17 +38,22 @@ from pathlib import Path
 
 from engine.lib import db
 from engine.lib import leverage as lev
+from engine.lib.log import get_logger
 from engine.lib.settings import DATA_DIR, REPO_ROOT
+from engine.lib.util import median, pct
 from farm.backtest import hist_screen, stats
 from farm.backtest.replay import (
-    DEFAULT_REQUIRED, NEEDS_SCREEN, REQUIRED, REQUIRED_LOOKBACK, build_scratch,
+    DEFAULT_REQUIRED,
+    NEEDS_SCREEN,
+    REQUIRED,
+    REQUIRED_LOOKBACK,
+    build_scratch,
 )
 from farm.walkforward import monthly as wf_monthly
 from farm.walkforward import protocol
 from sim import league
 from sim import portfolio as _pf
 from sim.schema import INITIAL_CASH
-from engine.lib.log import get_logger
 
 log = get_logger("wf")
 
@@ -221,11 +226,11 @@ def run_fold(con, book: dict, fold: protocol.Fold, sessions: list[date],
     }
     if verbose:
         v, t = out["validate"], out["train"]
-        log.info(f"[wf]   fold {fold.index}: train {_pct(t.get('total_return'))} "
+        log.info(f"[wf]   fold {fold.index}: train {pct(t.get('total_return'))} "
               f"({t.get('start_date')}→{t.get('end_date')}) | "
-              f"validate {_pct(v.get('total_return'))} "
+              f"validate {pct(v.get('total_return'))} "
               f"({v.get('start_date')}→{v.get('end_date')}) "
-              f"maxDD {_pct(v.get('max_dd'))} fills {n_val_fills} "
+              f"maxDD {pct(v.get('max_dd'))} fills {n_val_fills} "
               f"[{out['runtime_s']}s]")
     return out
 
@@ -400,8 +405,8 @@ def run_book(live_con, config_id: str, *,
     log.info(f"[wf] {config_id} done in {result.get('runtime_s')}s: "
           f"{s.get('n_folds_ok')} fold(s), validate win rate "
           f"{'·' if wr is None else f'{wr * 100:.0f}%'}, mean validate "
-          f"{_pct(s.get('mean_validate_total'))}, mean decay "
-          f"{_pct(s.get('mean_decay_cagr'))}")
+          f"{pct(s.get('mean_validate_total'))}, mean decay "
+          f"{pct(s.get('mean_decay_cagr'))}")
     return result
 
 
@@ -429,7 +434,7 @@ def summarize(folds: list[dict]) -> dict:
         "n_folds_inert": len(inert),
         "validate_win_rate": (sum(1 for v in vt if v > 0) / len(vt)) if vt else None,
         "mean_validate_total": (sum(vt) / len(vt)) if vt else None,
-        "median_validate_total": _median(vt),
+        "median_validate_total": median(vt),
         "worst_validate_total": min(vt) if vt else None,
         "best_validate_total": max(vt) if vt else None,
         "mean_validate_cagr": (sum(vc) / len(vc)) if vc else None,
@@ -441,20 +446,6 @@ def summarize(folds: list[dict]) -> dict:
                                   if ok else None),
         "total_validate_fills": sum(f.get("n_validate_fills", 0) for f in ok),
     }
-
-
-def _median(xs: list[float]):
-    if not xs:
-        return None
-    s = sorted(xs)
-    n = len(s)
-    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
-
-
-def _pct(v) -> str:
-    if v is None or (isinstance(v, float) and v != v):
-        return "·"
-    return f"{v * 100:+.2f}%"
 
 
 # --------------------------------------------------------------------------- #

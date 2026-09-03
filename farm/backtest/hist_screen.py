@@ -68,8 +68,8 @@ from datetime import date
 
 from engine.lib import db
 from engine.lib import leverage as lev
-from engine.lib.settings import REPO_ROOT  # noqa: F401
 from engine.lib.log import get_logger
+from engine.lib.settings import REPO_ROOT  # noqa: F401
 
 log = get_logger("hist_screen")
 

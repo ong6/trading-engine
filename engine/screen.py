@@ -49,9 +49,9 @@ import pandas as pd
 from engine.lib import db
 from engine.lib import leverage as lev
 from engine.lib import resources as rsc
-from engine.lib.settings import REPO_ROOT, WATCHLIST_PATH  # noqa: F401
-from engine.lib.settings import DATA_DIR as DEFAULT_DATA_DIR
 from engine.lib.log import get_logger
+from engine.lib.settings import DATA_DIR as DEFAULT_DATA_DIR
+from engine.lib.settings import REPO_ROOT, WATCHLIST_PATH  # noqa: F401
 
 log = get_logger("screen")
 

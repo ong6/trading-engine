@@ -30,8 +30,14 @@ two positions.
 from __future__ import annotations
 
 from .base import (
-    Order, PortfolioView, Strategy, close_on, recent_closes, rebalance_orders,
-    rsi_wilder, total_return,
+    Order,
+    PortfolioView,
+    Strategy,
+    close_on,
+    rebalance_orders,
+    recent_closes,
+    rsi_wilder,
+    total_return,
 )
 
 SECTORS = ["XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XLB",

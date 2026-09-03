@@ -40,9 +40,9 @@ from pathlib import Path
 
 from engine import actions as eng_actions
 from engine.lib import db
+from engine.lib.log import get_logger
 from sim import league, portfolio
 from sim.schema import init_sim_schema
-from engine.lib.log import get_logger
 
 log = get_logger("ca-shakedown")
 

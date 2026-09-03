@@ -40,10 +40,15 @@ from datetime import date
 
 import numpy as np
 
-from .base import (
-    PortfolioView, Strategy, close_on, rebalance_orders, total_return,
-)
 from engine.lib.log import get_logger
+
+from .base import (
+    PortfolioView,
+    Strategy,
+    close_on,
+    rebalance_orders,
+    total_return,
+)
 
 log = get_logger("macro_composite")
 

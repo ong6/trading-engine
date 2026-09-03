@@ -17,8 +17,8 @@ import argparse
 from datetime import date
 
 from engine.lib import db
-from sim import portfolio
 from engine.lib.log import get_logger
+from sim import portfolio
 
 log = get_logger("backfill-div")
 

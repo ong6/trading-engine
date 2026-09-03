@@ -12,8 +12,16 @@ from __future__ import annotations
 
 from ..portfolio import position_open_since
 from .base import (
-    MIN_ORDER_USD, Order, PortfolioView, Strategy, atr_wilder, close_on,
-    highest_close_between, latest_screen_date, passing_ranked, recent_closes,
+    MIN_ORDER_USD,
+    Order,
+    PortfolioView,
+    Strategy,
+    atr_wilder,
+    close_on,
+    highest_close_between,
+    latest_screen_date,
+    passing_ranked,
+    recent_closes,
     regime_risk_off,
 )
 

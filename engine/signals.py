@@ -78,9 +78,9 @@ from curl_cffi import requests as cr
 
 from engine.lib import db
 from engine.lib import resources as rsc
-from engine.lib.settings import STORE_DIR
-from engine.lib.settings import META_PATH as DEFAULT_META
 from engine.lib.log import get_logger
+from engine.lib.settings import META_PATH as DEFAULT_META
+from engine.lib.settings import STORE_DIR
 
 log = get_logger("signals")
 

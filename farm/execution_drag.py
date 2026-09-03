@@ -27,8 +27,8 @@ import sys
 from datetime import date
 
 from engine.lib import db
-from engine.lib.settings import DATA_DIR, REPO_ROOT  # noqa: F401
 from engine.lib.log import get_logger
+from engine.lib.settings import DATA_DIR, REPO_ROOT  # noqa: F401
 
 log = get_logger("execution-drag")
 

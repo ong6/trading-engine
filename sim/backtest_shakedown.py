@@ -19,10 +19,10 @@ from pathlib import Path
 
 from engine import screen as m1_screen
 from engine.lib import db
+from engine.lib.log import get_logger
 
 from . import league
 from .schema import init_sim_schema
-from engine.lib.log import get_logger
 
 log = get_logger("shakedown")
 

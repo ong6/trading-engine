@@ -39,8 +39,8 @@ import yfinance as yf
 
 from engine.lib import db
 from engine.lib import resources as rsc
-from engine.lib.settings import META_PATH
 from engine.lib.log import get_logger
+from engine.lib.settings import META_PATH
 
 log = get_logger("collect")
 
