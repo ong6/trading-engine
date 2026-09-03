@@ -23,6 +23,7 @@ from sim.strategies.xs_momentum_12_1 import XsMomentum121
 from sim.strategies.xs_reversal_1m import XsReversal1m
 from tests.conftest import insert_bars
 
+
 # --------------------------------------------------------------------------- #
 # a long synthetic calendar: 320 weekday sessions from 2023-01-02
 # --------------------------------------------------------------------------- #

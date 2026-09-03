@@ -50,8 +50,8 @@ from pathlib import Path
 
 from engine.lib import db
 from engine.lib import resources as rsc
-from engine.lib.settings import REPO_ROOT, STORE_DIR
 from engine.lib.settings import META_PATH as DEFAULT_META
+from engine.lib.settings import REPO_ROOT, STORE_DIR
 
 # §12.7 caps
 # 5-min load ceiling. Kept at 28 after measurement (2026-08-20): a width-8

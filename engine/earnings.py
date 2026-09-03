@@ -36,9 +36,10 @@ import yfinance as yf
 
 from engine.lib import db
 from engine.lib import resources as rsc
-from engine.lib.settings import STORE_DIR
-from engine.lib.settings import META_PATH as DEFAULT_META
 from engine.lib.log import get_logger
+from engine.lib.settings import META_PATH as DEFAULT_META
+from engine.lib.settings import STORE_DIR
+from engine.lib.util import table_exists
 
 log = get_logger("earnings")
 
@@ -50,12 +51,6 @@ FLUSH_EVERY = 25           # insert + checkpoint progress every N names (resumab
 # --------------------------------------------------------------------------- #
 # universe selection + resumability
 # --------------------------------------------------------------------------- #
-def _table_exists(con, name: str) -> bool:
-    return con.execute(
-        "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [name]
-    ).fetchone()[0] > 0
-
-
 def _select_universe(con, params: dict) -> tuple[list[tuple[str, str]], str]:
     """Return ((canonical, yf) pairs, universe_source label). --tickers overrides;
     else equities-with-fundamentals ∪ latest screen passers, falling back to
@@ -75,7 +70,7 @@ def _select_universe(con, params: dict) -> tuple[list[tuple[str, str]], str]:
     canon: set[str] = set()
     source = "fundamentals-coverage ∪ screen-passers"
 
-    have_fund = _table_exists(con, "fundamentals") and con.execute(
+    have_fund = table_exists(con, "fundamentals") and con.execute(
         "SELECT COUNT(*) FROM fundamentals WHERE market_cap IS NOT NULL"
     ).fetchone()[0] > 0
     if have_fund:

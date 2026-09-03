@@ -25,15 +25,16 @@ from pathlib import Path
 import numpy as np
 
 from engine.lib import db
-from engine.lib.settings import REPO_ROOT  # noqa: F401
+from engine.lib.log import get_logger
 from engine.lib.settings import DATA_DIR as DEFAULT_DATA_DIR
+from engine.lib.settings import REPO_ROOT  # noqa: F401
+from engine.lib.util import table_exists
 
 from . import calendar, fills, portfolio
 from .schema import INITIAL_CASH, init_sim_schema
 from .strategies import PortfolioView, get_strategy
 from .strategies.base import total_return_between
 from .strategies.configs import CONFIGS
-from engine.lib.log import get_logger
 
 log = get_logger("league")
 
@@ -427,7 +428,7 @@ def rerun_cleanup(con, d: date) -> None:
     # discretionary ticket created are not (the ticket is the owner's record and
     # points at the order by id) — deleting them left disc_tickets.order_id
     # dangling and the ticket 'submitted' forever.
-    if portfolio._has_table(con, "disc_tickets"):
+    if table_exists(con, "disc_tickets"):
         con.execute(
             "DELETE FROM sim_orders WHERE signal_date = ? AND id NOT IN "
             "(SELECT order_id FROM disc_tickets WHERE order_id IS NOT NULL)", [d])

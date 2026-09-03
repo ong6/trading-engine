@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 from .base import (
-    PortfolioView, Strategy, latest_screen_date, passing_ranked,
-    rebalance_orders, regime_risk_off,
+    PortfolioView,
+    Strategy,
+    latest_screen_date,
+    passing_ranked,
+    rebalance_orders,
+    regime_risk_off,
 )
 
 

@@ -40,9 +40,9 @@ import pandas as pd
 import yaml
 
 from engine.lib import db as enginedb
+from engine.lib.log import get_logger
 from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT  # noqa: F401
 from farm import stats as fstats
-from engine.lib.log import get_logger
 
 log = get_logger("farm")
 

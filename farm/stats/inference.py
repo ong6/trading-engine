@@ -1,4 +1,6 @@
-"""Statistics for the backtest farm — Sharpe, Deflated Sharpe, drawdown, t-stat.
+"""Inference statistics on per-trade RETURN series — Sharpe, Deflated Sharpe, t-stat, bootstrap CI.
+
+(Was farm/stats.py until 2026-09-03; equity-curve stats live in farm.stats.equity.)
 
 Dependency-light on purpose: only numpy + the stdlib `statistics.NormalDist`
 (scipy is not installed on the box). NormalDist gives us both the standard
@@ -36,10 +38,12 @@ Formulas (all documented in the report generator too):
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from statistics import NormalDist
 
 import numpy as np
+
+from farm.stats.equity import max_drawdown
 
 _N = NormalDist()  # standard normal
 _EULER = 0.5772156649015329
@@ -132,14 +136,15 @@ def deflated_sharpe(returns: np.ndarray, n_trials: int,
     return dsr, sr, sr0
 
 
-def max_drawdown(net_returns: np.ndarray) -> float:
-    """Most negative peak-to-trough on the compounded equity curve (<= 0)."""
+def max_drawdown_from_returns(net_returns: np.ndarray) -> float:
+    """Most negative peak-to-trough on the compounded equity curve (<= 0).
+
+    Thin wrapper: compounds the per-trade returns into an equity curve and
+    delegates to the one drawdown definition in `farm.stats.equity`.
+    """
     if len(net_returns) == 0:
         return 0.0
-    equity = np.cumprod(1.0 + net_returns)
-    running_max = np.maximum.accumulate(equity)
-    dd = equity / running_max - 1.0
-    return float(dd.min())
+    return max_drawdown(np.cumprod(1.0 + np.asarray(net_returns, dtype=float)))
 
 
 def compute(gross: np.ndarray, net: np.ndarray, years: float,
@@ -174,7 +179,7 @@ def compute(gross: np.ndarray, net: np.ndarray, years: float,
     net_cagr = cagr(net)
     ann_mean_gross = float(gross.mean()) * trades_per_year if n else float("nan")
     ann_mean_net = mean * trades_per_year if n else float("nan")
-    mdd = max_drawdown(net)
+    mdd = max_drawdown_from_returns(net)
 
     dsr = sr0 = None
     if variants_tried is not None and n >= 3:

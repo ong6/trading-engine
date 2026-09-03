@@ -70,10 +70,15 @@ from __future__ import annotations
 
 import numpy as np
 
-from .base import (
-    PortfolioView, Strategy, latest_screen_date, passing_ranked, rebalance_orders,
-)
 from engine.lib.log import get_logger
+
+from .base import (
+    PortfolioView,
+    Strategy,
+    latest_screen_date,
+    passing_ranked,
+    rebalance_orders,
+)
 
 log = get_logger("ew_gross_voltarget")
 

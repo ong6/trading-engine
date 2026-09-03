@@ -16,8 +16,8 @@ import pandas as pd
 import requests
 
 from engine.lib import db
-from engine.lib.settings import DATA_DIR, STORE_DIR
 from engine.lib.log import get_logger
+from engine.lib.settings import DATA_DIR, STORE_DIR
 
 log = get_logger("universe")
 NASDAQ_URL = "https://www.nasdaqtrader.com/dynamic/symdir/nasdaqtraded.txt"

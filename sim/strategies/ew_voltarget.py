@@ -35,8 +35,12 @@ from __future__ import annotations
 import numpy as np
 
 from .base import (
-    PortfolioView, Strategy, latest_screen_date, passing_ranked, recent_closes,
+    PortfolioView,
+    Strategy,
+    latest_screen_date,
+    passing_ranked,
     rebalance_orders,
+    recent_closes,
 )
 
 

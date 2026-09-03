@@ -52,12 +52,17 @@ import json
 import math
 import re
 from datetime import date, datetime, timezone
+from functools import partial
 from pathlib import Path
 
 import numpy as np
 
 from engine.lib.settings import DATA_DIR
 from engine.lib.settings import REPO_ROOT as ROOT  # noqa: F401
+from engine.lib.util import num as _num_plain
+from engine.lib.util import pct
+
+num = partial(_num_plain, signed=True)   # monthly table prints signed t / DSR
 from farm import stats as fstats
 
 WF_DIR = DATA_DIR / "reports" / "walkforward"
@@ -362,16 +367,8 @@ def fold_level_verdicts(readme: Path = WF_DIR / "README.md") -> dict[str, str]:
     return out
 
 
-def _pct(v) -> str:
-    return "·" if v is None or v != v else f"{v * 100:+.2f}%"
-
-
 def _ci(ci) -> str:
-    return "_none_" if not ci else f"[{_pct(ci['lo'])}, {_pct(ci['hi'])}]"
-
-
-def _num(v, nd=2) -> str:
-    return "·" if v is None or v != v else f"{v:+.{nd}f}"
+    return "_none_" if not ci else f"[{pct(ci['lo'])}, {pct(ci['hi'])}]"
 
 
 def _table(rows: list[dict]) -> list[str]:
@@ -385,9 +382,9 @@ def _table(rows: list[dict]) -> list[str]:
         drop = ",".join(str(i) for i in r["excluded_folds"]) or "none"
         out.append(
             f"| {r['config_id']} | {r['control']} | {r.get('n_months', 0)} | {drop} | "
-            f"{_pct(r.get('mean'))} | {_ci(r.get('mean_ci'))} | {_pct(r.get('median'))} | "
-            f"{_ci(r.get('median_ci'))} | {_num((r.get('nw') or {}).get('t'))} | "
-            f"{_num(r.get('dsr'))} | {_pct(r.get('beat_rate'))} | **{r['verdict']}** |")
+            f"{pct(r.get('mean'))} | {_ci(r.get('mean_ci'))} | {pct(r.get('median'))} | "
+            f"{_ci(r.get('median_ci'))} | {num((r.get('nw') or {}).get('t'))} | "
+            f"{num(r.get('dsr'))} | {pct(r.get('beat_rate'))} | **{r['verdict']}** |")
     return out
 
 
@@ -402,7 +399,7 @@ def _why(fold_v: str, r: dict) -> str:
                     + ("straddles 0" if med_ci.get("contains_zero") else "is negative"))
     if fold_v == "REVIEW" and v == "INDISTINGUISHABLE":
         bits.append("monthly median CI straddles 0" if med_ci.get("contains_zero")
-                    else f"NW t {_num(r['nw']['t'])} short of ±{T_CRIT}")
+                    else f"NW t {num(r['nw']['t'])} short of ±{T_CRIT}")
     if fold_v == "REVIEW" and v == "TRAILS":
         bits.append("agrees: median and NW t both negative")
     if fold_v == "WATCH" and v == "TRAILS":

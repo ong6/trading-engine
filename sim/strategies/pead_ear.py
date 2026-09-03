@@ -16,7 +16,12 @@ from datetime import timedelta
 from .. import calendar
 from ..portfolio import position_open_since
 from .base import (
-    MIN_ORDER_USD, Order, PortfolioView, Strategy, apply_agent_gate, close_on,
+    MIN_ORDER_USD,
+    Order,
+    PortfolioView,
+    Strategy,
+    apply_agent_gate,
+    close_on,
 )
 
 REACTION_SQL = """

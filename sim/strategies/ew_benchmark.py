@@ -4,7 +4,11 @@ rebalanced monthly. The strategy-agnostic yardstick every active book must beat.
 from __future__ import annotations
 
 from .base import (
-    PortfolioView, Strategy, latest_screen_date, passing_ranked, rebalance_orders,
+    PortfolioView,
+    Strategy,
+    latest_screen_date,
+    passing_ranked,
+    rebalance_orders,
 )
 
 

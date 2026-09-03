@@ -11,8 +11,16 @@ from __future__ import annotations
 from .. import calendar
 from ..portfolio import position_open_since
 from .base import (
-    Order, PortfolioView, Strategy, close_on, latest_screen_date,
-    n_down_closes, passing_ranked, recent_closes, recent_ohlc, regime_risk_off,
+    Order,
+    PortfolioView,
+    Strategy,
+    close_on,
+    latest_screen_date,
+    n_down_closes,
+    passing_ranked,
+    recent_closes,
+    recent_ohlc,
+    regime_risk_off,
     rsi_wilder,
 )
 

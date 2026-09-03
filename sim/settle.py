@@ -48,9 +48,10 @@ from datetime import date, datetime, timezone
 import duckdb
 
 from engine.lib import db
+from engine.lib.log import get_logger
+from engine.lib.util import table_exists
 
 from . import portfolio
-from engine.lib.log import get_logger
 
 log = get_logger("settle")
 
@@ -193,7 +194,7 @@ def _plan_book(con, t: Terms, pf_id: str, qty: float, avg_cost: float) -> BookPl
         plan.into_qty_before = float(row[0]) if row else 0.0
         plan.into_qty_after = plan.into_qty_before + qty * t.ratio
     already = 0
-    if portfolio._has_table(con, "sim_settlements"):
+    if table_exists(con, "sim_settlements"):
         already = con.execute(
             "SELECT COUNT(*) FROM sim_settlements WHERE portfolio_id = ? AND ticker = ?",
             [pf_id, t.ticker]).fetchone()[0]

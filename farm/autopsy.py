@@ -45,8 +45,8 @@ from pathlib import Path
 import duckdb
 
 from engine.lib import db
-from engine.lib.settings import REPO_ROOT  # noqa: F401
 from engine.lib.log import get_logger
+from engine.lib.settings import REPO_ROOT  # noqa: F401
 
 log = get_logger("autopsy")
 

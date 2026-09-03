@@ -57,13 +57,14 @@ from pathlib import Path
 
 from engine.lib import db
 from engine.lib import leverage as lev
+from engine.lib.log import get_logger
 from engine.lib.settings import DATA_DIR, REPO_ROOT
+from engine.lib.util import num
 from farm.backtest import hist_screen, stats
 from sim import league
 from sim import portfolio as _pf
 from sim.schema import init_sim_schema
 from sim.strategies.configs import CONFIGS, config_by_id
-from engine.lib.log import get_logger
 
 log = get_logger("replay")
 
@@ -399,17 +400,13 @@ def run_replay(live_con, config_id: str, window: str, *,
 
     log.info(f"[replay] {config_id}/{window} done in {result.get('runtime_s')}s: "
           f"CAGR {_pct(result.get('cagr'))} vol {_pct(result.get('vol_ann'))} "
-          f"Sharpe {_num(result.get('sharpe'))} maxDD {_pct(result.get('max_dd'))} "
+          f"Sharpe {num(result.get('sharpe'))} maxDD {_pct(result.get('max_dd'))} "
           f"fills {result.get('n_fills')}")
     return result
 
 
 def _pct(v) -> str:
     return "·" if v is None else f"{v * 100:+.2f}%"
-
-
-def _num(v) -> str:
-    return "·" if v is None or v != v else f"{v:.2f}"
 
 
 # --------------------------------------------------------------------------- #

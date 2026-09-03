@@ -44,14 +44,15 @@ from __future__ import annotations
 import argparse
 import json
 import math
-from datetime import date, datetime, time as dtime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from datetime import time as dtime
 from pathlib import Path
 
 from engine.lib import db as enginedb  # engine/lib/db.py — the lock-retrying connect factory
+from engine.lib.log import get_logger
 from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT
 from farm import experiment as E  # farm/experiment.py — shared config/hash/table helpers
 from sim.fills import median_dollar_vol, slippage_bps_for
-from engine.lib.log import get_logger
 
 log = get_logger("e1")
 

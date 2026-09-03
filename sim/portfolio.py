@@ -26,8 +26,10 @@ from datetime import date, timedelta
 
 import duckdb
 
-from .schema import INITIAL_CASH
 from engine.lib.log import get_logger
+from engine.lib.util import table_exists
+
+from .schema import INITIAL_CASH
 
 log = get_logger("apply_fill")
 
@@ -253,12 +255,6 @@ def mark_to_market(con: duckdb.DuckDBPyConnection, pf_id: str, d: date) -> dict:
 # --------------------------------------------------------------------------- #
 # corporate actions
 # --------------------------------------------------------------------------- #
-def _has_table(con: duckdb.DuckDBPyConnection, name: str) -> bool:
-    return con.execute(
-        "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [name]
-    ).fetchone()[0] > 0
-
-
 DIVIDEND_LOOKBACK_DAYS = 10  # how far back phase a0 looks for late-arriving rows
 
 
@@ -307,7 +303,7 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
     corporate_actions table (an old copy) credits nothing rather than failing.
     """
     out = {"credited": 0, "amount": 0.0}
-    if not _has_table(con, "corporate_actions"):
+    if not table_exists(con, "corporate_actions"):
         return out
     since = d - timedelta(days=lookback_days)
     divs = con.execute(
@@ -369,7 +365,7 @@ def _split_factors(con: duckdb.DuckDBPyConnection) -> dict[str, list[tuple[date,
     boundary here is the ex_date (economics), deliberately NOT the storage
     break_date the price restatement used (see engine/actions.py).
     """
-    if not _has_table(con, "split_adjustments"):
+    if not table_exists(con, "split_adjustments"):
         return {}
     out: dict[str, list[tuple[date, float]]] = {}
     for tk, ex, ratio in con.execute(
@@ -423,7 +419,7 @@ def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
     # (date, phase, seq, kind, payload) — phase 0 = dividends, 1 = settlements,
     # 2 = fills.
     events: list[tuple] = []
-    if _has_table(con, "sim_dividends"):
+    if table_exists(con, "sim_dividends"):
         for i, (pf_id, tk, ex, amount) in enumerate(con.execute(
             "SELECT portfolio_id, ticker, ex_date, amount FROM sim_dividends "
             "ORDER BY ex_date, portfolio_id, ticker"
@@ -435,7 +431,7 @@ def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
         "ORDER BY fill_date, CASE side WHEN 'sell' THEN 0 ELSE 1 END, order_id"
     ).fetchall()):
         events.append((fd, 2, i, "fill", (pf_id, tk, side, qty, px, fd)))
-    if _has_table(con, "sim_settlements"):
+    if table_exists(con, "sim_settlements"):
         for i, row in enumerate(con.execute(
             "SELECT portfolio_id, ticker, kind, qty, price, into_ticker, ratio, "
             "effective FROM sim_settlements ORDER BY effective, portfolio_id, ticker"

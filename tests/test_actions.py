@@ -11,8 +11,8 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta
 
 import pytest
-
 from conftest import SESSIONS, insert_bars
+
 from engine import actions
 from engine.lib import db
 from sim import portfolio
