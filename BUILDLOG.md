@@ -2055,8 +2055,12 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   0.18); `template_top5` and the two gated PASS books lose PASS because it rested on the mean
   while the median excess is ≤ 0; `mr_overlay*` and `turtle_breakout` are TRAILS with CIs wholly
   negative. The evaluation's critique of the evidence-ceiling doc stands.
-- **Deferred, not done:** the JEM re-fetch (two agent attempts stalled under the rate limit; no
-  positions, no bars after 07-15, zero impact on any book), the re-audit of the 31 remaining
+- **JEM re-fetched 2026-09-03 02:20 UTC** (`engine/refetch_ticker.py`): 60 corrupt rows → 311
+  clean rows 2025-06-09..2026-09-02 (Yahoo's own current view; JEM still trades — the store had
+  simply stopped collecting it), watermark `superseded_by_refetch`, audit row appended.
+- **Nightly 2026-09-02 on the new code: clean** (`=== done 23:15:03Z`), both new books created,
+  `divs=2/$22.82` credited live through the catch-up path, `skipped_phantom=0` reported.
+- **Deferred, not done:** the re-audit of the 31 remaining
   `applied` restatements under the new rule, and refactor steps 1–3 (packaging `engine/`, one
   `connect(read_only=)`, settings module) — the last deliberately left for a session with room
   to dry-run the whole nightly on a copy before 21:30 UTC.
@@ -2079,9 +2083,8 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 1. **Owner: install the `run_weekly_liquid.sh` crontab line** and decide the nine RETIRE slots.
 2. Settle EA / TALK / WBS / FBRX (still `symbol_not_found` at the verifier; 12.1% of `high_52wk`
    frozen) — a delisting handler for `sim/`.
-3. Re-fetch JEM (`engine/refetch_ticker.py` to be written: replace only JEM's rows with the source's
-   current view, watermark `superseded_by_refetch`); re-audit the remaining 31 `applied`
-   restatements with the new rule on a copy.
+3. Re-audit the remaining 31 `applied` restatements with the new rule on a copy
+   (`engine/repair_restatements.py --yahoo` has the cross-check).
 4. Refactor step 1–3 of the architecture plan (package `engine/`, one `connect(read_only=)`,
    settings module) — each landable before 21:30 UTC with a store-copy dry run.
 5. Monthly-granularity re-reporting of walk-forward folds (block bootstrap on ~144 paired
