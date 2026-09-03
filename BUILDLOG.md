@@ -2112,9 +2112,16 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   so existing rows dedup); `jobs.timeout_s` with kind defaults at 3× measured, enforced on parallel
   children (SIGTERM → `failed`/`timeout`); `supersedes=True` kinds (intraday) mark stale variants
   `superseded`. `run_daily.sh` lost the dead agentic-report block.
-- Tests: **318 passed.** The architecture review's nine-step plan is complete except its
-  optional stats-module merge (`farm/stats.py` vs `farm/backtest/stats.py`) and the small-helper
-  consolidation (§A2 last two rows).
+- **§A2 duplication closed** (`f6d843e`): `farm/stats/` package (`inference.py` returns-based,
+  `equity.py` equity-curve) with ONE `max_drawdown(equity)` — the returns path compounds then
+  delegates, equal to the old numbers to the last digit; old import paths still work.
+  `engine/lib/util.py` takes `table_exists` (4 copies), `median` (2), `pct`/`num` (4 each),
+  `utcnow`. Left in place because the copies differ in behaviour: `farm/autopsy._median`
+  (drops None), `farm/experiment_runner._pct/_num` (— placeholder, dp=4, NaN rendered),
+  `farm/backtest/replay._pct` (NaN rendered), the two `_num` string PARSERS in
+  `verify_prices`/`signals`, `_select_universe` ×4 and `write_reports` ×3 (different jobs).
+  isort pass (57 fixes); CI's ruff gate now includes `I`.
+- Tests: **319 passed.** The architecture review's plan is complete.
 - **Watch tonight's nightly** (first run under `driver.sh` + `--enqueue-nightly`): `logs/cron.log`
   should end `=== done` and the farm section should read `enqueue-nightly=0 run=0`.
 
@@ -2137,9 +2144,10 @@ raw-data paths removed from every commit). Secret scan across full history: clea
    frozen) — a delisting handler for `sim/`.
 3. Refetch SNEX and WLFC (one bad bar each, no positions); decide OPAD/WLFC's unadjusted
    Yahoo series (leave, or refetch and let the new adjudicator skip).
-4. Remaining §A2 duplication: merge `farm/stats.py` and `farm/backtest/stats.py` (two
-   `max_drawdown` conventions), lift `_pct/_num/_median/_table_exists` into `engine/lib`.
-5. Owner decision on the archived news reports before the repo goes public.
+4. Owner decision on the archived news reports before the repo goes public.
+5. Structural single-writer enforcement is still convention + one factory; a write-lock
+   assertion inside `connect(read_only=False)` (refuse when `.nightly.lock`/`.queue-drain.lock`
+   is held by another pid) is the next step if a double-writer ever recurs.
 5. Monthly-granularity re-reporting of walk-forward folds (block bootstrap on ~144 paired
    monthly excess returns instead of n=10 fold means).
 
