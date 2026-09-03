@@ -21,21 +21,15 @@
 #       >> ~/trading-engine/logs/sweeps-cron.log 2>&1
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-cd "${REPO_ROOT}"
-
-# Overlap guard, same shape as the nightly's and the walk-forward's.
-exec 9>"${REPO_ROOT}/.sweeps.lock"
-if ! flock -n 9; then
-  echo "ERROR: another sweep run is still going (lock held) — aborting"
-  exit 1
-fi
-
-PY="${REPO_ROOT}/.venv/bin/python"
-export PYTHONUNBUFFERED=1
-mkdir -p "${REPO_ROOT}/logs"
-LOG="${REPO_ROOT}/logs/sweeps-$(date +%F).log"
+# Shared preamble (engine/lib/driver.sh): resolve REPO_ROOT + cd, overlap guard
+# (non-blocking flock on .sweeps.lock), PY=, PYTHONUNBUFFERED, LOG=, stage
+# breadcrumb, and the errexit/pipefail-safe tee wrap in driver_main.
+DRIVER_NAME=run_weekend_sweeps
+DRIVER_LOCK=.sweeps.lock
+DRIVER_LOCK_MSG="another sweep run is still going (lock held) — aborting"
+DRIVER_LOG_PREFIX=sweeps
+DRIVER_STAGE_FILE=logs/.last_stage_sweeps
+source "$(dirname "${BASH_SOURCE[0]}")/lib/driver.sh"
 
 # Saturday is completely free — the nightly is Mon-Fri 22:30 and the
 # walk-forward is Sunday 06:00 — so the drain gets a 12 h window instead of the
@@ -52,17 +46,7 @@ SWEEP_PRIORITY=900
 # Must match JOB_TYPES["sweep"]["mem_mb"] in engine/queue_runner.py.
 SWEEP_MEM_MB=4500
 
-# errexit is suspended around the tee pipeline and re-armed inside the block —
-# otherwise a failing stage exits the script before the breadcrumb below runs
-# (same fix as run_daily.sh, 2026-09-02; see the comment there).
-STAGE_FILE="${REPO_ROOT}/logs/.last_stage_sweeps"
-stage() { echo "$1" > "${STAGE_FILE}"; }
-: > "${STAGE_FILE}"
-set +e
-{
-  set -e
-  echo "=== run_weekend_sweeps $(date -u +%FT%TZ) ==="
-
+body() {
   # Grid names come from the module itself, so a grid added to GRIDS is swept
   # from the next Saturday with no edit here. `--grid list` also prints
   # bracketed diagnostics (e.g. infeasible cells being skipped); those are
@@ -100,12 +84,6 @@ set +e
   stage sync
   "${PY}" -m engine.sync || echo "WARN: sync failed (exit $?) — reports are on disk; next nightly's sync will stage them"
 
-  echo "=== done $(date -u +%FT%TZ) ==="
-} 2>&1 | tee -a "${LOG}"
-status="${PIPESTATUS[0]}"
-set -e
-if [ "${status}" -ne 0 ]; then
-  failed_stage="$(cat "${STAGE_FILE}" 2>/dev/null)"
-  echo "TODO: run_weekend_sweeps failed $(date -u +%FT%TZ) (stage=${failed_stage:-unknown} exit ${status}) — inspect ${LOG}" | tee -a "${LOG}"
-  exit "${status}"
-fi
+}
+
+driver_main body
