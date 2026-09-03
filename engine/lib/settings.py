@@ -12,7 +12,8 @@ Environment overrides (all optional; relative paths resolve against REPO_ROOT):
                               watchlist + market context — historically the
                               personal-data-store `trading/` folder, NOT the
                               DuckDB `store/` dir (name kept for compatibility
-                              with engine/news_analyst_prep.py)
+                              with the retired news_analyst_prep.py, now in
+                              archive/agentic-2026-08/engine/)
   TRADING_ENGINE_WATCHLIST    watchlist.md (default <NOTES_DIR>/watchlist.md)
   TRADING_ENGINE_LOCK_WAIT_S  seconds a locked DuckDB open keeps retrying
                               (default 60; read at call time by engine.lib.db)
@@ -39,6 +40,9 @@ DATA_DIR = _env_path("TRADING_ENGINE_DATA_DIR", REPO_ROOT / "data")
 META_PATH = DATA_DIR / "_meta.json"
 SCRATCH_DIR = REPO_ROOT / "scratch"
 LOGS_DIR = REPO_ROOT / "logs"
+# Retired 2026-08-18; the tree lives in archive/agentic-2026-08/agents/. The
+# default stays `agents/` so a `git mv` back re-enables the gate read without a
+# code change; sim.strategies.base treats a missing directory as a no-op.
 AGENTS_DIR = _env_path("TRADING_ENGINE_AGENTS_DIR", REPO_ROOT / "agents")
 
 # The owner's private notes (watchlist, market context) live in a sibling repo.

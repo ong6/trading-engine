@@ -51,6 +51,9 @@ from engine.lib import leverage as lev
 from engine.lib import resources as rsc
 from engine.lib.settings import REPO_ROOT, WATCHLIST_PATH  # noqa: F401
 from engine.lib.settings import DATA_DIR as DEFAULT_DATA_DIR
+from engine.lib.log import get_logger
+
+log = get_logger("screen")
 
 # Watchlist lives in the owner's personal-data-store, outside this repo
 # (settings.WATCHLIST_PATH, env TRADING_ENGINE_WATCHLIST); when unset or absent
@@ -375,10 +378,10 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
     con = db.connect(db_path)
     db.init_schema(con)
     db.init_screen_policy_schema(con)
-    print(f"[screen] universe policy = {policy}")
+    log.info(f"[screen] universe policy = {policy}")
 
     screen_date = resolve_screen_date(con, requested_date)
-    print(f"[screen] screen date = {screen_date.isoformat()}")
+    log.info(f"[screen] screen date = {screen_date.isoformat()}")
 
     # Append-only guard (fail fast before any heavy compute).
     existing = con.execute(
@@ -393,7 +396,7 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
                 # already screened AND its report file is present. Exit 0 (not 1) so
                 # the nightly proceeds to the league step; a genuine failure below
                 # still returns 1.
-                print(
+                log.info(
                     f"[screen] {screen_date} already screened ({existing} rows); "
                     f"--skip-if-done → no-op, exit 0"
                 )
@@ -404,7 +407,7 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
                 # INSERT and the report writes leaves it unregenerable via the skip
                 # branch forever. Treat as an implicit rerun: drop this date's rows
                 # and fall through to regenerate both the DB rows and the reports.
-                print(
+                log.info(
                     f"[screen] {screen_date} has {existing} screen_results rows but "
                     f"{report_path.name} is missing — regenerating (implicit rerun)"
                 )
@@ -418,7 +421,7 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
                     "FROM screen_results WHERE run_date = ?", [screen_date]
                 ).fetchall()
                 stored_s = ", ".join(sorted(r[0] for r in stored)) or "unknown"
-                print(
+                log.error(
                     f"[screen] ABORT: {existing} rows already exist for {screen_date} "
                     f"(policy: {stored_s}; this run: {policy}) "
                     f"— screen_results is append-only. Pass --rerun to overwrite this "
@@ -428,7 +431,7 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
                 return 1
         else:
             con.execute("DELETE FROM screen_results WHERE run_date = ?", [screen_date])
-            print(f"[screen] --rerun: deleted {existing} existing rows for {screen_date}")
+            log.info(f"[screen] --rerun: deleted {existing} existing rows for {screen_date}")
 
     cutoff = stale_cutoff(con, screen_date)
     eligible, n_stale, n_short, n_phantom = classify_universe(con, screen_date, cutoff)
@@ -442,14 +445,14 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
         before = len(eligible)
         eligible = [t for t in eligible if t not in flagged]
         n_excluded = before - len(eligible)
-        print(f"[screen] policy {policy}: excluded {n_excluded} leveraged/inverse "
+        log.info(f"[screen] policy {policy}: excluded {n_excluded} leveraged/inverse "
               f"ETPs from the eligible set ({before} → {len(eligible)})")
-    print(
+    log.info(
         f"[screen] active&liquid → screened={len(eligible)} "
         f"skipped_stale={n_stale} skipped_phantom={n_phantom} skipped_short={n_short}"
     )
     if not eligible:
-        print("[screen] no eligible names — nothing to screen")
+        log.info("[screen] no eligible names — nothing to screen")
         con.close()
         return 1
 
@@ -506,7 +509,7 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
 
     passing_n = int(res["passes_template"].sum())
     new_n = int(res["new_today"].sum())
-    print(
+    log.info(
         f"[screen] passing={passing_n} new_today={new_n} regime={regime}"
         + (" (first run)" if first_run else "")
     )
@@ -560,7 +563,7 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
             eod_set.append(tk)
     missing = write_eod(con, screen_date, eod_set, data_dir / "eod")
     if missing:
-        print(f"[screen] eod: skipped {len(missing)} watchlist names not in DB: "
+        log.info(f"[screen] eod: skipped {len(missing)} watchlist names not in DB: "
               f"{', '.join(missing)}")
 
     # ----- _meta.json -----
@@ -578,7 +581,7 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
         excluded_leveraged=n_excluded,
     )
 
-    print(f"[screen] wrote {md_path} (+ latest.md, csv, {len(eod_set) - len(missing)} eod files)")
+    log.info(f"[screen] wrote {md_path} (+ latest.md, csv, {len(eod_set) - len(missing)} eod files)")
     con.close()
     return 0
 

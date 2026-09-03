@@ -19,6 +19,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from engine.lib.settings import DATA_DIR, REPO_ROOT  # noqa: F401
+from engine.lib.log import get_logger
+
+log = get_logger("backtest-report")
 
 BACKTEST_DIR = DATA_DIR / "reports" / "backtests"
 RESULTS_DIR = BACKTEST_DIR / "results"
@@ -80,7 +83,7 @@ def load_results(results_dir: Path = RESULTS_DIR) -> list[dict]:
         try:
             out.append(json.loads(p.read_text()))
         except json.JSONDecodeError:
-            print(f"[backtest-report] skipping unreadable {p}")
+            log.warning(f"[backtest-report] skipping unreadable {p}")
     return out
 
 
@@ -247,7 +250,7 @@ def main() -> int:
     ap.add_argument("--out", default=str(BACKTEST_DIR))
     args = ap.parse_args()
     for p in write_reports(Path(args.results), Path(args.out)):
-        print(f"[backtest-report] wrote {p}")
+        log.info(f"[backtest-report] wrote {p}")
     return 0
 
 

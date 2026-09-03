@@ -21,6 +21,9 @@ from pathlib import Path
 
 from engine.lib.settings import DATA_DIR, REPO_ROOT  # noqa: F401
 from farm import stats as fstats
+from engine.lib.log import get_logger
+
+log = get_logger("wf-report")
 
 WF_DIR = DATA_DIR / "reports" / "walkforward"
 RESULTS_DIR = WF_DIR / "results"
@@ -131,7 +134,7 @@ def load_results(results_dir: Path = RESULTS_DIR) -> list[dict]:
         try:
             out.append(_relabel_stale_inert(json.loads(p.read_text())))
         except json.JSONDecodeError:
-            print(f"[wf-report] skipping unreadable {p}")
+            log.warning(f"[wf-report] skipping unreadable {p}")
     return out
 
 
@@ -560,7 +563,7 @@ def write_reports(results_dir: Path = RESULTS_DIR,
         f.write_text("\n".join(page))
         written.append(f)
 
-    print(f"[wf-report] wrote {len(written)} file(s) to {out_dir}")
+    log.info(f"[wf-report] wrote {len(written)} file(s) to {out_dir}")
     return written
 
 

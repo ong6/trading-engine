@@ -55,8 +55,9 @@ HARD RULES
     codebase the dangerous outcome is not a crash, it is quietly reporting a
     number for a non-measurement.)
   * It is NON-CRITICAL and ALWAYS EXITS 0 — same posture as
-    engine/news_analyst.sh. A network failure, a source schema change or a
-    locked store logs a breadcrumb and leaves the nightly untouched.
+    the retired news_analyst.sh (archive/agentic-2026-08/). A network failure,
+    a source schema change or a locked store logs a breadcrumb and leaves the
+    nightly untouched.
 """
 from __future__ import annotations
 
@@ -76,6 +77,9 @@ from engine.lib import db
 from engine.lib import resources as rsc
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT  # noqa: F401
 from engine.lib.settings import META_PATH as DEFAULT_META
+from engine.lib.log import get_logger
+
+log = get_logger("verify")
 META_KEY = "price_verify"
 
 API_URL = "https://api.nasdaq.com/api/quote/{sym}/historical"
@@ -518,7 +522,7 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
         if verdict["status"] == "not_checked":
             reasons[verdict["reason"]] = reasons.get(verdict["reason"], 0) + 1
         results.append(verdict)
-        print(f"[verify] {i}/{len(names)} {ticker:<6} {why:<7} {verdict['status']}"
+        log.info(f"[verify] {i}/{len(names)} {ticker:<6} {why:<7} {verdict['status']}"
               + (f"  worst {verdict['worst']['diff_bp']:.2f}bp"
                  if verdict.get("worst") else ""))
 
@@ -663,7 +667,7 @@ def main() -> int:
     try:
         con = _connect_ro(args.db)
     except Exception as exc:
-        print(f"TODO: price verify could not open the store read-only ({exc}) — "
+        log.error(f"TODO: price verify could not open the store read-only ({exc}) — "
               f"skipped this run, nothing written, nightly unaffected")
         return 0
     try:
@@ -674,7 +678,7 @@ def main() -> int:
                    "tickers": args.tickers, "self_test_bp": args.self_test},
                   con, meta_path=args.meta)
     except Exception as exc:
-        print(f"TODO: price verify failed ({type(exc).__name__}: {exc}) — no "
+        log.error(f"TODO: price verify failed ({type(exc).__name__}: {exc}) — no "
               f"_meta.json update, nightly unaffected")
         return 0
     finally:
@@ -685,13 +689,13 @@ def main() -> int:
 
     print(json.dumps(acc, indent=2))
     if args.no_meta or args.self_test:
-        print("[verify] --no-meta/--self-test: _meta.json NOT written")
+        log.info("[verify] --no-meta/--self-test: _meta.json NOT written")
         return 0
     try:
         rsc.merge_meta(args.meta, {META_KEY: acc})
-        print(f"[verify] merged '{META_KEY}' into {args.meta}")
+        log.info(f"[verify] merged '{META_KEY}' into {args.meta}")
     except Exception as exc:
-        print(f"TODO: price verify could not write _meta.json ({exc}) — result above only")
+        log.error(f"TODO: price verify could not write _meta.json ({exc}) — result above only")
     return 0
 
 

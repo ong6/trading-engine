@@ -51,6 +51,9 @@ from engine.lib import db as _db
 from engine.lib.settings import DATA_DIR, REPO_ROOT
 from farm import stats as fstats
 from farm.walkforward import protocol, runner
+from engine.lib.log import get_logger
+
+log = get_logger("sweep")
 
 SWEEPS_DIR = DATA_DIR / "reports" / "sweeps"
 SCRATCH_ROOT = REPO_ROOT / "scratch"
@@ -201,7 +204,7 @@ def expand(name: str) -> list[dict]:
         # cadence silently produces a book that never fires.
         ok = spec.get("feasible")
         if ok is not None and not ok(params):
-            print(f"[sweep] {name}: skipping infeasible cell {slug} "
+            log.warning(f"[sweep] {name}: skipping infeasible cell {slug} "
                   f"(params the strategy can never satisfy)")
             continue
         cfg = {"id": cid, "name": label, "strategy": spec["strategy"],
@@ -241,7 +244,7 @@ def run_sweep(live_con, name: str, *, anchor: date | None = None,
     (out_dir / "results").mkdir(parents=True, exist_ok=True)
 
     todo = [_bench_book(live_con)] + cands
-    print(f"[sweep] {name}: {len(cands)} candidate(s) + benchmark, {n_folds} folds each")
+    log.info(f"[sweep] {name}: {len(cands)} candidate(s) + benchmark, {n_folds} folds each")
 
     for b in todo:
         runner.run_book(live_con, b["id"], book=b, anchor=anchor, n_folds=n_folds,
@@ -447,7 +450,7 @@ def rank(name: str, *, out_root: Path = SWEEPS_DIR, n_trials: int | None = None)
                "deflated_sharpe": dsr,
                "rows": rows, "excluded": excluded}
     (out_dir / "ranking.json").write_text(json.dumps(payload, indent=2, default=str) + "\n")
-    print(f"[sweep] wrote {out_dir / 'README.md'} "
+    log.info(f"[sweep] wrote {out_dir / 'README.md'} "
           f"({n_indistinct}/{len(rows)} INDISTINGUISHABLE)")
     return payload
 

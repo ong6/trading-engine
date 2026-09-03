@@ -69,6 +69,9 @@ from datetime import date
 from engine.lib import db
 from engine.lib import leverage as lev
 from engine.lib.settings import REPO_ROOT  # noqa: F401
+from engine.lib.log import get_logger
+
+log = get_logger("hist_screen")
 
 MIN_BARS = 253          # same constant as engine/screen.py
 STALE_TRADING_DAYS = 3  # same
@@ -264,8 +267,8 @@ def screen_sessions(con, sessions: list[date], *, membership: str = "prices",
         n_excluded = lev.register_exclusion(con)
         where += " AND m.ticker NOT IN (SELECT ticker FROM _lev_excluded)"
         if verbose:
-            print(f"[hist_screen] policy {policy}: {n_excluded} leveraged/inverse "
-                  f"ETPs excluded from every session", flush=True)
+            log.info(f"[hist_screen] policy {policy}: {n_excluded} leveraged/inverse "
+                  f"ETPs excluded from every session")
 
     all_tickers = tickers if tickers is not None else _tickers(con, end)
     bar_sql = _BAR_SQL.format(min_bars=MIN_BARS, stale=STALE_TRADING_DAYS,
@@ -281,9 +284,9 @@ def screen_sessions(con, sessions: list[date], *, membership: str = "prices",
         con.execute(elig_sql)
         if verbose:
             n = con.execute("SELECT COUNT(*) FROM _hs_raw").fetchone()[0]
-            print(f"[hist_screen] tickers {i + len(chunk)}/{len(all_tickers)} "
+            log.info(f"[hist_screen] tickers {i + len(chunk)}/{len(all_tickers)} "
                   f"→ {n:,} eligible (ticker, date) rows "
-                  f"[{time.time() - t0:.0f}s]", flush=True)
+                  f"[{time.time() - t0:.0f}s]")
 
     con.execute(_RANK_SQL)
     # new_today: passes today and did not pass on the previous run_date in the
@@ -313,9 +316,9 @@ def screen_sessions(con, sessions: list[date], *, membership: str = "prices",
               "_hs_window", "_hs_prev", "_lev_excluded"):
         con.execute(f"DROP TABLE IF EXISTS {t}")
     if verbose:
-        print(f"[hist_screen] {len(sessions)} sessions → {n:,} rows in "
+        log.info(f"[hist_screen] {len(sessions)} sessions → {n:,} rows in "
               f"{time.time() - t0:.0f}s ({'passing only' if passing_only else 'all rows'}, "
-              f"membership={membership}, policy={policy})", flush=True)
+              f"membership={membership}, policy={policy})")
     return n
 
 
@@ -337,7 +340,7 @@ def main() -> int:
     db.init_schema(con)
     days = sessions_between(con, date.fromisoformat(args.start),
                             date.fromisoformat(args.end))
-    print(f"[hist_screen] {len(days)} sessions {days[0]} → {days[-1]}")
+    log.info(f"[hist_screen] {len(days)} sessions {days[0]} → {days[-1]}")
     screen_sessions(con, days, membership=args.membership,
                     passing_only=not args.all_rows, table=args.table,
                     universe_policy=args.universe_policy)
