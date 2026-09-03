@@ -2094,6 +2094,30 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   `fetched_at` ≥ ex_date → `skipped_already_adjusted`), which is the right answer: the
   bootstrap load is Yahoo's adjusted view and needs no restating.
 
+### Round 4 (2026-09-03, 03:00–04:10 UTC) — refactor steps 5–7 and the queue's weak points
+
+- **Step 6 — retired agentic layer archived** (`e484539`): `agents/`, `engine/news_analyst*`, the
+  agentic/news reports and state files moved with structure to `archive/agentic-2026-08/` (README
+  explains what, why, the 5+2 `active=FALSE` books still in `portfolios`, how to re-enable). The
+  agent gate in `sim/strategies/base.py` is a no-op while the directory is absent. **Public-
+  readiness flag:** the two archived news reports restate the owner's private theses — decide
+  before going public.
+- **Step 7 — structured logging** (`c333b93`): `engine.lib.log.get_logger(tag)`; 220 `print` →
+  `log.*` in 35 modules with output **byte-identical** (league rerun, screen rerun, backtest
+  shakedown, verify_prices diffed before/after on a store copy). `TRADING_ENGINE_LOG_LEVEL`,
+  `TRADING_ENGINE_LOG_JSON=1`. Report/table output that is data stays `print`.
+- **Step 5 + queue** (`bd87bda`): `engine/lib/driver.sh` is the one preamble (five drivers went
+  226/111/88/63/64 → 169/89/64/46/48 lines; harness of 15 scenarios identical before/after);
+  `queue_runner --enqueue-nightly` owns the nightly enqueue policy (tested, params byte-identical
+  so existing rows dedup); `jobs.timeout_s` with kind defaults at 3× measured, enforced on parallel
+  children (SIGTERM → `failed`/`timeout`); `supersedes=True` kinds (intraday) mark stale variants
+  `superseded`. `run_daily.sh` lost the dead agentic-report block.
+- Tests: **318 passed.** The architecture review's nine-step plan is complete except its
+  optional stats-module merge (`farm/stats.py` vs `farm/backtest/stats.py`) and the small-helper
+  consolidation (§A2 last two rows).
+- **Watch tonight's nightly** (first run under `driver.sh` + `--enqueue-nightly`): `logs/cron.log`
+  should end `=== done` and the farm section should read `enqueue-nightly=0 run=0`.
+
 ### Decisions
 
 - Hand-rolled NYSE calendar over `pandas_market_calendars` (auditable, no data dependency,
@@ -2113,8 +2137,9 @@ raw-data paths removed from every commit). Secret scan across full history: clea
    frozen) — a delisting handler for `sim/`.
 3. Refetch SNEX and WLFC (one bad bar each, no positions); decide OPAD/WLFC's unadjusted
    Yahoo series (leave, or refetch and let the new adjudicator skip).
-4. Refactor steps 4–9 of the architecture plan (shared `driver.sh`, archive `agents/`,
-   `logging`, per-job timeout in the queue).
+4. Remaining §A2 duplication: merge `farm/stats.py` and `farm/backtest/stats.py` (two
+   `max_drawdown` conventions), lift `_pct/_num/_median/_table_exists` into `engine/lib`.
+5. Owner decision on the archived news reports before the repo goes public.
 5. Monthly-granularity re-reporting of walk-forward folds (block bootstrap on ~144 paired
    monthly excess returns instead of n=10 fold means).
 
