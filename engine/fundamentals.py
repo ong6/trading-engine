@@ -25,7 +25,6 @@ already snapshotted for today's as_of).
 """
 from __future__ import annotations
 
-import sys
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -33,13 +32,10 @@ from pathlib import Path
 import pandas as pd
 import yfinance as yf
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib import db  # noqa: E402
-from lib import resources as rsc  # noqa: E402
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_META = REPO_ROOT / "data" / "_meta.json"
-STORE_DIR = REPO_ROOT / "store"
+from engine.lib import db
+from engine.lib import resources as rsc
+from engine.lib.settings import STORE_DIR
+from engine.lib.settings import META_PATH as DEFAULT_META
 
 PER_NAME_SLEEP = 0.4       # politeness pause between per-name .info requests
 RETRY_SLEEP = 15           # one backoff before recording a name as a gap

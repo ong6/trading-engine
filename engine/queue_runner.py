@@ -34,13 +34,10 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib import db  # noqa: E402
-from lib import resources as rsc  # noqa: E402
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_META = REPO_ROOT / "data" / "_meta.json"
-STORE_DIR = REPO_ROOT / "store"
+from engine.lib import db
+from engine.lib import resources as rsc
+from engine.lib.settings import REPO_ROOT, STORE_DIR
+from engine.lib.settings import META_PATH as DEFAULT_META
 
 # §12.7 caps
 # 5-min load ceiling. Kept at 28 after measurement (2026-08-20): a width-8
@@ -91,56 +88,51 @@ DRAIN_BUDGET_DEFAULT_S = 4 * 3600  # 4 hours
 # dispatch table — the seam for new job types (backtest sweeps plug in here)
 # --------------------------------------------------------------------------- #
 def _load_intraday():
-    import intraday
+    from engine import intraday
     return intraday.run
 
 
 def _load_fundamentals():
-    import fundamentals
+    from engine import fundamentals
     return fundamentals.run
 
 
 def _load_earnings():
-    import earnings
+    from engine import earnings
     return earnings.run
 
 
 def _load_actions():
-    import actions
+    from engine import actions
     return actions.run
 
 
 def _load_signals():
-    import signals
+    from engine import signals
     return signals.run
 
 
 def _load_experiment():
-    sys.path.insert(0, str(REPO_ROOT / "farm"))
-    import experiment
+    from farm import experiment
     return experiment.run_job
 
 
 def _load_experiment_forward():
-    sys.path.insert(0, str(REPO_ROOT / "farm"))
-    import experiment_runner
+    from farm import experiment_runner
     return experiment_runner.run_job
 
 
 def _load_backtest():
-    sys.path.insert(0, str(REPO_ROOT))
     from farm.backtest import replay
     return replay.run_job
 
 
 def _load_sweep():
-    sys.path.insert(0, str(REPO_ROOT))
     from farm.sweep import sweep
     return sweep.run_job
 
 
 def _load_walkforward():
-    sys.path.insert(0, str(REPO_ROOT))
     from farm.walkforward import runner
     return runner.run_job
 
@@ -276,7 +268,6 @@ def cmd_status(con) -> int:
     return 0
 
 
-
 # --------------------------------------------------------------------------- #
 # parallel execution of `parallel_safe` job kinds
 # --------------------------------------------------------------------------- #
@@ -301,10 +292,8 @@ def cmd_run_one(jid: int, db_path: str | None, meta_path: str | Path) -> int:
     parent's business, deliberately: a child that dies mid-job leaves the row
     'running' and the next drain's orphan sweep returns it to 'pending'.
     """
-    import duckdb
     rsc.apply_niceness()
-    path = str(db_path or db.DEFAULT_DB)
-    con = duckdb.connect(path, read_only=True)
+    con = db.connect(db_path or db.DEFAULT_DB, read_only=True)
     try:
         row = con.execute("SELECT kind, params FROM jobs WHERE id = ?", [jid]).fetchone()
         if row is None:
@@ -356,11 +345,11 @@ def _run_parallel_batch(batch, db_path, meta_path, con) -> tuple[dict, object]:
         # and costs nothing: these jobs run for minutes to hours.
         if i:
             time.sleep(BATCH_STAGGER_S)
-        cmd = [sys.executable, str(Path(__file__).resolve()),
+        cmd = [sys.executable, "-m", "engine.queue_runner",
                "--run-one", str(jid), "--meta", str(meta_path)]
         if db_path:
             cmd += ["--db", str(db_path)]
-        procs.append((jid, kind, subprocess.Popen(cmd)))
+        procs.append((jid, kind, subprocess.Popen(cmd, cwd=str(REPO_ROOT))))
 
     results = {}
     for jid, kind, pr in procs:

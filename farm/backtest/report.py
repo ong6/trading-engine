@@ -18,8 +18,9 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-BACKTEST_DIR = REPO_ROOT / "data" / "reports" / "backtests"
+from engine.lib.settings import DATA_DIR, REPO_ROOT  # noqa: F401
+
+BACKTEST_DIR = DATA_DIR / "reports" / "backtests"
 RESULTS_DIR = BACKTEST_DIR / "results"
 
 WINDOW_ORDER = ["6mo", "1y", "3y", "5y", "15y", "max"]
@@ -222,10 +223,8 @@ def write_reports(results_dir: Path = RESULTS_DIR,
 
 # The planned grid — kept here so the report can name what is still pending.
 def _expected_grid() -> list[tuple[str, str]]:
-    import sys
-    sys.path.insert(0, str(REPO_ROOT))
-    from farm.backtest.replay import EXCLUDED, WINDOW_MONTHS  # noqa: E402
-    from sim.strategies.configs import CONFIGS  # noqa: E402
+    from farm.backtest.replay import EXCLUDED, WINDOW_MONTHS
+    from sim.strategies.configs import CONFIGS
 
     etf_only = {"dual_momentum", "spy_benchmark"}
     grid = []

@@ -22,21 +22,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-for _p in (str(REPO_ROOT), str(REPO_ROOT / "engine")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-from lib import db  # noqa: E402
-from sim.strategies.configs import CONFIGS  # noqa: E402
-
-if __package__:
-    from .replay import EXCLUDED, WINDOW_MONTHS  # noqa: E402
-else:  # pragma: no cover
-    from farm.backtest.replay import EXCLUDED, WINDOW_MONTHS  # noqa: E402
+from engine.lib import db
+from engine.lib.settings import REPO_ROOT  # noqa: F401
+from farm.backtest.replay import EXCLUDED, WINDOW_MONTHS
+from sim.strategies.configs import CONFIGS
 
 ETF_ONLY = {"dual_momentum", "spy_benchmark"}   # strategies eligible for 'max'
 PRIORITY = {"6mo": 140, "1y": 145, "3y": 150, "5y": 155, "15y": 160, "max": 165}

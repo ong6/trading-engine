@@ -7,18 +7,11 @@ trailing 63-session median dollar volume under the SAME floor bootstrap used
 """
 from __future__ import annotations
 
-import sys
 from datetime import date
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-for _p in (str(REPO_ROOT), str(REPO_ROOT / "engine")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-import collect  # noqa: E402  (engine/collect.py)
-from engine.lib import db  # noqa: E402
-from tests.conftest import insert_bars, sessions  # noqa: E402
+from engine import collect
+from engine.lib import db
+from tests.conftest import insert_bars, sessions
 
 DAYS = sessions(date(2024, 1, 2), date(2024, 7, 31))      # ~150 sessions
 WINDOW = DAYS[-collect.LIQ_BARS:]

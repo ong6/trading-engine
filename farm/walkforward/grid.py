@@ -24,22 +24,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-for _p in (str(REPO_ROOT), str(REPO_ROOT / "engine")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-from lib import db  # noqa: E402
-
-if __package__:
-    from . import protocol
-else:  # pragma: no cover
-    from farm.walkforward import protocol
-
-from farm.walkforward.runner import active_books  # noqa: E402
+from engine.lib import db
+from engine.lib.settings import REPO_ROOT  # noqa: F401
+from farm.walkforward import protocol
+from farm.walkforward.runner import active_books
 
 # 8000 -> 4500 (2026-08-20): measured peak RSS, not a guess. Live 10-fold
 # sweep worker VmHWM 3,409 MB after 4.5 h; 2-fold walkforward replay peak
@@ -113,8 +102,7 @@ def main() -> int:
             overrides[key] = val
 
     if args.list:
-        import duckdb
-        live = duckdb.connect(args.db or str(db.DEFAULT_DB), read_only=True)
+        live = db.connect(args.db or db.DEFAULT_DB, read_only=True)
         try:
             for cid, prio, params in plan(live, overrides):
                 print(f"{cid:<30} priority={prio}  params={params}")

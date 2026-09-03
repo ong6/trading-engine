@@ -46,7 +46,7 @@ Premium ETF`, a 1x covered-call fund).
 
 USAGE
 -----
-    from lib import leverage
+    from engine.lib import leverage
     leverage.classify("Direxion Daily S&P 500 Bull 3X ETF", etf=True)
     -> Match(rule='multiplier', evidence='3X')
 

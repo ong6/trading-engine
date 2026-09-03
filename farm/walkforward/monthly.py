@@ -51,21 +51,18 @@ import argparse
 import json
 import math
 import re
-import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+from engine.lib.settings import DATA_DIR
+from engine.lib.settings import REPO_ROOT as ROOT  # noqa: F401
+from farm import stats as fstats
 
-from farm import stats as fstats  # noqa: E402
-
-WF_DIR = ROOT / "data" / "reports" / "walkforward"
+WF_DIR = DATA_DIR / "reports" / "walkforward"
 RESULTS_DIR = WF_DIR / "results"
-BACKTEST_RESULTS_DIR = ROOT / "data" / "reports" / "backtests" / "results"
+BACKTEST_RESULTS_DIR = DATA_DIR / "reports" / "backtests" / "results"
 
 EW = "ew_benchmark"
 SPY = "spy_benchmark"

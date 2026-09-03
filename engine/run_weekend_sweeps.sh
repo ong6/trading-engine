@@ -71,7 +71,7 @@ set +e
   # assignment and aborted the script before the "no grids" message — hence
   # the `|| true` guard; the emptiness check below is the real gate.
   stage list-grids
-  GRIDS="$("${PY}" farm/sweep/sweep.py --grid list | { grep -v '^\[' || true; } | awk 'NF {print $1}')"
+  GRIDS="$("${PY}" -m farm.sweep.sweep --grid list | { grep -v '^\[' || true; } | awk 'NF {print $1}')"
   if [ -z "${GRIDS}" ]; then
     echo "ERROR: no grids enumerated — refusing to drain an empty plan"
     exit 1
@@ -82,7 +82,7 @@ set +e
   # (kind, params), so a re-run after a partial drain adds nothing.
   stage enqueue
   for g in ${GRIDS}; do
-    "${PY}" engine/queue_runner.py --enqueue sweep \
+    "${PY}" -m engine.queue_runner --enqueue sweep \
       --priority "${SWEEP_PRIORITY}" --mem-mb "${SWEEP_MEM_MB}" \
       --params "{\"grid\": \"${g}\"}"
   done
@@ -95,10 +95,10 @@ set +e
   # budget; sustained load ~20-24 of 32 cores under LOAD_5MIN_MAX=28. There
   # are only 6 grids today, so real width is min(8, pending grids).
   stage drain
-  "${PY}" engine/queue_runner.py --run --jobs 8
+  "${PY}" -m engine.queue_runner --run --jobs 8
 
   stage sync
-  "${PY}" engine/sync.py || echo "WARN: sync failed (exit $?) — reports are on disk; next nightly's sync will stage them"
+  "${PY}" -m engine.sync || echo "WARN: sync failed (exit $?) — reports are on disk; next nightly's sync will stage them"
 
   echo "=== done $(date -u +%FT%TZ) ==="
 } 2>&1 | tee -a "${LOG}"

@@ -8,21 +8,14 @@ keyed on the last TRADED bar, matching league.md's stale-mark rule.
 """
 from __future__ import annotations
 
-import sys
 from datetime import date
-from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-for _p in (str(REPO_ROOT), str(REPO_ROOT / "engine")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-import screen  # noqa: E402  (engine/screen.py)
-from engine.lib import db  # noqa: E402
-from farm.backtest import hist_screen  # noqa: E402
-from tests.conftest import insert_bars, sessions  # noqa: E402
+from engine import screen
+from engine.lib import db
+from farm.backtest import hist_screen
+from tests.conftest import insert_bars, sessions
 
 # 300 sessions -> comfortably above MIN_BARS (253) for every name.
 DAYS = sessions(date(2023, 5, 1), date(2024, 7, 31))

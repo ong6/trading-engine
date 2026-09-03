@@ -12,12 +12,9 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
-import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-META_PATH = REPO_ROOT / "data" / "_meta.json"
+from engine.lib.settings import META_PATH, REPO_ROOT
 
 
 def _git(*args: str) -> subprocess.CompletedProcess:

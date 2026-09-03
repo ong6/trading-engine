@@ -55,7 +55,7 @@ META="${WORK}/meta.json"
 OUT_JSON="${WORK}/out.json"
 
 # --- 1. Gather every input into one prompt file -----------------------------
-if ! "${PY}" "${SCRIPT_DIR}/news_analyst_prep.py" \
+if ! "${PY}" -m engine.news_analyst_prep \
       --state "${STATE_FILE}" --prompt-out "${PROMPT}" --meta-out "${META}" \
       --date "${RUN_DATE}" >>"${LOG}" 2>&1; then
   log "TODO: prep step failed — no brief written, state NOT advanced (next run re-covers)"

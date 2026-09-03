@@ -31,20 +31,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 import time
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib import db  # noqa: E402
-from lib import resources as rsc  # noqa: E402
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-META_PATH = REPO_ROOT / "data" / "_meta.json"
+from engine.lib import db
+from engine.lib import resources as rsc
+from engine.lib.settings import META_PATH
 
 _YF_FIELDS = {"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"}
 

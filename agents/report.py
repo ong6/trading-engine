@@ -30,26 +30,20 @@ Inputs consumed (all defined elsewhere; this module invents no variants):
 
 Usage:
     .venv/bin/python -m agents.report
-    .venv/bin/python agents/report.py --out-dir /tmp/agentic-smoke
+    .venv/bin/python -m agents.report --out-dir /tmp/agentic-smoke
 """
 from __future__ import annotations
 
 import argparse
 import json
 import statistics
-import sys
-import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-# Importable both as `python -m agents.report` and as a bare script path
-# (mirrors farm/walkforward/report.py).
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+from engine.lib import db
+from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT
 
-DEFAULT_DB = REPO_ROOT / "store" / "market.duckdb"
-DEFAULT_OUT_DIR = REPO_ROOT / "data" / "reports" / "agentic"
+DEFAULT_OUT_DIR = DATA_DIR / "reports" / "agentic"
 DEFAULT_AGENTS_DIR = REPO_ROOT / "agents"
 
 # Pre-registered at program launch. The agent loop — not the algo book — is what
@@ -185,17 +179,13 @@ def connect_ro(db_path: Path, attempts: int = 5):
     single-writer, so a transient conflict is normal and must not fail a report
     run (same pattern as engine/news_analyst_prep.py::open_positions).
     """
-    import duckdb
-
-    last_err = None
-    for attempt in range(attempts):
-        try:
-            return duckdb.connect(str(db_path), read_only=True)
-        except Exception as e:  # locked by the nightly / farm drain
-            last_err = e
-            time.sleep(2 * (attempt + 1))
-    raise SystemExit(f"[agentic-report] could not open {db_path} read-only "
-                     f"after {attempts} attempts: {last_err}")
+    # Thin wrapper over the one connection factory (engine.lib.db.connect);
+    # ~sum(2*(i+1)) seconds of the old backoff ≈ attempts*(attempts+1).
+    try:
+        return db.connect(db_path, read_only=True, wait_s=attempts * (attempts + 1))
+    except Exception as e:  # locked by the nightly / farm drain
+        raise SystemExit(f"[agentic-report] could not open {db_path} read-only "
+                         f"after {attempts} attempts: {e}") from e
 
 
 def _q(con, sql: str, params: list | None = None) -> list[tuple]:

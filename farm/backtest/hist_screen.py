@@ -63,18 +63,12 @@ passing_only=False for the equivalence proof, which needs the full frame.
 from __future__ import annotations
 
 import argparse
-import sys
 import time
 from datetime import date
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-for _p in (str(REPO_ROOT), str(REPO_ROOT / "engine")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-from lib import db  # noqa: E402
-from lib import leverage as lev  # noqa: E402
+from engine.lib import db
+from engine.lib import leverage as lev
+from engine.lib.settings import REPO_ROOT  # noqa: F401
 
 MIN_BARS = 253          # same constant as engine/screen.py
 STALE_TRADING_DAYS = 3  # same

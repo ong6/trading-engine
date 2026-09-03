@@ -37,28 +37,17 @@ import argparse
 import math
 import shutil
 import subprocess
-import sys
 from datetime import date
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-for _p in (str(REPO_ROOT), str(REPO_ROOT / "engine")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+import numpy as np
 
-import duckdb  # noqa: E402
-import numpy as np  # noqa: E402
+from engine.lib import db
+from engine.lib.settings import REPO_ROOT
+from farm.backtest import hist_screen
+from farm.backtest.replay import run_replay
 
-from lib import db  # noqa: E402
-
-if __package__:
-    from . import hist_screen  # noqa: E402
-    from .replay import run_replay  # noqa: E402
-else:  # pragma: no cover
-    from farm.backtest import hist_screen  # noqa: E402
-    from farm.backtest.replay import run_replay  # noqa: E402
-
-LIVE_DB = REPO_ROOT / "store" / "market.duckdb"
+LIVE_DB = db.DEFAULT_DB
 PROOF_DIR = REPO_ROOT / "scratch" / "proofs"
 PY = str(REPO_ROOT / ".venv" / "bin" / "python")
 
@@ -95,12 +84,12 @@ def screen_equivalence() -> bool:
     con.close()
 
     for d in EQUIV_DATES:
-        subprocess.run([PY, "engine/screen.py", "--db", str(path), "--data-dir",
+        subprocess.run([PY, "-m", "engine.screen", "--db", str(path), "--data-dir",
                         str(PROOF_DIR / "screens"), "--date", d.isoformat(),
                         "--rerun"], cwd=REPO_ROOT, check=True,
                        capture_output=True, text=True)
 
-    con = duckdb.connect(str(path), read_only=True)
+    con = db.connect(path, read_only=True)
     ok = True
     cols = ["close", "rs_rank", "template_score", "passes_template", "dist_50d",
             "dist_200d", "off_52w_low", "off_52w_high", "base_tight", "vol_dryup"]
@@ -175,15 +164,15 @@ def replay_fidelity() -> bool:
         return False
     print("shakedown done")
 
-    live = duckdb.connect(str(path), read_only=True)
+    live = db.connect(path, read_only=True)
     ok = True
     try:
         for cid in FIDELITY_BOOKS:
             run_replay(live, cid, "6mo", scratch_root=PROOF_DIR / "replay",
                        screen_source="m1", keep_scratch=True, write_result=False,
                        verbose=False, override=(FIDELITY_START, FIDELITY_END))
-            b = duckdb.connect(
-                str(PROOF_DIR / "replay" / f"{cid}__6mo" / "replay.duckdb"),
+            b = db.connect(
+                PROOF_DIR / "replay" / f"{cid}__6mo" / "replay.duckdb",
                 read_only=True)
             queries = {
                 "sim_orders": "SELECT ticker, side, qty, signal_date, status, "
@@ -219,7 +208,7 @@ def replay_fidelity() -> bool:
 # --------------------------------------------------------------------------- #
 def stats_sanity() -> bool:
     _hdr("PROOF 3 — stats sanity (spy_benchmark 1y vs a hand computation)")
-    live = duckdb.connect(str(LIVE_DB), read_only=True)
+    live = db.connect(LIVE_DB, read_only=True)
     try:
         res = run_replay(live, "spy_benchmark", "1y", scratch_root=PROOF_DIR,
                          write_result=False, verbose=False)

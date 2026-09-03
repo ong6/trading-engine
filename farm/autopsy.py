@@ -27,9 +27,9 @@ Honesty rules, all load-bearing:
   * A statistic over an empty set is None, never 0.0 dressed up as a measurement.
 
 Usage:
-    .venv/bin/python farm/autopsy.py                              # markdown to stdout
-    .venv/bin/python farm/autopsy.py --book mr_overlay --book pead_ear
-    .venv/bin/python farm/autopsy.py --since 2026-07-01 --json out.json --md out.md
+    .venv/bin/python -m farm.autopsy                              # markdown to stdout
+    .venv/bin/python -m farm.autopsy --book mr_overlay --book pead_ear
+    .venv/bin/python -m farm.autopsy --since 2026-07-01 --json out.json --md out.md
     python -m farm.autopsy --help
 """
 from __future__ import annotations
@@ -37,8 +37,6 @@ from __future__ import annotations
 import argparse
 import json
 import statistics
-import sys
-import time
 from bisect import bisect_left, bisect_right
 from collections import deque
 from datetime import date, datetime, timezone
@@ -46,12 +44,10 @@ from pathlib import Path
 
 import duckdb
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-# Importable both as `python -m farm.autopsy` and as a bare script path.
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+from engine.lib import db
+from engine.lib.settings import REPO_ROOT  # noqa: F401
 
-DB_PATH = REPO_ROOT / "store" / "market.duckdb"
+DB_PATH = db.DEFAULT_DB
 
 # Bounded wait for the single-writer lock (nightly / farm / queue runner hold it).
 # ~6 tries x 5s = 30s, then a clear error — the CALLER decides whether to degrade.
@@ -80,21 +76,14 @@ def connect_readonly(path: str | Path = DB_PATH,
     silently returns an empty autopsy, because "no trades" and "could not look" are
     completely different answers for the tuner reading the report.
     """
-    last: Exception | None = None
-    for attempt in range(1, max(1, tries) + 1):
-        try:
-            return duckdb.connect(str(path), read_only=True)
-        except Exception as exc:  # duckdb.IOException et al.
-            last = exc
-            if attempt >= tries:
-                break
-            print(f"[autopsy] store locked (attempt {attempt}/{tries}) — "
-                  f"retrying in {retry_s:.0f}s", file=sys.stderr)
-            time.sleep(retry_s)
-    raise RuntimeError(
-        f"[autopsy] could not open {path} read-only after {tries} attempt(s) "
-        f"(~{tries * retry_s:.0f}s): {last}"
-    ) from last
+    # Thin wrapper over the one connection factory (engine.lib.db.connect).
+    try:
+        return db.connect(path, read_only=True, wait_s=max(1, tries) * retry_s)
+    except Exception as exc:  # duckdb.IOException et al.
+        raise RuntimeError(
+            f"[autopsy] could not open {path} read-only after {tries} attempt(s) "
+            f"(~{tries * retry_s:.0f}s): {exc}"
+        ) from exc
 
 
 # --------------------------------------------------------------------------- #

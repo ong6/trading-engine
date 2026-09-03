@@ -42,21 +42,17 @@ import argparse
 import itertools
 import json
 import statistics
-import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-for _p in (str(REPO_ROOT), str(REPO_ROOT / "engine")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+import numpy as np
 
-import numpy as np  # noqa: E402
+from engine.lib import db as _db
+from engine.lib.settings import DATA_DIR, REPO_ROOT
+from farm import stats as fstats
+from farm.walkforward import protocol, runner
 
-from farm import stats as fstats  # noqa: E402
-from farm.walkforward import protocol, runner  # noqa: E402
-
-SWEEPS_DIR = REPO_ROOT / "data" / "reports" / "sweeps"
+SWEEPS_DIR = DATA_DIR / "reports" / "sweeps"
 SCRATCH_ROOT = REPO_ROOT / "scratch"
 BENCH = "ew_benchmark"
 
@@ -628,9 +624,6 @@ def run_job(params: dict, con, meta_path=None) -> None:
 
 
 def main() -> int:
-    import duckdb
-    from lib import db as _db
-
     ap = argparse.ArgumentParser(description="Parameter sweep over league strategy classes.")
     ap.add_argument("--grid", required=True, help=f"one of: {', '.join(sorted(GRIDS))}, or 'list'")
     ap.add_argument("--db", default=str(_db.DEFAULT_DB))
@@ -648,7 +641,7 @@ def main() -> int:
         rank(args.grid)
         return 0
 
-    live = duckdb.connect(args.db, read_only=True)
+    live = _db.connect(args.db, read_only=True)
     try:
         run_sweep(live, args.grid, n_folds=args.folds, limit=args.limit,
                   anchor=date.fromisoformat(args.anchor) if args.anchor else None)

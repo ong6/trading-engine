@@ -57,15 +57,15 @@ set +e
   # universe table (from a prior run) is fine since collect reads it from DuckDB,
   # so never let a failed refresh abort the whole nightly under set -e.
   stage universe
-  "${PY}" engine/universe.py || echo "WARN: universe refresh failed; continuing with existing universe table"
+  "${PY}" -m engine.universe || echo "WARN: universe refresh failed; continuing with existing universe table"
   stage collect
-  "${PY}" engine/collect.py   # incremental daily (calendar-gated)
+  "${PY}" -m engine.collect   # incremental daily (calendar-gated)
 
   # rank universe + trend template, write screens/eod. --skip-if-done: on a
   # weekend/holiday run collect no-ops so MAX(date) is already screened — no-op
   # cleanly (exit 0) instead of aborting the nightly; real failures still exit 1.
   stage screen
-  "${PY}" engine/screen.py --skip-if-done
+  "${PY}" -m engine.screen --skip-if-done
 
   # --- Corporate actions: fetch, then reconcile. MUST sit between screen and
   # league, because the league steps the books against `prices` and a stored
@@ -85,10 +85,10 @@ set +e
   #    is the designed "never guess" outcome and surfaces as a TODO breadcrumb in
   #    this log plus an audit_log row.
   stage actions
-  "${PY}" engine/actions.py --mode incremental \
+  "${PY}" -m engine.actions --mode incremental \
     || echo "WARN: corporate-actions fetch failed (exit $?) — reconcile still runs over stored actions; the >40% move tripwire is independent of this fetch"
   stage reconcile
-  "${PY}" engine/actions.py --mode reconcile
+  "${PY}" -m engine.actions --mode reconcile
 
   # Paper league (exec-design §1 nightly order: … → screen → league → report → sync).
   # --init is idempotent (creates only absent portfolios); the step writes
@@ -107,7 +107,7 @@ set +e
   # Non-fatal by design: experiment reporting must NEVER block trading data.
   # On a non-Monday this is a no-op that just refreshes the report.
   stage experiment
-  "${PY}" farm/experiment_runner.py --id e1-spy-monday \
+  "${PY}" -m farm.experiment_runner --id e1-spy-monday \
     || echo "WARN: E1 forward experiment runner failed (exit $?) — no trading data" \
             "is affected; the runner is idempotent and will pick the Monday up" \
             "on the next run"
@@ -125,12 +125,12 @@ set +e
   # retired books as live — a running "2.0 / 26 weeks, evaluated 2027-02-01"
   # clock over frozen curves that can never diverge again. The reports in
   # data/reports/agentic/ are kept as the historical record, stamped RETIRED.
-  #   was: stage agentic-report && "${PY}" agents/report.py
+  #   was: stage agentic-report && "${PY}" -m agents.report
 
   # Sync is best-effort: a failure must NOT fail the nightly — the league/screen
   # results are already safe in DuckDB + data/ and will re-stage next nightly.
   stage sync
-  "${PY}" engine/sync.py || echo "WARN: sync failed (exit $?) — league/screen results are safe in DuckDB + data/; will re-stage next nightly"
+  "${PY}" -m engine.sync || echo "WARN: sync failed (exit $?) — league/screen results are safe in DuckDB + data/; will re-stage next nightly"
 
   # --- EOD price cross-check against a SECOND, independent source (Nasdaq's own
   # quote-history API). Samples ~40 names + the core ETFs + everything a league
@@ -153,7 +153,7 @@ set +e
   # — acceptable for an observability stage; moving it earlier would put a
   # multi-minute network call in front of the league's own commit.
   stage verify-prices
-  "${PY}" engine/verify_prices.py --sample 40 --sessions 5 \
+  "${PY}" -m engine.verify_prices --sample 40 --sessions 5 \
     || echo "WARN: price verify exited non-zero (exit $?) — it is designed to" \
             "exit 0 on every failure path, so this means the script itself" \
             "broke; no trading data is affected"
@@ -165,23 +165,23 @@ set +e
   (
     set +e
     echo "--- farm (post-sync, lowest priority §12.7): mining enqueue + drain ---"
-    "${PY}" engine/queue_runner.py --enqueue intraday --priority 100
+    "${PY}" -m engine.queue_runner --enqueue intraday --priority 100
     eq=$?
     # Macro / market-regime signals: daily, incremental (feeds macro_composite).
     # Sits between intraday and earnings by priority. Nothing in the fatal path
     # depends on it: the collector warns-and-continues per source, and the book
     # votes 0 on any series it cannot see.
-    "${PY}" engine/queue_runner.py --enqueue signals --priority 105 \
+    "${PY}" -m engine.queue_runner --enqueue signals --priority 105 \
       --params '{"mode": "incremental"}'
     es=$?
     # Earnings calendar: daily (§12.2 — feeds the earnings risk gate).
-    "${PY}" engine/queue_runner.py --enqueue earnings --priority 110
+    "${PY}" -m engine.queue_runner --enqueue earnings --priority 110
     ee=$?
     # Fundamentals snapshot: weekly (§12.2) — Fridays, so the point-in-time rows
     # land on week-close data. Resumable if the drain is interrupted.
     ef=0
     if [ "$(date -u +%u)" = "5" ]; then
-      "${PY}" engine/queue_runner.py --enqueue fundamentals --priority 120
+      "${PY}" -m engine.queue_runner --enqueue fundamentals --priority 120
       ef=$?
     fi
     # --jobs 8: `parallel_safe` kinds (walkforward, backtest, sweep) run as
@@ -197,7 +197,7 @@ set +e
     # peak RSS per worker is 3.4 GB measured (declared 4.5 GB, 8 x 4.5 = 36 GB
     # inside the 48 GB engine budget), and sustained load stays ~20-24 of 32
     # cores, under the LOAD_5MIN_MAX=28 guard.
-    "${PY}" engine/queue_runner.py --run --jobs 8
+    "${PY}" -m engine.queue_runner --run --jobs 8
     rn=$?
     if [ "${eq}" -ne 0 ] || [ "${es}" -ne 0 ] || [ "${ee}" -ne 0 ] \
        || [ "${ef}" -ne 0 ] || [ "${rn}" -ne 0 ]; then
