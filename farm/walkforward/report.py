@@ -17,11 +17,13 @@ from __future__ import annotations
 import argparse
 import json
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 
-from engine.lib.settings import DATA_DIR, REPO_ROOT  # noqa: F401
-from farm import stats as fstats
 from engine.lib.log import get_logger
+from engine.lib.settings import DATA_DIR, REPO_ROOT  # noqa: F401
+from engine.lib.util import num, pct
+from farm import stats as fstats
 
 log = get_logger("wf-report")
 
@@ -168,16 +170,9 @@ def _relabel_stale_inert(r: dict) -> dict:
     return r
 
 
-def _pct(v) -> str:
-    if v is None or (isinstance(v, float) and v != v):
-        return "·"
-    return f"{'+' if v >= 0 else '−'}{abs(v) * 100:.2f}%"
-
-
-def _num(v) -> str:
-    if v is None or (isinstance(v, float) and v != v):
-        return "·"
-    return f"{'+' if v >= 0 else '−'}{abs(v):.2f}"
+# Report convention: typographic minus, "·" for a missing measurement.
+_pct = partial(pct, minus="−")
+_num = partial(num, signed=True, minus="−")
 
 
 def _rate(v) -> str:

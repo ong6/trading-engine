@@ -48,10 +48,10 @@ from pathlib import Path
 import numpy as np
 
 from engine.lib import db as _db
+from engine.lib.log import get_logger
 from engine.lib.settings import DATA_DIR, REPO_ROOT
 from farm import stats as fstats
 from farm.walkforward import protocol, runner
-from engine.lib.log import get_logger
 
 log = get_logger("sweep")
 

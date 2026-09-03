@@ -13,8 +13,15 @@ from __future__ import annotations
 
 from .. import calendar
 from .base import (
-    Order, PortfolioView, Strategy, apply_agent_gate, close_on,
-    latest_screen_date, passing_ranked, rank_position, rebalance_orders,
+    Order,
+    PortfolioView,
+    Strategy,
+    apply_agent_gate,
+    close_on,
+    latest_screen_date,
+    passing_ranked,
+    rank_position,
+    rebalance_orders,
 )
 
 

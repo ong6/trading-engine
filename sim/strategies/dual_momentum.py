@@ -18,7 +18,11 @@ in weak tapes the gate rarely binds.
 from __future__ import annotations
 
 from .base import (
-    PortfolioView, Strategy, rebalance_orders, regime_risk_off, total_return,
+    PortfolioView,
+    Strategy,
+    rebalance_orders,
+    regime_risk_off,
+    total_return,
 )
 
 

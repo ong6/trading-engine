@@ -75,9 +75,10 @@ import requests
 
 from engine.lib import db
 from engine.lib import resources as rsc
+from engine.lib.log import get_logger
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT  # noqa: F401
 from engine.lib.settings import META_PATH as DEFAULT_META
-from engine.lib.log import get_logger
+from engine.lib.util import median
 
 log = get_logger("verify")
 META_KEY = "price_verify"
@@ -384,14 +385,6 @@ def compare_bars(ticker: str, store_bars: dict, src_bars: dict,
 # --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #
-def _median(xs: list[float]) -> float | None:
-    if not xs:
-        return None
-    xs = sorted(xs)
-    n = len(xs)
-    return xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2
-
-
 def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
     """Sample, cross-check, and return the accounting dict written under the
     `price_verify` key of data/_meta.json. `con` must be a READ-ONLY handle."""
@@ -591,10 +584,10 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
         "volume_note": "volume differs by design on the newest session (same-day "
                        "volume settles after the close); measured, never alarmed on",
         "volume_median_abs_diff_pct_latest_session": (
-            round(_median([v for d, v in vol_diffs if d == as_of]), 2)
+            round(median([v for d, v in vol_diffs if d == as_of]), 2)
             if any(d == as_of for d, _ in vol_diffs) else None),
         "volume_median_abs_diff_pct_prior_sessions": (
-            round(_median([v for d, v in vol_diffs if d != as_of]), 2)
+            round(median([v for d, v in vol_diffs if d != as_of]), 2)
             if any(d != as_of for d, _ in vol_diffs) else None),
         "volume_bars_compared": len(vol_diffs),
         # Same story as volume, and measured the same way: the newest session's
@@ -604,7 +597,7 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
         "provisional_note": (f"on {as_of.isoformat()} (newest stored session) "
                              "open/high/low are measured but never flagged; the "
                              "close IS checked on every name"),
-        "provisional_ohl_median_bp": (round(_median([bp for _, bp in prov_diffs]), 2)
+        "provisional_ohl_median_bp": (round(median([bp for _, bp in prov_diffs]), 2)
                                       if prov_diffs else None),
         "provisional_ohl_max_bp": (round(max(bp for _, bp in prov_diffs), 2)
                                    if prov_diffs else None),

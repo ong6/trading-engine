@@ -16,10 +16,12 @@ from __future__ import annotations
 import argparse
 import json
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 
-from engine.lib.settings import DATA_DIR, REPO_ROOT  # noqa: F401
 from engine.lib.log import get_logger
+from engine.lib.settings import DATA_DIR, REPO_ROOT  # noqa: F401
+from engine.lib.util import num, pct
 
 log = get_logger("backtest-report")
 
@@ -87,16 +89,9 @@ def load_results(results_dir: Path = RESULTS_DIR) -> list[dict]:
     return out
 
 
-def _pct(v) -> str:
-    if v is None or (isinstance(v, float) and v != v):
-        return "·"
-    return f"{'+' if v >= 0 else '−'}{abs(v) * 100:.2f}%"
-
-
-def _num(v) -> str:
-    if v is None or (isinstance(v, float) and v != v):
-        return "·"
-    return f"{'+' if v >= 0 else '−'}{abs(v):.2f}"
+# Report convention: typographic minus, "·" for a missing measurement.
+_pct = partial(pct, minus="−")
+_num = partial(num, signed=True, minus="−")
 
 
 def _row(r: dict, bench: dict[str, dict]) -> str:

@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import date, datetime, time as dtime, timezone
+from datetime import date, datetime, timezone
+from datetime import time as dtime
 from zoneinfo import ZoneInfo
 
 import duckdb
@@ -21,6 +22,7 @@ from fastapi.responses import JSONResponse
 
 from engine.lib import db as engine_db
 from engine.lib.settings import META_PATH
+from engine.lib.util import table_exists
 from sim.league import _max_drawdown, _spy_return, regime_label
 from sim.schema import INITIAL_CASH, init_sim_schema
 
@@ -81,14 +83,6 @@ def _ticket_signal_date(as_of: date, now: datetime | None = None) -> date:
     if now_et.date() > as_of and now_et.time() >= _OPEN_ET:
         return now_et.date()
     return as_of
-
-
-def _table_exists(con, name: str) -> bool:
-    """disc_tickets et al. only appear after the first write — reads must tolerate
-    their absence rather than 500."""
-    return con.execute(
-        "SELECT 1 FROM information_schema.tables WHERE table_name = ?", [name]
-    ).fetchone() is not None
 
 
 # --------------------------------------------------------------------------- #
@@ -182,7 +176,7 @@ def league():
     try:
         d = _latest_prices_date(con)
         rows = []
-        if _table_exists(con, "portfolios"):
+        if table_exists(con, "portfolios"):
             for pf_id, name, created in con.execute(
                 "SELECT id, name, created FROM portfolios WHERE active ORDER BY id"
             ).fetchall():
@@ -224,7 +218,7 @@ def league():
 def league_equity(portfolio_id: str):
     con = read_con()
     try:
-        if not _table_exists(con, "sim_equity"):
+        if not table_exists(con, "sim_equity"):
             return {"portfolio_id": portfolio_id, "equity": []}
         rows = _rows(con.execute(
             "SELECT portfolio_id, date, equity, cash, n_positions FROM sim_equity "
@@ -269,7 +263,7 @@ def candidate(ticker: str):
 def positions(portfolio: str | None = Query(None)):
     con = read_con()
     try:
-        if not _table_exists(con, "sim_positions"):
+        if not table_exists(con, "sim_positions"):
             return {"portfolio": portfolio, "positions": []}
         if portfolio:
             q = ("SELECT portfolio_id, ticker, qty, avg_cost FROM sim_positions "
@@ -308,9 +302,9 @@ def positions(portfolio: str | None = Query(None)):
 def orders(status: str | None = Query(None)):
     con = read_con()
     try:
-        if not _table_exists(con, "sim_orders"):
+        if not table_exists(con, "sim_orders"):
             return {"status": status, "orders": []}
-        has_t = _table_exists(con, "disc_tickets")
+        has_t = table_exists(con, "disc_tickets")
         sel = ("o.*, t.id AS ticket_id, t.playbook, t.stop, t.target "
                "FROM sim_orders o LEFT JOIN disc_tickets t ON t.order_id = o.id"
                ) if has_t else "o.* FROM sim_orders o"
@@ -333,7 +327,7 @@ def journal():
     try:
         tickets = _rows(con.execute(
             "SELECT * FROM disc_tickets ORDER BY created_at DESC, id DESC"
-        )) if _table_exists(con, "disc_tickets") else []
+        )) if table_exists(con, "disc_tickets") else []
         for t in tickets:
             if t.get("gates"):
                 try:
@@ -350,7 +344,7 @@ def journal():
         league_events = _rows(con.execute(
             "SELECT order_id, portfolio_id, ticker, side, qty, fill_date, fill_px "
             "FROM sim_fills ORDER BY fill_date DESC, order_id DESC LIMIT 100"
-        )) if _table_exists(con, "sim_fills") else []
+        )) if table_exists(con, "sim_fills") else []
         return {"discretionary": {"tickets": tickets, "round_trips": round_trips},
                 "league_events": league_events}
     finally:

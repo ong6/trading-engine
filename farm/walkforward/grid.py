@@ -26,10 +26,10 @@ import argparse
 import json
 
 from engine.lib import db
+from engine.lib.log import get_logger
 from engine.lib.settings import REPO_ROOT  # noqa: F401
 from farm.walkforward import protocol
 from farm.walkforward.runner import active_books
-from engine.lib.log import get_logger
 
 log = get_logger("wf-grid")
 

@@ -1,4 +1,4 @@
-"""farm/stats.py and farm/backtest/stats.py against hand-computed values."""
+"""farm.stats.inference and farm.stats.equity against hand-computed values."""
 import math
 from datetime import date
 
@@ -11,13 +11,14 @@ from farm.backtest import stats as bs
 
 # ------------------------------------------------------- farm/stats.py ----- #
 def test_max_drawdown_hand_series():
+    # returns-based entry point (was fs.max_drawdown before the 2026-09-03 package split)
     # equity: 1.10, 0.88, 0.968, 1.0164 ; peak 1.10 ; trough 0.88 -> -20%
-    assert fs.max_drawdown(np.array([0.10, -0.20, 0.10, 0.05])) == pytest.approx(-0.20)
+    assert fs.max_drawdown_from_returns(np.array([0.10, -0.20, 0.10, 0.05])) == pytest.approx(-0.20)
 
 
 def test_max_drawdown_monotone_and_empty():
-    assert fs.max_drawdown(np.array([0.01, 0.02, 0.03])) == 0.0
-    assert fs.max_drawdown(np.array([])) == 0.0
+    assert fs.max_drawdown_from_returns(np.array([0.01, 0.02, 0.03])) == 0.0
+    assert fs.max_drawdown_from_returns(np.array([])) == 0.0
 
 
 def test_compute_hand_series():
@@ -168,3 +169,22 @@ def test_equity_stats_ex_bil_needs_half_coverage():
     bil_thin = {dates[1]: 0.0002}
     thin = bs.equity_stats(dates, eq, bil_thin)
     assert thin["bil_coverage"] == pytest.approx(0.2) and thin["sharpe_ex_bil"] is None
+
+
+# ------------------------------------------ one drawdown, two entry points -- #
+def test_max_drawdown_single_definition_equivalence():
+    """Both pre-split call paths must reproduce their pre-split numbers exactly.
+
+    Recorded 2026-09-03 before the merge from the two old functions:
+      farm/stats.py:max_drawdown(returns)           -> -0.19999999999999996
+      farm/backtest/stats.py:max_drawdown(equity)   -> -0.19999999999999996
+    """
+    r = np.array([0.10, -0.20, 0.10, 0.05])
+    eq = np.array([100.0, 110.0, 88.0, 96.8, 101.64])
+    assert fs.max_drawdown_from_returns(r) == -0.19999999999999996
+    assert bs.max_drawdown(eq) == -0.19999999999999996
+    assert fs.max_drawdown is bs.max_drawdown is fs.equity.max_drawdown
+    assert fs.max_drawdown(np.cumprod(1.0 + r)) == fs.max_drawdown_from_returns(r)
+    # compute() still reports the same drawdown as before the split
+    net = np.array([0.10, -0.05, 0.02, 0.03])
+    assert fs.compute(net, net, years=2.0, variants_tried=None).max_drawdown == -0.050000000000000155

@@ -65,7 +65,11 @@ fails loudly instead.
 from __future__ import annotations
 
 from .base import (
-    PortfolioView, Strategy, latest_screen_date, passing_ranked, rebalance_orders,
+    PortfolioView,
+    Strategy,
+    latest_screen_date,
+    passing_ranked,
+    rebalance_orders,
 )
 
 # The latest fundamentals snapshot at or before as_of. In a replay that snapshot

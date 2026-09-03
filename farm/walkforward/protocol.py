@@ -57,7 +57,7 @@ report prints them.
 from __future__ import annotations
 
 import calendar as _cal
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import date
 
 # --------------------------------------------------------------------------- #

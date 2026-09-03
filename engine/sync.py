@@ -14,8 +14,8 @@ import json
 import subprocess
 from datetime import datetime, timezone
 
-from engine.lib.settings import META_PATH, REPO_ROOT
 from engine.lib.log import get_logger
+from engine.lib.settings import META_PATH, REPO_ROOT
 
 log = get_logger("sync")
 

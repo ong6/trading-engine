@@ -24,10 +24,10 @@ import argparse
 import json
 
 from engine.lib import db
+from engine.lib.log import get_logger
 from engine.lib.settings import REPO_ROOT  # noqa: F401
 from farm.backtest.replay import EXCLUDED, WINDOW_MONTHS
 from sim.strategies.configs import CONFIGS
-from engine.lib.log import get_logger
 
 log = get_logger("grid")
 

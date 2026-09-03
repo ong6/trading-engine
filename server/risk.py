@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta, timezone
 import duckdb
 import numpy as np
 
+from engine.lib.util import table_exists
 from sim.schema import INITIAL_CASH
 
 from .sizing import size_position
@@ -61,7 +62,7 @@ def _latest_close(con: duckdb.DuckDBPyConnection, ticker: str) -> float | None:
 
 def latest_stop_for(con: duckdb.DuckDBPyConnection, ticker: str) -> float | None:
     """Stop from the most recent submitted/filled disc ticket for this ticker."""
-    if not _table_exists(con, "disc_tickets"):
+    if not table_exists(con, "disc_tickets"):
         return None
     row = con.execute(
         "SELECT stop FROM disc_tickets WHERE ticker = ? AND stop IS NOT NULL "
@@ -108,7 +109,7 @@ def pending_disc_risk(con: duckdb.DuckDBPyConnection) -> float:
     stop/entry_ref; risk = qty*(entry_ref-stop), floored at 0 (the stop-side gate
     guarantees entry_ref > stop for accepted tickets). A pending order missing any
     of qty/entry_ref/stop contributes nothing (never fabricate a stop)."""
-    if not _table_exists(con, "sim_orders") or not _table_exists(con, "disc_tickets"):
+    if not table_exists(con, "sim_orders") or not table_exists(con, "disc_tickets"):
         return 0.0
     rows = con.execute(
         "SELECT o.qty, t.entry_ref, t.stop FROM sim_orders o "
@@ -163,19 +164,13 @@ def spy_regime(con: duckdb.DuckDBPyConnection) -> tuple[str, str]:
 # --------------------------------------------------------------------------- #
 # closed round-trips / circuit breaker
 # --------------------------------------------------------------------------- #
-def _table_exists(con: duckdb.DuckDBPyConnection, name: str) -> bool:
-    return con.execute(
-        "SELECT 1 FROM information_schema.tables WHERE table_name = ?", [name]
-    ).fetchone() is not None
-
-
 def closed_round_trips(con: duckdb.DuckDBPyConnection) -> list[dict]:
     """FIFO-match discretionary buy→sell fills into closed round-trips.
 
     realized_r uses the entry ticket's stop (entry_ref-stop per share) when known;
     if the entry has no stored stop, magnitude falls back to ±1R by P&L sign
     (conservative). Returns oldest→newest by exit fill_date."""
-    if not _table_exists(con, "disc_tickets"):
+    if not table_exists(con, "disc_tickets"):
         return []
     fills = con.execute(
         "SELECT order_id, ticker, side, qty, fill_date, fill_px FROM sim_fills "
@@ -226,7 +221,7 @@ def circuit_breaker(con: duckdb.DuckDBPyConnection) -> dict:
     only round-trips closed strictly after it are considered."""
     marker = con.execute(
         "SELECT MAX(ts) FROM review_markers WHERE kind = 'circuit_breaker'"
-    ).fetchone()[0] if _table_exists(con, "review_markers") else None
+    ).fetchone()[0] if table_exists(con, "review_markers") else None
     trips = closed_round_trips(con)
     if marker is not None:
         trips = [t for t in trips if t["exit_date"] > marker.date()]
@@ -273,7 +268,7 @@ def earnings_window(con: duckdb.DuckDBPyConnection, ticker: str,
     unknown = _g("earnings_window", "unknown",
                  "no earnings data — check manually" + ack_suffix)
     try:
-        if not _table_exists(con, "earnings_calendar"):
+        if not table_exists(con, "earnings_calendar"):
             return unknown
         rows = con.execute(
             "SELECT earnings_date, is_estimate FROM earnings_calendar "

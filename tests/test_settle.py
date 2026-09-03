@@ -3,6 +3,7 @@ from datetime import date
 
 import pytest
 
+from engine.lib.util import table_exists
 from sim import league, portfolio, settle
 from sim.schema import INITIAL_CASH
 from tests.conftest import insert_bars
@@ -56,7 +57,7 @@ def test_cash_settle_credits_and_zeroes(con):
     plans = settle.settle(con, _terms(), apply=False)          # dry run
     assert plans[0].cash_after == pytest.approx(cash0 + 2097.0)
     assert portfolio.get_cash(con, pf) == cash0                 # nothing written
-    assert not portfolio._has_table(con, "sim_settlements")
+    assert not table_exists(con, "sim_settlements")
 
     settle.settle(con, _terms(), apply=True)
     cash, pos = _state(con, pf)
@@ -156,7 +157,7 @@ def test_refuses_live_ticker(con):
     with pytest.raises(settle.SettlementRefused, match="traded on/after"):
         settle.settle(con, _terms(effective=D3), apply=True)
     assert portfolio.get_positions(con, pf)["EA"]["qty"] == 10
-    assert not portfolio._has_table(con, "sim_settlements")
+    assert not table_exists(con, "sim_settlements")
 
 
 def test_refuses_without_source(con):
@@ -218,8 +219,9 @@ def test_stock_conversion_merges_into_existing_acquirer_lot(con):
 # CLI ---------------------------------------------------------------------------
 def test_cli_dry_run_is_read_only_and_apply_writes(tmp_path, capsys):
     import duckdb
-    from tests.conftest import PRICES_DDL
+
     from sim.schema import init_sim_schema
+    from tests.conftest import PRICES_DDL
     path = str(tmp_path / "t.duckdb")
     c = duckdb.connect(path)
     c.execute(PRICES_DDL); init_sim_schema(c)
@@ -231,7 +233,7 @@ def test_cli_dry_run_is_read_only_and_apply_writes(tmp_path, capsys):
     assert settle.main(argv) == 0
     assert "DRY RUN" in capsys.readouterr().out
     c = duckdb.connect(path, read_only=True)
-    assert not portfolio._has_table(c, "sim_settlements"); c.close()
+    assert not table_exists(c, "sim_settlements"); c.close()
     assert settle.main(argv + ["--apply"]) == 0
     assert "APPLIED" in capsys.readouterr().out
     c = duckdb.connect(path, read_only=True)
