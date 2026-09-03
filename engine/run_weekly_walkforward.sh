@@ -23,35 +23,17 @@
 # simply a re-validation as of that day.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-cd "${REPO_ROOT}"
+# Shared preamble (engine/lib/driver.sh): resolve REPO_ROOT + cd, overlap guard
+# (non-blocking flock on .walkforward.lock), PY=, PYTHONUNBUFFERED, LOG=, stage
+# breadcrumb, and the errexit/pipefail-safe tee wrap in driver_main.
+DRIVER_NAME=run_weekly_walkforward
+DRIVER_LOCK=.walkforward.lock
+DRIVER_LOCK_MSG="another walk-forward run is still going (lock held) — aborting"
+DRIVER_LOG_PREFIX=walkforward
+DRIVER_STAGE_FILE=logs/.last_stage_walkforward
+source "$(dirname "${BASH_SOURCE[0]}")/lib/driver.sh"
 
-# Overlap guard, same shape as the nightly's. Two queue drains cannot run at
-# once anyway (DuckDB is single-writer), but failing fast with a clear message
-# beats a lock-retry timeout deep inside a job.
-exec 9>"${REPO_ROOT}/.walkforward.lock"
-if ! flock -n 9; then
-  echo "ERROR: another walk-forward run is still going (lock held) — aborting"
-  exit 1
-fi
-
-PY="${REPO_ROOT}/.venv/bin/python"
-export PYTHONUNBUFFERED=1
-mkdir -p "${REPO_ROOT}/logs"
-LOG="${REPO_ROOT}/logs/walkforward-$(date +%F).log"
-
-# errexit is suspended around the tee pipeline and re-armed inside the block —
-# otherwise a failing stage exits the script before the breadcrumb below runs
-# (same fix as run_daily.sh, 2026-09-02; see the comment there).
-STAGE_FILE="${REPO_ROOT}/logs/.last_stage_walkforward"
-stage() { echo "$1" > "${STAGE_FILE}"; }
-: > "${STAGE_FILE}"
-set +e
-{
-  set -e
-  echo "=== run_weekly_walkforward $(date -u +%FT%TZ) ==="
-
+body() {
   # Enqueue is idempotent: queue_runner dedups an identical pending
   # (kind, params), so a re-run after a partial drain adds nothing.
   stage enqueue
@@ -77,12 +59,6 @@ set +e
   stage sync
   "${PY}" -m engine.sync || echo "WARN: sync failed (exit $?) — reports are on disk; next nightly's sync will stage them"
 
-  echo "=== done $(date -u +%FT%TZ) ==="
-} 2>&1 | tee -a "${LOG}"
-status="${PIPESTATUS[0]}"
-set -e
-if [ "${status}" -ne 0 ]; then
-  failed_stage="$(cat "${STAGE_FILE}" 2>/dev/null)"
-  echo "TODO: run_weekly_walkforward failed $(date -u +%FT%TZ) (stage=${failed_stage:-unknown} exit ${status}) — inspect ${LOG}" | tee -a "${LOG}"
-  exit "${status}"
-fi
+}
+
+driver_main body

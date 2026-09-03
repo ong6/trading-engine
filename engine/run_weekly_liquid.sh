@@ -30,35 +30,19 @@
 #       >> /data00/home/jun.ong/trading-engine/logs/liquid-cron.log 2>&1
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-cd "${REPO_ROOT}"
+# Shared preamble (engine/lib/driver.sh): resolve REPO_ROOT + cd, overlap guard
+# (non-blocking flock on .liquid.lock), PY=, PYTHONUNBUFFERED, LOG=, stage
+# breadcrumb, and the errexit/pipefail-safe tee wrap in driver_main.
+DRIVER_NAME=run_weekly_liquid
+DRIVER_LOCK=.liquid.lock
+DRIVER_LOCK_MSG="another liquidity refresh is still going (lock held) — aborting"
+DRIVER_LOG_PREFIX=liquid
+source "$(dirname "${BASH_SOURCE[0]}")/lib/driver.sh"
 
-exec 9>"${REPO_ROOT}/.liquid.lock"
-if ! flock -n 9; then
-  echo "ERROR: another liquidity refresh is still going (lock held) — aborting"
-  exit 1
-fi
-
-PY="${REPO_ROOT}/.venv/bin/python"
-export PYTHONUNBUFFERED=1
 export TRADING_ENGINE_LOCK_WAIT_S="${TRADING_ENGINE_LOCK_WAIT_S:-1800}"
-mkdir -p "${REPO_ROOT}/logs"
-LOG="${REPO_ROOT}/logs/liquid-$(date +%F).log"
 
-# errexit is suspended around the tee pipeline and re-armed inside the block —
-# otherwise a failing stage exits the script before the breadcrumb below runs
-# (same fix as run_daily.sh, 2026-09-02; see the comment there).
-set +e
-{
-  set -e
-  echo "=== run_weekly_liquid $(date -u +%FT%TZ) ==="
+body() {
   "${PY}" -m engine.collect --refresh-liquid
-  echo "=== done $(date -u +%FT%TZ) ==="
-} 2>&1 | tee -a "${LOG}"
-status="${PIPESTATUS[0]}"
-set -e
-if [ "${status}" -ne 0 ]; then
-  echo "TODO: run_weekly_liquid failed $(date -u +%FT%TZ) (exit ${status}) — inspect ${LOG}" | tee -a "${LOG}"
-  exit "${status}"
-fi
+}
+
+driver_main body

@@ -19,9 +19,23 @@ Before starting ANY job the runner enforces the §12.7 guards and logs honestly:
 
 CLI:
   queue_runner.py --enqueue <type> [--params JSON] [--priority N] [--mem-mb MB]
+                                    [--timeout-s S]
+  queue_runner.py --enqueue-nightly [--date YYYY-MM-DD | --weekday 1-7] [--dry-run]
+                              the nightly's mining policy (see nightly_plan)
   queue_runner.py --run       drain pending jobs (respecting the guards)
   queue_runner.py --status    print the jobs table
 Common: --db (default store/market.duckdb), --meta (default data/_meta.json).
+
+Per-job timeout (2026-09-03): every row carries `timeout_s` (NULL = the kind's
+default in JOB_TYPES). It is enforced on the child processes of a parallel
+batch — the child is killed and the row goes 'failed' with last_error
+'timeout: …'. In-process (store-writing, sequential) kinds cannot be killed
+from inside the same process; they remain bounded by the drain budget as before.
+
+Supersede (2026-09-03): a kind flagged `supersedes` in JOB_TYPES marks older
+pending rows of the SAME kind with DIFFERENT params 'superseded' when a new one
+is enqueued (identical params still dedup as before), so a guard-tripped night
+cannot leave a stack of stale variants to drain later.
 """
 from __future__ import annotations
 
@@ -31,7 +45,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from engine.lib import db
@@ -82,6 +96,11 @@ BATCH_REACQUIRE_WAIT_S = 900.0
 # we STOP starting new jobs and exit 0, leaving them pending for the next drain —
 # an in-flight job is never killed. Keeps a slow farm from running into the day.
 DRAIN_BUDGET_DEFAULT_S = 4 * 3600  # 4 hours
+
+# Per-job wall-clock ceiling when a kind declares none (see JOB_TYPES
+# `timeout_s`). 4 h = the drain budget: generous, and no kind has ever
+# legitimately needed longer except a sweep grid.
+TIMEOUT_DEFAULT_S = 4 * 3600
 
 
 # --------------------------------------------------------------------------- #
@@ -139,10 +158,27 @@ def _load_walkforward():
 
 JOB_TYPES: dict[str, dict] = {
     # type      loader (lazy)        archive?  default declared memory (MB)
-    "intraday":     {"loader": _load_intraday,     "archive": True,  "mem_mb": 4000},
-    "fundamentals": {"loader": _load_fundamentals, "archive": True,  "mem_mb": 2000},
-    "earnings":     {"loader": _load_earnings,     "archive": True,  "mem_mb": 1000},
-    "actions":      {"loader": _load_actions,      "archive": True,  "mem_mb": 1000},
+    # Optional keys:
+    #   parallel_safe  read-only on the store -> may batch as a subprocess
+    #   timeout_s      per-job ceiling (default TIMEOUT_DEFAULT_S). Rule: 3x the
+    #                  measured typical where BUILDLOG states one, else 4 h.
+    #   supersedes     a new enqueue marks older pending rows of this kind with
+    #                  different params 'superseded' (see cmd_enqueue)
+    #
+    # intraday: the archive universe is top-500 dollar-volume ∪ the LATEST
+    # screen's passers, so a pending pull left over from a guard-tripped night
+    # is obsolete the moment tonight's is enqueued — hence supersedes.
+    "intraday":     {"loader": _load_intraday,     "archive": True,  "mem_mb": 4000,
+                     "supersedes": True},
+    # fundamentals ~70-80 min full pass (BUILDLOG 2026-07-18) -> 3x = 4 h.
+    "fundamentals": {"loader": _load_fundamentals, "archive": True,  "mem_mb": 2000,
+                     "timeout_s": 4 * 3600},
+    # earnings ~50-70 min/day (BUILDLOG 2026-07-18) -> 3x ≈ 3.5 h, rounded to 4 h.
+    "earnings":     {"loader": _load_earnings,     "archive": True,  "mem_mb": 1000,
+                     "timeout_s": 4 * 3600},
+    # actions backfill ~1.5-2 h over 12k names (BUILDLOG 2026-07-29) -> 3x = 6 h.
+    "actions":      {"loader": _load_actions,      "archive": True,  "mem_mb": 1000,
+                     "timeout_s": 6 * 3600},
     # Macro/regime signal collector. archive=False: `macro_signals` is a few tens
     # of thousands of small rows a year, nothing the disk watchdog needs to gate.
     # The nightly (incremental) pass is a handful of small HTTP fetches plus one
@@ -183,9 +219,86 @@ JOB_TYPES: dict[str, dict] = {
     # the candidate count: keep sweep jobs to a couple per drain.
     # mem_mb 4500: measured on THIS kind — the live meanrev sweep worker's
     # VmHWM was 3,409 MB four+ hours into a 10-fold grid (2026-08-20).
+    # timeout_s: a single grid worker was measured 4.5 h+ into a 10-fold grid
+    # (2026-08-20) and the Saturday drain budget is 12 h -> 3x ≈ 14 h.
     "sweep":        {"loader": _load_sweep,        "archive": False, "mem_mb": 4500,
-                     "parallel_safe": True},
+                     "parallel_safe": True, "timeout_s": 14 * 3600},
 }
+
+
+def default_timeout_s(kind: str) -> int:
+    """The kind's declared ceiling, else TIMEOUT_DEFAULT_S."""
+    return int(JOB_TYPES.get(kind, {}).get("timeout_s", TIMEOUT_DEFAULT_S))
+
+
+def ensure_schema(con) -> None:
+    """Base + queue schema plus the runner-owned `timeout_s` column.
+
+    ADD COLUMN IF NOT EXISTS, so it is safe against the live single-writer store
+    and against the pre-2026-09-03 rows (they read NULL = kind default).
+    """
+    db.init_schema(con)
+    db.init_queue_schema(con)
+    con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS timeout_s INTEGER")
+
+
+# --------------------------------------------------------------------------- #
+# nightly enqueue policy (moved out of run_daily.sh's bash, 2026-09-03)
+# --------------------------------------------------------------------------- #
+# Priorities: the nightly loop preempts the farm (§12.7) and these three/four
+# mining jobs sit ahead of every research kind (backtests 140-165, walk-forward
+# 170-176, sweeps 900). signals sits between intraday and earnings; nothing in
+# the fatal path depends on it (the collector warns-and-continues per source,
+# the book votes 0 on any series it cannot see). fundamentals is weekly, Friday
+# (ISO weekday 5, UTC — the nightly is a weekday 22:30 UTC cron), so the
+# point-in-time rows land on week-close data.
+NIGHTLY_PLAN = (
+    # kind, priority, params (exact string: dedup compares the stored text)
+    ("intraday", 100, "{}"),
+    ("signals", 105, '{"mode": "incremental"}'),
+    ("earnings", 110, "{}"),
+)
+NIGHTLY_FRIDAY_PLAN = (
+    ("fundamentals", 120, "{}"),
+)
+
+
+def nightly_plan(day: date | None = None, *, weekday: int | None = None
+                 ) -> list[tuple[str, int, str]]:
+    """What the nightly enqueues on `day` (UTC today by default).
+
+    `weekday` (ISO 1=Mon..7=Sun) overrides the date's weekday — the test/CLI
+    knob. Returns [(kind, priority, params_json)] in enqueue order.
+    """
+    if weekday is None:
+        weekday = (day or datetime.now(timezone.utc).date()).isoweekday()
+    if not 1 <= int(weekday) <= 7:
+        raise ValueError(f"weekday must be 1..7 (ISO), got {weekday}")
+    plan = list(NIGHTLY_PLAN)
+    if int(weekday) == 5:
+        plan += list(NIGHTLY_FRIDAY_PLAN)
+    return plan
+
+
+def cmd_enqueue_nightly(con, day: date | None = None, *, weekday: int | None = None,
+                        dry_run: bool = False) -> int:
+    """Enqueue the nightly plan; exit non-zero if ANY enqueue refused.
+
+    Every job is attempted even after a refusal (the bash section did the same
+    and reported the per-job codes), so one bad enqueue never starves the rest.
+    """
+    plan = nightly_plan(day, weekday=weekday)
+    wd = weekday if weekday is not None else (day or datetime.now(timezone.utc).date()).isoweekday()
+    print(f"[queue] nightly plan (ISO weekday {wd}{', Friday: +fundamentals' if wd == 5 else ''}"
+          f"{', DRY RUN' if dry_run else ''}): "
+          + ", ".join(f"{k}@{p}" for k, p, _ in plan))
+    worst = 0
+    for kind, prio, params in plan:
+        rc = cmd_enqueue(con, kind, params, prio, None, dry_run=dry_run)
+        if rc != 0:
+            print(f"[queue] nightly enqueue of {kind} failed (rc={rc})")
+            worst = max(worst, rc)
+    return worst
 
 
 # --------------------------------------------------------------------------- #
@@ -205,7 +318,14 @@ def _set_state(con, jid: int, state: str, *, progress: str | None = None,
     )
 
 
-def cmd_enqueue(con, jtype: str, params: str, priority: int, mem_mb: int | None) -> int:
+def cmd_enqueue(con, jtype: str, params: str, priority: int, mem_mb: int | None,
+                timeout_s: int | None = None, *, dry_run: bool = False) -> int:
+    """Insert one pending job. Returns a process exit code (0 ok / 1 refused).
+
+    timeout_s  NULL in the row = the kind's default at run time (so raising a
+               kind's default later applies to rows already queued).
+    dry_run    run every check and print what WOULD happen; write nothing.
+    """
     if jtype not in JOB_TYPES:
         # An unknown type would only become a dead 'failed' row at drain — refuse it.
         print(f"[queue] ERROR: unknown job type '{jtype}' "
@@ -229,19 +349,41 @@ def cmd_enqueue(con, jtype: str, params: str, priority: int, mem_mb: int | None)
     ).fetchone()
     if dup is not None:
         print(f"[queue] job {dup[0]} ({jtype}) already pending with same params; "
-              f"skipping duplicate enqueue")
+              f"skipping duplicate enqueue{' (dry run)' if dry_run else ''}")
         return 0
+
+    # Supersede: older pending rows of the same kind with DIFFERENT params are
+    # obsolete once this one exists (kinds that opt in via JOB_TYPES). 'queued'
+    # is the pre-M4 default state some backfill rows still carry.
+    if JOB_TYPES[jtype].get("supersedes"):
+        stale = con.execute(
+            "SELECT id, params FROM jobs WHERE kind = ? AND params <> ? "
+            "AND state IN ('queued', 'pending') ORDER BY id",
+            [jtype, params],
+        ).fetchall()
+        for sid, sparams in stale:
+            print(f"[queue] {'would supersede' if dry_run else 'superseded'} job {sid} "
+                  f"({jtype} params={sparams}) — newer {jtype} enqueue replaces it")
+            if not dry_run:
+                _set_state(con, sid, "superseded",
+                           last_error="superseded by a newer enqueue of the same kind")
 
     if mem_mb is None:
         mem_mb = JOB_TYPES.get(jtype, {}).get("mem_mb", 0)
+
+    if dry_run:
+        print(f"[queue] DRY RUN would enqueue: {jtype} priority={priority} "
+              f"mem_mb={mem_mb} timeout_s={timeout_s or default_timeout_s(jtype)} "
+              f"params={params}")
+        return 0
 
     jid = _next_id(con)
     now = datetime.now(timezone.utc)
     con.execute(
         "INSERT INTO jobs (id, kind, params, state, progress, priority, mem_mb, "
-        "last_error, created_at, updated_at) "
-        "VALUES (?, ?, ?, 'pending', ?, ?, ?, NULL, ?, ?)",
-        [jid, jtype, params, "queued", priority, mem_mb, now, now],
+        "last_error, created_at, updated_at, timeout_s) "
+        "VALUES (?, ?, ?, 'pending', ?, ?, ?, NULL, ?, ?, ?)",
+        [jid, jtype, params, "queued", priority, mem_mb, now, now, timeout_s],
     )
     print(f"[queue] enqueued job {jid}: {jtype} priority={priority} "
           f"mem_mb={mem_mb} params={params}")
@@ -317,21 +459,71 @@ def cmd_run_one(jid: int, db_path: str | None, meta_path: str | Path) -> int:
         con.close()
 
 
+def _child_cmd(jid: int, db_path, meta_path) -> list[str]:
+    """argv for one parallel child. Separate so tests can substitute a stub."""
+    cmd = [sys.executable, "-m", "engine.queue_runner",
+           "--run-one", str(jid), "--meta", str(meta_path)]
+    if db_path:
+        cmd += ["--db", str(db_path)]
+    return cmd
+
+
+# Poll interval while waiting on a batch's children. Coarse on purpose: these
+# jobs run for minutes to hours, and the timeout is a ceiling, not a stopwatch.
+BATCH_POLL_S = 0.5
+# Grace between SIGTERM and SIGKILL for a timed-out child.
+KILL_GRACE_S = 10.0
+
+
+def _wait_batch(procs, *, poll_s: float = BATCH_POLL_S) -> dict:
+    """Wait on [(jid, kind, Popen, deadline_monotonic)]; enforce each deadline.
+
+    Returns {jid: rc} where rc is the child's exit code, or the string
+    'timeout' for a child that was killed at its deadline.
+    """
+    results: dict[int, object] = {}
+    live = list(procs)
+    while live:
+        still = []
+        for jid, kind, pr, deadline in live:
+            rc = pr.poll()
+            if rc is not None:
+                results[jid] = rc
+                print(f"[queue] job {jid} ({kind}) {'done' if rc == 0 else f'FAILED rc={rc}'}")
+                continue
+            if time.monotonic() >= deadline:
+                pr.terminate()
+                try:
+                    pr.wait(timeout=KILL_GRACE_S)
+                except Exception:  # noqa: BLE001 - subprocess.TimeoutExpired
+                    pr.kill()
+                    pr.wait()
+                results[jid] = "timeout"
+                print(f"[queue] job {jid} ({kind}) TIMEOUT — killed at its timeout_s ceiling")
+                continue
+            still.append((jid, kind, pr, deadline))
+        live = still
+        if live:
+            time.sleep(poll_s)
+    return results
+
+
 def _run_parallel_batch(batch, db_path, meta_path, con) -> tuple[dict, object]:
-    """Run `batch` [(jid, kind)] concurrently. Returns (results, new_con).
+    """Run `batch` [(jid, kind, timeout_s)] concurrently. Returns (results, new_con).
 
     Closes `con` for the duration (children need the file) and returns a fresh
     write connection, so the caller MUST rebind its connection to the second
-    element.
+    element. Each child is killed at its own `timeout_s` (row value, else the
+    kind's default) and recorded 'failed' with last_error 'timeout: …'.
     """
     import subprocess
 
-    for jid, _k in batch:
+    for jid, _k, _t in batch:
         _set_state(con, jid, "running", progress="started (parallel)")
     con.close()
 
     procs = []
-    for i, (jid, kind) in enumerate(batch):
+    for i, (jid, kind, timeout_s) in enumerate(batch):
         # STAGGER THE STARTS. A worker's RSS peak is not spread over its life —
         # it lands in the first ~15 s, during `build_scratch`'s parquet export
         # (measured 2026-08-20: 3,409 MB peak on a 10-fold sweep worker, ~1.2-1.5
@@ -345,26 +537,26 @@ def _run_parallel_batch(batch, db_path, meta_path, con) -> tuple[dict, object]:
         # and costs nothing: these jobs run for minutes to hours.
         if i:
             time.sleep(BATCH_STAGGER_S)
-        cmd = [sys.executable, "-m", "engine.queue_runner",
-               "--run-one", str(jid), "--meta", str(meta_path)]
-        if db_path:
-            cmd += ["--db", str(db_path)]
-        procs.append((jid, kind, subprocess.Popen(cmd, cwd=str(REPO_ROOT))))
+        limit = int(timeout_s) if timeout_s else default_timeout_s(kind)
+        pr = subprocess.Popen(_child_cmd(jid, db_path, meta_path), cwd=str(REPO_ROOT))
+        procs.append((jid, kind, pr, time.monotonic() + limit))
 
-    results = {}
-    for jid, kind, pr in procs:
-        rc = pr.wait()
-        results[jid] = rc
-        print(f"[queue] job {jid} ({kind}) {'done' if rc == 0 else f'FAILED rc={rc}'}")
+    results = _wait_batch(procs)
 
     # Reacquiring the writer can collide with a nightly that started while the
     # batch ran (collect holds it for ~4 min), and losing the race would crash
     # the drain and bounce every batched job back to 'pending'. Wait 15 min.
     new_con = (db.connect(db_path, wait_s=BATCH_REACQUIRE_WAIT_S) if db_path
                else db.connect(wait_s=BATCH_REACQUIRE_WAIT_S))
+    limits = {jid: t for jid, _k, t in batch}
+    kinds = {jid: k for jid, k, _t in batch}
     for jid, rc in results.items():
         if rc == 0:
             _set_state(new_con, jid, "done", progress="complete")
+        elif rc == "timeout":
+            limit = int(limits[jid]) if limits[jid] else default_timeout_s(kinds[jid])
+            _set_state(new_con, jid, "failed", progress="timeout",
+                       last_error=f"timeout: killed after {limit}s")
         else:
             _set_state(new_con, jid, "failed",
                        last_error=f"parallel worker exited {rc}")
@@ -454,7 +646,7 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1) -> int:
         print(f"[queue] reclaimed stale running job {sid} -> pending (prior drain died)")
 
     pending = con.execute(
-        "SELECT id, kind, params, mem_mb FROM jobs WHERE state = 'pending' "
+        "SELECT id, kind, params, mem_mb, timeout_s FROM jobs WHERE state = 'pending' "
         "ORDER BY priority ASC, created_at ASC"
     ).fetchall()
     if not pending:
@@ -480,7 +672,7 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1) -> int:
 
     idx = 0
     while idx < len(pending):
-        jid, kind, params_json, mem_mb = pending[idx]
+        jid, kind, params_json, mem_mb, _timeout_s = pending[idx]
         remaining = len(pending) - idx
 
         # --- wall-clock budget: stop STARTING new jobs once the window is up ---
@@ -517,13 +709,13 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1) -> int:
                 j += 1
             widest = max((r[3] or 0) for r in run) or 1
             per_batch = max(1, min(jobs, ENGINE_RAM_BUDGET_MB // widest))
-            batch = [(r[0], r[1]) for r in run[:per_batch]]
+            batch = [(r[0], r[1], r[4]) for r in run[:per_batch]]
             if per_batch < jobs:
                 print(f"[queue] parallel width {jobs} -> {per_batch} "
                       f"(RAM budget {ENGINE_RAM_BUDGET_MB} MB / {widest} MB "
                       f"per worker)")
-            print(f"[queue] --- parallel batch {[b for b, _ in batch]} "
-                  f"({', '.join(sorted({k for _, k in batch}))}, load {load5:.1f}, "
+            print(f"[queue] --- parallel batch {[b for b, _, _ in batch]} "
+                  f"({', '.join(sorted({k for _, k, _ in batch}))}, load {load5:.1f}, "
                   f"free RAM {free_gb:.1f} GiB) ---")
             _res, con = _run_parallel_batch(batch, db_path, meta_path, con)
             idx += len(batch)
@@ -592,6 +784,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="§12.7 job-queue runner.")
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--enqueue", metavar="TYPE", help="enqueue a job of this type")
+    g.add_argument("--enqueue-nightly", action="store_true",
+                   help="enqueue the nightly mining plan (intraday 100, signals 105, "
+                        "earnings 110; +fundamentals 120 on Fridays)")
     g.add_argument("--run", action="store_true", help="drain pending jobs (guarded)")
     g.add_argument("--status", action="store_true", help="print the jobs table")
     g.add_argument("--run-one", type=int, metavar="JOB_ID",
@@ -602,6 +797,16 @@ def main() -> int:
                     help="lower runs first (nightly loop < farm); default 100")
     ap.add_argument("--mem-mb", type=int, default=None,
                     help="declared memory need MB (default: per-type)")
+    ap.add_argument("--timeout-s", type=int, default=None,
+                    help="per-job wall-clock ceiling for --enqueue (default: per-type; "
+                         "enforced on parallel children)")
+    ap.add_argument("--date", default=None, metavar="YYYY-MM-DD",
+                    help="--enqueue-nightly: plan as of this date (default: UTC today)")
+    ap.add_argument("--weekday", type=int, default=None, metavar="N",
+                    help="--enqueue-nightly: override the ISO weekday (1=Mon..7=Sun)")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="--enqueue/--enqueue-nightly: print what would be enqueued; "
+                         "opens the store read-only and writes nothing")
     ap.add_argument("--db", default=None, help="DuckDB path (default store/market.duckdb)")
     ap.add_argument("--meta", default=str(DEFAULT_META), help="_meta.json path")
     ap.add_argument("--jobs", type=int, default=1,
@@ -620,13 +825,20 @@ def main() -> int:
               "pending and exiting 0 (the queue is already being worked)")
         return 0
 
-    con = db.connect(args.db) if args.db else db.connect()
-    db.init_schema(con)
-    db.init_queue_schema(con)
+    # A dry run must not take the writer or migrate the schema on the live store.
+    if args.dry_run and not (args.enqueue or args.enqueue_nightly):
+        ap.error("--dry-run only applies to --enqueue / --enqueue-nightly")
+    con = db.connect(args.db, read_only=args.dry_run)
+    if not args.dry_run:
+        ensure_schema(con)
 
     try:
         if args.enqueue:
-            return cmd_enqueue(con, args.enqueue, args.params, args.priority, args.mem_mb)
+            return cmd_enqueue(con, args.enqueue, args.params, args.priority, args.mem_mb,
+                               args.timeout_s, dry_run=args.dry_run)
+        if args.enqueue_nightly:
+            day = date.fromisoformat(args.date) if args.date else None
+            return cmd_enqueue_nightly(con, day, weekday=args.weekday, dry_run=args.dry_run)
         if args.status:
             return cmd_status(con)
         return cmd_run(con, args.meta, db_path=args.db, jobs=args.jobs)
