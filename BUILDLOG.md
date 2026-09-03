@@ -2060,11 +2060,39 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   simply stopped collecting it), watermark `superseded_by_refetch`, audit row appended.
 - **Nightly 2026-09-02 on the new code: clean** (`=== done 23:15:03Z`), both new books created,
   `divs=2/$22.82` credited live through the catch-up path, `skipped_phantom=0` reported.
-- **Deferred, not done:** the re-audit of the 31 remaining
-  `applied` restatements under the new rule, and refactor steps 1–3 (packaging `engine/`, one
-  `connect(read_only=)`, settings module) — the last deliberately left for a session with room
-  to dry-run the whole nightly on a copy before 21:30 UTC.
+- (Both deferred items above were done in round 3.)
 - Tests: **253 passed.**
+
+### Round 3 (2026-09-03, 02:15–04:00 UTC)
+
+- **Refactor steps 1–3 landed** (commit `ac20634`): `engine/` is a package, `python -m <pkg.module>`
+  is the only invocation (script form dropped on purpose), `engine.lib.db.connect(path,
+  read_only, wait_s)` is the single `duckdb.connect` in the packages (enforced by
+  `tests/test_no_bare_connect.py`), `engine/lib/settings.py` owns paths and env overrides
+  (`TRADING_ENGINE_DB` now honoured everywhere). Proof: 259 tests; `--help` on 37 entry points;
+  league init + rerun, screen `--rerun` (516/68, identical to the nightly), queue status and the
+  API's three read endpoints against a store copy. **Incident:** the proof sweep's
+  `python -m engine.universe --help` ran the universe builder for real (no argparse then) and
+  appended a 02:34 UTC `universe_snapshot` for 2026-09-03; removed (12,554 rows, `audit_log`
+  row `universe_snapshot_removed`) so tonight's nightly writes the post-close one.
+  `engine.universe` has argparse now.
+- **Re-audit of the remaining `applied` restatements** (`docs/split-restatements-reaudit-2026-09-03.md`):
+  18 of 29 were false, a second trigger of the same defect — for historical splits Yahoo's
+  series is fully adjusted EXCEPT the zero-volume bars from the ex-date to the first traded
+  post-split session, which sit on the old scale; the old adjudicator took the drop off that
+  bogus bar as "the break" and divided every earlier, already-adjusted row. **All 18 reverted
+  live** (ASTH, AYA, BRO, CHCO ×2, CTO, ERIC, GRC, INDB, IPAR, ODC, SKE, TECX, TJGC, TMP, TRST,
+  UBSI with Yahoo cross-check → every one `0 rows >1% off Yahoo`; ISSC on internal evidence,
+  no Yahoo history). AYA (held by three EW books) and ODC (closed July fills) had post-break
+  fills only; books rebuilt from fills, positions unchanged. `split_adjustments` now:
+  applied 11, reverted_false_break 22, superseded_by_refetch 2. The BUILDLOG's earlier
+  "8 Yahoo-unadjusted names" was a misread; only WLFC (and OPAD) are genuinely served
+  unadjusted and are left alone. SNEX 2026-07-14 and WLFC 2026-07-15 each have one bad bar
+  that needs a single-bar refetch (`engine.refetch_ticker` replaces the whole history; fine
+  for both — no positions).
+- The new adjudicator would have applied **none** of the 29 (every bulk-loaded row has
+  `fetched_at` ≥ ex_date → `skipped_already_adjusted`), which is the right answer: the
+  bootstrap load is Yahoo's adjusted view and needs no restating.
 
 ### Decisions
 
@@ -2083,10 +2111,10 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 1. **Owner: install the `run_weekly_liquid.sh` crontab line** and decide the nine RETIRE slots.
 2. Settle EA / TALK / WBS / FBRX (still `symbol_not_found` at the verifier; 12.1% of `high_52wk`
    frozen) — a delisting handler for `sim/`.
-3. Re-audit the remaining 31 `applied` restatements with the new rule on a copy
-   (`engine/repair_restatements.py --yahoo` has the cross-check).
-4. Refactor step 1–3 of the architecture plan (package `engine/`, one `connect(read_only=)`,
-   settings module) — each landable before 21:30 UTC with a store-copy dry run.
+3. Refetch SNEX and WLFC (one bad bar each, no positions); decide OPAD/WLFC's unadjusted
+   Yahoo series (leave, or refetch and let the new adjudicator skip).
+4. Refactor steps 4–9 of the architecture plan (shared `driver.sh`, archive `agents/`,
+   `logging`, per-job timeout in the queue).
 5. Monthly-granularity re-reporting of walk-forward folds (block bootstrap on ~144 paired
    monthly excess returns instead of n=10 fold means).
 
