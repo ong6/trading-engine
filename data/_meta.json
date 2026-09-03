@@ -1,13 +1,13 @@
 {
-  "last_run": "2026-09-02T22:31:59.752659+00:00",
+  "last_run": "2026-09-03T22:32:12.226311+00:00",
   "mode": "incremental",
-  "universe_size": 12554,
-  "active_count": 12356,
+  "universe_size": 12558,
+  "active_count": 12358,
   "liquid_count": 4118,
-  "prices_rows": 19956920,
+  "prices_rows": 19961271,
   "tickers_with_data": 12105,
   "stale_tickers": {
-    "count": 21,
+    "count": 20,
     "list": [
       "AVB",
       "AVNS",
@@ -17,7 +17,6 @@
       "EQR",
       "FBRX",
       "ISSC",
-      "JONEU",
       "LBRDA",
       "LBRDK",
       "LEG",
@@ -32,384 +31,44 @@
       "WBS"
     ]
   },
-  "failed_this_run": 17,
+  "failed_this_run": 18,
   "sources": {
     "stooq": "blocked",
     "yfinance": "ok"
   },
   "regime": "risk-on",
-  "last_screen": "2026-09-02T22:32:02.996668+00:00",
-  "passing_count": 516,
-  "new_today_count": 68,
+  "last_screen": "2026-09-03T22:32:15.429047+00:00",
+  "passing_count": 559,
+  "new_today_count": 64,
   "screened": 3881,
-  "skipped_stale": 1,
+  "skipped_stale": 0,
   "skipped_phantom": 0,
-  "skipped_short": 213,
+  "skipped_short": 214,
   "universe_policy": "all",
   "excluded_leveraged": 0,
   "actions_incremental": {
     "mode": "incremental",
-    "universe": 156,
+    "universe": 155,
     "universe_source": "held \u222a pending \u222a core-ETFs \u222a screen-top-N",
-    "pulled_this_run": 156,
-    "with_actions": 89,
-    "no_actions": 67,
+    "pulled_this_run": 155,
+    "with_actions": 91,
+    "no_actions": 64,
     "failed_tickers": 0,
-    "rows_written_this_run": 7283,
-    "total_splits": 8706,
+    "rows_written_this_run": 7330,
+    "total_splits": 8707,
     "total_dividends": 401044,
-    "last_run": "2026-09-02T22:33:21.283839+00:00",
-    "store_gb": 3.39
+    "last_run": "2026-09-03T22:33:34.763819+00:00",
+    "store_gb": 3.45
   },
   "disk_warning": null,
   "actions_reconcile": {
-    "candidates": 0,
+    "candidates": 1,
     "rows_restated": 0,
-    "outcomes": {},
-    "warnings": 0,
-    "last_run": "2026-09-02T22:33:22.613513+00:00",
-    "store_gb": 3.39
-  },
-  "price_verify": {
-    "last_run": "2026-09-02T22:41:31.892847+00:00",
-    "as_of": "2026-09-02",
-    "source": "api.nasdaq.com/api/quote/{ticker}/historical",
-    "role": "verify-only; this source never writes a price row",
-    "sessions_requested": 5,
-    "tolerance_bp": 10.0,
-    "tolerance_abs_usd": 0.01,
-    "material_bp": 200.0,
-    "fields": [
-      "open",
-      "high",
-      "low",
-      "close"
-    ],
-    "names_selected": 184,
-    "names_checked": 179,
-    "names_agreeing": 168,
-    "names_disagreeing": 11,
-    "names_not_checked": 5,
-    "not_checked_reasons": {
-      "symbol_not_found": 5
+    "outcomes": {
+      "skipped_already_adjusted": 1
     },
-    "not_checked_names": [
-      {
-        "ticker": "CRNX",
-        "why": "held",
-        "reason": "symbol_not_found",
-        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
-      },
-      {
-        "ticker": "EA",
-        "why": "held",
-        "reason": "symbol_not_found",
-        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
-      },
-      {
-        "ticker": "FBRX",
-        "why": "held",
-        "reason": "symbol_not_found",
-        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
-      },
-      {
-        "ticker": "TALK",
-        "why": "held",
-        "reason": "symbol_not_found",
-        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
-      },
-      {
-        "ticker": "WBS",
-        "why": "held",
-        "reason": "symbol_not_found",
-        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
-      }
-    ],
-    "bars_compared": 716,
-    "field_comparisons": 2864,
-    "worst": {
-      "ticker": "DLLL",
-      "date": "2026-08-28",
-      "field": "open",
-      "store": 25.809999,
-      "source": 26.04,
-      "diff_bp": 88.33
-    },
-    "worst_is_disagreement": true,
-    "disagreements": [
-      {
-        "ticker": "DLLL",
-        "date": "2026-08-28",
-        "field": "open",
-        "store": 25.809999,
-        "source": 26.04,
-        "diff_bp": 88.33
-      },
-      {
-        "ticker": "RRBI",
-        "date": "2026-08-28",
-        "field": "open",
-        "store": 100.550003,
-        "source": 101.28,
-        "diff_bp": 72.08
-      },
-      {
-        "ticker": "FSUN",
-        "date": "2026-08-28",
-        "field": "open",
-        "store": 40.200001,
-        "source": 39.98,
-        "diff_bp": 54.73
-      },
-      {
-        "ticker": "SILC",
-        "date": "2026-08-28",
-        "field": "high",
-        "store": 47.5,
-        "source": 47.75,
-        "diff_bp": 52.36
-      },
-      {
-        "ticker": "RVMD",
-        "date": "2026-08-28",
-        "field": "open",
-        "store": 220.720001,
-        "source": 221.5,
-        "diff_bp": 35.21
-      },
-      {
-        "ticker": "RVMD",
-        "date": "2026-08-28",
-        "field": "high",
-        "store": 220.809998,
-        "source": 221.5,
-        "diff_bp": 31.15
-      },
-      {
-        "ticker": "RLY",
-        "date": "2026-08-28",
-        "field": "high",
-        "store": 37.724998,
-        "source": 37.82,
-        "diff_bp": 25.12
-      },
-      {
-        "ticker": "ICLN",
-        "date": "2026-08-28",
-        "field": "open",
-        "store": 17.82,
-        "source": 17.785,
-        "diff_bp": 19.64
-      },
-      {
-        "ticker": "FSUN",
-        "date": "2026-08-28",
-        "field": "high",
-        "store": 40.610001,
-        "source": 40.68,
-        "diff_bp": 17.21
-      },
-      {
-        "ticker": "KBWB",
-        "date": "2026-08-28",
-        "field": "open",
-        "store": 96.305,
-        "source": 96.43,
-        "diff_bp": 12.96
-      },
-      {
-        "ticker": "MNPR",
-        "date": "2026-08-28",
-        "field": "low",
-        "store": 109.275002,
-        "source": 109.14,
-        "diff_bp": 12.35
-      },
-      {
-        "ticker": "LITE",
-        "date": "2026-08-28",
-        "field": "high",
-        "store": 941.75,
-        "source": 942.91,
-        "diff_bp": 12.3
-      },
-      {
-        "ticker": "CORT",
-        "date": "2026-08-28",
-        "field": "open",
-        "store": 117.019997,
-        "source": 117.14,
-        "diff_bp": 10.24
-      }
-    ],
-    "n_disagreements": 13,
-    "disagreements_by_field": {
-      "open": 7,
-      "high": 5,
-      "low": 1
-    },
-    "disagreements_by_date": {
-      "2026-08-28": 13
-    },
-    "n_material": 0,
-    "parse_errors": [],
-    "n_parse_errors": 0,
-    "volume_note": "volume differs by design on the newest session (same-day volume settles after the close); measured, never alarmed on",
-    "volume_median_abs_diff_pct_latest_session": null,
-    "volume_median_abs_diff_pct_prior_sessions": 0.01,
-    "volume_bars_compared": 716,
-    "provisional_note": "on 2026-09-02 (newest stored session) open/high/low are measured but never flagged; the close IS checked on every name",
-    "provisional_ohl_median_bp": null,
-    "provisional_ohl_max_bp": null,
-    "provisional_ohl_over_tolerance": 0,
-    "provisional_comparisons": 0,
-    "store_missing_sessions": {},
-    "n_names_store_missing_sessions": 0,
-    "secs": 486.4
-  },
-  "intraday": {
-    "last_run": "2026-09-02T22:44:07.165421+00:00",
-    "tickers_requested": 946,
-    "tickers_with_data": 946,
-    "new_rows_1m": 366991,
-    "new_rows_5m": 121087,
-    "failed_tickers": 0,
-    "failed_batches": 0,
-    "store_gb": 3.45
-  },
-  "signals_incremental": {
-    "mode": "incremental",
-    "pit_lag": false,
-    "sources": {
-      "squeezemetrics": {
-        "status": "ok",
-        "rows_fetched": 7716,
-        "rows_inserted": 2,
-        "series": [
-          "dix",
-          "gex"
-        ],
-        "secs": 2.3
-      },
-      "vix": {
-        "status": "ok",
-        "rows_fetched": 13528,
-        "rows_inserted": 2,
-        "series": [
-          "vix",
-          "vix3m"
-        ],
-        "secs": 1.6
-      },
-      "fred": {
-        "status": "ok",
-        "rows_fetched": 101,
-        "rows_inserted": 3,
-        "series": [
-          "hy_oas",
-          "icsa",
-          "nfci",
-          "t10y2y"
-        ],
-        "secs": 2.1
-      },
-      "putcall": {
-        "status": "ok",
-        "rows_fetched": 18,
-        "rows_inserted": 2,
-        "series": [
-          "pc_equity",
-          "pc_total"
-        ],
-        "secs": 6.8
-      },
-      "aaii": {
-        "status": "ok",
-        "rows_fetched": 4078,
-        "rows_inserted": 0,
-        "series": [
-          "aaii_bear",
-          "aaii_bull"
-        ],
-        "secs": 0.9
-      },
-      "finra_margin": {
-        "status": "ok",
-        "rows_fetched": 553,
-        "rows_inserted": 0,
-        "series": [
-          "free_credit",
-          "margin_debt"
-        ],
-        "secs": 0.7
-      },
-      "short_interest": {
-        "status": "ok",
-        "rows_fetched": 2,
-        "rows_inserted": 0,
-        "series": [
-          "short_interest_dtc"
-        ],
-        "secs": 11.1
-      },
-      "cot": {
-        "status": "ok",
-        "rows_fetched": 10,
-        "rows_inserted": 0,
-        "series": [
-          "cot_es_lev_net"
-        ],
-        "secs": 2.2
-      },
-      "breadth": {
-        "status": "ok",
-        "rows_fetched": 3,
-        "rows_inserted": 3,
-        "series": [
-          "breadth_nh_nl",
-          "breadth_pct_200",
-          "zweig_ratio"
-        ],
-        "secs": 0.2
-      }
-    },
-    "rows_inserted": 12,
-    "warnings": [],
-    "series_totals": {
-      "aaii_bear": 2039,
-      "aaii_bull": 2039,
-      "breadth_nh_nl": 3688,
-      "breadth_pct_200": 3688,
-      "cot_es_lev_net": 1055,
-      "dix": 3858,
-      "free_credit": 198,
-      "gex": 3858,
-      "hy_oas": 810,
-      "icsa": 3112,
-      "margin_debt": 355,
-      "nfci": 2904,
-      "pc_equity": 4173,
-      "pc_total": 4173,
-      "short_interest_dtc": 73,
-      "t10y2y": 12561,
-      "vix": 9263,
-      "vix3m": 4265,
-      "zweig_ratio": 3688
-    },
-    "last_run": "2026-09-02T22:44:35.034103+00:00",
-    "store_gb": 3.45
-  },
-  "earnings": {
-    "last_run": "2026-09-02T23:15:03.286367+00:00",
-    "as_of": "2026-09-02",
-    "universe": 2945,
-    "universe_source": "fundamentals-coverage \u222a screen-passers",
-    "pulled_this_run": 2945,
-    "with_upcoming_date": 2805,
-    "no_upcoming_date": 140,
-    "failed_tickers": 0,
-    "rows_inserted_this_run": 2805,
-    "rows_for_as_of": 2805,
+    "warnings": 1,
+    "last_run": "2026-09-03T22:33:36.094053+00:00",
     "store_gb": 3.45
   }
 }
