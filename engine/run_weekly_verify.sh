@@ -24,28 +24,16 @@
 #       >> ~/trading-engine/logs/verify-cron.log 2>&1
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-cd "${REPO_ROOT}"
+# Shared preamble (engine/lib/driver.sh): resolve REPO_ROOT + cd, overlap guard
+# (non-blocking flock on .verify.lock), PY=, PYTHONUNBUFFERED, LOG=, stage
+# breadcrumb, and the errexit/pipefail-safe tee wrap in driver_main.
+DRIVER_NAME=run_weekly_verify
+DRIVER_LOCK=.verify.lock
+DRIVER_LOCK_MSG="another verification run is still going (lock held) — aborting"
+DRIVER_LOG_PREFIX=verify-full
+source "$(dirname "${BASH_SOURCE[0]}")/lib/driver.sh"
 
-exec 9>"${REPO_ROOT}/.verify.lock"
-if ! flock -n 9; then
-  echo "ERROR: another verification run is still going (lock held) — aborting"
-  exit 1
-fi
-
-PY="${REPO_ROOT}/.venv/bin/python"
-export PYTHONUNBUFFERED=1
-mkdir -p "${REPO_ROOT}/logs"
-LOG="${REPO_ROOT}/logs/verify-full-$(date +%F).log"
-
-# errexit is suspended around the tee pipeline and re-armed inside the block —
-# otherwise a failing stage exits the script before the breadcrumb below runs
-# (same fix as run_daily.sh, 2026-09-02; see the comment there).
-set +e
-{
-  set -e
-  echo "=== run_weekly_verify $(date -u +%FT%TZ) ==="
+body() {
   # --sample large enough to reach the whole liquid universe; --max-names is the
   # hard ceiling and --max-secs the wall-clock stop. Both are deliberate: a run
   # that cannot finish must stop and SAY it checked fewer names, never silently
@@ -53,11 +41,6 @@ set +e
   "${PY}" -m engine.verify_prices \
     --sample 5000 --max-names 5000 --max-secs 10800 --sessions 5 \
     || echo "WARN: verification exited non-zero — it is fail-soft by design; see the log"
-  echo "=== done $(date -u +%FT%TZ) ==="
-} 2>&1 | tee -a "${LOG}"
-status="${PIPESTATUS[0]}"
-set -e
-if [ "${status}" -ne 0 ]; then
-  echo "TODO: run_weekly_verify failed $(date -u +%FT%TZ) (exit ${status}) — inspect ${LOG}" | tee -a "${LOG}"
-  exit "${status}"
-fi
+}
+
+driver_main body

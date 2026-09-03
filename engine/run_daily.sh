@@ -3,49 +3,18 @@
 # Calendar-gating lives inside collect.py (incremental mode exits 0 on holidays).
 set -euo pipefail
 
-# Resolve repo root from this script's location (path-independent).
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-cd "${REPO_ROOT}"
+# Shared preamble (engine/lib/driver.sh): resolve REPO_ROOT + cd, overlap guard
+# (non-blocking flock on .nightly.lock), PY=, PYTHONUNBUFFERED, LOG=, stage
+# breadcrumb, and the errexit/pipefail-safe tee wrap in driver_main.
+DRIVER_NAME=run_daily
+DRIVER_LOCK=.nightly.lock
+DRIVER_LOCK_MSG="another run_daily is still running (lock held) — aborting this nightly"
+DRIVER_LOG_PREFIX=run
+DRIVER_LOG_APPEND=0   # the nightly log is truncated per day, not appended
+DRIVER_STAGE_FILE=logs/.last_stage
+source "$(dirname "${BASH_SOURCE[0]}")/lib/driver.sh"
 
-# Overlap guard: refuse to start if a prior run_daily is still alive. The farm
-# drain runs INSIDE this script, so a slow Monday drain can still hold this at
-# Tuesday 22:30 — non-blocking flock on fd 9 covers the whole script body below.
-exec 9>"${REPO_ROOT}/.nightly.lock"
-if ! flock -n 9; then
-  echo "ERROR: another run_daily is still running (lock held) — aborting this nightly"
-  exit 1
-fi
-
-PY="${REPO_ROOT}/.venv/bin/python"
-export PYTHONUNBUFFERED=1   # keep the tee'd log + cron.log live, not block-buffered
-mkdir -p "${REPO_ROOT}/logs"
-LOG="${REPO_ROOT}/logs/run-$(date +%F).log"
-
-# Stage breadcrumb: the tee'd block below is a pipeline, so it runs in a SUBSHELL
-# and its variables don't survive to the failure breadcrumb. Record the current
-# stage to a small state file instead; the breadcrumb reads it back.
-STAGE_FILE="${REPO_ROOT}/logs/.last_stage"
-stage() { echo "$1" > "${STAGE_FILE}"; }
-: > "${STAGE_FILE}"
-
-# Everything below is teed into the daily log.
-#
-# errexit + pipefail interplay (fixed 2026-09-02): with `set -e` armed in THIS
-# shell, a failing `{ … } | tee` pipeline exits the script right here, before
-# `status="${PIPESTATUS[0]}"` ever runs — the breadcrumb below was dead code
-# (4 Tracebacks in logs/cron.log, 0 "TODO: run_daily failed" lines). So errexit
-# is suspended in the parent around the pipeline ONLY, and re-armed as the first
-# statement inside the block: the block is a subshell that inherits `set +e`,
-# and a stage failure must still abort the remaining stages. Do NOT rewrite this
-# as `… | tee && status=0 || status=$?` — bash ignores errexit for every command
-# inside a compound command that sits on the left of `&&`/`||`, so a failed
-# collect would silently run on into screen/league (proven with a harness).
-set +e
-{
-  set -e
-  echo "=== run_daily $(date -u +%FT%TZ) ==="
-
+body() {
   # Pull latest if a git remote exists; tolerate failure (local-only is fine).
   if git remote | grep -q .; then
     git pull --rebase || echo "WARN: git pull --rebase failed; continuing with local state"
@@ -112,21 +81,6 @@ set +e
             "is affected; the runner is idempotent and will pick the Monday up" \
             "on the next run"
 
-  # --- Agentic books: AI-vs-twin spread, applied/rejected changes, veto
-  # hit-rate (agentic-strategies-design "Success / failure, pre-registered").
-  # Pure render over sim_equity + agents/<book>/ state — read-only, seconds, so
-  # it runs inline rather than through the farm queue, and BEFORE sync so the
-  # regenerated reports are committed the same night. NIGHTLY rather than
-  # weekly: the spread is the only number that decides these books' fate, and a
-  # number the owner can see every morning is a number nobody can quietly
-  # re-baseline later. Non-fatal by design — reporting must never block trading.
-  # RETIRED 2026-08-18 with the agentic layer. report.py selects books from
-  # `portfolios` WITHOUT the `active` filter, so it kept rendering the five
-  # retired books as live — a running "2.0 / 26 weeks, evaluated 2027-02-01"
-  # clock over frozen curves that can never diverge again. The reports in
-  # data/reports/agentic/ are kept as the historical record, stamped RETIRED.
-  #   was: stage agentic-report && "${PY}" -m agents.report
-
   # Sync is best-effort: a failure must NOT fail the nightly — the league/screen
   # results are already safe in DuckDB + data/ and will re-stage next nightly.
   stage sync
@@ -145,7 +99,7 @@ set +e
   # and BEFORE the farm subshell, which takes the DuckDB writer for hours (this
   # stage needs a read-only handle and would otherwise wait behind it).
   #
-  # Non-fatal by construction — the script itself always exits 0 (news_analyst.sh
+  # Non-fatal by construction — the script itself always exits 0 (the retired news-analyst driver's
   # posture: a network failure or a source change logs a breadcrumb and leaves
   # the nightly untouched), and the `||` is belt-and-braces under set -e.
   # Its only output is the `price_verify` key of data/_meta.json, merged. That
@@ -165,25 +119,12 @@ set +e
   (
     set +e
     echo "--- farm (post-sync, lowest priority §12.7): mining enqueue + drain ---"
-    "${PY}" -m engine.queue_runner --enqueue intraday --priority 100
-    eq=$?
-    # Macro / market-regime signals: daily, incremental (feeds macro_composite).
-    # Sits between intraday and earnings by priority. Nothing in the fatal path
-    # depends on it: the collector warns-and-continues per source, and the book
-    # votes 0 on any series it cannot see.
-    "${PY}" -m engine.queue_runner --enqueue signals --priority 105 \
-      --params '{"mode": "incremental"}'
-    es=$?
-    # Earnings calendar: daily (§12.2 — feeds the earnings risk gate).
-    "${PY}" -m engine.queue_runner --enqueue earnings --priority 110
-    ee=$?
-    # Fundamentals snapshot: weekly (§12.2) — Fridays, so the point-in-time rows
-    # land on week-close data. Resumable if the drain is interrupted.
-    ef=0
-    if [ "$(date -u +%u)" = "5" ]; then
-      "${PY}" -m engine.queue_runner --enqueue fundamentals --priority 120
-      ef=$?
-    fi
+    # The enqueue POLICY (intraday 100, signals 105 incremental, earnings 110,
+    # fundamentals 120 on Fridays UTC) lives in engine/queue_runner.py
+    # `nightly_plan` since 2026-09-03 — tested in tests/test_queue_runner.py
+    # rather than expressed in bash. Every job is attempted even if one refuses.
+    "${PY}" -m engine.queue_runner --enqueue-nightly
+    en=$?
     # --jobs 8: `parallel_safe` kinds (walkforward, backtest, sweep) run as
     # read-only children while the parent DROPS the write lock; store-writing
     # kinds (intraday, signals, earnings, fundamentals, actions) are never
@@ -199,28 +140,15 @@ set +e
     # cores, under the LOAD_5MIN_MAX=28 guard.
     "${PY}" -m engine.queue_runner --run --jobs 8
     rn=$?
-    if [ "${eq}" -ne 0 ] || [ "${es}" -ne 0 ] || [ "${ee}" -ne 0 ] \
-       || [ "${ef}" -ne 0 ] || [ "${rn}" -ne 0 ]; then
-      echo "WARN: farm section had failures (intraday=${eq} signals=${es}" \
-           "earnings=${ee} fundamentals=${ef} run=${rn}) — nightly NOT failed;" \
-           "collect/screen/league/sync already succeeded"
+    if [ "${en}" -ne 0 ] || [ "${rn}" -ne 0 ]; then
+      echo "WARN: farm section had failures (enqueue-nightly=${en} run=${rn})" \
+           "— nightly NOT failed; collect/screen/league/sync already succeeded"
     else
       echo "INFO: farm section OK (mining enqueued + queue drained)"
     fi
     exit 0
   )
 
-  echo "=== done $(date -u +%FT%TZ) ==="
-} 2>&1 | tee "${LOG}"
+}
 
-# Propagate failure of any piped stage and drop a breadcrumb. The stage name was
-# written to STAGE_FILE from inside the (subshell) block, so it survives here.
-# PIPESTATUS[0] is the block's exit (the first failing stage's code); read it
-# BEFORE re-arming errexit, which is itself a command.
-status="${PIPESTATUS[0]}"
-set -e
-if [ "${status}" -ne 0 ]; then
-  failed_stage="$(cat "${STAGE_FILE}" 2>/dev/null)"
-  echo "TODO: run_daily failed $(date -u +%FT%TZ) (stage=${failed_stage:-unknown} exit ${status}) — inspect ${LOG}" | tee -a "${LOG}"
-  exit "${status}"
-fi
+driver_main body
