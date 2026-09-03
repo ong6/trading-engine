@@ -109,7 +109,9 @@ sector rotation, low-vol, 52-week-high, PEAD, a human `discretionary` book fed b
 and (soon) the macro-composite allocator driven by non-price signals. Every book's config
 carries an expectation and a **kill criterion**; the weekly review judges process, not
 outcome. Current standings: `data/reports/league.md`. Historical replays of every book
-over 6mo→15y windows: `data/reports/backtests/`.
+over 6mo→15y windows: `data/reports/backtests/`. Five AI-overlay books and two frozen twins
+were retired 2026-08-18 (`active = FALSE`, equity history kept); the code, charters and reports
+live in `archive/agentic-2026-08/` (see its README).
 
 **Weekly walk-forward re-validation** (`farm/walkforward/`, job kind `walkforward`) is the
 input to that review: every active book is re-run over rolling train→validate folds
