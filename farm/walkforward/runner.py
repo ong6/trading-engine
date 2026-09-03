@@ -48,6 +48,9 @@ from farm.walkforward import protocol
 from sim import league
 from sim import portfolio as _pf
 from sim.schema import INITIAL_CASH
+from engine.lib.log import get_logger
+
+log = get_logger("wf")
 
 SCRATCH_ROOT = REPO_ROOT / "scratch"
 WF_DIR = DATA_DIR / "reports" / "walkforward"
@@ -218,12 +221,12 @@ def run_fold(con, book: dict, fold: protocol.Fold, sessions: list[date],
     }
     if verbose:
         v, t = out["validate"], out["train"]
-        print(f"[wf]   fold {fold.index}: train {_pct(t.get('total_return'))} "
+        log.info(f"[wf]   fold {fold.index}: train {_pct(t.get('total_return'))} "
               f"({t.get('start_date')}→{t.get('end_date')}) | "
               f"validate {_pct(v.get('total_return'))} "
               f"({v.get('start_date')}→{v.get('end_date')}) "
               f"maxDD {_pct(v.get('max_dd'))} fills {n_val_fills} "
-              f"[{out['runtime_s']}s]", flush=True)
+              f"[{out['runtime_s']}s]")
     return out
 
 
@@ -296,12 +299,12 @@ def run_book(live_con, config_id: str, *,
         "SELECT MAX(date) FROM prices WHERE date <= ?", [span_end]).fetchone()[0]
     all_sessions = hist_screen.sessions_between(live_con, span_start, span_end)
 
-    print(f"[wf] {config_id} ({book['strategy']}): {len(kept)} fold(s), "
+    log.info(f"[wf] {config_id} ({book['strategy']}): {len(kept)} fold(s), "
           f"{len(all_sessions)} sessions {span_start} → {span_end} "
-          f"(anchor {anchor}, floor {floor})", flush=True)
-    print(protocol.describe(anchor, kept, train_months=train_months,
+          f"(anchor {anchor}, floor {floor})")
+    log.info(protocol.describe(anchor, kept, train_months=train_months,
                             validate_months=validate_months,
-                            step_months=step_months), flush=True)
+                            step_months=step_months))
 
     # The scratch dir is namespaced by PID, not by config_id alone. Every sweep
     # injects `ew_benchmark` as its benchmark book, so two sweeps running
@@ -383,7 +386,7 @@ def run_book(live_con, config_id: str, *,
             results_dir.mkdir(parents=True, exist_ok=True)
             out = results_dir / f"{config_id}.json"
             out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-            print(f"[wf] wrote {out}", flush=True)
+            log.info(f"[wf] wrote {out}")
     finally:
         if not keep_scratch:
             shutil.rmtree(scratch_dir, ignore_errors=True)
@@ -392,13 +395,13 @@ def run_book(live_con, config_id: str, *,
     wr = s.get("validate_win_rate")
     n_inert = s.get("n_folds_inert") or 0
     if n_inert:
-        print(f"[wf] {config_id}: {n_inert} INERT fold(s) — the book placed 0 "
-              f"fills there; excluded from the summary", flush=True)
-    print(f"[wf] {config_id} done in {result.get('runtime_s')}s: "
+        log.info(f"[wf] {config_id}: {n_inert} INERT fold(s) — the book placed 0 "
+              f"fills there; excluded from the summary")
+    log.info(f"[wf] {config_id} done in {result.get('runtime_s')}s: "
           f"{s.get('n_folds_ok')} fold(s), validate win rate "
           f"{'·' if wr is None else f'{wr * 100:.0f}%'}, mean validate "
           f"{_pct(s.get('mean_validate_total'))}, mean decay "
-          f"{_pct(s.get('mean_decay_cagr'))}", flush=True)
+          f"{_pct(s.get('mean_decay_cagr'))}")
     return result
 
 
@@ -532,7 +535,7 @@ def main() -> int:
     if not args.no_result and not args.no_report:
         from farm.walkforward import report
         for f in report.write_reports(results_dir=Path(args.results_dir)):
-            print(f"[wf] report → {f}")
+            log.info(f"[wf] report → {f}")
     return 0
 
 

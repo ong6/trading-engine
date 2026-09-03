@@ -27,6 +27,9 @@ from engine.lib import db
 from engine.lib.settings import REPO_ROOT  # noqa: F401
 from farm.backtest.replay import EXCLUDED, WINDOW_MONTHS
 from sim.strategies.configs import CONFIGS
+from engine.lib.log import get_logger
+
+log = get_logger("grid")
 
 ETF_ONLY = {"dual_momentum", "spy_benchmark"}   # strategies eligible for 'max'
 PRIORITY = {"6mo": 140, "1y": 145, "3y": 150, "5y": 155, "15y": 160, "max": 165}
@@ -54,11 +57,11 @@ def enqueue(con, only_window: str | None = None, dry_run: bool = False) -> int:
     for jid, kind, prio in blockers:
         worst = min(PRIORITY.values())
         if prio is None or prio >= worst:
-            print(f"[grid] REFUSING to enqueue: pending {kind} job {jid} has "
+            log.error(f"[grid] REFUSING to enqueue: pending {kind} job {jid} has "
                   f"priority {prio}, which does not drain before the grid's "
                   f"lowest backtest priority {worst}.")
             return 1
-        print(f"[grid] pending {kind} job {jid} (priority {prio}) drains first — ok")
+        log.info(f"[grid] pending {kind} job {jid} (priority {prio}) drains first — ok")
 
     n = 0
     for cid, w in grid():
@@ -66,11 +69,11 @@ def enqueue(con, only_window: str | None = None, dry_run: bool = False) -> int:
             continue
         params = json.dumps({"config_id": cid, "window": w}, sort_keys=True)
         if dry_run:
-            print(f"[grid] would enqueue backtest {params} priority={PRIORITY[w]}")
+            log.info(f"[grid] would enqueue backtest {params} priority={PRIORITY[w]}")
         else:
             qr.cmd_enqueue(con, "backtest", params, PRIORITY[w], MEM_MB)
         n += 1
-    print(f"[grid] {n} job(s) {'planned' if dry_run else 'enqueued'}")
+    log.info(f"[grid] {n} job(s) {'planned' if dry_run else 'enqueued'}")
     return 0
 
 

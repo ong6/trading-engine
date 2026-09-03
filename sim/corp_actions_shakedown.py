@@ -42,6 +42,9 @@ from engine import actions as eng_actions
 from engine.lib import db
 from sim import league, portfolio
 from sim.schema import init_sim_schema
+from engine.lib.log import get_logger
+
+log = get_logger("ca-shakedown")
 
 SPLIT_TICKER = "ATEX"     # held by mr_overlay x2 and template_top10_banded x2
 SPLIT_RATIO = 2.0
@@ -132,11 +135,11 @@ def arm(path: Path, mode: str, data_dir: Path) -> dict:
     last = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
     new = _next_session(last)
     n = carry_flat_session(con, last, new)
-    print(f"[ca-shakedown/{mode}] carried {n} bars {last} -> {new}")
+    log.info(f"[ca-shakedown/{mode}] carried {n} bars {last} -> {new}")
 
     if mode in ("broken", "fixed"):
         apply_price_split(con, SPLIT_TICKER, new, SPLIT_RATIO)
-        print(f"[ca-shakedown/{mode}] {SPLIT_TICKER} {new} bar restated to the "
+        log.info(f"[ca-shakedown/{mode}] {SPLIT_TICKER} {new} bar restated to the "
               f"post-{SPLIT_RATIO:g}:1 scale (older bars left pre-split — the bug)")
     if mode == "fixed":
         con.execute(
@@ -148,25 +151,25 @@ def arm(path: Path, mode: str, data_dir: Path) -> dict:
             "SELECT portfolio_id, qty, avg_cost FROM sim_positions "
             "WHERE ticker = ? AND qty != 0 ORDER BY portfolio_id",
             [SPLIT_TICKER]).fetchall()
-        print(f"[ca-shakedown/fixed] pre-reconcile {SPLIT_TICKER}: {pre}")
+        log.info(f"[ca-shakedown/fixed] pre-reconcile {SPLIT_TICKER}: {pre}")
         eng_actions.reconcile(con)
         post = con.execute(
             "SELECT portfolio_id, qty, avg_cost FROM sim_positions "
             "WHERE ticker = ? AND qty != 0 ORDER BY portfolio_id",
             [SPLIT_TICKER]).fetchall()
-        print(f"[ca-shakedown/fixed] post-reconcile {SPLIT_TICKER}: {post}")
+        log.info(f"[ca-shakedown/fixed] post-reconcile {SPLIT_TICKER}: {post}")
         for (p1, q1, c1), (p2, q2, c2) in zip(pre, post):
             assert p1 == p2
             assert _close_enough(q2, q1 * SPLIT_RATIO), (p1, q1, q2)
             assert _close_enough(c2, c1 / SPLIT_RATIO), (p1, c1, c2)
-        print(f"[ca-shakedown/fixed] OK qty x{SPLIT_RATIO:g}, "
+        log.info(f"[ca-shakedown/fixed] OK qty x{SPLIT_RATIO:g}, "
               f"avg_cost /{SPLIT_RATIO:g} on {len(pre)} position(s)")
 
         aud = con.execute(
             "SELECT action, payload FROM audit_log WHERE actor = 'actions.reconcile' "
             "ORDER BY ts DESC LIMIT 1").fetchone()
         assert aud and aud[0] == "split_restated", aud
-        print(f"[ca-shakedown/fixed] audit_log: {aud[0]} {aud[1]}")
+        log.info(f"[ca-shakedown/fixed] audit_log: {aud[0]} {aud[1]}")
 
         # Idempotency: a second pass must adjudicate nothing and change nothing.
         before = snapshot(con, new)
@@ -174,7 +177,7 @@ def arm(path: Path, mode: str, data_dir: Path) -> dict:
         after = snapshot(con, new)
         assert summ["candidates"] == 0, summ
         assert before == after, "second reconcile pass mutated state"
-        print(f"[ca-shakedown/fixed] OK second reconcile is a no-op "
+        log.info(f"[ca-shakedown/fixed] OK second reconcile is a no-op "
               f"(candidates=0, state byte-identical)")
 
     rc = league.step(con, new, data_dir, rerun=False, verbose=True)
@@ -197,7 +200,7 @@ def arm(path: Path, mode: str, data_dir: Path) -> dict:
             f"  after  {after['positions'].get(('template_top5', SPLIT_TICKER))}")
         assert after["equity"] == snap["equity"], "--rerun after a split moved equity"
         held = after["positions"][("template_top5", SPLIT_TICKER)]
-        print(f"[ca-shakedown/fixed] OK --rerun after the split keeps positions "
+        log.info(f"[ca-shakedown/fixed] OK --rerun after the split keeps positions "
               f"on the post-split scale (template_top5 {SPLIT_TICKER} "
               f"qty={held[0]:.6f} avg_cost={held[1]:.6f})")
 
@@ -223,7 +226,7 @@ def dividend_arm(path: Path, data_dir: Path, control: dict) -> None:
     holders = con.execute(
         "SELECT portfolio_id, qty FROM sim_positions WHERE ticker = ? AND qty > 0 "
         "ORDER BY portfolio_id", [DIV_TICKER]).fetchall()
-    print(f"[ca-shakedown/div] {DIV_TICKER} ${DIV_DPS:.2f}/sh ex {new}; "
+    log.info(f"[ca-shakedown/div] {DIV_TICKER} ${DIV_DPS:.2f}/sh ex {new}; "
           f"{len(holders)} holder(s)")
 
     rc = league.step(con, new, data_dir, rerun=False, verbose=True)
@@ -242,7 +245,7 @@ def dividend_arm(path: Path, data_dir: Path, control: dict) -> None:
         assert _close_enough(dc, exp, 1e-9), (pf, dc, exp)
         assert _close_enough(de, exp, 1e-9), (pf, de, exp)
         print(f"{pf:<30} {dc:>14,.6f} {exp:>14,.6f} {de:>14,.6f}")
-    print(f"[ca-shakedown/div] OK cash AND equity moved by exactly the "
+    log.info(f"[ca-shakedown/div] OK cash AND equity moved by exactly the "
           f"entitlement for all {len(control['cash'])} books "
           f"({len(expected)} paid, {len(control['cash']) - len(expected)} at 0.00)")
 
@@ -255,7 +258,7 @@ def dividend_arm(path: Path, data_dir: Path, control: dict) -> None:
         assert row[0] == pf and row[1] == DIV_TICKER and row[2] == new
         assert _close_enough(row[3], qty) and _close_enough(row[4], DIV_DPS)
         assert _close_enough(row[5], expect), (row, expect)
-        print(f"[ca-shakedown/div] ledger {pf}: {qty:.6f} sh x ${DIV_DPS:.2f} "
+        log.info(f"[ca-shakedown/div] ledger {pf}: {qty:.6f} sh x ${DIV_DPS:.2f} "
               f"= ${expect:,.6f} (stored ${row[5]:,.6f})")
 
     # --rerun must reproduce the day exactly (delete + replay incl. dividends).
@@ -268,7 +271,7 @@ def dividend_arm(path: Path, data_dir: Path, control: dict) -> None:
         "WHERE ex_date = ? ORDER BY portfolio_id", [new]).fetchall()
     assert before == after, "rerun changed state"
     assert ledger == ledger2, "rerun changed the dividend ledger"
-    print("[ca-shakedown/div] OK --rerun reproduces identical state + ledger")
+    log.info("[ca-shakedown/div] OK --rerun reproduces identical state + ledger")
 
     # And the pure-replay path (what --rerun leans on) must agree too.
     cash_pre_rebuild = dict(con.execute("SELECT id, cash FROM portfolios").fetchall())
@@ -282,7 +285,7 @@ def dividend_arm(path: Path, data_dir: Path, control: dict) -> None:
            if not _close_enough(cash_pre_rebuild[k], cash_post[k], 1e-9)]
     assert not bad, [(k, cash_pre_rebuild[k], cash_post[k]) for k in bad]
     assert pos_pre.keys() == pos_post.keys()
-    print("[ca-shakedown/div] OK rebuild_state replays fills+dividends to the "
+    log.info("[ca-shakedown/div] OK rebuild_state replays fills+dividends to the "
           "same cash and positions")
     con.close()
 
@@ -338,7 +341,7 @@ def main() -> int:
     if args.setup_from:
         src = Path(args.setup_from)
         for k, p in paths.items():
-            print(f"[ca-shakedown] copying {src} -> {p}")
+            log.info(f"[ca-shakedown] copying {src} -> {p}")
             shutil.copyfile(src, p)
 
     print("\n=========== ARM A: control (no split) ===========")

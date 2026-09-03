@@ -50,6 +50,9 @@ import duckdb
 from engine.lib import db
 
 from . import portfolio
+from engine.lib.log import get_logger
+
+log = get_logger("settle")
 
 KINDS = ("cash", "worthless", "stock")
 
@@ -219,7 +222,7 @@ def apply_settlement_event(con: duckdb.DuckDBPyConnection, pf_id: str, ticker: s
         [pf_id, ticker]).fetchone()
     held, avg_cost = (float(row[0]), float(row[1])) if row else (0.0, 0.0)
     if abs(held - qty) > 1e-6:
-        print(f"[settle] WARN {pf_id} {ticker}: recorded settlement qty {qty:.6f} "
+        log.warning(f"[settle] WARN {pf_id} {ticker}: recorded settlement qty {qty:.6f} "
               f"!= position {held:.6f} at replay — fills before effective changed "
               f"after the settlement was booked; settling the recorded qty")
     if price:
@@ -362,7 +365,7 @@ def main(argv: list[str] | None = None) -> int:
         print(_render(t, plans, applied=True))
         return 0
     except SettlementRefused as e:
-        print(f"[settle] REFUSED: {e}")
+        log.error(f"[settle] REFUSED: {e}")
         return 2
     finally:
         con.close()

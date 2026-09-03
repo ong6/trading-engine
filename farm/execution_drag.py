@@ -28,6 +28,9 @@ from datetime import date
 
 from engine.lib import db
 from engine.lib.settings import DATA_DIR, REPO_ROOT  # noqa: F401
+from engine.lib.log import get_logger
+
+log = get_logger("execution-drag")
 
 DB_PATH = db.DEFAULT_DB
 REPORT = DATA_DIR / "reports" / "execution-drag.md"
@@ -71,7 +74,7 @@ def main() -> int:
     con.close()
 
     if len(overnight) < 2:
-        print("[execution-drag] fewer than 2 usable fills — nothing to report")
+        log.info("[execution-drag] fewer than 2 usable fills — nothing to report")
         return 0
 
     ov = stats(overnight)
@@ -109,7 +112,7 @@ def main() -> int:
     if not args.no_write:
         REPORT.parent.mkdir(parents=True, exist_ok=True)
         REPORT.write_text(text)
-        print(f"[execution-drag] wrote {REPORT}")
+        log.info(f"[execution-drag] wrote {REPORT}")
     return 0
 
 

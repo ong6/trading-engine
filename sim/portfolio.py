@@ -27,6 +27,9 @@ from datetime import date, timedelta
 import duckdb
 
 from .schema import INITIAL_CASH
+from engine.lib.log import get_logger
+
+log = get_logger("apply_fill")
 
 
 # --------------------------------------------------------------------------- #
@@ -166,7 +169,7 @@ def apply_fill(con: duckdb.DuckDBPyConnection, fill: dict) -> float:
         # shares (and skip the cash clamp), a sell at 0 would erase a position for
         # nothing. fills.attempt_fill already refuses such bars; this is the
         # last line of defence for any other caller.
-        print(f"[apply_fill] WARN bad_price: {pf_id} {tk} {side} {qty} @ {px!r} "
+        log.warning(f"[apply_fill] WARN bad_price: {pf_id} {tk} {side} {qty} @ {px!r} "
               f"— fill rejected")
         return 0.0
 
@@ -179,12 +182,12 @@ def apply_fill(con: duckdb.DuckDBPyConnection, fill: dict) -> float:
             # effect.
             affordable = (cash / px) * (1.0 - 1e-12) if cash > 0 else 0.0
             if affordable * px < MIN_FILL_USD:
-                print(f"[apply_fill] WARN insufficient_cash: {pf_id} {tk} buy "
+                log.warning(f"[apply_fill] WARN insufficient_cash: {pf_id} {tk} buy "
                       f"{qty} @ {px:.4f} (notional ${qty * px:,.2f} > cash "
                       f"${cash:,.2f}; affordable ${affordable * px:,.2f} < "
                       f"${MIN_FILL_USD:g} dust floor) — fill rejected")
                 return 0.0
-            print(f"[apply_fill] WARN cash-clamp: {pf_id} {tk} buy {qty} → "
+            log.warning(f"[apply_fill] WARN cash-clamp: {pf_id} {tk} buy {qty} → "
                   f"{affordable:.6f} @ {px:.4f} (cash ${cash:,.2f})")
             qty = float(affordable)
         new_qty = cur_qty + qty
@@ -193,7 +196,7 @@ def apply_fill(con: duckdb.DuckDBPyConnection, fill: dict) -> float:
                     [qty * px, pf_id])
     else:  # sell — close-only, never go short
         if qty > cur_qty:
-            print(f"[apply_fill] WARN sell-clamp: {pf_id} {tk} sell {qty} > held "
+            log.warning(f"[apply_fill] WARN sell-clamp: {pf_id} {tk} sell {qty} > held "
                   f"{cur_qty} → {cur_qty} (close-only)")
             qty = cur_qty
         if qty <= 0:

@@ -15,6 +15,9 @@ import subprocess
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from engine.lib.log import get_logger
+
+log = get_logger("queue")
 
 
 # --------------------------------------------------------------------------- #
@@ -25,20 +28,20 @@ def apply_niceness() -> None:
     a box without ionice or a locked-down nice() must not break the run."""
     try:
         os.nice(19)
-        print("[queue] re-niced to 19")
+        log.info("[queue] re-niced to 19")
     except Exception as exc:  # noqa: BLE001 - niceness is advisory
-        print(f"[queue] os.nice(19) failed, continuing: {exc}")
+        log.warning(f"[queue] os.nice(19) failed, continuing: {exc}")
     try:
         r = subprocess.run(
             ["ionice", "-c3", "-p", str(os.getpid())],
             check=False, capture_output=True, text=True,
         )
         if r.returncode == 0:
-            print("[queue] ionice class 3 (idle) set")
+            log.info("[queue] ionice class 3 (idle) set")
         else:
-            print(f"[queue] ionice returned {r.returncode}, continuing")
+            log.info(f"[queue] ionice returned {r.returncode}, continuing")
     except Exception as exc:  # noqa: BLE001 - ionice may be absent
-        print(f"[queue] ionice unavailable, continuing: {exc}")
+        log.info(f"[queue] ionice unavailable, continuing: {exc}")
 
 
 # --------------------------------------------------------------------------- #

@@ -45,6 +45,9 @@ from pathlib import Path
 
 from engine.lib import db
 from engine.lib.settings import REPO_ROOT  # noqa: F401
+from engine.lib.log import get_logger
+
+log = get_logger("repair")
 
 REVERTED = "reverted_false_break"
 ACTOR = "actions.repair_restatements"
@@ -70,16 +73,16 @@ def show(con, label: str, tk: str, brk: date, ex: date) -> None:
     n, first = con.execute(
         "SELECT COUNT(*), MIN(date) FROM prices WHERE ticker = ? AND date < ?",
         [tk, brk]).fetchone()
-    print(f"  [{label}] {tk}: {n} rows before break {brk} (from {first})")
+    log.info(f"  [{label}] {tk}: {n} rows before break {brk} (from {first})")
     for tag, d in (("break", brk), ("ex", ex)):
         rows = _bars(con, tk, d)
         for dt, o, c, v in rows:
             mark = "<-- " + tag if dt == d else ""
-            print(f"    {dt}  open {o:>12.4f}  close {c:>12.4f}  vol {v:>12,d}  {mark}")
+            log.info(f"    {dt}  open {o:>12.4f}  close {c:>12.4f}  vol {v:>12,d}  {mark}")
         if tag == "break" and len(rows) >= 3:
             prev = [r for r in rows if r[0] < d][-1]
             cur = [r for r in rows if r[0] >= d][0]
-            print(f"    one-session close ratio prev/cur at break = {prev[2] / cur[2]:.4f} "
+            log.info(f"    one-session close ratio prev/cur at break = {prev[2] / cur[2]:.4f} "
                   f"(move {cur[2] / prev[2] - 1:+.1%})")
 
 
@@ -88,23 +91,23 @@ def revert(con, tk: str, brk: date, ratio: float, apply: bool) -> bool:
         "SELECT ex_date, ratio, outcome, rows_restated, observed FROM split_adjustments "
         "WHERE ticker = ? AND break_date = ?", [tk, brk]).fetchone()
     if row is None:
-        print(f"SKIP {tk}: no split_adjustments row with break_date {brk}")
+        log.warning(f"SKIP {tk}: no split_adjustments row with break_date {brk}")
         return False
     ex, w_ratio, outcome, n_rest, observed = row
     if outcome != "applied":
-        print(f"SKIP {tk} ex={ex}: watermark outcome is '{outcome}', not 'applied' "
+        log.warning(f"SKIP {tk} ex={ex}: watermark outcome is '{outcome}', not 'applied' "
               f"(already reverted?)")
         return False
     if abs(float(w_ratio) - ratio) > 1e-9:
-        print(f"SKIP {tk} ex={ex}: watermark ratio {w_ratio} != requested {ratio}")
+        log.warning(f"SKIP {tk} ex={ex}: watermark ratio {w_ratio} != requested {ratio}")
         return False
     n = con.execute("SELECT COUNT(*) FROM prices WHERE ticker = ? AND date < ?",
                     [tk, brk]).fetchone()[0]
-    print(f"== {tk} split {ratio:g}:1 ex={ex} break={brk} watermark rows_restated={n_rest} "
+    log.info(f"== {tk} split {ratio:g}:1 ex={ex} break={brk} watermark rows_restated={n_rest} "
           f"observed={observed} -> {n} rows to multiply back by {ratio:g}")
     show(con, "before", tk, brk, ex)
     if not apply:
-        print("  dry-run: no changes written")
+        log.info("  dry-run: no changes written")
         return True
 
     n_fills = con.execute("SELECT COUNT(*) FROM sim_fills WHERE ticker = ?", [tk]).fetchone()[0]
@@ -141,7 +144,7 @@ def revert(con, tk: str, brk: date, ratio: float, apply: bool) -> bool:
         con.execute("ROLLBACK")
         raise
     show(con, "after", tk, brk, ex)
-    print(f"  watermark -> {REVERTED}; audit_log row appended"
+    log.info(f"  watermark -> {REVERTED}; audit_log row appended"
           + ("; sim books rebuilt from fills" if n_fills else "; no fills for this name"))
     return True
 
@@ -156,7 +159,7 @@ def yahoo_check(con, targets: list[tuple[str, date, float]]) -> None:
     syms = sorted({ymap.get(tk, tk) for tk, _b, _r in targets})
     raw = yf.download(syms, period="max", auto_adjust=False, group_by="ticker",
                       threads=True, progress=False)
-    print("\n== Yahoo cross-check: median(store close / yahoo close), 30 sessions each side of the break")
+    log.info("\n== Yahoo cross-check: median(store close / yahoo close), 30 sessions each side of the break")
     for tk, brk, ratio in targets:
         yft = ymap.get(tk, tk)
         y = raw[yft]["Close"].dropna() if isinstance(raw.columns, pd.MultiIndex) else raw["Close"].dropna()
@@ -172,7 +175,7 @@ def yahoo_check(con, targets: list[tuple[str, date, float]]) -> None:
         ma = statistics.median(aft) if aft else float("nan")
         verdict = "OK — one scale, matches Yahoo" if abs(mb - 1) < 0.02 and abs(ma - 1) < 0.02 else (
             "STILL DIVIDED (store = yahoo/ratio before break)" if abs(mb * ratio - 1) < 0.02 else "DIFFERS")
-        print(f"  {tk:5} before {mb:.4f} (n={len(bef)})  after {ma:.4f} (n={len(aft)})  "
+        log.info(f"  {tk:5} before {mb:.4f} (n={len(bef)})  after {ma:.4f} (n={len(aft)})  "
               f"rows >1% off Yahoo: {off}/{len(allr)}  -> {verdict}")
 
 
@@ -189,10 +192,10 @@ def main() -> int:
 
     if args.apply:
         con = db.connect(path)            # project writer path: lock retry discipline
-        print(f"[repair] APPLY on {path}")
+        log.info(f"[repair] APPLY on {path}")
     else:
         con = db.connect(path, read_only=True)
-        print(f"[repair] DRY-RUN (read-only) on {path}")
+        log.info(f"[repair] DRY-RUN (read-only) on {path}")
     try:
         for tk, brk, ratio in targets:
             revert(con, tk, brk, ratio, args.apply)

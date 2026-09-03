@@ -73,6 +73,9 @@ import numpy as np
 from .base import (
     PortfolioView, Strategy, latest_screen_date, passing_ranked, rebalance_orders,
 )
+from engine.lib.log import get_logger
+
+log = get_logger("ew_gross_voltarget")
 
 TRADING_DAYS = 252
 
@@ -149,7 +152,7 @@ class EwGrossVolTarget(Strategy):
         if sigma is None:
             # Unknown risk is not low risk and is not high risk. Hold the plain
             # benchmark basket and say so; never size off a guessed sigma.
-            print(f"[ew_gross_voltarget] {pf.id} {as_of}: basket volatility "
+            log.info(f"[ew_gross_voltarget] {pf.id} {as_of}: basket volatility "
                   f"unmeasurable over {lookback} sessions "
                   f"(need {min_obs} usable days at >={min_name_frac:.0%} of "
                   f"{len(names)} names) — holding full basket, no exposure "

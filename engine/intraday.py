@@ -30,6 +30,9 @@ from engine.lib import db
 from engine.lib import resources as rsc
 from engine.lib.settings import STORE_DIR
 from engine.lib.settings import META_PATH as DEFAULT_META
+from engine.lib.log import get_logger
+
+log = get_logger("intraday")
 
 BENCHMARKS = ["SPY", "QQQ", "IWM"]
 BATCH_SIZE = 50
@@ -168,12 +171,12 @@ def _download(yf_tickers: list[str], *, interval: str, period: str) -> pd.DataFr
     try:
         return yf.download(yf_tickers, **kwargs)
     except Exception as exc:  # noqa: BLE001 - be resilient, retry once
-        print(f"[intraday] {interval} batch failed ({exc}); retry in {RETRY_SLEEP}s")
+        log.warning(f"[intraday] {interval} batch failed ({exc}); retry in {RETRY_SLEEP}s")
         time.sleep(RETRY_SLEEP)
         try:
             return yf.download(yf_tickers, **kwargs)
         except Exception as exc2:  # noqa: BLE001
-            print(f"[intraday] {interval} batch retry failed ({exc2}); recording gap")
+            log.warning(f"[intraday] {interval} batch retry failed ({exc2}); recording gap")
             return pd.DataFrame()
 
 
@@ -191,13 +194,13 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
     """
     params = params or {}
     universe = _select_universe(con)
-    print(f"[intraday] archive universe: {len(universe)} tickers "
+    log.info(f"[intraday] archive universe: {len(universe)} tickers "
           f"(top-500 dollar-vol ∪ latest passers ∪ {'/'.join(BENCHMARKS)})")
 
     limit = params.get("limit")
     if limit:
         universe = universe[: int(limit)]
-        print(f"[intraday] params limit={limit} -> pulling {len(universe)} tickers")
+        log.info(f"[intraday] params limit={limit} -> pulling {len(universe)} tickers")
 
     yf_to_canon_full = {yft: tk for tk, yft in _yf_map(con, universe).items()}
     all_yf = list(yf_to_canon_full)
@@ -207,7 +210,7 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
     failed_batches = 0
 
     for interval, period in INTERVALS.items():
-        print(f"[intraday] === {interval} bars, period={period} ===")
+        log.info(f"[intraday] === {interval} bars, period={period} ===")
         got_iv: set[str] = set()
         for batch in _batches(all_yf, BATCH_SIZE):
             sub_map = {y: yf_to_canon_full[y] for y in batch}
@@ -218,11 +221,11 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
             n = db.insert_intraday(con, df)
             new_rows[interval] += n
             got_iv |= got
-            print(f"[intraday] {interval} batch {len(batch)} -> {n} new rows "
+            log.info(f"[intraday] {interval} batch {len(batch)} -> {n} new rows "
                   f"({len(got)} with data)")
             time.sleep(BATCH_SLEEP)
         got_all |= {yf_to_canon_full[y] for y in got_iv}
-        print(f"[intraday] {interval} done: {new_rows[interval]} new rows, "
+        log.info(f"[intraday] {interval} done: {new_rows[interval]} new rows, "
               f"{len(got_iv)} tickers with data")
 
     requested = len(all_yf)
@@ -245,7 +248,7 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
     # keep the top-level disk_warning honest on every intraday run too
     rsc.update_disk_warning(meta_path, store_gb)
 
-    print(f"[intraday] DONE requested={requested} with_data={with_data} "
+    log.info(f"[intraday] DONE requested={requested} with_data={with_data} "
           f"failed={failed} new_1m={new_rows['1m']} new_5m={new_rows['5m']} "
           f"store={store_gb:.2f}GiB")
     return accounting

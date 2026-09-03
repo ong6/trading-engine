@@ -33,6 +33,9 @@ from .schema import INITIAL_CASH, init_sim_schema
 from .strategies import PortfolioView, get_strategy
 from .strategies.base import total_return_between
 from .strategies.configs import CONFIGS
+from engine.lib.log import get_logger
+
+log = get_logger("league")
 
 
 # --------------------------------------------------------------------------- #
@@ -156,10 +159,10 @@ def mtm_all(con, d: date, verbose: bool = True) -> dict:
             carried[pf_id] = sorted(res["carried"])
     if carried and verbose:
         n = sum(len(v) for v in carried.values())
-        print(f"[league] WARN {n} position(s) in {len(carried)} book(s) marked "
+        log.warning(f"[league] WARN {n} position(s) in {len(carried)} book(s) marked "
               f"at a CARRIED close on {d} — the name printed no bar:")
         for pf_id, tks in sorted(carried.items()):
-            print(f"[league]   {pf_id}: {', '.join(tks)}")
+            log.info(f"[league]   {pf_id}: {', '.join(tks)}")
     return {"carried": carried}
 
 
@@ -206,7 +209,7 @@ def generate_all(con, d: date) -> int:
             ).fetchone()
             if dup:
                 n_skipped += 1
-                print(f"[league] dedup: skip {o.portfolio_id} {o.ticker} {o.side} "
+                log.info(f"[league] dedup: skip {o.portfolio_id} {o.ticker} {o.side} "
                       f"— a pending order for this leg already exists")
                 continue
             con.execute(
@@ -218,7 +221,7 @@ def generate_all(con, d: date) -> int:
             oid += 1
             n_new += 1
     if n_skipped:
-        print(f"[league] dedup: skipped {n_skipped} duplicate pending order(s)")
+        log.info(f"[league] dedup: skipped {n_skipped} duplicate pending order(s)")
     return n_new
 
 
@@ -451,7 +454,7 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
             # (regenerating d's orders) while d+1's fills of the ORIGINAL orders
             # survive — a double-count that rebuild_state cannot detect. A
             # historical re-run must roll back from the latest date down to d.
-            print(f"[league] ABORT: --rerun {d} refused — {later} later session(s) "
+            log.error(f"[league] ABORT: --rerun {d} refused — {later} later session(s) "
                   f"already stepped. Re-run from the latest date backwards.")
             return 1
     if existing:
@@ -461,11 +464,11 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
                 # nightly where MAX(date) hasn't advanced, or a re-run). The report
                 # already reflects this date. Exit 0 so the nightly never trips.
                 if verbose:
-                    print(f"[league] {d} already stepped ({existing} equity rows); "
+                    log.info(f"[league] {d} already stepped ({existing} equity rows); "
                           f"--skip-if-done → no-op, exit 0")
                 return 0
             if verbose:
-                print(f"[league] ABORT: sim_equity already has {existing} rows for "
+                log.error(f"[league] ABORT: sim_equity already has {existing} rows for "
                       f"{d} — the step is idempotent. Pass --rerun to redo this date.")
             return 1
     # The whole per-day step is ONE DuckDB transaction so the day is all-or-
@@ -485,7 +488,7 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
         if existing:  # reached only on --rerun (non-rerun already returned above)
             rerun_cleanup(con, d)
             if verbose:
-                print(f"[league] --rerun: cleared {d} sim rows, rebuilt state")
+                log.info(f"[league] --rerun: cleared {d} sim rows, rebuilt state")
         dv = portfolio.credit_dividends(con, d)
         fc = fill_pending(con, d)
         # verbose is threaded through so a walk-forward replay (thousands of
@@ -504,7 +507,7 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
                     if dv["credited"] else "")
         n_carried = sum(len(v) for v in mm["carried"].values())
         carry_note = f" carried_marks={n_carried}" if n_carried else ""
-        print(f"[league] {d}: fills={fc['filled']} rejected={fc['rejected']} "
+        log.info(f"[league] {d}: fills={fc['filled']} rejected={fc['rejected']} "
               f"still_pending={fc['pending']} new_orders={nn}{div_note}"
               f"{carry_note} → {md_path}")
     return 0
@@ -520,11 +523,11 @@ def run(db_path: str, data_dir: Path, requested_date: str | None,
 
     if do_init:
         n = init_portfolios(con, d)
-        print(f"[league] init: created {n} portfolios (as of {d})")
+        log.info(f"[league] init: created {n} portfolios (as of {d})")
 
     have = con.execute("SELECT COUNT(*) FROM portfolios").fetchone()[0]
     if not have:
-        print("[league] no portfolios — run with --init first")
+        log.info("[league] no portfolios — run with --init first")
         con.close()
         return 1
 
