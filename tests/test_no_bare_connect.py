@@ -18,7 +18,7 @@ import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCANNED = ("engine", "sim", "farm", "server", "agents")
+SCANNED = ("engine", "sim", "farm", "server")  # agents/ archived 2026-09-03
 FACTORY = REPO_ROOT / "engine" / "lib" / "db.py"
 # Exact-line exceptions with a stated reason. Empty on purpose — add one only
 # with a reason a reviewer would accept.
