@@ -1,18 +1,19 @@
 {
-  "last_run": "2026-09-03T22:32:12.226311+00:00",
+  "last_run": "2026-09-04T22:32:05.569118+00:00",
   "mode": "incremental",
-  "universe_size": 12558,
-  "active_count": 12358,
+  "universe_size": 12564,
+  "active_count": 12359,
   "liquid_count": 4118,
-  "prices_rows": 19961271,
+  "prices_rows": 19965368,
   "tickers_with_data": 12105,
   "stale_tickers": {
-    "count": 20,
+    "count": 21,
     "list": [
       "AVB",
       "AVNS",
       "AXIA",
       "CCRN",
+      "CRNX",
       "EA",
       "EQR",
       "FBRX",
@@ -31,19 +32,19 @@
       "WBS"
     ]
   },
-  "failed_this_run": 18,
+  "failed_this_run": 19,
   "sources": {
     "stooq": "blocked",
     "yfinance": "ok"
   },
   "regime": "risk-on",
-  "last_screen": "2026-09-03T22:32:15.429047+00:00",
-  "passing_count": 559,
-  "new_today_count": 64,
+  "last_screen": "2026-09-04T22:32:08.871732+00:00",
+  "passing_count": 588,
+  "new_today_count": 59,
   "screened": 3881,
   "skipped_stale": 0,
   "skipped_phantom": 0,
-  "skipped_short": 214,
+  "skipped_short": 213,
   "universe_policy": "all",
   "excluded_leveraged": 0,
   "actions_incremental": {
@@ -51,24 +52,22 @@
     "universe": 155,
     "universe_source": "held \u222a pending \u222a core-ETFs \u222a screen-top-N",
     "pulled_this_run": 155,
-    "with_actions": 91,
-    "no_actions": 64,
+    "with_actions": 90,
+    "no_actions": 65,
     "failed_tickers": 0,
-    "rows_written_this_run": 7330,
+    "rows_written_this_run": 7286,
     "total_splits": 8707,
-    "total_dividends": 401044,
-    "last_run": "2026-09-03T22:33:34.763819+00:00",
-    "store_gb": 3.45
+    "total_dividends": 401045,
+    "last_run": "2026-09-04T22:33:26.545509+00:00",
+    "store_gb": 3.48
   },
   "disk_warning": null,
   "actions_reconcile": {
-    "candidates": 1,
+    "candidates": 0,
     "rows_restated": 0,
-    "outcomes": {
-      "skipped_already_adjusted": 1
-    },
-    "warnings": 1,
-    "last_run": "2026-09-03T22:33:36.094053+00:00",
-    "store_gb": 3.45
+    "outcomes": {},
+    "warnings": 0,
+    "last_run": "2026-09-04T22:33:27.907452+00:00",
+    "store_gb": 3.48
   }
 }
