@@ -1,28 +1,28 @@
 # Sweep — `banding`
 
-_9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-29 09:07 UTC._
+_9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-09-05 09:21 UTC._
 
 ## Read this before the table
 
-**5 of 9 ranked candidate(s) are `INDISTINGUISHABLE` from `ew_benchmark`** — their 90% confidence interval on median excess contains 0, so this evidence does not establish even the SIGN of their edge, let alone its size. That is the headline of this table; the ordering below it is a tie-break among rows most of which are not separated from the benchmark at all.
+**8 of 9 ranked candidate(s) are `INDISTINGUISHABLE` from `ew_benchmark`** — their 90% confidence interval on median excess contains 0, so this evidence does not establish even the SIGN of their edge, let alone its size. That is the headline of this table; the ordering below it is a tie-break among rows most of which are not separated from the benchmark at all.
 
 **Every row here is one of 9 parameter sets tried on the same data.** The best of N trials looks good at N=1 and looks good at N=60 for entirely different reasons, so the top row is NOT a finding — it is the starting point for one, and it has to survive a pre-registered forward test like anything else. Quote this table only with its trial count attached.
 
 Ranked by **median** excess vs `ew_benchmark` on shared folds, not mean: at 6 folds the mean excess of every momentum book was carried entirely by the 2018-2021 window. Excess vs EW (same universe, same screen) is used rather than absolute return because it cancels most of the ~+7pp/yr survivorship inflation in this store.
 
-Benchmark on these folds: median validate **+17.98%**, worst-fold drawdown **-37.54%**.
+Benchmark on these folds: median validate **+16.19%**, worst-fold drawdown **-37.54%**.
 
 | Candidate | Distinguishable from EW? | Folds | Median excess | 90% CI on median excess | Mean excess | Beats EW | Worst DD |
 |---|---|---|---|---|---|---|---|
-| `band_rank-30__n-20` | **distinguishable −** | 10 | -2.26% | [-14.82%, -0.80%] | -3.64% | 20% | -45.41% |
-| `band_rank-30__n-10` | **distinguishable −** | 10 | -6.25% | [-13.97%, -1.72%] | +0.91% | 20% | -47.35% |
-| `band_rank-20__n-10` | **INDISTINGUISHABLE** | 10 | -6.69% | [-15.54%, +3.40%] | +4.79% | 40% | -48.61% |
-| `band_rank-15__n-10` | **INDISTINGUISHABLE** | 10 | -7.61% | [-13.66%, +5.66%] | +3.36% | 40% | -49.12% |
-| `band_rank-30__n-5` | **INDISTINGUISHABLE** | 10 | -9.14% | [-14.12%, +14.24%] | +11.97% | 30% | -55.80% |
-| `band_rank-15__n-5` | **INDISTINGUISHABLE** | 10 | -9.62% | [-14.25%, +22.99%] | +19.37% | 40% | -61.43% |
-| `band_rank-15__n-20` | **distinguishable −** | 10 | -10.27% | [-14.79%, -1.41%] | -3.59% | 20% | -45.71% |
-| `band_rank-20__n-20` | **distinguishable −** | 10 | -10.27% | [-14.79%, -1.41%] | -3.59% | 20% | -45.71% |
-| `band_rank-20__n-5` | **INDISTINGUISHABLE** | 10 | -11.26% | [-12.43%, +17.91%] | +16.24% | 30% | -57.40% |
+| `band_rank-30__n-20` | **INDISTINGUISHABLE** | 10 | -5.70% | [-13.98%, +2.74%] | -2.68% | 30% | -45.41% |
+| `band_rank-15__n-5` | **INDISTINGUISHABLE** | 10 | -7.47% | [-13.36%, +24.75%] | +26.13% | 30% | -61.42% |
+| `band_rank-15__n-10` | **INDISTINGUISHABLE** | 10 | -8.22% | [-15.74%, +3.28%] | +6.18% | 40% | -49.12% |
+| `band_rank-15__n-20` | **INDISTINGUISHABLE** | 10 | -9.02% | [-16.97%, +2.11%] | -1.68% | 30% | -45.72% |
+| `band_rank-20__n-20` | **INDISTINGUISHABLE** | 10 | -9.02% | [-16.97%, +2.11%] | -1.68% | 30% | -45.72% |
+| `band_rank-20__n-10` | **INDISTINGUISHABLE** | 10 | -9.67% | [-15.22%, +2.85%] | +7.87% | 40% | -48.60% |
+| `band_rank-30__n-10` | **distinguishable −** | 10 | -10.25% | [-14.22%, -0.78%] | +3.40% | 30% | -47.35% |
+| `band_rank-20__n-5` | **INDISTINGUISHABLE** | 10 | -10.56% | [-14.57%, +20.16%] | +21.88% | 30% | -57.40% |
+| `band_rank-30__n-5` | **INDISTINGUISHABLE** | 10 | -10.78% | [-12.85%, +14.10%] | +16.34% | 30% | -55.80% |
 
 ## The interval, and what it is not
 
@@ -40,10 +40,10 @@ Top genuine candidate `band_rank-30__n-20`, on its **excess-vs-EW** series (10 f
 
 | | |
 |---|---|
-| Raw Sharpe (excess vs EW, per fold) | **-0.285** |
+| Raw Sharpe (excess vs EW, per fold) | **-0.168** |
 | Trials searched (N) | 9 |
-| SR0 — Sharpe the luckiest of 9 zero-skill trials would be expected to show | +0.301 |
-| **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.053** |
+| SR0 — Sharpe the luckiest of 9 zero-skill trials would be expected to show | +0.227 |
+| **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.135** |
 
 V in the SR0 formula is the observed variance of the 9 trial excess Sharpes in this grid.
 
