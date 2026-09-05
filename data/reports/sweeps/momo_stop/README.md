@@ -1,28 +1,28 @@
 # Sweep — `momo_stop`
 
-_9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-08-29 13:08 UTC._
+_9 candidate(s) · **9 trials** · 10-fold protocol · bootstrap seed 20260820 · generated 2026-09-05 13:05 UTC._
 
 ## Read this before the table
 
-**8 of 9 ranked candidate(s) are `INDISTINGUISHABLE` from `ew_benchmark`** — their 90% confidence interval on median excess contains 0, so this evidence does not establish even the SIGN of their edge, let alone its size. That is the headline of this table; the ordering below it is a tie-break among rows most of which are not separated from the benchmark at all.
+**9 of 9 ranked candidate(s) are `INDISTINGUISHABLE` from `ew_benchmark`** — their 90% confidence interval on median excess contains 0, so this evidence does not establish even the SIGN of their edge, let alone its size. That is the headline of this table; the ordering below it is a tie-break among rows most of which are not separated from the benchmark at all.
 
 **Every row here is one of 9 parameter sets tried on the same data.** The best of N trials looks good at N=1 and looks good at N=60 for entirely different reasons, so the top row is NOT a finding — it is the starting point for one, and it has to survive a pre-registered forward test like anything else. Quote this table only with its trial count attached.
 
 Ranked by **median** excess vs `ew_benchmark` on shared folds, not mean: at 6 folds the mean excess of every momentum book was carried entirely by the 2018-2021 window. Excess vs EW (same universe, same screen) is used rather than absolute return because it cancels most of the ~+7pp/yr survivorship inflation in this store.
 
-Benchmark on these folds: median validate **+17.98%**, worst-fold drawdown **-37.54%**.
+Benchmark on these folds: median validate **+16.19%**, worst-fold drawdown **-37.54%**.
 
 | Candidate | Distinguishable from EW? | Folds | Median excess | 90% CI on median excess | Mean excess | Beats EW | Worst DD |
 |---|---|---|---|---|---|---|---|
-| `n-10__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -3.23% | [-17.52%, +13.22%] | +3.02% | 50% | -52.80% |
-| `n-20__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -4.01% | [-12.73%, +5.78%] | -3.97% | 40% | -42.86% |
-| `n-5__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -4.07% | [-26.17%, +36.06%] | +16.31% | 50% | -61.86% |
-| `n-10__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -5.88% | [-15.96%, +9.05%] | +2.98% | 40% | -48.03% |
-| `n-20__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -6.03% | [-12.81%, +0.39%] | -4.23% | 40% | -45.17% |
-| `n-10__stop_frac-0.8` | **INDISTINGUISHABLE** | 10 | -6.22% | [-19.20%, +5.25%] | +1.12% | 30% | -49.71% |
-| `n-5__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -9.50% | [-15.63%, +26.61%] | +11.23% | 40% | -61.89% |
-| `n-20__stop_frac-0.8` | **distinguishable −** | 10 | -9.54% | [-15.02%, -1.29%] | -5.89% | 20% | -45.53% |
-| `n-5__stop_frac-0.8` | **INDISTINGUISHABLE** | 10 | -12.49% | [-16.59%, +20.64%] | +11.00% | 30% | -63.63% |
+| `n-20__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -6.14% | [-12.69%, +5.55%] | -3.35% | 40% | -42.87% |
+| `n-10__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -6.72% | [-18.80%, +13.97%] | +4.13% | 40% | -52.82% |
+| `n-20__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -7.61% | [-13.87%, +3.92%] | -3.04% | 30% | -45.17% |
+| `n-5__stop_frac-0.9` | **INDISTINGUISHABLE** | 10 | -8.57% | [-24.33%, +30.43%] | +20.40% | 40% | -61.86% |
+| `n-10__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -9.16% | [-18.02%, +6.40%] | +4.78% | 40% | -48.03% |
+| `n-10__stop_frac-0.8` | **INDISTINGUISHABLE** | 10 | -9.20% | [-20.18%, +4.31%] | +3.40% | 40% | -49.73% |
+| `n-20__stop_frac-0.8` | **INDISTINGUISHABLE** | 10 | -10.62% | [-15.73%, +2.23%] | -4.43% | 30% | -45.54% |
+| `n-5__stop_frac-0.85` | **INDISTINGUISHABLE** | 10 | -11.38% | [-19.29%, +21.71%] | +14.73% | 30% | -61.89% |
+| `n-5__stop_frac-0.8` | **INDISTINGUISHABLE** | 10 | -15.34% | [-18.04%, +15.60%] | +15.35% | 30% | -63.63% |
 
 ## The interval, and what it is not
 
@@ -36,14 +36,14 @@ Benchmark on these folds: median validate **+17.98%**, worst-fold drawdown **-37
 
 ## Deflated Sharpe — the multiple-testing haircut
 
-Top genuine candidate `n-10__stop_frac-0.9`, on its **excess-vs-EW** series (10 folds; each fold is a 12-month validate window, so this is already an annual-frequency Sharpe and is NOT rescaled).
+Top genuine candidate `n-20__stop_frac-0.9`, on its **excess-vs-EW** series (10 folds; each fold is a 12-month validate window, so this is already an annual-frequency Sharpe and is NOT rescaled).
 
 | | |
 |---|---|
-| Raw Sharpe (excess vs EW, per fold) | **+0.084** |
+| Raw Sharpe (excess vs EW, per fold) | **-0.223** |
 | Trials searched (N) | 9 |
-| SR0 — Sharpe the luckiest of 9 zero-skill trials would be expected to show | +0.394 |
-| **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.167** |
+| SR0 — Sharpe the luckiest of 9 zero-skill trials would be expected to show | +0.280 |
+| **Deflated Sharpe (DSR) = P(true excess Sharpe > SR0)** | **0.080** |
 
 V in the SR0 formula is the observed variance of the 9 trial excess Sharpes in this grid.
 
