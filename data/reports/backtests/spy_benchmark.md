@@ -1,6 +1,8 @@
 # SPY Buy & Hold (`spy_benchmark`) — historical windows
 
-_strategy `spy_benchmark` · cadence once · generated 2026-07-29 14:04 UTC_
+_strategy `spy_benchmark` · cadence once · generated 2026-09-07 11:18 UTC_
+
+**Evidence and assumptions.** `legacy_unclassified`; starting capital $0; execution profile `legacy_unstamped`; data snapshot `legacy_unstamped`.
 
 ## Disclosures — read before any number below
 
@@ -40,19 +42,21 @@ _strategy `spy_benchmark` · cadence once · generated 2026-07-29 14:04 UTC_
 8. **Windows end 2026-07-16**, the session before league inception. Nothing
    after that date is read, so the farm and the live forward record do not
    overlap.
-9. **Costs are the league's own**: t+1-open fills, `max(half_spread, 5) + 5` bp
-   per side, the 1%-of-median-dollar-volume liquidity guard, no same-bar fills,
-   no fabricated bars.
+9. **Costs are the league's own named execution profile**, serialized in every
+   result: t+1-open fills, explicit spread/adverse/impact/fee assumptions, a
+   profile-defined median-dollar-volume ceiling, no same-bar fills and no
+   fabricated bars. `baseline_v1` is the historical
+   `max(half_spread, 5) + 5` bp-per-side model.
 
 
-| Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| spy_benchmark | 2026-01-16→2026-07-16 | +10.45% | +22.20% | +13.82% | +1.54 | +1.28 | −8.76% | −4.87% | +5.67% | +0.00% | 1 |
-| spy_benchmark | 2025-07-16→2026-07-16 | +21.18% | +21.19% | +12.46% | +1.61 | +1.31 | −8.78% | −4.88% | −24.94% | +0.00% | 1 |
-| spy_benchmark | 2023-07-17→2026-07-16 | +70.85% | +19.56% | +14.94% | +1.28 | +0.97 | −18.33% | −5.45% | +10.26% | +0.00% | 1 |
-| spy_benchmark | 2021-07-16→2026-07-16 | +83.04% | +12.85% | +16.54% | +0.82 | +0.61 | −24.02% | −8.97% | +19.46% | +0.00% | 1 |
-| spy_benchmark | 2011-07-18→2026-07-16 | +529.47% | +13.05% | +15.67% | +0.86 | +0.77 | −30.43% | −11.16% | −612.77% | +0.00% | 1 |
-| spy_benchmark | 1994-01-27→2026-07-16 | +1690.70% | +9.29% | +15.95% | +0.64 | +0.52 | −47.31% | −13.52% | · | +0.00% | 1 |
+| Book | Evidence class | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Comparison | Fills |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| spy_benchmark | `legacy_unclassified` | 2026-01-16→2026-07-16 | +10.45% | +22.20% | +13.82% | +1.54 | +1.28 | −8.76% | −4.87% | · | · | reference | 1 |
+| spy_benchmark | `legacy_unclassified` | 2025-07-16→2026-07-16 | +21.18% | +21.19% | +12.46% | +1.61 | +1.31 | −8.78% | −4.88% | · | · | reference | 1 |
+| spy_benchmark | `legacy_unclassified` | 2023-07-17→2026-07-16 | +70.85% | +19.56% | +14.94% | +1.28 | +0.97 | −18.33% | −5.45% | · | · | reference | 1 |
+| spy_benchmark | `legacy_unclassified` | 2021-07-16→2026-07-16 | +83.04% | +12.85% | +16.54% | +0.82 | +0.61 | −24.02% | −8.97% | · | · | reference | 1 |
+| spy_benchmark | `legacy_unclassified` | 2011-07-18→2026-07-16 | +529.47% | +13.05% | +15.67% | +0.86 | +0.77 | −30.43% | −11.16% | · | · | reference | 1 |
+| spy_benchmark | `legacy_unclassified` | 1994-01-27→2026-07-16 | +1690.70% | +9.29% | +15.95% | +0.64 | +0.52 | −47.31% | −13.52% | · | · | reference | 1 |
 
 ## Equity-curve detail
 

@@ -1,0 +1,11 @@
+{
+  "automatic_action": "none",
+  "experiment_id": "e1-spy-monday",
+  "forward_config_sha256": "399ce03bee8bab4ec592bca71438c6041766311f9610b73ee86921c4930f93b3",
+  "observations": 7,
+  "paper_only": true,
+  "parent_config_sha256": "5dc40ff465de67a9b887966ba853bf5dfcb310076edd171739c4fd7ebe925d35",
+  "prefix_sha256": "e2603b7c85f5e24e3b019a4ee7058c6732a792647b0c1c2e62a0d111fdf360ad",
+  "schema_version": 1,
+  "through": "2026-08-31"
+}

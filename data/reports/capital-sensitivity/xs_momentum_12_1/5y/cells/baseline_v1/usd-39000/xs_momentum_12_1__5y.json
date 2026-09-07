@@ -1,0 +1,366 @@
+{
+  "bil_coverage": 1.0,
+  "cadence": "monthly",
+  "cagr": 0.24912625686797152,
+  "capacity_rejected_notional": 20579.295503671183,
+  "clamped_to_data_floor": false,
+  "config": {
+    "cadence": "monthly",
+    "description": "Monthly: rank every active, liquid, non-ETF name with 253+ bars and close >= $5 by total return from 252 to 21 sessions ago (12-1, skip-month); hold the top 50 equal-weight, no screen, no banding. THE CONTROL for the Minervini screen: ew_benchmark minus this book is the screen's marginal value.",
+    "expectation": "Market-beating in trending years with deep momentum crashes (2009-style, 2020-11, 2022). If the screen adds value beyond momentum, ew_benchmark beats this book on median excess AND drawdown across the 10 folds; the honest prior is that most of ew_benchmark's edge is plain momentum and the two are INDISTINGUISHABLE.",
+    "id": "xs_momentum_12_1",
+    "kill_criterion": "Control: retired only once its question is answered. Kill if ew_benchmark beats it in >= 70% of walk-forward folds with a 90% CI on median excess that excludes 0 AND a lower worst-fold drawdown (screen shown to add value), or if any fold is inert, or if live max drawdown exceeds 55%.",
+    "name": "XS Momentum 12-1 (unscreened control)",
+    "params": {
+      "lookback": 252,
+      "min_bars": 253,
+      "min_price": 5.0,
+      "n": 50,
+      "skip": 21
+    },
+    "strategy": "xs_momentum_12_1"
+  },
+  "config_id": "xs_momentum_12_1",
+  "config_sha256": "fb5a0f0e3472f14ed9b0a5d5bac05a081ec0284f200db91663b11d5d47ab9214",
+  "corporate_actions_dividend_rows": 400260,
+  "data_quality_class": "current_universe_survivor_biased",
+  "data_snapshot": {
+    "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+    "tables": {
+      "corporate_actions": {
+        "exists": true,
+        "latest_fetch": "2026-09-04T22:33:26.507372",
+        "max_date": "2026-09-03",
+        "min_date": "1962-01-16",
+        "rows": 409752
+      },
+      "fundamentals": {
+        "exists": true,
+        "latest_fetch": "2026-09-05T00:33:22.478505",
+        "max_date": "2026-09-04",
+        "min_date": "2026-07-18",
+        "rows": 32944
+      },
+      "price_quarantine": {
+        "active_count": 0,
+        "active_tickers": []
+      },
+      "prices": {
+        "exists": true,
+        "latest_fetch": "2026-09-06T23:09:01.255401",
+        "max_date": "2026-09-04",
+        "min_date": "1962-01-02",
+        "rows": 19965368
+      },
+      "universe_snapshot": {
+        "exists": true,
+        "latest_fetch": null,
+        "max_date": "2026-09-04",
+        "min_date": "2026-07-16",
+        "rows": 470480
+      }
+    }
+  },
+  "dividend_cash": 2973.7746904186365,
+  "end_date": "2026-07-16",
+  "equity_end": 118585.11268769966,
+  "equity_start": 39000.0,
+  "execution_profile": {
+    "commission_max_fraction": null,
+    "commission_minimum": 0.0,
+    "commission_per_share": 0.0,
+    "description": "Compatibility profile: liquidity-tier half-spread plus 5 bp adverse movement per side; no separately verified broker fees.",
+    "fixed_adverse_bps": 5.0,
+    "fractional_shares": true,
+    "id": "baseline_v1",
+    "impact_coefficient_bps": 0.0,
+    "impact_exponent": 0.5,
+    "impact_reference_participation": 0.01,
+    "max_participation": 0.01,
+    "sell_fee_bps": 0.0,
+    "spread_multiplier": 1.0,
+    "spread_rule": "mdv_tiers_v1"
+  },
+  "fill_model": "v4",
+  "git_dirty": true,
+  "git_sha": "ffbbd0cfab82235f8cfc67d5d67fd0f1b04411b3",
+  "gross_traded_notional": 2720545.0891449647,
+  "initial_cash": 39000.0,
+  "max_dd": -0.37065870836449233,
+  "max_participation": 0.00963008305882106,
+  "modeled_price_cost_dollars": 4499.9827131090815,
+  "modeled_total_cost_dollars": 4499.9827131090815,
+  "monthly_equity": [
+    [
+      "2021-07",
+      39000.0
+    ],
+    [
+      "2021-08",
+      43177.13326611697
+    ],
+    [
+      "2021-09",
+      41982.18094020918
+    ],
+    [
+      "2021-10",
+      46705.53131552881
+    ],
+    [
+      "2021-11",
+      45401.04496981748
+    ],
+    [
+      "2021-12",
+      41906.411761158466
+    ],
+    [
+      "2022-01",
+      35928.610128040855
+    ],
+    [
+      "2022-02",
+      39110.945442051816
+    ],
+    [
+      "2022-03",
+      42918.86366122432
+    ],
+    [
+      "2022-04",
+      42543.52715728674
+    ],
+    [
+      "2022-05",
+      44133.32256329626
+    ],
+    [
+      "2022-06",
+      36685.513126035
+    ],
+    [
+      "2022-07",
+      41567.561200807904
+    ],
+    [
+      "2022-08",
+      43166.70364000379
+    ],
+    [
+      "2022-09",
+      38014.65079389854
+    ],
+    [
+      "2022-10",
+      43888.45167459349
+    ],
+    [
+      "2022-11",
+      43716.727405255246
+    ],
+    [
+      "2022-12",
+      41538.14568946051
+    ],
+    [
+      "2023-01",
+      43334.05236806762
+    ],
+    [
+      "2023-02",
+      46555.57212544334
+    ],
+    [
+      "2023-03",
+      45095.99731475608
+    ],
+    [
+      "2023-04",
+      44383.01315931808
+    ],
+    [
+      "2023-05",
+      47020.42252788734
+    ],
+    [
+      "2023-06",
+      50654.105571938606
+    ],
+    [
+      "2023-07",
+      53188.99086429911
+    ],
+    [
+      "2023-08",
+      51132.9104982467
+    ],
+    [
+      "2023-09",
+      47121.83777165827
+    ],
+    [
+      "2023-10",
+      42313.11350410953
+    ],
+    [
+      "2023-11",
+      47917.4381917117
+    ],
+    [
+      "2023-12",
+      54132.93937902493
+    ],
+    [
+      "2024-01",
+      51482.8767008604
+    ],
+    [
+      "2024-02",
+      62887.24251410255
+    ],
+    [
+      "2024-03",
+      64079.9892978504
+    ],
+    [
+      "2024-04",
+      58365.83913376649
+    ],
+    [
+      "2024-05",
+      64806.949291325494
+    ],
+    [
+      "2024-06",
+      59731.23411159146
+    ],
+    [
+      "2024-07",
+      61788.679016524606
+    ],
+    [
+      "2024-08",
+      62831.02074904978
+    ],
+    [
+      "2024-09",
+      65307.79816919806
+    ],
+    [
+      "2024-10",
+      67426.60801751558
+    ],
+    [
+      "2024-11",
+      76480.46727884933
+    ],
+    [
+      "2024-12",
+      68757.85683587509
+    ],
+    [
+      "2025-01",
+      71470.3331734142
+    ],
+    [
+      "2025-02",
+      65883.17452983088
+    ],
+    [
+      "2025-03",
+      55814.07964862855
+    ],
+    [
+      "2025-04",
+      58580.63759634092
+    ],
+    [
+      "2025-05",
+      67058.16276891851
+    ],
+    [
+      "2025-06",
+      76744.62748362783
+    ],
+    [
+      "2025-07",
+      78734.95975221267
+    ],
+    [
+      "2025-08",
+      80601.71740714237
+    ],
+    [
+      "2025-09",
+      99530.05681787583
+    ],
+    [
+      "2025-10",
+      106533.20436635011
+    ],
+    [
+      "2025-11",
+      90618.01096586323
+    ],
+    [
+      "2025-12",
+      90556.03169210361
+    ],
+    [
+      "2026-01",
+      102167.08560637347
+    ],
+    [
+      "2026-02",
+      113874.01347233533
+    ],
+    [
+      "2026-03",
+      107346.37851249993
+    ],
+    [
+      "2026-04",
+      134230.24690259644
+    ],
+    [
+      "2026-05",
+      141699.4230770401
+    ],
+    [
+      "2026-06",
+      146497.03506083068
+    ],
+    [
+      "2026-07",
+      118585.11268769966
+    ]
+  ],
+  "n_capacity_rejected": 25,
+  "n_dividend_credits": 209,
+  "n_fills": 3489,
+  "n_rejected": 27,
+  "n_sessions": 1255,
+  "name": "XS Momentum 12-1 (unscreened control)",
+  "p95_participation": 0.000489165733618991,
+  "return_base": 39000.0,
+  "runtime_s": 348.5,
+  "screen_rows": 0,
+  "screen_s": 0.0,
+  "screen_source": "not-used",
+  "sharpe": 0.7600217682963888,
+  "sharpe_ex_bil": 0.673273930506379,
+  "source_file_count": 95,
+  "source_sha256": "0e1f682e34fa96e32363c09c00a96c7699ac8aa44364081327c82a0579ab2262",
+  "start_date": "2021-07-16",
+  "step_s": 339.1,
+  "strategy": "xs_momentum_12_1",
+  "total_return": 2.040643915069222,
+  "turnover_on_initial_cash": 69.75756638833244,
+  "universe_policy": "all",
+  "vol_ann": 0.39922046579318904,
+  "window": "5y",
+  "window_end_target": "2026-07-16",
+  "worst_month": -0.19052892341159677,
+  "years": 4.999315537303217
+}

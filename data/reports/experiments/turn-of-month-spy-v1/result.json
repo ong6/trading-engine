@@ -1,0 +1,152 @@
+{
+  "automatic_action": "none",
+  "charter_id": "TURN-OF-MONTH-SPY-2026-09-07-v1",
+  "decision": "REJECT-V1",
+  "gates": {
+    "baseline_cumulative_excess_positive": false,
+    "baseline_mean_ci_above_zero": false,
+    "drawdown_within_five_points_every_fold": false,
+    "execution_data_and_accounting_clean": false,
+    "stress_cumulative_excess_positive": false
+  },
+  "generated_utc": "2026-09-07T18:52:33+00:00",
+  "paper_only": true,
+  "profiles": {
+    "baseline_v1": {
+      "candidate_execution": {
+        "all_folds_ok": true,
+        "n_capacity_rejected": 0,
+        "n_pending": 4,
+        "n_rejected": 0,
+        "state_rebuild_matches": true
+      },
+      "control_execution": {
+        "all_folds_ok": true,
+        "n_capacity_rejected": 0,
+        "n_pending": 1,
+        "n_rejected": 0,
+        "state_rebuild_matches": true
+      },
+      "cumulative_candidate_return": 0.12983118163790897,
+      "cumulative_control_return": 0.6129736078055759,
+      "cumulative_excess": -0.4831424261676669,
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Compatibility profile: liquidity-tier half-spread plus 5 bp adverse movement per side; no separately verified broker fees.",
+        "fixed_adverse_bps": 5.0,
+        "fractional_shares": true,
+        "id": "baseline_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 1.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "input_complete": true,
+      "mean_monthly_excess": -0.0027836120838765836,
+      "mean_monthly_excess_ci": {
+        "conf": 0.9,
+        "contains_zero": false,
+        "hi": -0.00015319308279049932,
+        "lo": -0.00537206145561012,
+        "mean_block": 4,
+        "n": 120,
+        "n_boot": 10000,
+        "point": -0.0027836120838765836,
+        "seed": 20260907,
+        "stat": "mean"
+      },
+      "n_missing_paired_months": 0,
+      "n_paired_months": 120,
+      "research_input": {
+        "assets": [
+          "SPY",
+          "BIL"
+        ],
+        "class": "fixed_etf_history",
+        "derived_spy_weight": 0.19112288837363364,
+        "end": "2026-09-04",
+        "frozen_spy_weight": 0.19112288837363364,
+        "missing_price_sessions": [],
+        "session_count": 3019,
+        "sha256": "f9ec620a0265513a8535d9535c8d0a29ebb002feb3c57193e4d11a985152fcc4",
+        "start": "2014-09-04",
+        "turn_session_count": 577
+      },
+      "terminal_pending_clean": false,
+      "worst_drawdown_difference": -0.09349450342223797
+    },
+    "cost_2x_v1": {
+      "candidate_execution": {
+        "all_folds_ok": true,
+        "n_capacity_rejected": 0,
+        "n_pending": 4,
+        "n_rejected": 0,
+        "state_rebuild_matches": true
+      },
+      "control_execution": {
+        "all_folds_ok": true,
+        "n_capacity_rejected": 0,
+        "n_pending": 1,
+        "n_rejected": 0,
+        "state_rebuild_matches": true
+      },
+      "cumulative_candidate_return": -0.2869708597678332,
+      "cumulative_control_return": 0.6102180335356486,
+      "cumulative_excess": -0.8971888933034818,
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Sensitivity profile: exactly twice baseline market friction; no separately verified broker fees.",
+        "fixed_adverse_bps": 10.0,
+        "fractional_shares": true,
+        "id": "cost_2x_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 2.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "input_complete": true,
+      "mean_monthly_excess": -0.006601239235009656,
+      "mean_monthly_excess_ci": {
+        "conf": 0.9,
+        "contains_zero": false,
+        "hi": -0.003939519374433129,
+        "lo": -0.009210847793720714,
+        "mean_block": 4,
+        "n": 120,
+        "n_boot": 10000,
+        "point": -0.006601239235009656,
+        "seed": 20260907,
+        "stat": "mean"
+      },
+      "n_missing_paired_months": 0,
+      "n_paired_months": 120,
+      "research_input": {
+        "assets": [
+          "SPY",
+          "BIL"
+        ],
+        "class": "fixed_etf_history",
+        "derived_spy_weight": 0.19112288837363364,
+        "end": "2026-09-04",
+        "frozen_spy_weight": 0.19112288837363364,
+        "missing_price_sessions": [],
+        "session_count": 3019,
+        "sha256": "f9ec620a0265513a8535d9535c8d0a29ebb002feb3c57193e4d11a985152fcc4",
+        "start": "2014-09-04",
+        "turn_session_count": 577
+      },
+      "terminal_pending_clean": false,
+      "worst_drawdown_difference": -0.12217430023604015
+    }
+  }
+}

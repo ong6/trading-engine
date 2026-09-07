@@ -1,0 +1,100 @@
+{
+  "automatic_action": "none",
+  "candidate": {
+    "config": {
+      "cadence": "monthly",
+      "description": "Monthly: rank every active, liquid, non-ETF name with 253+ bars and close >= $5 by total return from 252 to 21 sessions ago (12-1, skip-month); hold the top 50 equal-weight, no screen, no banding. THE CONTROL for the Minervini screen: ew_benchmark minus this book is the screen's marginal value.",
+      "expectation": "Market-beating in trending years with deep momentum crashes (2009-style, 2020-11, 2022). If the screen adds value beyond momentum, ew_benchmark beats this book on median excess AND drawdown across the 10 folds; the honest prior is that most of ew_benchmark's edge is plain momentum and the two are INDISTINGUISHABLE.",
+      "id": "xs_momentum_12_1",
+      "kill_criterion": "Control: retired only once its question is answered. Kill if ew_benchmark beats it in >= 70% of walk-forward folds with a 90% CI on median excess that excludes 0 AND a lower worst-fold drawdown (screen shown to add value), or if any fold is inert, or if live max drawdown exceeds 55%.",
+      "name": "XS Momentum 12-1 (unscreened control)",
+      "params": {
+        "lookback": 252,
+        "min_bars": 253,
+        "min_price": 5.0,
+        "n": 50,
+        "skip": 21
+      },
+      "strategy": "xs_momentum_12_1"
+    },
+    "config_sha256": "fb5a0f0e3472f14ed9b0a5d5bac05a081ec0284f200db91663b11d5d47ab9214",
+    "execution_profile": "baseline_v1",
+    "initial_cash": 39000.0,
+    "portfolio_id": "xs_momentum_12_1",
+    "strategy": "xs_momentum_12_1"
+  },
+  "control": {
+    "config": {
+      "cadence": "monthly",
+      "description": "Equal-weight the passes_template set (top 50 by RS), rebalanced monthly. The strategy-agnostic yardstick.",
+      "expectation": "Captures the screen's breadth; the bar every active strategy must clear.",
+      "id": "ew_benchmark",
+      "kill_criterion": "Reference benchmark \u2014 not killed.",
+      "name": "Equal-Weight Benchmark",
+      "params": {
+        "cap": 50
+      },
+      "strategy": "ew_benchmark"
+    },
+    "config_sha256": "692d49494298d2e840c98ab78cb8e4a4829516b6049d7d24253eb3e28fe1318e",
+    "execution_profile": "baseline_v1",
+    "initial_cash": 39000.0,
+    "portfolio_id": "ew_benchmark",
+    "strategy": "ew_benchmark"
+  },
+  "criterion": {
+    "early_kill": "candidate max drawdown reaches or exceeds 55%",
+    "maximum_candidate_drawdown": -0.55,
+    "minimum_paired_months": 48,
+    "success": "positive candidate return and cumulative excess, with the 90% stationary-bootstrap CI on mean paired monthly excess wholly above zero",
+    "window_months": 60
+  },
+  "frozen_runtime": {
+    "baseline_equity": null,
+    "baseline_ledger_sha256": null,
+    "baseline_note": "The first shared close after the frozen 2026-09-30 signal and next-open execution is the baseline. This excludes legacy EW performance and the initial transition; later monthly rebalances retain their realized costs.",
+    "baseline_state": null,
+    "baseline_state_sha256": null,
+    "execution_profile_sha256": "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db",
+    "fill_model": "v4",
+    "initial_transition_sha256": null,
+    "observation_start": "2026-10-01",
+    "runtime_contract_files": [
+      "engine/xs_forward_review.py",
+      "engine/actions.py",
+      "engine/collect.py",
+      "engine/lib/data_quality.py",
+      "engine/lib/util.py",
+      "engine/screen.py",
+      "engine/universe.py",
+      "farm/walkforward/monthly.py",
+      "sim/calendar.py",
+      "sim/execution.py",
+      "sim/fills.py",
+      "sim/league.py",
+      "sim/nyse.py",
+      "sim/portfolio.py",
+      "sim/schema.py",
+      "sim/settle.py",
+      "sim/strategies/base.py",
+      "sim/strategies/ew_benchmark.py",
+      "sim/strategies/xs_common.py",
+      "sim/strategies/xs_momentum_12_1.py"
+    ],
+    "runtime_contract_sha256": "f88712e1ffdeead2fc640fad667531ac57a684651f887fd4ae525403231dcb7e",
+    "signal_boundary": null,
+    "signal_date": "2026-09-30"
+  },
+  "observation": {
+    "eligible_after": "2031-10-01",
+    "mature": false,
+    "observation_start": "2026-10-01",
+    "paired_complete_months": 0,
+    "shared_sessions": 0,
+    "signal_boundary_frozen": false,
+    "signal_date": "2026-09-30"
+  },
+  "paper_only": true,
+  "schema_version": 2,
+  "status": "WAITING"
+}
