@@ -1,6 +1,8 @@
 # Sector ETF Rotation (`sector_momentum`) — historical windows
 
-_strategy `sector_momentum` · cadence monthly · generated 2026-07-29 14:04 UTC_
+_strategy `sector_momentum` · cadence monthly · generated 2026-09-07 11:18 UTC_
+
+**Evidence and assumptions.** `legacy_unclassified`; starting capital $0; execution profile `legacy_unstamped`; data snapshot `legacy_unstamped`.
 
 ## Disclosures — read before any number below
 
@@ -40,18 +42,20 @@ _strategy `sector_momentum` · cadence monthly · generated 2026-07-29 14:04 UTC
 8. **Windows end 2026-07-16**, the session before league inception. Nothing
    after that date is read, so the farm and the live forward record do not
    overlap.
-9. **Costs are the league's own**: t+1-open fills, `max(half_spread, 5) + 5` bp
-   per side, the 1%-of-median-dollar-volume liquidity guard, no same-bar fills,
-   no fabricated bars.
+9. **Costs are the league's own named execution profile**, serialized in every
+   result: t+1-open fills, explicit spread/adverse/impact/fee assumptions, a
+   profile-defined median-dollar-volume ceiling, no same-bar fills and no
+   fabricated bars. `baseline_v1` is the historical
+   `max(half_spread, 5) + 5` bp-per-side model.
 
 
-| Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| sector_momentum | 2026-01-16→2026-07-16 | +14.85% | +32.23% | +13.71% | +2.14 | +1.88 | −5.75% | −1.41% | +10.08% | +4.40% | 18 |
-| sector_momentum | 2025-07-16→2026-07-16 | +24.30% | +24.32% | +13.20% | +1.72 | +1.43 | −7.91% | −1.91% | −21.82% | +3.12% | 38 |
-| sector_momentum | 2023-07-17→2026-07-16 | +52.48% | +15.11% | +14.96% | +1.02 | +0.72 | −17.18% | −5.48% | −8.11% | −18.37% | 117 |
-| sector_momentum | 2021-07-16→2026-07-16 | +87.21% | +13.36% | +15.77% | +0.88 | +0.66 | −17.19% | −9.61% | +23.64% | +4.17% | 205 |
-| sector_momentum ⚑ | 2016-10-07→2026-07-16 | +224.17% | +12.79% | +17.66% | +0.77 | +0.65 | −31.83% | −10.76% | −918.07% | −305.30% | 403 |
+| Book | Evidence class | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Comparison | Fills |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| sector_momentum | `legacy_unclassified` | 2026-01-16→2026-07-16 | +14.85% | +32.23% | +13.71% | +2.14 | +1.88 | −5.75% | −1.41% | · | · | **uncontrolled absolute simulation** | 18 |
+| sector_momentum | `legacy_unclassified` | 2025-07-16→2026-07-16 | +24.30% | +24.32% | +13.20% | +1.72 | +1.43 | −7.91% | −1.91% | · | · | **uncontrolled absolute simulation** | 38 |
+| sector_momentum | `legacy_unclassified` | 2023-07-17→2026-07-16 | +52.48% | +15.11% | +14.96% | +1.02 | +0.72 | −17.18% | −5.48% | · | · | **uncontrolled absolute simulation** | 117 |
+| sector_momentum | `legacy_unclassified` | 2021-07-16→2026-07-16 | +87.21% | +13.36% | +15.77% | +0.88 | +0.66 | −17.19% | −9.61% | · | · | **uncontrolled absolute simulation** | 205 |
+| sector_momentum ⚑ | `legacy_unclassified` | 2016-10-07→2026-07-16 | +224.17% | +12.79% | +17.66% | +0.77 | +0.65 | −31.83% | −10.76% | · | · | **uncontrolled absolute simulation** | 403 |
 
 ## Equity-curve detail
 

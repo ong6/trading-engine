@@ -1,0 +1,1346 @@
+{
+  "cadence": "daily",
+  "comparison": {
+    "control_id": "sell_in_may_static_4902",
+    "evidence_role": "chartered_exploratory_historical_comparison",
+    "protocol": "sell-in-may-spy-2026-09-07-v1"
+  },
+  "config": {
+    "cadence": "daily",
+    "charter_id": "SELL-IN-MAY-SPY-2026-09-07-v1",
+    "description": "Hold SPY in November-April and BIL in May-October.",
+    "expectation": "Positive net seasonal-timing excess over static exposure.",
+    "id": "sell_in_may_spy",
+    "kill_criterion": "Any failed charter gate closes v1.",
+    "name": "Sell-in-May SPY",
+    "params": {
+      "assets": [
+        "SPY",
+        "BIL"
+      ],
+      "risk_on_months": [
+        11,
+        12,
+        1,
+        2,
+        3,
+        4
+      ],
+      "static_spy_weight": 0.4902285525008281
+    },
+    "profile_id": "baseline_v1",
+    "strategy": "sell_in_may_spy"
+  },
+  "config_id": "sell_in_may_spy",
+  "config_sha256": "0f39370f4170f8acbbe6191dc0536a9633a7556038facb09c41c2b2cda5b908c",
+  "data_floor": "2008-05-29",
+  "data_quality_class": "fixed_etf_history",
+  "data_snapshot": {
+    "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+    "tables": {
+      "corporate_actions": {
+        "exists": true,
+        "latest_fetch": "2026-09-04T22:33:26.507372",
+        "max_date": "2026-09-03",
+        "min_date": "1962-01-16",
+        "rows": 409752
+      },
+      "fundamentals": {
+        "exists": true,
+        "latest_fetch": "2026-09-05T00:33:22.478505",
+        "max_date": "2026-09-04",
+        "min_date": "2026-07-18",
+        "rows": 32944
+      },
+      "price_quarantine": {
+        "active_count": 0,
+        "active_tickers": []
+      },
+      "prices": {
+        "exists": true,
+        "latest_fetch": "2026-09-06T23:09:01.255401",
+        "max_date": "2026-09-04",
+        "min_date": "1962-01-02",
+        "rows": 19965368
+      },
+      "universe_snapshot": {
+        "exists": true,
+        "latest_fetch": null,
+        "max_date": "2026-09-04",
+        "min_date": "2026-07-16",
+        "rows": 470480
+      }
+    }
+  },
+  "description": "Hold SPY in November-April and BIL in May-October.",
+  "dropped_folds": [],
+  "execution_profile": {
+    "commission_max_fraction": null,
+    "commission_minimum": 0.0,
+    "commission_per_share": 0.0,
+    "description": "Compatibility profile: liquidity-tier half-spread plus 5 bp adverse movement per side; no separately verified broker fees.",
+    "fixed_adverse_bps": 5.0,
+    "fractional_shares": true,
+    "id": "baseline_v1",
+    "impact_coefficient_bps": 0.0,
+    "impact_exponent": 0.5,
+    "impact_reference_participation": 0.01,
+    "max_participation": 0.01,
+    "sell_fee_bps": 0.0,
+    "spread_multiplier": 1.0,
+    "spread_rule": "mdv_tiers_v1"
+  },
+  "expectation": "Positive net seasonal-timing excess over static exposure.",
+  "fill_model": "v4",
+  "folds": [
+    {
+      "dividend_cash": 1401.4447127411315,
+      "first_session": "2014-09-04",
+      "index": 1,
+      "initial_entry_missing_assets": [],
+      "last_session": "2017-09-01",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
+      "n_dividend_credits": 10,
+      "n_fills": 13,
+      "n_pending": 0,
+      "n_rejected": 0,
+      "n_validate_fills": 4,
+      "pending_orders": [],
+      "runtime_s": 41.4,
+      "sessions": 756,
+      "split_date": "2016-09-04",
+      "split_session": "2016-09-02",
+      "state_rebuild_matches": true,
+      "status": "ok",
+      "train": {
+        "bil_coverage": 1.0,
+        "cagr": 0.01943332868661507,
+        "end_date": "2016-09-02",
+        "equity_end": 40527.324635521516,
+        "equity_start": 39000.0,
+        "max_dd": -0.13061649955388221,
+        "n_sessions": 505,
+        "return_base": 39000.0,
+        "sharpe": 0.24182803778775847,
+        "sharpe_ex_bil": 0.24382841668349148,
+        "start_date": "2014-09-04",
+        "total_return": 0.03916217014157741,
+        "vol_ann": 0.10010102477739766,
+        "worst_month": -0.049492369579660966,
+        "years": 1.995893223819302
+      },
+      "train_start": "2014-09-04",
+      "train_start_clamped_to_data_floor": false,
+      "validate": {
+        "bil_coverage": 1.0,
+        "cagr": 0.12999261325034062,
+        "end_date": "2017-09-01",
+        "equity_end": 45776.42772117155,
+        "equity_start": 40527.324635521516,
+        "max_dd": -0.025867986280199262,
+        "n_sessions": 252,
+        "return_base": 40527.324635521516,
+        "sharpe": 2.2261692295358753,
+        "sharpe_ex_bil": 2.142137301037889,
+        "start_date": "2016-09-02",
+        "total_return": 0.12952009867064573,
+        "vol_ann": 0.05563074515275732,
+        "worst_month": 3.0223670675066927e-06,
+        "years": 0.9965776865160849
+      },
+      "validate_end": "2017-09-04",
+      "validate_monthly_equity": [
+        [
+          "2016-09",
+          40527.324635521516
+        ],
+        [
+          "2016-10",
+          40536.181429303564
+        ],
+        [
+          "2016-11",
+          41849.73583030313
+        ],
+        [
+          "2016-12",
+          42700.28809094448
+        ],
+        [
+          "2017-01",
+          43459.88033893479
+        ],
+        [
+          "2017-02",
+          45157.56947681145
+        ],
+        [
+          "2017-03",
+          45215.10940092876
+        ],
+        [
+          "2017-04",
+          45659.470170575616
+        ],
+        [
+          "2017-05",
+          45659.60817025458
+        ],
+        [
+          "2017-06",
+          45706.53613921906
+        ],
+        [
+          "2017-07",
+          45721.510871785475
+        ],
+        [
+          "2017-08",
+          45773.43112925068
+        ],
+        [
+          "2017-09",
+          45776.42772117155
+        ]
+      ],
+      "validate_universe": 2685
+    },
+    {
+      "dividend_cash": 1705.8836499357403,
+      "first_session": "2015-09-04",
+      "index": 2,
+      "initial_entry_missing_assets": [],
+      "last_session": "2018-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
+      "n_dividend_credits": 16,
+      "n_fills": 13,
+      "n_pending": 0,
+      "n_rejected": 0,
+      "n_validate_fills": 4,
+      "pending_orders": [],
+      "runtime_s": 41.0,
+      "sessions": 755,
+      "split_date": "2017-09-04",
+      "split_session": "2017-09-01",
+      "state_rebuild_matches": true,
+      "status": "ok",
+      "train": {
+        "bil_coverage": 1.0,
+        "cagr": 0.06201999350940235,
+        "end_date": "2017-09-01",
+        "equity_end": 43969.45920583405,
+        "equity_start": 39000.0,
+        "max_dd": -0.12762085018778113,
+        "n_sessions": 503,
+        "return_base": 39000.0,
+        "sharpe": 0.7204793586250505,
+        "sharpe_ex_bil": 0.6920251732484763,
+        "start_date": "2015-09-04",
+        "total_return": 0.12742203091882187,
+        "vol_ann": 0.08906607738951075,
+        "worst_month": -0.049492369579660966,
+        "years": 1.9931553730321698
+      },
+      "train_start": "2015-09-04",
+      "train_start_clamped_to_data_floor": false,
+      "validate": {
+        "bil_coverage": 1.0,
+        "cagr": 0.03495269088132957,
+        "end_date": "2018-09-04",
+        "equity_end": 45518.08263715787,
+        "equity_start": 43969.45920583405,
+        "max_dd": -0.10054486331626966,
+        "n_sessions": 253,
+        "return_base": 43969.45920583405,
+        "sharpe": 0.3666546566727388,
+        "sharpe_ex_bil": 0.24890863571005392,
+        "start_date": "2017-09-01",
+        "total_return": 0.035220433894223246,
+        "vol_ann": 0.11138825350289026,
+        "worst_month": -0.03618698688039401,
+        "years": 1.0075290896646132
+      },
+      "validate_end": "2018-09-04",
+      "validate_monthly_equity": [
+        [
+          "2017-09",
+          43998.229379221215
+        ],
+        [
+          "2017-10",
+          44028.918812923774
+        ],
+        [
+          "2017-11",
+          45110.46564652208
+        ],
+        [
+          "2017-12",
+          45655.34128851143
+        ],
+        [
+          "2018-01",
+          48215.47775048306
+        ],
+        [
+          "2018-02",
+          46470.7048896944
+        ],
+        [
+          "2018-03",
+          45210.5533298487
+        ],
+        [
+          "2018-04",
+          45442.05760094318
+        ],
+        [
+          "2018-05",
+          45312.2307163931
+        ],
+        [
+          "2018-06",
+          45379.52961554488
+        ],
+        [
+          "2018-07",
+          45442.37392394452
+        ],
+        [
+          "2018-08",
+          45514.12258145516
+        ],
+        [
+          "2018-09",
+          45518.08263715787
+        ]
+      ],
+      "validate_universe": 2827
+    },
+    {
+      "dividend_cash": 2240.1198604116917,
+      "first_session": "2016-09-06",
+      "index": 3,
+      "initial_entry_missing_assets": [],
+      "last_session": "2019-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
+      "n_dividend_credits": 22,
+      "n_fills": 13,
+      "n_pending": 0,
+      "n_rejected": 0,
+      "n_validate_fills": 4,
+      "pending_orders": [],
+      "runtime_s": 41.6,
+      "sessions": 754,
+      "split_date": "2018-09-04",
+      "split_session": "2018-09-04",
+      "state_rebuild_matches": true,
+      "status": "ok",
+      "train": {
+        "bil_coverage": 1.0,
+        "cagr": 0.0808195805189047,
+        "end_date": "2018-09-04",
+        "equity_end": 45534.43863224118,
+        "equity_start": 39000.0,
+        "max_dd": -0.10054486331626977,
+        "n_sessions": 503,
+        "return_base": 39000.0,
+        "sharpe": 0.9265817069345191,
+        "sharpe_ex_bil": 0.8282141882375477,
+        "start_date": "2016-09-06",
+        "total_return": 0.16754970851900475,
+        "vol_ann": 0.08814265065890396,
+        "worst_month": -0.03618698688039401,
+        "years": 1.9931553730321698
+      },
+      "train_start": "2016-09-04",
+      "train_start_clamped_to_data_floor": false,
+      "validate": {
+        "bil_coverage": 1.0,
+        "cagr": 0.1023492030062001,
+        "end_date": "2019-09-04",
+        "equity_end": 50191.504427812084,
+        "equity_start": 45534.43863224118,
+        "max_dd": -0.1609729613027615,
+        "n_sessions": 252,
+        "return_base": 45534.43863224118,
+        "sharpe": 0.8725018887716299,
+        "sharpe_ex_bil": 0.6929197564481574,
+        "start_date": "2018-09-04",
+        "total_return": 0.10227568265821141,
+        "vol_ann": 0.1203109032484146,
+        "worst_month": -0.08813711687089187,
+        "years": 0.999315537303217
+      },
+      "validate_end": "2019-09-04",
+      "validate_monthly_equity": [
+        [
+          "2018-09",
+          45593.84177787551
+        ],
+        [
+          "2018-10",
+          45671.0613805235
+        ],
+        [
+          "2018-11",
+          46269.919716799566
+        ],
+        [
+          "2018-12",
+          42191.82239511322
+        ],
+        [
+          "2019-01",
+          45550.65011092908
+        ],
+        [
+          "2019-02",
+          47019.403263427375
+        ],
+        [
+          "2019-03",
+          47864.23315030707
+        ],
+        [
+          "2019-04",
+          49801.30504829818
+        ],
+        [
+          "2019-05",
+          49922.92848524896
+        ],
+        [
+          "2019-06",
+          50013.17859866231
+        ],
+        [
+          "2019-07",
+          50102.886191127945
+        ],
+        [
+          "2019-08",
+          50187.156959807784
+        ],
+        [
+          "2019-09",
+          50191.504427812084
+        ]
+      ],
+      "validate_universe": 2933
+    },
+    {
+      "dividend_cash": 2069.9405522507273,
+      "first_session": "2017-09-05",
+      "index": 4,
+      "initial_entry_missing_assets": [],
+      "last_session": "2020-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
+      "n_dividend_credits": 20,
+      "n_fills": 13,
+      "n_pending": 0,
+      "n_rejected": 0,
+      "n_validate_fills": 4,
+      "pending_orders": [],
+      "runtime_s": 42.3,
+      "sessions": 757,
+      "split_date": "2019-09-04",
+      "split_session": "2019-09-04",
+      "state_rebuild_matches": true,
+      "status": "ok",
+      "train": {
+        "bil_coverage": 1.0,
+        "cagr": 0.06768206202784399,
+        "end_date": "2019-09-04",
+        "equity_end": 44445.898981800674,
+        "equity_start": 39000.0,
+        "max_dd": -0.1928039251079482,
+        "n_sessions": 503,
+        "return_base": 39000.0,
+        "sharpe": 0.6239436397641632,
+        "sharpe_ex_bil": 0.4723524558173754,
+        "start_date": "2017-09-05",
+        "total_return": 0.13963843543078647,
+        "vol_ann": 0.11594845270384446,
+        "worst_month": -0.0881371168708921,
+        "years": 1.995893223819302
+      },
+      "train_start": "2017-09-04",
+      "train_start_clamped_to_data_floor": false,
+      "validate": {
+        "bil_coverage": 1.0,
+        "cagr": -0.05538023930773117,
+        "end_date": "2020-09-04",
+        "equity_end": 41979.5630980422,
+        "equity_start": 44445.898981800674,
+        "max_dd": -0.33533582600565603,
+        "n_sessions": 255,
+        "return_base": 44445.898981800674,
+        "sharpe": -0.04466884098298545,
+        "sharpe_ex_bil": -0.07668668162709298,
+        "start_date": "2019-09-04",
+        "total_return": -0.0554907413340513,
+        "vol_ann": 0.2941123480542799,
+        "worst_month": -0.1245811655943796,
+        "years": 1.002053388090349
+      },
+      "validate_end": "2020-09-04",
+      "validate_monthly_equity": [
+        [
+          "2019-09",
+          44513.300996951846
+        ],
+        [
+          "2019-10",
+          44584.07444988148
+        ],
+        [
+          "2019-11",
+          45865.28676363918
+        ],
+        [
+          "2019-12",
+          47196.10938669945
+        ],
+        [
+          "2020-01",
+          47177.14304270882
+        ],
+        [
+          "2020-02",
+          43460.46549846723
+        ],
+        [
+          "2020-03",
+          38046.110049393865
+        ],
+        [
+          "2020-04",
+          42822.19528792878
+        ],
+        [
+          "2020-05",
+          41974.97619281167
+        ],
+        [
+          "2020-06",
+          41974.97619281167
+        ],
+        [
+          "2020-07",
+          41979.5630980422
+        ],
+        [
+          "2020-08",
+          41979.5630980422
+        ],
+        [
+          "2020-09",
+          41979.5630980422
+        ]
+      ],
+      "validate_universe": 3051
+    },
+    {
+      "dividend_cash": 1716.5088317007514,
+      "first_session": "2018-09-04",
+      "index": 5,
+      "initial_entry_missing_assets": [],
+      "last_session": "2021-09-03",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
+      "n_dividend_credits": 14,
+      "n_fills": 13,
+      "n_pending": 0,
+      "n_rejected": 0,
+      "n_validate_fills": 4,
+      "pending_orders": [],
+      "runtime_s": 42.4,
+      "sessions": 757,
+      "split_date": "2020-09-04",
+      "split_session": "2020-09-04",
+      "state_rebuild_matches": true,
+      "status": "ok",
+      "train": {
+        "bil_coverage": 1.0,
+        "cagr": 0.019830785578814902,
+        "end_date": "2020-09-04",
+        "equity_end": 40563.22879099281,
+        "equity_start": 39000.0,
+        "max_dd": -0.33533582600565603,
+        "n_sessions": 506,
+        "return_base": 39000.0,
+        "sharpe": 0.20034427947659103,
+        "sharpe_ex_bil": 0.13159113942712614,
+        "start_date": "2018-09-04",
+        "total_return": 0.04008278951263633,
+        "vol_ann": 0.22498270247356464,
+        "worst_month": -0.12458116559437937,
+        "years": 2.001368925393566
+      },
+      "train_start": "2018-09-04",
+      "train_start_clamped_to_data_floor": false,
+      "validate": {
+        "bil_coverage": 1.0,
+        "cagr": 0.2740148515747609,
+        "end_date": "2021-09-03",
+        "equity_end": 51635.34317527063,
+        "equity_start": 40563.22879099281,
+        "max_dd": -0.0404342799682762,
+        "n_sessions": 252,
+        "return_base": 40563.22879099281,
+        "sharpe": 2.4967328798654265,
+        "sharpe_ex_bil": 2.5066205022069643,
+        "start_date": "2020-09-04",
+        "total_return": 0.2729593948580449,
+        "vol_ann": 0.09904922067898614,
+        "worst_month": -0.010147545701384542,
+        "years": 0.9965776865160849
+      },
+      "validate_end": "2021-09-04",
+      "validate_monthly_equity": [
+        [
+          "2020-09",
+          40554.36449262583
+        ],
+        [
+          "2020-10",
+          40558.79664180932
+        ],
+        [
+          "2020-11",
+          44378.48479143115
+        ],
+        [
+          "2020-12",
+          46020.95296038739
+        ],
+        [
+          "2021-01",
+          45553.95323700059
+        ],
+        [
+          "2021-02",
+          46815.21832143267
+        ],
+        [
+          "2021-03",
+          48929.343507910875
+        ],
+        [
+          "2021-04",
+          51499.68236479553
+        ],
+        [
+          "2021-05",
+          51657.857212909534
+        ],
+        [
+          "2021-06",
+          51646.602341146885
+        ],
+        [
+          "2021-07",
+          51640.97275820876
+        ],
+        [
+          "2021-08",
+          51635.34317527063
+        ],
+        [
+          "2021-09",
+          51635.34317527063
+        ]
+      ],
+      "validate_universe": 3295
+    },
+    {
+      "dividend_cash": 1267.5917259129656,
+      "first_session": "2019-09-04",
+      "index": 6,
+      "initial_entry_missing_assets": [],
+      "last_session": "2022-09-02",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
+      "n_dividend_credits": 12,
+      "n_fills": 13,
+      "n_pending": 0,
+      "n_rejected": 0,
+      "n_validate_fills": 4,
+      "pending_orders": [],
+      "runtime_s": 42.5,
+      "sessions": 757,
+      "split_date": "2021-09-04",
+      "split_session": "2021-09-03",
+      "state_rebuild_matches": true,
+      "status": "ok",
+      "train": {
+        "bil_coverage": 1.0,
+        "cagr": 0.09591636033140882,
+        "end_date": "2021-09-03",
+        "equity_end": 46834.40156928819,
+        "equity_start": 39000.0,
+        "max_dd": -0.33533582600565615,
+        "n_sessions": 506,
+        "return_base": 39000.0,
+        "sharpe": 0.5261831409600856,
+        "sharpe_ex_bil": 0.5066301351746705,
+        "start_date": "2019-09-04",
+        "total_return": 0.20088209152020986,
+        "vol_ann": 0.21990379150004732,
+        "worst_month": -0.12458116559437937,
+        "years": 1.998631074606434
+      },
+      "train_start": "2019-09-04",
+      "train_start_clamped_to_data_floor": false,
+      "validate": {
+        "bil_coverage": 1.0,
+        "cagr": -0.09913151650868546,
+        "end_date": "2022-09-02",
+        "equity_end": 42206.713062205716,
+        "equity_start": 46834.40156928819,
+        "max_dd": -0.13600057080527406,
+        "n_sessions": 252,
+        "return_base": 46834.40156928819,
+        "sharpe": -0.6661935187990312,
+        "sharpe_ex_bil": -0.6928108382787913,
+        "start_date": "2021-09-03",
+        "total_return": -0.0988096004650798,
+        "vol_ann": 0.14170719052787287,
+        "worst_month": -0.08719008569700093,
+        "years": 0.9965776865160849
+      },
+      "validate_end": "2022-09-04",
+      "validate_monthly_equity": [
+        [
+          "2021-09",
+          46839.507725881296
+        ],
+        [
+          "2021-10",
+          46834.40156928819
+        ],
+        [
+          "2021-11",
+          46254.61475830914
+        ],
+        [
+          "2021-12",
+          48390.168878751065
+        ],
+        [
+          "2022-01",
+          45846.75518731097
+        ],
+        [
+          "2022-02",
+          44498.39003054023
+        ],
+        [
+          "2022-03",
+          46161.10411221089
+        ],
+        [
+          "2022-04",
+          42136.31348879904
+        ],
+        [
+          "2022-05",
+          42064.12029248533
+        ],
+        [
+          "2022-06",
+          42096.77847894001
+        ],
+        [
+          "2022-07",
+          42111.958984379446
+        ],
+        [
+          "2022-08",
+          42193.374255696304
+        ],
+        [
+          "2022-09",
+          42206.713062205716
+        ]
+      ],
+      "validate_universe": 3441
+    },
+    {
+      "dividend_cash": 2177.7610326532463,
+      "first_session": "2020-09-04",
+      "index": 7,
+      "initial_entry_missing_assets": [],
+      "last_session": "2023-09-01",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
+      "n_dividend_credits": 16,
+      "n_fills": 13,
+      "n_pending": 0,
+      "n_rejected": 0,
+      "n_validate_fills": 4,
+      "pending_orders": [],
+      "runtime_s": 42.5,
+      "sessions": 753,
+      "split_date": "2022-09-04",
+      "split_session": "2022-09-02",
+      "state_rebuild_matches": true,
+      "status": "ok",
+      "train": {
+        "bil_coverage": 1.0,
+        "cagr": 0.07083847647487085,
+        "end_date": "2022-09-02",
+        "equity_end": 44700.161534702114,
+        "equity_start": 39000.0,
+        "max_dd": -0.13600057080527406,
+        "n_sessions": 503,
+        "return_base": 39000.0,
+        "sharpe": 0.6198680259076744,
+        "sharpe_ex_bil": 0.6093646340263416,
+        "start_date": "2020-09-04",
+        "total_return": 0.14615798806928493,
+        "vol_ann": 0.12260807910964434,
+        "worst_month": -0.08719008569700093,
+        "years": 1.9931553730321698
+      },
+      "train_start": "2020-09-04",
+      "train_start_clamped_to_data_floor": false,
+      "validate": {
+        "bil_coverage": 1.0,
+        "cagr": 0.09173654398195152,
+        "end_date": "2023-09-01",
+        "equity_end": 48786.14352818763,
+        "equity_start": 44700.161534702114,
+        "max_dd": -0.0750667489788569,
+        "n_sessions": 251,
+        "return_base": 44700.161534702114,
+        "sharpe": 0.7334983068034955,
+        "sharpe_ex_bil": 0.41724436999939135,
+        "start_date": "2022-09-02",
+        "total_return": 0.09140866281463977,
+        "vol_ann": 0.131978795346619,
+        "worst_month": -0.05756721061031289,
+        "years": 0.9965776865160849
+      },
+      "validate_end": "2023-09-04",
+      "validate_monthly_equity": [
+        [
+          "2022-09",
+          44778.10234024889
+        ],
+        [
+          "2022-10",
+          44848.7369060753
+        ],
+        [
+          "2022-11",
+          46785.992999441136
+        ],
+        [
+          "2022-12",
+          44092.653886829685
+        ],
+        [
+          "2023-01",
+          46852.67156865752
+        ],
+        [
+          "2023-02",
+          45679.8082588166
+        ],
+        [
+          "2023-03",
+          47359.459049359495
+        ],
+        [
+          "2023-04",
+          48109.99714713377
+        ],
+        [
+          "2023-05",
+          48134.57513115834
+        ],
+        [
+          "2023-06",
+          48355.25998503057
+        ],
+        [
+          "2023-07",
+          48540.300197722696
+        ],
+        [
+          "2023-08",
+          48778.2803844655
+        ],
+        [
+          "2023-09",
+          48786.14352818763
+        ]
+      ],
+      "validate_universe": 3552
+    },
+    {
+      "dividend_cash": 2906.5441595265934,
+      "first_session": "2021-09-07",
+      "index": 8,
+      "initial_entry_missing_assets": [],
+      "last_session": "2024-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
+      "n_dividend_credits": 22,
+      "n_fills": 13,
+      "n_pending": 0,
+      "n_rejected": 0,
+      "n_validate_fills": 4,
+      "pending_orders": [],
+      "runtime_s": 42.9,
+      "sessions": 753,
+      "split_date": "2023-09-04",
+      "split_session": "2023-09-01",
+      "state_rebuild_matches": true,
+      "status": "ok",
+      "train": {
+        "bil_coverage": 1.0,
+        "cagr": -0.008825969309460335,
+        "end_date": "2023-09-01",
+        "equity_end": 38320.65756634068,
+        "equity_start": 39000.0,
+        "max_dd": -0.1739646160248124,
+        "n_sessions": 501,
+        "return_base": 39000.0,
+        "sharpe": 0.0036974935378684018,
+        "sharpe_ex_bil": -0.16156791579284754,
+        "start_date": "2021-09-07",
+        "total_return": -0.0174190367604955,
+        "vol_ann": 0.13707394746013632,
+        "worst_month": -0.08719008569700093,
+        "years": 1.9822039698836413
+      },
+      "train_start": "2021-09-04",
+      "train_start_clamped_to_data_floor": false,
+      "validate": {
+        "bil_coverage": 1.0,
+        "cagr": 0.2285889355747135,
+        "end_date": "2024-09-04",
+        "equity_end": 47179.950929154154,
+        "equity_start": 38320.65756634068,
+        "max_dd": -0.053183069044839826,
+        "n_sessions": 253,
+        "return_base": 38320.65756634068,
+        "sharpe": 2.634801182544676,
+        "sharpe_ex_bil": 1.9906123476817874,
+        "start_date": "2023-09-01",
+        "total_return": 0.23118844835781527,
+        "vol_ann": 0.0801809020214406,
+        "worst_month": -0.04005157147759242,
+        "years": 1.0102669404517455
+      },
+      "validate_end": "2024-09-04",
+      "validate_monthly_equity": [
+        [
+          "2023-09",
+          38464.76616604497
+        ],
+        [
+          "2023-10",
+          38626.99198267481
+        ],
+        [
+          "2023-11",
+          41984.34524097405
+        ],
+        [
+          "2023-12",
+          43899.21442584261
+        ],
+        [
+          "2024-01",
+          44595.58122081784
+        ],
+        [
+          "2024-02",
+          46913.7335991354
+        ],
+        [
+          "2024-03",
+          48439.39364819317
+        ],
+        [
+          "2024-04",
+          46499.319811161324
+        ],
+        [
+          "2024-05",
+          46549.25342899285
+        ],
+        [
+          "2024-06",
+          46734.156021763214
+        ],
+        [
+          "2024-07",
+          46942.8706773645
+        ],
+        [
+          "2024-08",
+          47156.647305204824
+        ],
+        [
+          "2024-09",
+          47179.950929154154
+        ]
+      ],
+      "validate_universe": 3716
+    },
+    {
+      "dividend_cash": 4265.805063808704,
+      "first_session": "2022-09-06",
+      "index": 9,
+      "initial_entry_missing_assets": [],
+      "last_session": "2025-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
+      "n_dividend_credits": 24,
+      "n_fills": 13,
+      "n_pending": 0,
+      "n_rejected": 0,
+      "n_validate_fills": 4,
+      "pending_orders": [],
+      "runtime_s": 42.4,
+      "sessions": 752,
+      "split_date": "2024-09-04",
+      "split_session": "2024-09-04",
+      "state_rebuild_matches": true,
+      "status": "ok",
+      "train": {
+        "bil_coverage": 1.0,
+        "cagr": 0.1590343027544081,
+        "end_date": "2024-09-04",
+        "equity_end": 52359.31509378369,
+        "equity_start": 39000.0,
+        "max_dd": -0.07506674897885679,
+        "n_sessions": 502,
+        "return_base": 39000.0,
+        "sharpe": 1.4119582054567983,
+        "sharpe_ex_bil": 0.9804702734963907,
+        "start_date": "2022-09-06",
+        "total_return": 0.3425465408662485,
+        "vol_ann": 0.1091579463650044,
+        "worst_month": -0.057567210610313,
+        "years": 1.995893223819302
+      },
+      "train_start": "2022-09-04",
+      "train_start_clamped_to_data_floor": false,
+      "validate": {
+        "bil_coverage": 1.0,
+        "cagr": 0.005446519209578282,
+        "end_date": "2025-09-04",
+        "equity_end": 52644.29538666459,
+        "equity_start": 52359.31509378369,
+        "max_dd": -0.18662340144710154,
+        "n_sessions": 251,
+        "return_base": 52359.31509378369,
+        "sharpe": 0.1178777157771393,
+        "sharpe_ex_bil": -0.13018623108342345,
+        "start_date": "2024-09-04",
+        "total_return": 0.005442781143535802,
+        "vol_ann": 0.1768996823174222,
+        "worst_month": -0.05551321057912473,
+        "years": 0.999315537303217
+      },
+      "validate_end": "2025-09-04",
+      "validate_monthly_equity": [
+        [
+          "2024-09",
+          52550.45965151557
+        ],
+        [
+          "2024-10",
+          52753.415470856846
+        ],
+        [
+          "2024-11",
+          55550.40052460859
+        ],
+        [
+          "2024-12",
+          54213.247760393686
+        ],
+        [
+          "2025-01",
+          55664.351867083264
+        ],
+        [
+          "2025-02",
+          54960.00221588055
+        ],
+        [
+          "2025-03",
+          51908.99603944121
+        ],
+        [
+          "2025-04",
+          51461.86056135853
+        ],
+        [
+          "2025-05",
+          52070.313784091515
+        ],
+        [
+          "2025-06",
+          52242.00601927068
+        ],
+        [
+          "2025-07",
+          52424.91480214985
+        ],
+        [
+          "2025-08",
+          52615.117568657384
+        ],
+        [
+          "2025-09",
+          52644.29538666459
+        ]
+      ],
+      "validate_universe": 3908
+    },
+    {
+      "dividend_cash": 4014.5161076703057,
+      "first_session": "2023-09-05",
+      "index": 10,
+      "initial_entry_missing_assets": [],
+      "last_session": "2026-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
+      "n_dividend_credits": 24,
+      "n_fills": 13,
+      "n_pending": 0,
+      "n_rejected": 0,
+      "n_validate_fills": 4,
+      "pending_orders": [],
+      "runtime_s": 42.6,
+      "sessions": 754,
+      "split_date": "2025-09-04",
+      "split_session": "2025-09-04",
+      "state_rebuild_matches": true,
+      "status": "ok",
+      "train": {
+        "bil_coverage": 1.0,
+        "cagr": 0.1120180441770966,
+        "end_date": "2025-09-04",
+        "equity_end": 48219.7719549037,
+        "equity_start": 39000.0,
+        "max_dd": -0.18662340144710177,
+        "n_sessions": 502,
+        "return_base": 39000.0,
+        "sharpe": 0.8453968433688104,
+        "sharpe_ex_bil": 0.495063751738547,
+        "start_date": "2023-09-05",
+        "total_return": 0.23640440910009475,
+        "vol_ann": 0.13729031955205767,
+        "worst_month": -0.05551321057912484,
+        "years": 1.998631074606434
+      },
+      "train_start": "2023-09-04",
+      "train_start_clamped_to_data_floor": false,
+      "validate": {
+        "bil_coverage": 1.0,
+        "cagr": 0.07289437716944747,
+        "end_date": "2026-09-04",
+        "equity_end": 51732.23077612863,
+        "equity_start": 48219.7719549037,
+        "max_dd": -0.08849394235470687,
+        "n_sessions": 253,
+        "return_base": 48219.7719549037,
+        "sharpe": 0.7977842571857627,
+        "sharpe_ex_bil": 0.40622686963006044,
+        "start_date": "2025-09-04",
+        "total_return": 0.07284270909679669,
+        "vol_ann": 0.09361076453745304,
+        "worst_month": -0.04920610517905377,
+        "years": 0.999315537303217
+      },
+      "validate_end": "2026-09-04",
+      "validate_monthly_equity": [
+        [
+          "2025-09",
+          48348.251880199205
+        ],
+        [
+          "2025-10",
+          48513.221202129556
+        ],
+        [
+          "2025-11",
+          48263.44946182718
+        ],
+        [
+          "2025-12",
+          48300.38335276582
+        ],
+        [
+          "2026-01",
+          49010.149471000615
+        ],
+        [
+          "2026-02",
+          48587.82184117065
+        ],
+        [
+          "2026-03",
+          46197.004369232876
+        ],
+        [
+          "2026-04",
+          51022.003570677014
+        ],
+        [
+          "2026-05",
+          51242.28074463275
+        ],
+        [
+          "2026-06",
+          51380.91301202904
+        ],
+        [
+          "2026-07",
+          51552.397341104486
+        ],
+        [
+          "2026-08",
+          51693.2609188744
+        ],
+        [
+          "2026-09",
+          51732.23077612863
+        ]
+      ],
+      "validate_universe": 12105
+    }
+  ],
+  "generated_utc": "2026-09-07T19:14:57+00:00",
+  "git_dirty": true,
+  "git_sha": "ffbbd0cfab82235f8cfc67d5d67fd0f1b04411b3",
+  "initial_cash": 39000.0,
+  "kill_criterion": "Any failed charter gate closes v1.",
+  "name": "Sell-in-May SPY",
+  "protocol": {
+    "anchor": "2026-09-04",
+    "folds": [
+      {
+        "index": 1,
+        "split_date": "2016-09-04",
+        "train_start": "2014-09-04",
+        "validate_end": "2017-09-04"
+      },
+      {
+        "index": 2,
+        "split_date": "2017-09-04",
+        "train_start": "2015-09-04",
+        "validate_end": "2018-09-04"
+      },
+      {
+        "index": 3,
+        "split_date": "2018-09-04",
+        "train_start": "2016-09-04",
+        "validate_end": "2019-09-04"
+      },
+      {
+        "index": 4,
+        "split_date": "2019-09-04",
+        "train_start": "2017-09-04",
+        "validate_end": "2020-09-04"
+      },
+      {
+        "index": 5,
+        "split_date": "2020-09-04",
+        "train_start": "2018-09-04",
+        "validate_end": "2021-09-04"
+      },
+      {
+        "index": 6,
+        "split_date": "2021-09-04",
+        "train_start": "2019-09-04",
+        "validate_end": "2022-09-04"
+      },
+      {
+        "index": 7,
+        "split_date": "2022-09-04",
+        "train_start": "2020-09-04",
+        "validate_end": "2023-09-04"
+      },
+      {
+        "index": 8,
+        "split_date": "2023-09-04",
+        "train_start": "2021-09-04",
+        "validate_end": "2024-09-04"
+      },
+      {
+        "index": 9,
+        "split_date": "2024-09-04",
+        "train_start": "2022-09-04",
+        "validate_end": "2025-09-04"
+      },
+      {
+        "index": 10,
+        "split_date": "2025-09-04",
+        "train_start": "2023-09-04",
+        "validate_end": "2026-09-04"
+      }
+    ],
+    "n_folds": 10,
+    "step_months": 12,
+    "train_months": 24,
+    "validate_months": 12
+  },
+  "registered": "SELL-IN-MAY-SPY-2026-09-07-v1",
+  "research_input": {
+    "assets": [
+      "SPY",
+      "BIL"
+    ],
+    "class": "fixed_etf_history",
+    "derived_spy_weight": 0.4902285525008281,
+    "end": "2026-09-04",
+    "frozen_spy_weight": 0.4902285525008281,
+    "missing_price_sessions": [],
+    "session_count": 3019,
+    "sha256": "f9ec620a0265513a8535d9535c8d0a29ebb002feb3c57193e4d11a985152fcc4",
+    "start": "2014-09-04",
+    "winter_session_count": 1480
+  },
+  "runtime_s": 437.3,
+  "scratch_s": 14.4,
+  "screen_rows": 0,
+  "screen_s": 0.0,
+  "screen_source": "not-used",
+  "sessions": 3019,
+  "source_file_count": 108,
+  "source_sha256": "7fa1063804727c2a9fd51b2e6e9bb459b357037dead52e7124dbc5082cd6ba97",
+  "span_end": "2026-09-04",
+  "span_start": "2014-09-04",
+  "strategy": "sell_in_may_spy",
+  "summary": {
+    "best_validate_total": 0.2729593948580449,
+    "latest_validate_total": 0.07284270909679669,
+    "mean_decay_cagr": 0.010669701408200028,
+    "mean_train_cagr": 0.0678766964749905,
+    "mean_validate_cagr": 0.07854639788319054,
+    "mean_validate_sharpe": 0.9535157757374728,
+    "mean_validate_total": 0.07865578696947817,
+    "median_validate_total": 0.08212568595571823,
+    "n_folds_inert": 0,
+    "n_folds_ok": 10,
+    "total_validate_fills": 40,
+    "validate_win_rate": 0.8,
+    "worst_validate_max_dd": -0.33533582600565603,
+    "worst_validate_total": -0.0988096004650798
+  },
+  "universe_policy": "all"
+}

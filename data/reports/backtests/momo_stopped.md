@@ -1,6 +1,8 @@
 # Momentum Top 10 (stop-managed) (`momo_stopped`) — historical windows
 
-_strategy `momo_stopped` · cadence daily · generated 2026-07-29 14:04 UTC_
+_strategy `momo_stopped` · cadence daily · generated 2026-09-07 11:18 UTC_
+
+**Evidence and assumptions.** `legacy_unclassified`; starting capital $0; execution profile `legacy_unstamped`; data snapshot `legacy_unstamped`.
 
 ## Disclosures — read before any number below
 
@@ -40,18 +42,20 @@ _strategy `momo_stopped` · cadence daily · generated 2026-07-29 14:04 UTC_
 8. **Windows end 2026-07-16**, the session before league inception. Nothing
    after that date is read, so the farm and the live forward record do not
    overlap.
-9. **Costs are the league's own**: t+1-open fills, `max(half_spread, 5) + 5` bp
-   per side, the 1%-of-median-dollar-volume liquidity guard, no same-bar fills,
-   no fabricated bars.
+9. **Costs are the league's own named execution profile**, serialized in every
+   result: t+1-open fills, explicit spread/adverse/impact/fee assumptions, a
+   profile-defined median-dollar-volume ceiling, no same-bar fills and no
+   fabricated bars. `baseline_v1` is the historical
+   `max(half_spread, 5) + 5` bp-per-side model.
 
 
-| Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| momo_stopped | 2026-01-16→2026-07-16 | −5.99% | −11.72% | +84.17% | +0.28 | +0.24 | −34.12% | −27.94% | −10.76% | −16.43% | 380 |
-| momo_stopped | 2025-07-16→2026-07-16 | +7.77% | +7.77% | +68.57% | +0.46 | +0.41 | −33.62% | −27.94% | −38.36% | −13.41% | 748 |
-| momo_stopped | 2023-07-17→2026-07-16 | +1.03% | +0.34% | +55.43% | +0.29 | +0.21 | −48.02% | −27.94% | −59.57% | −69.82% | 2286 |
-| momo_stopped | 2021-07-16→2026-07-16 | +13.54% | +2.57% | +49.27% | +0.30 | +0.23 | −51.77% | −27.94% | −50.03% | −69.49% | 3819 |
-| momo_stopped | 2011-07-18→2026-07-16 | +673.03% | +14.61% | +40.84% | +0.54 | +0.50 | −51.86% | −28.29% | −469.20% | +143.56% | 11391 |
+| Book | Evidence class | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Comparison | Fills |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| momo_stopped | `legacy_unclassified` | 2026-01-16→2026-07-16 | −5.99% | −11.72% | +84.17% | +0.28 | +0.24 | −34.12% | −27.94% | · | · | **uncontrolled absolute simulation** | 380 |
+| momo_stopped | `legacy_unclassified` | 2025-07-16→2026-07-16 | +7.77% | +7.77% | +68.57% | +0.46 | +0.41 | −33.62% | −27.94% | · | · | **uncontrolled absolute simulation** | 748 |
+| momo_stopped | `legacy_unclassified` | 2023-07-17→2026-07-16 | +1.03% | +0.34% | +55.43% | +0.29 | +0.21 | −48.02% | −27.94% | · | · | **uncontrolled absolute simulation** | 2286 |
+| momo_stopped | `legacy_unclassified` | 2021-07-16→2026-07-16 | +13.54% | +2.57% | +49.27% | +0.30 | +0.23 | −51.77% | −27.94% | · | · | **uncontrolled absolute simulation** | 3819 |
+| momo_stopped | `legacy_unclassified` | 2011-07-18→2026-07-16 | +673.03% | +14.61% | +40.84% | +0.54 | +0.50 | −51.86% | −28.29% | · | · | **uncontrolled absolute simulation** | 11391 |
 
 ## Equity-curve detail
 

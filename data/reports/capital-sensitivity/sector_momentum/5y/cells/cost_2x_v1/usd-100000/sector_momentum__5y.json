@@ -1,0 +1,380 @@
+{
+  "bil_coverage": 1.0,
+  "cadence": "monthly",
+  "cagr": 0.12665585723327344,
+  "capacity_rejected_notional": 0.0,
+  "clamped_to_data_floor": false,
+  "config": {
+    "cadence": "monthly",
+    "description": "Monthly: score the 11 SPDR sector ETFs by their mean 3/6/12-month total return, hold the top 3 equal-weight; a slot whose ETF has a non-positive 12-month return sits in cash.",
+    "expectation": "Market-like return with lower drawdown \u2014 it wins by losing less in downturns, not by out-running the index.",
+    "id": "sector_momentum",
+    "kill_criterion": "Trails spy_benchmark by >10% over 12 months without delivering a lower max drawdown.",
+    "name": "Sector ETF Rotation",
+    "params": {
+      "lookbacks": [
+        63,
+        126,
+        252
+      ],
+      "n": 3,
+      "sectors": [
+        "XLK",
+        "XLF",
+        "XLE",
+        "XLV",
+        "XLI",
+        "XLY",
+        "XLP",
+        "XLU",
+        "XLB",
+        "XLRE",
+        "XLC"
+      ]
+    },
+    "strategy": "sector_momentum"
+  },
+  "config_id": "sector_momentum",
+  "config_sha256": "c72300f5e438958572985c2257f7bcdf800dfe2cfe89c73f55c471850cc6e67a",
+  "corporate_actions_dividend_rows": 400260,
+  "data_quality_class": "fixed_etf_history",
+  "data_snapshot": {
+    "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+    "tables": {
+      "corporate_actions": {
+        "exists": true,
+        "latest_fetch": "2026-09-04T22:33:26.507372",
+        "max_date": "2026-09-03",
+        "min_date": "1962-01-16",
+        "rows": 409752
+      },
+      "fundamentals": {
+        "exists": true,
+        "latest_fetch": "2026-09-05T00:33:22.478505",
+        "max_date": "2026-09-04",
+        "min_date": "2026-07-18",
+        "rows": 32944
+      },
+      "price_quarantine": {
+        "active_count": 0,
+        "active_tickers": []
+      },
+      "prices": {
+        "exists": true,
+        "latest_fetch": "2026-09-06T23:09:01.255401",
+        "max_date": "2026-09-04",
+        "min_date": "1962-01-02",
+        "rows": 19965368
+      },
+      "universe_snapshot": {
+        "exists": true,
+        "latest_fetch": null,
+        "max_date": "2026-09-04",
+        "min_date": "2026-07-16",
+        "rows": 470480
+      }
+    }
+  },
+  "dividend_cash": 11008.663649923008,
+  "end_date": "2026-07-16",
+  "equity_end": 181518.52130170984,
+  "equity_start": 100000.0,
+  "execution_profile": {
+    "commission_max_fraction": null,
+    "commission_minimum": 0.0,
+    "commission_per_share": 0.0,
+    "description": "Sensitivity profile: exactly twice baseline market friction; no separately verified broker fees.",
+    "fixed_adverse_bps": 10.0,
+    "fractional_shares": true,
+    "id": "cost_2x_v1",
+    "impact_coefficient_bps": 0.0,
+    "impact_exponent": 0.5,
+    "impact_reference_participation": 0.01,
+    "max_participation": 0.01,
+    "sell_fee_bps": 0.0,
+    "spread_multiplier": 2.0,
+    "spread_rule": "mdv_tiers_v1"
+  },
+  "fill_model": "v4",
+  "git_dirty": true,
+  "git_sha": "ffbbd0cfab82235f8cfc67d5d67fd0f1b04411b3",
+  "gross_traded_notional": 3987167.706201222,
+  "initial_cash": 100000.0,
+  "max_dd": -0.1728692990692633,
+  "max_participation": 0.0002229268300926461,
+  "modeled_price_cost_dollars": 7974.335412402443,
+  "modeled_total_cost_dollars": 7974.335412402443,
+  "monthly_equity": [
+    [
+      "2021-07",
+      100000.0
+    ],
+    [
+      "2021-08",
+      103459.3091552362
+    ],
+    [
+      "2021-09",
+      98539.13173288922
+    ],
+    [
+      "2021-10",
+      106527.057039077
+    ],
+    [
+      "2021-11",
+      104245.33725262195
+    ],
+    [
+      "2021-12",
+      106495.96249202127
+    ],
+    [
+      "2022-01",
+      108063.51312653469
+    ],
+    [
+      "2022-02",
+      109284.94486512347
+    ],
+    [
+      "2022-03",
+      116637.69912910834
+    ],
+    [
+      "2022-04",
+      112665.49913318288
+    ],
+    [
+      "2022-05",
+      118471.81315622423
+    ],
+    [
+      "2022-06",
+      108538.24532840986
+    ],
+    [
+      "2022-07",
+      114961.83142238298
+    ],
+    [
+      "2022-08",
+      113958.33556212408
+    ],
+    [
+      "2022-09",
+      102931.25315985859
+    ],
+    [
+      "2022-10",
+      112313.42237965265
+    ],
+    [
+      "2022-11",
+      116778.45565910301
+    ],
+    [
+      "2022-12",
+      113769.00065463406
+    ],
+    [
+      "2023-01",
+      114737.63410457238
+    ],
+    [
+      "2023-02",
+      110697.45686306685
+    ],
+    [
+      "2023-03",
+      110890.46674358552
+    ],
+    [
+      "2023-04",
+      111743.05507181308
+    ],
+    [
+      "2023-05",
+      113584.23121558875
+    ],
+    [
+      "2023-06",
+      117575.73340937373
+    ],
+    [
+      "2023-07",
+      121248.39863546319
+    ],
+    [
+      "2023-08",
+      119306.48445163315
+    ],
+    [
+      "2023-09",
+      113367.33381837279
+    ],
+    [
+      "2023-10",
+      110416.50811745605
+    ],
+    [
+      "2023-11",
+      118186.05980074784
+    ],
+    [
+      "2023-12",
+      124057.83634420624
+    ],
+    [
+      "2024-01",
+      125186.50770296832
+    ],
+    [
+      "2024-02",
+      130873.87876327388
+    ],
+    [
+      "2024-03",
+      134345.21927020696
+    ],
+    [
+      "2024-04",
+      127637.88252594492
+    ],
+    [
+      "2024-05",
+      132300.72413705147
+    ],
+    [
+      "2024-06",
+      130899.42875613505
+    ],
+    [
+      "2024-07",
+      132516.70266089198
+    ],
+    [
+      "2024-08",
+      135627.56838643824
+    ],
+    [
+      "2024-09",
+      139061.88933814122
+    ],
+    [
+      "2024-10",
+      138219.39208587192
+    ],
+    [
+      "2024-11",
+      147907.92094524603
+    ],
+    [
+      "2024-12",
+      144545.5097728089
+    ],
+    [
+      "2025-01",
+      152113.41410034758
+    ],
+    [
+      "2025-02",
+      149088.0750058686
+    ],
+    [
+      "2025-03",
+      144687.13269773682
+    ],
+    [
+      "2025-04",
+      136704.15833758318
+    ],
+    [
+      "2025-05",
+      142166.83920559226
+    ],
+    [
+      "2025-06",
+      147257.43023923092
+    ],
+    [
+      "2025-07",
+      148142.33908959752
+    ],
+    [
+      "2025-08",
+      149634.60524706414
+    ],
+    [
+      "2025-09",
+      158401.53909986597
+    ],
+    [
+      "2025-10",
+      160395.26802919208
+    ],
+    [
+      "2025-11",
+      157328.96938294065
+    ],
+    [
+      "2025-12",
+      157967.28252982898
+    ],
+    [
+      "2026-01",
+      158968.49008612309
+    ],
+    [
+      "2026-02",
+      172262.56855523778
+    ],
+    [
+      "2026-03",
+      169837.35648419423
+    ],
+    [
+      "2026-04",
+      174283.54717843723
+    ],
+    [
+      "2026-05",
+      181612.2483863796
+    ],
+    [
+      "2026-06",
+      182881.4934198489
+    ],
+    [
+      "2026-07",
+      181518.52130170984
+    ]
+  ],
+  "n_capacity_rejected": 0,
+  "n_dividend_credits": 58,
+  "n_fills": 212,
+  "n_rejected": 1,
+  "n_sessions": 1255,
+  "name": "Sector ETF Rotation",
+  "p95_participation": 0.00011289768724412318,
+  "return_base": 100000.0,
+  "runtime_s": 101.4,
+  "screen_rows": 0,
+  "screen_s": 0.0,
+  "screen_source": "not-used",
+  "sharpe": 0.8383464713027232,
+  "sharpe_ex_bil": 0.6189780306071928,
+  "source_file_count": 95,
+  "source_sha256": "0e1f682e34fa96e32363c09c00a96c7699ac8aa44364081327c82a0579ab2262",
+  "start_date": "2021-07-16",
+  "step_s": 92.4,
+  "strategy": "sector_momentum",
+  "total_return": 0.8151852130170985,
+  "turnover_on_initial_cash": 39.87167706201222,
+  "universe_policy": "all",
+  "vol_ann": 0.15784150643554481,
+  "window": "5y",
+  "window_end_target": "2026-07-16",
+  "worst_month": -0.09676415812737194,
+  "years": 4.999315537303217
+}

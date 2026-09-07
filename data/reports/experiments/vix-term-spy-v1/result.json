@@ -1,0 +1,142 @@
+{
+  "automatic_action": "none",
+  "charter_id": "VIX-TERM-SPY-2026-09-07-v1",
+  "decision": "REJECT-V1",
+  "gates": {
+    "baseline_cumulative_excess_positive": false,
+    "baseline_mean_ci_above_zero": false,
+    "drawdown_within_five_points_every_fold": false,
+    "execution_data_and_accounting_clean": false,
+    "stress_cumulative_excess_positive": false
+  },
+  "generated_utc": "2026-09-07T18:11:48+00:00",
+  "paper_only": true,
+  "profiles": {
+    "baseline_v1": {
+      "candidate_execution": {
+        "all_folds_ok": true,
+        "n_capacity_rejected": 0,
+        "n_pending": 2,
+        "n_rejected": 0,
+        "state_rebuild_matches": true
+      },
+      "control_execution": {
+        "all_folds_ok": true,
+        "n_capacity_rejected": 0,
+        "n_pending": 2,
+        "n_rejected": 0,
+        "state_rebuild_matches": true
+      },
+      "cumulative_candidate_return": 1.1773946786513645,
+      "cumulative_control_return": 2.611650657484669,
+      "cumulative_excess": -1.4342559788333045,
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Compatibility profile: liquidity-tier half-spread plus 5 bp adverse movement per side; no separately verified broker fees.",
+        "fixed_adverse_bps": 5.0,
+        "fractional_shares": true,
+        "id": "baseline_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 1.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "input_complete": true,
+      "mean_monthly_excess": -0.004220639937955477,
+      "mean_monthly_excess_ci": {
+        "conf": 0.9,
+        "contains_zero": false,
+        "hi": -0.0017350241475546592,
+        "lo": -0.006688487034489719,
+        "mean_block": 4,
+        "n": 120,
+        "n_boot": 10000,
+        "point": -0.004220639937955477,
+        "seed": 20260907,
+        "stat": "mean"
+      },
+      "n_missing_paired_months": 0,
+      "n_paired_months": 120,
+      "research_input": {
+        "class": "reconstructed_public_eod_macro_history",
+        "end": "2026-09-03",
+        "missing_macro_sessions": [],
+        "missing_price_sessions": [],
+        "pair_count": 3019,
+        "reconstruction": "fetch_as_of equals obs_date in scratch only",
+        "session_count": 3019,
+        "sha256": "f7a23f697acda36a8107b95516953ea40896219715b7abbc6b38b2be9af27c15",
+        "start": "2014-09-03"
+      },
+      "worst_drawdown_difference": -0.08467001286665943
+    },
+    "cost_2x_v1": {
+      "candidate_execution": {
+        "all_folds_ok": true,
+        "n_capacity_rejected": 0,
+        "n_pending": 2,
+        "n_rejected": 0,
+        "state_rebuild_matches": true
+      },
+      "control_execution": {
+        "all_folds_ok": true,
+        "n_capacity_rejected": 0,
+        "n_pending": 2,
+        "n_rejected": 0,
+        "state_rebuild_matches": true
+      },
+      "cumulative_candidate_return": 0.47050016000925665,
+      "cumulative_control_return": 2.60756167889222,
+      "cumulative_excess": -2.1370615188829634,
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Sensitivity profile: exactly twice baseline market friction; no separately verified broker fees.",
+        "fixed_adverse_bps": 10.0,
+        "fractional_shares": true,
+        "id": "cost_2x_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 2.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "input_complete": true,
+      "mean_monthly_excess": -0.007419097925680782,
+      "mean_monthly_excess_ci": {
+        "conf": 0.9,
+        "contains_zero": false,
+        "hi": -0.004557013068103806,
+        "lo": -0.01034038340320107,
+        "mean_block": 4,
+        "n": 120,
+        "n_boot": 10000,
+        "point": -0.007419097925680782,
+        "seed": 20260907,
+        "stat": "mean"
+      },
+      "n_missing_paired_months": 0,
+      "n_paired_months": 120,
+      "research_input": {
+        "class": "reconstructed_public_eod_macro_history",
+        "end": "2026-09-03",
+        "missing_macro_sessions": [],
+        "missing_price_sessions": [],
+        "pair_count": 3019,
+        "reconstruction": "fetch_as_of equals obs_date in scratch only",
+        "session_count": 3019,
+        "sha256": "f7a23f697acda36a8107b95516953ea40896219715b7abbc6b38b2be9af27c15",
+        "start": "2014-09-03"
+      },
+      "worst_drawdown_difference": -0.11857743512848706
+    }
+  }
+}

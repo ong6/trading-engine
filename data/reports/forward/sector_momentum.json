@@ -1,0 +1,189 @@
+{
+  "automatic_action": "none",
+  "candidate": {
+    "config": {
+      "cadence": "monthly",
+      "description": "Monthly: score the 11 SPDR sector ETFs by their mean 3/6/12-month total return, hold the top 3 equal-weight; a slot whose ETF has a non-positive 12-month return sits in cash.",
+      "expectation": "Market-like return with lower drawdown \u2014 it wins by losing less in downturns, not by out-running the index.",
+      "id": "sector_momentum",
+      "kill_criterion": "Trails spy_benchmark by >10% over 12 months without delivering a lower max drawdown.",
+      "name": "Sector ETF Rotation",
+      "params": {
+        "lookbacks": [
+          63,
+          126,
+          252
+        ],
+        "n": 3,
+        "sectors": [
+          "XLK",
+          "XLF",
+          "XLE",
+          "XLV",
+          "XLI",
+          "XLY",
+          "XLP",
+          "XLU",
+          "XLB",
+          "XLRE",
+          "XLC"
+        ]
+      },
+      "strategy": "sector_momentum"
+    },
+    "config_sha256": "c72300f5e438958572985c2257f7bcdf800dfe2cfe89c73f55c471850cc6e67a",
+    "created": "2026-07-28",
+    "execution_profile": "baseline_v1",
+    "initial_cash": 39000.0,
+    "name": "Sector ETF Rotation",
+    "portfolio_id": "sector_momentum",
+    "strategy": "sector_momentum"
+  },
+  "checks": {
+    "has_lower_drawdown": false,
+    "kill_triggered": false,
+    "trails_control_by_more_than_10pp": false
+  },
+  "control": {
+    "config": {
+      "cadence": "once",
+      "description": "Buy SPY once at inception and hold. The market benchmark.",
+      "expectation": "Baseline market return; the absolute-return yardstick.",
+      "id": "spy_benchmark",
+      "kill_criterion": "Reference benchmark \u2014 not killed.",
+      "name": "SPY Buy & Hold",
+      "params": {
+        "ticker": "SPY"
+      },
+      "strategy": "spy_benchmark"
+    },
+    "config_sha256": "277c8f3c71e7fe220af0b0cd80ff41400ccacebd6be90495ad3433fc5b040e1e",
+    "created": "2026-07-17",
+    "execution_profile": "baseline_v1",
+    "initial_cash": 39000.0,
+    "name": "SPY Buy & Hold",
+    "portfolio_id": "spy_benchmark",
+    "strategy": "spy_benchmark"
+  },
+  "criterion": {
+    "max_trailing_excess_loss": -0.1,
+    "requires_no_drawdown_improvement": true,
+    "text": "Trails spy_benchmark by >10% over 12 months without delivering a lower max drawdown.",
+    "window_months": 12
+  },
+  "execution": {
+    "sector_momentum": {
+      "cancelled": 0,
+      "filled": 0,
+      "pending": 0,
+      "rejected": 0
+    },
+    "spy_benchmark": {
+      "cancelled": 0,
+      "filled": 0,
+      "pending": 0,
+      "rejected": 0
+    }
+  },
+  "frozen_runtime": {
+    "baseline_equity": {
+      "sector_momentum": 41742.09372396311,
+      "spy_benchmark": 40163.91313403321
+    },
+    "baseline_note": "The 2026-09-04 closing marks are the prospective baseline. Existing holdings were inherited from the pre-v4 paper path; no pre-baseline return is credited to this observation.",
+    "baseline_state": {
+      "sector_momentum": {
+        "cash": 35.138662886144374,
+        "equity": 41742.09372396311,
+        "n_positions": 3,
+        "positions": [
+          [
+            "XLE",
+            216.7514552594882,
+            58.74868862533569,
+            64.05999755859375
+          ],
+          [
+            "XLK",
+            74.13743682635298,
+            174.18400450134274,
+            187.27999877929688
+          ],
+          [
+            "XLV",
+            81.29133004417835,
+            163.93930986015226,
+            171.4499969482422
+          ]
+        ]
+      },
+      "spy_benchmark": {
+        "cash": 114.03300708008464,
+        "equity": 40163.91313403321,
+        "n_positions": 1,
+        "positions": [
+          [
+            "SPY",
+            52.0,
+            747.8070575561522,
+            770.1900024414062
+          ]
+        ]
+      }
+    },
+    "baseline_state_sha256": "6009bf5f765b8f28e41636d60666af5d9319c121aa0668f214ba7a647cc0a902",
+    "execution_profile_sha256": "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db",
+    "fill_model": "v4",
+    "observation_start": "2026-09-04",
+    "runtime_contract_files": [
+      "engine/forward_review.py",
+      "engine/actions.py",
+      "engine/lib/data_quality.py",
+      "engine/lib/util.py",
+      "sim/calendar.py",
+      "sim/execution.py",
+      "sim/fills.py",
+      "sim/league.py",
+      "sim/nyse.py",
+      "sim/portfolio.py",
+      "sim/schema.py",
+      "sim/settle.py",
+      "sim/strategies/base.py",
+      "sim/strategies/sector_momentum.py",
+      "sim/strategies/spy_benchmark.py"
+    ],
+    "runtime_contract_sha256": "2ffc24889541656457c28dcebfabc5a6532f62f38b234839292f228a0765fedd"
+  },
+  "metrics": {
+    "drawdown_improvement": 0.0,
+    "excess_return": 0.0,
+    "sector_momentum": {
+      "end_equity": 41742.09372396311,
+      "max_drawdown": 0.0,
+      "start_equity": 41742.09372396311,
+      "total_return": 0.0
+    },
+    "spy_benchmark": {
+      "end_equity": 40163.91313403321,
+      "max_drawdown": 0.0,
+      "start_equity": 40163.91313403321,
+      "total_return": 0.0
+    }
+  },
+  "observation": {
+    "as_of": "2026-09-04",
+    "calendar_days_available": 0,
+    "eligible_after": "2027-09-04",
+    "equity_sha256": "1fb07940da9d3a310b9d63ccf3829184edd68175a81cac30b78344f3913a88cb",
+    "first_shared_date": "2026-09-04",
+    "forward_ledger_sha256": "4735419b52c6e636d7e0f679bf8d0e1bdab6e2fdfea3ecaa27221ea7789c003b",
+    "mature": false,
+    "minimum_shared_sessions": 200,
+    "shared_sessions_available": 1,
+    "shared_sessions_in_window": 1,
+    "window_start": "2026-09-04"
+  },
+  "paper_only": true,
+  "schema_version": 2,
+  "status": "ACCUMULATING"
+}

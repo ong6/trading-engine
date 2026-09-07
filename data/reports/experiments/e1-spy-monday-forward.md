@@ -1,6 +1,6 @@
 # Experiment e1-spy-monday — FORWARD (out-of-sample) record
 
-*Forward phase registered 2026-07-29 · report generated 2026-09-04 22:33 UTC · params hash `5dc40ff465de67a9` · forward-config hash `399ce03bee8bab4e`*
+*Forward phase registered 2026-07-29 · report generated 2026-09-07 22:32 UTC · params hash `5dc40ff465de67a9` · forward-config hash `399ce03bee8bab4e`*
 
 > **NO RESULT YET — 7 of 40 out-of-sample Mondays.** This experiment is not evaluated until the pre-registered sample is complete. Anything below is an accumulating record, **not** a verdict: reading a mean or a t-stat at n=7 and calling it a finding is exactly the peeking the §12.3 protocol exists to prevent. **33 Mondays to go.**
 
@@ -30,7 +30,7 @@ Registration source: `farm/experiments/e1-spy-monday.yaml` (pre-registered 2026-
 | 6 | 2026-08-24 | 764.78 | 763.47 | -0.1713% | -0.3708% | -0.9244% | -2.1062% |
 | 7 | 2026-08-31 | 767.33 | 767.05 | -0.0365% | -0.2362% | -0.9606% | -2.3375% |
 
-_Every row is one real stored SPY daily bar; holiday Mondays have no bar and are simply absent (no trade that week). Rows are append-only — a Monday is written once, after its session has settled, and never revised._
+_Every row is one real stored SPY daily bar; holiday Mondays have no bar and are simply absent (no trade that week). Rows are append-only — a Monday is written once, after its session has settled, and never revised. The published machine-readable checkpoint hashes the complete stored prefix._
 
 ## Running statistics (informational until n = 40)
 
@@ -42,7 +42,7 @@ _Every row is one real stored SPY daily bar; holiday Mondays have no bar and are
 
 - **Mondays recorded:** 7 / 40 · **Mondays to kill-evaluation:** **33**.
 - **Kill test (runs once, at n = 40):** kill if `mean <= 0` **or** `t < 0.5` on the net series. Current standing — mean -0.3356%, t -1.42 — **would KILL** if the criterion were applied today, which it is **not**.
-- **Costs are real, not assumed:** net uses the paper league's own fill model (`sim/fills.py`), 20bp round-trip for SPY's liquidity tier — 6.7× stricter than the 3bp the backtest registered. The registered-cost row is shown so the forward record can also be read against the original pre-registration.
+- **Frozen cost sensitivity:** net uses compatibility profile `baseline_v1` (`6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db`), 20bp round-trip for SPY's liquidity tier — 6.7× stricter than the 3bp the backtest registered. The registered-cost row is shown so the forward record can also be read against the original pre-registration.
 
 ## Backtest context — NOT part of the out-of-sample record
 
@@ -56,7 +56,7 @@ The identical computation over the **2 years of Mondays immediately before the o
 The full pre-registered backtest (1990→2026, in-sample vs a locked holdout, deflated Sharpe, subperiod and regime splits) lives in the sibling report [`e1-spy-monday.md`](./e1-spy-monday.md). **Neither that backtest nor this context window can rescue or condemn the rule** — only the 40 out-of-sample Mondays above can.
 
 ## Method & honesty notes
-- **Gross** = close/open − 1 on the stored Monday daily bar. **Net** applies the league fill model multiplicatively: buy at open·(1+s), sell at close·(1−s), s = per-side slippage/1e4. For SPY, `slippage_bps_for(mdv) = max(half_spread_bps(mdv), 5) + 5 = 10.0` bp/side (60-bar median dollar volume ~$36bn, far above the $50M top tier) → **20bp round-trip**.
+- **Gross** = close/open − 1 on the stored Monday daily bar. **Net** applies the frozen `baseline_v1` compatibility profile multiplicatively: buy at open·(1+s), sell at close·(1−s), s = per-side cost/1e4. For SPY, the profile's tiered spread plus fixed adverse component is 10.0 bp/side (60-bar median dollar volume ~$36bn, far above the $50M top tier) → **20bp round-trip**.
 - **No look-ahead.** The entry is the Monday open and the exit is that same bar's close — the registered mechanics, and the open is known before the close. Nothing else is read at or after the open; even the slippage tier comes from bars strictly *before* the Monday.
 - **No fabricated bars.** A Monday without a real stored open+close (market holiday) produces no row at all, rather than a synthetic flat trade.
 - **No peeking-driven change.** The config, the cost model, the kill rule and the sample size were all frozen before this evidence existed. If E1 is killed at n=40 it is killed; there is no re-optimization branch.

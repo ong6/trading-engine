@@ -1,0 +1,362 @@
+{
+  "bil_coverage": 1.0,
+  "cadence": "once",
+  "cagr": 0.12841122523294146,
+  "capacity_rejected_notional": 0.0,
+  "clamped_to_data_floor": false,
+  "config": {
+    "cadence": "once",
+    "description": "Buy SPY once at inception and hold. The market benchmark.",
+    "expectation": "Baseline market return; the absolute-return yardstick.",
+    "id": "spy_benchmark",
+    "kill_criterion": "Reference benchmark \u2014 not killed.",
+    "name": "SPY Buy & Hold",
+    "params": {
+      "ticker": "SPY"
+    },
+    "strategy": "spy_benchmark"
+  },
+  "config_id": "spy_benchmark",
+  "config_sha256": "277c8f3c71e7fe220af0b0cd80ff41400ccacebd6be90495ad3433fc5b040e1e",
+  "corporate_actions_dividend_rows": 400260,
+  "data_quality_class": "fixed_etf_history",
+  "data_snapshot": {
+    "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+    "tables": {
+      "corporate_actions": {
+        "exists": true,
+        "latest_fetch": "2026-09-04T22:33:26.507372",
+        "max_date": "2026-09-03",
+        "min_date": "1962-01-16",
+        "rows": 409752
+      },
+      "fundamentals": {
+        "exists": true,
+        "latest_fetch": "2026-09-05T00:33:22.478505",
+        "max_date": "2026-09-04",
+        "min_date": "2026-07-18",
+        "rows": 32944
+      },
+      "price_quarantine": {
+        "active_count": 0,
+        "active_tickers": []
+      },
+      "prices": {
+        "exists": true,
+        "latest_fetch": "2026-09-06T23:09:01.255401",
+        "max_date": "2026-09-04",
+        "min_date": "1962-01-02",
+        "rows": 19965368
+      },
+      "universe_snapshot": {
+        "exists": true,
+        "latest_fetch": null,
+        "max_date": "2026-09-04",
+        "min_date": "2026-07-16",
+        "rows": 470480
+      }
+    }
+  },
+  "dividend_cash": 7896.786824590572,
+  "end_date": "2026-07-16",
+  "equity_end": 182936.79957668477,
+  "equity_start": 100000.0,
+  "execution_profile": {
+    "commission_max_fraction": null,
+    "commission_minimum": 0.0,
+    "commission_per_share": 0.0,
+    "description": "Sensitivity profile: exactly twice baseline market friction; no separately verified broker fees.",
+    "fixed_adverse_bps": 10.0,
+    "fractional_shares": true,
+    "id": "cost_2x_v1",
+    "impact_coefficient_bps": 0.0,
+    "impact_exponent": 0.5,
+    "impact_reference_participation": 0.01,
+    "max_participation": 0.01,
+    "sell_fee_bps": 0.0,
+    "spread_multiplier": 2.0,
+    "spread_rule": "mdv_tiers_v1"
+  },
+  "fill_model": "v4",
+  "git_dirty": true,
+  "git_sha": "ffbbd0cfab82235f8cfc67d5d67fd0f1b04411b3",
+  "gross_traded_notional": 98806.04767927663,
+  "initial_cash": 100000.0,
+  "max_dd": -0.24040103319641193,
+  "max_participation": 3.967233304768301e-06,
+  "modeled_price_cost_dollars": 197.61209535855326,
+  "modeled_total_cost_dollars": 197.61209535855326,
+  "monthly_equity": [
+    [
+      "2021-07",
+      102658.6051413495
+    ],
+    [
+      "2021-08",
+      105684.05789411163
+    ],
+    [
+      "2021-09",
+      100817.36732788086
+    ],
+    [
+      "2021-10",
+      107797.9361615616
+    ],
+    [
+      "2021-11",
+      106942.46194800973
+    ],
+    [
+      "2021-12",
+      111818.66032401384
+    ],
+    [
+      "2022-01",
+      106011.17944914829
+    ],
+    [
+      "2022-02",
+      102932.40194368969
+    ],
+    [
+      "2022-03",
+      106728.9452516738
+    ],
+    [
+      "2022-04",
+      97538.97562562839
+    ],
+    [
+      "2022-05",
+      97754.58110707618
+    ],
+    [
+      "2022-06",
+      89848.29071775031
+    ],
+    [
+      "2022-07",
+      97902.25986721944
+    ],
+    [
+      "2022-08",
+      94005.1027055113
+    ],
+    [
+      "2022-09",
+      85565.35672575688
+    ],
+    [
+      "2022-10",
+      92295.54614147621
+    ],
+    [
+      "2022-11",
+      97273.05840627546
+    ],
+    [
+      "2022-12",
+      91832.10690647169
+    ],
+    [
+      "2023-01",
+      97407.75917955866
+    ],
+    [
+      "2023-02",
+      95038.39827923138
+    ],
+    [
+      "2023-03",
+      98431.54637750033
+    ],
+    [
+      "2023-04",
+      99947.74661000105
+    ],
+    [
+      "2023-05",
+      100392.87422256549
+    ],
+    [
+      "2023-06",
+      106668.20062530825
+    ],
+    [
+      "2023-07",
+      110032.13856030525
+    ],
+    [
+      "2023-08",
+      108307.28055859606
+    ],
+    [
+      "2023-09",
+      103372.19563767157
+    ],
+    [
+      "2023-10",
+      101220.76083958078
+    ],
+    [
+      "2023-11",
+      110076.87944990532
+    ],
+    [
+      "2023-12",
+      114902.771748055
+    ],
+    [
+      "2024-01",
+      116657.7695197638
+    ],
+    [
+      "2024-02",
+      122500.02433114295
+    ],
+    [
+      "2024-03",
+      126345.02384260984
+    ],
+    [
+      "2024-04",
+      121455.61026702067
+    ],
+    [
+      "2024-05",
+      127341.91442300487
+    ],
+    [
+      "2024-06",
+      131656.13887330604
+    ],
+    [
+      "2024-07",
+      133183.9422097503
+    ],
+    [
+      "2024-08",
+      136167.66623869608
+    ],
+    [
+      "2024-09",
+      138909.35891506448
+    ],
+    [
+      "2024-10",
+      137722.36138164383
+    ],
+    [
+      "2024-11",
+      145583.90295729865
+    ],
+    [
+      "2024-12",
+      142221.36509244383
+    ],
+    [
+      "2025-01",
+      145870.45638191586
+    ],
+    [
+      "2025-02",
+      144099.22841481294
+    ],
+    [
+      "2025-03",
+      136426.863619451
+    ],
+    [
+      "2025-04",
+      135302.45209669147
+    ],
+    [
+      "2025-05",
+      143381.93392470956
+    ],
+    [
+      "2025-06",
+      150388.2308584691
+    ],
+    [
+      "2025-07",
+      153687.26216201627
+    ],
+    [
+      "2025-08",
+      156694.16409859553
+    ],
+    [
+      "2025-09",
+      162017.34420657373
+    ],
+    [
+      "2025-10",
+      165698.89588683407
+    ],
+    [
+      "2025-11",
+      166007.24129906937
+    ],
+    [
+      "2025-12",
+      166128.4839999918
+    ],
+    [
+      "2026-01",
+      168458.42972222803
+    ],
+    [
+      "2026-02",
+      167072.0569027537
+    ],
+    [
+      "2026-03",
+      159223.7322246992
+    ],
+    [
+      "2026-04",
+      175062.7332144298
+    ],
+    [
+      "2026-05",
+      183830.76021060764
+    ],
+    [
+      "2026-06",
+      182021.0599732605
+    ],
+    [
+      "2026-07",
+      182936.79957668477
+    ]
+  ],
+  "n_capacity_rejected": 0,
+  "n_dividend_credits": 20,
+  "n_fills": 1,
+  "n_rejected": 0,
+  "n_sessions": 1255,
+  "name": "SPY Buy & Hold",
+  "p95_participation": 3.967233304768301e-06,
+  "return_base": 100000.0,
+  "runtime_s": 59.4,
+  "screen_rows": 0,
+  "screen_s": 0.0,
+  "screen_source": "not-used",
+  "sharpe": 0.8158909985519985,
+  "sharpe_ex_bil": 0.6068713107810259,
+  "source_file_count": 95,
+  "source_sha256": "0e1f682e34fa96e32363c09c00a96c7699ac8aa44364081327c82a0579ab2262",
+  "start_date": "2021-07-16",
+  "step_s": 50.4,
+  "strategy": "spy_benchmark",
+  "total_return": 0.8293679957668478,
+  "turnover_on_initial_cash": 0.9880604767927663,
+  "universe_policy": "all",
+  "vol_ann": 0.16554657862152025,
+  "window": "5y",
+  "window_end_target": "2026-07-16",
+  "worst_month": -0.08977965809147093,
+  "years": 4.999315537303217
+}

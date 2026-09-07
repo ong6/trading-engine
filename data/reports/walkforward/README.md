@@ -1,6 +1,6 @@
-# Walk-forward re-validation of the active league rules
+# Walk-forward re-validation of league rules
 
-_24 book(s) re-validated · protocol **train 24mo → validate 12mo, step 12mo, 6 folds, anchored 2026-08-14** · generated 2026-08-30 09:17 UTC._
+_18 book(s) re-validated · protocol **train 24mo → validate 12mo, step 12mo, 10 folds, anchored 2026-09-04** · generated 2026-09-07 14:12 UTC._
 
 Every book below is replayed by its OWN live strategy code through the real `sim/league.py` day-step — real orders, real t+1-open fills with the league's slippage and liquidity guards, real dividend crediting. The config replayed is the JSON frozen in the live `portfolios` row (D-WF4), i.e. the rule the league is actually trading. Nothing is reimplemented for this report and no bar is ever invented.
 
@@ -19,9 +19,10 @@ This is the input to the **Sunday review loop** (execution design §6): changes 
    early fold rests on a thinner, more winner-selected cross-section than a late
    one. Not one 2008 casualty is present: LEH, BSC, ENE, WCOM, CFC, MER, SIVB and
    FRC are all absent, so **a fold spanning 2008 is one in which those names cannot
-   lose money.** That is WHY the headline comparison here is **vs EW (same
-   universe, same screen), fold by fold** — the bias is largely common to both
-   sides of that difference. Absolute return is context, not evidence, and a fold
+   lose money.** That is WHY the headline comparison for single-name books is
+   **vs EW (same universe, same screen), fold by fold** — the bias is largely
+   common to both sides of that difference. Newly generated ETF/asset-allocation
+   artifacts declare SPY as their comparison. Absolute return is context, not evidence, and a fold
    with a small `Universe` count deserves proportionally less weight.
 2. **Out-of-sample in the DATA, not in the RULE.** Each validate window is data
    the preceding train window never saw, and nothing is fitted anywhere in this
@@ -49,27 +50,27 @@ This is the input to the **Sunday review loop** (execution design §6): changes 
    list at the bottom. Nothing is faked to fill a row.
 
 
-**Verdict rule (pre-registered, mechanical, and NOT an automatic kill).** For
-each book, against `ew_benchmark` on the same folds:
+**Verdict rule (mechanical exploratory triage, NOT an automatic kill).** For
+each book, against the versioned comparison declared in its result artifact:
 
-* **PASS** — beats EW in ≥ 50% of validate windows AND mean validate excess ≥ 0.
+* **PASS** — beats its control in ≥ 50% of validate windows AND mean validate excess ≥ 0.
 * **WATCH** — exactly one of those two fails.
-* **REVIEW** — both fail *and* the latest validate window also trails EW.
+* **REVIEW** — both fail *and* the latest validate window also trails its control.
 
-REVIEW means the book goes on the Sunday review agenda against its own
-pre-registered kill criterion (printed on its page). The prose criterion
-decides; this flag only decides what gets read. Benchmarks are not judged.
+REVIEW means the book goes on the Sunday review agenda against its own frozen
+kill criterion (printed on its page). The prose criterion decides; this flag
+only decides what gets read. Historical comparator choices are exploratory,
+not proof of pre-registration or positive edge. Benchmarks are not judged.
 
 
 **The interval is new information, not a new rule (added 2026-08-20).** The
-PASS / WATCH / REVIEW rule above is unchanged: it still reads the beat rate and
-the *mean* excess exactly as it was pre-registered, and no verdict in this
-report has been recomputed, softened or overridden by an interval. What is new
-is the **90% bootstrap CI on mean excess vs EW** in the column beside it, and a
+PASS / WATCH / REVIEW rule reads the beat rate and the *mean* excess; the
+interval does not soften or override that triage label. It is the **90%
+bootstrap CI on mean excess vs the declared control** in the column beside it, and a
 mechanical `INDISTINGUISHABLE` label for any book whose interval contains 0.
 
 Read the two together: a **PASS whose interval straddles zero is a PASS on a
-number this evidence cannot separate from the benchmark**, and a REVIEW whose
+number this evidence cannot separate from the control**, and a REVIEW whose
 interval straddles zero is not proof the book is broken either. The verdict says
 what gets read on Sunday. The interval says how much the number underneath it
 is worth.
@@ -91,74 +92,71 @@ confirm a small one; methods that could (block or stationary bootstrap) need a
 fold count in the high tens and are deliberately not used here.
 
 
+Retained retired evidence is included in this cohort and labelled `RETIRED`; it is neither scheduled nor traded. A retained result without `source_sha256` is explicitly legacy/unstamped and is not used to admit any unstamped active result into the cohort.
+
 ⚑ = the fold's train window was clamped to the book's data floor. ◈ = the validate window extends past league inception (2026-07-17) and so partly shadows the live record.
 
 ## Summary — all books, all folds
 
-**8 of 21 judged book(s) are `INDISTINGUISHABLE` from `ew_benchmark`** at 90% confidence on mean excess. Read every verdict in the next column with that column beside it.
+**8 of 16 judged book(s) are `INDISTINGUISHABLE` from their declared control** at 90% confidence on mean excess. Read every verdict in the next column with that column beside it.
 
-| Book | Verdict | Distinguishable from EW? | Folds | Validate win rate | Beats EW | Mean validate | Mean excess vs EW | 90% CI on mean excess | Latest validate | Latest vs EW | Mean decay (CAGR) | Worst validate DD |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| [ew_trend_gated](ew_trend_gated.md) | REVIEW | **distinguishable −** | 10 | 70% | 10% | +20.83% | −4.34% | [−8.04%, −1.63%] | +6.03% | −21.56% | +4.98% | −36.46% |
-| [dual_momentum](dual_momentum.md) | REVIEW | **distinguishable −** | 10 | 70% | 40% | +9.61% | −15.57% | [−32.50%, −1.92%] | +23.09% | −4.51% | +3.71% | −33.69% |
-| [high_52wk](high_52wk.md) | REVIEW | **distinguishable −** | 10 | 80% | 40% | +9.46% | −15.71% | [−34.18%, −1.71%] | +18.92% | −8.68% | +4.60% | −30.28% |
-| [dual_momentum_gated](dual_momentum_gated.md) | REVIEW | **distinguishable −** | 10 | 70% | 30% | +9.29% | −15.89% | [−32.56%, −2.98%] | +18.55% | −9.04% | +2.54% | −17.47% |
-| [turtle_breakout](turtle_breakout.md) | REVIEW | **distinguishable −** | 10 | 50% | 20% | +5.06% | −20.11% | [−32.58%, −9.05%] | −8.79% | −36.39% | +0.85% | −31.00% |
-| [mr_overlay_gated](mr_overlay_gated.md) | REVIEW | **distinguishable −** | 10 | 50% | 20% | +3.59% | −21.58% | [−37.22%, −8.66%] | +10.70% | −16.90% | +2.78% | −15.47% |
-| [mr_overlay](mr_overlay.md) | REVIEW | **distinguishable −** | 10 | 50% | 10% | +2.53% | −22.65% | [−37.96%, −10.53%] | +7.91% | −19.68% | +2.30% | −17.95% |
-| [template_top10_banded](template_top10_banded.md) | WATCH | **INDISTINGUISHABLE** | 10 | 40% | 40% | +29.97% | +4.79% | [−12.75%, +30.44%] | +10.36% | −17.24% | +10.18% | −48.61% |
-| [momo_stopped](momo_stopped.md) | WATCH | **INDISTINGUISHABLE** | 10 | 50% | 40% | +28.15% | +2.98% | [−11.67%, +21.21%] | +3.82% | −23.78% | +7.89% | −48.03% |
-| [ew_voltarget](ew_voltarget.md) | WATCH | **INDISTINGUISHABLE** | 10 | 70% | 50% | +22.89% | −2.29% | [−7.40%, +1.97%] | +26.26% | −1.34% | +6.60% | −35.39% |
-| [sector_momentum](sector_momentum.md) | WATCH | **INDISTINGUISHABLE** | 9 | 89% | 44% | +14.16% | −12.89% | [−36.13%, +3.50%] | +28.58% | +0.98% | +2.77% | −31.84% |
-| [low_vol](low_vol.md) | WATCH | **INDISTINGUISHABLE** | 10 | 90% | 50% | +10.10% | −15.08% | [−33.94%, +0.54%] | +5.18% | −22.42% | −0.94% | −35.73% |
-| [template_top5](template_top5.md) | PASS | **INDISTINGUISHABLE** | 10 | 50% | 60% | +50.60% | +25.43% | [−15.02%, +79.70%] | +41.01% | +13.41% | +20.19% | −65.26% |
-| [template_top5_gated](template_top5_gated.md) | PASS | **INDISTINGUISHABLE** | 10 | 60% | 50% | +48.55% | +23.38% | [−14.65%, +79.29%] | +20.75% | −6.85% | +14.99% | −51.01% |
-| [template_top10_banded_gated](template_top10_banded_gated.md) | PASS | **INDISTINGUISHABLE** | 10 | 50% | 50% | +29.85% | +4.67% | [−13.20%, +30.24%] | +3.46% | −24.14% | +8.33% | −46.39% |
-| [news_gated_momo](news_gated_momo.md) | no-benchmark | _no interval_ | 6 | 50% | · | +35.34% | · | · | +19.17% | · | +2.50% | −48.01% |
-| [agentic_alloc](agentic_alloc.md) | no-benchmark | _no interval_ | 6 | 83% | · | +7.58% | · | · | +10.07% | · | +2.09% | −9.36% |
-| [agentic_alloc_frozen](agentic_alloc_frozen.md) | no-benchmark | _no interval_ | 6 | 83% | · | +7.58% | · | · | +10.07% | · | +2.09% | −9.36% |
-| [adaptive_mr](adaptive_mr.md) | no-benchmark | _no interval_ | 6 | 50% | · | +5.46% | · | · | +8.60% | · | +3.10% | −17.30% |
-| [adaptive_mr_frozen](adaptive_mr_frozen.md) | no-benchmark | _no interval_ | 6 | 50% | · | +5.46% | · | · | +8.60% | · | +3.10% | −17.30% |
-| [stop_tuner_turtle](stop_tuner_turtle.md) | no-benchmark | _no interval_ | 6 | 33% | · | +5.18% | · | · | −5.86% | · | +0.91% | −31.00% |
-| [ew_benchmark](ew_benchmark.md) | reference | — | 10 | 80% | 0% | +25.18% | +0.00% | [+0.00%, +0.00%] | +27.60% | +0.00% | +7.02% | −37.54% |
-| [spy_benchmark](spy_benchmark.md) | reference | — | 10 | 90% | 40% | +15.23% | −9.95% | [−28.11%, +3.86%] | +19.30% | −8.30% | +1.72% | −32.30% |
+| Book | Evidence class | Control | Verdict | Distinguishable? | Folds | Validate win rate | Beats control | Mean validate | Mean excess | 90% CI on mean excess | Latest validate | Latest excess | Mean decay (CAGR) | Worst validate DD |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| [ew_voltarget](ew_voltarget.md) | `current_universe_survivor_biased` | ew_benchmark | REVIEW | **INDISTINGUISHABLE** | 10 | 80% | 40% | +23.62% | −2.84% | [−8.88%, +1.90%] | +29.37% | −1.05% | +5.87% | −35.37% |
+| [ew_trend_gated](ew_trend_gated.md) | `current_universe_survivor_biased` | ew_benchmark | REVIEW | **distinguishable −** | 10 | 70% | 20% | +22.11% | −4.34% | [−8.09%, −1.51%] | +8.36% | −22.06% | +4.52% | −36.63% |
+| [high_52wk](high_52wk.md) | `current_universe_survivor_biased` | ew_benchmark | REVIEW | **distinguishable −** | 10 | 70% | 30% | +10.03% | −16.42% | [−37.73%, −0.93%] | +19.60% | −10.82% | +4.26% | −32.10% |
+| [dual_momentum_gated](dual_momentum_gated.md) | `fixed_etf_history` | spy_benchmark | REVIEW | **distinguishable −** | 10 | 70% | 20% | +9.28% | −5.96% | [−9.69%, −2.40%] | +19.20% | −0.18% | +2.05% | −17.47% |
+| [turtle_breakout](turtle_breakout.md) | `current_universe_survivor_biased` | ew_benchmark | REVIEW | **distinguishable −** | 10 | 40% | 20% | +4.29% | −22.16% | [−36.27%, −10.35%] | −8.35% | −38.77% | −0.17% | −31.00% |
+| [mr_overlay_gated](mr_overlay_gated.md) | `current_universe_survivor_biased` | ew_benchmark | REVIEW | **distinguishable −** | 10 | 50% | 20% | +3.51% | −22.94% | [−43.84%, −6.92%] | +8.77% | −21.65% | +1.99% | −15.47% |
+| [mr_overlay](mr_overlay.md) | `current_universe_survivor_biased` | ew_benchmark | REVIEW | **distinguishable −** | 10 | 50% | 10% | +2.42% | −24.04% | [−44.84%, −8.48%] | +6.03% | −24.38% | +1.44% | −17.95% |
+| [template_top10_banded_gated](template_top10_banded_gated.md) | `current_universe_survivor_biased` | ew_benchmark | WATCH | **INDISTINGUISHABLE** | 10 | 40% | 40% | +33.94% | +7.49% | [−13.20%, +39.59%] | +11.30% | −19.11% | +9.03% | −46.46% |
+| [template_top10_banded](template_top10_banded.md) | `current_universe_survivor_biased` | ew_benchmark | WATCH | **INDISTINGUISHABLE** | 10 | 40% | 30% | +33.72% | +7.27% | [−12.84%, +39.78%] | +18.81% | −11.61% | +11.73% | −48.60% |
+| [momo_stopped](momo_stopped.md) | `current_universe_survivor_biased` | ew_benchmark | WATCH | **INDISTINGUISHABLE** | 10 | 40% | 40% | +30.72% | +4.27% | [−11.82%, +26.12%] | +10.77% | −19.65% | +7.99% | −47.94% |
+| [sector_momentum](sector_momentum.md) | `fixed_etf_history` | spy_benchmark | WATCH | **INDISTINGUISHABLE** | 9 | 100% | 33% | +14.09% | −1.17% | [−6.50%, +4.86%] | +29.39% | +10.01% | +1.52% | −31.86% |
+| [dual_momentum](dual_momentum.md) | `fixed_etf_history` | spy_benchmark | WATCH | **distinguishable −** | 10 | 60% | 50% | +9.67% | −5.57% | [−10.49%, −0.91%] | +23.76% | +4.38% | +3.21% | −33.69% |
+| [template_top5](template_top5.md) | `current_universe_survivor_biased` | ew_benchmark | PASS | **INDISTINGUISHABLE** | 10 | 50% | 50% | +60.80% | +34.35% | [−14.80%, +105.18%] | +69.50% | +39.09% | +28.66% | −65.46% |
+| [template_top5_gated](template_top5_gated.md) | `current_universe_survivor_biased` | ew_benchmark | PASS | **INDISTINGUISHABLE** | 10 | 50% | 50% | +59.21% | +32.76% | [−14.13%, +104.92%] | +45.56% | +15.14% | +22.08% | −51.43% |
+| [xs_momentum_12_1](xs_momentum_12_1.md) | `current_universe_survivor_biased` | ew_benchmark | PASS | **INDISTINGUISHABLE** | 10 | 80% | 80% | +32.87% | +6.42% | [−5.22%, +15.78%] | +44.92% | +14.50% | +4.66% | −43.94% |
+| [low_vol](low_vol.md) | `static_fundamental_lookahead` | ew_benchmark | no-benchmark | _no interval_ | 10 | 100% | · | +10.18% | · | · | +4.66% | · | −1.61% | −35.78% |
+| [ew_benchmark](ew_benchmark.md) | `current_universe_survivor_biased` | — | reference | — | 10 | 80% | · | +26.45% | · | · | +30.42% | · | +6.67% | −37.49% |
+| [spy_benchmark](spy_benchmark.md) | `fixed_etf_history` | — | reference | — | 10 | 90% | · | +15.24% | · | · | +19.38% | · | +1.53% | −32.41% |
 
-## Latest validate window (2025-08-28 → 2026-08-28)
+## Latest validate window (2025-09-04 → 2026-09-04)
 
 | Book | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills | Universe |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| template_top5 | 2023-08-28→2025-08-28 | −63.15% | −39.27% | 2025-08-28→2026-08-28 | **+41.01%** | +41.04% | +72.47% | +0.84 | −45.99% | +13.41% | +21.70% | 330 | 12,105 |
-| sector_momentum | 2023-08-28→2025-08-28 | +27.15% | +12.75% | 2025-08-28→2026-08-28 | **+28.58%** | +28.60% | +13.56% | +1.93 | −7.91% | +0.98% | +9.27% | 41 | 12,105 |
-| ew_benchmark | 2023-08-28→2025-08-28 | +29.63% | +13.85% | 2025-08-28→2026-08-28 | **+27.60%** | +27.62% | +56.20% | +0.72 | −36.48% | +0.00% | +8.30% | 910 | 12,105 |
-| ew_voltarget | 2023-08-28→2025-08-28 | +46.22% | +20.90% | 2025-08-28→2026-08-28 | **+26.26%** | +26.28% | +51.66% | +0.71 | −31.74% | −1.34% | +6.96% | 905 | 12,105 |
-| dual_momentum | 2023-08-28→2025-08-28 | +35.14% | +16.24% | 2025-08-28→2026-08-28 | **+23.09%** | +23.11% | +14.84% | +1.48 | −11.42% | −4.51% | +3.79% | 11 | 12,105 |
-| template_top5_gated | 2023-08-28→2025-08-28 | −46.63% | −26.93% | 2025-08-28→2026-08-28 | **+20.75%** | +20.76% | +70.81% | +0.63 | −45.99% | −6.85% | +1.45% | 320 | 12,105 |
-| spy_benchmark | 2023-08-28→2025-08-28 | +49.61% | +22.30% | 2025-08-28→2026-08-28 | **+19.30%** | +19.32% | +12.48% | +1.48 | −8.65% | −8.30% | +0.00% | 0 | 12,105 |
-| high_52wk | 2023-08-28→2025-08-28 | +37.89% | +17.41% | 2025-08-28→2026-08-28 | **+18.92%** | +18.93% | +16.04% | +1.16 | −11.67% | −8.68% | −0.39% | 566 | 12,105 |
-| dual_momentum_gated | 2023-08-28→2025-08-28 | +19.03% | +9.10% | 2025-08-28→2026-08-28 | **+18.55%** | +18.57% | +13.71% | +1.31 | −11.42% | −9.04% | −0.75% | 11 | 12,105 |
-| mr_overlay_gated | 2023-08-28→2025-08-28 | +12.66% | +6.14% | 2025-08-28→2026-08-28 | **+10.70%** | +10.71% | +16.15% | +0.71 | −8.04% | −16.90% | −8.60% | 443 | 12,105 |
-| template_top10_banded | 2023-08-28→2025-08-28 | −16.01% | −8.35% | 2025-08-28→2026-08-28 | **+10.36%** | +10.36% | +70.76% | +0.50 | −43.70% | −17.24% | −8.94% | 744 | 12,105 |
-| mr_overlay | 2023-08-28→2025-08-28 | +10.71% | +5.21% | 2025-08-28→2026-08-28 | **+7.91%** | +7.92% | +16.55% | +0.54 | −8.96% | −19.68% | −11.39% | 459 | 12,105 |
-| ew_trend_gated | 2023-08-28→2025-08-28 | +21.70% | +10.31% | 2025-08-28→2026-08-28 | **+6.03%** | +6.04% | +55.32% | +0.38 | −36.46% | −21.56% | −13.27% | 852 | 12,105 |
-| low_vol | 2023-08-28→2025-08-28 | +33.49% | +15.52% | 2025-08-28→2026-08-28 | **+5.18%** | +5.19% | +9.11% | +0.60 | −5.56% | −22.42% | −14.12% | 189 | 12,105 |
-| momo_stopped | 2023-08-28→2025-08-28 | −11.03% | −5.67% | 2025-08-28→2026-08-28 | **+3.82%** | +3.82% | +68.18% | +0.40 | −44.47% | −23.78% | −15.49% | 757 | 12,105 |
-| template_top10_banded_gated | 2023-08-28→2025-08-28 | −17.45% | −9.13% | 2025-08-28→2026-08-28 | **+3.46%** | +3.46% | +69.68% | +0.41 | −43.69% | −24.14% | −15.84% | 715 | 12,105 |
-| turtle_breakout | 2023-08-28→2025-08-28 | −7.24% | −3.68% | 2025-08-28→2026-08-28 | **−8.79%** | −8.79% | +29.95% | −0.16 | −30.08% | −36.39% | −28.09% | 159 | 12,105 |
+| template_top5 | 2023-09-05→2025-09-04 | −64.23% | −40.22% | 2025-09-04→2026-09-04 | **+69.50%** | +69.57% | +72.42% | +1.10 | −45.89% | +39.09% | · | 338 | 12,105 |
+| template_top5_gated | 2023-09-05→2025-09-04 | −48.33% | −28.13% | 2025-09-04→2026-09-04 | **+45.56%** | +45.60% | +70.78% | +0.89 | −45.89% | +15.14% | · | 324 | 12,105 |
+| xs_momentum_12_1 | 2023-09-05→2025-09-04 | +68.02% | +29.65% | 2025-09-04→2026-09-04 | **+44.92%** | +44.95% | +52.08% | +0.97 | −30.54% | +14.50% | · | 747 | 12,105 |
+| ew_benchmark | 2023-09-05→2025-09-04 | +35.76% | +16.53% | 2025-09-04→2026-09-04 | **+30.42%** | +30.44% | +56.15% | +0.75 | −36.64% | +0.00% | · | 906 | 12,105 |
+| sector_momentum | 2023-09-05→2025-09-04 | +35.32% | +16.34% | 2025-09-04→2026-09-04 | **+29.39%** | +29.42% | +13.45% | +1.98 | −7.91% | · | +10.01% | 40 | 12,105 |
+| ew_voltarget | 2023-09-05→2025-09-04 | +51.35% | +23.04% | 2025-09-04→2026-09-04 | **+29.37%** | +29.40% | +51.62% | +0.76 | −31.90% | −1.05% | · | 907 | 12,105 |
+| dual_momentum | 2023-09-05→2025-09-04 | +42.47% | +19.38% | 2025-09-04→2026-09-04 | **+23.76%** | +23.78% | +14.82% | +1.51 | −11.42% | · | +4.38% | 10 | 12,105 |
+| high_52wk | 2023-09-05→2025-09-04 | +45.41% | +20.60% | 2025-09-04→2026-09-04 | **+19.60%** | +19.62% | +15.94% | +1.20 | −11.28% | −10.82% | · | 554 | 12,105 |
+| spy_benchmark | 2023-09-05→2025-09-04 | +47.70% | +21.55% | 2025-09-04→2026-09-04 | **+19.38%** | +19.40% | +12.45% | +1.49 | −8.65% | · | +0.00% | 0 | 12,105 |
+| dual_momentum_gated | 2023-09-05→2025-09-04 | +25.49% | +12.03% | 2025-09-04→2026-09-04 | **+19.20%** | +19.22% | +13.70% | +1.35 | −11.42% | · | −0.18% | 10 | 12,105 |
+| template_top10_banded | 2023-09-05→2025-09-04 | −15.46% | −8.06% | 2025-09-04→2026-09-04 | **+18.81%** | +18.82% | +70.59% | +0.61 | −43.55% | −11.61% | · | 751 | 12,105 |
+| template_top10_banded_gated | 2023-09-05→2025-09-04 | −17.06% | −8.94% | 2025-09-04→2026-09-04 | **+11.30%** | +11.31% | +69.54% | +0.51 | −43.55% | −19.11% | · | 725 | 12,105 |
+| momo_stopped | 2023-09-05→2025-09-04 | −10.30% | −5.30% | 2025-09-04→2026-09-04 | **+10.77%** | +10.78% | +68.00% | +0.50 | −44.38% | −19.65% | · | 769 | 12,105 |
+| mr_overlay_gated | 2023-09-05→2025-09-04 | +13.56% | +6.57% | 2025-09-04→2026-09-04 | **+8.77%** | +8.78% | +16.03% | +0.60 | −8.04% | −21.65% | · | 440 | 12,105 |
+| ew_trend_gated | 2023-09-05→2025-09-04 | +27.62% | +12.98% | 2025-09-04→2026-09-04 | **+8.36%** | +8.36% | +55.28% | +0.42 | −36.63% | −22.06% | · | 849 | 12,105 |
+| mr_overlay | 2023-09-05→2025-09-04 | +11.59% | +5.64% | 2025-09-04→2026-09-04 | **+6.03%** | +6.04% | +16.44% | +0.44 | −8.96% | −24.38% | · | 456 | 12,105 |
+| low_vol | 2023-09-05→2025-09-04 | +39.03% | +17.93% | 2025-09-04→2026-09-04 | **+4.66%** | +4.67% | +9.12% | +0.55 | −5.56% | · | · | 199 | 12,105 |
+| turtle_breakout | 2023-09-05→2025-09-04 | −4.07% | −2.06% | 2025-09-04→2026-09-04 | **−8.35%** | −8.36% | +29.89% | −0.14 | −30.16% | −38.77% | · | 164 | 12,105 |
 
 ## Books NOT walk-forwarded
 
 * **pead_ear** — no historical earnings dates — `earnings_calendar` spans only 2026-04→2026-10, so the entry signal cannot be computed. Forward record only.
 * **discretionary** — human book — orders come from UI tickets, not code.
 * **macro_composite** — its inputs are point-in-time by `fetch_as_of`, and the production `macro_signals` backfill stamps fetch_as_of = today (honest: we did not have those series in 2019). A historical replay therefore sees an empty signal table and the book is inert, not wrong. Needs a labelled `--pit-lag` reconstruction backfill before it can be walk-forwarded.
-* **earnings_context_pead** — INERT: 0 fills in 6 fold(s). The book replayed without error and never traded, so it has no return, no drawdown and no verdict. Usually a config the strategy can never satisfy — check its params before reading anything into it.
 
 ## How this is produced
 
 ```sh
 # enumerate / enqueue the weekly grid (one job per active book)
-.venv/bin/python farm/walkforward/grid.py --list
-.venv/bin/python farm/walkforward/grid.py --enqueue
-.venv/bin/python engine/queue_runner.py --run
+.venv/bin/python -m farm.walkforward.grid --list
+.venv/bin/python -m farm.walkforward.grid --enqueue
+.venv/bin/python -m engine.queue_runner --run
 ```
 
 Intended cadence: **Sunday**, ahead of the weekly review. The weekday nightly (`engine/run_daily.sh`, cron `30 22 * * 1-5`) never runs on a Sunday, so this workload is enqueued by its own cron entry rather than by the nightly — see BUILDLOG.

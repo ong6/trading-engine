@@ -1,0 +1,254 @@
+{
+  "automatic_action": "none",
+  "charter_id": "FIXED-ETF-REBAL-2026-09-07-v1",
+  "decision": "REJECT-V1",
+  "gates": {
+    "baseline_cumulative_excess_positive": true,
+    "baseline_mean_ci_above_zero": false,
+    "drawdown_within_five_points_every_fold": true,
+    "execution_and_accounting_clean": true,
+    "stress_cumulative_excess_positive": true
+  },
+  "generated_utc": "2026-09-07T15:04:07+00:00",
+  "paper_only": true,
+  "profiles": {
+    "baseline_v1": {
+      "candidate_execution": {
+        "all_folds_ok": true,
+        "missing_initial_assets": 0,
+        "missing_required_signal_prices": 0,
+        "n_capacity_rejected": 0,
+        "n_pending": 0,
+        "n_rejected": 0,
+        "state_rebuild_matches": true
+      },
+      "control_execution": {
+        "all_folds_ok": true,
+        "missing_initial_assets": 0,
+        "missing_required_signal_prices": 0,
+        "n_capacity_rejected": 0,
+        "n_pending": 0,
+        "n_rejected": 0,
+        "state_rebuild_matches": true
+      },
+      "cumulative_candidate_return": 1.8325938479522068,
+      "cumulative_control_return": 1.809187883104534,
+      "cumulative_excess": 0.023405964847672767,
+      "data_snapshot_sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+      "drawdown_pairs": [
+        {
+          "candidate": -0.0662649744879823,
+          "control": -0.06316262213378776,
+          "difference": -0.0031023523541945375,
+          "fold": 1
+        },
+        {
+          "candidate": -0.04752795567004631,
+          "control": -0.05072646035187345,
+          "difference": 0.003198504681827141,
+          "fold": 2
+        },
+        {
+          "candidate": -0.0362337842090541,
+          "control": -0.05707628433603551,
+          "difference": 0.02084250012698141,
+          "fold": 3
+        },
+        {
+          "candidate": -0.12249545977170084,
+          "control": -0.13136495963138484,
+          "difference": 0.008869499859683994,
+          "fold": 4
+        },
+        {
+          "candidate": -0.05338596920141214,
+          "control": -0.05848186371491226,
+          "difference": 0.005095894513500121,
+          "fold": 5
+        },
+        {
+          "candidate": -0.1232186736092421,
+          "control": -0.13015655636439216,
+          "difference": 0.00693788275515006,
+          "fold": 6
+        },
+        {
+          "candidate": -0.07733551697604746,
+          "control": -0.07859335399604539,
+          "difference": 0.0012578370199979316,
+          "fold": 7
+        },
+        {
+          "candidate": -0.05483889078341453,
+          "control": -0.054605776584657595,
+          "difference": -0.00023311419875693407,
+          "fold": 8
+        },
+        {
+          "candidate": -0.05663835634748415,
+          "control": -0.059722332426518365,
+          "difference": 0.003083976079034212,
+          "fold": 9
+        },
+        {
+          "candidate": -0.0973077782249755,
+          "control": -0.11818673193166773,
+          "difference": 0.020878953706692238,
+          "fold": 10
+        }
+      ],
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Compatibility profile: liquidity-tier half-spread plus 5 bp adverse movement per side; no separately verified broker fees.",
+        "fixed_adverse_bps": 5.0,
+        "fractional_shares": true,
+        "id": "baseline_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 1.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "mean_monthly_excess": 3.672596375304353e-05,
+      "mean_monthly_excess_ci": {
+        "conf": 0.9,
+        "contains_zero": true,
+        "hi": 0.0006071608553480643,
+        "lo": -0.0005173813853207666,
+        "mean_block": 4,
+        "n": 120,
+        "n_boot": 10000,
+        "point": 3.672596375304353e-05,
+        "seed": 20260907,
+        "stat": "mean"
+      },
+      "n_missing_paired_months": 0,
+      "n_paired_months": 120,
+      "source_sha256": "593f0ddc7b51bef8746640a03ca7f69b8a7558ed2b1730521e3b3f7f81b91d14",
+      "worst_drawdown_difference": -0.0031023523541945375
+    },
+    "cost_2x_v1": {
+      "candidate_execution": {
+        "all_folds_ok": true,
+        "missing_initial_assets": 0,
+        "missing_required_signal_prices": 0,
+        "n_capacity_rejected": 0,
+        "n_pending": 0,
+        "n_rejected": 0,
+        "state_rebuild_matches": true
+      },
+      "control_execution": {
+        "all_folds_ok": true,
+        "missing_initial_assets": 0,
+        "missing_required_signal_prices": 0,
+        "n_capacity_rejected": 0,
+        "n_pending": 0,
+        "n_rejected": 0,
+        "state_rebuild_matches": true
+      },
+      "cumulative_candidate_return": 1.828246692497311,
+      "cumulative_control_return": 1.8094216873645896,
+      "cumulative_excess": 0.01882500513272145,
+      "data_snapshot_sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+      "drawdown_pairs": [
+        {
+          "candidate": -0.06628391413023582,
+          "control": -0.06316262213378787,
+          "difference": -0.00312129199644795,
+          "fold": 1
+        },
+        {
+          "candidate": -0.0475728008579549,
+          "control": -0.05072646035187334,
+          "difference": 0.003153659493918437,
+          "fold": 2
+        },
+        {
+          "candidate": -0.036280070093304806,
+          "control": -0.05707628433603551,
+          "difference": 0.020796214242730704,
+          "fold": 3
+        },
+        {
+          "candidate": -0.12249994954803478,
+          "control": -0.13136495963138495,
+          "difference": 0.008865010083350167,
+          "fold": 4
+        },
+        {
+          "candidate": -0.05338452045455455,
+          "control": -0.05848186371491215,
+          "difference": 0.005097343260357601,
+          "fold": 5
+        },
+        {
+          "candidate": -0.12330364152300399,
+          "control": -0.1302573480293694,
+          "difference": 0.006953706506365398,
+          "fold": 6
+        },
+        {
+          "candidate": -0.07734879547911377,
+          "control": -0.07867185758595208,
+          "difference": 0.001323062106838302,
+          "fold": 7
+        },
+        {
+          "candidate": -0.054845242210553646,
+          "control": -0.054605776584657595,
+          "difference": -0.00023946562589605147,
+          "fold": 8
+        },
+        {
+          "candidate": -0.05664306275776043,
+          "control": -0.059722332426518365,
+          "difference": 0.0030792696687579335,
+          "fold": 9
+        },
+        {
+          "candidate": -0.09731187523217033,
+          "control": -0.11818673193166795,
+          "difference": 0.020874856699497624,
+          "fold": 10
+        }
+      ],
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Sensitivity profile: exactly twice baseline market friction; no separately verified broker fees.",
+        "fixed_adverse_bps": 10.0,
+        "fractional_shares": true,
+        "id": "cost_2x_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 2.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "mean_monthly_excess": 2.2866653330984772e-05,
+      "mean_monthly_excess_ci": {
+        "conf": 0.9,
+        "contains_zero": true,
+        "hi": 0.0005927743940596403,
+        "lo": -0.0005313623609897255,
+        "mean_block": 4,
+        "n": 120,
+        "n_boot": 10000,
+        "point": 2.2866653330984772e-05,
+        "seed": 20260907,
+        "stat": "mean"
+      },
+      "n_missing_paired_months": 0,
+      "n_paired_months": 120,
+      "source_sha256": "593f0ddc7b51bef8746640a03ca7f69b8a7558ed2b1730521e3b3f7f81b91d14",
+      "worst_drawdown_difference": -0.00312129199644795
+    }
+  }
+}

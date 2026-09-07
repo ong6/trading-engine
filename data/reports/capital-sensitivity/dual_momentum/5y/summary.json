@@ -1,0 +1,984 @@
+{
+  "capacity_observations": [
+    {
+      "first_capacity_reject_capital": 10000000.0,
+      "largest_zero_reject_capital": 1000000.0,
+      "profile_id": "baseline_v1"
+    },
+    {
+      "first_capacity_reject_capital": 10000000.0,
+      "largest_zero_reject_capital": 1000000.0,
+      "profile_id": "cost_2x_v1"
+    }
+  ],
+  "capital_grid": [
+    10000.0,
+    39000.0,
+    100000.0,
+    250000.0,
+    1000000.0,
+    10000000.0
+  ],
+  "cells": [
+    {
+      "cagr": 0.08540785293433961,
+      "capacity_rejected_notional": 0.0,
+      "config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
+      "data_quality_class": "fixed_etf_history",
+      "data_snapshot": {
+        "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+        "tables": {
+          "corporate_actions": {
+            "exists": true,
+            "latest_fetch": "2026-09-04T22:33:26.507372",
+            "max_date": "2026-09-03",
+            "min_date": "1962-01-16",
+            "rows": 409752
+          },
+          "fundamentals": {
+            "exists": true,
+            "latest_fetch": "2026-09-05T00:33:22.478505",
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-18",
+            "rows": 32944
+          },
+          "price_quarantine": {
+            "active_count": 0,
+            "active_tickers": []
+          },
+          "prices": {
+            "exists": true,
+            "latest_fetch": "2026-09-06T23:09:01.255401",
+            "max_date": "2026-09-04",
+            "min_date": "1962-01-02",
+            "rows": 19965368
+          },
+          "universe_snapshot": {
+            "exists": true,
+            "latest_fetch": null,
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-16",
+            "rows": 470480
+          }
+        }
+      },
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Compatibility profile: liquidity-tier half-spread plus 5 bp adverse movement per side; no separately verified broker fees.",
+        "fixed_adverse_bps": 5.0,
+        "fractional_shares": true,
+        "id": "baseline_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 1.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "fill_model": "v4",
+      "gross_traded_notional": 187332.81940525153,
+      "initial_cash": 10000.0,
+      "max_dd": -0.23083638163669762,
+      "max_participation": 1.0932684410545229e-05,
+      "modeled_price_cost_dollars": 187.33281940525154,
+      "modeled_total_cost_dollars": 187.33281940525154,
+      "n_capacity_rejected": 0,
+      "n_fills": 25,
+      "n_rejected": 0,
+      "p95_participation": 1.0082908578642465e-05,
+      "profile_id": "baseline_v1",
+      "source_file_count": 95,
+      "source_sha256": "0e1f682e34fa96e32363c09c00a96c7699ac8aa44364081327c82a0579ab2262",
+      "total_return": 0.5064004434016345,
+      "turnover_on_initial_cash": 18.733281940525153,
+      "universe_policy": "all"
+    },
+    {
+      "cagr": 0.08554632666052875,
+      "capacity_rejected_notional": 0.0,
+      "config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
+      "data_quality_class": "fixed_etf_history",
+      "data_snapshot": {
+        "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+        "tables": {
+          "corporate_actions": {
+            "exists": true,
+            "latest_fetch": "2026-09-04T22:33:26.507372",
+            "max_date": "2026-09-03",
+            "min_date": "1962-01-16",
+            "rows": 409752
+          },
+          "fundamentals": {
+            "exists": true,
+            "latest_fetch": "2026-09-05T00:33:22.478505",
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-18",
+            "rows": 32944
+          },
+          "price_quarantine": {
+            "active_count": 0,
+            "active_tickers": []
+          },
+          "prices": {
+            "exists": true,
+            "latest_fetch": "2026-09-06T23:09:01.255401",
+            "max_date": "2026-09-04",
+            "min_date": "1962-01-02",
+            "rows": 19965368
+          },
+          "universe_snapshot": {
+            "exists": true,
+            "latest_fetch": null,
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-16",
+            "rows": 470480
+          }
+        }
+      },
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Compatibility profile: liquidity-tier half-spread plus 5 bp adverse movement per side; no separately verified broker fees.",
+        "fixed_adverse_bps": 5.0,
+        "fractional_shares": true,
+        "id": "baseline_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 1.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "fill_model": "v4",
+      "gross_traded_notional": 731820.535528044,
+      "initial_cash": 39000.0,
+      "max_dd": -0.23139724638374415,
+      "max_participation": 4.265612541992386e-05,
+      "modeled_price_cost_dollars": 731.8205355280444,
+      "modeled_total_cost_dollars": 731.8205355280444,
+      "n_capacity_rejected": 0,
+      "n_fills": 34,
+      "n_rejected": 0,
+      "p95_participation": 3.80176458284604e-05,
+      "profile_id": "baseline_v1",
+      "source_file_count": 95,
+      "source_sha256": "0e1f682e34fa96e32363c09c00a96c7699ac8aa44364081327c82a0579ab2262",
+      "total_return": 0.5073614717449553,
+      "turnover_on_initial_cash": 18.76462911610369,
+      "universe_policy": "all"
+    },
+    {
+      "cagr": 0.08554632666052875,
+      "capacity_rejected_notional": 0.0,
+      "config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
+      "data_quality_class": "fixed_etf_history",
+      "data_snapshot": {
+        "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+        "tables": {
+          "corporate_actions": {
+            "exists": true,
+            "latest_fetch": "2026-09-04T22:33:26.507372",
+            "max_date": "2026-09-03",
+            "min_date": "1962-01-16",
+            "rows": 409752
+          },
+          "fundamentals": {
+            "exists": true,
+            "latest_fetch": "2026-09-05T00:33:22.478505",
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-18",
+            "rows": 32944
+          },
+          "price_quarantine": {
+            "active_count": 0,
+            "active_tickers": []
+          },
+          "prices": {
+            "exists": true,
+            "latest_fetch": "2026-09-06T23:09:01.255401",
+            "max_date": "2026-09-04",
+            "min_date": "1962-01-02",
+            "rows": 19965368
+          },
+          "universe_snapshot": {
+            "exists": true,
+            "latest_fetch": null,
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-16",
+            "rows": 470480
+          }
+        }
+      },
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Compatibility profile: liquidity-tier half-spread plus 5 bp adverse movement per side; no separately verified broker fees.",
+        "fixed_adverse_bps": 5.0,
+        "fractional_shares": true,
+        "id": "baseline_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 1.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "fill_model": "v4",
+      "gross_traded_notional": 1876462.9116103693,
+      "initial_cash": 100000.0,
+      "max_dd": -0.23139724638374437,
+      "max_participation": 0.00010937468056390727,
+      "modeled_price_cost_dollars": 1876.462911610369,
+      "modeled_total_cost_dollars": 1876.462911610369,
+      "n_capacity_rejected": 0,
+      "n_fills": 34,
+      "n_rejected": 0,
+      "p95_participation": 9.74811431498984e-05,
+      "profile_id": "baseline_v1",
+      "source_file_count": 95,
+      "source_sha256": "0e1f682e34fa96e32363c09c00a96c7699ac8aa44364081327c82a0579ab2262",
+      "total_return": 0.5073614717449548,
+      "turnover_on_initial_cash": 18.764629116103695,
+      "universe_policy": "all"
+    },
+    {
+      "cagr": 0.08554632666052853,
+      "capacity_rejected_notional": 0.0,
+      "config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
+      "data_quality_class": "fixed_etf_history",
+      "data_snapshot": {
+        "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+        "tables": {
+          "corporate_actions": {
+            "exists": true,
+            "latest_fetch": "2026-09-04T22:33:26.507372",
+            "max_date": "2026-09-03",
+            "min_date": "1962-01-16",
+            "rows": 409752
+          },
+          "fundamentals": {
+            "exists": true,
+            "latest_fetch": "2026-09-05T00:33:22.478505",
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-18",
+            "rows": 32944
+          },
+          "price_quarantine": {
+            "active_count": 0,
+            "active_tickers": []
+          },
+          "prices": {
+            "exists": true,
+            "latest_fetch": "2026-09-06T23:09:01.255401",
+            "max_date": "2026-09-04",
+            "min_date": "1962-01-02",
+            "rows": 19965368
+          },
+          "universe_snapshot": {
+            "exists": true,
+            "latest_fetch": null,
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-16",
+            "rows": 470480
+          }
+        }
+      },
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Compatibility profile: liquidity-tier half-spread plus 5 bp adverse movement per side; no separately verified broker fees.",
+        "fixed_adverse_bps": 5.0,
+        "fractional_shares": true,
+        "id": "baseline_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 1.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "fill_model": "v4",
+      "gross_traded_notional": 4691157.279025923,
+      "initial_cash": 250000.0,
+      "max_dd": -0.23139724638374415,
+      "max_participation": 0.0002734367014097683,
+      "modeled_price_cost_dollars": 4691.157279025923,
+      "modeled_total_cost_dollars": 4691.157279025923,
+      "n_capacity_rejected": 0,
+      "n_fills": 34,
+      "n_rejected": 0,
+      "p95_participation": 0.00024370285787474606,
+      "profile_id": "baseline_v1",
+      "source_file_count": 95,
+      "source_sha256": "0e1f682e34fa96e32363c09c00a96c7699ac8aa44364081327c82a0579ab2262",
+      "total_return": 0.5073614717449546,
+      "turnover_on_initial_cash": 18.764629116103695,
+      "universe_policy": "all"
+    },
+    {
+      "cagr": 0.08554632666052853,
+      "capacity_rejected_notional": 0.0,
+      "config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
+      "data_quality_class": "fixed_etf_history",
+      "data_snapshot": {
+        "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+        "tables": {
+          "corporate_actions": {
+            "exists": true,
+            "latest_fetch": "2026-09-04T22:33:26.507372",
+            "max_date": "2026-09-03",
+            "min_date": "1962-01-16",
+            "rows": 409752
+          },
+          "fundamentals": {
+            "exists": true,
+            "latest_fetch": "2026-09-05T00:33:22.478505",
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-18",
+            "rows": 32944
+          },
+          "price_quarantine": {
+            "active_count": 0,
+            "active_tickers": []
+          },
+          "prices": {
+            "exists": true,
+            "latest_fetch": "2026-09-06T23:09:01.255401",
+            "max_date": "2026-09-04",
+            "min_date": "1962-01-02",
+            "rows": 19965368
+          },
+          "universe_snapshot": {
+            "exists": true,
+            "latest_fetch": null,
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-16",
+            "rows": 470480
+          }
+        }
+      },
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Compatibility profile: liquidity-tier half-spread plus 5 bp adverse movement per side; no separately verified broker fees.",
+        "fixed_adverse_bps": 5.0,
+        "fractional_shares": true,
+        "id": "baseline_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 1.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "fill_model": "v4",
+      "gross_traded_notional": 18764629.116103694,
+      "initial_cash": 1000000.0,
+      "max_dd": -0.23139724638374415,
+      "max_participation": 0.0010937468056390733,
+      "modeled_price_cost_dollars": 18764.629116103693,
+      "modeled_total_cost_dollars": 18764.629116103693,
+      "n_capacity_rejected": 0,
+      "n_fills": 34,
+      "n_rejected": 0,
+      "p95_participation": 0.0009748114314989842,
+      "profile_id": "baseline_v1",
+      "source_file_count": 95,
+      "source_sha256": "0e1f682e34fa96e32363c09c00a96c7699ac8aa44364081327c82a0579ab2262",
+      "total_return": 0.5073614717449546,
+      "turnover_on_initial_cash": 18.764629116103695,
+      "universe_policy": "all"
+    },
+    {
+      "cagr": 0.08356863251210123,
+      "capacity_rejected_notional": 37368458.678907305,
+      "config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
+      "data_quality_class": "fixed_etf_history",
+      "data_snapshot": {
+        "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+        "tables": {
+          "corporate_actions": {
+            "exists": true,
+            "latest_fetch": "2026-09-04T22:33:26.507372",
+            "max_date": "2026-09-03",
+            "min_date": "1962-01-16",
+            "rows": 409752
+          },
+          "fundamentals": {
+            "exists": true,
+            "latest_fetch": "2026-09-05T00:33:22.478505",
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-18",
+            "rows": 32944
+          },
+          "price_quarantine": {
+            "active_count": 0,
+            "active_tickers": []
+          },
+          "prices": {
+            "exists": true,
+            "latest_fetch": "2026-09-06T23:09:01.255401",
+            "max_date": "2026-09-04",
+            "min_date": "1962-01-02",
+            "rows": 19965368
+          },
+          "universe_snapshot": {
+            "exists": true,
+            "latest_fetch": null,
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-16",
+            "rows": 470480
+          }
+        }
+      },
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Compatibility profile: liquidity-tier half-spread plus 5 bp adverse movement per side; no separately verified broker fees.",
+        "fixed_adverse_bps": 5.0,
+        "fractional_shares": true,
+        "id": "baseline_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 1.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "fill_model": "v4",
+      "gross_traded_notional": 137005343.69616294,
+      "initial_cash": 10000000.0,
+      "max_dd": -0.23139724638374404,
+      "max_participation": 0.009483829491408259,
+      "modeled_price_cost_dollars": 137005.34369616298,
+      "modeled_total_cost_dollars": 137005.34369616298,
+      "n_capacity_rejected": 3,
+      "n_fills": 32,
+      "n_rejected": 4,
+      "p95_participation": 0.00839628331314236,
+      "profile_id": "baseline_v1",
+      "source_file_count": 95,
+      "source_sha256": "0e1f682e34fa96e32363c09c00a96c7699ac8aa44364081327c82a0579ab2262",
+      "total_return": 0.49368240196565694,
+      "turnover_on_initial_cash": 13.700534369616294,
+      "universe_policy": "all"
+    },
+    {
+      "cagr": 0.0817315008962114,
+      "capacity_rejected_notional": 0.0,
+      "config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
+      "data_quality_class": "fixed_etf_history",
+      "data_snapshot": {
+        "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+        "tables": {
+          "corporate_actions": {
+            "exists": true,
+            "latest_fetch": "2026-09-04T22:33:26.507372",
+            "max_date": "2026-09-03",
+            "min_date": "1962-01-16",
+            "rows": 409752
+          },
+          "fundamentals": {
+            "exists": true,
+            "latest_fetch": "2026-09-05T00:33:22.478505",
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-18",
+            "rows": 32944
+          },
+          "price_quarantine": {
+            "active_count": 0,
+            "active_tickers": []
+          },
+          "prices": {
+            "exists": true,
+            "latest_fetch": "2026-09-06T23:09:01.255401",
+            "max_date": "2026-09-04",
+            "min_date": "1962-01-02",
+            "rows": 19965368
+          },
+          "universe_snapshot": {
+            "exists": true,
+            "latest_fetch": null,
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-16",
+            "rows": 470480
+          }
+        }
+      },
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Sensitivity profile: exactly twice baseline market friction; no separately verified broker fees.",
+        "fixed_adverse_bps": 10.0,
+        "fractional_shares": true,
+        "id": "cost_2x_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 2.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "fill_model": "v4",
+      "gross_traded_notional": 185709.66229929437,
+      "initial_cash": 10000.0,
+      "max_dd": -0.23561708882839438,
+      "max_participation": 1.0812686258322466e-05,
+      "modeled_price_cost_dollars": 371.4193245985887,
+      "modeled_total_cost_dollars": 371.4193245985887,
+      "n_capacity_rejected": 0,
+      "n_fills": 24,
+      "n_rejected": 0,
+      "p95_participation": 9.995094451605132e-06,
+      "profile_id": "cost_2x_v1",
+      "source_file_count": 95,
+      "source_sha256": "0e1f682e34fa96e32363c09c00a96c7699ac8aa44364081327c82a0579ab2262",
+      "total_return": 0.48106469994511847,
+      "turnover_on_initial_cash": 18.570966229929436,
+      "universe_policy": "all"
+    },
+    {
+      "cagr": 0.0818615548108097,
+      "capacity_rejected_notional": 0.0,
+      "config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
+      "data_quality_class": "fixed_etf_history",
+      "data_snapshot": {
+        "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+        "tables": {
+          "corporate_actions": {
+            "exists": true,
+            "latest_fetch": "2026-09-04T22:33:26.507372",
+            "max_date": "2026-09-03",
+            "min_date": "1962-01-16",
+            "rows": 409752
+          },
+          "fundamentals": {
+            "exists": true,
+            "latest_fetch": "2026-09-05T00:33:22.478505",
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-18",
+            "rows": 32944
+          },
+          "price_quarantine": {
+            "active_count": 0,
+            "active_tickers": []
+          },
+          "prices": {
+            "exists": true,
+            "latest_fetch": "2026-09-06T23:09:01.255401",
+            "max_date": "2026-09-04",
+            "min_date": "1962-01-02",
+            "rows": 19965368
+          },
+          "universe_snapshot": {
+            "exists": true,
+            "latest_fetch": null,
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-16",
+            "rows": 470480
+          }
+        }
+      },
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Sensitivity profile: exactly twice baseline market friction; no separately verified broker fees.",
+        "fixed_adverse_bps": 10.0,
+        "fractional_shares": true,
+        "id": "cost_2x_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 2.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "fill_model": "v4",
+      "gross_traded_notional": 725065.5363403354,
+      "initial_cash": 39000.0,
+      "max_dd": -0.236030695395402,
+      "max_participation": 4.21902491035985e-05,
+      "modeled_price_cost_dollars": 1450.1310726806707,
+      "modeled_total_cost_dollars": 1450.1310726806707,
+      "n_capacity_rejected": 0,
+      "n_fills": 33,
+      "n_rejected": 0,
+      "p95_participation": 3.7758745150968584e-05,
+      "profile_id": "cost_2x_v1",
+      "source_file_count": 95,
+      "source_sha256": "0e1f682e34fa96e32363c09c00a96c7699ac8aa44364081327c82a0579ab2262",
+      "total_return": 0.48195511591793005,
+      "turnover_on_initial_cash": 18.59142400872655,
+      "universe_policy": "all"
+    },
+    {
+      "cagr": 0.08186605539477232,
+      "capacity_rejected_notional": 0.0,
+      "config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
+      "data_quality_class": "fixed_etf_history",
+      "data_snapshot": {
+        "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+        "tables": {
+          "corporate_actions": {
+            "exists": true,
+            "latest_fetch": "2026-09-04T22:33:26.507372",
+            "max_date": "2026-09-03",
+            "min_date": "1962-01-16",
+            "rows": 409752
+          },
+          "fundamentals": {
+            "exists": true,
+            "latest_fetch": "2026-09-05T00:33:22.478505",
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-18",
+            "rows": 32944
+          },
+          "price_quarantine": {
+            "active_count": 0,
+            "active_tickers": []
+          },
+          "prices": {
+            "exists": true,
+            "latest_fetch": "2026-09-06T23:09:01.255401",
+            "max_date": "2026-09-04",
+            "min_date": "1962-01-02",
+            "rows": 19965368
+          },
+          "universe_snapshot": {
+            "exists": true,
+            "latest_fetch": null,
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-16",
+            "rows": 470480
+          }
+        }
+      },
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Sensitivity profile: exactly twice baseline market friction; no separately verified broker fees.",
+        "fixed_adverse_bps": 10.0,
+        "fractional_shares": true,
+        "id": "cost_2x_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 2.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "fill_model": "v4",
+      "gross_traded_notional": 1859149.5927225773,
+      "initial_cash": 100000.0,
+      "max_dd": -0.23603069539540222,
+      "max_participation": 0.00010818012590666277,
+      "modeled_price_cost_dollars": 3718.2991854451543,
+      "modeled_total_cost_dollars": 3718.2991854451543,
+      "n_capacity_rejected": 0,
+      "n_fills": 34,
+      "n_rejected": 0,
+      "p95_participation": 9.646285078775336e-05,
+      "profile_id": "cost_2x_v1",
+      "source_file_count": 95,
+      "source_sha256": "0e1f682e34fa96e32363c09c00a96c7699ac8aa44364081327c82a0579ab2262",
+      "total_return": 0.4819859368942663,
+      "turnover_on_initial_cash": 18.591495927225772,
+      "universe_policy": "all"
+    },
+    {
+      "cagr": 0.08186605539477254,
+      "capacity_rejected_notional": 0.0,
+      "config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
+      "data_quality_class": "fixed_etf_history",
+      "data_snapshot": {
+        "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+        "tables": {
+          "corporate_actions": {
+            "exists": true,
+            "latest_fetch": "2026-09-04T22:33:26.507372",
+            "max_date": "2026-09-03",
+            "min_date": "1962-01-16",
+            "rows": 409752
+          },
+          "fundamentals": {
+            "exists": true,
+            "latest_fetch": "2026-09-05T00:33:22.478505",
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-18",
+            "rows": 32944
+          },
+          "price_quarantine": {
+            "active_count": 0,
+            "active_tickers": []
+          },
+          "prices": {
+            "exists": true,
+            "latest_fetch": "2026-09-06T23:09:01.255401",
+            "max_date": "2026-09-04",
+            "min_date": "1962-01-02",
+            "rows": 19965368
+          },
+          "universe_snapshot": {
+            "exists": true,
+            "latest_fetch": null,
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-16",
+            "rows": 470480
+          }
+        }
+      },
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Sensitivity profile: exactly twice baseline market friction; no separately verified broker fees.",
+        "fixed_adverse_bps": 10.0,
+        "fractional_shares": true,
+        "id": "cost_2x_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 2.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "fill_model": "v4",
+      "gross_traded_notional": 4647873.981806446,
+      "initial_cash": 250000.0,
+      "max_dd": -0.236030695395402,
+      "max_participation": 0.00027045031476665706,
+      "modeled_price_cost_dollars": 9295.747963612888,
+      "modeled_total_cost_dollars": 9295.747963612888,
+      "n_capacity_rejected": 0,
+      "n_fills": 34,
+      "n_rejected": 0,
+      "p95_participation": 0.00024115712696938345,
+      "profile_id": "cost_2x_v1",
+      "source_file_count": 95,
+      "source_sha256": "0e1f682e34fa96e32363c09c00a96c7699ac8aa44364081327c82a0579ab2262",
+      "total_return": 0.48198593689426716,
+      "turnover_on_initial_cash": 18.591495927225782,
+      "universe_policy": "all"
+    },
+    {
+      "cagr": 0.08186605539477254,
+      "capacity_rejected_notional": 0.0,
+      "config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
+      "data_quality_class": "fixed_etf_history",
+      "data_snapshot": {
+        "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+        "tables": {
+          "corporate_actions": {
+            "exists": true,
+            "latest_fetch": "2026-09-04T22:33:26.507372",
+            "max_date": "2026-09-03",
+            "min_date": "1962-01-16",
+            "rows": 409752
+          },
+          "fundamentals": {
+            "exists": true,
+            "latest_fetch": "2026-09-05T00:33:22.478505",
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-18",
+            "rows": 32944
+          },
+          "price_quarantine": {
+            "active_count": 0,
+            "active_tickers": []
+          },
+          "prices": {
+            "exists": true,
+            "latest_fetch": "2026-09-06T23:09:01.255401",
+            "max_date": "2026-09-04",
+            "min_date": "1962-01-02",
+            "rows": 19965368
+          },
+          "universe_snapshot": {
+            "exists": true,
+            "latest_fetch": null,
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-16",
+            "rows": 470480
+          }
+        }
+      },
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Sensitivity profile: exactly twice baseline market friction; no separately verified broker fees.",
+        "fixed_adverse_bps": 10.0,
+        "fractional_shares": true,
+        "id": "cost_2x_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 2.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "fill_model": "v4",
+      "gross_traded_notional": 18591495.927225783,
+      "initial_cash": 1000000.0,
+      "max_dd": -0.236030695395402,
+      "max_participation": 0.0010818012590666282,
+      "modeled_price_cost_dollars": 37182.99185445155,
+      "modeled_total_cost_dollars": 37182.99185445155,
+      "n_capacity_rejected": 0,
+      "n_fills": 34,
+      "n_rejected": 0,
+      "p95_participation": 0.0009646285078775338,
+      "profile_id": "cost_2x_v1",
+      "source_file_count": 95,
+      "source_sha256": "0e1f682e34fa96e32363c09c00a96c7699ac8aa44364081327c82a0579ab2262",
+      "total_return": 0.48198593689426716,
+      "turnover_on_initial_cash": 18.591495927225782,
+      "universe_policy": "all"
+    },
+    {
+      "cagr": 0.08075045164377692,
+      "capacity_rejected_notional": 36960321.329039775,
+      "config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
+      "data_quality_class": "fixed_etf_history",
+      "data_snapshot": {
+        "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+        "tables": {
+          "corporate_actions": {
+            "exists": true,
+            "latest_fetch": "2026-09-04T22:33:26.507372",
+            "max_date": "2026-09-03",
+            "min_date": "1962-01-16",
+            "rows": 409752
+          },
+          "fundamentals": {
+            "exists": true,
+            "latest_fetch": "2026-09-05T00:33:22.478505",
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-18",
+            "rows": 32944
+          },
+          "price_quarantine": {
+            "active_count": 0,
+            "active_tickers": []
+          },
+          "prices": {
+            "exists": true,
+            "latest_fetch": "2026-09-06T23:09:01.255401",
+            "max_date": "2026-09-04",
+            "min_date": "1962-01-02",
+            "rows": 19965368
+          },
+          "universe_snapshot": {
+            "exists": true,
+            "latest_fetch": null,
+            "max_date": "2026-09-04",
+            "min_date": "2026-07-16",
+            "rows": 470480
+          }
+        }
+      },
+      "execution_profile": {
+        "commission_max_fraction": null,
+        "commission_minimum": 0.0,
+        "commission_per_share": 0.0,
+        "description": "Sensitivity profile: exactly twice baseline market friction; no separately verified broker fees.",
+        "fixed_adverse_bps": 10.0,
+        "fractional_shares": true,
+        "id": "cost_2x_v1",
+        "impact_coefficient_bps": 0.0,
+        "impact_exponent": 0.5,
+        "impact_reference_participation": 0.01,
+        "max_participation": 0.01,
+        "sell_fee_bps": 0.0,
+        "spread_multiplier": 2.0,
+        "spread_rule": "mdv_tiers_v1"
+      },
+      "fill_model": "v4",
+      "gross_traded_notional": 136042138.2820008,
+      "initial_cash": 10000000.0,
+      "max_dd": -0.23603069539540178,
+      "max_participation": 0.009398187185455426,
+      "modeled_price_cost_dollars": 272084.2765640015,
+      "modeled_total_cost_dollars": 272084.2765640015,
+      "n_capacity_rejected": 3,
+      "n_fills": 31,
+      "n_rejected": 5,
+      "p95_participation": 0.008359418461703363,
+      "profile_id": "cost_2x_v1",
+      "source_file_count": 95,
+      "source_sha256": "0e1f682e34fa96e32363c09c00a96c7699ac8aa44364081327c82a0579ab2262",
+      "total_return": 0.4743617140775105,
+      "turnover_on_initial_cash": 13.60421382820008,
+      "universe_policy": "all"
+    }
+  ],
+  "cohort": {
+    "config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
+    "data_quality_class": "fixed_etf_history",
+    "data_snapshot_sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+    "fill_model": "v4",
+    "source_file_count": 95,
+    "source_sha256": "0e1f682e34fa96e32363c09c00a96c7699ac8aa44364081327c82a0579ab2262",
+    "universe_policy": "all"
+  },
+  "config_id": "dual_momentum",
+  "execution_profiles": [
+    {
+      "commission_max_fraction": null,
+      "commission_minimum": 0.0,
+      "commission_per_share": 0.0,
+      "description": "Compatibility profile: liquidity-tier half-spread plus 5 bp adverse movement per side; no separately verified broker fees.",
+      "fixed_adverse_bps": 5.0,
+      "fractional_shares": true,
+      "id": "baseline_v1",
+      "impact_coefficient_bps": 0.0,
+      "impact_exponent": 0.5,
+      "impact_reference_participation": 0.01,
+      "max_participation": 0.01,
+      "sell_fee_bps": 0.0,
+      "spread_multiplier": 1.0,
+      "spread_rule": "mdv_tiers_v1"
+    },
+    {
+      "commission_max_fraction": null,
+      "commission_minimum": 0.0,
+      "commission_per_share": 0.0,
+      "description": "Sensitivity profile: exactly twice baseline market friction; no separately verified broker fees.",
+      "fixed_adverse_bps": 10.0,
+      "fractional_shares": true,
+      "id": "cost_2x_v1",
+      "impact_coefficient_bps": 0.0,
+      "impact_exponent": 0.5,
+      "impact_reference_participation": 0.01,
+      "max_participation": 0.01,
+      "sell_fee_bps": 0.0,
+      "spread_multiplier": 2.0,
+      "spread_rule": "mdv_tiers_v1"
+    }
+  ],
+  "generated_utc": "2026-09-07T04:19:43+00:00",
+  "kind": "capital_sensitivity",
+  "paper_only": true,
+  "window": "5y"
+}

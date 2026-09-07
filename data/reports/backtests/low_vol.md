@@ -1,6 +1,8 @@
 # Low-Volatility Defensive (`low_vol`) — historical windows
 
-_strategy `low_vol` · cadence monthly · generated 2026-07-29 14:04 UTC_
+_strategy `low_vol` · cadence monthly · generated 2026-09-07 11:18 UTC_
+
+**Evidence and assumptions.** `legacy_unclassified`; starting capital $0; execution profile `legacy_unstamped`; data snapshot `legacy_unstamped`.
 
 ## Disclosures — read before any number below
 
@@ -40,18 +42,20 @@ _strategy `low_vol` · cadence monthly · generated 2026-07-29 14:04 UTC_
 8. **Windows end 2026-07-16**, the session before league inception. Nothing
    after that date is read, so the farm and the live forward record do not
    overlap.
-9. **Costs are the league's own**: t+1-open fills, `max(half_spread, 5) + 5` bp
-   per side, the 1%-of-median-dollar-volume liquidity guard, no same-bar fills,
-   no fabricated bars.
+9. **Costs are the league's own named execution profile**, serialized in every
+   result: t+1-open fills, explicit spread/adverse/impact/fee assumptions, a
+   profile-defined median-dollar-volume ceiling, no same-bar fills and no
+   fabricated bars. `baseline_v1` is the historical
+   `max(half_spread, 5) + 5` bp-per-side model.
 
 
-| Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| low_vol | 2026-01-16→2026-07-16 | +7.28% | +15.23% | +9.71% | +1.53 | +1.17 | −5.38% | −4.46% | +2.50% | −3.17% | 93 |
-| low_vol | 2025-07-16→2026-07-16 | +13.98% | +13.99% | +8.81% | +1.54 | +1.11 | −5.52% | −4.49% | −32.14% | −7.20% | 189 |
-| low_vol | 2023-07-17→2026-07-16 | +41.07% | +12.16% | +9.80% | +1.23 | +0.77 | −8.22% | −5.69% | −19.53% | −29.78% | 538 |
-| low_vol | 2021-07-16→2026-07-16 | +46.22% | +7.90% | +10.59% | +0.77 | +0.45 | −16.35% | −7.78% | −17.36% | −36.82% | 904 |
-| low_vol | 2011-07-18→2026-07-16 | +403.79% | +11.39% | +12.10% | +0.95 | +0.83 | −35.65% | −16.06% | −738.44% | −125.67% | 3801 |
+| Book | Evidence class | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Comparison | Fills |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| low_vol | `legacy_unclassified` | 2026-01-16→2026-07-16 | +7.28% | +15.23% | +9.71% | +1.53 | +1.17 | −5.38% | −4.46% | · | · | **uncontrolled absolute simulation** | 93 |
+| low_vol | `legacy_unclassified` | 2025-07-16→2026-07-16 | +13.98% | +13.99% | +8.81% | +1.54 | +1.11 | −5.52% | −4.49% | · | · | **uncontrolled absolute simulation** | 189 |
+| low_vol | `legacy_unclassified` | 2023-07-17→2026-07-16 | +41.07% | +12.16% | +9.80% | +1.23 | +0.77 | −8.22% | −5.69% | · | · | **uncontrolled absolute simulation** | 538 |
+| low_vol | `legacy_unclassified` | 2021-07-16→2026-07-16 | +46.22% | +7.90% | +10.59% | +0.77 | +0.45 | −16.35% | −7.78% | · | · | **uncontrolled absolute simulation** | 904 |
+| low_vol | `legacy_unclassified` | 2011-07-18→2026-07-16 | +403.79% | +11.39% | +12.10% | +0.95 | +0.83 | −35.65% | −16.06% | · | · | **uncontrolled absolute simulation** | 3801 |
 
 ## Equity-curve detail
 
