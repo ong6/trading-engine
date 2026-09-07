@@ -1,0 +1,367 @@
+{
+  "bil_coverage": 1.0,
+  "cadence": "monthly",
+  "cagr": 0.08186605539477254,
+  "capacity_rejected_notional": 0.0,
+  "clamped_to_data_floor": false,
+  "config": {
+    "cadence": "monthly",
+    "description": "Classic GEM: monthly, hold the 12-mo winner of SPY vs EFA if it beats BIL, else cash. 100% single position.",
+    "expectation": "Lower drawdown than buy-and-hold via the cash switch; lags in strong bull runs.",
+    "id": "dual_momentum",
+    "kill_criterion": "Underperforms spy_benchmark by >20% over 2 years while not delivering a lower max drawdown.",
+    "name": "Dual Momentum (GEM)",
+    "params": {
+      "assets": [
+        "SPY",
+        "EFA"
+      ],
+      "cash_proxy": "BIL",
+      "lookback": 252
+    },
+    "strategy": "dual_momentum"
+  },
+  "config_id": "dual_momentum",
+  "config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
+  "corporate_actions_dividend_rows": 400260,
+  "data_quality_class": "fixed_etf_history",
+  "data_snapshot": {
+    "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+    "tables": {
+      "corporate_actions": {
+        "exists": true,
+        "latest_fetch": "2026-09-04T22:33:26.507372",
+        "max_date": "2026-09-03",
+        "min_date": "1962-01-16",
+        "rows": 409752
+      },
+      "fundamentals": {
+        "exists": true,
+        "latest_fetch": "2026-09-05T00:33:22.478505",
+        "max_date": "2026-09-04",
+        "min_date": "2026-07-18",
+        "rows": 32944
+      },
+      "price_quarantine": {
+        "active_count": 0,
+        "active_tickers": []
+      },
+      "prices": {
+        "exists": true,
+        "latest_fetch": "2026-09-06T23:09:01.255401",
+        "max_date": "2026-09-04",
+        "min_date": "1962-01-02",
+        "rows": 19965368
+      },
+      "universe_snapshot": {
+        "exists": true,
+        "latest_fetch": null,
+        "max_date": "2026-09-04",
+        "min_date": "2026-07-16",
+        "rows": 470480
+      }
+    }
+  },
+  "dividend_cash": 82821.55555553977,
+  "end_date": "2026-07-16",
+  "equity_end": 1481985.936894267,
+  "equity_start": 1000000.0,
+  "execution_profile": {
+    "commission_max_fraction": null,
+    "commission_minimum": 0.0,
+    "commission_per_share": 0.0,
+    "description": "Sensitivity profile: exactly twice baseline market friction; no separately verified broker fees.",
+    "fixed_adverse_bps": 10.0,
+    "fractional_shares": true,
+    "id": "cost_2x_v1",
+    "impact_coefficient_bps": 0.0,
+    "impact_exponent": 0.5,
+    "impact_reference_participation": 0.01,
+    "max_participation": 0.01,
+    "sell_fee_bps": 0.0,
+    "spread_multiplier": 2.0,
+    "spread_rule": "mdv_tiers_v1"
+  },
+  "fill_model": "v4",
+  "git_dirty": true,
+  "git_sha": "ffbbd0cfab82235f8cfc67d5d67fd0f1b04411b3",
+  "gross_traded_notional": 18591495.927225783,
+  "initial_cash": 1000000.0,
+  "max_dd": -0.236030695395402,
+  "max_participation": 0.0010818012590666282,
+  "modeled_price_cost_dollars": 37182.99185445155,
+  "modeled_total_cost_dollars": 37182.99185445155,
+  "monthly_equity": [
+    [
+      "2021-07",
+      1000000.0
+    ],
+    [
+      "2021-08",
+      1023433.4467595774
+    ],
+    [
+      "2021-09",
+      975856.3860363218
+    ],
+    [
+      "2021-10",
+      1044304.2600550374
+    ],
+    [
+      "2021-11",
+      1035913.437476542
+    ],
+    [
+      "2021-12",
+      1083741.08065087
+    ],
+    [
+      "2022-01",
+      1026566.3148334521
+    ],
+    [
+      "2022-02",
+      996265.1450508528
+    ],
+    [
+      "2022-03",
+      1033630.5289274906
+    ],
+    [
+      "2022-04",
+      942893.6314472447
+    ],
+    [
+      "2022-05",
+      945021.9910862901
+    ],
+    [
+      "2022-06",
+      948248.1536544175
+    ],
+    [
+      "2022-07",
+      948248.1536544175
+    ],
+    [
+      "2022-08",
+      948248.1536544175
+    ],
+    [
+      "2022-09",
+      948248.1536544175
+    ],
+    [
+      "2022-10",
+      948248.1536544175
+    ],
+    [
+      "2022-11",
+      948248.1536544175
+    ],
+    [
+      "2022-12",
+      948248.1536544175
+    ],
+    [
+      "2023-01",
+      948248.1536544175
+    ],
+    [
+      "2023-02",
+      948248.1536544175
+    ],
+    [
+      "2023-03",
+      948248.1536544175
+    ],
+    [
+      "2023-04",
+      948248.1536544175
+    ],
+    [
+      "2023-05",
+      907571.382710011
+    ],
+    [
+      "2023-06",
+      910626.6489262605
+    ],
+    [
+      "2023-07",
+      939320.151251291
+    ],
+    [
+      "2023-08",
+      904715.3895410205
+    ],
+    [
+      "2023-09",
+      871679.9430619874
+    ],
+    [
+      "2023-10",
+      846384.5290683534
+    ],
+    [
+      "2023-11",
+      915946.9175508469
+    ],
+    [
+      "2023-12",
+      954690.1616630161
+    ],
+    [
+      "2024-01",
+      969912.6940239761
+    ],
+    [
+      "2024-02",
+      1020528.449460602
+    ],
+    [
+      "2024-03",
+      1053840.5115341854
+    ],
+    [
+      "2024-04",
+      1011339.3906013281
+    ],
+    [
+      "2024-05",
+      1062492.6049052738
+    ],
+    [
+      "2024-06",
+      1099984.1177482214
+    ],
+    [
+      "2024-07",
+      1113287.5515468824
+    ],
+    [
+      "2024-08",
+      1139300.1610055729
+    ],
+    [
+      "2024-09",
+      1163202.7003001745
+    ],
+    [
+      "2024-10",
+      1152817.9747090412
+    ],
+    [
+      "2024-11",
+      1221564.5024874022
+    ],
+    [
+      "2024-12",
+      1192160.243728804
+    ],
+    [
+      "2025-01",
+      1224146.2493670275
+    ],
+    [
+      "2025-02",
+      1208605.896498773
+    ],
+    [
+      "2025-03",
+      1141290.3061465523
+    ],
+    [
+      "2025-04",
+      1131400.1522181733
+    ],
+    [
+      "2025-05",
+      1189869.1345342968
+    ],
+    [
+      "2025-06",
+      1217974.8266369249
+    ],
+    [
+      "2025-07",
+      1192518.456011251
+    ],
+    [
+      "2025-08",
+      1219881.537436744
+    ],
+    [
+      "2025-09",
+      1263332.2175381437
+    ],
+    [
+      "2025-10",
+      1293455.6067175232
+    ],
+    [
+      "2025-11",
+      1303736.124474897
+    ],
+    [
+      "2025-12",
+      1338908.3640497434
+    ],
+    [
+      "2026-01",
+      1404273.0918520147
+    ],
+    [
+      "2026-02",
+      1468952.726825844
+    ],
+    [
+      "2026-03",
+      1353951.2055488073
+    ],
+    [
+      "2026-04",
+      1426297.6511479896
+    ],
+    [
+      "2026-05",
+      1489557.4303501246
+    ],
+    [
+      "2026-06",
+      1474186.99436283
+    ],
+    [
+      "2026-07",
+      1481985.936894267
+    ]
+  ],
+  "n_capacity_rejected": 0,
+  "n_dividend_credits": 13,
+  "n_fills": 34,
+  "n_rejected": 0,
+  "n_sessions": 1255,
+  "name": "Dual Momentum (GEM)",
+  "p95_participation": 0.0009646285078775338,
+  "return_base": 1000000.0,
+  "runtime_s": 74.2,
+  "screen_rows": 0,
+  "screen_s": 0.0,
+  "screen_source": "not-used",
+  "sharpe": 0.6074383567891738,
+  "sharpe_ex_bil": 0.374067319475273,
+  "source_file_count": 95,
+  "source_sha256": "0e1f682e34fa96e32363c09c00a96c7699ac8aa44364081327c82a0579ab2262",
+  "start_date": "2021-07-16",
+  "step_s": 65.0,
+  "strategy": "dual_momentum",
+  "total_return": 0.48198593689426716,
+  "turnover_on_initial_cash": 18.591495927225782,
+  "universe_policy": "all",
+  "vol_ann": 0.148171303763095,
+  "window": "5y",
+  "window_end_target": "2026-07-16",
+  "worst_month": -0.08778465316266904,
+  "years": 4.999315537303217
+}

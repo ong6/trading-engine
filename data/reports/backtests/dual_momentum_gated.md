@@ -1,6 +1,8 @@
 # Dual Momentum (regime-gated) (`dual_momentum_gated`) — historical windows
 
-_strategy `dual_momentum` · cadence monthly · generated 2026-07-29 14:04 UTC_
+_strategy `dual_momentum` · cadence monthly · generated 2026-09-07 11:18 UTC_
+
+**Evidence and assumptions.** `legacy_unclassified`; starting capital $0; execution profile `legacy_unstamped`; data snapshot `legacy_unstamped`.
 
 ## Disclosures — read before any number below
 
@@ -40,19 +42,21 @@ _strategy `dual_momentum` · cadence monthly · generated 2026-07-29 14:04 UTC_
 8. **Windows end 2026-07-16**, the session before league inception. Nothing
    after that date is read, so the farm and the live forward record do not
    overlap.
-9. **Costs are the league's own**: t+1-open fills, `max(half_spread, 5) + 5` bp
-   per side, the 1%-of-median-dollar-volume liquidity guard, no same-bar fills,
-   no fabricated bars.
+9. **Costs are the league's own named execution profile**, serialized in every
+   result: t+1-open fills, explicit spread/adverse/impact/fee assumptions, a
+   profile-defined median-dollar-volume ceiling, no same-bar fills and no
+   fabricated bars. `baseline_v1` is the historical
+   `max(half_spread, 5) + 5` bp-per-side model.
 
 
-| Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| dual_momentum_gated | 2026-01-16→2026-07-16 | +1.55% | +3.15% | +15.46% | +0.28 | +0.05 | −11.42% | −7.82% | −3.22% | −8.90% | 5 |
-| dual_momentum_gated | 2025-07-16→2026-07-16 | +20.80% | +20.82% | +13.46% | +1.48 | +1.20 | −11.42% | −7.83% | −25.32% | −0.38% | 11 |
-| dual_momentum_gated | 2023-07-17→2026-07-16 | +36.02% | +10.81% | +12.68% | +0.88 | +0.52 | −11.42% | −7.83% | −24.58% | −34.84% | 24 |
-| dual_momentum_gated | 2021-07-16→2026-07-16 | +21.07% | +3.90% | +11.72% | +0.39 | +0.09 | −27.13% | −9.18% | −42.50% | −61.97% | 32 |
-| dual_momentum_gated | 2011-07-18→2026-07-16 | +189.75% | +7.35% | +12.26% | +0.64 | +0.52 | −27.11% | −9.16% | −952.48% | −339.71% | 89 |
-| dual_momentum_gated | 2008-05-29→2026-07-16 | +202.65% | +6.30% | +12.25% | +0.56 | +0.46 | −27.13% | −9.20% | · | −1488.05% | 104 |
+| Book | Evidence class | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Comparison | Fills |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| dual_momentum_gated | `legacy_unclassified` | 2026-01-16→2026-07-16 | +1.55% | +3.15% | +15.46% | +0.28 | +0.05 | −11.42% | −7.82% | · | · | **uncontrolled absolute simulation** | 5 |
+| dual_momentum_gated | `legacy_unclassified` | 2025-07-16→2026-07-16 | +20.80% | +20.82% | +13.46% | +1.48 | +1.20 | −11.42% | −7.83% | · | · | **uncontrolled absolute simulation** | 11 |
+| dual_momentum_gated | `legacy_unclassified` | 2023-07-17→2026-07-16 | +36.02% | +10.81% | +12.68% | +0.88 | +0.52 | −11.42% | −7.83% | · | · | **uncontrolled absolute simulation** | 24 |
+| dual_momentum_gated | `legacy_unclassified` | 2021-07-16→2026-07-16 | +21.07% | +3.90% | +11.72% | +0.39 | +0.09 | −27.13% | −9.18% | · | · | **uncontrolled absolute simulation** | 32 |
+| dual_momentum_gated | `legacy_unclassified` | 2011-07-18→2026-07-16 | +189.75% | +7.35% | +12.26% | +0.64 | +0.52 | −27.11% | −9.16% | · | · | **uncontrolled absolute simulation** | 89 |
+| dual_momentum_gated | `legacy_unclassified` | 2008-05-29→2026-07-16 | +202.65% | +6.30% | +12.25% | +0.56 | +0.46 | −27.13% | −9.20% | · | · | **uncontrolled absolute simulation** | 104 |
 
 ## Equity-curve detail
 

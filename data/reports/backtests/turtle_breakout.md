@@ -1,6 +1,8 @@
 # Turtle Breakout (ATR-stopped) (`turtle_breakout`) — historical windows
 
-_strategy `turtle_breakout` · cadence daily · generated 2026-07-29 14:04 UTC_
+_strategy `turtle_breakout` · cadence daily · generated 2026-09-07 11:18 UTC_
+
+**Evidence and assumptions.** `legacy_unclassified`; starting capital $0; execution profile `legacy_unstamped`; data snapshot `legacy_unstamped`.
 
 ## Disclosures — read before any number below
 
@@ -40,18 +42,20 @@ _strategy `turtle_breakout` · cadence daily · generated 2026-07-29 14:04 UTC_
 8. **Windows end 2026-07-16**, the session before league inception. Nothing
    after that date is read, so the farm and the live forward record do not
    overlap.
-9. **Costs are the league's own**: t+1-open fills, `max(half_spread, 5) + 5` bp
-   per side, the 1%-of-median-dollar-volume liquidity guard, no same-bar fills,
-   no fabricated bars.
+9. **Costs are the league's own named execution profile**, serialized in every
+   result: t+1-open fills, explicit spread/adverse/impact/fee assumptions, a
+   profile-defined median-dollar-volume ceiling, no same-bar fills and no
+   fabricated bars. `baseline_v1` is the historical
+   `max(half_spread, 5) + 5` bp-per-side model.
 
 
-| Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| turtle_breakout | 2026-01-16→2026-07-16 | −10.28% | −19.65% | +32.45% | −0.52 | −0.63 | −17.20% | −10.72% | −15.05% | −20.72% | 82 |
-| turtle_breakout | 2025-07-16→2026-07-16 | −15.89% | −15.90% | +29.49% | −0.44 | −0.57 | −25.92% | −11.83% | −62.01% | −37.07% | 162 |
-| turtle_breakout | 2023-07-17→2026-07-16 | +1.62% | +0.54% | +27.35% | +0.16 | −0.01 | −30.99% | −11.96% | −58.98% | −69.23% | 482 |
-| turtle_breakout | 2021-07-16→2026-07-16 | −17.60% | −3.80% | +23.78% | −0.04 | −0.19 | −41.29% | −13.44% | −81.17% | −100.64% | 690 |
-| turtle_breakout | 2011-07-18→2026-07-16 | +120.50% | +5.41% | +23.41% | +0.34 | +0.28 | −42.98% | −15.71% | −1021.73% | −408.97% | 1934 |
+| Book | Evidence class | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Comparison | Fills |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| turtle_breakout | `legacy_unclassified` | 2026-01-16→2026-07-16 | −10.28% | −19.65% | +32.45% | −0.52 | −0.63 | −17.20% | −10.72% | · | · | **uncontrolled absolute simulation** | 82 |
+| turtle_breakout | `legacy_unclassified` | 2025-07-16→2026-07-16 | −15.89% | −15.90% | +29.49% | −0.44 | −0.57 | −25.92% | −11.83% | · | · | **uncontrolled absolute simulation** | 162 |
+| turtle_breakout | `legacy_unclassified` | 2023-07-17→2026-07-16 | +1.62% | +0.54% | +27.35% | +0.16 | −0.01 | −30.99% | −11.96% | · | · | **uncontrolled absolute simulation** | 482 |
+| turtle_breakout | `legacy_unclassified` | 2021-07-16→2026-07-16 | −17.60% | −3.80% | +23.78% | −0.04 | −0.19 | −41.29% | −13.44% | · | · | **uncontrolled absolute simulation** | 690 |
+| turtle_breakout | `legacy_unclassified` | 2011-07-18→2026-07-16 | +120.50% | +5.41% | +23.41% | +0.34 | +0.28 | −42.98% | −15.71% | · | · | **uncontrolled absolute simulation** | 1934 |
 
 ## Equity-curve detail
 

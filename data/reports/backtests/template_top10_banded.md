@@ -1,6 +1,8 @@
 # Template Top 10 (banded) (`template_top10_banded`) — historical windows
 
-_strategy `template_top10_banded` · cadence weekly · generated 2026-07-29 14:04 UTC_
+_strategy `template_top10_banded` · cadence weekly · generated 2026-09-07 11:18 UTC_
+
+**Evidence and assumptions.** `legacy_unclassified`; starting capital $0; execution profile `legacy_unstamped`; data snapshot `legacy_unstamped`.
 
 ## Disclosures — read before any number below
 
@@ -40,18 +42,20 @@ _strategy `template_top10_banded` · cadence weekly · generated 2026-07-29 14:0
 8. **Windows end 2026-07-16**, the session before league inception. Nothing
    after that date is read, so the farm and the live forward record do not
    overlap.
-9. **Costs are the league's own**: t+1-open fills, `max(half_spread, 5) + 5` bp
-   per side, the 1%-of-median-dollar-volume liquidity guard, no same-bar fills,
-   no fabricated bars.
+9. **Costs are the league's own named execution profile**, serialized in every
+   result: t+1-open fills, explicit spread/adverse/impact/fee assumptions, a
+   profile-defined median-dollar-volume ceiling, no same-bar fills and no
+   fabricated bars. `baseline_v1` is the historical
+   `max(half_spread, 5) + 5` bp-per-side model.
 
 
-| Book | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Fills |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| template_top10_banded | 2026-01-16→2026-07-16 | −8.13% | −15.73% | +86.89% | +0.25 | +0.21 | −37.23% | −29.22% | −12.90% | −18.58% | 371 |
-| template_top10_banded | 2025-07-16→2026-07-16 | +9.94% | +9.95% | +71.34% | +0.50 | +0.45 | −36.66% | −29.23% | −36.18% | −11.24% | 731 |
-| template_top10_banded | 2023-07-17→2026-07-16 | −1.19% | −0.40% | +57.14% | +0.28 | +0.20 | −47.80% | −29.23% | −61.79% | −72.04% | 2238 |
-| template_top10_banded | 2021-07-16→2026-07-16 | +8.91% | +1.72% | +50.68% | +0.29 | +0.22 | −52.75% | −29.22% | −54.67% | −74.13% | 3761 |
-| template_top10_banded | 2011-07-18→2026-07-16 | +620.86% | +14.08% | +41.82% | +0.53 | +0.49 | −52.85% | −29.23% | −521.38% | +91.39% | 11298 |
+| Book | Evidence class | Span | Total | CAGR | Vol | Sharpe | Sharpe−BIL | Max DD | Worst mo | vs EW | vs SPY | Comparison | Fills |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| template_top10_banded | `legacy_unclassified` | 2026-01-16→2026-07-16 | −8.13% | −15.73% | +86.89% | +0.25 | +0.21 | −37.23% | −29.22% | · | · | **uncontrolled absolute simulation** | 371 |
+| template_top10_banded | `legacy_unclassified` | 2025-07-16→2026-07-16 | +9.94% | +9.95% | +71.34% | +0.50 | +0.45 | −36.66% | −29.23% | · | · | **uncontrolled absolute simulation** | 731 |
+| template_top10_banded | `legacy_unclassified` | 2023-07-17→2026-07-16 | −1.19% | −0.40% | +57.14% | +0.28 | +0.20 | −47.80% | −29.23% | · | · | **uncontrolled absolute simulation** | 2238 |
+| template_top10_banded | `legacy_unclassified` | 2021-07-16→2026-07-16 | +8.91% | +1.72% | +50.68% | +0.29 | +0.22 | −52.75% | −29.22% | · | · | **uncontrolled absolute simulation** | 3761 |
+| template_top10_banded | `legacy_unclassified` | 2011-07-18→2026-07-16 | +620.86% | +14.08% | +41.82% | +0.53 | +0.49 | −52.85% | −29.23% | · | · | **uncontrolled absolute simulation** | 11298 |
 
 ## Equity-curve detail
 

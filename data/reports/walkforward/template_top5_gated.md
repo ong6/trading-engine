@@ -1,16 +1,20 @@
 # Template Top 5 (regime-gated) — walk-forward re-validation
 
-_`template_top5_gated` · template_top5 · weekly cadence · verdict **PASS** · generated 2026-08-30T06:27:34+00:00_
+_`template_top5_gated` · template_top5 · weekly cadence · verdict **PASS** · generated 2026-09-07T11:43:04+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-08-28. Each fold is an independent replay starting at $39,000. Span 2014-08-28 → 2026-08-28 (3018 sessions); data floor 1994-01-27; screen source `hist` (1,106,099 passing rows).
+**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-09-04. Each fold is an independent replay starting at $39,000. Span 2014-09-04 → 2026-09-04 (3019 sessions); data floor 1994-01-27; screen source `hist` (1,107,457 passing rows).
+
+**Provenance.** Source `7727bc6b9af2964075d782037983414929cb53d9ffb78c59fa889b3974d29d9a`; config `fc20325eea7310c0b00cdb724aaa92b3e6e0e067d04b8c7c609f11d3b5807c09`.
+
+**Evidence and execution.** Data quality `current_universe_survivor_biased`; execution profile `baseline_v1`; data snapshot `b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785`; comparison protocol `wf-controls-2026-09-07-v1`.
 
 **Pre-registered expectation.** Same upside as top5 in risk-on, materially lower drawdown in bear markets (drifts to cash).
 
 **Pre-registered kill criterion.** Does not reduce max drawdown vs ungated top5 across a full risk-off episode.
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 50% of 10 window(s), mean excess +23.38%, latest −6.85% → **PASS**.
+**Measured against `ew_benchmark` on the same folds:** beats it in 50% of 10 window(s), mean excess +32.76%, latest +15.14% → **PASS**.
 
-**90% CI on mean excess vs `ew_benchmark`:** [−14.65%, +79.29%] → **INDISTINGUISHABLE**. The verdict above is unchanged by this interval — see the note below the fold table.
+**90% CI on mean excess vs `ew_benchmark`:** [−14.13%, +104.92%] → **INDISTINGUISHABLE**. The verdict above is unchanged by this interval — see the note below the fold table.
 
 ## Disclosures — read before any number below
 
@@ -25,9 +29,10 @@ _`template_top5_gated` · template_top5 · weekly cadence · verdict **PASS** ·
    early fold rests on a thinner, more winner-selected cross-section than a late
    one. Not one 2008 casualty is present: LEH, BSC, ENE, WCOM, CFC, MER, SIVB and
    FRC are all absent, so **a fold spanning 2008 is one in which those names cannot
-   lose money.** That is WHY the headline comparison here is **vs EW (same
-   universe, same screen), fold by fold** — the bias is largely common to both
-   sides of that difference. Absolute return is context, not evidence, and a fold
+   lose money.** That is WHY the headline comparison for single-name books is
+   **vs EW (same universe, same screen), fold by fold** — the bias is largely
+   common to both sides of that difference. Newly generated ETF/asset-allocation
+   artifacts declare SPY as their comparison. Absolute return is context, not evidence, and a fold
    with a small `Universe` count deserves proportionally less weight.
 2. **Out-of-sample in the DATA, not in the RULE.** Each validate window is data
    the preceding train window never saw, and nothing is fitted anywhere in this
@@ -59,47 +64,47 @@ _`template_top5_gated` · template_top5 · weekly cadence · verdict **PASS** ·
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills | Universe |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2014-08-28→2016-08-26 | −8.88% | −4.55% | 2016-08-26→2017-08-28 | **+12.58%** | +12.51% | +35.35% | +0.51 | −19.49% | +4.25% | −1.56% | 329 | 2,684 |
-| 2 | 2015-08-28→2017-08-28 | +36.34% | +16.75% | 2017-08-28→2018-08-28 | **+66.49%** | +66.55% | +40.63% | +1.46 | −23.33% | +23.72% | +46.74% | 322 | 2,827 |
-| 3 | 2016-08-29→2018-08-28 | +83.55% | +35.57% | 2018-08-28→2019-08-28 | **+1.37%** | +1.37% | +30.17% | +0.20 | −37.40% | +0.87% | −0.09% | 218 | 2,933 |
-| 4 | 2017-08-28→2019-08-28 | +65.39% | +28.63% | 2019-08-28→2020-08-28 | **+54.32%** | +54.18% | +47.17% | +1.15 | −31.76% | +29.46% | +31.89% | 250 | 3,049 |
-| 5 | 2018-08-28→2020-08-28 | +49.16% | +22.12% | 2020-08-28→2021-08-27 | **+417.96%** | +420.90% | +86.60% | +2.32 | −32.49% | +289.65% | +388.87% | 337 | 3,294 |
-| 6 | 2019-08-28→2021-08-27 | +748.10% | +191.44% | 2021-08-27→2022-08-26 | **−13.77%** | −13.81% | +40.88% | −0.16 | −45.74% | −5.62% | −5.33% | 188 | 3,438 |
-| 7 | 2020-08-28→2022-08-26 | +356.82% | +114.29% | 2022-08-26→2023-08-28 | **−22.62%** | −22.53% | +37.34% | −0.51 | −32.62% | −14.18% | −33.17% | 218 | 3,552 |
-| 8 | 2021-08-30→2023-08-28 | −38.39% | −21.57% | 2023-08-28→2024-08-28 | **−11.22%** | −11.20% | +56.51% | +0.07 | −43.89% | −25.92% | −38.10% | 328 | 3,713 |
-| 9 | 2022-08-29→2024-08-28 | −31.41% | −17.19% | 2024-08-28→2025-08-28 | **−40.33%** | −40.35% | +60.64% | −0.55 | −51.01% | −61.60% | −57.44% | 285 | 3,905 |
-| 10 ◈ | 2023-08-28→2025-08-28 | −46.63% | −26.93% | 2025-08-28→2026-08-28 | **+20.75%** | +20.76% | +70.81% | +0.63 | −45.99% | −6.85% | +1.45% | 320 | 12,105 |
+| 1 | 2014-09-04→2016-09-02 | −10.63% | −5.47% | 2016-09-02→2017-09-01 | **+17.35%** | +17.42% | +35.45% | +0.63 | −19.38% | +1.34% | · | 326 | 2,685 |
+| 2 | 2015-09-04→2017-09-01 | +41.68% | +19.10% | 2017-09-01→2018-09-04 | **+68.81%** | +68.15% | +40.26% | +1.50 | −23.41% | +27.50% | · | 330 | 2,827 |
+| 3 | 2016-09-06→2018-09-04 | +115.15% | +46.87% | 2018-09-04→2019-09-04 | **−6.10%** | −6.11% | +30.44% | −0.06 | −37.39% | −3.85% | · | 218 | 2,933 |
+| 4 | 2017-09-05→2019-09-04 | +62.70% | +27.62% | 2019-09-04→2020-09-04 | **+39.50%** | +39.41% | +48.62% | +0.92 | −30.74% | +22.49% | · | 252 | 3,051 |
+| 5 | 2018-09-04→2020-09-04 | +34.28% | +15.87% | 2020-09-04→2021-09-03 | **+525.14%** | +529.08% | +85.96% | +2.55 | −32.67% | +373.94% | · | 343 | 3,295 |
+| 6 | 2019-09-04→2021-09-03 | +839.89% | +206.81% | 2021-09-03→2022-09-02 | **−17.11%** | −17.16% | +39.75% | −0.28 | −45.10% | −2.09% | · | 175 | 3,441 |
+| 7 | 2020-09-04→2022-09-02 | +434.64% | +131.89% | 2022-09-02→2023-09-01 | **−22.39%** | −22.46% | +38.17% | −0.48 | −32.48% | −25.11% | · | 219 | 3,552 |
+| 8 | 2021-09-07→2023-09-01 | −37.68% | −21.23% | 2023-09-01→2024-09-04 | **−14.78%** | −14.64% | +55.94% | −0.01 | −42.70% | −17.92% | · | 336 | 3,716 |
+| 9 | 2022-09-06→2024-09-04 | −33.80% | −18.67% | 2024-09-04→2025-09-04 | **−43.86%** | −43.88% | +60.85% | −0.65 | −51.43% | −63.83% | · | 284 | 3,908 |
+| 10 ◈ | 2023-09-05→2025-09-04 | −48.33% | −28.13% | 2025-09-04→2026-09-04 | **+45.56%** | +45.60% | +70.78% | +0.89 | −45.89% | +15.14% | · | 324 | 12,105 |
 
 ## Summary
 
-* validate windows: **10**, win rate **60%**
-* mean validate return **+48.55%** (median +6.98%, worst −40.33%, best +417.96%)
-* mean validate CAGR **+48.84%** vs mean train CAGR +33.85% → decay **+14.99%**
-* mean validate Sharpe +0.51, worst validate max drawdown −51.01%
-* 2795 fill(s) inside validate windows
-* runtime 621.3s (scratch 19.5s, screen 25.7s)
+* validate windows: **10**, win rate **50%**
+* mean validate return **+59.21%** (median +5.62%, worst −43.86%, best +525.14%)
+* mean validate CAGR **+59.54%** vs mean train CAGR +37.47% → decay **+22.08%**
+* mean validate Sharpe +0.50, worst validate max drawdown −51.43%
+* 2807 fill(s) inside validate windows
+* runtime 805.0s (scratch 20.6s, screen 23.8s)
 
-**Verdict rule (pre-registered, mechanical, and NOT an automatic kill).** For
-each book, against `ew_benchmark` on the same folds:
+**Verdict rule (mechanical exploratory triage, NOT an automatic kill).** For
+each book, against the versioned comparison declared in its result artifact:
 
-* **PASS** — beats EW in ≥ 50% of validate windows AND mean validate excess ≥ 0.
+* **PASS** — beats its control in ≥ 50% of validate windows AND mean validate excess ≥ 0.
 * **WATCH** — exactly one of those two fails.
-* **REVIEW** — both fail *and* the latest validate window also trails EW.
+* **REVIEW** — both fail *and* the latest validate window also trails its control.
 
-REVIEW means the book goes on the Sunday review agenda against its own
-pre-registered kill criterion (printed on its page). The prose criterion
-decides; this flag only decides what gets read. Benchmarks are not judged.
+REVIEW means the book goes on the Sunday review agenda against its own frozen
+kill criterion (printed on its page). The prose criterion decides; this flag
+only decides what gets read. Historical comparator choices are exploratory,
+not proof of pre-registration or positive edge. Benchmarks are not judged.
 
 
 **The interval is new information, not a new rule (added 2026-08-20).** The
-PASS / WATCH / REVIEW rule above is unchanged: it still reads the beat rate and
-the *mean* excess exactly as it was pre-registered, and no verdict in this
-report has been recomputed, softened or overridden by an interval. What is new
-is the **90% bootstrap CI on mean excess vs EW** in the column beside it, and a
+PASS / WATCH / REVIEW rule reads the beat rate and the *mean* excess; the
+interval does not soften or override that triage label. It is the **90%
+bootstrap CI on mean excess vs the declared control** in the column beside it, and a
 mechanical `INDISTINGUISHABLE` label for any book whose interval contains 0.
 
 Read the two together: a **PASS whose interval straddles zero is a PASS on a
-number this evidence cannot separate from the benchmark**, and a REVIEW whose
+number this evidence cannot separate from the control**, and a REVIEW whose
 interval straddles zero is not proof the book is broken either. The verdict says
 what gets read on Sunday. The interval says how much the number underneath it
 is worth.
