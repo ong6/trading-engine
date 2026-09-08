@@ -1,14 +1,15 @@
 {
-  "last_run": "2026-09-07T22:30:11.394991+00:00",
+  "last_run": "2026-09-08T22:32:07.423224+00:00",
   "mode": "incremental",
-  "universe_size": 12564,
-  "active_count": 12359,
+  "universe_size": 12568,
+  "active_count": 12361,
   "liquid_count": 4118,
-  "prices_rows": 19965368,
+  "prices_rows": 19969464,
   "tickers_with_data": 12105,
   "stale_tickers": {
-    "count": 21,
+    "count": 23,
     "list": [
+      "APGE",
       "AVB",
       "AVNS",
       "AXIA",
@@ -17,6 +18,7 @@
       "EA",
       "EQR",
       "FBRX",
+      "HLX",
       "ISSC",
       "LBRDA",
       "LBRDK",
@@ -32,7 +34,7 @@
       "WBS"
     ]
   },
-  "failed_this_run": 0,
+  "failed_this_run": 19,
   "sources": {
     "stooq": "blocked",
     "yfinance": "ok"
@@ -40,16 +42,16 @@
   "regime": "risk-on",
   "actions_incremental": {
     "mode": "incremental",
-    "universe": 151,
-    "universe_source": "held \u222a pending \u222a core-ETFs \u222a screen-top-N",
-    "pulled_this_run": 151,
+    "universe": 142,
+    "universe_source": "active-held \u222a active-pending \u222a core-ETFs \u222a screen-top-N",
+    "pulled_this_run": 142,
     "with_actions": 90,
-    "no_actions": 61,
+    "no_actions": 52,
     "failed_tickers": 0,
-    "rows_written_this_run": 7421,
+    "rows_written_this_run": 7466,
     "total_splits": 8707,
-    "total_dividends": 401045,
-    "last_run": "2026-09-07T22:32:28.919012+00:00",
+    "total_dividends": 401046,
+    "last_run": "2026-09-08T22:33:25.380715+00:00",
     "store_gb": 3.54
   },
   "disk_warning": null,
@@ -58,7 +60,7 @@
     "rows_restated": 0,
     "outcomes": {},
     "warnings": 0,
-    "last_run": "2026-09-07T22:32:30.225442+00:00",
+    "last_run": "2026-09-08T22:33:26.531968+00:00",
     "store_gb": 3.54
   },
   "price_verify": {
@@ -259,15 +261,15 @@
     "rows_for_as_of": 2806,
     "store_gb": 3.54
   },
-  "screen_date": "2026-09-04",
-  "last_screen": null,
-  "passing_count": 588,
-  "new_today_count": 59,
+  "screen_date": "2026-09-08",
+  "last_screen": "2026-09-08T22:32:11.540194+00:00",
+  "passing_count": 558,
+  "new_today_count": 42,
   "screened": 3881,
-  "skipped_stale": null,
-  "skipped_phantom": null,
-  "skipped_short": null,
+  "skipped_stale": 0,
+  "skipped_phantom": 0,
+  "skipped_short": 213,
   "universe_policy": "all",
-  "excluded_leveraged": null,
-  "screen_metadata_source": "existing-artifacts"
+  "excluded_leveraged": 0,
+  "screen_metadata_source": "fresh-run"
 }
