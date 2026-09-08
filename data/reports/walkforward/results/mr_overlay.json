@@ -26,11 +26,11 @@
   "data_floor": "1994-01-27",
   "data_quality_class": "current_universe_survivor_biased",
   "data_snapshot": {
-    "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+    "sha256": "d16f6337aff010dd78090410db5786ac468e0be0f85aa8ff87932d069f572cbd",
     "tables": {
       "corporate_actions": {
         "exists": true,
-        "latest_fetch": "2026-09-04T22:33:26.507372",
+        "latest_fetch": "2026-09-07T22:32:28.902035",
         "max_date": "2026-09-03",
         "min_date": "1962-01-16",
         "rows": 409752
@@ -56,9 +56,9 @@
       "universe_snapshot": {
         "exists": true,
         "latest_fetch": null,
-        "max_date": "2026-09-04",
+        "max_date": "2026-09-07",
         "min_date": "2026-07-16",
-        "rows": 470480
+        "rows": 483044
       }
     }
   },
@@ -87,12 +87,30 @@
       "dividend_cash": 454.89492788507215,
       "first_session": "2014-09-04",
       "index": 1,
+      "initial_entry_missing_assets": [],
       "last_session": "2017-09-01",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 21,
       "n_fills": 1182,
+      "n_pending": 2,
       "n_rejected": 0,
       "n_validate_fills": 415,
-      "runtime_s": 539.0,
+      "pending_orders": [
+        {
+          "id": 1183,
+          "side": "buy",
+          "signal_date": "2017-09-01",
+          "ticker": "DRIP"
+        },
+        {
+          "id": 1184,
+          "side": "buy",
+          "signal_date": "2017-09-01",
+          "ticker": "ERY"
+        }
+      ],
+      "runtime_s": 566.3,
       "sessions": 756,
       "split_date": "2016-09-04",
       "split_session": "2016-09-02",
@@ -194,12 +212,30 @@
       "dividend_cash": 334.8348982999928,
       "first_session": "2015-09-04",
       "index": 2,
+      "initial_entry_missing_assets": [],
       "last_session": "2018-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 13,
       "n_fills": 1210,
+      "n_pending": 2,
       "n_rejected": 0,
       "n_validate_fills": 440,
-      "runtime_s": 540.2,
+      "pending_orders": [
+        {
+          "id": 1211,
+          "side": "sell",
+          "signal_date": "2018-09-04",
+          "ticker": "AEO"
+        },
+        {
+          "id": 1212,
+          "side": "buy",
+          "signal_date": "2018-09-04",
+          "ticker": "EVTC"
+        }
+      ],
+      "runtime_s": 563.8,
       "sessions": 755,
       "split_date": "2017-09-04",
       "split_session": "2017-09-01",
@@ -301,12 +337,30 @@
       "dividend_cash": 290.04992389843244,
       "first_session": "2016-09-06",
       "index": 3,
+      "initial_entry_missing_assets": [],
       "last_session": "2019-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 17,
       "n_fills": 1232,
+      "n_pending": 2,
       "n_rejected": 0,
       "n_validate_fills": 380,
-      "runtime_s": 550.8,
+      "pending_orders": [
+        {
+          "id": 1233,
+          "side": "sell",
+          "signal_date": "2019-09-04",
+          "ticker": "SHAK"
+        },
+        {
+          "id": 1234,
+          "side": "buy",
+          "signal_date": "2019-09-04",
+          "ticker": "NVCR"
+        }
+      ],
+      "runtime_s": 570.0,
       "sessions": 754,
       "split_date": "2018-09-04",
       "split_session": "2018-09-04",
@@ -408,12 +462,17 @@
       "dividend_cash": 210.52257812545804,
       "first_session": "2017-09-05",
       "index": 4,
+      "initial_entry_missing_assets": [],
       "last_session": "2020-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 12,
       "n_fills": 1259,
+      "n_pending": 0,
       "n_rejected": 0,
       "n_validate_fills": 431,
-      "runtime_s": 528.3,
+      "pending_orders": [],
+      "runtime_s": 551.3,
       "sessions": 757,
       "split_date": "2019-09-04",
       "split_session": "2019-09-04",
@@ -515,12 +574,24 @@
       "dividend_cash": 249.56282207939904,
       "first_session": "2018-09-04",
       "index": 5,
+      "initial_entry_missing_assets": [],
       "last_session": "2021-09-03",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 16,
       "n_fills": 1262,
+      "n_pending": 1,
       "n_rejected": 0,
       "n_validate_fills": 449,
-      "runtime_s": 602.0,
+      "pending_orders": [
+        {
+          "id": 1263,
+          "side": "buy",
+          "signal_date": "2021-09-03",
+          "ticker": "EMBJ"
+        }
+      ],
+      "runtime_s": 627.3,
       "sessions": 757,
       "split_date": "2020-09-04",
       "split_session": "2020-09-04",
@@ -622,12 +693,17 @@
       "dividend_cash": 230.8646924752026,
       "first_session": "2019-09-04",
       "index": 6,
+      "initial_entry_missing_assets": [],
       "last_session": "2022-09-02",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 15,
       "n_fills": 1251,
+      "n_pending": 0,
       "n_rejected": 0,
       "n_validate_fills": 369,
-      "runtime_s": 608.2,
+      "pending_orders": [],
+      "runtime_s": 635.9,
       "sessions": 757,
       "split_date": "2021-09-04",
       "split_session": "2021-09-03",
@@ -729,12 +805,36 @@
       "dividend_cash": 267.305515703574,
       "first_session": "2020-09-04",
       "index": 7,
+      "initial_entry_missing_assets": [],
       "last_session": "2023-09-01",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 16,
       "n_fills": 1263,
+      "n_pending": 3,
       "n_rejected": 0,
       "n_validate_fills": 438,
-      "runtime_s": 629.3,
+      "pending_orders": [
+        {
+          "id": 1264,
+          "side": "sell",
+          "signal_date": "2023-09-01",
+          "ticker": "PFIX"
+        },
+        {
+          "id": 1265,
+          "side": "sell",
+          "signal_date": "2023-09-01",
+          "ticker": "BGC"
+        },
+        {
+          "id": 1266,
+          "side": "sell",
+          "signal_date": "2023-09-01",
+          "ticker": "PARR"
+        }
+      ],
+      "runtime_s": 654.9,
       "sessions": 753,
       "split_date": "2022-09-04",
       "split_session": "2022-09-02",
@@ -836,12 +936,24 @@
       "dividend_cash": 183.11537486310502,
       "first_session": "2021-09-07",
       "index": 8,
+      "initial_entry_missing_assets": [],
       "last_session": "2024-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 15,
       "n_fills": 1257,
+      "n_pending": 1,
       "n_rejected": 0,
       "n_validate_fills": 450,
-      "runtime_s": 577.1,
+      "pending_orders": [
+        {
+          "id": 1258,
+          "side": "sell",
+          "signal_date": "2024-09-04",
+          "ticker": "CLOV"
+        }
+      ],
+      "runtime_s": 599.7,
       "sessions": 753,
       "split_date": "2023-09-04",
       "split_session": "2023-09-01",
@@ -943,12 +1055,42 @@
       "dividend_cash": 313.84952212329864,
       "first_session": "2022-09-06",
       "index": 9,
+      "initial_entry_missing_assets": [],
       "last_session": "2025-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 16,
       "n_fills": 1357,
+      "n_pending": 4,
       "n_rejected": 0,
       "n_validate_fills": 462,
-      "runtime_s": 591.6,
+      "pending_orders": [
+        {
+          "id": 1358,
+          "side": "sell",
+          "signal_date": "2025-09-04",
+          "ticker": "TDUP"
+        },
+        {
+          "id": 1359,
+          "side": "sell",
+          "signal_date": "2025-09-04",
+          "ticker": "UAMY"
+        },
+        {
+          "id": 1360,
+          "side": "buy",
+          "signal_date": "2025-09-04",
+          "ticker": "OKLO"
+        },
+        {
+          "id": 1361,
+          "side": "buy",
+          "signal_date": "2025-09-04",
+          "ticker": "MP"
+        }
+      ],
+      "runtime_s": 618.9,
       "sessions": 752,
       "split_date": "2024-09-04",
       "split_session": "2024-09-04",
@@ -1050,12 +1192,17 @@
       "dividend_cash": 251.6672643124365,
       "first_session": "2023-09-05",
       "index": 10,
+      "initial_entry_missing_assets": [],
       "last_session": "2026-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 14,
       "n_fills": 1367,
+      "n_pending": 0,
       "n_rejected": 0,
       "n_validate_fills": 456,
-      "runtime_s": 613.1,
+      "pending_orders": [],
+      "runtime_s": 641.0,
       "sessions": 754,
       "split_date": "2025-09-04",
       "split_session": "2025-09-04",
@@ -1154,9 +1301,9 @@
       "validate_universe": 12105
     }
   ],
-  "generated_utc": "2026-09-07T14:11:41+00:00",
+  "generated_utc": "2026-09-08T13:18:24+00:00",
   "git_dirty": true,
-  "git_sha": "ffbbd0cfab82235f8cfc67d5d67fd0f1b04411b3",
+  "git_sha": "ae326062c2d1af22171640e2be40772eb5f965ab",
   "initial_cash": 39000.0,
   "kill_criterion": "Expectancy per trade turns negative over 50+ trades, or max drawdown exceeds 25%.",
   "name": "Mean-Reversion Overlay",
@@ -1230,14 +1377,14 @@
     "validate_months": 12
   },
   "registered": "2026-07-17",
-  "runtime_s": 5824.3,
-  "scratch_s": 21.4,
+  "runtime_s": 6066.7,
+  "scratch_s": 14.2,
   "screen_rows": 1107457,
-  "screen_s": 23.0,
+  "screen_s": 23.1,
   "screen_source": "hist",
   "sessions": 3019,
-  "source_file_count": 97,
-  "source_sha256": "7727bc6b9af2964075d782037983414929cb53d9ffb78c59fa889b3974d29d9a",
+  "source_file_count": 111,
+  "source_sha256": "44641be995d3b1dda59732f52076138b40d983d94eda22211dbae17a17a5d82f",
   "span_end": "2026-09-04",
   "span_start": "2014-09-04",
   "strategy": "mr_overlay",

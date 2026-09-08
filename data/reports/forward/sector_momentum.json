@@ -139,6 +139,7 @@
       "engine/forward_review.py",
       "engine/actions.py",
       "engine/lib/data_quality.py",
+      "engine/lib/db.py",
       "engine/lib/util.py",
       "sim/calendar.py",
       "sim/execution.py",
@@ -152,7 +153,10 @@
       "sim/strategies/sector_momentum.py",
       "sim/strategies/spy_benchmark.py"
     ],
-    "runtime_contract_sha256": "2ffc24889541656457c28dcebfabc5a6532f62f38b234839292f228a0765fedd"
+    "runtime_contract_migration": "2026-09-08 unconditional no-same-bar enforcement: the existing fill-date rule now remains active under optimized Python; strategy, execution economics, baseline, and evidence-continuity rules are unchanged",
+    "runtime_contract_sha256": "d8ad1e801ee5703ae8f29e7eb9e56fa0f2736c7f9b37afc10bad1704d27276ca",
+    "runtime_contract_version": 4,
+    "superseded_runtime_contract_sha256": "20c106ed0a6a7e29ac01ba8616c44909cbadaf90f53c8c8d2712b1e50631414a"
   },
   "metrics": {
     "drawdown_improvement": 0.0,

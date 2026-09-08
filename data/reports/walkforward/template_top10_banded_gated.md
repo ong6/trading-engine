@@ -1,12 +1,12 @@
 # Template Top 10 banded (regime-gated) — walk-forward re-validation
 
-_`template_top10_banded_gated` · template_top10_banded · weekly cadence · verdict **WATCH** · generated 2026-09-07T11:46:46+00:00_
+_`template_top10_banded_gated` · template_top10_banded · weekly cadence · verdict **WATCH** · generated 2026-09-08T10:52:22+00:00_
 
 **Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-09-04. Each fold is an independent replay starting at $39,000. Span 2014-09-04 → 2026-09-04 (3019 sessions); data floor 1994-01-27; screen source `hist` (1,107,457 passing rows).
 
-**Provenance.** Source `7727bc6b9af2964075d782037983414929cb53d9ffb78c59fa889b3974d29d9a`; config `6b7b393d1530b1ecf6dbc87df74c75d052267e40ad24f8ef79d21e3498bd4b4d`.
+**Provenance.** Source `44641be995d3b1dda59732f52076138b40d983d94eda22211dbae17a17a5d82f`; config `6b7b393d1530b1ecf6dbc87df74c75d052267e40ad24f8ef79d21e3498bd4b4d`.
 
-**Evidence and execution.** Data quality `current_universe_survivor_biased`; execution profile `baseline_v1`; data snapshot `b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785`; comparison protocol `wf-controls-2026-09-07-v1`.
+**Evidence and execution.** Data quality `current_universe_survivor_biased`; execution profile `baseline_v1`; data snapshot `d16f6337aff010dd78090410db5786ac468e0be0f85aa8ff87932d069f572cbd`; comparison protocol `wf-controls-2026-09-07-v1`.
 
 **Pre-registered expectation.** Lowest-drawdown of the template family; modest return give-up.
 
@@ -82,7 +82,7 @@ _`template_top10_banded_gated` · template_top10_banded · weekly cadence · ver
 * mean validate CAGR **+34.10%** vs mean train CAGR +25.08% → decay **+9.03%**
 * mean validate Sharpe +0.50, worst validate max drawdown −46.46%
 * 6188 fill(s) inside validate windows
-* runtime 1034.7s (scratch 24.6s, screen 23.9s)
+* runtime 1216.7s (scratch 24.4s, screen 23.0s)
 
 **Verdict rule (mechanical exploratory triage, NOT an automatic kill).** For
 each book, against the versioned comparison declared in its result artifact:
