@@ -64,6 +64,8 @@
       "engine/actions.py",
       "engine/collect.py",
       "engine/lib/data_quality.py",
+      "engine/lib/db.py",
+      "engine/lib/resources.py",
       "engine/lib/util.py",
       "engine/screen.py",
       "engine/universe.py",
@@ -81,9 +83,12 @@
       "sim/strategies/xs_common.py",
       "sim/strategies/xs_momentum_12_1.py"
     ],
-    "runtime_contract_sha256": "f88712e1ffdeead2fc640fad667531ac57a684651f887fd4ae525403231dcb7e",
+    "runtime_contract_migration": "2026-09-08 unconditional no-same-bar enforcement before the first signal: the existing fill-date rule now remains active under optimized Python; strategy, signal, execution economics, and statistical rules are unchanged",
+    "runtime_contract_sha256": "90f68c2616757a724c390fb65cb9e27a9b7654ba34e2d5aab08183b689be12a9",
+    "runtime_contract_version": 10,
     "signal_boundary": null,
-    "signal_date": "2026-09-30"
+    "signal_date": "2026-09-30",
+    "superseded_runtime_contract_sha256": "a2b0cd5f0765d1183fc52a309e3214017053eac1e7b1294971b8b945c41431b0"
   },
   "observation": {
     "eligible_after": "2031-10-01",

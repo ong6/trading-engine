@@ -24,11 +24,11 @@
   "data_floor": "1994-01-27",
   "data_quality_class": "current_universe_survivor_biased",
   "data_snapshot": {
-    "sha256": "b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785",
+    "sha256": "d16f6337aff010dd78090410db5786ac468e0be0f85aa8ff87932d069f572cbd",
     "tables": {
       "corporate_actions": {
         "exists": true,
-        "latest_fetch": "2026-09-04T22:33:26.507372",
+        "latest_fetch": "2026-09-07T22:32:28.902035",
         "max_date": "2026-09-03",
         "min_date": "1962-01-16",
         "rows": 409752
@@ -54,9 +54,9 @@
       "universe_snapshot": {
         "exists": true,
         "latest_fetch": null,
-        "max_date": "2026-09-04",
+        "max_date": "2026-09-07",
         "min_date": "2026-07-16",
-        "rows": 470480
+        "rows": 483044
       }
     }
   },
@@ -85,12 +85,108 @@
       "dividend_cash": 182.57221728277972,
       "first_session": "2014-09-04",
       "index": 1,
+      "initial_entry_missing_assets": [],
       "last_session": "2017-09-01",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 28,
       "n_fills": 1833,
+      "n_pending": 15,
       "n_rejected": 0,
       "n_validate_fills": 695,
-      "runtime_s": 100.6,
+      "pending_orders": [
+        {
+          "id": 1834,
+          "side": "sell",
+          "signal_date": "2017-09-01",
+          "ticker": "ATHM"
+        },
+        {
+          "id": 1835,
+          "side": "buy",
+          "signal_date": "2017-09-01",
+          "ticker": "AVAV"
+        },
+        {
+          "id": 1836,
+          "side": "sell",
+          "signal_date": "2017-09-01",
+          "ticker": "BABA"
+        },
+        {
+          "id": 1837,
+          "side": "sell",
+          "signal_date": "2017-09-01",
+          "ticker": "CC"
+        },
+        {
+          "id": 1838,
+          "side": "sell",
+          "signal_date": "2017-09-01",
+          "ticker": "CENX"
+        },
+        {
+          "id": 1839,
+          "side": "buy",
+          "signal_date": "2017-09-01",
+          "ticker": "CORT"
+        },
+        {
+          "id": 1840,
+          "side": "sell",
+          "signal_date": "2017-09-01",
+          "ticker": "EXTR"
+        },
+        {
+          "id": 1841,
+          "side": "sell",
+          "signal_date": "2017-09-01",
+          "ticker": "FIZZ"
+        },
+        {
+          "id": 1842,
+          "side": "sell",
+          "signal_date": "2017-09-01",
+          "ticker": "GBTC"
+        },
+        {
+          "id": 1843,
+          "side": "sell",
+          "signal_date": "2017-09-01",
+          "ticker": "GDOT"
+        },
+        {
+          "id": 1844,
+          "side": "sell",
+          "signal_date": "2017-09-01",
+          "ticker": "HTHT"
+        },
+        {
+          "id": 1845,
+          "side": "sell",
+          "signal_date": "2017-09-01",
+          "ticker": "NVCR"
+        },
+        {
+          "id": 1846,
+          "side": "sell",
+          "signal_date": "2017-09-01",
+          "ticker": "ONC"
+        },
+        {
+          "id": 1847,
+          "side": "buy",
+          "signal_date": "2017-09-01",
+          "ticker": "PTCT"
+        },
+        {
+          "id": 1848,
+          "side": "sell",
+          "signal_date": "2017-09-01",
+          "ticker": "TAL"
+        }
+      ],
+      "runtime_s": 118.6,
       "sessions": 756,
       "split_date": "2016-09-04",
       "split_session": "2016-09-02",
@@ -192,12 +288,17 @@
       "dividend_cash": 223.0320546627834,
       "first_session": "2015-09-04",
       "index": 2,
+      "initial_entry_missing_assets": [],
       "last_session": "2018-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 25,
       "n_fills": 1893,
+      "n_pending": 0,
       "n_rejected": 0,
       "n_validate_fills": 714,
-      "runtime_s": 102.5,
+      "pending_orders": [],
+      "runtime_s": 121.3,
       "sessions": 755,
       "split_date": "2017-09-04",
       "split_session": "2017-09-01",
@@ -299,12 +400,17 @@
       "dividend_cash": 203.9424942703533,
       "first_session": "2016-09-06",
       "index": 3,
+      "initial_entry_missing_assets": [],
       "last_session": "2019-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 19,
       "n_fills": 1894,
+      "n_pending": 0,
       "n_rejected": 0,
       "n_validate_fills": 494,
-      "runtime_s": 102.9,
+      "pending_orders": [],
+      "runtime_s": 122.1,
       "sessions": 754,
       "split_date": "2018-09-04",
       "split_session": "2018-09-04",
@@ -406,12 +512,126 @@
       "dividend_cash": 150.31529288098739,
       "first_session": "2017-09-05",
       "index": 4,
+      "initial_entry_missing_assets": [],
       "last_session": "2020-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 8,
       "n_fills": 1727,
+      "n_pending": 18,
       "n_rejected": 0,
       "n_validate_fills": 561,
-      "runtime_s": 97.4,
+      "pending_orders": [
+        {
+          "id": 1728,
+          "side": "sell",
+          "signal_date": "2020-09-04",
+          "ticker": "ACMR"
+        },
+        {
+          "id": 1729,
+          "side": "buy",
+          "signal_date": "2020-09-04",
+          "ticker": "AGNT"
+        },
+        {
+          "id": 1730,
+          "side": "buy",
+          "signal_date": "2020-09-04",
+          "ticker": "APPS"
+        },
+        {
+          "id": 1731,
+          "side": "sell",
+          "signal_date": "2020-09-04",
+          "ticker": "BBBY"
+        },
+        {
+          "id": 1732,
+          "side": "sell",
+          "signal_date": "2020-09-04",
+          "ticker": "BE"
+        },
+        {
+          "id": 1733,
+          "side": "sell",
+          "signal_date": "2020-09-04",
+          "ticker": "CELH"
+        },
+        {
+          "id": 1734,
+          "side": "sell",
+          "signal_date": "2020-09-04",
+          "ticker": "CLDX"
+        },
+        {
+          "id": 1735,
+          "side": "buy",
+          "signal_date": "2020-09-04",
+          "ticker": "CYRX"
+        },
+        {
+          "id": 1736,
+          "side": "buy",
+          "signal_date": "2020-09-04",
+          "ticker": "DKNG"
+        },
+        {
+          "id": 1737,
+          "side": "sell",
+          "signal_date": "2020-09-04",
+          "ticker": "DOCU"
+        },
+        {
+          "id": 1738,
+          "side": "sell",
+          "signal_date": "2020-09-04",
+          "ticker": "FCEL"
+        },
+        {
+          "id": 1739,
+          "side": "buy",
+          "signal_date": "2020-09-04",
+          "ticker": "FVRR"
+        },
+        {
+          "id": 1740,
+          "side": "buy",
+          "signal_date": "2020-09-04",
+          "ticker": "IMVT"
+        },
+        {
+          "id": 1741,
+          "side": "buy",
+          "signal_date": "2020-09-04",
+          "ticker": "IRTC"
+        },
+        {
+          "id": 1742,
+          "side": "buy",
+          "signal_date": "2020-09-04",
+          "ticker": "NIO"
+        },
+        {
+          "id": 1743,
+          "side": "buy",
+          "signal_date": "2020-09-04",
+          "ticker": "RUN"
+        },
+        {
+          "id": 1744,
+          "side": "buy",
+          "signal_date": "2020-09-04",
+          "ticker": "TSLA"
+        },
+        {
+          "id": 1745,
+          "side": "buy",
+          "signal_date": "2020-09-04",
+          "ticker": "ZM"
+        }
+      ],
+      "runtime_s": 115.2,
       "sessions": 757,
       "split_date": "2019-09-04",
       "split_session": "2019-09-04",
@@ -513,12 +733,96 @@
       "dividend_cash": 896.1714961780385,
       "first_session": "2018-09-04",
       "index": 5,
+      "initial_entry_missing_assets": [],
       "last_session": "2021-09-03",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 13,
       "n_fills": 1787,
+      "n_pending": 13,
       "n_rejected": 0,
       "n_validate_fills": 773,
-      "runtime_s": 99.4,
+      "pending_orders": [
+        {
+          "id": 1788,
+          "side": "buy",
+          "signal_date": "2021-09-03",
+          "ticker": "AR"
+        },
+        {
+          "id": 1789,
+          "side": "buy",
+          "signal_date": "2021-09-03",
+          "ticker": "ASPN"
+        },
+        {
+          "id": 1790,
+          "side": "buy",
+          "signal_date": "2021-09-03",
+          "ticker": "BILL"
+        },
+        {
+          "id": 1791,
+          "side": "sell",
+          "signal_date": "2021-09-03",
+          "ticker": "BNTX"
+        },
+        {
+          "id": 1792,
+          "side": "sell",
+          "signal_date": "2021-09-03",
+          "ticker": "BTU"
+        },
+        {
+          "id": 1793,
+          "side": "sell",
+          "signal_date": "2021-09-03",
+          "ticker": "CLDX"
+        },
+        {
+          "id": 1794,
+          "side": "buy",
+          "signal_date": "2021-09-03",
+          "ticker": "DAC"
+        },
+        {
+          "id": 1795,
+          "side": "buy",
+          "signal_date": "2021-09-03",
+          "ticker": "DDS"
+        },
+        {
+          "id": 1796,
+          "side": "sell",
+          "signal_date": "2021-09-03",
+          "ticker": "EMBJ"
+        },
+        {
+          "id": 1797,
+          "side": "sell",
+          "signal_date": "2021-09-03",
+          "ticker": "GSM"
+        },
+        {
+          "id": 1798,
+          "side": "sell",
+          "signal_date": "2021-09-03",
+          "ticker": "HAPN"
+        },
+        {
+          "id": 1799,
+          "side": "sell",
+          "signal_date": "2021-09-03",
+          "ticker": "MRNA"
+        },
+        {
+          "id": 1800,
+          "side": "sell",
+          "signal_date": "2021-09-03",
+          "ticker": "NTLA"
+        }
+      ],
+      "runtime_s": 116.7,
       "sessions": 757,
       "split_date": "2020-09-04",
       "split_session": "2020-09-04",
@@ -620,12 +924,17 @@
       "dividend_cash": 2682.4177792774058,
       "first_session": "2019-09-04",
       "index": 6,
+      "initial_entry_missing_assets": [],
       "last_session": "2022-09-02",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 20,
       "n_fills": 1702,
+      "n_pending": 0,
       "n_rejected": 0,
       "n_validate_fills": 385,
-      "runtime_s": 97.5,
+      "pending_orders": [],
+      "runtime_s": 115.0,
       "sessions": 757,
       "split_date": "2021-09-04",
       "split_session": "2021-09-03",
@@ -727,12 +1036,120 @@
       "dividend_cash": 4227.954965982792,
       "first_session": "2020-09-04",
       "index": 7,
+      "initial_entry_missing_assets": [],
       "last_session": "2023-09-01",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 24,
       "n_fills": 1617,
+      "n_pending": 17,
       "n_rejected": 0,
       "n_validate_fills": 469,
-      "runtime_s": 95.0,
+      "pending_orders": [
+        {
+          "id": 1618,
+          "side": "sell",
+          "signal_date": "2023-09-01",
+          "ticker": "AAOI"
+        },
+        {
+          "id": 1619,
+          "side": "sell",
+          "signal_date": "2023-09-01",
+          "ticker": "ACHR"
+        },
+        {
+          "id": 1620,
+          "side": "sell",
+          "signal_date": "2023-09-01",
+          "ticker": "AD"
+        },
+        {
+          "id": 1621,
+          "side": "sell",
+          "signal_date": "2023-09-01",
+          "ticker": "ANF"
+        },
+        {
+          "id": 1622,
+          "side": "buy",
+          "signal_date": "2023-09-01",
+          "ticker": "BBIO"
+        },
+        {
+          "id": 1623,
+          "side": "buy",
+          "signal_date": "2023-09-01",
+          "ticker": "CVNA"
+        },
+        {
+          "id": 1624,
+          "side": "sell",
+          "signal_date": "2023-09-01",
+          "ticker": "DFH"
+        },
+        {
+          "id": 1625,
+          "side": "buy",
+          "signal_date": "2023-09-01",
+          "ticker": "EH"
+        },
+        {
+          "id": 1626,
+          "side": "sell",
+          "signal_date": "2023-09-01",
+          "ticker": "ELF"
+        },
+        {
+          "id": 1627,
+          "side": "sell",
+          "signal_date": "2023-09-01",
+          "ticker": "INOD"
+        },
+        {
+          "id": 1628,
+          "side": "buy",
+          "signal_date": "2023-09-01",
+          "ticker": "IONQ"
+        },
+        {
+          "id": 1629,
+          "side": "buy",
+          "signal_date": "2023-09-01",
+          "ticker": "LMB"
+        },
+        {
+          "id": 1630,
+          "side": "sell",
+          "signal_date": "2023-09-01",
+          "ticker": "MLTX"
+        },
+        {
+          "id": 1631,
+          "side": "sell",
+          "signal_date": "2023-09-01",
+          "ticker": "MOD"
+        },
+        {
+          "id": 1632,
+          "side": "sell",
+          "signal_date": "2023-09-01",
+          "ticker": "POWL"
+        },
+        {
+          "id": 1633,
+          "side": "buy",
+          "signal_date": "2023-09-01",
+          "ticker": "SMCI"
+        },
+        {
+          "id": 1634,
+          "side": "sell",
+          "signal_date": "2023-09-01",
+          "ticker": "STRL"
+        }
+      ],
+      "runtime_s": 112.0,
       "sessions": 753,
       "split_date": "2022-09-04",
       "split_session": "2022-09-02",
@@ -834,12 +1251,17 @@
       "dividend_cash": 800.5605346299586,
       "first_session": "2021-09-07",
       "index": 8,
+      "initial_entry_missing_assets": [],
       "last_session": "2024-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 18,
       "n_fills": 1527,
+      "n_pending": 0,
       "n_rejected": 0,
       "n_validate_fills": 731,
-      "runtime_s": 91.7,
+      "pending_orders": [],
+      "runtime_s": 108.1,
       "sessions": 753,
       "split_date": "2023-09-04",
       "split_session": "2023-09-01",
@@ -941,12 +1363,17 @@
       "dividend_cash": 519.5905486930848,
       "first_session": "2022-09-06",
       "index": 9,
+      "initial_entry_missing_assets": [],
       "last_session": "2025-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 8,
       "n_fills": 1829,
+      "n_pending": 0,
       "n_rejected": 0,
       "n_validate_fills": 641,
-      "runtime_s": 97.4,
+      "pending_orders": [],
+      "runtime_s": 117.7,
       "sessions": 752,
       "split_date": "2024-09-04",
       "split_session": "2024-09-04",
@@ -1048,12 +1475,108 @@
       "dividend_cash": 51.05012038589924,
       "first_session": "2023-09-05",
       "index": 10,
+      "initial_entry_missing_assets": [],
       "last_session": "2026-09-04",
+      "missing_required_signal_prices": [],
+      "n_capacity_rejected": 0,
       "n_dividend_credits": 7,
       "n_fills": 2091,
+      "n_pending": 15,
       "n_rejected": 1,
       "n_validate_fills": 725,
-      "runtime_s": 101.3,
+      "pending_orders": [
+        {
+          "id": 2093,
+          "side": "sell",
+          "signal_date": "2026-09-04",
+          "ticker": "ANRO"
+        },
+        {
+          "id": 2094,
+          "side": "sell",
+          "signal_date": "2026-09-04",
+          "ticker": "BFLY"
+        },
+        {
+          "id": 2095,
+          "side": "sell",
+          "signal_date": "2026-09-04",
+          "ticker": "BWET"
+        },
+        {
+          "id": 2096,
+          "side": "sell",
+          "signal_date": "2026-09-04",
+          "ticker": "CLYM"
+        },
+        {
+          "id": 2097,
+          "side": "buy",
+          "signal_date": "2026-09-04",
+          "ticker": "CRWU"
+        },
+        {
+          "id": 2098,
+          "side": "sell",
+          "signal_date": "2026-09-04",
+          "ticker": "DLLL"
+        },
+        {
+          "id": 2099,
+          "side": "buy",
+          "signal_date": "2026-09-04",
+          "ticker": "DMRA"
+        },
+        {
+          "id": 2100,
+          "side": "buy",
+          "signal_date": "2026-09-04",
+          "ticker": "ETON"
+        },
+        {
+          "id": 2101,
+          "side": "sell",
+          "signal_date": "2026-09-04",
+          "ticker": "FBRX"
+        },
+        {
+          "id": 2102,
+          "side": "buy",
+          "signal_date": "2026-09-04",
+          "ticker": "IMMX"
+        },
+        {
+          "id": 2103,
+          "side": "sell",
+          "signal_date": "2026-09-04",
+          "ticker": "MRNA"
+        },
+        {
+          "id": 2104,
+          "side": "buy",
+          "signal_date": "2026-09-04",
+          "ticker": "MU"
+        },
+        {
+          "id": 2105,
+          "side": "buy",
+          "signal_date": "2026-09-04",
+          "ticker": "QMCO"
+        },
+        {
+          "id": 2106,
+          "side": "sell",
+          "signal_date": "2026-09-04",
+          "ticker": "SLS"
+        },
+        {
+          "id": 2107,
+          "side": "sell",
+          "signal_date": "2026-09-04",
+          "ticker": "TWST"
+        }
+      ],
+      "runtime_s": 122.2,
       "sessions": 754,
       "split_date": "2025-09-04",
       "split_session": "2025-09-04",
@@ -1152,9 +1675,9 @@
       "validate_universe": 12105
     }
   ],
-  "generated_utc": "2026-09-07T11:46:46+00:00",
+  "generated_utc": "2026-09-08T10:52:22+00:00",
   "git_dirty": true,
-  "git_sha": "ffbbd0cfab82235f8cfc67d5d67fd0f1b04411b3",
+  "git_sha": "ae326062c2d1af22171640e2be40772eb5f965ab",
   "initial_cash": 39000.0,
   "kill_criterion": "No drawdown improvement vs ungated banded across a risk-off episode.",
   "name": "Template Top 10 banded (regime-gated)",
@@ -1228,14 +1751,14 @@
     "validate_months": 12
   },
   "registered": "2026-07-17",
-  "runtime_s": 1034.7,
-  "scratch_s": 24.6,
+  "runtime_s": 1216.7,
+  "scratch_s": 24.4,
   "screen_rows": 1107457,
-  "screen_s": 23.9,
+  "screen_s": 23.0,
   "screen_source": "hist",
   "sessions": 3019,
-  "source_file_count": 97,
-  "source_sha256": "7727bc6b9af2964075d782037983414929cb53d9ffb78c59fa889b3974d29d9a",
+  "source_file_count": 111,
+  "source_sha256": "44641be995d3b1dda59732f52076138b40d983d94eda22211dbae17a17a5d82f",
   "span_end": "2026-09-04",
   "span_start": "2014-09-04",
   "strategy": "template_top10_banded",

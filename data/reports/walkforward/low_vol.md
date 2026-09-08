@@ -1,12 +1,12 @@
 # Low-Volatility Defensive — walk-forward re-validation
 
-_`low_vol` · low_vol · monthly cadence · verdict **no-benchmark** · generated 2026-09-07T11:47:31+00:00_
+_`low_vol` · low_vol · monthly cadence · verdict **no-benchmark** · generated 2026-09-08T10:52:44+00:00_
 
 **Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-09-04. Each fold is an independent replay starting at $39,000. Span 2014-09-04 → 2026-09-04 (3019 sessions); data floor 1994-01-27; screen source `not-used`.
 
-**Provenance.** Source `7727bc6b9af2964075d782037983414929cb53d9ffb78c59fa889b3974d29d9a`; config `b46dccde55935659cad3c95b3c09a15974b37b10755a5b7b501f9485574aeed7`.
+**Provenance.** Source `44641be995d3b1dda59732f52076138b40d983d94eda22211dbae17a17a5d82f`; config `b46dccde55935659cad3c95b3c09a15974b37b10755a5b7b501f9485574aeed7`.
 
-**Evidence and execution.** Data quality `static_fundamental_lookahead`; execution profile `baseline_v1`; data snapshot `b1b031ac37c5b658034fd5b6234fdbe61facab5cba9cdd4afb1159c542fa3785`; comparison protocol `wf-controls-2026-09-07-v1`.
+**Evidence and execution.** Data quality `static_fundamental_lookahead`; execution profile `baseline_v1`; data snapshot `d16f6337aff010dd78090410db5786ac468e0be0f85aa8ff87932d069f572cbd`; comparison protocol `wf-controls-2026-09-07-v1`.
 
 **Pre-registered expectation.** Market-like return at noticeably lower volatility; expect it to lag melt-ups and hold up in selloffs.
 
@@ -82,7 +82,7 @@ _`low_vol` · low_vol · monthly cadence · verdict **no-benchmark** · generate
 * mean validate CAGR **+10.17%** vs mean train CAGR +11.78% → decay **−1.61%**
 * mean validate Sharpe +1.08, worst validate max drawdown −35.78%
 * 1943 fill(s) inside validate windows
-* runtime 1088.1s (scratch 19.4s, screen 0.0s)
+* runtime 1247.5s (scratch 19.2s, screen 0.0s)
 
 **Verdict rule (mechanical exploratory triage, NOT an automatic kill).** For
 each book, against the versioned comparison declared in its result artifact:
