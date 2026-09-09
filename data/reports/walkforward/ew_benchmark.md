@@ -1,12 +1,12 @@
 # Equal-Weight Benchmark — walk-forward re-validation
 
-_`ew_benchmark` · ew_benchmark · monthly cadence · verdict **reference** · generated 2026-09-08T11:24:59+00:00_
+_`ew_benchmark` · ew_benchmark · monthly cadence · verdict **reference** · generated 2026-09-09T00:38:13+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-09-04. Each fold is an independent replay starting at $39,000. Span 2014-09-04 → 2026-09-04 (3019 sessions); data floor 1994-01-27; screen source `hist` (1,107,457 passing rows).
+**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-09-04. Each fold is an independent replay starting at $39,000. Span 2014-09-04 → 2026-09-04 (3019 sessions); data floor 1994-01-27; screen source `hist` (1,107,456 passing rows).
 
-**Provenance.** Source `44641be995d3b1dda59732f52076138b40d983d94eda22211dbae17a17a5d82f`; config `692d49494298d2e840c98ab78cb8e4a4829516b6049d7d24253eb3e28fe1318e`.
+**Provenance.** Source `2876fdc6e5d36e532b535fb229dcbb653fba6077f4d5f7fe01b63db581cc6c53`; config `692d49494298d2e840c98ab78cb8e4a4829516b6049d7d24253eb3e28fe1318e`.
 
-**Evidence and execution.** Data quality `current_universe_survivor_biased`; execution profile `baseline_v1`; data snapshot `d16f6337aff010dd78090410db5786ac468e0be0f85aa8ff87932d069f572cbd`; comparison protocol `wf-controls-2026-09-07-v1`.
+**Evidence and execution.** Data quality `current_universe_survivor_biased`; execution profile `baseline_v1`; data snapshot `a3823b32b5f04344fb909d1fd72c6db6e27812752f8ec99ce8408ed28ff4d668`; comparison protocol `wf-controls-2026-09-07-v1`.
 
 **Pre-registered expectation.** Captures the screen's breadth; the bar every active strategy must clear.
 
@@ -82,7 +82,7 @@ _`ew_benchmark` · ew_benchmark · monthly cadence · verdict **reference** · g
 * mean validate CAGR **+26.49%** vs mean train CAGR +19.82% → decay **+6.67%**
 * mean validate Sharpe +0.71, worst validate max drawdown −37.49%
 * 8315 fill(s) inside validate windows
-* runtime 1703.3s (scratch 14.7s, screen 26.3s)
+* runtime 2063.0s (scratch 18.6s, screen 24.3s)
 
 **Verdict rule (mechanical exploratory triage, NOT an automatic kill).** For
 each book, against the versioned comparison declared in its result artifact:

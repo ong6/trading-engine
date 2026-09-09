@@ -1,12 +1,12 @@
 # Mean-Reversion Overlay (regime-gated) — walk-forward re-validation
 
-_`mr_overlay_gated` · mr_overlay · daily cadence · verdict **REVIEW** · generated 2026-09-08T13:02:34+00:00_
+_`mr_overlay_gated` · mr_overlay · daily cadence · verdict **REVIEW** · generated 2026-09-09T01:55:08+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-09-04. Each fold is an independent replay starting at $39,000. Span 2014-09-04 → 2026-09-04 (3019 sessions); data floor 1994-01-27; screen source `hist` (1,107,457 passing rows).
+**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-09-04. Each fold is an independent replay starting at $39,000. Span 2014-09-04 → 2026-09-04 (3019 sessions); data floor 1994-01-27; screen source `hist` (1,107,456 passing rows).
 
-**Provenance.** Source `44641be995d3b1dda59732f52076138b40d983d94eda22211dbae17a17a5d82f`; config `733f1b12222d04238953cc8e119f149512e06a0bf2eb647f9a659173a85070fa`.
+**Provenance.** Source `2876fdc6e5d36e532b535fb229dcbb653fba6077f4d5f7fe01b63db581cc6c53`; config `733f1b12222d04238953cc8e119f149512e06a0bf2eb647f9a659173a85070fa`.
 
-**Evidence and execution.** Data quality `current_universe_survivor_biased`; execution profile `baseline_v1`; data snapshot `d16f6337aff010dd78090410db5786ac468e0be0f85aa8ff87932d069f572cbd`; comparison protocol `wf-controls-2026-09-07-v1`.
+**Evidence and execution.** Data quality `current_universe_survivor_biased`; execution profile `baseline_v1`; data snapshot `a3823b32b5f04344fb909d1fd72c6db6e27812752f8ec99ce8408ed28ff4d668`; comparison protocol `wf-controls-2026-09-07-v1`.
 
 **Pre-registered expectation.** Fewer trades and lower drawdown than ungated MR; avoids catching falling knives in bear tapes.
 
@@ -82,7 +82,7 @@ _`mr_overlay_gated` · mr_overlay · daily cadence · verdict **REVIEW** · gene
 * mean validate CAGR **+3.52%** vs mean train CAGR +1.53% → decay **+1.99%**
 * mean validate Sharpe +0.18, worst validate max drawdown −15.47%
 * 3698 fill(s) inside validate windows
-* runtime 5113.1s (scratch 15.6s, screen 23.0s)
+* runtime 4206.5s (scratch 18.7s, screen 22.9s)
 
 **Verdict rule (mechanical exploratory triage, NOT an automatic kill).** For
 each book, against the versioned comparison declared in its result artifact:
