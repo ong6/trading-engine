@@ -25,14 +25,14 @@
   "data_floor": "1994-01-27",
   "data_quality_class": "current_universe_survivor_biased",
   "data_snapshot": {
-    "sha256": "d16f6337aff010dd78090410db5786ac468e0be0f85aa8ff87932d069f572cbd",
+    "sha256": "a3823b32b5f04344fb909d1fd72c6db6e27812752f8ec99ce8408ed28ff4d668",
     "tables": {
       "corporate_actions": {
         "exists": true,
-        "latest_fetch": "2026-09-07T22:32:28.902035",
+        "latest_fetch": "2026-09-08T22:33:25.176004",
         "max_date": "2026-09-03",
         "min_date": "1962-01-16",
-        "rows": 409752
+        "rows": 409753
       },
       "fundamentals": {
         "exists": true,
@@ -47,17 +47,17 @@
       },
       "prices": {
         "exists": true,
-        "latest_fetch": "2026-09-06T23:09:01.255401",
-        "max_date": "2026-09-04",
+        "latest_fetch": "2026-09-08T22:32:04.843822",
+        "max_date": "2026-09-08",
         "min_date": "1962-01-02",
-        "rows": 19965368
+        "rows": 19969464
       },
       "universe_snapshot": {
         "exists": true,
         "latest_fetch": null,
-        "max_date": "2026-09-07",
+        "max_date": "2026-09-08",
         "min_date": "2026-07-16",
-        "rows": 483044
+        "rows": 495612
       }
     }
   },
@@ -109,7 +109,7 @@
           "ticker": "FER"
         }
       ],
-      "runtime_s": 161.9,
+      "runtime_s": 141.0,
       "sessions": 756,
       "split_date": "2016-09-04",
       "split_session": "2016-09-02",
@@ -240,7 +240,7 @@
           "ticker": "PNRG"
         }
       ],
-      "runtime_s": 150.7,
+      "runtime_s": 127.6,
       "sessions": 755,
       "split_date": "2017-09-04",
       "split_session": "2017-09-01",
@@ -359,7 +359,7 @@
           "ticker": "FER"
         }
       ],
-      "runtime_s": 149.0,
+      "runtime_s": 128.1,
       "sessions": 754,
       "split_date": "2018-09-04",
       "split_session": "2018-09-04",
@@ -471,7 +471,7 @@
       "n_rejected": 73,
       "n_validate_fills": 481,
       "pending_orders": [],
-      "runtime_s": 145.6,
+      "runtime_s": 125.2,
       "sessions": 757,
       "split_date": "2019-09-04",
       "split_session": "2019-09-04",
@@ -583,7 +583,7 @@
       "n_rejected": 68,
       "n_validate_fills": 540,
       "pending_orders": [],
-      "runtime_s": 149.2,
+      "runtime_s": 127.3,
       "sessions": 757,
       "split_date": "2020-09-04",
       "split_session": "2020-09-04",
@@ -695,7 +695,7 @@
       "n_rejected": 55,
       "n_validate_fills": 499,
       "pending_orders": [],
-      "runtime_s": 143.8,
+      "runtime_s": 124.1,
       "sessions": 757,
       "split_date": "2021-09-04",
       "split_session": "2021-09-03",
@@ -814,7 +814,7 @@
           "ticker": "INV"
         }
       ],
-      "runtime_s": 141.4,
+      "runtime_s": 123.6,
       "sessions": 753,
       "split_date": "2022-09-04",
       "split_session": "2022-09-02",
@@ -926,7 +926,7 @@
       "n_rejected": 70,
       "n_validate_fills": 534,
       "pending_orders": [],
-      "runtime_s": 140.8,
+      "runtime_s": 122.8,
       "sessions": 753,
       "split_date": "2023-09-04",
       "split_session": "2023-09-01",
@@ -1038,7 +1038,7 @@
       "n_rejected": 45,
       "n_validate_fills": 530,
       "pending_orders": [],
-      "runtime_s": 142.3,
+      "runtime_s": 122.7,
       "sessions": 752,
       "split_date": "2024-09-04",
       "split_session": "2024-09-04",
@@ -1150,7 +1150,7 @@
       "n_rejected": 18,
       "n_validate_fills": 554,
       "pending_orders": [],
-      "runtime_s": 141.9,
+      "runtime_s": 121.8,
       "sessions": 754,
       "split_date": "2025-09-04",
       "split_session": "2025-09-04",
@@ -1249,9 +1249,9 @@
       "validate_universe": 12105
     }
   ],
-  "generated_utc": "2026-09-08T10:56:35+00:00",
+  "generated_utc": "2026-09-09T00:03:49+00:00",
   "git_dirty": true,
-  "git_sha": "ae326062c2d1af22171640e2be40772eb5f965ab",
+  "git_sha": "7171e62375185ea718a1265e53d77aff70d19969",
   "initial_cash": 39000.0,
   "kill_criterion": "Trails ew_benchmark by >15% over any rolling 6 months, or max drawdown exceeds 35%.",
   "name": "52-Week-High Momentum",
@@ -1325,14 +1325,14 @@
     "validate_months": 12
   },
   "registered": "2026-07-28",
-  "runtime_s": 1481.9,
-  "scratch_s": 14.6,
+  "runtime_s": 1282.8,
+  "scratch_s": 18.2,
   "screen_rows": 0,
   "screen_s": 0.0,
   "screen_source": "not-used",
   "sessions": 3019,
   "source_file_count": 111,
-  "source_sha256": "44641be995d3b1dda59732f52076138b40d983d94eda22211dbae17a17a5d82f",
+  "source_sha256": "2876fdc6e5d36e532b535fb229dcbb653fba6077f4d5f7fe01b63db581cc6c53",
   "span_end": "2026-09-04",
   "span_start": "2014-09-04",
   "strategy": "high_52wk",

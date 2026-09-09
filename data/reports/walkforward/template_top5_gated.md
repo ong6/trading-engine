@@ -1,12 +1,12 @@
 # Template Top 5 (regime-gated) — walk-forward re-validation
 
-_`template_top5_gated` · template_top5 · weekly cadence · verdict **PASS** · generated 2026-09-08T10:46:20+00:00_
+_`template_top5_gated` · template_top5 · weekly cadence · verdict **PASS** · generated 2026-09-08T23:55:09+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-09-04. Each fold is an independent replay starting at $39,000. Span 2014-09-04 → 2026-09-04 (3019 sessions); data floor 1994-01-27; screen source `hist` (1,107,457 passing rows).
+**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-09-04. Each fold is an independent replay starting at $39,000. Span 2014-09-04 → 2026-09-04 (3019 sessions); data floor 1994-01-27; screen source `hist` (1,107,456 passing rows).
 
-**Provenance.** Source `44641be995d3b1dda59732f52076138b40d983d94eda22211dbae17a17a5d82f`; config `fc20325eea7310c0b00cdb724aaa92b3e6e0e067d04b8c7c609f11d3b5807c09`.
+**Provenance.** Source `2876fdc6e5d36e532b535fb229dcbb653fba6077f4d5f7fe01b63db581cc6c53`; config `fc20325eea7310c0b00cdb724aaa92b3e6e0e067d04b8c7c609f11d3b5807c09`.
 
-**Evidence and execution.** Data quality `current_universe_survivor_biased`; execution profile `baseline_v1`; data snapshot `d16f6337aff010dd78090410db5786ac468e0be0f85aa8ff87932d069f572cbd`; comparison protocol `wf-controls-2026-09-07-v1`.
+**Evidence and execution.** Data quality `current_universe_survivor_biased`; execution profile `baseline_v1`; data snapshot `a3823b32b5f04344fb909d1fd72c6db6e27812752f8ec99ce8408ed28ff4d668`; comparison protocol `wf-controls-2026-09-07-v1`.
 
 **Pre-registered expectation.** Same upside as top5 in risk-on, materially lower drawdown in bear markets (drifts to cash).
 
@@ -82,7 +82,7 @@ _`template_top5_gated` · template_top5 · weekly cadence · verdict **PASS** ·
 * mean validate CAGR **+59.54%** vs mean train CAGR +37.47% → decay **+22.08%**
 * mean validate Sharpe +0.50, worst validate max drawdown −51.43%
 * 2807 fill(s) inside validate windows
-* runtime 847.2s (scratch 20.4s, screen 23.8s)
+* runtime 742.3s (scratch 20.9s, screen 23.3s)
 
 **Verdict rule (mechanical exploratory triage, NOT an automatic kill).** For
 each book, against the versioned comparison declared in its result artifact:

@@ -28,14 +28,14 @@
   "data_floor": "1994-01-27",
   "data_quality_class": "current_universe_survivor_biased",
   "data_snapshot": {
-    "sha256": "d16f6337aff010dd78090410db5786ac468e0be0f85aa8ff87932d069f572cbd",
+    "sha256": "a3823b32b5f04344fb909d1fd72c6db6e27812752f8ec99ce8408ed28ff4d668",
     "tables": {
       "corporate_actions": {
         "exists": true,
-        "latest_fetch": "2026-09-07T22:32:28.902035",
+        "latest_fetch": "2026-09-08T22:33:25.176004",
         "max_date": "2026-09-03",
         "min_date": "1962-01-16",
-        "rows": 409752
+        "rows": 409753
       },
       "fundamentals": {
         "exists": true,
@@ -50,17 +50,17 @@
       },
       "prices": {
         "exists": true,
-        "latest_fetch": "2026-09-06T23:09:01.255401",
-        "max_date": "2026-09-04",
+        "latest_fetch": "2026-09-08T22:32:04.843822",
+        "max_date": "2026-09-08",
         "min_date": "1962-01-02",
-        "rows": 19965368
+        "rows": 19969464
       },
       "universe_snapshot": {
         "exists": true,
         "latest_fetch": null,
-        "max_date": "2026-09-07",
+        "max_date": "2026-09-08",
         "min_date": "2026-07-16",
-        "rows": 483044
+        "rows": 495612
       }
     }
   },
@@ -106,7 +106,7 @@
           "ticker": "GBTC"
         }
       ],
-      "runtime_s": 178.3,
+      "runtime_s": 169.4,
       "sessions": 756,
       "split_date": "2016-09-04",
       "split_session": "2016-09-02",
@@ -218,7 +218,7 @@
       "n_rejected": 15,
       "n_validate_fills": 142,
       "pending_orders": [],
-      "runtime_s": 179.2,
+      "runtime_s": 172.6,
       "sessions": 755,
       "split_date": "2017-09-04",
       "split_session": "2017-09-01",
@@ -337,7 +337,7 @@
           "ticker": "EGO"
         }
       ],
-      "runtime_s": 190.1,
+      "runtime_s": 181.7,
       "sessions": 754,
       "split_date": "2018-09-04",
       "split_session": "2018-09-04",
@@ -456,7 +456,7 @@
           "ticker": "KNSL"
         }
       ],
-      "runtime_s": 182.4,
+      "runtime_s": 172.0,
       "sessions": 757,
       "split_date": "2019-09-04",
       "split_session": "2019-09-04",
@@ -568,7 +568,7 @@
       "n_rejected": 0,
       "n_validate_fills": 164,
       "pending_orders": [],
-      "runtime_s": 186.2,
+      "runtime_s": 176.0,
       "sessions": 757,
       "split_date": "2020-09-04",
       "split_session": "2020-09-04",
@@ -680,7 +680,7 @@
       "n_rejected": 0,
       "n_validate_fills": 108,
       "pending_orders": [],
-      "runtime_s": 176.9,
+      "runtime_s": 167.5,
       "sessions": 757,
       "split_date": "2021-09-04",
       "split_session": "2021-09-03",
@@ -792,7 +792,7 @@
       "n_rejected": 0,
       "n_validate_fills": 106,
       "pending_orders": [],
-      "runtime_s": 173.3,
+      "runtime_s": 165.9,
       "sessions": 753,
       "split_date": "2022-09-04",
       "split_session": "2022-09-02",
@@ -923,7 +923,7 @@
           "ticker": "PRAX"
         }
       ],
-      "runtime_s": 170.0,
+      "runtime_s": 161.2,
       "sessions": 753,
       "split_date": "2023-09-04",
       "split_session": "2023-09-01",
@@ -1035,7 +1035,7 @@
       "n_rejected": 0,
       "n_validate_fills": 160,
       "pending_orders": [],
-      "runtime_s": 183.3,
+      "runtime_s": 173.1,
       "sessions": 752,
       "split_date": "2024-09-04",
       "split_session": "2024-09-04",
@@ -1147,7 +1147,7 @@
       "n_rejected": 1,
       "n_validate_fills": 164,
       "pending_orders": [],
-      "runtime_s": 192.2,
+      "runtime_s": 183.6,
       "sessions": 754,
       "split_date": "2025-09-04",
       "split_session": "2025-09-04",
@@ -1246,9 +1246,9 @@
       "validate_universe": 12105
     }
   ],
-  "generated_utc": "2026-09-08T11:27:54+00:00",
+  "generated_utc": "2026-09-09T00:33:37+00:00",
   "git_dirty": true,
-  "git_sha": "ae326062c2d1af22171640e2be40772eb5f965ab",
+  "git_sha": "7171e62375185ea718a1265e53d77aff70d19969",
   "initial_cash": 39000.0,
   "kill_criterion": "Max drawdown exceeds 25%, or trails ew_benchmark by >15% over any rolling 6 months.",
   "name": "Turtle Breakout (ATR-stopped)",
@@ -1322,14 +1322,14 @@
     "validate_months": 12
   },
   "registered": "2026-07-28",
-  "runtime_s": 1861.6,
-  "scratch_s": 25.0,
-  "screen_rows": 1107457,
-  "screen_s": 24.3,
+  "runtime_s": 1771.2,
+  "scratch_s": 23.2,
+  "screen_rows": 1107456,
+  "screen_s": 24.5,
   "screen_source": "hist",
   "sessions": 3019,
   "source_file_count": 111,
-  "source_sha256": "44641be995d3b1dda59732f52076138b40d983d94eda22211dbae17a17a5d82f",
+  "source_sha256": "2876fdc6e5d36e532b535fb229dcbb653fba6077f4d5f7fe01b63db581cc6c53",
   "span_end": "2026-09-04",
   "span_start": "2014-09-04",
   "strategy": "turtle_breakout",
