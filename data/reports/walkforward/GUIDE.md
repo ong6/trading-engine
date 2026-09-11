@@ -3,6 +3,14 @@
 The generated [`README.md`](README.md) and the per-book pages linked from its summary table are
 the latest human-readable cohort for the 18 active, replayable books.
 
+The generated index still describes its `PASS`/`WATCH`/`REVIEW` triage as input to a “Sunday
+review loop.” That sentence is retained output from the evidence-anchored report renderer, not a
+current operating instruction. The model-driven review loop was retired on 2026-08-18; Sunday now
+runs deterministic walk-forward revalidation only. Treat those labels as historical mechanical
+triage, then use the current decision ledger and prospective monitors for decisions. Changing the
+renderer requires an explicit evidence migration rather than a documentation-only edit to frozen
+research source.
+
 - [`results/`](results/) is the moving canonical JSON result directory. `GET /meta` field
   `walkforward_evidence` validates only the currently registered, replayable books against their
   live configs and the deployed source; an unregistered legacy result cannot make that cohort
