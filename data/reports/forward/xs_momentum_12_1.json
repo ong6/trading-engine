@@ -83,12 +83,12 @@
       "sim/strategies/xs_common.py",
       "sim/strategies/xs_momentum_12_1.py"
     ],
-    "runtime_contract_migration": "2026-09-08 unconditional no-same-bar enforcement before the first signal: the existing fill-date rule now remains active under optimized Python; strategy, signal, execution economics, and statistical rules are unchanged",
-    "runtime_contract_sha256": "90f68c2616757a724c390fb65cb9e27a9b7654ba34e2d5aab08183b689be12a9",
-    "runtime_contract_version": 10,
+    "runtime_contract_migration": "2026-09-13 interruption-safe transaction cleanup before the first signal: every explicit DuckDB transaction now rolls back process-level interruptions, preserves the original failure if cleanup also fails, and leaves borrowed connections reusable; strategy, signal, execution economics, and statistical rules are unchanged",
+    "runtime_contract_sha256": "8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e",
+    "runtime_contract_version": 20,
     "signal_boundary": null,
     "signal_date": "2026-09-30",
-    "superseded_runtime_contract_sha256": "a2b0cd5f0765d1183fc52a309e3214017053eac1e7b1294971b8b945c41431b0"
+    "superseded_runtime_contract_sha256": "7f4085fca17872a9ef1125c64ed03f58b2191abe68286e9720441df74f8f06f3"
   },
   "observation": {
     "eligible_after": "2031-10-01",

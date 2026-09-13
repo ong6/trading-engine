@@ -1,6 +1,6 @@
 # Experiment e1-spy-monday — FORWARD (out-of-sample) record
 
-*Forward phase registered 2026-07-29 · report generated 2026-09-11 22:34 UTC · params hash `5dc40ff465de67a9` · forward-config hash `399ce03bee8bab4e`*
+*Forward phase registered 2026-07-29 · report generated 2026-09-13 04:55 UTC · params hash `5dc40ff465de67a9` · forward-config hash `399ce03bee8bab4e`*
 
 > **NO RESULT YET — 7 of 40 out-of-sample Mondays.** This experiment is not evaluated until the pre-registered sample is complete. Anything below is an accumulating record, **not** a verdict: reading a mean or a t-stat at n=7 and calling it a finding is exactly the peeking the §12.3 protocol exists to prevent. **33 Mondays to go.**
 
@@ -15,8 +15,8 @@
 | Out-of-sample start | **2026-07-17** — first out-of-sample Monday is the first Monday on or after it (2026-07-20) |
 | Cost model | `sim/fills.py slippage_bps_for(median_dollar_vol('SPY', monday))` → **20bp round-trip** (10bp/side) |
 | Params hash | `5dc40ff465de67a9b887966ba853bf5dfcb310076edd171739c4fd7ebe925d35` |
-| Runtime contract | v4 `da752d28c1b9bb18e3520139bbce71c885b89b192a47d00d5cd8fbfa0f1399ae` |
-| Runtime migration | 2026-09-08 unconditional no-same-bar enforcement: the shared fill-date rule now remains active under optimized Python; the frozen seven-observation E1 prefix, strategy, execution economics, and verdict rules are unchanged |
+| Runtime contract | v6 `5a665966f7bad78474dab9367618aab4016ea847fec8bba9a92966e7706e5612` |
+| Runtime migration | 2026-09-13 interruption-safe transaction cleanup: every explicit DuckDB transaction now rolls back process-level interruptions, preserves the original failure if cleanup also fails, and leaves borrowed connections reusable; the frozen seven-observation E1 prefix, strategy, execution economics, and verdict rules are unchanged |
 
 Registration source: `farm/experiments/e1-spy-monday.yaml` (pre-registered 2026-07-18, frozen) + `farm/experiments/e1-spy-monday.forward.json` (forward phase, frozen). Design authority: trading-engine-design.md §12.3.
 

@@ -9,16 +9,37 @@ os.walk + shutil.disk_usage — all stdlib, all cheap.
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
+import stat
 import subprocess
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 from engine.lib.log import get_logger
 
 log = get_logger("queue")
+
+
+@contextmanager
+def advisory_file_lock(path: str | Path):
+    """Serialize cooperating processes around a shared filesystem artifact.
+
+    The lock file is intentionally persistent: unlinking it after release can
+    let a new process lock a different inode while an existing waiter still
+    holds the old one.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 # --------------------------------------------------------------------------- #
@@ -99,12 +120,22 @@ def root_free_gb(path: str = "/") -> float:
 def write_text_atomic(path: str | Path, text: str) -> None:
     """Write `text` to `path` atomically: a temp file in the same directory then
     os.replace() onto the target. A torn write can never leave a partial (or
-    empty) file that a later read would swallow as {} and clobber sibling keys."""
+    empty) file that a later read would swallow as {} and clobber sibling keys.
+
+    Preserve an existing target's permissions. New generated artifacts use the
+    ordinary non-executable file mode instead of inheriting mkstemp's private
+    0600 mode.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        mode = stat.S_IMODE(path.stat().st_mode)
+    except FileNotFoundError:
+        mode = 0o644
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w") as fh:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            os.fchmod(fh.fileno(), mode)
             fh.write(text)
         os.replace(tmp, path)
     except Exception:
@@ -125,13 +156,33 @@ def read_meta(path: str | Path) -> dict:
         return {}
 
 
+def _read_meta_for_update(path: Path) -> dict:
+    """Read a writable snapshot without converting corruption into emptiness."""
+    if not path.exists():
+        return {}
+    try:
+        meta = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise ValueError("refusing to replace malformed metadata JSON") from exc
+    if not isinstance(meta, dict):
+        raise ValueError("refusing to replace non-object metadata JSON")
+    return meta
+
+
 def merge_meta(path: str | Path, updates: dict) -> None:
-    """Shallow-merge top-level keys into data/_meta.json, preserving every key
-    written by other jobs (collect.py's health block, etc.)."""
+    """Process-safely merge top-level keys into the shared metadata snapshot.
+
+    Atomic replacement prevents readers from seeing a torn file.  The adjacent
+    advisory lock also covers the preceding read, so parallel producers cannot
+    both read the same snapshot and then erase whichever sibling publishes
+    first.  Every writer of ``data/_meta.json`` must use this helper.
+    """
     path = Path(path)
-    meta = read_meta(path)
-    meta.update(updates)
-    write_text_atomic(path, json.dumps(meta, indent=2))
+    lock_path = path.with_name(f"{path.name}.lock")
+    with advisory_file_lock(lock_path):
+        meta = _read_meta_for_update(path)
+        meta.update(updates)
+        write_text_atomic(path, json.dumps(meta, indent=2))
 
 
 def update_disk_warning(path: str | Path, store_gb: float, soft_gb: float = 60.0) -> None:

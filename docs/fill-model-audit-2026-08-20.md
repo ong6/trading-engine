@@ -1,5 +1,9 @@
 # Fill-model audit — 2026-08-20
 
+> **Historical snapshot.** This predates fill model v4. See
+> [`execution-capital-data-hardening-2026-09-06.md`](execution-capital-data-hardening-2026-09-06.md)
+> for current execution assumptions.
+
 Diagnosis only. Nothing in `sim/` was changed; no job was enqueued or killed; every DB access
 was `duckdb.connect(..., read_only=True)`. Repro script: `docs/repro_fill_integer_clamp.py`
 (in-memory DuckDB, never opens the store).

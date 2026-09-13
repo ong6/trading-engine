@@ -4,9 +4,10 @@
 Free fundamentals (market cap, PE, EV/EBITDA-ish, sector, …) are point-in-time
 truth that no vendor sells cheaply after the fact. Snapshotting them weekly and
 *never rewriting a past row* builds the honest history that value strategies
-need in ~6–12 months. This is a citizen of the §12.7 job queue: the queue
-dispatches to `run(params, con, meta_path)`; a `__main__` here runs it standalone
-for testing.
+need. The current admission gate requires three calendar years and 156 broad
+weekly snapshots; collecting data does not establish an edge. This is a citizen
+of the §12.7 job queue; its queue and standalone entry points use short-lived
+connections around checkpoints.
 
 Universe: every liquid name (the same `universe.liquid = TRUE` set collect.py
 uses). ETFs come along and simply store NULL for the equity-only fields — honest,
@@ -20,14 +21,16 @@ present and record NULL for the rest; a name that returns no quote at all
 Guardrails: append-only + point-in-time (db.insert_fundamentals anti-joins on
 (ticker, as_of) — a re-run on the same day inserts nothing), polite per-name
 pulls (small sleep between names, one backoff retry then record a gap — never
-loop on a blocked name), honest _meta.json accounting, resumable (skip names
-already snapshotted for today's as_of).
+loop on a blocked name), honest _meta.json accounting, and append-only attempt
+logging. Only committed snapshots are skipped; missing or unusable responses
+remain retryable.
 """
 from __future__ import annotations
 
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 import yfinance as yf
@@ -94,7 +97,11 @@ def _select_universe(con, params: dict) -> list[tuple[str, str]]:
 
 
 def _already_done(con, as_of: date) -> set[str]:
-    """Tickers already snapshotted for this as_of (the resume set)."""
+    """Tickers with a committed snapshot for this as_of (the resume set).
+
+    The data row is authoritative. An orphaned `ok` attempt log must fail closed
+    and trigger another pull rather than conceal a missing snapshot.
+    """
     rows = con.execute(
         "SELECT DISTINCT ticker FROM fundamentals WHERE as_of = ?", [as_of]
     ).fetchall()
@@ -131,56 +138,69 @@ def _row_from_info(canon: str, info: dict | None) -> dict | None:
     return row
 
 
-# --------------------------------------------------------------------------- #
-# entry point the queue dispatches to
-# --------------------------------------------------------------------------- #
-def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
-    """Snapshot fundamentals for the liquid universe into the append-only
-    `fundamentals` table, stamped with today's as_of. Point-in-time: a re-run on
-    the same day is a no-op (resumability skip + insert anti-join).
-
-    params:
-      tickers — 'A,B,C' or a list: snapshot only these (testing).
-      limit   — cap to the first N names (fast smoke tests).
-    Returns the accounting dict also written under _meta.json 'fundamentals'.
-    """
-    params = params or {}
-    db.init_mining_schema(con)
-    as_of = datetime.now(timezone.utc).date()
-
+def _prepare_run(con, params: dict, as_of: date):
     pairs = _select_universe(con, params)
     limit = params.get("limit")
     if limit:
         pairs = pairs[: int(limit)]
-
     done = _already_done(con, as_of)
     pending = [(tk, yft) for tk, yft in pairs if tk not in done]
+    already_done = len(done & {tk for tk, _ in pairs})
+    return pairs, pending, already_done
+
+
+def _write_checkpoint(con, snapshot_rows: list[dict], fetch_rows: list[dict], as_of: date) -> int:
+    """Commit snapshot rows and their fetch outcomes as one recovery unit."""
+    if not snapshot_rows and not fetch_rows:
+        return 0
+    with db.transaction(con):
+        inserted = db.insert_fundamentals(con, pd.DataFrame(snapshot_rows), as_of=as_of)
+        db.insert_fundamentals_fetch_log(con, fetch_rows, as_of=as_of)
+    return inserted
+
+
+def _pull_pending(
+    pairs: list[tuple[str, str]],
+    pending: list[tuple[str, str]],
+    already_done: int,
+    as_of: date,
+    checkpoint: Callable[[list[dict], list[dict]], int],
+    count_rows: Callable[[], int],
+    meta_path: str | Path,
+) -> dict:
+    """Network loop shared by persistent and connection-narrowed entry points."""
     log.info(f"[fundamentals] as_of={as_of} universe={len(pairs)} "
-          f"already_done_today={len(done & {tk for tk, _ in pairs})} "
-          f"pending={len(pending)}")
+          f"already_done_today={already_done} pending={len(pending)}")
 
     inserted = 0
     with_data = 0
     failed = 0
     with_mcap = 0
     buffer: list[dict] = []
+    fetch_log_buffer: list[dict] = []
 
     def _flush() -> None:
-        nonlocal inserted, buffer
-        if buffer:
-            inserted += db.insert_fundamentals(con, pd.DataFrame(buffer), as_of=as_of)
-            buffer = []
+        nonlocal inserted, buffer, fetch_log_buffer
+        if not buffer and not fetch_log_buffer:
+            return
+        inserted += checkpoint(buffer, fetch_log_buffer)
+        buffer = []
+        fetch_log_buffer = []
 
     for i, (canon, yft) in enumerate(pending, 1):
         info = _fetch_info(yft)
         row = _row_from_info(canon, info)
         if row is None:
             failed += 1
+            fetch_log_buffer.append({"ticker": canon, "status": "failed", "n_fields": 0})
         else:
             with_data += 1
             if row.get("market_cap") is not None:
                 with_mcap += 1
             buffer.append(row)
+            fetch_log_buffer.append(
+                {"ticker": canon, "status": "ok", "n_fields": len(row) - 1}
+            )
         if i % FLUSH_EVERY == 0:
             _flush()
             log.info(f"[fundamentals] {i}/{len(pending)} pulled "
@@ -189,9 +209,7 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
     _flush()
 
     store_gb = rsc.dir_size_gb(STORE_DIR)
-    total_rows = con.execute(
-        "SELECT COUNT(*) FROM fundamentals WHERE as_of = ?", [as_of]
-    ).fetchone()[0]
+    total_rows = count_rows()
     accounting = {
         "last_run": datetime.now(timezone.utc).isoformat(),
         "as_of": as_of.isoformat(),
@@ -214,6 +232,75 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# entry point the queue dispatches to
+# --------------------------------------------------------------------------- #
+def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
+    """Snapshot fundamentals for the liquid universe into the append-only
+    `fundamentals` table, stamped with today's as_of. Every attempt is appended
+    to `fundamentals_fetch_log`; a re-run skips committed snapshots and retries
+    failed or unusable responses.
+
+    params:
+      tickers — 'A,B,C' or a list: snapshot only these (testing).
+      limit   — cap to the first N names (fast smoke tests).
+    Returns the accounting dict also written under _meta.json 'fundamentals'.
+    """
+    params = params or {}
+    db.init_mining_schema(con)
+    as_of = datetime.now(timezone.utc).date()
+
+    prepared = _prepare_run(con, params, as_of)
+    return _pull_pending(
+        *prepared,
+        as_of,
+        lambda snapshot_rows, fetch_rows: _write_checkpoint(
+            con, snapshot_rows, fetch_rows, as_of
+        ),
+        lambda: con.execute(
+            "SELECT COUNT(*) FROM fundamentals WHERE as_of = ?", [as_of]
+        ).fetchone()[0],
+        meta_path,
+    )
+
+
+def run_connection_narrowed(
+    params: dict | None,
+    db_path: str | Path | None = None,
+    meta_path: str | Path = DEFAULT_META,
+) -> dict:
+    """Run without retaining DuckDB's writer lock during per-name HTTP waits."""
+    params = params or {}
+    path = Path(db_path) if db_path is not None else db.DEFAULT_DB
+    as_of = datetime.now(timezone.utc).date()
+    con = db.connect(path)
+    try:
+        db.init_schema(con)
+        db.init_queue_schema(con)
+        db.init_mining_schema(con)
+        prepared = _prepare_run(con, params, as_of)
+    finally:
+        con.close()
+
+    def checkpoint(snapshot_rows: list[dict], fetch_rows: list[dict]) -> int:
+        write_con = db.connect(path)
+        try:
+            return _write_checkpoint(write_con, snapshot_rows, fetch_rows, as_of)
+        finally:
+            write_con.close()
+
+    def count_rows() -> int:
+        read_con = db.connect(path, read_only=True)
+        try:
+            return read_con.execute(
+                "SELECT COUNT(*) FROM fundamentals WHERE as_of = ?", [as_of]
+            ).fetchone()[0]
+        finally:
+            read_con.close()
+
+    return _pull_pending(*prepared, as_of, checkpoint, count_rows, meta_path)
+
+
+# --------------------------------------------------------------------------- #
 def main() -> int:
     import argparse
 
@@ -230,12 +317,7 @@ def main() -> int:
     if args.limit:
         params["limit"] = args.limit
 
-    con = db.connect(args.db) if args.db else db.connect()
-    db.init_schema(con)
-    db.init_queue_schema(con)
-    db.init_mining_schema(con)
-    run(params, con, meta_path=args.meta)
-    con.close()
+    run_connection_narrowed(params, db_path=args.db, meta_path=args.meta)
     return 0
 
 

@@ -1,11 +1,27 @@
 # Charter — `ew_gross_voltarget`
 
-_Pre-registration, 2026-08-20. **Candidate, not a book.** Nothing here creates a
-row in `portfolios`. It becomes a league book only if a human promotes it._
+_Pre-registration, 2026-08-20. The text below preserves the original candidate
+hypothesis and gates; the dated outcome addendum records the completed decision._
 
-Status: **candidate** · Class: `sim/strategies/ew_gross_voltarget.py` ·
+Status: **completed — `INCONCLUSIVE-LEGACY`, closed 2026-09-07** · Class: `sim/strategies/ew_gross_voltarget.py` ·
 Sweep grid: `gross_voltarget` · Cadence: **monthly** (matching `ew_benchmark`,
 so any spread is attributable to the rule and not to trading frequency).
+
+## Outcome addendum — 2026-09-07
+
+The superseding matched-control review is
+[`../../data/reports/experiments/gross-voltarget-matched-static/README.md`](../../data/reports/experiments/gross-voltarget-matched-static/README.md).
+It compares all nine dynamic cells fold-by-fold with the nearest-volatility cell
+from the five-cell static-exposure grid. Three 10%-target cells survive the
+original permissive kill gates, but **every mean timing-excess 90% interval
+contains zero**, no predeclared volatility-slope interval is wholly positive,
+and no cell establishes a positive timing edge. The source artifacts use legacy
+fill model v2 and lack complete source/data/profile provenance.
+
+The decision is therefore **`INCONCLUSIVE-LEGACY`**, not a positive result and
+not a promotion candidate. No book, parameter selection, automatic action, or
+new rerun follows from it. Reopening the mechanism requires a new charter and a
+prospectively generated, fully provenance-stamped matched cohort.
 
 ## Hypothesis
 

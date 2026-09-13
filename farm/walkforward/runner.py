@@ -30,15 +30,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import shutil
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from engine.lib import db
+from engine.lib import db, resources
 from engine.lib import leverage as lev
+from engine.lib.data_quality import data_snapshot, quality_class
 from engine.lib.log import get_logger
+from engine.lib.provenance import research_provenance
 from engine.lib.settings import DATA_DIR, REPO_ROOT
 from engine.lib.util import median, pct
 from farm.backtest import hist_screen, stats
@@ -51,7 +54,8 @@ from farm.backtest.replay import (
 )
 from farm.walkforward import monthly as wf_monthly
 from farm.walkforward import protocol
-from sim import league
+from farm.walkforward.controls import declaration as comparison_declaration
+from sim import calendar, execution, league
 from sim import portfolio as _pf
 from sim.schema import INITIAL_CASH
 
@@ -61,11 +65,16 @@ SCRATCH_ROOT = REPO_ROOT / "scratch"
 WF_DIR = DATA_DIR / "reports" / "walkforward"
 RESULTS_DIR = WF_DIR / "results"
 
+
+def _provenance(config: dict) -> dict:
+    return research_provenance(config)
+
 # Sim tables wiped between folds. `portfolios` is included on purpose: each fold
 # re-creates the book from the LIVE config (D-WF4) with a fresh reference
 # notional and a `created` stamp at the fold's own start (D-WF2).
-SIM_TABLES = ("sim_dividends", "sim_fills", "sim_orders", "sim_positions",
-              "sim_equity", "portfolios")
+SIM_TABLES = ("sim_dividends", "sim_fill_costs", "sim_execution_attempts",
+              "sim_fills", "sim_orders", "sim_positions", "sim_equity",
+              "portfolios")
 
 
 # --------------------------------------------------------------------------- #
@@ -74,17 +83,25 @@ SIM_TABLES = ("sim_dividends", "sim_fills", "sim_orders", "sim_positions",
 def active_books(live_con) -> list[dict]:
     """Every active row of the LIVE `portfolios` table — league.generate_all's
     exact source — with the excluded books removed and the reason kept."""
+    columns = {r[1] for r in live_con.execute(
+        "PRAGMA table_info('portfolios')").fetchall()}
+    initial_expr = ("COALESCE(initial_cash, ?)" if "initial_cash" in columns else "?")
+    profile_expr = ("COALESCE(execution_profile, ?)"
+                    if "execution_profile" in columns else "?")
     rows = live_con.execute(
-        "SELECT id, name, strategy, config, created FROM portfolios WHERE active "
-        "ORDER BY id").fetchall()
+        f"SELECT id, name, strategy, config, created, {initial_expr}, "
+        f"{profile_expr} FROM portfolios WHERE active ORDER BY id",
+        [INITIAL_CASH, execution.DEFAULT_PROFILE_ID]).fetchall()
     out = []
-    for pid, name, strat, cfg_json, created in rows:
+    for pid, name, strat, cfg_json, created, initial_cash, profile_id in rows:
         try:
             cfg = json.loads(cfg_json) if cfg_json else {}
         except (TypeError, json.JSONDecodeError):
             cfg = {}
         out.append({"id": pid, "name": name, "strategy": strat, "config": cfg,
                     "created": created.isoformat() if created else None,
+                    "initial_cash": float(initial_cash),
+                    "execution_profile": profile_id,
                     "config_json": cfg_json,
                     "excluded": protocol.excluded_reason(pid, strat)})
     return out
@@ -98,10 +115,11 @@ def book_by_id(live_con, config_id: str) -> dict:
                      f"(the live league's book list). Nothing to re-validate.")
 
 
-def data_floor(live_con, strategy: str) -> date:
+def data_floor(live_con, strategy: str,
+               required_tickers: tuple[str, ...] | None = None) -> date:
     """Earliest session at which this book's required tickers all have enough bars."""
     floors = []
-    for tk in REQUIRED.get(strategy, DEFAULT_REQUIRED):
+    for tk in required_tickers or tuple(REQUIRED.get(strategy, DEFAULT_REQUIRED)):
         row = live_con.execute(
             "SELECT date FROM prices WHERE ticker = ? ORDER BY date "
             "LIMIT 1 OFFSET ?", [tk, REQUIRED_LOOKBACK]).fetchone()
@@ -120,12 +138,14 @@ def _reset_sim(con) -> None:
         con.execute(f"DELETE FROM {t}")
 
 
-def _insert_book(con, book: dict, created: date) -> None:
+def _insert_book(con, book: dict, created: date, initial_cash: float,
+                 execution_profile: str) -> None:
     con.execute(
-        "INSERT INTO portfolios (id, name, strategy, config, created, active, cash)"
-        " VALUES (?, ?, ?, ?, ?, TRUE, ?)",
+        "INSERT INTO portfolios (id, name, strategy, config, created, active, "
+        "cash, initial_cash, execution_profile)"
+        " VALUES (?, ?, ?, ?, ?, TRUE, ?, ?, ?)",
         [book["id"], book["name"], book["strategy"], book["config_json"],
-         created, INITIAL_CASH])
+         created, initial_cash, initial_cash, execution_profile])
 
 
 def _slice(eq: list[tuple], lo: date | None, hi: date | None) -> tuple[list, list]:
@@ -134,8 +154,44 @@ def _slice(eq: list[tuple], lo: date | None, hi: date | None) -> tuple[list, lis
     return [r[0] for r in rows], [float(r[1]) for r in rows]
 
 
+def _state_rebuild_matches(con, portfolio_id: str) -> bool:
+    """Rebuild cash/positions from ledgers and compare with incremental state."""
+    cash_before = float(con.execute(
+        "SELECT cash FROM portfolios WHERE id = ?", [portfolio_id]
+    ).fetchone()[0])
+    positions_before = {
+        ticker: (float(qty), float(avg_cost))
+        for ticker, qty, avg_cost in con.execute(
+            "SELECT ticker, qty, avg_cost FROM sim_positions "
+            "WHERE portfolio_id = ? ORDER BY ticker", [portfolio_id]
+        ).fetchall()
+    }
+    _pf.rebuild_state(con)
+    cash_after = float(con.execute(
+        "SELECT cash FROM portfolios WHERE id = ?", [portfolio_id]
+    ).fetchone()[0])
+    positions_after = {
+        ticker: (float(qty), float(avg_cost))
+        for ticker, qty, avg_cost in con.execute(
+            "SELECT ticker, qty, avg_cost FROM sim_positions "
+            "WHERE portfolio_id = ? ORDER BY ticker", [portfolio_id]
+        ).fetchall()
+    }
+    if not math.isclose(cash_before, cash_after, rel_tol=1e-10, abs_tol=1e-6):
+        return False
+    if positions_before.keys() != positions_after.keys():
+        return False
+    return all(
+        math.isclose(before[0], positions_after[ticker][0], rel_tol=1e-10, abs_tol=1e-8)
+        and math.isclose(before[1], positions_after[ticker][1], rel_tol=1e-10, abs_tol=1e-8)
+        for ticker, before in positions_before.items()
+    )
+
+
 def run_fold(con, book: dict, fold: protocol.Fold, sessions: list[date],
-             data_dir: Path, verbose: bool = True) -> dict:
+             data_dir: Path, verbose: bool = True,
+             initial_cash: float | None = None,
+             execution_profile: str | None = None) -> dict:
     """Replay one fold in the scratch store and return its two stat packs."""
     if len(sessions) < 3:
         return {**fold.as_dict(), "status": "skipped",
@@ -143,7 +199,7 @@ def run_fold(con, book: dict, fold: protocol.Fold, sessions: list[date],
 
     t0 = time.time()
     _reset_sim(con)
-    _insert_book(con, book, sessions[0])
+    _insert_book(con, book, sessions[0], initial_cash, execution_profile)
     for d in sessions:
         league.step(con, d, data_dir, rerun=False, verbose=False)
 
@@ -168,6 +224,61 @@ def run_fold(con, book: dict, fold: protocol.Fold, sessions: list[date],
     n_rej = con.execute(
         "SELECT COUNT(*) FROM sim_orders WHERE portfolio_id = ? AND "
         "status = 'rejected'", [book["id"]]).fetchone()[0]
+    pending_orders = [
+        {"id": int(order_id), "ticker": ticker, "side": side,
+         "signal_date": signal_date.isoformat()}
+        for order_id, ticker, side, signal_date in con.execute(
+            "SELECT id, ticker, side, signal_date FROM sim_orders "
+            "WHERE portfolio_id = ? AND status = 'pending' "
+            "ORDER BY id", [book["id"]]
+        ).fetchall()
+    ]
+    n_pending = len(pending_orders)
+    n_capacity_rejected = con.execute(
+        "SELECT COUNT(*) FROM sim_execution_attempts a "
+        "JOIN sim_orders o ON o.id = a.order_id "
+        "WHERE o.portfolio_id = ? AND a.outcome = 'rejected' "
+        "AND a.reject_reason LIKE 'illiquid:%'", [book["id"]]
+    ).fetchone()[0]
+    initial_entry_missing_assets: list[str] = []
+    missing_required_signal_prices: list[dict] = []
+    expected_assets = tuple(book.get("expected_assets") or ())
+    if expected_assets:
+        first_signal = con.execute(
+            "SELECT MIN(signal_date) FROM sim_orders WHERE portfolio_id = ? "
+            "AND side = 'buy'", [book["id"]]
+        ).fetchone()[0]
+        filled = set()
+        if first_signal is not None:
+            filled = {
+                ticker for ticker, status in con.execute(
+                    "SELECT ticker, status FROM sim_orders WHERE portfolio_id = ? "
+                    "AND side = 'buy' AND signal_date = ?",
+                    [book["id"], first_signal],
+                ).fetchall()
+                if status == "filled"
+            }
+        initial_entry_missing_assets = sorted(set(expected_assets) - filled)
+        required_dates = [sessions[0]]
+        if book.get("quarter_end_signals"):
+            required_dates.extend(
+                d for d in sessions[1:]
+                if d.month in (3, 6, 9, 12) and calendar.is_month_signal(con, d)
+            )
+        placeholders = ",".join("?" for _ in expected_assets)
+        for signal_date in required_dates:
+            present = {
+                ticker for (ticker,) in con.execute(
+                    "SELECT ticker FROM prices WHERE date = ? AND close > 0 "
+                    f"AND ticker IN ({placeholders})",
+                    [signal_date, *expected_assets],
+                ).fetchall()
+            }
+            missing = sorted(set(expected_assets) - present)
+            if missing:
+                missing_required_signal_prices.append({
+                    "date": signal_date.isoformat(), "tickers": missing,
+                })
     n_val_fills = con.execute(
         "SELECT COUNT(*) FROM sim_fills WHERE portfolio_id = ? AND fill_date > ?",
         [book["id"], split]).fetchone()[0]
@@ -213,17 +324,24 @@ def run_fold(con, book: dict, fold: protocol.Fold, sessions: list[date],
         "n_fills": n_fills,
         "n_validate_fills": n_val_fills,
         "n_rejected": n_rej,
+        "n_pending": n_pending,
+        "pending_orders": pending_orders,
+        "n_capacity_rejected": n_capacity_rejected,
+        "initial_entry_missing_assets": initial_entry_missing_assets,
+        "missing_required_signal_prices": missing_required_signal_prices,
         "n_dividend_credits": n_div[0],
         "validate_universe": n_universe,
         "dividend_cash": float(n_div[1]),
         "runtime_s": round(time.time() - t0, 1),
-        "train": stats.equity_stats(tr_d, tr_e, bil),
+        "train": stats.equity_stats(tr_d, tr_e, bil, initial_cash),
         "validate": stats.equity_stats(va_d, va_e, bil),
         # Month-end equity of the validate slice (base row = the split
         # session), so monthly.py can pool paired monthly excess across folds
         # without a replay. Additive: nothing above reads it. (2026-09-02)
         "validate_monthly_equity": wf_monthly.month_end_points(va_d, va_e),
     }
+    if book.get("verify_rebuild_state"):
+        out["state_rebuild_matches"] = _state_rebuild_matches(con, book["id"])
     if verbose:
         v, t = out["validate"], out["train"]
         log.info(f"[wf]   fold {fold.index}: train {pct(t.get('total_return'))} "
@@ -253,7 +371,10 @@ def run_book(live_con, config_id: str, *,
              # fold loop is Python-bound. Lower default keeps a width-8 batch
              # near ~2.5-3 cores/worker, under the load guard.
              verbose: bool = True, threads: int | None = 4,
-             mem_mb: int | None = 8000, book: dict | None = None) -> dict:
+             mem_mb: int | None = 8000, book: dict | None = None,
+             initial_cash: float | None = None,
+             execution_profile: str | None = None,
+             scratch_prepare=None) -> dict:
     # `book` is the CANDIDATE seam (farm/sweep). Production passes nothing and
     # the config is read from the live `portfolios` row, which is the whole
     # point of the walk-forward: it re-validates the rule the league is actually
@@ -262,9 +383,22 @@ def run_book(live_con, config_id: str, *,
     # variant or a proposed rule -- and such a run must write to its own
     # results_dir so a candidate can never be mistaken for a live book's record.
     book = book if book is not None else book_by_id(live_con, config_id)
+    initial_cash = float(
+        book.get("initial_cash", INITIAL_CASH)
+        if initial_cash is None else initial_cash)
+    if not initial_cash > 0:
+        raise ValueError("initial_cash must be positive")
+    profile = execution.resolve_profile(
+        execution_profile or book.get("execution_profile"))
     if book["excluded"]:
         raise SystemExit(f"[wf] {config_id} is excluded: {book['excluded']}")
 
+    # Capture this before folds, scratch construction, or strategy execution.
+    # A long run must identify the tree loaded at its start, not whichever tree
+    # happens to be on disk when the result is finally serialized.
+    run_provenance = _provenance(book["config"])
+    run_data_snapshot = data_snapshot(live_con)
+    run_comparison = book.get("comparison") or comparison_declaration(config_id)
     t0 = time.time()
     if anchor is None:
         anchor = live_con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
@@ -272,7 +406,8 @@ def run_book(live_con, config_id: str, *,
                                 validate_months=validate_months,
                                 step_months=step_months, n_folds=n_folds)
 
-    floor = data_floor(live_con, book["strategy"])
+    floor = data_floor(
+        live_con, book["strategy"], tuple(book.get("required_tickers") or ()))
     kept: list[protocol.Fold] = []
     dropped: list[dict] = []
     clamped_ids: set[int] = set()
@@ -321,6 +456,7 @@ def run_book(live_con, config_id: str, *,
     scratch_dir = Path(scratch_root) / f"wf__{config_id}__p{os.getpid()}"
     shutil.rmtree(scratch_dir, ignore_errors=True)
     result: dict = {}
+    con = None
     try:
         t_scratch = time.time()
         db_path = build_scratch(live_con, scratch_dir, span_start, span_end,
@@ -333,6 +469,10 @@ def run_book(live_con, config_id: str, *,
         if mem_mb:
             con.execute(f"SET memory_limit = '{int(mem_mb)}MB'")
         con.execute(f"SET temp_directory = '{scratch_dir}'")
+        research_input = (
+            scratch_prepare(live_con, con, span_start, span_end, all_sessions)
+            if scratch_prepare is not None else None
+        )
 
         t_screen = time.time()
         n_screen = 0
@@ -350,10 +490,11 @@ def run_book(live_con, config_id: str, *,
         for f in kept:
             fs = [d for d in all_sessions
                   if f.train_start <= d <= f.validate_end]
-            fr = run_fold(con, book, f, fs, scratch_dir, verbose=verbose)
+            fr = run_fold(
+                con, book, f, fs, scratch_dir, verbose=verbose,
+                initial_cash=initial_cash, execution_profile=profile.id)
             fr["train_start_clamped_to_data_floor"] = f.index in clamped_ids
             fold_results.append(fr)
-        con.close()
 
         result = {
             "config_id": config_id,
@@ -363,7 +504,13 @@ def run_book(live_con, config_id: str, *,
             "expectation": book["config"].get("expectation"),
             "kill_criterion": book["config"].get("kill_criterion"),
             "description": book["config"].get("description"),
-            "initial_cash": INITIAL_CASH,
+            "initial_cash": initial_cash,
+            "execution_profile": profile.as_dict(),
+            "data_quality_class": (
+                book.get("data_quality_class") or quality_class(book["strategy"])
+            ),
+            "data_snapshot": run_data_snapshot,
+            "comparison": run_comparison,
             # Stamped so results produced under different fill arithmetic can
             # never be silently compared. See sim/portfolio.FILL_MODEL_VERSION.
             "fill_model": _pf.FILL_MODEL_VERSION,
@@ -378,6 +525,8 @@ def run_book(live_con, config_id: str, *,
             "screen_source": "hist" if book["strategy"] in NEEDS_SCREEN
                              else "not-used",
             "registered": book.get("created"),
+            **({"research_input": research_input} if research_input is not None else {}),
+            **run_provenance,
             "span_start": span_start.isoformat(),
             "span_end": span_end.isoformat(),
             "sessions": len(all_sessions),
@@ -390,11 +539,17 @@ def run_book(live_con, config_id: str, *,
         if write_result:
             results_dir.mkdir(parents=True, exist_ok=True)
             out = results_dir / f"{config_id}.json"
-            out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+            resources.write_text_atomic(
+                out, json.dumps(result, indent=2, sort_keys=True) + "\n"
+            )
             log.info(f"[wf] wrote {out}")
     finally:
-        if not keep_scratch:
-            shutil.rmtree(scratch_dir, ignore_errors=True)
+        try:
+            if con is not None:
+                con.close()
+        finally:
+            if not keep_scratch:
+                shutil.rmtree(scratch_dir, ignore_errors=True)
 
     s = result.get("summary", {})
     wr = s.get("validate_win_rate")
@@ -476,7 +631,10 @@ def run_job(params: dict, con, meta_path=None) -> None:
         n_folds=int(params.get("n_folds", protocol.N_FOLDS)),
         anchor=date.fromisoformat(anchor) if anchor else None,
         results_dir=results_dir, scratch_root=scratch_root,
-        mem_mb=params.get("mem_mb", 8000),
+        mem_mb=params.get("mem_mb", 4500),
+        initial_cash=(float(params["initial_cash"])
+                      if "initial_cash" in params else None),
+        execution_profile=params.get("execution_profile"),
     )
     if __package__:
         from . import report
@@ -502,6 +660,11 @@ def main() -> int:
     ap.add_argument("--no-result", action="store_true")
     ap.add_argument("--no-report", action="store_true")
     ap.add_argument("--threads", type=int, default=4)  # measured 2026-08-20: see run_book
+    ap.add_argument("--initial-cash", type=float, default=None,
+                    help="override the portfolio's persisted starting capital")
+    ap.add_argument("--execution-profile", default=None,
+                    choices=list(execution.PROFILES),
+                    help="override the portfolio's persisted execution profile")
     args = ap.parse_args()
 
     live = db.connect(args.db, read_only=True)
@@ -520,7 +683,9 @@ def main() -> int:
                  scratch_root=Path(args.scratch_root),
                  results_dir=Path(args.results_dir),
                  keep_scratch=args.keep_scratch,
-                 write_result=not args.no_result, threads=args.threads)
+                 write_result=not args.no_result, threads=args.threads,
+                 initial_cash=args.initial_cash,
+                 execution_profile=args.execution_profile)
     finally:
         live.close()
     if not args.no_result and not args.no_report:

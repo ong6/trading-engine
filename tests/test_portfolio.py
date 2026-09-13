@@ -1,6 +1,4 @@
 """Cash/position accounting, MTM, dividends, rebuild."""
-from datetime import date
-
 import pytest
 
 from sim import portfolio as pf

@@ -10,9 +10,9 @@ criterion (40 Mondays, then mean <= 0 or t < 0.5 kills it — no re-optimization
 What it does, every night:
   * reads the frozen forward registration (farm/experiments/<id>.forward.json),
   * finds every SETTLED Monday SPY bar on/after `oos_start` that is not already
-    recorded, computes gross (close/open - 1) and net (the paper league's own
-    fill model, sim/fills.py slippage_bps_for -> 10bp/side, 20bp round-trip for
-    SPY's liquidity tier),
+    recorded, computes gross (close/open - 1) and net under the frozen
+    compatibility execution profile (`baseline_v1`: 10bp/side, 20bp round-trip
+    for SPY's liquidity tier),
   * APPENDS one row per Monday to `experiment_results`
     (partition = 'oos:<date>', trade_date/gross_ret/net_ret populated),
   * regenerates data/reports/experiments/<id>-forward.md from the table.
@@ -42,6 +42,7 @@ Entry points:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from datetime import date, datetime, timedelta, timezone
@@ -49,9 +50,12 @@ from datetime import time as dtime
 from pathlib import Path
 
 from engine.lib import db as enginedb  # engine/lib/db.py — the lock-retrying connect factory
+from engine.lib import resources
 from engine.lib.log import get_logger
+from engine.lib.provenance import canonical_sha256
 from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT
 from farm import experiment as E  # farm/experiment.py — shared config/hash/table helpers
+from sim import execution, nyse
 from sim.fills import median_dollar_vol, slippage_bps_for
 
 log = get_logger("e1")
@@ -59,6 +63,50 @@ log = get_logger("e1")
 FARM_DIR = Path(__file__).resolve().parent
 EXPERIMENTS_DIR = FARM_DIR / "experiments"
 REPORTS_DIR = DATA_DIR / "reports" / "experiments"
+CHECKPOINT_SCHEMA_VERSION = 2
+LEGACY_CHECKPOINT_SCHEMA_VERSION = 1
+EXPECTED_LEGACY_OBSERVATIONS = 7
+EXPECTED_LEGACY_THROUGH = "2026-08-31"
+EXPECTED_LEGACY_PREFIX_SHA256 = (
+    "e2603b7c85f5e24e3b019a4ee7058c6732a792647b0c1c2e62a0d111fdf360ad"
+)
+RUNTIME_CONTRACT_VERSION = 6
+SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
+    "31ff0e06dad3ee1063dc25210cf049df5dffba1662621bc6a97de30e535420a2"
+)
+RUNTIME_CONTRACT_MIGRATION = (
+    "2026-09-13 interruption-safe transaction cleanup: every explicit DuckDB transaction now "
+    "rolls back process-level interruptions, preserves the original failure if cleanup also "
+    "fails, and leaves borrowed connections reusable; the frozen seven-observation E1 prefix, "
+    "strategy, execution economics, and verdict rules are unchanged"
+)
+RUNTIME_CONTRACT_FILES = (
+    "engine/lib/db.py",
+    "engine/lib/provenance.py",
+    "engine/lib/resources.py",
+    "farm/experiment.py",
+    "farm/experiment_runner.py",
+    "sim/calendar.py",
+    "sim/execution.py",
+    "sim/fills.py",
+    "sim/nyse.py",
+)
+# Filled after the dependency list was frozen. The self-file digest normalizes
+# this literal so the contract can cover its own validation and verdict code.
+EXPECTED_RUNTIME_CONTRACT_SHA256 = (
+    "5a665966f7bad78474dab9367618aab4016ea847fec8bba9a92966e7706e5612"
+)
+PRIOR_RUNTIME_CONTRACT_VERSION = 5
+PRIOR_RUNTIME_CONTRACT_SHA256 = SUPERSEDED_RUNTIME_CONTRACT_SHA256
+PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
+    "da752d28c1b9bb18e3520139bbce71c885b89b192a47d00d5cd8fbfa0f1399ae"
+)
+PRIOR_RUNTIME_CONTRACT_MIGRATION = (
+    "2026-09-13 exception-safe temporary DataFrame registration cleanup: transient DuckDB views "
+    "are now unregistered after failed statements; the frozen seven-observation E1 prefix, "
+    "strategy, execution economics, and verdict rules are unchanged"
+)
+PRIOR_RUNTIME_CONTRACT_FILES = RUNTIME_CONTRACT_FILES
 
 # A Monday's daily bar is trusted only after its session has closed. 16:00 ET is
 # 20:00 UTC under EDT and 21:00 UTC under EST; 21:15 UTC clears both with margin
@@ -67,6 +115,13 @@ SETTLE_UTC = dtime(21, 15)
 
 WEEKDAY = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4}
 OOS_PREFIX = "oos:"
+EXECUTION_PROFILE = execution.BASELINE
+EXECUTION_PROFILE_SHA256 = canonical_sha256(EXECUTION_PROFILE.as_dict())
+EXPECTED_EXECUTION_PROFILE_SHA256 = (
+    "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db"
+)
+EXPECTED_ROUNDTRIP_BPS = 20.0
+LEGACY_PROFILE_CUTOFF = date(2026, 8, 31)
 
 
 # --------------------------------------------------------------------------- #
@@ -118,6 +173,36 @@ def forward_config_hash(cfg: dict) -> str:
     return E.config_hash({k: v for k, v in cfg.items() if k != "_comment"})
 
 
+def _runtime_contract_sha256(repo_root: Path = REPO_ROOT) -> str:
+    """Hash the source files that select, price, store, and judge E1 rows."""
+    digest = hashlib.sha256()
+    for relative in sorted(RUNTIME_CONTRACT_FILES):
+        path = repo_root / relative
+        try:
+            content = path.read_bytes()
+        except OSError as exc:
+            raise ValueError(f"E1 runtime contract file unavailable: {relative}") from exc
+        if relative == "farm/experiment_runner.py":
+            content = content.replace(
+                EXPECTED_RUNTIME_CONTRACT_SHA256.encode(),
+                b"<EXPECTED_RUNTIME_CONTRACT_SHA256>",
+            )
+        encoded = relative.encode()
+        digest.update(len(encoded).to_bytes(8, "big"))
+        digest.update(encoded)
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+    return digest.hexdigest()
+
+
+def _validate_runtime_contract() -> None:
+    if _runtime_contract_sha256() != EXPECTED_RUNTIME_CONTRACT_SHA256:
+        raise ValueError(
+            "E1 runtime source changed; register an explicit contract migration "
+            "before recording or reporting more evidence"
+        )
+
+
 # --------------------------------------------------------------------------- #
 # schema — additive, append-only
 # --------------------------------------------------------------------------- #
@@ -152,6 +237,65 @@ def _mondays(con, ticker: str, weekday: int, start: date, end: date | None):
             if d.weekday() == weekday]
 
 
+def _validate_trade_date_coverage(
+    con,
+    ticker: str,
+    weekday: int,
+    start: date,
+    bars: list[tuple[date, float, float]],
+    through: date | None = None,
+) -> None:
+    """Fail closed when a scheduled trade session is absent from stored bars."""
+    latest = through or con.execute(
+        "SELECT MAX(date) FROM prices WHERE ticker = ?", [ticker]
+    ).fetchone()[0]
+    if latest is None or latest < start:
+        return
+    available = {row[0] for row in bars}
+    missing = []
+    d = start
+    while d <= latest:
+        if d.weekday() == weekday and nyse.is_session(d) and d not in available:
+            missing.append(d)
+        d += timedelta(days=1)
+    if missing:
+        rendered = ", ".join(day.isoformat() for day in missing[:5])
+        suffix = " …" if len(missing) > 5 else ""
+        raise ValueError(f"E1 missing required {ticker} trade bar(s): {rendered}{suffix}")
+
+
+def frozen_sample_end(cfg: dict) -> date:
+    """Calendar date of the final pre-registered eligible observation."""
+    start = date.fromisoformat(cfg["oos_start"])
+    weekday = WEEKDAY[str(cfg["params"]["weekday"]).lower()]
+    target = int(cfg["kill_criterion"]["n_oos_mondays"])
+    if target <= 0:
+        raise ValueError("E1 frozen sample size must be positive")
+    found = 0
+    d = start
+    while True:
+        if d.weekday() == weekday and nyse.is_session(d):
+            found += 1
+            if found == target:
+                return d
+        d += timedelta(days=1)
+
+
+def validate_oos_schedule(
+    cfg: dict,
+    oos: list[dict],
+    bars: list[tuple[date, float, float]],
+    now: datetime,
+) -> list[date]:
+    """Require stored rows to be an exact prefix of eligible settled sessions."""
+    target = int(cfg["kill_criterion"]["n_oos_mondays"])
+    eligible = [d for d, _open, _close in bars if is_settled(d, now)][:target]
+    actual = [row["date"] for row in oos]
+    if actual != eligible[:len(actual)]:
+        raise ValueError("E1 forward record is not the expected settled-date prefix")
+    return eligible
+
+
 def is_settled(d: date, now: datetime) -> bool:
     """True once day `d`'s US session has certainly closed (see SETTLE_UTC)."""
     return now >= datetime.combine(d, SETTLE_UTC, tzinfo=timezone.utc)
@@ -164,12 +308,23 @@ def compute_trade(con, ticker: str, d: date, open_px: float, close_px: float) ->
     (sim/fills.py), measured from bars strictly before `d`: buy the open up,
     sell the close down.
     """
+    if EXECUTION_PROFILE_SHA256 != EXPECTED_EXECUTION_PROFILE_SHA256:
+        raise RuntimeError(
+            "E1 baseline_v1 execution profile changed; register a new experiment ID"
+        )
     mdv = median_dollar_vol(con, ticker, d)
-    s = slippage_bps_for(mdv) / 1e4
+    side_bps = slippage_bps_for(mdv, EXECUTION_PROFILE)
+    if not math.isclose(2.0 * side_bps, EXPECTED_ROUNDTRIP_BPS, abs_tol=1e-12):
+        raise RuntimeError(
+            "E1 frozen 20bp round-trip cost changed; register a new experiment ID"
+        )
+    s = side_bps / 1e4
     gross = close_px / open_px - 1.0
     net = (close_px * (1.0 - s)) / (open_px * (1.0 + s)) - 1.0
     return {"date": d, "open": open_px, "close": close_px, "gross": gross, "net": net,
-            "slip_bps_side": slippage_bps_for(mdv), "mdv": mdv}
+            "slip_bps_side": side_bps, "mdv": mdv,
+            "execution_profile": EXECUTION_PROFILE.id,
+            "execution_profile_sha256": EXECUTION_PROFILE_SHA256}
 
 
 def net_at_bps(open_px: float, close_px: float, roundtrip_bps: float) -> float:
@@ -184,21 +339,6 @@ def _has_results_table(con) -> bool:
     return con.execute(
         "SELECT COUNT(*) FROM duckdb_tables() WHERE table_name = 'experiment_results'"
     ).fetchone()[0] > 0
-
-
-def recorded_dates(con, exp_id: str) -> set[date]:
-    rows = con.execute(
-        "SELECT trade_date, partition FROM experiment_results "
-        "WHERE experiment_id = ? AND partition LIKE ?",
-        [exp_id, OOS_PREFIX + "%"],
-    ).fetchall()
-    out: set[date] = set()
-    for trade_date, partition in rows:
-        if trade_date is not None:
-            out.add(trade_date)
-        else:  # defensive: read the date back out of the partition label
-            out.add(date.fromisoformat(partition[len(OOS_PREFIX):]))
-    return out
 
 
 def append_oos_rows(con, cfg: dict, phash: str, trades: list[dict], run_at: datetime) -> int:
@@ -216,6 +356,8 @@ def append_oos_rows(con, cfg: dict, phash: str, trades: list[dict], run_at: date
             "forward_config_hash": fhash,
             "open": t["open"], "close": t["close"],
             "slippage_bps_per_side": t["slip_bps_side"],
+            "execution_profile": t["execution_profile"],
+            "execution_profile_sha256": t["execution_profile_sha256"],
             "median_dollar_vol": t["mdv"],
             "net_ret_registered_3bp": net_at_bps(
                 t["open"], t["close"],
@@ -252,20 +394,257 @@ def append_oos_rows(con, cfg: dict, phash: str, trades: list[dict], run_at: date
     return len(records)
 
 
-def load_oos_series(con, exp_id: str) -> list[dict]:
-    """The full out-of-sample record, read back from the table (source of truth)."""
+def load_oos_series(con, cfg: dict, phash: str) -> list[dict]:
+    """Read and validate the full append-only out-of-sample record.
+
+    The table's historical primary key includes ``run_at``, so it cannot by
+    itself enforce one row per trade date. Fail closed on duplicates or on any
+    row that is inconsistent with the frozen registration and its own stored
+    prices. Price history is deliberately not re-read here: a later vendor
+    restatement must not silently rewrite an already published forward trade.
+    """
     rows = con.execute(
-        "SELECT trade_date, gross_ret, net_ret, cost_roundtrip_bps, meta_json, run_at "
+        "SELECT config_hash, partition, trade_date, n_trades, mean_ret, gross_ret, "
+        "net_ret, cost_roundtrip_bps, meta_json, run_at "
         "FROM experiment_results WHERE experiment_id = ? AND partition LIKE ? "
-        "ORDER BY trade_date",
-        [exp_id, OOS_PREFIX + "%"],
+        "ORDER BY trade_date, run_at",
+        [cfg["id"], OOS_PREFIX + "%"],
     ).fetchall()
+    expected_fhash = forward_config_hash(cfg)
+    expected_start = date.fromisoformat(cfg["oos_start"])
+    expected_weekday = WEEKDAY[str(cfg["params"]["weekday"]).lower()]
+    expected_rt = float(cfg["cost_model"]["roundtrip_bps"])
+    registered_rt = float(cfg["cost_model"]["registered_roundtrip_bps"])
+    target = int(cfg["kill_criterion"]["n_oos_mondays"])
     out = []
-    for d, g, n, rt, meta, run_at in rows:
-        m = json.loads(meta) if meta else {}
-        out.append({"date": d, "gross": g, "net": n, "roundtrip_bps": rt,
-                    "run_at": run_at, "meta": m})
+    seen: set[date] = set()
+    for row in rows:
+        config_hash, partition, d, n_trades, mean_ret, gross, net, rt, meta, run_at = row
+        try:
+            m = json.loads(meta)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError("E1 forward row has invalid metadata") from exc
+        if not isinstance(m, dict):
+            raise ValueError("E1 forward row has invalid metadata")
+        if not isinstance(d, date) or d in seen:
+            raise ValueError("E1 forward record has a duplicate or invalid trade date")
+        seen.add(d)
+        expected_partition = f"{OOS_PREFIX}{d.isoformat()}"
+        numeric = (mean_ret, gross, net, rt, m.get("open"), m.get("close"),
+                   m.get("slippage_bps_per_side"), m.get("median_dollar_vol"))
+        if (
+            config_hash != phash
+            or partition != expected_partition
+            or d < expected_start
+            or d.weekday() != expected_weekday
+            or n_trades != 1
+            or any(not isinstance(value, (int, float)) or not math.isfinite(value)
+                   for value in numeric)
+            or float(m["open"]) <= 0
+            or float(m["close"]) <= 0
+            or float(m["median_dollar_vol"]) <= 0
+            or m.get("phase") != "forward"
+            or m.get("oos_start") != cfg["oos_start"]
+            or m.get("forward_config_hash") != expected_fhash
+            or m.get("cost_model") != cfg["cost_model"]["source"]
+            or not math.isclose(float(rt), expected_rt, abs_tol=1e-12)
+            or not math.isclose(
+                2.0 * float(m["slippage_bps_per_side"]), expected_rt, abs_tol=1e-12
+            )
+            or not math.isclose(float(mean_ret), float(net), abs_tol=1e-12)
+            or not math.isclose(
+                float(gross), float(m["close"]) / float(m["open"]) - 1.0,
+                abs_tol=1e-12,
+            )
+            or not math.isclose(
+                float(net),
+                net_at_bps(float(m["open"]), float(m["close"]), expected_rt),
+                abs_tol=1e-12,
+            )
+            or not math.isclose(
+                float(m.get("net_ret_registered_3bp", math.nan)),
+                net_at_bps(float(m["open"]), float(m["close"]), registered_rt),
+                abs_tol=1e-12,
+            )
+        ):
+            raise ValueError("E1 forward row is inconsistent with its frozen registration")
+        profile = m.get("execution_profile")
+        profile_hash = m.get("execution_profile_sha256")
+        if (profile is None) != (profile_hash is None) or (
+            profile is None and d > LEGACY_PROFILE_CUTOFF
+        ) or (
+            profile is not None
+            and (profile != EXECUTION_PROFILE.id
+                 or profile_hash != EXPECTED_EXECUTION_PROFILE_SHA256)
+        ):
+            raise ValueError("E1 forward row has an inconsistent execution profile")
+        out.append({"date": d, "gross": float(gross), "net": float(net),
+                    "roundtrip_bps": float(rt), "run_at": run_at, "meta": m})
+    if len(out) > target:
+        raise ValueError("E1 forward record exceeds its frozen sample size")
     return out
+
+
+def checkpoint_path(cfg: dict) -> Path:
+    return REPORTS_DIR / f"{cfg['id']}-forward.json"
+
+
+def _oos_payload(oos: list[dict]) -> list[dict]:
+    return [
+        {
+            "date": row["date"].isoformat(),
+            "gross": row["gross"],
+            "net": row["net"],
+            "roundtrip_bps": row["roundtrip_bps"],
+            "run_at": row["run_at"].isoformat(),
+            "meta": row["meta"],
+        }
+        for row in oos
+    ]
+
+
+def _checkpoint_payload(cfg: dict, phash: str, oos: list[dict]) -> dict:
+    rows = _oos_payload(oos)
+    return {
+        "schema_version": CHECKPOINT_SCHEMA_VERSION,
+        "experiment_id": cfg["id"],
+        "paper_only": True,
+        "automatic_action": "none",
+        "parent_config_sha256": phash,
+        "forward_config_sha256": forward_config_hash(cfg),
+        "runtime_contract_version": RUNTIME_CONTRACT_VERSION,
+        "runtime_contract_sha256": EXPECTED_RUNTIME_CONTRACT_SHA256,
+        "runtime_contract_files": list(RUNTIME_CONTRACT_FILES),
+        "superseded_runtime_contract_sha256": SUPERSEDED_RUNTIME_CONTRACT_SHA256,
+        "runtime_contract_migration": RUNTIME_CONTRACT_MIGRATION,
+        "observations": len(rows),
+        "through": rows[-1]["date"] if rows else None,
+        "prefix_sha256": canonical_sha256(rows),
+    }
+
+
+def _validate_checkpoint(
+    cfg: dict,
+    phash: str,
+    oos: list[dict],
+    *,
+    require_current: bool = False,
+) -> dict | None:
+    path = checkpoint_path(cfg)
+    if not path.exists():
+        if oos:
+            raise ValueError("E1 forward checkpoint is missing for an existing record")
+        return None
+    try:
+        checkpoint = json.loads(path.read_text())
+        count = checkpoint["observations"]
+        if (
+            checkpoint["schema_version"] != CHECKPOINT_SCHEMA_VERSION
+            or checkpoint["experiment_id"] != cfg["id"]
+            or checkpoint["paper_only"] is not True
+            or checkpoint["automatic_action"] != "none"
+            or checkpoint["parent_config_sha256"] != phash
+            or checkpoint["forward_config_sha256"] != forward_config_hash(cfg)
+            or checkpoint["runtime_contract_version"] != RUNTIME_CONTRACT_VERSION
+            or checkpoint["runtime_contract_sha256"]
+            != EXPECTED_RUNTIME_CONTRACT_SHA256
+            or checkpoint["runtime_contract_files"] != list(RUNTIME_CONTRACT_FILES)
+            or checkpoint["superseded_runtime_contract_sha256"]
+            != SUPERSEDED_RUNTIME_CONTRACT_SHA256
+            or checkpoint["runtime_contract_migration"] != RUNTIME_CONTRACT_MIGRATION
+            or _runtime_contract_sha256() != EXPECTED_RUNTIME_CONTRACT_SHA256
+            or not isinstance(count, int)
+            or isinstance(count, bool)
+            or count < 0
+            or count > len(oos)
+            or (require_current and count != len(oos))
+        ):
+            raise ValueError("E1 forward checkpoint is invalid")
+        prefix = _oos_payload(oos[:count])
+        through = prefix[-1]["date"] if prefix else None
+        if (
+            checkpoint["through"] != through
+            or checkpoint["prefix_sha256"] != canonical_sha256(prefix)
+        ):
+            raise ValueError("previously published E1 forward prefix changed")
+        return checkpoint
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        if isinstance(exc, ValueError) and str(exc).startswith("previously published"):
+            raise
+        raise ValueError("E1 forward checkpoint is invalid") from exc
+
+
+def migrate_runtime_contract(con, cfg: dict) -> dict:
+    """Validate a schema-v1 or prior-v2 checkpoint and replace only contract metadata.
+
+    Checkpoint schema v1 anchored the evidence prefix and both config hashes but
+    did not identify the source code governing future rows. Runtime contracts
+    subsequently added that digest. Both accepted predecessor forms must anchor
+    the exact same audited evidence prefix; migration is explicit and fails
+    before writing otherwise.
+    """
+    _validate_runtime_contract()
+    phash = params_hash_for(cfg)
+    if not _has_results_table(con):
+        raise ValueError("E1 results table is unavailable for runtime migration")
+    oos = load_oos_series(con, cfg, phash)
+    path = checkpoint_path(cfg)
+    try:
+        checkpoint = json.loads(path.read_text())
+        count = checkpoint["observations"]
+        common_invalid = (
+            checkpoint["experiment_id"] != cfg["id"]
+            or checkpoint["paper_only"] is not True
+            or checkpoint["automatic_action"] != "none"
+            or checkpoint["parent_config_sha256"] != phash
+            or checkpoint["forward_config_sha256"] != forward_config_hash(cfg)
+            or not isinstance(count, int)
+            or isinstance(count, bool)
+            or count != EXPECTED_LEGACY_OBSERVATIONS
+            or count != len(oos)
+        )
+        is_legacy = checkpoint["schema_version"] == LEGACY_CHECKPOINT_SCHEMA_VERSION
+        is_prior_contract = (
+            checkpoint["schema_version"] == CHECKPOINT_SCHEMA_VERSION
+            and checkpoint.get("runtime_contract_version") == PRIOR_RUNTIME_CONTRACT_VERSION
+            and checkpoint.get("runtime_contract_sha256") == PRIOR_RUNTIME_CONTRACT_SHA256
+            and checkpoint.get("runtime_contract_files")
+            == list(PRIOR_RUNTIME_CONTRACT_FILES)
+            and checkpoint.get("superseded_runtime_contract_sha256")
+            == PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256
+            and checkpoint.get("runtime_contract_migration")
+            == PRIOR_RUNTIME_CONTRACT_MIGRATION
+        )
+        if common_invalid or not (is_legacy or is_prior_contract):
+            raise ValueError("prior E1 checkpoint is invalid")
+        prefix = _oos_payload(oos)
+        through = prefix[-1]["date"] if prefix else None
+        if (
+            checkpoint["through"] != EXPECTED_LEGACY_THROUGH
+            or checkpoint["through"] != through
+            or checkpoint["prefix_sha256"] != EXPECTED_LEGACY_PREFIX_SHA256
+            or checkpoint["prefix_sha256"] != canonical_sha256(prefix)
+        ):
+            raise ValueError("previously published E1 forward prefix changed")
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        if isinstance(exc, ValueError) and str(exc).startswith("previously published"):
+            raise
+        raise ValueError("prior E1 checkpoint is invalid") from exc
+
+    _write_checkpoint(cfg, phash, oos)
+    migrated = _validate_checkpoint(cfg, phash, oos, require_current=True)
+    if migrated is None:  # pragma: no cover - _write_checkpoint guarantees existence
+        raise ValueError("E1 runtime migration did not create a checkpoint")
+    return migrated
+
+
+def _write_checkpoint(cfg: dict, phash: str, oos: list[dict]) -> Path:
+    path = checkpoint_path(cfg)
+    resources.write_text_atomic(
+        path,
+        json.dumps(_checkpoint_payload(cfg, phash, oos), indent=2, sort_keys=True) + "\n",
+    )
+    return path
 
 
 # --------------------------------------------------------------------------- #
@@ -287,6 +666,18 @@ def series_stats(vals: list[float]) -> dict:
     std = math.sqrt(var)
     t = (mean / (std / math.sqrt(n))) if std > 0 else None
     return {"n": n, "mean": mean, "std": std, "t": t, "cum": cum, "wins": wins}
+
+
+def frozen_verdict(stats: dict, target: int) -> str | None:
+    if stats["n"] < target:
+        return None
+    if stats["n"] != target:
+        raise ValueError("E1 forward record exceeds its frozen sample size")
+    return (
+        "KILL"
+        if stats["mean"] <= 0 or stats["t"] is None or stats["t"] < 0.5
+        else "SURVIVE"
+    )
 
 
 def backtest_context(con, cfg: dict, oos_start: date) -> list[dict]:
@@ -321,6 +712,7 @@ def render_report(cfg: dict, phash: str, oos: list[dict], ctx: list[dict],
                          if all(r["meta"].get("net_ret_registered_3bp") is not None
                                 for r in oos) else [])
     remaining = max(0, n_target - net_s["n"])
+    decision = frozen_verdict(net_s, n_target)
     exp = cfg["expectation"]
 
     L: list[str] = []
@@ -330,12 +722,18 @@ def render_report(cfg: dict, phash: str, oos: list[dict], ctx: list[dict],
              f"{run_at:%Y-%m-%d %H:%M UTC} · params hash `{phash[:16]}` · "
              f"forward-config hash `{forward_config_hash(cfg)[:16]}`*")
     L.append("")
-    L.append(f"> **NO RESULT YET — {net_s['n']} of {n_target} out-of-sample Mondays.** "
-             f"This experiment is not evaluated until the pre-registered sample is "
-             f"complete. Anything below is an accumulating record, **not** a verdict: "
-             f"reading a mean or a t-stat at n={net_s['n']} and calling it a finding is "
-             f"exactly the peeking the §12.3 protocol exists to prevent. "
-             f"**{remaining} Mondays to go.**")
+    if decision is None:
+        L.append(f"> **NO RESULT YET — {net_s['n']} of {n_target} out-of-sample Mondays.** "
+                 f"This experiment is not evaluated until the pre-registered sample is "
+                 f"complete. Anything below is an accumulating record, **not** a verdict: "
+                 f"reading a mean or a t-stat at n={net_s['n']} and calling it a finding is "
+                 f"exactly the peeking the §12.3 protocol exists to prevent. "
+                 f"**{remaining} Mondays to go.**")
+    else:
+        verdict = "KILLED" if decision == "KILL" else "SURVIVED THE FROZEN KILL GATE"
+        L.append(f"> **FINAL FROZEN VERDICT — {verdict}.** Exactly {n_target} "
+                 f"out-of-sample Mondays were recorded. This result permits no automatic "
+                 f"promotion, portfolio change, or live-capital action.")
     L.append("")
 
     # --- frozen registration -------------------------------------------------
@@ -358,6 +756,9 @@ def render_report(cfg: dict, phash: str, oos: list[dict], ctx: list[dict],
              f"**{cfg['cost_model']['roundtrip_bps']:.0f}bp round-trip** "
              f"({cfg['cost_model']['roundtrip_bps'] / 2:.0f}bp/side) |")
     L.append(f"| Params hash | `{phash}` |")
+    L.append(f"| Runtime contract | v{RUNTIME_CONTRACT_VERSION} "
+             f"`{EXPECTED_RUNTIME_CONTRACT_SHA256}` |")
+    L.append(f"| Runtime migration | {RUNTIME_CONTRACT_MIGRATION} |")
     L.append("")
     L.append(f"Registration source: `farm/experiments/{cfg['id']}.yaml` (pre-registered "
              f"2026-07-18, frozen) + `farm/experiments/{cfg['id']}.forward.json` (forward "
@@ -383,11 +784,14 @@ def render_report(cfg: dict, phash: str, oos: list[dict], ctx: list[dict],
     L.append("")
     L.append("_Every row is one real stored SPY daily bar; holiday Mondays have no bar and "
              "are simply absent (no trade that week). Rows are append-only — a Monday is "
-             "written once, after its session has settled, and never revised._")
+             "written once, after its session has settled, and never revised. The published "
+             "machine-readable checkpoint hashes the complete stored prefix._")
     L.append("")
 
     # --- running stats -------------------------------------------------------
-    L.append("## Running statistics (informational until n = %d)" % n_target)
+    heading = "Final statistics" if decision else "Running statistics"
+    suffix = "" if decision else f" (informational until n = {n_target})"
+    L.append("## " + heading + suffix)
     L.append("")
     L.append("| Series | n | mean/Monday | sd | t-stat | cumulative | win rate |")
     L.append("|---|--:|--:|--:|--:|--:|--:|")
@@ -404,14 +808,20 @@ def render_report(cfg: dict, phash: str, oos: list[dict], ctx: list[dict],
     L.append("")
     L.append(f"- **Mondays recorded:** {net_s['n']} / {n_target} · "
              f"**Mondays to kill-evaluation:** **{remaining}**.")
-    L.append(f"- **Kill test (runs once, at n = {n_target}):** kill if "
-             f"`mean <= 0` **or** `t < 0.5` on the net series. "
-             + (f"Current standing — mean {_pct(net_s['mean'])}, t {_num(net_s['t'])} — "
-                f"**would {'KILL' if (net_s['mean'] is not None and (net_s['mean'] <= 0 or (net_s['t'] is not None and net_s['t'] < 0.5))) else 'SURVIVE'}** "
-                f"if the criterion were applied today, which it is **not**."
-                if net_s["n"] else "No data yet."))
-    L.append(f"- **Costs are real, not assumed:** net uses the paper league's own fill "
-             f"model (`sim/fills.py`), {cfg['cost_model']['roundtrip_bps']:.0f}bp round-trip "
+    if decision:
+        L.append(f"- **Frozen kill test:** mean {_pct(net_s['mean'])}, "
+                 f"t {_num(net_s['t'])}; verdict **{decision}**.")
+    else:
+        L.append(f"- **Kill test (runs once, at n = {n_target}):** kill if "
+                 f"`mean <= 0` **or** `t < 0.5` on the net series. "
+                 + (f"Current standing — mean {_pct(net_s['mean'])}, "
+                    f"t {_num(net_s['t'])} — **would "
+                    f"{'KILL' if (net_s['mean'] is not None and (net_s['mean'] <= 0 or (net_s['t'] is not None and net_s['t'] < 0.5))) else 'SURVIVE'}** "
+                    f"if the criterion were applied today, which it is **not**."
+                    if net_s["n"] else "No data yet."))
+    L.append(f"- **Frozen cost sensitivity:** net uses compatibility profile "
+             f"`{EXECUTION_PROFILE.id}` (`{EXECUTION_PROFILE_SHA256}`), "
+             f"{cfg['cost_model']['roundtrip_bps']:.0f}bp round-trip "
              f"for SPY's liquidity tier — {cfg['cost_model']['roundtrip_bps'] / reg_rt:.1f}× "
              f"stricter than the {reg_rt:.0f}bp the backtest registered. The registered-cost "
              f"row is shown so the forward record can also be read against the original "
@@ -450,12 +860,12 @@ def render_report(cfg: dict, phash: str, oos: list[dict], ctx: list[dict],
 
     # --- method / honesty ----------------------------------------------------
     L.append("## Method & honesty notes")
-    L.append(f"- **Gross** = close/open − 1 on the stored Monday daily bar. **Net** applies "
-             f"the league fill model multiplicatively: buy at open·(1+s), sell at "
-             f"close·(1−s), s = per-side slippage/1e4. For SPY, "
-             f"`slippage_bps_for(mdv) = max(half_spread_bps(mdv), 5) + 5 = 10.0` bp/side "
-             f"(60-bar median dollar volume ~$36bn, far above the $50M top tier) → "
-             f"**20bp round-trip**.")
+    L.append("- **Gross** = close/open − 1 on the stored Monday daily bar. **Net** applies "
+             "the frozen `baseline_v1` compatibility profile multiplicatively: buy at "
+             "open·(1+s), sell at close·(1−s), s = per-side cost/1e4. For SPY, "
+             "the profile's tiered spread plus fixed adverse component is 10.0 bp/side "
+             "(60-bar median dollar volume ~$36bn, far above the $50M top tier) → "
+             "**20bp round-trip**.")
     L.append("- **No look-ahead.** The entry is the Monday open and the exit is that same "
              "bar's close — the registered mechanics, and the open is known before the "
              "close. Nothing else is read at or after the open; even the slippage tier "
@@ -475,31 +885,63 @@ def render_report(cfg: dict, phash: str, oos: list[dict], ctx: list[dict],
 def write_report(cfg: dict, text: str) -> Path:
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     p = REPORTS_DIR / f"{cfg['id']}-forward.md"
-    p.write_text(text)
+    resources.write_text_atomic(p, text)
     return p
 
 
 # --------------------------------------------------------------------------- #
 # orchestration
 # --------------------------------------------------------------------------- #
-def run(con, cfg: dict, *, now: datetime | None = None, read_only: bool = False) -> dict:
+def run(
+    con,
+    cfg: dict,
+    *,
+    now: datetime | None = None,
+    read_only: bool = False,
+    bootstrap_checkpoint: bool = False,
+) -> dict:
     """Record any new settled out-of-sample Mondays, then regenerate the report."""
+    _validate_runtime_contract()
     now = now or datetime.now(timezone.utc)
     phash = params_hash_for(cfg)
     oos_start = date.fromisoformat(cfg["oos_start"])
     ticker = cfg["params"]["ticker"]
     wd = WEEKDAY[str(cfg["params"]["weekday"]).lower()]
+    if not math.isclose(
+        float(cfg["cost_model"]["roundtrip_bps"]),
+        EXPECTED_ROUNDTRIP_BPS,
+        abs_tol=1e-12,
+    ):
+        raise ValueError("E1 forward config no longer specifies its frozen 20bp cost")
 
     if read_only:
         # A read-only connection cannot create/alter; if the table is not there
         # yet there is simply nothing to report.
-        have: set[date] = recorded_dates(con, cfg["id"]) if _has_results_table(con) else set()
+        oos = load_oos_series(con, cfg, phash) if _has_results_table(con) else []
     else:
         E.ensure_results_table(con)
         ensure_forward_columns(con)
-        have = recorded_dates(con, cfg["id"])
+        oos = load_oos_series(con, cfg, phash)
+    sample_end = frozen_sample_end(cfg)
+    candidates = _mondays(con, ticker, wd, oos_start, sample_end)
+    latest_market_date = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
+    coverage_end = (
+        None if latest_market_date is None else min(latest_market_date, sample_end)
+    )
+    _validate_trade_date_coverage(
+        con, ticker, wd, oos_start, candidates, through=coverage_end
+    )
+    validate_oos_schedule(cfg, oos, candidates, now)
+    if bootstrap_checkpoint:
+        if read_only:
+            raise ValueError("E1 checkpoint bootstrap requires a writable run")
+        if checkpoint_path(cfg).exists():
+            raise ValueError("E1 forward checkpoint already exists")
+        _write_checkpoint(cfg, phash, oos)
+    _validate_checkpoint(cfg, phash, oos, require_current=read_only)
+    have = {row["date"] for row in oos}
+    remaining_slots = max(0, int(cfg["kill_criterion"]["n_oos_mondays"]) - len(oos))
 
-    candidates = _mondays(con, ticker, wd, oos_start, None)
     new: list[dict] = []
     skipped_unsettled: list[date] = []
     for d, o, c in candidates:
@@ -508,7 +950,8 @@ def run(con, cfg: dict, *, now: datetime | None = None, read_only: bool = False)
         if not is_settled(d, now):
             skipped_unsettled.append(d)
             continue
-        new.append(compute_trade(con, ticker, d, o, c))
+        if len(new) < remaining_slots:
+            new.append(compute_trade(con, ticker, d, o, c))
 
     appended = 0
     if new and not read_only:
@@ -532,7 +975,9 @@ def run(con, cfg: dict, *, now: datetime | None = None, read_only: bool = False)
                 "from `experiment_results` (re-running is a no-op by design).")
     log.info(f"[e1] {note}")
 
-    oos = load_oos_series(con, cfg["id"]) if _has_results_table(con) else []
+    oos = load_oos_series(con, cfg, phash) if _has_results_table(con) else []
+    if not read_only:
+        _write_checkpoint(cfg, phash, oos)
     ctx = backtest_context(con, cfg, oos_start)
     p = write_report(cfg, render_report(cfg, phash, oos, ctx, now, note))
     log.info(f"[e1] report → {p} ({len(oos)} out-of-sample Monday(s), "
@@ -553,15 +998,46 @@ def main() -> int:
     ap.add_argument("--db", default=str(DEFAULT_DB), help="DuckDB path")
     ap.add_argument("--report-only", action="store_true",
                     help="never write: regenerate the report from stored rows only")
+    ap.add_argument(
+        "--bootstrap-checkpoint",
+        action="store_true",
+        help="one-time: anchor an audited existing forward prefix before normal operation",
+    )
+    ap.add_argument(
+        "--migrate-runtime-contract",
+        action="store_true",
+        help="one-time: validate the exact prior checkpoint and replace only contract metadata",
+    )
     args = ap.parse_args()
 
     cfg, path = load_forward_config(args.id, args.config)
     log.info(f"[e1] forward config {path} (hash {forward_config_hash(cfg)[:16]})")
 
+    if args.bootstrap_checkpoint and args.migrate_runtime_contract:
+        ap.error("--bootstrap-checkpoint and --migrate-runtime-contract are mutually exclusive")
+
+    if args.migrate_runtime_contract:
+        con = enginedb.connect(args.db, read_only=True)
+        try:
+            migrated = migrate_runtime_contract(con, cfg)
+            run(con, cfg, read_only=True)
+        finally:
+            con.close()
+        log.info(
+            f"[e1] checkpoint migrated to schema {migrated['schema_version']} "
+            f"with runtime contract {migrated['runtime_contract_sha256']}"
+        )
+        return 0
+
     if args.report_only:
         con = enginedb.connect(args.db, read_only=True)
         try:
-            run(con, cfg, read_only=True)
+            run(
+                con,
+                cfg,
+                read_only=True,
+                bootstrap_checkpoint=args.bootstrap_checkpoint,
+            )
         finally:
             con.close()
         return 0
@@ -577,7 +1053,7 @@ def main() -> int:
             con.close()
         return 0
     try:
-        run(con, cfg)
+        run(con, cfg, bootstrap_checkpoint=args.bootstrap_checkpoint)
     finally:
         con.close()
     return 0

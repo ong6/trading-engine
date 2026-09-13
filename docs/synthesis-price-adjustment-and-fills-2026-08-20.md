@@ -1,5 +1,9 @@
 # Reverse splits, stranded cash, and why the fix is the fill model — not the universe
 
+> **Historical snapshot.** This records the 2026-08-20 analysis. See
+> [`execution-capital-data-hardening-2026-09-06.md`](execution-capital-data-hardening-2026-09-06.md)
+> for current fill-model behavior.
+
 _Main-loop synthesis, 2026-08-20, reconciling the fill-model audit and the leveraged-ETF
 audit. Every number here was measured read-only against the live store._
 

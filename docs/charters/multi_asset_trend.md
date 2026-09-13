@@ -1,11 +1,20 @@
 # Charter — `multi_asset_trend`
 
-_Pre-registration, 2026-09-02. **League book** (registered in
-`sim/strategies/configs.py`; `sim.league --init` creates its `portfolios` row at the
-next nightly, first monthly signal the last session of 2026-09)._
+_Pre-registration, 2026-09-02. This preserves the original league-book thesis;
+the dated outcome addendum records its later retirement._
 
-Status: **book** · Class: `sim/strategies/multi_asset_trend.py` · Cadence: **monthly**
+Status: **retired 2026-09-06** · Class: `sim/strategies/multi_asset_trend.py` · Cadence: **monthly**
 (matching `dual_momentum`).
+
+## Outcome addendum — 2026-09-06
+
+The pre-registered 10-fold validation returned **0.51 median validate Sharpe**
+versus **0.88** for `dual_momentum`, directly breaching the diversification kill
+criterion. It also trailed SPY by a median **0.86% per month** (90% CI
+**[-1.18%, -0.51%]**), despite materially reducing drawdown. The configuration
+and database portfolio are inactive; the book had no orders, fills, or positions.
+Historical artifacts remain for provenance, but the strategy is not active and
+must not be described as a current league book.
 
 ## Hypothesis
 

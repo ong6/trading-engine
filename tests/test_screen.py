@@ -8,6 +8,7 @@ keyed on the last TRADED bar, matching league.md's stale-mark rule.
 """
 from __future__ import annotations
 
+import json
 from datetime import date
 
 import pytest
@@ -116,3 +117,226 @@ def test_hist_screen_agrees_with_live_on_phantom_asof_bar(universe_con):
     assert (LAST, "TALK") not in got      # phantom as-of bar -> dropped, like live
     assert (LAST, "REAL") in got
     assert n == 3
+
+
+def test_hist_screen_drops_temporary_tables_after_intermediate_failure(
+    universe_con, monkeypatch
+):
+    con = universe_con
+    _universe(con, "REAL")
+    _real_series(con, "REAL")
+    real_execute = con.execute
+
+    class ConnectionProxy:
+        def __getattr__(self, name):
+            return getattr(con, name)
+
+        def execute(self, sql, parameters=None):
+            if "CREATE OR REPLACE TEMP TABLE _hs_prev" in sql:
+                raise RuntimeError("injected historical-screen failure")
+            if parameters is None:
+                return real_execute(sql)
+            return real_execute(sql, parameters)
+
+    with pytest.raises(RuntimeError, match="injected historical-screen failure"):
+        hist_screen.screen_sessions(
+            ConnectionProxy(),
+            [LAST],
+            membership="prices",
+            passing_only=False,
+            table="screen_results",
+            verbose=False,
+        )
+
+    remaining = {
+        row[0]
+        for row in real_execute(
+            "SELECT table_name FROM information_schema.tables"
+        ).fetchall()
+    }
+    assert remaining.isdisjoint(hist_screen.TEMP_TABLES)
+    assert real_execute("SELECT 1").fetchone() == (1,)
+
+
+def test_eod_export_publishes_atomically(con, tmp_path, monkeypatch):
+    insert_bars(con, "AAA", DAYS[-2:], close=[10.0, 11.0])
+    atomic_paths = []
+    real_atomic_write = screen.rsc.write_text_atomic
+
+    def recording_atomic_write(path, text):
+        atomic_paths.append(path)
+        real_atomic_write(path, text)
+
+    monkeypatch.setattr(screen.rsc, "write_text_atomic", recording_atomic_write)
+
+    assert screen.write_eod(con, LAST, ["AAA"], tmp_path) == []
+    target = tmp_path / "AAA.csv"
+    assert atomic_paths == [target]
+    assert target.read_text().startswith("date,open,high,low,close,volume\n")
+    assert list(tmp_path.glob("AAA.csv.*.tmp")) == []
+
+
+def test_existing_screen_summary_is_restored_without_rewriting_rows(
+    con, tmp_path, monkeypatch
+):
+    db.init_schema(con)
+    db.init_screen_policy_schema(con)
+    con.executemany(
+        "INSERT INTO screen_results "
+        "(run_date,ticker,rs_rank,template_score,passes_template,new_today,universe_policy) "
+        "VALUES (DATE '2026-09-04',?,?,?,?,?,?)",
+        [
+            ("AAA", 99, 8, True, False, "all"),
+            ("BBB", 50, 6, False, False, "all"),
+        ],
+    )
+    screens = tmp_path / "screens"
+    screens.mkdir()
+    report = screens / "2026-09-04.md"
+    report.write_text(
+        "# Screen — 2026-09-04  (universe: 2 · passing: 1 · new today: 0 · "
+        "regime: risk-on · policy: all)\n\nbody\n"
+    )
+    (screens / "latest.md").write_text("stale")
+    (tmp_path / "_meta.json").write_text(
+        json.dumps({"fundamentals": {"last_run": "preserved"}, "skipped_stale": 99})
+    )
+    insert_bars(con, "AAA", [date(2026, 9, 4)], close=[10.0])
+    monkeypatch.setattr(screen, "WATCHLIST_PATH", tmp_path / "missing-watchlist.md")
+
+    screen.republish_existing_summary(con, date(2026, 9, 4), tmp_path)
+
+    assert (screens / "latest.md").read_text() == report.read_text()
+    assert con.execute("SELECT COUNT(*) FROM screen_results").fetchone()[0] == 2
+    meta = json.loads((tmp_path / "_meta.json").read_text())
+    assert meta["screen_date"] == "2026-09-04"
+    assert meta["regime"] == "risk-on"
+    assert meta["screened"] == 2
+    assert meta["passing_count"] == 1
+    assert meta["new_today_count"] == 0
+    assert meta["last_screen"] is None
+    assert meta["screen_metadata_source"] == "existing-artifacts"
+    assert meta["skipped_stale"] is None
+    assert meta["fundamentals"] == {"last_run": "preserved"}
+    assert (screens / "2026-09-04.csv").read_text().startswith("run_date,ticker")
+    assert (tmp_path / "eod" / "AAA.csv").exists()
+
+
+def test_existing_screen_summary_rejects_report_database_mismatch(con, tmp_path):
+    db.init_schema(con)
+    db.init_screen_policy_schema(con)
+    con.execute(
+        "INSERT INTO screen_results "
+        "(run_date,ticker,rs_rank,template_score,passes_template,new_today,universe_policy) "
+        "VALUES (DATE '2026-09-04','AAA',99,8,TRUE,FALSE,'all')"
+    )
+    screens = tmp_path / "screens"
+    screens.mkdir()
+    (screens / "2026-09-04.md").write_text(
+        "# Screen — 2026-09-04  (universe: 2 · passing: 1 · new today: 0 · "
+        "regime: risk-on · policy: all)\n"
+    )
+
+    with pytest.raises(ValueError, match="does not match stored rows"):
+        screen.republish_existing_summary(con, date(2026, 9, 4), tmp_path)
+
+
+def test_skip_with_rows_but_no_recovery_anchor_preserves_append_only_rows(con, tmp_path):
+    db.init_schema(con)
+    db.init_screen_policy_schema(con)
+    con.execute(
+        "INSERT INTO screen_results "
+        "(run_date,ticker,rs_rank,template_score,passes_template,new_today,universe_policy) "
+        "VALUES (DATE '2026-09-04','AAA',99,8,TRUE,FALSE,'all')"
+    )
+    before = con.execute(
+        "SELECT * FROM screen_results WHERE run_date = DATE '2026-09-04'"
+    ).fetchall()
+
+    assert screen._run(
+        con,
+        tmp_path,
+        "2026-09-04",
+        rerun=False,
+        skip_if_done=True,
+        universe_policy="all",
+    ) == 1
+
+    assert con.execute(
+        "SELECT * FROM screen_results WHERE run_date = DATE '2026-09-04'"
+    ).fetchall() == before
+    assert not (tmp_path / "screens" / "2026-09-04.md").exists()
+    assert not (tmp_path / "_meta.json").exists()
+
+
+def test_no_eligible_names_does_not_close_borrowed_connection(con, tmp_path):
+    db.init_schema(con)
+    db.init_screen_policy_schema(con)
+    insert_bars(con, "SPY", [date(2026, 9, 4)])
+
+    assert screen._run(
+        con,
+        tmp_path,
+        "2026-09-04",
+        rerun=False,
+        universe_policy="all",
+    ) == 1
+    assert con.execute("SELECT 1").fetchone() == (1,)
+
+
+def test_screen_publishes_recovery_anchor_before_row_commit(
+    universe_con, tmp_path, monkeypatch
+):
+    con = universe_con
+    _universe(con, "REAL")
+    _real_series(con, "REAL")
+    anchor = tmp_path / "screens" / f"{LAST.isoformat()}.md"
+    real_execute = con.execute
+
+    class ConnectionProxy:
+        def __getattr__(self, name):
+            return getattr(con, name)
+
+        def execute(self, sql, parameters=None):
+            if sql.startswith("INSERT INTO screen_results SELECT"):
+                assert anchor.exists()
+                raise RuntimeError("injected row-commit failure")
+            if parameters is None:
+                return real_execute(sql)
+            return real_execute(sql, parameters)
+
+    monkeypatch.setattr(screen, "WATCHLIST_PATH", tmp_path / "missing-watchlist.md")
+
+    with pytest.raises(RuntimeError, match="injected row-commit failure"):
+        screen._run(
+            ConnectionProxy(),
+            tmp_path,
+            LAST.isoformat(),
+            rerun=False,
+            universe_policy="all",
+        )
+
+    assert anchor.read_text().startswith(f"# Screen — {LAST.isoformat()}")
+    assert real_execute(
+        "SELECT COUNT(*) FROM screen_results WHERE run_date = ?", [LAST]
+    ).fetchone()[0] == 0
+
+
+def test_screen_run_closes_connection_on_schema_failure(monkeypatch, tmp_path):
+    class Connection:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    connection = Connection()
+    monkeypatch.setattr(screen.db, "connect", lambda *_args, **_kwargs: connection)
+    monkeypatch.setattr(
+        screen.db,
+        "init_schema",
+        lambda _con: (_ for _ in ()).throw(RuntimeError("injected schema failure")),
+    )
+
+    with pytest.raises(RuntimeError, match="injected schema failure"):
+        screen.run("unused", tmp_path, None, False)
+    assert connection.closed is True

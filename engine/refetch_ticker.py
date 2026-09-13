@@ -96,8 +96,7 @@ def refetch(con: duckdb.DuckDBPyConnection, ticker: str, *, apply: bool, force: 
               f"({s.date.min()}..{s.date.max()}); nothing written")
         return out
 
-    con.execute("BEGIN TRANSACTION")
-    try:
+    with db.transaction(con):
         con.execute("DELETE FROM prices WHERE ticker = ?", [ticker])
         n = db.upsert_prices(con, s)
         if db_has(con, "split_adjustments"):
@@ -108,10 +107,6 @@ def refetch(con: duckdb.DuckDBPyConnection, ticker: str, *, apply: bool, force: 
                 "INSERT INTO audit_log (ts, actor, action, payload) VALUES (?, ?, ?, ?)",
                 [datetime.now(timezone.utc), "refetch_ticker", "prices_replaced",
                  json.dumps({**out, "rows_written": n})])
-        con.execute("COMMIT")
-    except Exception:
-        con.execute("ROLLBACK")
-        raise
     _show(con, ticker, show_dates, "after")
     log.info(f"[refetch] APPLIED: {ticker} {old_n} -> {n} rows; watermark superseded_by_refetch")
     return out

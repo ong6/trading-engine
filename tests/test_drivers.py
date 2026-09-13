@@ -6,6 +6,7 @@ the contract the cron logs depend on: lock-file name and refusal, log path,
 header/footer markers, the stage breadcrumb, exit-code propagation, and the
 warn-and-continue vs fatal semantics of each stage.
 """
+
 from __future__ import annotations
 
 import fcntl
@@ -20,14 +21,21 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DRIVERS = sorted(p.name for p in (REPO_ROOT / "engine").glob("run_*.sh"))
 
 FAKE_PY = r"""#!/usr/bin/env bash
-echo "[fakepy] argv: $*"
 echo "$*" >> "${FAKE_ARGV_LOG:?}"
-case "$*" in
-  *"farm.sweep.sweep --grid list"*) printf '[diag] skipped cell\ngrid_a extra\ngrid_b\n' ;;
-esac
 if [ -n "${FAKE_FAIL_MATCH:-}" ] && [[ "$*" == *"${FAKE_FAIL_MATCH}"* ]]; then
   echo "[fakepy] simulated failure" >&2; exit 3
 fi
+case "$*" in
+  *"engine.market_date"*) printf '2026-09-04\n'; exit 0 ;;
+  *"farm.sweep.sweep --grid recurring"*)
+    if [ "${FAKE_SWEEP_GRIDS+set}" = set ]; then
+      printf '%s' "${FAKE_SWEEP_GRIDS}"
+    else
+      printf 'grid_a\tcharter-a-v1\ngrid_b\tcharter-b-v1\n'
+    fi
+    ;;
+esac
+echo "[fakepy] argv: $*"
 exit 0
 """
 
@@ -56,13 +64,25 @@ def fake_repo(tmp_path):
     return fake
 
 
-def run_driver(fake: Path, name: str, fail_match: str = "") -> tuple[int, str, list[str]]:
+def run_driver(
+    fake: Path,
+    name: str,
+    fail_match: str = "",
+    sweep_grids: str | None = None,
+) -> tuple[int, str, list[str]]:
     argv_log = fake / "argv.log"
     argv_log.write_text("")
     env = dict(os.environ, FAKE_ARGV_LOG=str(argv_log), FAKE_FAIL_MATCH=fail_match)
+    if sweep_grids is not None:
+        env["FAKE_SWEEP_GRIDS"] = sweep_grids
     env.pop("PYTHONUNBUFFERED", None)
-    cp = subprocess.run(["bash", str(fake / "engine" / name)], cwd=str(fake), env=env,
-                        capture_output=True, text=True)
+    cp = subprocess.run(
+        ["bash", str(fake / "engine" / name)],
+        cwd=str(fake),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
     return cp.returncode, cp.stdout + cp.stderr, argv_log.read_text().splitlines()
 
 
@@ -130,6 +150,22 @@ def test_daily_warn_stages_continue(fake_repo):
     assert "-m engine.collect" in argv
 
 
+def test_forward_review_failure_never_fails_or_stops_nightly(fake_repo):
+    rc, out, argv = run_driver(fake_repo, "run_daily.sh", fail_match="engine.forward_review")
+    assert rc == 0
+    assert "WARN: forward paper review failed" in out
+    assert "-m farm.experiment_runner --id e1-spy-monday" in argv
+    assert "-m engine.sync" in argv
+
+
+def test_xs_forward_review_failure_never_fails_or_stops_nightly(fake_repo):
+    rc, out, argv = run_driver(fake_repo, "run_daily.sh", fail_match="engine.xs_forward_review")
+    assert rc == 0
+    assert "WARN: XS forward paper review failed" in out
+    assert "-m farm.experiment_runner --id e1-spy-monday" in argv
+    assert "-m engine.sync" in argv
+
+
 def test_daily_farm_section_never_fails_the_nightly(fake_repo):
     rc, out, argv = run_driver(fake_repo, "run_daily.sh", fail_match="queue_runner --run")
     assert rc == 0
@@ -141,18 +177,83 @@ def test_daily_farm_section_never_fails_the_nightly(fake_repo):
 def test_daily_stage_order(fake_repo):
     _, _, argv = run_driver(fake_repo, "run_daily.sh")
     mods = [a.split()[1] for a in argv]
-    assert mods == ["engine.universe", "engine.collect", "engine.screen", "engine.actions",
-                    "engine.actions", "sim.league", "farm.experiment_runner", "engine.sync",
-                    "engine.verify_prices", "engine.queue_runner", "engine.queue_runner"]
+    assert mods == [
+        "engine.universe",
+        "engine.collect",
+        "engine.market_date",
+        "engine.screen",
+        "engine.actions",
+        "engine.actions",
+        "sim.league",
+        "engine.forward_review",
+        "engine.xs_forward_review",
+        "farm.experiment_runner",
+        "engine.sync",
+        "engine.verify_prices",
+        "engine.queue_runner",
+        "engine.queue_runner",
+    ]
+    assert "-m engine.screen --date 2026-09-04 --skip-if-done" in argv
+    assert "-m sim.league --date 2026-09-04 --init --skip-if-done" in argv
+
+
+def test_daily_market_date_failure_is_fatal_before_screen(fake_repo):
+    rc, out, argv = run_driver(fake_repo, "run_daily.sh", fail_match="engine.market_date")
+    assert rc == 3
+    assert "(stage=market-date exit 3)" in out
+    assert argv == ["-m engine.universe", "-m engine.collect", "-m engine.market_date"]
 
 
 def test_sweeps_enqueues_each_grid_then_drains(fake_repo):
     rc, out, argv = run_driver(fake_repo, "run_weekend_sweeps.sh")
     assert rc == 0
-    assert "grids: grid_a grid_b" in out
-    assert '-m engine.queue_runner --enqueue sweep --priority 900 --mem-mb 4500 --params {"grid": "grid_a"}' in argv
-    assert '-m engine.queue_runner --enqueue sweep --priority 900 --mem-mb 4500 --params {"grid": "grid_b"}' in argv
+    assert "open sweeps: grid_a\tcharter-a-v1 grid_b\tcharter-b-v1" in out
+    assert (
+        '-m engine.queue_runner --enqueue sweep --priority 900 --mem-mb 4500 --params '
+        '{"grid": "grid_a", "charter_version": "charter-a-v1"} --once'
+        in argv
+    )
+    assert (
+        '-m engine.queue_runner --enqueue sweep --priority 900 --mem-mb 4500 --params '
+        '{"grid": "grid_b", "charter_version": "charter-b-v1"} --once'
+        in argv
+    )
+    assert (
+        '-m engine.queue_runner --run --jobs 8 --run-kind sweep '
+        '--run-params {"grid": "grid_a", "charter_version": "charter-a-v1"} '
+        '--run-params {"grid": "grid_b", "charter_version": "charter-b-v1"}'
+        in argv
+    )
     assert argv[-1] == "-m engine.sync"
+
+
+def test_sweeps_empty_allowlist_is_clean_noop(fake_repo):
+    rc, out, argv = run_driver(fake_repo, "run_weekend_sweeps.sh", sweep_grids="")
+    assert rc == 0
+    assert "INFO: no open recurring sweep grids — nothing to enqueue" in out
+    assert argv == ["-m farm.sweep.sweep --grid recurring"]
+
+
+def test_sweeps_grid_enumeration_failure_is_fatal(fake_repo):
+    rc, out, argv = run_driver(
+        fake_repo,
+        "run_weekend_sweeps.sh",
+        fail_match="farm.sweep.sweep --grid recurring",
+    )
+    assert rc == 3
+    assert "(stage=list-open-grids exit 3)" in out
+    assert argv == ["-m farm.sweep.sweep --grid recurring"]
+
+
+def test_sweeps_ignores_bracketed_grid_diagnostics(fake_repo):
+    rc, out, argv = run_driver(
+        fake_repo,
+        "run_weekend_sweeps.sh",
+        sweep_grids="[sweep] diagnostic\ngrid_a\tcharter-a-v1\n",
+    )
+    assert rc == 0, out
+    assert "open sweeps: grid_a\tcharter-a-v1" in out
+    assert not any('"grid": "[sweep]"' in arg for arg in argv)
 
 
 def test_sweeps_drain_failure_breadcrumb(fake_repo):
@@ -161,8 +262,9 @@ def test_sweeps_drain_failure_breadcrumb(fake_repo):
 
 
 def test_walkforward_enqueue_failure_breadcrumb(fake_repo):
-    rc, out, argv = run_driver(fake_repo, "run_weekly_walkforward.sh",
-                               fail_match="farm.walkforward.grid")
+    rc, out, argv = run_driver(
+        fake_repo, "run_weekly_walkforward.sh", fail_match="farm.walkforward.grid"
+    )
     assert rc == 3 and "TODO: run_weekly_walkforward failed" in out
     assert "(stage=enqueue exit 3)" in out
     assert argv == ["-m farm.walkforward.grid --enqueue"]
@@ -185,5 +287,5 @@ def test_appended_logs_vs_truncated_nightly(fake_repo):
         run_driver(fake_repo, "run_daily.sh")
     liquid = next((fake_repo / "logs").glob("liquid-*.log")).read_text()
     daily = next((fake_repo / "logs").glob("run-*.log")).read_text()
-    assert liquid.count("=== run_weekly_liquid ") == 2   # tee -a
-    assert daily.count("=== run_daily ") == 1            # tee (truncate)
+    assert liquid.count("=== run_weekly_liquid ") == 2  # tee -a
+    assert daily.count("=== run_daily ") == 1  # tee (truncate)

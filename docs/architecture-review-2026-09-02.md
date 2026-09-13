@@ -1,5 +1,19 @@
 # Architecture & open-source readiness review — 2026-09-02
 
+> **Historical snapshot.** This records the repository as reviewed on 2026-09-02.
+> Use [`README.md`](README.md) and [`how-it-works.md`](how-it-works.md) for current state.
+>
+> **Resolution addendum, 2026-09-11.** The highest-priority findings below are preserved as the
+> original review, not current claims. `engine` is now an installable package with canonical
+> `engine.lib` imports; runtime DuckDB opens are centralized in `engine.lib.db`; settings and
+> paths are centralized; the live shell drivers share `engine/lib/driver.sh`; and the retired
+> agentic layer is isolated under `archive/agentic-2026-08/`. The full warnings-as-errors Python
+> suite and 27 UI contract tests pass, and CI runs lint, compilation, locked dependency audits,
+> tests, packaging, and the production UI build. The remaining release blocker is the reviewed but
+> uncommitted working tree, not the absence of packaging or automated tests.
+> See [`worktree-review-2026-09-11.md`](worktree-review-2026-09-11.md) for the dated ownership snapshot
+> and review sequence. Run its audit command for current state.
+
 Scope: the working tree at `master` (158 commits, no remote), ~20k lines of tracked Python across
 `engine/` (6.3k), `farm/` (6.3k), `sim/` (4.6k), `agents/` (1.8k, retired), `server/` (1.0k), plus a
 29-file Next.js `ui/`. Read: `README.md`, `docs/how-it-works.md`, `.gitignore`, `BUILDLOG.md`

@@ -64,9 +64,13 @@ def _guard(path: Path) -> None:
 def _open(path: Path):
     _guard(path)
     con = db.connect(path)
-    db.init_schema(con)
-    db.init_actions_schema(con)
-    init_sim_schema(con)
+    try:
+        db.init_schema(con)
+        db.init_actions_schema(con)
+        init_sim_schema(con)
+    except BaseException:
+        con.close()
+        raise
     return con
 
 
@@ -128,10 +132,24 @@ def _close_enough(a: float, b: float, tol: float = 1e-6) -> bool:
     return abs(a - b) <= tol * max(1.0, abs(a), abs(b))
 
 
+def _require(condition: bool, message: str) -> None:
+    """Fail a shakedown proof without relying on removable assertions."""
+    if not condition:
+        raise RuntimeError(message)
+
+
 # --------------------------------------------------------------------------- #
 def arm(path: Path, mode: str, data_dir: Path) -> dict:
     """Run one arm. mode: 'control' | 'broken' | 'fixed'."""
     con = _open(path)
+    try:
+        return _run_arm(con, mode, data_dir)
+    finally:
+        con.close()
+
+
+def _run_arm(con, mode: str, data_dir: Path) -> dict:
+    """Execute one arm using a caller-owned throwaway-store connection."""
     last = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
     new = _next_session(last)
     n = carry_flat_session(con, last, new)
@@ -158,30 +176,42 @@ def arm(path: Path, mode: str, data_dir: Path) -> dict:
             "WHERE ticker = ? AND qty != 0 ORDER BY portfolio_id",
             [SPLIT_TICKER]).fetchall()
         log.info(f"[ca-shakedown/fixed] post-reconcile {SPLIT_TICKER}: {post}")
-        for (p1, q1, c1), (p2, q2, c2) in zip(pre, post):
-            assert p1 == p2
-            assert _close_enough(q2, q1 * SPLIT_RATIO), (p1, q1, q2)
-            assert _close_enough(c2, c1 / SPLIT_RATIO), (p1, c1, c2)
+        for (p1, q1, c1), (p2, q2, c2) in zip(pre, post, strict=True):
+            _require(p1 == p2, f"split position identity changed: {(p1, p2)!r}")
+            _require(
+                _close_enough(q2, q1 * SPLIT_RATIO),
+                f"split quantity mismatch: {(p1, q1, q2)!r}",
+            )
+            _require(
+                _close_enough(c2, c1 / SPLIT_RATIO),
+                f"split average-cost mismatch: {(p1, c1, c2)!r}",
+            )
         log.info(f"[ca-shakedown/fixed] OK qty x{SPLIT_RATIO:g}, "
               f"avg_cost /{SPLIT_RATIO:g} on {len(pre)} position(s)")
 
         aud = con.execute(
             "SELECT action, payload FROM audit_log WHERE actor = 'actions.reconcile' "
             "ORDER BY ts DESC LIMIT 1").fetchone()
-        assert aud and aud[0] == "split_restated", aud
+        _require(
+            bool(aud and aud[0] == "split_restated"),
+            f"missing split-restatement audit record: {aud!r}",
+        )
         log.info(f"[ca-shakedown/fixed] audit_log: {aud[0]} {aud[1]}")
 
         # Idempotency: a second pass must adjudicate nothing and change nothing.
         before = snapshot(con, new)
         summ = eng_actions.reconcile(con)
         after = snapshot(con, new)
-        assert summ["candidates"] == 0, summ
-        assert before == after, "second reconcile pass mutated state"
-        log.info(f"[ca-shakedown/fixed] OK second reconcile is a no-op "
-              f"(candidates=0, state byte-identical)")
+        _require(
+            summ["candidates"] == 0,
+            f"second reconcile found candidates: {summ!r}",
+        )
+        _require(before == after, "second reconcile pass mutated state")
+        log.info("[ca-shakedown/fixed] OK second reconcile is a no-op "
+                 "(candidates=0, state byte-identical)")
 
     rc = league.step(con, new, data_dir, rerun=False, verbose=True)
-    assert rc == 0, f"league.step returned {rc}"
+    _require(rc == 0, f"league.step returned {rc}")
     snap = snapshot(con, new)
     snap["_date"] = new
 
@@ -192,19 +222,23 @@ def arm(path: Path, mode: str, data_dir: Path) -> dict:
         # reconciler's adjustment and the fake crash comes back on the next
         # re-run of a date.
         rc = league.step(con, new, data_dir, rerun=True, verbose=True)
-        assert rc == 0
+        _require(rc == 0, f"rerun league.step returned {rc}")
         after = snapshot(con, new)
-        assert after["positions"] == snap["positions"], (
+        _require(
+            after["positions"] == snap["positions"],
             "--rerun after a split changed positions:\n"
             f"  before {snap['positions'].get(('template_top5', SPLIT_TICKER))}\n"
-            f"  after  {after['positions'].get(('template_top5', SPLIT_TICKER))}")
-        assert after["equity"] == snap["equity"], "--rerun after a split moved equity"
+            f"  after  {after['positions'].get(('template_top5', SPLIT_TICKER))}",
+        )
+        _require(
+            after["equity"] == snap["equity"],
+            "--rerun after a split moved equity",
+        )
         held = after["positions"][("template_top5", SPLIT_TICKER)]
         log.info(f"[ca-shakedown/fixed] OK --rerun after the split keeps positions "
               f"on the post-split scale (template_top5 {SPLIT_TICKER} "
               f"qty={held[0]:.6f} avg_cost={held[1]:.6f})")
 
-    con.close()
     return snap
 
 
@@ -214,6 +248,14 @@ def dividend_arm(path: Path, data_dir: Path, control: dict) -> None:
     fills 20 carried-over orders, so raw before/after cash moves for reasons that
     have nothing to do with the dividend."""
     con = _open(path)
+    try:
+        _run_dividend_arm(con, data_dir, control)
+    finally:
+        con.close()
+
+
+def _run_dividend_arm(con, data_dir: Path, control: dict) -> None:
+    """Execute the dividend proof using a caller-owned throwaway connection."""
     last = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
     new = _next_session(last)
     carry_flat_session(con, last, new)
@@ -230,7 +272,7 @@ def dividend_arm(path: Path, data_dir: Path, control: dict) -> None:
           f"{len(holders)} holder(s)")
 
     rc = league.step(con, new, data_dir, rerun=False, verbose=True)
-    assert rc == 0
+    _require(rc == 0, f"dividend league.step returned {rc}")
     snap_d = snapshot(con, new)
 
     # Differenced against the control: every book's cash and equity must move by
@@ -242,8 +284,14 @@ def dividend_arm(path: Path, data_dir: Path, control: dict) -> None:
         dc = snap_d["cash"][pf] - control["cash"][pf]
         de = snap_d["equity"][pf] - control["equity"][pf]
         exp = expected.get(pf, 0.0)
-        assert _close_enough(dc, exp, 1e-9), (pf, dc, exp)
-        assert _close_enough(de, exp, 1e-9), (pf, de, exp)
+        _require(
+            _close_enough(dc, exp, 1e-9),
+            f"dividend cash mismatch: {(pf, dc, exp)!r}",
+        )
+        _require(
+            _close_enough(de, exp, 1e-9),
+            f"dividend equity mismatch: {(pf, de, exp)!r}",
+        )
         print(f"{pf:<30} {dc:>14,.6f} {exp:>14,.6f} {de:>14,.6f}")
     log.info(f"[ca-shakedown/div] OK cash AND equity moved by exactly the "
           f"entitlement for all {len(control['cash'])} books "
@@ -252,25 +300,37 @@ def dividend_arm(path: Path, data_dir: Path, control: dict) -> None:
     ledger = con.execute(
         "SELECT portfolio_id, ticker, ex_date, qty, dps, amount FROM sim_dividends "
         "WHERE ex_date = ? ORDER BY portfolio_id", [new]).fetchall()
-    assert len(ledger) == len(holders), (ledger, holders)
-    for (pf, qty), row in zip(holders, ledger):
+    _require(
+        len(ledger) == len(holders),
+        f"dividend ledger/holder count mismatch: {(ledger, holders)!r}",
+    )
+    for (pf, qty), row in zip(holders, ledger, strict=True):
         expect = qty * DIV_DPS
-        assert row[0] == pf and row[1] == DIV_TICKER and row[2] == new
-        assert _close_enough(row[3], qty) and _close_enough(row[4], DIV_DPS)
-        assert _close_enough(row[5], expect), (row, expect)
+        _require(
+            row[0] == pf and row[1] == DIV_TICKER and row[2] == new,
+            f"dividend ledger identity mismatch: {(pf, row)!r}",
+        )
+        _require(
+            _close_enough(row[3], qty) and _close_enough(row[4], DIV_DPS),
+            f"dividend ledger terms mismatch: {(pf, qty, row)!r}",
+        )
+        _require(
+            _close_enough(row[5], expect),
+            f"dividend ledger amount mismatch: {(row, expect)!r}",
+        )
         log.info(f"[ca-shakedown/div] ledger {pf}: {qty:.6f} sh x ${DIV_DPS:.2f} "
               f"= ${expect:,.6f} (stored ${row[5]:,.6f})")
 
     # --rerun must reproduce the day exactly (delete + replay incl. dividends).
     before = snapshot(con, new)
     rc = league.step(con, new, data_dir, rerun=True, verbose=True)
-    assert rc == 0
+    _require(rc == 0, f"dividend rerun league.step returned {rc}")
     after = snapshot(con, new)
     ledger2 = con.execute(
         "SELECT portfolio_id, ticker, ex_date, qty, dps, amount FROM sim_dividends "
         "WHERE ex_date = ? ORDER BY portfolio_id", [new]).fetchall()
-    assert before == after, "rerun changed state"
-    assert ledger == ledger2, "rerun changed the dividend ledger"
+    _require(before == after, "dividend rerun changed state")
+    _require(ledger == ledger2, "dividend rerun changed the dividend ledger")
     log.info("[ca-shakedown/div] OK --rerun reproduces identical state + ledger")
 
     # And the pure-replay path (what --rerun leans on) must agree too.
@@ -283,11 +343,17 @@ def dividend_arm(path: Path, data_dir: Path, control: dict) -> None:
         "SELECT portfolio_id, ticker, qty FROM sim_positions WHERE qty != 0").fetchall()}
     bad = [k for k in cash_pre_rebuild
            if not _close_enough(cash_pre_rebuild[k], cash_post[k], 1e-9)]
-    assert not bad, [(k, cash_pre_rebuild[k], cash_post[k]) for k in bad]
-    assert pos_pre.keys() == pos_post.keys()
+    _require(
+        not bad,
+        "rebuild changed portfolio cash: "
+        f"{[(k, cash_pre_rebuild[k], cash_post[k]) for k in bad]!r}",
+    )
+    _require(
+        pos_pre.keys() == pos_post.keys(),
+        "rebuild changed the nonzero-position key set",
+    )
     log.info("[ca-shakedown/div] OK rebuild_state replays fills+dividends to the "
           "same cash and positions")
-    con.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -340,7 +406,7 @@ def main() -> int:
 
     if args.setup_from:
         src = Path(args.setup_from)
-        for k, p in paths.items():
+        for p in paths.values():
             log.info(f"[ca-shakedown] copying {src} -> {p}")
             shutil.copyfile(src, p)
 

@@ -1,12 +1,17 @@
+import { resolveApiOrigin } from "./api-origin.mjs";
+
+const apiOrigin = resolveApiOrigin();
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Proxy every /api/* call to the local FastAPI backend so the browser only
-  // ever talks to :3000 (no CORS). Server-side fetches also go through this.
+  // ever talks to the UI origin (no CORS). The same validated origin is used
+  // by server-rendered fetches.
   async rewrites() {
     return [
       {
         source: "/api/:path*",
-        destination: "http://127.0.0.1:8000/:path*",
+        destination: `${apiOrigin}/:path*`,
       },
     ];
   },

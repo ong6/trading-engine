@@ -3,6 +3,7 @@ store/
 logs/
 scratch/
 *.lock
+!uv.lock
 .env
 .env.*
 *.pem
@@ -14,6 +15,9 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+build/
+dist/
+*.egg-info/
 
 # node (ui/)
 ui/node_modules/

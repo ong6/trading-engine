@@ -48,9 +48,16 @@ def insert_bars(con, ticker, dates, *, open_=100.0, close=100.0, volume=1_000_00
     def seq(v):
         return list(v) if isinstance(v, (list, tuple)) else [v] * n
 
-    rows = list(zip([ticker] * n, dates, seq(open_),
-                    seq(high if high is not None else (open_ if not isinstance(open_, (list, tuple)) else open_)),
-                    seq(low if low is not None else close), seq(close), seq(volume)))
+    rows = list(zip(
+        [ticker] * n,
+        dates,
+        seq(open_),
+        seq(high if high is not None else (open_ if not isinstance(open_, (list, tuple)) else open_)),
+        seq(low if low is not None else close),
+        seq(close),
+        seq(volume),
+        strict=True,
+    ))
     con.executemany(
         "INSERT INTO prices (ticker, date, open, high, low, close, volume) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)", rows)

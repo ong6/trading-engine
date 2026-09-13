@@ -1,0 +1,26 @@
+[Unit]
+Description=Trading engine paper UI
+After=network.target trading-engine-api.service
+Wants=trading-engine-api.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/trading-engine/ui
+Environment=PATH=%h/tools/node/bin:/usr/local/bin:/usr/bin:/bin
+ExecStartPre=%h/tools/node/bin/npm run build
+ExecStart=%h/tools/node/bin/npm run start -- --hostname 127.0.0.1 --port 3000
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectControlGroups=true
+ProtectKernelTunables=true
+LockPersonality=true
+RestrictRealtime=true
+UMask=0077
+StandardOutput=append:%h/trading-engine/logs/ui.log
+StandardError=append:%h/trading-engine/logs/ui.log
+
+[Install]
+WantedBy=default.target

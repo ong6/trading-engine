@@ -8,14 +8,18 @@ ex-date (the declared truth in sim/portfolio.rebuild_state).
 """
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+import subprocess
+import sys
+from datetime import datetime, time, timedelta, timezone
+from pathlib import Path
 
+import pandas as pd
 import pytest
 from conftest import SESSIONS, insert_bars
 
 from engine import actions
 from engine.lib import db
-from sim import portfolio
+from sim import corp_actions_shakedown, portfolio
 from sim.schema import INITIAL_CASH
 
 TK = "AAA"
@@ -29,12 +33,287 @@ FETCHED_BEFORE_EX = datetime.combine(SESSIONS[0], time(23, 0))          # stored
 FETCHED_AFTER_EX = datetime.combine(SESSIONS[-1] + timedelta(days=1), time(23, 0))
 
 
+def test_shakedown_require_fails_explicitly():
+    with pytest.raises(RuntimeError, match="proof failed"):
+        corp_actions_shakedown._require(False, "proof failed")
+    corp_actions_shakedown._require(True, "must not fail")
+
+
+def test_shakedown_require_survives_optimized_python():
+    script = """
+from sim.corp_actions_shakedown import _require
+
+try:
+    _require(False, "optimized proof failure")
+except RuntimeError as exc:
+    if str(exc) != "optimized proof failure":
+        raise
+else:
+    raise SystemExit("optimized Python skipped a shakedown proof failure")
+"""
+    subprocess.run(
+        [sys.executable, "-O", "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_shakedown_open_closes_connection_when_initialization_fails(monkeypatch, tmp_path):
+    class Connection:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    connection = Connection()
+    monkeypatch.setattr(corp_actions_shakedown.db, "connect", lambda _path: connection)
+    monkeypatch.setattr(
+        corp_actions_shakedown.db,
+        "init_schema",
+        lambda _con: (_ for _ in ()).throw(RuntimeError("injected init failure")),
+    )
+
+    with pytest.raises(RuntimeError, match="injected init failure"):
+        corp_actions_shakedown._open(tmp_path / "scratch.duckdb")
+    assert connection.closed is True
+
+
+@pytest.mark.parametrize("proof", ["split", "dividend"])
+def test_shakedown_closes_connection_when_proof_fails(monkeypatch, tmp_path, proof):
+    class Connection:
+        closed = False
+
+        def execute(self, _sql, _params=None):
+            return self
+
+        def fetchone(self):
+            return (SESSIONS[0],)
+
+        def close(self):
+            self.closed = True
+
+    connection = Connection()
+    monkeypatch.setattr(corp_actions_shakedown, "_open", lambda _path: connection)
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("injected proof failure")
+
+    monkeypatch.setattr(corp_actions_shakedown, "carry_flat_session", fail)
+    with pytest.raises(RuntimeError, match="injected proof failure"):
+        if proof == "split":
+            corp_actions_shakedown.arm(Path("unused"), "control", tmp_path)
+        else:
+            corp_actions_shakedown.dividend_arm(Path("unused"), tmp_path, {})
+    assert connection.closed is True
+
+
+def _run_fetch(monkeypatch, con, tmp_path, responses):
+    remaining = iter(responses)
+    monkeypatch.setattr(
+        actions,
+        "_select_universe",
+        lambda _con, _params, _mode: ([("AAA", "AAA")], "test"),
+    )
+    monkeypatch.setattr(actions, "_fetch_actions", lambda _ticker: next(remaining))
+    monkeypatch.setattr(actions, "PER_NAME_SLEEP", 0)
+    monkeypatch.setattr(actions.rsc, "dir_size_gb", lambda _path: 0.0)
+    return actions.run(
+        {"mode": "backfill"}, con, meta_path=tmp_path / "meta.json"
+    )
+
+
+def test_fetch_resume_retries_failed_and_preserves_attempts(monkeypatch, con, tmp_path):
+    db.init_actions_schema(con)
+    first = _run_fetch(monkeypatch, con, tmp_path, [None])
+    assert first["failed_tickers"] == 1
+
+    frame = pd.DataFrame(
+        {"Dividends": [0.5], "Stock Splits": [0.0]},
+        index=[pd.Timestamp("2026-08-01", tz="UTC")],
+    )
+    second = _run_fetch(monkeypatch, con, tmp_path, [frame])
+    assert second["pulled_this_run"] == 1
+    assert con.execute(
+        "SELECT status, n_splits, n_dividends FROM actions_fetch_log "
+        "ORDER BY attempted_at"
+    ).fetchall() == [("failed", 0, 0), ("ok", 0, 1)]
+    assert actions._already_done(con, datetime.now(timezone.utc).date()) == {"AAA"}
+
+
+def test_fetch_log_validates_outcomes(con):
+    db.init_actions_schema(con)
+    today = datetime.now(timezone.utc).date()
+    with pytest.raises(ValueError, match="invalid actions fetch status"):
+        db.insert_actions_fetch_log(
+            con,
+            [{"ticker": "AAA", "status": "unknown", "n_splits": 0,
+              "n_dividends": 0}],
+            fetched_on=today,
+        )
+    with pytest.raises(ValueError, match="inconsistent actions fetch outcome"):
+        db.insert_actions_fetch_log(
+            con,
+            [{"ticker": "AAA", "status": "ok", "n_splits": 0,
+              "n_dividends": 0}],
+            fetched_on=today,
+        )
+    with pytest.raises(ValueError, match="inconsistent actions fetch outcome"):
+        db.insert_actions_fetch_log(
+            con,
+            [{"ticker": "AAA", "status": "failed", "n_splits": 1,
+              "n_dividends": 0}],
+            fetched_on=today,
+        )
+    assert con.execute("SELECT COUNT(*) FROM actions_fetch_log").fetchone() == (0,)
+
+
+def test_action_and_fetch_log_checkpoint_roll_back_together(
+    monkeypatch, con, tmp_path
+):
+    db.init_actions_schema(con)
+    frame = pd.DataFrame(
+        {"Dividends": [0.5], "Stock Splits": [0.0]},
+        index=[pd.Timestamp("2026-08-01", tz="UTC")],
+    )
+
+    def fail_log(*_args, **_kwargs):
+        raise RuntimeError("injected fetch-log failure")
+
+    monkeypatch.setattr(db, "insert_actions_fetch_log", fail_log)
+    with pytest.raises(RuntimeError, match="injected fetch-log failure"):
+        _run_fetch(monkeypatch, con, tmp_path, [frame])
+    assert con.execute("SELECT COUNT(*) FROM corporate_actions").fetchone() == (0,)
+    assert con.execute("SELECT COUNT(*) FROM actions_fetch_log").fetchone() == (0,)
+
+
+def test_legacy_fetch_log_schema_migrates_without_losing_rows(con):
+    con.execute("DROP TABLE IF EXISTS actions_fetch_log")
+    con.execute(
+        "CREATE TABLE actions_fetch_log (ticker VARCHAR, fetched_on DATE, "
+        "n_splits INTEGER, n_dividends INTEGER, status VARCHAR, "
+        "PRIMARY KEY (ticker, fetched_on))"
+    )
+    con.execute(
+        "INSERT INTO actions_fetch_log VALUES ('AAA', '2026-09-07', 0, 0, 'failed')"
+    )
+    db.init_actions_schema(con)
+    assert con.execute(
+        "SELECT ticker, fetched_on, n_splits, n_dividends, status, source, attempted_at "
+        "FROM actions_fetch_log"
+    ).fetchall() == [
+        ("AAA", datetime(2026, 9, 7).date(), 0, 0, "failed", "yfinance", None)
+    ]
+    cols = {
+        row[1]
+        for row in con.execute("PRAGMA table_info('actions_fetch_log')").fetchall()
+    }
+    assert {"source", "attempted_at"} <= cols
+
+
+def test_connection_narrowed_run_releases_db_during_fetch(monkeypatch, tmp_path):
+    db_path = tmp_path / "market.duckdb"
+    write_con = db.connect(db_path)
+    db.init_schema(write_con)
+    write_con.execute(
+        "INSERT INTO universe (ticker, yf_ticker, active, liquid, etf) "
+        "VALUES ('AAA', 'AAA', TRUE, TRUE, FALSE)"
+    )
+    write_con.close()
+    observed = []
+
+    def fetch_while_reading(_ticker):
+        reader = db.connect(db_path, read_only=True, wait_s=0)
+        try:
+            observed.append(reader.execute("SELECT COUNT(*) FROM universe").fetchone()[0])
+        finally:
+            reader.close()
+        return pd.DataFrame()
+
+    monkeypatch.setattr(actions, "_fetch_actions", fetch_while_reading)
+    monkeypatch.setattr(actions, "PER_NAME_SLEEP", 0)
+    monkeypatch.setattr(actions.rsc, "dir_size_gb", lambda _path: 0.0)
+    result = actions.run_connection_narrowed(
+        {"mode": "backfill", "tickers": ["AAA"]},
+        db_path=db_path,
+        meta_path=tmp_path / "meta.json",
+    )
+    assert observed == [1]
+    assert result["no_actions"] == 1
+    check = db.connect(db_path, read_only=True)
+    try:
+        assert check.execute(
+            "SELECT ticker, status FROM actions_fetch_log"
+        ).fetchall() == [("AAA", "empty")]
+    finally:
+        check.close()
+
+
+def test_incremental_selection_ignores_retired_book_state(con):
+    db.init_schema(con)
+    con.execute(
+        "INSERT INTO portfolios (id, name, active, cash) VALUES "
+        "('active', 'active', TRUE, 1000), ('retired', 'retired', FALSE, 1000)"
+    )
+    con.execute(
+        "INSERT INTO sim_positions VALUES "
+        "('active', 'LIVE', 1, 10), ('retired', 'ARCHIVE', 1, 10)"
+    )
+    con.execute(
+        "INSERT INTO sim_orders (id, portfolio_id, ticker, side, qty, signal_date, status) "
+        "VALUES (1, 'active', 'PENDING', 'buy', 1, '2026-09-04', 'pending'), "
+        "(2, 'retired', 'OLDPEND', 'buy', 1, '2026-09-04', 'pending')"
+    )
+    for ticker in (*actions.CORE_ETFS, "LIVE", "ARCHIVE", "PENDING", "OLDPEND"):
+        con.execute(
+            "INSERT INTO universe (ticker, yf_ticker, active, liquid) "
+            "VALUES (?, ?, TRUE, TRUE)",
+            [ticker, ticker],
+        )
+        con.execute(
+            "INSERT INTO prices (ticker, date, open, high, low, close, volume) "
+            "VALUES (?, '2026-09-04', 10, 10, 10, 10, 1000)",
+            [ticker],
+        )
+
+    pairs, source = actions._select_universe(con, {"top_n": 0}, "incremental")
+
+    assert {ticker for ticker, _ in pairs} == {*actions.CORE_ETFS, "LIVE", "PENDING"}
+    assert source.startswith("active-held ∪ active-pending")
+
+
+def test_tripwire_ignores_retired_book_state(con):
+    db.init_schema(con)
+    db.init_actions_schema(con)
+    con.execute(
+        "INSERT INTO portfolios (id, name, active, cash) VALUES "
+        "('active', 'active', TRUE, 1000), ('retired', 'retired', FALSE, 1000)"
+    )
+    con.execute(
+        "INSERT INTO sim_positions VALUES "
+        "('active', 'LIVE', 1, 10), ('retired', 'ARCHIVE', 1, 10)"
+    )
+    for ticker in ("LIVE", "ARCHIVE"):
+        con.execute(
+            "INSERT INTO prices (ticker, date, open, high, low, close, volume) VALUES "
+            "(?, '2026-09-03', 10, 10, 10, 10, 1000), "
+            "(?, '2026-09-04', 20, 20, 20, 20, 1000)",
+            [ticker, ticker],
+        )
+
+    warnings = actions.tripwire(con)
+
+    assert len(warnings) == 1
+    assert "LIVE" in warnings[0]
+    assert "ARCHIVE" not in warnings[0]
+
+
 def _setup(con, closes: list[float], fetched: datetime | list[datetime]) -> None:
     db.init_actions_schema(con)
     insert_bars(con, TK, SESSIONS, open_=closes, close=closes)
     fl = fetched if isinstance(fetched, list) else [fetched] * len(SESSIONS)
     con.executemany("UPDATE prices SET fetched_at = ? WHERE ticker = ? AND date = ?",
-                    [[f, TK, d] for f, d in zip(fl, SESSIONS)])
+                    [[f, TK, d] for f, d in zip(fl, SESSIONS, strict=True)])
     con.execute("INSERT INTO corporate_actions VALUES (?, ?, 'split', ?, 'yfinance', now())",
                 [TK, EX, RATIO])
 

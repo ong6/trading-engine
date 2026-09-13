@@ -1,5 +1,5 @@
 """sim/settle.py — settling a dead position at owner-supplied terms."""
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
@@ -29,6 +29,12 @@ def _fill(con, pf, tk, side, qty, px, d, oid):
                 [oid, pf, tk, side, qty, d, px, px])
     portfolio.apply_fill(con, {"portfolio_id": pf, "ticker": tk, "side": side,
                                "qty": qty, "fill_px": px})
+
+
+def _pending(con, pf, tk, side, qty, d, oid):
+    con.execute("INSERT INTO sim_orders (id, portfolio_id, ticker, side, qty, "
+                "signal_date, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')",
+                [oid, pf, tk, side, qty, d])
 
 
 def _dead_name(con, tk="EA", last=D2):
@@ -90,6 +96,118 @@ def test_worthless_zeroes_without_cash(con):
     assert "FBRX" not in portfolio.get_positions(con, pf)
 
 
+def test_apply_cancels_matching_pending_orders_and_audits(con):
+    pf = _book(con)
+    other = _book(con, "other")
+    _dead_name(con)
+    _fill(con, pf, "EA", "buy", 10, 200.0, D1, 1)
+    _pending(con, pf, "EA", "sell", 10, D2, 2)
+    _pending(con, pf, "SPY", "buy", 1, D2, 3)
+    _pending(con, other, "EA", "buy", 1, D2, 4)
+
+    plans = settle.settle(
+        con, _terms(), apply=True, now=datetime(2024, 6, 8, 12, 0, 0))
+
+    assert plans[0].pending_order_ids == [2]
+    assert con.execute(
+        "SELECT id, status, reject_reason FROM sim_orders ORDER BY id"
+    ).fetchall() == [
+        (1, "filled", None),
+        (2, "cancelled", "cancelled by settlement effective 2024-06-05"),
+        (3, "pending", None),
+        (4, "pending", None),
+    ]
+    action, payload = con.execute(
+        "SELECT action, payload FROM audit_log ORDER BY ts DESC LIMIT 1"
+    ).fetchone()
+    assert action == "settlement_applied"
+    assert '"cancelled_order_ids": [2]' in payload
+
+
+def test_apply_keeps_linked_discretionary_ticket_consistent(con):
+    pf = _book(con)
+    _dead_name(con)
+    _fill(con, pf, "EA", "buy", 10, 200.0, D1, 1)
+    _pending(con, pf, "EA", "sell", 10, D2, 2)
+    con.execute(
+        "INSERT INTO disc_tickets (id, ticker, side, qty, status, order_id, created_at) "
+        "VALUES (1, 'EA', 'sell', 10, 'submitted', 2, ?)",
+        [datetime(2024, 6, 4, 12, 0, 0)],
+    )
+
+    settle.settle(con, _terms(), apply=True)
+
+    assert con.execute("SELECT status FROM disc_tickets WHERE id = 1").fetchone()[0] == (
+        "cancelled"
+    )
+
+
+def test_dry_run_reports_pending_orders_without_mutating(con):
+    pf = _book(con)
+    _dead_name(con)
+    _fill(con, pf, "EA", "buy", 10, 200.0, D1, 1)
+    _pending(con, pf, "EA", "sell", 10, D2, 2)
+
+    plans = settle.settle(con, _terms(), apply=False)
+
+    assert plans[0].pending_order_ids == [2]
+    assert "pending order(s) 2: would cancel" in settle._render(
+        _terms(), plans, applied=False)
+    assert con.execute("SELECT status FROM sim_orders WHERE id = 2").fetchone()[0] == "pending"
+
+
+def test_reconcile_cancels_only_orders_present_by_settlement_booking(con):
+    pf = _book(con)
+    _dead_name(con)
+    _fill(con, pf, "EA", "buy", 10, 200.0, D1, 1)
+    booked = datetime(2024, 6, 5, 12, 0, 0)
+    settle.settle(con, _terms(), apply=True, now=booked)
+    _pending(con, pf, "EA", "sell", 10, D2, 2)
+    _pending(con, pf, "EA", "buy", 10, D4, 3)
+    _pending(con, pf, "EA", "buy", 10, D3, 4)
+    con.execute(
+        "INSERT INTO disc_tickets (id, ticker, side, qty, status, order_id, created_at) "
+        "VALUES (1, 'EA', 'sell', 10, 'submitted', 2, ?)",
+        [datetime(2024, 6, 4, 12, 0, 0)],
+    )
+
+    plans = settle.reconcile_settled_pending_orders(con, apply=False)
+    assert [p.order_id for p in plans] == [2]
+    assert con.execute("SELECT status FROM sim_orders WHERE id = 2").fetchone()[0] == "pending"
+
+    applied = settle.reconcile_settled_pending_orders(
+        con, apply=True, now=datetime(2024, 6, 8, 12, 0, 0))
+    assert [p.order_id for p in applied] == [2]
+    assert con.execute(
+        "SELECT id, status, reject_reason FROM sim_orders WHERE id IN (2, 3, 4) ORDER BY id"
+    ).fetchall() == [
+        (2, "cancelled", "cancelled by booked settlement effective 2024-06-05"),
+        (3, "pending", None),
+        (4, "pending", None),
+    ]
+    action, payload = con.execute(
+        "SELECT action, payload FROM audit_log ORDER BY ts DESC LIMIT 1"
+    ).fetchone()
+    assert action == "settlement_pending_orders_reconciled"
+    assert '"order_ids": [2]' in payload
+    assert con.execute("SELECT status FROM disc_tickets WHERE id = 1").fetchone()[0] == (
+        "cancelled"
+    )
+
+
+def test_rebuild_does_not_cancel_order_created_after_settlement(con):
+    pf = _book(con)
+    _dead_name(con)
+    _fill(con, pf, "EA", "buy", 10, 200.0, D1, 1)
+    settle.settle(con, _terms(), apply=True,
+                  now=datetime(2024, 6, 5, 12, 0, 0))
+    _pending(con, pf, "EA", "buy", 1, D4, 2)
+
+    portfolio.rebuild_state(con)
+
+    assert con.execute("SELECT status FROM sim_orders WHERE id = 2").fetchone()[0] == "pending"
+
+
 # rebuild -----------------------------------------------------------------------
 def test_rebuild_state_reproduces_settlement(con):
     pf = _book(con)
@@ -136,6 +254,32 @@ def test_settled_name_leaves_stale_marks_table(con):
     md = league.write_reports(con, D5, __import__("pathlib").Path(
         __import__("tempfile").mkdtemp())).read_text()
     assert "Stale marks" not in md
+
+
+def test_league_stale_marks_exclude_inactive_books(con, monkeypatch):
+    active = _book(con, "active")
+    inactive = _book(con, "inactive")
+    con.execute("UPDATE portfolios SET active = FALSE WHERE id = ?", [inactive])
+    _dead_name(con)
+    _fill(con, active, "EA", "buy", 10, 200.0, D1, 1)
+    _fill(con, inactive, "EA", "buy", 5, 200.0, D1, 2)
+    portfolio.mark_to_market(con, active, D5)
+
+    settle.settle(con, _terms(portfolios=(active,)), apply=True)
+    atomic_paths = []
+    real_atomic_write = league.resources.write_text_atomic
+
+    def recording_atomic_write(path, text):
+        atomic_paths.append(path)
+        real_atomic_write(path, text)
+
+    monkeypatch.setattr(league.resources, "write_text_atomic", recording_atomic_write)
+    data_dir = __import__("pathlib").Path(__import__("tempfile").mkdtemp())
+    md_path = league.write_reports(con, D5, data_dir)
+    md = md_path.read_text()
+
+    assert "Stale marks" not in md
+    assert atomic_paths == [md_path, data_dir / "reports" / "league.csv"]
 
 
 def test_equity_history_before_effective_untouched(con):
@@ -224,8 +368,10 @@ def test_cli_dry_run_is_read_only_and_apply_writes(tmp_path, capsys):
     from tests.conftest import PRICES_DDL
     path = str(tmp_path / "t.duckdb")
     c = duckdb.connect(path)
-    c.execute(PRICES_DDL); init_sim_schema(c)
-    pf = _book(c); _dead_name(c)
+    c.execute(PRICES_DDL)
+    init_sim_schema(c)
+    pf = _book(c)
+    _dead_name(c)
     _fill(c, pf, "EA", "buy", 10, 200.0, D1, 1)
     c.close()
     argv = ["--db", path, "--ticker", "EA", "--kind", "cash", "--price", "209.70",
@@ -233,7 +379,8 @@ def test_cli_dry_run_is_read_only_and_apply_writes(tmp_path, capsys):
     assert settle.main(argv) == 0
     assert "DRY RUN" in capsys.readouterr().out
     c = duckdb.connect(path, read_only=True)
-    assert not table_exists(c, "sim_settlements"); c.close()
+    assert not table_exists(c, "sim_settlements")
+    c.close()
     assert settle.main(argv + ["--apply"]) == 0
     assert "APPLIED" in capsys.readouterr().out
     c = duckdb.connect(path, read_only=True)

@@ -82,7 +82,7 @@ def max_drawdown(equity: np.ndarray) -> float:
 def worst_month(dates: list[date], equity: np.ndarray) -> float:
     """Worst calendar-month return of the month-end equity series."""
     month_end: dict[tuple[int, int], float] = {}
-    for d, e in zip(dates, equity):
+    for d, e in zip(dates, equity, strict=True):
         month_end[(d.year, d.month)] = float(e)
     keys = sorted(month_end)
     if len(keys) < 2:
@@ -93,7 +93,8 @@ def worst_month(dates: list[date], equity: np.ndarray) -> float:
 
 
 def equity_stats(dates: list[date], equity_list: list[float],
-                 bil: dict[date, float] | None = None) -> dict:
+                 bil: dict[date, float] | None = None,
+                 initial_equity: float | None = None) -> dict:
     """Full stat pack for one equity curve. `bil` from bil_daily_returns()."""
     eq = np.asarray(equity_list, dtype=float)
     n = len(eq)
@@ -111,10 +112,14 @@ def equity_stats(dates: list[date], equity_list: list[float],
 
     r = eq[1:] / eq[:-1] - 1.0
     years = (dates[-1] - dates[0]).days / 365.25
-    total = float(eq[-1] / eq[0] - 1.0)
+    base = float(initial_equity) if initial_equity is not None else float(eq[0])
+    if base <= 0:
+        raise ValueError("initial_equity must be positive")
+    total = float(eq[-1] / base - 1.0)
     out["total_return"] = total
+    out["return_base"] = base
     out["years"] = years
-    out["cagr"] = float((eq[-1] / eq[0]) ** (1.0 / years) - 1.0) if years > 0 else None
+    out["cagr"] = float((eq[-1] / base) ** (1.0 / years) - 1.0) if years > 0 else None
     out["vol_ann"] = float(r.std(ddof=1) * math.sqrt(TRADING_DAYS))
     out["sharpe"] = _sharpe(r)
     out["max_dd"] = max_drawdown(eq)

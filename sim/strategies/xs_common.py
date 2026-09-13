@@ -43,7 +43,7 @@ def has_table(con, name: str) -> bool:
     return bool(row and row[0])
 
 
-def _sql(with_dividends: bool) -> str:
+def _sql(with_dividends: bool, *, snapshot: bool = False) -> str:
     div_join = (
         """
     LEFT JOIN (
@@ -57,9 +57,15 @@ def _sql(with_dividends: bool) -> str:
         if with_dividends else ""
     )
     div_term = "COALESCE(d.divs, 0)" if with_dividends else "0"
+    candidates = (
+        "SELECT ticker FROM universe_snapshot WHERE snapshot_date = ? "
+        "AND active AND liquid AND NOT etf"
+        if snapshot
+        else "SELECT ticker FROM universe WHERE active AND liquid AND NOT etf"
+    )
     return f"""
 WITH cand AS (
-    SELECT ticker FROM universe WHERE active AND liquid AND NOT etf
+    {candidates}
 ), px AS (
     SELECT p.ticker, p.date, p.close,
            ROW_NUMBER() OVER (PARTITION BY p.ticker ORDER BY p.date DESC) AS rn
@@ -89,7 +95,8 @@ ORDER BY ret DESC, e.ticker
 
 
 def window_returns(con, as_of: date, *, start_offset: int, end_offset: int = 1,
-                   min_bars: int, min_price: float) -> list[tuple]:
+                   min_bars: int, min_price: float,
+                   universe_snapshot_date: date | None = None) -> list[tuple]:
     """(ticker, total_return, last_close, sma200) for every candidate, best
     return first.
 
@@ -99,6 +106,10 @@ def window_returns(con, as_of: date, *, start_offset: int, end_offset: int = 1,
     end_offset=1. `min_bars` is the history a name must have to be ranked at all
     (a name with fewer bars is EXCLUDED, never scored on a shorter window).
     `sma200` is NULL for a name with fewer than 200 bars in the pull.
+
+    ``universe_snapshot_date`` is for provenance checks: it evaluates the same
+    rule against that immutable dated membership instead of today's mutable
+    ``universe`` flags. Normal strategy execution leaves it unset.
     """
     if end_offset < 1 or start_offset <= end_offset:
         raise ValueError(f"bad offsets start={start_offset} end={end_offset}")
@@ -107,10 +118,23 @@ def window_returns(con, as_of: date, *, start_offset: int, end_offset: int = 1,
                          f"a name could be ranked without its start close")
     depth = max(min_bars, 200)
     floor = as_of - timedelta(days=int(depth * _CAL_SLACK) + 30)
-    sql = _sql(has_table(con, "corporate_actions"))
-    return con.execute(sql, [
-        as_of, floor,
-        end_offset, end_offset, start_offset, start_offset,
-        depth, min_bars,
-        min_price,
-    ]).fetchall()
+    sql = _sql(
+        has_table(con, "corporate_actions"),
+        snapshot=universe_snapshot_date is not None,
+    )
+    params = [] if universe_snapshot_date is None else [universe_snapshot_date]
+    return con.execute(
+        sql,
+        [
+            *params,
+            as_of,
+            floor,
+            end_offset,
+            end_offset,
+            start_offset,
+            start_offset,
+            depth,
+            min_bars,
+            min_price,
+        ],
+    ).fetchall()

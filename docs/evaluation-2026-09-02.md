@@ -1,5 +1,9 @@
 # Evaluation — league, research farm, data — 2026-09-02
 
+> **Historical snapshot.** This records evidence available on 2026-09-02. Use
+> [`review-2026-09-06.md`](review-2026-09-06.md) and the generated walk-forward index for
+> current conclusions.
+
 _External review pass. Everything marked **[fact]** was read from a file or a read-only query
 against `store/market.duckdb` on 2026-09-02; everything marked **[read]** is the reviewer's
 judgment. Nothing here was run through the engine and nothing in `store/` was touched._

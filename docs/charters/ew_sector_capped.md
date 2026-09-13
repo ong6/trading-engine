@@ -1,10 +1,21 @@
 # Charter — `ew_sector_capped`
 
-_Pre-registration, 2026-08-20. **Candidate, not a book.** Nothing here creates a
-row in `portfolios`. It becomes a league book only if a human promotes it._
+_Pre-registration, 2026-08-20. The text below preserves the original candidate
+hypothesis and gates; the dated outcome addendum records the completed decision._
 
-Status: **candidate** · Class: `sim/strategies/ew_sector_capped.py` ·
+Status: **completed — rejected and closed 2026-09-07** · Class: `sim/strategies/ew_sector_capped.py` ·
 Sweep grid: `sector_cap` · Cadence: **monthly** (matching `ew_benchmark`).
+
+## Outcome addendum — 2026-09-07
+
+The four-cell, 10-fold sweep rejects this candidate under its pre-registered
+drawdown gate. The best-returning cell had **+0.72% median excess**, a 90% CI of
+**[-1.38%, +2.39%]**, **-0.53% mean excess**, and a **-38.82%** worst drawdown
+versus EW's **-37.54%**. It therefore established neither return improvement nor
+the required 5-point drawdown relief. The result also retains the disclosed
+static-2026-sector look-ahead, so it cannot support promotion. No book was
+registered; do not forward-test or tune this grid without point-in-time sectors
+and a newly frozen hypothesis.
 
 ## LOOK-AHEAD DISCLOSURE — read before any number from this book
 

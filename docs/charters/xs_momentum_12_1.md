@@ -144,3 +144,83 @@ screen by 14 pp CAGR at 4 pp *more* drawdown, and out-ran the template family by
 That is consistent with "the screen is momentum minus something", but the something may
 well be survivorship lift concentrated in the control's tail. The 10-fold walk-forward
 with the 90% CI is the pre-registered test; this table is not it.
+
+## Prospective forward addendum — 2026-09-07
+
+This addendum does not rewrite the 2026-09-02 charter or turn its historical evidence
+into prospective evidence. The forward comparison was selected after inspecting the
+three-year replay and walk-forward results. Those results are survivor-biased because
+point-in-time `universe_snapshot` history begins only on 2026-07-16 (38 snapshots through
+2026-09-04), so they motivated this test but cannot validate it.
+
+The rule and comparison are frozen before `xs_momentum_12_1`'s first monthly signal:
+
+- Candidate: `xs_momentum_12_1`; control: `ew_benchmark`; `$39,000` initial capital each.
+- Signal boundary: 2026-09-30. Observation baseline: the first shared close after those
+  next-open fills, expected 2026-10-01. The candidate must execute its first signal. An
+  already-invested control may have an exact no-op rebalance; that no-op is recorded in
+  the signal-boundary hash. The 2026-09-30 report must exist before the baseline can open;
+  no return before the shared baseline is credited.
+- Runtime: fill model `v4`, execution profile `baseline_v1`, profile SHA-256
+  `6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db`.
+  Candidate config SHA-256 is
+  `fb5a0f0e3472f14ed9b0a5d5bac05a081ec0284f200db91663b11d5d47ab9214`; control config
+  SHA-256 is `692d49494298d2e840c98ab78cb8e4a4829516b6049d7d24253eb3e28fe1318e`.
+  The frozen runtime-contract v20 SHA-256 is
+  `8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e`. It supersedes v19
+  `7f4085fca17872a9ef1125c64ed03f58b2191abe68286e9720441df74f8f06f3` before the first signal
+  so explicit DuckDB transactions clean up process-level interruptions without masking their
+  original failure. V19 released temporary DataFrame views after failed statements. V18 superseded v17
+  `4c6bfa198684a82bf05d500856039214a2ad105ab63afa107eb36603bae42906` before the first signal
+  so the borrowed screen connection remains owned and closed exactly once by the outer runtime on
+  the no-eligible exit. V17 made the non-derivable dated screen anchor precede row commit and made
+  committed rows without it fail closed instead of being recomputed. V16 made idempotently skipped committed screen and league
+  runs reconstruct their CSV, EOD, and report companions from ledger state. V15 made universe-cache, screen, league, and monthly walk-forward
+  artifacts use same-directory atomic replacement. V14 made the daily screen and league connections
+  close on every exit. V13 superseded v12
+  `158ed6666d4005c9a555f41ea829925503214838199e4887acfc94169b9c32d9` so directory
+  reconciliation and daily snapshot publication are one database transaction and
+  the derived universe CSV is atomically replaced. Strategy, signal, execution economics, and
+  statistical rules are unchanged. V12 made Nasdaq's plural security-class descriptions enforce
+  the existing common-stock/ETF universe policy. V11 made
+  every real weekly liquidity refresh retry the complete resumable pending backfill set, including
+  on a zero-admission run. V10 keeps the existing no-same-bar fill rule active under
+  optimized Python. V9
+  excluded retired portfolio positions from current liquidity protection. V8
+  made shared-metadata publication refuse malformed JSON instead of replacing it as an empty
+  snapshot. V7 made an idempotently skipped screen validate its stored rows/report and restore
+  their summary without rewriting history. V6 serialized concurrent metadata publication,
+  routed the screener through the common merge helper, and froze that helper. V5 made EOD collection
+  atomically preserve independently published miner, verification, and screen metadata. V4 made
+  the weekly liquidity dry-run report its projected
+  post-reconciliation count while leaving the store unchanged. V3 had made the EOD collector
+  release DuckDB during Yahoo downloads, retries, and sleeps, with transactional backfill
+  checkpoints. V2 had superseded
+  `f88712e1ffdeead2fc640fad667531ac57a684651f887fd4ae525403231dcb7e` for corporate-action
+  recovery. Candidate, control, signal date, execution, and statistical criteria are unchanged.
+  Each migration was explicit and refused unless the exact prior checkpoint was still `WAITING`,
+  had no signal boundary, and the store had no signal-date orders or post-fill observations.
+- Inputs: the 2026-09-30 report records the complete `universe_snapshot` and
+  `screen_results` hashes, the derived candidate ranks and control targets, both books'
+  pre-trade state, and the exact pending intents. Those values cannot honestly be known
+  before that future boundary. The 2026-10-01 report then records the exact fills, ledger
+  prefix, and full baseline state. At both checkpoints, stored cash and equity must be
+  finite and internally consistent with the current account and exact nonzero position
+  rows; the stored position count must match those rows. The immutable ledger hash covers fills and any
+  owner-entered settlements; late-arriving cash-dividend credits remain valid forward
+  events rather than retroactive tampering. Every later report verifies the immutable
+  boundary records and the full previously published equity prefix.
+- Maturity: no earlier than 60 calendar months after 2026-10-01 and only with at least
+  48 complete paired months. A month counts only when both books have the scheduled final
+  NYSE-session mark; the open current month and any gap are excluded or fail closed.
+- Primary gate: candidate total return > 0, cumulative candidate-minus-control return > 0,
+  and the 90% stationary-bootstrap interval on mean paired monthly excess wholly > 0.
+  The bootstrap uses 10,000 draws, mean block length four months, and seed `20260907`.
+- Review/invalidity: candidate drawdown at or below −55%, or rejected/stale orders after
+  the baseline, produces `REVIEW-KILL`. A rejected or mismatched initial transition,
+  changed runtime/config/input hash, or rewritten equity prefix invalidates the record.
+
+`engine.xs_forward_review` runs nightly and is read-only. `PASS-FORWARD` would support only
+continued paper evaluation and human research review. It cannot promote a strategy,
+change a portfolio, connect a broker, or authorize live capital; `automatic_action` is
+always `none`.

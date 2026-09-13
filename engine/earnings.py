@@ -7,13 +7,14 @@ approaches, so every pull is its own `as_of`-stamped snapshot and a gate lookup
 uses the LATEST snapshot per ticker. A citizen of the §12.7 job queue: the queue
 dispatches to `run(params, con, meta_path)`; a `__main__` here runs it standalone.
 
-Universe (v1 boundary — see BUILDLOG): equities with fundamentals coverage
-(a `fundamentals` row whose market_cap is non-NULL — i.e. real equities the
-weekly fundamentals miner has seen) UNION the latest screen's passers. This
-excludes ETFs (no earnings) and dead tickers, keeping a per-name daily pull
-bounded. Fallback when the `fundamentals` table is empty (fresh store, fundamentals
-not run yet): all liquid, non-ETF names. Stated honestly here and reported in
-_meta.json under `universe_source`.
+Universe (v1 boundary — see BUILDLOG): active non-ETF names with fundamentals
+coverage (a `fundamentals` row whose market_cap is non-NULL) UNION the latest
+screen's passers. Eligibility is enforced against the authoritative `universe`
+row after that union, excluding ETFs (no earnings), inactive names, and stale
+source rows while preserving each canonical name's Yahoo mapping. Fallback when
+the `fundamentals` table is empty (fresh store, fundamentals not run yet): all
+active, liquid, non-ETF names. Explicit `tickers` remain an unrestricted operator
+override. The selected source is reported in _meta.json under `universe_source`.
 
 Source: yfinance `Ticker.calendar['Earnings Date']` — one request per name (no
 batch API). Returns a list of one date (single/confirmed) or two (an estimate
@@ -23,13 +24,15 @@ date: a name that returns no calendar / no date is counted, not stored.
 Guardrails: append-only (db.insert_earnings anti-joins on
 (ticker, earnings_date, as_of) — a re-run on the same day inserts nothing), polite
 per-name pulls (small sleep, one backoff retry then record a gap), honest
-_meta.json accounting, resumable (skip names already pulled for today's as_of).
+_meta.json accounting, and explicit per-attempt resume records. Successful pulls
+with or without dates are skipped for today's as_of; failed pulls remain retryable.
 """
 from __future__ import annotations
 
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 import yfinance as yf
@@ -53,8 +56,8 @@ FLUSH_EVERY = 25           # insert + checkpoint progress every N names (resumab
 # --------------------------------------------------------------------------- #
 def _select_universe(con, params: dict) -> tuple[list[tuple[str, str]], str]:
     """Return ((canonical, yf) pairs, universe_source label). --tickers overrides;
-    else equities-with-fundamentals ∪ latest screen passers, falling back to
-    liquid non-ETF names when the fundamentals table is empty."""
+    else active equities with fundamentals ∪ latest screen passers, falling back
+    to active liquid non-ETF names when the fundamentals table is empty."""
     tickers = params.get("tickers")
     if tickers:
         if isinstance(tickers, str):
@@ -109,19 +112,29 @@ def _select_universe(con, params: dict) -> tuple[list[tuple[str, str]], str]:
     if not canon:
         return [], source
     yf_rows = con.execute(
-        "SELECT ticker, yf_ticker FROM universe WHERE ticker IN "
+        "SELECT ticker, yf_ticker FROM universe "
+        "WHERE active = TRUE AND etf = FALSE AND ticker IN "
         f"({','.join(['?'] * len(canon))})",
         list(canon),
     ).fetchall()
-    ymap = {tk: (yft or tk) for tk, yft in yf_rows}
-    return sorted(((tk, ymap.get(tk, tk)) for tk in canon)), source
+    return sorted((tk, yft or tk) for tk, yft in yf_rows), source
 
 
 def _already_done(con, as_of: date) -> set[str]:
-    """Tickers already pulled for this as_of (the resume set). A ticker with any
-    row for today's as_of is considered done — including ones that had a date."""
+    """Tickers successfully pulled for this as_of (the resume set).
+
+    `ok` and `empty` fetch-log rows are complete; `failed` rows remain retryable.
+    Calendar rows are included for compatibility with snapshots created before
+    the fetch log existed.
+    """
     rows = con.execute(
-        "SELECT DISTINCT ticker FROM earnings_calendar WHERE as_of = ?", [as_of]
+        """
+        SELECT ticker FROM earnings_calendar WHERE as_of = ?
+        UNION
+        SELECT ticker FROM earnings_fetch_log
+        WHERE as_of = ? AND status IN ('ok', 'empty')
+        """,
+        [as_of, as_of],
     ).fetchall()
     return {r[0] for r in rows}
 
@@ -179,56 +192,72 @@ def _dates_from_calendar(cal: dict | None, yf_ticker: str = "") -> tuple[list[da
     return dates, len(dates) != 1
 
 
-# --------------------------------------------------------------------------- #
-# entry point the queue dispatches to
-# --------------------------------------------------------------------------- #
-def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
-    """Pull upcoming earnings dates for the earnings universe into the
-    append-only `earnings_calendar` table, stamped with today's as_of. A re-run
-    on the same day is a no-op (resumability skip + insert anti-join).
-
-    params:
-      tickers — 'A,B,C' or a list: pull only these (testing).
-      limit   — cap to the first N names (fast smoke tests).
-    Returns the accounting dict also written under _meta.json 'earnings'.
-    """
-    params = params or {}
-    db.init_mining_schema(con)
-    as_of = datetime.now(timezone.utc).date()
-
+def _prepare_run(con, params: dict, as_of: date):
     pairs, source = _select_universe(con, params)
     limit = params.get("limit")
     if limit:
         pairs = pairs[: int(limit)]
-
     done = _already_done(con, as_of)
     pending = [(tk, yft) for tk, yft in pairs if tk not in done]
+    already_done = len(done & {tk for tk, _ in pairs})
+    return pairs, source, pending, already_done
+
+
+def _write_checkpoint(con, calendar_rows: list[dict], fetch_rows: list[dict], as_of: date) -> int:
+    """Commit calendar rows and their fetch outcomes as one recovery unit."""
+    if not calendar_rows and not fetch_rows:
+        return 0
+    with db.transaction(con):
+        inserted = db.insert_earnings(con, pd.DataFrame(calendar_rows), as_of=as_of)
+        db.insert_earnings_fetch_log(con, fetch_rows, as_of=as_of)
+    return inserted
+
+
+def _pull_pending(
+    pairs: list[tuple[str, str]],
+    source: str,
+    pending: list[tuple[str, str]],
+    already_done: int,
+    as_of: date,
+    checkpoint: Callable[[list[dict], list[dict]], int],
+    count_rows: Callable[[], int],
+    meta_path: str | Path,
+) -> dict:
+    """Network loop shared by persistent and connection-narrowed entry points."""
     log.info(f"[earnings] as_of={as_of} universe={len(pairs)} source='{source}' "
-          f"already_done_today={len(done & {tk for tk, _ in pairs})} pending={len(pending)}")
+          f"already_done_today={already_done} pending={len(pending)}")
 
     inserted = 0
     with_date = 0   # names that returned at least one upcoming date
     no_date = 0     # fetched OK but no upcoming date (recently reported, ETF, etc.)
     failed = 0      # hard fetch failure (gap)
     buffer: list[dict] = []
+    fetch_log_buffer: list[dict] = []
 
     def _flush() -> None:
-        nonlocal inserted, buffer
-        if buffer:
-            inserted += db.insert_earnings(con, pd.DataFrame(buffer), as_of=as_of)
-            buffer = []
+        nonlocal inserted, buffer, fetch_log_buffer
+        if not buffer and not fetch_log_buffer:
+            return
+        inserted += checkpoint(buffer, fetch_log_buffer)
+        buffer = []
+        fetch_log_buffer = []
 
     for i, (canon, yft) in enumerate(pending, 1):
         cal = _fetch_calendar(yft)
         if cal is None:
             failed += 1
+            fetch_log_buffer.append({"ticker": canon, "status": "failed", "n_dates": 0})
         else:
             parsed = _dates_from_calendar(cal, yft)
             if parsed is None:
                 no_date += 1
+                fetch_log_buffer.append({"ticker": canon, "status": "empty", "n_dates": 0})
             else:
                 dates, is_est = parsed
                 with_date += 1
+                fetch_log_buffer.append(
+                    {"ticker": canon, "status": "ok", "n_dates": len(dates)}
+                )
                 for d in dates:
                     buffer.append({"ticker": canon, "earnings_date": d,
                                    "is_estimate": is_est})
@@ -240,9 +269,7 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
     _flush()
 
     store_gb = rsc.dir_size_gb(STORE_DIR)
-    total_rows = con.execute(
-        "SELECT COUNT(*) FROM earnings_calendar WHERE as_of = ?", [as_of]
-    ).fetchone()[0]
+    total_rows = count_rows()
     accounting = {
         "last_run": datetime.now(timezone.utc).isoformat(),
         "as_of": as_of.isoformat(),
@@ -266,6 +293,82 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# entry point the queue dispatches to
+# --------------------------------------------------------------------------- #
+def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
+    """Pull upcoming earnings dates for the earnings universe into the
+    append-only `earnings_calendar` table, stamped with today's as_of. Every
+    attempt is also appended to `earnings_fetch_log`; a re-run skips successful
+    `ok`/`empty` pulls and retries failures.
+
+    params:
+      tickers — 'A,B,C' or a list: pull only these (testing).
+      limit   — cap to the first N names (fast smoke tests).
+    Returns the accounting dict also written under _meta.json 'earnings'.
+    """
+    params = params or {}
+    db.init_mining_schema(con)
+    as_of = datetime.now(timezone.utc).date()
+    pairs, source, pending, already_done = _prepare_run(con, params, as_of)
+    return _pull_pending(
+        pairs,
+        source,
+        pending,
+        already_done,
+        as_of,
+        lambda calendar_rows, fetch_rows: _write_checkpoint(
+            con, calendar_rows, fetch_rows, as_of
+        ),
+        lambda: con.execute(
+            "SELECT COUNT(*) FROM earnings_calendar WHERE as_of = ?", [as_of]
+        ).fetchone()[0],
+        meta_path,
+    )
+
+
+def run_connection_narrowed(
+    params: dict | None,
+    db_path: str | Path | None = None,
+    meta_path: str | Path = DEFAULT_META,
+) -> dict:
+    """Run without retaining DuckDB's writer lock during per-name HTTP waits.
+
+    The queue owns process-level serialization. This entry point leases the DB
+    briefly for setup, each 25-name transactional checkpoint, and final
+    accounting, allowing API/UI readers between those bounded writes.
+    """
+    params = params or {}
+    path = Path(db_path) if db_path is not None else db.DEFAULT_DB
+    as_of = datetime.now(timezone.utc).date()
+    con = db.connect(path)
+    try:
+        db.init_schema(con)
+        db.init_queue_schema(con)
+        db.init_mining_schema(con)
+        prepared = _prepare_run(con, params, as_of)
+    finally:
+        con.close()
+
+    def checkpoint(calendar_rows: list[dict], fetch_rows: list[dict]) -> int:
+        write_con = db.connect(path)
+        try:
+            return _write_checkpoint(write_con, calendar_rows, fetch_rows, as_of)
+        finally:
+            write_con.close()
+
+    def count_rows() -> int:
+        read_con = db.connect(path, read_only=True)
+        try:
+            return read_con.execute(
+                "SELECT COUNT(*) FROM earnings_calendar WHERE as_of = ?", [as_of]
+            ).fetchone()[0]
+        finally:
+            read_con.close()
+
+    return _pull_pending(*prepared, as_of, checkpoint, count_rows, meta_path)
+
+
+# --------------------------------------------------------------------------- #
 def main() -> int:
     import argparse
 
@@ -282,12 +385,7 @@ def main() -> int:
     if args.limit:
         params["limit"] = args.limit
 
-    con = db.connect(args.db) if args.db else db.connect()
-    db.init_schema(con)
-    db.init_queue_schema(con)
-    db.init_mining_schema(con)
-    run(params, con, meta_path=args.meta)
-    con.close()
+    run_connection_narrowed(params, db_path=args.db, meta_path=args.meta)
     return 0
 
 

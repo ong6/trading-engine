@@ -67,6 +67,7 @@ import random
 import sys
 import time
 import urllib.parse
+from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -231,15 +232,19 @@ CORE_ETFS = ["SPY", "QQQ", "IWM", "BIL"]
 
 
 def _held_tickers(con) -> list[str]:
-    """Names a league book actually holds. A wrong price on a held name is the
-    one that costs money, so these are checked every night, never sampled."""
+    """Names an active league book actually holds.
+
+    A wrong price on an active holding affects current paper equity, so these
+    names are checked every night rather than sampled. Retired books remain in
+    the ledger for auditability but must not consume current verification slots.
+    """
     try:
         rows = con.execute(
             """
             SELECT DISTINCT p.ticker
             FROM sim_positions p
             JOIN portfolios f ON f.id = p.portfolio_id
-            WHERE p.qty > 0
+            WHERE f.active AND p.qty > 0
             ORDER BY 1
             """
         ).fetchall()
@@ -249,7 +254,7 @@ def _held_tickers(con) -> list[str]:
 
 
 def select_names(con, as_of: date, sample_n: int, max_names: int) -> list[tuple[str, str]]:
-    """(ticker, why) in check order: core ETFs, then held names, then a
+    """(ticker, why) in check order: core ETFs, active holdings, then a
     date-seeded deterministic sample of the liquid universe. Seeding by date
     means the same night re-runs identically (a re-run is a re-measurement, not
     a new lottery) while coverage still rotates across the universe over time.
@@ -385,9 +390,20 @@ def compare_bars(ticker: str, store_bars: dict, src_bars: dict,
 # --------------------------------------------------------------------------- #
 # Driver
 # --------------------------------------------------------------------------- #
-def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
+def run(
+    params: dict | None,
+    con,
+    meta_path: str | Path = DEFAULT_META,
+    *,
+    release_connection: Callable[[], None] | None = None,
+) -> dict:
     """Sample, cross-check, and return the accounting dict written under the
-    `price_verify` key of data/_meta.json. `con` must be a READ-ONLY handle."""
+    `price_verify` key of data/_meta.json. `con` must be a READ-ONLY handle.
+
+    When supplied, ``release_connection`` is called after all store data has
+    been materialized and before the first network request. The scheduled CLI
+    uses this hook so its multi-hour wide pass cannot block a DuckDB writer.
+    """
     p = dict(params or {})
     sample_n = int(p.get("sample", 40))
     sessions = int(p.get("sessions", 5))
@@ -423,16 +439,19 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
     store: dict[str, dict] = {t: {} for t in tickers}
     if tickers:
         ph = ",".join("?" * len(tickers))
-        for tk, d, o, h, l, c, v in con.execute(
+        for tk, d, o, h, low, c, v in con.execute(
                 f"""SELECT ticker, date, open, high, low, close, volume
                     FROM prices WHERE ticker IN ({ph}) AND date BETWEEN ? AND ?""",
                 tickers + [start, as_of]).fetchall():
             store[tk][d.date() if isinstance(d, datetime) else d] = {
-                "open": o, "high": h, "low": l, "close": c, "volume": v}
+                "open": o, "high": h, "low": low, "close": c, "volume": v}
     # Keep only the last `sessions` stored sessions per name.
-    for tk, bars in store.items():
+    for bars in store.values():
         for d in sorted(bars)[:-sessions] if len(bars) > sessions else []:
             bars.pop(d)
+
+    if release_connection is not None:
+        release_connection()
 
     results: list[dict] = []
     reasons: dict[str, int] = {}
@@ -625,6 +644,32 @@ def _connect_ro(path: str | Path, tries: int = 6, retry_s: float = 5.0):
         raise RuntimeError(f"could not open {path} read-only after {tries} attempts: {exc}") from exc
 
 
+def run_connection_narrowed(
+    params: dict | None,
+    db_path: str | Path = DEFAULT_DB,
+    meta_path: str | Path = DEFAULT_META,
+) -> dict:
+    """Materialize the store slice, then release DuckDB before HTTP requests."""
+    con = _connect_ro(db_path)
+    released = False
+
+    def release() -> None:
+        nonlocal released
+        con.close()
+        released = True
+
+    try:
+        return run(
+            params,
+            con,
+            meta_path=meta_path,
+            release_connection=release,
+        )
+    finally:
+        if not released:
+            con.close()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -658,27 +703,19 @@ def main() -> int:
     # Everything below is best-effort. This stage is observability, not
     # trading data: it must never fail a nightly. Exit 0 on every path.
     try:
-        con = _connect_ro(args.db)
-    except Exception as exc:
-        log.error(f"TODO: price verify could not open the store read-only ({exc}) — "
-              f"skipped this run, nothing written, nightly unaffected")
-        return 0
-    try:
-        acc = run({"sample": args.sample, "sessions": args.sessions,
-                   "tolerance_bp": args.tolerance_bp,
-                   "tolerance_abs": args.tolerance_abs,
-                   "max_names": args.max_names, "max_secs": args.max_secs,
-                   "tickers": args.tickers, "self_test_bp": args.self_test},
-                  con, meta_path=args.meta)
+        acc = run_connection_narrowed(
+            {"sample": args.sample, "sessions": args.sessions,
+             "tolerance_bp": args.tolerance_bp,
+             "tolerance_abs": args.tolerance_abs,
+             "max_names": args.max_names, "max_secs": args.max_secs,
+             "tickers": args.tickers, "self_test_bp": args.self_test},
+            db_path=args.db,
+            meta_path=args.meta,
+        )
     except Exception as exc:
         log.error(f"TODO: price verify failed ({type(exc).__name__}: {exc}) — no "
               f"_meta.json update, nightly unaffected")
         return 0
-    finally:
-        try:
-            con.close()
-        except Exception:
-            pass
 
     print(json.dumps(acc, indent=2))
     if args.no_meta or args.self_test:

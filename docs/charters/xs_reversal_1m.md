@@ -101,7 +101,7 @@ enemy and the reason it may not survive costs.
    should not be.
 3. **Universe policy `all`** — as `xs_momentum_12_1`.
 
-## First evidence — 3-year replay, run AFTER registration (2026-09-02)
+## First evidence — 3-year replay after charter freeze, before league registration (2026-09-02)
 
 Same machinery, window and controls as the other two charters (2023-07-17 → 2026-07-16,
 fill model v2, policy `all`, $39,000, read-only store copy). One window; not the
@@ -122,10 +122,9 @@ tracked the momentum control at 0.85 and trailed EW by 70 pp over three years at
 be dead on two clauses (return-without-lower-drawdown, and correlation at 0.71 vs the
 0.70 line). Turnover came in at the expected 11×.
 
-**Decision for the owner, recorded here rather than acted on:** the registration stands
-as written — nothing in `configs.py` was changed after seeing this table, per the
-no-peeking rule. The pre-registered test is the 10-fold walk-forward and the live
-record, and the honest expectation is that the correlation clause fires. If the owner
-would rather test the *unfiltered* reversal (no 200d SMA condition — the version that
-does not smuggle momentum in), that is a **new** pre-registration with a new charter,
-not an amendment to this one.
+**Historical decision at the time of the replay:** the frozen proposal was not edited after
+seeing this table, per the no-peeking rule. The owner subsequently withdrew it before league
+registration because the design replay had already crossed its correlation and drawdown/return
+kill clauses. There is no portfolio row, queue job, or live record for this candidate. Testing the
+*unfiltered* reversal (no 200d SMA condition—the version that does not smuggle momentum in) would
+require a **new** pre-registration and charter, not an amendment to this closed one.

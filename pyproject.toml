@@ -1,14 +1,29 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "trading-engine"
 version = "0.1.0"
 description = "Fully local paper-trading bot and research engine: DuckDB market store, nightly screen, pre-registered strategy league, conservative fill simulator, backtest and walk-forward farm."
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dynamic = ["dependencies"]
 
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.12"]
+
 [tool.setuptools.dynamic]
 dependencies = { file = ["engine/requirements.txt"] }
+
+[tool.setuptools.packages.find]
+include = ["engine*", "farm*", "server*", "sim*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+farm = ["experiments/*.json", "experiments/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -17,7 +32,7 @@ addopts = "-q"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-extend-exclude = ["ui", "scratch", ".venv"]
+extend-exclude = ["ui", "scratch", ".venv", "archive"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "B", "I"]

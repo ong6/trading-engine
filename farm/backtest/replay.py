@@ -55,15 +55,17 @@ import time
 from datetime import date
 from pathlib import Path
 
-from engine.lib import db
+from engine.lib import db, resources
 from engine.lib import leverage as lev
+from engine.lib.data_quality import data_snapshot, quality_class
 from engine.lib.log import get_logger
+from engine.lib.provenance import research_provenance
 from engine.lib.settings import DATA_DIR, REPO_ROOT
-from engine.lib.util import num
+from engine.lib.util import num, table_exists
 from farm.backtest import hist_screen, stats
-from sim import league
+from sim import execution, league
 from sim import portfolio as _pf
-from sim.schema import init_sim_schema
+from sim.schema import INITIAL_CASH, init_sim_schema
 from sim.strategies.configs import CONFIGS, config_by_id
 
 log = get_logger("replay")
@@ -80,13 +82,80 @@ WINDOW_MONTHS: dict[str, int | None] = {
 
 PRICE_WARMUP_SESSIONS = 460   # covers every lookback any book reads (see above)
 
+
+def _provenance(config: dict) -> dict:
+    return research_provenance(config)
+
+
+def _require_single_portfolio(con) -> None:
+    """Reject replay scratch state that is missing or mixes portfolio books."""
+    count = con.execute("SELECT COUNT(*) FROM portfolios").fetchone()[0]
+    if count != 1:
+        raise RuntimeError(
+            "replay scratch database must contain exactly one portfolio; "
+            f"found {count}"
+        )
+
+
 # Books excluded from the farm, with the reason printed in every report.
 EXCLUDED = {
     "pead_ear": "no historical earnings dates — earnings_calendar spans only "
                 "2026-04→2026-10, so the entry signal cannot be computed. "
                 "Forward record only.",
     "discretionary": "human book — orders come from UI tickets, not code.",
+    "macro_composite": "historical point-in-time macro inputs do not exist; "
+                       "replaying an empty macro_signals table would synthesize "
+                       "a neutral allocation rather than test the registered rule.",
 }
+EXCLUDED_STRATEGIES = {
+    "pead_ear": EXCLUDED["pead_ear"],
+    "discretionary": EXCLUDED["discretionary"],
+    "macro_composite": EXCLUDED["macro_composite"],
+}
+
+
+def excluded_reason(config_id: str, strategy: str | None = None) -> str | None:
+    """Return why an ID or any config using its strategy cannot be replayed."""
+    if config_id in EXCLUDED:
+        return EXCLUDED[config_id]
+    if strategy in EXCLUDED_STRATEGIES:
+        return f"{EXCLUDED_STRATEGIES[strategy]} (excluded via strategy `{strategy}`)"
+    return None
+
+
+def registered_config(live_con, config_id: str) -> dict:
+    """Return the frozen live portfolio config, falling back before init."""
+    source = config_by_id(config_id)
+    row = live_con.execute(
+        "SELECT config, active FROM portfolios WHERE id = ?", [config_id]
+    ).fetchone()
+    if row is None:
+        return source
+    if not row[1]:
+        raise SystemExit(f"[replay] {config_id} is retired (active=false)")
+    try:
+        frozen = json.loads(row[0])
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"[replay] {config_id} has invalid frozen config: {exc}") from exc
+    if frozen.get("id") != config_id or not frozen.get("strategy"):
+        raise SystemExit(f"[replay] {config_id} has an inconsistent frozen config")
+    return frozen
+
+
+def registered_assumptions(live_con, config_id: str) -> tuple[float, str]:
+    """Persisted capital/profile for a live book, or compatibility defaults."""
+    columns = {r[1] for r in live_con.execute(
+        "PRAGMA table_info('portfolios')").fetchall()}
+    if "initial_cash" not in columns or "execution_profile" not in columns:
+        return INITIAL_CASH, execution.DEFAULT_PROFILE_ID
+    row = live_con.execute(
+        "SELECT COALESCE(initial_cash, ?), COALESCE(execution_profile, ?) "
+        "FROM portfolios WHERE id = ?",
+        [INITIAL_CASH, execution.DEFAULT_PROFILE_ID, config_id],
+    ).fetchone()
+    if row is None:
+        return INITIAL_CASH, execution.DEFAULT_PROFILE_ID
+    return float(row[0]), str(row[1])
 
 # Books that read `screen_results` (everything else skips the screen build).
 NEEDS_SCREEN = {"template_top5", "template_top10_banded", "mr_overlay",
@@ -116,6 +185,8 @@ REQUIRED: dict[str, list[str]] = {
     "dual_momentum": ["SPY", "EFA", "BIL"],
     "sector_momentum": ["XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU",
                         "XLB", "XLRE"],
+    "fixed_etf_buy_hold": ["SPY", "IEF", "GLD"],
+    "fixed_etf_rebalanced": ["SPY", "IEF", "GLD"],
     # BIL is where the book actually sits whenever SPY is below its 200d, so it
     # is as load-bearing as SPY here and its 2007-05 listing must clamp the
     # window floor rather than silently producing un-funded risk-off stretches.
@@ -222,19 +293,30 @@ def build_scratch(live_con, scratch_dir: Path, start: date, end: date,
     if path.exists():
         path.unlink()
     con = db.connect(path)
-    db.init_schema(con)
-    db.init_queue_schema(con)
-    db.init_mining_schema(con)
-    db.init_actions_schema(con)
-    init_sim_schema(con)
-    for name in exports:
-        con.execute(f"INSERT INTO {name} SELECT * FROM '{pq / name}.parquet'")
-    # Restamp the fundamentals snapshot so low_vol's cap filter resolves at every
-    # replay date (`f.as_of = (SELECT MAX(as_of) … WHERE as_of <= d)`). This is
-    # the disclosed static-cap look-ahead; see the module docstring.
-    con.execute("UPDATE fundamentals SET as_of = ?", [px_start])
-    n_px = con.execute("SELECT COUNT(*) FROM prices").fetchone()[0]
-    n_ca = con.execute("SELECT COUNT(*) FROM corporate_actions").fetchone()[0]
+    try:
+        db.init_schema(con)
+        db.init_queue_schema(con)
+        db.init_mining_schema(con)
+        db.init_actions_schema(con)
+        init_sim_schema(con)
+        for name in exports:
+            con.execute(f"INSERT INTO {name} SELECT * FROM '{pq / name}.parquet'")
+        if table_exists(live_con, "price_quarantine"):
+            quarantines = live_con.execute(
+                "SELECT ticker, status, reason, evidence, confirmed_at, resolved_at, "
+                "resolution FROM price_quarantine").fetchall()
+            if quarantines:
+                con.executemany(
+                    "INSERT INTO price_quarantine VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    quarantines)
+        # Restamp the fundamentals snapshot so low_vol's cap filter resolves at every
+        # replay date (`f.as_of = (SELECT MAX(as_of) … WHERE as_of <= d)`). This is
+        # the disclosed static-cap look-ahead; see the module docstring.
+        con.execute("UPDATE fundamentals SET as_of = ?", [px_start])
+        n_px = con.execute("SELECT COUNT(*) FROM prices").fetchone()[0]
+        n_ca = con.execute("SELECT COUNT(*) FROM corporate_actions").fetchone()[0]
+    finally:
+        con.close()
     shutil.rmtree(pq, ignore_errors=True)
     if verbose:
         log.info(f"[replay] scratch {path} built in {time.time() - t0:.0f}s "
@@ -249,20 +331,21 @@ def _copy_live_screens(live_con, con, start: date, end: date) -> int:
         [start, end]).fetch_df()
     if df.empty:
         return 0
-    con.register("_live_sr", df)
-    con.execute("INSERT INTO screen_results SELECT * FROM _live_sr")
-    con.unregister("_live_sr")
+    with db.registered_frame(con, "_live_sr", df):
+        con.execute("INSERT INTO screen_results SELECT * FROM _live_sr")
     return len(df)
 
 
 def _run_m1_screens(db_path: Path, sessions: list[date], data_dir: Path) -> None:
     """screen_source='m1': run the real M1 screener for any missing session."""
-    import screen as m1_screen  # engine/screen.py
+    from engine import screen as m1_screen
 
     con = db.connect(db_path)
-    have = {r[0] for r in con.execute(
-        "SELECT DISTINCT run_date FROM screen_results").fetchall()}
-    con.close()
+    try:
+        have = {r[0] for r in con.execute(
+            "SELECT DISTINCT run_date FROM screen_results").fetchall()}
+    finally:
+        con.close()
     todo = [d for d in sessions if d not in have]
     log.info(f"[replay] m1 screens: {len(todo)} of {len(sessions)} sessions missing")
     for d in todo:
@@ -277,11 +360,28 @@ def run_replay(live_con, config_id: str, window: str, *,
                keep_scratch: bool = False, results_dir: Path = RESULTS_DIR,
                write_result: bool = True, verbose: bool = True,
                threads: int | None = 16, mem_mb: int | None = 8000,
-               override: tuple[date, date] | None = None) -> dict:
+               override: tuple[date, date] | None = None,
+               initial_cash: float | None = None,
+               execution_profile: str | None = None) -> dict:
     """Replay one (book, window). Returns the result dict (also written as JSON)."""
-    if config_id in EXCLUDED:
-        raise SystemExit(f"[replay] {config_id} is excluded: {EXCLUDED[config_id]}")
-    cfg = config_by_id(config_id)
+    source_cfg = config_by_id(config_id)
+    why = excluded_reason(config_id, source_cfg.get("strategy"))
+    if why:
+        raise SystemExit(f"[replay] {config_id} is excluded: {why}")
+    if not source_cfg.get("active", True):
+        raise SystemExit(f"[replay] {config_id} is retired (active=false)")
+    registered_cash, registered_profile = registered_assumptions(
+        live_con, config_id)
+    initial_cash = float(registered_cash if initial_cash is None else initial_cash)
+    if not initial_cash > 0:
+        raise ValueError("initial_cash must be positive")
+    profile = execution.resolve_profile(execution_profile or registered_profile)
+    cfg = registered_config(live_con, config_id)
+    # Freeze before any historical work starts. A replay can run for hours;
+    # stamping at write time could describe source edited after this process
+    # imported and began executing it.
+    run_provenance = _provenance(cfg)
+    run_data_snapshot = data_snapshot(live_con)
     start, end, clamped = resolve_window(live_con, config_id, window, override)
     sessions = hist_screen.sessions_between(live_con, start, end)
     t0 = time.time()
@@ -291,6 +391,7 @@ def run_replay(live_con, config_id: str, window: str, *,
     scratch_dir = Path(scratch_root) / f"{config_id}__{window}"
     shutil.rmtree(scratch_dir, ignore_errors=True)
     result: dict = {}
+    con = None
     try:
         db_path = build_scratch(live_con, scratch_dir, start, end, verbose=verbose)
         con = db.connect(db_path)
@@ -320,6 +421,7 @@ def run_replay(live_con, config_id: str, window: str, *,
             elif screen_source == "m1":
                 n_screen = _copy_live_screens(live_con, con, start, end)
                 con.close()
+                con = None
                 _run_m1_screens(db_path, sessions, scratch_dir / "screens")
                 con = db.connect(db_path)
                 n_screen = con.execute(
@@ -328,11 +430,17 @@ def run_replay(live_con, config_id: str, window: str, *,
                 raise SystemExit(f"[replay] bad screen_source {screen_source!r}")
         screen_s = time.time() - t_screen
 
-        # Portfolio: created by the REAL init_portfolios, then narrowed to this
-        # book so the job is one book's work (and one book's cash trajectory).
-        league.init_portfolios(con, start)
-        con.execute("DELETE FROM portfolios WHERE id != ?", [config_id])
-        assert con.execute("SELECT COUNT(*) FROM portfolios").fetchone()[0] == 1
+        # Portfolio: insert the frozen live config selected above. Calling
+        # init_portfolios here would silently substitute mutable source CONFIGS
+        # and could replay a different rule under the same ID.
+        con.execute(
+            "INSERT INTO portfolios (id, name, strategy, config, created, active, "
+            "cash, initial_cash, execution_profile) "
+            "VALUES (?, ?, ?, ?, ?, TRUE, ?, ?, ?)",
+            [config_id, cfg["name"], cfg["strategy"], json.dumps(cfg), start,
+             initial_cash, initial_cash, profile.id],
+        )
+        _require_single_portfolio(con)
 
         t_step = time.time()
         for i, d in enumerate(sessions):
@@ -346,13 +454,29 @@ def run_replay(live_con, config_id: str, window: str, *,
             "SELECT date, equity FROM sim_equity WHERE portfolio_id = ? "
             "ORDER BY date", [config_id]).fetchall()
         bil = stats.bil_daily_returns(con, start, end)
-        st = stats.equity_stats([r[0] for r in eq], [r[1] for r in eq], bil)
+        st = stats.equity_stats(
+            [r[0] for r in eq], [r[1] for r in eq], bil, initial_cash)
         n_fills = con.execute(
             "SELECT COUNT(*) FROM sim_fills WHERE portfolio_id = ?",
             [config_id]).fetchone()[0]
         n_rej = con.execute(
             "SELECT COUNT(*) FROM sim_orders WHERE portfolio_id = ? AND "
             "status = 'rejected'", [config_id]).fetchone()[0]
+        capacity = con.execute(
+            "SELECT COUNT(*) FILTER (WHERE a.outcome = 'rejected' AND "
+            "a.reject_reason LIKE 'illiquid:%'), "
+            "COALESCE(SUM(a.raw_notional) FILTER (WHERE a.outcome = 'rejected' "
+            "AND a.reject_reason LIKE 'illiquid:%'), 0) "
+            "FROM sim_execution_attempts a JOIN sim_orders o ON o.id = a.order_id "
+            "WHERE o.portfolio_id = ?", [config_id]).fetchone()
+        costs = con.execute(
+            "SELECT COALESCE(SUM(ABS(f.qty * f.open_px)), 0), "
+            "COALESCE(SUM(ABS(f.qty * f.open_px) * c.market_bps / 10000), 0), "
+            "COALESCE(SUM(ABS(f.qty * f.open_px) * c.total_bps / 10000), 0), "
+            "COALESCE(QUANTILE_CONT(c.participation, 0.95), 0), "
+            "COALESCE(MAX(c.participation), 0) "
+            "FROM sim_fills f LEFT JOIN sim_fill_costs c USING (order_id) "
+            "WHERE f.portfolio_id = ?", [config_id]).fetchone()
         n_div = con.execute(
             "SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM sim_dividends "
             "WHERE portfolio_id = ?", [config_id]).fetchone()
@@ -363,11 +487,14 @@ def run_replay(live_con, config_id: str, window: str, *,
             "SELECT strftime(date, '%Y-%m') AS m, LAST(equity ORDER BY date) "
             "FROM sim_equity WHERE portfolio_id = ? GROUP BY m ORDER BY m",
             [config_id]).fetchall()
-        con.close()
 
         result = {
             "config_id": config_id,
             "fill_model": _pf.FILL_MODEL_VERSION,
+            "initial_cash": initial_cash,
+            "execution_profile": profile.as_dict(),
+            "data_quality_class": quality_class(cfg["strategy"]),
+            "data_snapshot": run_data_snapshot,
             "name": cfg["name"],
             "strategy": cfg["strategy"],
             "cadence": cfg["cadence"],
@@ -378,8 +505,17 @@ def run_replay(live_con, config_id: str, window: str, *,
                              else "not-used",
             "screen_rows": n_screen,
             "universe_policy": policy,
+            **run_provenance,
             "n_fills": n_fills,
             "n_rejected": n_rej,
+            "n_capacity_rejected": int(capacity[0]),
+            "capacity_rejected_notional": float(capacity[1]),
+            "p95_participation": float(costs[3]),
+            "max_participation": float(costs[4]),
+            "gross_traded_notional": float(costs[0]),
+            "turnover_on_initial_cash": float(costs[0]) / initial_cash,
+            "modeled_price_cost_dollars": float(costs[1]),
+            "modeled_total_cost_dollars": float(costs[2]),
             "n_dividend_credits": n_div[0],
             "dividend_cash": float(n_div[1]),
             "corporate_actions_dividend_rows": n_actions,
@@ -392,11 +528,17 @@ def run_replay(live_con, config_id: str, window: str, *,
         if write_result:
             results_dir.mkdir(parents=True, exist_ok=True)
             out = results_dir / f"{config_id}__{window}.json"
-            out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+            resources.write_text_atomic(
+                out, json.dumps(result, indent=2, sort_keys=True) + "\n"
+            )
             log.info(f"[replay] wrote {out}")
     finally:
-        if not keep_scratch:
-            shutil.rmtree(scratch_dir, ignore_errors=True)
+        try:
+            if con is not None:
+                con.close()
+        finally:
+            if not keep_scratch:
+                shutil.rmtree(scratch_dir, ignore_errors=True)
 
     log.info(f"[replay] {config_id}/{window} done in {result.get('runtime_s')}s: "
           f"CAGR {_pct(result.get('cagr'))} vol {_pct(result.get('vol_ann'))} "
@@ -424,7 +566,10 @@ def run_job(params: dict, con, meta_path=None) -> None:
         raise ValueError("backtest job needs params {'config_id': …, 'window': …}")
     run_replay(con, cfg_id, window,
                screen_source=params.get("screen_source", "hist"),
-               mem_mb=params.get("mem_mb", 8000))
+               mem_mb=params.get("mem_mb", 4500),
+               initial_cash=(float(params["initial_cash"])
+                             if "initial_cash" in params else None),
+               execution_profile=params.get("execution_profile"))
     from farm.backtest import report
     report.write_reports()
 
@@ -440,6 +585,11 @@ def main() -> int:
     ap.add_argument("--keep-scratch", action="store_true")
     ap.add_argument("--no-result", action="store_true", help="don't write the JSON")
     ap.add_argument("--threads", type=int, default=16)
+    ap.add_argument("--initial-cash", type=float, default=None,
+                    help="override the portfolio's persisted starting capital")
+    ap.add_argument("--execution-profile", default=None,
+                    choices=list(execution.PROFILES),
+                    help="override the portfolio's persisted execution profile")
     ap.add_argument("--start", default=None,
                     help="explicit window start (proof runs; overrides --window)")
     ap.add_argument("--end", default=None, help="explicit window end")
@@ -458,6 +608,8 @@ def main() -> int:
                    screen_source=args.screen_source,
                    keep_scratch=args.keep_scratch,
                    write_result=not args.no_result, threads=args.threads,
+                   initial_cash=args.initial_cash,
+                   execution_profile=args.execution_profile,
                    override=((date.fromisoformat(args.start),
                               date.fromisoformat(args.end))
                              if args.start and args.end else None))

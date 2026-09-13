@@ -28,7 +28,6 @@ import json
 from engine.lib import db
 from engine.lib.log import get_logger
 from engine.lib.settings import REPO_ROOT  # noqa: F401
-from farm.walkforward import protocol
 from farm.walkforward.runner import active_books
 
 log = get_logger("wf-grid")
@@ -62,14 +61,14 @@ def plan(live_con, overrides: dict | None = None) -> list[tuple[str, int, str]]:
 
 
 def enqueue(con, overrides: dict | None = None, dry_run: bool = False) -> int:
-    import queue_runner as qr  # engine/queue_runner.py
+    from engine import queue_runner as qr
 
     rows = plan(con, overrides)
     if not rows:
         log.info("[wf-grid] no eligible active books — nothing to enqueue")
         return 1
     n = 0
-    for cid, prio, params in rows:
+    for _cid, prio, params in rows:
         if dry_run:
             log.info(f"[wf-grid] would enqueue walkforward {params} priority={prio}")
         else:
@@ -118,9 +117,9 @@ def main() -> int:
         return 0
 
     con = db.connect(args.db) if args.db else db.connect()
-    db.init_schema(con)
-    db.init_queue_schema(con)
     try:
+        db.init_schema(con)
+        db.init_queue_schema(con)
         return enqueue(con, overrides, dry_run=args.dry_run)
     finally:
         con.close()

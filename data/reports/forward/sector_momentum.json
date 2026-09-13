@@ -153,10 +153,10 @@
       "sim/strategies/sector_momentum.py",
       "sim/strategies/spy_benchmark.py"
     ],
-    "runtime_contract_migration": "2026-09-08 unconditional no-same-bar enforcement: the existing fill-date rule now remains active under optimized Python; strategy, execution economics, baseline, and evidence-continuity rules are unchanged",
-    "runtime_contract_sha256": "d8ad1e801ee5703ae8f29e7eb9e56fa0f2736c7f9b37afc10bad1704d27276ca",
-    "runtime_contract_version": 4,
-    "superseded_runtime_contract_sha256": "20c106ed0a6a7e29ac01ba8616c44909cbadaf90f53c8c8d2712b1e50631414a"
+    "runtime_contract_migration": "2026-09-13 interruption-safe transaction cleanup: every explicit DuckDB transaction now rolls back process-level interruptions, preserves the original failure if cleanup also fails, and leaves borrowed connections reusable; strategy, execution economics, baseline, and evidence-continuity rules are unchanged",
+    "runtime_contract_sha256": "c430b451ee510c858705ba4235f81b68f9d7443745a60b4716035acb32741788",
+    "runtime_contract_version": 9,
+    "superseded_runtime_contract_sha256": "c0788167bf63f734c6c9b3428b425a0054f1cead1754048aa00a6cc48eb5662f"
   },
   "metrics": {
     "drawdown_improvement": 0.005585467118190635,

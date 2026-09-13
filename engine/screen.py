@@ -36,10 +36,8 @@ this is a same-day correction only, never a way to rewrite history.
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import re
-import shutil
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -200,8 +198,9 @@ def classify_universe(con, screen_date: date, cutoff: date):
 
     cutoff_ts = pd.Timestamp(cutoff)
     eligible, n_stale, n_short, n_phantom = [], 0, 0, 0
-    for tk, md, lt, nbars in zip(rows["ticker"], rows["max_date"],
-                                 rows["last_traded"], rows["nbars"]):
+    for tk, md, lt, nbars in zip(
+        rows["ticker"], rows["max_date"], rows["last_traded"], rows["nbars"], strict=True
+    ):
         if pd.isna(lt) or pd.Timestamp(lt) < cutoff_ts:
             n_stale += 1
         elif pd.Timestamp(lt) != pd.Timestamp(md):
@@ -215,8 +214,7 @@ def classify_universe(con, screen_date: date, cutoff: date):
 
 def pull_bars(con, screen_date: date, eligible: list[str]) -> pd.DataFrame:
     """Last WINDOW_BARS bars per eligible name in one query (ascending)."""
-    con.register("_elig", pd.DataFrame({"ticker": eligible}))
-    try:
+    with db.registered_frame(con, "_elig", pd.DataFrame({"ticker": eligible})):
         bars = con.execute(
             """
             SELECT ticker, date, open, high, low, close, volume
@@ -230,8 +228,6 @@ def pull_bars(con, screen_date: date, eligible: list[str]) -> pd.DataFrame:
             """,
             [screen_date, WINDOW_BARS],
         ).fetch_df()
-    finally:
-        con.unregister("_elig")
     return bars
 
 
@@ -317,6 +313,12 @@ def render_md(screen_date, eligible_n, passing, near, regime, new_n, truncated,
 # watchlist
 # --------------------------------------------------------------------------- #
 _TICKER_RE = re.compile(r"^[A-Z][A-Z.\-]{0,4}$")
+_SCREEN_HEADER_RE = re.compile(
+    r"^# Screen — (?P<date>\d{4}-\d{2}-\d{2})  "
+    r"\(universe: (?P<screened>\d+) · passing: (?P<passing>\d+) · "
+    r"new today: (?P<new>\d+) · regime: (?P<regime>[^ ]+) · "
+    r"policy: (?P<policy>[^)]+)\)$"
+)
 
 
 def parse_watchlist(path: Path) -> list[str]:
@@ -353,31 +355,98 @@ def write_eod(con, screen_date, tickers, eod_dir: Path) -> list[str]:
             missing.append(tk)
             continue
         df = df.sort_values("date")
-        df.to_csv(eod_dir / f"{tk}.csv", index=False)
+        rsc.write_text_atomic(eod_dir / f"{tk}.csv", df.to_csv(index=False))
     return missing
 
 
-def update_meta(meta_path: Path, **updates) -> None:
-    """Read-modify-write _meta.json, preserving existing keys."""
-    meta = {}
-    if meta_path.exists():
-        try:
-            meta = json.loads(meta_path.read_text())
-        except json.JSONDecodeError:
-            meta = {}
-    meta.update(updates)
-    rsc.write_text_atomic(meta_path, json.dumps(meta, indent=2))
+def republish_existing_summary(con, screen_date: date, data_dir: Path) -> None:
+    """Restore derivable artifacts from an already-published append-only screen."""
+    report_path = data_dir / "screens" / f"{screen_date.isoformat()}.md"
+    try:
+        report_text = report_path.read_text()
+        match = _SCREEN_HEADER_RE.fullmatch(report_text.splitlines()[0])
+    except (OSError, IndexError) as exc:
+        raise ValueError("existing screen report is unreadable") from exc
+    if match is None:
+        raise ValueError("existing screen report header is invalid")
+
+    row = con.execute(
+        """
+        SELECT COUNT(*),
+               SUM(CASE WHEN passes_template THEN 1 ELSE 0 END),
+               SUM(CASE WHEN new_today THEN 1 ELSE 0 END),
+               COUNT(DISTINCT COALESCE(universe_policy, 'all')),
+               MIN(COALESCE(universe_policy, 'all'))
+        FROM screen_results WHERE run_date = ?
+        """,
+        [screen_date],
+    ).fetchone()
+    stored = {
+        "date": screen_date.isoformat(),
+        "screened": int(row[0]),
+        "passing": int(row[1] or 0),
+        "new": int(row[2] or 0),
+        "policy_count": int(row[3]),
+        "policy": row[4],
+    }
+    reported = {
+        "date": match["date"],
+        "screened": int(match["screened"]),
+        "passing": int(match["passing"]),
+        "new": int(match["new"]),
+        "policy": match["policy"],
+    }
+    if stored["policy_count"] != 1 or any(
+        stored[key] != reported[key] for key in reported
+    ):
+        raise ValueError("existing screen report does not match stored rows")
+
+    rsc.write_text_atomic(data_dir / "screens" / "latest.md", report_text)
+    csv_df = con.execute(
+        "SELECT * FROM screen_results WHERE run_date = ? "
+        "ORDER BY passes_template DESC, rs_rank DESC",
+        [screen_date],
+    ).fetch_df()
+    rsc.write_text_atomic(
+        data_dir / "screens" / f"{screen_date.isoformat()}.csv",
+        csv_df.to_csv(index=False),
+    )
+    passing = [
+        row[0]
+        for row in con.execute(
+            "SELECT ticker FROM screen_results "
+            "WHERE run_date = ? AND passes_template "
+            "ORDER BY rs_rank DESC, ticker LIMIT ?",
+            [screen_date, TABLE_CAP],
+        ).fetchall()
+    ]
+    eod_tickers = list(dict.fromkeys(parse_watchlist(WATCHLIST_PATH) + passing))
+    write_eod(con, screen_date, eod_tickers, data_dir / "eod")
+    rsc.merge_meta(
+        data_dir / "_meta.json",
+        {
+            "screen_date": screen_date.isoformat(),
+            "last_screen": None,
+            "regime": match["regime"],
+            "passing_count": stored["passing"],
+            "new_today_count": stored["new"],
+            "screened": stored["screened"],
+            "skipped_stale": None,
+            "skipped_phantom": None,
+            "skipped_short": None,
+            "universe_policy": stored["policy"],
+            "excluded_leveraged": None,
+            "screen_metadata_source": "existing-artifacts",
+        },
+    )
 
 
 # --------------------------------------------------------------------------- #
 # main
 # --------------------------------------------------------------------------- #
-def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
-        skip_if_done: bool = False, universe_policy: str | None = None) -> int:
+def _run(con, data_dir: Path, requested_date: str | None, rerun: bool,
+         skip_if_done: bool = False, universe_policy: str | None = None) -> int:
     policy = lev.resolve_policy(universe_policy)
-    con = db.connect(db_path)
-    db.init_schema(con)
-    db.init_screen_policy_schema(con)
     log.info(f"[screen] universe policy = {policy}")
 
     screen_date = resolve_screen_date(con, requested_date)
@@ -396,22 +465,24 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
                 # already screened AND its report file is present. Exit 0 (not 1) so
                 # the nightly proceeds to the league step; a genuine failure below
                 # still returns 1.
+                republish_existing_summary(con, screen_date, data_dir)
                 log.info(
                     f"[screen] {screen_date} already screened ({existing} rows); "
-                    f"--skip-if-done → no-op, exit 0"
+                    f"--skip-if-done → restored artifacts, exit 0"
                 )
-                con.close()
                 return 0
             if skip_if_done:
-                # DB rows exist but the report file is missing — a kill between the
-                # INSERT and the report writes leaves it unregenerable via the skip
-                # branch forever. Treat as an implicit rerun: drop this date's rows
-                # and fall through to regenerate both the DB rows and the reports.
-                log.info(
-                    f"[screen] {screen_date} has {existing} screen_results rows but "
-                    f"{report_path.name} is missing — regenerating (implicit rerun)"
+                # The dated report carries regime and exclusion context that is not
+                # derivable from screen_results alone. Never delete committed rows or
+                # reconstruct that context from later runtime/data on an unattended
+                # retry. New runs publish this recovery anchor before inserting rows;
+                # this branch is therefore a legacy/corrupt state requiring review.
+                log.error(
+                    f"[screen] ABORT: {screen_date} has {existing} append-only "
+                    f"screen_results rows but {report_path.name} is missing — "
+                    "refusing unattended historical recomputation"
                 )
-                con.execute("DELETE FROM screen_results WHERE run_date = ?", [screen_date])
+                return 1
             else:
                 # Name the STORED policy too: a rerun request under a different
                 # policy is the case where "just pass --rerun" is exactly the
@@ -427,7 +498,6 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
                     f"— screen_results is append-only. Pass --rerun to overwrite this "
                     f"date (same-day correction only)."
                 )
-                con.close()
                 return 1
         else:
             con.execute("DELETE FROM screen_results WHERE run_date = ?", [screen_date])
@@ -453,7 +523,6 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
     )
     if not eligible:
         log.info("[screen] no eligible names — nothing to screen")
-        con.close()
         return 1
 
     bars = pull_bars(con, screen_date, eligible)
@@ -494,19 +563,6 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
 
     regime = compute_regime(con, screen_date)
 
-    # Persist screen_results (append-only; rerun already cleared the date).
-    res["run_date"] = screen_date
-    res["universe_policy"] = policy
-    out_cols = [
-        "run_date", "ticker", "close", "rs_rank", "template_score",
-        "passes_template", "dist_50d", "dist_200d", "off_52w_low",
-        "off_52w_high", "base_tight", "vol_dryup", "new_today",
-        "universe_policy",
-    ]
-    con.register("_res", res[out_cols])
-    con.execute(f"INSERT INTO screen_results SELECT {', '.join(out_cols)} FROM _res")
-    con.unregister("_res")
-
     passing_n = int(res["passes_template"].sum())
     new_n = int(res["new_today"].sum())
     log.info(
@@ -540,11 +596,29 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
         policy, n_excluded
     )
 
+    # Publish the non-derivable recovery anchor before committing append-only
+    # rows. Once rows exist, --skip-if-done can validate this dated report and
+    # reconstruct every other companion artifact without recomputing history.
+    # A crash before the INSERT can leave only an orphan report, which a normal
+    # retry safely overwrites because no committed screen evidence exists yet.
     screens_dir = data_dir / "screens"
     screens_dir.mkdir(parents=True, exist_ok=True)
     md_path = screens_dir / f"{screen_date.isoformat()}.md"
-    md_path.write_text(md)
-    shutil.copyfile(md_path, screens_dir / "latest.md")
+    rsc.write_text_atomic(md_path, md)
+
+    # Persist screen_results (append-only; rerun already cleared the date).
+    res["run_date"] = screen_date
+    res["universe_policy"] = policy
+    out_cols = [
+        "run_date", "ticker", "close", "rs_rank", "template_score",
+        "passes_template", "dist_50d", "dist_200d", "off_52w_low",
+        "off_52w_high", "base_tight", "vol_dryup", "new_today",
+        "universe_policy",
+    ]
+    with db.registered_frame(con, "_res", res[out_cols]):
+        con.execute(f"INSERT INTO screen_results SELECT {', '.join(out_cols)} FROM _res")
+
+    rsc.write_text_atomic(screens_dir / "latest.md", md)
 
     # CSV: every screen_results column for this run.
     csv_df = con.execute(
@@ -552,7 +626,10 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
         "ORDER BY passes_template DESC, rs_rank DESC",
         [screen_date],
     ).fetch_df()
-    csv_df.to_csv(screens_dir / f"{screen_date.isoformat()}.csv", index=False)
+    rsc.write_text_atomic(
+        screens_dir / f"{screen_date.isoformat()}.csv",
+        csv_df.to_csv(index=False),
+    )
 
     # ----- eod files: watchlist ∪ top-100-by-RS passing -----
     watchlist = parse_watchlist(WATCHLIST_PATH)
@@ -567,23 +644,44 @@ def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
               f"{', '.join(missing)}")
 
     # ----- _meta.json -----
-    update_meta(
+    rsc.merge_meta(
         data_dir / "_meta.json",
-        regime=regime,
-        last_screen=datetime.now(timezone.utc).isoformat(),
-        passing_count=passing_n,
-        new_today_count=new_n,
-        screened=len(eligible),
-        skipped_stale=n_stale,
-        skipped_phantom=n_phantom,
-        skipped_short=n_short,
-        universe_policy=policy,
-        excluded_leveraged=n_excluded,
+        {
+            "screen_date": screen_date.isoformat(),
+            "regime": regime,
+            "last_screen": datetime.now(timezone.utc).isoformat(),
+            "passing_count": passing_n,
+            "new_today_count": new_n,
+            "screened": len(eligible),
+            "skipped_stale": n_stale,
+            "skipped_phantom": n_phantom,
+            "skipped_short": n_short,
+            "universe_policy": policy,
+            "excluded_leveraged": n_excluded,
+            "screen_metadata_source": "fresh-run",
+        },
     )
 
     log.info(f"[screen] wrote {md_path} (+ latest.md, csv, {len(eod_set) - len(missing)} eod files)")
-    con.close()
     return 0
+
+
+def run(db_path: str, data_dir: Path, requested_date: str | None, rerun: bool,
+        skip_if_done: bool = False, universe_policy: str | None = None) -> int:
+    con = db.connect(db_path)
+    try:
+        db.init_schema(con)
+        db.init_screen_policy_schema(con)
+        return _run(
+            con,
+            data_dir,
+            requested_date,
+            rerun,
+            skip_if_done=skip_if_done,
+            universe_policy=universe_policy,
+        )
+    finally:
+        con.close()
 
 
 def main() -> int:

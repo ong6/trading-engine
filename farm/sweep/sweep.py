@@ -36,11 +36,13 @@ the folds they share with it, because:
 `ew_benchmark` is always injected into a sweep so the comparison is computed on
 identical folds rather than against a stored run from a different protocol.
 """
+
 from __future__ import annotations
 
 import argparse
 import itertools
 import json
+import re
 import statistics
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -48,6 +50,7 @@ from pathlib import Path
 import numpy as np
 
 from engine.lib import db as _db
+from engine.lib import resources
 from engine.lib.log import get_logger
 from engine.lib.settings import DATA_DIR, REPO_ROOT
 from farm import stats as fstats
@@ -117,8 +120,13 @@ GRIDS: dict[str, dict] = {
     # the rule and not the parameters, no cell of this grid will clear EW.
     "meanrev": {
         "strategy": "mr_overlay",
-        "base": {"rsi_max": 10, "down_closes": 3, "weight": 0.1,
-                 "max_concurrent": 5, "time_stop": 10},
+        "base": {
+            "rsi_max": 10,
+            "down_closes": 3,
+            "weight": 0.1,
+            "max_concurrent": 5,
+            "time_stop": 10,
+        },
         "grid": {"rsi_max": [5, 10, 15], "time_stop": [5, 10, 20]},
     },
     # ----------------------------------------------------------------- #
@@ -133,11 +141,16 @@ GRIDS: dict[str, dict] = {
     # survivorship-biased history manufactures return from a known data defect.
     "gross_voltarget": {
         "strategy": "ew_gross_voltarget",
-        "base": {"cap": 50, "vol_target": 0.15, "vol_lookback": 60,
-                 "max_leverage": 1.0, "min_obs": 20, "min_name_frac": 0.8,
-                 "cash_proxy": "BIL"},
-        "grid": {"vol_target": [0.10, 0.15, 0.20],
-                 "vol_lookback": [40, 60, 120]},
+        "base": {
+            "cap": 50,
+            "vol_target": 0.15,
+            "vol_lookback": 60,
+            "max_leverage": 1.0,
+            "min_obs": 20,
+            "min_name_frac": 0.8,
+            "cash_proxy": "BIL",
+        },
+        "grid": {"vol_target": [0.10, 0.15, 0.20], "vol_lookback": [40, 60, 120]},
         # A vol_lookback shorter than min_obs can never yield an estimate. No
         # cell of THIS grid violates it (40/60/120 all exceed min_obs=20), but
         # the predicate is declared anyway so widening the grid later cannot
@@ -160,8 +173,13 @@ GRIDS: dict[str, dict] = {
     # triple the trial count every result is deflated against.
     "dd_throttle": {
         "strategy": "ew_dd_throttle",
-        "base": {"cap": 50, "dd_trigger": 0.15, "derisk_frac": 0.5,
-                 "dd_restore": 0.05, "cash_proxy": "BIL"},
+        "base": {
+            "cap": 50,
+            "dd_trigger": 0.15,
+            "derisk_frac": 0.5,
+            "dd_restore": 0.05,
+            "cash_proxy": "BIL",
+        },
         "grid": {"dd_trigger": [0.10, 0.15, 0.20], "derisk_frac": [0.0, 0.5]},
         # Without a hysteresis band the throttle trips and restores on one
         # reading; the strategy raises on it, so the cell must never be run.
@@ -170,18 +188,47 @@ GRIDS: dict[str, dict] = {
     # The stop multiple is the parameter a trend book is most sensitive to.
     "turtle_stops": {
         "strategy": "turtle_breakout",
-        "base": {"entry_lookback": 55, "atr_period": 20, "stop_mult": 2.5,
-                 "trail_mult": 3.0, "risk_frac": 0.0075, "max_positions": 10,
-                 "max_weight": 0.15},
+        "base": {
+            "entry_lookback": 55,
+            "atr_period": 20,
+            "stop_mult": 2.5,
+            "trail_mult": 3.0,
+            "risk_frac": 0.0075,
+            "max_positions": 10,
+            "max_weight": 0.15,
+        },
         "grid": {"stop_mult": [2.0, 2.5, 3.0], "trail_mult": [2.5, 3.0, 4.0]},
     },
 }
+
+# Only explicitly open, pre-registered research may run on the recurring
+# Saturday schedule. The value is a frozen charter version and becomes part of
+# the queue identity. To authorize a genuinely new trial after completion,
+# revise the charter first and deliberately bump this version. Completed grids
+# remain in GRIDS for manual reproduction but are not recurring by default.
+OPEN_RECURRING_GRIDS: dict[str, str] = {}
+CHARTER_VERSION_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
+
+
+def recurring_grids() -> list[tuple[str, str]]:
+    unknown = OPEN_RECURRING_GRIDS.keys() - GRIDS.keys()
+    if unknown:
+        raise ValueError(f"open recurring sweep(s) missing from GRIDS: {sorted(unknown)}")
+    invalid = {
+        name: version
+        for name, version in OPEN_RECURRING_GRIDS.items()
+        if not isinstance(version, str) or CHARTER_VERSION_RE.fullmatch(version) is None
+    }
+    if invalid:
+        raise ValueError(f"open recurring sweep(s) need a charter version: {invalid}")
+    return sorted(OPEN_RECURRING_GRIDS.items())
 
 
 def _cadence(strategy: str) -> str:
     """The class's own cadence, so a candidate trades on the same schedule the
     live book does. Read from the registry rather than hardcoded per grid."""
     from sim.strategies import get_strategy
+
     return get_strategy(strategy).cadence
 
 
@@ -194,7 +241,7 @@ def expand(name: str) -> list[dict]:
     out = []
     for combo in itertools.product(*(spec["grid"][k] for k in keys)):
         params = dict(spec["base"])
-        params.update(dict(zip(keys, combo)))
+        params.update(dict(zip(keys, combo, strict=True)))
         slug = "__".join(f"{k}-{params[k]}" for k in keys)
         cid = f"sweep__{name}__{slug}"
         label = f"{spec['strategy']} [{', '.join(f'{k}={params[k]}' for k in keys)}]"
@@ -204,21 +251,30 @@ def expand(name: str) -> list[dict]:
         # cadence silently produces a book that never fires.
         ok = spec.get("feasible")
         if ok is not None and not ok(params):
-            log.warning(f"[sweep] {name}: skipping infeasible cell {slug} "
-                  f"(params the strategy can never satisfy)")
+            log.warning(
+                f"[sweep] {name}: skipping infeasible cell {slug} "
+                f"(params the strategy can never satisfy)"
+            )
             continue
-        cfg = {"id": cid, "name": label, "strategy": spec["strategy"],
-               "cadence": _cadence(spec["strategy"]), "params": params}
-        out.append({
+        cfg = {
             "id": cid,
             "name": label,
             "strategy": spec["strategy"],
-            "config": cfg,
-            # Stored as TEXT in `portfolios.config` and json.loads()'d by
-            # league.generate_all -- None here throws deep inside the replay.
-            "config_json": json.dumps(cfg),
-            "excluded": None,
-        })
+            "cadence": _cadence(spec["strategy"]),
+            "params": params,
+        }
+        out.append(
+            {
+                "id": cid,
+                "name": label,
+                "strategy": spec["strategy"],
+                "config": cfg,
+                # Stored as TEXT in `portfolios.config` and json.loads()'d by
+                # league.generate_all -- None here throws deep inside the replay.
+                "config_json": json.dumps(cfg),
+                "excluded": None,
+            }
+        )
     return out
 
 
@@ -228,36 +284,106 @@ def _bench_book(live_con) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-def run_sweep(live_con, name: str, *, anchor: date | None = None,
-              n_folds: int = protocol.N_FOLDS, out_root: Path = SWEEPS_DIR,
-              # threads 8 -> 4 (2026-08-20): measured — at width 8, 4 DuckDB
-              # threads per worker matched 2 (8 jobs in 55 s vs 57 s) and the
-              # single-worker fold loop runs ~2.5 cores regardless; extra
-              # threads only inflate load (a threads=8 sweep worker showed
-              # 374% CPU / 101 OS threads for the same work).
-              scratch_root: Path = SCRATCH_ROOT, threads: int | None = 4,
-              limit: int | None = None) -> dict:
+def run_sweep(
+    live_con,
+    name: str,
+    *,
+    anchor: date | None = None,
+    n_folds: int = protocol.N_FOLDS,
+    out_root: Path = SWEEPS_DIR,
+    # threads 8 -> 4 (2026-08-20): measured — at width 8, 4 DuckDB
+    # threads per worker matched 2 (8 jobs in 55 s vs 57 s) and the
+    # single-worker fold loop runs ~2.5 cores regardless; extra
+    # threads only inflate load (a threads=8 sweep worker showed
+    # 374% CPU / 101 OS threads for the same work).
+    scratch_root: Path = SCRATCH_ROOT,
+    threads: int | None = 4,
+    limit: int | None = None,
+    charter_version: str | None = None,
+) -> dict:
     cands = expand(name)
     if limit:
         cands = cands[:limit]
     out_dir = Path(out_root) / name
+    if charter_version is not None:
+        if CHARTER_VERSION_RE.fullmatch(charter_version) is None:
+            raise ValueError(f"invalid sweep charter version: {charter_version!r}")
+        out_dir = out_dir / "charters" / charter_version
     (out_dir / "results").mkdir(parents=True, exist_ok=True)
 
     todo = [_bench_book(live_con)] + cands
     log.info(f"[sweep] {name}: {len(cands)} candidate(s) + benchmark, {n_folds} folds each")
 
     for b in todo:
-        runner.run_book(live_con, b["id"], book=b, anchor=anchor, n_folds=n_folds,
-                        scratch_root=Path(scratch_root),
-                        results_dir=out_dir / "results",
-                        write_result=True, verbose=True, threads=threads)
-    return rank(name, out_root=out_root, n_trials=len(cands))
+        runner.run_book(
+            live_con,
+            b["id"],
+            book=b,
+            anchor=anchor,
+            n_folds=n_folds,
+            scratch_root=Path(scratch_root),
+            results_dir=out_dir / "results",
+            write_result=True,
+            verbose=True,
+            threads=threads,
+        )
+    return rank(
+        name,
+        out_root=out_root,
+        n_trials=len(cands),
+        charter_version=charter_version,
+    )
 
 
 def _folds(path: Path) -> dict:
     d = json.loads(path.read_text())
-    return {(f["first_session"], f["last_session"]): f
-            for f in d.get("folds", []) if f.get("status") == "ok"}
+    return {
+        (f["first_session"], f["last_session"]): f
+        for f in d.get("folds", [])
+        if f.get("status") == "ok"
+    }
+
+
+def _cohort_signature(result: dict) -> tuple:
+    """Assumptions that must match before a candidate is ranked vs EW."""
+    required_strings = ("source_sha256", "fill_model", "universe_policy", "data_quality_class")
+    if any(not isinstance(result.get(key), str) or not result[key] for key in required_strings):
+        raise ValueError("missing required research provenance")
+    initial_cash = result.get("initial_cash")
+    if (
+        not isinstance(initial_cash, (int, float))
+        or isinstance(initial_cash, bool)
+        or not np.isfinite(initial_cash)
+        or initial_cash <= 0
+    ):
+        raise ValueError("invalid initial_cash provenance")
+    profile = result.get("execution_profile")
+    snapshot = result.get("data_snapshot")
+    protocol_payload = result.get("protocol")
+    if (
+        not isinstance(profile, dict)
+        or not isinstance(profile.get("id"), str)
+        or not profile["id"]
+    ):
+        raise ValueError("missing execution-profile provenance")
+    if (
+        not isinstance(snapshot, dict)
+        or not isinstance(snapshot.get("sha256"), str)
+        or not snapshot["sha256"]
+    ):
+        raise ValueError("missing data-snapshot provenance")
+    if not isinstance(protocol_payload, dict) or not protocol_payload:
+        raise ValueError("missing protocol provenance")
+    return (
+        result["source_sha256"],
+        result["fill_model"],
+        result["universe_policy"],
+        float(initial_cash),
+        json.dumps(profile, sort_keys=True, separators=(",", ":")),
+        snapshot["sha256"],
+        result["data_quality_class"],
+        json.dumps(protocol_payload, sort_keys=True, separators=(",", ":")),
+    )
 
 
 def _grid_trial_count(name: str) -> int | None:
@@ -275,7 +401,7 @@ def _grid_trial_count(name: str) -> int | None:
     try:
         return len(expand(name))
     except SystemExit:
-        return None          # ad-hoc grid name (a shakedown dir) — caller falls back
+        return None  # ad-hoc grid name (a shakedown dir) — caller falls back
 
 
 def _excess_sharpe(ex: list[float]) -> float | None:
@@ -294,18 +420,46 @@ def _excess_sharpe(ex: list[float]) -> float | None:
     return float(np.mean(ex)) / sd
 
 
-def rank(name: str, *, out_root: Path = SWEEPS_DIR, n_trials: int | None = None) -> dict:
+def rank(
+    name: str,
+    *,
+    out_root: Path = SWEEPS_DIR,
+    n_trials: int | None = None,
+    charter_version: str | None = None,
+) -> dict:
     out_dir = Path(out_root) / name
+    if charter_version is not None:
+        out_dir = out_dir / "charters" / charter_version
     res_dir = out_dir / "results"
     bench_p = res_dir / f"{BENCH}.json"
     if not bench_p.exists():
         raise SystemExit(f"[sweep] no benchmark result at {bench_p}")
+    bench_raw = json.loads(bench_p.read_text())
+    try:
+        bench_signature = _cohort_signature(bench_raw)
+    except ValueError as exc:
+        raise SystemExit(f"[sweep] benchmark has invalid research provenance: {exc}") from exc
     bench = _folds(bench_p)
 
     rows = []
-    excluded = []          # candidates with no rankable fold, and WHY
+    excluded = []  # candidates with no rankable fold, and WHY
     for p in sorted(res_dir.glob("sweep__*.json")):
         raw = json.loads(p.read_text())
+        try:
+            candidate_signature = _cohort_signature(raw)
+        except ValueError as exc:
+            excluded.append({"id": raw.get("config_id", p.stem), "reason": str(exc)})
+            continue
+        if raw["data_quality_class"] != bench_raw["data_quality_class"]:
+            excluded.append(
+                {"id": raw["config_id"], "reason": "different data-quality class from benchmark"}
+            )
+            continue
+        if candidate_signature != bench_signature:
+            excluded.append(
+                {"id": raw["config_id"], "reason": "different research cohort from benchmark"}
+            )
+            continue
         f = _folds(p)
         common = [k for k in f if k in bench]
         if not common:
@@ -313,17 +467,19 @@ def rank(name: str, *, out_root: Path = SWEEPS_DIR, n_trials: int | None = None)
             # comparable is a finding about the candidate (usually an infeasible
             # parameter combination), and dropping it off the table makes the
             # sweep look like it tested more than it did.
-            n_inert = sum(1 for fo in raw.get("folds", [])
-                          if fo.get("status") == "inert")
+            n_inert = sum(1 for fo in raw.get("folds", []) if fo.get("status") == "inert")
             n_folds = len(raw.get("folds", []))
-            why = (f"INERT — 0 fills in {n_inert}/{n_folds} fold(s); the book "
-                   f"never traded, so it has no return to rank"
-                   if n_inert else
-                   "no fold shares a window with the benchmark")
+            why = (
+                f"INERT — 0 fills in {n_inert}/{n_folds} fold(s); the book "
+                f"never traded, so it has no return to rank"
+                if n_inert
+                else "no fold shares a window with the benchmark"
+            )
             excluded.append({"id": raw["config_id"], "reason": why})
             continue
-        ex = [f[k]["validate"]["total_return"] - bench[k]["validate"]["total_return"]
-              for k in common]
+        ex = [
+            f[k]["validate"]["total_return"] - bench[k]["validate"]["total_return"] for k in common
+        ]
         dds = [f[k]["validate"]["max_dd"] for k in common]
         # `_folds()` already keeps only status == "ok" folds, so an inert fold
         # never reaches `ex` and is never resampled. That matters: the bootstrap
@@ -336,24 +492,27 @@ def rank(name: str, *, out_root: Path = SWEEPS_DIR, n_trials: int | None = None)
         # winner, and it gets said so rather than quietly leading the ranking
         # (2026-08-20: `concentration/cap-50` did exactly this).
         identical = all(e == 0.0 for e in ex)
-        rows.append({
-            "identical_to_benchmark": identical,
-            "id": raw["config_id"],
-            "n_folds": len(common),
-            "median_excess": statistics.median(ex),
-            "mean_excess": statistics.mean(ex),
-            "beat_bench": sum(e > 0 for e in ex) / len(ex),
-            "worst_dd": min(dds),
-            "median_validate": statistics.median(
-                [f[k]["validate"]["total_return"] for k in common]),
-            # The error bar, and the pre-registered verdict read straight off it.
-            "median_excess_ci": ci,
-            "distinguishable": fstats.ci_verdict(ci),
-            "excess_sharpe_per_fold": _excess_sharpe(ex),
-            # The raw sample, so any interval in this file can be recomputed by
-            # hand from the numbers stored beside it.
-            "fold_excess": ex,
-        })
+        rows.append(
+            {
+                "identical_to_benchmark": identical,
+                "id": raw["config_id"],
+                "n_folds": len(common),
+                "median_excess": statistics.median(ex),
+                "mean_excess": statistics.mean(ex),
+                "beat_bench": sum(e > 0 for e in ex) / len(ex),
+                "worst_dd": min(dds),
+                "median_validate": statistics.median(
+                    [f[k]["validate"]["total_return"] for k in common]
+                ),
+                # The error bar, and the pre-registered verdict read straight off it.
+                "median_excess_ci": ci,
+                "distinguishable": fstats.ci_verdict(ci),
+                "excess_sharpe_per_fold": _excess_sharpe(ex),
+                # The raw sample, so any interval in this file can be recomputed by
+                # hand from the numbers stored beside it.
+                "fold_excess": ex,
+            }
+        )
     rows.sort(key=lambda r: -r["median_excess"])
     # Ranking order is UNCHANGED — still median excess, still descending. The CI
     # column is new information about each row, not a re-sort of the table.
@@ -404,13 +563,18 @@ def rank(name: str, *, out_root: Path = SWEEPS_DIR, n_trials: int | None = None)
         "|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
-        tag = " — _identical to the benchmark; not a result_" if r.get(
-            "identical_to_benchmark") else ""
-        md.append(f"| `{r['id'].replace(f'sweep__{name}__', '')}`{tag} "
-                  f"| {_verdict_cell(r['distinguishable'])} | {r['n_folds']} | "
-                  f"{r['median_excess'] * 100:+.2f}% | {_ci_cell(r['median_excess_ci'])} "
-                  f"| {r['mean_excess'] * 100:+.2f}% | "
-                  f"{r['beat_bench'] * 100:.0f}% | {r['worst_dd'] * 100:.2f}% |")
+        tag = (
+            " — _identical to the benchmark; not a result_"
+            if r.get("identical_to_benchmark")
+            else ""
+        )
+        md.append(
+            f"| `{r['id'].replace(f'sweep__{name}__', '')}`{tag} "
+            f"| {_verdict_cell(r['distinguishable'])} | {r['n_folds']} | "
+            f"{r['median_excess'] * 100:+.2f}% | {_ci_cell(r['median_excess_ci'])} "
+            f"| {r['mean_excess'] * 100:+.2f}% | "
+            f"{r['beat_bench'] * 100:.0f}% | {r['worst_dd'] * 100:.2f}% |"
+        )
     if not rows:
         md.append("| _no candidate produced a comparable fold_ | | | | | | | |")
 
@@ -418,40 +582,56 @@ def rank(name: str, *, out_root: Path = SWEEPS_DIR, n_trials: int | None = None)
     md += _dsr_block(dsr, n_trials)
 
     if excluded:
-        md += ["",
-               f"## Excluded — {len(excluded)} of {n_trials} candidate(s) produced no result",
-               "",
-               "These ran and are counted in the trial total; they are not ranked "
-               "because they have nothing to rank. An inert candidate is a config "
-               "defect, not a flat return.",
-               "",
-               "| Candidate | Why |", "|---|---|"]
+        md += [
+            "",
+            f"## Excluded — {len(excluded)} of {n_trials} candidate(s) were not rankable",
+            "",
+            "These ran and are counted in the trial total; they are not ranked because "
+            "they were inert, shared no comparable fold, or did not match the benchmark's "
+            "research cohort. An inert candidate is a config defect, not a flat return.",
+            "",
+            "| Candidate | Why |",
+            "|---|---|",
+        ]
         for e in excluded:
             md.append(f"| `{e['id'].replace(f'sweep__{name}__', '')}` | {e['reason']} |")
-    md += ["",
-           "## What a good row would look like",
-           "",
-           "Positive median excess AND beats-EW comfortably above 50% AND a worst-fold "
-           "drawdown no worse than the benchmark's — **and a 90% CI on median excess "
-           "that stays above 0**. Before 2026-08-20 only the first three were checked, "
-           "which is how a -3.05% row came to sit at the top of a table as though the "
-           "position meant something. A row that is positive on median "
-           "excess but beats EW in under half its folds is a skew bet, not an edge, and "
-           "the distinction matters more than the headline number.",
-           ""]
-    (out_dir / "README.md").write_text("\n".join(md) + "\n")
-    payload = {"sweep": name, "n_trials": n_trials, "generated": stamp,
-               "bootstrap": {"seed": fstats.BOOTSTRAP_SEED,
-                             "draws": fstats.BOOTSTRAP_DRAWS,
-                             "conf": fstats.BOOTSTRAP_CONF,
-                             "statistic": "median",
-                             "unit": "fold",
-                             "n_indistinguishable": n_indistinct},
-               "deflated_sharpe": dsr,
-               "rows": rows, "excluded": excluded}
-    (out_dir / "ranking.json").write_text(json.dumps(payload, indent=2, default=str) + "\n")
-    log.info(f"[sweep] wrote {out_dir / 'README.md'} "
-          f"({n_indistinct}/{len(rows)} INDISTINGUISHABLE)")
+    md += [
+        "",
+        "## What a good row would look like",
+        "",
+        "Positive median excess AND beats-EW comfortably above 50% AND a worst-fold "
+        "drawdown no worse than the benchmark's — **and a 90% CI on median excess "
+        "that stays above 0**. Before 2026-08-20 only the first three were checked, "
+        "which is how a -3.05% row came to sit at the top of a table as though the "
+        "position meant something. A row that is positive on median "
+        "excess but beats EW in under half its folds is a skew bet, not an edge, and "
+        "the distinction matters more than the headline number.",
+        "",
+    ]
+    resources.write_text_atomic(out_dir / "README.md", "\n".join(md) + "\n")
+    payload = {
+        "sweep": name,
+        "charter_version": charter_version,
+        "n_trials": n_trials,
+        "generated": stamp,
+        "bootstrap": {
+            "seed": fstats.BOOTSTRAP_SEED,
+            "draws": fstats.BOOTSTRAP_DRAWS,
+            "conf": fstats.BOOTSTRAP_CONF,
+            "statistic": "median",
+            "unit": "fold",
+            "n_indistinguishable": n_indistinct,
+        },
+        "deflated_sharpe": dsr,
+        "rows": rows,
+        "excluded": excluded,
+    }
+    resources.write_text_atomic(
+        out_dir / "ranking.json", json.dumps(payload, indent=2, default=str) + "\n"
+    )
+    log.info(
+        f"[sweep] wrote {out_dir / 'README.md'} ({n_indistinct}/{len(rows)} INDISTINGUISHABLE)"
+    )
     return payload
 
 
@@ -478,7 +658,7 @@ def _ci_cell(ci: dict | None) -> str:
 
 def _ci_method_block(rows: list[dict]) -> list[str]:
     ns = sorted({r["n_folds"] for r in rows})
-    n_txt = str(ns[0]) if len(ns) == 1 else f"{min(ns)}–{max(ns)}"
+    n_txt = "0" if not ns else str(ns[0]) if len(ns) == 1 else f"{min(ns)}–{max(ns)}"
     return [
         "",
         "## The interval, and what it is not",
@@ -548,22 +728,28 @@ def _deflate_top(rows: list[dict], n_trials: int) -> dict | None:
     if len(ex) < 3:
         # PSR/DSR needs a third and fourth moment. Two folds do not have one,
         # and a number would be invented rather than measured.
-        return {"id": top["id"], "unavailable":
-                f"only {len(ex)} comparable fold(s); DSR needs at least 3"}
+        return {
+            "id": top["id"],
+            "unavailable": f"only {len(ex)} comparable fold(s); DSR needs at least 3",
+        }
 
-    srs = [r["excess_sharpe_per_fold"] for r in live
-           if r.get("excess_sharpe_per_fold") is not None]
+    srs = [r["excess_sharpe_per_fold"] for r in live if r.get("excess_sharpe_per_fold") is not None]
     var_sr = None
     var_source = "estimator fallback (fewer than 3 trial Sharpes available)"
     if len(srs) >= 3:
         var_sr = float(np.var(np.asarray(srs, dtype=float), ddof=1))
-        var_source = (f"observed variance of the {len(srs)} trial excess Sharpes "
-                      f"in this grid")
-    dsr, sr, sr0 = fstats.deflated_sharpe(np.asarray(ex, dtype=float),
-                                          n_trials, var_sr=var_sr)
-    return {"id": top["id"], "n_obs": len(ex), "n_trials": n_trials,
-            "sharpe_raw": sr, "sr0_benchmark": sr0, "deflated_sharpe": dsr,
-            "var_sr": var_sr, "var_source": var_source}
+        var_source = f"observed variance of the {len(srs)} trial excess Sharpes in this grid"
+    dsr, sr, sr0 = fstats.deflated_sharpe(np.asarray(ex, dtype=float), n_trials, var_sr=var_sr)
+    return {
+        "id": top["id"],
+        "n_obs": len(ex),
+        "n_trials": n_trials,
+        "sharpe_raw": sr,
+        "sr0_benchmark": sr0,
+        "deflated_sharpe": dsr,
+        "var_sr": var_sr,
+        "var_source": var_source,
+    }
 
 
 def _dsr_block(d: dict | None, n_trials: int) -> list[str]:
@@ -571,8 +757,9 @@ def _dsr_block(d: dict | None, n_trials: int) -> list[str]:
         return []
     head = ["", "## Deflated Sharpe — the multiple-testing haircut", ""]
     if d.get("unavailable"):
-        return head + [f"Not computed for `{d['id']}`: {d['unavailable']}. "
-                       "No substitute number is printed."]
+        return head + [
+            f"Not computed for `{d['id']}`: {d['unavailable']}. No substitute number is printed."
+        ]
     name_only = d["id"].split("__", 2)[-1]
     return head + [
         f"Top genuine candidate `{name_only}`, on its **excess-vs-EW** series "
@@ -613,22 +800,40 @@ def _dsr_block(d: dict | None, n_trials: int) -> list[str]:
 
 # --------------------------------------------------------------------------- #
 def run_job(params: dict, con, meta_path=None) -> None:
-    """Queue dispatch (job kind 'sweep'), params {grid, n_folds?, limit?}."""
+    """Queue dispatch; charter_version is provenance for recurring queue identity."""
+    allowed_keys = {"grid", "charter_version"}
+    unexpected = params.keys() - allowed_keys
+    if unexpected:
+        raise ValueError(
+            f"queued recurring sweep has unsupported parameters: {sorted(unexpected)}"
+        )
     name = params.get("grid")
     if not name:
         raise ValueError("sweep job needs params {'grid': ...}")
-    anchor = params.get("anchor")
-    run_sweep(con, name,
-              anchor=date.fromisoformat(anchor) if anchor else None,
-              n_folds=int(params.get("n_folds", protocol.N_FOLDS)),
-              out_root=Path(params.get("out_root") or SWEEPS_DIR),
-              scratch_root=Path(params.get("scratch_root") or SCRATCH_ROOT),
-              limit=params.get("limit"))
+    charter_version = params.get("charter_version")
+    if charter_version is None:
+        raise ValueError(
+            "queued sweeps require a charter_version; use the direct sweep CLI "
+            "for manual reproduction"
+        )
+    if OPEN_RECURRING_GRIDS.get(name) != charter_version:
+        raise ValueError(
+            f"recurring sweep {name!r} charter {charter_version!r} is no longer open"
+        )
+    run_sweep(
+        con,
+        name,
+        charter_version=charter_version,
+    )
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Parameter sweep over league strategy classes.")
-    ap.add_argument("--grid", required=True, help=f"one of: {', '.join(sorted(GRIDS))}, or 'list'")
+    ap.add_argument(
+        "--grid",
+        required=True,
+        help=f"one of: {', '.join(sorted(GRIDS))}, or 'list'/'recurring'",
+    )
     ap.add_argument("--db", default=str(_db.DEFAULT_DB))
     ap.add_argument("--folds", type=int, default=protocol.N_FOLDS)
     ap.add_argument("--anchor", default=None)
@@ -640,14 +845,23 @@ def main() -> int:
         for k, v in sorted(GRIDS.items()):
             print(f"{k:<16} {v['strategy']:<24} {len(expand(k)):>3} candidates")
         return 0
+    if args.grid == "recurring":
+        for name, charter_version in recurring_grids():
+            print(f"{name}\t{charter_version}")
+        return 0
     if args.rank_only:
         rank(args.grid)
         return 0
 
     live = _db.connect(args.db, read_only=True)
     try:
-        run_sweep(live, args.grid, n_folds=args.folds, limit=args.limit,
-                  anchor=date.fromisoformat(args.anchor) if args.anchor else None)
+        run_sweep(
+            live,
+            args.grid,
+            n_folds=args.folds,
+            limit=args.limit,
+            anchor=date.fromisoformat(args.anchor) if args.anchor else None,
+        )
     finally:
         live.close()
     return 0

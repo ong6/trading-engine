@@ -29,6 +29,27 @@ def _rows(con, cols="id, kind, state, priority, params, timeout_s"):
     return con.execute(f"SELECT {cols} FROM jobs ORDER BY id").fetchall()
 
 
+def test_main_closes_connection_on_schema_failure(monkeypatch):
+    class Connection:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    connection = Connection()
+    monkeypatch.setattr("sys.argv", ["queue_runner.py", "--status"])
+    monkeypatch.setattr(qr.db, "connect", lambda *_args, **_kwargs: connection)
+    monkeypatch.setattr(
+        qr,
+        "ensure_schema",
+        lambda _con: (_ for _ in ()).throw(RuntimeError("injected schema failure")),
+    )
+
+    with pytest.raises(RuntimeError, match="injected schema failure"):
+        qr.main()
+    assert connection.closed is True
+
+
 # --------------------------------------------------------------------------- #
 # nightly plan
 # --------------------------------------------------------------------------- #
@@ -102,6 +123,49 @@ def test_enqueue_nightly_dry_run_writes_nothing(qcon, capsys):
     assert "fundamentals priority=120" in out
 
 
+def test_one_shot_enqueue_skips_equivalent_completed_job(qcon, capsys):
+    qr.cmd_enqueue(qcon, "sweep", '{"grid":"new_hypothesis"}', 900, None)
+    qcon.execute("UPDATE jobs SET state = 'done' WHERE id = 1")
+
+    assert qr.cmd_enqueue(
+        qcon, "sweep", '{"grid": "new_hypothesis"}', 900, None, once=True
+    ) == 0
+
+    assert _rows(qcon, "id, state") == [(1, "done")]
+    assert "already done" in capsys.readouterr().out
+
+
+def test_one_shot_completed_job_supersedes_equivalent_pending_duplicate(qcon):
+    qr.cmd_enqueue(qcon, "sweep", '{"grid":"x","charter_version":"v1"}', 900, None)
+    qcon.execute("UPDATE jobs SET state = 'done' WHERE id = 1")
+    qr.cmd_enqueue(qcon, "sweep", '{"grid":"x","charter_version":"v1"}', 900, None)
+    assert _rows(qcon, "id, state") == [(1, "done"), (2, "pending")]
+
+    qr.cmd_enqueue(
+        qcon,
+        "sweep",
+        '{"charter_version":"v1","grid":"x"}',
+        900,
+        None,
+        once=True,
+    )
+    assert _rows(qcon, "id, state") == [(1, "done"), (2, "superseded")]
+
+
+def test_normal_enqueue_may_repeat_completed_job(qcon):
+    qr.cmd_enqueue(qcon, "sweep", '{"grid":"manual_reproduction"}', 900, None)
+    qcon.execute("UPDATE jobs SET state = 'done' WHERE id = 1")
+    qr.cmd_enqueue(qcon, "sweep", '{"grid": "manual_reproduction"}', 900, None)
+    assert _rows(qcon, "id, state") == [(1, "done"), (2, "pending")]
+
+
+def test_param_identity_preserves_json_types_and_rejects_nonfinite(qcon):
+    qr.cmd_enqueue(qcon, "sweep", '{"limit":true}', 900, None)
+    qr.cmd_enqueue(qcon, "sweep", '{"limit":1}', 900, None)
+    assert _rows(qcon, "id, state") == [(1, "pending"), (2, "pending")]
+    assert qr.cmd_enqueue(qcon, "sweep", '{"limit":NaN}', 900, None) == 1
+
+
 # --------------------------------------------------------------------------- #
 # schema / timeout column
 # --------------------------------------------------------------------------- #
@@ -129,6 +193,116 @@ def test_enqueue_timeout_defaults_to_null_and_kind_default(qcon):
 def test_every_kind_default_timeout_is_generous():
     for kind in qr.JOB_TYPES:
         assert qr.default_timeout_s(kind) >= 4 * 3600, kind
+
+
+@pytest.mark.parametrize(
+    "kind", ["actions", "earnings", "fundamentals", "intraday", "signals"]
+)
+def test_long_http_miners_release_writer_but_remain_sequential(kind):
+    spec = qr.JOB_TYPES[kind]
+    assert spec["releases_writer"] is True
+    assert not spec.get("parallel_safe", False)
+    assert callable(spec["detached_loader"]())
+
+
+def test_connection_narrowed_earnings_child_completes_and_reacquires(tmp_path):
+    dbp = tmp_path / "q.duckdb"
+    con = db.connect(dbp)
+    qr.ensure_schema(con)
+    # An empty initialized universe makes this a real subprocess/lifecycle test
+    # without making any external HTTP request.
+    qr.cmd_enqueue(con, "earnings", "{}", 110, None)
+    result, con = qr._run_releasing_job(
+        (1, "earnings", 60), str(dbp), tmp_path / "meta.json", con
+    )
+    assert result == 0
+    assert con.execute(
+        "SELECT state, progress, last_error FROM jobs WHERE id = 1"
+    ).fetchone() == ("done", "complete", None)
+    assert con.execute(
+        "SELECT COUNT(*) FROM information_schema.tables "
+        "WHERE table_name = 'earnings_fetch_log'"
+    ).fetchone() == (1,)
+    con.close()
+
+
+def test_connection_narrowed_fundamentals_child_completes_and_reacquires(tmp_path):
+    dbp = tmp_path / "q.duckdb"
+    con = db.connect(dbp)
+    qr.ensure_schema(con)
+    qr.cmd_enqueue(con, "fundamentals", "{}", 120, None)
+    result, con = qr._run_releasing_job(
+        (1, "fundamentals", 60), str(dbp), tmp_path / "meta.json", con
+    )
+    assert result == 0
+    assert con.execute(
+        "SELECT state, progress, last_error FROM jobs WHERE id = 1"
+    ).fetchone() == ("done", "complete", None)
+    assert con.execute(
+        "SELECT COUNT(*) FROM information_schema.tables "
+        "WHERE table_name = 'fundamentals_fetch_log'"
+    ).fetchone() == (1,)
+    con.close()
+
+
+def test_connection_narrowed_actions_child_completes_and_reacquires(tmp_path):
+    dbp = tmp_path / "q.duckdb"
+    con = db.connect(dbp)
+    qr.ensure_schema(con)
+    qr.cmd_enqueue(con, "actions", '{"mode":"backfill"}', 130, None)
+    result, con = qr._run_releasing_job(
+        (1, "actions", 60), str(dbp), tmp_path / "meta.json", con
+    )
+    assert result == 0
+    assert con.execute(
+        "SELECT state, progress, last_error FROM jobs WHERE id = 1"
+    ).fetchone() == ("done", "complete", None)
+    assert con.execute(
+        "SELECT COUNT(*) FROM information_schema.tables "
+        "WHERE table_name = 'actions_fetch_log'"
+    ).fetchone() == (1,)
+    con.close()
+
+
+def test_connection_narrowed_intraday_child_completes_and_reacquires(tmp_path):
+    dbp = tmp_path / "q.duckdb"
+    con = db.connect(dbp)
+    qr.ensure_schema(con)
+    # limit=0 exercises the real subprocess path without an external HTTP call.
+    qr.cmd_enqueue(con, "intraday", '{"limit":0}', 100, None)
+    result, con = qr._run_releasing_job(
+        (1, "intraday", 60), str(dbp), tmp_path / "meta.json", con
+    )
+    assert result == 0
+    assert con.execute(
+        "SELECT state, progress, last_error FROM jobs WHERE id = 1"
+    ).fetchone() == ("done", "complete", None)
+    assert con.execute(
+        "SELECT COUNT(*) FROM information_schema.tables "
+        "WHERE table_name = 'intraday_prices'"
+    ).fetchone() == (1,)
+    con.close()
+
+
+def test_connection_narrowed_signals_child_completes_and_reacquires(tmp_path):
+    dbp = tmp_path / "q.duckdb"
+    con = db.connect(dbp)
+    qr.ensure_schema(con)
+    # Breadth alone avoids HTTP; an empty fixture is a reported source warning,
+    # not a queue failure, under signals' established warn-and-continue contract.
+    qr.cmd_enqueue(con, "signals", '{"only":"breadth"}', 105, None)
+    result, con = qr._run_releasing_job(
+        (1, "signals", 60), str(dbp), tmp_path / "meta.json", con
+    )
+    assert result == 0
+    assert con.execute(
+        "SELECT state, progress, last_error FROM jobs WHERE id = 1"
+    ).fetchone() == ("done", "complete", None)
+    assert con.execute(
+        "SELECT COUNT(*) FROM information_schema.tables "
+        "WHERE table_name = 'macro_signals'"
+    ).fetchone() == (1,)
+    con.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -188,6 +362,88 @@ def test_wait_batch_records_nonzero_exit_as_rc():
     pr = subprocess.Popen([sys.executable, "-c", "raise SystemExit(7)"])
     res = qr._wait_batch([(9, "k", pr, time.monotonic() + 60)], poll_s=0.05)
     assert res == {9: 7}
+
+
+def test_drain_never_mixes_parallel_kinds_or_priority_tiers(qcon, monkeypatch, tmp_path):
+    for kind, priority, params in (
+        ("walkforward", 170, '{"config_id":"a"}'),
+        ("walkforward", 170, '{"config_id":"b"}'),
+        ("walkforward", 176, '{"config_id":"c"}'),
+        ("sweep", 900, '{"grid":"x"}'),
+        ("sweep", 900, '{"grid":"y"}'),
+    ):
+        qr.cmd_enqueue(qcon, kind, params, priority, None)
+    batches = []
+
+    def record(batch, db_path, meta_path, con):
+        batches.append([(jid, kind) for jid, kind, _timeout in batch])
+        return {}, con
+
+    monkeypatch.setattr(qr, "_run_parallel_batch", record)
+    monkeypatch.setattr(qr.rsc, "load_5min", lambda: 0.0)
+    monkeypatch.setattr(qr.rsc, "free_ram_gb", lambda: 100.0)
+    assert qr._drain(qcon, tmp_path / "meta.json", jobs=8) == 0
+    assert batches == [
+        [(1, "walkforward"), (2, "walkforward")],
+        [(3, "walkforward")],
+        [(4, "sweep"), (5, "sweep")],
+    ]
+
+
+def test_targeted_drain_runs_only_exact_authorized_params(qcon, monkeypatch, tmp_path):
+    qr.cmd_enqueue(qcon, "sweep", '{"grid":"old"}', 900, None)
+    qr.cmd_enqueue(qcon, "sweep", '{"grid":"open"}', 900, None)
+    qr.cmd_enqueue(qcon, "walkforward", '{"config_id":"book"}', 170, None)
+    batches = []
+
+    def record(batch, db_path, meta_path, con):
+        batches.append([jid for jid, _kind, _timeout in batch])
+        for jid, _kind, _timeout in batch:
+            qr._set_state(con, jid, "done")
+        return {}, con
+
+    monkeypatch.setattr(qr, "_run_parallel_batch", record)
+    monkeypatch.setattr(qr.rsc, "load_5min", lambda: 0.0)
+    monkeypatch.setattr(qr.rsc, "free_ram_gb", lambda: 100.0)
+    assert qr._drain(
+        qcon,
+        tmp_path / "meta.json",
+        jobs=8,
+        run_kind="sweep",
+        run_params=['{"grid": "open"}'],
+    ) == 0
+    assert batches == [[2]]
+    assert _rows(qcon, "id, state") == [
+        (1, "pending"), (2, "done"), (3, "pending")
+    ]
+
+
+def test_targeted_drain_reclaims_but_does_not_run_unrelated_stale_job(qcon, capsys, tmp_path):
+    qr.cmd_enqueue(qcon, "sweep", '{"grid":"old"}', 900, None)
+    qcon.execute("UPDATE jobs SET state = 'running' WHERE id = 1")
+    assert qr._drain(
+        qcon,
+        tmp_path / "meta.json",
+        run_kind="sweep",
+        run_params=['{"grid":"open"}'],
+    ) == 0
+    assert _rows(qcon, "id, state") == [(1, "pending")]
+    assert "reclaimed stale running job 1" in capsys.readouterr().out
+
+
+def test_global_drain_fails_closed_on_legacy_unversioned_sweep(
+    qcon, monkeypatch, tmp_path
+):
+    qr.cmd_enqueue(qcon, "sweep", '{"grid":"concentration"}', 900, None)
+    monkeypatch.setattr(qr.rsc, "load_5min", lambda: 0.0)
+    monkeypatch.setattr(qr.rsc, "free_ram_gb", lambda: 100.0)
+    monkeypatch.setattr(qr, "_DRAIN_LOCK_FD", 1)
+    assert qr._drain(qcon, tmp_path / "meta.json", jobs=1) == 0
+    state, error = qcon.execute(
+        "SELECT state, last_error FROM jobs WHERE id = 1"
+    ).fetchone()
+    assert state == "failed"
+    assert "require a charter_version" in error
 
 
 # --------------------------------------------------------------------------- #

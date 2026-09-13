@@ -65,6 +65,7 @@ import math
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 import yfinance as yf
@@ -189,12 +190,16 @@ def _select_universe(con, params: dict, mode: str) -> tuple[list[tuple[str, str]
         rows = con.execute("SELECT DISTINCT ticker FROM prices").fetchall()
         return _yf_map(con, {r[0] for r in rows}), "all-tickers-with-prices"
 
-    # incremental: only what the books and tonight's decisions actually touch.
+    # incremental: only what active books and tonight's decisions actually touch.
     canon: set[str] = set(CORE_ETFS)
     canon |= {r[0] for r in con.execute(
-        "SELECT DISTINCT ticker FROM sim_positions WHERE qty > 0").fetchall()}
+        "SELECT DISTINCT p.ticker FROM sim_positions p "
+        "JOIN portfolios pf ON pf.id = p.portfolio_id "
+        "WHERE pf.active AND p.qty > 0").fetchall()}
     canon |= {r[0] for r in con.execute(
-        "SELECT DISTINCT ticker FROM sim_orders WHERE status = 'pending'").fetchall()}
+        "SELECT DISTINCT o.ticker FROM sim_orders o "
+        "JOIN portfolios pf ON pf.id = o.portfolio_id "
+        "WHERE pf.active AND o.status = 'pending'").fetchall()}
     top_n = int(params.get("top_n", 50))
     max_run = con.execute("SELECT MAX(run_date) FROM screen_results").fetchone()[0]
     if max_run is not None and top_n > 0:
@@ -205,35 +210,56 @@ def _select_universe(con, params: dict, mode: str) -> tuple[list[tuple[str, str]
     have = {r[0] for r in con.execute(
         "SELECT DISTINCT ticker FROM prices WHERE ticker IN "
         f"({','.join(['?'] * len(canon))})", list(canon)).fetchall()} if canon else set()
-    return _yf_map(con, canon & have), "held ∪ pending ∪ core-ETFs ∪ screen-top-N"
+    return _yf_map(con, canon & have), "active-held ∪ active-pending ∪ core-ETFs ∪ screen-top-N"
 
 
 def _already_done(con, on: date) -> set[str]:
+    """Tickers with a completed pull today; failed attempts remain retryable."""
     return {r[0] for r in con.execute(
-        "SELECT DISTINCT ticker FROM actions_fetch_log WHERE fetched_on = ?", [on]
+        "SELECT DISTINCT ticker FROM actions_fetch_log "
+        "WHERE fetched_on = ? AND status IN ('ok', 'empty')", [on]
     ).fetchall()}
 
 
 # --------------------------------------------------------------------------- #
 # collection
 # --------------------------------------------------------------------------- #
-def collect(con, params: dict, mode: str) -> dict:
-    """Pull splits + dividends for the mode's universe into corporate_actions.
-
-    Resumable and same-day idempotent: a ticker with an actions_fetch_log row for
-    today is skipped (pass resume=False to force a re-pull).
-    """
-    on = datetime.now(timezone.utc).date()
+def _prepare_run(con, params: dict, mode: str, on: date):
     pairs, source = _select_universe(con, params, mode)
     limit = params.get("limit")
     if limit:
         pairs = pairs[: int(limit)]
-
     resume = params.get("resume", True) and mode == "backfill"
     done = _already_done(con, on) if resume else set()
     pending = [(tk, yft) for tk, yft in pairs if tk not in done]
+    already_done = len(done & {tk for tk, _ in pairs})
+    return pairs, source, pending, already_done
+
+
+def _write_checkpoint(con, action_rows: list[dict], fetch_rows: list[dict], on: date) -> int:
+    """Commit action facts and their per-ticker outcomes as one recovery unit."""
+    if not action_rows and not fetch_rows:
+        return 0
+    with db.transaction(con):
+        inserted = db.upsert_actions(con, pd.DataFrame(action_rows))
+        db.insert_actions_fetch_log(con, fetch_rows, fetched_on=on)
+    return inserted
+
+
+def _pull_pending(
+    pairs: list[tuple[str, str]],
+    source: str,
+    pending: list[tuple[str, str]],
+    already_done: int,
+    on: date,
+    checkpoint: Callable[[list[dict], list[dict]], int],
+    count_totals: Callable[[], tuple[int, int]],
+    meta_path: str | Path,
+    mode: str,
+) -> dict:
+    """Network loop shared by persistent and connection-narrowed entry points."""
     log.info(f"[actions] mode={mode} universe={len(pairs)} source='{source}' "
-          f"already_done_today={len(done & {tk for tk, _ in pairs})} "
+          f"already_done_today={already_done} "
           f"pending={len(pending)}")
 
     inserted = with_actions = empty = failed = 0
@@ -242,18 +268,11 @@ def collect(con, params: dict, mode: str) -> dict:
 
     def _flush() -> None:
         nonlocal inserted, buf, log_buf
-        if buf:
-            inserted += db.upsert_actions(con, pd.DataFrame(buf))
-            buf = []
-        if log_buf:
-            con.executemany(
-                "INSERT OR REPLACE INTO actions_fetch_log "
-                "(ticker, fetched_on, n_splits, n_dividends, status) "
-                "VALUES (?, ?, ?, ?, ?)",
-                [[r["ticker"], on, r["n_splits"], r["n_dividends"], r["status"]]
-                 for r in log_buf],
-            )
-            log_buf = []
+        if not buf and not log_buf:
+            return
+        inserted += checkpoint(buf, log_buf)
+        buf = []
+        log_buf = []
 
     for i, (canon, yft) in enumerate(pending, 1):
         act = _fetch_actions(yft)
@@ -279,11 +298,8 @@ def collect(con, params: dict, mode: str) -> dict:
         time.sleep(PER_NAME_SLEEP)
     _flush()
 
-    totals = con.execute(
-        "SELECT COUNT(*) FILTER (WHERE kind = 'split'), "
-        "       COUNT(*) FILTER (WHERE kind = 'dividend') FROM corporate_actions"
-    ).fetchone()
-    return {
+    totals = count_totals()
+    accounting = {
         "mode": mode,
         "universe": len(pairs),
         "universe_source": source,
@@ -295,6 +311,31 @@ def collect(con, params: dict, mode: str) -> dict:
         "total_splits": totals[0],
         "total_dividends": totals[1],
     }
+    store_gb = rsc.dir_size_gb(STORE_DIR)
+    accounting["last_run"] = datetime.now(timezone.utc).isoformat()
+    accounting["store_gb"] = round(store_gb, 2)
+    rsc.merge_meta(meta_path, {f"actions_{mode}": accounting})
+    rsc.update_disk_warning(meta_path, store_gb)
+    return accounting
+
+
+def collect(con, params: dict, mode: str, meta_path: str | Path = DEFAULT_META) -> dict:
+    """Pull actions with retry-safe, transactionally checkpointed outcomes."""
+    on = datetime.now(timezone.utc).date()
+    prepared = _prepare_run(con, params, mode, on)
+    return _pull_pending(
+        *prepared,
+        on,
+        lambda action_rows, fetch_rows: _write_checkpoint(
+            con, action_rows, fetch_rows, on
+        ),
+        lambda: con.execute(
+            "SELECT COUNT(*) FILTER (WHERE kind = 'split'), "
+            "COUNT(*) FILTER (WHERE kind = 'dividend') FROM corporate_actions"
+        ).fetchone(),
+        meta_path,
+        mode,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -481,8 +522,7 @@ def _restate(con, ticker: str, ex_date: date, ratio: float, break_date: date) ->
     n = con.execute(
         "SELECT COUNT(*) FROM prices WHERE ticker = ? AND date < ?",
         [ticker, break_date]).fetchone()[0]
-    con.execute("BEGIN TRANSACTION")
-    try:
+    with db.transaction(con):
         con.execute(
             "UPDATE prices SET open = open / ?, high = high / ?, low = low / ?, "
             "close = close / ?, volume = CAST(ROUND(volume * ?) AS BIGINT) "
@@ -507,10 +547,6 @@ def _restate(con, ticker: str, ex_date: date, ratio: float, break_date: date) ->
             "break_date": break_date, "rows_restated": n,
             "positions": "rebuilt from sim_fills (fills before ex_date scaled)",
         })
-        con.execute("COMMIT")
-    except Exception:
-        con.execute("ROLLBACK")
-        raise
     return n
 
 
@@ -527,13 +563,20 @@ def _mark(con, ticker: str, ex_date: date, ratio: float, verdict: dict) -> None:
 def tripwire(con) -> list[str]:
     """Guard (b) — independent of any corporate_actions data.
 
-    Any held-or-pending name whose most recent one-session close move exceeds
+    Any active-book held-or-pending name whose most recent one-session close move exceeds
     TRIPWIRE_MOVE with no corporate_actions row within ±TRIPWIRE_NEAR_DAYS is a
     possible MISSED split. Returns the warning lines (also printed)."""
-    names = [r[0] for r in con.execute(
-        "SELECT DISTINCT ticker FROM sim_positions WHERE qty > 0 "
-        "UNION SELECT DISTINCT ticker FROM sim_orders WHERE status = 'pending'"
-    ).fetchall()]
+    names = [
+        r[0]
+        for r in con.execute(
+            "SELECT DISTINCT p.ticker FROM sim_positions p "
+            "JOIN portfolios pf ON pf.id = p.portfolio_id "
+            "WHERE pf.active AND p.qty > 0 "
+            "UNION SELECT DISTINCT o.ticker FROM sim_orders o "
+            "JOIN portfolios pf ON pf.id = o.portfolio_id "
+            "WHERE pf.active AND o.status = 'pending'"
+        ).fetchall()
+    ]
     warns: list[str] = []
     for tk in sorted(names):
         rows = con.execute(
@@ -643,16 +686,76 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
 
     if mode == "reconcile":
         acc = reconcile(con)
+        store_gb = rsc.dir_size_gb(STORE_DIR)
+        acc["last_run"] = datetime.now(timezone.utc).isoformat()
+        acc["store_gb"] = round(store_gb, 2)
+        rsc.merge_meta(meta_path, {f"actions_{mode}": acc})
+        rsc.update_disk_warning(meta_path, store_gb)
     else:
-        acc = collect(con, params, mode)
+        acc = collect(con, params, mode, meta_path=meta_path)
         if params.get("reconcile", False):
             acc["reconcile"] = reconcile(con)
+            rsc.merge_meta(meta_path, {f"actions_{mode}": acc})
+    return acc
 
-    store_gb = rsc.dir_size_gb(STORE_DIR)
-    acc["last_run"] = datetime.now(timezone.utc).isoformat()
-    acc["store_gb"] = round(store_gb, 2)
-    rsc.merge_meta(meta_path, {f"actions_{mode}": acc})
-    rsc.update_disk_warning(meta_path, store_gb)
+
+def run_connection_narrowed(
+    params: dict | None,
+    db_path: str | Path | None = None,
+    meta_path: str | Path = DEFAULT_META,
+) -> dict:
+    """Collect actions without holding DuckDB through per-name HTTP waits."""
+    params = params or {}
+    mode = params.get("mode", "backfill")
+    if mode == "reconcile":
+        con = db.connect(db_path) if db_path is not None else db.connect()
+        try:
+            db.init_schema(con)
+            db.init_queue_schema(con)
+            return run(params, con, meta_path=meta_path)
+        finally:
+            con.close()
+
+    path = Path(db_path) if db_path is not None else db.DEFAULT_DB
+    on = datetime.now(timezone.utc).date()
+    con = db.connect(path)
+    try:
+        db.init_schema(con)
+        db.init_queue_schema(con)
+        db.init_actions_schema(con)
+        from sim.schema import init_sim_schema
+        init_sim_schema(con)
+        prepared = _prepare_run(con, params, mode, on)
+    finally:
+        con.close()
+
+    def checkpoint(action_rows: list[dict], fetch_rows: list[dict]) -> int:
+        write_con = db.connect(path)
+        try:
+            return _write_checkpoint(write_con, action_rows, fetch_rows, on)
+        finally:
+            write_con.close()
+
+    def count_totals() -> tuple[int, int]:
+        read_con = db.connect(path, read_only=True)
+        try:
+            return read_con.execute(
+                "SELECT COUNT(*) FILTER (WHERE kind = 'split'), "
+                "COUNT(*) FILTER (WHERE kind = 'dividend') FROM corporate_actions"
+            ).fetchone()
+        finally:
+            read_con.close()
+
+    acc = _pull_pending(
+        *prepared, on, checkpoint, count_totals, meta_path, mode
+    )
+    if params.get("reconcile", False):
+        write_con = db.connect(path)
+        try:
+            acc["reconcile"] = reconcile(write_con)
+        finally:
+            write_con.close()
+        rsc.merge_meta(meta_path, {f"actions_{mode}": acc})
     return acc
 
 
@@ -679,11 +782,16 @@ def main() -> int:
     if args.limit:
         params["limit"] = args.limit
 
-    con = db.connect(args.db) if args.db else db.connect()
-    db.init_schema(con)
-    db.init_queue_schema(con)
-    run(params, con, meta_path=args.meta)
-    con.close()
+    if args.mode == "reconcile":
+        con = db.connect(args.db) if args.db else db.connect()
+        try:
+            db.init_schema(con)
+            db.init_queue_schema(con)
+            run(params, con, meta_path=args.meta)
+        finally:
+            con.close()
+    else:
+        run_connection_narrowed(params, db_path=args.db, meta_path=args.meta)
     return 0
 
 

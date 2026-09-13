@@ -26,7 +26,7 @@ import statistics
 import sys
 from datetime import date
 
-from engine.lib import db
+from engine.lib import db, resources
 from engine.lib.log import get_logger
 from engine.lib.settings import DATA_DIR, REPO_ROOT  # noqa: F401
 
@@ -59,11 +59,16 @@ def main() -> int:
     args = ap.parse_args()
 
     con = db.connect(args.db, read_only=True)
+    try:
+        rows = con.execute(QUERY).fetchall()
+    finally:
+        con.close()
+
     overnight: list[float] = []
     allin: list[float] = []
     per_book: dict[str, list[float]] = {}
     skipped = 0
-    for pf, side, _fd, _sd, open_px, fill_px, sig_close in con.execute(QUERY).fetchall():
+    for pf, side, _fd, _sd, open_px, fill_px, sig_close in rows:
         if sig_close is None:
             skipped += 1  # signal-day bar missing — never invent a price
             continue
@@ -71,8 +76,6 @@ def main() -> int:
         overnight.append(sgn * (open_px / sig_close - 1) * 1e4)
         allin.append(sgn * (fill_px / sig_close - 1) * 1e4)
         per_book.setdefault(pf, []).append(overnight[-1])
-    con.close()
-
     if len(overnight) < 2:
         log.info("[execution-drag] fewer than 2 usable fills — nothing to report")
         return 0
@@ -111,7 +114,7 @@ def main() -> int:
     print(text)
     if not args.no_write:
         REPORT.parent.mkdir(parents=True, exist_ok=True)
-        REPORT.write_text(text)
+        resources.write_text_atomic(REPORT, text)
         log.info(f"[execution-drag] wrote {REPORT}")
     return 0
 

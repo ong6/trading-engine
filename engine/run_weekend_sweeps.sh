@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Weekend parameter-sweep driver (design §12.3b — "weekend deep sweeps").
 #
-# Enqueues one `sweep` job per grid in farm/sweep/sweep.py's GRIDS and drains
-# the queue. Intended cadence: SATURDAY, so it is clear of the Sunday 06:00
-# walk-forward grid and of the weekday 22:30 nightly.
+# Enqueues only grids explicitly listed in farm/sweep/sweep.py's
+# OPEN_RECURRING_GRIDS and drains the queue. Intended cadence: SATURDAY, so it
+# is clear of the Sunday 06:00 walk-forward grid and weekday 22:30 nightly.
 #
 # WHY THIS EXISTS. Until 2026-08-20 sweeps were enqueued by hand, which is why
 # only four of six grids had ever run and why two of them sat pending for two
@@ -11,9 +11,11 @@
 # CPU and zero tokens should not depend on someone remembering to start it.
 #
 # WHAT A SWEEP IS NOT. It never creates, promotes or modifies a league book. It
-# writes candidates to data/reports/sweeps/<grid>/ and stops. A candidate
+# writes candidates to data/reports/sweeps/<grid>/charters/<version>/ and stops. A candidate
 # becomes a book only when a human pre-registers it with an expectation and a
-# kill criterion. This script widens the search; it never acts on the result.
+# kill criterion. Completed grids are not rerun indefinitely: recurring search
+# reuses the same history, compounds trial count, and does not create new
+# out-of-sample evidence.
 #
 # Cron entry (owner action — this script does not install it):
 #
@@ -47,29 +49,41 @@ SWEEP_PRIORITY=900
 SWEEP_MEM_MB=4500
 
 body() {
-  # Grid names come from the module itself, so a grid added to GRIDS is swept
-  # from the next Saturday with no edit here. `--grid list` also prints
-  # bracketed diagnostics (e.g. infeasible cells being skipped); those are
-  # filtered out rather than parsed. `grep -v` exits 1 when it selects NOTHING
-  # (every line was a diagnostic), which under pipefail failed the `$(...)`
-  # assignment and aborted the script before the "no grids" message — hence
-  # the `|| true` guard; the emptiness check below is the real gate.
-  stage list-grids
-  GRIDS="$("${PY}" -m farm.sweep.sweep --grid list | { grep -v '^\[' || true; } | awk 'NF {print $1}')"
-  if [ -z "${GRIDS}" ]; then
-    echo "ERROR: no grids enumerated — refusing to drain an empty plan"
-    exit 1
+  # A future hypothesis becomes recurring only after its charter is frozen and
+  # its grid name is added to OPEN_RECURRING_GRIDS. Empty is the healthy state
+  # when no new research question is registered.
+  stage list-open-grids
+  # Capture Python separately so its exit status cannot be hidden by a filter.
+  # awk has a successful empty-output case, unlike grep's expected status 1,
+  # and removes bracketed diagnostics without masking genuine command errors.
+  GRID_OUTPUT="$("${PY}" -m farm.sweep.sweep --grid recurring)"
+  OPEN_SWEEPS="$(printf '%s\n' "${GRID_OUTPUT}" | awk '!/^\[/ && NF')"
+  if [ -z "${OPEN_SWEEPS}" ]; then
+    echo "INFO: no open recurring sweep grids — nothing to enqueue"
+    return 0
   fi
-  echo "grids: $(echo "${GRIDS}" | tr '\n' ' ')"
+  echo "open sweeps: $(printf '%s\n' "${OPEN_SWEEPS}" | tr '\n' ' ')"
 
-  # Enqueue is idempotent: queue_runner dedups an identical pending
-  # (kind, params), so a re-run after a partial drain adds nothing.
+  RUN_ARGS=()
   stage enqueue
-  for g in ${GRIDS}; do
+  while IFS=$'\t' read -r g charter extra; do
+    case "${g}" in
+      *[!a-zA-Z0-9_-]*) echo "ERROR: unsafe recurring grid name: ${g}"; return 1 ;;
+    esac
+    case "${charter}" in
+      ""|*[!a-zA-Z0-9._-]*) echo "ERROR: unsafe charter version for ${g}: ${charter}"; return 1 ;;
+    esac
+    if [ -n "${extra}" ]; then
+      echo "ERROR: malformed recurring sweep row for ${g}"; return 1
+    fi
+    params="{\"grid\": \"${g}\", \"charter_version\": \"${charter}\"}"
+    # One-shot means a completed grid is not searched again on the same
+    # history. Re-running requires an explicitly versioned params/charter.
     "${PY}" -m engine.queue_runner --enqueue sweep \
       --priority "${SWEEP_PRIORITY}" --mem-mb "${SWEEP_MEM_MB}" \
-      --params "{\"grid\": \"${g}\"}"
-  done
+      --params "${params}" --once
+    RUN_ARGS+=(--run-params "${params}")
+  done <<< "${OPEN_SWEEPS}"
 
   # --jobs 8: `sweep` is parallel_safe (read-only on the store, writes only its
   # own pid-namespaced scratch), so grids batch and the parent RELEASES the
@@ -77,9 +91,10 @@ body() {
   # (2026-08-20, measured): 355 -> 523 jobs/h on a fixed 8-replay unit; worker
   # peak RSS 3.4 GB measured vs 4.5 GB declared, 8 x 4.5 = 36 GB in the 48 GB
   # budget; sustained load ~20-24 of 32 cores under LOAD_5MIN_MAX=28. There
-  # are only 6 grids today, so real width is min(8, pending grids).
+  # Real width is min(8, the number of explicitly open grids).
   stage drain
-  "${PY}" -m engine.queue_runner --run --jobs 8
+  "${PY}" -m engine.queue_runner --run --jobs 8 \
+    --run-kind sweep "${RUN_ARGS[@]}"
 
   stage sync
   "${PY}" -m engine.sync || echo "WARN: sync failed (exit $?) — reports are on disk; next nightly's sync will stage them"

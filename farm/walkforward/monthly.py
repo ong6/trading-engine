@@ -36,8 +36,9 @@ so a median win with a strongly negative mean (or the reverse) cannot pass. The
 deflated Sharpe on the pooled months is context (bar 0.95, as in farm/stats.py),
 not part of the rule.
 
-Controls: single-name books vs `ew_benchmark` (same screen, same universe);
-asset-allocation books (ETF / sleeve books, `SPY_BOOKS`) vs `spy_benchmark`.
+Controls: single-name books use `ew_benchmark` (same screen, same universe) and
+asset-allocation books use `spy_benchmark`. The selected control is stamped in
+each new result; legacy artifacts without that declaration are not compared.
 
 In-sample fold: fold 10 (validate 2025-08-28→2026-08-28) is the data the July
 2026 registrations were written against; it is dropped for every book whose
@@ -57,24 +58,19 @@ from pathlib import Path
 
 import numpy as np
 
+from engine.lib import resources
 from engine.lib.settings import DATA_DIR
 from engine.lib.settings import REPO_ROOT as ROOT  # noqa: F401
 from engine.lib.util import num as _num_plain
 from engine.lib.util import pct
+from farm import stats as fstats
+from farm.walkforward.controls import CONTROLS
 
 num = partial(_num_plain, signed=True)   # monthly table prints signed t / DSR
-from farm import stats as fstats
 
 WF_DIR = DATA_DIR / "reports" / "walkforward"
 RESULTS_DIR = WF_DIR / "results"
 BACKTEST_RESULTS_DIR = DATA_DIR / "reports" / "backtests" / "results"
-
-EW = "ew_benchmark"
-SPY = "spy_benchmark"
-CONTROLS = (EW, SPY)
-# Asset-allocation books: hold ETFs / sleeves, never the screen's single names.
-SPY_BOOKS = frozenset({"dual_momentum", "dual_momentum_gated", "sector_momentum",
-                       "agentic_alloc", "agentic_alloc_frozen", "macro_composite"})
 
 INSAMPLE_CUTOFF = "2026-08-01"       # registered before this ⇒ fold 10 is in-sample
 INSAMPLE_FOLD_INDEX = 10
@@ -93,7 +89,8 @@ REGISTERED_FALLBACK = {
     "spy_benchmark": "2026-07-17", "stop_tuner_turtle": "2026-08-03",
     "template_top10_banded": "2026-07-17", "template_top10_banded_gated": "2026-07-17",
     "template_top5": "2026-07-17", "template_top5_gated": "2026-07-17",
-    "turtle_breakout": "2026-07-28",
+    "turtle_breakout": "2026-07-28", "multi_asset_trend": "2026-09-02",
+    "xs_momentum_12_1": "2026-09-02",
 }
 
 MEAN_BLOCK_MONTHS = 4          # stationary bootstrap: geometric block, mean 4 months
@@ -116,7 +113,7 @@ def month_end_points(dates, equity) -> list[list]:
     validate slice, so the first point is the split session's month.
     """
     out: dict[str, float] = {}
-    for d, e in zip(dates, equity):
+    for d, e in zip(dates, equity, strict=True):
         m = d if isinstance(d, str) else d.isoformat()
         out[m[:7]] = float(e)
     return [[m, out[m]] for m in sorted(out)]
@@ -235,10 +232,15 @@ def verdict(ev: dict) -> str:
 # --------------------------------------------------------------------------- #
 # loading & pairing
 # --------------------------------------------------------------------------- #
-def control_of(config_id: str) -> str | None:
-    if config_id in CONTROLS:
+def control_of(result: dict) -> str | None:
+    """Control frozen in this artifact; never infer one for an older result."""
+    if result["config_id"] in CONTROLS:
         return None
-    return SPY if config_id in SPY_BOOKS else EW
+    comparison = result.get("comparison")
+    if not isinstance(comparison, dict):
+        return None
+    control = comparison.get("control_id")
+    return control if control in CONTROLS and control != result["config_id"] else None
 
 
 def registered(result: dict) -> str | None:
@@ -252,6 +254,40 @@ def insample_folds(result: dict, cutoff: str = INSAMPLE_CUTOFF) -> set[int]:
 
 def _fold_key(f: dict) -> tuple:
     return (f.get("split_date"), f.get("validate_end"))
+
+
+def _research_signature(result: dict) -> tuple:
+    """Assumptions that must match before two return paths are compared."""
+    profile = result.get("execution_profile") or {}
+    profile_signature = (
+        json.dumps(profile, sort_keys=True, separators=(",", ":"))
+        if isinstance(profile, dict)
+        else profile
+    )
+    snapshot = result.get("data_snapshot") or {}
+    snapshot_sha = snapshot.get("sha256") if isinstance(snapshot, dict) else snapshot
+    comparison = result.get("comparison") or {}
+    comparison_protocol = (
+        comparison.get("protocol") if isinstance(comparison, dict) else None
+    )
+    return (result.get("source_sha256"), result.get("fill_model"),
+            result.get("universe_policy"), result.get("initial_cash"),
+            profile_signature, snapshot_sha, comparison_protocol)
+
+
+def _complete_research_cohort(result: dict) -> bool:
+    profile = result.get("execution_profile")
+    snapshot = result.get("data_snapshot")
+    comparison = result.get("comparison")
+    return bool(
+        result.get("source_sha256")
+        and result.get("fill_model")
+        and result.get("universe_policy")
+        and result.get("initial_cash") is not None
+        and isinstance(profile, dict) and profile
+        and isinstance(snapshot, dict) and snapshot.get("sha256")
+        and isinstance(comparison, dict) and comparison.get("protocol")
+    )
 
 
 def fold_monthly(result: dict) -> dict[tuple, list[tuple[str, float]]]:
@@ -281,12 +317,42 @@ def paired_excess(book: dict, ctrl: dict, *, exclude: set[int]) -> list[dict]:
 
 
 def load_results(results_dir: Path = RESULTS_DIR) -> dict[str, dict]:
+    from farm.walkforward import protocol
+    from sim.strategies.configs import CONFIGS
+    eligible = {c["id"] for c in CONFIGS
+                if (c.get("active", True) or c.get("retain_latest_result", False))
+                and protocol.excluded_reason(c["id"], c["strategy"]) is None}
+    retained = {c["id"] for c in CONFIGS
+                if not c.get("active", True) and c.get("retain_latest_result", False)}
     out = {}
     for p in sorted(results_dir.glob("*.json")):
         d = json.loads(p.read_text())
-        if "config_id" in d and "folds" in d:
+        if d.get("config_id") in eligible and "folds" in d:
             out[d["config_id"]] = d
-    return out
+    anchors = [d.get("protocol", {}).get("anchor") for d in out.values()]
+    newest = max((a for a in anchors if a), default=None)
+    if newest is None:
+        return out
+    newest_rows = {cid: d for cid, d in out.items()
+                   if d.get("protocol", {}).get("anchor") == newest}
+    def base_signature(d):
+        p = d.get("protocol", {})
+        return (p.get("train_months"), p.get("validate_months"),
+                p.get("step_months"), *_research_signature(d)[1:])
+
+    stamped = {cid: d for cid, d in newest_rows.items() if d.get("source_sha256")}
+    cohorts: dict[tuple, dict[str, dict]] = {}
+    for cid, d in (stamped or newest_rows).items():
+        sig = (*base_signature(d), d.get("source_sha256"))
+        cohorts.setdefault(sig, {})[cid] = d
+    selected = max(cohorts.items(), key=lambda kv: (len(kv[1]), str(kv[0])))[1]
+    if not stamped:
+        return selected
+    selected_base = base_signature(next(iter(selected.values())))
+    legacy_retained = {cid: d for cid, d in newest_rows.items()
+                       if not d.get("source_sha256") and cid in retained
+                       and base_signature(d) == selected_base}
+    return {**selected, **legacy_retained}
 
 
 def proxy_results(wf: dict[str, dict], bt_dir: Path = BACKTEST_RESULTS_DIR,
@@ -318,8 +384,15 @@ def proxy_results(wf: dict[str, dict], bt_dir: Path = BACKTEST_RESULTS_DIR,
                           "validate": {"start_date": series[0][0], "end_date": series[-1][0]}})
         out[cid] = {"config_id": cid, "name": r.get("name"), "strategy": r.get("strategy"),
                     "registered": registered(r), "protocol": r["protocol"],
+                    "comparison": r.get("comparison"),
                     "source": f"backtests/results/{p.name}",
                     "fill_model": bt.get("fill_model") or "v1 (unlabelled)",
+                    "initial_cash": bt.get("initial_cash"),
+                    "execution_profile": bt.get("execution_profile"),
+                    "universe_policy": bt.get("universe_policy"),
+                    "data_quality_class": bt.get("data_quality_class"),
+                    "data_snapshot": bt.get("data_snapshot"),
+                    "source_sha256": bt.get("source_sha256"),
                     "folds": folds}
     return out
 
@@ -333,14 +406,30 @@ def build(results: dict[str, dict], *, cutoff: str = INSAMPLE_CUTOFF) -> list[di
     rows = []
     for cid in sorted(results):
         r = results[cid]
-        ctrl = control_of(cid)
+        ctrl = control_of(r)
         excl = insample_folds(r, cutoff)
         row = {"config_id": cid, "control": ctrl, "registered": registered(r),
-               "excluded_folds": sorted(excl), "source": r.get("source", "walkforward")}
-        if ctrl is None:
+               "excluded_folds": sorted(excl), "source": r.get("source", "walkforward"),
+               "fill_model": r.get("fill_model"),
+               "source_sha256": r.get("source_sha256"),
+               "data_quality_class": r.get("data_quality_class")}
+        if cid in CONTROLS:
             row.update({"verdict": "reference", "n_months": 0})
+        elif ctrl is None:
+            row.update({"verdict": "NO-CONTROL", "n_months": 0,
+                        "control_reason": "comparison not declared in artifact"})
         elif ctrl not in results:
             row.update({"verdict": "NO-CONTROL", "n_months": 0})
+        elif not _complete_research_cohort(r) or not _complete_research_cohort(results[ctrl]):
+            row.update({"verdict": "NO-CONTROL", "n_months": 0,
+                        "control_reason": "incomplete research provenance"})
+        elif (r.get("data_quality_class") and results[ctrl].get("data_quality_class")
+              and r["data_quality_class"] != results[ctrl]["data_quality_class"]):
+            row.update({"verdict": "NO-CONTROL", "n_months": 0,
+                        "control_reason": "different data-quality class"})
+        elif _research_signature(r) != _research_signature(results[ctrl]):
+            row.update({"verdict": "NO-CONTROL", "n_months": 0,
+                        "control_reason": "different research cohort"})
         else:
             pairs = paired_excess(r, results[ctrl], exclude=excl)
             ev = evaluate_excess([p["excess"] for p in pairs], n_trials=n_trials)
@@ -358,12 +447,27 @@ def fold_level_verdicts(readme: Path = WF_DIR / "README.md") -> dict[str, str]:
     """Book → PASS/WATCH/REVIEW/… from the fold-level index table."""
     if not readme.exists():
         return {}
-    pat = re.compile(r"^\| \[([a-z0-9_]+)\]\([a-z0-9_]+\.md\) \| ([A-Za-z-]+) \|")
+    # Locate the verdict by value rather than a fixed column.  The summary has
+    # gained Evidence class and Control columns over time, and old reports must
+    # remain parseable without silently shifting the captured field.
+    book_pat = re.compile(r"^\[([a-z0-9_]+)\]\([a-z0-9_]+\.md\)$")
+    verdicts = {"PASS", "WATCH", "REVIEW", "no-benchmark", "reference"}
     out = {}
     for line in readme.read_text().splitlines():
-        m = pat.match(line)
-        if m:
-            out[m.group(1)] = m.group(2)
+        if not line.startswith("| ["):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        match = book_pat.fullmatch(cells[0]) if cells else None
+        if not match:
+            continue
+        verdict = next((cell for cell in cells[1:] if cell in verdicts), None)
+        if verdict is None:
+            retired = next((cell for cell in cells[1:]
+                            if re.fullmatch(r"RETIRED \(([^)]+)\)", cell)), None)
+            if retired:
+                verdict = retired.removeprefix("RETIRED (").removesuffix(")")
+        if verdict is not None:
+            out[match.group(1)] = verdict
     return out
 
 
@@ -380,8 +484,9 @@ def _table(rows: list[dict]) -> list[str]:
             out.append(f"| {r['config_id']} | — | · | · | · | · | · | · | · | · | · | reference |")
             continue
         drop = ",".join(str(i) for i in r["excluded_folds"]) or "none"
+        control = r.get("control") or "—"
         out.append(
-            f"| {r['config_id']} | {r['control']} | {r.get('n_months', 0)} | {drop} | "
+            f"| {r['config_id']} | {control} | {r.get('n_months', 0)} | {drop} | "
             f"{pct(r.get('mean'))} | {_ci(r.get('mean_ci'))} | {pct(r.get('median'))} | "
             f"{_ci(r.get('median_ci'))} | {num((r.get('nw') or {}).get('t'))} | "
             f"{num(r.get('dsr'))} | {pct(r.get('beat_rate'))} | **{r['verdict']}** |")
@@ -390,8 +495,15 @@ def _table(rows: list[dict]) -> list[str]:
 
 def _why(fold_v: str, r: dict) -> str:
     v = r["verdict"]
-    if v in ("NO-DATA", "NO-CONTROL"):
-        return "no monthly series on disk yet"
+    if v == "NO-DATA":
+        return "too few paired monthly observations"
+    if v == "NO-CONTROL":
+        reason = r.get("control_reason")
+        if reason == "different data-quality class":
+            return "control comparison suppressed: different evidence class"
+        if reason == "different research cohort":
+            return "control comparison suppressed: different research cohort"
+        return "compatible control unavailable"
     med_ci, mean_ci = r.get("median_ci") or {}, r.get("mean_ci") or {}
     bits = []
     if fold_v == "PASS" and v != "BEATS":
@@ -420,10 +532,10 @@ def render(rows: list[dict], *, source: str, proxy_rows: list[dict] | None,
     L.append("Generated by `farm/walkforward/monthly.py`. Same replays as the fold-level "
              "report, re-read one month at a time. Nothing here changes a fold-level verdict; "
              "it is the second reading the evaluation asked for.\n")
-    L.append("## Rule (pre-registered, mechanical)\n")
-    L.append(f"* Unit: paired monthly excess return, book − control, over validate months "
-             f"only. Control is `{EW}` for single-name books and `{SPY}` for asset-allocation "
-             f"books ({', '.join(sorted(SPY_BOOKS))}).")
+    L.append("## Rule (mechanical exploratory triage)\n")
+    L.append("* Unit: paired monthly excess return, book − control, over validate months "
+             "only. The control comes from the versioned declaration stored in each "
+             "result; legacy results without one receive `NO-CONTROL`.")
     L.append(f"* Fold {INSAMPLE_FOLD_INDEX} (2025-08-28→2026-08-28) is **dropped** for every book "
              f"registered before {INSAMPLE_CUTOFF}: it is the data those rules were written "
              f"against. August-2026 registrations keep it (flagged in `Folds dropped`).")
@@ -438,7 +550,9 @@ def render(rows: list[dict], *, source: str, proxy_rows: list[dict] | None,
              f"{MIN_MONTHS} months = **NO-DATA**. Median carries the verdict (the fold PASS "
              f"keyed on a mean one fold could hijack); the NW t on the mean is required "
              f"corroboration.\n")
-    L.append("## 1. Walk-forward replays (fill model v2, ten independent fold replays)\n")
+    models = sorted({r.get("fill_model") for r in rows if r.get("fill_model")})
+    model_label = ", ".join(models) if models else "unstamped"
+    L.append(f"## 1. Walk-forward replays (fill model {model_label}, independent fold replays)\n")
     have = [r for r in rows if r.get("n_months", 0) > 0]
     if not have:
         L.append("**No monthly series exists on disk for any book.** The fold JSONs written "
@@ -447,6 +561,10 @@ def render(rows: list[dict], *, source: str, proxy_rows: list[dict] | None,
                  "next weekly walk-forward (Sunday). Section 2 is the proxy until then.\n")
     else:
         L.append(f"Source: `{source}`.\n")
+    if any(r.get("config_id") == "multi_asset_trend"
+           and not r.get("source_sha256") for r in rows):
+        L.append("`multi_asset_trend` is retained retirement evidence from a "
+                 "legacy/unstamped artifact; no source provenance has been inferred.\n")
     L.extend(_table(rows))
     L.append("")
     if proxy_rows is not None:
@@ -498,14 +616,17 @@ def write_report(*, results_dir: Path = RESULTS_DIR, out_dir: Path = WF_DIR,
     out_dir.mkdir(parents=True, exist_ok=True)
     md_path = out_dir / f"monthly-{stamp}.md"
     js_path = out_dir / f"monthly-{stamp}.json"
-    md_path.write_text(md)
+    resources.write_text_atomic(md_path, md)
     payload = {"generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                "rule": {"mean_block_months": MEAN_BLOCK_MONTHS, "nw_lag": NW_LAG,
                         "n_boot": N_BOOT, "seed": SEED, "conf": CONF, "t_crit": T_CRIT,
                         "min_months": MIN_MONTHS, "insample_cutoff": INSAMPLE_CUTOFF,
-                        "insample_fold": INSAMPLE_FOLD_INDEX, "spy_books": sorted(SPY_BOOKS)},
+                        "insample_fold": INSAMPLE_FOLD_INDEX,
+                        "control_source": "result.comparison"},
                "fold_level_verdicts": fv, "walkforward": rows, "proxy": proxy}
-    js_path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n")
+    resources.write_text_atomic(
+        js_path, json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n"
+    )
     return md_path, js_path
 
 

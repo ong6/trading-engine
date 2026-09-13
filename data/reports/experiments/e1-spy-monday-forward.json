@@ -17,10 +17,10 @@
     "sim/fills.py",
     "sim/nyse.py"
   ],
-  "runtime_contract_migration": "2026-09-08 unconditional no-same-bar enforcement: the shared fill-date rule now remains active under optimized Python; the frozen seven-observation E1 prefix, strategy, execution economics, and verdict rules are unchanged",
-  "runtime_contract_sha256": "da752d28c1b9bb18e3520139bbce71c885b89b192a47d00d5cd8fbfa0f1399ae",
-  "runtime_contract_version": 4,
+  "runtime_contract_migration": "2026-09-13 interruption-safe transaction cleanup: every explicit DuckDB transaction now rolls back process-level interruptions, preserves the original failure if cleanup also fails, and leaves borrowed connections reusable; the frozen seven-observation E1 prefix, strategy, execution economics, and verdict rules are unchanged",
+  "runtime_contract_sha256": "5a665966f7bad78474dab9367618aab4016ea847fec8bba9a92966e7706e5612",
+  "runtime_contract_version": 6,
   "schema_version": 2,
-  "superseded_runtime_contract_sha256": "32b56bb6b2cb4d234cf0131bf27054a024820d8207ed4130ed988a8c340b0d72",
+  "superseded_runtime_contract_sha256": "31ff0e06dad3ee1063dc25210cf049df5dffba1662621bc6a97de30e535420a2",
   "through": "2026-08-31"
 }
