@@ -8,8 +8,9 @@ Two modes, one module:
   --mode incremental   nightly; only each source's recent window. Seconds for
                        everything except the internal breadth pass.
 
-A §12.7 job-queue citizen (job kind `signals`, non-archive): the queue dispatches
-to `run(params, con, meta_path)`; `__main__` here runs it standalone.
+A §12.7 job-queue citizen (job kind `signals`, non-archive): the queue normally
+dispatches to the connection-narrowed entry point; `run(params, con, meta_path)`
+remains available to callers that already own a connection.
 
 WARN-AND-CONTINUE, per source (the actions-fetch rule, applied harder). Every
 source runs inside its own try/except: a night without DIX is not a night with
@@ -71,6 +72,7 @@ import io
 import math
 import re
 import time
+from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -772,29 +774,31 @@ def src_breadth(con, mode: str) -> list[tuple]:
         "SELECT DISTINCT ticker FROM universe_snapshot "
         "WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM universe_snapshot) "
         "AND liquid")
-    n_u = con.execute("SELECT COUNT(*) FROM _sig_universe").fetchone()[0]
-    latest = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
-    if latest is None or n_u == 0:
-        raise RuntimeError(f"breadth: prices empty or universe empty (n={n_u})")
+    try:
+        n_u = con.execute("SELECT COUNT(*) FROM _sig_universe").fetchone()[0]
+        latest = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
+        if latest is None or n_u == 0:
+            raise RuntimeError(f"breadth: prices empty or universe empty (n={n_u})")
 
-    if mode == "backfill":
-        log.info(f"[signals] breadth: {n_u} liquid names, "
-              f"{BREADTH_BACKFILL_START} → {latest}, one year per pass")
-        out: list[tuple] = []
-        for y in range(BREADTH_BACKFILL_START.year, latest.year + 1):
-            a = max(BREADTH_BACKFILL_START, date(y, 1, 1))
-            b = min(latest, date(y, 12, 31))
-            if a > b:
-                continue
-            t0 = time.time()
-            chunk = _breadth_chunk(con, a, b)
-            out.extend(chunk)
-            log.info(f"[signals] breadth {y}: {len(chunk):,} rows "
-                  f"[{time.time() - t0:.0f}s]")
-    else:
-        out = _breadth_chunk(con, latest, latest)
-    con.execute("DROP TABLE IF EXISTS _sig_universe")
-    return out
+        if mode == "backfill":
+            log.info(f"[signals] breadth: {n_u} liquid names, "
+                  f"{BREADTH_BACKFILL_START} → {latest}, one year per pass")
+            out: list[tuple] = []
+            for y in range(BREADTH_BACKFILL_START.year, latest.year + 1):
+                a = max(BREADTH_BACKFILL_START, date(y, 1, 1))
+                b = min(latest, date(y, 12, 31))
+                if a > b:
+                    continue
+                t0 = time.time()
+                chunk = _breadth_chunk(con, a, b)
+                out.extend(chunk)
+                log.info(f"[signals] breadth {y}: {len(chunk):,} rows "
+                      f"[{time.time() - t0:.0f}s]")
+        else:
+            out = _breadth_chunk(con, latest, latest)
+        return out
+    finally:
+        con.execute("DROP TABLE IF EXISTS _sig_universe")
 
 
 SOURCES: dict[str, callable] = {
@@ -809,12 +813,20 @@ SOURCES: dict[str, callable] = {
     "cot": src_cot,
     "breadth": src_breadth,
 }
+DB_READ_SOURCES = frozenset({"breadth"})
 
 
 # --------------------------------------------------------------------------- #
 # driver
 # --------------------------------------------------------------------------- #
-def collect(con, params: dict, mode: str) -> dict:
+def _collect(
+    params: dict,
+    mode: str,
+    fetch_source: Callable[[str, str], list[tuple]],
+    insert_rows: Callable[[list[tuple], date | Callable[[str, date], date]], int],
+    read_totals: Callable[[], list[tuple]],
+) -> dict:
+    """Collect sources through callbacks that define their DB lease lifetime."""
     only = params.get("only")
     if isinstance(only, str):
         only = [s.strip() for s in only.split(",") if s.strip()]
@@ -841,7 +853,7 @@ def collect(con, params: dict, mode: str) -> dict:
     for name in names:
         t0 = time.time()
         try:
-            rows = SOURCES[name](con, mode)
+            rows = fetch_source(name, mode)
         except Exception as exc:  # noqa: BLE001 - warn-and-continue, ALWAYS
             line = f"{name} failed: {type(exc).__name__}: {exc}"
             warnings.append(line)
@@ -850,7 +862,7 @@ def collect(con, params: dict, mode: str) -> dict:
                                 "rows_fetched": 0, "rows_inserted": 0}
             continue
         try:
-            n = db.insert_macro_signals(con, rows, stamp)
+            n = insert_rows(rows, stamp)
         except Exception as exc:  # noqa: BLE001 - a bad batch is not a bad night
             line = f"{name} insert failed: {type(exc).__name__}: {exc}"
             warnings.append(line)
@@ -876,9 +888,7 @@ def collect(con, params: dict, mode: str) -> dict:
         log.info(f"[signals] {name}: fetched {len(rows):,} → inserted {n:,} new "
               f"({', '.join(series) or 'none'}) [{time.time() - t0:.0f}s]")
 
-    table = con.execute(
-        "SELECT series, COUNT(*), MIN(obs_date), MAX(obs_date), MAX(fetch_as_of) "
-        "FROM macro_signals GROUP BY series ORDER BY series").fetchall()
+    table = read_totals()
     log.info(f"\n[signals] macro_signals now holds {sum(r[1] for r in table):,} rows")
     print(f"{'series':<20} {'rows':>8}  {'first':<12} {'last':<12} last_fetch")
     for s, n, lo, hi, fa in table:
@@ -898,6 +908,20 @@ def collect(con, params: dict, mode: str) -> dict:
     }
 
 
+def collect(con, params: dict, mode: str) -> dict:
+    """Compatibility path for callers that already own a DB connection."""
+    return _collect(
+        params,
+        mode,
+        lambda name, source_mode: SOURCES[name](con, source_mode),
+        lambda rows, stamp: db.insert_macro_signals(con, rows, stamp),
+        lambda: con.execute(
+            "SELECT series, COUNT(*), MIN(obs_date), MAX(obs_date), MAX(fetch_as_of) "
+            "FROM macro_signals GROUP BY series ORDER BY series"
+        ).fetchall(),
+    )
+
+
 # --------------------------------------------------------------------------- #
 # entry point the queue dispatches to
 # --------------------------------------------------------------------------- #
@@ -908,6 +932,63 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
     mode = params.get("mode", "incremental")
     acc = collect(con, params, mode)
 
+    store_gb = rsc.dir_size_gb(STORE_DIR)
+    acc["last_run"] = datetime.now(timezone.utc).isoformat()
+    acc["store_gb"] = round(store_gb, 2)
+    rsc.merge_meta(meta_path, {f"signals_{mode}": acc})
+    rsc.update_disk_warning(meta_path, store_gb)
+    return acc
+
+
+def run_connection_narrowed(
+    params: dict | None,
+    db_path: str | Path | None = None,
+    meta_path: str | Path = DEFAULT_META,
+) -> dict:
+    """Collect signals without retaining DuckDB through external HTTP waits."""
+    params = params or {}
+    path = Path(db_path) if db_path is not None else db.DEFAULT_DB
+    mode = params.get("mode", "incremental")
+
+    con = db.connect(path)
+    try:
+        db.init_schema(con)
+        db.init_queue_schema(con)
+        db.init_signals_schema(con)
+    finally:
+        con.close()
+
+    def fetch_source(name: str, source_mode: str) -> list[tuple]:
+        if name not in DB_READ_SOURCES:
+            return SOURCES[name](None, source_mode)
+        read_con = db.connect(path, read_only=True)
+        try:
+            return SOURCES[name](read_con, source_mode)
+        finally:
+            read_con.close()
+
+    def insert_rows(
+        rows: list[tuple], stamp: date | Callable[[str, date], date]
+    ) -> int:
+        if not rows:
+            return 0
+        write_con = db.connect(path)
+        try:
+            return db.insert_macro_signals(write_con, rows, stamp)
+        finally:
+            write_con.close()
+
+    def read_totals() -> list[tuple]:
+        read_con = db.connect(path, read_only=True)
+        try:
+            return read_con.execute(
+                "SELECT series, COUNT(*), MIN(obs_date), MAX(obs_date), MAX(fetch_as_of) "
+                "FROM macro_signals GROUP BY series ORDER BY series"
+            ).fetchall()
+        finally:
+            read_con.close()
+
+    acc = _collect(params, mode, fetch_source, insert_rows, read_totals)
     store_gb = rsc.dir_size_gb(STORE_DIR)
     acc["last_run"] = datetime.now(timezone.utc).isoformat()
     acc["store_gb"] = round(store_gb, 2)
@@ -936,11 +1017,7 @@ def main() -> int:
     if args.only:
         params["only"] = args.only
 
-    con = db.connect(args.db) if args.db else db.connect()
-    db.init_schema(con)
-    db.init_queue_schema(con)
-    run(params, con, meta_path=args.meta)
-    con.close()
+    run_connection_narrowed(params, db_path=args.db, meta_path=args.meta)
     return 0
 
 

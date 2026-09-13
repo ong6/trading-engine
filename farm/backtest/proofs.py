@@ -75,13 +75,15 @@ def screen_equivalence() -> bool:
     _hdr("PROOF 1 — screen equivalence (hist_screen vs engine/screen.py)")
     path = _copy_store("equiv.duckdb")
     con = db.connect(path)
-    db.init_schema(con)
-    con.execute("CREATE OR REPLACE TABLE sr_stored AS SELECT * FROM screen_results")
-    con.execute("DROP TABLE IF EXISTS hs")
-    con.execute("CREATE TABLE hs AS SELECT * FROM screen_results LIMIT 0")
-    hist_screen.screen_sessions(con, EQUIV_DATES, membership="live",
-                                passing_only=False, table="hs")
-    con.close()
+    try:
+        db.init_schema(con)
+        con.execute("CREATE OR REPLACE TABLE sr_stored AS SELECT * FROM screen_results")
+        con.execute("DROP TABLE IF EXISTS hs")
+        con.execute("CREATE TABLE hs AS SELECT * FROM screen_results LIMIT 0")
+        hist_screen.screen_sessions(con, EQUIV_DATES, membership="live",
+                                    passing_only=False, table="hs")
+    finally:
+        con.close()
 
     for d in EQUIV_DATES:
         subprocess.run([PY, "-m", "engine.screen", "--db", str(path), "--data-dir",
@@ -93,48 +95,51 @@ def screen_equivalence() -> bool:
     ok = True
     cols = ["close", "rs_rank", "template_score", "passes_template", "dist_50d",
             "dist_200d", "off_52w_low", "off_52w_high", "base_tight", "vol_dryup"]
-    print("\n-- (b) vs a FRESH engine/screen.py run on the same data (formula proof)")
-    for d in EQUIV_DATES:
-        n_a, n_b = (con.execute(f"SELECT COUNT(*) FROM {t} WHERE run_date = ?",
-                                [d]).fetchone()[0] for t in ("screen_results", "hs"))
-        only = con.execute(
-            "SELECT (SELECT COUNT(*) FROM (SELECT ticker FROM screen_results "
-            "WHERE run_date = ? EXCEPT SELECT ticker FROM hs WHERE run_date = ?)),"
-            "       (SELECT COUNT(*) FROM (SELECT ticker FROM hs WHERE run_date = ? "
-            "EXCEPT SELECT ticker FROM screen_results WHERE run_date = ?))",
-            [d, d, d, d]).fetchone()
-        pred = " OR ".join(
-            f"s.{c} IS DISTINCT FROM h.{c}" if c in ("base_tight", "vol_dryup",
-                                                     "passes_template")
-            else (f"ABS(s.{c} - h.{c}) > 1e-12" if c not in ("rs_rank",
-                                                             "template_score")
-                  else f"s.{c} <> h.{c}")
-            for c in cols)
-        ndiff = con.execute(
-            f"SELECT COUNT(*) FROM screen_results s JOIN hs h USING (run_date, "
-            f"ticker) WHERE s.run_date = ? AND ({pred})", [d]).fetchone()[0]
-        good = only == (0, 0) and ndiff == 0
-        ok &= good
-        print(f"  {d}: live={n_a} hist={n_b} only_live={only[0]} only_hist={only[1]} "
-              f"column_diffs={ndiff}  {'PASS' if good else 'FAIL'}")
+    try:
+        print("\n-- (b) vs a FRESH engine/screen.py run on the same data (formula proof)")
+        for d in EQUIV_DATES:
+            n_a, n_b = (con.execute(f"SELECT COUNT(*) FROM {t} WHERE run_date = ?",
+                                    [d]).fetchone()[0] for t in ("screen_results", "hs"))
+            only = con.execute(
+                "SELECT (SELECT COUNT(*) FROM (SELECT ticker FROM screen_results "
+                "WHERE run_date = ? EXCEPT SELECT ticker FROM hs WHERE run_date = ?)),"
+                "       (SELECT COUNT(*) FROM (SELECT ticker FROM hs WHERE run_date = ? "
+                "EXCEPT SELECT ticker FROM screen_results WHERE run_date = ?))",
+                [d, d, d, d]).fetchone()
+            pred = " OR ".join(
+                f"s.{c} IS DISTINCT FROM h.{c}" if c in ("base_tight", "vol_dryup",
+                                                         "passes_template")
+                else (f"ABS(s.{c} - h.{c}) > 1e-12" if c not in ("rs_rank",
+                                                                 "template_score")
+                      else f"s.{c} <> h.{c}")
+                for c in cols)
+            ndiff = con.execute(
+                f"SELECT COUNT(*) FROM screen_results s JOIN hs h USING (run_date, "
+                f"ticker) WHERE s.run_date = ? AND ({pred})", [d]).fetchone()[0]
+            good = only == (0, 0) and ndiff == 0
+            ok &= good
+            print(f"  {d}: live={n_a} hist={n_b} only_live={only[0]} "
+                  f"only_hist={only[1]} column_diffs={ndiff}  "
+                  f"{'PASS' if good else 'FAIL'}")
 
-    print("\n-- (a) vs the rows STORED on the day (differences = data drift since)")
-    for d in EQUIV_DATES:
-        drift = con.execute(
-            "SELECT (SELECT COUNT(*) FROM (SELECT ticker FROM sr_stored WHERE "
-            "run_date = ? EXCEPT SELECT ticker FROM hs WHERE run_date = ?)),"
-            "(SELECT COUNT(*) FROM sr_stored s JOIN hs h USING (run_date, ticker) "
-            "WHERE s.run_date = ? AND s.rs_rank <> h.rs_rank),"
-            "(SELECT COUNT(*) FROM sr_stored s JOIN hs h USING (run_date, ticker) "
-            "WHERE s.run_date = ? AND ABS(s.close - h.close) > 1e-12)",
-            [d, d, d, d]).fetchone()
-        names = [r[0] for r in con.execute(
-            "SELECT ticker FROM (SELECT ticker FROM sr_stored WHERE run_date = ? "
-            "EXCEPT SELECT ticker FROM hs WHERE run_date = ?) ORDER BY ticker",
-            [d, d]).fetchall()]
-        print(f"  {d}: gone_from_universe={drift[0]} {names} "
-              f"rs_rank_moved={drift[1]} close_restated={drift[2]}")
-    con.close()
+        print("\n-- (a) vs the rows STORED on the day (differences = data drift since)")
+        for d in EQUIV_DATES:
+            drift = con.execute(
+                "SELECT (SELECT COUNT(*) FROM (SELECT ticker FROM sr_stored WHERE "
+                "run_date = ? EXCEPT SELECT ticker FROM hs WHERE run_date = ?)),"
+                "(SELECT COUNT(*) FROM sr_stored s JOIN hs h USING (run_date, ticker) "
+                "WHERE s.run_date = ? AND s.rs_rank <> h.rs_rank),"
+                "(SELECT COUNT(*) FROM sr_stored s JOIN hs h USING (run_date, ticker) "
+                "WHERE s.run_date = ? AND ABS(s.close - h.close) > 1e-12)",
+                [d, d, d, d]).fetchone()
+            names = [r[0] for r in con.execute(
+                "SELECT ticker FROM (SELECT ticker FROM sr_stored WHERE run_date = ? "
+                "EXCEPT SELECT ticker FROM hs WHERE run_date = ?) ORDER BY ticker",
+                [d, d]).fetchall()]
+            print(f"  {d}: gone_from_universe={drift[0]} {names} "
+                  f"rs_rank_moved={drift[1]} close_restated={drift[2]}")
+    finally:
+        con.close()
     print(f"\nPROOF 1: {'PASS' if ok else 'FAIL'}")
     return ok
 
@@ -144,15 +149,17 @@ def replay_fidelity() -> bool:
     _hdr("PROOF 2 — replay fidelity (new driver vs sim/backtest_shakedown.py)")
     path = _copy_store("fidelity.duckdb")
     con = db.connect(path)
-    con.execute("DELETE FROM prices WHERE date > ?", [FIDELITY_END])
-    for t in ("sim_equity", "sim_fills", "sim_orders", "sim_positions",
-              "sim_dividends", "portfolios"):
-        con.execute(f"DELETE FROM {t}")
-    con.execute("DELETE FROM screen_results WHERE run_date > ?", [FIDELITY_END])
-    n_sessions = con.execute(
-        "SELECT COUNT(DISTINCT date) FROM prices WHERE date >= ?",
-        [FIDELITY_START]).fetchone()[0]
-    con.close()
+    try:
+        con.execute("DELETE FROM prices WHERE date > ?", [FIDELITY_END])
+        for t in ("sim_equity", "sim_fills", "sim_orders", "sim_positions",
+                  "sim_dividends", "portfolios"):
+            con.execute(f"DELETE FROM {t}")
+        con.execute("DELETE FROM screen_results WHERE run_date > ?", [FIDELITY_END])
+        n_sessions = con.execute(
+            "SELECT COUNT(DISTINCT date) FROM prices WHERE date >= ?",
+            [FIDELITY_START]).fetchone()[0]
+    finally:
+        con.close()
     print(f"window {FIDELITY_START} → {FIDELITY_END} ({n_sessions} sessions)")
 
     r = subprocess.run([PY, "-m", "sim.backtest_shakedown", "--db", str(path),
@@ -174,31 +181,33 @@ def replay_fidelity() -> bool:
             b = db.connect(
                 PROOF_DIR / "replay" / f"{cid}__6mo" / "replay.duckdb",
                 read_only=True)
-            queries = {
-                "sim_orders": "SELECT ticker, side, qty, signal_date, status, "
-                              "COALESCE(reject_reason, '') FROM sim_orders "
-                              "WHERE portfolio_id = ? ORDER BY signal_date, "
-                              "ticker, side, qty",
-                "sim_fills": "SELECT ticker, side, qty, fill_date, open_px, "
-                             "fill_px, slippage_bps, cost_bps FROM sim_fills "
-                             "WHERE portfolio_id = ? ORDER BY fill_date, ticker, "
-                             "side, qty",
-                "sim_equity": "SELECT date, equity, cash, n_positions FROM "
-                              "sim_equity WHERE portfolio_id = ? ORDER BY date",
-                "sim_positions": "SELECT ticker, qty, avg_cost FROM sim_positions "
-                                 "WHERE portfolio_id = ? ORDER BY ticker",
-                "sim_dividends": "SELECT ticker, ex_date, qty, dps, amount FROM "
-                                 "sim_dividends WHERE portfolio_id = ? "
-                                 "ORDER BY ex_date, ticker",
-            }
-            for label, sql in queries.items():
-                ra = live.execute(sql, [cid]).fetchall()
-                rb = b.execute(sql, [cid]).fetchall()
-                same = ra == rb
-                ok &= same
-                print(f"  {cid:<24} {label:<14} shakedown={len(ra):>4} "
-                      f"replay={len(rb):>4} identical={same}")
-            b.close()
+            try:
+                queries = {
+                    "sim_orders": "SELECT ticker, side, qty, signal_date, status, "
+                                  "COALESCE(reject_reason, '') FROM sim_orders "
+                                  "WHERE portfolio_id = ? ORDER BY signal_date, "
+                                  "ticker, side, qty",
+                    "sim_fills": "SELECT ticker, side, qty, fill_date, open_px, "
+                                 "fill_px, slippage_bps, cost_bps FROM sim_fills "
+                                 "WHERE portfolio_id = ? ORDER BY fill_date, ticker, "
+                                 "side, qty",
+                    "sim_equity": "SELECT date, equity, cash, n_positions FROM "
+                                  "sim_equity WHERE portfolio_id = ? ORDER BY date",
+                    "sim_positions": "SELECT ticker, qty, avg_cost FROM sim_positions "
+                                     "WHERE portfolio_id = ? ORDER BY ticker",
+                    "sim_dividends": "SELECT ticker, ex_date, qty, dps, amount FROM "
+                                     "sim_dividends WHERE portfolio_id = ? "
+                                     "ORDER BY ex_date, ticker",
+                }
+                for label, sql in queries.items():
+                    ra = live.execute(sql, [cid]).fetchall()
+                    rb = b.execute(sql, [cid]).fetchall()
+                    same = ra == rb
+                    ok &= same
+                    print(f"  {cid:<24} {label:<14} shakedown={len(ra):>4} "
+                          f"replay={len(rb):>4} identical={same}")
+            finally:
+                b.close()
     finally:
         live.close()
     print(f"\nPROOF 2: {'PASS' if ok else 'FAIL'}")
@@ -235,7 +244,9 @@ def stats_sanity() -> bool:
     qty = CASH / rows[0][2]                      # signal: cash / close(d0)
     fill_px = rows[1][1] * (1 + 10.0 / 1e4)      # t+1 open, 10 bp (SPY tier)
     if qty * fill_px > CASH:
-        qty = float(math.floor(CASH / fill_px))  # apply_fill's cash clamp
+        # Fractional cash clamp (fill model v2+). The 1e-12 shave preserves the
+        # no-negative-cash invariant under floating-point multiplication.
+        qty = (CASH / fill_px) * (1.0 - 1e-12)
     cash = CASH - qty * fill_px
     eq, dates = [CASH], [rows[0][0]]
     for d, _o, c in rows[1:]:

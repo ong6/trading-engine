@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -181,28 +182,28 @@ def _download(yf_tickers: list[str], *, interval: str, period: str) -> pd.DataFr
 
 
 # --------------------------------------------------------------------------- #
-# entry point the queue dispatches to
+# preparation + network loop
 # --------------------------------------------------------------------------- #
-def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
-    """Pull 1m (7d) + 5m (60d) bars for the archive universe and append the new
-    ones. Idempotent: re-running the same day inserts nothing new.
-
-    params:
-      limit — cap the universe to the first N tickers (for fast smoke tests;
-              the full-500 run belongs to the main loop).
-    Returns the accounting dict also written under the _meta.json 'intraday' key.
-    """
-    params = params or {}
+def _prepare_run(con, params: dict) -> dict[str, str]:
+    """Resolve the archive universe while a database connection is available."""
     universe = _select_universe(con)
     log.info(f"[intraday] archive universe: {len(universe)} tickers "
           f"(top-500 dollar-vol ∪ latest passers ∪ {'/'.join(BENCHMARKS)})")
 
     limit = params.get("limit")
-    if limit:
+    if limit is not None:
         universe = universe[: int(limit)]
         log.info(f"[intraday] params limit={limit} -> pulling {len(universe)} tickers")
 
-    yf_to_canon_full = {yft: tk for tk, yft in _yf_map(con, universe).items()}
+    return {yft: tk for tk, yft in _yf_map(con, universe).items()}
+
+
+def _pull_batches(
+    yf_to_canon_full: dict[str, str],
+    insert_batch: Callable[[pd.DataFrame], int],
+    meta_path: str | Path,
+) -> dict:
+    """Download, parse, and checkpoint batches without retaining a DB handle."""
     all_yf = list(yf_to_canon_full)
 
     new_rows = {"1m": 0, "5m": 0}
@@ -218,7 +219,7 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
             if raw is None or raw.empty:
                 failed_batches += 1
             df, got = _extract_long(raw, sub_map, interval)
-            n = db.insert_intraday(con, df)
+            n = insert_batch(df)
             new_rows[interval] += n
             got_iv |= got
             log.info(f"[intraday] {interval} batch {len(batch)} -> {n} new rows "
@@ -255,6 +256,55 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# entry points
+# --------------------------------------------------------------------------- #
+def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
+    """Pull and append intraday bars using an already-owned DB connection.
+
+    This compatibility entry point retains the caller's connection. Queue and
+    CLI execution use :func:`run_connection_narrowed` below.
+    """
+    prepared = _prepare_run(con, params or {})
+    return _pull_batches(
+        prepared,
+        lambda frame: db.insert_intraday(con, frame),
+        meta_path,
+    )
+
+
+def run_connection_narrowed(
+    params: dict | None,
+    db_path: str | Path | None = None,
+    meta_path: str | Path = DEFAULT_META,
+) -> dict:
+    """Pull intraday bars without holding DuckDB during HTTP or batch sleeps.
+
+    The queue remains process-level sequential. DuckDB is leased briefly for
+    schema/universe preparation and once per completed batch insertion, which
+    lets API/UI readers reconnect throughout the network-bound collection.
+    """
+    path = Path(db_path) if db_path is not None else db.DEFAULT_DB
+    con = db.connect(path)
+    try:
+        db.init_schema(con)
+        db.init_queue_schema(con)
+        prepared = _prepare_run(con, params or {})
+    finally:
+        con.close()
+
+    def insert_batch(frame: pd.DataFrame) -> int:
+        if frame is None or frame.empty:
+            return 0
+        write_con = db.connect(path)
+        try:
+            return db.insert_intraday(write_con, frame)
+        finally:
+            write_con.close()
+
+    return _pull_batches(prepared, insert_batch, meta_path)
+
+
+# --------------------------------------------------------------------------- #
 # convenience: enqueue + run through the queue (keeps the one-queue discipline)
 # --------------------------------------------------------------------------- #
 def main() -> int:
@@ -266,11 +316,9 @@ def main() -> int:
     ap.add_argument("--params", default="{}", help="params JSON, e.g. '{\"limit\": 40}'")
     args = ap.parse_args()
 
-    con = db.connect(args.db) if args.db else db.connect()
-    db.init_schema(con)
-    db.init_queue_schema(con)
-    run(json.loads(args.params), con, meta_path=args.meta)
-    con.close()
+    run_connection_narrowed(
+        json.loads(args.params), db_path=args.db, meta_path=args.meta
+    )
     return 0
 
 

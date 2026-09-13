@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from farm.walkforward import monthly as wm
+from farm.walkforward.controls import declaration
 
 
 # ------------------------------------------------------------ series ------ #
@@ -101,12 +102,49 @@ def test_verdict_rule():
 
 
 def test_control_and_insample_rules():
-    assert wm.control_of("template_top5") == "ew_benchmark"
-    assert wm.control_of("dual_momentum") == "spy_benchmark"
-    assert wm.control_of("ew_benchmark") is None
+    for cid, expected in (
+        ("template_top5", "ew_benchmark"),
+        ("dual_momentum", "spy_benchmark"),
+        ("sector_momentum", "spy_benchmark"),
+        ("multi_asset_trend", "spy_benchmark"),
+        ("xs_momentum_12_1", "ew_benchmark"),
+        ("ew_benchmark", None),
+    ):
+        assert wm.control_of({"config_id": cid, "comparison": declaration(cid)}) == expected
     assert wm.insample_folds({"config_id": "template_top5"}) == {10}        # July cohort
     assert wm.insample_folds({"config_id": "ew_voltarget"}) == set()        # August cohort
     assert wm.insample_folds({"config_id": "x", "registered": "2026-07-30"}) == {10}
+
+
+def test_load_results_retains_only_flagged_retired_evidence(tmp_path):
+    protocol = {"anchor": "2026-09-04", "train_months": 24,
+                "validate_months": 12, "step_months": 12, "n_folds": 10}
+    for cid in ("spy_benchmark", "multi_asset_trend", "news_gated_momo"):
+        payload = {"config_id": cid, "protocol": protocol, "folds": [],
+                   "fill_model": "v3", "universe_policy": "all"}
+        (tmp_path / f"{cid}.json").write_text(json.dumps(payload))
+    assert set(wm.load_results(tmp_path)) == {"spy_benchmark", "multi_asset_trend"}
+
+
+def test_load_results_never_mixes_source_trees_but_keeps_legacy_retirement(tmp_path):
+    protocol = {"anchor": "2026-09-04", "train_months": 24,
+                "validate_months": 12, "step_months": 12, "n_folds": 10}
+    rows = {
+        "spy_benchmark": "tree-a",
+        "dual_momentum": "tree-a",
+        "ew_benchmark": "tree-b",
+        "sector_momentum": None,
+        "multi_asset_trend": None,
+    }
+    for cid, source in rows.items():
+        payload = {"config_id": cid, "protocol": protocol, "folds": [],
+                   "fill_model": "v3", "universe_policy": "all"}
+        if source:
+            payload["source_sha256"] = source
+        (tmp_path / f"{cid}.json").write_text(json.dumps(payload))
+    assert set(wm.load_results(tmp_path)) == {
+        "spy_benchmark", "dual_momentum", "multi_asset_trend",
+    }
 
 
 # ------------------------------------------------------------ fixture ----- #
@@ -127,6 +165,11 @@ def _fixture(cid, drift, seed, registered, n_folds=10):
         proto.append(dict(f))
         folds.append({**f, "status": "ok", "validate_monthly_equity": pts})
     return {"config_id": cid, "name": cid, "strategy": cid, "registered": registered,
+            "fill_model": "v3", "source_sha256": "same-source",
+            "universe_policy": "all", "initial_cash": 39_000.0,
+            "execution_profile": {"id": "baseline_v1"},
+            "data_snapshot": {"sha256": "same-data"},
+            "comparison": declaration(cid),
             "protocol": {"folds": proto, "n_folds": n_folds}, "folds": folds}
 
 
@@ -142,7 +185,7 @@ def test_paired_excess_drops_insample_fold_and_pairs_months():
     assert len(kept) == 120
 
 
-def test_build_and_write_report_on_synthetic_fixture(tmp_path):
+def test_build_and_write_report_on_synthetic_fixture(tmp_path, monkeypatch):
     results = {
         "ew_benchmark": _fixture("ew_benchmark", 0.0, 2, "2026-07-17"),
         "spy_benchmark": _fixture("spy_benchmark", 0.0, 3, "2026-07-17"),
@@ -160,12 +203,21 @@ def test_build_and_write_report_on_synthetic_fixture(tmp_path):
     assert rows["template_top5"]["n_months"] == 108 and rows["ew_voltarget"]["n_months"] == 120
     assert rows["template_top5"]["beat_rate"] > 0.5 > rows["turtle_breakout"]["beat_rate"]
 
-    rd = tmp_path / "results"; rd.mkdir()
+    rd = tmp_path / "results"
+    rd.mkdir()
     for cid, r in results.items():
         (rd / f"{cid}.json").write_text(json.dumps(r))
     readme = tmp_path / "README.md"
     readme.write_text("| [template_top5](template_top5.md) | PASS | x |\n"
                       "| [turtle_breakout](turtle_breakout.md) | REVIEW | x |\n")
+    atomic_paths = []
+    real_atomic_write = wm.resources.write_text_atomic
+
+    def recording_atomic_write(path, text):
+        atomic_paths.append(path)
+        real_atomic_write(path, text)
+
+    monkeypatch.setattr(wm.resources, "write_text_atomic", recording_atomic_write)
     md, js = wm.write_report(results_dir=rd, out_dir=tmp_path, bt_dir=tmp_path / "none",
                              stamp="2099-01-01", readme=readme)
     text = md.read_text()
@@ -174,6 +226,147 @@ def test_build_and_write_report_on_synthetic_fixture(tmp_path):
     payload = json.loads(js.read_text())
     assert payload["fold_level_verdicts"] == {"template_top5": "PASS", "turtle_breakout": "REVIEW"}
     assert payload["proxy"] == []                     # no backtests dir -> empty proxy
+    assert atomic_paths == [md, js]
+    assert list(tmp_path.glob("monthly-2099-01-01.*.tmp")) == []
+
+
+def test_fold_level_verdicts_accepts_current_and_legacy_shapes(tmp_path):
+    p = tmp_path / "README.md"
+    p.write_text(
+        "| [sector_momentum](sector_momentum.md) | `fixed_etf_history` | "
+        "spy_benchmark | WATCH | **INDISTINGUISHABLE** | 9 |\n"
+        "| [multi_asset_trend](multi_asset_trend.md) | spy_benchmark | WATCH | x |\n"
+        "| [template_top5](template_top5.md) | PASS | x |\n"
+        "| [old_book](old_book.md) | `legacy` | ew_benchmark | RETIRED (REVIEW) | x |\n"
+    )
+    assert wm.fold_level_verdicts(p) == {
+        "sector_momentum": "WATCH", "multi_asset_trend": "WATCH",
+        "template_top5": "PASS", "old_book": "REVIEW",
+    }
+
+
+def test_no_control_explanation_names_the_incompatibility():
+    assert wm._why("no-benchmark", {
+        "verdict": "NO-CONTROL",
+        "control_reason": "different data-quality class",
+    }) == "control comparison suppressed: different evidence class"
+
+
+def test_load_results_never_mixes_protocol_anchors(tmp_path):
+    old = _fixture("ew_benchmark", 0.0, 1, "2026-07-17")
+    new = _fixture("spy_benchmark", 0.0, 2, "2026-07-17")
+    old["protocol"].update({"anchor": "2026-08-28", "train_months": 24,
+                              "validate_months": 12, "step_months": 12})
+    new["protocol"].update({"anchor": "2026-09-04", "train_months": 24,
+                              "validate_months": 12, "step_months": 12})
+    (tmp_path / "old.json").write_text(json.dumps(old))
+    (tmp_path / "new.json").write_text(json.dumps(new))
+    assert set(wm.load_results(tmp_path)) == {"spy_benchmark"}
+
+
+def test_load_results_excludes_retired_artifacts(tmp_path):
+    live = _fixture("spy_benchmark", 0.0, 1, "2026-07-17")
+    retired = _fixture("news_gated_momo", 0.0, 2, "2026-08-03")
+    for d in (live, retired):
+        d["protocol"].update({"anchor": "2026-09-04", "train_months": 24,
+                                "validate_months": 12, "step_months": 12})
+    (tmp_path / "live.json").write_text(json.dumps(live))
+    (tmp_path / "retired.json").write_text(json.dumps(retired))
+    assert set(wm.load_results(tmp_path)) == {"spy_benchmark"}
+
+
+def test_load_results_never_mixes_fill_models(tmp_path):
+    old = _fixture("ew_benchmark", 0.0, 1, "2026-07-17")
+    new = _fixture("spy_benchmark", 0.0, 2, "2026-07-17")
+    for d in (old, new):
+        d["protocol"].update({"anchor": "2026-09-04", "train_months": 24,
+                                "validate_months": 12, "step_months": 12})
+        d["universe_policy"] = "all"
+    old["fill_model"], new["fill_model"] = "v2", "v3"
+    (tmp_path / "old.json").write_text(json.dumps(old))
+    (tmp_path / "new.json").write_text(json.dumps(new))
+    assert set(wm.load_results(tmp_path)) == {"spy_benchmark"}
+
+
+@pytest.mark.parametrize(
+    ("field", "old_value", "new_value"),
+    [
+        ("initial_cash", 39_000.0, 100_000.0),
+        ("execution_profile", {"id": "baseline_v1"}, {"id": "cost_2x_v1"}),
+        (
+            "execution_profile",
+            {"id": "baseline_v1", "fixed_adverse_bps": 5.0},
+            {"id": "baseline_v1", "fixed_adverse_bps": 25.0},
+        ),
+        ("data_snapshot", {"sha256": "before"}, {"sha256": "after"}),
+        (
+            "comparison",
+            {"protocol": "control-v1", "control_id": "ew_benchmark"},
+            {"protocol": "control-v2", "control_id": None},
+        ),
+    ],
+)
+def test_load_results_never_mixes_capital_cost_or_data_cohorts(
+        tmp_path, field, old_value, new_value):
+    old = _fixture("ew_benchmark", 0.0, 1, "2026-07-17")
+    new = _fixture("spy_benchmark", 0.0, 2, "2026-07-17")
+    for d in (old, new):
+        d["protocol"].update({"anchor": "2026-09-04", "train_months": 24,
+                              "validate_months": 12, "step_months": 12})
+        d.update({"fill_model": "v4", "universe_policy": "all",
+                  "source_sha256": "same-source", "initial_cash": 39_000.0,
+                  "execution_profile": {"id": "baseline_v1"},
+                  "data_snapshot": {"sha256": "same-data"}})
+    old[field], new[field] = old_value, new_value
+    (tmp_path / "old.json").write_text(json.dumps(old))
+    (tmp_path / "new.json").write_text(json.dumps(new))
+    assert len(wm.load_results(tmp_path)) == 1
+
+
+def test_monthly_build_suppresses_cross_evidence_class_comparison():
+    candidate = _fixture("template_top5", 0.03, 1, "2026-07-17")
+    control = _fixture("ew_benchmark", 0.0, 2, "2026-07-17")
+    candidate["data_quality_class"] = "static_fundamental_lookahead"
+    control["data_quality_class"] = "current_universe_survivor_biased"
+
+    row = next(r for r in wm.build({"template_top5": candidate,
+                                    "ew_benchmark": control})
+               if r["config_id"] == "template_top5")
+
+    assert row["verdict"] == "NO-CONTROL"
+    assert row["n_months"] == 0
+    assert row["control_reason"] == "different data-quality class"
+
+
+@pytest.mark.parametrize(
+    ("field", "candidate_value", "control_value"),
+    [
+        ("source_sha256", "source-a", "source-b"),
+        ("fill_model", "v4", "v3"),
+        ("universe_policy", "all", "exclude-leveraged"),
+        ("initial_cash", 39_000.0, 100_000.0),
+        ("execution_profile", {"id": "baseline_v1"}, {"id": "cost_2x_v1"}),
+        (
+            "execution_profile",
+            {"id": "baseline_v1", "fixed_adverse_bps": 5.0},
+            {"id": "baseline_v1", "fixed_adverse_bps": 25.0},
+        ),
+        ("data_snapshot", {"sha256": "before"}, {"sha256": "after"}),
+    ],
+)
+def test_monthly_build_suppresses_mixed_research_cohorts(
+        field, candidate_value, control_value):
+    candidate = _fixture("template_top5", 0.03, 1, "2026-07-17")
+    control = _fixture("ew_benchmark", 0.0, 2, "2026-07-17")
+    candidate[field], control[field] = candidate_value, control_value
+
+    row = next(r for r in wm.build({"template_top5": candidate,
+                                    "ew_benchmark": control})
+               if r["config_id"] == "template_top5")
+
+    assert row["verdict"] == "NO-CONTROL"
+    assert row["n_months"] == 0
+    assert row["control_reason"] == "different research cohort"
 
 
 def test_proxy_results_cuts_continuous_series_into_folds(tmp_path):

@@ -1,10 +1,11 @@
 """The fill model — honest by design (execution design §2).
 
 An order created from a close-of-day-t signal fills at the day t+1 OPEN. There
-are **no same-bar fills, ever**: `assert fill_date > signal_date` is enforced in
-exactly one place (`attempt_fill`) and is the single look-ahead guard.
+are **no same-bar fills, ever**: ``fill_date > signal_date`` is enforced in
+exactly one place (``attempt_fill``) and is the single look-ahead guard. The
+guard raises unconditionally, including when Python runs with optimization.
 
-Per-side cost is deliberately worse than any backtest assumption:
+The historical compatibility profile, ``baseline_v1``, uses:
 
     slippage_bps = max(half_spread_bps, 5) + 5          # +5/side = 10bp round-trip
 
@@ -17,7 +18,9 @@ Per-side cost is deliberately worse than any backtest assumption:
     buys  fill at open * (1 + slippage_bps/1e4)
     sells fill at open * (1 - slippage_bps/1e4)
 
-Liquidity guard: order notional (qty * open) may not exceed 1% of the name's
+Other named profiles may change spread, adverse movement, participation impact,
+fees, and the capacity ceiling; their full payload is serialized in research
+artifacts. Under ``baseline_v1``, order notional (qty * open) may not exceed 1% of the name's
 60-bar median daily dollar volume → the order is REJECTED (partial fills are not
 modeled in v1). If the fill-date bar is missing (halt / delisting), has a non-positive open,
 or printed zero volume (nobody traded — dead quotes from the feed look exactly
@@ -31,10 +34,11 @@ from datetime import date
 
 import duckdb
 
-from . import calendar
+from . import calendar, execution
 
 MEDVOL_BARS = 60          # lookback for median dollar volume
-MAX_NOTIONAL_FRAC = 0.01  # order may not exceed 1% of median daily $vol
+# Compatibility alias. New code reads this from the named execution profile.
+MAX_NOTIONAL_FRAC = execution.BASELINE.max_participation
 PENDING_MAX_DAYS = 3      # trading days a bar may be missing before 'no_bar'
 
 
@@ -46,7 +50,12 @@ class FillResult:
     open_px: float | None = None
     fill_px: float | None = None
     slippage_bps: float | None = None
+    cost_bps: float | None = None
     median_dollar_vol: float | None = None
+    participation: float | None = None
+    impact_bps: float | None = None
+    fee_bps: float | None = None
+    execution_profile: str | None = None
 
 
 def median_dollar_vol(
@@ -75,20 +84,17 @@ def median_dollar_vol(
 
 def half_spread_bps(mdv: float | None) -> float:
     """Conservative liquidity-tiered half-spread estimate (documented above)."""
-    if mdv is None:
-        return 25.0
-    if mdv >= 50_000_000:
-        return 5.0
-    if mdv >= 20_000_000:
-        return 10.0
-    if mdv >= 5_000_000:
-        return 15.0
-    return 25.0
+    return execution.half_spread_bps(mdv)
 
 
-def slippage_bps_for(mdv: float | None) -> float:
+def slippage_bps_for(mdv: float | None,
+                     profile: str | execution.ExecutionProfile | None = None,
+                     *, side: str = "buy", qty: float = 1.0,
+                     open_px: float = 1.0) -> float:
     """Per-side slippage in bps: max(half_spread, 5) + 5 (the +5 = 10bp r/t)."""
-    return max(half_spread_bps(mdv), 5.0) + 5.0
+    return execution.cost_components(
+        profile, side=side, qty=qty, open_px=open_px,
+        median_dollar_volume=mdv)["total_bps"]
 
 
 def attempt_fill(
@@ -98,18 +104,20 @@ def attempt_fill(
     qty: float,
     signal_date: date,
     fill_date: date,
+    profile: str | execution.ExecutionProfile | None = None,
 ) -> FillResult:
     """Try to fill one order at `fill_date`'s open. The ONLY look-ahead guard.
 
-    - Asserts fill_date > signal_date (no same-bar fills, ever).
+    - Requires fill_date > signal_date (no same-bar fills, ever).
     - Missing bar: 'pending' until PENDING_MAX_DAYS trading days elapse, then
       'rejected' with reason 'no_bar' (a bar is never fabricated).
-    - Liquidity guard: notional > 1% of median $vol → 'rejected' ('illiquid').
+    - Liquidity guard: notional above the profile's participation cap is rejected.
     - Otherwise 'filled' at the slippage-adjusted open.
     """
-    assert fill_date > signal_date, (
-        f"look-ahead violation: fill_date {fill_date} !> signal_date {signal_date}"
-    )
+    if fill_date <= signal_date:
+        raise ValueError(
+            f"look-ahead violation: fill_date {fill_date} !> signal_date {signal_date}"
+        )
 
     bar = con.execute(
         "SELECT open, volume FROM prices WHERE ticker = ? AND date = ?",
@@ -133,17 +141,24 @@ def attempt_fill(
     open_px = float(bar[0])
     mdv = median_dollar_vol(con, ticker, fill_date)
 
+    selected = execution.resolve_profile(profile)
+    components = execution.cost_components(
+        selected, side=side, qty=qty, open_px=open_px,
+        median_dollar_volume=mdv)
+
     # Liquidity guard (partial fills not modeled v1).
-    if mdv is not None and qty * open_px > MAX_NOTIONAL_FRAC * mdv:
+    if (mdv is not None
+            and components["participation"] > selected.max_participation):
         return FillResult(
             status="rejected",
-            reject_reason=f"illiquid: notional ${qty * open_px:,.0f} > 1% of "
-            f"median $vol ${mdv:,.0f}",
+            reject_reason=f"illiquid: notional ${qty * open_px:,.0f} > "
+            f"{selected.max_participation:.2%} of "
+            f"median $vol ${mdv:,.0f} (profile {selected.id})",
             open_px=open_px,
             median_dollar_vol=mdv,
         )
 
-    slip = slippage_bps_for(mdv)
+    slip = components["total_bps"]
     if side == "buy":
         fill_px = open_px * (1 + slip / 1e4)
     elif side == "sell":
@@ -155,6 +170,11 @@ def attempt_fill(
         status="filled",
         open_px=open_px,
         fill_px=fill_px,
-        slippage_bps=slip,
+        slippage_bps=components["market_bps"],
+        cost_bps=slip,
         median_dollar_vol=mdv,
+        participation=components["participation"],
+        impact_bps=components["impact_bps"],
+        fee_bps=components["fee_bps"],
+        execution_profile=selected.id,
     )

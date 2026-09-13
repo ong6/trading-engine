@@ -1,4 +1,4 @@
-"""Per-request DuckDB connection helpers for the M3 server.
+"""Per-request DuckDB connection helpers for the local paper-trading API.
 
 `read_con()` opens read-only; `write_con()` opens read-write. Both go through
 the one connection factory (`engine.lib.db.connect`, which honours env
@@ -17,8 +17,8 @@ from pathlib import Path
 import duckdb
 
 from engine.lib import db as engine_db
-from engine.lib.db import DBBusyError  # noqa: F401  (re-export; raised below)
-from engine.lib.settings import DEFAULT_DB, REPO_ROOT  # noqa: F401
+from engine.lib.db import DBBusyError
+from engine.lib.settings import DEFAULT_DB
 
 
 def db_path() -> Path:
@@ -30,7 +30,10 @@ def _connect(read_only: bool) -> duckdb.DuckDBPyConnection:
     try:
         return engine_db.connect(db_path(), read_only=read_only, wait_s=0)
     except Exception as exc:  # duckdb.IOException et al.
-        if engine_db.is_lock_error(exc):
+        different_configuration = (
+            "same database file with a different configuration" in str(exc).lower()
+        )
+        if engine_db.is_lock_error(exc) or different_configuration:
             raise DBBusyError(str(exc)) from exc
         raise
 

@@ -20,19 +20,18 @@ from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 
+from engine.lib import resources
 from engine.lib.log import get_logger
 from engine.lib.settings import DATA_DIR, REPO_ROOT  # noqa: F401
 from engine.lib.util import num, pct
 from farm import stats as fstats
+from farm.walkforward.controls import CONTROLS as BENCHMARKS
+from farm.walkforward.controls import EW, SPY
 
 log = get_logger("wf-report")
 
 WF_DIR = DATA_DIR / "reports" / "walkforward"
 RESULTS_DIR = WF_DIR / "results"
-
-EW = "ew_benchmark"
-SPY = "spy_benchmark"
-BENCHMARKS = (EW, SPY)
 
 LEAGUE_INCEPTION = "2026-07-17"
 
@@ -50,9 +49,10 @@ DISCLOSURES = """\
    early fold rests on a thinner, more winner-selected cross-section than a late
    one. Not one 2008 casualty is present: LEH, BSC, ENE, WCOM, CFC, MER, SIVB and
    FRC are all absent, so **a fold spanning 2008 is one in which those names cannot
-   lose money.** That is WHY the headline comparison here is **vs EW (same
-   universe, same screen), fold by fold** — the bias is largely common to both
-   sides of that difference. Absolute return is context, not evidence, and a fold
+   lose money.** That is WHY the headline comparison for single-name books is
+   **vs EW (same universe, same screen), fold by fold** — the bias is largely
+   common to both sides of that difference. Newly generated ETF/asset-allocation
+   artifacts declare SPY as their comparison. Absolute return is context, not evidence, and a fold
    with a small `Universe` count deserves proportionally less weight.
 2. **Out-of-sample in the DATA, not in the RULE.** Each validate window is data
    the preceding train window never saw, and nothing is fitted anywhere in this
@@ -81,29 +81,29 @@ DISCLOSURES = """\
 """
 
 VERDICT_RULE = """\
-**Verdict rule (pre-registered, mechanical, and NOT an automatic kill).** For
-each book, against `ew_benchmark` on the same folds:
+**Verdict rule (mechanical exploratory triage, NOT an automatic kill).** For
+each book, against the versioned comparison declared in its result artifact:
 
-* **PASS** — beats EW in ≥ 50% of validate windows AND mean validate excess ≥ 0.
+* **PASS** — beats its control in ≥ 50% of validate windows AND mean validate excess ≥ 0.
 * **WATCH** — exactly one of those two fails.
-* **REVIEW** — both fail *and* the latest validate window also trails EW.
+* **REVIEW** — both fail *and* the latest validate window also trails its control.
 
-REVIEW means the book goes on the Sunday review agenda against its own
-pre-registered kill criterion (printed on its page). The prose criterion
-decides; this flag only decides what gets read. Benchmarks are not judged.
+REVIEW means the book goes on the Sunday review agenda against its own frozen
+kill criterion (printed on its page). The prose criterion decides; this flag
+only decides what gets read. Historical comparator choices are exploratory,
+not proof of pre-registration or positive edge. Benchmarks are not judged.
 """
 
-# The rule above is FROZEN. What follows is an error bar printed BESIDE it.
+# The rule above is versioned report logic. What follows is an error bar beside it.
 INTERVAL_NOTE = """\
 **The interval is new information, not a new rule (added 2026-08-20).** The
-PASS / WATCH / REVIEW rule above is unchanged: it still reads the beat rate and
-the *mean* excess exactly as it was pre-registered, and no verdict in this
-report has been recomputed, softened or overridden by an interval. What is new
-is the **90% bootstrap CI on mean excess vs EW** in the column beside it, and a
+PASS / WATCH / REVIEW rule reads the beat rate and the *mean* excess; the
+interval does not soften or override that triage label. It is the **90%
+bootstrap CI on mean excess vs the declared control** in the column beside it, and a
 mechanical `INDISTINGUISHABLE` label for any book whose interval contains 0.
 
 Read the two together: a **PASS whose interval straddles zero is a PASS on a
-number this evidence cannot separate from the benchmark**, and a REVIEW whose
+number this evidence cannot separate from the control**, and a REVIEW whose
 interval straddles zero is not proof the book is broken either. The verdict says
 what gets read on Sunday. The interval says how much the number underneath it
 is worth.
@@ -131,13 +131,57 @@ fold count in the high tens and are deliberately not used here.
 def load_results(results_dir: Path = RESULTS_DIR) -> list[dict]:
     if not results_dir.exists():
         return []
+    from farm.walkforward import protocol
+    from sim.strategies.configs import CONFIGS
+    eligible = {c["id"] for c in CONFIGS
+                if (c.get("active", True) or c.get("retain_latest_result", False))
+                and protocol.excluded_reason(c["id"], c["strategy"]) is None}
+    retained = {c["id"] for c in CONFIGS
+                if not c.get("active", True) and c.get("retain_latest_result", False)}
     out = []
     for p in sorted(results_dir.glob("*.json")):
         try:
-            out.append(_relabel_stale_inert(json.loads(p.read_text())))
+            result = json.loads(p.read_text())
+            if result.get("config_id") in eligible:
+                out.append(_relabel_stale_inert(result))
         except json.JSONDecodeError:
             log.warning(f"[wf-report] skipping unreadable {p}")
-    return out
+    # A weekly grid replaces files one-by-one.  Never put results from different
+    # anchors/protocols in one comparison table while a grid is partially
+    # drained; keep only the newest protocol cohort currently on disk.
+    anchors = [r.get("protocol", {}).get("anchor") for r in out]
+    newest = max((a for a in anchors if a), default=None)
+    if newest is None:
+        return out
+    newest_rows = [r for r in out if r.get("protocol", {}).get("anchor") == newest]
+    def base_signature(r):
+        p = r.get("protocol", {})
+        # n_folds is intentionally absent: a late-listed ETF can legitimately
+        # lose an early fold at its data floor while remaining comparable on
+        # every shared validate window.
+        return (p.get("train_months"), p.get("validate_months"),
+                p.get("step_months"), *_research_signature(r)[1:])
+
+    stamped = [r for r in newest_rows if r.get("source_sha256")]
+    signatures = {}
+    for r in stamped or newest_rows:
+        sig = (*base_signature(r), r.get("source_sha256"))
+        signatures.setdefault(sig, []).append(r)
+    # Same-anchor ad-hoc runs can still use protocol overrides. Prefer the
+    # largest coherent source cohort; deterministic tie-break by signature.
+    selected = max(signatures.items(), key=lambda kv: (len(kv[1]), str(kv[0])))[1]
+    if not stamped:
+        return selected
+
+    # A deliberately retained retirement artifact may predate provenance.
+    # Preserve that negative evidence when its protocol/fill policy matches,
+    # while never admitting an unstamped active result into a stamped cohort.
+    selected_base = base_signature(selected[0])
+    legacy_retained = [r for r in newest_rows
+                       if not r.get("source_sha256")
+                       and r.get("config_id") in retained
+                       and base_signature(r) == selected_base]
+    return selected + legacy_retained
 
 
 def _relabel_stale_inert(r: dict) -> dict:
@@ -187,13 +231,61 @@ def _fold_key(f: dict) -> tuple:
     return (f.get("split_date"), f.get("validate_end"))
 
 
+def _research_signature(result: dict) -> tuple:
+    """Assumptions that must match before two return paths are compared."""
+    profile = result.get("execution_profile") or {}
+    profile_signature = (
+        json.dumps(profile, sort_keys=True, separators=(",", ":"))
+        if isinstance(profile, dict)
+        else profile
+    )
+    snapshot = result.get("data_snapshot") or {}
+    snapshot_sha = snapshot.get("sha256") if isinstance(snapshot, dict) else snapshot
+    comparison = result.get("comparison") or {}
+    comparison_protocol = (
+        comparison.get("protocol") if isinstance(comparison, dict) else None
+    )
+    return (result.get("source_sha256"), result.get("fill_model"),
+            result.get("universe_policy"), result.get("initial_cash"),
+            profile_signature, snapshot_sha, comparison_protocol)
+
+
+def _complete_research_cohort(result: dict) -> bool:
+    profile = result.get("execution_profile")
+    snapshot = result.get("data_snapshot")
+    comparison = result.get("comparison")
+    return bool(
+        result.get("source_sha256")
+        and result.get("fill_model")
+        and result.get("universe_policy")
+        and result.get("initial_cash") is not None
+        and isinstance(profile, dict) and profile
+        and isinstance(snapshot, dict) and snapshot.get("sha256")
+        and isinstance(comparison, dict) and comparison.get("protocol")
+    )
+
+
 def _bench_index(results: list[dict]) -> dict[str, dict[tuple, dict]]:
     out: dict[str, dict[tuple, dict]] = {}
     for r in results:
         if r["config_id"] in BENCHMARKS:
-            out[r["config_id"]] = {_fold_key(f): f for f in r["folds"]
-                                   if f.get("status") == "ok"}
+            folds = {_fold_key(f): f for f in r["folds"]
+                     if f.get("status") == "ok"}
+            folds["__data_quality_class__"] = r.get("data_quality_class")
+            folds["__research_signature__"] = _research_signature(r)
+            out[r["config_id"]] = folds
     return out
+
+
+def control_of(result: dict) -> str | None:
+    """Control frozen in this artifact; never infer one for an older result."""
+    if result["config_id"] in BENCHMARKS:
+        return None
+    comparison = result.get("comparison")
+    if not isinstance(comparison, dict):
+        return None
+    control = comparison.get("control_id")
+    return control if control in BENCHMARKS and control != result["config_id"] else None
 
 
 def _excess(fold: dict, bench: dict[tuple, dict] | None):
@@ -208,16 +300,35 @@ def _excess(fold: dict, bench: dict[tuple, dict] | None):
 
 
 def book_verdict(r: dict, bench: dict[str, dict[tuple, dict]]) -> tuple[str, dict]:
-    """(verdict, measured numbers) per the pre-registered rule above."""
+    """Return the exploratory triage verdict and its measured inputs."""
     ok = [f for f in r["folds"] if f.get("status") == "ok"]
-    ew = bench.get(EW)
-    exc = [(_excess(f, ew)) for f in ok]
+    control = control_of(r)
+    control_folds = bench.get(control) if control else None
+    control_reason = None
+    if r["config_id"] not in BENCHMARKS and control is None:
+        control_reason = "comparison not declared in artifact"
+        control_folds = None
+    elif not _complete_research_cohort(r):
+        control_reason = "artifact lacks complete research provenance"
+        control_folds = None
+    control_quality = (control_folds or {}).get("__data_quality_class__")
+    if (r.get("data_quality_class") and control_quality
+            and r["data_quality_class"] != control_quality):
+        control_reason = "different data-quality class"
+        control_folds = None
+    if (control_folds and control_folds.get("__research_signature__")
+            != _research_signature(r)):
+        control_reason = "different research cohort"
+        control_folds = None
+    exc = [(_excess(f, control_folds)) for f in ok]
     exc = [e for e in exc if e is not None]
     # The CI is on the MEAN excess, because the mean is the quantity the frozen
     # verdict rule reads. Interval-ing the median here would be adding an error
     # bar to a statistic no verdict uses — informative-looking and misaligned.
     ci = fstats.bootstrap_ci(exc, stat="mean")
     stats = {
+        "control": control,
+        "control_reason": control_reason,
         "n_compared": len(exc),
         "beat_rate": (sum(1 for e in exc if e > 0) / len(exc)) if exc else None,
         "mean_excess": (sum(exc) / len(exc)) if exc else None,
@@ -245,7 +356,27 @@ FOLD_HEADER = ("| Fold | Train window | Train ret | Train CAGR | Validate window
 FOLD_RULE = "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
 
 
-def _fold_row(f: dict, bench: dict[str, dict[tuple, dict]]) -> str:
+def _compatible_benchmark(bench_folds: dict | None, result: dict) -> dict | None:
+    if not bench_folds:
+        return bench_folds
+    comparison = result.get("comparison")
+    if not isinstance(comparison, dict) or not comparison.get("protocol"):
+        return None
+    if not _complete_research_cohort(result):
+        return None
+    signature = bench_folds.get("__research_signature__")
+    if not signature or not all(signature):
+        return None
+    benchmark_class = bench_folds.get("__data_quality_class__")
+    data_quality_class = result.get("data_quality_class")
+    if data_quality_class and benchmark_class and data_quality_class != benchmark_class:
+        return None
+    if bench_folds.get("__research_signature__") != _research_signature(result):
+        return None
+    return bench_folds
+
+
+def _fold_row(f: dict, bench: dict[str, dict[tuple, dict]], result: dict) -> str:
     if f.get("status") != "ok":
         return (f"| {f.get('index')} | {f.get('train_start')}→{f.get('split_date')} "
                 f"| — | — | {f.get('split_date')}→{f.get('validate_end')} | "
@@ -259,8 +390,10 @@ def _fold_row(f: dict, bench: dict[str, dict[tuple, dict]]) -> str:
             f"| {v.get('start_date')}→{v.get('end_date')} "
             f"| **{_pct(v.get('total_return'))}** | {_pct(v.get('cagr'))} "
             f"| {_pct(v.get('vol_ann'))} | {_num(v.get('sharpe'))} "
-            f"| {_pct(v.get('max_dd'))} | {_pct(_excess(f, bench.get(EW)))} "
-            f"| {_pct(_excess(f, bench.get(SPY)))} | {f.get('n_validate_fills')} "
+            f"| {_pct(v.get('max_dd'))} | "
+            f"{_pct(_excess(f, _compatible_benchmark(bench.get(EW), result)))} "
+            f"| {_pct(_excess(f, _compatible_benchmark(bench.get(SPY), result)))} "
+            f"| {f.get('n_validate_fills')} "
             f"| {_num_int(f.get('validate_universe'))} |")
 
 
@@ -270,11 +403,11 @@ def _num_int(v) -> str:
     return "·" if v is None else f"{int(v):,}"
 
 
-SUMMARY_HEADER = ("| Book | Verdict | Distinguishable from EW? | Folds | "
-                  "Validate win rate | Beats EW | Mean validate | "
-                  "Mean excess vs EW | 90% CI on mean excess | Latest validate | "
-                  "Latest vs EW | Mean decay (CAGR) | Worst validate DD |")
-SUMMARY_RULE = "|---|---|---|---|---|---|---|---|---|---|---|---|---|"
+SUMMARY_HEADER = ("| Book | Evidence class | Control | Verdict | Distinguishable? | Folds | "
+                  "Validate win rate | Beats control | Mean validate | "
+                  "Mean excess | 90% CI on mean excess | Latest validate | "
+                  "Latest excess | Mean decay (CAGR) | Worst validate DD |")
+SUMMARY_RULE = "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
 
 
 def _ci_cell(ci: dict | None) -> str:
@@ -299,7 +432,10 @@ def _distinguishable_cell(v: str, is_reference: bool) -> str:
 def _summary_row(r: dict, verdict: str, vs: dict) -> str:
     s = r["summary"]
     ref = r["config_id"] in BENCHMARKS
-    return (f"| [{r['config_id']}]({r['config_id']}.md) | {verdict} "
+    control = vs.get("control") or "—"
+    quality = r.get("data_quality_class") or "legacy_unclassified"
+    return (f"| [{r['config_id']}]({r['config_id']}.md) | `{quality}` | "
+            f"{control} | {verdict} "
             f"| {_distinguishable_cell(vs.get('distinguishable', 'NO-CI'), ref)} "
             f"| {s.get('n_folds_ok')} | {_rate(s.get('validate_win_rate'))} "
             f"| {_rate(vs.get('beat_rate'))} | {_pct(s.get('mean_validate_total'))} "
@@ -313,8 +449,12 @@ VERDICT_ORDER = {"REVIEW": 0, "WATCH": 1, "PASS": 2, "no-benchmark": 3,
                  "reference": 4}
 
 
-def write_reports(results_dir: Path = RESULTS_DIR,
-                  out_dir: Path = WF_DIR) -> list[Path]:
+def _retained_ids() -> set[str]:
+    from sim.strategies.configs import CONFIGS
+    return {c["id"] for c in CONFIGS if c.get("retain_latest_result", False)}
+
+
+def _write_reports(results_dir: Path, out_dir: Path) -> list[Path]:
     results = load_results(results_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -329,7 +469,7 @@ def write_reports(results_dir: Path = RESULTS_DIR,
 
     # ---- index ----------------------------------------------------------- #
     lines = [
-        "# Walk-forward re-validation of the active league rules",
+        "# Walk-forward re-validation of league rules",
         "",
         f"_{len(results)} book(s) re-validated · protocol {proto_line} · "
         f"generated {stamp}._",
@@ -351,6 +491,11 @@ def write_reports(results_dir: Path = RESULTS_DIR,
         "",
         INTERVAL_NOTE,
         "",
+        ("Retained retired evidence is included in this cohort and labelled "
+         "`RETIRED`; it is neither scheduled nor traded. A retained result "
+         "without `source_sha256` is explicitly legacy/unstamped and is not "
+         "used to admit any unstamped active result into the cohort."),
+        "",
         "⚑ = the fold's train window was clamped to the book's data floor. "
         "◈ = the validate window extends past league inception "
         f"({LEAGUE_INCEPTION}) and so partly shadows the live record.",
@@ -371,15 +516,17 @@ def write_reports(results_dir: Path = RESULTS_DIR,
         n_judged = n_indistinct = 0
         for r in results:
             verdict, vs = book_verdict(r, bench)
+            shown_verdict = (f"RETIRED ({verdict})"
+                             if r["config_id"] in _retained_ids() else verdict)
             if r["config_id"] not in BENCHMARKS and vs.get("distinguishable"):
                 n_judged += 1
                 n_indistinct += vs["distinguishable"] == "INDISTINGUISHABLE"
             rows.append((VERDICT_ORDER.get(verdict, 9),
                          -(r["summary"].get("mean_validate_total") or 0),
-                         _summary_row(r, verdict, vs)))
+                         _summary_row(r, shown_verdict, vs)))
         if n_judged:
             lines += [f"**{n_indistinct} of {n_judged} judged book(s) are "
-                      f"`INDISTINGUISHABLE` from `ew_benchmark`** at 90% "
+                      f"`INDISTINGUISHABLE` from their declared control** at 90% "
                       f"confidence on mean excess. Read every verdict in the "
                       f"next column with that column beside it.", ""]
         lines += [SUMMARY_HEADER, SUMMARY_RULE] + [x[2] for x in sorted(rows)]
@@ -403,7 +550,7 @@ def write_reports(results_dir: Path = RESULTS_DIR,
             for r in results:
                 for f in r["folds"]:
                     if f.get("status") == "ok" and _fold_key(f) == latest_key:
-                        row = _fold_row(f, bench)
+                        row = _fold_row(f, bench, r)
                         parts = row.split("|")
                         parts[1] = f" {r['config_id']} "
                         latest_rows.append((
@@ -441,18 +588,52 @@ def write_reports(results_dir: Path = RESULTS_DIR,
               "cron entry rather than by the nightly — see BUILDLOG.", ""]
 
     md = out_dir / "README.md"
-    md.write_text("\n".join(lines))
+    resources.write_text_atomic(md, "\n".join(lines))
     written.append(md)
 
     # ---- per book -------------------------------------------------------- #
     for r in results:
         verdict, vs = book_verdict(r, bench)
+        shown_verdict = (f"RETIRED ({verdict})"
+                         if r["config_id"] in _retained_ids() else verdict)
+        control = vs.get("control")
+        is_reference = r["config_id"] in BENCHMARKS
+        if is_reference:
+            comparison_text = (
+                "**Reference benchmark.** This book is a control and receives no "
+                "relative verdict."
+            )
+            interval_text = (
+                "**Relative confidence interval:** not applicable to a reference "
+                "benchmark."
+            )
+        elif control is None:
+            reason = vs.get("control_reason") or "no compatible control"
+            comparison_text = (
+                f"**Relative comparison unavailable:** {reason}. Absolute historical "
+                "results remain context only."
+            )
+            interval_text = "**Relative confidence interval:** unavailable."
+        else:
+            comparison_text = (
+                f"**Measured against `{control}` on the same folds:** beats it in "
+                f"{_rate(vs.get('beat_rate'))} of {vs.get('n_compared')} window(s), "
+                f"mean excess {_pct(vs.get('mean_excess'))}, latest "
+                f"{_pct(vs.get('latest_excess'))} → **{verdict}**."
+            )
+            interval_text = (
+                f"**90% CI on mean excess vs `{control}`:** "
+                f"{_ci_cell(vs.get('mean_excess_ci'))} → "
+                f"{_distinguishable_cell(vs.get('distinguishable', 'NO-CI'), False)}. "
+                "The verdict above is unchanged by this interval — see the note "
+                "below the fold table."
+            )
         p = r["protocol"]
         b = [
             f"# {r['name']} — walk-forward re-validation",
             "",
             f"_`{r['config_id']}` · {r['strategy']} · {r.get('cadence')} cadence "
-            f"· verdict **{verdict}** · generated "
+            f"· verdict **{shown_verdict}** · generated "
             f"{r.get('generated_utc')}_",
             "",
             f"**Protocol.** train {p['train_months']}mo → validate "
@@ -465,26 +646,35 @@ def write_reports(results_dir: Path = RESULTS_DIR,
             + (f" ({r.get('screen_rows'):,} passing rows)"
                if r.get("screen_rows") else "") + ".",
             "",
+            (f"**Provenance.** Source `{r['source_sha256']}`; config "
+             f"`{r.get('config_sha256', '·')}`."
+             if r.get("source_sha256") else
+             "**Provenance.** **Legacy/unstamped artifact** — this retained "
+             "historical result predates source/config hashing; no provenance "
+             "has been inferred or fabricated."),
+            "",
+            f"**Evidence and execution.** Data quality "
+            f"`{r.get('data_quality_class', 'legacy_unclassified')}`; execution "
+            f"profile "
+            f"`{(r.get('execution_profile') or {}).get('id', 'legacy_unstamped')}`; "
+            f"data snapshot "
+            f"`{(r.get('data_snapshot') or {}).get('sha256', 'legacy_unstamped')}`; "
+            f"comparison protocol "
+            f"`{(r.get('comparison') or {}).get('protocol', 'legacy_unstamped')}`.",
+            "",
             "**Pre-registered expectation.** " + (r.get("expectation") or "—"),
             "",
             "**Pre-registered kill criterion.** " + (r.get("kill_criterion") or "—"),
             "",
-            f"**Measured against `{EW}` on the same folds:** beats it in "
-            f"{_rate(vs.get('beat_rate'))} of {vs.get('n_compared')} window(s), "
-            f"mean excess {_pct(vs.get('mean_excess'))}, latest "
-            f"{_pct(vs.get('latest_excess'))} → **{verdict}**.",
+            comparison_text,
             "",
-            f"**90% CI on mean excess vs `{EW}`:** "
-            f"{_ci_cell(vs.get('mean_excess_ci'))} → "
-            f"{_distinguishable_cell(vs.get('distinguishable', 'NO-CI'), r['config_id'] in BENCHMARKS)}. "
-            f"The verdict above is unchanged by this interval — see the note "
-            f"below the fold table.",
+            interval_text,
             "",
             DISCLOSURES,
             "",
             "## Folds", "", FOLD_HEADER, FOLD_RULE,
         ]
-        b += [_fold_row(f, bench) for f in r["folds"]]
+        b += [_fold_row(f, bench, r) for f in r["folds"]]
         for d in r.get("dropped_folds", []):
             b.append(f"| {d.get('index')} | {d.get('train_start')}→"
                      f"{d.get('split_date')} | — | — | {d.get('split_date')}→"
@@ -515,7 +705,7 @@ def write_reports(results_dir: Path = RESULTS_DIR,
             "",
         ]
         f = out_dir / f"{r['config_id']}.md"
-        f.write_text("\n".join(b))
+        resources.write_text_atomic(f, "\n".join(b))
         written.append(f)
 
     # --- inert books get an honest page, not a stale one -------------------
@@ -555,11 +745,19 @@ def write_reports(results_dir: Path = RESULTS_DIR,
             "",
         ]
         f = out_dir / f"{r['config_id']}.md"
-        f.write_text("\n".join(page))
+        resources.write_text_atomic(f, "\n".join(page))
         written.append(f)
 
     log.info(f"[wf-report] wrote {len(written)} file(s) to {out_dir}")
     return written
+
+
+def write_reports(results_dir: Path = RESULTS_DIR,
+                  out_dir: Path = WF_DIR) -> list[Path]:
+    """Rebuild one coherent report snapshot across parallel replay workers."""
+    lock = REPO_ROOT / "scratch" / ".report-locks" / "walkforward.lock"
+    with resources.advisory_file_lock(lock):
+        return _write_reports(Path(results_dir), Path(out_dir))
 
 
 def main() -> int:

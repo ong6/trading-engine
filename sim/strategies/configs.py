@@ -1,4 +1,4 @@
-"""Pre-registered strategy configs — the paper league's 17 portfolios.
+"""Pre-registered strategy configs for the automated paper league.
 
 Each config is frozen up front (id, name, description, cadence, params,
 expectation, kill_criterion) so the forward record is honest out-of-sample:
@@ -327,6 +327,7 @@ CONFIGS: list[dict] = [
     # ----------------------------------------------------------------- #
     {
         "id": "news_gated_momo",
+        "active": False,
         "name": "News-Gated Momentum (AI)",
         "strategy": "momo_stopped",
         "cadence": "daily",
@@ -348,6 +349,7 @@ CONFIGS: list[dict] = [
     },
     {
         "id": "adaptive_mr",
+        "active": False,
         "name": "Adaptive Mean-Reversion (AI)",
         "strategy": "mr_overlay",
         "cadence": "daily",
@@ -369,6 +371,7 @@ CONFIGS: list[dict] = [
     },
     {
         "id": "adaptive_mr_frozen",
+        "active": False,
         "name": "Adaptive MR — Frozen Twin",
         "strategy": "mr_overlay",
         "cadence": "daily",
@@ -384,6 +387,7 @@ CONFIGS: list[dict] = [
     },
     {
         "id": "agentic_alloc",
+        "active": False,
         "name": "Agentic Sleeve Allocator (AI)",
         "strategy": "sleeve_alloc",
         "cadence": "weekly",
@@ -406,6 +410,7 @@ CONFIGS: list[dict] = [
     },
     {
         "id": "agentic_alloc_frozen",
+        "active": False,
         "name": "Sleeve Allocator — Frozen Twin",
         "strategy": "sleeve_alloc",
         "cadence": "weekly",
@@ -421,6 +426,7 @@ CONFIGS: list[dict] = [
     },
     {
         "id": "stop_tuner_turtle",
+        "active": False,
         "name": "Stop-Tuned Turtle (AI)",
         "strategy": "turtle_breakout",
         "cadence": "daily",
@@ -441,6 +447,7 @@ CONFIGS: list[dict] = [
     },
     {
         "id": "earnings_context_pead",
+        "active": False,
         "name": "Earnings-Context PEAD (AI)",
         "strategy": "pead_ear",
         "cadence": "daily",
@@ -495,6 +502,11 @@ CONFIGS: list[dict] = [
     },
     {
         "id": "multi_asset_trend",
+        # Retired 2026-09-06 after its first pre-registered 10-fold run: median
+        # validate Sharpe 0.51 vs dual_momentum 0.88, directly breaching the
+        # diversification kill criterion. Historical evidence is retained.
+        "active": False,
+        "retain_latest_result": True,
         "name": "Multi-Asset Trend (8 ETFs, BIL hurdle)",
         "strategy": "multi_asset_trend",
         "cadence": "monthly",

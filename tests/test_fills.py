@@ -1,9 +1,10 @@
 """Fill model: next-open only, slippage direction, liquidity guard, no invented bars."""
-from datetime import date
+import subprocess
+import sys
 
 import pytest
 
-from sim import fills
+from sim import execution, fills
 from tests.conftest import SESSIONS, insert_bars
 
 # 30 history bars then the fill bar. $vol per bar = 100 * 1_000_000 = $100M.
@@ -35,14 +36,35 @@ def test_slippage_is_half_spread_plus_five():
 
 
 # ------------------------------------------------------------ look-ahead --- #
-def test_same_bar_fill_is_asserted_away(liquid):
-    with pytest.raises(AssertionError, match="look-ahead"):
+def test_same_bar_fill_is_rejected(liquid):
+    with pytest.raises(ValueError, match="look-ahead"):
         fills.attempt_fill(liquid, "AAA", "buy", 1, FILL, FILL)
 
 
-def test_fill_before_signal_is_asserted_away(liquid):
-    with pytest.raises(AssertionError):
+def test_fill_before_signal_is_rejected(liquid):
+    with pytest.raises(ValueError, match="look-ahead"):
         fills.attempt_fill(liquid, "AAA", "buy", 1, FILL, SIGNAL)
+
+
+def test_same_bar_fill_is_rejected_under_optimized_python():
+    script = """
+from datetime import date
+from sim.fills import attempt_fill
+
+try:
+    attempt_fill(None, "AAA", "buy", 1, date(2026, 1, 2), date(2026, 1, 2))
+except ValueError as exc:
+    if "look-ahead violation" not in str(exc):
+        raise
+else:
+    raise SystemExit("optimized Python accepted a same-bar fill")
+"""
+    subprocess.run(
+        [sys.executable, "-O", "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 # ------------------------------------------------------------ direction ---- #
@@ -90,6 +112,15 @@ def test_notional_over_one_pct_rejects(liquid):
     assert r.reject_reason.startswith("illiquid")
     assert r.fill_px is None
     assert r.median_dollar_vol == pytest.approx(1e8)
+
+
+def test_liquidity_rejection_reports_selected_profile_cap(liquid):
+    profile = execution.ExecutionProfile(
+        id="half-percent", description="test", max_participation=0.005
+    )
+    r = fills.attempt_fill(liquid, "AAA", "buy", 5_001, SIGNAL, FILL, profile)
+    assert r.status == "rejected"
+    assert "> 0.50% of median $vol" in r.reject_reason
 
 
 def test_notional_at_exactly_one_pct_fills(liquid):

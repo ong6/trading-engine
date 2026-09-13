@@ -1,0 +1,20 @@
+[Unit]
+Description=Trading engine paper API
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/trading-engine
+ExecStart=%h/trading-engine/.venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=5s
+PrivateTmp=true
+ProtectSystem=full
+ProtectControlGroups=true
+UMask=0077
+StandardOutput=append:%h/trading-engine/logs/server.log
+StandardError=append:%h/trading-engine/logs/server.log
+
+[Install]
+WantedBy=default.target

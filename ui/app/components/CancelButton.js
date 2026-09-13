@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiPost } from "../lib/api";
+import { apiPost, validateApiResponse } from "../lib/api";
+import { isTicketCancellationProjection } from "../lib/mutation-contracts";
 
 // Cancels a pending discretionary order via its ticket id. Confirms first, then
 // POSTs through the proxy and refreshes the server-rendered table.
@@ -16,7 +17,11 @@ export default function CancelButton({ ticketId }) {
     if (!window.confirm(`Cancel pending order for ticket #${ticketId}?`)) return;
     setBusy(true);
     setMsg(null);
-    const res = await apiPost(`/tickets/${ticketId}/cancel`, {});
+    const res = validateApiResponse(
+      await apiPost(`/tickets/${ticketId}/cancel`, {}),
+      "ticket cancellation",
+      (data) => isTicketCancellationProjection(data, ticketId),
+    );
     setBusy(false);
     if (res.busy) {
       setMsg("db busy — retry");

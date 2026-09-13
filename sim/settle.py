@@ -42,6 +42,7 @@ Safety
 from __future__ import annotations
 
 import argparse
+import json
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 
@@ -108,7 +109,22 @@ class BookPlan:
     into_qty_after: float = 0.0
     frozen_value: float | None = None       # qty × last carried close (what MTM held)
     equity_rows_after_effective: int = 0    # sim_equity rows still carrying the frozen mark
+    pending_order_ids: list[int] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class PendingOrderPlan:
+    """A stale pending order covered by an already-booked settlement."""
+
+    order_id: int
+    portfolio_id: str
+    ticker: str
+    side: str
+    qty: float
+    signal_date: date
+    settlement_effective: date
+    settlement_created_at: datetime
 
 
 # --------------------------------------------------------------------------- #
@@ -187,6 +203,11 @@ def _plan_book(con, t: Terms, pf_id: str, qty: float, avg_cost: float) -> BookPl
     plan.equity_rows_after_effective = con.execute(
         "SELECT COUNT(*) FROM sim_equity WHERE portfolio_id = ? AND date >= ?",
         [pf_id, t.effective]).fetchone()[0]
+    plan.pending_order_ids = [int(row[0]) for row in con.execute(
+        "SELECT id FROM sim_orders WHERE portfolio_id = ? AND ticker = ? "
+        "AND status = 'pending' ORDER BY id",
+        [pf_id, t.ticker],
+    ).fetchall()]
     if t.kind == "stock":
         row = con.execute(
             "SELECT qty FROM sim_positions WHERE portfolio_id = ? AND ticker = ?",
@@ -274,6 +295,104 @@ def settle(con: duckdb.DuckDBPyConnection, t: Terms, apply: bool = False,
              t.ratio, t.effective, t.source, t.note, ts])
         apply_settlement_event(con, p.portfolio_id, t.ticker, t.kind, p.qty,
                                t.price, t.into_ticker, t.ratio)
+        if p.pending_order_ids:
+            reason = f"cancelled by settlement effective {t.effective.isoformat()}"
+            con.execute(
+                "UPDATE sim_orders SET status = 'cancelled', reject_reason = ? "
+                "WHERE portfolio_id = ? AND ticker = ? AND status = 'pending'",
+                [reason, p.portfolio_id, t.ticker],
+            )
+            if table_exists(con, "disc_tickets"):
+                con.execute(
+                    "UPDATE disc_tickets SET status = 'cancelled' "
+                    "WHERE order_id IN (SELECT UNNEST(?::BIGINT[])) "
+                    "AND status = 'submitted'",
+                    [p.pending_order_ids],
+                )
+    if table_exists(con, "audit_log"):
+        con.execute(
+            "INSERT INTO audit_log (ts, actor, action, payload) VALUES (?, ?, ?, ?)",
+            [ts, "sim.settle", "settlement_applied", json.dumps({
+                "ticker": t.ticker,
+                "kind": t.kind,
+                "effective": t.effective.isoformat(),
+                "source": t.source,
+                "portfolios": [p.portfolio_id for p in plans],
+                "cancelled_order_ids": [
+                    oid for p in plans for oid in p.pending_order_ids
+                ],
+            }, sort_keys=True)],
+        )
+    return plans
+
+
+def settled_pending_orders(con: duckdb.DuckDBPyConnection,
+                           ticker: str | None = None) -> list[PendingOrderPlan]:
+    """Return pending orders that predate a matching booked settlement.
+
+    The creation-date bound is deliberate. A settlement may be followed by an
+    unusual but legitimate re-opening of the symbol; this repair must not use
+    an old event to cancel later intent. Orders already present on the day the
+    day before the settlement was booked are the narrowly provable lifecycle
+    omission. Same-day intent is left alone because old orders have no creation
+    timestamp with which to establish event ordering.
+    """
+    if not table_exists(con, "sim_settlements"):
+        return []
+    params: list[str] = []
+    ticker_clause = ""
+    if ticker is not None:
+        ticker_clause = " AND o.ticker = ?"
+        params.append(ticker.upper())
+    rows = con.execute(
+        "SELECT o.id, o.portfolio_id, o.ticker, o.side, o.qty, o.signal_date, "
+        "s.effective, s.created_at FROM sim_orders o "
+        "JOIN sim_settlements s ON s.portfolio_id = o.portfolio_id "
+        "AND s.ticker = o.ticker "
+        "WHERE o.status = 'pending' "
+        "AND o.signal_date < CAST(s.created_at AS DATE)" + ticker_clause + " "
+        "QUALIFY ROW_NUMBER() OVER (PARTITION BY o.id ORDER BY s.created_at DESC) = 1 "
+        "ORDER BY o.id",
+        params,
+    ).fetchall()
+    return [PendingOrderPlan(int(oid), pf, tk, side, float(qty), signal_date,
+                             effective, created_at)
+            for oid, pf, tk, side, qty, signal_date, effective, created_at in rows]
+
+
+def reconcile_settled_pending_orders(
+        con: duckdb.DuckDBPyConnection, *, apply: bool = False,
+        ticker: str | None = None, now: datetime | None = None,
+) -> list[PendingOrderPlan]:
+    """Dry-run or cancel provably stale orders missed by older settlement code."""
+    plans = settled_pending_orders(con, ticker)
+    if not apply or not plans:
+        return plans
+    ts = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    for p in plans:
+        reason = ("cancelled by booked settlement effective "
+                  f"{p.settlement_effective.isoformat()}")
+        con.execute(
+            "UPDATE sim_orders SET status = 'cancelled', reject_reason = ? "
+            "WHERE id = ? AND status = 'pending'",
+            [reason, p.order_id],
+        )
+    if table_exists(con, "disc_tickets"):
+        con.execute(
+            "UPDATE disc_tickets SET status = 'cancelled' "
+            "WHERE order_id IN (SELECT UNNEST(?::BIGINT[])) "
+            "AND status = 'submitted'",
+            [[p.order_id for p in plans]],
+        )
+    if table_exists(con, "audit_log"):
+        con.execute(
+            "INSERT INTO audit_log (ts, actor, action, payload) VALUES (?, ?, ?, ?)",
+            [ts, "sim.settle", "settlement_pending_orders_reconciled", json.dumps({
+                "ticker": ticker.upper() if ticker else None,
+                "order_ids": [p.order_id for p in plans],
+                "count": len(plans),
+            }, sort_keys=True)],
+        )
     return plans
 
 
@@ -307,6 +426,10 @@ def _render(t: Terms, plans: list[BookPlan], applied: bool) -> str:
         if t.kind == "stock":
             row += f" {p.into_qty_before:,.6f} | {p.into_qty_after:,.6f} |"
         lines.append(row)
+        if p.pending_order_ids:
+            verb = "cancelled" if applied else "would cancel"
+            ids = ", ".join(str(oid) for oid in p.pending_order_ids)
+            lines.append(f"  - pending order(s) {ids}: {verb} with the settlement")
     lines.append("")
     n_eq = sum(p.equity_rows_after_effective for p in plans)
     if n_eq:
@@ -321,25 +444,66 @@ def _render(t: Terms, plans: list[BookPlan], applied: bool) -> str:
     return "\n".join(lines)
 
 
+def _render_reconciliation(plans: list[PendingOrderPlan], applied: bool) -> str:
+    state = "APPLIED" if applied else "DRY RUN"
+    lines = [f"[settle] {state}: {len(plans)} settled pending order(s)"]
+    for p in plans:
+        lines.append(
+            f"- order {p.order_id}: {p.portfolio_id} {p.side} {p.qty:.6f} "
+            f"{p.ticker}, signalled {p.signal_date}, settlement effective "
+            f"{p.settlement_effective}"
+        )
+    if not applied:
+        lines.append("[settle] nothing written. Re-run with --apply to cancel them.")
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description="Settle a dead position at owner-supplied terms (dry-run by default).")
     ap.add_argument("--db", default=str(db.DEFAULT_DB))
-    ap.add_argument("--ticker", required=True)
-    ap.add_argument("--kind", required=True, choices=KINDS)
+    ap.add_argument("--ticker")
+    ap.add_argument("--kind", choices=KINDS)
     ap.add_argument("--price", type=float, default=None,
                     help="cash per share (cash: required; stock: optional cash leg)")
     ap.add_argument("--into", default=None, help="stock: acquirer ticker")
     ap.add_argument("--ratio", type=float, default=None,
                     help="stock: acquirer shares per held share")
-    ap.add_argument("--effective", required=True, help="YYYY-MM-DD the terms took effect")
-    ap.add_argument("--source", required=True,
+    ap.add_argument("--effective", help="YYYY-MM-DD the terms took effect")
+    ap.add_argument("--source",
                     help="citation for the terms (URL, filing, exchange notice)")
     ap.add_argument("--note", default=None)
     ap.add_argument("--portfolio", default="all",
                     help="'all' (default) or a comma-separated list of book ids")
     ap.add_argument("--apply", action="store_true", help="write (default is dry-run)")
+    ap.add_argument(
+        "--reconcile-pending", action="store_true",
+        help="cancel pending orders covered by settlements booked before this fix",
+    )
     args = ap.parse_args(argv)
+
+    if args.reconcile_pending:
+        con = db.connect(args.db, read_only=not args.apply)
+        try:
+            if not args.apply:
+                plans = reconcile_settled_pending_orders(
+                    con, apply=False, ticker=args.ticker)
+                print(_render_reconciliation(plans, applied=False))
+                return 0
+            with db.transaction(con):
+                plans = reconcile_settled_pending_orders(
+                    con, apply=True, ticker=args.ticker)
+            print(_render_reconciliation(plans, applied=True))
+            return 0
+        finally:
+            con.close()
+
+    missing = [name for name, value in (
+        ("--ticker", args.ticker), ("--kind", args.kind),
+        ("--effective", args.effective), ("--source", args.source),
+    ) if not value]
+    if missing:
+        ap.error(f"the following arguments are required: {', '.join(missing)}")
 
     price = 0.0 if args.price is None else args.price
     pfs = None if args.portfolio == "all" else tuple(
@@ -356,13 +520,8 @@ def main(argv: list[str] | None = None) -> int:
         if not args.apply:
             print(_render(t, settle(con, t, apply=False), applied=False))
             return 0
-        con.execute("BEGIN TRANSACTION")
-        try:
+        with db.transaction(con):
             plans = settle(con, t, apply=True)
-            con.execute("COMMIT")
-        except Exception:
-            con.execute("ROLLBACK")
-            raise
         print(_render(t, plans, applied=True))
         return 0
     except SettlementRefused as e:

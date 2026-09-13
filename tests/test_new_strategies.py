@@ -62,8 +62,11 @@ def _universe(con, rows):
     """rows: (ticker, active, liquid, etf)."""
     con.execute("CREATE TABLE IF NOT EXISTS universe (ticker VARCHAR PRIMARY KEY, "
                 "name VARCHAR, active BOOLEAN, liquid BOOLEAN, etf BOOLEAN)")
-    for t, a, l, e in rows:
-        con.execute("INSERT INTO universe VALUES (?, ?, ?, ?, ?)", [t, t, a, l, e])
+    for ticker, active, liquid, etf in rows:
+        con.execute(
+            "INSERT INTO universe VALUES (?, ?, ?, ?, ?)",
+            [ticker, ticker, active, liquid, etf],
+        )
 
 
 def _add(con, ticker, closes, *, dates=None, active=True, liquid=True, etf=False):

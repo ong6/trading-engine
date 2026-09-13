@@ -8,8 +8,9 @@
 # (inverse survivorship). This re-pulls ~90d for active non-liquid names,
 # recomputes the flag for everyone from the trailing 63-session median dollar
 # volume under the SAME floor bootstrap used (close >= $3, median $vol >= $5M),
-# admits + max-history-backfills new names, and demotes (flag only — never a
-# row; held names are never demoted). Details: engine/collect.py docstring.
+# admits new names, drains every resumable pending max-history backfill (including
+# retries from older partial failures), and demotes (flag only — never a row;
+# held names are never demoted). Details: engine/collect.py docstring.
 #
 # WHY ITS OWN DRIVER, not a stage in run_weekly_verify.sh: this WRITES the store
 # (prices, universe flags, a backfill job), while the Saturday 02:00 verify is
@@ -26,8 +27,8 @@
 #
 # Cron entry (owner action — this script does not install it):
 #
-#   0 2 * * 0 /data00/home/jun.ong/trading-engine/engine/run_weekly_liquid.sh \
-#       >> /data00/home/jun.ong/trading-engine/logs/liquid-cron.log 2>&1
+#   0 2 * * 0 ${HOME}/trading-engine/engine/run_weekly_liquid.sh \
+#       >> ${HOME}/trading-engine/logs/liquid-cron.log 2>&1
 set -euo pipefail
 
 # Shared preamble (engine/lib/driver.sh): resolve REPO_ROOT + cd, overlap guard

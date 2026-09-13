@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { apiFetch } from "../lib/api";
-import { fmtTime } from "../lib/format";
-import RegimeBadge from "./RegimeBadge";
+import { getMeta } from "../lib/server-api";
+import HeaderStatus from "./HeaderStatus";
 
 const NAV = [
   { href: "/", label: "Dashboard" },
@@ -10,14 +9,10 @@ const NAV = [
   { href: "/journal", label: "Journal" },
 ];
 
-// Persistent header on every page: unmissable MOCK banner, regime badge, and
-// data-freshness stamps from /meta. Rendered server-side so the banner and real
-// values are present in the initial HTML.
+// Persistent header on every page: unmissable MOCK banner, navigation, and
+// fail-visible status from the request-memoized /meta projection.
 export default async function Header() {
-  const res = await apiFetch("/meta");
-  const meta = (res.ok && res.data && res.data.meta) || {};
-  const regime = meta.regime || null;
-
+  const res = await getMeta();
   return (
     <header className="header">
       <div className="mock-banner">
@@ -26,26 +21,13 @@ export default async function Header() {
       <div className="header-row">
         <span className="brand">Trading Engine</span>
         <nav className="nav">
-          {NAV.map((n) => (
-            <Link key={n.href} href={n.href}>
-              {n.label}
+          {NAV.map((item) => (
+            <Link key={item.href} href={item.href}>
+              {item.label}
             </Link>
           ))}
         </nav>
-        <div className="header-meta">
-          <span>
-            <span className="k">regime </span>
-            <RegimeBadge regime={regime} />
-          </span>
-          <span>
-            <span className="k">last run </span>
-            {res.busy ? "db busy" : fmtTime(meta.last_run)}
-          </span>
-          <span>
-            <span className="k">last screen </span>
-            {res.busy ? "db busy" : fmtTime(meta.last_screen)}
-          </span>
-        </div>
+        <HeaderStatus res={res} />
       </div>
     </header>
   );

@@ -1,10 +1,12 @@
 # Settlement runbook — dead positions
 
-Four held names have stopped trading. The engine will never sell them (no tradeable bar)
-and marks them at their last close forever; `data/reports/league.md` lists them under
-"Stale marks". The engine does not know, and must not guess, what happened to them
-(honesty rule 1: never invent a price). **You look up the terms; `sim/settle.py` books
-exactly what you cite.**
+When a held name stops trading, the engine cannot sell it (there is no tradeable bar) and
+marks it at its last close; `data/reports/league.md` lists it under "Stale marks". The
+engine does not know, and must not guess, what happened (honesty rule 1: never invent a
+price). **You look up the terms; `sim/settle.py` books exactly what you cite.**
+
+The table below is the original 2026-09-02 snapshot retained as incident history. All four
+were subsequently settled from primary filings.
 
 | Ticker | Last real trade | Held by (qty, as of 2026-09-02) |
 |---|---|---|
@@ -13,8 +15,26 @@ exactly what you cite.**
 | WBS | 2026-08-19 | high_52wk 20.202 |
 | FBRX | 2026-08-26 | ew_benchmark 10.1828, momo_stopped 50.4191, template_top10_banded 42.7027, template_top10_banded_gated 42.7027, news_gated_momo 44.7129 |
 
-Nothing below has been run with `--apply`. Every price and date in the commands is a
-**placeholder you replace** after looking up the terms.
+## Applied ledger events — through 2026-09-07
+
+The active paper books were settled from the closing 8-Ks and independently verified:
+
+| Ticker | Terms | Effective | Primary source |
+|---|---|---|---|
+| EA | $210 cash/share | 2026-08-05 | [closing 8-K](https://www.sec.gov/Archives/edgar/data/712515/000114036126031157/ef20079099_8k.htm) |
+| TALK | $5.25 cash/share | 2026-08-17 | [closing 8-K](https://www.sec.gov/Archives/edgar/data/1803901/000095015726000907/form8-k.htm) |
+| WBS | 2.0548 SAN ADS + $48.75/share | 2026-08-20 | [closing 8-K](https://www.sec.gov/Archives/edgar/data/801337/000119312526357758/d919931d8k.htm) |
+| FBRX | $77 cash/share | 2026-08-27 | [closing 8-K](https://www.sec.gov/Archives/edgar/data/1419041/000114036126034698/ef20081182_8k.htm) |
+| CRNX | $85 cash/share | 2026-09-01 | [closing 8-K](https://www.sec.gov/Archives/edgar/data/1658247/000114036126035195/ef20081409_8k.htm) |
+| APGE | $135.11 cash/share | 2026-09-03 | [closing 8-K](https://www.sec.gov/Archives/edgar/data/1974640/000114036126035537/ef20081397_8k.htm) |
+
+The ledger contains 15 active-book events across these six names. Their active positions
+are zero, and `high_52wk` holds 41.511110 SAN shares from WBS. The inactive
+archival `news_gated_momo` snapshot still carries FBRX; settlement intentionally
+does not mutate retired books. On 2026-09-07, the settlement-order reconciler also
+cancelled three FBRX sell orders (1005, 1017, 1029) that had remained pending after
+the positions were settled; the audit row preserves the exact order ids. The live stale-
+exposure projection then returned zero positions and zero pending orders.
 
 ## 1. Look up the terms
 
@@ -40,8 +60,6 @@ the ticker has a bar with volume > 0 on or after `--effective`, if `--source` is
 or if the acquirer has no stored prices.
 
 ```bash
-cd /data00/home/jun.ong/trading-engine
-
 # Cash deal: every holder receives qty × price on the effective date.
 .venv/bin/python -m sim.settle --db store/market.duckdb --ticker EA \
     --kind cash --price <PRICE> --effective <YYYY-MM-DD> \
@@ -88,7 +106,23 @@ for 60 s then fails, which is fine.
 ```
 
 One transaction per command: one `sim_settlements` row per book, cash credited,
-position set to 0 (or converted). `prices` and `sim_equity` are not touched.
+position set to 0 (or converted), and any matching pending order cancelled as obsolete.
+The command writes one `settlement_applied` audit row containing the affected books and
+cancelled order ids. A linked discretionary ticket is cancelled with its order so the two
+ledgers agree. `prices`, fills, and `sim_equity` are not touched.
+
+Stores with settlements booked before pending-order cancellation was added can be checked
+without writing, then repaired in one transaction:
+
+```bash
+.venv/bin/python -m sim.settle --db store/market.duckdb --reconcile-pending
+.venv/bin/python -m sim.settle --db store/market.duckdb --reconcile-pending --apply
+```
+
+`--ticker FBRX` narrows either command. The reconciler only selects pending orders whose
+signal date is earlier than the matching settlement's booking date. Old orders have no
+creation timestamp, so ambiguous same-day intent is deliberately left for manual review.
+This prevents an old settlement from cancelling an unusual but deliberate later order.
 
 ## 4. Verify
 
@@ -98,17 +132,22 @@ import duckdb
 c = duckdb.connect('store/market.duckdb', read_only=True)
 print(c.execute("SELECT portfolio_id, ticker, kind, qty, price, into_ticker, ratio, "
                 "effective, source FROM sim_settlements ORDER BY created_at").fetchall())
-print(c.execute("SELECT portfolio_id, ticker, qty FROM sim_positions "
-                "WHERE ticker IN ('EA','TALK','WBS','FBRX') AND qty > 0").fetchall())
+print(c.execute("SELECT p.portfolio_id, p.ticker, p.qty FROM sim_positions p "
+                "JOIN portfolios b ON b.id=p.portfolio_id "
+                "WHERE b.active AND p.ticker IN ('EA','TALK','WBS','FBRX','CRNX','APGE') "
+                "AND p.qty > 0").fetchall())
+print(c.execute("SELECT id, portfolio_id, ticker, status, reject_reason FROM sim_orders "
+                "WHERE ticker IN ('EA','TALK','WBS','FBRX','CRNX','APGE') "
+                "AND status = 'pending'").fetchall())
 EOF
 ```
 
-The second query should be empty for every settled name. After the next nightly step
+The second and third queries should be empty for every active book. After the next nightly step
 the name is gone from the "Stale marks" table in `data/reports/league.md`, and each
 book's equity moves from the frozen mark to the settlement value.
 
-`.venv/bin/python -m pytest -q tests/test_settle.py` covers the arithmetic, the
-refusals, and rebuild/rerun survival.
+`.venv/bin/python -m pytest -q tests/test_settle.py` covers the arithmetic, refusals,
+atomic pending-order cancellation, legacy reconciliation, and rebuild/rerun survival.
 
 ## What `--source` should cite
 
@@ -137,3 +176,7 @@ in the ledger row and is the only evidence the number came from anywhere.
   Settling a name a book no longer holds is refused (nothing to do), so re-running an
   applied command exits 2 rather than double-crediting.
 - **Inactive books** are skipped: `holders` only considers `portfolios.active = TRUE`.
+- **Pending orders.** Applying a settlement cancels every matching pending order in the
+  same transaction because the settled position no longer exists. This is booking-time
+  lifecycle work, not settlement replay: `rebuild_state` reconstructs cash and positions
+  without retroactively changing an order created after the settlement was booked.

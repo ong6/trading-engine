@@ -1,4 +1,4 @@
-"""M3 FastAPI backend — local mock-trading dashboard + gated discretionary tickets.
+"""FastAPI backend for the local mock-trading and research dashboard.
 
 Binds 127.0.0.1 only, no auth (mock system). GET endpoints open the DB read-only
 per request; write endpoints open read-write and map a contended write lock to
@@ -8,34 +8,130 @@ existing nightly step fills at the next open.
 
 Run from repo root:  .venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000
 """
+
 from __future__ import annotations
 
-import json
-import math
-from datetime import date, datetime, timezone
-from datetime import time as dtime
-from zoneinfo import ZoneInfo
+from collections.abc import Awaitable, Callable
+from contextlib import contextmanager
+from dataclasses import asdict
+from typing import Annotated, Any, Iterator, Literal, TypeAlias, TypeVar
 
-import duckdb
-from fastapi import Body, FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Request
+from fastapi.responses import JSONResponse, PlainTextResponse
 
-from engine.lib import db as engine_db
-from engine.lib.settings import META_PATH
-from engine.lib.util import table_exists
-from sim.league import _max_drawdown, _spy_return, regime_label
-from sim.schema import INITIAL_CASH, init_sim_schema
+from engine.lib.settings import DATA_DIR, META_PATH
 
-from . import risk
-from .db import DBBusyError, db_path, read_con, write_con
+from . import (
+    journal_read_models,
+    league_read_models,
+    market_read_models,
+    meta_projection,
+    order_read_models,
+    paper_read_models,
+    position_read_models,
+    ticket_contract,
+    tickets,
+)
+from . import research_readiness as readiness
+from .db import DBBusyError, read_con, write_con
+from .read_model_utils import (
+    PUBLIC_PORTFOLIO_ID_MAX_CHARS,
+    PUBLIC_SAFE_INTEGER_MAX,
+    require_public_portfolio_id,
+    require_public_positive_integer,
+    require_public_ticker,
+)
+from .status_validation import iso_date
 
-app = FastAPI(title="trading-engine M3 backend", version="0.1.0")
+T = TypeVar("T")
+OrderStatus = Literal["pending", "filled", "rejected", "cancelled"]
+NONBLANK_PATTERN = r".*\S.*"
+ALLOWED_HOSTNAMES = frozenset({"127.0.0.1", "localhost"})
+HEALTH_FIELDS = frozenset({"ok", "status", "db_readable"})
+HEALTH_STATUSES = frozenset({"ok", "busy", "unreadable"})
+AsgiReceive: TypeAlias = Callable[[], Awaitable[dict[str, Any]]]
+AsgiSend: TypeAlias = Callable[[dict[str, Any]], Awaitable[None]]
+AsgiApp: TypeAlias = Callable[[dict[str, Any], AsgiReceive, AsgiSend], Awaitable[None]]
 
-DISC_ID = risk.DISC_ID
+
+def _is_allowed_host_header(value: str) -> bool:
+    host, separator, port = value.lower().partition(":")
+    return host in ALLOWED_HOSTNAMES and (
+        not separator
+        or (port.isascii() and port.isdecimal() and len(port) <= 5 and 1 <= int(port) <= 65_535)
+    )
+
+
+class ExactHostMiddleware:
+    """Reject requests not addressed to the two documented loopback origins."""
+
+    def __init__(self, app: AsgiApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict[str, Any], receive: AsgiReceive, send: AsgiSend) -> None:
+        if scope["type"] == "http":
+            hosts = [
+                value.decode("latin-1").lower()
+                for name, value in scope["headers"]
+                if name.lower() == b"host"
+            ]
+            if len(hosts) != 1 or not _is_allowed_host_header(hosts[0]):
+                await PlainTextResponse("Invalid host header", status_code=400)(
+                    scope, receive, send
+                )
+                return
+        await self.app(scope, receive, send)
+
+
+app = FastAPI(title="trading-engine paper backend", version="0.1.0")
+app.add_middleware(ExactHostMiddleware)
+
+
+@contextmanager
+def _connection(factory: Callable[[], T]) -> Iterator[T]:
+    """Own one request-scoped connection and always close it."""
+    con = factory()
+    try:
+        yield con
+    finally:
+        con.close()
+
+
+def _require_json_content_type(
+    content_type: Annotated[str, Header()],
+) -> None:
+    """Force browser mutations through a non-simple, JSON request boundary."""
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    if media_type != "application/json":
+        raise HTTPException(415, "mutation requests require application/json")
+
+
+JSON_MUTATION_DEPENDENCY = [Depends(_require_json_content_type)]
+
+
+def _validated_portfolio_id(value: str) -> str:
+    try:
+        return require_public_portfolio_id(value)
+    except ValueError as exc:
+        raise HTTPException(422, "portfolio identifier is invalid") from exc
+
+
+def _validated_ticker(value: str) -> str:
+    try:
+        return require_public_ticker(value.upper())
+    except ValueError as exc:
+        raise HTTPException(422, "ticker is invalid") from exc
+
+
+def _validated_ticket_id(value: int) -> int:
+    try:
+        return require_public_positive_integer(value)
+    except ValueError as exc:
+        raise HTTPException(422, "ticket identifier is invalid") from exc
 
 
 @app.exception_handler(DBBusyError)
-async def _busy_handler(request, exc):  # noqa: ANN001
+async def _busy_handler(_request: Request, _exc: DBBusyError):
     return JSONResponse(
         status_code=503,
         content={"detail": "database busy (nightly run?) — retry later"},
@@ -43,128 +139,83 @@ async def _busy_handler(request, exc):  # noqa: ANN001
 
 
 # --------------------------------------------------------------------------- #
-# helpers
-# --------------------------------------------------------------------------- #
-def _rows(cur: duckdb.DuckDBPyConnection) -> list[dict]:
-    cols = [c[0] for c in cur.description]
-    return [dict(zip(cols, r)) for r in cur.fetchall()]
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _audit(con, action: str, payload: dict) -> None:
-    con.execute(
-        "INSERT INTO audit_log (ts, actor, action, payload) VALUES (?, ?, ?, ?)",
-        [_now(), "user", action, json.dumps(payload, default=str)],
-    )
-
-
-def _latest_prices_date(con) -> date | None:
-    return con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
-
-
-_ET = ZoneInfo("America/New_York")
-_OPEN_ET = dtime(9, 30)
-
-
-def _ticket_signal_date(as_of: date, now: datetime | None = None) -> date:
-    """The signal date stamped on a discretionary order.
-
-    `as_of` is the latest bar in the store, which is collected after the close.
-    A ticket submitted during the NEXT US session (at/after 09:30 ET on a later
-    calendar day) would otherwise be stamped with yesterday's date and fill at
-    an open the owner has already watched print — a look-ahead the auto books
-    can never have. Stamp such a ticket with today's ET date so it fills at the
-    following session's open, exactly like any other close-of-day signal.
-    """
-    now_et = (now or datetime.now(timezone.utc)).astimezone(_ET)
-    if now_et.date() > as_of and now_et.time() >= _OPEN_ET:
-        return now_et.date()
-    return as_of
-
-
-# --------------------------------------------------------------------------- #
 # health / meta
 # --------------------------------------------------------------------------- #
+def _validate_health_payload(payload: dict) -> None:
+    if not isinstance(payload, dict) or set(payload) != HEALTH_FIELDS:
+        raise ValueError("public health projection shape is invalid")
+    status = payload["status"]
+    readable = status == "ok"
+    if (
+        status not in HEALTH_STATUSES
+        or type(payload["ok"]) is not bool
+        or type(payload["db_readable"]) is not bool
+        or payload["ok"] != readable
+        or payload["db_readable"] != readable
+    ):
+        raise ValueError("public health projection is inconsistent")
+
+
 @app.get("/health")
 def health():
-    readable = False
+    status = "ok"
     try:
-        con = read_con()
-        try:
+        with _connection(read_con) as con:
             con.execute("SELECT 1")
-            readable = True
-        finally:
-            con.close()
     except DBBusyError:
-        readable = False
-    return {"ok": True, "db_path": str(db_path()), "db_readable": readable}
+        status = "busy"
+    except Exception:  # noqa: BLE001 - health must fail closed for any unreadable store
+        status = "unreadable"
+    readable = status == "ok"
+    payload = {
+        "ok": readable,
+        "status": status,
+        "db_readable": readable,
+    }
+    _validate_health_payload(payload)
+    return payload if readable else JSONResponse(status_code=503, content=payload)
 
 
 @app.get("/meta")
 def meta():
-    meta_path = META_PATH
-    meta_json = json.loads(meta_path.read_text()) if meta_path.exists() else {}
-    con = read_con()
-    try:
-        latest = _latest_prices_date(con)
-    finally:
-        con.close()
-    freshness = None if latest is None else (date.today() - latest).days
-    return {"meta": meta_json, "latest_prices_date": latest,
-            "freshness_days": freshness}
+    with _connection(read_con) as con:
+        return meta_projection.project(con, meta_path=META_PATH, data_dir=DATA_DIR)
 
 
-# --------------------------------------------------------------------------- #
-# screen
-# --------------------------------------------------------------------------- #
-def _screen_payload(con, run_date: date) -> dict:
-    hdr = con.execute(
-        "SELECT COUNT(*) AS n_total, "
-        "SUM(CASE WHEN passes_template THEN 1 ELSE 0 END) AS n_passing, "
-        "SUM(CASE WHEN new_today THEN 1 ELSE 0 END) AS n_new_today "
-        "FROM screen_results WHERE run_date = ?",
-        [run_date],
-    ).fetchone()
-    results = _rows(con.execute(
-        "SELECT * FROM screen_results WHERE run_date = ? AND passes_template "
-        "ORDER BY rs_rank DESC, ticker",
-        [run_date],
-    ))
-    return {
-        "run_date": run_date,
-        "n_total": hdr[0], "n_passing": hdr[1], "n_new_today": hdr[2],
-        "results": results,
-    }
+@app.get("/research/readiness")
+def research_readiness():
+    with _connection(read_con) as con:
+        return readiness.assess(con)
 
 
 @app.get("/screen/latest")
-def screen_latest():
-    con = read_con()
-    try:
-        rd = con.execute("SELECT MAX(run_date) FROM screen_results").fetchone()[0]
-        if rd is None:
+def screen_latest(page: Annotated[int, Query(ge=1, le=1_000_000)] = 1):
+    with _connection(read_con) as con:
+        market_date = market_read_models.latest_prices_date(con)
+        payload = (
+            None
+            if market_date is None
+            else market_read_models.screen(con, through=market_date, page=page)
+        )
+        if payload is None:
             raise HTTPException(404, "no screen_results")
-        return _screen_payload(con, rd)
-    finally:
-        con.close()
+        return payload
 
 
 @app.get("/screen/{run_date}")
-def screen_by_date(run_date: str):
-    con = read_con()
+def screen_by_date(
+    run_date: str,
+    page: Annotated[int, Query(ge=1, le=1_000_000)] = 1,
+):
     try:
-        rd = date.fromisoformat(run_date)
-        exists = con.execute(
-            "SELECT 1 FROM screen_results WHERE run_date = ? LIMIT 1", [rd]
-        ).fetchone()
-        if not exists:
+        parsed_date = iso_date(run_date)
+    except ValueError as exc:
+        raise HTTPException(400, "run_date must be YYYY-MM-DD") from exc
+    with _connection(read_con) as con:
+        payload = market_read_models.screen(con, parsed_date, page=page)
+        if payload is None:
             raise HTTPException(404, f"no screen for {run_date}")
-        return _screen_payload(con, rd)
-    finally:
-        con.close()
+        return payload
 
 
 # --------------------------------------------------------------------------- #
@@ -172,150 +223,87 @@ def screen_by_date(run_date: str):
 # --------------------------------------------------------------------------- #
 @app.get("/league")
 def league():
-    con = read_con()
-    try:
-        d = _latest_prices_date(con)
-        rows = []
-        if table_exists(con, "portfolios"):
-            for pf_id, name, created in con.execute(
-                "SELECT id, name, created FROM portfolios WHERE active ORDER BY id"
-            ).fetchall():
-                eq = con.execute(
-                    "SELECT date, equity FROM sim_equity WHERE portfolio_id = ? "
-                    "ORDER BY date", [pf_id],
-                ).fetchall()
-                if not eq:
-                    continue
-                series = [e for _, e in eq]
-                equity = series[-1]
-                total_ret = equity / INITIAL_CASH - 1
-                spy_ret = _spy_return(con, created, d)
-                vs_spy = None if spy_ret is None else total_ret - spy_ret
-                mdd = _max_drawdown(series)
-                last5 = series[-1] / series[-6] - 1 if len(series) >= 6 else None
-                n_open = con.execute(
-                    "SELECT COUNT(*) FROM sim_positions WHERE portfolio_id = ? "
-                    "AND qty > 0", [pf_id]).fetchone()[0]
-                n_fills = con.execute(
-                    "SELECT COUNT(*) FROM sim_fills WHERE portfolio_id = ?",
-                    [pf_id]).fetchone()[0]
-                rows.append({
-                    "id": pf_id, "name": name, "inception": created,
-                    "equity": equity, "total_ret": total_ret, "vs_spy": vs_spy,
-                    "mdd": mdd, "n_open": n_open, "n_fills": n_fills,
-                    "last5": last5,
-                })
-        rows.sort(key=lambda r: r["total_ret"], reverse=True)
-        for i, r in enumerate(rows, 1):
-            r["rank"] = i
-        return {"as_of": d, "regime": regime_label(con, d),
-                "reference_notional": INITIAL_CASH, "rows": rows}
-    finally:
-        con.close()
+    with _connection(read_con) as con:
+        return league_read_models.league(con)
+
+
+@app.get("/league/equities")
+def league_equities():
+    with _connection(read_con) as con:
+        return league_read_models.equities(con)
 
 
 @app.get("/league/{portfolio_id}/equity")
-def league_equity(portfolio_id: str):
-    con = read_con()
-    try:
-        if not table_exists(con, "sim_equity"):
-            return {"portfolio_id": portfolio_id, "equity": []}
-        rows = _rows(con.execute(
-            "SELECT portfolio_id, date, equity, cash, n_positions FROM sim_equity "
-            "WHERE portfolio_id = ? ORDER BY date", [portfolio_id]))
-        if not rows:
+def league_equity(
+    portfolio_id: Annotated[
+        str,
+        Path(
+            min_length=1,
+            max_length=PUBLIC_PORTFOLIO_ID_MAX_CHARS,
+            pattern=NONBLANK_PATTERN,
+        ),
+    ],
+):
+    portfolio_id = _validated_portfolio_id(portfolio_id)
+    with _connection(read_con) as con:
+        payload = league_read_models.equity(con, portfolio_id)
+        if payload is None:
             raise HTTPException(404, f"no equity for {portfolio_id}")
-        return {"portfolio_id": portfolio_id, "equity": rows}
-    finally:
-        con.close()
+        return payload
 
 
 # --------------------------------------------------------------------------- #
 # candidates
 # --------------------------------------------------------------------------- #
 @app.get("/candidates/{ticker}")
-def candidate(ticker: str):
-    ticker = ticker.upper()
-    con = read_con()
-    try:
-        bars = _rows(con.execute(
-            "SELECT date, open, high, low, close, volume FROM (   "
-            "  SELECT date, open, high, low, close, volume FROM prices "
-            "  WHERE ticker = ? ORDER BY date DESC LIMIT 250"
-            ") ORDER BY date", [ticker]))
-        if not bars:
+def candidate(
+    ticker: Annotated[
+        str,
+        Path(
+            min_length=1,
+            max_length=ticket_contract.TICKER_MAX_CHARS,
+            pattern=NONBLANK_PATTERN,
+        ),
+    ],
+):
+    ticker = _validated_ticker(ticker)
+    with _connection(read_con) as con:
+        payload = market_read_models.candidate(con, ticker)
+        if payload is None:
             raise HTTPException(404, f"no price bars for {ticker}")
-        screen = _rows(con.execute(
-            "SELECT * FROM screen_results WHERE ticker = ? "
-            "ORDER BY run_date DESC LIMIT 1", [ticker]))
-        screen_row = screen[0] if screen else None
-        latest_close = bars[-1]["close"]
-        return {"ticker": ticker, "n_bars": len(bars), "bars": bars,
-                "latest_close": latest_close, "screen": screen_row}
-    finally:
-        con.close()
+        return payload
 
 
 # --------------------------------------------------------------------------- #
 # positions
 # --------------------------------------------------------------------------- #
 @app.get("/positions")
-def positions(portfolio: str | None = Query(None)):
-    con = read_con()
-    try:
-        if not table_exists(con, "sim_positions"):
-            return {"portfolio": portfolio, "positions": []}
-        if portfolio:
-            q = ("SELECT portfolio_id, ticker, qty, avg_cost FROM sim_positions "
-                 "WHERE portfolio_id = ? AND qty > 0 ORDER BY ticker")
-            raw = con.execute(q, [portfolio]).fetchall()
-        else:
-            q = ("SELECT portfolio_id, ticker, qty, avg_cost FROM sim_positions "
-                 "WHERE qty > 0 ORDER BY portfolio_id, ticker")
-            raw = con.execute(q).fetchall()
-        out = []
-        for pf_id, tk, qty, avg in raw:
-            close = risk._latest_close(con, tk)
-            rec = {"portfolio_id": pf_id, "ticker": tk, "qty": qty,
-                   "avg_cost": avg, "close": close}
-            if close is not None:
-                rec["market_value"] = qty * close
-                rec["unrealized_pnl"] = qty * (close - avg)
-                rec["unrealized_pnl_pct"] = (close - avg) / avg if avg else None
-            if pf_id == DISC_ID:
-                stop = risk.latest_stop_for(con, tk)
-                rec["stop"] = stop
-                if stop is not None and close is not None:
-                    rec["dist_to_stop_pct"] = (close - stop) / close
-                    rps = avg - stop
-                    rec["unrealized_r"] = ((close - avg) / rps) if rps else None
-            out.append(rec)
-        return {"portfolio": portfolio, "positions": out}
-    finally:
-        con.close()
+def positions(
+    portfolio: Annotated[
+        str | None,
+        Query(
+            min_length=1,
+            max_length=PUBLIC_PORTFOLIO_ID_MAX_CHARS,
+            pattern=NONBLANK_PATTERN,
+        ),
+    ] = None,
+):
+    if portfolio is not None:
+        portfolio = _validated_portfolio_id(portfolio)
+    with _connection(read_con) as con:
+        payload = position_read_models.positions(con, portfolio, discretionary_id=tickets.DISC_ID)
+        if payload is None:
+            raise HTTPException(404, f"no active portfolio {portfolio}")
+        return payload
 
 
 # --------------------------------------------------------------------------- #
 # orders
 # --------------------------------------------------------------------------- #
 @app.get("/orders")
-def orders(status: str | None = Query(None)):
-    con = read_con()
-    try:
-        if not table_exists(con, "sim_orders"):
-            return {"status": status, "orders": []}
-        has_t = table_exists(con, "disc_tickets")
-        sel = ("o.*, t.id AS ticket_id, t.playbook, t.stop, t.target "
-               "FROM sim_orders o LEFT JOIN disc_tickets t ON t.order_id = o.id"
-               ) if has_t else "o.* FROM sim_orders o"
-        if status:
-            cur = con.execute(
-                f"SELECT {sel} WHERE o.status = ? ORDER BY o.id DESC", [status])
-        else:
-            cur = con.execute(f"SELECT {sel} ORDER BY o.id DESC LIMIT 500")
-        return {"status": status, "orders": _rows(cur)}
-    finally:
-        con.close()
+def orders(status: Annotated[OrderStatus | None, Query()] = None):
+    with _connection(read_con) as con:
+        return order_read_models.orders(con, status)
 
 
 # --------------------------------------------------------------------------- #
@@ -323,187 +311,36 @@ def orders(status: str | None = Query(None)):
 # --------------------------------------------------------------------------- #
 @app.get("/journal")
 def journal():
-    con = read_con()
-    try:
-        tickets = _rows(con.execute(
-            "SELECT * FROM disc_tickets ORDER BY created_at DESC, id DESC"
-        )) if table_exists(con, "disc_tickets") else []
-        for t in tickets:
-            if t.get("gates"):
-                try:
-                    t["gates"] = json.loads(t["gates"])
-                except Exception:
-                    pass
-            if t.get("order_id") is not None:
-                t["fills"] = _rows(con.execute(
-                    "SELECT ticker, side, qty, fill_date, fill_px FROM sim_fills "
-                    "WHERE order_id = ? ORDER BY fill_date", [t["order_id"]]))
-            else:
-                t["fills"] = []
-        round_trips = risk.closed_round_trips(con)
-        league_events = _rows(con.execute(
-            "SELECT order_id, portfolio_id, ticker, side, qty, fill_date, fill_px "
-            "FROM sim_fills ORDER BY fill_date DESC, order_id DESC LIMIT 100"
-        )) if table_exists(con, "sim_fills") else []
-        return {"discretionary": {"tickets": tickets, "round_trips": round_trips},
-                "league_events": league_events}
-    finally:
-        con.close()
+    with _connection(read_con) as con:
+        return journal_read_models.journal(con)
 
 
-# --------------------------------------------------------------------------- #
-# tickets (write)
-# --------------------------------------------------------------------------- #
-def _ensure_disc_portfolio(con, as_of: date) -> None:
-    exists = con.execute(
-        "SELECT 1 FROM portfolios WHERE id = ?", [DISC_ID]).fetchone()
-    if not exists:
-        con.execute(
-            "INSERT INTO portfolios (id, name, strategy, config, created, active, "
-            "cash) VALUES (?, ?, ?, ?, ?, TRUE, ?)",
-            [DISC_ID, "Discretionary (paper)", "discretionary",
-             json.dumps({"kind": "discretionary"}), as_of, INITIAL_CASH],
-        )
+@app.get("/tickets/context")
+def ticket_context():
+    with _connection(read_con) as con:
+        return paper_read_models.ticket_context(con)
 
 
-@app.post("/tickets")
-def create_ticket(body: dict = Body(...)):
-    ticker = (body.get("ticker") or "").upper().strip()
-    side = (body.get("side") or "buy").lower().strip()
-    if not ticker:
-        raise HTTPException(400, "ticker required")
-
-    # qty must be a positive finite number for both buy and sell (close) paths.
-    # A qty <= 0 slips past every multiplicative gate (sizing, heat, experiment
-    # cap) — a negative qty would size a forbidden short and inflate cash, a zero
-    # qty a no-op order. Reject before any gate evaluation.
-    try:
-        qty = float(body.get("qty") or 0)
-    except (TypeError, ValueError):
-        raise HTTPException(400, "qty must be a number")
-    if not math.isfinite(qty) or qty <= 0:
-        raise HTTPException(400, "qty must be a positive number")
-
-    con = write_con()
-    try:
-        init_sim_schema(con)  # ensure disc_tickets/audit_log/review_markers exist
-        as_of = _latest_prices_date(con)
-        if as_of is None:
-            raise HTTPException(503, "no price data")
-        _ensure_disc_portfolio(con, as_of)
-
-        ticket = {
-            "ticker": ticker, "side": side,
-            "qty": qty,
-            "entry_ref": body.get("entry_ref"),
-            "stop": body.get("stop"),
-            "target": body.get("target"),
-            "playbook": body.get("playbook"),
-            "emotion": body.get("emotion"),
-            "notes": body.get("notes"),
-            "acknowledge_earnings": bool(body.get("acknowledge_earnings")),
-            "override_regime": bool(body.get("override_regime")),
-            "override_reason": body.get("override_reason"),
-        }
-
-        # v1: shorts unsupported. A 'sell' is valid only to close an open position.
-        if side == "sell":
-            pos = con.execute(
-                "SELECT qty FROM sim_positions WHERE portfolio_id = ? AND ticker = ? "
-                "AND qty > 0", [DISC_ID, ticker]).fetchone()
-            if not pos or pos[0] < ticket["qty"]:
-                _audit(con, "ticket_reject_short", ticket)
-                raise HTTPException(
-                    400, "shorts unsupported v1; sell only closes an open position")
-            gates = [{"name": "closing_order", "status": "pass",
-                      "detail": "sell closes existing long position"}]
-            allowed, reasons = True, []
-        else:
-            gates = risk.evaluate_gates(con, ticket)
-            allowed, reasons = risk.is_allowed(gates, ticket)
-
-        # MAX(id)+1 allocation + the dependent inserts are one read-modify-write:
-        # wrap them in an explicit transaction so the ids and rows commit (or roll
-        # back) atomically. DuckDB's single-writer lock is the outer guard.
-        con.execute("BEGIN TRANSACTION")
+@app.post("/tickets", dependencies=JSON_MUTATION_DEPENDENCY)
+def create_ticket(body: ticket_contract.TicketRequest):
+    with _connection(write_con) as con:
         try:
-            tid = con.execute(
-                "SELECT COALESCE(MAX(id), 0) + 1 FROM disc_tickets").fetchone()[0]
-            order_id = None
-            status = "rejected"
-
-            if allowed:
-                order_id = con.execute(
-                    "SELECT COALESCE(MAX(id), 0) + 1 FROM sim_orders").fetchone()[0]
-                con.execute(
-                    "INSERT INTO sim_orders (id, portfolio_id, ticker, side, qty, "
-                    "signal_date, status, reject_reason) "
-                    "VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",
-                    [order_id, DISC_ID, ticker, side, ticket["qty"],
-                     _ticket_signal_date(as_of)])
-                status = "submitted"
-
-            con.execute(
-                "INSERT INTO disc_tickets (id, ticker, side, qty, entry_ref, stop, "
-                "target, playbook, emotion, notes, gates, status, order_id, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [tid, ticker, side, ticket["qty"], ticket["entry_ref"], ticket["stop"],
-                 ticket["target"], ticket["playbook"], ticket["emotion"],
-                 ticket["notes"], json.dumps(gates, default=str), status, order_id,
-                 _now()])
-
-            _audit(con, "ticket_submit", {"ticket_id": tid, "status": status,
-                                          "order_id": order_id, "allowed": allowed,
-                                          "ticket": ticket})
-            con.execute("COMMIT")
-        except Exception:
-            con.execute("ROLLBACK")
-            raise
-        return {"ticket_id": tid, "allowed": allowed, "status": status,
-                "order_id": order_id, "signal_date": as_of, "gates": gates,
-                "reasons": reasons}
-    finally:
-        con.close()
+            return tickets.create(con, asdict(body))
+        except ticket_contract.TicketError as exc:
+            raise HTTPException(exc.status_code, exc.detail) from exc
 
 
-@app.post("/tickets/{ticket_id}/cancel")
-def cancel_ticket(ticket_id: int):
-    con = write_con()
-    try:
-        row = con.execute(
-            "SELECT status, order_id FROM disc_tickets WHERE id = ?",
-            [ticket_id]).fetchone()
-        if row is None:
-            raise HTTPException(404, f"no ticket {ticket_id}")
-        t_status, order_id = row
-        if order_id is None:
-            raise HTTPException(409, f"ticket {ticket_id} has no order (was rejected)")
-        o = con.execute(
-            "SELECT status FROM sim_orders WHERE id = ?", [order_id]).fetchone()
-        if o is None or o[0] != "pending":
-            raise HTTPException(
-                409, f"order {order_id} not pending (status "
-                     f"{o[0] if o else 'missing'}) — cannot cancel")
-        con.execute("UPDATE sim_orders SET status = 'cancelled', "
-                    "reject_reason = 'cancelled by user' WHERE id = ?", [order_id])
-        con.execute("UPDATE disc_tickets SET status = 'cancelled' WHERE id = ?",
-                    [ticket_id])
-        _audit(con, "ticket_cancel", {"ticket_id": ticket_id, "order_id": order_id})
-        return {"ticket_id": ticket_id, "order_id": order_id, "status": "cancelled"}
-    finally:
-        con.close()
+@app.post("/tickets/{ticket_id}/cancel", dependencies=JSON_MUTATION_DEPENDENCY)
+def cancel_ticket(ticket_id: Annotated[int, Path(ge=1, le=PUBLIC_SAFE_INTEGER_MAX)]):
+    ticket_id = _validated_ticket_id(ticket_id)
+    with _connection(write_con) as con:
+        try:
+            return tickets.cancel(con, ticket_id)
+        except ticket_contract.TicketError as exc:
+            raise HTTPException(exc.status_code, exc.detail) from exc
 
 
-@app.post("/review-done")
+@app.post("/review-done", dependencies=JSON_MUTATION_DEPENDENCY)
 def review_done():
-    con = write_con()
-    try:
-        init_sim_schema(con)
-        ts = _now()
-        con.execute("INSERT INTO review_markers (ts, kind) VALUES (?, ?)",
-                    [ts, "circuit_breaker"])
-        _audit(con, "review_done", {"kind": "circuit_breaker", "ts": str(ts)})
-        return {"ok": True, "kind": "circuit_breaker", "ts": ts,
-                "detail": "circuit breaker cleared"}
-    finally:
-        con.close()
+    with _connection(write_con) as con:
+        return tickets.mark_review_done(con)

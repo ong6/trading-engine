@@ -1,5 +1,5 @@
-// Friendly state for a failed fetch. A 503 (single-writer DuckDB held by the
-// nightly run) becomes a retry-later message; anything else shows the error.
+// Friendly state for a failed fetch. A reviewed busy response (single-writer
+// DuckDB held by the nightly run) becomes retry-later; anything else shows the error.
 export default function StateNotice({ res }) {
   if (!res) return null;
   if (res.busy) {

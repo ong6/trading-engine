@@ -32,30 +32,27 @@ def main() -> int:
     a = ap.parse_args()
 
     con = db.connect(a.db)
-    d = (date.fromisoformat(a.as_of) if a.as_of
-         else con.execute("SELECT MAX(date) FROM sim_equity").fetchone()[0])
-    before = con.execute("SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM sim_dividends").fetchone()
-    log.info(f"[backfill-div] as_of={d} lookback={a.lookback_days}d  "
-          f"sim_dividends before: {before[0]} rows / ${before[1]:,.2f}")
-    con.execute("BEGIN TRANSACTION")
     try:
-        out = portfolio.credit_dividends(con, d, lookback_days=a.lookback_days)
-        rows = con.execute(
-            "SELECT portfolio_id, ticker, ex_date, qty, dps, amount FROM sim_dividends "
-            "ORDER BY ex_date, portfolio_id, ticker").fetchall()
-        for pf, tk, ex, q, dps, amt in rows:
-            log.info(f"    {ex}  {pf:<28} {tk:<6} {q:12.4f} x {dps:.4f} = ${amt:9.2f}")
-        log.info(f"[backfill-div] {'APPLY' if a.apply else 'DRY-RUN'}: credited "
-              f"{out['credited']} rows / ${out['amount']:,.2f}")
+        d = (date.fromisoformat(a.as_of) if a.as_of
+             else con.execute("SELECT MAX(date) FROM sim_equity").fetchone()[0])
+        before = con.execute(
+            "SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM sim_dividends"
+        ).fetchone()
+        log.info(f"[backfill-div] as_of={d} lookback={a.lookback_days}d  "
+              f"sim_dividends before: {before[0]} rows / ${before[1]:,.2f}")
+        with db.transaction(con, commit=a.apply):
+            out = portfolio.credit_dividends(con, d, lookback_days=a.lookback_days)
+            rows = con.execute(
+                "SELECT portfolio_id, ticker, ex_date, qty, dps, amount FROM sim_dividends "
+                "ORDER BY ex_date, portfolio_id, ticker").fetchall()
+            for pf, tk, ex, q, dps, amt in rows:
+                log.info(f"    {ex}  {pf:<28} {tk:<6} {q:12.4f} x {dps:.4f} = ${amt:9.2f}")
+            log.info(f"[backfill-div] {'APPLY' if a.apply else 'DRY-RUN'}: credited "
+                  f"{out['credited']} rows / ${out['amount']:,.2f}")
         if a.apply:
-            con.execute("COMMIT")
             log.info("[backfill-div] committed")
         else:
-            con.execute("ROLLBACK")
             log.info("[backfill-div] rolled back — nothing written")
-    except Exception:
-        con.execute("ROLLBACK")
-        raise
     finally:
         con.close()
     return 0

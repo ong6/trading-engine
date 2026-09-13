@@ -45,6 +45,13 @@ def _setup(con):
                 "VALUES ('b', 'b', 'x', ?, TRUE, 1000)", [DAYS[0]])
     con.execute("INSERT INTO sim_positions (portfolio_id, ticker, qty, avg_cost) "
                 "VALUES ('b', 'HELD', 10, 200.0)")
+    # RETIRED is archival state, not current exposure -> demote normally.
+    _row(con, "RETIRED", active=False, liquid=True)
+    insert_bars(con, "RETIRED", OLD, open_=200.0, close=200.0, volume=5_000_000)
+    con.execute("INSERT INTO portfolios (id, name, strategy, created, active, cash) "
+                "VALUES ('old', 'old', 'x', ?, FALSE, 1000)", [DAYS[0]])
+    con.execute("INSERT INTO sim_positions (portfolio_id, ticker, qty, avg_cost) "
+                "VALUES ('old', 'RETIRED', 10, 200.0)")
     # DEAD_NEW: qualifies on the numbers but is not active -> never admitted
     _row(con, "DEAD_NEW", active=False, liquid=False)
     insert_bars(con, "DEAD_NEW", WINDOW, open_=10.0, close=10.0, volume=1_000_000)
@@ -69,15 +76,16 @@ def test_refresh_admits_demotes_and_keeps_held(con):
     before = con.execute("SELECT COUNT(*) FROM universe").fetchone()[0]
     out = collect.apply_liquid_flags(con, collect.liquid_flags(con), dry_run=False)
     assert out["admitted"] == ["NEW"]
-    assert out["demoted"] == ["GONE", "PENNY", "THIN"]
+    assert out["demoted"] == ["GONE", "PENNY", "RETIRED", "THIN"]
     assert out["kept_held"] == ["HELD"]
     liquid = {r[0]: r[1] for r in con.execute("SELECT ticker, liquid FROM universe").fetchall()}
     assert liquid == {"NEW": True, "THIN": False, "PENNY": False, "GONE": False,
-                      "HELD": True, "DEAD_NEW": False, "STAY": True}
+                      "HELD": True, "RETIRED": False, "DEAD_NEW": False, "STAY": True}
     # flag-only: no row deleted, and the admitted name is queued for backfill
     assert con.execute("SELECT COUNT(*) FROM universe").fetchone()[0] == before
     assert con.execute("SELECT COUNT(*) FROM prices WHERE ticker = 'GONE'").fetchone()[0] == len(OLD)
     assert con.execute("SELECT ticker FROM universe WHERE liquid AND NOT backfill_done").fetchall() == [("NEW",)]
+    assert out["liquid_before"] == 6
     assert out["liquid_after"] == 3
 
 
@@ -85,7 +93,11 @@ def test_dry_run_changes_nothing(con):
     _setup(con)
     snap = con.execute("SELECT ticker, liquid FROM universe ORDER BY ticker").fetchall()
     out = collect.apply_liquid_flags(con, collect.liquid_flags(con), dry_run=True)
-    assert out["admitted"] == ["NEW"] and out["demoted"] == ["GONE", "PENNY", "THIN"]
+    assert out["admitted"] == ["NEW"] and out["demoted"] == [
+        "GONE", "PENNY", "RETIRED", "THIN"
+    ]
+    assert out["liquid_before"] == 6
+    assert out["liquid_after"] == 3
     assert out["dry_run"] is True
     assert con.execute("SELECT ticker, liquid FROM universe ORDER BY ticker").fetchall() == snap
 

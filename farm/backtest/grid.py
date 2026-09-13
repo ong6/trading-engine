@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 """The (book, window) grid — enumerate it, enqueue it, or run it locally.
 
-The grid is 15 books × {6mo, 1y, 3y, 5y, 15y} plus a data-limited `max` for the
-three ETF-only books (`dual_momentum`, `dual_momentum_gated`, `spy_benchmark`)
-= 78 jobs. `pead_ear` and `discretionary` are excluded for the reasons printed
-by `--list` (no historical earnings dates; human book).
+The grid contains active, historically replayable books over
+{6mo, 1y, 3y, 5y, 15y}, plus a data-limited `max` for ETF-only books. Retired
+configs and strategies whose point-in-time inputs do not exist are excluded.
 
 Priorities are staggered by window so SHORT windows land first — the queue
 drains `ORDER BY priority ASC, created_at ASC`, and a partially-drained grid is
@@ -24,14 +23,16 @@ import argparse
 import json
 
 from engine.lib import db
+from engine.lib.data_quality import FIXED_ETF_STRATEGIES
 from engine.lib.log import get_logger
 from engine.lib.settings import REPO_ROOT  # noqa: F401
-from farm.backtest.replay import EXCLUDED, WINDOW_MONTHS
+from farm.backtest.replay import EXCLUDED, excluded_reason
 from sim.strategies.configs import CONFIGS
 
 log = get_logger("grid")
 
-ETF_ONLY = {"dual_momentum", "spy_benchmark"}   # strategies eligible for 'max'
+# Strategies eligible for `max`; centralized with result evidence labels.
+ETF_ONLY = FIXED_ETF_STRATEGIES
 PRIORITY = {"6mo": 140, "1y": 145, "3y": 150, "5y": 155, "15y": 160, "max": 165}
 MEM_MB = 8000
 
@@ -40,7 +41,7 @@ def grid() -> list[tuple[str, str]]:
     out = []
     for w in ("6mo", "1y", "3y", "5y", "15y", "max"):
         for c in CONFIGS:
-            if c["id"] in EXCLUDED:
+            if not c.get("active", True) or excluded_reason(c["id"], c["strategy"]):
                 continue
             if w == "max" and c["strategy"] not in ETF_ONLY:
                 continue
@@ -49,7 +50,7 @@ def grid() -> list[tuple[str, str]]:
 
 
 def enqueue(con, only_window: str | None = None, dry_run: bool = False) -> int:
-    import queue_runner as qr  # engine/queue_runner.py
+    from engine import queue_runner as qr
 
     blockers = con.execute(
         "SELECT id, kind, priority FROM jobs WHERE state = 'pending' "
@@ -93,12 +94,15 @@ def main() -> int:
         print(f"\n{len(grid())} jobs")
         for cid, why in EXCLUDED.items():
             print(f"EXCLUDED {cid}: {why}")
+        for c in CONFIGS:
+            if not c.get("active", True):
+                print(f"EXCLUDED {c['id']}: retired (active=false)")
         return 0
 
     con = db.connect(args.db) if args.db else db.connect()
-    db.init_schema(con)
-    db.init_queue_schema(con)
     try:
+        db.init_schema(con)
+        db.init_queue_schema(con)
         return enqueue(con, args.window, dry_run=args.dry_run)
     finally:
         con.close()

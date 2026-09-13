@@ -9,9 +9,10 @@ Four modes:
   --refresh-liquid   WEEKLY: re-pull ~90d for active names currently NOT liquid,
                      recompute `universe.liquid` for everyone from the trailing
                      63-session median dollar volume (same floor as bootstrap),
-                     admit newly qualifying names (+ their max-history backfill
-                     via --backfill's path) and demote names that no longer
-                     qualify — flag only, never a row. `--dry-run` reports.
+                     admit newly qualifying names, drain every pending liquid
+                     max-history backfill via --backfill's resumable path, and
+                     demote names that no longer qualify — flag only, never a
+                     row. `--dry-run` reports.
   (default)          incremental daily pull of the last few sessions for liquid
                      names, gated on the NYSE trading calendar.
 
@@ -27,12 +28,13 @@ survivorship). --refresh-liquid is the fix.
 Guardrails: never fabricate a bar (NaN closes are dropped upstream), polite
 pulls (batched, sleeps, one backoff retry), only yfinance + nasdaqtrader.com.
 """
+
 from __future__ import annotations
 
 import argparse
-import json
 import time
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
@@ -94,7 +96,7 @@ def _extract_long(raw: pd.DataFrame, yf_to_canon: dict[str, str]) -> tuple[pd.Da
                 frames.append(f)
                 got.add(yft)
     elif len(yf_to_canon) == 1:
-        (yft, canon), = yf_to_canon.items()
+        ((yft, canon),) = yf_to_canon.items()
         f = _frame_from_sub(raw, canon)
         if f is not None:
             frames.append(f)
@@ -105,8 +107,9 @@ def _extract_long(raw: pd.DataFrame, yf_to_canon: dict[str, str]) -> tuple[pd.Da
     return pd.concat(frames, ignore_index=True), got
 
 
-def _download(yf_tickers: list[str], *, period: str | None, start: str | None,
-              retry_sleep: int = 30) -> pd.DataFrame:
+def _download(
+    yf_tickers: list[str], *, period: str | None, start: str | None, retry_sleep: int = 30
+) -> pd.DataFrame:
     """One yf.download call with a single backoff retry on exception."""
     kwargs = dict(group_by="ticker", auto_adjust=False, threads=True, progress=False)
     if period:
@@ -128,6 +131,42 @@ def _download(yf_tickers: list[str], *, period: str | None, start: str | None,
 def _batches(seq: list, size: int):
     for i in range(0, len(seq), size):
         yield seq[i : i + size]
+
+
+def _limited(rows: list[tuple], limit: int | None) -> list[tuple]:
+    """Apply a CLI limit without making zero mean "unlimited"."""
+    if limit is None:
+        return rows
+    if limit < 0:
+        raise ValueError("limit must be non-negative")
+    return rows[:limit]
+
+
+def _universe_map(
+    db_path: str | Path,
+    where: str,
+    limit: int | None,
+) -> dict[str, str]:
+    """Resolve a yfinance-to-canonical map under one short read lease."""
+    con = db.connect(db_path, read_only=True)
+    try:
+        rows = con.execute(
+            f"SELECT ticker, yf_ticker FROM universe WHERE {where} ORDER BY ticker"
+        ).fetchall()
+    finally:
+        con.close()
+    return {yft: ticker for ticker, yft in _limited(rows, limit)}
+
+
+def _upsert_batch(db_path: str | Path, frame: pd.DataFrame) -> int:
+    """Persist one completed network batch under a bounded writer lease."""
+    if frame is None or frame.empty:
+        return 0
+    con = db.connect(db_path)
+    try:
+        return db.upsert_prices(con, frame)
+    finally:
+        con.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -154,14 +193,10 @@ def _update_job(con, jid: int, progress: str, state: str = "running") -> None:
 # --------------------------------------------------------------------------- #
 # modes
 # --------------------------------------------------------------------------- #
-def mode_bootstrap_floor(con, limit: int | None) -> tuple[int, int]:
+def mode_bootstrap_floor(db_path: str | Path, limit: int | None) -> tuple[int, int]:
     """Fetch ~90d for active names, then set universe.liquid from our own data.
-    Returns (requested, failed)."""
-    rows = con.execute(
-        "SELECT ticker, yf_ticker FROM universe WHERE active = TRUE ORDER BY ticker"
-        + (f" LIMIT {int(limit)}" if limit else "")
-    ).fetchall()
-    yf_to_canon = {yft: tk for tk, yft in rows}
+    Returns (requested, failed). DuckDB is not retained during HTTP or sleeps."""
+    yf_to_canon = _universe_map(db_path, "active = TRUE", limit)
     all_yf = list(yf_to_canon)
     start = (datetime.now(timezone.utc).date() - timedelta(days=90)).isoformat()
 
@@ -170,57 +205,67 @@ def mode_bootstrap_floor(con, limit: int | None) -> tuple[int, int]:
         sub_map = {y: yf_to_canon[y] for y in batch}
         raw = _download(batch, period=None, start=start)
         df, got = _extract_long(raw, sub_map)
-        n = db.upsert_prices(con, df)
+        n = _upsert_batch(db_path, df)
         got_all |= got
         log.info(f"[bootstrap] batch {len(batch)} tickers -> {n} rows ({len(got)} with data)")
         time.sleep(2)
 
-    # Liquidity floor computed from OUR stored prices, over the window we have.
-    con.execute(
-        """
-        CREATE OR REPLACE TEMP TABLE _liq AS
-        SELECT ticker,
-               arg_max(close, date)    AS last_close,
-               median(close * volume)  AS med_dollar_vol
-        FROM prices GROUP BY ticker
-        """
-    )
-    con.execute("UPDATE universe SET liquid = FALSE")
-    con.execute(
-        """
-        UPDATE universe u SET liquid = TRUE
-        FROM _liq l
-        WHERE u.ticker = l.ticker
-          AND l.last_close >= ?
-          AND l.med_dollar_vol >= ?
-        """,
-        [LIQ_MIN_CLOSE, LIQ_MIN_MDV],
-    )
-
-    active = con.execute("SELECT COUNT(*) FROM universe WHERE active = TRUE").fetchone()[0]
-    priced = con.execute("SELECT COUNT(DISTINCT ticker) FROM prices").fetchone()[0]
-    liquid = con.execute("SELECT COUNT(*) FROM universe WHERE liquid = TRUE").fetchone()[0]
+    # Compute and apply the liquidity floor atomically after all network work.
+    con = db.connect(db_path)
+    try:
+        with db.transaction(con):
+            con.execute(
+                """
+                CREATE OR REPLACE TEMP TABLE _liq AS
+                SELECT ticker,
+                       arg_max(close, date)    AS last_close,
+                       median(close * volume)  AS med_dollar_vol
+                FROM prices GROUP BY ticker
+                """
+            )
+            con.execute("UPDATE universe SET liquid = FALSE")
+            con.execute(
+                """
+                UPDATE universe u SET liquid = TRUE
+                FROM _liq l
+                WHERE u.ticker = l.ticker
+                  AND l.last_close >= ?
+                  AND l.med_dollar_vol >= ?
+                """,
+                [LIQ_MIN_CLOSE, LIQ_MIN_MDV],
+            )
+            active = con.execute(
+                "SELECT COUNT(*) FROM universe WHERE active = TRUE"
+            ).fetchone()[0]
+            priced = con.execute(
+                "SELECT COUNT(DISTINCT ticker) FROM prices"
+            ).fetchone()[0]
+            liquid = con.execute(
+                "SELECT COUNT(*) FROM universe WHERE liquid = TRUE"
+            ).fetchone()[0]
+    finally:
+        con.close()
     failed = len(all_yf) - len(got_all)
     log.info(f"[bootstrap] active={active} priced={priced} liquid={liquid} failed={failed}")
     return len(all_yf), failed
 
 
-def mode_backfill(con, limit: int | None) -> tuple[int, int]:
+def mode_backfill(db_path: str | Path, limit: int | None) -> tuple[int, int]:
     """Max-history backfill for liquid, not-yet-done names. Resumable: the
-    WHERE backfill_done = FALSE query IS the resume mechanism."""
-    rows = con.execute(
-        "SELECT ticker, yf_ticker FROM universe "
-        "WHERE liquid = TRUE AND backfill_done = FALSE ORDER BY ticker"
-        + (f" LIMIT {int(limit)}" if limit else "")
-    ).fetchall()
-    yf_to_canon = {yft: tk for tk, yft in rows}
+    WHERE backfill_done = FALSE query IS the resume mechanism. Each completed
+    batch checkpoints prices, ticker state, and job progress transactionally."""
+    yf_to_canon = _universe_map(db_path, "liquid = TRUE AND backfill_done = FALSE", limit)
     all_yf = list(yf_to_canon)
     total = len(all_yf)
     if total == 0:
         log.info("[backfill] nothing pending")
         return 0, 0
 
-    jid = _start_job(con, "backfill", f"limit={limit}", total)
+    con = db.connect(db_path)
+    try:
+        jid = _start_job(con, "backfill", f"limit={limit}", total)
+    finally:
+        con.close()
     n_done = 0
     got_all: set[str] = set()
 
@@ -228,20 +273,27 @@ def mode_backfill(con, limit: int | None) -> tuple[int, int]:
         sub_map = {y: yf_to_canon[y] for y in batch}
         raw = _download(batch, period="max", start=None)
         df, got = _extract_long(raw, sub_map)
-        n = db.upsert_prices(con, df)
-        got_all |= got
-        if got:
-            done_canon = [sub_map[y] for y in got]
-            con.executemany(
-                "UPDATE universe SET backfill_done = TRUE WHERE ticker = ?",
-                [[c] for c in done_canon],
-            )
         n_done += len(batch)
-        _update_job(con, jid, f"{n_done}/{total}")
-        log.info(f"[backfill] batch {len(batch)} -> {n} rows ({len(got)} done); progress {n_done}/{total}")
+        con = db.connect(db_path)
+        try:
+            with db.transaction(con):
+                n = db.upsert_prices(con, df)
+                if got:
+                    done_canon = [sub_map[y] for y in got]
+                    con.executemany(
+                        "UPDATE universe SET backfill_done = TRUE WHERE ticker = ?",
+                        [[c] for c in done_canon],
+                    )
+                state = "done" if n_done == total else "running"
+                _update_job(con, jid, f"{n_done}/{total}", state=state)
+        finally:
+            con.close()
+        got_all |= got
+        log.info(
+            f"[backfill] batch {len(batch)} -> {n} rows ({len(got)} done); progress {n_done}/{total}"
+        )
         time.sleep(2)
 
-    _update_job(con, jid, f"{n_done}/{total}", state="done")
     failed = total - len(got_all)
     log.info(f"[backfill] processed={total} with_data={len(got_all)} failed={failed}")
     return total, failed
@@ -260,8 +312,9 @@ def liquid_flags(con, as_of: date | None = None) -> pd.DataFrame:
     if as_of is None:
         as_of = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
     if as_of is None:
-        return pd.DataFrame(columns=["ticker", "last_close", "med_dollar_vol",
-                                     "nbars", "qualifies"])
+        return pd.DataFrame(
+            columns=["ticker", "last_close", "med_dollar_vol", "nbars", "qualifies"]
+        )
     days = con.execute(
         "SELECT DISTINCT date FROM prices WHERE date <= ? ORDER BY date DESC LIMIT ?",
         [as_of, LIQ_BARS],
@@ -285,14 +338,20 @@ def liquid_flags(con, as_of: date | None = None) -> pd.DataFrame:
 
 
 def _held_tickers(con) -> set[str]:
-    """Names any league book currently holds (empty if the sim schema is absent)."""
+    """Names any active league book currently holds (empty without sim tables)."""
     has = con.execute(
         "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'sim_positions'"
     ).fetchone()[0]
     if not has:
         return set()
-    return {r[0] for r in con.execute(
-        "SELECT DISTINCT ticker FROM sim_positions WHERE qty > 0").fetchall()}
+    return {
+        r[0]
+        for r in con.execute(
+            "SELECT DISTINCT p.ticker FROM sim_positions p "
+            "JOIN portfolios pf ON pf.id = p.portfolio_id "
+            "WHERE pf.active AND p.qty > 0"
+        ).fetchall()
+    }
 
 
 def apply_liquid_flags(con, flags: pd.DataFrame, *, dry_run: bool) -> dict:
@@ -300,7 +359,7 @@ def apply_liquid_flags(con, flags: pd.DataFrame, *, dry_run: bool) -> dict:
     demotes liquid names that don't (active or not). Flag-only: no universe or
     price row is ever deleted, and universe_snapshot is untouched (universe.py
     appends the next snapshot from the refreshed flag, so the forward record
-    starts moving). Names a league book HOLDS are never demoted: the incremental
+    starts moving). Names an active league book HOLDS are never demoted: the incremental
     pull only fetches liquid names, so demoting a held name would freeze its
     mark — they are reported under `kept_held` instead."""
     qualifying = set(flags.loc[flags["qualifies"], "ticker"])
@@ -312,20 +371,42 @@ def apply_liquid_flags(con, flags: pd.DataFrame, *, dry_run: bool) -> dict:
             admit.append(tk)
         elif liquid and tk not in qualifying:
             (kept_held if tk in held else demote).append(tk)
-    admit.sort(); demote.sort(); kept_held.sort()
+    admit.sort()
+    demote.sort()
+    kept_held.sort()
+    liquid_before = sum(bool(liquid) for _tk, _active, liquid in rows)
+    projected_liquid = liquid_before + len(admit) - len(demote)
     if not dry_run:
         if admit:
-            con.executemany("UPDATE universe SET liquid = TRUE WHERE ticker = ?",
-                            [[t] for t in admit])
+            con.executemany(
+                "UPDATE universe SET liquid = TRUE WHERE ticker = ?", [[t] for t in admit]
+            )
         if demote:
-            con.executemany("UPDATE universe SET liquid = FALSE WHERE ticker = ?",
-                            [[t] for t in demote])
-    liquid_after = con.execute("SELECT COUNT(*) FROM universe WHERE liquid = TRUE").fetchone()[0]
-    return {"admitted": admit, "demoted": demote, "kept_held": kept_held,
-            "liquid_after": int(liquid_after), "dry_run": dry_run}
+            con.executemany(
+                "UPDATE universe SET liquid = FALSE WHERE ticker = ?", [[t] for t in demote]
+            )
+        liquid_after = con.execute("SELECT COUNT(*) FROM universe WHERE liquid = TRUE").fetchone()[
+            0
+        ]
+        if liquid_after != projected_liquid:
+            raise RuntimeError("liquidity reconciliation count mismatch")
+    else:
+        liquid_after = projected_liquid
+    return {
+        "admitted": admit,
+        "demoted": demote,
+        "kept_held": kept_held,
+        "liquid_before": liquid_before,
+        "liquid_after": int(liquid_after),
+        "dry_run": dry_run,
+    }
 
 
-def mode_refresh_liquid(con, limit: int | None, dry_run: bool) -> tuple[int, int, dict]:
+def mode_refresh_liquid(
+    db_path: str | Path,
+    limit: int | None,
+    dry_run: bool,
+) -> tuple[int, int, dict]:
     """Weekly liquidity refresh. Returns (requested, failed, summary).
 
     1. ~90d pull for ACTIVE names that are NOT liquid today (liquid names are
@@ -335,15 +416,12 @@ def mode_refresh_liquid(con, limit: int | None, dry_run: bool) -> tuple[int, int
        a decision.
     2. Recompute the flag for everyone (liquid_flags) and reconcile
        (apply_liquid_flags).
-    3. Newly admitted names carry backfill_done = FALSE, so the existing
-       --backfill path fetches their max history — the same resumable job the
-       bootstrap used. Skipped under --dry-run.
+    3. Every non-dry-run refresh drains the existing --backfill path. Newly
+       admitted names carry backfill_done = FALSE, and any older partial
+       failure remains eligible, so a later zero-admission refresh retries it.
+       Skipped under --dry-run.
     """
-    rows = con.execute(
-        "SELECT ticker, yf_ticker FROM universe WHERE active = TRUE AND liquid = FALSE "
-        "ORDER BY ticker" + (f" LIMIT {int(limit)}" if limit else "")
-    ).fetchall()
-    yf_to_canon = {yft: tk for tk, yft in rows}
+    yf_to_canon = _universe_map(db_path, "active = TRUE AND liquid = FALSE", limit)
     all_yf = list(yf_to_canon)
     start = (datetime.now(timezone.utc).date() - timedelta(days=90)).isoformat()
     got_all: set[str] = set()
@@ -351,31 +429,47 @@ def mode_refresh_liquid(con, limit: int | None, dry_run: bool) -> tuple[int, int
         sub_map = {y: yf_to_canon[y] for y in batch}
         raw = _download(batch, period=None, start=start)
         df, got = _extract_long(raw, sub_map)
-        n = db.upsert_prices(con, df)
+        n = _upsert_batch(db_path, df)
         got_all |= got
-        log.info(f"[refresh-liquid] candidates batch {i} ({len(batch)} tickers) -> {n} rows ({len(got)} with data)")
+        log.info(
+            f"[refresh-liquid] candidates batch {i} ({len(batch)} tickers) -> {n} rows ({len(got)} with data)"
+        )
         time.sleep(2)
     failed = len(all_yf) - len(got_all)
 
-    flags = liquid_flags(con)
-    summary = apply_liquid_flags(con, flags, dry_run=dry_run)
-    summary.update({
-        "as_of": str(con.execute("SELECT MAX(date) FROM prices").fetchone()[0]),
-        "candidates_pulled": len(all_yf), "candidates_failed": failed,
-        "rule": f"last_close >= {LIQ_MIN_CLOSE:g} AND median(close*volume) >= "
+    con = db.connect(db_path, read_only=dry_run)
+    try:
+        if dry_run:
+            flags = liquid_flags(con)
+            summary = apply_liquid_flags(con, flags, dry_run=True)
+        else:
+            with db.transaction(con):
+                flags = liquid_flags(con)
+                summary = apply_liquid_flags(con, flags, dry_run=False)
+        summary.update(
+            {
+                "as_of": str(con.execute("SELECT MAX(date) FROM prices").fetchone()[0]),
+                "candidates_pulled": len(all_yf),
+                "candidates_failed": failed,
+                "rule": f"last_close >= {LIQ_MIN_CLOSE:g} AND median(close*volume) >= "
                 f"{LIQ_MIN_MDV:g} over trailing {LIQ_BARS} sessions",
-    })
+            }
+        )
+    finally:
+        con.close()
     tag = "DRY-RUN would" if dry_run else "did"
-    log.info(f"[refresh-liquid] {tag} admit={len(summary['admitted'])} "
-          f"demote={len(summary['demoted'])} kept_held={len(summary['kept_held'])} "
-          f"liquid_after={summary['liquid_after']} (as_of {summary['as_of']})")
+    log.info(
+        f"[refresh-liquid] {tag} admit={len(summary['admitted'])} "
+        f"demote={len(summary['demoted'])} kept_held={len(summary['kept_held'])} "
+        f"liquid_after={summary['liquid_after']} (as_of {summary['as_of']})"
+    )
     for key in ("admitted", "demoted", "kept_held"):
         if summary[key]:
             log.info(f"[refresh-liquid]   {key}: {' '.join(summary[key])}")
 
-    if not dry_run and summary["admitted"]:
-        log.info(f"[refresh-liquid] backfilling {len(summary['admitted'])} admitted names (max history)")
-        bf_total, bf_failed = mode_backfill(con, None)
+    if not dry_run:
+        log.info("[refresh-liquid] draining pending liquid backfills (max history)")
+        bf_total, bf_failed = mode_backfill(db_path, None)
         summary["backfill"] = {"processed": bf_total, "failed": bf_failed}
     return len(all_yf), failed, summary
 
@@ -388,17 +482,20 @@ def _is_trading_day(day: date) -> bool:
     return not sched.empty
 
 
-def mode_incremental(con, force: bool) -> tuple[int, int]:
-    """Daily pull of the last few sessions for liquid names. Calendar-gated."""
+def mode_incremental(
+    db_path: str | Path,
+    force: bool,
+    limit: int | None = None,
+) -> tuple[int, int]:
+    """Daily pull with no DuckDB handle retained during HTTP or sleeps."""
     today = datetime.now(timezone.utc).date()
     if not force and not _is_trading_day(today):
-        log.warning(f"[incremental] {today} is not an NYSE trading day; skipping (use --force to override)")
+        log.warning(
+            f"[incremental] {today} is not an NYSE trading day; skipping (use --force to override)"
+        )
         return 0, 0
 
-    rows = con.execute(
-        "SELECT ticker, yf_ticker FROM universe WHERE liquid = TRUE ORDER BY ticker"
-    ).fetchall()
-    yf_to_canon = {yft: tk for tk, yft in rows}
+    yf_to_canon = _universe_map(db_path, "liquid = TRUE", limit)
     all_yf = list(yf_to_canon)
 
     got_all: set[str] = set()
@@ -406,7 +503,7 @@ def mode_incremental(con, force: bool) -> tuple[int, int]:
         sub_map = {y: yf_to_canon[y] for y in batch}
         raw = _download(batch, period="5d", start=None)
         df, got = _extract_long(raw, sub_map)
-        n = db.upsert_prices(con, df)
+        n = _upsert_batch(db_path, df)
         got_all |= got
         log.info(f"[incremental] batch {len(batch)} -> {n} rows ({len(got)} with data)")
         time.sleep(2)
@@ -425,41 +522,60 @@ def _stale_cutoff(n: int = 3) -> date:
 
     today = datetime.now(timezone.utc).date()
     nyse = mcal.get_calendar("NYSE")
-    days = [d.date() for d in nyse.valid_days(
-        start_date=(today - timedelta(days=40)).isoformat(), end_date=today.isoformat())]
+    days = [
+        d.date()
+        for d in nyse.valid_days(
+            start_date=(today - timedelta(days=40)).isoformat(), end_date=today.isoformat()
+        )
+    ]
     days = [d for d in days if d <= today]
     if len(days) > n:
         return days[-(n + 1)]
     return days[0] if days else today
 
 
-def write_meta(con, mode: str, requested: int, failed: int) -> None:
-    universe_size = con.execute("SELECT COUNT(*) FROM universe").fetchone()[0]
-    active_count = con.execute("SELECT COUNT(*) FROM universe WHERE active = TRUE").fetchone()[0]
-    liquid_count = con.execute("SELECT COUNT(*) FROM universe WHERE liquid = TRUE").fetchone()[0]
-    prices_rows = con.execute("SELECT COUNT(*) FROM prices").fetchone()[0]
-    tickers_with_data = con.execute("SELECT COUNT(DISTINCT ticker) FROM prices").fetchone()[0]
+def write_meta(
+    db_path: str | Path,
+    mode: str,
+    requested: int,
+    failed: int,
+    meta_path: str | Path = META_PATH,
+) -> None:
+    """Materialize collection counters and merge them into shared metadata."""
+    con = db.connect(db_path, read_only=True)
+    try:
+        universe_size = con.execute("SELECT COUNT(*) FROM universe").fetchone()[0]
+        active_count = con.execute("SELECT COUNT(*) FROM universe WHERE active = TRUE").fetchone()[
+            0
+        ]
+        liquid_count = con.execute("SELECT COUNT(*) FROM universe WHERE liquid = TRUE").fetchone()[
+            0
+        ]
+        prices_rows = con.execute("SELECT COUNT(*) FROM prices").fetchone()[0]
+        tickers_with_data = con.execute("SELECT COUNT(DISTINCT ticker) FROM prices").fetchone()[0]
 
-    # Keyed on the last bar that actually TRADED (db.REAL_BAR_SQL), the rule
-    # league.md uses for stale marks — yfinance keeps emitting zero-volume dead
-    # quotes after a name stops trading, and MAX(date) counted them as fresh.
-    cutoff = _stale_cutoff(3)
-    stale = con.execute(
-        f"""
-        SELECT u.ticker
-        FROM universe u
-        LEFT JOIN (SELECT ticker, MAX(date) FILTER (WHERE {db.REAL_BAR_SQL}) md
-                   FROM prices GROUP BY ticker) p
-               ON u.ticker = p.ticker
-        WHERE u.liquid = TRUE AND (p.md IS NULL OR p.md < ?)
-        ORDER BY u.ticker
-        """,
-        [cutoff],
-    ).fetchall()
+        # Keyed on the last bar that actually TRADED (db.REAL_BAR_SQL), the rule
+        # league.md uses for stale marks — yfinance keeps emitting zero-volume dead
+        # quotes after a name stops trading, and MAX(date) counted them as fresh.
+        cutoff = _stale_cutoff(3)
+        stale = con.execute(
+            f"""
+            SELECT u.ticker
+            FROM universe u
+            LEFT JOIN (SELECT ticker, MAX(date) FILTER (WHERE {db.REAL_BAR_SQL}) md
+                       FROM prices GROUP BY ticker) p
+                   ON u.ticker = p.ticker
+            WHERE u.liquid = TRUE AND (p.md IS NULL OR p.md < ?)
+            ORDER BY u.ticker
+            """,
+            [cutoff],
+        ).fetchall()
+    finally:
+        con.close()
     stale_list = [r[0] for r in stale]
 
     degraded = requested > 0 and (failed / requested) > 0.10
-    meta = {
+    collection = {
         "last_run": datetime.now(timezone.utc).isoformat(),
         "mode": mode,
         "universe_size": universe_size,
@@ -470,24 +586,17 @@ def write_meta(con, mode: str, requested: int, failed: int) -> None:
         "stale_tickers": {"count": len(stale_list), "list": stale_list[:50]},
         "failed_this_run": failed,
         "sources": {"stooq": "blocked", "yfinance": "degraded" if degraded else "ok"},
-        "regime": None,
     }
-    rsc.write_text_atomic(META_PATH, json.dumps(meta, indent=2))
-    log.info(f"[meta] wrote {META_PATH} (prices_rows={prices_rows}, liquid={liquid_count}, stale={len(stale_list)})")
+    rsc.merge_meta(meta_path, collection)
+    log.info(
+        f"[meta] updated {meta_path} "
+        f"(prices_rows={prices_rows}, liquid={liquid_count}, stale={len(stale_list)})"
+    )
 
 
 def update_meta(**updates) -> None:
-    """Read-modify-write _meta.json (screen.py's shape) — for the weekly refresh,
-    which must not clobber the nightly's regime/screen keys the way write_meta
-    (the nightly's FIRST writer) legitimately does."""
-    meta = {}
-    if META_PATH.exists():
-        try:
-            meta = json.loads(META_PATH.read_text())
-        except json.JSONDecodeError:
-            meta = {}
-    meta.update(updates)
-    rsc.write_text_atomic(META_PATH, json.dumps(meta, indent=2))
+    """Merge weekly-refresh accounting into the shared metadata snapshot."""
+    rsc.merge_meta(META_PATH, updates)
 
 
 def main() -> int:
@@ -495,29 +604,45 @@ def main() -> int:
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--bootstrap-floor", action="store_true", help="90d pull + liquidity floor")
     g.add_argument("--backfill", action="store_true", help="max-history backfill of liquid names")
-    g.add_argument("--refresh-liquid", action="store_true",
-                   help="weekly: recompute universe.liquid from the trailing 63-session "
-                        "median dollar volume, admit + backfill new names, demote (flag only)")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="with --refresh-liquid: report admit/demote, write no flags, "
-                         "no backfill, no _meta.json (the ~90d candidate pull still lands)")
+    g.add_argument(
+        "--refresh-liquid",
+        action="store_true",
+        help="weekly: recompute universe.liquid from the trailing 63-session "
+        "median dollar volume, admit + backfill new names, demote (flag only)",
+    )
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="with --refresh-liquid: report admit/demote, write no flags, "
+        "no backfill, no _meta.json (the ~90d candidate pull still lands)",
+    )
     ap.add_argument("--db", default=str(db.DEFAULT_DB), help="DuckDB path (default: the store)")
-    ap.add_argument("--limit", type=int, default=None, help="process only first N names (smoke tests)")
-    ap.add_argument("--force", action="store_true", help="run incremental even on a non-trading day")
+    ap.add_argument(
+        "--limit", type=int, default=None, help="process only first N names (smoke tests)"
+    )
+    ap.add_argument(
+        "--force", action="store_true", help="run incremental even on a non-trading day"
+    )
     args = ap.parse_args()
 
-    con = db.connect(args.db)
-    db.init_schema(con)
+    if args.limit is not None and args.limit < 0:
+        ap.error("--limit must be non-negative")
+
+    db_path = Path(args.db)
+    con = db.connect(db_path)
+    try:
+        db.init_schema(con)
+    finally:
+        con.close()
 
     if args.bootstrap_floor:
         mode = "bootstrap-floor"
-        requested, failed = mode_bootstrap_floor(con, args.limit)
+        requested, failed = mode_bootstrap_floor(db_path, args.limit)
     elif args.backfill:
         mode = "backfill"
-        requested, failed = mode_backfill(con, args.limit)
+        requested, failed = mode_backfill(db_path, args.limit)
     elif args.refresh_liquid:
-        requested, failed, summary = mode_refresh_liquid(con, args.limit, args.dry_run)
-        con.close()
+        requested, failed, summary = mode_refresh_liquid(db_path, args.limit, args.dry_run)
         if not args.dry_run:
             summary["last_run"] = datetime.now(timezone.utc).isoformat()
             update_meta(liquid_refresh=summary)
@@ -525,10 +650,9 @@ def main() -> int:
         return 0
     else:
         mode = "incremental"
-        requested, failed = mode_incremental(con, args.force)
+        requested, failed = mode_incremental(db_path, args.force, args.limit)
 
-    write_meta(con, mode, requested, failed)
-    con.close()
+    write_meta(db_path, mode, requested, failed)
     return 0
 
 
