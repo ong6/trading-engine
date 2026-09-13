@@ -1,27 +1,12 @@
 """Position / cash accounting and mark-to-market.
 
-sim_positions and portfolios.cash are current state; sim_equity is append-only.
+sim_positions and portfolios.cash are current state; sim_equity is persisted by
+book/date and restatable only through an explicit league rerun.
 State can always be reconstructed from sim_fills (`rebuild_state`) — that replay
 is how `--rerun` restores exact cash/positions after deleting a date's rows.
 """
 from __future__ import annotations
 
-# --------------------------------------------------------------------------- #
-# fill model version — STAMPED INTO EVERY STORED RESULT
-# --------------------------------------------------------------------------- #
-# Bump this whenever apply_fill's arithmetic changes. Results produced under
-# different versions are NOT comparable, and the only way that stays true rather
-# than aspirational is for the version to travel with the numbers.
-#   v1  (2026-07-18 → 2026-08-20)  buys clamped to floor(cash / px)
-#   v2  (2026-08-20 → )            buys clamped to cash / px, MIN_FILL_USD floor
-FILL_MODEL_VERSION = "v2"
-
-# A buy whose affordable notional falls below this is dust, not a position:
-# filling it writes a sim_fills row and an avg_cost for an amount that cannot
-# move the book, and rejecting it is the honest outcome. v1 had no explicit
-# floor — its effective floor was one whole share, which is $1 for a penny
-# stock and $47,988 for a reverse-split-mangled leveraged ETF.
-MIN_FILL_USD = 1.0
 from datetime import date, timedelta
 
 import duckdb
@@ -30,6 +15,27 @@ from engine.lib.log import get_logger
 from engine.lib.util import table_exists
 
 from .schema import INITIAL_CASH
+
+# --------------------------------------------------------------------------- #
+# fill model version — STAMPED INTO EVERY STORED RESULT
+# --------------------------------------------------------------------------- #
+# Bump this whenever apply_fill's arithmetic changes. Results produced under
+# different versions are NOT comparable, and the only way that stays true rather
+# than aspirational is for the version to travel with the numbers.
+#   v1  (2026-07-18 → 2026-08-20)  buys clamped to floor(cash / px)
+#   v2  (2026-08-20 → 2026-09-06) buys clamped to cash / px, MIN_FILL_USD floor
+#   v3  (2026-09-06 → )            same, with simultaneous buys pro-rata scaled
+#                                    before application (no order-ID/ticker bias)
+#   v4  profile-aware market/fee costs, actual-quantity participation audit,
+#       per-book capital, explicit quarantine; baseline_v1 remains v3-equivalent
+FILL_MODEL_VERSION = "v4"
+
+# A buy whose affordable notional falls below this is dust, not a position:
+# filling it writes a sim_fills row and an avg_cost for an amount that cannot
+# move the book, and rejecting it is the honest outcome. v1 had no explicit
+# floor — its effective floor was one whole share, which is $1 for a penny
+# stock and $47,988 for a reverse-split-mangled leveraged ETF.
+MIN_FILL_USD = 1.0
 
 log = get_logger("apply_fill")
 
@@ -56,6 +62,16 @@ def get_cash(con: duckdb.DuckDBPyConnection, pf_id: str) -> float:
     return float(con.execute(
         "SELECT cash FROM portfolios WHERE id = ?", [pf_id]
     ).fetchone()[0])
+
+
+def get_initial_cash(con: duckdb.DuckDBPyConnection, pf_id: str) -> float:
+    """The immutable capital assigned when this portfolio was created."""
+    row = con.execute(
+        "SELECT initial_cash FROM portfolios WHERE id = ?", [pf_id]
+    ).fetchone()
+    if row is None:
+        raise KeyError(f"unknown portfolio {pf_id!r}")
+    return INITIAL_CASH if row[0] is None else float(row[0])
 
 
 def position_open_since(con: duckdb.DuckDBPyConnection, pf_id: str, ticker: str):
@@ -224,7 +240,7 @@ def apply_fill(con: duckdb.DuckDBPyConnection, fill: dict) -> float:
 
 
 def mark_to_market(con: duckdb.DuckDBPyConnection, pf_id: str, d: date) -> dict:
-    """Value a portfolio at d's close and append a sim_equity row.
+    """Value a portfolio at d's close and persist its sim_equity row.
 
     equity = cash + Σ qty*close; a missing close carries the last known close
     (flagged in the returned dict). Idempotent per (portfolio, date) via the PK
@@ -408,11 +424,13 @@ def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
     dividend can go ex on the same day the shares are cancelled; fills after
     because by `effective` the fill model can no longer produce one anyway.
     """
-    pf_ids = [r[0] for r in con.execute("SELECT id FROM portfolios").fetchall()]
+    pf_ids = con.execute(
+        "SELECT id, COALESCE(initial_cash, ?) FROM portfolios", [INITIAL_CASH]
+    ).fetchall()
     con.execute("DELETE FROM sim_positions")
-    for pf_id in pf_ids:
+    for pf_id, initial_cash in pf_ids:
         con.execute("UPDATE portfolios SET cash = ? WHERE id = ?",
-                    [INITIAL_CASH, pf_id])
+                    [initial_cash, pf_id])
 
     splits = _split_factors(con)
 
@@ -425,7 +443,7 @@ def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
             "ORDER BY ex_date, portfolio_id, ticker"
         ).fetchall()):
             events.append((ex, 0, i, "div", (pf_id, tk, float(amount))))
-    for i, (pf_id, tk, side, qty, px, fd, oid) in enumerate(con.execute(
+    for i, (pf_id, tk, side, qty, px, fd, _oid) in enumerate(con.execute(
         "SELECT portfolio_id, ticker, side, qty, fill_px, fill_date, order_id "
         "FROM sim_fills "
         "ORDER BY fill_date, CASE side WHEN 'sell' THEN 0 ELSE 1 END, order_id"

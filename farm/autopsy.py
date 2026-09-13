@@ -44,7 +44,7 @@ from pathlib import Path
 
 import duckdb
 
-from engine.lib import db
+from engine.lib import db, resources
 from engine.lib.log import get_logger
 from engine.lib.settings import REPO_ROOT  # noqa: F401
 
@@ -259,7 +259,7 @@ def _fifo_lots(con: duckdb.DuckDBPyConnection, book: str):
             unmatched += left
 
     open_lots = [lot for lots in lots_by_ticker.values() for lot in lots]
-    open_lots.sort(key=lambda l: (l["entry_date"], l["order_id"]))
+    open_lots.sort(key=lambda lot: (lot["entry_date"], lot["order_id"]))
     return closed, open_lots, unmatched
 
 
@@ -421,13 +421,13 @@ def autopsy(con: duckdb.DuckDBPyConnection,
         hold_limit, stop_frac = _hold_limit(params), _stop_frac(params)
         closed_lots, open_lots, unmatched = _fifo_lots(con, book)
 
-        trades = [_closed_record(l, book, prices, hold_limit, stop_frac)
-                  for l in closed_lots]
+        trades = [_closed_record(lot, book, prices, hold_limit, stop_frac)
+                  for lot in closed_lots]
         trades.sort(key=lambda t: (t["exit_date"], t["entry_date"], t["ticker"]))
         if since_iso:
             trades = [t for t in trades if t["exit_date"] >= since_iso]
-        opens = [_open_record(l, book, prices, hold_limit, stop_frac)
-                 for l in open_lots]
+        opens = [_open_record(lot, book, prices, hold_limit, stop_frac)
+                 for lot in open_lots]
 
         out[book] = {
             "trades": trades,
@@ -579,12 +579,12 @@ def main(argv: list[str] | None = None) -> int:
     if a.json_out:
         p = Path(a.json_out)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(result, indent=2, default=str) + "\n")
+        resources.write_text_atomic(p, json.dumps(result, indent=2, default=str) + "\n")
         log.info(f"[autopsy] wrote {p}")
     if a.md_out:
         p = Path(a.md_out)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(md)
+        resources.write_text_atomic(p, md)
         log.info(f"[autopsy] wrote {p}")
     if not a.json_out and not a.md_out:
         print(md)

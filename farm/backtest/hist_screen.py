@@ -85,6 +85,16 @@ SCREEN_COLS = [
     "passes_template", "dist_50d", "dist_200d", "off_52w_low",
     "off_52w_high", "base_tight", "vol_dryup", "new_today",
 ]
+TEMP_TABLES = (
+    "_hs_bar",
+    "_hs_raw",
+    "_hs_ranked",
+    "_hs_chunk",
+    "_hs_sessions",
+    "_hs_window",
+    "_hs_prev",
+    "_lev_excluded",
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -232,89 +242,90 @@ def screen_sessions(con, sessions: list[date], *, membership: str = "prices",
     end = max(sessions)
     warm_start = session_n_back(con, min(sessions), WARMUP_SESSIONS)
 
-    # Global session index (staleness is measured in trading sessions).
-    con.execute(
-        "CREATE OR REPLACE TEMP TABLE _hs_sessions AS "
-        "SELECT ROW_NUMBER() OVER (ORDER BY date) AS idx, date AS run_date "
-        "FROM (SELECT DISTINCT date FROM prices WHERE date <= ?)", [end])
-    maxidx = con.execute("SELECT MAX(idx) FROM _hs_sessions").fetchone()[0]
-    con.execute("CREATE OR REPLACE TEMP TABLE _hs_window AS "
-                "SELECT idx, run_date FROM _hs_sessions WHERE run_date IN "
-                f"({', '.join(['?'] * len(sessions))})", sessions)
+    try:
+        # Global session index (staleness is measured in trading sessions).
+        con.execute(
+            "CREATE OR REPLACE TEMP TABLE _hs_sessions AS "
+            "SELECT ROW_NUMBER() OVER (ORDER BY date) AS idx, date AS run_date "
+            "FROM (SELECT DISTINCT date FROM prices WHERE date <= ?)", [end])
+        maxidx = con.execute("SELECT MAX(idx) FROM _hs_sessions").fetchone()[0]
+        con.execute("CREATE OR REPLACE TEMP TABLE _hs_window AS "
+                    "SELECT idx, run_date FROM _hs_sessions WHERE run_date IN "
+                    f"({', '.join(['?'] * len(sessions))})", sessions)
 
-    con.execute("""
-        CREATE OR REPLACE TEMP TABLE _hs_raw (
-            run_date DATE, ticker VARCHAR, close DOUBLE, rs_raw DOUBLE,
-            dist_50d DOUBLE, dist_200d DOUBLE, off_52w_low DOUBLE,
-            off_52w_high DOUBLE, base_tight BOOLEAN, vol_dryup BOOLEAN,
-            c1 BOOLEAN, c2 BOOLEAN, c3 BOOLEAN, c4 BOOLEAN, c5 BOOLEAN,
-            c6 BOOLEAN, c7 BOOLEAN)
-    """)
+        con.execute("""
+            CREATE OR REPLACE TEMP TABLE _hs_raw (
+                run_date DATE, ticker VARCHAR, close DOUBLE, rs_raw DOUBLE,
+                dist_50d DOUBLE, dist_200d DOUBLE, off_52w_low DOUBLE,
+                off_52w_high DOUBLE, base_tight BOOLEAN, vol_dryup BOOLEAN,
+                c1 BOOLEAN, c2 BOOLEAN, c3 BOOLEAN, c4 BOOLEAN, c5 BOOLEAN,
+                c6 BOOLEAN, c7 BOOLEAN)
+        """)
 
-    if membership == "live":
-        join = "JOIN universe u ON u.ticker = m.ticker"
-        where = "WHERE u.active AND u.liquid"
-    else:
-        join = ""
-        where = (f"WHERE m.close >= {LIQ_MIN_CLOSE} AND m.mdv >= {LIQ_MIN_MDV}")
+        if membership == "live":
+            join = "JOIN universe u ON u.ticker = m.ticker"
+            where = "WHERE u.active AND u.liquid"
+        else:
+            join = ""
+            where = (f"WHERE m.close >= {LIQ_MIN_CLOSE} AND m.mdv >= {LIQ_MIN_MDV}")
 
-    # The exclusion is an anti-join on a ticker list classified in PYTHON, not a
-    # regex rewritten in SQL: one implementation of the rules, no drift. It is
-    # appended to whichever membership WHERE clause is in force, so the two
-    # filters compose instead of one silently replacing the other.
-    n_excluded = 0
-    if policy == lev.POLICY_EX_LEVERAGED:
-        n_excluded = lev.register_exclusion(con)
-        where += " AND m.ticker NOT IN (SELECT ticker FROM _lev_excluded)"
-        if verbose:
-            log.info(f"[hist_screen] policy {policy}: {n_excluded} leveraged/inverse "
-                  f"ETPs excluded from every session")
+        # The exclusion is an anti-join on a ticker list classified in PYTHON, not a
+        # regex rewritten in SQL: one implementation of the rules, no drift. It is
+        # appended to whichever membership WHERE clause is in force, so the two
+        # filters compose instead of one silently replacing the other.
+        n_excluded = 0
+        if policy == lev.POLICY_EX_LEVERAGED:
+            n_excluded = lev.register_exclusion(con)
+            where += " AND m.ticker NOT IN (SELECT ticker FROM _lev_excluded)"
+            if verbose:
+                log.info(f"[hist_screen] policy {policy}: {n_excluded} leveraged/inverse "
+                      f"ETPs excluded from every session")
 
-    all_tickers = tickers if tickers is not None else _tickers(con, end)
-    bar_sql = _BAR_SQL.format(min_bars=MIN_BARS, stale=STALE_TRADING_DAYS,
-                              maxidx=maxidx, liq_prev=LIQ_BARS - 1,
-                              real=db.REAL_BAR_SQL)
-    elig_sql = _ELIGIBLE_SQL.format(join=join, where=where)
+        all_tickers = tickers if tickers is not None else _tickers(con, end)
+        bar_sql = _BAR_SQL.format(min_bars=MIN_BARS, stale=STALE_TRADING_DAYS,
+                                  maxidx=maxidx, liq_prev=LIQ_BARS - 1,
+                                  real=db.REAL_BAR_SQL)
+        elig_sql = _ELIGIBLE_SQL.format(join=join, where=where)
 
-    for i in range(0, len(all_tickers), chunk_tickers):
-        chunk = all_tickers[i:i + chunk_tickers]
-        con.execute("CREATE OR REPLACE TEMP TABLE _hs_chunk (ticker VARCHAR)")
-        con.executemany("INSERT INTO _hs_chunk VALUES (?)", [(t,) for t in chunk])
-        con.execute(bar_sql, [end, warm_start])
-        con.execute(elig_sql)
-        if verbose:
-            n = con.execute("SELECT COUNT(*) FROM _hs_raw").fetchone()[0]
-            log.info(f"[hist_screen] tickers {i + len(chunk)}/{len(all_tickers)} "
-                  f"→ {n:,} eligible (ticker, date) rows "
-                  f"[{time.time() - t0:.0f}s]")
+        for i in range(0, len(all_tickers), chunk_tickers):
+            chunk = all_tickers[i:i + chunk_tickers]
+            con.execute("CREATE OR REPLACE TEMP TABLE _hs_chunk (ticker VARCHAR)")
+            con.executemany("INSERT INTO _hs_chunk VALUES (?)", [(t,) for t in chunk])
+            con.execute(bar_sql, [end, warm_start])
+            con.execute(elig_sql)
+            if verbose:
+                n = con.execute("SELECT COUNT(*) FROM _hs_raw").fetchone()[0]
+                log.info(f"[hist_screen] tickers {i + len(chunk)}/{len(all_tickers)} "
+                      f"→ {n:,} eligible (ticker, date) rows "
+                      f"[{time.time() - t0:.0f}s]")
 
-    con.execute(_RANK_SQL)
-    # new_today: passes today and did not pass on the previous run_date in the
-    # window. The first window date has no predecessor → False (live's first_run).
-    con.execute(
-        "CREATE OR REPLACE TEMP TABLE _hs_prev AS "
-        "SELECT run_date, LAG(run_date) OVER (ORDER BY run_date) AS prev "
-        "FROM (SELECT DISTINCT run_date FROM _hs_ranked)")
-    filt = "WHERE k.template_score = 8" if passing_only else ""
-    con.execute(f"""
-        INSERT INTO {table} ({', '.join(SCREEN_COLS)})
-        SELECT k.run_date, k.ticker, k.close, k.rs_rank, k.template_score,
-               k.template_score = 8 AS passes_template,
-               k.dist_50d, k.dist_200d, k.off_52w_low, k.off_52w_high,
-               k.base_tight, k.vol_dryup,
-               COALESCE(k.template_score = 8 AND pv.prev IS NOT NULL
-                        AND NOT EXISTS (SELECT 1 FROM _hs_ranked q
-                                        WHERE q.ticker = k.ticker
-                                          AND q.run_date = pv.prev
-                                          AND q.template_score = 8), FALSE)
-               AS new_today
-        FROM _hs_ranked k JOIN _hs_prev pv ON pv.run_date = k.run_date
-        {filt}
-    """)
-    n = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-    for t in ("_hs_bar", "_hs_raw", "_hs_ranked", "_hs_chunk", "_hs_sessions",
-              "_hs_window", "_hs_prev", "_lev_excluded"):
-        con.execute(f"DROP TABLE IF EXISTS {t}")
+        con.execute(_RANK_SQL)
+        # new_today: passes today and did not pass on the previous run_date in the
+        # window. The first window date has no predecessor → False (live's first_run).
+        con.execute(
+            "CREATE OR REPLACE TEMP TABLE _hs_prev AS "
+            "SELECT run_date, LAG(run_date) OVER (ORDER BY run_date) AS prev "
+            "FROM (SELECT DISTINCT run_date FROM _hs_ranked)")
+        filt = "WHERE k.template_score = 8" if passing_only else ""
+        con.execute(f"""
+            INSERT INTO {table} ({', '.join(SCREEN_COLS)})
+            SELECT k.run_date, k.ticker, k.close, k.rs_rank, k.template_score,
+                   k.template_score = 8 AS passes_template,
+                   k.dist_50d, k.dist_200d, k.off_52w_low, k.off_52w_high,
+                   k.base_tight, k.vol_dryup,
+                   COALESCE(k.template_score = 8 AND pv.prev IS NOT NULL
+                            AND NOT EXISTS (SELECT 1 FROM _hs_ranked q
+                                            WHERE q.ticker = k.ticker
+                                              AND q.run_date = pv.prev
+                                              AND q.template_score = 8), FALSE)
+                   AS new_today
+            FROM _hs_ranked k JOIN _hs_prev pv ON pv.run_date = k.run_date
+            {filt}
+        """)
+        n = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+    finally:
+        for temp_table in TEMP_TABLES:
+            con.execute(f"DROP TABLE IF EXISTS {temp_table}")
     if verbose:
         log.info(f"[hist_screen] {len(sessions)} sessions → {n:,} rows in "
               f"{time.time() - t0:.0f}s ({'passing only' if passing_only else 'all rows'}, "
@@ -337,14 +348,16 @@ def main() -> int:
     args = ap.parse_args()
 
     con = db.connect(args.db)
-    db.init_schema(con)
-    days = sessions_between(con, date.fromisoformat(args.start),
-                            date.fromisoformat(args.end))
-    log.info(f"[hist_screen] {len(days)} sessions {days[0]} → {days[-1]}")
-    screen_sessions(con, days, membership=args.membership,
-                    passing_only=not args.all_rows, table=args.table,
-                    universe_policy=args.universe_policy)
-    con.close()
+    try:
+        db.init_schema(con)
+        days = sessions_between(con, date.fromisoformat(args.start),
+                                date.fromisoformat(args.end))
+        log.info(f"[hist_screen] {len(days)} sessions {days[0]} → {days[-1]}")
+        screen_sessions(con, days, membership=args.membership,
+                        passing_only=not args.all_rows, table=args.table,
+                        universe_policy=args.universe_policy)
+    finally:
+        con.close()
     return 0
 
 

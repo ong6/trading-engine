@@ -112,8 +112,7 @@ def revert(con, tk: str, brk: date, ratio: float, apply: bool) -> bool:
     n_fills = con.execute("SELECT COUNT(*) FROM sim_fills WHERE ticker = ?", [tk]).fetchone()[0]
     n_pos = con.execute("SELECT COUNT(*) FROM sim_positions WHERE ticker = ? AND qty != 0",
                         [tk]).fetchone()[0]
-    con.execute("BEGIN TRANSACTION")
-    try:
+    with db.transaction(con):
         con.execute(
             "UPDATE prices SET open = open * ?, high = high * ?, low = low * ?, "
             "close = close * ?, volume = CAST(ROUND(volume / ?) AS BIGINT) "
@@ -138,10 +137,6 @@ def revert(con, tk: str, brk: date, ratio: float, apply: bool) -> bool:
                          "already on Yahoo's adjusted scale (audit 2026-09-02)",
                          "sim_fills_for_ticker": n_fills, "open_positions_for_ticker": n_pos,
                          "books_rebuilt": bool(n_fills)}, default=str)])
-        con.execute("COMMIT")
-    except Exception:
-        con.execute("ROLLBACK")
-        raise
     show(con, "after", tk, brk, ex)
     log.info(f"  watermark -> {REVERTED}; audit_log row appended"
           + ("; sim books rebuilt from fills" if n_fills else "; no fills for this name"))

@@ -8,7 +8,7 @@ report prints them.
 
   D-WF1  Rolling-origin walk-forward, TRAIN 24 months → VALIDATE 12 months,
          stepped by the validate length so the validate windows are CONTIGUOUS
-         and NON-OVERLAPPING and tile the recent past. 6 folds.
+         and NON-OVERLAPPING and tile the recent past. 10 folds.
 
          Why these numbers:
          * 24-month train is long enough to contain both a drawdown and a
@@ -19,12 +19,13 @@ report prints them.
            decisions per fold. Anything shorter and half the league is judged
            on 2-3 rebalances, which is noise.
          * Step = validate length is what makes each validate window fresh
-           data: no session appears in two validate windows, so the six
-           validate results are six disjoint out-of-sample measurements.
-         * 6 folds ≈ 6 years of validate coverage — COVID crash + recovery,
-           the 2022 bear, the 2023-25 bull — at a measured cost that fits one
-           Sunday drain inside §12.7's 4 h budget. More folds is a params
-           override, not a redesign.
+           data: no session appears in two validate windows, so the ten
+           validate results are ten disjoint out-of-sample measurements.
+         * 10 folds ≈ 10 years of validate coverage. The original six-fold
+           protocol was expanded prospectively on 2026-08-18 because one
+           COVID/recovery window dominated every momentum mean; the registered
+           rationale is recorded beside N_FOLDS below. More folds remains a
+           params override, not a redesign.
 
   D-WF2  Each fold is an INDEPENDENT replay that starts fresh at the league's
          reference notional at its train start. The alternative (one long
@@ -90,7 +91,7 @@ N_FOLDS = 10
 # A config-keyed list therefore cannot cover a strategy's twins or a sweep's
 # candidates by construction — and it did not. `earnings_context_pead`, the
 # retired AI twin of `pead_ear`, ran the identical excluded strategy, was absent
-# from this dict, replayed to 0 fills in all 6 folds, and was published in the
+# from this dict, replayed to 0 fills in all six then-current folds, and was published in the
 # 2026-08-17 walk-forward summary as `+0.00% mean validate / -30.55% vs EW /
 # REVIEW`. The inert guard in runner.py now catches the consequence; this
 # catches the cause, one replay earlier and for free.

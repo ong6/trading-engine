@@ -1,10 +1,20 @@
 # Charter — `ew_dd_throttle`
 
-_Pre-registration, 2026-08-20. **Candidate, not a book.** Nothing here creates a
-row in `portfolios`. It becomes a league book only if a human promotes it._
+_Pre-registration, 2026-08-20. The text below preserves the original candidate
+hypothesis and gates; the dated outcome addendum records the completed decision._
 
-Status: **candidate** · Class: `sim/strategies/ew_dd_throttle.py` ·
+Status: **completed — rejected and closed 2026-09-07** · Class: `sim/strategies/ew_dd_throttle.py` ·
 Sweep grid: `dd_throttle` · Cadence: **monthly** (matching `ew_benchmark`).
+
+## Outcome addendum — 2026-09-07
+
+The six-cell, 10-fold sweep rejects this candidate under its pre-registered first
+gate. The best-returning cell had **-6.71% median excess**, beat EW in **30%** of
+folds, and reached a **-36.47%** worst drawdown versus EW's **-37.54%**. That is
+only 1.07 percentage points of relief, far short of the required 8 points. Some
+full-exit cells reduced drawdown more, but paid median excess losses of roughly
+13% and therefore failed the return-cost gate. No book was registered; do not
+resweep nearby thresholds on this evidence set.
 
 ## Hypothesis
 

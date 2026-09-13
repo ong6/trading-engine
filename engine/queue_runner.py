@@ -1,18 +1,21 @@
 #!/usr/bin/env python
 """§12.7 job-queue runner — one DuckDB `jobs` table, no ad-hoc worker pools.
 
-Every heavy job (backfill, intraday archive, and later backtest sweeps /
-walk-forwards) is enqueued as a row and drained here. Jobs run **in-process,
-sequentially** for now: sequential trivially satisfies the "≤ 24 of 32 cores"
-cap, and the dispatch table (JOB_TYPES) is the seam where a future capped worker
-farm and new job types plug in.
+Every heavy job (backfill, intraday archive, backtest sweeps, and walk-forwards)
+is enqueued as a row and drained here. Store-writing jobs run one at a time;
+intraday, signals, earnings, fundamentals, and actions are supervised children that
+lease the writer for checkpoints, while other store writers run in-process. Explicitly
+``parallel_safe`` research jobs may run in isolated, read-only child processes,
+capped at eight workers and by the combined memory budget. ``JOB_TYPES`` is the
+dispatch and resource-policy boundary.
 
 Before starting ANY job the runner enforces the §12.7 guards and logs honestly:
   * re-nice self to 19 + ionice class 3 (best-effort);
   * 5-min load > 28 OR free RAM < 8 GiB  -> start nothing, leave pending, exit 0
     (the runner is re-invoked later; jobs are resumable so pausing is safe);
   * a job whose declared memory need > 48 GiB would blow the engine budget
-    -> refuse that job with an error (sequential => budget == one job);
+    -> refuse that job with an error; parallel batch width is also reduced to
+    keep the sum of declared worker memory within 48 GiB;
   * disk watchdog: store/ > 60 GiB soft -> set _meta.json disk_warning (merge);
     store/ > 80 GiB hard OR root free < 10 GiB -> refuse archive-type jobs
     (EOD collection is the last thing to stop; here we only gate archive jobs).
@@ -22,15 +25,16 @@ CLI:
                                     [--timeout-s S]
   queue_runner.py --enqueue-nightly [--date YYYY-MM-DD | --weekday 1-7] [--dry-run]
                               the nightly's mining policy (see nightly_plan)
-  queue_runner.py --run       drain pending jobs (respecting the guards)
+  queue_runner.py --run       drain pending jobs (respecting the guards); optional
+                              --run-kind K --run-params JSON limits execution
   queue_runner.py --status    print the jobs table
 Common: --db (default store/market.duckdb), --meta (default data/_meta.json).
 
 Per-job timeout (2026-09-03): every row carries `timeout_s` (NULL = the kind's
-default in JOB_TYPES). It is enforced on the child processes of a parallel
-batch — the child is killed and the row goes 'failed' with last_error
-'timeout: …'. In-process (store-writing, sequential) kinds cannot be killed
-from inside the same process; they remain bounded by the drain budget as before.
+default in JOB_TYPES). It is enforced on child processes, including the long
+HTTP miners and parallel research batches — a timed-out child is killed and the
+row goes `failed`. Other in-process store-writing kinds cannot be killed from
+inside the same process; they remain bounded by the drain budget as before.
 
 Supersede (2026-09-03): a kind flagged `supersedes` in JOB_TYPES marks older
 pending rows of the SAME kind with DIFFERENT params 'superseded' when a new one
@@ -64,7 +68,7 @@ from engine.lib.settings import REPO_ROOT, STORE_DIR
 # starves the nightly or the interactive API (~24 of 32 cores for the farm).
 LOAD_5MIN_MAX = 28.0
 FREE_RAM_MIN_GB = 8.0       # refuse to start below this much free RAM
-ENGINE_RAM_BUDGET_MB = 48000  # combined engine budget; sequential => one job
+ENGINE_RAM_BUDGET_MB = 48000  # one in-process job or combined parallel batch
 STORE_SOFT_GB = 60.0        # soft cap -> warn in _meta.json
 STORE_HARD_GB = 80.0        # hard cap -> refuse archive jobs
 ROOT_FREE_MIN_GB = 10.0     # refuse archive jobs below this root free space
@@ -111,9 +115,19 @@ def _load_intraday():
     return intraday.run
 
 
+def _load_intraday_connection_narrowed():
+    from engine import intraday
+    return intraday.run_connection_narrowed
+
+
 def _load_fundamentals():
     from engine import fundamentals
     return fundamentals.run
+
+
+def _load_fundamentals_connection_narrowed():
+    from engine import fundamentals
+    return fundamentals.run_connection_narrowed
 
 
 def _load_earnings():
@@ -121,14 +135,29 @@ def _load_earnings():
     return earnings.run
 
 
+def _load_earnings_connection_narrowed():
+    from engine import earnings
+    return earnings.run_connection_narrowed
+
+
 def _load_actions():
     from engine import actions
     return actions.run
 
 
+def _load_actions_connection_narrowed():
+    from engine import actions
+    return actions.run_connection_narrowed
+
+
 def _load_signals():
     from engine import signals
     return signals.run
+
+
+def _load_signals_connection_narrowed():
+    from engine import signals
+    return signals.run_connection_narrowed
 
 
 def _load_experiment():
@@ -156,6 +185,11 @@ def _load_walkforward():
     return runner.run_job
 
 
+def _load_capital_sensitivity():
+    from farm import capital_sensitivity
+    return capital_sensitivity.run_job
+
+
 JOB_TYPES: dict[str, dict] = {
     # type      loader (lazy)        archive?  default declared memory (MB)
     # Optional keys:
@@ -169,22 +203,28 @@ JOB_TYPES: dict[str, dict] = {
     # screen's passers, so a pending pull left over from a guard-tripped night
     # is obsolete the moment tonight's is enqueued — hence supersedes.
     "intraday":     {"loader": _load_intraday,     "archive": True,  "mem_mb": 4000,
-                     "supersedes": True},
+                     "supersedes": True, "releases_writer": True,
+                     "detached_loader": _load_intraday_connection_narrowed},
     # fundamentals ~70-80 min full pass (BUILDLOG 2026-07-18) -> 3x = 4 h.
     "fundamentals": {"loader": _load_fundamentals, "archive": True,  "mem_mb": 2000,
-                     "timeout_s": 4 * 3600},
+                     "timeout_s": 4 * 3600, "releases_writer": True,
+                     "detached_loader": _load_fundamentals_connection_narrowed},
     # earnings ~50-70 min/day (BUILDLOG 2026-07-18) -> 3x ≈ 3.5 h, rounded to 4 h.
     "earnings":     {"loader": _load_earnings,     "archive": True,  "mem_mb": 1000,
-                     "timeout_s": 4 * 3600},
+                     "timeout_s": 4 * 3600, "releases_writer": True,
+                     "detached_loader": _load_earnings_connection_narrowed},
     # actions backfill ~1.5-2 h over 12k names (BUILDLOG 2026-07-29) -> 3x = 6 h.
     "actions":      {"loader": _load_actions,      "archive": True,  "mem_mb": 1000,
-                     "timeout_s": 6 * 3600},
+                     "timeout_s": 6 * 3600, "releases_writer": True,
+                     "detached_loader": _load_actions_connection_narrowed},
     # Macro/regime signal collector. archive=False: `macro_signals` is a few tens
     # of thousands of small rows a year, nothing the disk watchdog needs to gate.
     # The nightly (incremental) pass is a handful of small HTTP fetches plus one
     # session of breadth SQL; a --mode backfill job is the heavy one and is run
     # by hand, not by cron.
-    "signals":      {"loader": _load_signals,      "archive": False, "mem_mb": 500},
+    "signals":      {"loader": _load_signals,      "archive": False, "mem_mb": 500,
+                     "releases_writer": True,
+                     "detached_loader": _load_signals_connection_narrowed},
     "experiment":   {"loader": _load_experiment,   "archive": False, "mem_mb": 2000},
     # Forward (out-of-sample) experiment record. Milliseconds of work, so the
     # nightly runs it inline after the league (see run_daily.sh) rather than
@@ -212,6 +252,10 @@ JOB_TYPES: dict[str, dict] = {
     # mem_mb 4500: same measurement as `backtest` above (2026-08-20).
     "walkforward":  {"loader": _load_walkforward,  "archive": False, "mem_mb": 4500,
                      "parallel_safe": True},
+    "capital_sensitivity": {"loader": _load_capital_sensitivity,
+                            "archive": False, "mem_mb": 4500,
+                            "parallel_safe": True,
+                            "timeout_s": 24 * 3600},
     # Parameter sweep over an existing strategy class (farm/sweep/sweep.py). Same
     # profile as walkforward -- read-only on the store, writes only scratch/ and
     # data/reports/sweeps/ -- so it batches the same way. One job = one GRID, and
@@ -318,8 +362,29 @@ def _set_state(con, jid: int, state: str, *, progress: str | None = None,
     )
 
 
+def _parse_params(value: str):
+    """Strictly parse queue JSON; Python's non-standard NaN/Infinity are forbidden."""
+    def reject_constant(constant: str):
+        raise ValueError(f"non-finite JSON constant {constant}")
+
+    return json.loads(value, parse_constant=reject_constant)
+
+
+def _canonical_params(value: str) -> str:
+    return json.dumps(_parse_params(value), sort_keys=True, separators=(",", ":"))
+
+
+def _same_params(left: str, right: str) -> bool:
+    """Compare parameters by canonical JSON, preserving bool/number distinctions."""
+    try:
+        return _canonical_params(left) == _canonical_params(right)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return left == right
+
+
 def cmd_enqueue(con, jtype: str, params: str, priority: int, mem_mb: int | None,
-                timeout_s: int | None = None, *, dry_run: bool = False) -> int:
+                timeout_s: int | None = None, *, dry_run: bool = False,
+                once: bool = False) -> int:
     """Insert one pending job. Returns a process exit code (0 ok / 1 refused).
 
     timeout_s  NULL in the row = the kind's default at run time (so raising a
@@ -333,8 +398,10 @@ def cmd_enqueue(con, jtype: str, params: str, priority: int, mem_mb: int | None,
         return 1
     # validate params JSON early so a bad payload fails at enqueue, not at run
     try:
-        json.loads(params)
-    except json.JSONDecodeError as exc:
+        parsed_params = _parse_params(params)
+        if not isinstance(parsed_params, dict):
+            raise ValueError("top-level value must be an object")
+    except (ValueError, json.JSONDecodeError) as exc:
         print(f"[queue] refusing to enqueue: --params is not valid JSON ({exc})")
         return 1
 
@@ -342,14 +409,31 @@ def cmd_enqueue(con, jtype: str, params: str, priority: int, mem_mb: int | None,
     # duplicate. When the resource guard leaves jobs pending, back-to-back nightly
     # re-enqueues otherwise pile up N identical rows that all drain later (N
     # redundant yfinance pulls).
-    dup = con.execute(
-        "SELECT id FROM jobs WHERE kind = ? AND params = ? AND state = 'pending' "
-        "ORDER BY id LIMIT 1",
-        [jtype, params],
-    ).fetchone()
+    candidates = con.execute(
+        "SELECT id, params, state FROM jobs WHERE kind = ? "
+        "AND state IN ('pending', 'running', 'done') ORDER BY id",
+        [jtype],
+    ).fetchall()
+    matching = [row for row in candidates if _same_params(row[1], params)]
+    # For one-shot work, a completed row is authoritative even if an ordinary
+    #/manual enqueue has subsequently left another equivalent row pending.
+    dup = next((row for row in matching if once and row[2] == "done"), None)
+    dup = dup or next((row for row in matching if row[2] in {"pending", "running"}), None)
     if dup is not None:
-        print(f"[queue] job {dup[0]} ({jtype}) already pending with same params; "
-              f"skipping duplicate enqueue{' (dry run)' if dry_run else ''}")
+        if once and dup[2] == "done" and not dry_run:
+            pending_dupes = [row for row in matching if row[2] == "pending"]
+            for pending_id, _pending_params, _state in pending_dupes:
+                _set_state(
+                    con,
+                    pending_id,
+                    "superseded",
+                    last_error=f"one-shot work already completed as job {dup[0]}",
+                )
+                print(f"[queue] superseded duplicate pending job {pending_id}; "
+                      f"equivalent one-shot job {dup[0]} is already done")
+        print(f"[queue] job {dup[0]} ({jtype}) already {dup[2]} with same params; "
+              f"skipping duplicate enqueue{' (one-shot)' if once else ''}"
+              f"{' (dry run)' if dry_run else ''}")
         return 0
 
     # Supersede: older pending rows of the same kind with DIFFERENT params are
@@ -411,15 +495,16 @@ def cmd_status(con) -> int:
 
 
 # --------------------------------------------------------------------------- #
-# parallel execution of `parallel_safe` job kinds
+# supervised child execution
 # --------------------------------------------------------------------------- #
 # WHY SUBPROCESSES AND NOT THREADS. DuckDB is single-writer and a connection is
 # not shareable across workers, so a parallel batch cannot borrow the drain's
 # write connection. Each child opens its OWN READ-ONLY connection, which is why
 # only kinds that never write `store/` may be marked `parallel_safe`: they work
-# inside their own scratch/ store and emit JSON/markdown reports. A kind that
-# writes the store (intraday, signals, earnings, fundamentals, actions) must
-# stay sequential and is simply never batched.
+# inside their own scratch/ store and emit JSON/markdown reports. Store-writing
+# kinds remain sequential. Actions, intraday, signals, earnings, and fundamentals are
+# connection-narrowed: their children open the writer only for short
+# transactional checkpoints.
 #
 # The parent RELEASES its write connection for the duration of the batch --
 # otherwise the children could not open the file at all (DuckDB permits many
@@ -428,7 +513,7 @@ def cmd_status(con) -> int:
 # so a killed child is reclaimed by the usual orphan sweep on the next drain.
 
 def cmd_run_one(jid: int, db_path: str | None, meta_path: str | Path) -> int:
-    """Child entry: execute ONE job against a read-only connection.
+    """Child entry: execute one read-only or connection-narrowed job.
 
     Exit code is the whole protocol -- 0 done, non-zero failed. State is the
     parent's business, deliberately: a child that dies mid-job leaves the row
@@ -446,17 +531,23 @@ def cmd_run_one(jid: int, db_path: str | None, meta_path: str | Path) -> int:
         if spec is None:
             print(f"[queue:{jid}] no dispatch entry for '{kind}'")
             return 2
-        if not spec.get("parallel_safe"):
-            print(f"[queue:{jid}] '{kind}' is not parallel_safe - refusing")
+        if not (spec.get("parallel_safe") or spec.get("releases_writer")):
+            print(f"[queue:{jid}] '{kind}' cannot run as a child - refusing")
             return 2
         params = json.loads(params_json) if params_json else {}
-        spec["loader"]()(params, con, meta_path=meta_path)
+        if spec.get("releases_writer"):
+            con.close()
+            con = None
+            spec["detached_loader"]()(params, db_path=db_path, meta_path=meta_path)
+        else:
+            spec["loader"]()(params, con, meta_path=meta_path)
         return 0
     except Exception as exc:  # noqa: BLE001
         print(f"[queue:{jid}] FAILED: {exc}")
         return 1
     finally:
-        con.close()
+        if con is not None:
+            con.close()
 
 
 def _child_cmd(jid: int, db_path, meta_path) -> list[str]:
@@ -563,6 +654,34 @@ def _run_parallel_batch(batch, db_path, meta_path, con) -> tuple[dict, object]:
     return results, new_con
 
 
+def _run_releasing_job(job, db_path, meta_path, con) -> tuple[object, object]:
+    """Supervise one store-writing child that leases rather than pins DuckDB.
+
+    The drain lock remains held by the parent for job ownership. The child is
+    still sequential with respect to every other queue job, but can release its
+    DB connections during network waits so API/UI readers are not blocked for
+    the job's full duration.
+    """
+    import subprocess
+
+    jid, kind, timeout_s = job
+    _set_state(con, jid, "running", progress="started (connection-narrowed)")
+    con.close()
+    limit = int(timeout_s) if timeout_s else default_timeout_s(kind)
+    process = subprocess.Popen(_child_cmd(jid, db_path, meta_path), cwd=str(REPO_ROOT))
+    result = _wait_batch([(jid, kind, process, time.monotonic() + limit)])[jid]
+    new_con = (db.connect(db_path, wait_s=BATCH_REACQUIRE_WAIT_S) if db_path
+               else db.connect(wait_s=BATCH_REACQUIRE_WAIT_S))
+    if result == 0:
+        _set_state(new_con, jid, "done", progress="complete")
+    elif result == "timeout":
+        _set_state(new_con, jid, "failed", progress="timeout",
+                   last_error=f"timeout: killed after {limit}s")
+    else:
+        _set_state(new_con, jid, "failed", last_error=f"worker exited {result}")
+    return result, new_con
+
+
 # --------------------------------------------------------------------------- #
 # the drain loop
 # --------------------------------------------------------------------------- #
@@ -594,7 +713,8 @@ def acquire_drain_lock() -> bool:
     return True
 
 
-def cmd_run(con, meta_path: str | Path, *, db_path=None, jobs: int = 1) -> int:
+def cmd_run(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
+            run_kind: str | None = None, run_params: list[str] | None = None) -> int:
     # Line-buffer the drain's own stdout. Redirected to a log it is otherwise
     # block-buffered, so a batch's children (separate processes, own buffers)
     # write through while the parent's "--- parallel batch [...] ---" line sits
@@ -632,25 +752,40 @@ def cmd_run(con, meta_path: str | Path, *, db_path=None, jobs: int = 1) -> int:
     if _DRAIN_LOCK_FD is None:
         raise RuntimeError("cmd_run called without the drain lock — call "
                            "acquire_drain_lock() first")
-    return _drain(con, meta_path, db_path=db_path, jobs=jobs)
+    return _drain(
+        con, meta_path, db_path=db_path, jobs=jobs,
+        run_kind=run_kind, run_params=run_params,
+    )
 
 
-def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1) -> int:
+def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
+           run_kind: str | None = None, run_params: list[str] | None = None) -> int:
     """The drain proper. Called ONLY by cmd_run, which holds the drain lock —
     the precondition the orphan sweep below relies on."""
     # Reclaim jobs a killed drain left in 'running'. Safe ONLY because the drain
     # lock above proves no other drain is alive; the DuckDB writer no longer
     # proves it, since batches release it.
-    for (sid,) in con.execute("SELECT id FROM jobs WHERE state = 'running'").fetchall():
+    running = con.execute(
+        "SELECT id, kind, params FROM jobs WHERE state = 'running'"
+    ).fetchall()
+    for sid, _kind, _params in running:
         _set_state(con, sid, "pending", progress="reclaimed")
         print(f"[queue] reclaimed stale running job {sid} -> pending (prior drain died)")
 
     pending = con.execute(
-        "SELECT id, kind, params, mem_mb, timeout_s FROM jobs WHERE state = 'pending' "
+        "SELECT id, kind, params, mem_mb, timeout_s, priority "
+        "FROM jobs WHERE state = 'pending' "
         "ORDER BY priority ASC, created_at ASC"
     ).fetchall()
+    if run_kind is not None:
+        allowed = run_params or []
+        pending = [
+            row for row in pending
+            if row[1] == run_kind and any(_same_params(row[2], item) for item in allowed)
+        ]
     if not pending:
-        print("[queue] no pending jobs; nothing to do")
+        scope = f" matching authorized {run_kind} parameters" if run_kind else ""
+        print(f"[queue] no pending jobs{scope}; nothing to do")
         return 0
     print(f"[queue] {len(pending)} pending job(s)")
 
@@ -672,7 +807,7 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1) -> int:
 
     idx = 0
     while idx < len(pending):
-        jid, kind, params_json, mem_mb, _timeout_s = pending[idx]
+        jid, kind, params_json, mem_mb, _timeout_s, priority = pending[idx]
         remaining = len(pending) - idx
 
         # --- wall-clock budget: stop STARTING new jobs once the window is up ---
@@ -703,8 +838,14 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1) -> int:
         if jobs > 1 and JOB_TYPES.get(kind, {}).get("parallel_safe"):
             run = []
             j = idx
-            while j < len(pending) and JOB_TYPES.get(
-                    pending[j][1], {}).get("parallel_safe"):
+            # Keep operationally distinct workloads in distinct batches. A
+            # short walk-forward tail must not remain marked running until an
+            # adjacent multi-hour sweep exits, and a targeted high-priority
+            # drain must not unexpectedly absorb a lower-priority tier.
+            while (j < len(pending)
+                   and pending[j][1] == kind
+                   and pending[j][5] == priority
+                   and JOB_TYPES.get(pending[j][1], {}).get("parallel_safe")):
                 run.append(pending[j])
                 j += 1
             widest = max((r[3] or 0) for r in run) or 1
@@ -757,10 +898,19 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1) -> int:
             continue
 
         try:
-            params = json.loads(params_json) if params_json else {}
-        except json.JSONDecodeError as exc:
+            params = _parse_params(params_json) if params_json else {}
+        except (ValueError, json.JSONDecodeError) as exc:
             _set_state(con, jid, "failed", last_error=f"bad params JSON: {exc}")
             print(f"[queue] job {jid} failed: bad params JSON ({exc})")
+            continue
+
+        if spec.get("releases_writer"):
+            print(f"[queue] --- running job {jid}: {kind} connection-narrowed "
+                  f"(load {load5:.1f}, free RAM {free_gb:.1f} GiB, "
+                  f"store {store_gb:.2f} GiB) ---")
+            _result, con = _run_releasing_job(
+                (jid, kind, _timeout_s), db_path, meta_path, con
+            )
             continue
 
         print(f"[queue] --- running job {jid}: {kind} "
@@ -790,8 +940,8 @@ def main() -> int:
     g.add_argument("--run", action="store_true", help="drain pending jobs (guarded)")
     g.add_argument("--status", action="store_true", help="print the jobs table")
     g.add_argument("--run-one", type=int, metavar="JOB_ID",
-                   help="internal: execute ONE parallel_safe job read-only "
-                        "(spawned by --run --jobs N; not for manual use)")
+                   help="internal: execute one supervised read-only or "
+                        "connection-narrowed child (not for manual use)")
     ap.add_argument("--params", default="{}", help="params JSON for --enqueue")
     ap.add_argument("--priority", type=int, default=100,
                     help="lower runs first (nightly loop < farm); default 100")
@@ -799,7 +949,7 @@ def main() -> int:
                     help="declared memory need MB (default: per-type)")
     ap.add_argument("--timeout-s", type=int, default=None,
                     help="per-job wall-clock ceiling for --enqueue (default: per-type; "
-                         "enforced on parallel children)")
+                         "enforced on supervised children)")
     ap.add_argument("--date", default=None, metavar="YYYY-MM-DD",
                     help="--enqueue-nightly: plan as of this date (default: UTC today)")
     ap.add_argument("--weekday", type=int, default=None, metavar="N",
@@ -813,10 +963,32 @@ def main() -> int:
                     help=f"max concurrent parallel_safe jobs (1 = sequential, "
                          f"max {PARALLEL_JOBS_MAX}); store-writing kinds always "
                          f"run one at a time")
+    ap.add_argument("--once", action="store_true",
+                    help="--enqueue: do not enqueue if equivalent work already completed")
+    ap.add_argument("--run-kind", default=None,
+                    help="--run: execute only this job kind (requires --run-params)")
+    ap.add_argument("--run-params", action="append", default=[], metavar="JSON",
+                    help="--run: exact authorized params object; repeat for multiple jobs")
     args = ap.parse_args()
 
-    # Child mode opens its own READ-ONLY connection inside cmd_run_one; taking
-    # the write lock here would deadlock it against its own parent.
+    if args.once and not args.enqueue:
+        ap.error("--once applies only to --enqueue")
+    if (args.run_kind or args.run_params) and not args.run:
+        ap.error("--run-kind/--run-params apply only to --run")
+    if args.run and bool(args.run_kind) != bool(args.run_params):
+        ap.error("targeted --run requires both --run-kind and at least one --run-params")
+    if args.run_kind and args.run_kind not in JOB_TYPES:
+        ap.error(f"unknown --run-kind {args.run_kind!r}")
+    for item in args.run_params:
+        try:
+            parsed = _parse_params(item)
+        except (ValueError, json.JSONDecodeError) as exc:
+            ap.error(f"--run-params is not valid JSON: {exc}")
+        if not isinstance(parsed, dict):
+            ap.error("--run-params must be a JSON object")
+
+    # Child mode opens its own connections inside cmd_run_one; taking the write
+    # lock here would deadlock it against its own parent.
     if args.run_one is not None:
         return cmd_run_one(args.run_one, args.db, args.meta)
 
@@ -829,19 +1001,21 @@ def main() -> int:
     if args.dry_run and not (args.enqueue or args.enqueue_nightly):
         ap.error("--dry-run only applies to --enqueue / --enqueue-nightly")
     con = db.connect(args.db, read_only=args.dry_run)
-    if not args.dry_run:
-        ensure_schema(con)
-
     try:
+        if not args.dry_run:
+            ensure_schema(con)
         if args.enqueue:
             return cmd_enqueue(con, args.enqueue, args.params, args.priority, args.mem_mb,
-                               args.timeout_s, dry_run=args.dry_run)
+                               args.timeout_s, dry_run=args.dry_run, once=args.once)
         if args.enqueue_nightly:
             day = date.fromisoformat(args.date) if args.date else None
             return cmd_enqueue_nightly(con, day, weekday=args.weekday, dry_run=args.dry_run)
         if args.status:
             return cmd_status(con)
-        return cmd_run(con, args.meta, db_path=args.db, jobs=args.jobs)
+        return cmd_run(
+            con, args.meta, db_path=args.db, jobs=args.jobs,
+            run_kind=args.run_kind, run_params=args.run_params,
+        )
     finally:
         con.close()
 

@@ -161,6 +161,10 @@ h3 {
 .header-meta .k {
   color: var(--text-faint);
 }
+.header-meta .research-fail {
+  color: var(--fail);
+  font-weight: 700;
+}
 
 .badge {
   display: inline-block;

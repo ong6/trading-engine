@@ -15,11 +15,29 @@ DRIVER_STAGE_FILE=logs/.last_stage
 source "$(dirname "${BASH_SOURCE[0]}")/lib/driver.sh"
 
 body() {
-  # Pull latest if a git remote exists; tolerate failure (local-only is fine).
-  if git remote | grep -q .; then
-    git pull --rebase || echo "WARN: git pull --rebase failed; continuing with local state"
+  # Pull only from a configured upstream whose local tracking ref resolves.
+  # Pin the remote and branch explicitly so pull.rebase/pushRemote defaults
+  # cannot silently redirect unattended synchronization.
+  branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  remote="$(git config --get "branch.${branch}.remote" 2>/dev/null || true)"
+  merge_ref="$(git config --get "branch.${branch}.merge" 2>/dev/null || true)"
+  remote_branch="${merge_ref#refs/heads/}"
+  upstream_ref="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+  remote_exists=0
+  if [ "${remote}" = "." ]; then
+    remote_exists=1
+  elif [ -n "${remote}" ] && git remote get-url "${remote}" >/dev/null 2>&1; then
+    remote_exists=1
+  fi
+  if [ -n "${branch}" ] && [ -n "${remote}" ] \
+      && [ "${merge_ref}" != "${remote_branch}" ] \
+      && [ "${remote_exists}" -eq 1 ] \
+      && [ -n "${upstream_ref}" ] \
+      && git rev-parse --verify --quiet "${upstream_ref}^{commit}" >/dev/null; then
+    git pull --rebase "${remote}" "${remote_branch}" \
+      || echo "WARN: git pull --rebase ${remote} ${remote_branch} failed; continuing with local state"
   else
-    echo "INFO: no git remote configured; skipping pull"
+    echo "INFO: no usable upstream configured; skipping pull"
   fi
 
   # universe.py raises if nasdaqtraded.txt is unreachable after retries; a stale
@@ -30,11 +48,23 @@ body() {
   stage collect
   "${PY}" -m engine.collect   # incremental daily (calendar-gated)
 
+  # Freeze one breadth-qualified market date for both screen and league. A
+  # partial batch or stray phantom quote may remain in prices for audit, but it
+  # must not advance paper state. The resolver requires >=90% of active liquid
+  # names (and >=1,000 names for a production-sized universe) to have real bars.
+  stage market-date
+  market_date="$("${PY}" -m engine.market_date)"
+  if [[ ! "${market_date}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    echo "ERROR: invalid breadth-qualified market date: ${market_date}"
+    return 1
+  fi
+  echo "INFO: breadth-qualified market date ${market_date}"
+
   # rank universe + trend template, write screens/eod. --skip-if-done: on a
-  # weekend/holiday run collect no-ops so MAX(date) is already screened — no-op
+  # weekend/holiday run collect no-ops so market_date is already screened — no-op
   # cleanly (exit 0) instead of aborting the nightly; real failures still exit 1.
   stage screen
-  "${PY}" -m engine.screen --skip-if-done
+  "${PY}" -m engine.screen --date "${market_date}" --skip-if-done
 
   # --- Corporate actions: fetch, then reconcile. MUST sit between screen and
   # league, because the league steps the books against `prices` and a stored
@@ -62,10 +92,24 @@ body() {
   # Paper league (exec-design §1 nightly order: … → screen → league → report → sync).
   # --init is idempotent (creates only absent portfolios); the step writes
   # data/reports/league.md + league.csv itself. --skip-if-done keeps a weekend/
-  # holiday re-run (MAX(date) unchanged) a clean exit 0; a real error still fails
+  # holiday re-run (market_date unchanged) a clean exit 0; a real error still fails
   # the nightly loudly via set -e / PIPESTATUS below.
   stage league
-  "${PY}" -m sim.league --init --skip-if-done
+  "${PY}" -m sim.league --date "${market_date}" --init --skip-if-done
+
+  # Evaluate the selected strategy's frozen forward-paper kill rule. This is a
+  # read-only monitor: it writes a report and never retires/promotes a book or
+  # submits an order. A partial (<12 month) record stays ACCUMULATING.
+  stage forward-review
+  "${PY}" -m engine.forward_review \
+    || echo "WARN: forward paper review failed (exit $?) — league state is unchanged"
+
+  # Freeze and monitor raw 12-1 momentum against the screen benchmark. Until
+  # both books execute their 2026-09-30 signal at the next open this writes a
+  # safe WAITING report; like the sector monitor it is read-only and fail-soft.
+  stage xs-forward-review
+  "${PY}" -m engine.xs_forward_review \
+    || echo "WARN: XS forward paper review failed (exit $?) — league state is unchanged"
 
   # --- E1 forward (out-of-sample) experiment record (§12.3). Milliseconds of
   # work — one SPY row per Monday — so it runs INLINE here rather than through

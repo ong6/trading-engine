@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiPost } from "../lib/api";
+import { apiPost, validateApiResponse } from "../lib/api";
+import { isReviewCompletionProjection } from "../lib/mutation-contracts";
 
 // Clears the circuit breaker via POST /review-done. Confirms before posting.
 export default function ReviewDoneButton() {
@@ -19,7 +20,11 @@ export default function ReviewDoneButton() {
       return;
     setBusy(true);
     setMsg(null);
-    const res = await apiPost("/review-done", {});
+    const res = validateApiResponse(
+      await apiPost("/review-done", {}),
+      "review completion",
+      isReviewCompletionProjection,
+    );
     setBusy(false);
     if (res.busy) {
       setMsg("db busy — retry in a moment");

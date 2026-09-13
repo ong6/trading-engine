@@ -24,13 +24,15 @@ from pathlib import Path
 
 import numpy as np
 
-from engine.lib import db
+from engine.lib import db, resources
+from engine.lib.data_quality import quarantine_reason
 from engine.lib.log import get_logger
 from engine.lib.settings import DATA_DIR as DEFAULT_DATA_DIR
 from engine.lib.settings import REPO_ROOT  # noqa: F401
 from engine.lib.util import table_exists
 
 from . import calendar, fills, portfolio
+from .execution import DEFAULT_PROFILE_ID
 from .schema import INITIAL_CASH, init_sim_schema
 from .strategies import PortfolioView, get_strategy
 from .strategies.base import total_return_between
@@ -61,10 +63,12 @@ def init_portfolios(con, as_of: date) -> int:
         if exists:
             continue
         con.execute(
-            "INSERT INTO portfolios (id, name, strategy, config, created, active, cash)"
-            " VALUES (?, ?, ?, ?, ?, TRUE, ?)",
+            "INSERT INTO portfolios (id, name, strategy, config, created, active, "
+            "cash, initial_cash, execution_profile)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [cfg["id"], cfg["name"], cfg["strategy"], json.dumps(cfg), as_of,
-             INITIAL_CASH],
+             bool(cfg.get("active", True)), INITIAL_CASH, INITIAL_CASH,
+             DEFAULT_PROFILE_ID],
         )
         created += 1
     return created
@@ -86,48 +90,154 @@ def fill_pending(con, d: date) -> dict:
     # look-ahead assert, roll back the whole day-step, and leave a permanent
     # hole in every book's record.
     pend = con.execute(
-        "SELECT id, portfolio_id, ticker, side, qty, signal_date FROM sim_orders "
-        "WHERE status = 'pending' AND signal_date < ? "
-        "ORDER BY CASE side WHEN 'sell' THEN 0 ELSE 1 END, id", [d]
+        "SELECT o.id, o.portfolio_id, o.ticker, o.side, o.qty, o.signal_date, "
+        "COALESCE(p.execution_profile, ?) FROM sim_orders o "
+        "JOIN portfolios p ON p.id = o.portfolio_id "
+        "WHERE o.status = 'pending' AND o.signal_date < ? "
+        "ORDER BY CASE o.side WHEN 'sell' THEN 0 ELSE 1 END, o.id",
+        [DEFAULT_PROFILE_ID, d]
     ).fetchall()
     counts = {"filled": 0, "rejected": 0, "pending": 0}
-    for oid, pf_id, tk, side, qty, sig in pend:
-        res = fills.attempt_fill(con, tk, side, qty, sig, d)
-        if res.status == "filled":
-            # apply_fill may clamp (sell close-only / buy cash-bounded) and returns
-            # the qty ACTUALLY applied. Record the fill and mark the order with that
-            # qty so the fill log and order status reflect what really happened.
-            filled_qty = portfolio.apply_fill(
-                con, {"portfolio_id": pf_id, "ticker": tk, "side": side,
-                      "qty": qty, "fill_px": res.fill_px})
-            if filled_qty <= 0:
-                reason = ("insufficient_cash" if side == "buy"
-                          else "no_position_to_sell")
+    buy_candidates: dict[str, list[tuple]] = {}
+
+    def reject(oid: int, reason: str) -> None:
+        con.execute(
+            "UPDATE sim_orders SET status = 'rejected', reject_reason = ? "
+            "WHERE id = ?", [reason, oid])
+        # Some portfolio-level guards run after an execution attempt was
+        # recorded (cash dust / an unexpectedly empty position). Keep that
+        # audit row consistent with the terminal order state when present.
+        con.execute(
+            "UPDATE sim_execution_attempts SET outcome = 'rejected', "
+            "reject_reason = ? WHERE order_id = ? AND attempt_date = ?",
+            [reason, oid, d],
+        )
+        counts["rejected"] += 1
+
+    def record(oid: int, pf_id: str, tk: str, side: str, qty: float, sig: date,
+               profile_id: str, res) -> None:
+        if side == "sell":
+            held = portfolio.get_positions(con, pf_id).get(tk, {}).get("qty", 0.0)
+            actual = min(float(qty), float(held))
+            if actual <= 0:
+                reject(oid, "no_position_to_sell")
+                return
+            if abs(actual - qty) > 1e-12:
+                res = fills.attempt_fill(
+                    con, tk, side, actual, sig, d, profile_id)
+            qty = actual
+        applied = portfolio.apply_fill(
+            con, {"portfolio_id": pf_id, "ticker": tk, "side": side,
+                  "qty": qty, "fill_px": res.fill_px})
+        if applied <= 0:
+            reject(oid, "insufficient_cash" if side == "buy"
+                   else "no_position_to_sell")
+            return
+        con.execute(
+            "INSERT INTO sim_fills (order_id, portfolio_id, ticker, side, qty,"
+            " fill_date, open_px, fill_px, slippage_bps, cost_bps)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [oid, pf_id, tk, side, applied, d, res.open_px, res.fill_px,
+             res.slippage_bps, res.cost_bps],
+        )
+        con.execute(
+            "INSERT INTO sim_fill_costs (order_id, execution_profile, "
+            "participation, market_bps, impact_bps, fee_bps, total_bps) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [oid, res.execution_profile, res.participation, res.slippage_bps,
+             res.impact_bps, res.fee_bps, res.cost_bps],
+        )
+        con.execute("UPDATE sim_orders SET status = 'filled' WHERE id = ?", [oid])
+        counts["filled"] += 1
+
+    for oid, pf_id, tk, side, qty, sig, profile_id in pend:
+        quarantine = quarantine_reason(con, tk) if side == "buy" else None
+        if quarantine:
+            reason = f"data_quarantine: {quarantine}"
+            con.execute(
+                "INSERT OR REPLACE INTO sim_execution_attempts "
+                "(order_id, attempt_date, execution_profile, outcome, reject_reason) "
+                "VALUES (?, ?, ?, 'rejected', ?)",
+                [oid, d, profile_id, reason],
+            )
+            reject(oid, reason)
+            continue
+        if side == "sell":
+            held = portfolio.get_positions(con, pf_id).get(tk, {}).get("qty", 0.0)
+            qty = min(float(qty), float(held))
+            if qty <= 0:
                 con.execute(
-                    "UPDATE sim_orders SET status = 'rejected', reject_reason = ? "
-                    "WHERE id = ?",
-                    [reason, oid],
+                    "INSERT OR REPLACE INTO sim_execution_attempts "
+                    "(order_id, attempt_date, execution_profile, outcome, reject_reason) "
+                    "VALUES (?, ?, ?, 'rejected', 'no_position_to_sell')",
+                    [oid, d, profile_id],
                 )
-                counts["rejected"] += 1
+                reject(oid, "no_position_to_sell")
                 continue
-            con.execute(
-                "INSERT INTO sim_fills (order_id, portfolio_id, ticker, side, qty,"
-                " fill_date, open_px, fill_px, slippage_bps, cost_bps)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [oid, pf_id, tk, side, filled_qty, d, res.open_px, res.fill_px,
-                 res.slippage_bps, res.slippage_bps],
-            )
-            con.execute("UPDATE sim_orders SET status = 'filled' WHERE id = ?", [oid])
-            counts["filled"] += 1
+        res = fills.attempt_fill(con, tk, side, qty, sig, d, profile_id)
+        raw_notional = (None if res.open_px is None
+                        else float(qty) * float(res.open_px))
+        participation = res.participation
+        if (participation is None and raw_notional is not None
+                and res.median_dollar_vol is not None
+                and res.median_dollar_vol > 0):
+            participation = raw_notional / res.median_dollar_vol
+        con.execute(
+            "INSERT OR REPLACE INTO sim_execution_attempts "
+            "(order_id, attempt_date, execution_profile, raw_notional, "
+            "median_dollar_vol, participation, outcome, reject_reason) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [oid, d, profile_id, raw_notional, res.median_dollar_vol,
+             participation, res.status, res.reject_reason],
+        )
+        if res.status == "filled":
+            if side == "sell":
+                record(oid, pf_id, tk, side, qty, sig, profile_id, res)
+            else:
+                buy_candidates.setdefault(pf_id, []).append(
+                    (oid, tk, qty, sig, profile_id, res))
         elif res.status == "rejected":
-            con.execute(
-                "UPDATE sim_orders SET status = 'rejected', reject_reason = ? "
-                "WHERE id = ?",
-                [res.reject_reason, oid],
-            )
-            counts["rejected"] += 1
+            reject(oid, res.reject_reason)
         else:
             counts["pending"] += 1
+
+    # All executable buys for a portfolio are simultaneous intents.  When the
+    # next-open gap and adverse costs make their total exceed available cash,
+    # scale every leg by the same factor.  Filling by order ID used to exhaust
+    # cash alphabetically and reject later tickers, unintentionally changing an
+    # equal-weight strategy into a ticker-order bet.
+    for pf_id, candidates in buy_candidates.items():
+        cash = portfolio.get_cash(con, pf_id)
+        wanted = sum(float(qty) * float(res.fill_px)
+                     for _oid, _tk, qty, _sig, _profile, res in candidates)
+        scale = min(1.0, (cash / wanted) * (1.0 - 1e-12)) if wanted > cash else 1.0
+        for oid, tk, qty, sig, profile_id, res in candidates:
+            scaled_qty = float(qty) * scale
+            if scale < 1.0:
+                # Participation impact is quantity-dependent. Reprice the
+                # cash-scaled intent at its actual quantity; baseline_v1 is
+                # quantity-invariant, so this preserves compatibility exactly.
+                res = fills.attempt_fill(
+                    con, tk, "buy", scaled_qty, sig, d, profile_id)
+                raw_notional = (None if res.open_px is None else
+                                scaled_qty * float(res.open_px))
+                con.execute(
+                    "UPDATE sim_execution_attempts SET raw_notional = ?, "
+                    "median_dollar_vol = ?, participation = ?, outcome = ?, "
+                    "reject_reason = ? WHERE order_id = ? AND attempt_date = ?",
+                    [raw_notional, res.median_dollar_vol,
+                     res.participation, res.status, res.reject_reason, oid, d],
+                )
+                if res.status == "rejected":
+                    reject(oid, res.reject_reason)
+                    continue
+                if res.status == "pending":
+                    counts["pending"] += 1
+                    continue
+            if scaled_qty * float(res.fill_px) < portfolio.MIN_FILL_USD:
+                reject(oid, "insufficient_cash")
+            else:
+                record(oid, pf_id, tk, "buy", scaled_qty, sig, profile_id, res)
     return counts
 
 
@@ -213,11 +323,15 @@ def generate_all(con, d: date) -> int:
                 log.info(f"[league] dedup: skip {o.portfolio_id} {o.ticker} {o.side} "
                       f"— a pending order for this leg already exists")
                 continue
+            quarantine = (quarantine_reason(con, o.ticker)
+                          if o.side == "buy" else None)
             con.execute(
                 "INSERT INTO sim_orders (id, portfolio_id, ticker, side, qty,"
                 " signal_date, status, reject_reason)"
-                " VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",
-                [oid, o.portfolio_id, o.ticker, o.side, o.qty, o.signal_date],
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [oid, o.portfolio_id, o.ticker, o.side, o.qty, o.signal_date,
+                 "rejected" if quarantine else "pending",
+                 f"data_quarantine: {quarantine}" if quarantine else None],
             )
             oid += 1
             n_new += 1
@@ -283,8 +397,9 @@ def _spy_return(con, inception: date, d: date):
 
 def write_reports(con, d: date, data_dir: Path) -> Path:
     rows = []
-    for pf_id, name, created in con.execute(
-        "SELECT id, name, created FROM portfolios WHERE active ORDER BY id"
+    for pf_id, name, created, initial_cash in con.execute(
+        "SELECT id, name, created, COALESCE(initial_cash, ?) FROM portfolios "
+        "WHERE active ORDER BY id", [INITIAL_CASH]
     ).fetchall():
         eq = con.execute(
             "SELECT date, equity FROM sim_equity WHERE portfolio_id = ? ORDER BY date",
@@ -294,7 +409,7 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
             continue
         series = [e for _, e in eq]
         equity = series[-1]
-        total_ret = equity / INITIAL_CASH - 1
+        total_ret = equity / float(initial_cash) - 1
         spy_ret = _spy_return(con, created, d)
         vs_spy = None if spy_ret is None else total_ret - spy_ret
         mdd = _max_drawdown(series)
@@ -307,7 +422,8 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
             [pf_id]).fetchone()[0]
         rows.append({
             "id": pf_id, "name": name, "inception": created, "equity": equity,
-            "total_ret": total_ret, "vs_spy": vs_spy, "mdd": mdd,
+            "initial_cash": float(initial_cash), "total_ret": total_ret,
+            "vs_spy": vs_spy, "mdd": mdd,
             "n_open": n_open, "n_fills": n_fills, "last5": last5,
         })
     rows.sort(key=lambda r: r["total_ret"], reverse=True)
@@ -328,8 +444,8 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
         )
     lines += [
         "",
-        f"_Regime: **{regime_label(con, d)}** · reference notional "
-        f"${INITIAL_CASH:,.0f}/book · as of {d.isoformat()}._",
+        f"_Regime: **{regime_label(con, d)}** · each return uses its book's "
+        f"persisted starting capital · as of {d.isoformat()}._",
         "",
     ]
 
@@ -352,8 +468,9 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
         SELECT p.portfolio_id, p.ticker, p.qty,
                MAX(pr.date) FILTER (WHERE pr.volume > 0) AS last_traded
         FROM sim_positions p
+        JOIN portfolios pf ON pf.id = p.portfolio_id
         JOIN prices pr ON pr.ticker = p.ticker
-        WHERE p.qty > 0
+        WHERE pf.active AND p.qty > 0
         GROUP BY p.portfolio_id, p.ticker, p.qty
         HAVING MAX(pr.date) FILTER (WHERE pr.volume > 0) < ?
         ORDER BY last_traded, p.portfolio_id, p.ticker
@@ -396,13 +513,15 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
     reports_dir = data_dir / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
     md_path = reports_dir / "league.md"
-    md_path.write_text("\n".join(lines))
+    resources.write_text_atomic(md_path, "\n".join(lines))
 
     # full sim_equity export
     csv_df = con.execute(
         "SELECT portfolio_id, date, equity FROM sim_equity ORDER BY portfolio_id, date"
     ).fetch_df()
-    csv_df.to_csv(reports_dir / "league.csv", index=False)
+    resources.write_text_atomic(
+        reports_dir / "league.csv", csv_df.to_csv(index=False)
+    )
     return md_path
 
 
@@ -422,6 +541,12 @@ def rerun_cleanup(con, d: date) -> None:
     - State is rebuilt by replaying every surviving fill (exact).
     """
     con.execute("DELETE FROM sim_equity WHERE date = ?", [d])
+    con.execute(
+        "DELETE FROM sim_fill_costs WHERE order_id IN "
+        "(SELECT order_id FROM sim_fills WHERE fill_date = ?)", [d])
+    con.execute(
+        "DELETE FROM sim_execution_attempts WHERE attempt_date = ? AND order_id IN "
+        "(SELECT order_id FROM sim_fills WHERE fill_date = ?)", [d, d])
     con.execute("DELETE FROM sim_fills WHERE fill_date = ?", [d])
     con.execute("DELETE FROM sim_dividends WHERE ex_date = ?", [d])
     # Orders the day-step CREATED are regenerated by the re-run; orders a
@@ -462,11 +587,13 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
         if not rerun:
             if skip_if_done:
                 # Benign no-op: the date is already stepped (e.g. a weekend/holiday
-                # nightly where MAX(date) hasn't advanced, or a re-run). The report
-                # already reflects this date. Exit 0 so the nightly never trips.
+                # nightly where MAX(date) hasn't advanced, or a re-run). Regenerate
+                # reports from the committed ledger so an interruption between the
+                # day transaction and companion-file publication repairs itself.
+                write_reports(con, d, data_dir)
                 if verbose:
                     log.info(f"[league] {d} already stepped ({existing} equity rows); "
-                          f"--skip-if-done → no-op, exit 0")
+                          f"--skip-if-done → restored reports, exit 0")
                 return 0
             if verbose:
                 log.error(f"[league] ABORT: sim_equity already has {existing} rows for "
@@ -484,8 +611,7 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
     # between them rolls back rather than double-filling on rerun.
     # (db.connect returns a fresh autocommit connection with no enclosing
     # transaction, so this BEGIN never nests.)
-    con.execute("BEGIN TRANSACTION")
-    try:
+    with db.transaction(con):
         if existing:  # reached only on --rerun (non-rerun already returned above)
             rerun_cleanup(con, d)
             if verbose:
@@ -497,10 +623,6 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
         # while the nightly — the one run a human reads — always does.
         mm = mtm_all(con, d, verbose=verbose)
         nn = generate_all(con, d)
-        con.execute("COMMIT")
-    except Exception:
-        con.execute("ROLLBACK")
-        raise
 
     md_path = write_reports(con, d, data_dir)
     if verbose:
@@ -517,24 +639,24 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
 def run(db_path: str, data_dir: Path, requested_date: str | None,
         do_init: bool, rerun: bool, skip_if_done: bool = False) -> int:
     con = db.connect(db_path)
-    db.init_schema(con)
-    db.init_actions_schema(con)   # dividends are read by phase a0 / total_return
-    init_sim_schema(con)
-    d = resolve_date(con, requested_date)
+    try:
+        db.init_schema(con)
+        db.init_actions_schema(con)   # dividends are read by phase a0 / total_return
+        init_sim_schema(con)
+        d = resolve_date(con, requested_date)
 
-    if do_init:
-        n = init_portfolios(con, d)
-        log.info(f"[league] init: created {n} portfolios (as of {d})")
+        if do_init:
+            n = init_portfolios(con, d)
+            log.info(f"[league] init: created {n} portfolios (as of {d})")
 
-    have = con.execute("SELECT COUNT(*) FROM portfolios").fetchone()[0]
-    if not have:
-        log.info("[league] no portfolios — run with --init first")
+        have = con.execute("SELECT COUNT(*) FROM portfolios").fetchone()[0]
+        if not have:
+            log.info("[league] no portfolios — run with --init first")
+            return 1
+
+        return step(con, d, data_dir, rerun, skip_if_done=skip_if_done)
+    finally:
         con.close()
-        return 1
-
-    rc = step(con, d, data_dir, rerun, skip_if_done=skip_if_done)
-    con.close()
-    return rc
 
 
 def main() -> int:
@@ -542,7 +664,9 @@ def main() -> int:
     ap.add_argument("--db", default=str(db.DEFAULT_DB), help="DuckDB path")
     ap.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR), help="output dir")
     ap.add_argument("--date", default=None, help="step date YYYY-MM-DD (default: latest bar)")
-    ap.add_argument("--init", action="store_true", help="create the 17 portfolios if absent")
+    ap.add_argument(
+        "--init", action="store_true", help="create configured portfolios if absent"
+    )
     ap.add_argument("--rerun", action="store_true", help="redo an already-run date")
     ap.add_argument("--skip-if-done", action="store_true",
                     help="exit 0 (not 1) if the date is already stepped — for the "

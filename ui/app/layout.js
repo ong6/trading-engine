@@ -3,7 +3,7 @@ import Header from "./components/Header";
 
 export const metadata = {
   title: "Trading Engine — MOCK",
-  description: "Local mock paper-trading dashboard (M3).",
+  description: "Local paper-trading and prospective research dashboard.",
 };
 
 // Header pulls live /meta; never cache the shell.

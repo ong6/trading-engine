@@ -40,6 +40,7 @@ import pandas as pd
 import yaml
 
 from engine.lib import db as enginedb
+from engine.lib import resources
 from engine.lib.log import get_logger
 from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT  # noqa: F401
 from farm import stats as fstats
@@ -124,7 +125,9 @@ def _write_pin(cfg_id: str, data_as_of: date) -> None:
     if p.exists():
         return
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps({"data_as_of": str(data_as_of)}, indent=2) + "\n")
+    resources.write_text_atomic(
+        p, json.dumps({"data_as_of": str(data_as_of)}, indent=2) + "\n"
+    )
 
 
 def _recover_pin_from_db(con, cfg_id: str) -> date | None:
@@ -458,7 +461,6 @@ def _rows_from_res(cfg: dict, chash: str, run_at, res: dict) -> list[dict]:
 def append_results(con, rows: list[dict]) -> None:
     df = pd.DataFrame(rows)
     cols = list(df.columns)
-    con.register("_exp_rows", df)
     # NAME the target columns. A bare `INSERT INTO t SELECT ...` is positional and
     # requires the row width to equal the table width — which silently breaks the
     # moment the table gains a column. It has: the forward phase
@@ -466,10 +468,10 @@ def append_results(con, rows: list[dict]) -> None:
     # backtest row leaves NULL. Naming the columns makes this append independent
     # of the table's shape.
     quoted = ", ".join(f'"{c}"' for c in cols)
-    con.execute(
-        f"INSERT INTO experiment_results ({quoted}) SELECT {quoted} FROM _exp_rows"
-    )
-    con.unregister("_exp_rows")
+    with enginedb.registered_frame(con, "_exp_rows", df):
+        con.execute(
+            f"INSERT INTO experiment_results ({quoted}) SELECT {quoted} FROM _exp_rows"
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -666,7 +668,7 @@ def _connect_rw_retry(db_path):
 def _write_report(cfg, chash, res, run_at, storage_note):
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     path = REPORTS_DIR / f"{cfg['id']}.md"
-    path.write_text(render_report(cfg, chash, res, run_at, storage_note))
+    resources.write_text_atomic(path, render_report(cfg, chash, res, run_at, storage_note))
     return path
 
 
@@ -694,7 +696,7 @@ def run_standalone(cfg_id, cfg_path, db_path) -> int:
     except Exception as exc:  # noqa: BLE001
         pend = PENDING_DIR / f"{cfg['id']}.json"
         PENDING_DIR.mkdir(parents=True, exist_ok=True)
-        pend.write_text(json.dumps(rows, indent=2, default=str))
+        resources.write_text_atomic(pend, json.dumps(rows, indent=2, default=str))
         storage_note = (f"store stayed LOCKED ({exc}); results written to {pend} "
                         f"(append to experiment_results later).")
         log.info(f"[farm] {storage_note}")

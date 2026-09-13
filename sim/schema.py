@@ -8,13 +8,16 @@ Append-only discipline (mirrors screen_results):
   - sim_orders   : rows are appended; only the `status` column mutates
                    (pending → filled | rejected | cancelled).
   - sim_fills    : append-only, one row per fill event.
-  - sim_equity   : append-only, one row per (portfolio, date).
+  - sim_equity   : one row per (portfolio, date); rewritten only by an explicit
+                   same-date league rerun.
   - sim_positions: current state — mutated in place (a position's qty/avg_cost).
   - portfolios   : `cash` is current state; the rest is set at creation.
 """
 from __future__ import annotations
 
 import duckdb
+
+from .execution import DEFAULT_PROFILE_ID
 
 # Reference notional per paper portfolio: S$50k ≈ US$39,000 (spec §12.4).
 INITIAL_CASH = 39_000.0
@@ -31,10 +34,20 @@ def init_sim_schema(con: duckdb.DuckDBPyConnection) -> None:
             config   VARCHAR,   -- json blob of the registered strategy config
             created  DATE,
             active   BOOLEAN DEFAULT TRUE,
-            cash     DOUBLE
+            cash     DOUBLE,
+            initial_cash DOUBLE,
+            execution_profile VARCHAR
         )
         """
     )
+    # Safe migration for stores created before capital/profile persistence.
+    # Backfilling these immutable assumptions must never alter current cash.
+    con.execute("ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS initial_cash DOUBLE")
+    con.execute("ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS execution_profile VARCHAR")
+    con.execute("UPDATE portfolios SET initial_cash = ? WHERE initial_cash IS NULL",
+                [INITIAL_CASH])
+    con.execute("UPDATE portfolios SET execution_profile = ? "
+                "WHERE execution_profile IS NULL", [DEFAULT_PROFILE_ID])
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS sim_orders (
@@ -60,8 +73,54 @@ def init_sim_schema(con: duckdb.DuckDBPyConnection) -> None:
             fill_date    DATE,
             open_px      DOUBLE,    -- the raw day t+1 open we filled against
             fill_px      DOUBLE,    -- open adjusted for slippage (worse than open)
-            slippage_bps DOUBLE,    -- per-side bps applied to open
-            cost_bps     DOUBLE     -- per-side cost embedded in fill_px (== slippage_bps)
+            slippage_bps DOUBLE,    -- per-side market friction applied to open
+            cost_bps     DOUBLE     -- total per-side cost embedded in fill_px
+        )
+        """
+    )
+    # Cost decomposition lives beside, rather than inside, sim_fills so the
+    # original append-only ledger remains compatible with old readers and
+    # explicit/positional INSERTs. Existing fills are intentionally unstamped.
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sim_fill_costs (
+            order_id          BIGINT PRIMARY KEY,
+            execution_profile VARCHAR,
+            participation     DOUBLE,
+            market_bps        DOUBLE,
+            impact_bps        DOUBLE,
+            fee_bps           DOUBLE,
+            total_bps         DOUBLE
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sim_execution_attempts (
+            order_id          BIGINT,
+            attempt_date      DATE,
+            execution_profile VARCHAR,
+            raw_notional      DOUBLE,
+            median_dollar_vol DOUBLE,
+            participation     DOUBLE,
+            outcome           VARCHAR,
+            reject_reason     VARCHAR,
+            PRIMARY KEY (order_id, attempt_date)
+        )
+        """
+    )
+    # Human-adjudicated source defects. Verification disagreement alone never
+    # inserts here; only a confirmed primary-store defect may activate a row.
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS price_quarantine (
+            ticker      VARCHAR PRIMARY KEY,
+            status      VARCHAR,
+            reason      VARCHAR,
+            evidence    VARCHAR,
+            confirmed_at TIMESTAMP,
+            resolved_at TIMESTAMP,
+            resolution  VARCHAR
         )
         """
     )

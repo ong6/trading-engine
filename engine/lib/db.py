@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 import time
+from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -37,6 +38,89 @@ DEFAULT_DB = settings.DEFAULT_DB
 # deleted from the series. Column names are bare so it composes into any query
 # whose FROM has `prices` in scope.
 REAL_BAR_SQL = "volume > 0 AND NOT (open = high AND high = low AND low = close)"
+MARKET_DATE_MIN_NAMES = 1_000
+MARKET_DATE_MIN_COVERAGE = 0.90
+
+
+@contextmanager
+def registered_frame(con: duckdb.DuckDBPyConnection, name: str, frame: pd.DataFrame):
+    """Register a temporary DataFrame view and always release its name."""
+    con.register(name, frame)
+    try:
+        yield
+    finally:
+        con.unregister(name)
+
+
+@contextmanager
+def transaction(con: duckdb.DuckDBPyConnection, *, commit: bool = True):
+    """Commit atomically and leave a borrowed connection reusable on failure.
+
+    Process-level interruptions receive the same cleanup as ordinary errors.
+    If rollback itself fails, preserve the original body/commit exception and
+    attach the cleanup failure as a diagnostic note.
+    """
+    con.execute("BEGIN TRANSACTION")
+    try:
+        yield
+        con.execute("COMMIT" if commit else "ROLLBACK")
+    except BaseException as exc:
+        try:
+            con.execute("ROLLBACK")
+        except BaseException as rollback_exc:
+            exc.add_note(f"transaction rollback also failed: {rollback_exc!r}")
+        raise
+
+
+def latest_real_prices_date(con: duckdb.DuckDBPyConnection) -> date | None:
+    """Latest date containing at least one actually traded daily bar."""
+    return con.execute(
+        f"SELECT MAX(date) FROM prices WHERE {REAL_BAR_SQL}"
+    ).fetchone()[0]
+
+
+def latest_operational_market_date(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    minimum_names: int = MARKET_DATE_MIN_NAMES,
+    minimum_coverage: float = MARKET_DATE_MIN_COVERAGE,
+) -> date | None:
+    """Latest real-bar date broad enough to advance nightly trading state.
+
+    With an initialized liquid universe, a date must cover at least 90% of its
+    active names and, for production-sized universes, at least 1,000 names. The
+    absolute floor is capped at universe size so small initialized stores can
+    still establish a date. Without an initialized active liquid universe,
+    return no operational date rather than trusting an arbitrary price row.
+    """
+    if minimum_names < 1:
+        raise ValueError("minimum_names must be positive")
+    if not 0 < minimum_coverage <= 1:
+        raise ValueError("minimum_coverage must be in (0, 1]")
+    has_universe = con.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = 'universe'"
+    ).fetchone()
+    if has_universe is None:
+        return None
+    active_liquid = int(
+        con.execute(
+            "SELECT COUNT(*) FROM universe WHERE active = TRUE AND liquid = TRUE"
+        ).fetchone()[0]
+    )
+    if active_liquid == 0:
+        return None
+    required = min(
+        active_liquid,
+        max(minimum_names, math.ceil(active_liquid * minimum_coverage)),
+    )
+    row = con.execute(
+        f"SELECT p.date FROM prices p JOIN universe u ON u.ticker = p.ticker "
+        f"WHERE u.active = TRUE AND u.liquid = TRUE AND {REAL_BAR_SQL} "
+        "GROUP BY p.date HAVING COUNT(DISTINCT p.ticker) >= ? "
+        "ORDER BY p.date DESC LIMIT 1",
+        [required],
+    ).fetchone()
+    return None if row is None else row[0]
 
 # Substrings DuckDB uses when the single-writer on-disk lock is contended or the
 # file is open elsewhere. The bare "lock" (formerly only in server/db.py) is the
@@ -264,11 +348,12 @@ def init_screen_policy_schema(con: duckdb.DuckDBPyConnection) -> None:
 
 def init_mining_schema(con: duckdb.DuckDBPyConnection) -> None:
     """M4 §12.2 additions: the append-only, point-in-time `fundamentals`
-    (weekly snapshot) and `earnings_calendar` (daily) tables.
+    (weekly snapshot), `earnings_calendar` (daily), and their per-attempt fetch
+    logs.
 
     Kept SEPARATE from init_schema so the nightly collect path is untouched;
-    every statement is CREATE TABLE IF NOT EXISTS so it is safe to run against
-    the live single-writer DB and first-run on the real store just works.
+    every object creation is guarded by IF NOT EXISTS, so it is safe to run
+    against the live single-writer DB and first-run on the real store just works.
 
     Both tables are keyed by (ticker, ..., as_of) with as_of = the pull date, so
     a re-run on the same day is a no-op (see insert_fundamentals / insert_earnings
@@ -304,6 +389,27 @@ def init_mining_schema(con: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
+    # A missing fundamentals row is a gap rather than an empty observation.
+    # Preserve every attempt so operators can distinguish an untried ticker
+    # from a failed response while failures remain eligible for retry.
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS fundamentals_fetch_log (
+            ticker       VARCHAR   NOT NULL,
+            as_of        DATE      NOT NULL,
+            status       VARCHAR   NOT NULL CHECK (status IN ('ok', 'failed')),
+            n_fields     INTEGER   NOT NULL,
+            source       VARCHAR   DEFAULT 'yfinance',
+            attempted_at TIMESTAMP
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE INDEX IF NOT EXISTS fundamentals_fetch_log_resume_idx
+        ON fundamentals_fetch_log (as_of, ticker, status)
+        """
+    )
     # Earnings dates are forward-looking estimates that move; every daily pull is
     # its own as_of-stamped snapshot so a gate lookup uses the LATEST snapshot per
     # ticker. is_estimate = the source returned a date window (not a confirmed day).
@@ -318,6 +424,28 @@ def init_mining_schema(con: duckdb.DuckDBPyConnection) -> None:
             fetched_at    TIMESTAMP,
             PRIMARY KEY (ticker, earnings_date, as_of)
         )
+        """
+    )
+    # A calendar row can prove that a ticker returned a date, but the absence of
+    # one cannot distinguish a successful empty response from an interrupted or
+    # failed request. Preserve every attempt so same-day recovery can skip only
+    # completed pulls while retaining failures for retry and diagnosis.
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS earnings_fetch_log (
+            ticker       VARCHAR   NOT NULL,
+            as_of        DATE      NOT NULL,
+            status       VARCHAR   NOT NULL CHECK (status IN ('ok', 'empty', 'failed')),
+            n_dates      INTEGER   NOT NULL,
+            source       VARCHAR   DEFAULT 'yfinance',
+            attempted_at TIMESTAMP NOT NULL
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE INDEX IF NOT EXISTS earnings_fetch_log_resume_idx
+        ON earnings_fetch_log (as_of, ticker, status)
         """
     )
 
@@ -406,18 +534,17 @@ def insert_macro_signals(con: duckdb.DuckDBPyConnection,
 
     df = pd.DataFrame(clean, columns=["series", "obs_date", "value", "fetch_as_of"])
     before = con.execute("SELECT COUNT(*) FROM macro_signals").fetchone()[0]
-    con.register("_incoming_signals", df)
-    con.execute(
-        """
-        INSERT INTO macro_signals (series, obs_date, value, fetch_as_of)
-        SELECT i.series, i.obs_date, i.value, i.fetch_as_of
-        FROM _incoming_signals i
-        LEFT JOIN macro_signals m
-               ON m.series = i.series AND m.obs_date = i.obs_date
-        WHERE m.series IS NULL
-        """
-    )
-    con.unregister("_incoming_signals")
+    with registered_frame(con, "_incoming_signals", df):
+        con.execute(
+            """
+            INSERT INTO macro_signals (series, obs_date, value, fetch_as_of)
+            SELECT i.series, i.obs_date, i.value, i.fetch_as_of
+            FROM _incoming_signals i
+            LEFT JOIN macro_signals m
+                   ON m.series = i.series AND m.obs_date = i.obs_date
+            WHERE m.series IS NULL
+            """
+        )
     after = con.execute("SELECT COUNT(*) FROM macro_signals").fetchone()[0]
     return after - before
 
@@ -473,18 +600,59 @@ def init_actions_schema(con: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
-    # Per-name pull bookkeeping so a killed backfill resumes where it stopped and
-    # a same-day re-run is a no-op. status: 'ok' | 'empty' | 'failed'.
+    # Per-name pull bookkeeping so a killed backfill resumes where it stopped.
+    # Preserve every attempt: completed `ok`/`empty` rows are resume evidence,
+    # while `failed` rows remain eligible for a later retry.
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS actions_fetch_log (
-            ticker     VARCHAR NOT NULL,
-            fetched_on DATE    NOT NULL,
-            n_splits   INTEGER,
-            n_dividends INTEGER,
-            status     VARCHAR,
-            PRIMARY KEY (ticker, fetched_on)
+            ticker      VARCHAR   NOT NULL,
+            fetched_on  DATE      NOT NULL,
+            n_splits    INTEGER   NOT NULL,
+            n_dividends INTEGER   NOT NULL,
+            status      VARCHAR   NOT NULL CHECK (status IN ('ok', 'empty', 'failed')),
+            source      VARCHAR   DEFAULT 'yfinance',
+            attempted_at TIMESTAMP NOT NULL
         )
+        """
+    )
+    action_log_cols = {
+        row[1] for row in con.execute("PRAGMA table_info('actions_fetch_log')").fetchall()
+    }
+    if "attempted_at" not in action_log_cols:
+        # v1 keyed the table by (ticker, fetched_on), overwriting failed attempts
+        # on retry. Replace it atomically while retaining every legacy outcome.
+        with transaction(con):
+            con.execute("ALTER TABLE actions_fetch_log RENAME TO actions_fetch_log_v1")
+            con.execute(
+                """
+                CREATE TABLE actions_fetch_log (
+                    ticker       VARCHAR   NOT NULL,
+                    fetched_on   DATE      NOT NULL,
+                    n_splits     INTEGER   NOT NULL,
+                    n_dividends  INTEGER   NOT NULL,
+                    status       VARCHAR   NOT NULL
+                                 CHECK (status IN ('ok', 'empty', 'failed')),
+                    source       VARCHAR   DEFAULT 'yfinance',
+                    attempted_at TIMESTAMP
+                )
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO actions_fetch_log
+                    (ticker, fetched_on, n_splits, n_dividends, status, source, attempted_at)
+                SELECT ticker, fetched_on, COALESCE(n_splits, 0),
+                       COALESCE(n_dividends, 0), status, 'yfinance',
+                       NULL
+                FROM actions_fetch_log_v1
+                """
+            )
+            con.execute("DROP TABLE actions_fetch_log_v1")
+    con.execute(
+        """
+        CREATE INDEX IF NOT EXISTS actions_fetch_log_resume_idx
+        ON actions_fetch_log (fetched_on, ticker, status)
         """
     )
 
@@ -510,17 +678,54 @@ def upsert_actions(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
     df["source"] = "yfinance"
     df["fetched_at"] = datetime.now(timezone.utc)
 
-    con.register("_incoming_actions", df)
-    con.execute(
-        """
-        INSERT OR REPLACE INTO corporate_actions
-            (ticker, ex_date, kind, value, source, fetched_at)
-        SELECT ticker, ex_date, kind, value, source, fetched_at
-        FROM _incoming_actions
-        """
-    )
-    con.unregister("_incoming_actions")
+    with registered_frame(con, "_incoming_actions", df):
+        con.execute(
+            """
+            INSERT OR REPLACE INTO corporate_actions
+                (ticker, ex_date, kind, value, source, fetched_at)
+            SELECT ticker, ex_date, kind, value, source, fetched_at
+            FROM _incoming_actions
+            """
+        )
     return len(df)
+
+
+def insert_actions_fetch_log(
+    con: duckdb.DuckDBPyConnection,
+    rows: list[dict],
+    fetched_on: date | None = None,
+) -> int:
+    """Append validated per-ticker action-fetch outcomes, retaining retries."""
+    if not rows:
+        return 0
+    fetched_on = fetched_on or datetime.now(timezone.utc).date()
+    attempted_at = datetime.now(timezone.utc)
+    values = []
+    for row in rows:
+        status = row.get("status")
+        n_splits = int(row.get("n_splits", 0))
+        n_dividends = int(row.get("n_dividends", 0))
+        if status not in {"ok", "empty", "failed"}:
+            raise ValueError(f"invalid actions fetch status: {status!r}")
+        if n_splits < 0 or n_dividends < 0:
+            raise ValueError("action fetch counts must be non-negative")
+        if status in {"empty", "failed"} and (n_splits or n_dividends):
+            raise ValueError("inconsistent actions fetch outcome")
+        if status == "ok" and not (n_splits or n_dividends):
+            raise ValueError("inconsistent actions fetch outcome")
+        values.append(
+            [row["ticker"], fetched_on, n_splits, n_dividends, status,
+             row.get("source", "yfinance"), attempted_at]
+        )
+    con.executemany(
+        """
+        INSERT INTO actions_fetch_log
+            (ticker, fetched_on, n_splits, n_dividends, status, source, attempted_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        values,
+    )
+    return len(values)
 
 
 # Columns the fundamentals miner supplies (order-independent; as_of/source/
@@ -562,21 +767,63 @@ def insert_fundamentals(con: duckdb.DuckDBPyConnection, df: pd.DataFrame,
 
     insert_cols = _FUNDAMENTAL_COLS + ["as_of", "source", "fetched_at"]
     before = con.execute("SELECT COUNT(*) FROM fundamentals").fetchone()[0]
-    con.register("_incoming_fund", df)
     select_list = ", ".join(f"i.{c}" for c in insert_cols)
-    con.execute(
-        f"""
-        INSERT INTO fundamentals ({', '.join(insert_cols)})
-        SELECT {select_list}
-        FROM _incoming_fund i
-        LEFT JOIN fundamentals f
-               ON f.ticker = i.ticker AND f.as_of = i.as_of
-        WHERE f.ticker IS NULL
-        """
-    )
-    con.unregister("_incoming_fund")
+    with registered_frame(con, "_incoming_fund", df):
+        con.execute(
+            f"""
+            INSERT INTO fundamentals ({', '.join(insert_cols)})
+            SELECT {select_list}
+            FROM _incoming_fund i
+            LEFT JOIN fundamentals f
+                   ON f.ticker = i.ticker AND f.as_of = i.as_of
+            WHERE f.ticker IS NULL
+            """
+        )
     after = con.execute("SELECT COUNT(*) FROM fundamentals").fetchone()[0]
     return after - before
+
+
+def insert_fundamentals_fetch_log(
+    con: duckdb.DuckDBPyConnection,
+    rows: list[dict],
+    as_of: date | None = None,
+) -> int:
+    """Append per-ticker fundamentals outcomes without erasing retries.
+
+    `ok` accompanies a committed snapshot row. `failed` covers transport errors
+    and unusable responses; those attempts remain visible and retryable.
+    """
+    if not rows:
+        return 0
+    as_of = as_of or datetime.now(timezone.utc).date()
+    values = []
+    for row in rows:
+        status = row.get("status")
+        if status not in {"ok", "failed"}:
+            raise ValueError(f"invalid fundamentals fetch status: {status!r}")
+        n_fields = int(row.get("n_fields", 0))
+        if n_fields < 0 or (status == "ok") != (n_fields > 0):
+            raise ValueError(
+                "inconsistent fundamentals fetch outcome: "
+                f"status={status!r}, n_fields={n_fields}"
+            )
+        values.append([
+            row["ticker"],
+            as_of,
+            status,
+            n_fields,
+            "yfinance",
+            row.get("attempted_at") or datetime.now(timezone.utc),
+        ])
+    con.executemany(
+        """
+        INSERT INTO fundamentals_fetch_log
+            (ticker, as_of, status, n_fields, source, attempted_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        values,
+    )
+    return len(values)
 
 
 def insert_earnings(con: duckdb.DuckDBPyConnection, df: pd.DataFrame,
@@ -607,22 +854,66 @@ def insert_earnings(con: duckdb.DuckDBPyConnection, df: pd.DataFrame,
     df["fetched_at"] = datetime.now(timezone.utc)
 
     before = con.execute("SELECT COUNT(*) FROM earnings_calendar").fetchone()[0]
-    con.register("_incoming_earn", df)
-    con.execute(
-        """
-        INSERT INTO earnings_calendar
-            (ticker, earnings_date, is_estimate, as_of, source, fetched_at)
-        SELECT i.ticker, i.earnings_date, i.is_estimate, i.as_of, i.source, i.fetched_at
-        FROM _incoming_earn i
-        LEFT JOIN earnings_calendar e
-               ON e.ticker = i.ticker AND e.earnings_date = i.earnings_date
-              AND e.as_of = i.as_of
-        WHERE e.ticker IS NULL
-        """
-    )
-    con.unregister("_incoming_earn")
+    with registered_frame(con, "_incoming_earn", df):
+        con.execute(
+            """
+            INSERT INTO earnings_calendar
+                (ticker, earnings_date, is_estimate, as_of, source, fetched_at)
+            SELECT i.ticker, i.earnings_date, i.is_estimate, i.as_of, i.source, i.fetched_at
+            FROM _incoming_earn i
+            LEFT JOIN earnings_calendar e
+                   ON e.ticker = i.ticker AND e.earnings_date = i.earnings_date
+                  AND e.as_of = i.as_of
+            WHERE e.ticker IS NULL
+            """
+        )
     after = con.execute("SELECT COUNT(*) FROM earnings_calendar").fetchone()[0]
     return after - before
+
+
+def insert_earnings_fetch_log(
+    con: duckdb.DuckDBPyConnection,
+    rows: list[dict],
+    as_of: date | None = None,
+) -> int:
+    """Append per-ticker earnings fetch outcomes without erasing retries.
+
+    `ok` means at least one usable date was returned, `empty` means the request
+    succeeded without a usable date, and `failed` means the request exhausted
+    its retry. Failed attempts remain visible and do not count as completed for
+    resume purposes.
+    """
+    if not rows:
+        return 0
+    as_of = as_of or datetime.now(timezone.utc).date()
+    allowed = {"ok", "empty", "failed"}
+    values = []
+    for row in rows:
+        status = row.get("status")
+        if status not in allowed:
+            raise ValueError(f"invalid earnings fetch status: {status!r}")
+        n_dates = int(row.get("n_dates", 0))
+        if n_dates < 0 or (status == "ok") != (n_dates > 0):
+            raise ValueError(
+                f"inconsistent earnings fetch outcome: status={status!r}, n_dates={n_dates}"
+            )
+        values.append([
+            row["ticker"],
+            as_of,
+            status,
+            n_dates,
+            "yfinance",
+            row.get("attempted_at") or datetime.now(timezone.utc),
+        ])
+    con.executemany(
+        """
+        INSERT INTO earnings_fetch_log
+            (ticker, as_of, status, n_dates, source, attempted_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        values,
+    )
+    return len(values)
 
 
 def insert_intraday(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
@@ -648,20 +939,19 @@ def insert_intraday(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
     df["as_of"] = datetime.now(timezone.utc).date()
 
     before = con.execute("SELECT COUNT(*) FROM intraday_prices").fetchone()[0]
-    con.register("_incoming_intraday", df)
-    con.execute(
-        """
-        INSERT INTO intraday_prices
-            (ticker, ts, interval, open, high, low, close, volume, source, as_of)
-        SELECT i.ticker, i.ts, i.interval, i.open, i.high, i.low, i.close,
-               i.volume, i.source, i.as_of
-        FROM _incoming_intraday i
-        LEFT JOIN intraday_prices p
-               ON p.ticker = i.ticker AND p.ts = i.ts AND p.interval = i.interval
-        WHERE p.ticker IS NULL
-        """
-    )
-    con.unregister("_incoming_intraday")
+    with registered_frame(con, "_incoming_intraday", df):
+        con.execute(
+            """
+            INSERT INTO intraday_prices
+                (ticker, ts, interval, open, high, low, close, volume, source, as_of)
+            SELECT i.ticker, i.ts, i.interval, i.open, i.high, i.low, i.close,
+                   i.volume, i.source, i.as_of
+            FROM _incoming_intraday i
+            LEFT JOIN intraday_prices p
+                   ON p.ticker = i.ticker AND p.ts = i.ts AND p.interval = i.interval
+            WHERE p.ticker IS NULL
+            """
+        )
     after = con.execute("SELECT COUNT(*) FROM intraday_prices").fetchone()[0]
     return after - before
 
@@ -685,14 +975,13 @@ def upsert_prices(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
     df["source"] = "yfinance"
     df["fetched_at"] = datetime.now(timezone.utc)
 
-    con.register("_incoming_prices", df)
-    con.execute(
-        """
-        INSERT OR REPLACE INTO prices
-            (ticker, date, open, high, low, close, volume, source, fetched_at)
-        SELECT ticker, date, open, high, low, close, volume, source, fetched_at
-        FROM _incoming_prices
-        """
-    )
-    con.unregister("_incoming_prices")
+    with registered_frame(con, "_incoming_prices", df):
+        con.execute(
+            """
+            INSERT OR REPLACE INTO prices
+                (ticker, date, open, high, low, close, volume, source, fetched_at)
+            SELECT ticker, date, open, high, low, close, volume, source, fetched_at
+            FROM _incoming_prices
+            """
+        )
     return len(df)

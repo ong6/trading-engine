@@ -1,5 +1,8 @@
 # Data Source Robustness Audit — 2026-08-20
 
+> **Historical snapshot.** Findings and counts are as of 2026-08-20. See
+> [`README.md`](README.md) for the current documentation map.
+
 Scope: EOD price redundancy, survivorship bias, live ticker coverage / liquidity floor.
 No engine code was modified, no writes were made to `store/market.duckdb`, no jobs were
 enqueued, and the running parameter sweep (PIDs `queue_runner.py --run-one 209/210`,
