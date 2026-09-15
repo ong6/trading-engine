@@ -1,10 +1,10 @@
 {
-  "last_run": "2026-09-14T22:31:44.497195+00:00",
+  "last_run": "2026-09-15T22:31:46.004091+00:00",
   "mode": "incremental",
-  "universe_size": 12609,
-  "active_count": 11808,
+  "universe_size": 12626,
+  "active_count": 11825,
   "liquid_count": 4097,
-  "prices_rows": 20685250,
+  "prices_rows": 20689324,
   "tickers_with_data": 12517,
   "stale_tickers": {
     "count": 22,
@@ -41,17 +41,17 @@
   "regime": "risk-on",
   "actions_incremental": {
     "mode": "incremental",
-    "universe": 144,
+    "universe": 145,
     "universe_source": "active-held \u222a active-pending \u222a core-ETFs \u222a screen-top-N",
-    "pulled_this_run": 144,
-    "with_actions": 93,
-    "no_actions": 51,
+    "pulled_this_run": 145,
+    "with_actions": 92,
+    "no_actions": 53,
     "failed_tickers": 0,
-    "rows_written_this_run": 7423,
+    "rows_written_this_run": 7589,
     "total_splits": 8707,
     "total_dividends": 401052,
-    "last_run": "2026-09-14T22:33:01.948102+00:00",
-    "store_gb": 3.67
+    "last_run": "2026-09-15T22:33:06.620809+00:00",
+    "store_gb": 3.73
   },
   "disk_warning": null,
   "actions_reconcile": {
@@ -59,12 +59,12 @@
     "rows_restated": 0,
     "outcomes": {},
     "warnings": 0,
-    "last_run": "2026-09-14T22:33:03.109794+00:00",
-    "store_gb": 3.67
+    "last_run": "2026-09-15T22:33:07.739971+00:00",
+    "store_gb": 3.73
   },
   "price_verify": {
-    "last_run": "2026-09-12T05:00:04.625320+00:00",
-    "as_of": "2026-09-11",
+    "last_run": "2026-09-14T22:40:12.072997+00:00",
+    "as_of": "2026-09-14",
     "source": "api.nasdaq.com/api/quote/{ticker}/historical",
     "role": "verify-only; this source never writes a price row",
     "sessions_requested": 5,
@@ -77,380 +77,53 @@
       "low",
       "close"
     ],
-    "names_selected": 4093,
-    "names_checked": 3968,
-    "names_agreeing": 3963,
-    "names_disagreeing": 5,
-    "names_not_checked": 125,
-    "not_checked_reasons": {
-      "fetch_failed": 7,
-      "symbol_not_found": 4,
-      "time_budget": 114
-    },
-    "not_checked_names": [
-      {
-        "ticker": "MOG.A",
-        "why": "sample",
-        "reason": "fetch_failed",
-        "detail": "no data.tradesTable.rows in response (schema change?)"
-      },
-      {
-        "ticker": "BH.A",
-        "why": "sample",
-        "reason": "fetch_failed",
-        "detail": "no data.tradesTable.rows in response (schema change?)"
-      },
-      {
-        "ticker": "LEN.B",
-        "why": "sample",
-        "reason": "fetch_failed",
-        "detail": "no data.tradesTable.rows in response (schema change?)"
-      },
-      {
-        "ticker": "BAR",
-        "why": "sample",
-        "reason": "symbol_not_found",
-        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
-      },
-      {
-        "ticker": "HEI.A",
-        "why": "sample",
-        "reason": "fetch_failed",
-        "detail": "no data.tradesTable.rows in response (schema change?)"
-      },
-      {
-        "ticker": "DGP",
-        "why": "sample",
-        "reason": "symbol_not_found",
-        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
-      },
-      {
-        "ticker": "PSI",
-        "why": "sample",
-        "reason": "fetch_failed",
-        "detail": "no data.tradesTable.rows in response (schema change?)"
-      },
-      {
-        "ticker": "PBR.A",
-        "why": "sample",
-        "reason": "fetch_failed",
-        "detail": "no data.tradesTable.rows in response (schema change?)"
-      },
-      {
-        "ticker": "VXX",
-        "why": "sample",
-        "reason": "symbol_not_found",
-        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
-      },
-      {
-        "ticker": "BF.B",
-        "why": "sample",
-        "reason": "fetch_failed",
-        "detail": "no data.tradesTable.rows in response (schema change?)"
-      },
-      {
-        "ticker": "FNGD",
-        "why": "sample",
-        "reason": "symbol_not_found",
-        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
-      },
-      {
-        "ticker": "SUPV",
-        "why": "sample",
-        "reason": "time_budget",
-        "detail": "10800s budget spent"
-      },
-      {
-        "ticker": "TBLL",
-        "why": "sample",
-        "reason": "time_budget",
-        "detail": "10800s budget spent"
-      },
-      {
-        "ticker": "SCHE",
-        "why": "sample",
-        "reason": "time_budget",
-        "detail": "10800s budget spent"
-      },
-      {
-        "ticker": "KURA",
-        "why": "sample",
-        "reason": "time_budget",
-        "detail": "10800s budget spent"
-      },
-      {
-        "ticker": "SCHK",
-        "why": "sample",
-        "reason": "time_budget",
-        "detail": "10800s budget spent"
-      },
-      {
-        "ticker": "FLJP",
-        "why": "sample",
-        "reason": "time_budget",
-        "detail": "10800s budget spent"
-      },
-      {
-        "ticker": "NOC",
-        "why": "sample",
-        "reason": "time_budget",
-        "detail": "10800s budget spent"
-      },
-      {
-        "ticker": "SDIV",
-        "why": "sample",
-        "reason": "time_budget",
-        "detail": "10800s budget spent"
-      },
-      {
-        "ticker": "CBOE",
-        "why": "sample",
-        "reason": "time_budget",
-        "detail": "10800s budget spent"
-      },
-      {
-        "ticker": "ASML",
-        "why": "sample",
-        "reason": "time_budget",
-        "detail": "10800s budget spent"
-      },
-      {
-        "ticker": "BNAI",
-        "why": "sample",
-        "reason": "time_budget",
-        "detail": "10800s budget spent"
-      },
-      {
-        "ticker": "CHPY",
-        "why": "sample",
-        "reason": "time_budget",
-        "detail": "10800s budget spent"
-      },
-      {
-        "ticker": "SPMO",
-        "why": "sample",
-        "reason": "time_budget",
-        "detail": "10800s budget spent"
-      },
-      {
-        "ticker": "UPBD",
-        "why": "sample",
-        "reason": "time_budget",
-        "detail": "10800s budget spent"
-      }
-    ],
-    "bars_compared": 19840,
-    "field_comparisons": 67456,
+    "names_selected": 158,
+    "names_checked": 158,
+    "names_agreeing": 158,
+    "names_disagreeing": 0,
+    "names_not_checked": 0,
+    "not_checked_reasons": {},
+    "not_checked_names": [],
+    "bars_compared": 632,
+    "field_comparisons": 2528,
     "worst": {
-      "ticker": "VFLO",
-      "date": "2026-09-04",
-      "field": "open",
-      "store": 55.5,
-      "source": 86983.26,
-      "diff_bp": 9993.62
+      "ticker": "WVE",
+      "date": "2026-09-08",
+      "field": "high",
+      "store": 4.97,
+      "source": 4.965,
+      "diff_bp": 10.06
     },
-    "worst_is_disagreement": true,
-    "disagreements": [
-      {
-        "ticker": "VFLO",
-        "date": "2026-09-04",
-        "field": "open",
-        "store": 55.5,
-        "source": 86983.26,
-        "diff_bp": 9993.62
-      },
-      {
-        "ticker": "VFLO",
-        "date": "2026-09-04",
-        "field": "high",
-        "store": 55.59,
-        "source": 86983.26,
-        "diff_bp": 9993.61
-      },
-      {
-        "ticker": "VFLO",
-        "date": "2026-09-08",
-        "field": "open",
-        "store": 54.990002,
-        "source": 85780.095,
-        "diff_bp": 9993.59
-      },
-      {
-        "ticker": "VFLO",
-        "date": "2026-09-08",
-        "field": "high",
-        "store": 55.0,
-        "source": 85780.095,
-        "diff_bp": 9993.59
-      },
-      {
-        "ticker": "VFLO",
-        "date": "2026-09-09",
-        "field": "low",
-        "store": 53.695,
-        "source": 83492.921,
-        "diff_bp": 9993.57
-      },
-      {
-        "ticker": "VFLO",
-        "date": "2026-09-09",
-        "field": "close",
-        "store": 53.77,
-        "source": 83560.009,
-        "diff_bp": 9993.57
-      },
-      {
-        "ticker": "VFLO",
-        "date": "2026-09-10",
-        "field": "high",
-        "store": 53.880001,
-        "source": 83739.938,
-        "diff_bp": 9993.57
-      },
-      {
-        "ticker": "VFLO",
-        "date": "2026-09-10",
-        "field": "low",
-        "store": 53.525002,
-        "source": 83231.418,
-        "diff_bp": 9993.57
-      },
-      {
-        "ticker": "VFLO",
-        "date": "2026-09-10",
-        "field": "close",
-        "store": 53.560001,
-        "source": 83256.773,
-        "diff_bp": 9993.57
-      },
-      {
-        "ticker": "VFLO",
-        "date": "2026-09-11",
-        "field": "close",
-        "store": 53.880001,
-        "source": 83750.286,
-        "diff_bp": 9993.57
-      },
-      {
-        "ticker": "VFLO",
-        "date": "2026-09-04",
-        "field": "low",
-        "store": 55.005001,
-        "source": 85394.183,
-        "diff_bp": 9993.56
-      },
-      {
-        "ticker": "VFLO",
-        "date": "2026-09-09",
-        "field": "high",
-        "store": 54.200001,
-        "source": 84225.229,
-        "diff_bp": 9993.56
-      },
-      {
-        "ticker": "VFLO",
-        "date": "2026-09-10",
-        "field": "open",
-        "store": 53.775002,
-        "source": 83560.009,
-        "diff_bp": 9993.56
-      },
-      {
-        "ticker": "VFLO",
-        "date": "2026-09-04",
-        "field": "close",
-        "store": 55.290001,
-        "source": 85780.095,
-        "diff_bp": 9993.55
-      },
-      {
-        "ticker": "VFLO",
-        "date": "2026-09-08",
-        "field": "low",
-        "store": 54.049999,
-        "source": 83854.17,
-        "diff_bp": 9993.55
-      },
-      {
-        "ticker": "VFLO",
-        "date": "2026-09-08",
-        "field": "close",
-        "store": 54.080002,
-        "source": 83866.326,
-        "diff_bp": 9993.55
-      },
-      {
-        "ticker": "VFLO",
-        "date": "2026-09-09",
-        "field": "open",
-        "store": 54.200001,
-        "source": 83866.326,
-        "diff_bp": 9993.54
-      },
-      {
-        "ticker": "VTEC",
-        "date": "2026-09-10",
-        "field": "open",
-        "store": 96.349998,
-        "source": 96.947,
-        "diff_bp": 61.58
-      },
-      {
-        "ticker": "VTEC",
-        "date": "2026-09-10",
-        "field": "high",
-        "store": 96.389999,
-        "source": 96.947,
-        "diff_bp": 57.45
-      },
-      {
-        "ticker": "VTEI",
-        "date": "2026-09-10",
-        "field": "open",
-        "store": 97.279999,
-        "source": 97.731,
-        "diff_bp": 46.15
-      }
-    ],
-    "n_disagreements": 49,
-    "disagreements_by_field": {
-      "open": 12,
-      "high": 13,
-      "low": 11,
-      "close": 13
-    },
-    "disagreements_by_date": {
-      "2026-09-04": 10,
-      "2026-09-08": 12,
-      "2026-09-09": 13,
-      "2026-09-10": 11,
-      "2026-09-11": 3
-    },
-    "n_material": 17,
+    "worst_is_disagreement": false,
+    "disagreements": [],
+    "n_disagreements": 0,
+    "disagreements_by_field": {},
+    "disagreements_by_date": {},
+    "n_material": 0,
     "parse_errors": [],
     "n_parse_errors": 0,
     "volume_note": "volume differs by design on the newest session (same-day volume settles after the close); measured, never alarmed on",
-    "volume_median_abs_diff_pct_latest_session": 0.04,
+    "volume_median_abs_diff_pct_latest_session": null,
     "volume_median_abs_diff_pct_prior_sessions": 0.01,
-    "volume_bars_compared": 19818,
-    "provisional_note": "on 2026-09-11 (newest stored session) open/high/low are measured but never flagged; the close IS checked on every name",
-    "provisional_ohl_median_bp": 0.0,
-    "provisional_ohl_max_bp": 9993.57,
-    "provisional_ohl_over_tolerance": 767,
-    "provisional_comparisons": 11904,
+    "volume_bars_compared": 632,
+    "provisional_note": "on 2026-09-14 (newest stored session) open/high/low are measured but never flagged; the close IS checked on every name",
+    "provisional_ohl_median_bp": null,
+    "provisional_ohl_max_bp": null,
+    "provisional_ohl_over_tolerance": 0,
+    "provisional_comparisons": 0,
     "store_missing_sessions": {},
     "n_names_store_missing_sessions": 0,
-    "secs": 10802.7
+    "secs": 423.9
   },
   "intraday": {
-    "last_run": "2026-09-11T22:45:08.101411+00:00",
-    "tickers_requested": 948,
-    "tickers_with_data": 948,
-    "new_rows_1m": 350995,
-    "new_rows_5m": 106279,
+    "last_run": "2026-09-14T22:43:08.420776+00:00",
+    "tickers_requested": 958,
+    "tickers_with_data": 958,
+    "new_rows_1m": 406626,
+    "new_rows_5m": 233400,
     "failed_tickers": 0,
     "failed_batches": 0,
-    "store_gb": 3.63
+    "store_gb": 3.73
   },
   "signals_incremental": {
     "mode": "incremental",
@@ -458,27 +131,27 @@
     "sources": {
       "squeezemetrics": {
         "status": "ok",
-        "rows_fetched": 7726,
-        "rows_inserted": 0,
+        "rows_fetched": 7730,
+        "rows_inserted": 4,
         "series": [
           "dix",
           "gex"
         ],
-        "secs": 1.9
+        "secs": 2.2
       },
       "vix": {
         "status": "ok",
-        "rows_fetched": 13541,
+        "rows_fetched": 13543,
         "rows_inserted": 2,
         "series": [
           "vix",
           "vix3m"
         ],
-        "secs": 1.6
+        "secs": 1.2
       },
       "fred": {
         "status": "ok",
-        "rows_fetched": 104,
+        "rows_fetched": 100,
         "rows_inserted": 2,
         "series": [
           "hy_oas",
@@ -486,7 +159,7 @@
           "nfci",
           "t10y2y"
         ],
-        "secs": 2.1
+        "secs": 1.3
       },
       "putcall": {
         "status": "ok",
@@ -496,7 +169,7 @@
           "pc_equity",
           "pc_total"
         ],
-        "secs": 5.5
+        "secs": 6.9
       },
       "aaii": {
         "status": "ok",
@@ -506,17 +179,17 @@
           "aaii_bear",
           "aaii_bull"
         ],
-        "secs": 1.7
+        "secs": 1.2
       },
       "finra_margin": {
         "status": "ok",
-        "rows_fetched": 553,
-        "rows_inserted": 0,
+        "rows_fetched": 555,
+        "rows_inserted": 2,
         "series": [
           "free_credit",
           "margin_debt"
         ],
-        "secs": 0.8
+        "secs": 0.9
       },
       "short_interest": {
         "status": "ok",
@@ -525,12 +198,12 @@
         "series": [
           "short_interest_dtc"
         ],
-        "secs": 11.7
+        "secs": 11.9
       },
       "cot": {
         "status": "ok",
         "rows_fetched": 10,
-        "rows_inserted": 1,
+        "rows_inserted": 0,
         "series": [
           "cot_es_lev_net"
         ],
@@ -548,53 +221,53 @@
         "secs": 0.4
       }
     },
-    "rows_inserted": 10,
+    "rows_inserted": 15,
     "warnings": [],
     "series_totals": {
       "aaii_bear": 2041,
       "aaii_bull": 2041,
-      "breadth_nh_nl": 3694,
-      "breadth_pct_200": 3694,
+      "breadth_nh_nl": 3695,
+      "breadth_pct_200": 3695,
       "cot_es_lev_net": 1057,
-      "dix": 3863,
-      "free_credit": 198,
-      "gex": 3863,
-      "hy_oas": 817,
+      "dix": 3865,
+      "free_credit": 199,
+      "gex": 3865,
+      "hy_oas": 818,
       "icsa": 3114,
-      "margin_debt": 355,
+      "margin_debt": 356,
       "nfci": 2905,
-      "pc_equity": 4179,
-      "pc_total": 4179,
+      "pc_equity": 4180,
+      "pc_total": 4180,
       "short_interest_dtc": 74,
-      "t10y2y": 12567,
-      "vix": 9270,
-      "vix3m": 4271,
-      "zweig_ratio": 3694
+      "t10y2y": 12568,
+      "vix": 9271,
+      "vix3m": 4272,
+      "zweig_ratio": 3695
     },
-    "last_run": "2026-09-11T22:45:35.848189+00:00",
-    "store_gb": 3.63
+    "last_run": "2026-09-14T22:43:36.300579+00:00",
+    "store_gb": 3.73
   },
   "earnings": {
-    "last_run": "2026-09-11T23:14:36.808979+00:00",
-    "as_of": "2026-09-11",
-    "universe": 2842,
+    "last_run": "2026-09-14T23:12:52.413602+00:00",
+    "as_of": "2026-09-14",
+    "universe": 2862,
     "universe_source": "fundamentals-coverage \u222a screen-passers",
-    "pulled_this_run": 2842,
-    "with_upcoming_date": 2783,
+    "pulled_this_run": 2862,
+    "with_upcoming_date": 2803,
     "no_upcoming_date": 59,
     "failed_tickers": 0,
-    "rows_inserted_this_run": 2783,
-    "rows_for_as_of": 2783,
-    "store_gb": 3.63
+    "rows_inserted_this_run": 2803,
+    "rows_for_as_of": 2803,
+    "store_gb": 3.73
   },
-  "screen_date": "2026-09-14",
-  "last_screen": "2026-09-14T22:31:48.365846+00:00",
-  "passing_count": 529,
-  "new_today_count": 80,
-  "screened": 3854,
+  "screen_date": "2026-09-15",
+  "last_screen": "2026-09-15T22:31:49.798127+00:00",
+  "passing_count": 497,
+  "new_today_count": 28,
+  "screened": 3857,
   "skipped_stale": 0,
   "skipped_phantom": 0,
-  "skipped_short": 206,
+  "skipped_short": 203,
   "universe_policy": "all",
   "excluded_leveraged": 0,
   "screen_metadata_source": "fresh-run",
