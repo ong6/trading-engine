@@ -1,6 +1,6 @@
 # Experiment e1-spy-monday — FORWARD (out-of-sample) record
 
-*Forward phase registered 2026-07-29 · report generated 2026-09-16 22:33 UTC · params hash `5dc40ff465de67a9` · forward-config hash `399ce03bee8bab4e`*
+*Forward phase registered 2026-07-29 · report generated 2026-09-17 22:34 UTC · params hash `5dc40ff465de67a9` · forward-config hash `399ce03bee8bab4e`*
 
 > **NO RESULT YET — 8 of 40 out-of-sample Mondays.** This experiment is not evaluated until the pre-registered sample is complete. Anything below is an accumulating record, **not** a verdict: reading a mean or a t-stat at n=8 and calling it a finding is exactly the peeking the §12.3 protocol exists to prevent. **32 Mondays to go.**
 
