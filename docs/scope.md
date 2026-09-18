@@ -20,20 +20,21 @@ Maintaining these means keeping them running unchanged. It does not mean improvi
 
 ## Approved plans
 
-Plans live in [`plans/`](plans/README.md). Only `approved` or `active` plans admit work. As of
-2026-09-18 none is approved; P1 (appliance mode) is proposed and is the recommended first.
+Plans live in [`plans/`](plans/README.md). Only `approved` or `active` plans admit work. P5 is
+active for one simulator-only agent decision path and P6 is approved for one pre-registered
+deterministic alpha experiment. P1-P4 otherwise remain proposed.
 
 ## Not yet — frozen until its trigger fires
 
 | Area | Current state | Trigger that unfreezes it | Until then |
 |---|---|---|---|
-| Agent-only / hybrid paper books (`server/agent_*`, shadow runner, proposal ledgers) | ~20k lines built, shadow timer on, no order authority | Owner decides in P4 that real-broker operation is the goal | No growth. Existing timers may stay on; no new ledgers, schemas, or endpoints |
+| Agent-only / hybrid paper books (`server/agent_*`, shadow runner, proposal ledgers) | ~20k lines built, shadow timer on, no order authority | P5 only: one agent-only simulator consumption path | No growth outside P5; hybrid and broker paths remain frozen |
 | Broker-paper shadow, capital-disabled adapters, paper-authority state machine (`server/broker_*`) | ~15k lines built, inert | Same P4 decision | No growth |
 | Independent risk supervisor, fault drills, human-approval flows | Built, inert | Same P4 decision | No growth |
 | Release manifest, worktree audit, backup, install-automation hardening | Working | A demonstrated recovery failure | No growth; no new invariants |
 | Documentation-pinning tests (`tests/test_docs*.py`) | ~150 assertions on prose | Never | Frozen at current count |
 | New league books | 21 active | A charter whose gate cleared in the backlog table | None |
-| Parameter sweeps and grids | `OPEN_RECURRING_GRIDS` empty | A frozen charter version | None |
+| Parameter sweeps and grids | `OPEN_RECURRING_GRIDS` empty | P6 permits one pre-registered fixed-instrument experiment, not a grid | No sweep or nearby variant |
 | Stock-selection or fundamentals research | Gated | 756 qualifying dates / 156 snapshots, or an audited point-in-time dataset (P3) | None |
 | Intraday research | Gated | 252 qualifying sessions over 365 days in both resolutions | None |
 | New API endpoints, dashboard cards, operator CLIs, migrations | — | An approved plan that names them | None |

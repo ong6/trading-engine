@@ -1,0 +1,45 @@
+schema_version: 1
+id: credit-confirmed-spy-v1
+charter_id: CREDIT-CONFIRMED-SPY-2026-09-18-v1
+registered: 2026-09-18
+status: frozen_not_run
+hypothesis: credit confirmation improves the timing component of slow SPY trend
+instruments: [BIL, HYG, LQD, SPY]
+cadence: month_end
+candidate:
+  risk_asset: SPY
+  defensive_asset: BIL
+  equity_total_return_sessions: 252
+  equity_hurdle: BIL
+  credit_risk_asset: HYG
+  credit_defensive_asset: LQD
+  credit_total_return_sessions: 63
+  comparison: strict_greater_than
+  missing_input_target: BIL
+  risk_target: 1.0
+  defensive_target: 0.0
+control:
+  kind: per_validation_fold_mean_candidate_exposure
+  assets: [BIL, SPY]
+  cadence: month_end
+execution:
+  capital: 39000.0
+  base_profile: baseline_v1
+  cost_stress_profile: cost_2x_v1
+  fill: next_session_open
+  delay_stress_sessions: 1
+protocol:
+  anchor: 2026-09-17
+  train_months: 24
+  validate_months: 12
+  step_months: 12
+  trial_count: 1
+statistic:
+  primary: mean_paired_monthly_net_excess
+  minimum_effect: 0.001
+  confidence: 0.90
+  bootstrap: stationary_geometric_mean_block_4
+  draws: 10000
+  seed: 20260918
+kill_criterion: reject if any of the six charter decision gates fails
+promotion_authority: none

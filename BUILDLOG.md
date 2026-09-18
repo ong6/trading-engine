@@ -10872,4 +10872,12 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** unchanged (docs only).
 - **Next:** nothing admitted. Existing clones (devbox) must be re-cloned before the next session.
 
+## 2026-09-18 — Resume bounded agent decisions and alpha research
+
+- **Why:** explicit owner instruction to implement constrained agent-controlled decisions and resume algorithm alpha research.
+- **What:** approved P5 for one isolated simulator-only agent decision path and P6 for one pre-registered fixed-ETF experiment; kept broker connectivity and real capital forbidden. Frozen the credit-confirmed SPY/BIL charter before its runner or result.
+- **Evidence:** `pytest -q -W error` → 2,261 tests passed on the fresh rewritten-main baseline.
+- **Metrics:** baseline budget green; approved ceilings recorded before implementation.
+- **Next:** implement P5 without a broker submission surface.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
