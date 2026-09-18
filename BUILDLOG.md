@@ -10838,4 +10838,25 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   strict worktree ownership, and the empty-index gate. This support-only cleanup does not change
   the protected research runtime, prospective evidence, database, strategy rules, schedules,
   portfolios, broker state, or capital authority.
+<!-- buildlog-format-v2 -->
+## 2026-09-18 — Operating contract: maintain mode, scope ledger, drift metrics, plans
+
+- **Why:** owner review of 2026-09-18 (`docs/feedback.md`): loop had drifted into building
+  governance for a broker that has no authority; asked for docs, metrics and feedback layers
+  that stop long LLM sessions doing work not needed yet, plus follow-up plans.
+- **What:** `AGENTS.md` + `CLAUDE.md` (contract, admission test, budgets, session shape, this
+  entry format); `docs/scope.md` (in scope / not yet / never / parking list);
+  `docs/scope-budget.json` (LOC ceilings for `server`, `tools`, research runtime; entry budget;
+  doc-test ceiling); `docs/metrics.md` + `tools/metrics_snapshot.py` publishing
+  `data/reports/metrics/`; `docs/feedback.md` seeded; `docs/plans/` P1–P4 proposed;
+  `tests/test_operating_contract.py` enforcing all of it; banner on `live-readiness-goal.md`.
+  No runtime, strategy, evidence, schedule, or database change.
+- **Evidence:** `python -m tools.metrics_snapshot --check-budget` → `budget.ok = true`;
+  `pytest -q -W error tests/test_operating_contract.py tests/test_docs*.py` green. Full suite on
+  macOS: 345 failures, byte-identical set on untouched HEAD (pre-existing; upstream CI on `main`
+  was already red after the 2026-09-17 commit with 42 C901 errors). No new failures.
+- **Metrics:** server 45,769 (unchanged) · tools +331 (this tool) · product unchanged ·
+  last-10-entry mean 741 lines, 913 hashes — the baseline this format replaces.
+- **Next:** nothing admitted. Owner promotes P1 (recommended) in `docs/plans/README.md`.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

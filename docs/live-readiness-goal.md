@@ -1,5 +1,12 @@
 # Goal: evidence-gated data, decision, and execution readiness
 
+> **Status 2026-09-18: reference, not the work queue.** This document drove the build loop
+> through 2026-09-17 and produced the agent, broker-paper and risk-supervisor layers now
+> frozen in [`scope.md`](scope.md). Its "Continuation assignment" is superseded by
+> [`AGENTS.md`](../AGENTS.md); workstreams C, D and E do not admit work until the owner
+> records the [P4 broker decision](plans/p4-broker-decision.md) in [`feedback.md`](feedback.md).
+> Nothing below has been edited; read it for the gates a future execution plan would inherit.
+
 Use this document as the handoff objective for the next Codex agent.
 
 ## Objective

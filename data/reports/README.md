@@ -32,6 +32,10 @@ paper promotion, broker connection, or live capital.
   queue and does not authorize nearby reruns.
 - [`capital-sensitivity/`](capital-sensitivity/) records sampled capacity and execution-cost
   tolerance. Those implementation bounds do not establish profitability.
+- [`metrics/`](metrics/) is the drift-metrics table published at the end of every agent
+  session by `tools.metrics_snapshot` (code size per layer, commit shape, BUILDLOG hygiene,
+  research counters, budget status). Definitions live in `docs/metrics.md`. It measures the
+  repository, not the market, and is not by itself evidence of anything about a strategy.
 - [`execution-drag.md`](execution-drag.md) is a dated execution-timing diagnostic over the paper
   fills then on record, including fills from books that are now retired. It is not a current
   strategy ranking.
