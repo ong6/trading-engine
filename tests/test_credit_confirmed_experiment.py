@@ -182,3 +182,39 @@ def test_replay_scope_installs_and_removes_research_strategies(monkeypatch, tmp_
     assert len(calls) == 6
     assert experiment.CANDIDATE_ID not in REGISTRY
     assert experiment.CONTROL_ID not in REGISTRY
+
+
+def test_input_fingerprint_uses_json_safe_control_dates(monkeypatch):
+    sessions = [date(2026, 8, 31)]
+
+    class Result:
+        def fetchone(self):
+            return (0.5,)
+
+    class Connection:
+        def execute(self, *_args):
+            return Result()
+
+    monkeypatch.setattr(experiment.runner, "data_floor", lambda *_args: date(2008, 1, 1))
+    monkeypatch.setattr(
+        experiment.protocol,
+        "make_folds",
+        lambda _anchor: [
+            experiment.protocol.Fold(
+                1, date(2025, 1, 1), date(2026, 1, 1), date(2026, 12, 31)
+            )
+        ],
+    )
+    monkeypatch.setattr(experiment.calendar, "is_month_signal", lambda *_args: True)
+    monkeypatch.setattr(
+        experiment,
+        "_signal",
+        lambda _con, day: (True, {"date": day.isoformat(), "complete": True}),
+    )
+
+    result = experiment.prepare_inputs(
+        Connection(), Connection(), sessions[0], sessions[0], sessions
+    )
+
+    assert len(result["sha256"]) == 64
+    assert result["fold_controls"][0]["fold_start"] == "2026-08-31"
