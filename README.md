@@ -8,7 +8,8 @@ no real money, and no credentials. Generated public data may be pushed only when
 branch has a configured upstream. The `source_control` object in `GET /meta` is authoritative for
 the current tracking state; `local-only` means Git is not an off-machine backup.
 
-**Start here: [`docs/README.md`](docs/README.md)** — the documentation index and current
+**Agents start at [`AGENTS.md`](AGENTS.md)** — the operating contract (maintain mode,
+admission test, budgets). Humans: **[`docs/README.md`](docs/README.md)** — the documentation index and current
 strategy/evidence status. The operating guide is
 [`docs/how-it-works.md`](docs/how-it-works.md).
 

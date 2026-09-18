@@ -1,0 +1,20 @@
+{
+  "_comment": "Ceilings enforced by tests/test_operating_contract.py and tools.metrics_snapshot --check-budget. Raising a ceiling is an owner decision recorded in docs/feedback.md; never raise it in the same change that needs it.",
+  "set_on": "2026-09-18",
+  "loc_ceiling": {
+    "server": 46000,
+    "tools": 6900,
+    "engine": 11400,
+    "sim": 6800,
+    "farm": 10600
+  },
+  "buildlog_entry": {
+    "max_lines": 25,
+    "max_sha256": 1
+  },
+  "commit": {
+    "max_insertions_non_data": 1500,
+    "note": "Reported by metrics_snapshot; a larger change needs an approved plan in docs/plans/."
+  },
+  "doc_test_ceiling": 86
+}

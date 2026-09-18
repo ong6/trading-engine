@@ -1,0 +1,48 @@
+{
+  "budget": {
+    "ok": true,
+    "violations": []
+  },
+  "code_size": {
+    "buildlog": 10861,
+    "docs_md": 10016,
+    "engine": 11163,
+    "farm": 10391,
+    "product": 28180,
+    "server": 45769,
+    "sim": 6626,
+    "tests": 55850,
+    "tools": 6829,
+    "ui_app": 6653
+  },
+  "commit_shape": {
+    "largest_insertions": 86905,
+    "largest_sha": "4689b37",
+    "largest_subject": "Harden paper-trading operations and research recovery",
+    "non_screen_commits": 41,
+    "product_touching": 29,
+    "research_touching": 16,
+    "support_only": 12,
+    "window_days": 30
+  },
+  "date": "2026-09-18",
+  "ledger": {
+    "entries_total": 52,
+    "recent_entries": 10,
+    "recent_max_lines": 3837,
+    "recent_mean_lines": 740.1,
+    "recent_sha256_mentions": 911,
+    "v2_entries": 1,
+    "v2_max_lines": 18,
+    "v2_max_sha256": 0
+  },
+  "research": {
+    "active_books": 21,
+    "e1_observations": 8,
+    "league_date": "2026-09-17",
+    "league_stale_days": 1,
+    "sector_shared_sessions": 9,
+    "sector_status": "ACCUMULATING",
+    "xs_status": "WAITING"
+  }
+}

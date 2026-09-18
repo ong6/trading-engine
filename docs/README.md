@@ -6,13 +6,31 @@ not assume its counts, process state, or recommendations supersede the current g
 undated strategy backlog is the current decision ledger; dates inside it label the historical
 measurements supporting those decisions, not the live runtime state.
 
+## Operating contract (read first if you are an agent)
+
+- [`../AGENTS.md`](../AGENTS.md) — the contract: maintain mode, admission test, budgets,
+  session shape, BUILDLOG v2 format. Overrides everything below except the feedback ledger.
+- [`feedback.md`](feedback.md) — the owner's dated verdicts and the rule each one changed.
+  Newest entry wins.
+- [`scope.md`](scope.md) — in scope now, approved plans, frozen "not yet" areas with their
+  unfreeze triggers, and the "proposed, not approved" parking list.
+- [`scope-budget.json`](scope-budget.json) — LOC ceilings per frozen layer and the BUILDLOG
+  entry budget, enforced by `tests/test_operating_contract.py`.
+- [`metrics.md`](metrics.md) — what the drift snapshot measures and how to read it; the
+  generated table is [`../data/reports/metrics/README.md`](../data/reports/metrics/README.md).
+- [`plans/README.md`](plans/README.md) — follow-up plans:
+  [P1 appliance mode](plans/p1-appliance-mode.md), [P2 league collapse](plans/p2-league-collapse.md),
+  [P3 point-in-time data](plans/p3-point-in-time-data.md), [P4 broker decision](plans/p4-broker-decision.md).
+
 ## Current operating documents
 
 - [`how-it-works.md`](how-it-works.md) — architecture, schedules, paper league, UI/API,
   and operations.
-- [`live-readiness-goal.md`](live-readiness-goal.md) — handoff objective for strategy
+- [`live-readiness-goal.md`](live-readiness-goal.md) — the former handoff objective for strategy
   evidence, point-in-time data upgrades, optional algorithm/agent/hybrid paper flows, and
-  capital-disabled execution hardening; it does not authorize live trading.
+  capital-disabled execution hardening; it does not authorize live trading. Since 2026-09-18 it
+  is reference only: its workstreams C, D and E are frozen pending
+  [P4](plans/p4-broker-decision.md), and `scope.md` is the work queue.
 - [`recoverability-audit-2026-09-11.md`](recoverability-audit-2026-09-11.md) — dated
   Workstream A inventory and closure sequence; its observed counts are not live status.
 - [`worktree-review-2026-09-11.md`](worktree-review-2026-09-11.md) — recursive ownership
