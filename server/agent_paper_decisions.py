@@ -372,34 +372,7 @@ def _consume_once(
 ) -> dict:
     replay = _receipt(con, decision_window)
     if replay is not None:
-        try:
-            record = agent_attribution_read_models.verified_decision_record(
-                con, decision_window
-            )
-            policy = agent_policy.get(record["policy_id"])
-        except (ValueError, agent_policy.PolicyError) as exc:
-            raise PaperDecisionError(409, str(exc)) from exc
-        if (
-            replay["policy_id"] != policy["id"]
-            or replay["policy_registration_sha256"]
-            != policy["registration_sha256"]
-            or replay["attempt_id"] != record["attempt_id"]
-            or replay["terminal_outcome"] != record["terminal_outcome"]
-            or replay["outcome"]
-            != (
-                "no_action"
-                if record["terminal_outcome"] in NO_ACTION_OUTCOMES
-                else "order_pending"
-            )
-        ):
-            raise PaperDecisionError(503, "paper decision receipt binding is invalid")
-        _book_ready(con, policy)
-        con.execute(
-            "UPDATE portfolios SET active = TRUE WHERE id = ? AND active = FALSE",
-            [policy["reserved_portfolio_id"]],
-        )
-        agent_attribution_read_models.attribution(con)
-        return replay
+        return _verify_replay(con, decision_window, replay)
     try:
         agent_attribution_read_models.attribution(con)
         record = agent_attribution_read_models.verified_decision_record(
@@ -498,6 +471,40 @@ def _consume_once(
     )
     _persist(con, payload, observed_at)
     return payload
+
+
+def _verify_replay(
+    con: duckdb.DuckDBPyConnection,
+    decision_window: str,
+    replay: dict,
+) -> dict:
+    try:
+        record = agent_attribution_read_models.verified_decision_record(
+            con, decision_window
+        )
+        policy = agent_policy.get(record["policy_id"])
+    except (ValueError, agent_policy.PolicyError) as exc:
+        raise PaperDecisionError(409, str(exc)) from exc
+    expected_outcome = (
+        "no_action"
+        if record["terminal_outcome"] in NO_ACTION_OUTCOMES
+        else "order_pending"
+    )
+    if (
+        replay["policy_id"] != policy["id"]
+        or replay["policy_registration_sha256"] != policy["registration_sha256"]
+        or replay["attempt_id"] != record["attempt_id"]
+        or replay["terminal_outcome"] != record["terminal_outcome"]
+        or replay["outcome"] != expected_outcome
+    ):
+        raise PaperDecisionError(503, "paper decision receipt binding is invalid")
+    _book_ready(con, policy)
+    con.execute(
+        "UPDATE portfolios SET active = TRUE WHERE id = ? AND active = FALSE",
+        [policy["reserved_portfolio_id"]],
+    )
+    agent_attribution_read_models.attribution(con)
+    return replay
 
 
 def consume(

@@ -12,8 +12,8 @@ plan and the BUILDLOG.
 | [P2 — League collapse](p2-league-collapse.md) | proposed | Retire 11 of 21 books whose question the evidence already answered | Confirm the retire list |
 | [P3 — Point-in-time data](p3-point-in-time-data.md) | proposed | Acquire and audit a survivorship-free dataset; the only lever on the 2029 gate | Pick a vendor and budget |
 | [P4 — Broker decision](p4-broker-decision.md) | proposed | Decide by 2027-09 whether real-broker operation is ever the goal; until then `server/` is frozen | The decision itself |
-| [P5 — Agent paper decisions](p5-agent-paper-decisions.md) | active | Let a constrained agent control one isolated simulator-only paper book | None |
-| [P6 — Alpha experiment](p6-alpha-experiment.md) | approved | Run one theory-led fixed-instrument experiment under a frozen protocol | None |
+| [P5 — Agent paper decisions](p5-agent-paper-decisions.md) | done | Let a constrained agent control one isolated simulator-only paper book | None |
+| [P6 — Alpha experiment](p6-alpha-experiment.md) | done | Run one theory-led fixed-instrument experiment under a frozen protocol | None |
 
 Recommended order: P1 now, P2 the following week, P3 when the owner has picked a vendor, P4
 by its date or earlier.
