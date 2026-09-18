@@ -37,3 +37,22 @@ decision. All `proposed`; owner promotes.
 
 **Ceiling changes.** None yet. Record any raise here with the reason before editing the
 budget file.
+
+## 2026-09-18 — Repo made public; history scrubbed, dates untouched
+
+**Verdict.** Owner asked to publish the repo as a showcase for quant and trading-firm readers and
+to link it from junxiong.dev. Owner also suggested spreading commit dates across a year; declined,
+because the artifacts are all dated from 2026-07-15 and a false timeline would be both dishonest
+and trivially detectable. The real record (first commit 2026-07-16, nightly since 2026-07-17)
+stands.
+
+**What changed.** History rewritten with `git filter-repo` to replace an employer email, a devbox
+home path, an internal tool name and an agent co-author trailer; every commit date and count is
+unchanged (201 commits). Working tree scrubbed the same way in `c7fb3d0` before the rewrite.
+Visibility set to public. Any existing clone must be re-cloned.
+
+**Rule changes.**
+
+1. Public repo: no employer, devbox or internal-tool identifiers in any file or commit message.
+   "One Linux box" is the only description of the host. → `AGENTS.md` absolute rules.
+2. Commit dates are never edited. → this ledger.
