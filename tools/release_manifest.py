@@ -110,6 +110,7 @@ AGENT_SOURCE_FILES = (
     "server/agent_shadow_runner.py",
     "server/agent_shadow_schedule.py",
     "server/agent_shadow_store.py",
+    "server/agent_paper_decisions.py",
     "server/agent_store.py",
     "server/agent_veto_contract.py",
     "server/main.py",
@@ -150,6 +151,7 @@ INDEPENDENT_RISK_SOURCE_FILES = (
     "tools/review_agent_paper_intent.py",
 )
 EXPERIMENT_REGISTRATION_FILES = (
+    "farm/experiments/credit-confirmed-spy-v1.yaml",
     "farm/experiments/e1-spy-monday.forward.json",
     "farm/experiments/e1-spy-monday.yaml",
 )

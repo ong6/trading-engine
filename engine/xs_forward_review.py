@@ -88,29 +88,30 @@ RUNTIME_CONTRACT_FILES = (
     "sim/strategies/xs_common.py",
     "sim/strategies/xs_momentum_12_1.py",
 )
-RUNTIME_CONTRACT_VERSION = 20
+RUNTIME_CONTRACT_VERSION = 21
 SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "7f4085fca17872a9ef1125c64ed03f58b2191abe68286e9720441df74f8f06f3"
+    "8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e"
 )
 RUNTIME_CONTRACT_MIGRATION = (
-    "2026-09-13 interruption-safe transaction cleanup before the first signal: every explicit "
-    "DuckDB transaction now rolls back process-level interruptions, preserves the original "
-    "failure if cleanup also fails, and leaves borrowed connections reusable; strategy, signal, "
-    "execution economics, and statistical rules are unchanged"
+    "2026-09-18 isolated agent-paper lifecycle after interruption-safe transaction cleanup and "
+    "before the first signal: attributed agent orders "
+    "survive same-date reruns and the no-op agent book uses the ordinary simulator lifecycle; "
+    "XS strategy, signal, execution economics, and statistical rules are unchanged"
 )
 # Filled after the file list was frozen; tests verify this against current bytes.
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e"
+    "f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac"
 )
 
-PRIOR_RUNTIME_CONTRACT_VERSION = 19
+PRIOR_RUNTIME_CONTRACT_VERSION = 20
 PRIOR_RUNTIME_CONTRACT_SHA256 = SUPERSEDED_RUNTIME_CONTRACT_SHA256
 PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "1ddc09660316ab2479855298b73bd5c8481a76b7b93553d4963e3b92ceb13211"
+    "7f4085fca17872a9ef1125c64ed03f58b2191abe68286e9720441df74f8f06f3"
 )
 PRIOR_RUNTIME_CONTRACT_MIGRATION = (
-    "2026-09-13 exception-safe temporary DataFrame registration cleanup before the first signal: "
-    "transient DuckDB views are now unregistered after failed statements; strategy, signal, "
+    "2026-09-13 interruption-safe transaction cleanup before the first signal: every explicit "
+    "DuckDB transaction now rolls back process-level interruptions, preserves the original "
+    "failure if cleanup also fails, and leaves borrowed connections reusable; strategy, signal, "
     "execution economics, and statistical rules are unchanged"
 )
 PRIOR_RUNTIME_CONTRACT_FILES = RUNTIME_CONTRACT_FILES

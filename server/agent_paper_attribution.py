@@ -280,7 +280,8 @@ def _contract(
         or strategy != expected["book_strategy"]
         or type(created) is not date
         or created != start
-        or active is not False
+        or type(active) is not bool
+        or (active and mode != "agent_only")
         or _finite(cash, "portfolio cash", nonnegative=True) < 0
         or _finite(initial_cash, "portfolio initial cash", nonnegative=True)
         != expected["initial_cash"]

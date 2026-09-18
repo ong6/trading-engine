@@ -82,18 +82,18 @@ EXPECTED_BASELINE_STATE_SHA256 = (
 EXPECTED_LEGACY_BASELINE_EQUITY_SHA256 = (
     "1fb07940da9d3a310b9d63ccf3829184edd68175a81cac30b78344f3913a88cb"
 )
-RUNTIME_CONTRACT_VERSION = 9
+RUNTIME_CONTRACT_VERSION = 10
 SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "c0788167bf63f734c6c9b3428b425a0054f1cead1754048aa00a6cc48eb5662f"
+    "c430b451ee510c858705ba4235f81b68f9d7443745a60b4716035acb32741788"
 )
 RUNTIME_CONTRACT_MIGRATION = (
-    "2026-09-13 interruption-safe transaction cleanup: every explicit DuckDB transaction now "
-    "rolls back process-level interruptions, preserves the original failure if cleanup also "
-    "fails, and leaves borrowed connections reusable; strategy, execution economics, baseline, "
-    "and evidence-continuity rules are unchanged"
+    "2026-09-18 isolated agent-paper lifecycle after interruption-safe transaction cleanup: "
+    "attributed agent orders survive same-date "
+    "reruns and the no-op agent book uses the ordinary simulator lifecycle; sector strategy, "
+    "execution economics, baseline, and evidence-continuity rules are unchanged"
 )
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "c430b451ee510c858705ba4235f81b68f9d7443745a60b4716035acb32741788"
+    "8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce"
 )
 RUNTIME_CONTRACT_FILES = (
     "engine/forward_review.py",
@@ -113,15 +113,16 @@ RUNTIME_CONTRACT_FILES = (
     "sim/strategies/sector_momentum.py",
     "sim/strategies/spy_benchmark.py",
 )
-PRIOR_RUNTIME_CONTRACT_VERSION = 8
+PRIOR_RUNTIME_CONTRACT_VERSION = 9
 PRIOR_RUNTIME_CONTRACT_SHA256 = SUPERSEDED_RUNTIME_CONTRACT_SHA256
 PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "8bc5fae78807daadc9502060659a05df4ca022fb046ecea39b93b4d4ef0926b5"
+    "c0788167bf63f734c6c9b3428b425a0054f1cead1754048aa00a6cc48eb5662f"
 )
 PRIOR_RUNTIME_CONTRACT_MIGRATION = (
-    "2026-09-13 exception-safe temporary DataFrame registration cleanup: transient DuckDB views "
-    "are now unregistered after failed statements; strategy, execution economics, baseline, and "
-    "evidence-continuity rules are unchanged"
+    "2026-09-13 interruption-safe transaction cleanup: every explicit DuckDB transaction now "
+    "rolls back process-level interruptions, preserves the original failure if cleanup also "
+    "fails, and leaves borrowed connections reusable; strategy, execution economics, baseline, "
+    "and evidence-continuity rules are unchanged"
 )
 PRIOR_RUNTIME_CONTRACT_FILES = RUNTIME_CONTRACT_FILES
 EXPECTED_STRATEGY_TYPES = {

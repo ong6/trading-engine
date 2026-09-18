@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import secrets
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 
@@ -32,6 +34,7 @@ from .read_model_utils import require_public_positive_integer
 RECEIPT_SCHEMA_VERSION = 1
 RECEIPT_TABLE = "agent_paper_decision_receipts"
 CONFIRMATION = "consume-capital-disabled-agent-paper"
+AUTH_TOKEN_ENV = "TRADING_ENGINE_AGENT_PAPER_TOKEN"
 NO_ACTION_OUTCOMES = frozenset({"cadence_no_action", "no_action"})
 MAX_RECEIPTS = 10_000
 
@@ -44,6 +47,17 @@ class PaperDecisionRequest:
 
     decision_window: str = field(metadata={"max_length": 128})
     confirmation: str = field(metadata={"max_length": 64})
+
+
+def authenticate(token: str | None) -> None:
+    expected = os.environ.get(AUTH_TOKEN_ENV)
+    if (
+        not isinstance(expected, str)
+        or len(expected) < 32
+        or not isinstance(token, str)
+        or not secrets.compare_digest(token, expected)
+    ):
+        raise PaperDecisionError(403, "agent paper authentication failed")
 
 
 class PaperDecisionError(ValueError):
@@ -137,7 +151,7 @@ def _book_ready(con: duckdb.DuckDBPyConnection, policy: dict) -> None:
     ).fetchone()
     if (
         row is None
-        or row[0] is not False
+        or row[0] not in {False, True}
         or not isinstance(row[1], (int, float))
         or not math.isfinite(row[1])
         or row[1] < 0
@@ -260,6 +274,10 @@ def _consume_once(
     except (ValueError, agent_policy.PolicyError) as exc:
         raise PaperDecisionError(409, str(exc)) from exc
     _book_ready(con, policy)
+    con.execute(
+        "UPDATE portfolios SET active = TRUE WHERE id = ? AND active = FALSE",
+        [policy["reserved_portfolio_id"]],
+    )
     if record["terminal_outcome"] in NO_ACTION_OUTCOMES:
         payload = _payload(
             record, policy, outcome="no_action", order_id=None, consumed_at=observed_at

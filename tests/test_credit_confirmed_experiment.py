@@ -43,7 +43,19 @@ def _result(config_id: str, scenario: str, candidate: bool) -> dict:
         "fill_model": "v4",
         "execution_profile": {"id": profile},
         "config_id": config_id,
-        "folds": [_fold(index, candidate) for index in range(1, 11)],
+        "initial_cash": 39_000.0,
+        "sessions": 5_000,
+        "span_start": "2006-09-18",
+        "span_end": "2026-09-17",
+        "universe_policy": "all",
+        "config": {
+            "scenario": scenario,
+            "params": {"delay_sessions": experiment.SCENARIOS[scenario][1]},
+        },
+        "folds": [
+            _fold(index, candidate)
+            for index in range(1, experiment.EXPERIMENT_FOLDS + 1)
+        ],
     }
 
 
@@ -117,6 +129,50 @@ def test_incomplete_signal_or_scenario_identity_drift_fails_closed():
         raise AssertionError("scenario identity drift was accepted")
 
 
+def test_candidate_control_execution_identity_drift_fails_closed():
+    for field, value in (
+        ("initial_cash", 40_000.0),
+        ("sessions", 4_999),
+        ("span_start", "2006-09-19"),
+        ("universe_policy", "different"),
+    ):
+        results = _results()
+        results["baseline_v1"][experiment.CANDIDATE_ID][field] = value
+        try:
+            experiment.evaluate(results)
+        except ValueError as exc:
+            assert "candidate/control research cohort mismatch" in str(exc)
+        else:
+            raise AssertionError(f"{field} drift was accepted")
+
+    results = _results()
+    control = results["baseline_v1"][experiment.CONTROL_ID]
+    control["folds"][0]["split_date"] = "1999-01-01"
+    try:
+        experiment.evaluate(results)
+    except ValueError as exc:
+        assert "fold identity mismatch" in str(exc)
+    else:
+        raise AssertionError("candidate/control fold identity drift was accepted")
+
+
+def test_stale_action_coverage_forces_defensive_signal(monkeypatch):
+    class CoverageResult:
+        def fetchall(self):
+            return [(ticker, date(2026, 7, 29)) for ticker in experiment.ASSETS]
+
+    class Connection:
+        def execute(self, *_args):
+            return CoverageResult()
+
+    monkeypatch.setattr(experiment, "total_return", lambda *_args: 0.10)
+    risk_on, facts = experiment._signal(Connection(), date(2026, 8, 31))
+    assert risk_on is False
+    assert facts["return_complete"] is True
+    assert facts["action_coverage_complete"] is False
+    assert facts["complete"] is False
+
+
 def test_signal_uses_exact_frozen_total_return_comparisons(monkeypatch):
     values = {"SPY": 0.20, "BIL": 0.04, "HYG": 0.03, "LQD": 0.02}
     calls = []
@@ -125,9 +181,17 @@ def test_signal_uses_exact_frozen_total_return_comparisons(monkeypatch):
         calls.append((ticker, as_of, lookback))
         return values[ticker]
 
+    class CoverageResult:
+        def fetchall(self):
+            return [(ticker, date(2026, 9, 18)) for ticker in experiment.ASSETS]
+
+    class Connection:
+        def execute(self, *_args):
+            return CoverageResult()
+
     monkeypatch.setattr(experiment, "total_return", total_return)
     as_of = date(2026, 8, 31)
-    risk_on, facts = experiment._signal(object(), as_of)
+    risk_on, facts = experiment._signal(Connection(), as_of)
     assert risk_on is True and facts["complete"] is True
     assert calls == [
         ("SPY", as_of, 252),
@@ -136,7 +200,7 @@ def test_signal_uses_exact_frozen_total_return_comparisons(monkeypatch):
         ("LQD", as_of, 63),
     ]
     values["HYG"] = values["LQD"]
-    assert experiment._signal(object(), as_of)[0] is False
+    assert experiment._signal(Connection(), as_of)[0] is False
 
 
 def test_delay_scenario_waits_one_additional_session(monkeypatch):
@@ -187,19 +251,27 @@ def test_replay_scope_installs_and_removes_research_strategies(monkeypatch, tmp_
 def test_input_fingerprint_uses_json_safe_control_dates(monkeypatch):
     sessions = [date(2026, 8, 31)]
 
-    class Result:
-        def fetchone(self):
-            return (0.5,)
-
     class Connection:
-        def execute(self, *_args):
+        def execute(self, sql, _params=None):
+            class Result:
+                def fetchall(self):
+                    if "actions_fetch_log" in sql:
+                        return [
+                            (ticker, date(2026, 9, 18))
+                            for ticker in experiment.ASSETS
+                        ]
+                    return []
+
             return Result()
+
+        def executemany(self, *_args):
+            return None
 
     monkeypatch.setattr(experiment.runner, "data_floor", lambda *_args: date(2008, 1, 1))
     monkeypatch.setattr(
         experiment.protocol,
         "make_folds",
-        lambda _anchor: [
+        lambda _anchor, **_kwargs: [
             experiment.protocol.Fold(
                 1, date(2025, 1, 1), date(2026, 1, 1), date(2026, 12, 31)
             )

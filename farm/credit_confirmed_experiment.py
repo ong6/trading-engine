@@ -29,6 +29,7 @@ EQUITY_LOOKBACK = 252
 CREDIT_LOOKBACK = 63
 MINIMUM_EFFECT = 0.001
 BOOTSTRAP_SEED = 20260918
+EXPERIMENT_FOLDS = 18
 SCENARIOS = {
     "baseline_v1": (execution.BASELINE.id, 0),
     "cost_2x_v1": (execution.COST_2X.id, 0),
@@ -37,6 +38,7 @@ SCENARIOS = {
 OUT_DIR = DATA_DIR / "reports" / "experiments" / "credit-confirmed-spy-v1"
 SCRATCH_ROOT = REPO_ROOT / "scratch" / "credit-confirmed-spy-v1"
 CONTROL_TABLE = "credit_confirmed_fold_controls"
+ACTION_COVERAGE_TABLE = "credit_confirmed_action_coverage"
 DATA_CLASS = "fixed_etf_total_return_history"
 
 
@@ -56,15 +58,34 @@ def _signal(con, as_of: date) -> tuple[bool, dict]:
         "hyg_63": total_return(con, "HYG", as_of, CREDIT_LOOKBACK),
         "lqd_63": total_return(con, "LQD", as_of, CREDIT_LOOKBACK),
     }
-    complete = all(
+    return_complete = all(
         value is not None and math.isfinite(value) for value in values.values()
     )
+    coverage = con.execute(
+        f"SELECT ticker, fetched_on FROM {ACTION_COVERAGE_TABLE} ORDER BY ticker"
+    ).fetchall()
+    coverage_payload = [
+        {"ticker": ticker, "fetched_on": fetched_on.isoformat()}
+        for ticker, fetched_on in coverage
+    ]
+    action_coverage_complete = (
+        {ticker for ticker, _fetched_on in coverage} == set(ASSETS)
+        and all(fetched_on >= as_of for _ticker, fetched_on in coverage)
+    )
+    complete = return_complete and action_coverage_complete
     risk_on = bool(
         complete
         and values["spy_252"] > values["bil_252"]
         and values["hyg_63"] > values["lqd_63"]
     )
-    return risk_on, {"date": as_of.isoformat(), "complete": complete, **values}
+    return risk_on, {
+        "date": as_of.isoformat(),
+        "complete": complete,
+        "return_complete": return_complete,
+        "action_coverage_complete": action_coverage_complete,
+        "action_coverage": coverage_payload,
+        **values,
+    }
 
 
 def _orders(con, pf: PortfolioView, as_of: date, risk_weight: float):
@@ -170,6 +191,18 @@ def _book(config_id: str, scenario: str) -> dict:
 def prepare_inputs(live_con, scratch_con, start, end, sessions) -> dict:
     """Freeze exact signal facts and fold-specific diagnostic control weights."""
     floor = runner.data_floor(live_con, CANDIDATE_ID, ASSETS)
+    coverage = live_con.execute(
+        "SELECT ticker, MAX(fetched_on) FROM actions_fetch_log "
+        "WHERE ticker IN ('BIL', 'HYG', 'LQD', 'SPY') AND status = 'ok' "
+        "GROUP BY ticker ORDER BY ticker"
+    ).fetchall()
+    scratch_con.execute(
+        f"CREATE TABLE {ACTION_COVERAGE_TABLE} "
+        "(ticker VARCHAR PRIMARY KEY, fetched_on DATE)"
+    )
+    scratch_con.executemany(
+        f"INSERT INTO {ACTION_COVERAGE_TABLE} VALUES (?, ?)", coverage
+    )
     signals = {
         session: _signal(scratch_con, session)
         for session in sessions
@@ -180,7 +213,7 @@ def prepare_inputs(live_con, scratch_con, start, end, sessions) -> dict:
         "(fold_start DATE PRIMARY KEY, spy_weight DOUBLE)"
     )
     controls = []
-    for fold in protocol.make_folds(ANCHOR):
+    for fold in protocol.make_folds(ANCHOR, n_folds=EXPERIMENT_FOLDS):
         if fold.split_date <= floor:
             continue
         fold_start = max(fold.train_start, floor)
@@ -207,6 +240,9 @@ def prepare_inputs(live_con, scratch_con, start, end, sessions) -> dict:
         "start": start.isoformat(),
         "end": end.isoformat(),
         "session_count": len(sessions),
+        "sessions_sha256": canonical_sha256(
+            [session.isoformat() for session in sessions]
+        ),
         "signal_count": len(facts),
         "complete_signal_count": sum(item["complete"] for item in facts),
         "incomplete_signal_dates": [
@@ -221,6 +257,7 @@ def prepare_inputs(live_con, scratch_con, start, end, sessions) -> dict:
             for row in controls
         ],
         "signal_facts_sha256": canonical_sha256(facts),
+        "signal_facts": facts,
         "sha256": canonical_sha256(
             {"facts": facts, "controls": control_payload}
         ),
@@ -248,7 +285,7 @@ def run_replays(
                     config_id,
                     book=_book(config_id, scenario),
                     anchor=ANCHOR,
-                    n_folds=protocol.N_FOLDS,
+                    n_folds=EXPERIMENT_FOLDS,
                     scratch_root=scratch_root / scenario,
                     results_dir=out_dir / scenario / "results",
                     initial_cash=INITIAL_CASH,
@@ -288,15 +325,29 @@ def _folds(result: dict) -> dict[tuple, dict]:
 
 
 def _scenario(candidate: dict, control: dict) -> dict:
+    candidate_profile = candidate.get("execution_profile")
+    control_profile = control.get("execution_profile")
     if (
         candidate.get("source_sha256") != control.get("source_sha256")
         or candidate.get("data_snapshot") != control.get("data_snapshot")
         or candidate.get("research_input") != control.get("research_input")
         or candidate.get("protocol") != control.get("protocol")
         or candidate.get("fill_model") != control.get("fill_model")
+        or candidate_profile != control_profile
+        or candidate.get("initial_cash") != control.get("initial_cash")
+        or candidate.get("sessions") != control.get("sessions")
+        or candidate.get("span_start") != control.get("span_start")
+        or candidate.get("span_end") != control.get("span_end")
+        or candidate.get("universe_policy") != control.get("universe_policy")
+        or (candidate.get("config") or {}).get("scenario")
+        != (control.get("config") or {}).get("scenario")
+        or (candidate.get("config") or {}).get("params")
+        != (control.get("config") or {}).get("params")
     ):
         raise ValueError("candidate/control research cohort mismatch")
     candidate_folds, control_folds = _folds(candidate), _folds(control)
+    if candidate_folds.keys() != control_folds.keys():
+        raise ValueError("candidate/control fold identity mismatch")
     rows = []
     drawdown_differences = []
     for key in sorted(candidate_folds.keys() & control_folds.keys()):
@@ -319,7 +370,7 @@ def _scenario(candidate: dict, control: dict) -> dict:
         for fold in result.get("folds", [])
     ]
     clean = (
-        len(candidate_folds) == len(control_folds) == protocol.N_FOLDS
+        len(candidate_folds) == len(control_folds) == EXPERIMENT_FOLDS
         and all(fold.get("status") == "ok" for fold in all_folds)
         and all(int(fold.get("n_rejected") or 0) == 0 for fold in all_folds)
         and all(int(fold.get("n_pending") or 0) == 0 for fold in all_folds)
@@ -352,6 +403,9 @@ def _scenario(candidate: dict, control: dict) -> dict:
         "source_sha256": candidate.get("source_sha256"),
         "data_snapshot_sha256": (candidate.get("data_snapshot") or {}).get("sha256"),
         "research_input": candidate.get("research_input"),
+        "execution_profile": candidate_profile,
+        "initial_cash": candidate.get("initial_cash"),
+        "protocol": candidate.get("protocol"),
     }
 
 
