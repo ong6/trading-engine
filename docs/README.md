@@ -20,7 +20,9 @@ measurements supporting those decisions, not the live runtime state.
   generated table is [`../data/reports/metrics/README.md`](../data/reports/metrics/README.md).
 - [`plans/README.md`](plans/README.md) — follow-up plans:
   [P1 appliance mode](plans/p1-appliance-mode.md), [P2 league collapse](plans/p2-league-collapse.md),
-  [P3 point-in-time data](plans/p3-point-in-time-data.md), [P4 broker decision](plans/p4-broker-decision.md).
+  [P3 point-in-time data](plans/p3-point-in-time-data.md), [P4 broker decision](plans/p4-broker-decision.md),
+  [P5 agent paper decisions](plans/p5-agent-paper-decisions.md), and
+  [P6 alpha experiment](plans/p6-alpha-experiment.md).
 
 ## Current operating documents
 
@@ -57,6 +59,8 @@ measurements supporting those decisions, not the live runtime state.
 - [`strategy-research-backlog.md`](strategy-research-backlog.md) — what has been ruled
   out, what remains uncertain, and the
   [ordered next admissible actions](strategy-research-backlog.md#next-admissible-actions).
+- [`charters/credit_confirmed_equity_trend.md`](charters/credit_confirmed_equity_trend.md) —
+  the frozen P6 registration for one credit-confirmed SPY/BIL alpha experiment.
 - `GET /meta` and the dashboard prospective-evidence cards — live authority for scheduler,
   source, nightly/miner, walk-forward-cohort, and frozen forward-monitor state. In particular,
   `miner_evidence` reconciles the four canonical producers, while `friday_postflight` interprets

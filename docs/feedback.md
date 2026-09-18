@@ -56,3 +56,26 @@ Visibility set to public. Any existing clone must be re-cloned.
 1. Public repo: no employer, devbox or internal-tool identifiers in any file or commit message.
    "One Linux box" is the only description of the host. → `AGENTS.md` absolute rules.
 2. Commit dates are never edited. → this ledger.
+
+## 2026-09-18 — Resume bounded agent decisions and alpha research
+
+**Verdict.** The owner explicitly asked to resume feature implementation so a constrained agent
+can control decisions and the deterministic algorithm engine can search for alpha. This overrides
+the default MAINTAIN-only verdict for the two bounded plans below. It does not authorize broker
+connectivity, credentials, live orders, real capital, weakening frozen evidence, or tuning an
+existing strategy after observing its results.
+
+**Rule changes.**
+
+1. P5 is approved and active: implement one separately attributed, simulator-only agent paper
+   decision path that fails to no action and has no broker submission surface.
+2. P6 is approved: add one theory-led, pre-registered deterministic alpha experiment with a
+   frozen control, costs, sample rule, and kill criterion. Existing forward records stay frozen.
+3. BUILD mode is permitted only inside P5 and P6 budgets; all unrelated frozen layers remain
+   frozen.
+4. P4 intent is **yes for continued capital-disabled execution research**. Real-broker operation
+   remains undecided and technically absent; any future broker connection requires a new explicit
+   owner decision and plan.
+
+**Ceiling changes.** P5 may add 900 lines under `server/` and 200 under `tools/`; P6 may add
+900 lines under `farm/`. The corresponding ceilings are raised before implementation.
