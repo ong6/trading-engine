@@ -370,6 +370,18 @@ def _validate_frozen_result(result: dict, config_id: str, scenario: str) -> None
         expected_folds,
     )
     expected_config = _config(config_id, scenario)
+    raw_folds = result.get("folds")
+    embedded_fold_identity = (
+        [
+            {
+                key: fold.get(key)
+                for key in ("index", "train_start", "split_date", "validate_end")
+            }
+            for fold in raw_folds
+        ]
+        if isinstance(raw_folds, list)
+        else None
+    )
     if (
         result.get("source_sha256") != source_sha256
         or result.get("source_file_count") != source_count
@@ -377,6 +389,7 @@ def _validate_frozen_result(result: dict, config_id: str, scenario: str) -> None
         or result.get("config") != expected_config
         or result.get("config_sha256") != canonical_sha256(expected_config)
         or result.get("protocol") != expected_protocol
+        or embedded_fold_identity != expected_protocol["folds"]
     ):
         raise ValueError("experiment result does not match the frozen charter runtime")
 
