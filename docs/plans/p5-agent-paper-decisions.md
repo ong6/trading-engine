@@ -1,10 +1,12 @@
 ---
 plan: P5
 title: Capital-disabled agent paper decisions
-status: active
+status: done
 opened: 2026-09-18
 owner_decision: approved 2026-09-18
 ---
+
+Completed: 2026-09-18 after two rounds of independent safety review and remediation.
 
 ## Goal
 

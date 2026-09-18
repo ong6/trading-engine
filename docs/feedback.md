@@ -79,3 +79,11 @@ existing strategy after observing its results.
 
 **Ceiling changes.** P5 may add 900 lines under `server/` and 200 under `tools/`; P6 may add
 900 lines under `farm/`. The corresponding ceilings are raised before implementation.
+
+## 2026-09-18 — Independent review is a completion gate
+
+**Verdict.** The owner required fresh checking agents after implementation and directed continued
+remediation until those agents were satisfied. That instruction expands P5/P6's original commit
+budgets only for review findings; it does not expand feature scope or LOC ceilings. Each source
+commit remains below the repository's 1,500-line ceiling. P5 and P6 close only after the repeated
+safety, methodology, and regression reviews, the full suite, and publication of final evidence.

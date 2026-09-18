@@ -10880,4 +10880,12 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** baseline budget green; approved ceilings recorded before implementation.
 - **Next:** implement P5 without a broker submission surface.
 
+## 2026-09-18 — Close reviewed paper-agent and alpha plans
+
+- **Why:** active P5/P6 plus the owner's independent-review completion gate.
+- **What:** added authenticated, idempotent agent-only simulator decisions with isolated attribution and no broker/live path; froze and ran one credit-confirmed SPY/BIL hypothesis. Review findings drove rerun, receipt, lifecycle, identity, and evidence fixes.
+- **Evidence:** full warnings-as-errors Python suite, 54 UI tests, production UI/wheel builds, Ruff and focused runtime/evidence tests pass; P6 is `REJECT-V1` over 216 paired months.
+- **Metrics:** server 46,372 · tools 6,831 · product 28,790; budget ok.
+- **Next:** nothing admitted; keep the agent book paper-only and record P6 without tuning.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

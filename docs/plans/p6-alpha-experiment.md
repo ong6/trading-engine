@@ -1,10 +1,12 @@
 ---
 plan: P6
 title: One theory-led deterministic alpha experiment
-status: approved
+status: done
 opened: 2026-09-18
 owner_decision: approved 2026-09-18
 ---
+
+Completed: 2026-09-18 with `REJECT-V1`; the frozen rule was not tuned or promoted.
 
 ## Goal
 
