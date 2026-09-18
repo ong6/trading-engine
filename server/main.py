@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from dataclasses import asdict
 from typing import Annotated, Any, Iterator, Literal, TypeAlias, TypeVar
 
+import duckdb
 from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
@@ -495,7 +496,14 @@ def submit_shadow_agent_proposal(body: agent_contract.TradeProposalRequest):
 
 
 @app.post("/agent/paper/decisions", dependencies=JSON_MUTATION_DEPENDENCY)
-def consume_agent_paper_decision(body: agent_paper_decisions.PaperDecisionRequest):
+def consume_agent_paper_decision(
+    body: agent_paper_decisions.PaperDecisionRequest,
+    x_agent_paper_token: Annotated[str | None, Header(max_length=512)] = None,
+):
+    try:
+        agent_paper_decisions.authenticate(x_agent_paper_token)
+    except agent_paper_decisions.PaperDecisionError as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
     with _connection(write_con) as con:
         try:
             return agent_paper_decisions.consume(
@@ -505,6 +513,8 @@ def consume_agent_paper_decision(body: agent_paper_decisions.PaperDecisionReques
             )
         except agent_paper_decisions.PaperDecisionError as exc:
             raise HTTPException(exc.status_code, exc.detail) from exc
+        except duckdb.Error as exc:
+            raise HTTPException(503, "agent paper decision contention; retry") from exc
 
 
 @app.post("/tickets", dependencies=JSON_MUTATION_DEPENDENCY)

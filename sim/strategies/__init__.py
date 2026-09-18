@@ -1,6 +1,7 @@
 """Strategy registry: maps a config's `strategy` name to its Strategy class."""
 from __future__ import annotations
 
+from .agent_only_policy import AgentOnlyPolicy
 from .base import Order, PortfolioView, Strategy
 from .discretionary import Discretionary
 from .dual_momentum import DualMomentum
@@ -28,6 +29,7 @@ from .xs_momentum_12_1 import XsMomentum121
 from .xs_reversal_1m import XsReversal1m
 
 REGISTRY: dict[str, type[Strategy]] = {
+    "agent_only_policy": AgentOnlyPolicy,
     "discretionary": Discretionary,
     "template_top5": TemplateTop5,
     "template_top10_banded": TemplateTop10Banded,

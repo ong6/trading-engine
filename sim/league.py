@@ -262,14 +262,9 @@ def mtm_all(con, d: date, verbose: bool = True) -> dict:
     delisted one needs a human decision about the position, not an exception.
     """
     carried: dict[str, list[str]] = {}
-    query = (
-        "SELECT id FROM portfolios WHERE active OR id IN ("
-        "SELECT DISTINCT portfolio_id FROM agent_paper_order_attribution"
-        ") ORDER BY id"
-        if table_exists(con, "agent_paper_order_attribution")
-        else "SELECT id FROM portfolios WHERE active ORDER BY id"
-    )
-    for (pf_id,) in con.execute(query).fetchall():
+    for (pf_id,) in con.execute(
+        "SELECT id FROM portfolios WHERE active ORDER BY id"
+    ).fetchall():
         res = portfolio.mark_to_market(con, pf_id, d)
         if res.get("carried"):
             carried[pf_id] = sorted(res["carried"])
@@ -558,10 +553,22 @@ def rerun_cleanup(con, d: date) -> None:
     # discretionary ticket created are not (the ticket is the owner's record and
     # points at the order by id) — deleting them left disc_tickets.order_id
     # dangling and the ticket 'submitted' forever.
+    protected_order_queries = []
     if table_exists(con, "disc_tickets"):
+        protected_order_queries.append(
+            "SELECT order_id FROM disc_tickets WHERE order_id IS NOT NULL"
+        )
+    if table_exists(con, "agent_paper_order_attribution"):
+        protected_order_queries.append(
+            "SELECT order_id FROM agent_paper_order_attribution"
+        )
+    if protected_order_queries:
+        protected = " UNION ".join(protected_order_queries)
         con.execute(
             "DELETE FROM sim_orders WHERE signal_date = ? AND id NOT IN "
-            "(SELECT order_id FROM disc_tickets WHERE order_id IS NOT NULL)", [d])
+            f"({protected})",
+            [d],
+        )
     else:
         con.execute("DELETE FROM sim_orders WHERE signal_date = ?", [d])
     con.execute(
