@@ -262,9 +262,14 @@ def mtm_all(con, d: date, verbose: bool = True) -> dict:
     delisted one needs a human decision about the position, not an exception.
     """
     carried: dict[str, list[str]] = {}
-    for (pf_id,) in con.execute(
-        "SELECT id FROM portfolios WHERE active ORDER BY id"
-    ).fetchall():
+    query = (
+        "SELECT id FROM portfolios WHERE active OR id IN ("
+        "SELECT DISTINCT portfolio_id FROM agent_paper_order_attribution"
+        ") ORDER BY id"
+        if table_exists(con, "agent_paper_order_attribution")
+        else "SELECT id FROM portfolios WHERE active ORDER BY id"
+    )
+    for (pf_id,) in con.execute(query).fetchall():
         res = portfolio.mark_to_market(con, pf_id, d)
         if res.get("carried"):
             carried[pf_id] = sorted(res["carried"])

@@ -435,6 +435,49 @@ def _record(
     }
 
 
+def verified_decision_record(
+    con: duckdb.DuckDBPyConnection,
+    decision_window: str,
+    *,
+    registration_path: Path = agent_policy.REGISTRATION_PATH,
+) -> dict:
+    """Reconstruct one complete decision with its private attribution bindings."""
+    decision_window = _identifier(decision_window, "decision window")
+    attempts = rows(
+        con.execute(
+            "SELECT id, decision_window, mode, policy_id, "
+            "policy_registration_sha256, strategy_id, market_date, "
+            "context_sha256, context_payload, request_sha256, "
+            "execution_authority FROM agent_shadow_attempts "
+            "WHERE decision_window = ? LIMIT 2",
+            [decision_window],
+        )
+    )
+    if len(attempts) != 1:
+        raise ValueError("agent decision window is unavailable or ambiguous")
+    attempt = attempts[0]
+    policy_id = attempt["policy_id"]
+    if policy_id is None:
+        raise ValueError("agent decision window has no registered policy")
+    policy = agent_policy.get(policy_id, path=registration_path)
+    agent_policy.validate_live_registration(
+        con,
+        policy,
+        allow_reserved_portfolio=True,
+    )
+    if (
+        attempt["mode"] != policy["mode"]
+        or attempt["strategy_id"] != policy["strategy_id"]
+        or attempt["policy_registration_sha256"]
+        != policy["registration_sha256"]
+    ):
+        raise ValueError("agent decision policy binding is invalid")
+    terminal = _terminal_event(con, attempt["id"])
+    if terminal is None:
+        raise ValueError("agent decision window is not complete")
+    return _record(con, attempt, policy, terminal)
+
+
 def attribution(
     con: duckdb.DuckDBPyConnection,
     *,

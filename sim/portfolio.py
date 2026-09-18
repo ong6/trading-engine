@@ -336,9 +336,14 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
     ).fetchall())
     splits = _split_factors(con)
 
-    for (pf_id,) in con.execute(
-        "SELECT id FROM portfolios WHERE active ORDER BY id"
-    ).fetchall():
+    query = (
+        "SELECT id FROM portfolios WHERE active OR id IN ("
+        "SELECT DISTINCT portfolio_id FROM agent_paper_order_attribution"
+        ") ORDER BY id"
+        if table_exists(con, "agent_paper_order_attribution")
+        else "SELECT id FROM portfolios WHERE active ORDER BY id"
+    )
+    for (pf_id,) in con.execute(query).fetchall():
         held_now = {
             tk: float(q) for tk, q in con.execute(
                 "SELECT ticker, qty FROM sim_positions "
