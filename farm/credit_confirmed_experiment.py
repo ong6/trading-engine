@@ -37,6 +37,7 @@ SCENARIOS = {
 }
 OUT_DIR = DATA_DIR / "reports" / "experiments" / "credit-confirmed-spy-v1"
 SCRATCH_ROOT = REPO_ROOT / "scratch" / "credit-confirmed-spy-v1"
+EVIDENCE_MANIFEST = "evidence-manifest.json"
 CONTROL_TABLE = "credit_confirmed_fold_controls"
 ACTIVE_CONTROL_TABLE = "credit_confirmed_active_control"
 ACTION_COVERAGE_TABLE = "credit_confirmed_action_coverage"
@@ -323,7 +324,11 @@ def run_replays(
 
 
 def load_results(out_dir: Path = OUT_DIR) -> dict[str, dict[str, dict]]:
-    return {
+    manifest_path = out_dir / EVIDENCE_MANIFEST
+    if not manifest_path.exists():
+        raise FileNotFoundError(manifest_path)
+    manifest = json.loads(manifest_path.read_text())
+    results = {
         scenario: {
             config_id: json.loads(
                 (
@@ -337,6 +342,41 @@ def load_results(out_dir: Path = OUT_DIR) -> dict[str, dict[str, dict]]:
         }
         for scenario in SCENARIOS
     }
+    expected_paths = {
+        f"{scenario}/results/{config_id}.json"
+        for scenario in SCENARIOS
+        for config_id in (CONTROL_ID, CANDIDATE_ID)
+    }
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("schema_version") != 1
+        or set(manifest.get("artifacts", {})) != expected_paths
+    ):
+        raise ValueError("credit-confirmed evidence manifest is invalid")
+    for scenario, values in results.items():
+        for config_id, result in values.items():
+            relative = f"{scenario}/results/{config_id}.json"
+            sealed = manifest["artifacts"][relative]
+            if canonical_sha256(result) != sealed:
+                raise ValueError("credit-confirmed evidence seal mismatch")
+            result["_sealed_sha256"] = sealed
+    return results
+
+
+def write_evidence_manifest(out_dir: Path = OUT_DIR) -> Path:
+    artifacts = {}
+    for scenario in SCENARIOS:
+        for config_id in (CONTROL_ID, CANDIDATE_ID):
+            relative = f"{scenario}/results/{config_id}.json"
+            path = out_dir / relative
+            artifacts[relative] = canonical_sha256(json.loads(path.read_text()))
+    path = out_dir / EVIDENCE_MANIFEST
+    resources.write_text_atomic(
+        path,
+        json.dumps({"schema_version": 1, "artifacts": artifacts}, indent=2, sort_keys=True)
+        + "\n",
+    )
+    return path
 
 
 def _folds(result: dict) -> dict[tuple, dict]:
@@ -348,6 +388,10 @@ def _folds(result: dict) -> dict[tuple, dict]:
 
 
 def _validate_frozen_result(result: dict, config_id: str, scenario: str) -> None:
+    sealed = result.get("_sealed_sha256")
+    sealed_body = {key: value for key, value in result.items() if key != "_sealed_sha256"}
+    if not isinstance(sealed, str) or canonical_sha256(sealed_body) != sealed:
+        raise ValueError("experiment result evidence seal is invalid")
     source_sha256, source_count = runtime_source_hash()
     try:
         floor = date.fromisoformat(result["data_floor"])
@@ -598,6 +642,7 @@ def main() -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--run", action="store_true")
     mode.add_argument("--report-only", action="store_true")
+    mode.add_argument("--seal", action="store_true")
     parser.add_argument("--db", default=str(db.DEFAULT_DB))
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR)
     parser.add_argument("--scratch-root", type=Path, default=SCRATCH_ROOT)
@@ -619,6 +664,11 @@ def main() -> int:
     if args.scenario:
         print(f"[credit-confirmed] completed scenario {args.scenario}")
         return 0
+    if args.seal:
+        print(f"[credit-confirmed] wrote {write_evidence_manifest(args.out_dir)}")
+        return 0
+    if args.run:
+        write_evidence_manifest(args.out_dir)
     md_path, json_path = write_report(evaluate(load_results(args.out_dir)), args.out_dir)
     print(f"[credit-confirmed] wrote {md_path} and {json_path}")
     return 0

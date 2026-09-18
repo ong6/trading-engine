@@ -48,7 +48,7 @@ def _result(config_id: str, scenario: str, candidate: bool) -> dict:
     folds = protocol.make_folds(
         experiment.ANCHOR, n_folds=experiment.EXPERIMENT_FOLDS
     )
-    return {
+    result = {
         "source_sha256": source_sha256,
         "source_file_count": source_count,
         "data_snapshot": {"sha256": "data"},
@@ -73,6 +73,7 @@ def _result(config_id: str, scenario: str, candidate: bool) -> dict:
             for index in range(1, experiment.EXPERIMENT_FOLDS + 1)
         ],
     }
+    return {**result, "_sealed_sha256": canonical_sha256(result)}
 
 
 def _results() -> dict:
@@ -87,6 +88,13 @@ def _results() -> dict:
         }
         for scenario in experiment.SCENARIOS
     }
+
+
+def _reseal(results: dict) -> None:
+    for scenario in results.values():
+        for value in scenario.values():
+            body = {key: item for key, item in value.items() if key != "_sealed_sha256"}
+            value["_sealed_sha256"] = canonical_sha256(body)
 
 
 def test_clean_material_positive_effect_passes_all_frozen_gates():
@@ -112,6 +120,7 @@ def test_minimum_effect_and_delay_stress_fail_independently():
             [item[0], 100.0 * (0.99 ** index)]
             for index, item in enumerate(fold["validate_monthly_equity"])
         ]
+    _reseal(results)
 
     report = experiment.evaluate(results)
 
@@ -128,6 +137,7 @@ def test_incomplete_signal_or_scenario_identity_drift_fails_closed():
                 "sha256": "facts-with-gap",
                 "incomplete_signal_dates": ["2020-01-31"],
             }
+    _reseal(results)
     report = experiment.evaluate(results)
     assert report["decision"] == "REJECT-V1"
     assert report["gates"]["execution_data_and_accounting_clean"] is False
@@ -138,7 +148,7 @@ def test_incomplete_signal_or_scenario_identity_drift_fails_closed():
     try:
         experiment.evaluate(drift)
     except ValueError as exc:
-        assert "scenario research cohort mismatch" in str(exc)
+        assert "evidence seal" in str(exc) or "scenario research cohort mismatch" in str(exc)
     else:
         raise AssertionError("scenario identity drift was accepted")
 
@@ -155,7 +165,7 @@ def test_candidate_control_execution_identity_drift_fails_closed():
         try:
             experiment.evaluate(results)
         except ValueError as exc:
-            assert "frozen charter runtime" in str(exc) or (
+            assert "evidence seal" in str(exc) or "frozen charter runtime" in str(exc) or (
                 "candidate/control research cohort mismatch" in str(exc)
             )
         else:
@@ -167,7 +177,7 @@ def test_candidate_control_execution_identity_drift_fails_closed():
     try:
         experiment.evaluate(results)
     except ValueError as exc:
-        assert "frozen charter runtime" in str(exc)
+        assert "evidence seal" in str(exc) or "frozen charter runtime" in str(exc)
     else:
         raise AssertionError("candidate/control fold identity drift was accepted")
 
@@ -179,7 +189,7 @@ def test_candidate_control_execution_identity_drift_fails_closed():
     try:
         experiment.evaluate(coordinated)
     except ValueError as exc:
-        assert "frozen charter runtime" in str(exc)
+        assert "evidence seal" in str(exc) or "frozen charter runtime" in str(exc)
     else:
         raise AssertionError("coordinated fold identity drift was accepted")
 
