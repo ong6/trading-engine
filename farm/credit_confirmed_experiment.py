@@ -270,6 +270,7 @@ def run_replays(
     out_dir: Path = OUT_DIR,
     scratch_root: Path = SCRATCH_ROOT,
     threads: int = 4,
+    scenarios: tuple[str, ...] | None = None,
 ) -> None:
     collisions = sorted(RESEARCH_STRATEGIES.keys() & REGISTRY.keys())
     if collisions:
@@ -278,7 +279,11 @@ def run_replays(
         )
     REGISTRY.update(RESEARCH_STRATEGIES)
     try:
-        for scenario, (profile, _delay) in SCENARIOS.items():
+        selected = tuple(SCENARIOS) if scenarios is None else scenarios
+        if not selected or any(name not in SCENARIOS for name in selected):
+            raise ValueError("credit-confirmed scenario selection is invalid")
+        for scenario in selected:
+            profile, _delay = SCENARIOS[scenario]
             for config_id in (CONTROL_ID, CANDIDATE_ID):
                 runner.run_book(
                     live_con,
@@ -526,6 +531,7 @@ def main() -> int:
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR)
     parser.add_argument("--scratch-root", type=Path, default=SCRATCH_ROOT)
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--scenario", choices=tuple(SCENARIOS))
     args = parser.parse_args()
     if args.run:
         live = db.connect(args.db, read_only=True)
@@ -535,12 +541,14 @@ def main() -> int:
                 out_dir=args.out_dir,
                 scratch_root=args.scratch_root,
                 threads=args.threads,
+                scenarios=(args.scenario,) if args.scenario else None,
             )
         finally:
             live.close()
-    md_path, json_path = write_report(
-        evaluate(load_results(args.out_dir)), args.out_dir
-    )
+    if args.scenario:
+        print(f"[credit-confirmed] completed scenario {args.scenario}")
+        return 0
+    md_path, json_path = write_report(evaluate(load_results(args.out_dir)), args.out_dir)
     print(f"[credit-confirmed] wrote {md_path} and {json_path}")
     return 0
 

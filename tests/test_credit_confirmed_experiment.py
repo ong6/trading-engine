@@ -248,6 +248,23 @@ def test_replay_scope_installs_and_removes_research_strategies(monkeypatch, tmp_
     assert experiment.CONTROL_ID not in REGISTRY
 
 
+def test_replay_can_select_one_isolated_scenario(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(
+        experiment.runner,
+        "run_book",
+        lambda *args, **kwargs: calls.append((args[1], kwargs["scratch_root"])),
+    )
+    experiment.run_replays(
+        object(),
+        out_dir=tmp_path,
+        scratch_root=tmp_path / "scratch",
+        scenarios=("cost_2x_v1",),
+    )
+    assert [item[0] for item in calls] == [experiment.CONTROL_ID, experiment.CANDIDATE_ID]
+    assert all("cost_2x_v1" in str(item[1]) for item in calls)
+
+
 def test_input_fingerprint_uses_json_safe_control_dates(monkeypatch):
     sessions = [date(2026, 8, 31)]
 
