@@ -9,7 +9,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from engine.lib import db, resources
-from engine.lib.provenance import canonical_sha256
+from engine.lib.provenance import canonical_sha256, runtime_source_hash
 from engine.lib.settings import DATA_DIR, REPO_ROOT
 from engine.lib.util import pct
 from farm.walkforward import monthly, protocol, runner
@@ -193,7 +193,8 @@ def prepare_inputs(live_con, scratch_con, start, end, sessions) -> dict:
     floor = runner.data_floor(live_con, CANDIDATE_ID, ASSETS)
     coverage = live_con.execute(
         "SELECT ticker, MAX(fetched_on) FROM actions_fetch_log "
-        "WHERE ticker IN ('BIL', 'HYG', 'LQD', 'SPY') AND status = 'ok' "
+        "WHERE ticker IN ('BIL', 'HYG', 'LQD', 'SPY') "
+        "AND status IN ('ok', 'empty') "
         "GROUP BY ticker ORDER BY ticker"
     ).fetchall()
     scratch_con.execute(
@@ -346,7 +347,43 @@ def _folds(result: dict) -> dict[tuple, dict]:
     }
 
 
-def _scenario(candidate: dict, control: dict) -> dict:
+def _validate_frozen_result(result: dict, config_id: str, scenario: str) -> None:
+    source_sha256, source_count = runtime_source_hash()
+    try:
+        floor = date.fromisoformat(result["data_floor"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("experiment result data floor is invalid") from exc
+    expected_folds = []
+    for fold in protocol.make_folds(ANCHOR, n_folds=EXPERIMENT_FOLDS):
+        if fold.split_date <= floor:
+            continue
+        expected_folds.append(
+            protocol.Fold(
+                index=fold.index,
+                train_start=max(fold.train_start, floor),
+                split_date=fold.split_date,
+                validate_end=fold.validate_end,
+            )
+        )
+    expected_protocol = protocol.protocol_dict(
+        ANCHOR,
+        expected_folds,
+    )
+    expected_config = _config(config_id, scenario)
+    if (
+        result.get("source_sha256") != source_sha256
+        or result.get("source_file_count") != source_count
+        or result.get("initial_cash") != INITIAL_CASH
+        or result.get("config") != expected_config
+        or result.get("config_sha256") != canonical_sha256(expected_config)
+        or result.get("protocol") != expected_protocol
+    ):
+        raise ValueError("experiment result does not match the frozen charter runtime")
+
+
+def _scenario(candidate: dict, control: dict, scenario: str) -> dict:
+    _validate_frozen_result(candidate, CANDIDATE_ID, scenario)
+    _validate_frozen_result(control, CONTROL_ID, scenario)
     candidate_profile = candidate.get("execution_profile")
     control_profile = control.get("execution_profile")
     if (
@@ -378,6 +415,8 @@ def _scenario(candidate: dict, control: dict) -> dict:
         right_months = dict(monthly.monthly_returns(right["validate_monthly_equity"]))
         if left_months.keys() != right_months.keys():
             raise ValueError("candidate/control monthly evidence mismatch")
+        if len(left_months) != 12:
+            raise ValueError("candidate/control fold does not contain 12 months")
         rows.extend(
             (left_months[month], right_months[month])
             for month in sorted(left_months)
@@ -385,6 +424,8 @@ def _scenario(candidate: dict, control: dict) -> dict:
         drawdown_differences.append(
             left["validate"]["max_dd"] - right["validate"]["max_dd"]
         )
+    if len(rows) != EXPERIMENT_FOLDS * 12:
+        raise ValueError("candidate/control experiment does not contain 216 months")
     excess = [left - right for left, right in rows]
     all_folds = [
         fold
@@ -433,7 +474,7 @@ def _scenario(candidate: dict, control: dict) -> dict:
 
 def evaluate(results: dict[str, dict[str, dict]]) -> dict:
     scenarios = {
-        name: _scenario(values[CANDIDATE_ID], values[CONTROL_ID])
+        name: _scenario(values[CANDIDATE_ID], values[CONTROL_ID], name)
         for name, values in results.items()
     }
     identities = {

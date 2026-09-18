@@ -5,24 +5,35 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import date
 
+from engine.lib.provenance import canonical_sha256, runtime_source_hash
 from farm import credit_confirmed_experiment as experiment
+from farm.walkforward import protocol
 from sim.strategies import REGISTRY
 
 
 def _fold(index: int, candidate: bool) -> dict:
     step = 1.025 if candidate else 1.01
-    year = 2016 + index
+    frozen = protocol.make_folds(
+        experiment.ANCHOR, n_folds=experiment.EXPERIMENT_FOLDS
+    )[index - 1]
+    months = []
+    year, month = frozen.split_date.year, frozen.split_date.month
+    value = 100.0
+    for _ in range(13):
+        months.append([f"{year:04d}-{month:02d}", value])
+        value *= step
+        month += 1
+        if month == 13:
+            month = 1
+            year += 1
     return {
         "index": index,
         "status": "ok",
-        "split_date": f"{year}-01-01",
-        "validate_end": f"{year}-12-31",
+        "train_start": frozen.train_start.isoformat(),
+        "split_date": frozen.split_date.isoformat(),
+        "validate_end": frozen.validate_end.isoformat(),
         "validate": {"max_dd": -0.10 if candidate else -0.09},
-        "validate_monthly_equity": [
-            [f"{year}-01", 100.0],
-            [f"{year}-02", 100.0 * step],
-            [f"{year}-03", 100.0 * step * step],
-        ],
+        "validate_monthly_equity": months,
         "n_rejected": 0,
         "n_pending": 0,
         "n_capacity_rejected": 0,
@@ -32,14 +43,21 @@ def _fold(index: int, candidate: bool) -> dict:
 
 def _result(config_id: str, scenario: str, candidate: bool) -> dict:
     profile, _delay = experiment.SCENARIOS[scenario]
+    source_sha256, source_count = runtime_source_hash()
+    config = experiment._config(config_id, scenario)
+    folds = protocol.make_folds(
+        experiment.ANCHOR, n_folds=experiment.EXPERIMENT_FOLDS
+    )
     return {
-        "source_sha256": "source",
+        "source_sha256": source_sha256,
+        "source_file_count": source_count,
         "data_snapshot": {"sha256": "data"},
         "research_input": {
             "sha256": "facts",
             "incomplete_signal_dates": [],
         },
-        "protocol": {"anchor": "2026-09-17", "n_folds": 10},
+        "data_floor": folds[0].train_start.isoformat(),
+        "protocol": protocol.protocol_dict(experiment.ANCHOR, folds),
         "fill_model": "v4",
         "execution_profile": {"id": profile},
         "config_id": config_id,
@@ -48,10 +66,8 @@ def _result(config_id: str, scenario: str, candidate: bool) -> dict:
         "span_start": "2006-09-18",
         "span_end": "2026-09-17",
         "universe_policy": "all",
-        "config": {
-            "scenario": scenario,
-            "params": {"delay_sessions": experiment.SCENARIOS[scenario][1]},
-        },
+        "config": config,
+        "config_sha256": canonical_sha256(config),
         "folds": [
             _fold(index, candidate)
             for index in range(1, experiment.EXPERIMENT_FOLDS + 1)
@@ -87,16 +103,14 @@ def test_minimum_effect_and_delay_stress_fail_independently():
     for scenario in results.values():
         for fold in scenario[experiment.CANDIDATE_ID]["folds"]:
             fold["validate_monthly_equity"] = [
-                [fold["validate_monthly_equity"][0][0], 100.0],
-                [fold["validate_monthly_equity"][1][0], 101.05],
-                [fold["validate_monthly_equity"][2][0], 102.11025],
+                [item[0], 100.0 * (1.0105 ** index)]
+                for index, item in enumerate(fold["validate_monthly_equity"])
             ]
     delayed = results["delay_1_session_v1"][experiment.CANDIDATE_ID]
     for fold in delayed["folds"]:
         fold["validate_monthly_equity"] = [
-            [fold["validate_monthly_equity"][0][0], 100.0],
-            [fold["validate_monthly_equity"][1][0], 99.0],
-            [fold["validate_monthly_equity"][2][0], 98.01],
+            [item[0], 100.0 * (0.99 ** index)]
+            for index, item in enumerate(fold["validate_monthly_equity"])
         ]
 
     report = experiment.evaluate(results)
@@ -141,7 +155,9 @@ def test_candidate_control_execution_identity_drift_fails_closed():
         try:
             experiment.evaluate(results)
         except ValueError as exc:
-            assert "candidate/control research cohort mismatch" in str(exc)
+            assert "frozen charter runtime" in str(exc) or (
+                "candidate/control research cohort mismatch" in str(exc)
+            )
         else:
             raise AssertionError(f"{field} drift was accepted")
 
