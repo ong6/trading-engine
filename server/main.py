@@ -30,6 +30,7 @@ from . import (
     agent_fault_drills,
     agent_independent_price_evidence,
     agent_model_client,
+    agent_paper_decisions,
     agent_policy,
     agent_policy_read_models,
     agent_price_observations,
@@ -490,6 +491,19 @@ def submit_shadow_agent_proposal(body: agent_contract.TradeProposalRequest):
         try:
             return agent_proposals.submit(con, asdict(body))
         except agent_contract.ProposalError as exc:
+            raise HTTPException(exc.status_code, exc.detail) from exc
+
+
+@app.post("/agent/paper/decisions", dependencies=JSON_MUTATION_DEPENDENCY)
+def consume_agent_paper_decision(body: agent_paper_decisions.PaperDecisionRequest):
+    with _connection(write_con) as con:
+        try:
+            return agent_paper_decisions.consume(
+                con,
+                body.decision_window,
+                confirmation=body.confirmation,
+            )
+        except agent_paper_decisions.PaperDecisionError as exc:
             raise HTTPException(exc.status_code, exc.detail) from exc
 
 

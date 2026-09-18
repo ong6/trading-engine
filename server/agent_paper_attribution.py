@@ -620,9 +620,10 @@ def _verify_book_rows(
     cross_book = con.execute(
         "SELECT COUNT(*) FROM sim_fills f FULL OUTER JOIN sim_orders o "
         "ON o.id = f.order_id "
-        "WHERE (f.portfolio_id = ? OR o.portfolio_id = ?) "
-        "AND (f.portfolio_id IS NULL OR o.portfolio_id IS NULL "
-        "OR f.portfolio_id != o.portfolio_id)",
+        "WHERE (f.portfolio_id = ? AND (o.portfolio_id IS NULL "
+        "OR o.portfolio_id != f.portfolio_id)) "
+        "OR (o.portfolio_id = ? AND f.portfolio_id IS NOT NULL "
+        "AND f.portfolio_id != o.portfolio_id)",
         [portfolio_id, portfolio_id],
     ).fetchone()[0]
     if require_public_nonnegative_integer(cross_book):
