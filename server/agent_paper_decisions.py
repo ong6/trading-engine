@@ -204,6 +204,56 @@ def _book_ready(con: duckdb.DuckDBPyConnection, policy: dict) -> None:
         raise PaperDecisionError(409, "isolated agent paper book is not ready")
 
 
+def _synchronize_empty_book_equity(
+    con: duckdb.DuckDBPyConnection,
+    policy: dict,
+) -> None:
+    """Fill only pre-activation cash-only marks from exact control dates."""
+    portfolio_id = policy["reserved_portfolio_id"]
+    controls = (
+        policy["attribution"]["algorithm_control_id"],
+        policy["attribution"]["strategy_control_id"],
+    )
+    control_dates = [
+        [
+            row[0]
+            for row in con.execute(
+                "SELECT date FROM sim_equity WHERE portfolio_id = ? ORDER BY date",
+                [control_id],
+            ).fetchall()
+        ]
+        for control_id in controls
+    ]
+    if control_dates[0] != control_dates[1]:
+        raise PaperDecisionError(409, "agent paper controls have misaligned equity dates")
+    book_dates = {
+        row[0]
+        for row in con.execute(
+            "SELECT date FROM sim_equity WHERE portfolio_id = ?", [portfolio_id]
+        ).fetchall()
+    }
+    missing = [item for item in control_dates[0] if item not in book_dates]
+    if not missing:
+        return
+    activity = sum(
+        con.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE portfolio_id = ?",
+            [portfolio_id],
+        ).fetchone()[0]
+        for table in ("sim_orders", "sim_fills", "sim_positions", "sim_dividends")
+    )
+    cash = con.execute(
+        "SELECT cash FROM portfolios WHERE id = ?", [portfolio_id]
+    ).fetchone()[0]
+    if activity or not isinstance(cash, (int, float)) or not math.isfinite(cash):
+        raise PaperDecisionError(409, "agent paper equity history cannot be synchronized")
+    con.executemany(
+        "INSERT INTO sim_equity "
+        "(portfolio_id, date, equity, cash, n_positions) VALUES (?, ?, ?, ?, 0)",
+        [(portfolio_id, item, float(cash), float(cash)) for item in missing],
+    )
+
+
 def _quantity(
     con: duckdb.DuckDBPyConnection,
     record: dict,
@@ -332,6 +382,7 @@ def _consume_once(
     except (ValueError, agent_policy.PolicyError) as exc:
         raise PaperDecisionError(409, str(exc)) from exc
     _book_ready(con, policy)
+    _synchronize_empty_book_equity(con, policy)
     con.execute(
         "UPDATE portfolios SET active = TRUE WHERE id = ? AND active = FALSE",
         [policy["reserved_portfolio_id"]],
@@ -449,3 +500,24 @@ def replay_after_contention(
             decision_window,
             observed_at=datetime.now(timezone.utc),
         ) if _receipt(con, decision_window) is not None else None
+
+
+def receipts(con: duckdb.DuckDBPyConnection) -> dict:
+    """Project bounded, fully verified consumption receipts newest first."""
+    if not table_exists(con, RECEIPT_TABLE):
+        return {"matching_count": 0, "limit": MAX_RECEIPTS, "truncated": False, "receipts": []}
+    windows = [
+        row[0]
+        for row in con.execute(
+            f"SELECT decision_window FROM {RECEIPT_TABLE} "
+            "ORDER BY consumed_at DESC, decision_window LIMIT ?",
+            [MAX_RECEIPTS + 1],
+        ).fetchall()
+    ]
+    visible = windows[:MAX_RECEIPTS]
+    return {
+        "matching_count": len(windows),
+        "limit": MAX_RECEIPTS,
+        "truncated": len(windows) > MAX_RECEIPTS,
+        "receipts": [_receipt(con, window) for window in visible],
+    }

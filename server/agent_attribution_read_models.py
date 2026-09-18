@@ -659,6 +659,8 @@ def attribution(
         record["return_attribution_status"] = policy_attribution[
             record["policy_id"]
         ]["status"]
+    from . import agent_paper_decisions
+
     return {
         "schema_version": 1,
         "registry_sha256": registry["registry_sha256"],
@@ -673,5 +675,6 @@ def attribution(
         "legacy_attempt_count": legacy_count,
         "legacy_included": False,
         "policy_summaries": summaries,
+        "paper_decision_consumption": agent_paper_decisions.receipts(con),
         "records": public_records,
     }

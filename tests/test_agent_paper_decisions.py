@@ -139,6 +139,33 @@ def test_model_no_action_is_consumed_without_order(con, monkeypatch):
     ) == []
 
 
+def test_first_consumption_synchronizes_only_cash_only_control_dates(con, monkeypatch):
+    result = _no_action(con, monkeypatch)
+    policy = _isolated_book(con)
+    missing_date = date(2026, 9, 11)
+    for control_id in (
+        policy["attribution"]["algorithm_control_id"],
+        policy["attribution"]["strategy_control_id"],
+    ):
+        con.execute(
+            "INSERT OR REPLACE INTO sim_equity VALUES (?, ?, 39000, 39000, 0)",
+            [control_id, missing_date],
+        )
+
+    agent_paper_decisions.consume(
+        con,
+        result["decision_window"],
+        confirmation=CONFIRMATION,
+        now=NOW + timedelta(minutes=1),
+    )
+
+    assert con.execute(
+        "SELECT equity, cash, n_positions FROM sim_equity "
+        "WHERE portfolio_id = ? AND date = ?",
+        [policy["reserved_portfolio_id"], missing_date],
+    ).fetchone() == (39_000.0, 39_000.0, 0)
+
+
 def test_requires_confirmation_initialized_book_and_untampered_evidence(
     con, monkeypatch
 ):
@@ -373,6 +400,60 @@ def test_receipt_tampering_fails_closed(con, monkeypatch):
             con, result["decision_window"], confirmation=CONFIRMATION,
             now=NOW + timedelta(minutes=2),
         )
+
+
+def test_receipts_are_exposed_through_existing_attribution_read_model(con, monkeypatch):
+    result = _no_action(con, monkeypatch)
+    _isolated_book(con)
+    agent_paper_decisions.consume(
+        con, result["decision_window"], confirmation=CONFIRMATION,
+        now=NOW + timedelta(minutes=1),
+    )
+    projection = main.agent_decision_attribution.__wrapped__() if hasattr(
+        main.agent_decision_attribution, "__wrapped__"
+    ) else None
+    # Call the domain read model directly; route delegation is covered elsewhere.
+    from server import agent_attribution_read_models
+
+    projected = agent_attribution_read_models.attribution(con)
+    assert projection is None
+    assert projected["paper_decision_consumption"]["matching_count"] == 1
+    assert projected["paper_decision_consumption"]["receipts"][0]["outcome"] == "no_action"
+
+
+def test_partial_write_rolls_back_and_control_portfolios_remain_separate(
+    con, monkeypatch
+):
+    result = _accepted(con, monkeypatch)
+    policy = _isolated_book(con)
+    controls_before = {
+        control_id: con.execute(
+            "SELECT * FROM portfolios WHERE id = ?", [control_id]
+        ).fetchone()
+        for control_id in policy["attribution"].values()
+    }
+    original = agent_paper_decisions._persist
+    monkeypatch.setattr(
+        agent_paper_decisions,
+        "_persist",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("injected")),
+    )
+    with pytest.raises(RuntimeError, match="injected"):
+        agent_paper_decisions.consume(
+            con, result["decision_window"], confirmation=CONFIRMATION,
+            now=NOW + timedelta(minutes=1),
+        )
+    monkeypatch.setattr(agent_paper_decisions, "_persist", original)
+    assert con.execute("SELECT COUNT(*) FROM sim_orders").fetchone() == (0,)
+    assert con.execute("SELECT COUNT(*) FROM agent_paper_order_attribution").fetchone() == (0,)
+    assert con.execute(
+        "SELECT COUNT(*) FROM information_schema.tables "
+        "WHERE table_name = 'agent_paper_decision_receipts'"
+    ).fetchone() == (0,)
+    for control_id, row in controls_before.items():
+        assert con.execute(
+            "SELECT * FROM portfolios WHERE id = ?", [control_id]
+        ).fetchone() == row
 
 
 def test_rerun_preserves_attributed_agent_order_and_receipt(con, monkeypatch):
