@@ -64,8 +64,8 @@
     "store_gb": 3.87
   },
   "price_verify": {
-    "last_run": "2026-09-17T22:41:52.949769+00:00",
-    "as_of": "2026-09-17",
+    "last_run": "2026-09-18T22:40:59.355067+00:00",
+    "as_of": "2026-09-18",
     "source": "api.nasdaq.com/api/quote/{ticker}/historical",
     "role": "verify-only; this source never writes a price row",
     "sessions_requested": 5,
@@ -88,12 +88,12 @@
     "bars_compared": 636,
     "field_comparisons": 2544,
     "worst": {
-      "ticker": "ACHV",
-      "date": "2026-09-16",
+      "ticker": "NXH",
+      "date": "2026-09-17",
       "field": "low",
-      "store": 7.27,
-      "source": 7.265,
-      "diff_bp": 6.88
+      "store": 3.34,
+      "source": 3.335,
+      "diff_bp": 14.97
     },
     "worst_is_disagreement": false,
     "disagreements": [],
@@ -105,16 +105,16 @@
     "n_parse_errors": 0,
     "volume_note": "volume differs by design on the newest session (same-day volume settles after the close); measured, never alarmed on",
     "volume_median_abs_diff_pct_latest_session": null,
-    "volume_median_abs_diff_pct_prior_sessions": 0.01,
+    "volume_median_abs_diff_pct_prior_sessions": 0.0,
     "volume_bars_compared": 636,
-    "provisional_note": "on 2026-09-17 (newest stored session) open/high/low are measured but never flagged; the close IS checked on every name",
+    "provisional_note": "on 2026-09-18 (newest stored session) open/high/low are measured but never flagged; the close IS checked on every name",
     "provisional_ohl_median_bp": null,
     "provisional_ohl_max_bp": null,
     "provisional_ohl_over_tolerance": 0,
     "provisional_comparisons": 0,
     "store_missing_sessions": {},
     "n_names_store_missing_sessions": 0,
-    "secs": 427.7
+    "secs": 423.1
   },
   "intraday": {
     "last_run": "2026-09-17T22:44:31.406349+00:00",
