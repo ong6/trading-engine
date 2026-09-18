@@ -113,6 +113,12 @@ def test_empty_attribution_contract_has_no_performance_claim(con):
             }
             for policy in agent_policy.registry()["policies"]
         ],
+            "paper_decision_consumption": {
+                "matching_count": 0,
+                "limit": 10_000,
+                "truncated": False,
+                "receipts": [],
+            },
         "records": [],
     }
 
