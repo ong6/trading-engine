@@ -48,7 +48,7 @@ stands.
 
 **What changed.** History rewritten with `git filter-repo` to replace an employer email, a devbox
 home path, an internal tool name and an agent co-author trailer; every commit date and count is
-unchanged (201 commits). Working tree scrubbed the same way in `c7fb3d0` before the rewrite.
+unchanged (201 commits). Working tree scrubbed the same way in `` before the rewrite.
 Visibility set to public. Any existing clone must be re-cloned.
 
 **Rule changes.**
