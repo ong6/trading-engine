@@ -163,7 +163,16 @@ def _receipt(con: duckdb.DuckDBPyConnection, decision_window: str) -> dict | Non
             "SELECT portfolio_id FROM sim_orders WHERE id = ?",
             [payload["order_id"]],
         ).fetchone()
-        if order is None:
+        attribution = con.execute(
+            "SELECT policy_id, attempt_id, decision_window FROM "
+            "agent_paper_order_attribution WHERE order_id = ?",
+            [payload["order_id"]],
+        ).fetchone()
+        if (
+            order is None
+            or attribution
+            != (payload["policy_id"], payload["attempt_id"], decision_window)
+        ):
             raise PaperDecisionError(503, "paper decision receipt order is unavailable")
     return {**payload, "replayed": True}
 
@@ -232,7 +241,19 @@ def _synchronize_empty_book_equity(
             "SELECT date FROM sim_equity WHERE portfolio_id = ?", [portfolio_id]
         ).fetchall()
     }
-    missing = [item for item in control_dates[0] if item not in book_dates]
+    start = con.execute(
+        f"SELECT contract_payload FROM {agent_paper_attribution.BOOK_ATTRIBUTION_TABLE} "
+        "WHERE portfolio_id = ?",
+        [portfolio_id],
+    ).fetchone()
+    try:
+        start_date = date.fromisoformat(loads_object(start[0])["attribution_start_date"])
+    except (KeyError, TypeError, ValueError, UnicodeDecodeError) as exc:
+        raise PaperDecisionError(409, "agent paper attribution start is invalid") from exc
+    missing = [
+        item for item in control_dates[0]
+        if item >= start_date and item not in book_dates
+    ]
     if not missing:
         return
     activity = sum(
@@ -364,6 +385,12 @@ def _consume_once(
             != policy["registration_sha256"]
             or replay["attempt_id"] != record["attempt_id"]
             or replay["terminal_outcome"] != record["terminal_outcome"]
+            or replay["outcome"]
+            != (
+                "no_action"
+                if record["terminal_outcome"] in NO_ACTION_OUTCOMES
+                else "order_pending"
+            )
         ):
             raise PaperDecisionError(503, "paper decision receipt binding is invalid")
         _book_ready(con, policy)
@@ -519,5 +546,7 @@ def receipts(con: duckdb.DuckDBPyConnection) -> dict:
         "matching_count": len(windows),
         "limit": MAX_RECEIPTS,
         "truncated": len(windows) > MAX_RECEIPTS,
-        "receipts": [_receipt(con, window) for window in visible],
+        "receipts": [
+            {**_receipt(con, window), "replayed": False} for window in visible
+        ],
     }

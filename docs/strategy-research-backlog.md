@@ -134,7 +134,9 @@ counts, and frozen closes to both baseline equity rows. It also anchors the comp
 prefix and post-boundary order/fill/cost/attempt/settlement ledger. Legitimate pending-order
 status transitions and late dividend credits remain possible without weakening the immutable
 event checkpoint. The next gate is therefore new untouched sessions, not more code or tuning.
-Sector runtime-contract v9 SHA-256
+Sector runtime-contract v10 SHA-256
+`8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce` preserves the isolated
+agent-paper lifecycle without changing sector strategy or execution economics. V9 SHA-256
 `c430b451ee510c858705ba4235f81b68f9d7443745a60b4716035acb32741788` makes explicit DuckDB
 transactions interruption-safe and preserves the original failure if rollback also fails; its
 exact five-session equity and execution-ledger evidence remain unchanged. V8 SHA-256
@@ -146,7 +148,9 @@ reports from committed ledger state on an idempotently skipped step. V6 SHA-256
 Markdown and CSV output. V5 makes the daily league connection close on every exit, v4 made the existing no-same-bar fill rule
 unconditional under optimized Python, and v3
 excluded retired portfolio state from current verification and corporate-action work. XS
-runtime-contract v20 SHA-256
+runtime-contract v21 SHA-256
+`f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac` preserves the isolated
+agent-paper lifecycle before the first signal without changing XS strategy or economics. V20 SHA-256
 `8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e` makes explicit DuckDB
 transactions interruption-safe before the first signal. V19 SHA-256
 `7f4085fca17872a9ef1125c64ed03f58b2191abe68286e9720441df74f8f06f3` releases temporary

@@ -2033,9 +2033,12 @@ post-fill-model-v4 `sector_momentum`/SPY record from 2026-09-04. Its schema-v2 b
 frozen cash, exact inherited positions, position counts, and dated closes to both equity
 rows. It hashes the permanent equity prefix plus post-boundary order intent, fills, named
 cost detail, execution attempts, and settlements; changing report logic is also detected
-because the monitor itself is part of runtime contract v9
-`c430b451ee510c858705ba4235f81b68f9d7443745a60b4716035acb32741788`. It supersedes
-v8 `c0788167bf63f734c6c9b3428b425a0054f1cead1754048aa00a6cc48eb5662f` so every explicit
+because the monitor itself is part of runtime contract v10
+`8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce`. It supersedes
+v9 `c430b451ee510c858705ba4235f81b68f9d7443745a60b4716035acb32741788` so attributed
+agent-paper orders survive same-date reruns and the no-op agent book uses the ordinary simulator
+lifecycle without changing sector strategy or execution economics. V9 superseded v8
+`c0788167bf63f734c6c9b3428b425a0054f1cead1754048aa00a6cc48eb5662f` so every explicit
 DuckDB transaction rolls back process-level interruptions, retains the original exception if
 rollback also fails, and leaves borrowed connections reusable. V8 released temporary DuckDB
 DataFrame views even when their consuming statement failed. V7 made an
@@ -2054,8 +2057,11 @@ execution economics, baseline, and evidence-continuity rules did not change in t
 The XS report waits for the frozen
 2026-09-30 monthly signal and uses the 2026-10-01 post-fill close as its prospective
 baseline against `ew_benchmark`; it does not credit either book's legacy performance. Its
-runtime-contract v20 (`8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e`)
-supersedes v19 (`7f4085fca17872a9ef1125c64ed03f58b2191abe68286e9720441df74f8f06f3`)
+runtime-contract v21 (`f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac`)
+supersedes v20 (`8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e`)
+before the first signal so the isolated agent-paper lifecycle remains coherent without changing XS
+strategy, signal, or execution economics. V20 superseded v19
+(`7f4085fca17872a9ef1125c64ed03f58b2191abe68286e9720441df74f8f06f3`)
 before the first signal so explicit DuckDB transactions clean up interruptions without masking
 their original failure and borrowed connections remain reusable. V19 released temporary DuckDB
 DataFrame views after failed statements. V18 kept the borrowed screen connection owned and closed exactly once by the outer runtime even
