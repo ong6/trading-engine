@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule trading engine append-only agent data capture
+
+[Timer]
+OnCalendar=Tue..Sat *-*-* 01:25:00 UTC
+Persistent=true
+AccuracySec=1min
+Unit=trading-engine-agent-data-capture.service
+
+[Install]
+WantedBy=timers.target

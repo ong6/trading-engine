@@ -68,9 +68,10 @@ reused. Issues and pull requests are welcome; expect slow replies.
   A green result is an inventory gate, not a clean-tree or release claim.
 - **Automation deployment:** `.venv/bin/python -m tools.install_automation` is read-only and
   reports service-source, enabled/active, user-lingering, and cron drift. The explicit `--apply`
-  form preserves unrelated crontab lines, owns only its marked six-entry block, installs versioned
-  user units, restarts only changed services, starts stopped units, enables lingering when needed,
-  and verifies scheduler health. Unit sources, cron drivers, and the postflight verifier must be
+  form preserves unrelated crontab lines, owns only its marked six-entry block, installs six
+  versioned user unit files, restarts only changed autostart units, starts stopped autostart units,
+  leaves the agent-shadow and data-capture workers static, enables lingering when needed, and
+  verifies scheduler health. Unit sources, cron drivers, and the postflight verifier must be
   regular files reached through non-symlinked repository paths; installed unit copies must also be
   independent regular files. A linked installed unit is visible as drift, while a linked parent of
   the user unit directory is invalid and never written through. An inactive or disabled system cron
@@ -78,9 +79,9 @@ reused. Issues and pull requests are welcome; expect slow replies.
   exists as anything other than a regular non-symlink file is an invalid host prerequisite and
   requires separate operator/admin repair. Do not hand-edit inside its managed block. Apply mode
   re-plans immediately before mutation so stale dry-run state cannot authorize a write or discard an
-  intervening unrelated crontab edit. Its plan records six launch-source hashes and two versioned
-  unit-source hashes; apply reads all eight sources through bounded no-follow descriptors and
-  revalidates all eight sources before mutation. Cron-source read/execute access is checked relative
+  intervening unrelated crontab edit. Its plan records six launch-source hashes and six versioned
+  unit-source hashes; apply reads all twelve sources through bounded no-follow descriptors and
+  revalidates all twelve sources before mutation. Cron-source read/execute access is checked relative
   to the same anchored parent as its stable read, and permission drift around that check is rejected.
   Installed-unit comparison and atomic publication
   of pinned bytes share one retained descriptor for the user-unit directory. Identity checks detect
@@ -118,10 +119,13 @@ reused. Issues and pull requests are welcome; expect slow replies.
   metadata,
   queue, and backup locks, copies the DuckDB catalog and data with
   DuckDB itself, and preserves the three prospective checkpoints plus release identity. Schema v2
-  also preserves seven exact operational artifacts: collector metadata, Friday postflight, latest
+  introduced seven exact operational artifacts: collector metadata, Friday postflight, latest
   and date-bound screen outputs, and league Markdown/CSV. Their layout beneath `evidence/` is
   directly usable as a restored `TRADING_ENGINE_DATA_DIR`; verification remains compatible with
-  schema-v1 bundles that predate them. Independent verification opens every absolute bundle-parent
+  schema-v1 bundles that predate them. Schema v3 additionally hashes the optional
+  `store/agent-shadow-control.json` when present. Recovery must copy that control explicitly and
+  should default to disabled; verification remains compatible with schema-v1 and schema-v2
+  bundles. Independent verification opens every absolute bundle-parent
   component and the root without following symlinks, retains the root descriptor for all reads,
   snapshots the inode, type, size, and timestamps of the exact descriptor-rooted tree before and
   after verification, and finally requires the visible path to identify the same root and parent
@@ -176,4 +180,6 @@ reused. Issues and pull requests are welcome; expect slow replies.
   the live `results/` directory is replaced by later scheduled runs.
 - **Data:** the repo ships no market data. `store/`, `data/eod/`, `data/screens/`
   are regenerated locally by the nightly.
-- **No broker code.** Execution against real money is out of scope by design.
+- **No external broker code on this host.** The internal broker-neutral contract may wrap the
+  existing simulator for capital-disabled testing. Do not add a broker network client, credentials,
+  live adapter, usable live toggle, or real-money execution path.

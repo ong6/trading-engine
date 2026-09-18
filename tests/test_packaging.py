@@ -8,7 +8,7 @@ import tomllib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_ROOTS = ("engine", "farm", "server", "sim")
+PACKAGE_ROOTS = ("engine", "farm", "server", "sim", "tools")
 IMPORT_TO_DISTRIBUTION = {
     "curl_cffi": "curl-cffi",
     "duckdb": "duckdb",
@@ -94,7 +94,7 @@ def test_pyproject_declares_only_active_package_trees():
     project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
     assert project["build-system"]["build-backend"] == "setuptools.build_meta"
     assert project["tool"]["setuptools"]["packages"]["find"] == {
-        "include": ["engine*", "farm*", "server*", "sim*"],
+        "include": ["engine*", "farm*", "server*", "sim*", "tools*"],
         "namespaces": False,
     }
     assert (REPO_ROOT / "farm" / "experiments" / "__init__.py").is_file()

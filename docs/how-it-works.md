@@ -494,6 +494,821 @@ state rather than being serialized as usable capital. Malformed dates or active 
 the projection. The producer and browser also require the exact eight-field ticket-context
 envelope, preventing an unreviewed backend field from silently becoming sizing input.
 
+The replacement paper-agent path currently stops at **shadow admission**. `GET /agent/context`
+returns a bounded, deterministic context only for the active fixed-instrument strategies
+`dual_momentum`, `dual_momentum_gated`, and `sector_momentum`, and only for an active, liquid,
+non-quarantined ETF explicitly named by that strategy's frozen registration. The context binds the
+breadth-qualified market date, exact stored quote and source timestamp, strategy/config hash,
+active deployed portfolio registration, initial paper capital, execution profile, research data
+snapshot, runtime source, and the agent-boundary source files under one canonical `context_sha256`.
+Context schema v10 also wraps each selected daily OHLCV and cash-dividend row in a versioned data
+contract and binds
+the configured model, model-version status, prompt hash, empty-toolset hash, and connector policy.
+The data contract records
+the observation date, conservative usable-at time, latest ingestion time, provider and adapter
+identity, installed adapter-library version, complete normalized record and recomputable hash,
+adjustment policy, and quarantine state. The agent layer also owns the append-only
+`agent_daily_price_observations` ledger. Before a signal-date model request, the shadow worker
+captures the complete registered price lookback and binds every selected fact to an immutable
+observation hash, sequence, value-revision number, prior-observation hash, adapter version, and
+installed yfinance version. Repeated values with a later source ingestion remain distinct
+`unchanged_observation` receipts; changed values become `value_revision` receipts. The operational
+`prices` table and all deterministic algorithm reads remain unchanged.
+
+The agent layer separately owns `agent_corporate_action_observations`. The data-capture worker and
+signal-date shadow worker capture normalized dividend and split rows in the registered lookback,
+with the same sequence, value-revision, classification, previous-observation hash, adapter, and
+library identities. Dividend facts selected for total-return features bind their exact immutable
+observation and use capture time as the conservative usable-at time. Neither ledger changes
+`corporate_actions`, and deterministic algorithms continue to read their existing tables.
+
+These ledgers are prospective normalized-observation history, not raw provider history. The first
+capture of an existing row is explicitly `baseline_snapshot`; it proves only what the mutable cache
+contained at capture time.
+
+The same data-capture worker now makes one bounded Yahoo chart-v8 request per registered ticker
+after normalized capture, with no model involved and no DuckDB connection held during network I/O.
+It stores each exact successful JSON response body in the append-only `agent_provider_responses`
+ledger with request scope, request/receipt timestamps, content type, byte count, SHA-256,
+endpoint-version identity, and installed yfinance version. Each newly retained response also
+produces append-only `agent_provider_source_observations` directly from those exact bytes. When a
+source observation's value matches a selected cache fact, context schema v10 binds that
+source-derived revision, its receipt, and its response hash and may truthfully report
+`raw_retained = true`. This does not replace or mutate the operational cache.
+
+A separate hash-bound link ledger joins only values whose ticker, date, kind, and normalized value
+hash exactly match an existing cache-derived price or corporate-action observation. That weaker
+relationship remains `later_exact_value_corroboration`: it does not rewrite the earlier observation
+or claim that its original ingestion payload was retained. Revised current-session values therefore
+remain unlinked to older cache observations. Consecutive overlapping response windows are also compared as complete
+corporate-action sets. The bounded status reports additions and removals separately, so an action
+that disappears from a later provider response remains detectable prospectively even though
+pre-capture deletion history cannot be reconstructed. Total receipt-to-observation links and
+distinct corroborated observations are reported separately so repeated checks cannot inflate
+coverage.
+
+The provider-response status validates every retained response, link, and source-revision chain
+before comparing the newest exact source observation for each fact with the current operational
+cache. It recomputes both sides using the same canonical daily-price or corporate-action value
+shape and returns aggregate counts only: aligned values, mismatched values, missing cache rows,
+affected ticker count, mismatch date bounds, and the latest mismatch receipt time. This
+distinguishes absent raw evidence from a later provider value that disagrees with the cache,
+without exposing prices or mutating either dataset. A mismatch remains a point-in-time data
+blocker and is not permission to silently restate the cache.
+
+The same supervised data-capture worker independently requests the registered strategy tickers
+from Nasdaq's historical quote endpoint. `agent_independent_price_responses` retains each exact
+successful HTTP body with request scope, request and receipt timestamps, endpoint identity,
+installed Requests version, byte count, and response hash.
+`agent_independent_price_observations` contains only facts re-derived from those retained bytes;
+it records every timestamped confirmation, hash-chains each ticker/date sequence, and distinguishes
+unchanged confirmations from source-value revisions. `GET
+/agent/data/independent-price-evidence` exposes only aggregate verified coverage and never raw
+response bodies or market values. This path is a separate evidence ledger: it cannot update
+`prices`, quarantine a ticker, create a proposal or order, or grant execution authority.
+
+Operators can inspect those mismatches through the separate read-only CLI:
+
+```bash
+.venv/bin/python -m tools.review_agent_data_discrepancy list
+.venv/bin/python -m tools.review_agent_data_discrepancy build \
+  daily_price SPY 2026-09-11 daily_price > /operator-controlled/data-review.json
+.venv/bin/python -m tools.review_agent_data_discrepancy verify \
+  < /operator-controlled/data-review.json
+```
+
+The list is bounded and exposes identities and hashes rather than market values. A one-hour review
+packet binds one newest verified Yahoo source observation, the current cache fact or its absence,
+exact field-level differences, and all retained responses confirming the selected source value.
+For daily prices, packet schema v2 also binds the newest verified exact-response Nasdaq fact when
+available and compares it independently with both Yahoo's retained source value and the current
+cache. This durable third-source evidence can support an operator disposition but never selects or
+executes one automatically. It
+offers only explicit future dispositions: guarded repair, retain with justification, quarantine,
+or defer. The packet is not a decision and the review CLI cannot write the cache, activate a
+quarantine, record an adjudication, or grant execution authority. Independent price-verifier
+disagreement remains insufficient by itself to confirm a primary-store defect.
+
+A separate operator-only CLI can persist the selected disposition after independently revalidating
+that short-lived packet against the retained raw responses, source-observation chain, and current
+cache inside the same transaction:
+
+```bash
+.venv/bin/python -m tools.adjudicate_agent_data_discrepancy \
+  --db store/market.duckdb record < /operator-controlled/adjudication-request.json
+.venv/bin/python -m tools.adjudicate_agent_data_discrepancy \
+  --db store/market.duckdb status
+```
+
+The request supplies one packet, a unique decision ID, operator ID, one of the four exact
+dispositions, and a bounded nonempty justification. The resulting
+`agent_data_discrepancy_decisions` ledger is globally sequence-checked and hash-chained, permits
+only exact replay for a decision ID or exact discrepancy state, and exposes aggregate status
+without operator justification text. Every disposition is record-only: guarded repair and
+quarantine still require separate future mechanisms, while retaining or deferring does not make
+the underlying data paper-ready. Its canonical operational effect is
+`record_only_separate_follow_up_required`. The CLI has no cache writer, quarantine writer, order
+route, or execution authority.
+
+Yahoo and Nasdaq publication times remain unavailable, neither endpoint identity is a stable
+provider dataset revision, and historical cache baseline rows still lack their original raw
+payloads. Independent agreement therefore does not by itself make the point-in-time gate pass. Fact
+contracts therefore remain `quality_status = limited` and
+`usage_authority = shadow_context_only`; only exact-response source observations report
+`raw_retained = true`, and that alone cannot grant paper execution authority.
+`GET /agent/data/daily-prices`, `GET /agent/data/corporate-actions`,
+`GET /agent/data/provider-responses`, and `GET /agent/data/independent-price-evidence` report
+bounded capture coverage, receipt bytes, exact-match links, kinds, and revision classifications
+without exposing market-data rows or raw response bodies.
+
+The same context includes a bounded `decision_features` section derived only from the instruments
+and lookbacks in the frozen strategy registration. For dual momentum this is SPY/EFA/BIL over 252
+sessions; for sector momentum it is the 11 registered sector ETFs over 63/126/252 sessions. Each
+complete feature retains the exact start/end price facts, every dividend fact used in the window,
+corporate-action fetch coverage, observed and required session counts, the unreinvested-cash
+total-return formula used by the deterministic strategies, and recomputable calculation/feature
+hashes. An asset with stale or short price history, quarantine, or missing corporate-action
+coverage is returned as `unavailable` with no computed return. The feature contract does not claim
+immutable raw history: observed price and dividend components bind their normalized revision
+ledgers, while source payloads, publication metadata, and removal/tombstone history remain
+unavailable; all components retain
+`quality_status = limited` and shadow-only restrictions.
+
+The model transport is the separately supervised local Trae CLI proxy at
+`http://127.0.0.1:8317/v1/responses`. `GET /agent/model/status` checks the proxy health and catalog,
+requires the allowlisted `GPT-5.6-Sol:max` model, exact expected catalog mapping, proxy version,
+and Trae CLI runtime, and returns only sanitized connector metadata. Context schema v10 binds the
+canonical selected-catalog-entry hash, `gpt-5.6-sol__max` routing key, catalog component marker,
+proxy v0.7, and Trae CLI `0.204.1` runtime. Every generation brackets the model POST with identical
+health and selected-catalog reads, and every retained model response binds the resulting catalog
+hash and runtime identity. Alias remapping or transport drift before response acceptance therefore
+fails closed. The status does not expose the proxy's token, user, upstream
+URL, or authentication files. The connector uses
+the non-streaming Responses-compatible route with fixed instructions, no tools, no parallel tool
+calls, bounded request and response bodies, and explicit status/inference timeouts. Any tool call,
+non-JSON model output, unavailable model, malformed response, or proxy failure is an error and
+cannot fall through to another provider. The connector has no order or portfolio capability and
+is used by the supervised shadow schedule described below. Because the proxy catalog exposes an
+alias, internal routing key, catalog component marker, `config_name`, context size, and a zero
+`created` field rather than an immutable provider model revision, the context records
+`model_version = unversioned-catalog-alias`,
+`provider_model_revision = null`, and `provider_model_revision_available = false`. Catalog and
+runtime binding detects transport drift but is not relabeled as a model revision. This is
+acceptable for connector/shadow evaluation but must be replaced by a provider-stable revision
+identity before either paper authority gate can pass.
+
+Agent behavior is registered separately from the algorithm portfolio in
+`server/agent-shadow-registration.json`. The registry currently freezes an agent-only
+dual-momentum policy and a manual-shadow-only hybrid veto policy. Each has its own policy
+ID, registration hash, reserved portfolio ID, control ID, limits, execution-profile identity,
+failure behavior, and attribution controls. These are reservations, not simulator portfolios:
+the existing `dual_momentum` algorithm book and its nightly scheduling are unchanged. The hybrid
+registration is deliberately absent from automatic scheduling and has no simulator route.
+
+The shadow runner checks the registered strategy cadence before constructing context or contacting
+Trae. For monthly dual momentum, dates that fail `sim.calendar.is_month_signal()` are recorded as
+deterministic `cadence_no_action` attempts with no model request. Future attempts and proposals
+carry policy identity; pre-registration records retain null policy columns and are exposed as
+`legacy_unregistered`, so they are not retroactively relabeled. `GET
+/agent/policies/evaluation` reports registration metadata and policy-separated attempt/proposal
+counts only. It makes no performance claim and prohibits pooling agent-only, hybrid, or legacy
+evidence.
+
+`POST /agent/proposals/shadow` accepts only the closed schema-v2 `TradeProposal` envelope. It
+requires model, prompt, toolset, strategy, source, data, context, signal/expiry, instrument,
+notional, thesis, invalidation, confidence, and evidence identities. The server rebuilds the
+context inside the write transaction, verifies the model/version/prompt/toolset fields against the
+connector identity embedded in that context, records a mismatch as `shadow_rejected`, and treats an exact
+proposal/idempotency replay as the original result while rejecting conflicting reuse. Accepted and
+rejected proposals are appended to `agent_proposals` with both the submitted and server-validated
+context hashes, the exact server-validated context payload when one could be built, and an
+`audit_log` event. Once context identity passes, the server independently recomputes quantity at
+the same-date close and checks execution authority, policy identity, instrument eligibility,
+complete registered-universe features, signal-date alignment, policy notional and capital
+ceilings, stop geometry, reserved sell inventory, and the execution profile's one-percent cap
+against 60-session median dollar volume. The canonical validation payload and its SHA-256 are
+stored with the proposal. A failed gate is a shadow rejection; these checks grant no execution
+authority. Retaining both context and validation evidence makes the decision boundary replayable
+without reconstructing mutable current market or registration state.
+
+`GET /agent/proposals` is the read-only operator view of that ledger. It returns the newest 100
+records in descending record-ID order, with an exact `matching_count` and `truncated` marker, and
+may be filtered to `shadow_accepted` or `shadow_rejected`. Its closed public shape includes proposal,
+agent/model, strategy/mode, instrument/side/notional, signal/expiry, status, submitted and validated
+context hashes, validation status/hash, rejection reasons, and receipt time. It deliberately excludes the idempotency key,
+prompt/tool hashes, thesis, invalidation, evidence array, normalized proposal, retained context
+payload, retained validation payload, and any later internal columns. Malformed stored public fields or
+tampered validation evidence fail the projection instead of being omitted or coerced. Historical
+accepted rows that predate deterministic validation remain immutable and are labeled
+`legacy_unvalidated`; new accepted rows require a passing validation hash. Both the list and
+submission responses state
+`execution_authority = none`.
+
+`GET /agent/attribution` derives a separate, read-only contribution record for each completed
+registered shadow decision window. It binds the attempt, policy registration, retained context,
+terminal event, proposal validation, and—when present—hybrid candidate and effective-order hashes.
+Agent proposal, proposal rejection, model no-action, transport/output failure, hybrid allow,
+hybrid veto, and predeclared hybrid fallback remain distinct outcomes. Legacy unregistered
+attempts are counted but excluded, and evidence pooling is prohibited. Because the reserved
+agent and hybrid portfolios do not yet exist, the endpoint explicitly reports
+`return_attribution_status = unavailable_no_isolated_paper_portfolio` and makes no performance
+claim. It does not create a portfolio, order, fill, or equity row.
+
+The read model now also contains a verifier for a future isolated-book registration and
+per-order ownership contract. It accepts return attribution only when a reserved book exactly
+matches its policy, remains separate from the algorithm and benchmark controls, every simulator
+order is bound to one retained policy decision, fills and positions reconcile to those orders,
+cash reconstructs from fills and dividends, and the equity dates align exactly with both controls.
+The attribution module now defines an explicit, unwired initializer for its two empty ledgers.
+Their exact schema requires one book contract per portfolio and policy, and one ownership row per
+simulator order and policy-decision sequence. The initializer is idempotent and creates no
+portfolio, equity, order, route, or schedule. It has not been run against the live store, so the
+present attribution status remains unavailable and no paper route is enabled.
+
+An operator-only schema migration wrapper exists at
+`tools.migrate_agent_paper_attribution`. It refuses to run without a separately verified backup
+bundle and its explicit manifest SHA-256. While holding the DuckDB write lock, it requires that
+the bundle name the exact repository-relative source database and that the bundle's complete
+logical database snapshot still match the current store. It then creates only the two empty
+attribution ledgers in one transaction and verifies, before commit, that all other catalog
+definitions, table row counts, job state, latest price date, and active portfolio identities are
+unchanged. Any mismatch rolls back. The command has been tested only against isolated databases
+and has not been invoked on the live store because no new backup destination was selected.
+
+The eventual operator sequence is intentionally explicit:
+
+```bash
+.venv/bin/python -m tools.backup_database create /absolute/operator-selected/backup
+.venv/bin/python -m tools.backup_database verify /absolute/operator-selected/backup
+.venv/bin/python -m tools.migrate_agent_paper_attribution \
+  /absolute/operator-selected/backup \
+  --manifest-sha256 <verified-manifest-sha256>
+```
+
+The migration does not create either reserved portfolio. After migration, the read-only preflight
+must still pass for the chosen attribution start date before the separate book initializer can
+run.
+
+A pure isolated-book initialization planner now derives the exact `portfolios`,
+`agent_paper_book_attribution`, and initial `sim_equity` records accepted by that verifier for
+either registered mode. Each plan is policy-, registry-, start-date-, and record-hash-bound;
+requires one insert-only atomic transaction; starts the reserved book inactive with cash-only
+equity; and marks the existing algorithm and benchmark books as protected identities outside its
+write scope. It opens no database and has no table creator, scheduler integration, order route, or
+execution authority.
+
+A separate read-only preflight can assess one of those plans against the current store:
+
+```bash
+.venv/bin/python -m server.agent_paper_book_preflight \
+  dual_momentum_agent_shadow_v1 2026-09-15
+```
+
+It verifies the plan, exact required table schemas, absence of the reserved policy and portfolio
+identity across every relevant ledger, both protected control-book registrations, an aligned
+control-equity anchor, two identical reads of the source state, and an inert inactive-only writer
+with no scheduler or order route. The command uses the actual UTC clock rather than accepting a
+caller-supplied retrospective planning time. It returns a hash-bound diagnostic and nonzero status
+while blocked. On 2026-09-14 a live preflight for a 2026-09-15 attribution start passed the plan,
+control-book, stable-read, and inert-surface checks; initialization remained blocked because both
+attribution tables were absent and because neither control could yet have a 2026-09-15 equity row.
+The preflight does not create those rows or tables and reports both initialization and execution
+authority as none.
+
+An operator-only initializer now exists at `tools.initialize_agent_paper_book`. It uses the same
+verified-backup identity check as the schema migration, obtains the DuckDB writer lock, rebuilds
+the exact policy-bound plan with the current UTC clock, and requires the complete preflight to
+pass before writing. In one transaction it may insert exactly one inactive `portfolios` row, one
+`agent_paper_book_attribution` row, and one cash-only opening `sim_equity` row. Before commit it
+requires an unchanged catalog, job state, market date, active-portfolio identity,
+protected-control snapshot, and all unrelated row counts; it then runs the full attribution
+verifier against the empty book and re-reads the registered policy before commit. Any database
+scope, attribution, or policy-identity mismatch rolls back all three inserts. Repeated
+initialization is rejected by the reserved-identity preflight rather than treated as a successful
+replay.
+
+The initializer is deliberately not scheduled and has no API, order, fill, position, dividend, or
+activation surface. Creating an inactive attribution book does not satisfy the data, model,
+decision-evidence, release, human-approval, or execution-path gates and grants no paper execution
+authority. After the schema migration and after both controls have equity on the selected start
+date, the explicit operator command is:
+
+```bash
+.venv/bin/python -m tools.initialize_agent_paper_book \
+  dual_momentum_agent_shadow_v1 YYYY-MM-DD \
+  /absolute/operator-selected/backup \
+  --manifest-sha256 <verified-manifest-sha256>
+```
+
+Each policy requires its own fresh backup matching the then-current database snapshot. Do not run
+this command against the live store until the operator has selected that external backup
+destination and the preflight for the exact start date passes.
+
+`server/broker_human_paper_review.py` now derives one source-neutral, short-lived review packet
+from the complete retained agent-only or hybrid evidence path and one exact
+`SubmitOrderRequest`. It binds the policy registration, decision window, context, data snapshot,
+reserved simulator account, request, and accepted proposal or surviving hybrid effective order.
+A registered hybrid fallback is conspicuous in the packet, while a vetoed buy, expired agent
+proposal, request drift, or review time preceding hybrid evidence fails closed. The packet expires
+after at most five minutes and offers only `approve_exact_intent` or `reject` as the eventual
+operator choices.
+
+Packet schema v2 also includes a bounded human-readable summary. Agent-only summaries expose the
+independently validated signal close, exact request notional, proposal ceiling, stop, confidence,
+thesis, and invalidation. Hybrid summaries expose the deterministic source portfolio, exact
+signal price and notional, candidate/effective/vetoed order counts, model decision, reason, and
+whether the requested order survived. Numeric and order facts come from independently validated
+retained evidence. Model thesis, invalidation, and non-fallback hybrid reasons are labeled
+`untrusted_model_rationale`; a registered model-failure fallback is labeled separately. Raw
+context, prompts, model requests, and evidence-ID arrays are excluded.
+
+This is review material, not an approval. Its SHA-256 detects ordinary corruption but is not a
+signature or authentication mechanism. The packet explicitly records `approval_source =
+not_selected`, `signer_policy = not_selected`, no approval verifier or approval, no lease or
+activation, an absent paper route, and `submission_authority = none`. Verification cannot change
+those fields. A separate read-only retained verifier reconstructs the packet from the complete
+DuckDB evidence path and exact request, compares every field, and requires the review observation
+to fall at or after generation and strictly before expiry. It therefore rejects a forged evidence
+hash even if its ordinary checksum was recomputed, but still does not authenticate a human. The
+module has no persistence, API, schedule, adapter, or order-submission surface. Selecting and
+independently implementing the human trust source and signer policy remains a separate
+prerequisite.
+
+`server/broker_human_paper_approval.py` now defines the next source-neutral trust boundary without
+selecting that source. Its closed envelope binds a one-use approval ID, approval source, signer
+policy ID and version, signer identity, authenticator algorithm and detached bytes, exact review
+packet hash, exact order-request hash, decision (`approve_exact_intent` or `reject`), and
+issued/not-before/expiry times. An explicitly supplied policy scopes authorized signers to exact
+agent modes, registered policy IDs, reserved simulator accounts, its own validity window, and a
+maximum approval duration. There is no default policy, bundled key, trust-store loader, or
+algorithm implementation.
+
+Both policy and envelope now have closed object parsers and independent maximum-64-KiB strict-JSON
+parsers. They require exact schema versions and field sets, canonical UTC timestamps, correctly
+typed sorted unique scope lists, canonical base64 authenticator bytes, finite standard JSON, and
+unique keys at every nesting level. Parsing reconstructs and compares the complete canonical
+payload; unknown, missing, duplicate, reordered-set, malformed, or oversized input fails closed.
+These parsers do not select a file, trust its origin, or authenticate its contents.
+
+The pure verifier checks packet structure, exact hashes, policy identity and scope, bounded time
+windows, canonical signed bytes, and an explicitly injected detached-authenticator verifier. Even
+when that verifier returns literal `True`, the result is only
+`authenticated_decision_design_evidence`: one-use state has not been enforced and
+`human_order_approval_granted = false`. A separate read-only composition first reconstructs the
+packet from retained DuckDB evidence and only then invokes authentication, so a structurally valid,
+rehashed packet forgery never reaches the authenticator callback. This composition writes no
+database rows and does not make the caller-supplied policy trusted. The module has no CLI, API,
+writer, key store, lease, activation, adapter, route, or schedule and always reports
+`submission_authority = none`. A production human-order approval verifier remains unimplemented
+until the operator explicitly selects an approval source, signing mechanism, signer policy, and
+independent trust-loading procedure.
+
+`server/broker_human_paper_approval_store.py` provides a separate durable, non-authorizing
+replay-protection ledger for successful retained-evidence authentication results. It retains the
+exact policy, envelope, review packet, and verification payload; globally sequences and hash-chains
+observations; and makes approval ID, envelope, packet, and request identities unique. Exact
+retained replay is idempotent, while conflicting reuse, malformed retained payloads,
+source-evidence drift, and chain tampering fail closed. Approve and reject observations both remain
+evidence only: every row reports `human_order_approval_granted = false`, no production authority
+consumption, an absent paper route, and `submission_authority = none`. A separate read-only
+completeness verifier captures the bounded ledger twice, revalidates every retained document
+against its source decision evidence, and requires an independently supplied total observation
+count and latest global hash. A missing ledger is accepted only under trusted zero/null state;
+valid truncated history, a replaced chain, a mismatched trusted head, and concurrent changes all
+fail closed. This verifier does not choose the independent trust source, select an approval
+observation, authenticate new bytes, issue a lease, consume an approval, or grant authority.
+
+Recording requires this ledger schema to be preinstalled and fails before invoking the
+authenticator when it is absent; the recording path cannot create its own authority-related
+schema. The operator-only `tools.migrate_agent_human_approval` command is available for a future
+reviewed deployment. It requires a separately verified backup bundle, the bundle's exact manifest
+SHA-256, and an exact logical snapshot match to the locked target. In one transaction it may add
+only the empty `broker_human_paper_approval_observations` table, then proves that unrelated catalog
+definitions, row counts, market date, job state, and active-portfolio identities are unchanged.
+Incompatible or nonempty ledgers, stale or wrongly bound backups, and failed post-DDL scope checks
+fail closed and roll back. The migration has passed isolated-database success, idempotency,
+rejection, and rollback tests, but has not been run against the live store. Installing this empty
+evidence ledger would not select a trust source, authenticate a decision, grant human approval,
+create a paper route, or create submission authority. The future operator sequence is:
+
+```bash
+.venv/bin/python -m tools.backup_database create /absolute/operator-selected/backup
+.venv/bin/python -m tools.backup_database verify /absolute/operator-selected/backup
+.venv/bin/python -m tools.migrate_agent_human_approval \
+  /absolute/operator-selected/backup \
+  --manifest-sha256 <verified-manifest-sha256>
+```
+
+An operator can build one packet without a writable connection:
+
+```bash
+.venv/bin/python -m tools.review_agent_paper_intent build \
+  agent_only <decision-window-id> <idempotency-key> \
+  agent_dual_momentum_shadow_v1 SPY buy 5 2026-09-11 \
+  > /operator-controlled/review-packet.json
+```
+
+The command itself writes only JSON to stdout; shell redirection is operator-controlled. A second
+invocation accepts one maximum-1-MiB strict-JSON object on stdin and reconstructs it against the
+current retained evidence and UTC expiry:
+
+```bash
+.venv/bin/python -m tools.review_agent_paper_intent verify \
+  < /operator-controlled/review-packet.json
+```
+
+Both paths force DuckDB read-only. Duplicate JSON keys, non-finite values, oversized input,
+expired packets, changed evidence, and packet drift fail closed. The CLI has no `approve`,
+`reject`, signer, persistence, activation, lease, adapter, or submission command.
+
+`GET /agent/authority/readiness` is the fail-closed promotion view. It always reports the current
+stage as `shadow`, both later paper stages as ineligible, and both paper and broker routes as
+absent. Schema v3 introduced separate nested `human_approved_paper` and `automatic_paper`
+checklists while retaining the automatic checklist as the legacy top-level gate view. The
+human-approved stage does not require the 60-session gate that it is intended to help accumulate;
+its review-packet gate now passes because source-neutral construction and retained-evidence
+revalidation are implemented, but it still requires one exact-intent approval from a
+still-unselected trusted source and an execution path that remains absent. Automatic paper
+separately requires 60 completed sessions
+across shadow and approved-paper operation, approved-operation evidence, a bounded approval lease,
+and its own still-absent path. Both nested stages remain ineligible and carry
+`execution_authority = none`. Per policy the endpoint also evaluates live registration,
+point-in-time/raw-retained data, a provider-stable model revision, substantive decision-contract
+evidence, isolated portfolio and return-attribution availability, zero recorded integrity
+failures, persisted fault/restart evidence, and a reviewed release. Today the
+feature vectors are complete, but the source contracts remain limited and mutable, the Trae
+catalog exposes an unversioned model alias, no isolated paper books or return attribution exist,
+the evidence window is immature, and no approval lease exists. Schema v4 added the aggregate
+verified source/current-cache alignment status to the point-in-time data gate. Schema v5
+advertised the non-authorizing discrepancy-review contract and its explicit future dispositions.
+Schema v6 also reports aggregate status for the append-only, record-only operator-adjudication
+ledger; neither review nor adjudication tooling is treated as data readiness. Schema v11 adds a
+sanitized current-release projection to the `reviewed_release` gate.
+`server/agent_release_readiness.py` verifies the release-manifest hash and semantics, then reports
+mechanical eligibility separately from explicit human review. A clean, complete, tracked release
+candidate is only `eligible_awaiting_explicit_review`; it is not a reviewed release. The
+source-neutral release-review policy and detached-authenticator verifier bind one exact manifest,
+Git commit, Git tree, readiness hash, reviewer, policy, decision, and short validity window. They
+require an independently trusted readiness hash and explicitly selected policy hash. Even a valid
+approval is design evidence only: there is no selected trust source, persistence, readiness-pass
+integration, paper route, or submission authority. A separate
+`agent_release_review_observations` ledger can retain only successfully authenticated release
+reviews after re-inspecting the exact current release and matching an independently trusted
+readiness hash. It hash-chains observations, makes release/review identities one-use, and accepts
+only exact replay. A separate read-only completeness verifier captures this bounded ledger twice,
+revalidates every retained document, and requires an independently supplied total observation
+count and latest global hash. Missing storage can match only trusted zero/null state; valid
+truncation, replacement, head mismatch, and concurrent change fail closed. It does not select an
+approved review or make the release gate pass. The ledger is not initialized in the live store and
+remains excluded from gate decisions. An operator-only schema migration at
+`tools.migrate_agent_release_review` is now
+available for a future reviewed deployment. It requires a separately verified backup bundle,
+the bundle's exact manifest SHA-256, an exact logical snapshot match to the locked live database,
+and a transaction-local proof that only the empty replay ledger was added. Existing incompatible
+or nonempty ledgers, stale backups, and any unrelated catalog, row-count, market-date, job-state,
+or active-portfolio change fail closed and roll back. It has been exercised only against isolated
+databases and has not been run on the live store. Installing the empty table would not select a
+trust source, pass the release gate, or grant paper authority. The future operator sequence is:
+
+```bash
+.venv/bin/python -m tools.backup_database create /absolute/operator-selected/backup
+.venv/bin/python -m tools.backup_database verify /absolute/operator-selected/backup
+.venv/bin/python -m tools.migrate_agent_release_review \
+  /absolute/operator-selected/backup \
+  --manifest-sha256 <verified-manifest-sha256>
+```
+
+The current dirty worktree and untracked required files therefore remain visible
+release blockers. The endpoint is diagnostic only:
+there is no mutation route that can turn a reported gate into authority.
+
+Fault/restart evidence is produced explicitly with:
+
+```bash
+.venv/bin/python -m server.agent_fault_drills run
+curl -fsS http://127.0.0.1:8000/agent/fault-drills
+```
+
+The frozen `agent-shadow-state-machine-v1` suite runs twenty-eight isolated application cases covering
+duplicate-window replay, scheduled replay, interruption before response persistence, restart after
+response persistence, the registered hybrid fallback, fail-closed isolated-book attribution, and
+fail-closed separation of human-approved from automatic-paper prerequisites. It also verifies that
+the isolated-book preflight is read-only for both registered modes and that a failed attribution
+schema migration scope check rolls back its DDL. A separate initialization case verifies that a
+failed post-insert scope proof rolls back the inactive portfolio, attribution contract, and opening
+equity row together. The final application case proves that self-consistent forged review facts
+cannot match independently reloaded retained evidence or become approval or submission authority;
+another proves the operator CLI's build/verify round trip leaves decision and simulator rows
+unchanged; the newest case proves retained evidence is reloaded before detached-authenticator
+evaluation, so a self-consistent packet forgery cannot reach authentication or authority.
+The data-review case likewise proves that a rehashed source/cache discrepancy packet cannot
+survive independent retained-evidence reload or mutate operational state.
+The newest application case proves that forged, stale, or changed discrepancy evidence cannot
+produce even a record-only adjudication event.
+The approval-history case additionally proves that a valid but truncated or replaced
+approval-observation chain cannot match an independently trusted total count and latest hash.
+An additional independent-data case proves that modified raw Nasdaq responses or derived
+observation chains fail verification rather than becoming adjudication evidence.
+The model-transport case proves that the selected Trae alias, max-routing key, catalog marker,
+proxy version, and CLI runtime cannot drift between pre-generation and post-generation
+attestations. The release-review cases reject a self-consistently rehashed readiness forgery, a
+failed detached authenticator, current-release drift before authentication or persistence, valid
+but truncated or replaced retained history against an independently trusted global head, and a
+failed backup-gated release-review schema migration without retaining its DDL.
+The human-approval migration case likewise proves that failed post-DDL scope verification removes
+the approval ledger instead of leaving partially installed authority-related schema.
+The automatic-paper retention migration case proves the same rollback property for the empty
+authority-event store. A separate activation-transaction case proves that a row inserted before a
+failed complete-chain postcondition is rolled back without producing submission authority.
+A second transaction case proves that failed post-write verification rolls back the authority
+consumption, complete authority-aware risk and plan evidence, broker intent, and uncertain
+submission marker together.
+A twenty-eighth
+transient user-systemd probe
+exits unsuccessfully once and must be restarted exactly once before succeeding. The probe uses only
+a temporary counter and performs no network, model, trading-database, or order operation. The
+append-only `agent_fault_drill_runs` record binds the exact case list,
+policy registry, agent-boundary and test source hashes, times, bounded output hashes, and aggregate
+result. Historical rows remain verifiable against their own closed payload and hashes when the case
+registry expands; only a row claiming the current suite identity is checked against the current
+exact case registry. `GET /agent/fault-drills` reports a pass as current only while all twenty-eight cases
+passed and the current suite/source/registration identity still matches. A timeout, malformed
+result, failed case, tampering, or later source drift blocks the readiness gate.
+
+The shadow submission endpoint has
+`validation_scope = deterministic_shadow_recomputation_and_risk` and
+`execution_authority = none`: shadow acceptance means only that the frozen claim passed the
+registered deterministic checks. It is not permission to trade. The endpoint never inserts
+`sim_orders`, never changes a portfolio, and is not wired into the nightly strategy flow.
+Hybrid proposal envelopes are rejected because hybrid operation is restricted to the separate
+candidate-bound veto contract. Approved-paper and automatic-paper promotion remain future gated work under
+[`live-readiness-goal.md`](live-readiness-goal.md).
+
+The first model-driven producer is an **agent-only shadow runner** that may be invoked manually:
+
+```bash
+.venv/bin/python -m server.agent_shadow_runner \
+  dual_momentum SPY --mode agent_only
+```
+
+It takes a persistent advisory lock at `.agent-shadow.lock`, derives one server-owned decision
+window from mode, strategy, ticker, and breadth-qualified market date, and records the exact
+context, model input, Trae request, request hash, and start event before releasing DuckDB for
+inference. The closed output contract permits only a reasoned `no_action` or exactly one proposal
+claim. Proposal and idempotency IDs, connector/source identities, signal time, and expiry are
+server-generated; the model cannot invent them. A valid proposal is routed only through the
+existing `agent_proposals.submit` shadow boundary.
+
+Every terminal result is appended to `agent_shadow_events`: no-action, malformed output,
+transport failure, accepted/rejected proposal, proposal-boundary failure, or an uncertain
+interrupted request. Model responses retain response identity, normalized output, request
+identity, proxy/model versions, and token usage. A completed window replays its stored result
+without another Trae request. If a process dies before a response is durably recorded, the next
+invocation marks the window uncertain and does not retry; if it dies after recording a response,
+the next invocation completes that recorded response without regenerating it. An unfinished older
+market-date window is always resolved before a newer one may start. There are no automatic retries.
+`GET /agent/shadow/attempts` exposes the newest 100 attempt summaries with exact count/truncation,
+status, identities, timestamps, token usage, and linked proposal outcome. It omits retained
+contexts, model inputs, request bodies, full model output, thesis, and invalidation.
+
+The first live manual invocation for `dual_momentum`/`SPY` on market date 2026-09-11 returned
+`no_action` because the earlier schema-v3 context exposed only one current SPY fact and no
+SPY/EFA/BIL comparison history. That result remains immutable in decision window
+`agent-shadow-v1:2dbaa96dd418c2ecb983cdbe6482ff0f9ab53633e4f445036ecff0cdf9c80c71`;
+schema v6 improves future windows and does not rewrite or retry the recorded attempt.
+
+The same runner is wrapped by a persistent user-systemd timer at 01:30 UTC Tuesday through
+Saturday, after the weekday nightly pipeline. The timer remains enabled across terminal
+disconnection and reboot through user lingering; its worker service is static and is started only
+by the timer. A separate persistent timer captures normalized dual-momentum price observations at
+01:25 UTC, so the immutable data history continues to accumulate while model generation is
+disabled and the model kill switch can still prevent its worker from opening DuckDB. The model
+schedule is fail-closed behind
+`store/agent-shadow-control.json`. A missing, malformed, future-dated, or
+registration-hash-mismatched control disables generation before DuckDB or Trae is opened.
+Installation creates no enabled control, so this is a persistent default-disabled shadow control.
+The current host's operator control is enabled for unattended shadow observation; this changes
+neither the default nor its `execution_authority = none` boundary.
+Establish the explicit default and inspect it with:
+
+```bash
+.venv/bin/python -m server.agent_shadow_schedule disable \
+  --reason "default disabled pending supervised shadow review"
+.venv/bin/python -m server.agent_shadow_schedule status
+curl -fsS http://127.0.0.1:8000/agent/shadow/control
+```
+
+Only after supervised review may an operator enable this shadow-only registration:
+
+```bash
+.venv/bin/python -m server.agent_shadow_schedule enable \
+  --reason "operator approved supervised agent-only shadow observation"
+systemctl --user start trading-engine-agent-shadow.service
+journalctl --user -u trading-engine-agent-shadow.service -n 100 --no-pager
+```
+
+Disable is the persistent kill switch:
+
+```bash
+.venv/bin/python -m server.agent_shadow_schedule disable \
+  --reason "operator disabled agent shadow observation"
+```
+
+`GET /agent/shadow/control` exposes only the sanitized enabled state, reason, timestamp,
+registration/hash, schedule, bounded restart policy, and `execution_authority = none`; it does not
+open DuckDB or mutate the control. The worker has a five-minute process timeout and systemd may
+restart a failed process after five minutes, at most three starts per 30 minutes. This does not
+regenerate a consumed decision: the runner's persisted decision-window rules still replay a
+completed result, resume a recorded response, and mark a started request with no recorded response
+uncertain. Disabled timer invocations exit successfully without a model call. The control file is
+an optional schema-v3 backup artifact when present, but restoring it is deliberately manual so a
+recovered host cannot silently inherit enabled model scheduling.
+
+Scheduled or manual, the runner has `execution_authority = none`, does not insert
+`sim_orders`, and does not mutate a portfolio. Hybrid context carries a hash-bound, read-only
+invocation of the registered deterministic
+`dual_momentum` strategy over the source algorithm portfolio's reconciled current state, and a
+separate contract permits only `allow` or `veto` against that exact candidate. It cannot change
+the ticker, side, quantity, create an order, or suppress a sell. Manual hybrid shadow decisions
+use the append-only attempt/event ledger and exact replay. Invalid output, transport failure,
+candidate mismatch, or an interrupted unrecorded request records the predeclared
+`unmodified_algorithm_signal` fallback without retry; no buy candidate records a deterministic
+no-model-call outcome. Hybrid remains absent from the timer and simulator. Algorithm-only
+scheduling remains unchanged and independent of Trae availability. A simulator route still
+requires the later risk, full return-attribution, fault-test, and authority gates in the
+live-readiness goal.
+
+The capital-disabled broker boundary remains internal to `server/` and is not imported by an API,
+agent runner, ticket path, scheduler, or the existing league fill loop. Its typed adapter supports
+account, positions, open orders, submit, cancel, and bounded fill observation. The simulator
+adapter wraps existing ledgers; the disabled-live adapter contains no network or credential path.
+Submission records an immutable intent and `submission_started` event before the adapter call, so
+a timeout, process exit, or malformed acknowledgement remains uncertain and cannot be retried
+blindly. Exact acknowledged replay returns retained state without another adapter call. The
+internal submission-resolution coordinator can later capture a twice-identical complete venue
+snapshot under a durable halt and retain a hash-bound adjudication as open, filled, terminally
+partial-filled, or `not_observed_burned`. It never calls submit or cancel, never converts the
+underlying attempt into a retryable state, and stable absence permanently burns the key.
+
+Independent pre-trade risk schema v2 recomputes twenty ordered gates over a self-contained,
+hash-bound snapshot. The snapshot assembler requires twice-stable adapter reads, an exact retained
+reconciliation, complete current marks for positions and open orders, typed market/performance
+evidence, and a durable operational control, then repeats the stable adapter capture so state
+changing anywhere across assembly fails closed. Open-order remainder quantities reserve cash, gross
+and symbol exposure, turnover, order count, and sell inventory; terminal orders returned as open
+are invalid. Quotes, reconciliation, and decisions have independent freshness bounds. Missing
+control state is halted, halt events are append-only and hash chained, and there is intentionally
+no enable, clear, lease, API, or schedule. An independent local CLI can inspect or append a halt
+without the main UI, but cannot clear it. An internal halt-first emergency coordinator can append
+that same durable halt and cancel an already-stable set of open orders. It commits each
+cancellation attempt before invoking the adapter, retains exact acknowledgements, blocks blind
+retry after uncertain outcomes, and records completion only after a second stable snapshot has no
+open orders. The operation itself is hash-bound and exactly replayable. It remains unwired from
+every API, scheduler, agent, ticket, and league entry point. Therefore this machinery cannot
+currently produce an executable passing snapshot. A separate pure paper-lease candidate contract
+binds human-approval evidence, one decision window, policy/account/strategy/data/model/execution/
+risk/release/readiness identities, symbols, and strict capital/order limits. It can report only
+that a candidate is admissible for future activation; it has no issuer, persistence, activation,
+consumption, renewal, revocation, or submission surface, and always reports
+`submission_authority = none`. Startup assessment also rejects uncertain cancellations and
+incomplete emergency-stop operations. `server/broker_paper_intent.py` can additionally re-verify
+one exact broker-risk decision and compare it with the lease, externally trusted retained-agent
+bindings, and externally trusted current usage. Agent-only bindings require an accepted,
+independently validated proposal and its exact request, while hybrid bindings require the frozen
+algorithm candidate, terminal veto outcome, effective-order-set identity, and proof that the order
+survived that outcome. It checks risk freshness and both per-order and cumulative lease limits,
+but only reports `eligible_for_future_consumption`; activation, consumption, reservation,
+persistence, and submission remain absent. The future durable event protocol is documented in
+`docs/design/paper-authority-state-machine.md`; a separate pure transcript verifier proves
+hash-chain ordering, cumulative limits, terminal revocation, and invalidation on restart, expiry,
+or a later operational halt. It also requires every proposed consumption to bind an uncertain
+pre-adapter submission marker, because those records must eventually commit atomically. There is
+still no transcript writer or runtime authority. A read-only agent-only evidence loader now joins
+one complete retained shadow attempt to its model response, accepted proposal, deterministic
+validation, terminal event, and audit row. It recomputes the decision-window, context, policy,
+Trae request, proposal, validation, and future request bindings rather than accepting a
+caller-designated trust hash. A separate read-only hybrid loader verifies the deterministic
+candidate and portfolio-state hashes, exact veto-role Trae response or registered fallback path,
+terminal effective-order identity, and that the requested order survived the retained outcome; a
+vetoed buy cannot load. Neither loader has a write or execution surface. A read-only usage loader
+separately requires the complete trusted authority-transcript head, re-verifies the
+full chain, rejects valid but truncated prefixes and every closed epoch, and derives
+`PaperLeaseUsage` without caller-supplied counters. It also retains the exact prior consumption,
+idempotency, and request identities needed to prove that a proposed next use is not a replay. It
+has no write or authority surface.
+A read-only runtime/control loader generates one process-local non-persisted random epoch and
+twice verifies the complete one-way halt chain before returning its latest anchor. Missing,
+tampered, or changing control state fails closed, and a new process receives a different epoch.
+It also has no activation or execution surface. The pure authority-aware projection binds the
+admissible candidate assessment, complete open
+transcript, current process/control evidence, and original halted snapshot. It retains the
+historical halt and exposes only a design-only effective control state. A second pure evaluator
+now re-verifies that projection and runs the same twenty standard risk gates against an ephemeral
+snapshot whose operational-control flag alone is clear. Every other risk failure remains
+blocking, and the original halted snapshot/control identities remain bound. Its result is a
+distinct non-submittable dataclass, not the ordinary risk-decision dictionary accepted by the
+broker ledger; it reports no submission integration or authority and cannot persist, submit, or
+mutate control state. It also carries the exact computed notional and the candidate, usage,
+transcript, runtime, and control identities needed by the next pure handoff. A pure atomic
+consumption planner re-verifies that evaluation, the complete retained usage, the exact
+agent-only or hybrid intent, candidate assessment, and broker request. It rejects previously
+consumed consumption keys, idempotency keys, and request hashes, recomputes lease capacity, and
+produces hash-bound expected broker-intent, `submission_started`, and `consumption_committed`
+commitments. Transcript schema v2 binds the distinct authority-aware risk evaluation rather than
+treating it as an ordinary broker-risk decision. The expected started-event hash commits to the
+canonical marker fields; the current broker ledger stores those fields but has no dedicated hash
+column. The planner has no writer, transaction, adapter, route, schedule, or submission authority.
+A pure startup epoch scanner accepts only bounded complete transcript bundles, re-verifies every
+chain against the current process/control binding, treats prior-process activations as
+restart-invalidated, and blocks if any current-process epoch still appears open. It has no
+database writer or activation path. A separate read-only durable startup loader recognizes only
+an exact pre-existing retention-table schema and captures its rows twice. It verifies a
+store-wide sequence/hash chain against an externally trusted total row count and latest global
+head, reconstructs every canonical lease and event bundle, and passes all epochs to the pure
+scanner. A missing or empty table is safe only under an externally trusted zero count and null
+head; valid prefixes, omitted and rechained epochs, gaps, malformed payloads, identity drift, and
+concurrent changes fail closed. The loader cannot create the schema or write authority state and
+remains unwired.
+
+An operator-only `tools.migrate_agent_paper_authority_store` command can install the exact empty
+retention and authority-aware risk-evidence schemas in a future reviewed deployment. It requires a
+separately verified backup, the exact backup-manifest identity, and a complete logical snapshot
+match to the locked target. It rejects incompatible or nonempty stores and rolls back unless the
+transaction changes only the empty `broker_paper_authority_retained_events` and
+`broker_paper_authority_risk_evaluations` tables. The command explicitly reports that runtime
+activation, adapter integration, a paper-order route, and submission authority remain absent. It
+has passed isolated success, idempotency, rejection, and rollback tests and has not been run
+against the live store. The future operator sequence is:
+
+```bash
+.venv/bin/python -m tools.backup_database create /absolute/operator-selected/backup
+.venv/bin/python -m tools.backup_database verify /absolute/operator-selected/backup
+.venv/bin/python -m tools.migrate_agent_paper_authority_store \
+  /absolute/operator-selected/backup \
+  --manifest-sha256 <verified-manifest-sha256>
+```
+
+A source-bound thirty-four-case subprocess drill
+covers stale and unreconciled state, limits, halt and corporate-action inputs,
+duplicate/uncertain submissions, malformed acknowledgements, partial fills, rejected
+cancellation, changing snapshots, emergency-cancel success and timeout/re-entry, and fail-closed
+lease admission and intent eligibility. It also tests permanent key burn after stable venue
+absence, restart-persistent tamper-evident adjudication, retained agent-only and hybrid evidence
+tampering, transcript-prefix undercount attempts, durable global-head omission attempts,
+cross-process runtime-epoch rotation, the non-submittable authority-aware risk handoff, and replay
+rejection in the pure atomic consumption plan. It also covers restart invalidation of retained
+authority epochs and rejection of changed halt-chain evidence by the pure activation planner. It
+is engineering evidence only,
+not paper or live authority.
+
+A separate read-only startup assessment repeats the exact adapter capture around reconciliation
+and control reads. It requires fresh matching reconciliation and no unresolved uncertain internal
+submission. Resolved attempts remain in the assessment for audit; an adjudicated open order still
+blocks startup, while filled, terminal-partial, and burned absence outcomes remove only the
+ambiguity blocker. The assessment reports only `reconciled_halted` or `blocked`, always with
+`submission_authority = none`. Schema v2 adds a pure verifier that recomputes its account,
+reconciliation-age, control, recovery-list, blocker, status, and hash semantics; a self-consistent
+rehashed forgery does not become activation evidence. Database reopen/restart preserves the
+one-way halt.
+
+A separate pure activation planner joins that verified startup artifact with the admissible lease
+assessment, current process/control evidence, and the durable startup loader's globally
+head-bound scan. It requires fresh evidence, rejects a lease identity already present in retained
+history, and emits only the exact expected `activation_recorded` bytes and hash. The plan also
+binds the expected prior global retention row count and head so a future transaction would have
+to compare-and-append against the same complete history. It cannot create the retention schema,
+write an event, call an adapter, expose a route or schedule, or grant authority.
+
+`server/broker_paper_authority_store.py` now provides that compare-and-append operation only as an
+internal test-harness transaction. It requires the exact preinstalled schema, re-verifies the
+lease and activation plan, verifies the complete retained global chain, appends one canonical
+activation row, and verifies the complete resulting chain before commit. Exact replay is
+idempotent; stale heads, conflicts, malformed history, and post-insert verification failure fail
+closed, with the latter rolling back the insert. This module has no schema initializer, trust
+loader, account-lock coordinator, HTTP route, CLI, scheduler, adapter integration, consumption
+path, or paper-order route, and always reports `submission_authority = none`. It has been exercised
+only against isolated test databases; the live authority table remains absent.
+
+`server/broker_paper_consumption_store.py` implements the next internal transaction without
+calling the simulator. Against exact preinstalled schemas, it re-verifies the canonical
+consumption plan, complete retained authority chain, externally trusted global count/head, current
+runtime and halt anchor, derived lease usage, and distinct authority-aware risk evaluation. It
+then atomically appends `consumption_committed`, the immutable broker intent, the complete
+authority-aware risk/eligibility/plan evidence, and the existing broker ledger's
+`submission_started` uncertainty marker. Before commit it re-verifies the resulting complete
+transcript, cumulative limits, risk ledger, intent, and marker. Exact replay is idempotent; partial
+replay, stale evidence or head, a later halt, and failed post-write verification fail closed. It
+has no adapter call, route, CLI, schedule, or submission authority. The guarded
+`tools.migrate_agent_paper_authority_store` migration now installs both empty authority-evidence
+tables, but has not been run against the live database.
+
+The primary automatic-paper interaction is intended to be one authenticated UI **Enable automatic
+paper** confirmation that creates a short-lived, simulator-only lease with fixed release, model,
+policy, account, symbol, risk, duration, order-count, and capital bounds. It is not a per-order
+approval prompt. The existing exact-intent approve/reject packet remains a separate secondary
+supervised-paper path. Algorithm-only schedules remain independent; agent-only and hybrid books
+remain separately registered and attributable.
+
 The Positions & Orders page is a current-state projection: both lists join `portfolios` and
 include active books only. An explicit position lookup for an unknown or retired portfolio
 returns 404 instead of presenting archival shares as current exposure. Retired position and
@@ -649,8 +1464,9 @@ Audit the installed units and cron configuration without changing the host:
 .venv/bin/python -m tools.install_automation
 ```
 
-Exit 0 means both installed units match their versioned sources, are enabled and active, user
-lingering is enabled for logout/reboot continuity, and the managed cron block is current. Exit 1
+Exit 0 means all six installed unit files match their versioned sources; the API, UI, shadow
+timer, and agent-data-capture timer are enabled and active; both workers remain static; user
+lingering is enabled for logout/reboot continuity; and the managed cron block is current. Exit 1
 with `changes-required` is a dry-run result; its `service_units` records show the observed
 `matches`, `enabled`, and `active` state, while `linger` reports `yes`, `no`, or fail-closed
 `unknown`. The `host` record also requires an active, boot-enabled cron daemon, UTC timezone, and
@@ -665,8 +1481,10 @@ curl -fsS http://127.0.0.1:8000/meta
 
 The installer validates every launch target before writing, preserves unrelated user-crontab
 lines, replaces only its marked block or exact legacy entries for this checkout, installs the
-versioned units as independent regular files, enables both units and user lingering, and restarts
-only changed services while starting byte-identical units that are stopped. Service enablement
+versioned units as independent regular files, enables the API, UI, and both timers plus user lingering,
+and restarts only changed autostart units while starting byte-identical autostart units that are
+stopped. The shadow and data-capture workers are installed but remain static and inactive except
+when invoked by their timers or explicitly by an operator. Service enablement
 and activity are sampled again at the mutation boundary, so late drift is repaired and reported;
 a fully converged apply issues no mutating systemd command. Service-unit
 sources, cron driver scripts, and the postflight verifier must be regular files reached through
@@ -686,7 +1504,7 @@ applied change summary. The host's `crontab` interface has no compare-and-swap o
 operators should still avoid editing the same user crontab during the final replacement command.
 The plan's `launch_sources` records a SHA-256 for each of the five drivers and the postflight
 verifier, while each `service_units` record identifies its versioned source hash. Apply re-reads
-all eight files through bounded no-follow descriptors and compares the planned hashes before any
+all ten files through bounded no-follow descriptors and compares the planned hashes before any
 write, including when only cron or service state needs repair. Each cron source's required
 read/execute permission is checked relative to the same anchored parent used for its stable read;
 permission or identity changes around that check fail closed before mutation. It atomically publishes the pinned
@@ -723,15 +1541,19 @@ takes every scheduled-driver lock, the shared
 metadata lock, the queue-drain lock, and a dedicated backup lock without waiting. It uses DuckDB database-copy semantics while
 the source is read-only, verifies the copied catalog and every table count, and atomically
 publishes the bundle only after its database and three prospective-evidence checkpoints pass
-hash and invariant checks. Schema v2 also preserves exactly seven hashed operational artifacts:
+hash and invariant checks. Schema v2 introduced exactly seven hashed operational artifacts:
 `data/_meta.json`, the Friday postflight receipt, `screens/latest.md`, the dated Markdown and CSV
 screen for the database's latest price date, and the Markdown and CSV league reports. They retain
 their repository-relative layout beneath `evidence/`, so a restored API can use
 `TRADING_ENGINE_DATA_DIR=<bundle>/evidence/data`; the receipt remains discoverable at
 `<bundle>/evidence/logs/friday-postflight.json`. The manifest also records latest price date, queue
 states, active portfolio identity, and the release identity. Verification still accepts legacy
-schema-v1 bundles without those operational artifacts and reports a zero artifact count, but all
-new bundles use schema v2. Verification requires the bundle root, every directory below it,
+schema-v1 bundles without those operational artifacts and reports a zero artifact count. New
+Schema v3 bundles retain those seven files and, when present, hash
+`store/agent-shadow-control.json` as a separate optional operational control. A missing control is
+valid and means the schedule remains disabled; recovery does not automatically copy or activate a
+bundled control. Verification remains compatible with schema-v1 and schema-v2 bundles.
+Verification requires the bundle root, every directory below it,
 the manifest, database, and evidence files to remain owner-only; it is read-only and can be
 repeated independently. The public verifier traverses every absolute parent component and opens
 the bundle root without following symlinks, then performs all reads through that retained root
@@ -752,7 +1574,7 @@ Repository-contained source paths must also retain the producer's canonical none
 POSIX spelling; dot segments, duplicate separators, and other normalized aliases are rejected.
 Database and evidence sizes plus snapshot counts must be non-negative integers—booleans and fractional
 values are rejected—and snapshot hashes and the latest-price date must use canonical formats.
-For schema v2, any missing, unexpected, path-remapped, symlinked, or byte-altered operational
+For schema v2 or v3, any missing, unexpected, path-remapped, symlinked, or byte-altered operational
 artifact fails verification. Across both schema versions, the complete bundle inventory must
 contain exactly the database, manifest, manifest-declared evidence files, and their required
 directories; unmanifested files, directories, symlinks, and special filesystem nodes are rejected.

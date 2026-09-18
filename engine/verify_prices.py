@@ -68,6 +68,7 @@ import sys
 import time
 import urllib.parse
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -136,6 +137,16 @@ class SymbolNotFound(SourceError):
     """
 
 
+@dataclass(frozen=True, slots=True)
+class NasdaqResponse:
+    """Exact HTTP response material for independent-evidence retention."""
+
+    body: bytes
+    content_type: str
+    status_code: int
+    received_at: datetime
+
+
 # --------------------------------------------------------------------------- #
 # The fetch — structured so a FAILOVER collector could reuse it unchanged.
 # It returns parsed bars and never touches the store. (Not building the failover
@@ -154,11 +165,46 @@ def _num(raw, field: str) -> float | None:
         raise ValueError(f"{field}={raw!r}: {exc}") from exc
 
 
-def fetch_nasdaq_history(ticker: str, *, assetclass: str,
-                         start: date, end: date,
-                         session: requests.Session | None = None,
-                         timeout: float = HTTP_TIMEOUT) -> dict:
-    """Daily OHLCV for one name from api.nasdaq.com.
+def fetch_nasdaq_response(
+    ticker: str,
+    *,
+    assetclass: str,
+    start: date,
+    end: date,
+    session: requests.Session | None = None,
+    timeout: float = HTTP_TIMEOUT,
+) -> NasdaqResponse:
+    """Return one exact Nasdaq response without interpreting or retaining it."""
+    if assetclass not in ("etf", "stocks"):
+        raise SourceError(f"bad assetclass {assetclass!r} for {ticker}")
+    url = API_URL.format(sym=urllib.parse.quote(ticker, safe=""))
+    params = {
+        "assetclass": assetclass,
+        "fromdate": start.isoformat(),
+        "todate": end.isoformat(),
+    }
+    getter = session.get if session is not None else requests.get
+    try:
+        response = getter(url, params=params, headers=HEADERS, timeout=timeout)
+        received_at = datetime.now(timezone.utc)
+        body = bytes(response.content)
+        status_code = int(response.status_code)
+        content_type = response.headers.get("content-type", "")
+    except (AttributeError, TypeError, ValueError, requests.RequestException) as exc:
+        raise SourceError(f"transport: {exc}") from exc
+    return NasdaqResponse(
+        body=body,
+        content_type=content_type,
+        status_code=status_code,
+        received_at=received_at,
+    )
+
+
+def parse_nasdaq_history(
+    ticker: str,
+    response: NasdaqResponse,
+) -> dict:
+    """Parse one exact Nasdaq response into normalized daily OHLCV bars.
 
     Returns {"symbol": str, "bars": {date: {open/high/low/close/volume}},
              "parse_errors": [str], "rows": int}.
@@ -168,27 +214,20 @@ def fetch_nasdaq_history(ticker: str, *, assetclass: str,
     Parsing is defensive but LOUD: a row that will not parse is collected into
     `parse_errors` and reported upward, never silently dropped.
 
-    `assetclass` is a required argument on purpose. There is no default and no
-    inference from the symbol: 'etf' for ETFs, 'stocks' for equities.
+    The exact bytes remain available to callers that need durable provenance.
     """
-    if assetclass not in ("etf", "stocks"):
-        raise SourceError(f"bad assetclass {assetclass!r} for {ticker}")
-    # Class shares: the store's canonical 'BRK.B' is accepted and normalised by
-    # the API to 'BRK/B' (verified). The yfinance form 'BRK-B' is NOT.
-    url = API_URL.format(sym=urllib.parse.quote(ticker, safe=""))
-    params = {"assetclass": assetclass,
-              "fromdate": start.isoformat(), "todate": end.isoformat()}
-    getter = session.get if session is not None else requests.get
+    if not isinstance(response, NasdaqResponse):
+        raise SourceError("invalid Nasdaq response")
+    if response.status_code != 200:
+        raise SourceError(f"HTTP {response.status_code}")
+    if not response.content_type.lower().startswith("application/json"):
+        raise SourceError("non-JSON content type")
     try:
-        resp = getter(url, params=params, headers=HEADERS, timeout=timeout)
-    except requests.RequestException as exc:
-        raise SourceError(f"transport: {exc}") from exc
-    if resp.status_code != 200:
-        raise SourceError(f"HTTP {resp.status_code}")
-    try:
-        payload = resp.json()
-    except ValueError as exc:
-        raise SourceError(f"non-JSON body ({len(resp.content)} bytes): {exc}") from exc
+        payload = json.loads(response.body)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise SourceError(
+            f"non-JSON body ({len(response.body)} bytes): {exc}"
+        ) from exc
 
     status = (payload or {}).get("status") or {}
     rcode = status.get("rCode")
@@ -223,6 +262,30 @@ def fetch_nasdaq_history(ticker: str, *, assetclass: str,
             bars[d] = bar
     return {"symbol": data.get("symbol") or ticker, "bars": bars,
             "parse_errors": parse_errors, "rows": len(rows)}
+
+
+def fetch_nasdaq_history(ticker: str, *, assetclass: str,
+                         start: date, end: date,
+                         session: requests.Session | None = None,
+                         timeout: float = HTTP_TIMEOUT) -> dict:
+    """Daily OHLCV for one name from api.nasdaq.com.
+
+    `assetclass` is required and never inferred from the symbol. This legacy
+    verifier API intentionally returns parsed data only; evidence capture uses
+    ``fetch_nasdaq_response`` plus ``parse_nasdaq_history`` so it can retain
+    the exact bytes before deriving facts.
+    """
+    # Class shares: the store's canonical 'BRK.B' is accepted and normalised by
+    # the API to 'BRK/B' (verified). The yfinance form 'BRK-B' is NOT.
+    response = fetch_nasdaq_response(
+        ticker,
+        assetclass=assetclass,
+        start=start,
+        end=end,
+        session=session,
+        timeout=timeout,
+    )
+    return parse_nasdaq_history(ticker, response)
 
 
 # --------------------------------------------------------------------------- #

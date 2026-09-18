@@ -146,6 +146,24 @@ def test_live_readiness_requires_evidence_and_operational_gates():
     assert "one uninterrupted month of broker-paper shadow operation" in compact_goal
     assert "short-lived server-side lease" in compact_goal
     assert "startup and restart state must always be disabled" in compact_goal.lower()
+    assert "Algorithm-only" in goal
+    assert "Agent-only experimental" in goal
+    assert "Hybrid" in goal
+    assert "The target is a multi-mode decision system" in compact_goal
+    assert "Every portfolio registration must declare exactly one mode" in compact_goal
+    assert "Data improvements must remain usable by deterministic strategies" in compact_goal
+    assert "keep existing algorithm-only registrations and scheduling unchanged" in compact_goal
+    assert "Completed 2026-09-13" in compact_goal
+    assert "GET /agent/proposals" in compact_goal
+    assert "GET /agent/attribution" in compact_goal
+    assert "GET /agent/authority/readiness" in compact_goal
+    assert "tools.initialize_agent_paper_book" in compact_goal
+    assert "paper-authority-state-machine.md" in compact_goal
+    assert "atomically with the broker ledger" in compact_goal
+    assert "Automatic paper" in goal
+    assert "At least 60 completed market sessions" in compact_goal
+    assert "An agent must never be required for an algorithm-only book to run" in compact_goal
+    assert "does not authorize live trading" in compact_goal
     assert "Do not weaken a gate to manufacture completion" in compact_goal
     assert "Do not repeat the initial Workstream A audit" in compact_goal
     assert "reviewable commits" in compact_goal
@@ -233,6 +251,9 @@ def test_backup_runbook_keeps_local_and_off_machine_recovery_distinct():
         assert "Schema v2" in text
         assert "schema-v1 bundles" in text
         assert "seven" in text and "operational artifacts" in text
+        assert "Schema v3" in text
+        assert "agent-shadow-control.json" in text
+        assert "schema-v2" in text
         assert "TRADING_ENGINE_DATA_DIR" in text
         assert "copied database" in text
         assert "semantically" in text or "reconciliation" in text
@@ -257,9 +278,9 @@ def test_automation_runbook_requires_in_checkout_regular_launch_files():
     assert "user unit directory is invalid and never written through" in contributing
     assert "repeats the complete plan immediately before its first mutation" in how
     assert "stale dry-run state cannot" in contributing
-    assert "six launch-source hashes and two versioned unit-source hashes" in contributing
+    assert "six launch-source hashes and six versioned unit-source hashes" in contributing
     assert "bounded no-follow descriptors" in contributing
-    assert "revalidates all eight sources before mutation" in contributing
+    assert "revalidates all twelve sources before mutation" in contributing
     assert "share one retained descriptor" in contributing
     assert "symlink or ordinary-directory substitution" in contributing
     assert "reads and merges the latest crontab immediately before replacement" in contributing

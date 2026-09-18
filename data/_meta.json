@@ -64,8 +64,8 @@
     "store_gb": 3.82
   },
   "price_verify": {
-    "last_run": "2026-09-16T22:41:01.037141+00:00",
-    "as_of": "2026-09-16",
+    "last_run": "2026-09-17T22:41:52.949769+00:00",
+    "as_of": "2026-09-17",
     "source": "api.nasdaq.com/api/quote/{ticker}/historical",
     "role": "verify-only; this source never writes a price row",
     "sessions_requested": 5,
@@ -88,12 +88,12 @@
     "bars_compared": 636,
     "field_comparisons": 2544,
     "worst": {
-      "ticker": "GGB",
-      "date": "2026-09-10",
+      "ticker": "ACHV",
+      "date": "2026-09-16",
       "field": "low",
-      "store": 4.9,
-      "source": 4.895,
-      "diff_bp": 10.2
+      "store": 7.27,
+      "source": 7.265,
+      "diff_bp": 6.88
     },
     "worst_is_disagreement": false,
     "disagreements": [],
@@ -107,24 +107,24 @@
     "volume_median_abs_diff_pct_latest_session": null,
     "volume_median_abs_diff_pct_prior_sessions": 0.01,
     "volume_bars_compared": 636,
-    "provisional_note": "on 2026-09-16 (newest stored session) open/high/low are measured but never flagged; the close IS checked on every name",
+    "provisional_note": "on 2026-09-17 (newest stored session) open/high/low are measured but never flagged; the close IS checked on every name",
     "provisional_ohl_median_bp": null,
     "provisional_ohl_max_bp": null,
     "provisional_ohl_over_tolerance": 0,
     "provisional_comparisons": 0,
     "store_missing_sessions": {},
     "n_names_store_missing_sessions": 0,
-    "secs": 462.4
+    "secs": 427.7
   },
   "intraday": {
-    "last_run": "2026-09-16T22:44:11.929332+00:00",
-    "tickers_requested": 915,
-    "tickers_with_data": 913,
-    "new_rows_1m": 334832,
-    "new_rows_5m": 97541,
+    "last_run": "2026-09-17T22:44:31.406349+00:00",
+    "tickers_requested": 953,
+    "tickers_with_data": 951,
+    "new_rows_1m": 375705,
+    "new_rows_5m": 142877,
     "failed_tickers": 2,
     "failed_batches": 0,
-    "store_gb": 3.82
+    "store_gb": 3.87
   },
   "signals_incremental": {
     "mode": "incremental",
@@ -132,7 +132,7 @@
     "sources": {
       "squeezemetrics": {
         "status": "ok",
-        "rows_fetched": 7734,
+        "rows_fetched": 7736,
         "rows_inserted": 2,
         "series": [
           "dix",
@@ -142,17 +142,17 @@
       },
       "vix": {
         "status": "ok",
-        "rows_fetched": 13547,
+        "rows_fetched": 13549,
         "rows_inserted": 2,
         "series": [
           "vix",
           "vix3m"
         ],
-        "secs": 1.6
+        "secs": 1.7
       },
       "fred": {
         "status": "ok",
-        "rows_fetched": 100,
+        "rows_fetched": 102,
         "rows_inserted": 3,
         "series": [
           "hy_oas",
@@ -160,7 +160,7 @@
           "nfci",
           "t10y2y"
         ],
-        "secs": 1.8
+        "secs": 1.9
       },
       "putcall": {
         "status": "ok",
@@ -170,17 +170,17 @@
           "pc_equity",
           "pc_total"
         ],
-        "secs": 7.5
+        "secs": 5.3
       },
       "aaii": {
         "status": "ok",
-        "rows_fetched": 4082,
-        "rows_inserted": 0,
+        "rows_fetched": 4084,
+        "rows_inserted": 2,
         "series": [
           "aaii_bear",
           "aaii_bull"
         ],
-        "secs": 2.0
+        "secs": 2.4
       },
       "finra_margin": {
         "status": "ok",
@@ -190,7 +190,7 @@
           "free_credit",
           "margin_debt"
         ],
-        "secs": 0.8
+        "secs": 0.9
       },
       "short_interest": {
         "status": "ok",
@@ -199,7 +199,7 @@
         "series": [
           "short_interest_dtc"
         ],
-        "secs": 12.3
+        "secs": 11.2
       },
       "cot": {
         "status": "ok",
@@ -208,7 +208,7 @@
         "series": [
           "cot_es_lev_net"
         ],
-        "secs": 1.1
+        "secs": 1.2
       },
       "breadth": {
         "status": "ok",
@@ -222,44 +222,44 @@
         "secs": 0.4
       }
     },
-    "rows_inserted": 12,
+    "rows_inserted": 14,
     "warnings": [],
     "series_totals": {
-      "aaii_bear": 2041,
-      "aaii_bull": 2041,
-      "breadth_nh_nl": 3697,
-      "breadth_pct_200": 3697,
+      "aaii_bear": 2042,
+      "aaii_bull": 2042,
+      "breadth_nh_nl": 3698,
+      "breadth_pct_200": 3698,
       "cot_es_lev_net": 1057,
-      "dix": 3867,
+      "dix": 3868,
       "free_credit": 199,
-      "gex": 3867,
-      "hy_oas": 820,
-      "icsa": 3114,
+      "gex": 3868,
+      "hy_oas": 821,
+      "icsa": 3115,
       "margin_debt": 356,
       "nfci": 2906,
-      "pc_equity": 4182,
-      "pc_total": 4182,
+      "pc_equity": 4183,
+      "pc_total": 4183,
       "short_interest_dtc": 74,
-      "t10y2y": 12570,
-      "vix": 9273,
-      "vix3m": 4274,
-      "zweig_ratio": 3697
+      "t10y2y": 12571,
+      "vix": 9274,
+      "vix3m": 4275,
+      "zweig_ratio": 3698
     },
-    "last_run": "2026-09-16T22:44:42.352029+00:00",
-    "store_gb": 3.82
+    "last_run": "2026-09-17T22:44:59.614649+00:00",
+    "store_gb": 3.87
   },
   "earnings": {
-    "last_run": "2026-09-16T23:16:54.454780+00:00",
-    "as_of": "2026-09-16",
-    "universe": 2860,
+    "last_run": "2026-09-17T23:05:30.675851+00:00",
+    "as_of": "2026-09-17",
+    "universe": 2862,
     "universe_source": "fundamentals-coverage \u222a screen-passers",
-    "pulled_this_run": 2860,
-    "with_upcoming_date": 2801,
+    "pulled_this_run": 2862,
+    "with_upcoming_date": 2803,
     "no_upcoming_date": 59,
     "failed_tickers": 0,
-    "rows_inserted_this_run": 2801,
-    "rows_for_as_of": 2801,
-    "store_gb": 3.82
+    "rows_inserted_this_run": 2803,
+    "rows_for_as_of": 2803,
+    "store_gb": 3.87
   },
   "screen_date": "2026-09-17",
   "last_screen": "2026-09-17T22:32:22.700473+00:00",

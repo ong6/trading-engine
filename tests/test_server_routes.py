@@ -305,7 +305,12 @@ def test_candidate_route_rejects_noncanonical_ticker_before_database_open(monkey
 def test_mutation_schemas_require_content_type_header():
     paths = main.app.openapi()["paths"]
 
-    for route in ("/tickets", "/tickets/{ticket_id}/cancel", "/review-done"):
+    for route in (
+        "/agent/proposals/shadow",
+        "/tickets",
+        "/tickets/{ticket_id}/cancel",
+        "/review-done",
+    ):
         parameter = next(
             item for item in paths[route]["post"]["parameters"] if item["name"] == "content-type"
         )
@@ -315,6 +320,33 @@ def test_mutation_schemas_require_content_type_header():
             "required": True,
             "schema": {"type": "string", "title": "Content-Type"},
         }
+
+
+def test_agent_attribution_is_get_only():
+    route = main.app.openapi()["paths"]["/agent/attribution"]
+
+    assert set(route) == {"get"}
+
+
+def test_agent_authority_readiness_is_get_only():
+    route = main.app.openapi()["paths"]["/agent/authority/readiness"]
+
+    assert set(route) == {"get"}
+
+
+def test_agent_fault_drills_are_get_only():
+    route = main.app.openapi()["paths"]["/agent/fault-drills"]
+
+    assert set(route) == {"get"}
+
+
+def test_agent_data_status_routes_are_get_only():
+    paths = main.app.openapi()["paths"]
+
+    assert set(paths["/agent/data/daily-prices"]) == {"get"}
+    assert set(paths["/agent/data/corporate-actions"]) == {"get"}
+    assert set(paths["/agent/data/provider-responses"]) == {"get"}
+    assert set(paths["/agent/data/independent-price-evidence"]) == {"get"}
 
 
 @pytest.mark.parametrize(

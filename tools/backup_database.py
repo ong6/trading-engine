@@ -30,8 +30,8 @@ from server.file_utils import MAX_OPERATIONAL_FILE_BYTES
 from server.json_utils import load_object
 from tools import release_manifest
 
-SCHEMA_VERSION = 2
-SUPPORTED_SCHEMA_VERSIONS = frozenset({1, SCHEMA_VERSION})
+SCHEMA_VERSION = 3
+SUPPORTED_SCHEMA_VERSIONS = frozenset({1, 2, SCHEMA_VERSION})
 DATABASE_FILENAME = "market.duckdb"
 MANIFEST_FILENAME = "manifest.json"
 REQUIRED_TABLES = frozenset(
@@ -41,7 +41,14 @@ EVIDENCE_FILES = release_manifest.PROSPECTIVE_EVIDENCE_FILES
 LOCK_FILES = tuple(
     sorted(
         {row[3] for row in DRIVER_SCHEDULES}
-        | {".queue-drain.lock", ".backup.lock", "data/_meta.json.lock"}
+        | {
+            ".agent-shadow.lock",
+            "store/.agent-fault-drill.lock",
+            ".queue-drain.lock",
+            ".backup.lock",
+            "data/_meta.json.lock",
+            "store/agent-shadow-control.json.lock",
+        }
     )
 )
 V1_MANIFEST_FIELDS = {
@@ -53,6 +60,7 @@ V1_MANIFEST_FIELDS = {
     "release_identity",
 }
 V2_MANIFEST_FIELDS = V1_MANIFEST_FIELDS | {"operational_artifacts"}
+V3_MANIFEST_FIELDS = V2_MANIFEST_FIELDS | {"operational_controls"}
 RELEASE_IDENTITY_FIELDS = {
     "status",
     "release_eligible",
@@ -84,6 +92,7 @@ OPERATIONAL_STATIC_FILES = (
     "data/reports/league.md",
     "data/reports/league.csv",
 )
+OPTIONAL_OPERATIONAL_CONTROL_FILES = ("store/agent-shadow-control.json",)
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 RENAME_NOREPLACE = 1
@@ -91,6 +100,10 @@ RENAME_NOREPLACE = 1
 
 class BackupError(RuntimeError):
     """The backup could not be created or did not verify."""
+
+
+class SourceFileMissing(BackupError):
+    """An optional source artifact did not exist during the locked snapshot."""
 
 
 @contextmanager
@@ -241,6 +254,8 @@ def _read_source_file(repo_root: Path, relative: str, label: str) -> bytes:
                 os.close(descriptor)
     except BackupError:
         raise
+    except FileNotFoundError as exc:
+        raise SourceFileMissing(f"required {label} missing: {relative}") from exc
     except OSError as exc:
         raise BackupError(f"required {label} missing: {relative}") from exc
     if len(content) > MAX_OPERATIONAL_FILE_BYTES:
@@ -769,18 +784,38 @@ def _validate_operational_metadata(artifacts: object, snapshot: dict) -> None:
     )
 
 
+def _validate_operational_controls(controls: object) -> None:
+    if not isinstance(controls, dict) or not set(controls).issubset(
+        OPTIONAL_OPERATIONAL_CONTROL_FILES
+    ):
+        raise BackupError(
+            "operational controls manifest has unexpected or missing entries"
+        )
+    _validate_file_records(
+        controls,
+        tuple(relative for relative in OPTIONAL_OPERATIONAL_CONTROL_FILES if relative in controls),
+        "operational controls",
+    )
+
+
 def _validate_manifest_metadata(manifest: dict, schema_version: int) -> None:
-    expected_fields = V1_MANIFEST_FIELDS if schema_version == 1 else V2_MANIFEST_FIELDS
+    expected_fields = {
+        1: V1_MANIFEST_FIELDS,
+        2: V2_MANIFEST_FIELDS,
+        3: V3_MANIFEST_FIELDS,
+    }[schema_version]
     if set(manifest) != expected_fields:
         raise BackupError("backup manifest has unexpected or missing fields")
     _validate_created_at(manifest["created_at"])
     _validate_source_database(manifest["source_database"])
     _validate_database_metadata(manifest["database"], allow_legacy=schema_version == 1)
     _validate_evidence_metadata(manifest["prospective_evidence"])
-    if schema_version == 2:
+    if schema_version >= 2:
         _validate_operational_metadata(
             manifest["operational_artifacts"], manifest["database"]["snapshot"]
         )
+    if schema_version >= 3:
+        _validate_operational_controls(manifest["operational_controls"])
     _validate_release_identity(manifest["release_identity"])
 
 
@@ -908,6 +943,28 @@ def _copy_operational_artifacts(
     )
 
 
+def _copy_optional_operational_controls(
+    repo_root: Path,
+    bundle: Path,
+) -> dict[str, dict]:
+    result = {}
+    for relative in OPTIONAL_OPERATIONAL_CONTROL_FILES:
+        try:
+            content = _read_source_file(repo_root, relative, "operational control")
+        except SourceFileMissing:
+            continue
+        destination = bundle / "evidence" / relative
+        _mkdir_private_tree(bundle, destination.parent)
+        destination.write_bytes(content)
+        destination.chmod(0o600)
+        result[relative] = {
+            "bundle_path": destination.relative_to(bundle).as_posix(),
+            "size_bytes": len(content),
+            "sha256": hashlib.sha256(content).hexdigest(),
+        }
+    return result
+
+
 def _source_location(repo_root: Path, source: Path) -> dict:
     try:
         relative = source.relative_to(repo_root)
@@ -952,6 +1009,7 @@ def _manifest_body(
         "operational_artifacts": _copy_operational_artifacts(
             repo_root, bundle, snapshot["latest_price_date"]
         ),
+        "operational_controls": _copy_optional_operational_controls(repo_root, bundle),
         "release_identity": _release_summary(repo_root, source, database_read_path),
     }
 
@@ -987,6 +1045,9 @@ def create_backup(repo_root: Path, source: Path, destination: Path) -> dict:
                     database = temporary / DATABASE_FILENAME
                     snapshot = _copy_database(source_read_path, database)
                     database.chmod(0o600)
+                    _require_source_database_identity(
+                        source, source_parent_fd, source_fd, source_initial
+                    )
                     body = _manifest_body(
                         repo_root, source, source_read_path, temporary, snapshot
                     )
@@ -1112,11 +1173,21 @@ def _verify_operational_artifacts(bundle: Path, manifest: dict) -> dict:
     return artifacts
 
 
+def _verify_operational_controls(bundle: Path, manifest: dict) -> dict:
+    controls = manifest.get("operational_controls", {})
+    _verify_file_records(bundle, controls, "operational control")
+    return controls
+
+
 def _verify_exact_bundle_tree(bundle: Path, manifest: dict) -> None:
     expected_files = {DATABASE_FILENAME, MANIFEST_FILENAME}
     expected_files.update(
         record["bundle_path"]
-        for section in ("prospective_evidence", "operational_artifacts")
+        for section in (
+            "prospective_evidence",
+            "operational_artifacts",
+            "operational_controls",
+        )
         for record in manifest.get(section, {}).values()
     )
     expected_directories = set()
@@ -1173,6 +1244,7 @@ def _verify_backup(bundle: Path) -> dict:
     expected, actual_snapshot = _verify_database(bundle, manifest)
     evidence = _verify_evidence(bundle, manifest)
     operational = _verify_operational_artifacts(bundle, manifest)
+    controls = _verify_operational_controls(bundle, manifest)
     _verify_exact_bundle_tree(bundle, manifest)
     _verify_operational_consistency(bundle, manifest)
     return {
@@ -1181,9 +1253,12 @@ def _verify_backup(bundle: Path) -> dict:
         "manifest_sha256": recorded_hash,
         "database_sha256": expected["sha256"],
         "database_size_bytes": expected["size_bytes"],
+        "database_snapshot_sha256": canonical_sha256(actual_snapshot),
+        "source_database": manifest["source_database"],
         "table_count": actual_snapshot["table_count"],
         "evidence_file_count": len(evidence),
         "operational_artifact_count": len(operational),
+        "operational_control_count": len(controls),
     }
 
 

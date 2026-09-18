@@ -152,10 +152,17 @@ def test_create_and_verify_transactional_bundle(tmp_path):
     assert created == verified
     assert created["status"] == "ok"
     assert created["table_count"] == 8
+    assert len(created["database_snapshot_sha256"]) == 64
+    assert created["source_database"] == {
+        "kind": "repository-relative",
+        "path": "store/market.duckdb",
+    }
     assert created["evidence_file_count"] == len(backup_database.EVIDENCE_FILES)
     assert created["operational_artifact_count"] == 7
+    assert created["operational_control_count"] == 0
     manifest = json.loads((destination / backup_database.MANIFEST_FILENAME).read_text())
-    assert manifest["schema_version"] == 2
+    assert manifest["schema_version"] == 3
+    assert manifest["operational_controls"] == {}
     for relative in backup_database._operational_files("2026-09-10"):
         source_file = root / relative
         bundled = destination / "evidence" / relative
@@ -194,6 +201,36 @@ def test_create_preserves_incomplete_nonreleasable_source_identity(tmp_path, mon
 
     assert backup_database.create_backup(root, source, destination)["status"] == "ok"
     assert backup_database.verify_backup(destination)["status"] == "ok"
+
+
+def test_optional_agent_shadow_control_is_hashed_when_present(tmp_path):
+    root, source = _repo(tmp_path)
+    control = root / "store" / "agent-shadow-control.json"
+    control.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "enabled": False,
+                "registration_sha256": "a" * 64,
+                "reason": "disabled for recovery",
+                "updated_at": "2026-09-13T12:00:00Z",
+            }
+        )
+        + "\n"
+    )
+    destination = tmp_path / "outside" / "snapshot"
+
+    created = backup_database.create_backup(root, source, destination)
+    manifest = json.loads((destination / backup_database.MANIFEST_FILENAME).read_text())
+
+    assert created["operational_control_count"] == 1
+    assert set(manifest["operational_controls"]) == {
+        "store/agent-shadow-control.json"
+    }
+    assert (
+        destination / "evidence" / "store" / "agent-shadow-control.json"
+    ).read_bytes() == control.read_bytes()
+    assert backup_database.verify_backup(destination)["operational_control_count"] == 1
 
 
 def test_create_refuses_to_overwrite_existing_destination(tmp_path):
@@ -1141,10 +1178,10 @@ def test_source_database_location_accepts_producer_forms(source):
 
 
 @pytest.mark.parametrize(
-    ("update", "message"),
+        ("update", "message"),
     [
         (lambda payload: payload.update(schema_version=True), "unsupported.*schema"),
-        (lambda payload: payload.update(schema_version=3), "unsupported.*schema"),
+        (lambda payload: payload.update(schema_version=4), "unsupported.*schema"),
         (
             lambda payload: payload["database"].update(size_bytes=True),
             "database size_bytes.*non-negative integer",
@@ -1274,6 +1311,7 @@ def test_verify_accepts_schema_v1_snapshot_without_operational_artifacts(tmp_pat
         lambda payload: (
             payload.update(schema_version=1),
             payload.pop("operational_artifacts"),
+            payload.pop("operational_controls"),
             payload["database"]["snapshot"].pop("index_count"),
         ),
     )
@@ -1285,6 +1323,26 @@ def test_verify_accepts_schema_v1_snapshot_without_operational_artifacts(tmp_pat
     verified = backup_database.verify_backup(destination)
     assert verified["status"] == "ok"
     assert verified["operational_artifact_count"] == 0
+    assert verified["operational_control_count"] == 0
+
+
+def test_verify_accepts_schema_v2_snapshot_without_operational_controls(tmp_path):
+    root, source = _repo(tmp_path)
+    destination = tmp_path / "outside" / "snapshot"
+    backup_database.create_backup(root, source, destination)
+    _rewrite_manifest(
+        destination,
+        lambda payload: (
+            payload.update(schema_version=2),
+            payload.pop("operational_controls"),
+        ),
+    )
+
+    verified = backup_database.verify_backup(destination)
+
+    assert verified["status"] == "ok"
+    assert verified["operational_artifact_count"] == 7
+    assert verified["operational_control_count"] == 0
 
 
 def test_verify_rejects_operational_artifact_tampering(tmp_path):

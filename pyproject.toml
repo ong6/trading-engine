@@ -19,7 +19,7 @@ dev = ["pytest>=8", "ruff>=0.12"]
 dependencies = { file = ["engine/requirements.txt"] }
 
 [tool.setuptools.packages.find]
-include = ["engine*", "farm*", "server*", "sim*"]
+include = ["engine*", "farm*", "server*", "sim*", "tools*"]
 namespaces = false
 
 [tool.setuptools.package-data]

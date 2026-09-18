@@ -22,7 +22,27 @@ END_MARKER = "# END trading-engine managed automation"
 UNIT_SOURCES = {
     "trading-engine-api.service": Path("server/trading-engine-api.service"),
     "trading-engine-ui.service": Path("ui/trading-engine-ui.service"),
+    "trading-engine-agent-shadow.service": Path(
+        "server/trading-engine-agent-shadow.service"
+    ),
+    "trading-engine-agent-shadow.timer": Path(
+        "server/trading-engine-agent-shadow.timer"
+    ),
+    "trading-engine-agent-data-capture.service": Path(
+        "server/trading-engine-agent-data-capture.service"
+    ),
+    "trading-engine-agent-data-capture.timer": Path(
+        "server/trading-engine-agent-data-capture.timer"
+    ),
 }
+AUTOSTART_UNITS = frozenset(
+    {
+        "trading-engine-agent-data-capture.timer",
+        "trading-engine-agent-shadow.timer",
+        "trading-engine-api.service",
+        "trading-engine-ui.service",
+    }
+)
 MAX_AUTOMATION_SOURCE_BYTES = 1_048_576
 
 
@@ -615,8 +635,16 @@ def plan(repo_root: Path = REPO_ROOT, home: Path | None = None) -> tuple[dict, s
     changes = {
         "crontab": bool(desired_crontab) and desired_crontab != current_crontab,
         "service_units": sorted(unit for unit, state in units.items() if not state["matches"]),
-        "enable_units": sorted(unit for unit, state in units.items() if state["enabled"] != "enabled"),
-        "start_units": sorted(unit for unit, state in units.items() if state["active"] != "active"),
+        "enable_units": sorted(
+            unit
+            for unit, state in units.items()
+            if unit in AUTOSTART_UNITS and state["enabled"] != "enabled"
+        ),
+        "start_units": sorted(
+            unit
+            for unit, state in units.items()
+            if unit in AUTOSTART_UNITS and state["active"] != "active"
+        ),
         "enable_linger": linger != "yes",
     }
     summary = {
@@ -652,8 +680,17 @@ def _verify_applied(repo_root: Path, home: Path, units: list[str]) -> tuple[dict
     _checked(["systemctl", "--user", "is-enabled", *units])
     _checked(["systemctl", "--user", "is-active", *units])
     installed = _installed_units(repo_root, home)
-    disabled = sorted(unit for unit, state in installed.items() if state["enabled"] != "enabled")
-    inactive = sorted(unit for unit, state in installed.items() if state["active"] != "active")
+    checked_units = set(units)
+    disabled = sorted(
+        unit
+        for unit, state in installed.items()
+        if unit in checked_units and state["enabled"] != "enabled"
+    )
+    inactive = sorted(
+        unit
+        for unit, state in installed.items()
+        if unit in checked_units and state["active"] != "active"
+    )
     if disabled:
         raise RuntimeError(f"installed service units are not enabled: {', '.join(disabled)}")
     if inactive:
@@ -764,7 +801,7 @@ def apply(summary: dict, _desired_crontab: str, repo_root: Path, home: Path) -> 
     if _linger_state() != "yes":
         _checked(["loginctl", "enable-linger", str(os.getuid())])
         summary["changes"]["enable_linger"] = True
-    units = sorted(UNIT_SOURCES)
+    units = sorted(AUTOSTART_UNITS)
     enable_units, start_units = _current_service_changes(units)
     summary["changes"]["enable_units"] = enable_units
     summary["changes"]["start_units"] = start_units
@@ -772,7 +809,7 @@ def apply(summary: dict, _desired_crontab: str, repo_root: Path, home: Path) -> 
         _checked(["systemctl", "--user", "daemon-reload"])
     if enable_units:
         _checked(["systemctl", "--user", "enable", *enable_units])
-    changed = set(changed_units)
+    changed = set(changed_units) & AUTOSTART_UNITS
     if changed:
         _checked(["systemctl", "--user", "restart", *sorted(changed)])
     inactive_unchanged = sorted(set(start_units) - changed)

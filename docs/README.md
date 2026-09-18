@@ -11,7 +11,8 @@ measurements supporting those decisions, not the live runtime state.
 - [`how-it-works.md`](how-it-works.md) — architecture, schedules, paper league, UI/API,
   and operations.
 - [`live-readiness-goal.md`](live-readiness-goal.md) — handoff objective for strategy
-  evidence and capital-disabled execution hardening; it does not authorize live trading.
+  evidence, point-in-time data upgrades, optional algorithm/agent/hybrid paper flows, and
+  capital-disabled execution hardening; it does not authorize live trading.
 - [`recoverability-audit-2026-09-11.md`](recoverability-audit-2026-09-11.md) — dated
   Workstream A inventory and closure sequence; its observed counts are not live status.
 - [`worktree-review-2026-09-11.md`](worktree-review-2026-09-11.md) — recursive ownership
@@ -27,6 +28,9 @@ measurements supporting those decisions, not the live runtime state.
   design; §12 wins on conflicts.
 - [`design/trading-execution-design.md`](design/trading-execution-design.md) — execution
   process and exit criteria.
+- [`design/paper-authority-state-machine.md`](design/paper-authority-state-machine.md) —
+  capital-disabled design for future short-lived paper authority, atomic consumption,
+  revocation, and fail-closed recovery; no writer or runtime authority exists.
 
 ## Current strategy and evidence status
 
@@ -51,19 +55,12 @@ measurements supporting those decisions, not the live runtime state.
   checkpoint as soon as a scheduled producer publishes newer evidence.
 - [`../data/reports/walkforward/GUIDE.md`](../data/reports/walkforward/GUIDE.md) — the evidence map
   for the latest generated historical walk-forward cohort in the sibling `README.md`. The
-  completed 2026-09-09 provenance refresh
-  stamped all 18 active, replayable books with source
-  `2876fdc6e5d36e532b535fb229dcbb653fba6077f4d5f7fe01b63db581cc6c53`, data snapshot
-  `a3823b32b5f04344fb909d1fd72c6db6e27812752f8ec99ce8408ed28ff4d668`, and one coherent
+  completed 2026-09-13 Sunday revalidation stamped all 18 active, replayable books with source
+  `2a45f846b7a4628661c4539adf71074377c529a450c90cb07cd4125aafed7d75`, data snapshot
+  `039bd02c7cdb5678f28e5cf93098393c7e695625c4fc37fc5281d2e8e19fa80e`, and one coherent
   source/data/execution cohort, signature
-  `6830280328e305fceb9bfa469d0142d956a2ddc40a7cb6600dc2133546f6a960`, with a versioned
-  comparator declaration. The refresh followed the earnings-universe correction and retained the
-  frozen 2026-09-04 anchor; it was evidence maintenance, not a strategy search. The intervening
-  nightly also refreshed Yahoo's mutable historical cache: eleven screen-driven artifacts changed
-  only their historical-screen row count by one (plus timing), while XS's final-fold return moved
-  by about 0.000071 percentage points at full precision. No displayed ranking or research decision
-  changed, but this cohort is not described as byte-for-field economically identical to its
-  predecessor.
+  `b304ae92d54e27a8f3a3adaa77dcf5b77175f9be141e71dfa232f29c3b32aec2`, with the versioned
+  comparator declaration and 2026-09-11 anchor.
   On 2026-09-13 the protected source first advanced after the weekly liquidity pending-backfill
   retry, Nasdaq plural security-class parser correction, and atomic universe reconciliation/CSV
   publication, then advanced to
@@ -82,9 +79,7 @@ measurements supporting those decisions, not the live runtime state.
   observations, strategy rules, or execution economics. The final identity also includes
   failure-safe cleanup of the signal breadth reader's temporary universe relation and the
   historical screener's call-scoped temporary tables. The
-  published 18-result cohort is therefore
-  `stale-source` until the normal Sunday 06:00 UTC revalidation publishes a source-matching
-  cohort; it remains complete historical evidence but is not current runtime evidence meanwhile.
+  published 18-result cohort is therefore source-matching and current.
   Older unstamped artifacts remain absolute historical context only.
   Publication time is not the same as live freshness: the `walkforward_evidence` object in
   `GET /meta` is the authority on whether that cohort still matches every active config and the

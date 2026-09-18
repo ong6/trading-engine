@@ -115,11 +115,13 @@ and E1 v6. Every migration changed only contract metadata; no signal or screenin
 observation, strategy rule, execution assumption, or statistical gate changed. The resulting
 current 111-file identity is
 `2a45f846b7a4628661c4539adf71074377c529a450c90cb07cd4125aafed7d75`.
-The latest published 18-result walk-forward cohort still records source
+At this checkpoint the latest published 18-result walk-forward cohort still recorded source
 `2876fdc6e5d36e532b535fb229dcbb653fba6077f4d5f7fe01b63db581cc6c53`, so
-`walkforward_evidence.status = stale-source` until the normal Sunday 06:00 UTC job revalidates it.
-This is an explicit provenance mismatch, not a failed strategy verdict. Do not reconstruct or
-manually relabel the artifacts, and do not use the stale cohort to claim current source coverage.
+`walkforward_evidence.status = stale-source`. That was an explicit provenance mismatch, not a
+failed strategy verdict, and the artifacts were not reconstructed or manually relabelled. The
+normal Sunday job subsequently completed at 08:45 UTC with source
+`2a45f846b7a4628661c4539adf71074377c529a450c90cb07cd4125aafed7d75`;
+`walkforward_evidence.status = current`.
 Do not tune a frozen rule, reopen a rejected charter, launch a discretionary sweep, or interpret
 the current E1 estimate before its terminal gate.
 
@@ -247,7 +249,7 @@ pre-registration requirement.
 
 | Order | Trigger | Action unlocked | What remains forbidden |
 |---:|---|---|---|
-| 1 | The normal Sunday 06:00 UTC walk-forward publishes a complete cohort whose source hash equals the deployed 111-file identity | Treat the cohort as current historical context and review whether any already-recorded conclusion changed | No parameter selection, promotion, or new paper book; source parity is provenance, not profit evidence |
+| Complete | The 2026-09-13 Sunday walk-forward published a complete cohort whose source hash equals the deployed 111-file identity | Treat the cohort as current historical context; no already-recorded conclusion changed | No parameter selection, promotion, or new paper book; source parity is provenance, not profit evidence |
 | 2 | Each newly settled eligible observation for E1 or Sector, and the frozen 2026-09-30 XS signal followed by its 2026-10-01 baseline | Append through the existing monitors and apply only their predeclared terminal gates | No early verdict, backfill, reset, rule change, or evidence-driven tuning |
 | 3 | Both intraday resolutions reach 252 qualifying sessions over at least 365 calendar days | Permit drafting one genuinely new, theory-led charter with a fixed event definition, control, cost model, sample size, and total trial count | No exploratory grid on the accumulated archive before registration; earliest possible calendar-span clearance is around 2027-07-08 because the one-minute archive is the limiting series |
 | 4 | Stock selection reaches 756 qualifying shared dates over 1,095 days, or fundamentals reaches 156 qualifying snapshots over 1,095 days | Permit a point-in-time charter in the family whose complete gate cleared | No historical join to today's universe or fundamentals and no claim before roughly July 2029 at the earliest under the current archive start dates |
@@ -334,17 +336,14 @@ lower any admission threshold or authorize a new charter.
 Historical walk-forward comparator choices are versioned inside each newly generated
 artifact. Results created before that field existed remain useful absolute context, but the
 current renderer withholds a relative verdict rather than inferring a comparator from mutable
-report code. After the earnings-universe correction changed the runtime source fingerprint, the
-pinned 18-book refresh completed as jobs 452–469 under the disconnect-safe user service
-`trading-engine-walkforward-earnings-selector-refresh-pinned-20260908.service`. All rows are
-`done`/`complete`, the service exited successfully, and at publication `GET /meta` reported
-`weekly_walkforward = recovered` and `walkforward_evidence.status = current`. The cohort has one
-signature `6830280328e305fceb9bfa469d0142d956a2ddc40a7cb6600dc2133546f6a960`, source
-`2876fdc6e5d36e532b535fb229dcbb653fba6077f4d5f7fe01b63db581cc6c53`, data snapshot
-`a3823b32b5f04344fb909d1fd72c6db6e27812752f8ec99ce8408ed28ff4d668`, fill model v4,
+report code. The normal 2026-09-13 Sunday refresh completed all 18 active replayable books and
+`GET /meta` reported `weekly_walkforward = ok` and `walkforward_evidence.status = current`. The
+cohort has one signature
+`b304ae92d54e27a8f3a3adaa77dcf5b77175f9be141e71dfa232f29c3b32aec2`, source
+`2a45f846b7a4628661c4539adf71074377c529a450c90cb07cd4125aafed7d75`, data snapshot
+`039bd02c7cdb5678f28e5cf93098393c7e695625c4fc37fc5281d2e8e19fa80e`, fill model v4,
 `baseline_v1`, $39,000 initial capital, and the frozen 24/12/12-month protocol anchored on
-2026-09-04. Jobs 434–451, which accidentally used the moving default anchor, were stopped before
-publication and retained as `superseded`; they are not evidence.
+2026-09-11. This was scheduled provenance maintenance, not a new strategy search or promotion.
 
 The old/new artifact audit did not claim false exact equivalence. Six books differed only in the
 approved provenance and runtime fields. Eleven screen-driven books also changed from 1,107,457 to
