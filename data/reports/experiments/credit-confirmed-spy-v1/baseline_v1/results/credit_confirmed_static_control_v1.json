@@ -33,14 +33,14 @@
   "data_floor": "2008-05-29",
   "data_quality_class": "fixed_etf_total_return_history",
   "data_snapshot": {
-    "sha256": "0829f67afec97dcaf578862669397198094fa8044ed280ba9423ab75a1358b21",
+    "sha256": "bbd3d785d5a74217c0cad285d67fab610cadf7361d5e1de4af962ec7ddbe5fee",
     "tables": {
       "corporate_actions": {
         "exists": true,
-        "latest_fetch": "2026-09-17T22:34:39.873514",
-        "max_date": "2026-09-15",
+        "latest_fetch": "2026-09-18T22:33:43.649891",
+        "max_date": "2026-09-17",
         "min_date": "1962-01-16",
-        "rows": 409763
+        "rows": 409764
       },
       "fundamentals": {
         "exists": true,
@@ -55,17 +55,17 @@
       },
       "prices": {
         "exists": true,
-        "latest_fetch": "2026-09-17T22:32:16.560197",
-        "max_date": "2026-09-17",
+        "latest_fetch": "2026-09-18T22:32:21.530431",
+        "max_date": "2026-09-18",
         "min_date": "1962-01-02",
-        "rows": 20697472
+        "rows": 20701546
       },
       "universe_snapshot": {
         "exists": true,
         "latest_fetch": null,
-        "max_date": "2026-09-17",
+        "max_date": "2026-09-18",
         "min_date": "2026-07-16",
-        "rows": 583895
+        "rows": 596544
       }
     }
   },
@@ -104,7 +104,7 @@
       "n_rejected": 2,
       "n_validate_fills": 3,
       "pending_orders": [],
-      "runtime_s": 21.3,
+      "runtime_s": 22.5,
       "sessions": 330,
       "split_date": "2008-09-17",
       "split_session": "2008-09-17",
@@ -217,7 +217,7 @@
       "n_rejected": 0,
       "n_validate_fills": 24,
       "pending_orders": [],
-      "runtime_s": 42.4,
+      "runtime_s": 45.5,
       "sessions": 582,
       "split_date": "2009-09-17",
       "split_session": "2009-09-17",
@@ -330,7 +330,7 @@
       "n_rejected": 0,
       "n_validate_fills": 21,
       "pending_orders": [],
-      "runtime_s": 56.2,
+      "runtime_s": 59.8,
       "sessions": 757,
       "split_date": "2010-09-17",
       "split_session": "2010-09-17",
@@ -443,7 +443,7 @@
       "n_rejected": 0,
       "n_validate_fills": 21,
       "pending_orders": [],
-      "runtime_s": 56.5,
+      "runtime_s": 60.8,
       "sessions": 757,
       "split_date": "2011-09-17",
       "split_session": "2011-09-16",
@@ -556,7 +556,7 @@
       "n_rejected": 0,
       "n_validate_fills": 23,
       "pending_orders": [],
-      "runtime_s": 57.1,
+      "runtime_s": 59.3,
       "sessions": 755,
       "split_date": "2012-09-17",
       "split_session": "2012-09-17",
@@ -669,7 +669,7 @@
       "n_rejected": 0,
       "n_validate_fills": 23,
       "pending_orders": [],
-      "runtime_s": 57.0,
+      "runtime_s": 59.4,
       "sessions": 754,
       "split_date": "2013-09-17",
       "split_session": "2013-09-17",
@@ -782,7 +782,7 @@
       "n_rejected": 0,
       "n_validate_fills": 23,
       "pending_orders": [],
-      "runtime_s": 56.6,
+      "runtime_s": 58.0,
       "sessions": 755,
       "split_date": "2014-09-17",
       "split_session": "2014-09-17",
@@ -895,7 +895,7 @@
       "n_rejected": 0,
       "n_validate_fills": 14,
       "pending_orders": [],
-      "runtime_s": 56.9,
+      "runtime_s": 57.9,
       "sessions": 757,
       "split_date": "2015-09-17",
       "split_session": "2015-09-17",
@@ -1008,7 +1008,7 @@
       "n_rejected": 0,
       "n_validate_fills": 20,
       "pending_orders": [],
-      "runtime_s": 56.9,
+      "runtime_s": 57.2,
       "sessions": 756,
       "split_date": "2016-09-17",
       "split_session": "2016-09-16",
@@ -1121,7 +1121,7 @@
       "n_rejected": 0,
       "n_validate_fills": 21,
       "pending_orders": [],
-      "runtime_s": 56.9,
+      "runtime_s": 57.6,
       "sessions": 756,
       "split_date": "2017-09-17",
       "split_session": "2017-09-15",
@@ -1234,7 +1234,7 @@
       "n_rejected": 0,
       "n_validate_fills": 23,
       "pending_orders": [],
-      "runtime_s": 56.6,
+      "runtime_s": 57.6,
       "sessions": 754,
       "split_date": "2018-09-17",
       "split_session": "2018-09-17",
@@ -1347,7 +1347,7 @@
       "n_rejected": 0,
       "n_validate_fills": 22,
       "pending_orders": [],
-      "runtime_s": 56.4,
+      "runtime_s": 58.0,
       "sessions": 756,
       "split_date": "2019-09-17",
       "split_session": "2019-09-17",
@@ -1460,7 +1460,7 @@
       "n_rejected": 0,
       "n_validate_fills": 24,
       "pending_orders": [],
-      "runtime_s": 57.0,
+      "runtime_s": 57.8,
       "sessions": 757,
       "split_date": "2020-09-17",
       "split_session": "2020-09-17",
@@ -1573,7 +1573,7 @@
       "n_rejected": 0,
       "n_validate_fills": 22,
       "pending_orders": [],
-      "runtime_s": 57.2,
+      "runtime_s": 58.5,
       "sessions": 757,
       "split_date": "2021-09-17",
       "split_session": "2021-09-17",
@@ -1686,7 +1686,7 @@
       "n_rejected": 0,
       "n_validate_fills": 22,
       "pending_orders": [],
-      "runtime_s": 56.9,
+      "runtime_s": 57.1,
       "sessions": 754,
       "split_date": "2022-09-17",
       "split_session": "2022-09-16",
@@ -1799,7 +1799,7 @@
       "n_rejected": 0,
       "n_validate_fills": 24,
       "pending_orders": [],
-      "runtime_s": 57.1,
+      "runtime_s": 57.8,
       "sessions": 754,
       "split_date": "2023-09-17",
       "split_session": "2023-09-15",
@@ -1912,7 +1912,7 @@
       "n_rejected": 0,
       "n_validate_fills": 23,
       "pending_orders": [],
-      "runtime_s": 56.8,
+      "runtime_s": 58.5,
       "sessions": 752,
       "split_date": "2024-09-17",
       "split_session": "2024-09-17",
@@ -2025,7 +2025,7 @@
       "n_rejected": 0,
       "n_validate_fills": 21,
       "pending_orders": [],
-      "runtime_s": 55.4,
+      "runtime_s": 60.6,
       "sessions": 753,
       "split_date": "2025-09-17",
       "split_session": "2025-09-17",
@@ -2125,9 +2125,9 @@
       "validate_universe": 12517
     }
   ],
-  "generated_utc": "2026-09-18T22:13:07+00:00",
+  "generated_utc": "2026-09-18T22:55:48+00:00",
   "git_dirty": false,
-  "git_sha": "f2c79253b7d14e43503e54f61f1171396de17f81",
+  "git_sha": "f51fdd98860cb41df4bbe327160cd491969eb9c0",
   "initial_cash": 39000.0,
   "kill_criterion": "Any failed charter gate closes v1.",
   "name": "Fold-Matched Static SPY/BIL",
@@ -2375,13 +2375,13 @@
     ],
     "session_count": 4605,
     "sessions_sha256": "7e7fb5836975b01822cbc2330880413cae87f16ec4959d5dd3c125793733ef7f",
-    "sha256": "0b7f0eb12db2f7103b4106d9cae9f75b427b293f34f6bf873e19b8be1a7e922b",
+    "sha256": "63bdf031313c3493d9b0d8cc01543edb1fb31df4dc4f6050dd67594ff8d73405",
     "signal_count": 220,
     "signal_facts": [
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2393,7 +2393,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2409,7 +2409,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2421,7 +2421,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2437,7 +2437,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2449,7 +2449,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2465,7 +2465,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2477,7 +2477,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2493,7 +2493,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2505,7 +2505,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2521,7 +2521,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2533,7 +2533,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2549,7 +2549,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2561,7 +2561,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2577,7 +2577,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2589,7 +2589,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2605,7 +2605,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2617,7 +2617,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2633,7 +2633,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2645,7 +2645,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2661,7 +2661,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2673,7 +2673,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2689,7 +2689,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2701,7 +2701,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2717,7 +2717,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2729,7 +2729,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2745,7 +2745,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2757,7 +2757,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2773,7 +2773,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2785,7 +2785,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2801,7 +2801,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2813,7 +2813,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2829,7 +2829,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2841,7 +2841,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2857,7 +2857,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2869,7 +2869,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2885,7 +2885,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2897,7 +2897,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2913,7 +2913,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2925,7 +2925,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2941,7 +2941,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2953,7 +2953,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2969,7 +2969,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -2981,7 +2981,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -2997,7 +2997,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3009,7 +3009,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3025,7 +3025,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3037,7 +3037,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3053,7 +3053,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3065,7 +3065,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3081,7 +3081,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3093,7 +3093,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3109,7 +3109,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3121,7 +3121,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3137,7 +3137,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3149,7 +3149,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3165,7 +3165,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3177,7 +3177,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3193,7 +3193,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3205,7 +3205,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3221,7 +3221,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3233,7 +3233,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3249,7 +3249,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3261,7 +3261,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3277,7 +3277,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3289,7 +3289,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3305,7 +3305,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3317,7 +3317,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3333,7 +3333,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3345,7 +3345,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3361,7 +3361,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3373,7 +3373,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3389,7 +3389,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3401,7 +3401,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3417,7 +3417,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3429,7 +3429,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3445,7 +3445,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3457,7 +3457,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3473,7 +3473,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3485,7 +3485,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3501,7 +3501,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3513,7 +3513,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3529,7 +3529,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3541,7 +3541,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3557,7 +3557,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3569,7 +3569,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3585,7 +3585,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3597,7 +3597,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3613,7 +3613,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3625,7 +3625,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3641,7 +3641,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3653,7 +3653,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3669,7 +3669,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3681,7 +3681,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3697,7 +3697,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3709,7 +3709,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3725,7 +3725,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3737,7 +3737,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3753,7 +3753,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3765,7 +3765,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3781,7 +3781,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3793,7 +3793,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3809,7 +3809,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3821,7 +3821,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3837,7 +3837,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3849,7 +3849,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3865,7 +3865,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3877,7 +3877,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3893,7 +3893,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3905,7 +3905,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3921,7 +3921,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3933,7 +3933,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3949,7 +3949,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3961,7 +3961,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -3977,7 +3977,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -3989,7 +3989,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4005,7 +4005,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4017,7 +4017,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4033,7 +4033,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4045,7 +4045,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4061,7 +4061,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4073,7 +4073,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4089,7 +4089,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4101,7 +4101,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4117,7 +4117,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4129,7 +4129,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4145,7 +4145,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4157,7 +4157,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4173,7 +4173,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4185,7 +4185,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4201,7 +4201,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4213,7 +4213,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4229,7 +4229,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4241,7 +4241,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4257,7 +4257,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4269,7 +4269,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4285,7 +4285,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4297,7 +4297,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4313,7 +4313,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4325,7 +4325,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4341,7 +4341,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4353,7 +4353,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4369,7 +4369,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4381,7 +4381,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4397,7 +4397,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4409,7 +4409,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4425,7 +4425,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4437,7 +4437,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4453,7 +4453,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4465,7 +4465,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4481,7 +4481,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4493,7 +4493,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4509,7 +4509,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4521,7 +4521,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4537,7 +4537,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4549,7 +4549,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4565,7 +4565,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4577,7 +4577,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4593,7 +4593,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4605,7 +4605,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4621,7 +4621,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4633,7 +4633,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4649,7 +4649,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4661,7 +4661,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4677,7 +4677,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4689,7 +4689,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4705,7 +4705,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4717,7 +4717,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4733,7 +4733,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4745,7 +4745,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4761,7 +4761,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4773,7 +4773,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4789,7 +4789,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4801,7 +4801,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4817,7 +4817,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4829,7 +4829,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4845,7 +4845,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4857,7 +4857,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4873,7 +4873,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4885,7 +4885,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4901,7 +4901,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4913,7 +4913,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4929,7 +4929,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4941,7 +4941,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4957,7 +4957,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4969,7 +4969,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -4985,7 +4985,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -4997,7 +4997,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5013,7 +5013,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5025,7 +5025,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5041,7 +5041,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5053,7 +5053,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5069,7 +5069,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5081,7 +5081,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5097,7 +5097,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5109,7 +5109,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5125,7 +5125,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5137,7 +5137,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5153,7 +5153,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5165,7 +5165,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5181,7 +5181,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5193,7 +5193,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5209,7 +5209,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5221,7 +5221,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5237,7 +5237,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5249,7 +5249,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5265,7 +5265,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5277,7 +5277,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5293,7 +5293,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5305,7 +5305,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5321,7 +5321,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5333,7 +5333,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5349,7 +5349,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5361,7 +5361,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5377,7 +5377,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5389,7 +5389,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5405,7 +5405,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5417,7 +5417,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5433,7 +5433,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5445,7 +5445,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5461,7 +5461,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5473,7 +5473,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5489,7 +5489,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5501,7 +5501,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5517,7 +5517,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5529,7 +5529,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5545,7 +5545,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5557,7 +5557,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5573,7 +5573,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5585,7 +5585,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5601,7 +5601,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5613,7 +5613,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5629,7 +5629,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5641,7 +5641,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5657,7 +5657,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5669,7 +5669,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5685,7 +5685,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5697,7 +5697,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5713,7 +5713,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5725,7 +5725,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5741,7 +5741,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5753,7 +5753,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5769,7 +5769,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5781,7 +5781,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5797,7 +5797,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5809,7 +5809,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5825,7 +5825,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5837,7 +5837,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5853,7 +5853,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5865,7 +5865,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5881,7 +5881,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5893,7 +5893,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5909,7 +5909,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5921,7 +5921,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5937,7 +5937,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5949,7 +5949,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5965,7 +5965,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -5977,7 +5977,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -5993,7 +5993,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6005,7 +6005,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6021,7 +6021,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6033,7 +6033,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6049,7 +6049,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6061,7 +6061,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6077,7 +6077,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6089,7 +6089,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6105,7 +6105,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6117,7 +6117,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6133,7 +6133,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6145,7 +6145,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6161,7 +6161,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6173,7 +6173,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6189,7 +6189,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6201,7 +6201,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6217,7 +6217,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6229,7 +6229,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6245,7 +6245,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6257,7 +6257,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6273,7 +6273,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6285,7 +6285,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6301,7 +6301,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6313,7 +6313,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6329,7 +6329,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6341,7 +6341,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6357,7 +6357,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6369,7 +6369,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6385,7 +6385,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6397,7 +6397,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6413,7 +6413,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6425,7 +6425,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6441,7 +6441,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6453,7 +6453,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6469,7 +6469,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6481,7 +6481,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6497,7 +6497,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6509,7 +6509,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6525,7 +6525,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6537,7 +6537,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6553,7 +6553,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6565,7 +6565,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6581,7 +6581,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6593,7 +6593,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6609,7 +6609,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6621,7 +6621,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6637,7 +6637,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6649,7 +6649,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6665,7 +6665,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6677,7 +6677,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6693,7 +6693,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6705,7 +6705,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6721,7 +6721,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6733,7 +6733,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6749,7 +6749,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6761,7 +6761,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6777,7 +6777,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6789,7 +6789,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6805,7 +6805,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6817,7 +6817,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6833,7 +6833,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6845,7 +6845,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6861,7 +6861,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6873,7 +6873,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6889,7 +6889,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6901,7 +6901,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6917,7 +6917,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6929,7 +6929,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6945,7 +6945,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6957,7 +6957,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -6973,7 +6973,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -6985,7 +6985,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7001,7 +7001,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7013,7 +7013,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7029,7 +7029,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7041,7 +7041,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7057,7 +7057,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7069,7 +7069,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7085,7 +7085,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7097,7 +7097,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7113,7 +7113,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7125,7 +7125,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7141,7 +7141,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7153,7 +7153,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7169,7 +7169,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7181,7 +7181,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7197,7 +7197,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7209,7 +7209,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7225,7 +7225,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7237,7 +7237,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7253,7 +7253,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7265,7 +7265,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7281,7 +7281,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7293,7 +7293,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7309,7 +7309,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7321,7 +7321,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7337,7 +7337,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7349,7 +7349,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7365,7 +7365,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7377,7 +7377,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7393,7 +7393,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7405,7 +7405,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7421,7 +7421,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7433,7 +7433,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7449,7 +7449,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7461,7 +7461,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7477,7 +7477,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7489,7 +7489,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7505,7 +7505,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7517,7 +7517,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7533,7 +7533,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7545,7 +7545,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7561,7 +7561,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7573,7 +7573,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7589,7 +7589,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7601,7 +7601,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7617,7 +7617,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7629,7 +7629,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7645,7 +7645,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7657,7 +7657,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7673,7 +7673,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7685,7 +7685,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7701,7 +7701,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7713,7 +7713,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7729,7 +7729,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7741,7 +7741,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7757,7 +7757,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7769,7 +7769,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7785,7 +7785,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7797,7 +7797,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7813,7 +7813,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7825,7 +7825,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7841,7 +7841,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7853,7 +7853,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7869,7 +7869,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7881,7 +7881,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7897,7 +7897,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7909,7 +7909,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7925,7 +7925,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7937,7 +7937,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7953,7 +7953,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7965,7 +7965,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -7981,7 +7981,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -7993,7 +7993,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8009,7 +8009,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8021,7 +8021,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8037,7 +8037,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8049,7 +8049,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8065,7 +8065,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8077,7 +8077,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8093,7 +8093,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8105,7 +8105,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8121,7 +8121,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8133,7 +8133,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8149,7 +8149,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8161,7 +8161,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8177,7 +8177,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8189,7 +8189,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8205,7 +8205,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8217,7 +8217,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8233,7 +8233,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8245,7 +8245,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8261,7 +8261,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8273,7 +8273,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8289,7 +8289,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8301,7 +8301,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8317,7 +8317,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8329,7 +8329,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8345,7 +8345,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8357,7 +8357,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8373,7 +8373,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8385,7 +8385,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8401,7 +8401,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8413,7 +8413,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8429,7 +8429,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8441,7 +8441,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8457,7 +8457,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8469,7 +8469,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8485,7 +8485,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8497,7 +8497,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8513,7 +8513,7 @@
       {
         "action_coverage": [
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "BIL"
           },
           {
@@ -8525,7 +8525,7 @@
             "ticker": "LQD"
           },
           {
-            "fetched_on": "2026-09-17",
+            "fetched_on": "2026-09-18",
             "ticker": "SPY"
           }
         ],
@@ -8539,17 +8539,17 @@
         "spy_252": 0.19363713276219086
       }
     ],
-    "signal_facts_sha256": "5b8cf0405de1fded147e322b0c75078e32573fd8a5f6dcf853694ddf8369809d",
+    "signal_facts_sha256": "bf4557cd0fb70471d218faa8545a26064d33c01d29aa2b86584e42d5fcf6f52e",
     "start": "2008-05-29"
   },
-  "runtime_s": 1078.0,
-  "scratch_s": 37.1,
+  "runtime_s": 1110.1,
+  "scratch_s": 33.7,
   "screen_rows": 0,
   "screen_s": 0.0,
   "screen_source": "not-used",
   "sessions": 4605,
   "source_file_count": 113,
-  "source_sha256": "64d503994d4edb3bee9a112a5233664baebbcf142f89d09c7ee8e3674fd7cf99",
+  "source_sha256": "1f42968bb0c8e71fbd78aac116bfbe78f548ae7a519f3d04ffd7646f4c04b737",
   "span_end": "2026-09-17",
   "span_start": "2008-05-29",
   "strategy": "credit_confirmed_static_control_v1",
