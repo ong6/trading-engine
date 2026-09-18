@@ -10863,7 +10863,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 
 - **Why:** owner decision (`docs/feedback.md`, second 2026-09-18 entry) to publish the repo as a
   showcase and case-study target for junxiong.dev/trading-engine.
-- **What:** working tree scrubbed of devbox paths (``); history rewritten with
+- **What:** history rewritten with
   `git filter-repo --replace-text` / `--replace-message` for an employer email, the devbox home
   path, an internal tool name and an agent co-author trailer; force-pushed; visibility public.
   201 commits, dates unchanged. Backdating was requested and refused.
