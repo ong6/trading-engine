@@ -237,6 +237,7 @@ def test_replay_scope_installs_and_removes_research_strategies(monkeypatch, tmp_
         assert REGISTRY[experiment.CANDIDATE_ID] is experiment.CreditConfirmedSpy
         assert REGISTRY[experiment.CONTROL_ID] is experiment.CreditConfirmedStaticControl
         assert kwargs["scratch_prepare"] is experiment.prepare_inputs
+        assert kwargs["fold_prepare"] is experiment.prepare_fold
         calls.append((args[1], kwargs["execution_profile"]))
 
     monkeypatch.setattr(experiment.runner, "run_book", run_book)
