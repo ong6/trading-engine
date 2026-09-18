@@ -166,8 +166,10 @@ The rule and comparison are frozen before `xs_momentum_12_1`'s first monthly sig
   Candidate config SHA-256 is
   `fb5a0f0e3472f14ed9b0a5d5bac05a081ec0284f200db91663b11d5d47ab9214`; control config
   SHA-256 is `692d49494298d2e840c98ab78cb8e4a4829516b6049d7d24253eb3e28fe1318e`.
-  The frozen runtime-contract v20 SHA-256 is
-  `8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e`. It supersedes v19
+  The frozen runtime-contract v21 SHA-256 is
+  `f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac`. It supersedes v20
+  `8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e` before the first signal
+  for the isolated agent-paper lifecycle without changing the XS signal or economics. V20 superseded v19
   `7f4085fca17872a9ef1125c64ed03f58b2191abe68286e9720441df74f8f06f3` before the first signal
   so explicit DuckDB transactions clean up process-level interruptions without masking their
   original failure. V19 released temporary DataFrame views after failed statements. V18 superseded v17

@@ -164,6 +164,10 @@ def test_first_consumption_synchronizes_only_cash_only_control_dates(con, monkey
         "WHERE portfolio_id = ? AND date = ?",
         [policy["reserved_portfolio_id"], missing_date],
     ).fetchone() == (39_000.0, 39_000.0, 0)
+    assert con.execute(
+        "SELECT COUNT(*) FROM sim_equity WHERE portfolio_id = ? AND date < ?",
+        [policy["reserved_portfolio_id"], date(2026, 9, 10)],
+    ).fetchone() == (0,)
 
 
 def test_requires_confirmation_initialized_book_and_untampered_evidence(
@@ -396,6 +400,33 @@ def test_receipt_tampering_fails_closed(con, monkeypatch):
         ],
     )
     with pytest.raises(agent_paper_decisions.PaperDecisionError, match="identity"):
+        agent_paper_decisions.consume(
+            con, result["decision_window"], confirmation=CONFIRMATION,
+            now=NOW + timedelta(minutes=2),
+        )
+
+
+def test_coherent_receipt_outcome_rewrite_fails_against_retained_decision(
+    con, monkeypatch
+):
+    result = _accepted(con, monkeypatch)
+    _isolated_book(con)
+    receipt = agent_paper_decisions.consume(
+        con, result["decision_window"], confirmation=CONFIRMATION,
+        now=NOW + timedelta(minutes=1),
+    )
+    forged = {**receipt, "outcome": "no_action", "order_id": None}
+    forged.pop("replayed", None)
+    forged["replayed"] = False
+    encoded = __import__("json").dumps(forged, sort_keys=True, separators=(",", ":"))
+    digest = __import__("engine.lib.provenance", fromlist=["canonical_sha256"]).canonical_sha256(forged)
+    con.execute(
+        "UPDATE agent_paper_decision_receipts SET outcome = 'no_action', "
+        "order_id = NULL, receipt_payload = ?, receipt_sha256 = ? "
+        "WHERE decision_window = ?",
+        [encoded, digest, result["decision_window"]],
+    )
+    with pytest.raises(agent_paper_decisions.PaperDecisionError, match="binding"):
         agent_paper_decisions.consume(
             con, result["decision_window"], confirmation=CONFIRMATION,
             now=NOW + timedelta(minutes=2),

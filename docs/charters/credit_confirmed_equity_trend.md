@@ -61,8 +61,12 @@ No parameter, instrument, cadence, control, or statistic may rescue a failed res
 
 **REJECT-V1.** The initial 10-fold run already failed every economic gate. Independent review
 then found that the charter requires all 18 admissible folds and that late HYG/LQD action-source
-coverage must fail closed. The result directory is being regenerated with those protocol repairs;
-the closed decision cannot be upgraded by the remediation. The retained report is in
+coverage must fail closed. The corrected run covers 216 paired validation months. Baseline growth
+was +197.44% versus +330.00% for the exposure-matched control: cumulative excess −132.56%,
+mean monthly excess −0.16%, and the frozen 90% interval [−0.34%, +0.02%]. Doubled-cost excess
+was −167.26% and delayed excess was −152.27%; worst drawdown was 11.39 percentage points worse.
+The integrity gate also fails because HYG/LQD action coverage was stale for 2026-07-31 and
+2026-08-31; both signals failed to BIL and remain disclosed. The retained report is in
 [`data/reports/experiments/credit-confirmed-spy-v1/`](../../data/reports/experiments/credit-confirmed-spy-v1/).
 No parameter, asset, cadence, control, or threshold will be changed to rescue this hypothesis.
 
