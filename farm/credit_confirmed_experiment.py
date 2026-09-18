@@ -38,6 +38,7 @@ SCENARIOS = {
 OUT_DIR = DATA_DIR / "reports" / "experiments" / "credit-confirmed-spy-v1"
 SCRATCH_ROOT = REPO_ROOT / "scratch" / "credit-confirmed-spy-v1"
 CONTROL_TABLE = "credit_confirmed_fold_controls"
+ACTIVE_CONTROL_TABLE = "credit_confirmed_active_control"
 ACTION_COVERAGE_TABLE = "credit_confirmed_action_coverage"
 DATA_CLASS = "fixed_etf_total_return_history"
 
@@ -124,8 +125,7 @@ class CreditConfirmedStaticControl(Strategy):
             "SELECT created FROM portfolios WHERE id = ?", [pf.id]
         ).fetchone()
         row = None if created is None else con.execute(
-            f"SELECT spy_weight FROM {CONTROL_TABLE} WHERE fold_start = ?",
-            [created[0]],
+            f"SELECT spy_weight FROM {ACTIVE_CONTROL_TABLE}"
         ).fetchone()
         if row is None:
             raise ValueError("credit-confirmed fold control is unavailable")
@@ -210,7 +210,7 @@ def prepare_inputs(live_con, scratch_con, start, end, sessions) -> dict:
     }
     scratch_con.execute(
         f"CREATE TABLE {CONTROL_TABLE} "
-        "(fold_start DATE PRIMARY KEY, spy_weight DOUBLE)"
+        "(fold_index INTEGER PRIMARY KEY, fold_start DATE, spy_weight DOUBLE)"
     )
     controls = []
     for fold in protocol.make_folds(ANCHOR, n_folds=EXPERIMENT_FOLDS):
@@ -226,13 +226,14 @@ def prepare_inputs(live_con, scratch_con, start, end, sessions) -> dict:
         if start_session is None or not validation:
             continue
         weight = sum(validation) / len(validation)
-        controls.append([start_session, weight, len(validation)])
+        controls.append([fold.index, start_session, weight, len(validation)])
         scratch_con.execute(
-            f"INSERT INTO {CONTROL_TABLE} VALUES (?, ?)", [start_session, weight]
+            f"INSERT INTO {CONTROL_TABLE} VALUES (?, ?, ?)",
+            [fold.index, start_session, weight],
         )
     facts = [details for _session, (_risk, details) in sorted(signals.items())]
     control_payload = [
-        [row[0].isoformat(), row[1], row[2]] for row in controls
+        [row[0], row[1].isoformat(), row[2], row[3]] for row in controls
     ]
     return {
         "class": DATA_CLASS,
@@ -250,9 +251,10 @@ def prepare_inputs(live_con, scratch_con, start, end, sessions) -> dict:
         ],
         "fold_controls": [
             {
-                "fold_start": row[0].isoformat(),
-                "spy_weight": row[1],
-                "signal_count": row[2],
+                "fold_index": row[0],
+                "fold_start": row[1].isoformat(),
+                "spy_weight": row[2],
+                "signal_count": row[3],
             }
             for row in controls
         ],
@@ -262,6 +264,20 @@ def prepare_inputs(live_con, scratch_con, start, end, sessions) -> dict:
             {"facts": facts, "controls": control_payload}
         ),
     }
+
+
+def prepare_fold(scratch_con, _book, fold, _sessions) -> None:
+    row = scratch_con.execute(
+        f"SELECT spy_weight FROM {CONTROL_TABLE} WHERE fold_index = ?", [fold.index]
+    ).fetchone()
+    if row is None:
+        raise ValueError("credit-confirmed fold control is unavailable")
+    scratch_con.execute(f"DROP TABLE IF EXISTS {ACTIVE_CONTROL_TABLE}")
+    scratch_con.execute(
+        f"CREATE TEMP TABLE {ACTIVE_CONTROL_TABLE} AS "
+        "SELECT ?::DOUBLE AS spy_weight",
+        [row[0]],
+    )
 
 
 def run_replays(
@@ -296,6 +312,7 @@ def run_replays(
                     initial_cash=INITIAL_CASH,
                     execution_profile=profile,
                     scratch_prepare=prepare_inputs,
+                    fold_prepare=prepare_fold,
                     threads=threads,
                 )
     finally:

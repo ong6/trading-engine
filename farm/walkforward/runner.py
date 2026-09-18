@@ -191,7 +191,7 @@ def _state_rebuild_matches(con, portfolio_id: str) -> bool:
 def run_fold(con, book: dict, fold: protocol.Fold, sessions: list[date],
              data_dir: Path, verbose: bool = True,
              initial_cash: float | None = None,
-             execution_profile: str | None = None) -> dict:
+             execution_profile: str | None = None, fold_prepare=None) -> dict:
     """Replay one fold in the scratch store and return its two stat packs."""
     if len(sessions) < 3:
         return {**fold.as_dict(), "status": "skipped",
@@ -199,6 +199,8 @@ def run_fold(con, book: dict, fold: protocol.Fold, sessions: list[date],
 
     t0 = time.time()
     _reset_sim(con)
+    if fold_prepare is not None:
+        fold_prepare(con, book, fold, sessions)
     _insert_book(con, book, sessions[0], initial_cash, execution_profile)
     for d in sessions:
         league.step(con, d, data_dir, rerun=False, verbose=False)
@@ -374,7 +376,7 @@ def run_book(live_con, config_id: str, *,
              mem_mb: int | None = 8000, book: dict | None = None,
              initial_cash: float | None = None,
              execution_profile: str | None = None,
-             scratch_prepare=None) -> dict:
+             scratch_prepare=None, fold_prepare=None) -> dict:
     # `book` is the CANDIDATE seam (farm/sweep). Production passes nothing and
     # the config is read from the live `portfolios` row, which is the whole
     # point of the walk-forward: it re-validates the rule the league is actually
@@ -492,7 +494,8 @@ def run_book(live_con, config_id: str, *,
                   if f.train_start <= d <= f.validate_end]
             fr = run_fold(
                 con, book, f, fs, scratch_dir, verbose=verbose,
-                initial_cash=initial_cash, execution_profile=profile.id)
+                initial_cash=initial_cash, execution_profile=profile.id,
+                fold_prepare=fold_prepare)
             fr["train_start_clamped_to_data_floor"] = f.index in clamped_ids
             fold_results.append(fr)
 
