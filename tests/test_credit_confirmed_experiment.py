@@ -167,9 +167,21 @@ def test_candidate_control_execution_identity_drift_fails_closed():
     try:
         experiment.evaluate(results)
     except ValueError as exc:
-        assert "fold identity mismatch" in str(exc)
+        assert "frozen charter runtime" in str(exc)
     else:
         raise AssertionError("candidate/control fold identity drift was accepted")
+
+    coordinated = _results()
+    for config_id in (experiment.CANDIDATE_ID, experiment.CONTROL_ID):
+        coordinated["baseline_v1"][config_id]["folds"][0]["split_date"] = (
+            "1999-01-01"
+        )
+    try:
+        experiment.evaluate(coordinated)
+    except ValueError as exc:
+        assert "frozen charter runtime" in str(exc)
+    else:
+        raise AssertionError("coordinated fold identity drift was accepted")
 
 
 def test_stale_action_coverage_forces_defensive_signal(monkeypatch):
