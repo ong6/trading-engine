@@ -198,6 +198,9 @@ def prepare_inputs(live_con, scratch_con, start, end, sessions) -> dict:
             f"INSERT INTO {CONTROL_TABLE} VALUES (?, ?)", [start_session, weight]
         )
     facts = [details for _session, (_risk, details) in sorted(signals.items())]
+    control_payload = [
+        [row[0].isoformat(), row[1], row[2]] for row in controls
+    ]
     return {
         "class": DATA_CLASS,
         "assets": list(ASSETS),
@@ -218,7 +221,9 @@ def prepare_inputs(live_con, scratch_con, start, end, sessions) -> dict:
             for row in controls
         ],
         "signal_facts_sha256": canonical_sha256(facts),
-        "sha256": canonical_sha256({"facts": facts, "controls": controls}),
+        "sha256": canonical_sha256(
+            {"facts": facts, "controls": control_payload}
+        ),
     }
 
 
