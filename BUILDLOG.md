@@ -10859,4 +10859,17 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   last-10-entry mean 741 lines, 913 hashes — the baseline this format replaces.
 - **Next:** nothing admitted. Owner promotes P1 (recommended) in `docs/plans/README.md`.
 
+## 2026-09-18 — Public release: history scrubbed, visibility flipped
+
+- **Why:** owner decision (`docs/feedback.md`, second 2026-09-18 entry) to publish the repo as a
+  showcase and case-study target for junxiong.dev/trading-engine.
+- **What:** working tree scrubbed of devbox paths (`c7fb3d0`); history rewritten with
+  `git filter-repo --replace-text` / `--replace-message` for an employer email, the devbox home
+  path, an internal tool name and an agent co-author trailer; force-pushed; visibility public.
+  201 commits, dates unchanged. Backdating was requested and refused.
+- **Evidence:** fresh clone, `git log main -p | grep -ciE '<the four patterns>'` → 0;
+  `gh repo view --json visibility` → PUBLIC.
+- **Metrics:** unchanged (docs only).
+- **Next:** nothing admitted. Existing clones (devbox) must be re-cloned before the next session.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

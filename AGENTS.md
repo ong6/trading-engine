@@ -89,7 +89,7 @@ conversation is lost at the next compaction.
 
 ## Absolute rules (unchanged)
 
-Never fabricate a price or bar. Point-in-time tables are append-only. Orders fill next-open,
+The repo is public: no employer, devbox, or internal-tool identifiers in files or commit messages, and commit dates are never rewritten. Never fabricate a price or bar. Point-in-time tables are append-only. Orders fill next-open,
 never same-bar. One DuckDB writer at a time. Every strategy is pre-registered with a kill
 criterion. No broker code, credentials, or real money on this host. Prove by running, not by
 reading. Never weaken a gate to manufacture completion, and never tune a frozen rule after
