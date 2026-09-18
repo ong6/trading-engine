@@ -110,7 +110,8 @@ def _receipt(con: duckdb.DuckDBPyConnection, decision_window: str) -> dict | Non
     if not table_exists(con, RECEIPT_TABLE):
         return None
     rows = con.execute(
-        f"SELECT receipt_payload, receipt_sha256 FROM {RECEIPT_TABLE} "
+        f"SELECT policy_id, attempt_id, outcome, order_id, receipt_payload, "
+        f"receipt_sha256, consumed_at FROM {RECEIPT_TABLE} "
         "WHERE decision_window = ? LIMIT 2",
         [decision_window],
     ).fetchall()
@@ -119,11 +120,51 @@ def _receipt(con: duckdb.DuckDBPyConnection, decision_window: str) -> dict | Non
     if len(rows) != 1:
         raise PaperDecisionError(503, "paper decision receipt is ambiguous")
     try:
-        payload = loads_object(rows[0][0])
+        payload = loads_object(rows[0][4])
     except (TypeError, ValueError, UnicodeDecodeError) as exc:
         raise PaperDecisionError(503, "paper decision receipt is invalid") from exc
-    if canonical_sha256(payload) != rows[0][1]:
+    expected_fields = {
+        "schema_version",
+        "decision_window",
+        "policy_id",
+        "policy_registration_sha256",
+        "attempt_id",
+        "terminal_outcome",
+        "outcome",
+        "order_id",
+        "consumed_at",
+        "paper_execution_authority",
+        "broker_submission_authority",
+        "live_capital_authority",
+        "replayed",
+    }
+    stored_time = _stored_utc(rows[0][6], "paper receipt time")
+    if (
+        set(payload) != expected_fields
+        or canonical_sha256(payload) != rows[0][5]
+        or payload["schema_version"] != RECEIPT_SCHEMA_VERSION
+        or payload["decision_window"] != decision_window
+        or payload["policy_id"] != rows[0][0]
+        or payload["attempt_id"] != rows[0][1]
+        or payload["outcome"] != rows[0][2]
+        or payload["order_id"] != rows[0][3]
+        or payload["consumed_at"]
+        != stored_time.isoformat().replace("+00:00", "Z")
+        or payload["outcome"] not in {"no_action", "order_pending"}
+        or (payload["outcome"] == "no_action") != (payload["order_id"] is None)
+        or payload["paper_execution_authority"] != "local_simulator_only"
+        or payload["broker_submission_authority"] != "none"
+        or payload["live_capital_authority"] != "none"
+        or payload["replayed"] is not False
+    ):
         raise PaperDecisionError(503, "paper decision receipt identity is invalid")
+    if payload["order_id"] is not None:
+        order = con.execute(
+            "SELECT portfolio_id FROM sim_orders WHERE id = ?",
+            [payload["order_id"]],
+        ).fetchone()
+        if order is None:
+            raise PaperDecisionError(503, "paper decision receipt order is unavailable")
     return {**payload, "replayed": True}
 
 
@@ -261,9 +302,26 @@ def _consume_once(
     replay = _receipt(con, decision_window)
     if replay is not None:
         try:
-            agent_attribution_read_models.attribution(con)
+            record = agent_attribution_read_models.verified_decision_record(
+                con, decision_window
+            )
+            policy = agent_policy.get(record["policy_id"])
         except (ValueError, agent_policy.PolicyError) as exc:
             raise PaperDecisionError(409, str(exc)) from exc
+        if (
+            replay["policy_id"] != policy["id"]
+            or replay["policy_registration_sha256"]
+            != policy["registration_sha256"]
+            or replay["attempt_id"] != record["attempt_id"]
+            or replay["terminal_outcome"] != record["terminal_outcome"]
+        ):
+            raise PaperDecisionError(503, "paper decision receipt binding is invalid")
+        _book_ready(con, policy)
+        con.execute(
+            "UPDATE portfolios SET active = TRUE WHERE id = ? AND active = FALSE",
+            [policy["reserved_portfolio_id"]],
+        )
+        agent_attribution_read_models.attribution(con)
         return replay
     try:
         agent_attribution_read_models.attribution(con)
@@ -378,3 +436,16 @@ def consume(
     with engine_db.transaction(con):
         init_schema(con)
         return _consume_once(con, decision_window, observed_at=observed_at)
+
+
+def replay_after_contention(
+    con: duckdb.DuckDBPyConnection,
+    decision_window: str,
+) -> dict | None:
+    """Read and fully verify the winner's receipt after a concurrent conflict."""
+    with engine_db.transaction(con):
+        return _consume_once(
+            con,
+            decision_window,
+            observed_at=datetime.now(timezone.utc),
+        ) if _receipt(con, decision_window) is not None else None

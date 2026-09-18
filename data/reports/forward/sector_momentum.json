@@ -153,10 +153,10 @@
       "sim/strategies/sector_momentum.py",
       "sim/strategies/spy_benchmark.py"
     ],
-    "runtime_contract_migration": "2026-09-13 interruption-safe transaction cleanup: every explicit DuckDB transaction now rolls back process-level interruptions, preserves the original failure if cleanup also fails, and leaves borrowed connections reusable; strategy, execution economics, baseline, and evidence-continuity rules are unchanged",
-    "runtime_contract_sha256": "c430b451ee510c858705ba4235f81b68f9d7443745a60b4716035acb32741788",
-    "runtime_contract_version": 9,
-    "superseded_runtime_contract_sha256": "c0788167bf63f734c6c9b3428b425a0054f1cead1754048aa00a6cc48eb5662f"
+    "runtime_contract_migration": "2026-09-18 isolated agent-paper lifecycle after interruption-safe transaction cleanup: attributed agent orders survive same-date reruns and the no-op agent book uses the ordinary simulator lifecycle; sector strategy, execution economics, baseline, and evidence-continuity rules are unchanged",
+    "runtime_contract_sha256": "8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce",
+    "runtime_contract_version": 10,
+    "superseded_runtime_contract_sha256": "c430b451ee510c858705ba4235f81b68f9d7443745a60b4716035acb32741788"
   },
   "metrics": {
     "drawdown_improvement": 0.00762406398676585,

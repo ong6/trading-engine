@@ -83,12 +83,12 @@
       "sim/strategies/xs_common.py",
       "sim/strategies/xs_momentum_12_1.py"
     ],
-    "runtime_contract_migration": "2026-09-13 interruption-safe transaction cleanup before the first signal: every explicit DuckDB transaction now rolls back process-level interruptions, preserves the original failure if cleanup also fails, and leaves borrowed connections reusable; strategy, signal, execution economics, and statistical rules are unchanged",
-    "runtime_contract_sha256": "8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e",
-    "runtime_contract_version": 20,
+    "runtime_contract_migration": "2026-09-18 isolated agent-paper lifecycle after interruption-safe transaction cleanup and before the first signal: attributed agent orders survive same-date reruns and the no-op agent book uses the ordinary simulator lifecycle; XS strategy, signal, execution economics, and statistical rules are unchanged",
+    "runtime_contract_sha256": "f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac",
+    "runtime_contract_version": 21,
     "signal_boundary": null,
     "signal_date": "2026-09-30",
-    "superseded_runtime_contract_sha256": "7f4085fca17872a9ef1125c64ed03f58b2191abe68286e9720441df74f8f06f3"
+    "superseded_runtime_contract_sha256": "8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e"
   },
   "observation": {
     "eligible_after": "2031-10-01",

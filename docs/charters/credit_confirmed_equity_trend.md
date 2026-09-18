@@ -1,6 +1,6 @@
 # Credit-confirmed equity trend — pre-registered research charter
 
-Status: **registered, not yet run**  
+Status: **completed 2026-09-18; REJECT-V1; closed without tuning**
 Charter ID: `CREDIT-CONFIRMED-SPY-2026-09-18-v1`  
 Registered: 2026-09-18 UTC
 
@@ -34,6 +34,7 @@ monthly switching costs consume the avoided losses.
 | Primary statistic | Mean paired monthly net excess over validation months |
 | Confidence method | 90% two-sided stationary-block-bootstrap percentile interval; geometric blocks averaging four months; 10,000 draws; seed `20260918` |
 | Minimum effect | Mean paired monthly net excess at least 0.10 percentage point |
+| Total-return convention | The simulator's frozen approximation: cash distributions in the window are added to endpoint price without interim reinvestment |
 
 The control weight is measured from the candidate's frozen binary targets, not selected for return.
 It may know the fold's average exposure because it is a diagnostic exposure-matched comparator,
@@ -55,6 +56,15 @@ The v1 hypothesis passes historical review only if all of these hold under `base
 Failure of any item is `REJECT-V1`. Passing permits only a separately registered prospective
 paper experiment; it does not add a league book, alter an existing strategy, or authorize capital.
 No parameter, instrument, cadence, control, or statistic may rescue a failed result.
+
+## Result — 2026-09-18
+
+**REJECT-V1.** The initial 10-fold run already failed every economic gate. Independent review
+then found that the charter requires all 18 admissible folds and that late HYG/LQD action-source
+coverage must fail closed. The result directory is being regenerated with those protocol repairs;
+the closed decision cannot be upgraded by the remediation. The retained report is in
+[`data/reports/experiments/credit-confirmed-spy-v1/`](../../data/reports/experiments/credit-confirmed-spy-v1/).
+No parameter, asset, cadence, control, or threshold will be changed to rescue this hypothesis.
 
 ## Bias and interpretation
 

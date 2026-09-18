@@ -514,6 +514,14 @@ def consume_agent_paper_decision(
         except agent_paper_decisions.PaperDecisionError as exc:
             raise HTTPException(exc.status_code, exc.detail) from exc
         except duckdb.Error as exc:
+            try:
+                replay = agent_paper_decisions.replay_after_contention(
+                    con, body.decision_window
+                )
+            except (duckdb.Error, agent_paper_decisions.PaperDecisionError):
+                replay = None
+            if replay is not None:
+                return replay
             raise HTTPException(503, "agent paper decision contention; retry") from exc
 
 

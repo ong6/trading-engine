@@ -303,6 +303,9 @@ def test_route_maps_duckdb_contention_to_bounded_retry(monkeypatch):
             duckdb.TransactionException("conflict")
         ),
     )
+    monkeypatch.setattr(
+        main.agent_paper_decisions, "replay_after_contention", lambda *_args: None
+    )
     with pytest.raises(HTTPException, match="contention") as error:
         main.consume_agent_paper_decision(
             agent_paper_decisions.PaperDecisionRequest(
@@ -311,6 +314,65 @@ def test_route_maps_duckdb_contention_to_bounded_retry(monkeypatch):
             "x" * 32,
         )
     assert error.value.status_code == 503
+
+
+def test_route_returns_winner_receipt_after_concurrent_conflict(monkeypatch):
+    import duckdb
+
+    class Connection:
+        def close(self):
+            pass
+
+    replay = {"outcome": "no_action", "replayed": True}
+    monkeypatch.setenv(agent_paper_decisions.AUTH_TOKEN_ENV, "x" * 32)
+    monkeypatch.setattr(main, "write_con", Connection)
+    monkeypatch.setattr(
+        main.agent_paper_decisions,
+        "consume",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            duckdb.TransactionException("conflict")
+        ),
+    )
+    monkeypatch.setattr(
+        main.agent_paper_decisions,
+        "replay_after_contention",
+        lambda *_args: replay,
+    )
+    assert main.consume_agent_paper_decision(
+        agent_paper_decisions.PaperDecisionRequest(
+            decision_window="window-1", confirmation=CONFIRMATION
+        ),
+        "x" * 32,
+    ) == replay
+
+
+def test_receipt_tampering_fails_closed(con, monkeypatch):
+    result = _no_action(con, monkeypatch)
+    _isolated_book(con)
+    receipt = agent_paper_decisions.consume(
+        con, result["decision_window"], confirmation=CONFIRMATION,
+        now=NOW + timedelta(minutes=1),
+    )
+    forged = {
+        **receipt,
+        "outcome": "order_pending",
+        "order_id": 999999,
+        "broker_submission_authority": "forged",
+    }
+    con.execute(
+        "UPDATE agent_paper_decision_receipts SET receipt_payload = ?, "
+        "receipt_sha256 = ? WHERE decision_window = ?",
+        [
+            __import__("json").dumps(forged, sort_keys=True, separators=(",", ":")),
+            __import__("engine.lib.provenance", fromlist=["canonical_sha256"]).canonical_sha256(forged),
+            result["decision_window"],
+        ],
+    )
+    with pytest.raises(agent_paper_decisions.PaperDecisionError, match="identity"):
+        agent_paper_decisions.consume(
+            con, result["decision_window"], confirmation=CONFIRMATION,
+            now=NOW + timedelta(minutes=2),
+        )
 
 
 def test_rerun_preserves_attributed_agent_order_and_receipt(con, monkeypatch):
