@@ -478,6 +478,22 @@ def _verify_replay(
     decision_window: str,
     replay: dict,
 ) -> dict:
+    policy = _verify_receipt_binding(con, decision_window, replay)
+    _book_ready(con, policy)
+    con.execute(
+        "UPDATE portfolios SET active = TRUE WHERE id = ? AND active = FALSE",
+        [policy["reserved_portfolio_id"]],
+    )
+    agent_attribution_read_models.attribution(con)
+    return replay
+
+
+def _verify_receipt_binding(
+    con: duckdb.DuckDBPyConnection,
+    decision_window: str,
+    receipt: dict,
+) -> dict:
+    """Bind one structurally valid receipt to retained decision and order state."""
     try:
         record = agent_attribution_read_models.verified_decision_record(
             con, decision_window
@@ -491,20 +507,14 @@ def _verify_replay(
         else "order_pending"
     )
     if (
-        replay["policy_id"] != policy["id"]
-        or replay["policy_registration_sha256"] != policy["registration_sha256"]
-        or replay["attempt_id"] != record["attempt_id"]
-        or replay["terminal_outcome"] != record["terminal_outcome"]
-        or replay["outcome"] != expected_outcome
+        receipt["policy_id"] != policy["id"]
+        or receipt["policy_registration_sha256"] != policy["registration_sha256"]
+        or receipt["attempt_id"] != record["attempt_id"]
+        or receipt["terminal_outcome"] != record["terminal_outcome"]
+        or receipt["outcome"] != expected_outcome
     ):
         raise PaperDecisionError(503, "paper decision receipt binding is invalid")
-    _book_ready(con, policy)
-    con.execute(
-        "UPDATE portfolios SET active = TRUE WHERE id = ? AND active = FALSE",
-        [policy["reserved_portfolio_id"]],
-    )
-    agent_attribution_read_models.attribution(con)
-    return replay
+    return policy
 
 
 def consume(
@@ -549,11 +559,14 @@ def receipts(con: duckdb.DuckDBPyConnection) -> dict:
         ).fetchall()
     ]
     visible = windows[:MAX_RECEIPTS]
+    projected = []
+    for window in visible:
+        receipt = _receipt(con, window)
+        _verify_receipt_binding(con, window, receipt)
+        projected.append({**receipt, "replayed": False})
     return {
         "matching_count": len(windows),
         "limit": MAX_RECEIPTS,
         "truncated": len(windows) > MAX_RECEIPTS,
-        "receipts": [
-            {**_receipt(con, window), "replayed": False} for window in visible
-        ],
+        "receipts": projected,
     }

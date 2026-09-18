@@ -431,6 +431,8 @@ def test_coherent_receipt_outcome_rewrite_fails_against_retained_decision(
             con, result["decision_window"], confirmation=CONFIRMATION,
             now=NOW + timedelta(minutes=2),
         )
+    with pytest.raises(agent_paper_decisions.PaperDecisionError, match="binding"):
+        agent_paper_decisions.receipts(con)
 
 
 def test_receipts_are_exposed_through_existing_attribution_read_model(con, monkeypatch):
