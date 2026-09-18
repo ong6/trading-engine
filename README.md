@@ -15,8 +15,9 @@ strategy/evidence status. The operating guide is
 - Design specs (the law): [`docs/design/`](docs/design/) — engine design (§12 wins on
   conflict) + execution design (§7 exit criteria).
 - Live-readiness handoff: [`docs/live-readiness-goal.md`](docs/live-readiness-goal.md) —
-  evidence, recoverability, broker-paper, independent-risk, and recovery gates. It does not
-  authorize live trading.
+  data quality, algorithm-only/agent-only/hybrid paper evidence, recoverability,
+  broker-paper, independent-risk, and recovery gates. It permits only gated paper-agent
+  automation and does not authorize live trading.
 - Current decision ledger: [`docs/strategy-research-backlog.md`](docs/strategy-research-backlog.md),
   including the ordered
   [next admissible actions](docs/strategy-research-backlog.md#next-admissible-actions).
@@ -53,9 +54,11 @@ waits and between bounded writes, so API/UI reads are not locked out for an enti
 or multi-hour pull. EOD price batches commit independently; backfill batches checkpoint their
 price rows, completion flags, and job progress in one transaction.
 
-The agentic layer (AI-gated/tuned books + news analyst) was **retired 2026-08-18** and moved to
+The former agentic layer (AI-gated/tuned books + news analyst) was **retired 2026-08-18** and moved to
 [`archive/agentic-2026-08/`](archive/agentic-2026-08/README.md) — its books are `active = FALSE`;
-that README covers what it was, why it went, and how to re-enable it.
+that README covers what it was and why it was retired. Any replacement follows the current
+goal's new structured, separately attributed paper-agent path; it does not reactivate or reuse
+the retired implementation or its evidence.
 
 ## Running it yourself
 
@@ -79,14 +82,28 @@ Paper trading only — see the notice in `LICENSE`.
 tail -50 logs/cron.log            # did last night finish? ("=== done ...")
 cat data/reports/league.md        # standings
 cat data/_meta.json               # collection/mining health
-systemctl --user status trading-engine-api.service trading-engine-ui.service --no-pager
+systemctl --user status trading-engine-api.service trading-engine-ui.service \
+  trading-engine-agent-data-capture.timer trading-engine-agent-shadow.timer --no-pager
 curl -fsS http://127.0.0.1:8000/research/readiness  # research-data admission only
 curl -fsS http://127.0.0.1:8000/meta                 # scheduler: production 5/5 + postflight 1/1
+curl -fsS http://127.0.0.1:8000/agent/data/corporate-actions
+curl -fsS http://127.0.0.1:8000/agent/data/provider-responses
+curl -fsS http://127.0.0.1:8000/agent/data/independent-price-evidence
+.venv/bin/python -m tools.adjudicate_agent_data_discrepancy status
+.venv/bin/python -m tools.review_agent_data_discrepancy list
+curl -fsS http://127.0.0.1:8000/agent/fault-drills
+curl -fsS http://127.0.0.1:8000/agent/shadow/control # operator-controlled shadow schedule
 .venv/bin/python -m tools.verify_friday_postflight  # inspect Friday; publishing is opt-in
 ```
 
-The API and production UI are enabled user services bound to localhost. User lingering is
-enabled, so both survive terminal disconnection and restart after reboot. See the operating
+The API, production UI, agent-data-capture timer, and agent-shadow timer are enabled user units
+bound to local operation. The data timer retains normalized price and corporate-action
+observations, exact bounded future Yahoo and independent Nasdaq response bodies, and source
+observations derived from those exact bytes without a model;
+the shadow timer invokes a static worker through the local Trae proxy and remains gated by an explicit
+operator control that installation leaves disabled; it has no order authority. User lingering is
+enabled, so these
+units survive terminal disconnection and restart after reboot. See the operating
 guide for installation, restart, logs, SSH-tunnel commands, and the weekend verifier, liquidity,
 sweep, and walk-forward schedules.
 An auxiliary Saturday postflight records whether Friday's completed nightly published all four

@@ -1,0 +1,20 @@
+[Unit]
+Description=Trading engine append-only agent data capture
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/trading-engine
+ExecStart=%h/trading-engine/.venv/bin/python -m server.agent_price_observations capture
+ExecStart=%h/trading-engine/.venv/bin/python -m server.agent_corporate_action_observations capture
+ExecStart=%h/trading-engine/.venv/bin/python -m server.agent_provider_responses capture
+ExecStart=%h/trading-engine/.venv/bin/python -m server.agent_independent_price_evidence capture
+Environment=PYTHONUNBUFFERED=1
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=5min
+PrivateTmp=true
+ProtectSystem=full
+ProtectControlGroups=true
+UMask=0077

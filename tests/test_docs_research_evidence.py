@@ -132,7 +132,8 @@ def test_current_research_backlog_separates_candidates_and_forbids_premature_wor
     assert "Do not tune a frozen rule" in backlog
     assert "Source-transition checkpoint — 2026-09-13 02:17 UTC" in backlog
     assert "`walkforward_evidence.status = stale-source`" in backlog
-    assert "Do not reconstruct or manually relabel the artifacts" in backlog
+    assert "were not reconstructed or manually relabelled" in backlog
+    assert "`walkforward_evidence.status = current`" in backlog
     assert "Next admissible actions" in backlog
     assert "There is currently no evidence-authorized new strategy run" in backlog
     assert "source parity is provenance, not profit evidence" in backlog
@@ -149,19 +150,107 @@ def test_entry_points_link_directly_to_next_admissible_actions():
     assert "strategy-research-backlog.md#next-admissible-actions" in docs_readme
 
 
-def test_current_guides_document_the_pending_walkforward_source_transition():
+def test_current_guides_document_the_completed_walkforward_source_transition():
     index = " ".join((REPO_ROOT / "docs" / "README.md").read_text().split())
     goal = " ".join((REPO_ROOT / "docs" / "live-readiness-goal.md").read_text().split())
     current_source = "2a45f846b7a4628661c4539adf71074377c529a450c90cb07cd4125aafed7d75"
+    current_cohort = "b304ae92d54e27a8f3a3adaa77dcf5b77175f9be141e71dfa232f29c3b32aec2"
 
     assert current_source in index
     assert current_source in (
         REPO_ROOT / "docs" / "strategy-research-backlog.md"
     ).read_text()
-    assert "`stale-source` until the normal Sunday 06:00 UTC revalidation" in index
+    assert current_cohort in index
+    assert "source-matching and current" in index
     assert "If the live source and published walk-forward cohort differ" in goal
     assert "let the scheduled revalidation restore a matching cohort" in goal
     assert "do not reconstruct evidence" in goal
+
+
+def test_current_guide_documents_the_bounded_agent_proposal_ledger():
+    how = " ".join((REPO_ROOT / "docs" / "how-it-works.md").read_text().split())
+
+    assert "exact server-validated context payload" in how
+    assert "GET /agent/proposals" in how
+    assert "newest 100 records" in how
+    assert "execution_authority = none" in how
+    assert "retained context payload" in how
+    assert "Context schema v10" in how
+    assert "complete normalized record and recomputable hash" in how
+    assert "agent_daily_price_observations" in how
+    assert "baseline_snapshot" in how
+    assert "GET /agent/data/daily-prices" in how
+    assert "agent_corporate_action_observations" in how
+    assert "GET /agent/data/corporate-actions" in how
+    assert "agent_provider_responses" in how
+    assert "agent_provider_source_observations" in how
+    assert "exact-response source observations" in how
+    assert "later_exact_value_corroboration" in how
+    assert "GET /agent/data/provider-responses" in how
+    assert "agent_independent_price_responses" in how
+    assert "agent_independent_price_observations" in how
+    assert "GET /agent/data/independent-price-evidence" in how
+    assert "distinct corroborated observations" in how
+    assert "additions and removals separately" in how
+    assert "raw_retained = true" in how
+    assert "usage_authority = shadow_context_only" in how
+    assert "http://127.0.0.1:8317/v1/responses" in how
+    assert "GPT-5.6-Sol:max" in how
+    assert "no tools" in how
+    assert "cannot fall through to another provider" in how
+    assert "unversioned-catalog-alias" in how
+    assert "server.agent_shadow_runner" in how
+    assert ".agent-shadow.lock" in how
+    assert "There are no automatic retries" in how
+    assert "GET /agent/shadow/attempts" in how
+    assert "unfinished older market-date window" in how
+    assert "persistent user-systemd timer" in how
+    assert "store/agent-shadow-control.json" in how
+    assert "GET /agent/shadow/control" in how
+    assert "GET /agent/attribution" in how
+    assert "unavailable_no_isolated_paper_portfolio" in how
+    assert "GET /agent/authority/readiness" in how
+    assert "Schema v3" in how
+    assert "review-packet gate now passes" in how
+    assert "server.agent_fault_drills run" in how
+    assert "GET /agent/fault-drills" in how
+    assert "agent-shadow-state-machine-v1" in how
+    assert "tools.initialize_agent_paper_book" in how
+    assert "tools.migrate_agent_human_approval" in how
+    assert "tools.migrate_agent_paper_authority_store" in how
+    assert "tools.migrate_agent_release_review" in how
+    assert "all twenty-eight cases" in how
+    assert "broker_paper_authority_store.py" in how
+    assert "broker_paper_consumption_store.py" in how
+    assert "Enable automatic paper" in how
+    assert "tools.adjudicate_agent_data_discrepancy" in how
+    assert "agent_data_discrepancy_decisions" in how
+    assert "record_only_separate_follow_up_required" in how
+    assert "no cache writer, quarantine writer, order route, or" in how
+    assert "broker_human_paper_review.py" in how
+    assert "broker_human_paper_approval.py" in how
+    assert "SHA-256 detects ordinary corruption but is not a" in how
+    assert "approval_source = not_selected" in how
+    assert "signer_policy = not_selected" in how
+    assert "reconstructs the packet from the complete DuckDB evidence path" in how
+    assert "rejects a forged evidence hash" in how
+    assert "Packet schema v2" in how
+    assert "independently validated signal close" in how
+    assert "untrusted_model_rationale" in how
+    assert "Raw context, prompts, model requests, and evidence-ID arrays are excluded" in how
+    assert "tools.review_agent_paper_intent build" in how
+    assert "tools.review_agent_paper_intent verify" in how
+    assert "Both paths force DuckDB read-only" in how
+    assert "transient user-systemd probe" in how
+    assert "both later paper stages as ineligible" in how
+    assert "default-disabled shadow control" in how
+    assert "does not regenerate a consumed decision" in how
+    assert "Hybrid remains absent from the timer and simulator" in how
+    assert "Algorithm-only scheduling remains unchanged" in how
+    assert "bounded `decision_features` section" in how
+    assert "SPY/EFA/BIL over 252 sessions" in how
+    assert "corporate-action fetch coverage" in how
+    assert "first live manual invocation" in how
 
 
 def test_current_guides_document_the_nasdaq_security_class_boundary():

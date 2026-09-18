@@ -22,6 +22,23 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from engine.lib.settings import DATA_DIR, META_PATH
 
 from . import (
+    agent_attribution_read_models,
+    agent_authority_read_models,
+    agent_context,
+    agent_contract,
+    agent_corporate_action_observations,
+    agent_fault_drills,
+    agent_independent_price_evidence,
+    agent_model_client,
+    agent_policy,
+    agent_policy_read_models,
+    agent_price_observations,
+    agent_proposal_read_models,
+    agent_proposals,
+    agent_provider_responses,
+    agent_release_readiness,
+    agent_shadow_read_models,
+    agent_shadow_schedule,
     journal_read_models,
     league_read_models,
     market_read_models,
@@ -45,6 +62,7 @@ from .status_validation import iso_date
 
 T = TypeVar("T")
 OrderStatus = Literal["pending", "filled", "rejected", "cancelled"]
+AgentProposalStatus = Literal["shadow_accepted", "shadow_rejected"]
 NONBLANK_PATTERN = r".*\S.*"
 ALLOWED_HOSTNAMES = frozenset({"127.0.0.1", "localhost"})
 HEALTH_FIELDS = frozenset({"ok", "status", "db_readable"})
@@ -319,6 +337,160 @@ def journal():
 def ticket_context():
     with _connection(read_con) as con:
         return paper_read_models.ticket_context(con)
+
+
+@app.get("/agent/context")
+def paper_agent_context(
+    strategy_id: Annotated[
+        str,
+        Query(
+            min_length=1,
+            max_length=agent_contract.IDENTIFIER_MAX_CHARS,
+            pattern=NONBLANK_PATTERN,
+        ),
+    ],
+    ticker: Annotated[
+        str,
+        Query(
+            min_length=1,
+            max_length=agent_contract.PUBLIC_TICKER_MAX_CHARS,
+            pattern=NONBLANK_PATTERN,
+        ),
+    ],
+    policy_id: Annotated[
+        str,
+        Query(
+            min_length=1,
+            max_length=agent_contract.IDENTIFIER_MAX_CHARS,
+            pattern=NONBLANK_PATTERN,
+        ),
+    ] = "dual_momentum_agent_shadow_v1",
+):
+    with _connection(read_con) as con:
+        try:
+            return agent_context.build(
+                con,
+                strategy_id,
+                ticker,
+                policy_id=policy_id,
+            )
+        except agent_context.ContextError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+
+@app.get("/agent/data/daily-prices")
+def agent_daily_price_observation_status():
+    with _connection(read_con) as con:
+        try:
+            return agent_price_observations.status(con)
+        except agent_price_observations.ObservationError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/agent/data/corporate-actions")
+def agent_corporate_action_observation_status():
+    with _connection(read_con) as con:
+        try:
+            return agent_corporate_action_observations.status(con)
+        except agent_corporate_action_observations.ObservationError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/agent/data/provider-responses")
+def agent_provider_response_status():
+    with _connection(read_con) as con:
+        try:
+            return agent_provider_responses.status(con)
+        except agent_provider_responses.ProviderResponseError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/agent/data/independent-price-evidence")
+def agent_independent_price_evidence_status():
+    with _connection(read_con) as con:
+        try:
+            return agent_independent_price_evidence.status(con)
+        except agent_independent_price_evidence.IndependentPriceEvidenceError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/agent/proposals")
+def agent_proposal_ledger(
+    status: Annotated[AgentProposalStatus | None, Query()] = None,
+):
+    with _connection(read_con) as con:
+        return agent_proposal_read_models.proposals(con, status)
+
+
+@app.get("/agent/model/status")
+def agent_model_status():
+    try:
+        return agent_model_client.status()
+    except agent_model_client.ConnectorError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/agent/policies/evaluation")
+def agent_policy_evaluation():
+    with _connection(read_con) as con:
+        try:
+            return agent_policy_read_models.evaluation(con)
+        except agent_policy.PolicyError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/agent/attribution")
+def agent_decision_attribution():
+    with _connection(read_con) as con:
+        try:
+            return agent_attribution_read_models.attribution(con)
+        except agent_policy.PolicyError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/agent/authority/readiness")
+def agent_authority_readiness():
+    release_status = agent_release_readiness.inspect()
+    with _connection(read_con) as con:
+        try:
+            return agent_authority_read_models.readiness(
+                con,
+                release_status=release_status,
+            )
+        except agent_policy.PolicyError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/agent/fault-drills")
+def agent_fault_drill_status():
+    with _connection(read_con) as con:
+        try:
+            return agent_fault_drills.status(con)
+        except agent_fault_drills.FaultDrillError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/agent/shadow/attempts")
+def agent_shadow_attempt_ledger():
+    with _connection(read_con) as con:
+        return agent_shadow_read_models.attempts(con)
+
+
+@app.get("/agent/shadow/control")
+def agent_shadow_control_status():
+    try:
+        return agent_shadow_schedule.control_status()
+    except agent_shadow_schedule.ScheduleError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+@app.post("/agent/proposals/shadow", dependencies=JSON_MUTATION_DEPENDENCY)
+def submit_shadow_agent_proposal(body: agent_contract.TradeProposalRequest):
+    with _connection(write_con) as con:
+        try:
+            return agent_proposals.submit(con, asdict(body))
+        except agent_contract.ProposalError as exc:
+            raise HTTPException(exc.status_code, exc.detail) from exc
 
 
 @app.post("/tickets", dependencies=JSON_MUTATION_DEPENDENCY)

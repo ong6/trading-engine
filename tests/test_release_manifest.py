@@ -117,7 +117,7 @@ def test_clean_manifest_is_deterministic_and_release_eligible(tmp_path):
     second = release_manifest.build_manifest(root)
 
     assert first == second
-    assert first["schema_version"] == 5
+    assert first["schema_version"] == 8
     assert first["status"] == "release-candidate"
     assert first["release_eligible"] is True
     assert first["identity_complete"] is True
@@ -136,7 +136,24 @@ def test_clean_manifest_is_deterministic_and_release_eligible(tmp_path):
     assert first["dependencies"]["file_count"] == len(release_manifest.DEPENDENCY_FILES)
     assert first["strategy_registrations"]["file_count"] == 1
     assert first["execution_profiles"]["file_count"] == 1
+    assert set(first["agent_sources"]["files"]) == set(
+        release_manifest.AGENT_SOURCE_FILES
+    )
+    assert first["agent_sources"]["sha256"] is not None
+    assert set(first["broker_boundary_sources"]["files"]) == set(
+        release_manifest.BROKER_BOUNDARY_SOURCE_FILES
+    )
+    assert first["broker_boundary_sources"]["sha256"] is not None
+    assert set(first["independent_risk_sources"]["files"]) == set(
+        release_manifest.INDEPENDENT_RISK_SOURCE_FILES
+    )
+    assert first["independent_risk_sources"]["sha256"] is not None
     assert set(first["audit_sources"]["files"]) == {
+        "tools/initialize_agent_paper_book.py",
+        "tools/migrate_agent_human_approval.py",
+        "tools/migrate_agent_paper_attribution.py",
+        "tools/migrate_agent_paper_authority_store.py",
+        "tools/migrate_agent_release_review.py",
         "tools/release_manifest.py",
         "tools/worktree_audit.py",
     }
@@ -162,6 +179,115 @@ def test_recovery_identity_binds_semantic_validator(tmp_path):
     second = release_manifest.build_manifest(root)
 
     assert first["recovery_sources"]["sha256"] != second["recovery_sources"]["sha256"]
+
+
+def test_agent_identity_binds_proposal_boundary(tmp_path):
+    root = _repository(tmp_path)
+    first = release_manifest.build_manifest(root)
+
+    boundary = root / "server" / "agent_contract.py"
+    boundary.write_text(boundary.read_text() + "# changed\n")
+    second = release_manifest.build_manifest(root)
+
+    assert first["agent_sources"]["sha256"] != second["agent_sources"]["sha256"]
+
+
+def test_broker_boundary_identity_binds_simulator_adapter(tmp_path):
+    root = _repository(tmp_path)
+    first = release_manifest.build_manifest(root)
+
+    boundary = root / "server" / "simulator_broker_adapter.py"
+    boundary.write_text(boundary.read_text() + "# changed\n")
+    second = release_manifest.build_manifest(root)
+
+    assert (
+        first["broker_boundary_sources"]["sha256"]
+        != second["broker_boundary_sources"]["sha256"]
+    )
+
+
+def test_independent_risk_identity_binds_risk_contract(tmp_path):
+    root = _repository(tmp_path)
+    first = release_manifest.build_manifest(root)
+
+    risk = root / "server" / "broker_risk.py"
+    risk.write_text(risk.read_text() + "# changed\n")
+    second = release_manifest.build_manifest(root)
+
+    assert (
+        first["independent_risk_sources"]["sha256"]
+        != second["independent_risk_sources"]["sha256"]
+    )
+
+
+def test_independent_risk_identity_binds_paper_intent_contract(tmp_path):
+    root = _repository(tmp_path)
+    first = release_manifest.build_manifest(root)
+
+    contract = root / "server" / "broker_paper_intent.py"
+    contract.write_text(contract.read_text() + "# changed\n")
+    second = release_manifest.build_manifest(root)
+
+    assert (
+        first["independent_risk_sources"]["sha256"]
+        != second["independent_risk_sources"]["sha256"]
+    )
+
+
+def test_independent_risk_identity_binds_human_review_boundary(tmp_path):
+    root = _repository(tmp_path)
+    first = release_manifest.build_manifest(root)
+
+    review = root / "server" / "broker_human_paper_review.py"
+    review.write_text(review.read_text() + "# changed\n")
+    second = release_manifest.build_manifest(root)
+
+    assert (
+        first["independent_risk_sources"]["sha256"]
+        != second["independent_risk_sources"]["sha256"]
+    )
+
+
+def test_independent_risk_identity_binds_human_approval_contract(tmp_path):
+    root = _repository(tmp_path)
+    first = release_manifest.build_manifest(root)
+
+    approval = root / "server" / "broker_human_paper_approval.py"
+    approval.write_text(approval.read_text() + "# changed\n")
+    second = release_manifest.build_manifest(root)
+
+    assert (
+        first["independent_risk_sources"]["sha256"]
+        != second["independent_risk_sources"]["sha256"]
+    )
+
+
+def test_independent_risk_identity_binds_human_review_cli(tmp_path):
+    root = _repository(tmp_path)
+    first = release_manifest.build_manifest(root)
+
+    cli = root / "tools" / "review_agent_paper_intent.py"
+    cli.write_text(cli.read_text() + "# changed\n")
+    second = release_manifest.build_manifest(root)
+
+    assert (
+        first["independent_risk_sources"]["sha256"]
+        != second["independent_risk_sources"]["sha256"]
+    )
+
+
+def test_independent_risk_identity_binds_fault_drills(tmp_path):
+    root = _repository(tmp_path)
+    first = release_manifest.build_manifest(root)
+
+    drills = root / "server" / "broker_risk_fault_drills.py"
+    drills.write_text(drills.read_text() + "# changed\n")
+    second = release_manifest.build_manifest(root)
+
+    assert (
+        first["independent_risk_sources"]["sha256"]
+        != second["independent_risk_sources"]["sha256"]
+    )
 
 
 def test_recovery_sources_match_recursive_local_import_closure():
@@ -762,6 +888,95 @@ def test_internal_database_read_path_preserves_requested_location(tmp_path):
         "kind": "repository-relative",
         "path": "store/market.duckdb",
     }
+
+
+def test_internal_database_connection_reads_schema_while_transaction_is_open(
+    tmp_path,
+):
+    root = _repository(tmp_path)
+    database = root / "store" / "market.duckdb"
+    connection = duckdb.connect(str(database))
+    connection.execute("BEGIN TRANSACTION")
+    try:
+        manifest = release_manifest.build_manifest(
+            root,
+            database,
+            _database_connection=connection,
+        )
+    finally:
+        connection.execute("ROLLBACK")
+        connection.close()
+
+    assert manifest["database_schema"]["status"] == "ok"
+    assert manifest["database_schema"]["table_count"] == 1
+    assert manifest["identity_complete"] is True
+    assert manifest["release_eligible"] is True
+
+
+def test_internal_database_connection_must_match_requested_database(tmp_path):
+    root = _repository(tmp_path)
+    database = root / "store" / "market.duckdb"
+    other = tmp_path / "other.duckdb"
+    connection = duckdb.connect(str(other))
+    connection.execute("CREATE TABLE unrelated (id INTEGER)")
+    try:
+        manifest = release_manifest.build_manifest(
+            root,
+            database,
+            _database_connection=connection,
+        )
+    finally:
+        connection.close()
+
+    assert manifest["database_schema"]["status"] == "unsafe"
+    assert manifest["identity_complete"] is False
+    assert manifest["release_eligible"] is False
+    assert "database-schema-path-unsafe" in manifest["reasons"]
+
+
+def test_internal_database_connection_rejects_path_replacement(
+    tmp_path,
+    monkeypatch,
+):
+    root = _repository(tmp_path)
+    database = root / "store" / "market.duckdb"
+    replacement = tmp_path / "replacement.duckdb"
+    displaced = tmp_path / "displaced.duckdb"
+    replacement_connection = duckdb.connect(str(replacement))
+    replacement_connection.execute("CREATE TABLE replacement_probe (id INTEGER)")
+    replacement_connection.close()
+    connection = duckdb.connect(str(database))
+    original_catalog = release_manifest._database_catalog
+    replaced = False
+
+    def catalog_then_replace(actual):
+        nonlocal replaced
+        result = original_catalog(actual)
+        if not replaced:
+            replaced = True
+            database.replace(displaced)
+            replacement.replace(database)
+        return result
+
+    monkeypatch.setattr(
+        release_manifest,
+        "_database_catalog",
+        catalog_then_replace,
+    )
+    try:
+        manifest = release_manifest.build_manifest(
+            root,
+            database,
+            _database_connection=connection,
+        )
+    finally:
+        connection.close()
+
+    assert replaced is True
+    assert manifest["database_schema"]["status"] == "unsafe"
+    assert manifest["identity_complete"] is False
+    assert manifest["release_eligible"] is False
+    assert "database-schema-path-unsafe" in manifest["reasons"]
 
 
 def test_missing_required_file_fails_closed(tmp_path):

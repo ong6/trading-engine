@@ -143,8 +143,11 @@ def test_plan_is_ok_when_units_and_managed_cron_match(tmp_path, monkeypatch):
         "enable_linger": False,
     }
     assert summary["linger"] == "yes"
-    assert all(state["enabled"] == "enabled" for state in summary["service_units"].values())
-    assert all(state["active"] == "active" for state in summary["service_units"].values())
+    assert all(
+        summary["service_units"][unit]["enabled"] == "enabled"
+        and summary["service_units"][unit]["active"] == "active"
+        for unit in install_automation.AUTOSTART_UNITS
+    )
     assert desired == current
 
 
@@ -155,7 +158,7 @@ def test_plan_reports_disabled_and_inactive_units_as_drift(tmp_path, monkeypatch
     for unit, relative in install_automation.UNIT_SOURCES.items():
         (unit_dir / unit).write_bytes((root / relative).read_bytes())
     current = install_automation.render_crontab("", root)
-    units = sorted(install_automation.UNIT_SOURCES)
+    units = sorted(install_automation.AUTOSTART_UNITS)
 
     def state(action, unit):
         if unit != units[0]:
@@ -601,11 +604,13 @@ def test_apply_changes_only_drifted_unit_and_crontab(tmp_path, monkeypatch):
     assert result["applied"] is True
     assert (["crontab", "-"], desired) in calls
     assert (["systemctl", "--user", "daemon-reload"], None) in calls
-    assert (["systemctl", "--user", "restart", api], None) in calls
+    restart = next(args for args, _input in calls if args[:3] == ["systemctl", "--user", "restart"])
+    assert api in restart
+    assert "trading-engine-agent-shadow.service" not in restart
     assert (["systemctl", "--user", "start", ui], None) not in calls
-    assert (["systemctl", "--user", "is-enabled", api, ui], None) in calls
-    assert (["systemctl", "--user", "is-active", api, ui], None) in calls
-    assert not any(api in args and ui in args and "restart" in args for args, _input in calls)
+    autostart = sorted(install_automation.AUTOSTART_UNITS)
+    assert (["systemctl", "--user", "is-enabled", *autostart], None) in calls
+    assert (["systemctl", "--user", "is-active", *autostart], None) in calls
     assert (unit_dir / api).read_bytes() == (
         root / install_automation.UNIT_SOURCES[api]
     ).read_bytes()
@@ -634,7 +639,7 @@ def test_apply_is_mutation_free_when_replanned_state_is_converged(tmp_path, monk
 
     result = install_automation.apply(summary, desired, root, home)
 
-    units = sorted(install_automation.UNIT_SOURCES)
+    units = sorted(install_automation.AUTOSTART_UNITS)
     assert result["status"] == "ok"
     assert result["changes"] == summary["changes"]
     assert calls == [
@@ -682,7 +687,7 @@ def test_apply_repairs_service_state_without_reinstall_or_restart(tmp_path, monk
 
     result = install_automation.apply(summary, desired, root, home)
 
-    units = sorted(install_automation.UNIT_SOURCES)
+    units = sorted(install_automation.AUTOSTART_UNITS)
     assert result["status"] == "ok"
     assert result["changes"]["service_units"] == []
     assert result["changes"]["enable_units"] == units

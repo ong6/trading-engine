@@ -23,7 +23,7 @@ import duckdb
 from engine.lib.provenance import SOURCE_FILES, SOURCE_ROOTS, canonical_sha256, runtime_source_hash
 from engine.lib.settings import REPO_ROOT
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 8
 
 DEPENDENCY_FILES = (
     "pyproject.toml",
@@ -35,10 +35,17 @@ DEPENDENCY_FILES = (
 SCHEMA_SOURCE_FILES = (
     "engine/lib/db.py",
     "engine/queue_runner.py",
+    "server/broker_ledger.py",
+    "server/broker_risk_control.py",
+    "server/simulator_broker_adapter.py",
     "sim/schema.py",
     "sim/settle.py",
 )
 SERVICE_FILES = (
+    "server/trading-engine-agent-data-capture.service",
+    "server/trading-engine-agent-data-capture.timer",
+    "server/trading-engine-agent-shadow.service",
+    "server/trading-engine-agent-shadow.timer",
     "server/trading-engine-api.service",
     "ui/trading-engine-ui.service",
 )
@@ -63,8 +70,84 @@ RECOVERY_SOURCE_FILES = (
     "tools/release_manifest.py",
 )
 AUDIT_SOURCE_FILES = (
+    "tools/initialize_agent_paper_book.py",
+    "tools/migrate_agent_human_approval.py",
+    "tools/migrate_agent_paper_attribution.py",
+    "tools/migrate_agent_paper_authority_store.py",
+    "tools/migrate_agent_release_review.py",
     "tools/release_manifest.py",
     "tools/worktree_audit.py",
+)
+AGENT_SOURCE_FILES = (
+    "engine/verify_prices.py",
+    "server/agent_algorithm_candidate.py",
+    "server/agent_attribution_read_models.py",
+    "server/agent_authority_read_models.py",
+    "server/agent_context.py",
+    "server/agent_contract.py",
+    "server/agent_corporate_action_observations.py",
+    "server/agent_data_contract.py",
+    "server/agent_data_discrepancy_adjudication.py",
+    "server/agent_decision_contract.py",
+    "server/agent_fault_drills.py",
+    "server/agent_independent_price_evidence.py",
+    "server/agent_model_client.py",
+    "server/agent_paper_attribution.py",
+    "server/agent_paper_book_plan.py",
+    "server/agent_paper_book_preflight.py",
+    "server/agent_paper_evidence.py",
+    "server/agent_policy.py",
+    "server/agent_policy_read_models.py",
+    "server/agent_price_observations.py",
+    "server/agent_provider_responses.py",
+    "server/agent_proposal_read_models.py",
+    "server/agent_proposal_validation.py",
+    "server/agent_proposals.py",
+    "server/agent_release_readiness.py",
+    "server/agent_release_review_store.py",
+    "server/agent-shadow-registration.json",
+    "server/agent_shadow_read_models.py",
+    "server/agent_shadow_runner.py",
+    "server/agent_shadow_schedule.py",
+    "server/agent_shadow_store.py",
+    "server/agent_store.py",
+    "server/agent_veto_contract.py",
+    "server/main.py",
+    "tools/adjudicate_agent_data_discrepancy.py",
+)
+BROKER_BOUNDARY_SOURCE_FILES = (
+    "server/broker_contract.py",
+    "server/broker_emergency_stop.py",
+    "server/broker_ledger.py",
+    "server/broker_reconciliation.py",
+    "server/broker_submission.py",
+    "server/broker_submission_resolution.py",
+    "server/disabled_live_broker_adapter.py",
+    "server/simulator_broker_adapter.py",
+)
+INDEPENDENT_RISK_SOURCE_FILES = (
+    "server/broker_human_paper_approval.py",
+    "server/broker_human_paper_approval_store.py",
+    "server/broker_human_paper_review.py",
+    "server/broker_paper_activation_plan.py",
+    "server/broker_paper_authority_store.py",
+    "server/broker_paper_authority_transcript.py",
+    "server/broker_paper_consumption_plan.py",
+    "server/broker_paper_consumption_store.py",
+    "server/broker_paper_intent.py",
+    "server/broker_paper_lease.py",
+    "server/broker_paper_risk_evaluation.py",
+    "server/broker_paper_risk_projection.py",
+    "server/broker_paper_runtime.py",
+    "server/broker_paper_startup_scan.py",
+    "server/broker_paper_startup_store.py",
+    "server/broker_paper_usage.py",
+    "server/broker_risk.py",
+    "server/broker_risk_control.py",
+    "server/broker_risk_fault_drills.py",
+    "server/broker_risk_snapshot.py",
+    "server/broker_startup_readiness.py",
+    "tools/review_agent_paper_intent.py",
 )
 EXPERIMENT_REGISTRATION_FILES = (
     "farm/experiments/e1-spy-monday.forward.json",
@@ -87,20 +170,29 @@ SCHEDULE_SOURCE_FILES = (
     "server/driver_monitor.py",
     "server/friday_postflight.py",
     "server/host_command.py",
+    "server/agent-shadow-registration.json",
+    "server/agent_shadow_schedule.py",
     "server/scheduler_host.py",
     "server/scheduler_monitor.py",
     "tools/install_automation.py",
     "tools/verify_friday_postflight.py",
+    "server/trading-engine-agent-shadow.service",
+    "server/trading-engine-agent-shadow.timer",
+    "server/trading-engine-agent-data-capture.service",
+    "server/trading-engine-agent-data-capture.timer",
 )
 REQUIRED_FILES = tuple(
     sorted(
         set(
             DEPENDENCY_FILES
+            + AGENT_SOURCE_FILES
             + AUDIT_SOURCE_FILES
+            + BROKER_BOUNDARY_SOURCE_FILES
             + EXECUTION_PROFILE_FILES
             + EXPERIMENT_REGISTRATION_FILES
             + PROSPECTIVE_EVIDENCE_FILES
             + RECOVERY_SOURCE_FILES
+            + INDEPENDENT_RISK_SOURCE_FILES
             + SCHEMA_SOURCE_FILES
             + SERVICE_FILES
             + SCHEDULE_SOURCE_FILES
@@ -596,12 +688,52 @@ def _read_database_schema(database: Path) -> dict:
         connection.close()
 
 
+def _connection_uses_database(
+    connection: duckdb.DuckDBPyConnection,
+    database: Path,
+    protected_descriptor: int,
+    opened: os.stat_result,
+) -> bool:
+    """Bind a borrowed DuckDB connection to the exact no-follow-opened leaf."""
+    try:
+        database_name = connection.execute(
+            "SELECT current_database()"
+        ).fetchone()[0]
+        rows = connection.execute("PRAGMA database_list").fetchall()
+        matching_paths = [
+            Path(os.path.abspath(row[2]))
+            for row in rows
+            if len(row) == 3
+            and row[1] == database_name
+            and isinstance(row[2], str)
+            and row[2]
+        ]
+        if matching_paths != [database]:
+            return False
+        expected = (opened.st_dev, opened.st_ino)
+        held = False
+        for entry in (Path("/proc/self/fd")).iterdir():
+            if int(entry.name) == protected_descriptor:
+                continue
+            try:
+                value = entry.stat()
+            except OSError:
+                continue
+            if stat.S_ISREG(value.st_mode) and (value.st_dev, value.st_ino) == expected:
+                held = True
+                break
+        return held
+    except (OSError, duckdb.Error, IndexError, TypeError, ValueError):
+        return False
+
+
 def _database_schema(
     repo_root: Path,
     database: Path,
     *,
     location_database: Path | None = None,
     trusted_read_path: bool = False,
+    connection: duckdb.DuckDBPyConnection | None = None,
     expected_identity: tuple[
         tuple[tuple[int, ...], ...], tuple[int, int, int, int, int]
     ] | None = None,
@@ -627,7 +759,21 @@ def _database_schema(
                     return _database_schema_failure(
                         "unsafe", "database-schema-path-unsafe", location
                     )
-                schema = _read_database_schema(_database_descriptor_path(descriptor))
+                if connection is None:
+                    schema = _read_database_schema(
+                        _database_descriptor_path(descriptor)
+                    )
+                elif not _connection_uses_database(
+                    connection,
+                    database,
+                    descriptor,
+                    initial,
+                ):
+                    return _database_schema_failure(
+                        "unsafe", "database-schema-path-unsafe", location
+                    )
+                else:
+                    schema = _database_catalog(connection)
                 if not _database_path_unchanged(
                     database, parent_fd, descriptor, initial, parent_chain
                 ):
@@ -768,13 +914,16 @@ def _resolved_database(repo_root: Path, database: Path | None) -> Path:
 
 def _file_groups(repo_root: Path) -> dict[str, dict]:
     return {
+        "agent_sources": _file_set(repo_root, AGENT_SOURCE_FILES),
         "audit_sources": _file_set(repo_root, AUDIT_SOURCE_FILES),
+        "broker_boundary_sources": _file_set(repo_root, BROKER_BOUNDARY_SOURCE_FILES),
         "dependencies": _file_set(repo_root, DEPENDENCY_FILES),
         "strategy_registrations": _file_set(repo_root, STRATEGY_REGISTRATION_FILES),
         "execution_profiles": _file_set(repo_root, EXECUTION_PROFILE_FILES),
         "experiment_registrations": _file_set(repo_root, EXPERIMENT_REGISTRATION_FILES),
         "prospective_evidence": _file_set(repo_root, PROSPECTIVE_EVIDENCE_FILES),
         "recovery_sources": _file_set(repo_root, RECOVERY_SOURCE_FILES),
+        "independent_risk_sources": _file_set(repo_root, INDEPENDENT_RISK_SOURCE_FILES),
         "schema_sources": _file_set(repo_root, SCHEMA_SOURCE_FILES),
         "service_units": _file_set(repo_root, SERVICE_FILES),
         "schedule_sources": _file_set(repo_root, SCHEDULE_SOURCE_FILES),
@@ -783,13 +932,16 @@ def _file_groups(repo_root: Path) -> dict[str, dict]:
 
 def _named_file_groups(groups: dict[str, dict]) -> tuple[tuple[str, dict], ...]:
     return (
+        ("agent-sources", groups["agent_sources"]),
         ("audit-sources", groups["audit_sources"]),
+        ("broker-boundary-sources", groups["broker_boundary_sources"]),
         ("dependencies", groups["dependencies"]),
         ("strategy-registrations", groups["strategy_registrations"]),
         ("execution-profiles", groups["execution_profiles"]),
         ("experiment-registrations", groups["experiment_registrations"]),
         ("prospective-evidence", groups["prospective_evidence"]),
         ("recovery-sources", groups["recovery_sources"]),
+        ("independent-risk-sources", groups["independent_risk_sources"]),
         ("schema-sources", groups["schema_sources"]),
         ("services", groups["service_units"]),
         ("schedules", groups["schedule_sources"]),
@@ -813,12 +965,15 @@ def _manifest_body(
         "identity_complete": identity_complete,
         "reasons": reasons,
         "git": git,
+        "agent_sources": groups["agent_sources"],
         "audit_sources": groups["audit_sources"],
+        "broker_boundary_sources": groups["broker_boundary_sources"],
         "research_runtime": research_runtime,
         "dependencies": groups["dependencies"],
         "experiment_registrations": groups["experiment_registrations"],
         "prospective_evidence": groups["prospective_evidence"],
         "recovery_sources": groups["recovery_sources"],
+        "independent_risk_sources": groups["independent_risk_sources"],
         "strategy_registrations": groups["strategy_registrations"],
         "execution_profiles": groups["execution_profiles"],
         "schema_sources": groups["schema_sources"],
@@ -833,8 +988,13 @@ def build_manifest(
     database: Path | None = None,
     *,
     _database_read_path: Path | None = None,
+    _database_connection: duckdb.DuckDBPyConnection | None = None,
 ) -> dict:
     """Build a deterministic manifest without changing repository or host state."""
+    if _database_read_path is not None and _database_connection is not None:
+        raise ValueError(
+            "database read path and borrowed connection are mutually exclusive"
+        )
     repo_root = repo_root.resolve()
     requested_database = _resolved_database(repo_root, database)
     public_database_identity = (
@@ -850,6 +1010,7 @@ def build_manifest(
         _database_read_path or requested_database,
         location_database=requested_database,
         trusted_read_path=_database_read_path is not None,
+        connection=_database_connection,
         expected_identity=public_database_identity,
     )
     research_runtime = research_runtime_identity(repo_root)

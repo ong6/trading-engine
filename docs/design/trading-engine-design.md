@@ -347,7 +347,7 @@ so their future-tense bullets are provenance, not promises about files that exis
 | **1 — Screener** (this spec's target) | `trading-engine` repo, collect + screen + sync, daily ranked candidates syncing back | devbox cron |
 | 2 — Local-first skills | `/watchlist-scan` + `/analyze-stock` read the engine's cache | any machine |
 | 3 — Trigger watcher | always-on Python daemon: checks written triggers/stops vs live quotes every ~10 min RTH → push alert + inbox line. **No LLM.** | devbox systemd |
-| 4 — Autonomous weekly run (**retired 2026-08-18**) | The former `claude -p` review loop was removed with the agentic layer after repeated authentication failures and no decision value. Current cron is deterministic; any future model review is separate, paper/report-only, and cannot promote or trade. | retired |
+| 4 — Autonomous weekly run (**retired 2026-08-18**) | The former `claude -p` review loop was removed with the agentic layer after repeated authentication failures and no decision value. Current algorithm cron remains deterministic. A replacement agent may affect only separately registered agent-only or hybrid paper books after the structured-proposal and automatic-paper gates in [`../live-readiness-goal.md`](../live-readiness-goal.md); it cannot alter algorithm-only books, promote a strategy, or trade live capital. | retired implementation; replacement gated |
 | 5 — Universe expansion / backtest | screen thousands of names; backtest on stored history (where the spare cores finally matter). **First two jobs (2026-07-15):** (a) re-run the trend template on the engine's own point-in-time universe with next-open fills — the honest test; (b) validate the regime gate + any mean-reversion sleeve before either touches sizing | devbox |
 
 ---

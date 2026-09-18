@@ -1,0 +1,66 @@
+{
+  "execution_authority": "none",
+  "policies": [
+    {
+      "allowed_symbols": [
+        "BIL",
+        "EFA",
+        "SPY"
+      ],
+      "attribution": {
+        "algorithm_control_id": "dual_momentum",
+        "strategy_control_id": "spy_benchmark"
+      },
+      "authority_stage": "shadow_proposal_only",
+      "cadence": "monthly",
+      "capital_ceiling": 39000.0,
+      "control_id": "dual-momentum-agent-shadow-control-v1",
+      "execution_authority": "none",
+      "execution_profile_id": "baseline_v1",
+      "execution_profile_sha256": "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db",
+      "generation_enabled": true,
+      "hybrid_behavior": "none",
+      "id": "dual_momentum_agent_shadow_v1",
+      "max_order_notional": 39000.0,
+      "mode": "agent_only",
+      "model_failure_policy": "deterministic_no_action",
+      "model_role": "independent_shadow_proposal",
+      "reserved_portfolio_id": "agent_dual_momentum_shadow_v1",
+      "source_portfolio_id": "dual_momentum",
+      "strategy_config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
+      "strategy_id": "dual_momentum"
+    },
+    {
+      "allowed_symbols": [
+        "BIL",
+        "EFA",
+        "SPY"
+      ],
+      "attribution": {
+        "algorithm_control_id": "dual_momentum",
+        "strategy_control_id": "spy_benchmark"
+      },
+      "authority_stage": "shadow_proposal_only",
+      "cadence": "monthly",
+      "capital_ceiling": 39000.0,
+      "control_id": "dual-momentum-hybrid-shadow-control-v1",
+      "execution_authority": "none",
+      "execution_profile_id": "baseline_v1",
+      "execution_profile_sha256": "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db",
+      "generation_enabled": true,
+      "hybrid_behavior": "veto_only",
+      "id": "dual_momentum_hybrid_veto_shadow_v1",
+      "max_order_notional": 39000.0,
+      "mode": "hybrid",
+      "model_failure_policy": "unmodified_algorithm_signal",
+      "model_role": "veto_only",
+      "reserved_portfolio_id": "hybrid_dual_momentum_veto_shadow_v1",
+      "source_portfolio_id": "dual_momentum",
+      "strategy_config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
+      "strategy_id": "dual_momentum"
+    }
+  ],
+  "scheduled_policy_id": "dual_momentum_agent_shadow_v1",
+  "scheduled_ticker": "SPY",
+  "schema_version": 2
+}

@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule trading engine agent-only shadow decision
+
+[Timer]
+OnCalendar=Tue..Sat *-*-* 01:30:00 UTC
+Persistent=true
+AccuracySec=1min
+Unit=trading-engine-agent-shadow.service
+
+[Install]
+WantedBy=timers.target

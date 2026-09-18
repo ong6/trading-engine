@@ -1,0 +1,21 @@
+[Unit]
+Description=Trading engine agent-only shadow decision
+After=network-online.target trae-proxy.service
+Wants=network-online.target trae-proxy.service
+StartLimitIntervalSec=30min
+StartLimitBurst=3
+
+[Service]
+Type=exec
+WorkingDirectory=%h/trading-engine
+ExecStart=%h/trading-engine/.venv/bin/python -m server.agent_shadow_schedule run
+Environment=PYTHONUNBUFFERED=1
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=5min
+PrivateTmp=true
+ProtectSystem=full
+ProtectControlGroups=true
+UMask=0077
+Restart=on-failure
+RestartSec=5min
