@@ -14,6 +14,7 @@ before treating any result as actionable.
 
 ## Completed historical studies
 
+- [`credit-confirmed-spy-v1/`](credit-confirmed-spy-v1/) — `REJECT-V1`.
 - [`fixed-etf-rebalancing-v1/`](fixed-etf-rebalancing-v1/) — `REJECT-V1`.
 - [`gross-voltarget-matched-static/`](gross-voltarget-matched-static/) —
   `INCONCLUSIVE-LEGACY`, closed.
