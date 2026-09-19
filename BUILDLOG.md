@@ -11295,4 +11295,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** tools +22 LOC; server and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce proposal-result validation complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/agent_proposals.py` reports
+  `_validate_result` at complexity 18 against the repository CI limit of 10.
+- **What:** separate validation identity, context binding, and outcome consistency while
+  preserving check order, exact errors, public shape, replay semantics, and no authority.
+- **Evidence:** focused 63 tests and the full warnings-as-errors suite pass; the file is C90
+  clean and the repository count falls from 6 to 5.
+- **Metrics:** server +13 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
