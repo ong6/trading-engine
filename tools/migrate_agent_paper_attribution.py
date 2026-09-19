@@ -113,14 +113,12 @@ def _require_scoped_change(
         )
 
 
-def migrate(
+def _verified_migration_backup(
     database: Path,
     backup_bundle: Path,
     expected_manifest_sha256: str,
-    *,
-    repo_root: Path = REPO_ROOT,
-) -> dict:
-    """Apply the two-table schema-only migration after a matching verified backup."""
+    repo_root: Path,
+) -> tuple[Path, dict, dict]:
     if (
         not isinstance(expected_manifest_sha256, str)
         or _SHA256.fullmatch(expected_manifest_sha256) is None
@@ -133,9 +131,27 @@ def migrate(
     except (backup_database.BackupError, OSError) as exc:
         raise AttributionMigrationError(str(exc)) from exc
     if verified_backup["manifest_sha256"] != expected_manifest_sha256:
-        raise AttributionMigrationError("verified backup manifest identity does not match")
+        raise AttributionMigrationError(
+            "verified backup manifest identity does not match"
+        )
     if verified_backup["source_database"] != expected_location:
-        raise AttributionMigrationError("verified backup names a different source database")
+        raise AttributionMigrationError(
+            "verified backup names a different source database"
+        )
+    return database, expected_location, verified_backup
+
+
+def migrate(
+    database: Path,
+    backup_bundle: Path,
+    expected_manifest_sha256: str,
+    *,
+    repo_root: Path = REPO_ROOT,
+) -> dict:
+    """Apply the two-table schema-only migration after a matching verified backup."""
+    database, expected_location, verified_backup = _verified_migration_backup(
+        database, backup_bundle, expected_manifest_sha256, repo_root
+    )
 
     try:
         con = engine_db.connect(database, wait_s=0)
