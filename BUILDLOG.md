@@ -11009,4 +11009,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server -1 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce startup readiness assessment complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/broker_startup_readiness.py`
+  reports `assess` at complexity 11 against the repository CI limit of 10.
+- **What:** extracted deterministic blocker-reason derivation while preserving snapshot stability,
+  reconciliation age, unresolved-operation checks, halt state, and no authority.
+- **Evidence:** focused 58 tests and the full warnings-as-errors suite pass; `assess` clears C90
+  and the repository count falls from 32 to 31.
+- **Metrics:** server +26 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
