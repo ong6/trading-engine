@@ -1,9 +1,9 @@
 ---
 plan: P2
 title: League collapse to ten books
-status: proposed
+status: approved
 opened: 2026-09-18
-owner_decision: confirm the retire list
+owner_decision: none
 ---
 
 ## Goal

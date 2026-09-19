@@ -1,7 +1,7 @@
 ---
 plan: P4
 title: Decide whether a real broker is ever the goal
-status: proposed
+status: approved
 opened: 2026-09-18
 owner_decision: the decision itself, by 2027-09-04 at the latest
 ---

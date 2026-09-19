@@ -8,10 +8,10 @@ plan and the BUILDLOG.
 
 | Plan | Status | One line | Owner decision needed |
 |---|---|---|---|
-| [P1 — Appliance mode](p1-appliance-mode.md) | proposed | Freeze growth, shrink the session loop, retire doc-pinning tests, put the box on a weekly check | Approve |
-| [P2 — League collapse](p2-league-collapse.md) | proposed | Retire 11 of 21 books whose question the evidence already answered | Confirm the retire list |
-| [P3 — Point-in-time data](p3-point-in-time-data.md) | proposed | Acquire and audit a survivorship-free dataset; the only lever on the 2029 gate | Pick a vendor and budget |
-| [P4 — Broker decision](p4-broker-decision.md) | proposed | Decide by 2027-09 whether real-broker operation is ever the goal; until then `server/` is frozen | The decision itself |
+| [P1 — Appliance mode](p1-appliance-mode.md) | active | Freeze growth, shrink the session loop, retire doc-pinning tests, put the box on a weekly check | None |
+| [P2 — League collapse](p2-league-collapse.md) | approved | Retire 11 of 21 books whose question the evidence already answered | None |
+| [P3 — Point-in-time data](p3-point-in-time-data.md) | approved | Acquire and audit a survivorship-free dataset; the only lever on the 2029 gate | Pick a vendor and budget before purchase |
+| [P4 — Broker decision](p4-broker-decision.md) | approved | Decide by 2027-09 whether real-broker operation is ever the goal; until then `server/` is frozen | Choose yes or no before implementation |
 | [P5 — Agent paper decisions](p5-agent-paper-decisions.md) | done | Let a constrained agent control one isolated simulator-only paper book | None |
 | [P6 — Alpha experiment](p6-alpha-experiment.md) | done | Run one theory-led fixed-instrument experiment under a frozen protocol | None |
 

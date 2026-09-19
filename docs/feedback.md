@@ -87,3 +87,17 @@ remediation until those agents were satisfied. That instruction expands P5/P6's 
 budgets only for review findings; it does not expand feature scope or LOC ceilings. Each source
 commit remains below the repository's 1,500-line ceiling. P5 and P6 close only after the repeated
 safety, methodology, and regression reviews, the full suite, and publication of final evidence.
+
+## 2026-09-19 — Approve the P1-P4 roadmap and remote publication
+
+**Verdict.** The owner approved the four proposed follow-up plans and explicitly authorized
+completed commits to be pushed. Work proceeds in the documented order, beginning with P1.
+
+**Rule changes.**
+
+1. P1 is active; P2 is approved with its listed eleven-book retirement set confirmed.
+2. P3 is approved for its no-purchase vendor comparison. Purchase and ingestion still require
+   the owner to select a vendor and spending ceiling.
+3. P4 is approved as a decision plan. Execution or archival still requires the owner to choose
+   its explicit yes/no branch; broker connections, credentials, and real capital remain forbidden.
+4. The agent may push completed, verified commits to the configured `origin/main` upstream.

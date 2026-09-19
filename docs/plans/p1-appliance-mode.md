@@ -1,9 +1,9 @@
 ---
 plan: P1
 title: Appliance mode
-status: proposed
+status: active
 opened: 2026-09-18
-owner_decision: approve
+owner_decision: none
 ---
 
 ## Goal

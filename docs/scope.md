@@ -20,9 +20,10 @@ Maintaining these means keeping them running unchanged. It does not mean improvi
 
 ## Approved plans
 
-Plans live in [`plans/`](plans/README.md). Only `approved` or `active` plans admit work. P5 and
-P6 completed on 2026-09-18; their bounded outputs remain in scope for operation and evidence,
-but they authorize no further feature growth. P1-P4 otherwise remain proposed.
+Plans live in [`plans/`](plans/README.md). Only `approved` or `active` plans admit work. P1 is
+active; P2-P4 are approved, subject to their stated prerequisites and sequencing. P5 and P6
+completed on 2026-09-18; their bounded outputs remain in scope for operation and evidence, but
+they authorize no further feature growth.
 
 ## Not yet — frozen until its trigger fires
 

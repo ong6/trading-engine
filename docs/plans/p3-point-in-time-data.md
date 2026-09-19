@@ -1,7 +1,7 @@
 ---
 plan: P3
 title: Survivorship-free point-in-time data
-status: proposed
+status: approved
 opened: 2026-09-18
 owner_decision: pick a vendor and a spend ceiling
 ---
