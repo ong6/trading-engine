@@ -11361,4 +11361,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +21 LOC; tools and product unchanged; budget remains green.
 - **Next:** perform the goal completion audit against current ratings and evidence.
 
+## 2026-09-19 — Refresh source-bound fault-drill evidence
+
+- **Why:** demonstrated operational gap: `GET /agent/fault-drills` reported `stale` after the
+  reviewed source changed, so current recovery behavior was not yet attested.
+- **What:** ran the frozen application state-machine drill suite and appended one source-bound,
+  non-authorizing result to the existing live evidence ledger.
+- **Evidence:** `python -m server.agent_fault_drills run` passed 28/28 cases with zero failures
+  and zero indeterminate results; both CLI status and the API now report `current_pass`.
+- **Metrics:** server, tools, and product LOC unchanged; budget remains green.
+- **Next:** audit the failed Friday miner/postflight cohort without masking upstream gaps.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
