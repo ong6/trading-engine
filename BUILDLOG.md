@@ -11240,4 +11240,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +25 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce proposal attribution complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/agent_attribution_read_models.py`
+  reports `_proposal_attribution` at complexity 12 against the repository CI limit of 10.
+- **What:** separate proposal-validation evidence interpretation while preserving database and
+  context binding, reason parsing, order claims, exact errors, and no execution authority.
+- **Evidence:** focused 74 tests and the full warnings-as-errors suite pass; the targeted C90
+  finding is gone and the repository count falls from 11 to 10.
+- **Metrics:** server +23 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
