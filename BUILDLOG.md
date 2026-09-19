@@ -11251,4 +11251,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +23 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce attribution record complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/agent_attribution_read_models.py`
+  reports `_record` at complexity 14 against the repository CI limit of 10.
+- **What:** separate terminal contribution dispatch while preserving context and status checks,
+  model-contact consistency, terminal hashing, exact errors, and no execution authority.
+- **Evidence:** focused 74 tests and the full warnings-as-errors suite pass; the targeted C90
+  finding is gone and the repository count falls from 10 to 9.
+- **Metrics:** server +11 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

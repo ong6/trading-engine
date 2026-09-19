@@ -355,6 +355,43 @@ def _hybrid_attribution(
     }
 
 
+def _terminal_contribution(
+    con: duckdb.DuckDBPyConnection,
+    attempt: dict,
+    context: dict | None,
+    result: dict,
+    event_type: str,
+) -> dict:
+    expected_status = result.get("status")
+    if event_type == "proposal_result":
+        if expected_status not in {"shadow_accepted", "shadow_rejected"}:
+            raise ValueError("agent attribution proposal status is invalid")
+        return _proposal_attribution(con, attempt, result)
+    if event_type in _HYBRID_TERMINALS - {"cadence_no_action"}:
+        if expected_status != event_type:
+            raise ValueError("agent attribution hybrid status is invalid")
+        if context is None:
+            raise ValueError("agent attribution hybrid context is unavailable")
+        return _hybrid_attribution(attempt, context, result, event_type)
+    if expected_status != event_type:
+        raise ValueError("agent attribution no-action status is invalid")
+    return {
+        "decision_contribution": _NO_ACTION_CONTRIBUTIONS[event_type],
+        "proposal_record_id": None,
+        "proposal_status": None,
+        "validation_status": None,
+        "validation_sha256": None,
+        "candidate_sha256": None,
+        "candidate_order_count": 0,
+        "counterfactual_order_count": 0,
+        "vetoed_order_count": 0,
+        "effective_orders_sha256": None,
+        "fallback_applied": False,
+        "_attributable_orders": [],
+        "_decision_evidence_sha256": None,
+    }
+
+
 def _record(
     con: duckdb.DuckDBPyConnection,
     attempt: dict,
@@ -383,35 +420,9 @@ def _record(
     ):
         raise ValueError("agent attribution attempt authority is invalid")
     context = _context(attempt, required=event_type != "cadence_no_action")
-    expected_status = result.get("status")
-    if event_type == "proposal_result":
-        if expected_status not in {"shadow_accepted", "shadow_rejected"}:
-            raise ValueError("agent attribution proposal status is invalid")
-        contribution = _proposal_attribution(con, attempt, result)
-    elif event_type in _HYBRID_TERMINALS - {"cadence_no_action"}:
-        if expected_status != event_type:
-            raise ValueError("agent attribution hybrid status is invalid")
-        if context is None:
-            raise ValueError("agent attribution hybrid context is unavailable")
-        contribution = _hybrid_attribution(attempt, context, result, event_type)
-    else:
-        if expected_status != event_type:
-            raise ValueError("agent attribution no-action status is invalid")
-        contribution = {
-            "decision_contribution": _NO_ACTION_CONTRIBUTIONS[event_type],
-            "proposal_record_id": None,
-            "proposal_status": None,
-            "validation_status": None,
-            "validation_sha256": None,
-            "candidate_sha256": None,
-            "candidate_order_count": 0,
-            "counterfactual_order_count": 0,
-            "vetoed_order_count": 0,
-            "effective_orders_sha256": None,
-            "fallback_applied": False,
-            "_attributable_orders": [],
-            "_decision_evidence_sha256": None,
-        }
+    contribution = _terminal_contribution(
+        con, attempt, context, result, event_type
+    )
     model_requested = (
         _hash(
             attempt["request_sha256"],
