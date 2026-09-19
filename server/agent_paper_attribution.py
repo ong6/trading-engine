@@ -571,22 +571,13 @@ def _reconstructed_state(
     return cash, positions
 
 
-def _verify_book_rows(
-    con: duckdb.DuckDBPyConnection,
-    portfolio_id: str,
+def _verified_fill_orders(
+    fills: list[tuple],
     *,
     start: date,
     order_ids: set[int],
     order_tickers: set[str],
-    order_statuses: dict[int, str],
-) -> tuple[int, int, int, float, int]:
-    fills = con.execute(
-        "SELECT f.order_id, f.ticker, f.side, f.fill_date, f.qty, f.fill_px, "
-        "o.ticker, o.side, o.qty, o.status, f.portfolio_id FROM sim_fills f "
-        "JOIN sim_orders o ON o.id = f.order_id "
-        "WHERE f.portfolio_id = ? ORDER BY f.order_id",
-        [portfolio_id],
-    ).fetchall()
+) -> set[int]:
     seen_fill_orders = set()
     for (
         order_id,
@@ -618,6 +609,66 @@ def _verify_book_rows(
                 "paper attribution fill ownership is inconsistent"
             )
         seen_fill_orders.add(order_id)
+    return seen_fill_orders
+
+
+def _verify_positions(positions: list[tuple], order_tickers: set[str]) -> None:
+    for ticker, qty, avg_cost in positions:
+        if (
+            ticker not in order_tickers
+            or _finite(qty, "position quantity", nonnegative=True) < 0
+            or _finite(avg_cost, "position average cost", nonnegative=True) < 0
+        ):
+            raise PaperAttributionError(
+                "paper attribution position ownership is inconsistent"
+            )
+
+
+def _verify_dividends(
+    dividends: list[tuple], order_tickers: set[str], *, start: date
+) -> None:
+    for ticker, ex_date, qty, dps, amount in dividends:
+        if (
+            ticker not in order_tickers
+            or type(ex_date) is not date
+            or ex_date < start
+            or _finite(qty, "dividend quantity") <= 0
+            or _finite(dps, "dividend per share") <= 0
+            or _finite(amount, "dividend amount") <= 0
+            or not math.isclose(
+                float(amount),
+                float(qty) * float(dps),
+                rel_tol=1e-12,
+                abs_tol=1e-9,
+            )
+        ):
+            raise PaperAttributionError(
+                "paper attribution dividend ownership is inconsistent"
+            )
+
+
+def _verify_book_rows(
+    con: duckdb.DuckDBPyConnection,
+    portfolio_id: str,
+    *,
+    start: date,
+    order_ids: set[int],
+    order_tickers: set[str],
+    order_statuses: dict[int, str],
+) -> tuple[int, int, int, float, int]:
+    fills = con.execute(
+        "SELECT f.order_id, f.ticker, f.side, f.fill_date, f.qty, f.fill_px, "
+        "o.ticker, o.side, o.qty, o.status, f.portfolio_id FROM sim_fills f "
+        "JOIN sim_orders o ON o.id = f.order_id "
+        "WHERE f.portfolio_id = ? ORDER BY f.order_id",
+        [portfolio_id],
+    ).fetchall()
+    seen_fill_orders = _verified_fill_orders(
+        fills,
+        start=start,
+        order_ids=order_ids,
+        order_tickers=order_tickers,
+    )
     cross_book = con.execute(
         "SELECT COUNT(*) FROM sim_fills f FULL OUTER JOIN sim_orders o "
         "ON o.id = f.order_id "
@@ -643,39 +694,13 @@ def _verify_book_rows(
         "SELECT ticker, qty, avg_cost FROM sim_positions WHERE portfolio_id = ?",
         [portfolio_id],
     ).fetchall()
-    for ticker, qty, avg_cost in positions:
-        if (
-            ticker not in order_tickers
-            or _finite(qty, "position quantity", nonnegative=True) < 0
-            or _finite(avg_cost, "position average cost", nonnegative=True) < 0
-        ):
-            raise PaperAttributionError(
-                "paper attribution position ownership is inconsistent"
-            )
-
+    _verify_positions(positions, order_tickers)
     dividends = con.execute(
         "SELECT ticker, ex_date, qty, dps, amount FROM sim_dividends "
         "WHERE portfolio_id = ?",
         [portfolio_id],
     ).fetchall()
-    for ticker, ex_date, qty, dps, amount in dividends:
-        if (
-            ticker not in order_tickers
-            or type(ex_date) is not date
-            or ex_date < start
-            or _finite(qty, "dividend quantity") <= 0
-            or _finite(dps, "dividend per share") <= 0
-            or _finite(amount, "dividend amount") <= 0
-            or not math.isclose(
-                float(amount),
-                float(qty) * float(dps),
-                rel_tol=1e-12,
-                abs_tol=1e-9,
-            )
-        ):
-            raise PaperAttributionError(
-                "paper attribution dividend ownership is inconsistent"
-            )
+    _verify_dividends(dividends, order_tickers, start=start)
     current_cash = _finite(
         con.execute(
             "SELECT cash FROM portfolios WHERE id = ?",
