@@ -11130,4 +11130,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +16 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce risk-policy validation complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/broker_risk.py` reports
+  `RiskPolicy.__post_init__` at complexity 13 against the repository CI limit of 10.
+- **What:** separated policy symbol, numeric-limit, and duration validation while preserving
+  identifiers, hashes, limit relationships, exact errors, and no authority.
+- **Evidence:** focused 79 tests and the full warnings-as-errors suite pass; the targeted C90
+  finding is gone and the repository count falls from 21 to 20.
+- **Metrics:** server -24 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
