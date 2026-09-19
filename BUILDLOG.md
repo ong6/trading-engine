@@ -10943,4 +10943,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +8 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce source-observation projection complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/agent_provider_responses.py`
+  reports `_stored_source_observation` at complexity 11 against the CI limit of 10.
+- **What:** extracted normalized source-value parsing while retaining dataset shapes, hashes,
+  receipt linkage, timestamp checks, and fail-closed evidence validation.
+- **Evidence:** focused 83 tests and the full warnings-as-errors suite pass; the targeted C90
+  finding is gone and the repository count falls from 38 to 37.
+- **Metrics:** server +4 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
