@@ -346,6 +346,26 @@ class PaperAuthorityBindings:
             raise PaperLeaseError("startup submission authority must be none")
 
 
+def _assessment_blockers(assessment: dict) -> list[str]:
+    gates = assessment["gates"]
+    if (
+        not isinstance(gates, list)
+        or tuple(gate.get("name") for gate in gates if isinstance(gate, dict))
+        != CANDIDATE_GATE_NAMES
+        or any(
+            not isinstance(gate, dict)
+            or set(gate) != {"name", "status"}
+            or gate["status"] not in {"pass", "blocked"}
+            for gate in gates
+        )
+    ):
+        raise PaperLeaseError("paper candidate assessment gates are invalid")
+    blocked = [gate["name"] for gate in gates if gate["status"] == "blocked"]
+    if assessment["blockers"] != blocked:
+        raise PaperLeaseError("paper candidate assessment outcome is inconsistent")
+    return blocked
+
+
 def verify_candidate_assessment(
     assessment: object,
     lease: PaperAuthorityLease,
@@ -384,22 +404,7 @@ def verify_candidate_assessment(
         "assessment_sha256",
     ):
         _sha256(assessment[field], field.replace("_", " "))
-    gates = assessment["gates"]
-    if (
-        not isinstance(gates, list)
-        or tuple(gate.get("name") for gate in gates if isinstance(gate, dict))
-        != CANDIDATE_GATE_NAMES
-        or any(
-            not isinstance(gate, dict)
-            or set(gate) != {"name", "status"}
-            or gate["status"] not in {"pass", "blocked"}
-            for gate in gates
-        )
-    ):
-        raise PaperLeaseError("paper candidate assessment gates are invalid")
-    blocked = [gate["name"] for gate in gates if gate["status"] == "blocked"]
-    if assessment["blockers"] != blocked:
-        raise PaperLeaseError("paper candidate assessment outcome is inconsistent")
+    blocked = _assessment_blockers(assessment)
     body = {
         key: value for key, value in assessment.items() if key != "assessment_sha256"
     }
