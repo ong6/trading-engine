@@ -133,6 +133,58 @@ def _response_recorded(con: duckdb.DuckDBPyConnection, attempt_id: int) -> bool:
     return count == 1
 
 
+def _proposal_validation(
+    *,
+    validation_sha256: object,
+    validation_payload: object,
+    policy_id: str,
+    registration_sha256: str,
+    context_sha256: str,
+    status: str,
+    reasons: list[str],
+) -> tuple[str, list[dict], str | None]:
+    if validation_sha256 is None and validation_payload is None:
+        return (
+            "legacy_unvalidated" if status == "shadow_accepted" else "not_run",
+            [],
+            None,
+        )
+    if validation_sha256 is None or validation_payload is None:
+        raise ValueError("agent attribution proposal validation is incomplete")
+    try:
+        evidence = agent_proposal_validation.verify_binding(
+            loads_strict(validation_payload),
+            validation_sha256=validation_sha256,
+            policy_id=policy_id,
+            policy_registration_sha256=registration_sha256,
+            context_sha256=context_sha256,
+            proposal_status=status,
+            reasons=reasons,
+        )
+    except (TypeError, ValueError, agent_proposal_validation.ValidationError) as exc:
+        raise ValueError("agent attribution proposal validation is invalid") from exc
+    attributable_orders = []
+    if status == "shadow_accepted":
+        claim = evidence["recomputed_claim"]
+        try:
+            signal_date = date.fromisoformat(claim["signal_date"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "agent attribution proposal order evidence is invalid"
+            ) from exc
+        attributable_orders = [
+            {
+                "sequence": 1,
+                "ticker": claim.get("ticker"),
+                "side": claim.get("side"),
+                "quantity": claim.get("quantity_at_signal_close"),
+                "signal_date": signal_date,
+                "quantity_rule": "maximum",
+            }
+        ]
+    return evidence["status"], attributable_orders, evidence["validation_sha256"]
+
+
 def _proposal_attribution(
     con: duckdb.DuckDBPyConnection,
     attempt: dict,
@@ -175,46 +227,17 @@ def _proposal_attribution(
         isinstance(reason, str) and reason for reason in reasons
     ):
         raise ValueError("agent attribution proposal reasons are invalid")
-    validation_status = "not_run"
-    attributable_orders = []
-    decision_evidence_sha256 = None
-    if validation_sha256 is not None or validation_payload is not None:
-        if validation_sha256 is None or validation_payload is None:
-            raise ValueError("agent attribution proposal validation is incomplete")
-        try:
-            evidence = agent_proposal_validation.verify_binding(
-                loads_strict(validation_payload),
-                validation_sha256=validation_sha256,
-                policy_id=policy_id,
-                policy_registration_sha256=registration_sha256,
-                context_sha256=context_sha256,
-                proposal_status=status,
-                reasons=reasons,
-            )
-        except (TypeError, ValueError, agent_proposal_validation.ValidationError) as exc:
-            raise ValueError("agent attribution proposal validation is invalid") from exc
-        validation_status = evidence["status"]
-        decision_evidence_sha256 = evidence["validation_sha256"]
-        if status == "shadow_accepted":
-            claim = evidence["recomputed_claim"]
-            try:
-                signal_date = date.fromisoformat(claim["signal_date"])
-            except (KeyError, TypeError, ValueError) as exc:
-                raise ValueError(
-                    "agent attribution proposal order evidence is invalid"
-                ) from exc
-            attributable_orders = [
-                {
-                    "sequence": 1,
-                    "ticker": claim.get("ticker"),
-                    "side": claim.get("side"),
-                    "quantity": claim.get("quantity_at_signal_close"),
-                    "signal_date": signal_date,
-                    "quantity_rule": "maximum",
-                }
-            ]
-    elif status == "shadow_accepted":
-        validation_status = "legacy_unvalidated"
+    validation_status, attributable_orders, decision_evidence_sha256 = (
+        _proposal_validation(
+            validation_sha256=validation_sha256,
+            validation_payload=validation_payload,
+            policy_id=policy_id,
+            registration_sha256=registration_sha256,
+            context_sha256=context_sha256,
+            status=status,
+            reasons=reasons,
+        )
+    )
     return {
         "decision_contribution": (
             "agent_shadow_proposal"
