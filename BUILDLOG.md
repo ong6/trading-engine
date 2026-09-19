@@ -11020,4 +11020,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +26 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce proposal normalization complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/agent_contract.py` reports
+  `normalize` at complexity 12 against the repository CI limit of 10.
+- **What:** extracted proposal time-window validation while preserving field order, timestamp
+  normalization, age/skew/expiry bounds, schema, evidence limits, and no authority.
+- **Evidence:** focused 98 tests and the full warnings-as-errors suite pass; file C90 is clean
+  and the repository count falls from 31 to 30.
+- **Metrics:** server +5 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
