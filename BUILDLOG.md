@@ -11306,4 +11306,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +13 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce retained hybrid-terminal complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/agent_paper_evidence.py` reports
+  `_hybrid_terminal` at complexity 15 against the repository CI limit of 10.
+- **What:** separate retained event parsing and model-decision verification while preserving
+  event order, times, hashes, fallback semantics, exact errors, and no execution authority.
+- **Evidence:** focused 106 tests and the full warnings-as-errors suite pass; the file is C90
+  clean and the repository count falls from 5 to 4.
+- **Metrics:** server +35 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

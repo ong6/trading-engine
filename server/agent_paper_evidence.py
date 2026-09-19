@@ -1066,15 +1066,13 @@ def _hybrid_fallback_reason(
     return _bounded_reason(prefix, terminal["detail"])
 
 
-def _hybrid_terminal(
+def _hybrid_events(
     con: duckdb.DuckDBPyConnection,
     *,
     attempt_id: int,
     request_sha256: str,
-    context: dict,
     started_at: datetime,
-    decision_window_id: str,
-) -> tuple[str, list[dict], str, datetime, str | None, str]:
+) -> tuple[list[tuple], list[str], list[datetime], list[dict]]:
     rows = con.execute(
         "SELECT id, event_type, payload, occurred_at FROM agent_shadow_events "
         "WHERE attempt_id = ? ORDER BY id LIMIT ?",
@@ -1088,7 +1086,8 @@ def _hybrid_terminal(
         event_types[0] != "started"
         or terminal_type
         not in {"hybrid_allow", "hybrid_veto", "hybrid_fallback_allow"}
-        or event_types not in (
+        or event_types
+        not in (
             ["started", terminal_type],
             ["started", "model_response", terminal_type],
         )
@@ -1102,49 +1101,85 @@ def _hybrid_terminal(
     try:
         payloads = [loads_object(row[2]) for row in rows]
     except (TypeError, ValueError, UnicodeDecodeError) as exc:
-        raise AgentPaperEvidenceError("hybrid decision event payload is invalid") from exc
+        raise AgentPaperEvidenceError(
+            "hybrid decision event payload is invalid"
+        ) from exc
     if payloads[0] != {
         "request_sha256": request_sha256,
         "execution_authority": "none",
     }:
         raise AgentPaperEvidenceError("hybrid decision start event is invalid")
-    candidate = _algorithm_candidate(context)
+    return rows, event_types, times, payloads
+
+
+def _hybrid_decision(
+    *,
+    event_types: list[str],
+    payloads: list[dict],
+    context: dict,
+    candidate: dict,
+    request_sha256: str,
+) -> tuple[dict | None, str]:
+    terminal_type = event_types[-1]
     terminal = payloads[-1]
     decision = terminal.get("decision")
-    if terminal_type in {"hybrid_allow", "hybrid_veto"}:
-        if event_types != ["started", "model_response", terminal_type]:
-            raise AgentPaperEvidenceError("hybrid model decision has no retained response")
-        response = payloads[1]
-        response = _verify_model_response(
-            response,
-            context=context,
-            request_sha256=request_sha256,
-        )
-        if response["output"] != decision:
-            raise AgentPaperEvidenceError("retained hybrid model response is invalid")
-        try:
-            decision = agent_veto_contract.normalize(
-                decision,
-                expected_candidate_sha256=candidate["candidate_sha256"],
-                allowed_evidence_ids=_allowlisted_evidence(context),
-            )
-        except agent_veto_contract.VetoDecisionError as exc:
-            raise AgentPaperEvidenceError("retained hybrid decision is invalid") from exc
-        if decision["decision"] != terminal_type.removeprefix("hybrid_"):
-            raise AgentPaperEvidenceError("retained hybrid decision outcome is invalid")
-        if terminal != {"decision": decision, "result": terminal.get("result")}:
-            raise AgentPaperEvidenceError("retained hybrid decision payload is invalid")
-        expected_reason = decision["reason"]
-    else:
+    if terminal_type not in {"hybrid_allow", "hybrid_veto"}:
         if decision is not None:
             raise AgentPaperEvidenceError("hybrid fallback contains a model decision")
-        expected_reason = _hybrid_fallback_reason(
+        return None, _hybrid_fallback_reason(
             event_types=event_types,
             payloads=payloads,
             context=context,
             candidate=candidate,
             request_sha256=request_sha256,
         )
+    if event_types != ["started", "model_response", terminal_type]:
+        raise AgentPaperEvidenceError("hybrid model decision has no retained response")
+    response = _verify_model_response(
+        payloads[1], context=context, request_sha256=request_sha256
+    )
+    if response["output"] != decision:
+        raise AgentPaperEvidenceError("retained hybrid model response is invalid")
+    try:
+        decision = agent_veto_contract.normalize(
+            decision,
+            expected_candidate_sha256=candidate["candidate_sha256"],
+            allowed_evidence_ids=_allowlisted_evidence(context),
+        )
+    except agent_veto_contract.VetoDecisionError as exc:
+        raise AgentPaperEvidenceError("retained hybrid decision is invalid") from exc
+    if decision["decision"] != terminal_type.removeprefix("hybrid_"):
+        raise AgentPaperEvidenceError("retained hybrid decision outcome is invalid")
+    if terminal != {"decision": decision, "result": terminal.get("result")}:
+        raise AgentPaperEvidenceError("retained hybrid decision payload is invalid")
+    return decision, decision["reason"]
+
+
+def _hybrid_terminal(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    attempt_id: int,
+    request_sha256: str,
+    context: dict,
+    started_at: datetime,
+    decision_window_id: str,
+) -> tuple[str, list[dict], str, datetime, str | None, str]:
+    rows, event_types, times, payloads = _hybrid_events(
+        con,
+        attempt_id=attempt_id,
+        request_sha256=request_sha256,
+        started_at=started_at,
+    )
+    terminal_type = event_types[-1]
+    candidate = _algorithm_candidate(context)
+    terminal = payloads[-1]
+    decision, expected_reason = _hybrid_decision(
+        event_types=event_types,
+        payloads=payloads,
+        context=context,
+        candidate=candidate,
+        request_sha256=request_sha256,
+    )
     result = terminal.get("result")
     effective_orders = (
         [order for order in candidate["orders"] if not order["veto_eligible"]]
