@@ -978,6 +978,41 @@ def _model_output_failure_metadata(terminal: dict, request_sha256: str) -> None:
         raise AgentPaperEvidenceError("hybrid model-output usage is invalid")
 
 
+def _model_failure_expectation(
+    terminal: dict, request_sha256: str
+) -> tuple[dict, str]:
+    detail = terminal.get("detail")
+    error_type = terminal.get("error_type")
+    if (
+        not isinstance(detail, str)
+        or not detail
+        or detail != detail.strip()
+        or not detail.isprintable()
+    ):
+        raise AgentPaperEvidenceError("hybrid model-failure fallback is invalid")
+    if error_type == "ConnectorError":
+        return {
+            "error_type": "ConnectorError",
+            "detail": detail,
+            "result": terminal.get("result"),
+        }, "model transport failure"
+    if error_type == "ModelOutputError":
+        _model_output_failure_metadata(terminal, request_sha256)
+        expected = {
+            "error_type": "ModelOutputError",
+            "detail": detail,
+            "response_id": terminal.get("response_id"),
+            "request_sha256": terminal.get("request_sha256"),
+            "response_sha256": terminal.get("response_sha256"),
+            "usage": terminal.get("usage"),
+            "result": terminal.get("result"),
+        }
+        if terminal["request_sha256"] not in {None, request_sha256}:
+            raise AgentPaperEvidenceError("hybrid model-output fallback is invalid")
+        return expected, "model output failure"
+    raise AgentPaperEvidenceError("hybrid model-failure fallback is invalid")
+
+
 def _hybrid_fallback_reason(
     *,
     event_types: list[str],
@@ -1023,42 +1058,12 @@ def _hybrid_fallback_reason(
             "recording a response; model-failure policy preserves the "
             "unmodified algorithm signal"
         )
-    detail = terminal.get("detail")
-    error_type = terminal.get("error_type")
-    if (
-        event_types != ["started", "hybrid_fallback_allow"]
-        or not isinstance(detail, str)
-        or not detail
-        or detail != detail.strip()
-        or not detail.isprintable()
-    ):
+    if event_types != ["started", "hybrid_fallback_allow"]:
         raise AgentPaperEvidenceError("hybrid model-failure fallback is invalid")
-    if error_type == "ConnectorError":
-        expected = {
-            "error_type": "ConnectorError",
-            "detail": detail,
-            "result": terminal.get("result"),
-        }
-        prefix = "model transport failure"
-    elif error_type == "ModelOutputError":
-        _model_output_failure_metadata(terminal, request_sha256)
-        expected = {
-            "error_type": "ModelOutputError",
-            "detail": detail,
-            "response_id": terminal.get("response_id"),
-            "request_sha256": terminal.get("request_sha256"),
-            "response_sha256": terminal.get("response_sha256"),
-            "usage": terminal.get("usage"),
-            "result": terminal.get("result"),
-        }
-        if terminal["request_sha256"] not in {None, request_sha256}:
-            raise AgentPaperEvidenceError("hybrid model-output fallback is invalid")
-        prefix = "model output failure"
-    else:
-        raise AgentPaperEvidenceError("hybrid model-failure fallback is invalid")
+    expected, prefix = _model_failure_expectation(terminal, request_sha256)
     if terminal != expected:
         raise AgentPaperEvidenceError("hybrid model-failure fallback is invalid")
-    return _bounded_reason(prefix, detail)
+    return _bounded_reason(prefix, terminal["detail"])
 
 
 def _hybrid_terminal(
