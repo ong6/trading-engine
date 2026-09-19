@@ -881,12 +881,7 @@ def _stored_receipt(row: tuple) -> tuple[dict, bytes]:
     return identity, body
 
 
-def _stored_source_observation(
-    con: duckdb.DuckDBPyConnection,
-    row: tuple,
-    *,
-    receipt_cache: dict | None = None,
-) -> dict:
+def _normalized_source_value(row: tuple) -> tuple[dict, dict]:
     try:
         normalized = json.loads(row[6])
     except (TypeError, ValueError) as exc:
@@ -910,7 +905,16 @@ def _stored_source_observation(
         raise ProviderResponseError("stored source observation is invalid")
     if set(normalized) != {*value_fields, "latest_ingested_at"}:
         raise ProviderResponseError("stored source observation is invalid")
-    value = {field: normalized[field] for field in value_fields}
+    return normalized, {field: normalized[field] for field in value_fields}
+
+
+def _stored_source_observation(
+    con: duckdb.DuckDBPyConnection,
+    row: tuple,
+    *,
+    receipt_cache: dict | None = None,
+) -> dict:
+    normalized, value = _normalized_source_value(row)
     try:
         source_fetched_at = _timestamp(row[9])
         observed_at = _timestamp(row[10])
