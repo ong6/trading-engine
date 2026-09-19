@@ -19,10 +19,10 @@
     "largest_insertions": 86905,
     "largest_sha": "89b416d",
     "largest_subject": "Harden paper-trading operations and research recovery",
-    "non_screen_commits": 66,
+    "non_screen_commits": 67,
     "product_touching": 38,
-    "research_touching": 32,
-    "support_only": 28,
+    "research_touching": 33,
+    "support_only": 29,
     "window_days": 30
   },
   "date": "2026-09-19",
