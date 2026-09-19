@@ -37,6 +37,37 @@ def test_extract_long_normalizes_timestamps_to_naive_utc():
     assert frame["ts"].dt.tz is None
 
 
+def test_archive_universe_excludes_inactive_or_nonliquid_price_leaders(con):
+    db.init_schema(con)
+    dates = pd.date_range("2026-08-01", periods=5).date
+    for ticker, active, liquid, price in (
+        ("ACTIVE", True, True, 100.0),
+        ("INACTIVE", False, True, 1_000.0),
+        ("ILLIQUID", True, False, 900.0),
+        ("PASSER", True, True, 10.0),
+    ):
+        con.execute(
+            "INSERT INTO universe "
+            "(ticker, yf_ticker, active, liquid) VALUES (?, ?, ?, ?)",
+            [ticker, ticker, active, liquid],
+        )
+        for day in dates:
+            con.execute(
+                "INSERT INTO prices (ticker, date, close, volume) VALUES (?, ?, ?, 1000)",
+                [ticker, day, price],
+            )
+    con.execute(
+        "INSERT INTO screen_results "
+        "(run_date, ticker, passes_template) VALUES (?, 'PASSER', TRUE)",
+        [dates[-1]],
+    )
+
+    selected = intraday._select_universe(con)
+
+    assert {"ACTIVE", "PASSER", *intraday.BENCHMARKS} <= set(selected)
+    assert {"INACTIVE", "ILLIQUID"}.isdisjoint(selected)
+
+
 def test_connection_narrowed_run_releases_db_and_appends_batches(monkeypatch, tmp_path):
     db_path = tmp_path / "market.duckdb"
     con = db.connect(db_path)
