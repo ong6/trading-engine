@@ -145,6 +145,48 @@ def _common_intent_matches(
     )
 
 
+def _verified_sources(
+    lease: PaperAuthorityLease,
+    candidate_assessment: object,
+    usage_evidence: LoadedPaperLeaseUsage,
+    risk_evaluation: AuthorityAwareRiskEvaluation,
+    trusted_candidate_assessment_sha256: str,
+) -> tuple[dict, LoadedPaperLeaseUsage, AuthorityAwareRiskEvaluation]:
+    try:
+        candidate = broker_paper_lease.verify_candidate_assessment(
+            candidate_assessment,
+            lease,
+            trusted_assessment_sha256=trusted_candidate_assessment_sha256,
+        )
+        usage = broker_paper_usage.verify_loaded_usage(usage_evidence, lease)
+        evaluation = broker_paper_risk_evaluation.verify_evaluation(risk_evaluation)
+    except (TypeError, ValueError) as exc:
+        raise PaperConsumptionPlanError(
+            "paper consumption source evidence verification failed"
+        ) from exc
+    return candidate, usage, evaluation
+
+
+def _mode_intent_matches(
+    lease: PaperAuthorityLease,
+    request: SubmitOrderRequest,
+    intent_bindings: PaperIntentBindings | HybridPaperIntentBindings,
+    evaluation: AuthorityAwareRiskEvaluation,
+    planned_at: datetime,
+) -> bool:
+    if isinstance(intent_bindings, PaperIntentBindings):
+        return (
+            evaluation.order_notional <= intent_bindings.max_notional
+            and planned_at < intent_bindings.proposal_expires_at
+        )
+    return (
+        intent_bindings.terminal_status in {"hybrid_allow", "hybrid_fallback_allow"}
+        and intent_bindings.effective_order_included is True
+        and request.quantity == intent_bindings.quantity
+        and lease.not_before <= intent_bindings.evidence_observed_at <= planned_at
+    )
+
+
 def _eligibility_body(
     *,
     lease: PaperAuthorityLease,
@@ -535,25 +577,13 @@ def build_plan(
         "trusted paper intent binding identity",
     )
     planned_at = _utc(now, "paper consumption plan time")
-    try:
-        candidate = broker_paper_lease.verify_candidate_assessment(
-            candidate_assessment,
-            lease,
-            trusted_assessment_sha256=(
-                trusted_candidate_assessment_sha256
-            ),
-        )
-        usage = broker_paper_usage.verify_loaded_usage(
-            usage_evidence,
-            lease,
-        )
-        evaluation = broker_paper_risk_evaluation.verify_evaluation(
-            risk_evaluation
-        )
-    except (TypeError, ValueError) as exc:
-        raise PaperConsumptionPlanError(
-            "paper consumption source evidence verification failed"
-        ) from exc
+    candidate, usage, evaluation = _verified_sources(
+        lease,
+        candidate_assessment,
+        usage_evidence,
+        risk_evaluation,
+        trusted_candidate_assessment_sha256,
+    )
 
     request_payload = _request_payload(request)
     request_sha256 = canonical_sha256(request_payload)
@@ -604,23 +634,9 @@ def build_plan(
         request_sha256,
         intent_bindings,
     )
-    if isinstance(intent_bindings, PaperIntentBindings):
-        intent_matches = (
-            intent_matches
-            and evaluation.order_notional <= intent_bindings.max_notional
-            and planned_at < intent_bindings.proposal_expires_at
-        )
-    else:
-        intent_matches = (
-            intent_matches
-            and intent_bindings.terminal_status
-            in {"hybrid_allow", "hybrid_fallback_allow"}
-            and intent_bindings.effective_order_included is True
-            and request.quantity == intent_bindings.quantity
-            and lease.not_before
-            <= intent_bindings.evidence_observed_at
-            <= planned_at
-        )
+    intent_matches = intent_matches and _mode_intent_matches(
+        lease, request, intent_bindings, evaluation, planned_at
+    )
     unique = (
         consumption_key not in usage.consumed_consumption_keys
         and request.idempotency_key

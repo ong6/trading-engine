@@ -11119,4 +11119,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +11 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce paper consumption planning complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/broker_paper_consumption_plan.py`
+  reports `build_plan` at complexity 12 against the repository CI limit of 10.
+- **What:** separated source-evidence and mode-specific intent checks while preserving trust,
+  freshness, uniqueness, capacity, commitment bytes, and no authority.
+- **Evidence:** focused 72 tests and the full warnings-as-errors suite pass; file C90 is clean
+  and the repository count falls from 22 to 21.
+- **Metrics:** server +16 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
