@@ -362,6 +362,38 @@ def _incomplete_emergency_stop_keys(
     return tuple(sorted(key for key, state in states.items() if state == "started"))
 
 
+def _blocker_reasons(
+    *,
+    account_active: bool,
+    reconciliation_status: str,
+    reconciliation_age_seconds: float,
+    max_reconciliation_age_seconds: int,
+    uncertain_submissions: tuple[str, ...],
+    resolved_open_submissions: tuple[str, ...],
+    uncertain_cancellations: tuple[str, ...],
+    incomplete_emergency_stops: tuple[str, ...],
+    control_halted: bool,
+) -> list[str]:
+    reasons = []
+    if not account_active:
+        reasons.append("account_inactive")
+    if reconciliation_status != "match":
+        reasons.append(f"reconciliation_{reconciliation_status}")
+    if not 0 <= reconciliation_age_seconds <= max_reconciliation_age_seconds:
+        reasons.append("reconciliation_stale_or_future")
+    if uncertain_submissions:
+        reasons.append("uncertain_submissions")
+    if resolved_open_submissions:
+        reasons.append("resolved_open_submissions")
+    if uncertain_cancellations:
+        reasons.append("uncertain_cancellations")
+    if incomplete_emergency_stops:
+        reasons.append("incomplete_emergency_stops")
+    if not control_halted:
+        reasons.append("control_not_halted")
+    return reasons
+
+
 def assess(
     con: duckdb.DuckDBPyConnection,
     adapter: BrokerAdapter,
@@ -413,23 +445,17 @@ def assess(
     reconciliation_age_seconds = (
         observed_at - reconciliation.observed_at
     ).total_seconds()
-    reasons = []
-    if not initial.account.active:
-        reasons.append("account_inactive")
-    if reconciliation.status != "match":
-        reasons.append(f"reconciliation_{reconciliation.status}")
-    if not 0 <= reconciliation_age_seconds <= max_reconciliation_age_seconds:
-        reasons.append("reconciliation_stale_or_future")
-    if uncertain_submissions:
-        reasons.append("uncertain_submissions")
-    if resolved_open_submissions:
-        reasons.append("resolved_open_submissions")
-    if uncertain_cancellations:
-        reasons.append("uncertain_cancellations")
-    if incomplete_emergency_stops:
-        reasons.append("incomplete_emergency_stops")
-    if not control.halted:
-        reasons.append("control_not_halted")
+    reasons = _blocker_reasons(
+        account_active=initial.account.active,
+        reconciliation_status=reconciliation.status,
+        reconciliation_age_seconds=reconciliation_age_seconds,
+        max_reconciliation_age_seconds=max_reconciliation_age_seconds,
+        uncertain_submissions=uncertain_submissions,
+        resolved_open_submissions=resolved_open_submissions,
+        uncertain_cancellations=uncertain_cancellations,
+        incomplete_emergency_stops=incomplete_emergency_stops,
+        control_halted=control.halted,
+    )
     body = {
         "schema_version": STARTUP_SCHEMA_VERSION,
         "account_id": account_id,
