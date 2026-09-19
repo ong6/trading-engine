@@ -214,6 +214,35 @@ class BrokerPosition:
         )
 
 
+def _validate_order_state(order: BrokerOrder) -> None:
+    if order.status not in {
+        "pending",
+        "partially_filled",
+        "filled",
+        "rejected",
+        "cancelled",
+        "expired",
+    }:
+        raise ValueError("order status is invalid")
+    if order.status in {"rejected", "cancelled", "expired"}:
+        if (
+            not isinstance(order.rejection_reason, str)
+            or not order.rejection_reason.strip()
+            or len(order.rejection_reason) > MAX_REASON_CHARS
+        ):
+            raise ValueError("terminal order reason is invalid")
+    elif order.rejection_reason is not None:
+        raise ValueError("terminal order reason is invalid")
+    if order.status == "pending" and order.filled_quantity != 0:
+        raise ValueError("pending order cannot have filled quantity")
+    if order.status == "partially_filled" and not (
+        0 < order.filled_quantity < order.quantity
+    ):
+        raise ValueError("partially filled order quantity is invalid")
+    if order.status == "filled" and order.filled_quantity != order.quantity:
+        raise ValueError("filled order quantity is invalid")
+
+
 @dataclass(frozen=True, slots=True)
 class BrokerOrder:
     broker_order_id: str
@@ -251,32 +280,7 @@ class BrokerOrder:
             raise ValueError("filled quantity exceeds order quantity")
         if type(self.signal_date) is not date:
             raise ValueError("order signal date is invalid")
-        if self.status not in {
-            "pending",
-            "partially_filled",
-            "filled",
-            "rejected",
-            "cancelled",
-            "expired",
-        }:
-            raise ValueError("order status is invalid")
-        if self.status in {"rejected", "cancelled", "expired"}:
-            if (
-                not isinstance(self.rejection_reason, str)
-                or not self.rejection_reason.strip()
-                or len(self.rejection_reason) > MAX_REASON_CHARS
-            ):
-                raise ValueError("terminal order reason is invalid")
-        elif self.rejection_reason is not None:
-            raise ValueError("terminal order reason is invalid")
-        if self.status == "pending" and self.filled_quantity != 0:
-            raise ValueError("pending order cannot have filled quantity")
-        if self.status == "partially_filled" and not (
-            0 < self.filled_quantity < self.quantity
-        ):
-            raise ValueError("partially filled order quantity is invalid")
-        if self.status == "filled" and self.filled_quantity != self.quantity:
-            raise ValueError("filled order quantity is invalid")
+        _validate_order_state(self)
         if self.order_type != "market":
             raise ValueError("only market orders are supported")
         if self.time_in_force != "day":
