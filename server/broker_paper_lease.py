@@ -90,6 +90,70 @@ def _symbols(value: object, label: str) -> tuple[str, ...]:
     return value
 
 
+def _validate_lease_model_boundary(lease: PaperAuthorityLease) -> None:
+    if lease.authority_stage != "automatic_paper":
+        raise PaperLeaseError("paper lease authority stage is invalid")
+    if lease.environment != "simulator":
+        raise PaperLeaseError("paper lease environment must be simulator")
+    if lease.mode not in {"agent_only", "hybrid"}:
+        raise PaperLeaseError("paper lease mode is invalid")
+    expected_model = agent_model_client.identity(
+        role="proposal" if lease.mode == "agent_only" else "veto"
+    )
+    if (
+        lease.transport != expected_model["transport"]
+        or lease.endpoint != expected_model["endpoint"]
+        or lease.model != expected_model["model"]
+        or lease.required_proxy_version != expected_model["required_proxy_version"]
+        or lease.prompt_sha256 != expected_model["instructions_sha256"]
+        or lease.toolset_sha256 != expected_model["toolset_sha256"]
+    ):
+        raise PaperLeaseError("paper lease model boundary is invalid")
+    if lease.model_version in {
+        agent_model_client.MODEL_VERSION,
+        "unversioned-catalog-alias",
+    }:
+        raise PaperLeaseError("paper lease requires a provider-stable model revision")
+
+
+def _normalize_lease_limits_and_times(lease: PaperAuthorityLease) -> None:
+    object.__setattr__(
+        lease,
+        "allowed_symbols",
+        _symbols(lease.allowed_symbols, "paper allowed symbols"),
+    )
+    object.__setattr__(
+        lease,
+        "capital_ceiling",
+        _positive(lease.capital_ceiling, "paper capital ceiling"),
+    )
+    object.__setattr__(
+        lease,
+        "max_order_notional",
+        _positive(lease.max_order_notional, "paper order-notional ceiling"),
+    )
+    if lease.max_order_notional > lease.capital_ceiling:
+        raise PaperLeaseError("paper order-notional ceiling exceeds capital ceiling")
+    if (
+        isinstance(lease.max_orders, bool)
+        or not isinstance(lease.max_orders, int)
+        or not 1 <= lease.max_orders <= MAX_LEASE_ORDERS
+    ):
+        raise PaperLeaseError(
+            f"paper lease order count must be from 1 through {MAX_LEASE_ORDERS}"
+        )
+    approved_at = _utc(lease.approved_at, "paper approval time")
+    not_before = _utc(lease.not_before, "paper lease start")
+    expires_at = _utc(lease.expires_at, "paper lease expiry")
+    if not approved_at <= not_before < expires_at:
+        raise PaperLeaseError("paper lease timestamps are out of order")
+    if (expires_at - not_before).total_seconds() > MAX_LEASE_SECONDS:
+        raise PaperLeaseError(f"paper lease duration exceeds {MAX_LEASE_SECONDS} seconds")
+    object.__setattr__(lease, "approved_at", approved_at)
+    object.__setattr__(lease, "not_before", not_before)
+    object.__setattr__(lease, "expires_at", expires_at)
+
+
 @dataclass(frozen=True, slots=True)
 class PaperAuthorityLease:
     """One externally approved, bounded automatic-paper capability."""
@@ -161,68 +225,8 @@ class PaperAuthorityLease:
             (self.required_proxy_version, "paper proxy-version identifier"),
         ):
             _identifier(value, label)
-        if self.authority_stage != "automatic_paper":
-            raise PaperLeaseError("paper lease authority stage is invalid")
-        if self.environment != "simulator":
-            raise PaperLeaseError("paper lease environment must be simulator")
-        if self.mode not in {"agent_only", "hybrid"}:
-            raise PaperLeaseError("paper lease mode is invalid")
-        expected_model = agent_model_client.identity(
-            role="proposal" if self.mode == "agent_only" else "veto"
-        )
-        if (
-            self.transport != expected_model["transport"]
-            or self.endpoint != expected_model["endpoint"]
-            or self.model != expected_model["model"]
-            or self.required_proxy_version != expected_model["required_proxy_version"]
-            or self.prompt_sha256 != expected_model["instructions_sha256"]
-            or self.toolset_sha256 != expected_model["toolset_sha256"]
-        ):
-            raise PaperLeaseError("paper lease model boundary is invalid")
-        if self.model_version in {
-            agent_model_client.MODEL_VERSION,
-            "unversioned-catalog-alias",
-        }:
-            raise PaperLeaseError("paper lease requires a provider-stable model revision")
-        object.__setattr__(
-            self,
-            "allowed_symbols",
-            _symbols(self.allowed_symbols, "paper allowed symbols"),
-        )
-        object.__setattr__(
-            self,
-            "capital_ceiling",
-            _positive(self.capital_ceiling, "paper capital ceiling"),
-        )
-        object.__setattr__(
-            self,
-            "max_order_notional",
-            _positive(self.max_order_notional, "paper order-notional ceiling"),
-        )
-        if self.max_order_notional > self.capital_ceiling:
-            raise PaperLeaseError(
-                "paper order-notional ceiling exceeds capital ceiling"
-            )
-        if (
-            isinstance(self.max_orders, bool)
-            or not isinstance(self.max_orders, int)
-            or not 1 <= self.max_orders <= MAX_LEASE_ORDERS
-        ):
-            raise PaperLeaseError(
-                f"paper lease order count must be from 1 through {MAX_LEASE_ORDERS}"
-            )
-        approved_at = _utc(self.approved_at, "paper approval time")
-        not_before = _utc(self.not_before, "paper lease start")
-        expires_at = _utc(self.expires_at, "paper lease expiry")
-        if not approved_at <= not_before < expires_at:
-            raise PaperLeaseError("paper lease timestamps are out of order")
-        if (expires_at - not_before).total_seconds() > MAX_LEASE_SECONDS:
-            raise PaperLeaseError(
-                f"paper lease duration exceeds {MAX_LEASE_SECONDS} seconds"
-            )
-        object.__setattr__(self, "approved_at", approved_at)
-        object.__setattr__(self, "not_before", not_before)
-        object.__setattr__(self, "expires_at", expires_at)
+        _validate_lease_model_boundary(self)
+        _normalize_lease_limits_and_times(self)
 
     def payload(self) -> dict:
         body = asdict(self)
