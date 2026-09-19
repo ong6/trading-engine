@@ -11394,4 +11394,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server, tools, and product LOC unchanged; budget remains green.
 - **Next:** keep the historical failed Friday receipt and verify the next scheduled postflight.
 
+## 2026-09-19 — Reload the API after verified source changes
+
+- **Why:** demonstrated operational defect: the API process entered active state at 03:55 UTC,
+  before the latest reviewed source commit at 16:43 UTC, so health was green on stale code.
+- **What:** restart only the loopback user API service, then verify health, core read models, and
+  the continued absence of paper/broker order routes.
+- **Evidence:** the service restarted on a new process; `/health` and `/meta` return 200, fault
+  drills remain `current_pass` at 28/28, and all four prohibited routes return 404.
+- **Metrics:** server, tools, and product LOC unchanged; budget remains green.
+- **Next:** wait for scheduled evidence unless another defect is demonstrated.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
