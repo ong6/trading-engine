@@ -11405,4 +11405,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server, tools, and product LOC unchanged; budget remains green.
 - **Next:** wait for scheduled evidence unless another defect is demonstrated.
 
+## 2026-09-19 — Activate the approved improvement roadmap
+
+- **Why:** the owner approved P1-P4, confirmed continued work, and authorized pushing verified
+  commits to the configured upstream.
+- **What:** activate P1; approve P2's listed retire set and P3/P4 subject to their explicit owner
+  choices; record remote-publication authority without enabling broker or capital access.
+- **Evidence:** focused documentation checks and the full warnings-as-errors suite pass; all
+  static gates pass and the four plan files/index agree on their new states.
+- **Metrics:** server, tools, and product unchanged; budget remains green.
+- **Next:** execute P1 in its specified order, one logical change per session.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
