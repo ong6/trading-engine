@@ -408,6 +408,50 @@ def envelope_from_json(value: str | bytes | bytearray) -> HumanApprovalEnvelope:
     )
 
 
+def _verify_policy_scope(
+    envelope: HumanApprovalEnvelope, packet: dict, policy: HumanApprovalPolicy
+) -> None:
+    if (
+        envelope.approval_source_id != policy.approval_source_id
+        or envelope.signer_policy_id != policy.signer_policy_id
+        or envelope.signer_policy_version != policy.signer_policy_version
+        or envelope.authenticator_algorithm != policy.authenticator_algorithm
+    ):
+        raise HumanPaperApprovalError(
+            "approval envelope does not match the selected signer policy"
+        )
+    if (
+        envelope.signer_identity not in policy.authorized_signer_identities
+        or packet["mode"] not in policy.authorized_modes
+        or packet["policy_id"] not in policy.authorized_policy_ids
+        or packet["reserved_portfolio_id"] not in policy.authorized_account_ids
+    ):
+        raise HumanPaperApprovalError(
+            "signer policy does not authorize this exact paper scope"
+        )
+
+
+def _verify_approval_window(
+    envelope: HumanApprovalEnvelope,
+    policy: HumanApprovalPolicy,
+    packet_generated_at: datetime,
+    packet_expires_at: datetime,
+    observed_at: datetime,
+) -> None:
+    if (
+        envelope.issued_at < packet_generated_at
+        or envelope.expires_at > packet_expires_at
+        or envelope.issued_at < policy.valid_from
+        or envelope.expires_at > policy.valid_until
+        or (envelope.expires_at - envelope.not_before).total_seconds()
+        > policy.max_approval_seconds
+        or not envelope.not_before <= observed_at < envelope.expires_at
+    ):
+        raise HumanPaperApprovalError(
+            "approval envelope is outside its trusted time window"
+        )
+
+
 def verify_authenticated_decision(
     envelope: HumanApprovalEnvelope,
     review_packet: object,
@@ -447,24 +491,7 @@ def verify_authenticated_decision(
         packet["expires_at"],
         "human paper review expiry",
     )
-    if (
-        envelope.approval_source_id != policy.approval_source_id
-        or envelope.signer_policy_id != policy.signer_policy_id
-        or envelope.signer_policy_version != policy.signer_policy_version
-        or envelope.authenticator_algorithm != policy.authenticator_algorithm
-    ):
-        raise HumanPaperApprovalError(
-            "approval envelope does not match the selected signer policy"
-        )
-    if (
-        envelope.signer_identity not in policy.authorized_signer_identities
-        or packet["mode"] not in policy.authorized_modes
-        or packet["policy_id"] not in policy.authorized_policy_ids
-        or packet["reserved_portfolio_id"] not in policy.authorized_account_ids
-    ):
-        raise HumanPaperApprovalError(
-            "signer policy does not authorize this exact paper scope"
-        )
+    _verify_policy_scope(envelope, packet, policy)
     if (
         envelope.review_request_sha256 != packet["review_request_sha256"]
         or envelope.request_sha256 != packet["request_sha256"]
@@ -472,16 +499,9 @@ def verify_authenticated_decision(
         raise HumanPaperApprovalError(
             "approval envelope does not bind the exact review packet and request"
         )
-    if (
-        envelope.issued_at < packet_generated_at
-        or envelope.expires_at > packet_expires_at
-        or envelope.issued_at < policy.valid_from
-        or envelope.expires_at > policy.valid_until
-        or (envelope.expires_at - envelope.not_before).total_seconds()
-        > policy.max_approval_seconds
-        or not envelope.not_before <= observed_at < envelope.expires_at
-    ):
-        raise HumanPaperApprovalError("approval envelope is outside its trusted time window")
+    _verify_approval_window(
+        envelope, policy, packet_generated_at, packet_expires_at, observed_at
+    )
     authenticator = _authenticator(envelope.authenticator_base64)
     try:
         authenticated = authenticator_verifier(
