@@ -11,7 +11,7 @@
     "drawdown_within_five_points_every_fold": false,
     "execution_data_and_accounting_clean": false
   },
-  "generated_utc": "2026-09-18T23:12:35+00:00",
+  "generated_utc": "2026-09-19T00:03:17+00:00",
   "paper_only": true,
   "scenarios": {
     "baseline_v1": {
@@ -6461,7 +6461,7 @@
         "signal_facts_sha256": "bf4557cd0fb70471d218faa8545a26064d33c01d29aa2b86584e42d5fcf6f52e",
         "start": "2008-05-29"
       },
-      "source_sha256": "1f42968bb0c8e71fbd78aac116bfbe78f548ae7a519f3d04ffd7646f4c04b737",
+      "source_sha256": "923254e4e365c8a8c1f8aa109cb1c7e1cd13589143e4e394079e5b8f4b991db2",
       "worst_drawdown_difference": -0.1138769159051185
     },
     "cost_2x_v1": {
@@ -12911,7 +12911,7 @@
         "signal_facts_sha256": "bf4557cd0fb70471d218faa8545a26064d33c01d29aa2b86584e42d5fcf6f52e",
         "start": "2008-05-29"
       },
-      "source_sha256": "1f42968bb0c8e71fbd78aac116bfbe78f548ae7a519f3d04ffd7646f4c04b737",
+      "source_sha256": "923254e4e365c8a8c1f8aa109cb1c7e1cd13589143e4e394079e5b8f4b991db2",
       "worst_drawdown_difference": -0.11383756469978967
     },
     "delay_1_session_v1": {
@@ -19361,7 +19361,7 @@
         "signal_facts_sha256": "bf4557cd0fb70471d218faa8545a26064d33c01d29aa2b86584e42d5fcf6f52e",
         "start": "2008-05-29"
       },
-      "source_sha256": "1f42968bb0c8e71fbd78aac116bfbe78f548ae7a519f3d04ffd7646f4c04b737",
+      "source_sha256": "923254e4e365c8a8c1f8aa109cb1c7e1cd13589143e4e394079e5b8f4b991db2",
       "worst_drawdown_difference": -0.11408202383434751
     }
   }
