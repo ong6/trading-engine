@@ -11097,4 +11097,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** tools +4 LOC; server and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce hybrid fallback validation complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/agent_paper_evidence.py` reports
+  `_hybrid_fallback_reason` at complexity 12 against the repository CI limit of 10.
+- **What:** extracted transport/output failure metadata validation while preserving exact event
+  sequences, fallback payloads, bounded reasons, request binding, and no authority.
+- **Evidence:** focused 54 tests and the full warnings-as-errors suite pass; the targeted C90
+  finding is gone and the repository count falls from 24 to 23.
+- **Metrics:** server +5 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
