@@ -11152,4 +11152,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +4 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce dividend evidence validation complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/agent_data_contract.py` reports
+  `validate_dividend_fact` at complexity 12 against the repository CI limit of 10.
+- **What:** separated revision-policy and raw-evidence checks while preserving schema, source,
+  availability, timestamps, revision chains, normalized hashes, and no data mutation.
+- **Evidence:** focused 83 tests and the full warnings-as-errors suite pass; the targeted C90
+  finding is gone and the repository count falls from 19 to 18.
+- **Metrics:** server +3 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
