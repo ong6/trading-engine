@@ -512,6 +512,162 @@ def verified_decision_record(
     return _record(con, attempt, policy, terminal)
 
 
+def _completed_attempts(
+    con: duckdb.DuckDBPyConnection, policies: dict[str, dict]
+) -> tuple[list[dict], int, int]:
+    if not table_exists(con, "agent_shadow_attempts") or not table_exists(
+        con, "agent_shadow_events"
+    ):
+        return [], 0, 0
+    counts = {
+        policy_id: require_public_nonnegative_integer(count)
+        for policy_id, count in con.execute(
+            "SELECT policy_id, COUNT(*) FROM agent_shadow_attempts "
+            "GROUP BY policy_id"
+        ).fetchall()
+    }
+    unknown = set(counts) - set(policies) - {None}
+    if unknown:
+        raise ValueError("agent attribution references an unregistered policy")
+    placeholders = ",".join("?" for _ in agent_shadow_store.TERMINAL_EVENT_TYPES)
+    registered_completed = require_public_nonnegative_integer(
+        con.execute(
+            "SELECT COUNT(*) FROM agent_shadow_attempts a "
+            "WHERE a.policy_id IS NOT NULL AND EXISTS ("
+            "SELECT 1 FROM agent_shadow_events e WHERE e.attempt_id = a.id "
+            f"AND e.event_type IN ({placeholders}))",
+            list(sorted(agent_shadow_store.TERMINAL_EVENT_TYPES)),
+        ).fetchone()[0]
+    )
+    if registered_completed > ATTRIBUTION_EVIDENCE_LIMIT:
+        raise ValueError("agent attribution evidence exceeds the verification bound")
+    attempts = rows(
+        con.execute(
+            "SELECT id, decision_window, mode, policy_id, "
+            "policy_registration_sha256, strategy_id, market_date, "
+            "context_sha256, context_payload, request_sha256, "
+            "execution_authority "
+            "FROM agent_shadow_attempts a WHERE a.policy_id IS NOT NULL "
+            "AND EXISTS (SELECT 1 FROM agent_shadow_events e "
+            "WHERE e.attempt_id = a.id "
+            f"AND e.event_type IN ({placeholders})) "
+            "ORDER BY id DESC LIMIT ?",
+            [
+                *sorted(agent_shadow_store.TERMINAL_EVENT_TYPES),
+                ATTRIBUTION_EVIDENCE_LIMIT,
+            ],
+        )
+    )
+    return attempts, registered_completed, counts.get(None, 0)
+
+
+def _policy_summary(
+    con: duckdb.DuckDBPyConnection,
+    policy: dict,
+    records: list[dict],
+    *,
+    attempts_present: bool,
+) -> tuple[dict, dict]:
+    policy_records = [
+        record for record in records if record["policy_id"] == policy["id"]
+    ]
+    returned_policy_records = [
+        record
+        for record in records[:ATTRIBUTION_LIMIT]
+        if record["policy_id"] == policy["id"]
+    ]
+    paper_attribution = agent_paper_attribution.assess_policy(
+        con, policy, decision_records=policy_records
+    )
+    placeholders = ",".join("?" for _ in agent_shadow_store.TERMINAL_EVENT_TYPES)
+    completed_count = (
+        require_public_nonnegative_integer(
+            con.execute(
+                "SELECT COUNT(*) FROM agent_shadow_attempts a "
+                "WHERE a.policy_id = ? AND EXISTS ("
+                "SELECT 1 FROM agent_shadow_events e WHERE e.attempt_id = a.id "
+                f"AND e.event_type IN ({placeholders}))",
+                [policy["id"], *sorted(agent_shadow_store.TERMINAL_EVENT_TYPES)],
+            ).fetchone()[0]
+        )
+        if attempts_present
+        else 0
+    )
+    completed_sessions = (
+        require_public_nonnegative_integer(
+            con.execute(
+                "SELECT COUNT(DISTINCT a.market_date) "
+                "FROM agent_shadow_attempts a "
+                "WHERE a.policy_id = ? AND EXISTS ("
+                "SELECT 1 FROM agent_shadow_events e WHERE e.attempt_id = a.id "
+                f"AND e.event_type IN ({placeholders}))",
+                [policy["id"], *sorted(agent_shadow_store.TERMINAL_EVENT_TYPES)],
+            ).fetchone()[0]
+        )
+        if attempts_present
+        else 0
+    )
+    outcomes = (
+        {
+            event_type: require_public_nonnegative_integer(
+                con.execute(
+                    "SELECT COUNT(*) FROM agent_shadow_attempts a "
+                    "WHERE a.policy_id = ? AND EXISTS ("
+                    "SELECT 1 FROM agent_shadow_events e WHERE e.attempt_id = a.id "
+                    "AND e.event_type = ?)",
+                    [policy["id"], event_type],
+                ).fetchone()[0]
+            )
+            for event_type in sorted(agent_shadow_store.TERMINAL_EVENT_TYPES)
+        }
+        if attempts_present
+        else {
+            event_type: 0
+            for event_type in sorted(agent_shadow_store.TERMINAL_EVENT_TYPES)
+        }
+    )
+    summary = {
+        "policy_id": policy["id"],
+        "mode": policy["mode"],
+        "completed_attempt_count": completed_count,
+        "completed_market_sessions": completed_sessions,
+        "terminal_outcomes": outcomes,
+        "records_returned": len(returned_policy_records),
+        "reserved_portfolio_created": paper_attribution["portfolio_created"],
+        "return_attribution_status": paper_attribution["status"],
+        "paper_book_attribution": paper_attribution,
+        "automatic_paper_minimum_sessions": AUTOMATIC_PAPER_MINIMUM_SESSIONS,
+        "automatic_paper_session_gate_passed": (
+            completed_sessions >= AUTOMATIC_PAPER_MINIMUM_SESSIONS
+        ),
+        "execution_authority": "none",
+    }
+    return summary, paper_attribution
+
+
+def _attribution_records(
+    con: duckdb.DuckDBPyConnection,
+    attempts: list[dict],
+    policies: dict[str, dict],
+) -> list[dict]:
+    records = []
+    for attempt in attempts:
+        policy_id = attempt["policy_id"]
+        policy = policies[policy_id]
+        if (
+            attempt["mode"] != policy["mode"]
+            or attempt["strategy_id"] != policy["strategy_id"]
+            or attempt["policy_registration_sha256"]
+            != policy["registration_sha256"]
+        ):
+            raise ValueError("agent attribution policy binding is invalid")
+        terminal = _terminal_event(con, attempt["id"])
+        if terminal is None:  # pragma: no cover - bounded query requires one
+            raise ValueError("agent attribution completed attempt has no outcome")
+        records.append(_record(con, attempt, policy, terminal))
+    return records
+
+
 def attribution(
     con: duckdb.DuckDBPyConnection,
     *,
@@ -531,147 +687,16 @@ def attribution(
                 policy,
                 allow_reserved_portfolio=True,
             )
-    if not table_exists(con, "agent_shadow_attempts") or not table_exists(
-        con, "agent_shadow_events"
-    ):
-        attempts = []
-        registered_completed = 0
-        legacy_count = 0
-    else:
-        counts = {
-            policy_id: require_public_nonnegative_integer(count)
-            for policy_id, count in con.execute(
-                "SELECT policy_id, COUNT(*) FROM agent_shadow_attempts "
-                "GROUP BY policy_id"
-            ).fetchall()
-        }
-        unknown = set(counts) - set(policies) - {None}
-        if unknown:
-            raise ValueError("agent attribution references an unregistered policy")
-        legacy_count = counts.get(None, 0)
-        placeholders = ",".join(
-            "?" for _ in agent_shadow_store.TERMINAL_EVENT_TYPES
-        )
-        registered_completed = require_public_nonnegative_integer(
-            con.execute(
-                "SELECT COUNT(*) FROM agent_shadow_attempts a "
-                "WHERE a.policy_id IS NOT NULL AND EXISTS ("
-                "SELECT 1 FROM agent_shadow_events e WHERE e.attempt_id = a.id "
-                f"AND e.event_type IN ({placeholders}))",
-                list(sorted(agent_shadow_store.TERMINAL_EVENT_TYPES)),
-            ).fetchone()[0]
-        )
-        if registered_completed > ATTRIBUTION_EVIDENCE_LIMIT:
-            raise ValueError("agent attribution evidence exceeds the verification bound")
-        attempts = rows(
-            con.execute(
-                "SELECT id, decision_window, mode, policy_id, "
-                "policy_registration_sha256, strategy_id, market_date, "
-                "context_sha256, context_payload, request_sha256, "
-                "execution_authority "
-                "FROM agent_shadow_attempts a WHERE a.policy_id IS NOT NULL "
-                "AND EXISTS (SELECT 1 FROM agent_shadow_events e "
-                "WHERE e.attempt_id = a.id "
-                f"AND e.event_type IN ({placeholders})) "
-                "ORDER BY id DESC LIMIT ?",
-                [
-                    *sorted(agent_shadow_store.TERMINAL_EVENT_TYPES),
-                    ATTRIBUTION_EVIDENCE_LIMIT,
-                ],
-            )
-        )
-    records = []
-    for attempt in attempts:
-        policy_id = attempt["policy_id"]
-        policy = policies[policy_id]
-        if (
-            attempt["mode"] != policy["mode"]
-            or attempt["strategy_id"] != policy["strategy_id"]
-            or attempt["policy_registration_sha256"]
-            != policy["registration_sha256"]
-        ):
-            raise ValueError("agent attribution policy binding is invalid")
-        terminal = _terminal_event(con, attempt["id"])
-        if terminal is None:  # pragma: no cover - bounded query requires one
-            raise ValueError("agent attribution completed attempt has no outcome")
-        records.append(_record(con, attempt, policy, terminal))
+    attempts, registered_completed, legacy_count = _completed_attempts(con, policies)
+    records = _attribution_records(con, attempts, policies)
     summaries = []
     policy_attribution = {}
     for policy in policies.values():
-        policy_records = [
-            record for record in records if record["policy_id"] == policy["id"]
-        ]
-        returned_policy_records = [
-            record
-            for record in records[:ATTRIBUTION_LIMIT]
-            if record["policy_id"] == policy["id"]
-        ]
-        paper_attribution = agent_paper_attribution.assess_policy(
-            con,
-            policy,
-            decision_records=policy_records,
+        summary, paper_attribution = _policy_summary(
+            con, policy, records, attempts_present=bool(attempts)
         )
         policy_attribution[policy["id"]] = paper_attribution
-        completed_count = require_public_nonnegative_integer(
-            con.execute(
-                "SELECT COUNT(*) FROM agent_shadow_attempts a "
-                "WHERE a.policy_id = ? AND EXISTS ("
-                "SELECT 1 FROM agent_shadow_events e WHERE e.attempt_id = a.id "
-                f"AND e.event_type IN ({placeholders}))",
-                [
-                    policy["id"],
-                    *sorted(agent_shadow_store.TERMINAL_EVENT_TYPES),
-                ],
-            ).fetchone()[0]
-        ) if attempts else 0
-        completed_sessions = require_public_nonnegative_integer(
-            con.execute(
-                "SELECT COUNT(DISTINCT a.market_date) "
-                "FROM agent_shadow_attempts a "
-                "WHERE a.policy_id = ? AND EXISTS ("
-                "SELECT 1 FROM agent_shadow_events e WHERE e.attempt_id = a.id "
-                f"AND e.event_type IN ({placeholders}))",
-                [
-                    policy["id"],
-                    *sorted(agent_shadow_store.TERMINAL_EVENT_TYPES),
-                ],
-            ).fetchone()[0]
-        ) if attempts else 0
-        outcomes = {
-            event_type: require_public_nonnegative_integer(
-                con.execute(
-                    "SELECT COUNT(*) FROM agent_shadow_attempts a "
-                    "WHERE a.policy_id = ? AND EXISTS ("
-                    "SELECT 1 FROM agent_shadow_events e WHERE e.attempt_id = a.id "
-                    "AND e.event_type = ?)",
-                    [policy["id"], event_type],
-                ).fetchone()[0]
-            )
-            for event_type in sorted(agent_shadow_store.TERMINAL_EVENT_TYPES)
-        } if attempts else {
-            event_type: 0
-            for event_type in sorted(agent_shadow_store.TERMINAL_EVENT_TYPES)
-        }
-        summaries.append(
-            {
-                "policy_id": policy["id"],
-                "mode": policy["mode"],
-                "completed_attempt_count": completed_count,
-                "completed_market_sessions": completed_sessions,
-                "terminal_outcomes": outcomes,
-                "records_returned": len(returned_policy_records),
-                "reserved_portfolio_created": paper_attribution[
-                    "portfolio_created"
-                ],
-                "return_attribution_status": paper_attribution["status"],
-                "paper_book_attribution": paper_attribution,
-                "automatic_paper_minimum_sessions": AUTOMATIC_PAPER_MINIMUM_SESSIONS,
-                "automatic_paper_session_gate_passed": (
-                    completed_sessions >= AUTOMATIC_PAPER_MINIMUM_SESSIONS
-                ),
-                "execution_authority": "none",
-            }
-        )
+        summaries.append(summary)
     statuses = {item["status"] for item in policy_attribution.values()}
     if statuses == {agent_paper_attribution.STATUS_AVAILABLE}:
         return_status = agent_paper_attribution.STATUS_AVAILABLE
