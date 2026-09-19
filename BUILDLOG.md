@@ -11372,4 +11372,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server, tools, and product LOC unchanged; budget remains green.
 - **Next:** audit the failed Friday miner/postflight cohort without masking upstream gaps.
 
+## 2026-09-19 — Exclude inactive names from intraday collection
+
+- **Why:** demonstrated defect: the live intraday selector returned 931 names including inactive
+  `AVB` and `WBS`; those exact names caused the two persistent failed-ticker results.
+- **What:** constrain liquidity-ranked intraday names to the current active/liquid universe while
+  preserving latest-screen passers, core ETFs, append-only storage, and honest gap reporting.
+- **Evidence:** focused 130 tests and the full warnings-as-errors suite pass; the live selector
+  still returns 931 names but now includes zero inactive names instead of two.
+- **Metrics:** engine +2 LOC; tools and product unchanged; budget remains green.
+- **Next:** let the next scheduled miner verify fresh-source behavior; keep Friday failed.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
