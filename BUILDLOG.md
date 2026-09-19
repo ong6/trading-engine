@@ -11273,4 +11273,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +25 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce attribution migration complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 tools/migrate_agent_paper_attribution.py`
+  reports `migrate` at complexity 12 against the repository CI limit of 10.
+- **What:** separate backup and source-location preflight while preserving verification order,
+  transaction and rollback boundaries, scoped schema checks, output, and no authority.
+- **Evidence:** focused 83 tests and the full warnings-as-errors suite pass; the file is C90
+  clean and the repository count falls from 8 to 7.
+- **Metrics:** tools +16 LOC; server and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
