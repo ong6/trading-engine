@@ -76,17 +76,13 @@ def _positive(value: object, label: str) -> float:
         or not math.isfinite(value)
         or value <= 0
     ):
-        raise PaperAuthorityTranscriptError(
-            f"{label} must be a positive finite number"
-        )
+        raise PaperAuthorityTranscriptError(f"{label} must be a positive finite number")
     return float(value)
 
 
 def _nonnegative_integer(value: object, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise PaperAuthorityTranscriptError(
-            f"{label} must be a nonnegative integer"
-        )
+        raise PaperAuthorityTranscriptError(f"{label} must be a nonnegative integer")
     return value
 
 
@@ -103,9 +99,7 @@ class ControlAnchor:
             or not isinstance(self.event_count, int)
             or self.event_count < 1
         ):
-            raise PaperAuthorityTranscriptError(
-                "control anchor event count must be positive"
-            )
+            raise PaperAuthorityTranscriptError("control anchor event count must be positive")
         _sha256(self.latest_event_sha256, "control anchor identity")
 
     def payload(self) -> dict:
@@ -219,9 +213,7 @@ def _activation(
         or event["startup_assessment_sha256"] != startup_assessment_sha256
         or event["runtime_epoch_sha256"] != runtime_epoch_sha256
     ):
-        raise PaperAuthorityTranscriptError(
-            "paper authority activation binding is invalid"
-        )
+        raise PaperAuthorityTranscriptError("paper authority activation binding is invalid")
     return ControlAnchor(
         event_count=event["control_event_count"],
         latest_event_sha256=event["control_event_sha256"],
@@ -243,6 +235,168 @@ def _control_relation(
     return "advanced"
 
 
+def _verified_events(
+    lease: PaperAuthorityLease,
+    events: tuple[dict, ...],
+    activation_sha256: str,
+    candidate_sha256: str,
+    startup_sha256: str,
+    runtime_sha256: str,
+    observed_at: datetime,
+) -> tuple[list[tuple[dict, datetime]], ControlAnchor]:
+    verified = []
+    prior_hash = None
+    prior_time = None
+    for sequence, raw in enumerate(events, 1):
+        event, occurred_at = _event(raw, sequence=sequence, prior_event_sha256=prior_hash)
+        if prior_time is not None and occurred_at < prior_time:
+            raise PaperAuthorityTranscriptError("paper authority event time moved backward")
+        if (
+            event["lease_id"] != lease.lease_id
+            or event["lease_sha256"] != lease.sha256()
+            or event["account_id"] != lease.account_id
+            or event["mode"] != lease.mode
+        ):
+            raise PaperAuthorityTranscriptError("paper authority event conflicts with lease")
+        verified.append((event, occurred_at))
+        prior_hash = event["event_sha256"]
+        prior_time = occurred_at
+    activation_event, activated_at = verified[0]
+    control = _activation(
+        activation_event,
+        lease=lease,
+        trusted_activation_event_sha256=activation_sha256,
+        candidate_assessment_sha256=candidate_sha256,
+        startup_assessment_sha256=startup_sha256,
+        runtime_epoch_sha256=runtime_sha256,
+    )
+    if not lease.not_before <= activated_at < lease.expires_at:
+        raise PaperAuthorityTranscriptError(
+            "paper authority activation is outside the lease window"
+        )
+    if observed_at < activated_at:
+        raise PaperAuthorityTranscriptError(
+            "paper authority transcript is observed before activation"
+        )
+    return verified, control
+
+
+def _revocation_control(event: dict, activation_control: ControlAnchor) -> ControlAnchor:
+    _identifier(event["revocation_key"], "paper revocation identifier")
+    reason = event["reason"]
+    if (
+        not isinstance(reason, str)
+        or not reason
+        or reason != reason.strip()
+        or len(reason) > 512
+        or not reason.isprintable()
+    ):
+        raise PaperAuthorityTranscriptError("paper authority revocation reason is invalid")
+    control = ControlAnchor(
+        event_count=event["control_event_count"],
+        latest_event_sha256=event["control_event_sha256"],
+    )
+    if _control_relation(activation_control, control, label="revocation") != "advanced":
+        raise PaperAuthorityTranscriptError(
+            "paper authority revocation requires a later halt event"
+        )
+    return control
+
+
+def _verified_consumption(
+    event: dict,
+    lease: PaperAuthorityLease,
+    *,
+    consumed_count: int,
+    consumed_notional: float,
+    consumption_keys: set[str],
+    idempotency_keys: set[str],
+    request_hashes: set[str],
+) -> tuple[int, float]:
+    consumption_key = _identifier(event["consumption_key"], "paper consumption identifier")
+    idempotency_key = _identifier(event["idempotency_key"], "paper consumption idempotency key")
+    for field in (
+        "eligibility_sha256",
+        "request_sha256",
+        "risk_evaluation_sha256",
+        "broker_submission_started_sha256",
+    ):
+        _sha256(event[field], field.replace("_", " "))
+    if event["submission_state"] != "uncertain":
+        raise PaperAuthorityTranscriptError(
+            "paper consumption must commit with uncertain submission state"
+        )
+    if (
+        consumption_key in consumption_keys
+        or idempotency_key in idempotency_keys
+        or event["request_sha256"] in request_hashes
+    ):
+        raise PaperAuthorityTranscriptError("paper authority transcript repeats a consumed intent")
+    order_notional = _positive(event["order_notional"], "paper consumption order notional")
+    consumed_count += 1
+    consumed_notional += order_notional
+    if (
+        event["resulting_consumed_order_count"] != consumed_count
+        or isinstance(event["resulting_consumed_notional"], bool)
+        or not isinstance(event["resulting_consumed_notional"], (int, float))
+        or not math.isclose(
+            float(event["resulting_consumed_notional"]),
+            consumed_notional,
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        )
+        or order_notional > lease.max_order_notional
+        or consumed_count > lease.max_orders
+        or consumed_notional > lease.capital_ceiling
+    ):
+        raise PaperAuthorityTranscriptError(
+            "paper authority consumption exceeds or misstates lease capacity"
+        )
+    consumption_keys.add(consumption_key)
+    idempotency_keys.add(idempotency_key)
+    request_hashes.add(event["request_sha256"])
+    return consumed_count, consumed_notional
+
+
+def _transcript_usage(
+    verified: list[tuple[dict, datetime]],
+    lease: PaperAuthorityLease,
+    activation_control: ControlAnchor,
+) -> tuple[int, float, dict | None, ControlAnchor | None]:
+    consumed_count = 0
+    consumed_notional = 0.0
+    consumption_keys: set[str] = set()
+    idempotency_keys: set[str] = set()
+    request_hashes: set[str] = set()
+    revoked_event = None
+    revoked_control = None
+    for event, occurred_at in verified[1:]:
+        if revoked_event is not None:
+            raise PaperAuthorityTranscriptError("paper authority event follows terminal revocation")
+        if event["event_type"] == "activation_recorded":
+            raise PaperAuthorityTranscriptError(
+                "paper authority transcript has multiple activations"
+            )
+        if occurred_at >= lease.expires_at:
+            raise PaperAuthorityTranscriptError("paper authority event is outside the lease window")
+        if event["event_type"] == "revocation_recorded":
+            revoked_control = _revocation_control(event, activation_control)
+            revoked_event = event
+            continue
+        if event["event_type"] != "consumption_committed":
+            raise PaperAuthorityTranscriptError("paper authority event order is invalid")
+        consumed_count, consumed_notional = _verified_consumption(
+            event,
+            lease,
+            consumed_count=consumed_count,
+            consumed_notional=consumed_notional,
+            consumption_keys=consumption_keys,
+            idempotency_keys=idempotency_keys,
+            request_hashes=request_hashes,
+        )
+    return consumed_count, consumed_notional, revoked_event, revoked_control
+
+
 def verify_transcript(
     lease: PaperAuthorityLease,
     events: tuple[dict, ...],
@@ -259,9 +413,7 @@ def verify_transcript(
     if not isinstance(lease, PaperAuthorityLease):
         raise TypeError("lease must be a PaperAuthorityLease")
     if not isinstance(events, tuple) or not events:
-        raise PaperAuthorityTranscriptError(
-            "paper authority transcript must be a nonempty tuple"
-        )
+        raise PaperAuthorityTranscriptError("paper authority transcript must be a nonempty tuple")
     if not isinstance(current_control, ControlAnchor):
         raise TypeError("current_control must be a ControlAnchor")
     trusted_activation_event_sha256 = _sha256(
@@ -286,178 +438,37 @@ def verify_transcript(
     )
     observed_at = _utc(now, "paper authority transcript time")
 
-    verified = []
-    prior_hash = None
-    prior_time = None
-    for sequence, raw in enumerate(events, 1):
-        event, occurred_at = _event(
-            raw,
-            sequence=sequence,
-            prior_event_sha256=prior_hash,
-        )
-        if prior_time is not None and occurred_at < prior_time:
-            raise PaperAuthorityTranscriptError(
-                "paper authority event time moved backward"
-            )
-        if (
-            event["lease_id"] != lease.lease_id
-            or event["lease_sha256"] != lease.sha256()
-            or event["account_id"] != lease.account_id
-            or event["mode"] != lease.mode
-        ):
-            raise PaperAuthorityTranscriptError(
-                "paper authority event conflicts with lease"
-            )
-        verified.append((event, occurred_at))
-        prior_hash = event["event_sha256"]
-        prior_time = occurred_at
-
-    activation_event, activated_at = verified[0]
-    activation_control = _activation(
-        activation_event,
-        lease=lease,
-        trusted_activation_event_sha256=trusted_activation_event_sha256,
-        candidate_assessment_sha256=candidate_assessment_sha256,
-        startup_assessment_sha256=startup_assessment_sha256,
-        runtime_epoch_sha256=activation_runtime_epoch_sha256,
+    verified, activation_control = _verified_events(
+        lease,
+        events,
+        trusted_activation_event_sha256,
+        candidate_assessment_sha256,
+        startup_assessment_sha256,
+        activation_runtime_epoch_sha256,
+        observed_at,
     )
-    if not lease.not_before <= activated_at < lease.expires_at:
-        raise PaperAuthorityTranscriptError(
-            "paper authority activation is outside the lease window"
-        )
-    if observed_at < activated_at:
-        raise PaperAuthorityTranscriptError(
-            "paper authority transcript is observed before activation"
-        )
-
-    consumed_count = 0
-    consumed_notional = 0.0
-    consumption_keys = set()
-    idempotency_keys = set()
-    request_hashes = set()
-    revoked_event = None
-    revoked_control = None
-    for event, occurred_at in verified[1:]:
-        if revoked_event is not None:
-            raise PaperAuthorityTranscriptError(
-                "paper authority event follows terminal revocation"
-            )
-        if event["event_type"] == "activation_recorded":
-            raise PaperAuthorityTranscriptError(
-                "paper authority transcript has multiple activations"
-            )
-        if occurred_at >= lease.expires_at:
-            raise PaperAuthorityTranscriptError(
-                "paper authority event is outside the lease window"
-            )
-        if event["event_type"] == "revocation_recorded":
-            _identifier(event["revocation_key"], "paper revocation identifier")
-            reason = event["reason"]
-            if (
-                not isinstance(reason, str)
-                or not reason
-                or reason != reason.strip()
-                or len(reason) > 512
-                or not reason.isprintable()
-            ):
-                raise PaperAuthorityTranscriptError(
-                    "paper authority revocation reason is invalid"
-                )
-            revoked_control = ControlAnchor(
-                event_count=event["control_event_count"],
-                latest_event_sha256=event["control_event_sha256"],
-            )
-            if (
-                _control_relation(
-                    activation_control,
-                    revoked_control,
-                    label="revocation",
-                )
-                != "advanced"
-            ):
-                raise PaperAuthorityTranscriptError(
-                    "paper authority revocation requires a later halt event"
-                )
-            revoked_event = event
-            continue
-        if event["event_type"] != "consumption_committed":
-            raise PaperAuthorityTranscriptError(
-                "paper authority event order is invalid"
-            )
-        consumption_key = _identifier(
-            event["consumption_key"],
-            "paper consumption identifier",
-        )
-        idempotency_key = _identifier(
-            event["idempotency_key"],
-            "paper consumption idempotency key",
-        )
-        for field in (
-            "eligibility_sha256",
-            "request_sha256",
-            "risk_evaluation_sha256",
-            "broker_submission_started_sha256",
-        ):
-            _sha256(event[field], field.replace("_", " "))
-        if event["submission_state"] != "uncertain":
-            raise PaperAuthorityTranscriptError(
-                "paper consumption must commit with uncertain submission state"
-            )
-        if (
-            consumption_key in consumption_keys
-            or idempotency_key in idempotency_keys
-            or event["request_sha256"] in request_hashes
-        ):
-            raise PaperAuthorityTranscriptError(
-                "paper authority transcript repeats a consumed intent"
-            )
-        order_notional = _positive(
-            event["order_notional"],
-            "paper consumption order notional",
-        )
-        consumed_count += 1
-        consumed_notional += order_notional
-        if (
-            event["resulting_consumed_order_count"] != consumed_count
-            or isinstance(event["resulting_consumed_notional"], bool)
-            or not isinstance(event["resulting_consumed_notional"], (int, float))
-            or not math.isclose(
-                float(event["resulting_consumed_notional"]),
-                consumed_notional,
-                rel_tol=0.0,
-                abs_tol=1e-9,
-            )
-            or order_notional > lease.max_order_notional
-            or consumed_count > lease.max_orders
-            or consumed_notional > lease.capital_ceiling
-        ):
-            raise PaperAuthorityTranscriptError(
-                "paper authority consumption exceeds or misstates lease capacity"
-            )
-        consumption_keys.add(consumption_key)
-        idempotency_keys.add(idempotency_key)
-        request_hashes.add(event["request_sha256"])
+    consumed_count, consumed_notional, revoked_event, revoked_control = _transcript_usage(
+        verified, lease, activation_control
+    )
 
     control_relation = _control_relation(
         revoked_control or activation_control,
         current_control,
         label="current",
     )
-    if revoked_event is not None:
-        state = "revoked"
-    elif current_runtime_epoch_sha256 != activation_runtime_epoch_sha256:
-        state = "invalidated_by_restart"
-    elif control_relation == "advanced":
-        state = "invalidated_by_halt"
-    elif observed_at >= lease.expires_at:
-        state = "expired"
-    elif (
-        consumed_count >= lease.max_orders
-        or consumed_notional >= lease.capital_ceiling
-    ):
-        state = "exhausted"
-    else:
-        state = "activation_window_open_design_only"
+    state = (
+        "revoked"
+        if revoked_event is not None
+        else "invalidated_by_restart"
+        if current_runtime_epoch_sha256 != activation_runtime_epoch_sha256
+        else "invalidated_by_halt"
+        if control_relation == "advanced"
+        else "expired"
+        if observed_at >= lease.expires_at
+        else "exhausted"
+        if consumed_count >= lease.max_orders or consumed_notional >= lease.capital_ceiling
+        else "activation_window_open_design_only"
+    )
 
     body = {
         "schema_version": TRANSCRIPT_SCHEMA_VERSION,
