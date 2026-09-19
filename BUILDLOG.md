@@ -11108,4 +11108,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +5 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce submission resolution classification complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/broker_ledger.py` reports
+  `_resolution_classification` at complexity 13 against the repository CI limit of 10.
+- **What:** extracted immutable order/fill matching while preserving account scope, ambiguity,
+  quantity checks, broker-order identity, outcome selection, and no broker activation.
+- **Evidence:** focused 69 tests and the full warnings-as-errors suite pass; file C90 is clean
+  and the repository count falls from 23 to 22.
+- **Metrics:** server +11 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

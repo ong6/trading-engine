@@ -1289,15 +1289,11 @@ def _resolution_evidence_objects(
     return account, positions, open_orders, fills
 
 
-def _resolution_classification(
+def _matching_resolution_evidence(
     request: SubmitOrderRequest,
-    *,
-    account: BrokerAccount,
     open_orders: tuple[BrokerOrder, ...],
     fills: tuple[BrokerFill, ...],
-) -> tuple[SubmissionResolutionOutcome, tuple[str, ...], tuple[str, ...], float]:
-    if account.account_id != request.account_id:
-        raise BrokerStateError("submission resolution evidence targets another account")
+) -> tuple[tuple[BrokerOrder, ...], tuple[BrokerFill, ...]]:
     matching_orders = tuple(
         order for order in open_orders if order.idempotency_key == request.idempotency_key
     )
@@ -1344,6 +1340,21 @@ def _resolution_classification(
             raise BrokerStateError(
                 "submission resolution fill conflicts with immutable intent"
             )
+    return matching_orders, matching_fills
+
+
+def _resolution_classification(
+    request: SubmitOrderRequest,
+    *,
+    account: BrokerAccount,
+    open_orders: tuple[BrokerOrder, ...],
+    fills: tuple[BrokerFill, ...],
+) -> tuple[SubmissionResolutionOutcome, tuple[str, ...], tuple[str, ...], float]:
+    if account.account_id != request.account_id:
+        raise BrokerStateError("submission resolution evidence targets another account")
+    matching_orders, matching_fills = _matching_resolution_evidence(
+        request, open_orders, fills
+    )
     broker_order_ids = {
         *(order.broker_order_id for order in matching_orders),
         *(fill.broker_order_id for fill in matching_fills),
