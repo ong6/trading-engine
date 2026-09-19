@@ -10976,4 +10976,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +5 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce paper-usage verification complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/broker_paper_usage.py` reports
+  `verify_loaded_usage` at complexity 11 against the repository CI limit of 10.
+- **What:** separated evidence type and identity checks while preserving lease binding, derived
+  counters, uniqueness, UTC windows, transcript state, hashes, and no authority.
+- **Evidence:** focused 51 tests and the full warnings-as-errors suite pass; file C90 is clean
+  and the repository count falls from 35 to 34.
+- **Metrics:** server +8 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
