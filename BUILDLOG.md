@@ -10910,4 +10910,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +24 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce hybrid-veto contract complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/agent_veto_contract.py`
+  reports `normalize` at complexity 11 against the repository CI limit of 10.
+- **What:** extracted bounded evidence-list validation while retaining the same allowlist,
+  uniqueness, text limits, errors, candidate binding, and veto-only authority.
+- **Evidence:** focused 59 tests and the full warnings-as-errors suite pass; exact-file C90
+  passes and the repository count falls from 41 to 40.
+- **Metrics:** server, tools, and product LOC unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

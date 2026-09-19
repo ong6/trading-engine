@@ -36,6 +36,22 @@ def _text(value: object, field: str, maximum: int) -> str:
     return value
 
 
+def _evidence_ids(value: object, allowed: frozenset[str]) -> list[str]:
+    if not isinstance(value, list) or not value or len(value) > MAX_EVIDENCE_IDS:
+        raise VetoDecisionError("evidence_ids must be a nonempty bounded array")
+    normalized = []
+    for evidence_id in value:
+        normalized_id = _text(evidence_id, "evidence_id", EVIDENCE_ID_MAX_CHARS)
+        if normalized_id not in allowed:
+            raise VetoDecisionError(
+                "evidence_ids contains a reference outside the context allowlist"
+            )
+        normalized.append(normalized_id)
+    if len(set(normalized)) != len(normalized):
+        raise VetoDecisionError("evidence_ids must not contain duplicates")
+    return normalized
+
+
 def normalize(
     body: object,
     *,
@@ -65,23 +81,7 @@ def normalize(
         or candidate_sha256 != expected_candidate_sha256
     ):
         raise VetoDecisionError("candidate_sha256 does not match the frozen candidate")
-    evidence_ids = body.get("evidence_ids")
-    if (
-        not isinstance(evidence_ids, list)
-        or not evidence_ids
-        or len(evidence_ids) > MAX_EVIDENCE_IDS
-    ):
-        raise VetoDecisionError("evidence_ids must be a nonempty bounded array")
-    normalized_evidence = []
-    for evidence_id in evidence_ids:
-        value = _text(evidence_id, "evidence_id", EVIDENCE_ID_MAX_CHARS)
-        if value not in allowed_evidence_ids:
-            raise VetoDecisionError(
-                "evidence_ids contains a reference outside the context allowlist"
-            )
-        normalized_evidence.append(value)
-    if len(set(normalized_evidence)) != len(normalized_evidence):
-        raise VetoDecisionError("evidence_ids must not contain duplicates")
+    normalized_evidence = _evidence_ids(body.get("evidence_ids"), allowed_evidence_ids)
     return {
         "schema_version": SCHEMA_VERSION,
         "decision": decision,
