@@ -1,0 +1,11 @@
+{
+  "artifacts": {
+    "baseline_v1/results/credit_confirmed_spy_v1.json": "6a5f601094853923fc13cfe04930fd3b00f3db84a738ba0acfc7a732d144dca4",
+    "baseline_v1/results/credit_confirmed_static_control_v1.json": "313fc521ba570d118f6d43161acf4f967512e664b6352faf71a19b500b9aae07",
+    "cost_2x_v1/results/credit_confirmed_spy_v1.json": "daeb04e903359d124dead289bb557e0ce7d0de559908becb5e53d587b29ccd5f",
+    "cost_2x_v1/results/credit_confirmed_static_control_v1.json": "c00a43b37214109090d853e8f38713cd0bcfaaf65e8a979b5c9ee55019a5c72b",
+    "delay_1_session_v1/results/credit_confirmed_spy_v1.json": "c30bd6693709fa5e70f1eff2aa05b9cac1bdaaebda5c1fda4355bc70cf2fd50b",
+    "delay_1_session_v1/results/credit_confirmed_static_control_v1.json": "51ad11777417fe28000768e582084cf3a194cd602878e753ad0fd4ea4699e4e8"
+  },
+  "schema_version": 1
+}
