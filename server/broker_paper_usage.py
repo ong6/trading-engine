@@ -115,55 +115,20 @@ def _evidence_body(loaded: LoadedPaperLeaseUsage) -> dict:
     }
 
 
-def verify_loaded_usage(
-    loaded: LoadedPaperLeaseUsage,
-    lease: PaperAuthorityLease,
-) -> LoadedPaperLeaseUsage:
-    """Re-verify one derived usage object without accepting replacement counters."""
-    if not isinstance(loaded, LoadedPaperLeaseUsage):
-        raise TypeError("loaded must be a LoadedPaperLeaseUsage")
-    if not isinstance(lease, PaperAuthorityLease):
-        raise TypeError("lease must be a PaperAuthorityLease")
-    if (
-        not isinstance(loaded.usage, PaperLeaseUsage)
-        or not isinstance(loaded.current_control, ControlAnchor)
-        or type(loaded.observed_at) is not datetime
-        or loaded.observed_at.utcoffset() is None
-        or loaded.observed_at.utcoffset().total_seconds() != 0
-        or type(loaded.lease_expires_at) is not datetime
-        or loaded.lease_expires_at.utcoffset() is None
-        or loaded.lease_expires_at.utcoffset().total_seconds() != 0
-    ):
-        raise PaperUsageError("loaded paper usage evidence is invalid")
-    if (
-        not isinstance(loaded.consumed_consumption_keys, tuple)
-        or not isinstance(loaded.consumed_idempotency_keys, tuple)
-        or not isinstance(loaded.consumed_request_sha256s, tuple)
-        or loaded.usage.lease_id != lease.lease_id
-        or loaded.usage.lease_sha256 != lease.sha256()
-        or len(loaded.consumed_consumption_keys)
-        != loaded.usage.consumed_order_count
-        or len(loaded.consumed_idempotency_keys)
-        != loaded.usage.consumed_order_count
-        or len(loaded.consumed_request_sha256s)
-        != loaded.usage.consumed_order_count
-        or isinstance(loaded.event_count, bool)
-        or not isinstance(loaded.event_count, int)
-        or loaded.event_count != loaded.usage.consumed_order_count + 1
-        or len(set(loaded.consumed_consumption_keys))
-        != len(loaded.consumed_consumption_keys)
-        or len(set(loaded.consumed_idempotency_keys))
-        != len(loaded.consumed_idempotency_keys)
-        or len(set(loaded.consumed_request_sha256s))
-        != len(loaded.consumed_request_sha256s)
-        or loaded.transcript_state != "activation_window_open_design_only"
-        or loaded.execution_authority != "none"
-        or loaded.lease_expires_at != lease.expires_at
-        or loaded.observed_at < lease.not_before
-        or loaded.observed_at >= loaded.lease_expires_at
-        or loaded.evidence_sha256 != canonical_sha256(_evidence_body(loaded))
-    ):
-        raise PaperUsageError("loaded paper usage evidence is invalid")
+def _evidence_types_valid(loaded: LoadedPaperLeaseUsage) -> bool:
+    return (
+        isinstance(loaded.usage, PaperLeaseUsage)
+        and isinstance(loaded.current_control, ControlAnchor)
+        and type(loaded.observed_at) is datetime
+        and loaded.observed_at.utcoffset() is not None
+        and loaded.observed_at.utcoffset().total_seconds() == 0
+        and type(loaded.lease_expires_at) is datetime
+        and loaded.lease_expires_at.utcoffset() is not None
+        and loaded.lease_expires_at.utcoffset().total_seconds() == 0
+    )
+
+
+def _validate_usage_identities(loaded: LoadedPaperLeaseUsage) -> None:
     for value, label in (
         (loaded.transcript_sha256, "paper transcript identity"),
         (loaded.latest_event_sha256, "latest paper event identity"),
@@ -194,6 +159,49 @@ def verify_loaded_usage(
             raise PaperUsageError("loaded paper usage evidence is invalid") from exc
     for value in loaded.consumed_request_sha256s:
         _sha256(value, "consumed request identity")
+
+
+def verify_loaded_usage(
+    loaded: LoadedPaperLeaseUsage,
+    lease: PaperAuthorityLease,
+) -> LoadedPaperLeaseUsage:
+    """Re-verify one derived usage object without accepting replacement counters."""
+    if not isinstance(loaded, LoadedPaperLeaseUsage):
+        raise TypeError("loaded must be a LoadedPaperLeaseUsage")
+    if not isinstance(lease, PaperAuthorityLease):
+        raise TypeError("lease must be a PaperAuthorityLease")
+    if not _evidence_types_valid(loaded):
+        raise PaperUsageError("loaded paper usage evidence is invalid")
+    if (
+        not isinstance(loaded.consumed_consumption_keys, tuple)
+        or not isinstance(loaded.consumed_idempotency_keys, tuple)
+        or not isinstance(loaded.consumed_request_sha256s, tuple)
+        or loaded.usage.lease_id != lease.lease_id
+        or loaded.usage.lease_sha256 != lease.sha256()
+        or len(loaded.consumed_consumption_keys)
+        != loaded.usage.consumed_order_count
+        or len(loaded.consumed_idempotency_keys)
+        != loaded.usage.consumed_order_count
+        or len(loaded.consumed_request_sha256s)
+        != loaded.usage.consumed_order_count
+        or isinstance(loaded.event_count, bool)
+        or not isinstance(loaded.event_count, int)
+        or loaded.event_count != loaded.usage.consumed_order_count + 1
+        or len(set(loaded.consumed_consumption_keys))
+        != len(loaded.consumed_consumption_keys)
+        or len(set(loaded.consumed_idempotency_keys))
+        != len(loaded.consumed_idempotency_keys)
+        or len(set(loaded.consumed_request_sha256s))
+        != len(loaded.consumed_request_sha256s)
+        or loaded.transcript_state != "activation_window_open_design_only"
+        or loaded.execution_authority != "none"
+        or loaded.lease_expires_at != lease.expires_at
+        or loaded.observed_at < lease.not_before
+        or loaded.observed_at >= loaded.lease_expires_at
+        or loaded.evidence_sha256 != canonical_sha256(_evidence_body(loaded))
+    ):
+        raise PaperUsageError("loaded paper usage evidence is invalid")
+    _validate_usage_identities(loaded)
     return loaded
 
 
