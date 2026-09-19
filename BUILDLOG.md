@@ -10998,4 +10998,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +4 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce startup authority scan complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/broker_paper_startup_scan.py`
+  reports `scan_startup` at complexity 11 against the repository CI limit of 10.
+- **What:** extracted retained-epoch verification while preserving completeness, head and
+  transcript checks, identity uniqueness, state classification, and no authority.
+- **Evidence:** focused 31 tests and the full warnings-as-errors suite pass; file C90 is clean
+  and the repository count falls from 33 to 32.
+- **Metrics:** server -1 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
