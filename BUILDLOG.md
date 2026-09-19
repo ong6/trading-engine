@@ -11141,4 +11141,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server -24 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce broker-order validation complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/broker_contract.py` reports
+  `BrokerOrder.__post_init__` at complexity 14 against the repository CI limit of 10.
+- **What:** extracted order-state and fill-consistency validation while preserving identifiers,
+  symbols, side, quantities, terminal reasons, order type, and session restrictions.
+- **Evidence:** focused 121 tests and the full warnings-as-errors suite pass; file C90 is clean
+  and the repository count falls from 20 to 19.
+- **Metrics:** server +4 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
