@@ -191,6 +191,21 @@ def _append(
         )
 
 
+def _append_result(
+    factory: ConnectionFactory,
+    attempt_id: int,
+    event_type: str,
+    payload: dict,
+    result: dict,
+    *,
+    now: datetime,
+) -> dict:
+    with _connection(factory) as con:
+        agent_shadow_store.init_schema(con)
+        _append(con, attempt_id, event_type, {**payload, "result": result}, now=now)
+    return result
+
+
 def _stored_result(rows: list[tuple]) -> dict | None:
     terminal = [row for row in rows if row[1] in TERMINAL_EVENTS]
     if not terminal:
@@ -330,16 +345,9 @@ def _complete_response(
             status="malformed_output",
             reason=str(exc),
         )
-        with _connection(factory) as con:
-            agent_shadow_store.init_schema(con)
-            _append(
-                con,
-                attempt_id,
-                "malformed_output",
-                {"detail": str(exc), "result": result},
-                now=now,
-            )
-        return result
+        return _append_result(
+            factory, attempt_id, "malformed_output", {"detail": str(exc)}, result, now=now
+        )
 
     if decision["decision"] == "no_action":
         result = _result(
@@ -348,16 +356,9 @@ def _complete_response(
             status="no_action",
             reason=decision["reason"],
         )
-        with _connection(factory) as con:
-            agent_shadow_store.init_schema(con)
-            _append(
-                con,
-                attempt_id,
-                "no_action",
-                {"decision": decision, "result": result},
-                now=now,
-            )
-        return result
+        return _append_result(
+            factory, attempt_id, "no_action", {"decision": decision}, result, now=now
+        )
 
     if "policy" not in context:
         result = _result(
@@ -366,16 +367,14 @@ def _complete_response(
             status="proposal_failure",
             reason="legacy unregistered attempt cannot create a policy-bound proposal",
         )
-        with _connection(factory) as con:
-            agent_shadow_store.init_schema(con)
-            _append(
-                con,
-                attempt_id,
-                "proposal_failure",
-                {"detail": result["reason"], "result": result},
-                now=now,
-            )
-        return result
+        return _append_result(
+            factory,
+            attempt_id,
+            "proposal_failure",
+            {"detail": result["reason"]},
+            result,
+            now=now,
+        )
 
     body = _proposal_body(
         context,
@@ -399,16 +398,14 @@ def _complete_response(
             status="proposal_failure",
             reason=exc.detail,
         )
-        with _connection(factory) as con:
-            agent_shadow_store.init_schema(con)
-            _append(
-                con,
-                attempt_id,
-                "proposal_failure",
-                {"detail": exc.detail, "result": result},
-                now=now,
-            )
-        return result
+        return _append_result(
+            factory,
+            attempt_id,
+            "proposal_failure",
+            {"detail": exc.detail},
+            result,
+            now=now,
+        )
 
     result = _result(
         attempt_id=attempt_id,
@@ -416,16 +413,9 @@ def _complete_response(
         status=proposal_result["status"],
         proposal_result=proposal_result,
     )
-    with _connection(factory) as con:
-        agent_shadow_store.init_schema(con)
-        _append(
-            con,
-            attempt_id,
-            "proposal_result",
-            {"decision": decision, "result": result},
-            now=now,
-        )
-    return result
+    return _append_result(
+        factory, attempt_id, "proposal_result", {"decision": decision}, result, now=now
+    )
 
 
 def _hybrid_result(
@@ -494,9 +484,7 @@ def _complete_hybrid_response(
         )
         payload = {"detail": str(exc), "fallback_policy": "unmodified_algorithm_signal"}
     else:
-        event_type = (
-            "hybrid_veto" if decision["decision"] == "veto" else "hybrid_allow"
-        )
+        event_type = "hybrid_veto" if decision["decision"] == "veto" else "hybrid_allow"
         result = _hybrid_result(
             attempt_id=attempt_id,
             window=attempt.decision_window,
@@ -506,16 +494,380 @@ def _complete_hybrid_response(
             decision=decision,
         )
         payload = {"decision": decision}
+    return _append_result(factory, attempt_id, result["status"], payload, result, now=now)
+
+
+def _no_candidate_result(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    context: dict,
+    window: str,
+    policy: dict,
+    strategy_id: str,
+    ticker: str,
+    market_date,
+    observed_at: datetime,
+) -> dict | None:
+    candidate = context["algorithm_candidate"]
+    if any(order["veto_eligible"] for order in candidate["orders"]):
+        return None
+    result = _result(
+        attempt_id=0,
+        decision_window=window,
+        status="hybrid_no_veto_candidate",
+        reason="deterministic candidate has no veto-eligible buy order",
+        proposal_result={
+            "policy_effect": "unmodified_algorithm_signal",
+            "candidate_sha256": candidate["candidate_sha256"],
+            "candidate_order_count": candidate["order_count"],
+            "veto_eligible_order_count": 0,
+            "effective_order_count": candidate["order_count"],
+            "vetoed_order_count": 0,
+            "effective_orders_sha256": canonical_sha256(candidate["orders"]),
+            "decision": None,
+            "execution_authority": "none",
+        },
+    )
+    with engine_db.transaction(con):
+        attempt_id = agent_shadow_store.insert_deterministic_attempt(
+            con,
+            decision_window=window,
+            mode="hybrid",
+            policy_id=policy["id"],
+            policy_registration_sha256=policy["registration_sha256"],
+            agent_id=AGENT_ID,
+            strategy_id=strategy_id,
+            ticker=ticker,
+            market_date=market_date,
+            context=context,
+            model_identity=context["decision_model"],
+            event_type="hybrid_no_veto_candidate",
+            event_payload={
+                "candidate_sha256": candidate["candidate_sha256"],
+                "model_requested": False,
+                "result": result,
+            },
+            started_at=observed_at,
+        )
+    result["attempt_id"] = attempt_id
+    return result
+
+
+def _admit_attempt(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    policy: dict,
+    mode: str,
+    strategy_id: str,
+    ticker: str,
+    market_date,
+    window: str,
+    observed_at: datetime,
+    repo_root: Path,
+    policy_path: Path,
+) -> tuple[
+    dict | None,
+    agent_shadow_store.ShadowAttempt | None,
+    dict | None,
+    str | None,
+    dict | None,
+]:
+    if policy["cadence"] != "monthly":
+        raise ShadowRunError("registered policy cadence is not implemented")
+    if not is_month_signal(con, market_date):
+        with engine_db.transaction(con):
+            attempt_id = agent_shadow_store.insert_cadence_no_action(
+                con,
+                decision_window=window,
+                mode=mode,
+                policy_id=policy["id"],
+                policy_registration_sha256=policy["registration_sha256"],
+                agent_id=AGENT_ID,
+                strategy_id=strategy_id,
+                ticker=ticker,
+                market_date=market_date,
+                started_at=observed_at,
+            )
+        return (
+            _result(
+                attempt_id=attempt_id,
+                decision_window=window,
+                status="cadence_no_action",
+                reason="market date is not a registered strategy signal date",
+            ),
+            None,
+            None,
+            None,
+            None,
+        )
+    try:
+        agent_price_observations.capture_strategy_scope(
+            con, strategy_id, market_date, observed_at=observed_at
+        )
+        agent_corporate_action_observations.capture_strategy_scope(
+            con, strategy_id, market_date, observed_at=observed_at
+        )
+    except (
+        agent_corporate_action_observations.ObservationError,
+        agent_price_observations.ObservationError,
+    ) as exc:
+        raise ShadowRunError(f"agent data observation capture failed: {exc}") from exc
+    context = agent_context.build(
+        con,
+        strategy_id,
+        ticker,
+        policy_id=policy["id"],
+        repo_root=repo_root,
+        policy_path=policy_path,
+    )
+    if context["market_date"] != market_date.isoformat():
+        raise ShadowRunError("shadow context market date changed during admission")
+    if mode == "hybrid":
+        result = _no_candidate_result(
+            con,
+            context=context,
+            window=window,
+            policy=policy,
+            strategy_id=strategy_id,
+            ticker=ticker,
+            market_date=market_date,
+            observed_at=observed_at,
+        )
+        if result is not None:
+            return result, None, None, None, None
+    model_input = _model_input(context, mode)
+    model_request = (
+        agent_model_client.veto_request_payload(model_input)
+        if mode == "hybrid"
+        else agent_model_client.request_payload(model_input)
+    )
+    request_sha256 = canonical_sha256(model_request)
+    with engine_db.transaction(con):
+        attempt_id = agent_shadow_store.insert_attempt(
+            con,
+            decision_window=window,
+            mode=mode,
+            policy_id=policy["id"],
+            policy_registration_sha256=policy["registration_sha256"],
+            agent_id=AGENT_ID,
+            strategy_id=strategy_id,
+            ticker=ticker,
+            market_date=market_date,
+            context=context,
+            model_input=model_input,
+            model_request=model_request,
+            request_sha256=request_sha256,
+            model_identity=context["decision_model"],
+            started_at=observed_at,
+        )
+    attempt = agent_shadow_store.find_window(con, window)
+    if attempt is None or attempt[0] != attempt_id:  # pragma: no cover
+        raise ShadowRunError("new shadow attempt is unavailable")
+    agent_shadow_store.events(con, attempt_id)
+    return None, attempt, model_input, request_sha256, None
+
+
+def _existing_attempt(
+    con: duckdb.DuckDBPyConnection,
+    attempt: agent_shadow_store.ShadowAttempt,
+    *,
+    policy: dict,
+    mode: str,
+    strategy_id: str,
+    ticker: str,
+    observed_at: datetime,
+    resumed_payload: dict | None,
+) -> tuple[dict | None, dict | None, dict | None, str | None]:
+    if (
+        attempt.mode != mode
+        or attempt.strategy_id != strategy_id
+        or attempt.ticker != ticker
+        or attempt.policy_id not in {None, policy["id"]}
+        or (
+            attempt.policy_id is not None
+            and attempt.policy_registration_sha256 != policy["registration_sha256"]
+        )
+    ):
+        raise ShadowRunError("stored shadow decision window identity is invalid")
+    rows = agent_shadow_store.events(con, int(attempt.id))
+    result = _stored_result(rows)
+    if result is not None:
+        return result, None, None, None
+    model_input = loads_object(attempt.model_input)
+    model_request = loads_object(attempt.model_request)
+    request_sha256 = attempt.request_sha256
+    if canonical_sha256(model_request) != request_sha256:
+        raise ShadowRunError("stored shadow request identity is invalid")
+    if resumed_payload is None:
+        recovery, resumed_payload = _resume_attempt(con, attempt, now=observed_at)
+        if recovery == "uncertain":
+            return resumed_payload, None, None, None
+    return None, model_input, request_sha256, resumed_payload
+
+
+def _prepare_attempt(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    policy: dict,
+    mode: str,
+    strategy_id: str,
+    ticker: str,
+    observed_at: datetime,
+    repo_root: Path,
+    policy_path: Path,
+) -> tuple[
+    dict | None,
+    agent_shadow_store.ShadowAttempt | None,
+    dict | None,
+    str | None,
+    dict | None,
+]:
+    agent_shadow_store.init_schema(con)
+    unfinished = agent_shadow_store.unfinished_attempts(
+        con, mode=mode, strategy_id=strategy_id, ticker=ticker, policy_id=policy["id"]
+    )
+    if len(unfinished) > 1:
+        raise ShadowRunError("multiple unfinished shadow attempts require operator review")
+    resumed_payload = None
+    if unfinished:
+        attempt = unfinished[0]
+        recovery, resumed_payload = _resume_attempt(con, attempt, now=observed_at)
+        if recovery == "uncertain":
+            return resumed_payload, None, None, None, None
+    else:
+        market_date = latest_prices_date(con)
+        if market_date is None:
+            raise agent_context.ContextError("no breadth-qualified market date")
+        window = _decision_window(
+            policy["id"], policy["registration_sha256"], mode, strategy_id, ticker, market_date
+        )
+        attempt = agent_shadow_store.find_window(con, window)
+        if attempt is None:
+            attempt = agent_shadow_store.find_window(
+                con, _legacy_decision_window(mode, strategy_id, ticker, market_date)
+            )
+        if attempt is None:
+            return _admit_attempt(
+                con,
+                policy=policy,
+                mode=mode,
+                strategy_id=strategy_id,
+                ticker=ticker,
+                market_date=market_date,
+                window=window,
+                observed_at=observed_at,
+                repo_root=repo_root,
+                policy_path=policy_path,
+            )
+    result, model_input, request_sha256, response = _existing_attempt(
+        con,
+        attempt,
+        policy=policy,
+        mode=mode,
+        strategy_id=strategy_id,
+        ticker=ticker,
+        observed_at=observed_at,
+        resumed_payload=resumed_payload,
+    )
+    return result, attempt, model_input, request_sha256, response
+
+
+def _generation_failure(
+    factory: ConnectionFactory,
+    attempt: agent_shadow_store.ShadowAttempt,
+    exc: agent_model_client.ConnectorError,
+    *,
+    mode: str,
+    request_sha256: str,
+    observed_at: datetime,
+) -> dict:
+    malformed = isinstance(exc, agent_model_client.ModelOutputError)
+    if malformed and exc.request_sha256 is not None and exc.request_sha256 != request_sha256:
+        raise ShadowRunError(
+            "connector malformed-output request identity differs from the persisted request"
+        ) from exc
+    if mode == "hybrid":
+        context = loads_object(attempt.context_payload)
+        result = _hybrid_result(
+            attempt_id=int(attempt.id),
+            window=attempt.decision_window,
+            event_type="hybrid_fallback_allow",
+            reason=f"model {'output' if malformed else 'transport'} failure; {exc}",
+            candidate=context["algorithm_candidate"],
+            decision=None,
+        )
+        event_type = "hybrid_fallback_allow"
+    else:
+        event_type = "malformed_output" if malformed else "transport_failure"
+        result = _result(
+            attempt_id=int(attempt.id),
+            decision_window=attempt.decision_window,
+            status=event_type,
+            reason=str(exc),
+        )
+    payload = {"error_type": type(exc).__name__, "detail": str(exc)}
+    if malformed:
+        payload.update(
+            response_id=exc.response_id,
+            request_sha256=exc.request_sha256,
+            response_sha256=exc.response_sha256,
+            usage=exc.usage,
+        )
+    return _append_result(factory, int(attempt.id), event_type, payload, result, now=observed_at)
+
+
+def _generated_response(
+    factory: ConnectionFactory,
+    attempt: agent_shadow_store.ShadowAttempt,
+    model_input: dict,
+    request_sha256: str,
+    generate: Generate,
+    *,
+    mode: str,
+    observed_at: datetime,
+    repo_root: Path,
+) -> dict:
+    try:
+        response = generate(model_input)
+    except agent_model_client.ConnectorError as exc:
+        return _generation_failure(
+            factory,
+            attempt,
+            exc,
+            mode=mode,
+            request_sha256=request_sha256,
+            observed_at=observed_at,
+        )
+    if response.request_sha256 != request_sha256:
+        raise ShadowRunError("connector request identity differs from the persisted request")
+    expected = loads_object(attempt.context_payload)["decision_model"]
+    if (
+        response.model != expected["model"]
+        or response.model_version != expected["model_version"]
+        or response.proxy_version != expected["required_proxy_version"]
+        or response.traecli_runtime != expected["required_traecli_runtime"]
+        or response.model_catalog_entry_sha256 != expected["model_catalog_entry_sha256"]
+    ):
+        raise ShadowRunError("connector response identity differs from the persisted context")
+    payload = {
+        "output": response.output,
+        "response_id": response.response_id,
+        "model": response.model,
+        "model_version": response.model_version,
+        "proxy_version": response.proxy_version,
+        "traecli_runtime": response.traecli_runtime,
+        "model_catalog_entry_sha256": response.model_catalog_entry_sha256,
+        "request_sha256": response.request_sha256,
+        "usage": response.usage,
+    }
     with _connection(factory) as con:
         agent_shadow_store.init_schema(con)
-        _append(
-            con,
-            attempt_id,
-            result["status"],
-            {**payload, "result": result},
-            now=now,
-        )
-    return result
+        _append(con, int(attempt.id), "model_response", payload, now=observed_at)
+    return (
+        _complete_hybrid_response(factory, attempt, payload, now=observed_at)
+        if mode == "hybrid"
+        else _complete_response(factory, attempt, payload, now=observed_at, repo_root=repo_root)
+    )
 
 
 def run(
@@ -561,364 +913,23 @@ def run(
 
     with advisory_file_lock(lock_path):
         with _connection(factory) as con:
-            agent_shadow_store.init_schema(con)
-            unfinished = agent_shadow_store.unfinished_attempts(
+            result, attempt, model_input, request_sha256, response_payload = _prepare_attempt(
                 con,
+                policy=policy,
                 mode=mode,
                 strategy_id=strategy_id,
                 ticker=ticker,
-                policy_id=policy_id,
+                observed_at=observed_at,
+                repo_root=repo_root,
+                policy_path=policy_path,
             )
-            if len(unfinished) > 1:
-                raise ShadowRunError("multiple unfinished shadow attempts require operator review")
-            if unfinished:
-                attempt = unfinished[0]
-                recovery, recovery_payload = _resume_attempt(
-                    con,
-                    attempt,
-                    now=observed_at,
-                )
-                if recovery == "uncertain":
-                    return recovery_payload
-                response_payload = recovery_payload
-                existing = attempt
-            else:
-                market_date = latest_prices_date(con)
-                if market_date is None:
-                    raise agent_context.ContextError("no breadth-qualified market date")
-                window = _decision_window(
-                    policy_id,
-                    policy["registration_sha256"],
-                    mode,
-                    strategy_id,
-                    ticker,
-                    market_date,
-                )
-                existing = agent_shadow_store.find_window(con, window)
-                if existing is None:
-                    existing = agent_shadow_store.find_window(
-                        con,
-                        _legacy_decision_window(
-                            mode,
-                            strategy_id,
-                            ticker,
-                            market_date,
-                        ),
-                    )
-            if existing is None:
-                if policy["cadence"] != "monthly":
-                    raise ShadowRunError("registered policy cadence is not implemented")
-                if not is_month_signal(con, market_date):
-                    with engine_db.transaction(con):
-                        attempt_id = agent_shadow_store.insert_cadence_no_action(
-                            con,
-                            decision_window=window,
-                            mode=mode,
-                            policy_id=policy_id,
-                            policy_registration_sha256=policy[
-                                "registration_sha256"
-                            ],
-                            agent_id=AGENT_ID,
-                            strategy_id=strategy_id,
-                            ticker=ticker,
-                            market_date=market_date,
-                            started_at=observed_at,
-                        )
-                    return _result(
-                        attempt_id=attempt_id,
-                        decision_window=window,
-                        status="cadence_no_action",
-                        reason="market date is not a registered strategy signal date",
-                    )
-                try:
-                    agent_price_observations.capture_strategy_scope(
-                        con,
-                        strategy_id,
-                        market_date,
-                        observed_at=observed_at,
-                    )
-                    agent_corporate_action_observations.capture_strategy_scope(
-                        con,
-                        strategy_id,
-                        market_date,
-                        observed_at=observed_at,
-                    )
-                except (
-                    agent_corporate_action_observations.ObservationError,
-                    agent_price_observations.ObservationError,
-                ) as exc:
-                    raise ShadowRunError(
-                        f"agent data observation capture failed: {exc}"
-                    ) from exc
-                context = agent_context.build(
-                    con,
-                    strategy_id,
-                    ticker,
-                    policy_id=policy_id,
-                    repo_root=repo_root,
-                    policy_path=policy_path,
-                )
-                if context["market_date"] != market_date.isoformat():
-                    raise ShadowRunError("shadow context market date changed during admission")
-                if mode == "hybrid":
-                    candidate = context["algorithm_candidate"]
-                    veto_eligible = [
-                        order for order in candidate["orders"] if order["veto_eligible"]
-                    ]
-                    if not veto_eligible:
-                        result = _result(
-                            attempt_id=0,
-                            decision_window=window,
-                            status="hybrid_no_veto_candidate",
-                            reason="deterministic candidate has no veto-eligible buy order",
-                            proposal_result={
-                                "policy_effect": "unmodified_algorithm_signal",
-                                "candidate_sha256": candidate["candidate_sha256"],
-                                "candidate_order_count": candidate["order_count"],
-                                "veto_eligible_order_count": 0,
-                                "effective_order_count": candidate["order_count"],
-                                "vetoed_order_count": 0,
-                                "effective_orders_sha256": canonical_sha256(
-                                    candidate["orders"]
-                                ),
-                                "decision": None,
-                                "execution_authority": "none",
-                            },
-                        )
-                        with engine_db.transaction(con):
-                            attempt_id = (
-                                agent_shadow_store.insert_deterministic_attempt(
-                                    con,
-                                    decision_window=window,
-                                    mode=mode,
-                                    policy_id=policy_id,
-                                    policy_registration_sha256=policy[
-                                        "registration_sha256"
-                                    ],
-                                    agent_id=AGENT_ID,
-                                    strategy_id=strategy_id,
-                                    ticker=ticker,
-                                    market_date=market_date,
-                                    context=context,
-                                    model_identity=context["decision_model"],
-                                    event_type="hybrid_no_veto_candidate",
-                                    event_payload={
-                                        "candidate_sha256": candidate[
-                                            "candidate_sha256"
-                                        ],
-                                        "model_requested": False,
-                                        "result": result,
-                                    },
-                                    started_at=observed_at,
-                                )
-                            )
-                        result["attempt_id"] = attempt_id
-                        return result
-                model_input = _model_input(context, mode)
-                model_request = (
-                    agent_model_client.veto_request_payload(model_input)
-                    if mode == "hybrid"
-                    else agent_model_client.request_payload(model_input)
-                )
-                request_sha256 = canonical_sha256(model_request)
-                with engine_db.transaction(con):
-                    attempt_id = agent_shadow_store.insert_attempt(
-                        con,
-                        decision_window=window,
-                        mode=mode,
-                        policy_id=policy_id,
-                        policy_registration_sha256=policy[
-                            "registration_sha256"
-                        ],
-                        agent_id=AGENT_ID,
-                        strategy_id=strategy_id,
-                        ticker=ticker,
-                        market_date=market_date,
-                        context=context,
-                        model_input=model_input,
-                        model_request=model_request,
-                        request_sha256=request_sha256,
-                        model_identity=context["decision_model"],
-                        started_at=observed_at,
-                    )
-                attempt = agent_shadow_store.find_window(con, window)
-                if attempt is None or attempt[0] != attempt_id:  # pragma: no cover
-                    raise ShadowRunError("new shadow attempt is unavailable")
-                rows = agent_shadow_store.events(con, attempt_id)
-            else:
-                attempt = existing
-                if (
-                    attempt.mode != mode
-                    or attempt.strategy_id != strategy_id
-                    or attempt.ticker != ticker
-                    or attempt.policy_id not in {None, policy_id}
-                    or (
-                        attempt.policy_id is not None
-                        and attempt.policy_registration_sha256
-                        != policy["registration_sha256"]
-                    )
-                ):
-                    raise ShadowRunError("stored shadow decision window identity is invalid")
-                window = attempt.decision_window
-                rows = agent_shadow_store.events(con, int(attempt.id))
-                result = _stored_result(rows)
-                if result is not None:
-                    return result
-                model_input = loads_object(attempt.model_input)
-                model_request = loads_object(attempt.model_request)
-                request_sha256 = attempt.request_sha256
-                if canonical_sha256(model_request) != request_sha256:
-                    raise ShadowRunError("stored shadow request identity is invalid")
-                if not unfinished:
-                    recovery, recovery_payload = _resume_attempt(
-                        con,
-                        attempt,
-                        now=observed_at,
-                    )
-                    if recovery == "uncertain":
-                        return recovery_payload
-                    response_payload = recovery_payload
-        if existing is not None:
-            return (
-                _complete_hybrid_response(
-                    factory,
-                    attempt,
-                    response_payload,
-                    now=observed_at,
-                )
-                if mode == "hybrid"
-                else _complete_response(
-                    factory,
-                    attempt,
-                    response_payload,
-                    now=observed_at,
-                    repo_root=repo_root,
-                )
-            )
-
-        try:
-            response = generate(model_input)
-        except agent_model_client.ModelOutputError as exc:
-            if (
-                exc.request_sha256 is not None
-                and exc.request_sha256 != request_sha256
-            ):
-                raise ShadowRunError(
-                    "connector malformed-output request identity differs from "
-                    "the persisted request"
-                ) from exc
-            if mode == "hybrid":
-                context = loads_object(attempt.context_payload)
-                result = _hybrid_result(
-                    attempt_id=int(attempt.id),
-                    window=window,
-                    event_type="hybrid_fallback_allow",
-                    reason=f"model output failure; {exc}",
-                    candidate=context["algorithm_candidate"],
-                    decision=None,
-                )
-                event_type = "hybrid_fallback_allow"
-            else:
-                result = _result(
-                    attempt_id=int(attempt.id),
-                    decision_window=window,
-                    status="malformed_output",
-                    reason=str(exc),
-                )
-                event_type = "malformed_output"
-            with _connection(factory) as con:
-                agent_shadow_store.init_schema(con)
-                _append(
-                    con,
-                    int(attempt.id),
-                    event_type,
-                    {
-                        "error_type": type(exc).__name__,
-                        "detail": str(exc),
-                        "response_id": exc.response_id,
-                        "request_sha256": exc.request_sha256,
-                        "response_sha256": exc.response_sha256,
-                        "usage": exc.usage,
-                        "result": result,
-                    },
-                    now=observed_at,
-                )
-            return result
-        except agent_model_client.ConnectorError as exc:
-            if mode == "hybrid":
-                context = loads_object(attempt.context_payload)
-                result = _hybrid_result(
-                    attempt_id=int(attempt.id),
-                    window=window,
-                    event_type="hybrid_fallback_allow",
-                    reason=f"model transport failure; {exc}",
-                    candidate=context["algorithm_candidate"],
-                    decision=None,
-                )
-                event_type = "hybrid_fallback_allow"
-            else:
-                result = _result(
-                    attempt_id=int(attempt.id),
-                    decision_window=window,
-                    status="transport_failure",
-                    reason=str(exc),
-                )
-                event_type = "transport_failure"
-            with _connection(factory) as con:
-                agent_shadow_store.init_schema(con)
-                _append(
-                    con,
-                    int(attempt.id),
-                    event_type,
-                    {
-                        "error_type": type(exc).__name__,
-                        "detail": str(exc),
-                        "result": result,
-                    },
-                    now=observed_at,
-                )
-            return result
-
-        if response.request_sha256 != request_sha256:
-            raise ShadowRunError("connector request identity differs from the persisted request")
-        expected_model = loads_object(attempt.context_payload)["decision_model"]
-        if (
-            response.model != expected_model["model"]
-            or response.model_version != expected_model["model_version"]
-            or response.proxy_version != expected_model["required_proxy_version"]
-            or response.traecli_runtime
-            != expected_model["required_traecli_runtime"]
-            or response.model_catalog_entry_sha256
-            != expected_model["model_catalog_entry_sha256"]
-        ):
-            raise ShadowRunError("connector response identity differs from the persisted context")
-        response_payload = {
-            "output": response.output,
-            "response_id": response.response_id,
-            "model": response.model,
-            "model_version": response.model_version,
-            "proxy_version": response.proxy_version,
-            "traecli_runtime": response.traecli_runtime,
-            "model_catalog_entry_sha256": response.model_catalog_entry_sha256,
-            "request_sha256": response.request_sha256,
-            "usage": response.usage,
-        }
-        with _connection(factory) as con:
-            agent_shadow_store.init_schema(con)
-            _append(
-                con,
-                int(attempt.id),
-                "model_response",
-                response_payload,
-                now=observed_at,
-            )
+    if result is not None:
+        return result
+    if attempt is None or model_input is None or request_sha256 is None:
+        raise ShadowRunError("shadow attempt preparation is incomplete")
+    if response_payload is not None:
         return (
-            _complete_hybrid_response(
-                factory,
-                attempt,
-                response_payload,
-                now=observed_at,
-            )
+            _complete_hybrid_response(factory, attempt, response_payload, now=observed_at)
             if mode == "hybrid"
             else _complete_response(
                 factory,
@@ -928,6 +939,16 @@ def run(
                 repo_root=repo_root,
             )
         )
+    return _generated_response(
+        factory,
+        attempt,
+        model_input,
+        request_sha256,
+        generate,
+        mode=mode,
+        observed_at=observed_at,
+        repo_root=repo_root,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
