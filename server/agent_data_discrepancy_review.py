@@ -742,9 +742,10 @@ def _verify_independent_evidence(
         raise DataDiscrepancyReviewError("independent price evidence is invalid")
 
 
-def _verified_contents(packet: dict, fact_date: date) -> tuple[dict, dict | None]:
+def _verified_source_observation(
+    packet: dict, fact_date: date, value_fields: set[str]
+) -> dict:
     source = packet["source_observation"]
-    cache = packet["current_cache"]
     source_fields = {
         "value",
         "value_sha256",
@@ -760,20 +761,6 @@ def _verified_contents(packet: dict, fact_date: date) -> tuple[dict, dict | None
         "source_adapter_version",
         "source_library_version",
     }
-    value_fields = (
-        {
-            "ticker",
-            "market_date",
-            "open",
-            "high",
-            "low",
-            "close",
-            "volume",
-            "source",
-        }
-        if packet["dataset"] == "daily_price"
-        else {"ticker", "ex_date", "kind", "value", "source"}
-    )
     if (
         not isinstance(source, dict)
         or set(source) != source_fields
@@ -858,57 +845,73 @@ def _verified_contents(packet: dict, fact_date: date) -> tuple[dict, dict | None
         ) from exc
     if source_observed_at < source_fetched_at:
         raise DataDiscrepancyReviewError("source observation evidence is invalid")
-    if cache is not None:
-        if (
-            not isinstance(cache, dict)
-            or set(cache) != {"value", "value_sha256", "latest_ingested_at"}
-            or not isinstance(cache["value"], dict)
-            or set(cache["value"]) != value_fields
-            or cache["value"]["ticker"] != packet["ticker"]
-            or cache["value"].get(
-                "market_date", cache["value"].get("ex_date")
-            )
-            != fact_date.isoformat()
-            or cache["value"].get("kind", packet["kind"]) != packet["kind"]
-            or cache["value"].get("source")
-            != agent_provider_responses.SOURCE_NAME
-            or cache["value_sha256"] != canonical_sha256(cache["value"])
-        ):
-            raise DataDiscrepancyReviewError("current cache evidence is invalid")
-        cache_value = cache["value"]
-        try:
-            if packet["dataset"] == "daily_price":
-                cache_open = _finite_positive(cache_value["open"], "cache open")
-                cache_high = _finite_positive(cache_value["high"], "cache high")
-                cache_low = _finite_positive(cache_value["low"], "cache low")
-                cache_close = _finite_positive(cache_value["close"], "cache close")
-                if (
-                    isinstance(cache_value["volume"], bool)
-                    or not isinstance(cache_value["volume"], int)
-                    or cache_value["volume"] < 0
-                    or cache_low > min(cache_open, cache_high, cache_close)
-                    or cache_high < max(cache_open, cache_low, cache_close)
-                ):
-                    raise DataDiscrepancyReviewError(
-                        "current cache evidence is invalid"
-                    )
-            else:
-                _finite_positive(
-                    cache_value["value"], "cache corporate-action value"
+    return source
+
+
+def _verified_cache(
+    packet: dict, fact_date: date, value_fields: set[str]
+) -> dict | None:
+    cache = packet["current_cache"]
+    if cache is None:
+        return None
+    if (
+        not isinstance(cache, dict)
+        or set(cache) != {"value", "value_sha256", "latest_ingested_at"}
+        or not isinstance(cache["value"], dict)
+        or set(cache["value"]) != value_fields
+        or cache["value"]["ticker"] != packet["ticker"]
+        or cache["value"].get("market_date", cache["value"].get("ex_date"))
+        != fact_date.isoformat()
+        or cache["value"].get("kind", packet["kind"]) != packet["kind"]
+        or cache["value"].get("source") != agent_provider_responses.SOURCE_NAME
+        or cache["value_sha256"] != canonical_sha256(cache["value"])
+    ):
+        raise DataDiscrepancyReviewError("current cache evidence is invalid")
+    cache_value = cache["value"]
+    try:
+        if packet["dataset"] == "daily_price":
+            cache_open = _finite_positive(cache_value["open"], "cache open")
+            cache_high = _finite_positive(cache_value["high"], "cache high")
+            cache_low = _finite_positive(cache_value["low"], "cache low")
+            cache_close = _finite_positive(cache_value["close"], "cache close")
+            if (
+                isinstance(cache_value["volume"], bool)
+                or not isinstance(cache_value["volume"], int)
+                or cache_value["volume"] < 0
+                or cache_low > min(cache_open, cache_high, cache_close)
+                or cache_high < max(cache_open, cache_low, cache_close)
+            ):
+                raise DataDiscrepancyReviewError(
+                    "current cache evidence is invalid"
                 )
-        except (KeyError, TypeError, ValueError) as exc:
-            raise DataDiscrepancyReviewError(
-                "current cache evidence is invalid"
-            ) from exc
-        try:
-            _parse_timestamp(
-                cache["latest_ingested_at"],
-                "cache ingestion time",
-            )
-        except (TypeError, ValueError, DataDiscrepancyReviewError) as exc:
-            raise DataDiscrepancyReviewError(
-                "current cache evidence is invalid"
-            ) from exc
+        else:
+            _finite_positive(cache_value["value"], "cache corporate-action value")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DataDiscrepancyReviewError("current cache evidence is invalid") from exc
+    try:
+        _parse_timestamp(cache["latest_ingested_at"], "cache ingestion time")
+    except (TypeError, ValueError, DataDiscrepancyReviewError) as exc:
+        raise DataDiscrepancyReviewError("current cache evidence is invalid") from exc
+    return cache
+
+
+def _verified_contents(packet: dict, fact_date: date) -> tuple[dict, dict | None]:
+    value_fields = (
+        {
+            "ticker",
+            "market_date",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "source",
+        }
+        if packet["dataset"] == "daily_price"
+        else {"ticker", "ex_date", "kind", "value", "source"}
+    )
+    source = _verified_source_observation(packet, fact_date, value_fields)
+    cache = _verified_cache(packet, fact_date, value_fields)
     return source, cache
 
 
