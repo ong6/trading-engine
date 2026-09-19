@@ -90,11 +90,7 @@ def _positive_number(value: object, field: str) -> float:
     return float(value)
 
 
-def _validate_policy(raw: object) -> dict:
-    if not isinstance(raw, dict) or set(raw) != POLICY_FIELDS:
-        raise PolicyError("agent policy shape is invalid")
-    policy = dict(raw)
-    policy_id = _identifier(policy["id"], "identifier")
+def _validate_mode_and_authority(policy: dict) -> str:
     mode = policy["mode"]
     if mode not in {"agent_only", "hybrid"}:
         raise PolicyError("agent policy mode is invalid")
@@ -102,7 +98,10 @@ def _validate_policy(raw: object) -> dict:
         raise PolicyError("agent policy authority stage is invalid")
     if policy["execution_authority"] != "none":
         raise PolicyError("agent policy execution authority is invalid")
+    return mode
 
+
+def _validate_strategy_binding(policy: dict) -> str:
     strategy_id = _identifier(policy["strategy_id"], "strategy identity")
     try:
         strategy = config_by_id(strategy_id)
@@ -117,7 +116,10 @@ def _validate_policy(raw: object) -> dict:
         raise PolicyError("agent policy source portfolio is invalid")
     if policy["cadence"] != strategy.get("cadence"):
         raise PolicyError("agent policy cadence does not match strategy")
+    return strategy_id
 
+
+def _validate_execution_profile(policy: dict) -> None:
     profile_id = _identifier(policy["execution_profile_id"], "execution profile")
     try:
         profile = PROFILES[profile_id]
@@ -128,6 +130,8 @@ def _validate_policy(raw: object) -> dict:
     ):
         raise PolicyError("agent policy execution profile does not match source")
 
+
+def _validate_symbols(policy: dict) -> None:
     reserved_id = _identifier(policy["reserved_portfolio_id"], "portfolio reservation")
     if reserved_id == policy["source_portfolio_id"]:
         raise PolicyError("agent policy portfolio reservation is not isolated")
@@ -148,6 +152,8 @@ def _validate_policy(raw: object) -> dict:
     ):
         raise PolicyError("agent policy allowed symbols are invalid")
 
+
+def _validate_limits(policy: dict) -> None:
     capital_ceiling = _positive_number(policy["capital_ceiling"], "capital ceiling")
     max_order_notional = _positive_number(
         policy["max_order_notional"], "order-notional ceiling"
@@ -157,6 +163,8 @@ def _validate_policy(raw: object) -> dict:
     if type(policy["generation_enabled"]) is not bool:
         raise PolicyError("agent policy generation flag is invalid")
 
+
+def _validate_attribution(policy: dict, strategy_id: str) -> None:
     attribution = policy["attribution"]
     if not isinstance(attribution, dict) or set(attribution) != ATTRIBUTION_FIELDS:
         raise PolicyError("agent policy attribution is invalid")
@@ -169,6 +177,8 @@ def _validate_policy(raw: object) -> dict:
     except KeyError as exc:
         raise PolicyError("agent policy strategy control is unavailable") from exc
 
+
+def _validate_mode_contract(policy: dict, mode: str, policy_id: str) -> None:
     expected = {
         "agent_only": {
             "model_role": "independent_shadow_proposal",
@@ -188,6 +198,20 @@ def _validate_policy(raw: object) -> dict:
             raise PolicyError(f"agent policy {field} is invalid for {mode}")
     if policy_id not in EXPECTED_POLICY_IDS:
         raise PolicyError("agent policy identifier is outside the frozen set")
+
+
+def _validate_policy(raw: object) -> dict:
+    if not isinstance(raw, dict) or set(raw) != POLICY_FIELDS:
+        raise PolicyError("agent policy shape is invalid")
+    policy = dict(raw)
+    policy_id = _identifier(policy["id"], "identifier")
+    mode = _validate_mode_and_authority(policy)
+    strategy_id = _validate_strategy_binding(policy)
+    _validate_execution_profile(policy)
+    _validate_symbols(policy)
+    _validate_limits(policy)
+    _validate_attribution(policy, strategy_id)
+    _validate_mode_contract(policy, mode, policy_id)
     return policy
 
 
