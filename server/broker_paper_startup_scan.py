@@ -109,6 +109,58 @@ class RetainedAuthorityEpoch:
             _sha256(value, label)
 
 
+def _verified_epoch_record(
+    epoch: RetainedAuthorityEpoch,
+    current: RuntimeControlBindings,
+    observed_at: datetime,
+) -> tuple[dict, str]:
+    lease = epoch.lease
+    lease_sha256 = lease.sha256()
+    if (
+        len(epoch.events) != epoch.retained_event_count
+        or not isinstance(epoch.events[-1], dict)
+        or epoch.events[-1].get("event_sha256")
+        != epoch.retained_latest_event_sha256
+    ):
+        raise PaperAuthorityStartupScanError(
+            "retained authority epoch is incomplete or has the wrong head"
+        )
+    try:
+        verified = broker_paper_authority_transcript.verify_transcript(
+            lease,
+            epoch.events,
+            trusted_activation_event_sha256=epoch.trusted_activation_event_sha256,
+            candidate_assessment_sha256=epoch.candidate_assessment_sha256,
+            startup_assessment_sha256=epoch.startup_assessment_sha256,
+            activation_runtime_epoch_sha256=epoch.activation_runtime_epoch_sha256,
+            current_runtime_epoch_sha256=current.runtime_epoch_sha256,
+            current_control=current.control,
+            now=observed_at,
+        )
+    except broker_paper_authority_transcript.PaperAuthorityTranscriptError as exc:
+        raise PaperAuthorityStartupScanError(
+            "retained authority epoch verification failed"
+        ) from exc
+    if (
+        verified["event_count"] != epoch.retained_event_count
+        or verified["latest_event_sha256"] != epoch.retained_latest_event_sha256
+    ):
+        raise PaperAuthorityStartupScanError(
+            "verified authority epoch conflicts with retained head"
+        )
+    record_body = {
+        "lease_id": lease.lease_id,
+        "lease_sha256": lease_sha256,
+        "state": verified["state"],
+        "event_count": verified["event_count"],
+        "latest_event_sha256": verified["latest_event_sha256"],
+        "transcript_sha256": verified["transcript_sha256"],
+        "activation_runtime_epoch_sha256": epoch.activation_runtime_epoch_sha256,
+        "current_runtime_epoch_sha256": current.runtime_epoch_sha256,
+    }
+    return {**record_body, "record_sha256": canonical_sha256(record_body)}, lease_sha256
+
+
 def scan_startup(
     epochs: tuple[RetainedAuthorityEpoch, ...],
     runtime: RuntimeControlBindings,
@@ -152,61 +204,8 @@ def scan_startup(
             raise PaperAuthorityStartupScanError(
                 "retained authority epoch identity is duplicated or out of scope"
             )
-        if (
-            len(epoch.events) != epoch.retained_event_count
-            or not isinstance(epoch.events[-1], dict)
-            or epoch.events[-1].get("event_sha256")
-            != epoch.retained_latest_event_sha256
-        ):
-            raise PaperAuthorityStartupScanError(
-                "retained authority epoch is incomplete or has the wrong head"
-            )
-        try:
-            verified = broker_paper_authority_transcript.verify_transcript(
-                lease,
-                epoch.events,
-                trusted_activation_event_sha256=(
-                    epoch.trusted_activation_event_sha256
-                ),
-                candidate_assessment_sha256=epoch.candidate_assessment_sha256,
-                startup_assessment_sha256=epoch.startup_assessment_sha256,
-                activation_runtime_epoch_sha256=(
-                    epoch.activation_runtime_epoch_sha256
-                ),
-                current_runtime_epoch_sha256=current.runtime_epoch_sha256,
-                current_control=current.control,
-                now=observed_at,
-            )
-        except broker_paper_authority_transcript.PaperAuthorityTranscriptError as exc:
-            raise PaperAuthorityStartupScanError(
-                "retained authority epoch verification failed"
-            ) from exc
-        if (
-            verified["event_count"] != epoch.retained_event_count
-            or verified["latest_event_sha256"]
-            != epoch.retained_latest_event_sha256
-        ):
-            raise PaperAuthorityStartupScanError(
-                "verified authority epoch conflicts with retained head"
-            )
-        record_body = {
-            "lease_id": lease.lease_id,
-            "lease_sha256": lease_sha256,
-            "state": verified["state"],
-            "event_count": verified["event_count"],
-            "latest_event_sha256": verified["latest_event_sha256"],
-            "transcript_sha256": verified["transcript_sha256"],
-            "activation_runtime_epoch_sha256": (
-                epoch.activation_runtime_epoch_sha256
-            ),
-            "current_runtime_epoch_sha256": current.runtime_epoch_sha256,
-        }
-        records.append(
-            {
-                **record_body,
-                "record_sha256": canonical_sha256(record_body),
-            }
-        )
+        record, lease_sha256 = _verified_epoch_record(epoch, current, observed_at)
+        records.append(record)
         lease_ids.add(lease.lease_id)
         lease_hashes.add(lease_sha256)
         activation_hashes.add(epoch.trusted_activation_event_sha256)
