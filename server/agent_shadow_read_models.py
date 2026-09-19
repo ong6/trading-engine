@@ -121,7 +121,7 @@ def _usage(value: object) -> dict[str, int] | None:
     return result
 
 
-def _event_metadata(event_rows: list[tuple]) -> dict:
+def _scan_events(event_rows: list[tuple]) -> tuple[str | None, dict | None, list[tuple]]:
     response_id = None
     usage = None
     terminal = []
@@ -136,17 +136,16 @@ def _event_metadata(event_rows: list[tuple]) -> dict:
             terminal.append((event_type, payload, occurred_at))
     if len(terminal) > 1:
         raise ValueError("shadow attempt has multiple terminal events")
-    if not terminal:
-        return {
-            "status": "in_progress",
-            "completed_at": None,
-            "response_id": response_id,
-            "usage": usage,
-            "reason": None,
-            "proposal_record_id": None,
-            "proposal_status": None,
-        }
-    event_type, payload, completed_at = terminal[0]
+    return response_id, usage, terminal
+
+
+def _terminal_metadata(
+    event_type: str,
+    payload: dict,
+    completed_at: datetime,
+    response_id: str | None,
+    usage: dict | None,
+) -> dict:
     result = payload.get("result")
     if not isinstance(result, dict) or result.get("status") is None:
         raise ValueError("shadow terminal event result is invalid")
@@ -175,6 +174,22 @@ def _event_metadata(event_rows: list[tuple]) -> dict:
         "proposal_record_id": proposal_record_id,
         "proposal_status": proposal_status,
     }
+
+
+def _event_metadata(event_rows: list[tuple]) -> dict:
+    response_id, usage, terminal = _scan_events(event_rows)
+    if not terminal:
+        return {
+            "status": "in_progress",
+            "completed_at": None,
+            "response_id": response_id,
+            "usage": usage,
+            "reason": None,
+            "proposal_record_id": None,
+            "proposal_status": None,
+        }
+    event_type, payload, completed_at = terminal[0]
+    return _terminal_metadata(event_type, payload, completed_at, response_id, usage)
 
 
 def _validate_attempt_registration(result: dict) -> None:
