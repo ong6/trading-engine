@@ -11207,4 +11207,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server -4 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce daily-price validation complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/agent_data_contract.py` reports
+  `validate_daily_price_fact` at complexity 14 against the repository CI limit of 10.
+- **What:** separate revision-policy and raw-evidence checks while preserving schema, source,
+  availability, timestamps, normalized hashes, exact errors, and shadow-only authority.
+- **Evidence:** focused 62 tests and the full warnings-as-errors suite pass; the file is C90
+  clean and the repository count falls from 14 to 13.
+- **Metrics:** server +12 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

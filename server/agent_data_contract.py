@@ -852,6 +852,100 @@ def validate_dividend_fact(value: object) -> None:
             raise DataContractError("dividend data contract is invalid")
 
 
+def _validate_daily_price_revision(
+    revision: dict, ingestion: dict, availability: dict, limitations: object
+) -> bool:
+    immutable = revision["policy"] == IMMUTABLE_REVISION_POLICY
+    if immutable:
+        valid = all(
+            (
+                isinstance(revision["revision_id"], str)
+                and _SHA256.fullmatch(revision["revision_id"]) is not None,
+                revision["observation_schema_version"] == 1,
+                isinstance(revision["observation_sequence"], int)
+                and not isinstance(revision["observation_sequence"], bool)
+                and revision["observation_sequence"] >= 1,
+                isinstance(revision["value_revision"], int)
+                and not isinstance(revision["value_revision"], bool)
+                and revision["value_revision"] >= 1,
+                revision["classification"] in OBSERVATION_CLASSIFICATIONS,
+                isinstance(revision["value_sha256"], str)
+                and _SHA256.fullmatch(revision["value_sha256"]) is not None,
+                _valid_optional_sha256(revision["previous_revision_id"]),
+                revision["observed_at"] == ingestion["immutable_observed_at"],
+                availability["policy"] == IMMUTABLE_AVAILABILITY_POLICY,
+                availability["usable_at"] == ingestion["immutable_observed_at"],
+                revision["history_retained"] is True,
+                revision["point_in_time_replayable"] is True,
+                isinstance(ingestion["immutable_observed_at"], str),
+            )
+        )
+    else:
+        valid = (
+            revision
+            == {
+                "policy": LEGACY_REVISION_POLICY,
+                "revision_id": None,
+                "observation_schema_version": None,
+                "observation_sequence": None,
+                "value_revision": None,
+                "classification": "legacy_unobserved",
+                "value_sha256": None,
+                "previous_revision_id": None,
+                "observed_at": None,
+                "history_retained": False,
+                "point_in_time_replayable": False,
+            }
+            and ingestion["immutable_observed_at"] is None
+            and availability["policy"] == AVAILABILITY_POLICY
+            and availability["usable_at"] == ingestion["latest_ingested_at"]
+            and limitations
+            == [
+                "source publication time is unavailable",
+                "provider API version is unavailable",
+                "raw provider payload is not retained",
+                "provider revisions overwrite the same ticker/date key",
+            ]
+        )
+    if not valid:
+        raise DataContractError("daily price data contract is invalid")
+    return immutable
+
+
+def _daily_price_source_observation(
+    provider_evidence: dict | None,
+    source: dict,
+    record: dict,
+    limitations: object,
+    *,
+    immutable: bool,
+) -> bool:
+    source_observation = (
+        provider_evidence is not None
+        and provider_evidence["relationship"] == SOURCE_OBSERVATION_RELATIONSHIP
+    )
+    expected_limitations = [
+        "source publication time is unavailable",
+        "provider dataset revision is unavailable",
+    ]
+    if immutable and not source_observation:
+        expected_limitations.append(
+            "raw provider payload is not retained at observation time"
+        )
+    if source_observation:
+        valid = (
+            source["adapter"] == SOURCE_OBSERVATION_ADAPTER
+            and source["adapter_version"] == SOURCE_OBSERVATION_ADAPTER_VERSION
+            and record["raw_retained"] is True
+            and record["raw_sha256"] == provider_evidence["response_sha256"]
+        )
+    else:
+        valid = record["raw_retained"] is False and record["raw_sha256"] is None
+    if (immutable and limitations != expected_limitations) or not valid:
+        raise DataContractError("daily price data contract is invalid")
+    return source_observation
+
+
 def validate_daily_price_fact(value: object) -> None:
     """Fail closed if the published contract drifts from its reviewed shape."""
     if not isinstance(value, dict) or set(value) != {
@@ -965,104 +1059,22 @@ def validate_daily_price_fact(value: object) -> None:
         or quarantine != {"status": "clear", "reason": None}
     ):
         raise DataContractError("daily price data contract is invalid")
-    immutable = revision["policy"] == IMMUTABLE_REVISION_POLICY
-    if immutable:
-        if (
-            not isinstance(revision["revision_id"], str)
-            or _SHA256.fullmatch(revision["revision_id"]) is None
-            or revision["observation_schema_version"] != 1
-            or isinstance(revision["observation_sequence"], bool)
-            or not isinstance(revision["observation_sequence"], int)
-            or revision["observation_sequence"] < 1
-            or isinstance(revision["value_revision"], bool)
-            or not isinstance(revision["value_revision"], int)
-            or revision["value_revision"] < 1
-            or revision["classification"] not in OBSERVATION_CLASSIFICATIONS
-            or not isinstance(revision["value_sha256"], str)
-            or _SHA256.fullmatch(revision["value_sha256"]) is None
-            or (
-                revision["previous_revision_id"] is not None
-                and (
-                    not isinstance(revision["previous_revision_id"], str)
-                    or _SHA256.fullmatch(revision["previous_revision_id"])
-                    is None
-                )
-            )
-            or revision["observed_at"]
-            != ingestion["immutable_observed_at"]
-            or availability["policy"] != IMMUTABLE_AVAILABILITY_POLICY
-            or availability["usable_at"] != ingestion["immutable_observed_at"]
-            or revision["history_retained"] is not True
-            or revision["point_in_time_replayable"] is not True
-            or not isinstance(ingestion["immutable_observed_at"], str)
-        ):
-            raise DataContractError("daily price data contract is invalid")
-    elif (
-        revision
-        != {
-            "policy": LEGACY_REVISION_POLICY,
-            "revision_id": None,
-            "observation_schema_version": None,
-            "observation_sequence": None,
-            "value_revision": None,
-            "classification": "legacy_unobserved",
-            "value_sha256": None,
-            "previous_revision_id": None,
-            "observed_at": None,
-            "history_retained": False,
-            "point_in_time_replayable": False,
-        }
-        or ingestion["immutable_observed_at"] is not None
-        or availability["policy"] != AVAILABILITY_POLICY
-        or availability["usable_at"] != ingestion["latest_ingested_at"]
-        or value["limitations"]
-        != [
-            "source publication time is unavailable",
-            "provider API version is unavailable",
-            "raw provider payload is not retained",
-            "provider revisions overwrite the same ticker/date key",
-        ]
-    ):
-        raise DataContractError("daily price data contract is invalid")
+    immutable = _validate_daily_price_revision(
+        revision, ingestion, availability, value["limitations"]
+    )
     _provider_evidence(
         provider_evidence,
         observation_sha256=revision["revision_id"],
         value_sha256=revision["value_sha256"],
         observed_at=revision["observed_at"],
     )
-    source_observation = (
-        provider_evidence is not None
-        and provider_evidence["relationship"]
-        == SOURCE_OBSERVATION_RELATIONSHIP
+    source_observation = _daily_price_source_observation(
+        provider_evidence,
+        source,
+        record,
+        value["limitations"],
+        immutable=immutable,
     )
-    expected_limitations = [
-        "source publication time is unavailable",
-        "provider dataset revision is unavailable",
-    ]
-    if immutable and not source_observation:
-        expected_limitations.append(
-            "raw provider payload is not retained at observation time"
-        )
-    if (
-        immutable
-        and value["limitations"] != expected_limitations
-    ) or (
-        source_observation
-        and (
-            source["adapter"] != SOURCE_OBSERVATION_ADAPTER
-            or source["adapter_version"]
-            != SOURCE_OBSERVATION_ADAPTER_VERSION
-            or record["raw_retained"] is not True
-            or record["raw_sha256"] != provider_evidence["response_sha256"]
-        )
-    ) or (
-        not source_observation
-        and (
-            record["raw_retained"] is not False
-            or record["raw_sha256"] is not None
-        )
-    ):
-        raise DataContractError("daily price data contract is invalid")
     try:
         observation_date = iso_date(
             observation["market_date"], "daily price observation date is invalid"
