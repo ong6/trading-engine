@@ -161,6 +161,39 @@ def _require_unique(values: list[str], label: str) -> None:
         raise BrokerStateError(f"adapter returned duplicate {label}")
 
 
+def _capture_fills(
+    adapter: BrokerAdapter, account_id: str, max_fills: int
+) -> tuple[BrokerFill, ...]:
+    fills: list[BrokerFill] = []
+    cursor = None
+    seen_cursors: set[str] = set()
+    while True:
+        remaining = max_fills - len(fills)
+        if remaining <= 0:
+            raise BrokerStateError("adapter fill history exceeds reconciliation limit")
+        batch = adapter.stream_fills(
+            account_id,
+            after=cursor,
+            limit=min(MAX_FILL_BATCH, remaining),
+        )
+        if not isinstance(batch, FillBatch):
+            raise BrokerStateError("adapter fill batch is invalid")
+        fills.extend(batch.fills)
+        if len(fills) > max_fills:
+            raise BrokerStateError("adapter fill history exceeds reconciliation limit")
+        if not batch.truncated:
+            return tuple(fills)
+        if (
+            batch.next_cursor is None
+            or batch.next_cursor == cursor
+            or batch.next_cursor in seen_cursors
+            or not batch.fills
+        ):
+            raise BrokerStateError("adapter fill cursor did not advance")
+        seen_cursors.add(batch.next_cursor)
+        cursor = batch.next_cursor
+
+
 def _capture_once(
     adapter: BrokerAdapter,
     account_id: str,
@@ -197,36 +230,7 @@ def _capture_once(
     ):
         raise BrokerStateError("adapter open-order collection is invalid")
 
-    fills: list[BrokerFill] = []
-    cursor = None
-    seen_cursors: set[str] = set()
-    while True:
-        remaining = max_fills - len(fills)
-        if remaining <= 0:
-            raise BrokerStateError("adapter fill history exceeds reconciliation limit")
-        batch = adapter.stream_fills(
-            account_id,
-            after=cursor,
-            limit=min(MAX_FILL_BATCH, remaining),
-        )
-        if not isinstance(batch, FillBatch):
-            raise BrokerStateError("adapter fill batch is invalid")
-        fills.extend(batch.fills)
-        if len(fills) > max_fills:
-            raise BrokerStateError("adapter fill history exceeds reconciliation limit")
-        if not batch.truncated:
-            break
-        if (
-            batch.next_cursor is None
-            or batch.next_cursor == cursor
-            or batch.next_cursor in seen_cursors
-            or not batch.fills
-        ):
-            raise BrokerStateError("adapter fill cursor did not advance")
-        seen_cursors.add(batch.next_cursor)
-        cursor = batch.next_cursor
-
-    fill_tuple = tuple(fills)
+    fill_tuple = _capture_fills(adapter, account_id, max_fills)
     _validate_account_scope(account_id, positions, orders, fill_tuple)
     _require_unique([position.symbol for position in positions], "position symbols")
     _require_unique(
