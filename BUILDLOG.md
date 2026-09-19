@@ -10888,4 +10888,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server 46,424 · tools 6,831 · product 28,894; budget ok.
 - **Next:** nothing admitted; keep the agent book paper-only and record P6 without tuning.
 
+## 2026-09-19 — Repair stale Python dependency lock
+
+- **Why:** demonstrated defect: `uv lock --check` exited 1 because `uv.lock` omitted the
+  declared runtime dependencies `numpy>=2.0` and `PyYAML>=6.0`.
+- **What:** regenerated only the dependency lock metadata from the existing requirements. No
+  application, strategy, evidence, schedule, database, broker, or capital behavior changed.
+- **Evidence:** `uv lock --check && uv sync --extra dev --frozen && uv run python -m pytest
+  -q -W error` passed; dependency audit found no known vulnerabilities.
+- **Metrics:** product and frozen runtime source unchanged; lock metadata +4 lines.
+- **Next:** nothing else admitted; continue unattended evidence collection.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
