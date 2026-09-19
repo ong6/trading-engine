@@ -11185,4 +11185,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +36 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce retained authority reconstruction complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/broker_paper_startup_store.py`
+  reports `_epochs` at complexity 13 against the repository CI limit of 10.
+- **What:** separate retained-row field, chain, and binding checks while preserving validation
+  order, global and per-epoch continuity, duplicate rejection, and no authority.
+- **Evidence:** focused 58 tests and the full warnings-as-errors suite pass; the file is C90
+  clean and the repository count falls from 16 to 15.
+- **Metrics:** server +27 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

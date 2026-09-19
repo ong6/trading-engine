@@ -294,6 +294,114 @@ def _stable_rows(
     return () if second is None else second
 
 
+def _validated_retained_values(
+    row: tuple[object, ...],
+) -> tuple[dict, int, int]:
+    values = dict(zip(_COLUMN_NAMES, row, strict=True))
+    global_sequence = _positive_integer(
+        values["global_sequence"],
+        "retained global sequence",
+    )
+    event_sequence = _positive_integer(
+        values["event_sequence"],
+        "retained authority event sequence",
+    )
+    for field, label in (
+        ("lease_sha256", "retained paper lease identity"),
+        ("event_sha256", "retained authority event identity"),
+        ("trusted_activation_event_sha256", "retained activation identity"),
+        ("candidate_assessment_sha256", "retained candidate assessment identity"),
+        ("startup_assessment_sha256", "retained startup assessment identity"),
+        ("activation_runtime_epoch_sha256", "retained activation runtime identity"),
+        ("row_sha256", "retained global row identity"),
+    ):
+        _sha256(values[field], label)
+    _sha256(
+        values["prior_global_row_sha256"],
+        "prior retained global row identity",
+        optional=True,
+    )
+    try:
+        require_identifier(values["account_id"], "retained account identifier")
+        require_identifier(values["lease_id"], "retained lease identifier")
+    except ValueError as exc:
+        raise PaperAuthorityStartupStoreError(str(exc)) from exc
+    if values["mode"] not in {"agent_only", "hybrid"}:
+        raise PaperAuthorityStartupStoreError("retained authority mode is invalid")
+    if not isinstance(values["event_type"], str):
+        raise PaperAuthorityStartupStoreError(
+            "retained authority event type is invalid"
+        )
+    return values, global_sequence, event_sequence
+
+
+def _validate_retained_row_chain(
+    values: dict,
+    lease: PaperAuthorityLease,
+    event: dict,
+    *,
+    global_sequence: int,
+    event_sequence: int,
+    expected_global_sequence: int,
+    prior_global_sha256: str | None,
+) -> None:
+    body = _retained_row_body(
+        global_sequence=global_sequence,
+        account_id=values["account_id"],
+        mode=values["mode"],
+        lease_id=values["lease_id"],
+        lease_sha256=values["lease_sha256"],
+        lease_payload=lease.payload(),
+        event_sequence=event_sequence,
+        event_type=values["event_type"],
+        event_payload=event,
+        event_sha256=values["event_sha256"],
+        trusted_activation_event_sha256=values[
+            "trusted_activation_event_sha256"
+        ],
+        candidate_assessment_sha256=values["candidate_assessment_sha256"],
+        startup_assessment_sha256=values["startup_assessment_sha256"],
+        activation_runtime_epoch_sha256=values[
+            "activation_runtime_epoch_sha256"
+        ],
+        prior_global_row_sha256=values["prior_global_row_sha256"],
+    )
+    if (
+        global_sequence != expected_global_sequence
+        or values["prior_global_row_sha256"] != prior_global_sha256
+        or canonical_sha256(body) != values["row_sha256"]
+    ):
+        raise PaperAuthorityStartupStoreError(
+            "retained global row chain is incomplete or invalid"
+        )
+
+
+def _validate_retained_binding(
+    values: dict,
+    lease: PaperAuthorityLease,
+    event: dict,
+    *,
+    account_id: str,
+    event_sequence: int,
+) -> None:
+    if (
+        values["account_id"] != account_id
+        or lease.account_id != account_id
+        or values["lease_id"] != lease.lease_id
+        or values["mode"] != lease.mode
+        or event.get("lease_id") != lease.lease_id
+        or event.get("lease_sha256") != lease.sha256()
+        or event.get("account_id") != account_id
+        or event.get("mode") != lease.mode
+        or event.get("event_sequence") != event_sequence
+        or event.get("event_type") != values["event_type"]
+        or event.get("event_sha256") != values["event_sha256"]
+    ):
+        raise PaperAuthorityStartupStoreError(
+            "retained authority account, mode, lease, or event binding drifted"
+        )
+
+
 def _epochs(
     rows: tuple[tuple[object, ...], ...],
     *,
@@ -306,55 +414,7 @@ def _epochs(
     activation_owners: dict[str, str] = {}
 
     for expected_global_sequence, row in enumerate(rows, 1):
-        values = dict(zip(_COLUMN_NAMES, row, strict=True))
-        global_sequence = _positive_integer(
-            values["global_sequence"],
-            "retained global sequence",
-        )
-        event_sequence = _positive_integer(
-            values["event_sequence"],
-            "retained authority event sequence",
-        )
-        for field, label in (
-            ("lease_sha256", "retained paper lease identity"),
-            ("event_sha256", "retained authority event identity"),
-            (
-                "trusted_activation_event_sha256",
-                "retained activation identity",
-            ),
-            (
-                "candidate_assessment_sha256",
-                "retained candidate assessment identity",
-            ),
-            (
-                "startup_assessment_sha256",
-                "retained startup assessment identity",
-            ),
-            (
-                "activation_runtime_epoch_sha256",
-                "retained activation runtime identity",
-            ),
-            ("row_sha256", "retained global row identity"),
-        ):
-            _sha256(values[field], label)
-        _sha256(
-            values["prior_global_row_sha256"],
-            "prior retained global row identity",
-            optional=True,
-        )
-        try:
-            require_identifier(values["account_id"], "retained account identifier")
-            require_identifier(values["lease_id"], "retained lease identifier")
-        except ValueError as exc:
-            raise PaperAuthorityStartupStoreError(str(exc)) from exc
-        if values["mode"] not in {"agent_only", "hybrid"}:
-            raise PaperAuthorityStartupStoreError(
-                "retained authority mode is invalid"
-            )
-        if not isinstance(values["event_type"], str):
-            raise PaperAuthorityStartupStoreError(
-                "retained authority event type is invalid"
-            )
+        values, global_sequence, event_sequence = _validated_retained_values(row)
         lease, canonical_lease = _lease(
             values["lease_payload"],
             expected_sha256=values["lease_sha256"],
@@ -363,55 +423,22 @@ def _epochs(
             values["event_payload"],
             "retained authority event payload",
         )
-        body = _retained_row_body(
+        _validate_retained_row_chain(
+            values,
+            lease,
+            event,
             global_sequence=global_sequence,
-            account_id=values["account_id"],
-            mode=values["mode"],
-            lease_id=values["lease_id"],
-            lease_sha256=values["lease_sha256"],
-            lease_payload=lease.payload(),
             event_sequence=event_sequence,
-            event_type=values["event_type"],
-            event_payload=event,
-            event_sha256=values["event_sha256"],
-            trusted_activation_event_sha256=values[
-                "trusted_activation_event_sha256"
-            ],
-            candidate_assessment_sha256=values[
-                "candidate_assessment_sha256"
-            ],
-            startup_assessment_sha256=values[
-                "startup_assessment_sha256"
-            ],
-            activation_runtime_epoch_sha256=values[
-                "activation_runtime_epoch_sha256"
-            ],
-            prior_global_row_sha256=values["prior_global_row_sha256"],
+            expected_global_sequence=expected_global_sequence,
+            prior_global_sha256=prior_global_sha256,
         )
-        if (
-            global_sequence != expected_global_sequence
-            or values["prior_global_row_sha256"] != prior_global_sha256
-            or canonical_sha256(body) != values["row_sha256"]
-        ):
-            raise PaperAuthorityStartupStoreError(
-                "retained global row chain is incomplete or invalid"
-            )
-        if (
-            values["account_id"] != account_id
-            or lease.account_id != account_id
-            or values["lease_id"] != lease.lease_id
-            or values["mode"] != lease.mode
-            or event.get("lease_id") != lease.lease_id
-            or event.get("lease_sha256") != lease.sha256()
-            or event.get("account_id") != account_id
-            or event.get("mode") != lease.mode
-            or event.get("event_sequence") != event_sequence
-            or event.get("event_type") != values["event_type"]
-            or event.get("event_sha256") != values["event_sha256"]
-        ):
-            raise PaperAuthorityStartupStoreError(
-                "retained authority account, mode, lease, or event binding drifted"
-            )
+        _validate_retained_binding(
+            values,
+            lease,
+            event,
+            account_id=account_id,
+            event_sequence=event_sequence,
+        )
 
         lease_id = lease.lease_id
         existing_lease_owner = lease_hash_owners.setdefault(
