@@ -201,6 +201,19 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+def _provider_ticker(con: duckdb.DuckDBPyConnection, ticker: str) -> str:
+    universe = con.execute(
+        "SELECT yf_ticker FROM universe WHERE ticker = ?", [ticker]
+    ).fetchone()
+    provider_ticker = ticker if universe is None or not universe[0] else universe[0]
+    if (
+        not isinstance(provider_ticker, str)
+        or PROVIDER_TICKER.fullmatch(provider_ticker) is None
+    ):
+        raise ProviderResponseError("provider ticker is invalid")
+    return provider_ticker
+
+
 def _strategy_scope(
     con: duckdb.DuckDBPyConnection, strategy_id: str, market_date: date
 ) -> list[tuple[str, str, date, date]]:
@@ -234,17 +247,8 @@ def _strategy_scope(
         ).fetchone()
         if row is None or row[0] is None:
             continue
-        universe = con.execute(
-            "SELECT yf_ticker FROM universe WHERE ticker = ?", [ticker]
-        ).fetchone()
-        provider_ticker = ticker if universe is None or not universe[0] else universe[0]
-        if (
-            not isinstance(provider_ticker, str)
-            or PROVIDER_TICKER.fullmatch(provider_ticker) is None
-        ):
-            raise ProviderResponseError("provider ticker is invalid")
         result.append(
-            (ticker, provider_ticker, row[0], market_date + timedelta(days=1))
+            (ticker, _provider_ticker(con, ticker), row[0], market_date + timedelta(days=1))
         )
     if not result:
         raise ProviderResponseError("strategy provider-response scope is empty")
