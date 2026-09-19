@@ -11350,4 +11350,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +11 LOC; tools and product unchanged; budget remains green.
 - **Next:** address the final CI complexity finding in one admitted slice.
 
+## 2026-09-19 — Reduce shadow-runner orchestration complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/agent_shadow_runner.py` reports
+  `run` at complexity 33 against the repository CI limit of 10.
+- **What:** separate policy admission, locked attempt preparation, replay/recovery, and connector
+  completion while preserving locking, transactions, failure evidence, and no authority.
+- **Evidence:** focused 118 tests and the full warnings-as-errors suite pass; repository C90 is
+  clean, reducing the finding count from 1 to 0.
+- **Metrics:** server +21 LOC; tools and product unchanged; budget remains green.
+- **Next:** perform the goal completion audit against current ratings and evidence.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
