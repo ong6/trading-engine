@@ -279,6 +279,72 @@ def _body(
     }
 
 
+def _evidence_scalars_valid(
+    evidence: dict, evidence_fields: set[str], integer_fields: set[str]
+) -> bool:
+    hash_fields = evidence_fields - {
+        "kind",
+        "terminal_status",
+        "model_failure_fallback_applied",
+        *integer_fields,
+    }
+    return all(
+        isinstance(evidence[field], int)
+        and not isinstance(evidence[field], bool)
+        and evidence[field] > 0
+        for field in integer_fields
+    ) and all(
+        isinstance(evidence[field], str)
+        and _SHA256.fullmatch(evidence[field]) is not None
+        for field in hash_fields
+    )
+
+
+def _decision_evidence_valid(mode: object, evidence: object) -> bool:
+    common_fields = {
+        "attempt_id",
+        "terminal_event_sha256",
+        "terminal_status",
+        "intent_bindings_sha256",
+        "loaded_evidence_sha256",
+    }
+    if mode == "agent_only":
+        evidence_fields = common_fields | {
+            "kind",
+            "proposal_record_id",
+            "proposal_sha256",
+            "validation_sha256",
+        }
+        integer_fields = {"attempt_id", "proposal_record_id"}
+        valid = (
+            isinstance(evidence, dict)
+            and set(evidence) == evidence_fields
+            and evidence.get("kind") == "agent_only_accepted_proposal"
+            and evidence.get("terminal_status") == "shadow_accepted"
+        )
+    elif mode == "hybrid":
+        evidence_fields = common_fields | {
+            "kind",
+            "candidate_sha256",
+            "effective_orders_sha256",
+            "model_failure_fallback_applied",
+        }
+        integer_fields = {"attempt_id"}
+        valid = (
+            isinstance(evidence, dict)
+            and set(evidence) == evidence_fields
+            and evidence.get("kind") == "hybrid_effective_order"
+            and evidence.get("terminal_status")
+            in {"hybrid_allow", "hybrid_veto", "hybrid_fallback_allow"}
+            and type(evidence.get("model_failure_fallback_applied")) is bool
+            and evidence["model_failure_fallback_applied"]
+            is (evidence["terminal_status"] == "hybrid_fallback_allow")
+        )
+    else:
+        return False
+    return valid and _evidence_scalars_valid(evidence, evidence_fields, integer_fields)
+
+
 def verify(packet: object) -> dict:
     """Verify packet integrity without treating it as approval or authority."""
     expected_fields = {
@@ -328,68 +394,7 @@ def verify(packet: object) -> dict:
         packet["expires_at"],
         "human paper review expiry",
     )
-    common_evidence = {
-        "attempt_id",
-        "terminal_event_sha256",
-        "terminal_status",
-        "intent_bindings_sha256",
-        "loaded_evidence_sha256",
-    }
-    if packet["mode"] == "agent_only":
-        evidence_fields = common_evidence | {
-            "kind",
-            "proposal_record_id",
-            "proposal_sha256",
-            "validation_sha256",
-        }
-        evidence_valid = (
-            isinstance(evidence, dict)
-            and set(evidence) == evidence_fields
-            and evidence.get("kind") == "agent_only_accepted_proposal"
-            and evidence.get("terminal_status") == "shadow_accepted"
-        )
-    elif packet["mode"] == "hybrid":
-        evidence_fields = common_evidence | {
-            "kind",
-            "candidate_sha256",
-            "effective_orders_sha256",
-            "model_failure_fallback_applied",
-        }
-        evidence_valid = (
-            isinstance(evidence, dict)
-            and set(evidence) == evidence_fields
-            and evidence.get("kind") == "hybrid_effective_order"
-            and evidence.get("terminal_status")
-            in {"hybrid_allow", "hybrid_veto", "hybrid_fallback_allow"}
-            and type(evidence.get("model_failure_fallback_applied")) is bool
-            and evidence["model_failure_fallback_applied"]
-            is (evidence["terminal_status"] == "hybrid_fallback_allow")
-        )
-    else:
-        evidence_valid = False
-    if evidence_valid:
-        integer_fields = {"attempt_id"} | (
-            {"proposal_record_id"} if packet["mode"] == "agent_only" else set()
-        )
-        hash_fields = evidence_fields - {
-            "kind",
-            "terminal_status",
-            "model_failure_fallback_applied",
-            *integer_fields,
-        }
-        evidence_valid = (
-            all(
-                isinstance(evidence[field], int)
-                and not isinstance(evidence[field], bool)
-                and evidence[field] > 0
-                for field in integer_fields
-            )
-            and all(
-                isinstance(evidence[field], str)
-                and _SHA256.fullmatch(evidence[field]) is not None
-                for field in hash_fields
-            )
-        )
+    evidence_valid = _decision_evidence_valid(packet["mode"], evidence)
     if packet["mode"] == "agent_only":
         summary_valid = (
             isinstance(review_summary, dict)
