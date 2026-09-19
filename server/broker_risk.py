@@ -83,6 +83,62 @@ def _boolean(value: object, label: str) -> bool:
     return value
 
 
+def _validate_policy_symbols(policy: RiskPolicy) -> None:
+    if (
+        not isinstance(policy.allowed_symbols, tuple)
+        or not policy.allowed_symbols
+        or policy.allowed_symbols != tuple(sorted(set(policy.allowed_symbols)))
+    ):
+        raise RiskContractError("allowed symbols must be a sorted unique tuple")
+    try:
+        for symbol in policy.allowed_symbols:
+            require_symbol(symbol)
+    except ValueError as exc:
+        raise RiskContractError(str(exc)) from exc
+
+
+def _normalize_policy_limits(policy: RiskPolicy) -> None:
+    for field, validator, label in (
+        ("capital_ceiling", _positive, "capital ceiling"),
+        ("max_gross_exposure", _positive, "gross exposure ceiling"),
+        ("max_position_fraction", _fraction, "position fraction ceiling"),
+        ("max_order_notional", _positive, "order-notional ceiling"),
+        ("max_daily_turnover", _positive, "daily turnover ceiling"),
+        ("max_participation", _fraction, "participation ceiling"),
+        ("max_daily_loss_fraction", _fraction, "daily loss ceiling"),
+        ("max_drawdown_fraction", _fraction, "drawdown ceiling"),
+        (
+            "max_reference_deviation_fraction",
+            _fraction,
+            "reference deviation ceiling",
+        ),
+    ):
+        object.__setattr__(policy, field, validator(getattr(policy, field), label))
+    if policy.max_order_notional > policy.capital_ceiling:
+        raise RiskContractError("order-notional ceiling exceeds capital ceiling")
+    if policy.max_gross_exposure > policy.capital_ceiling:
+        raise RiskContractError("gross exposure ceiling exceeds capital ceiling")
+    if policy.max_daily_turnover < policy.max_order_notional:
+        raise RiskContractError("daily turnover ceiling is below order-notional ceiling")
+
+
+def _validate_policy_counts(policy: RiskPolicy) -> None:
+    if (
+        isinstance(policy.max_daily_orders, bool)
+        or not isinstance(policy.max_daily_orders, int)
+        or policy.max_daily_orders <= 0
+    ):
+        raise RiskContractError("daily order-count ceiling must be positive")
+    for field in (
+        "max_quote_age_seconds",
+        "max_reconciliation_age_seconds",
+        "decision_ttl_seconds",
+    ):
+        value = getattr(policy, field)
+        if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 300:
+            raise RiskContractError(f"{field.replace('_', ' ')} must be from 1 through 300")
+
+
 @dataclass(frozen=True, slots=True)
 class RiskPolicy:
     policy_id: str
@@ -124,89 +180,9 @@ class RiskPolicy:
             (self.execution_profile_sha256, "execution profile identity"),
         ):
             _sha256(value, label)
-        if (
-            not isinstance(self.allowed_symbols, tuple)
-            or not self.allowed_symbols
-            or self.allowed_symbols != tuple(sorted(set(self.allowed_symbols)))
-        ):
-            raise RiskContractError("allowed symbols must be a sorted unique tuple")
-        try:
-            for symbol in self.allowed_symbols:
-                require_symbol(symbol)
-        except ValueError as exc:
-            raise RiskContractError(str(exc)) from exc
-        object.__setattr__(
-            self,
-            "capital_ceiling",
-            _positive(self.capital_ceiling, "capital ceiling"),
-        )
-        object.__setattr__(
-            self,
-            "max_gross_exposure",
-            _positive(self.max_gross_exposure, "gross exposure ceiling"),
-        )
-        object.__setattr__(
-            self,
-            "max_position_fraction",
-            _fraction(self.max_position_fraction, "position fraction ceiling"),
-        )
-        object.__setattr__(
-            self,
-            "max_order_notional",
-            _positive(self.max_order_notional, "order-notional ceiling"),
-        )
-        object.__setattr__(
-            self,
-            "max_daily_turnover",
-            _positive(self.max_daily_turnover, "daily turnover ceiling"),
-        )
-        if (
-            isinstance(self.max_daily_orders, bool)
-            or not isinstance(self.max_daily_orders, int)
-            or self.max_daily_orders <= 0
-        ):
-            raise RiskContractError("daily order-count ceiling must be positive")
-        object.__setattr__(
-            self,
-            "max_participation",
-            _fraction(self.max_participation, "participation ceiling"),
-        )
-        object.__setattr__(
-            self,
-            "max_daily_loss_fraction",
-            _fraction(self.max_daily_loss_fraction, "daily loss ceiling"),
-        )
-        object.__setattr__(
-            self,
-            "max_drawdown_fraction",
-            _fraction(self.max_drawdown_fraction, "drawdown ceiling"),
-        )
-        object.__setattr__(
-            self,
-            "max_reference_deviation_fraction",
-            _fraction(
-                self.max_reference_deviation_fraction,
-                "reference deviation ceiling",
-            ),
-        )
-        if self.max_order_notional > self.capital_ceiling:
-            raise RiskContractError("order-notional ceiling exceeds capital ceiling")
-        if self.max_gross_exposure > self.capital_ceiling:
-            raise RiskContractError("gross exposure ceiling exceeds capital ceiling")
-        if self.max_daily_turnover < self.max_order_notional:
-            raise RiskContractError("daily turnover ceiling is below order-notional ceiling")
-        for field in (
-            "max_quote_age_seconds",
-            "max_reconciliation_age_seconds",
-            "decision_ttl_seconds",
-        ):
-            value = getattr(self, field)
-            if (
-                isinstance(value, bool)
-                or not isinstance(value, int)
-                or not 1 <= value <= 300
-            ):
-                raise RiskContractError(f"{field.replace('_', ' ')} must be from 1 through 300")
+        _validate_policy_symbols(self)
+        _normalize_policy_limits(self)
+        _validate_policy_counts(self)
 
 
 @dataclass(frozen=True, slots=True)
