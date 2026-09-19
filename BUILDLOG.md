@@ -11317,4 +11317,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +35 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce provider-fact parsing complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/agent_provider_responses.py`
+  reports `_facts` at complexity 17 against the repository CI limit of 10.
+- **What:** separate series parsing, daily bars, and corporate actions while preserving exact
+  validation errors, duplicate rejection, normalized values, hashes, and no data mutation.
+- **Evidence:** focused 55 tests and the full warnings-as-errors suite pass; the file is C90
+  clean and the repository count falls from 4 to 3.
+- **Metrics:** server +19 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

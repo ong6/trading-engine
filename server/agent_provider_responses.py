@@ -291,8 +291,7 @@ def _finite_positive(value: object) -> float:
     return result
 
 
-def _facts(body: bytes, ticker: str, provider_ticker: str) -> list[dict]:
-    result = _response_result(body, provider_ticker)
+def _response_series(result: dict) -> tuple[ZoneInfo, list, dict]:
     try:
         timezone_name = result["meta"]["exchangeTimezoneName"]
         zone = ZoneInfo(timezone_name)
@@ -315,7 +314,13 @@ def _facts(body: bytes, ticker: str, provider_ticker: str) -> list[dict]:
         for field in fields
     ):
         raise ProviderResponseError("provider response quote arrays are invalid")
+    return zone, timestamps, quote_values
 
+
+def _price_facts(
+    ticker: str, zone: ZoneInfo, timestamps: list, quote_values: dict
+) -> tuple[list[dict], set[tuple]]:
+    fields = ("open", "high", "low", "close", "volume")
     facts = []
     seen = set()
     for index, timestamp in enumerate(timestamps):
@@ -362,7 +367,13 @@ def _facts(body: bytes, ticker: str, provider_ticker: str) -> list[dict]:
                 "value": value_record,
             }
         )
+    return facts, seen
 
+
+def _corporate_action_facts(
+    result: dict, ticker: str, zone: ZoneInfo, seen: set[tuple]
+) -> list[dict]:
+    facts = []
     events = result.get("events", {})
     if events is None:
         events = {}
@@ -405,6 +416,14 @@ def _facts(body: bytes, ticker: str, provider_ticker: str) -> list[dict]:
                     "value": value_record,
                 }
             )
+    return facts
+
+
+def _facts(body: bytes, ticker: str, provider_ticker: str) -> list[dict]:
+    result = _response_result(body, provider_ticker)
+    zone, timestamps, quote_values = _response_series(result)
+    facts, seen = _price_facts(ticker, zone, timestamps, quote_values)
+    facts.extend(_corporate_action_facts(result, ticker, zone, seen))
     return facts
 
 
