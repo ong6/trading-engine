@@ -10932,4 +10932,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +4 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce shadow-attempt projection complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/agent_shadow_read_models.py`
+  reports `_attempt` at complexity 11 against the repository CI limit of 10.
+- **What:** separated registration and model-metadata validation while preserving public fields,
+  statuses, legacy handling, fail-closed checks, and execution authority.
+- **Evidence:** focused 66 tests and the full warnings-as-errors suite pass; the targeted C90
+  finding is gone and the repository count falls from 39 to 38.
+- **Metrics:** server +8 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

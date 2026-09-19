@@ -177,6 +177,42 @@ def _event_metadata(event_rows: list[tuple]) -> dict:
     }
 
 
+def _validate_attempt_registration(result: dict) -> None:
+    if result["mode"] not in {"agent_only", "hybrid"} or type(
+        result["market_date"]
+    ) is not date:
+        raise ValueError("public shadow attempt registration is invalid")
+    if result["policy_id"] == "legacy_unregistered":
+        if result["policy_registration_sha256"] is not None:
+            raise ValueError("public shadow attempt legacy policy identity is invalid")
+    elif result["policy_registration_sha256"] is None:
+        raise ValueError("public shadow attempt policy identity is invalid")
+
+
+def _validate_model_metadata(result: dict) -> None:
+    if result["status"] == "cadence_no_action":
+        if any(
+            result[field] is not None
+            for field in ("context_sha256", "model", "model_version", "request_sha256")
+        ):
+            raise ValueError("public cadence no-action attempt has model metadata")
+    elif result["status"] == "hybrid_no_veto_candidate":
+        if (
+            result["context_sha256"] is None
+            or result["model"] is None
+            or result["model_version"] is None
+            or result["request_sha256"] is not None
+        ):
+            raise ValueError("public deterministic hybrid attempt metadata is invalid")
+    elif any(
+        result[field] is None
+        for field in ("context_sha256", "model", "model_version", "request_sha256")
+    ):
+        raise ValueError("public model attempt metadata is incomplete")
+    if result["status"] not in ATTEMPT_STATUSES:
+        raise ValueError("public shadow attempt status is invalid")
+
+
 def _attempt(con: duckdb.DuckDBPyConnection, row: dict) -> dict:
     attempt_id = require_public_positive_integer(row["id"])
     event_rows = con.execute(
@@ -208,36 +244,8 @@ def _attempt(con: duckdb.DuckDBPyConnection, row: dict) -> dict:
         "started_at": _timestamp(row["started_at"], "start time"),
         **metadata,
     }
-    if result["mode"] not in {"agent_only", "hybrid"} or type(
-        result["market_date"]
-    ) is not date:
-        raise ValueError("public shadow attempt registration is invalid")
-    if result["policy_id"] == "legacy_unregistered":
-        if result["policy_registration_sha256"] is not None:
-            raise ValueError("public shadow attempt legacy policy identity is invalid")
-    elif result["policy_registration_sha256"] is None:
-        raise ValueError("public shadow attempt policy identity is invalid")
-    if result["status"] == "cadence_no_action":
-        if any(
-            result[field] is not None
-            for field in ("context_sha256", "model", "model_version", "request_sha256")
-        ):
-            raise ValueError("public cadence no-action attempt has model metadata")
-    elif result["status"] == "hybrid_no_veto_candidate":
-        if (
-            result["context_sha256"] is None
-            or result["model"] is None
-            or result["model_version"] is None
-            or result["request_sha256"] is not None
-        ):
-            raise ValueError("public deterministic hybrid attempt metadata is invalid")
-    elif any(
-        result[field] is None
-        for field in ("context_sha256", "model", "model_version", "request_sha256")
-    ):
-        raise ValueError("public model attempt metadata is incomplete")
-    if result["status"] not in ATTEMPT_STATUSES:
-        raise ValueError("public shadow attempt status is invalid")
+    _validate_attempt_registration(result)
+    _validate_model_metadata(result)
     return result
 
 
