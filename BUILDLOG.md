@@ -11383,4 +11383,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** engine +2 LOC; tools and product unchanged; budget remains green.
 - **Next:** let the next scheduled miner verify fresh-source behavior; keep Friday failed.
 
+## 2026-09-19 — Recover intraday miner evidence
+
+- **Why:** the Friday farm stage lost a transient DuckDB lock race, leaving the latest intraday
+  evidence at `issues`; the writer is now free and the corrected selector is deployed.
+- **What:** enqueue and drain one standard intraday job through the existing guarded queue; do
+  not backdate evidence or rewrite the immutable failed Friday postflight receipt.
+- **Evidence:** job 511 completed with 931/931 tickers covered, zero failed tickers and batches;
+  live `GET /meta` now reports the miner cohort `current` at 4/4.
+- **Metrics:** server, tools, and product LOC unchanged; budget remains green.
+- **Next:** keep the historical failed Friday receipt and verify the next scheduled postflight.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
