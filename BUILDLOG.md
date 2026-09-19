@@ -11031,4 +11031,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +5 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce paper candidate verification complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/broker_paper_lease.py` reports
+  `verify_candidate_assessment` at complexity 12 against the repository CI limit of 10.
+- **What:** extracted ordered gate and blocker validation while preserving field shape, hashes,
+  trust binding, admissibility requirements, validity window, and no authority.
+- **Evidence:** focused 51 tests and the full warnings-as-errors suite pass; the targeted C90
+  finding is gone and the repository count falls from 30 to 29.
+- **Metrics:** server +5 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
