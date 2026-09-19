@@ -179,6 +179,18 @@ def _evidence_ids(body: dict) -> list[str]:
     return normalized
 
 
+def _proposal_window(body: dict, received_at: datetime) -> tuple[datetime, datetime]:
+    signal_at = _timestamp(body, "signal_at").astimezone(timezone.utc)
+    expires_at = _timestamp(body, "expires_at").astimezone(timezone.utc)
+    if signal_at < received_at - MAX_SIGNAL_AGE or signal_at > received_at + MAX_CLOCK_SKEW:
+        raise ProposalError(400, "signal_at is outside the accepted clock window")
+    if expires_at <= signal_at:
+        raise ProposalError(400, "expires_at must be after signal_at")
+    if expires_at <= received_at or expires_at > received_at + MAX_EXPIRY:
+        raise ProposalError(400, "expires_at is outside the accepted validity window")
+    return signal_at, expires_at
+
+
 def normalize(body: dict, *, now: datetime | None = None) -> dict:
     """Strictly normalize one proposal before any database write."""
     unknown = sorted(set(body) - PROPOSAL_FIELDS)
@@ -207,15 +219,8 @@ def normalize(body: dict, *, now: datetime | None = None) -> dict:
     if side not in {"buy", "sell"}:
         raise ProposalError(400, "side must be buy or sell")
 
-    signal_at = _timestamp(body, "signal_at").astimezone(timezone.utc)
-    expires_at = _timestamp(body, "expires_at").astimezone(timezone.utc)
     received_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    if signal_at < received_at - MAX_SIGNAL_AGE or signal_at > received_at + MAX_CLOCK_SKEW:
-        raise ProposalError(400, "signal_at is outside the accepted clock window")
-    if expires_at <= signal_at:
-        raise ProposalError(400, "expires_at must be after signal_at")
-    if expires_at <= received_at or expires_at > received_at + MAX_EXPIRY:
-        raise ProposalError(400, "expires_at is outside the accepted validity window")
+    signal_at, expires_at = _proposal_window(body, received_at)
 
     confidence = _finite_number(body, "confidence")
     if not 0 <= confidence <= 1:
