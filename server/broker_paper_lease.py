@@ -154,6 +154,47 @@ def _normalize_lease_limits_and_times(lease: PaperAuthorityLease) -> None:
     object.__setattr__(lease, "expires_at", expires_at)
 
 
+def _normalize_binding_limits(bindings: PaperAuthorityBindings) -> None:
+    object.__setattr__(
+        bindings,
+        "allowed_symbols",
+        _symbols(bindings.allowed_symbols, "paper allowed symbols"),
+    )
+    object.__setattr__(
+        bindings,
+        "capital_ceiling",
+        _positive(bindings.capital_ceiling, "paper capital ceiling"),
+    )
+    object.__setattr__(
+        bindings,
+        "max_order_notional",
+        _positive(bindings.max_order_notional, "paper order-notional ceiling"),
+    )
+    if bindings.max_order_notional > bindings.capital_ceiling:
+        raise PaperLeaseError("paper order-notional ceiling exceeds capital ceiling")
+    if (
+        isinstance(bindings.max_orders, bool)
+        or not isinstance(bindings.max_orders, int)
+        or not 1 <= bindings.max_orders <= MAX_LEASE_ORDERS
+    ):
+        raise PaperLeaseError(
+            f"paper binding order count must be from 1 through {MAX_LEASE_ORDERS}"
+        )
+
+
+def _validate_binding_state(bindings: PaperAuthorityBindings) -> None:
+    if type(bindings.release_eligible) is not bool:
+        raise PaperLeaseError("paper release eligibility must be boolean")
+    if type(bindings.automatic_paper_gate_passed) is not bool:
+        raise PaperLeaseError("automatic-paper gate state must be boolean")
+    if bindings.startup_status not in {"reconciled_halted", "blocked"}:
+        raise PaperLeaseError("startup status is invalid")
+    if type(bindings.startup_safe_halted) is not bool:
+        raise PaperLeaseError("startup halted state must be boolean")
+    if bindings.startup_submission_authority != "none":
+        raise PaperLeaseError("startup submission authority must be none")
+
+
 @dataclass(frozen=True, slots=True)
 class PaperAuthorityLease:
     """One externally approved, bounded automatic-paper capability."""
@@ -311,43 +352,8 @@ class PaperAuthorityBindings:
             (self.required_proxy_version, "paper proxy-version identifier"),
         ):
             _identifier(value, label)
-        object.__setattr__(
-            self,
-            "allowed_symbols",
-            _symbols(self.allowed_symbols, "paper allowed symbols"),
-        )
-        object.__setattr__(
-            self,
-            "capital_ceiling",
-            _positive(self.capital_ceiling, "paper capital ceiling"),
-        )
-        object.__setattr__(
-            self,
-            "max_order_notional",
-            _positive(self.max_order_notional, "paper order-notional ceiling"),
-        )
-        if self.max_order_notional > self.capital_ceiling:
-            raise PaperLeaseError(
-                "paper order-notional ceiling exceeds capital ceiling"
-            )
-        if (
-            isinstance(self.max_orders, bool)
-            or not isinstance(self.max_orders, int)
-            or not 1 <= self.max_orders <= MAX_LEASE_ORDERS
-        ):
-            raise PaperLeaseError(
-                f"paper binding order count must be from 1 through {MAX_LEASE_ORDERS}"
-            )
-        if type(self.release_eligible) is not bool:
-            raise PaperLeaseError("paper release eligibility must be boolean")
-        if type(self.automatic_paper_gate_passed) is not bool:
-            raise PaperLeaseError("automatic-paper gate state must be boolean")
-        if self.startup_status not in {"reconciled_halted", "blocked"}:
-            raise PaperLeaseError("startup status is invalid")
-        if type(self.startup_safe_halted) is not bool:
-            raise PaperLeaseError("startup halted state must be boolean")
-        if self.startup_submission_authority != "none":
-            raise PaperLeaseError("startup submission authority must be none")
+        _normalize_binding_limits(self)
+        _validate_binding_state(self)
 
 
 def _assessment_blockers(assessment: dict) -> list[str]:

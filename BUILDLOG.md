@@ -11064,4 +11064,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +4 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce paper binding validation complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/broker_paper_lease.py` reports
+  `PaperAuthorityBindings.__post_init__` at complexity 14 against the CI limit of 10.
+- **What:** separated binding limit normalization and startup-state checks while preserving
+  identity validation, risk bounds, release gates, and no authority.
+- **Evidence:** focused 62 tests and the full warnings-as-errors suite pass; the targeted C90
+  finding is gone and the repository count falls from 28 to 27.
+- **Metrics:** server +6 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
