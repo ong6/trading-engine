@@ -155,27 +155,57 @@ def _provider_evidence(
     return dict(evidence)
 
 
-def daily_price_fact(
-    *,
-    ticker: str,
-    market_date: date,
-    open_price: object,
-    high: object,
-    low: object,
-    close: object,
-    volume: object,
-    source: object,
-    fetched_at: object,
-    immutable_observation: object = None,
-    provider_evidence: object = None,
-) -> dict:
-    """Return an honest immutable envelope around one selected daily bar.
+def _immutable_price_revision(
+    observation: object, normalized_record: dict
+) -> tuple[str, str, dict]:
+    source_library_version = (
+        observation.get("source_library_version")
+        if isinstance(observation, dict)
+        else None
+    )
+    if (
+        not isinstance(observation, dict)
+        or observation.get("normalized") != normalized_record
+        or observation.get("schema_version") != 1
+        or not isinstance(observation.get("observation_sha256"), str)
+        or _SHA256.fullmatch(observation["observation_sha256"]) is None
+        or observation.get("classification") not in OBSERVATION_CLASSIFICATIONS
+        or isinstance(observation.get("observation_sequence"), bool)
+        or not isinstance(observation.get("observation_sequence"), int)
+        or observation["observation_sequence"] < 1
+        or isinstance(observation.get("value_revision"), bool)
+        or not isinstance(observation.get("value_revision"), int)
+        or observation["value_revision"] < 1
+        or not isinstance(source_library_version, str)
+        or not source_library_version
+        or len(source_library_version) > 64
+        or not source_library_version.isprintable()
+    ):
+        raise DataContractError("immutable price observation is invalid")
+    observed_at = observation.get("observed_at")
+    try:
+        iso_timestamp(observed_at, "immutable price observation time is invalid")
+    except (TypeError, ValueError) as exc:
+        raise DataContractError("immutable price observation is invalid") from exc
+    revision = {
+        "policy": IMMUTABLE_REVISION_POLICY,
+        "revision_id": observation["observation_sha256"],
+        "observation_schema_version": observation["schema_version"],
+        "observation_sequence": observation["observation_sequence"],
+        "value_revision": observation["value_revision"],
+        "classification": observation["classification"],
+        "value_sha256": observation["value_sha256"],
+        "previous_revision_id": observation["previous_observation_sha256"],
+        "observed_at": observed_at,
+        "history_retained": True,
+        "point_in_time_replayable": True,
+    }
+    return source_library_version, observed_at, revision
 
-    The existing price table remains a mutable provider-current cache. When a
-    matching append-only observation is supplied, the envelope binds that
-    retained normalized state and its revision chain. Raw transport bytes and
-    provider publication/version metadata remain unavailable.
-    """
+
+def _price_identity(
+    ticker: str, market_date: object, source: object, fetched_at: object
+) -> tuple[str, str]:
     if type(market_date) is not date:
         raise DataContractError("price observation date is invalid")
     try:
@@ -197,6 +227,31 @@ def daily_price_fact(
     ingested_at = _timestamp(fetched_at)
     if fetched_at.date() < market_date:
         raise DataContractError("price ingestion precedes its observation date")
+    return ticker, ingested_at
+
+
+def daily_price_fact(
+    *,
+    ticker: str,
+    market_date: date,
+    open_price: object,
+    high: object,
+    low: object,
+    close: object,
+    volume: object,
+    source: object,
+    fetched_at: object,
+    immutable_observation: object = None,
+    provider_evidence: object = None,
+) -> dict:
+    """Return an honest immutable envelope around one selected daily bar.
+
+    The existing price table remains a mutable provider-current cache. When a
+    matching append-only observation is supplied, the envelope binds that
+    retained normalized state and its revision chain. Raw transport bytes and
+    provider publication/version metadata remain unavailable.
+    """
+    ticker, ingested_at = _price_identity(ticker, market_date, source, fetched_at)
 
     normalized_record = {
         "ticker": ticker,
@@ -226,68 +281,9 @@ def daily_price_fact(
         raise DataContractError("price OHLC values are inconsistent")
     immutable = immutable_observation is not None
     if immutable:
-        source_library_version = (
-            immutable_observation.get("source_library_version")
-            if isinstance(immutable_observation, dict)
-            else None
+        source_library_version, observed_at, revision = _immutable_price_revision(
+            immutable_observation, normalized_record
         )
-        if (
-            not isinstance(immutable_observation, dict)
-            or immutable_observation.get("normalized") != normalized_record
-            or immutable_observation.get("schema_version") != 1
-            or not isinstance(
-                immutable_observation.get("observation_sha256"), str
-            )
-            or _SHA256.fullmatch(
-                immutable_observation["observation_sha256"]
-            )
-            is None
-            or immutable_observation.get("classification")
-            not in OBSERVATION_CLASSIFICATIONS
-            or isinstance(
-                immutable_observation.get("observation_sequence"), bool
-            )
-            or not isinstance(
-                immutable_observation.get("observation_sequence"), int
-            )
-            or immutable_observation["observation_sequence"] < 1
-            or isinstance(immutable_observation.get("value_revision"), bool)
-            or not isinstance(immutable_observation.get("value_revision"), int)
-            or immutable_observation["value_revision"] < 1
-            or not isinstance(source_library_version, str)
-            or not source_library_version
-            or len(source_library_version) > 64
-            or not source_library_version.isprintable()
-        ):
-            raise DataContractError("immutable price observation is invalid")
-        observed_at = immutable_observation.get("observed_at")
-        try:
-            iso_timestamp(
-                observed_at, "immutable price observation time is invalid"
-            )
-        except (TypeError, ValueError) as exc:
-            raise DataContractError(
-                "immutable price observation is invalid"
-            ) from exc
-        revision = {
-            "policy": IMMUTABLE_REVISION_POLICY,
-            "revision_id": immutable_observation["observation_sha256"],
-            "observation_schema_version": immutable_observation[
-                "schema_version"
-            ],
-            "observation_sequence": immutable_observation[
-                "observation_sequence"
-            ],
-            "value_revision": immutable_observation["value_revision"],
-            "classification": immutable_observation["classification"],
-            "value_sha256": immutable_observation["value_sha256"],
-            "previous_revision_id": immutable_observation[
-                "previous_observation_sha256"
-            ],
-            "observed_at": observed_at,
-            "history_retained": True,
-            "point_in_time_replayable": True,
-        }
         usable_at = observed_at
         availability_policy = IMMUTABLE_AVAILABILITY_POLICY
     else:
