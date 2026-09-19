@@ -10954,4 +10954,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +4 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce shadow-event projection complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/agent_shadow_read_models.py`
+  reports `_event_metadata` at complexity 13 against the repository CI limit of 10.
+- **What:** separated event scanning from terminal projection while preserving duplicate checks,
+  statuses, response fallback, usage, proposal metadata, and execution authority.
+- **Evidence:** focused 84 tests and the full warnings-as-errors suite pass; the file C90 gate
+  is clean and the repository count falls from 37 to 36.
+- **Metrics:** server +15 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
