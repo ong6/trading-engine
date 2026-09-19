@@ -10899,4 +10899,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** product and frozen runtime source unchanged; lock metadata +4 lines.
 - **Next:** nothing else admitted; continue unattended evidence collection.
 
+## 2026-09-19 — Reduce frozen agent-policy validation complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/agent_policy.py` reports
+  `_validate_policy` at complexity 22 against the repository CI limit of 10.
+- **What:** split the monolithic validator into focused mode, strategy, execution, symbol,
+  limit, attribution, and mode-contract checks; no policy or authority changed.
+- **Evidence:** focused 108 tests and the full warnings-as-errors suite pass; the exact-file
+  C90 gate passes and the repository count falls from 42 to 41.
+- **Metrics:** server +24 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
