@@ -660,8 +660,7 @@ def evaluate(
     }
 
 
-def verify(decision: object) -> dict:
-    """Validate a retained risk decision and its self-contained hash."""
+def _validate_decision_shape(decision: object) -> dict:
     if not isinstance(decision, dict):
         raise RiskContractError("risk decision is invalid")
     expected_fields = {
@@ -690,6 +689,10 @@ def verify(decision: object) -> dict:
         or decision["execution_authority"] != "none"
     ):
         raise RiskContractError("risk decision shape is invalid")
+    return decision
+
+
+def _validate_decision_hashes_and_interval(decision: dict) -> None:
     for field in (
         "policy_sha256",
         "identity_sha256",
@@ -711,6 +714,9 @@ def verify(decision: object) -> dict:
         or expires_at <= evaluated_at
     ):
         raise RiskContractError("risk decision validity interval is invalid")
+
+
+def _validate_decision_payloads(decision: dict) -> None:
     for payload_field, hash_field in (
         ("policy", "policy_sha256"),
         ("identity", "identity_sha256"),
@@ -722,6 +728,9 @@ def verify(decision: object) -> dict:
             or canonical_sha256(decision[payload_field]) != decision[hash_field]
         ):
             raise RiskContractError(f"risk decision {payload_field} is invalid")
+
+
+def _validate_decision_computed(decision: dict) -> None:
     computed = decision["computed"]
     expected_computed_fields = {
         "notional",
@@ -749,20 +758,27 @@ def verify(decision: object) -> dict:
             or not math.isfinite(value)
         ):
             raise RiskContractError("risk decision computed values are invalid")
+
+
+def _valid_gate(gate: object) -> bool:
+    return (
+        isinstance(gate, dict)
+        and set(gate) == {"name", "status", "detail"}
+        and gate["status"] in {"pass", "fail"}
+        and isinstance(gate["detail"], str)
+        and bool(gate["detail"])
+        and len(gate["detail"]) <= 512
+    )
+
+
+def _validate_decision_outcome(decision: dict) -> None:
     gates = decision["gates"]
     if (
         not isinstance(gates, list)
         or len(gates) != len(GATE_NAMES)
         or tuple(gate.get("name") for gate in gates if isinstance(gate, dict))
         != GATE_NAMES
-        or any(
-            set(gate) != {"name", "status", "detail"}
-            or gate["status"] not in {"pass", "fail"}
-            or not isinstance(gate["detail"], str)
-            or not gate["detail"]
-            or len(gate["detail"]) > 512
-            for gate in gates
-        )
+        or not all(_valid_gate(gate) for gate in gates)
     ):
         raise RiskContractError("risk decision gates are invalid")
     failed = [gate["name"] for gate in gates if gate["status"] == "fail"]
@@ -770,9 +786,17 @@ def verify(decision: object) -> dict:
         "fail" if failed else "pass"
     ):
         raise RiskContractError("risk decision outcome is inconsistent")
+
+
+def _validate_decision_hash(decision: dict) -> None:
     body = {key: value for key, value in decision.items() if key != "decision_sha256"}
     if canonical_sha256(body) != decision["decision_sha256"]:
         raise RiskContractError("risk decision hash does not match")
+
+
+def _decision_inputs(
+    decision: dict,
+) -> tuple[RiskPolicy, RiskIdentity, SubmitOrderRequest, PreTradeSnapshot]:
     try:
         policy_payload = dict(decision["policy"])
         allowed_symbols = policy_payload.get("allowed_symbols")
@@ -807,6 +831,18 @@ def verify(decision: object) -> dict:
         if isinstance(exc, RiskContractError):
             raise
         raise RiskContractError("risk decision inputs are invalid") from exc
-    if evaluate(policy, identity, request, snapshot) != decision:
+    return policy, identity, request, snapshot
+
+
+def verify(decision: object) -> dict:
+    """Validate a retained risk decision and its self-contained hash."""
+    retained = _validate_decision_shape(decision)
+    _validate_decision_hashes_and_interval(retained)
+    _validate_decision_payloads(retained)
+    _validate_decision_computed(retained)
+    _validate_decision_outcome(retained)
+    _validate_decision_hash(retained)
+    policy, identity, request, snapshot = _decision_inputs(retained)
+    if evaluate(policy, identity, request, snapshot) != retained:
         raise RiskContractError("risk decision does not recompute")
-    return decision
+    return retained

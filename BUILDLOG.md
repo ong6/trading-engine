@@ -11174,4 +11174,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +6 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce retained risk-decision verification complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/broker_risk.py` reports
+  `verify` at complexity 19 against the repository CI limit of 10.
+- **What:** separate retained decision structure, outcome, and input reconstruction checks while
+  preserving validation order, errors, hash binding, recomputation, and no authority.
+- **Evidence:** focused 123 tests and the full warnings-as-errors suite pass; the file is C90
+  clean and the repository count falls from 17 to 16.
+- **Metrics:** server +36 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
