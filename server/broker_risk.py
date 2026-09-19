@@ -212,6 +212,91 @@ class RiskIdentity:
             _sha256(value, label)
 
 
+def _validate_snapshot_times(snapshot: PreTradeSnapshot) -> None:
+    if type(snapshot.as_of) is not date or type(snapshot.quote_date) is not date:
+        raise RiskContractError("risk dates are invalid")
+    for field in ("observed_at", "quote_at", "reconciliation_at"):
+        timestamp = getattr(snapshot, field)
+        if (
+            type(timestamp) is not datetime
+            or timestamp.utcoffset() is None
+            or timestamp.utcoffset().total_seconds() != 0
+        ):
+            raise RiskContractError(f"{field.replace('_', ' ')} must be UTC")
+
+
+def _validate_snapshot_evidence(snapshot: PreTradeSnapshot) -> None:
+    for field in (
+        "account_snapshot_sha256",
+        "reconciliation_sha256",
+        "market_state_sha256",
+        "performance_state_sha256",
+        "operational_control_sha256",
+    ):
+        _sha256(getattr(snapshot, field), field.replace("_", " "))
+    for field in (
+        "account_active",
+        "margin_enabled",
+        "instrument_active",
+        "instrument_liquid",
+        "instrument_quarantined",
+        "market_session_open",
+        "clock_synchronized",
+        "storage_healthy",
+        "broker_healthy",
+        "reconciled",
+        "operational_halt",
+        "corporate_action_clear",
+    ):
+        _boolean(getattr(snapshot, field), field.replace("_", " "))
+    if snapshot.instrument_type not in {"equity", "etf"}:
+        raise RiskContractError("instrument type must be equity or etf")
+    if snapshot.currency != "USD":
+        raise RiskContractError("risk currency must be USD")
+
+
+def _normalize_snapshot_values(snapshot: PreTradeSnapshot) -> None:
+    for field in ("quote_price", "reference_price", "equity"):
+        object.__setattr__(snapshot, field, _positive(getattr(snapshot, field), field))
+    if snapshot.median_dollar_volume is not None:
+        object.__setattr__(
+            snapshot,
+            "median_dollar_volume",
+            _positive(snapshot.median_dollar_volume, "median dollar volume"),
+        )
+    for field in (
+        "cash",
+        "buying_power",
+        "gross_exposure",
+        "symbol_exposure",
+        "held_quantity",
+        "pending_sell_quantity",
+        "reserved_buy_notional",
+        "reserved_symbol_buy_notional",
+        "reserved_turnover_notional",
+        "daily_turnover",
+    ):
+        object.__setattr__(
+            snapshot, field, _nonnegative(getattr(snapshot, field), field)
+        )
+    for field in ("reserved_order_count", "daily_order_count"):
+        value = getattr(snapshot, field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise RiskContractError(f"{field.replace('_', ' ')} must be nonnegative")
+    if (
+        isinstance(snapshot.daily_pnl, bool)
+        or not isinstance(snapshot.daily_pnl, (int, float))
+        or not math.isfinite(snapshot.daily_pnl)
+    ):
+        raise RiskContractError("daily P&L must be finite")
+    object.__setattr__(snapshot, "daily_pnl", float(snapshot.daily_pnl))
+    object.__setattr__(
+        snapshot,
+        "drawdown_fraction",
+        _fraction(snapshot.drawdown_fraction, "drawdown fraction"),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class PreTradeSnapshot:
     as_of: date
@@ -258,88 +343,9 @@ class PreTradeSnapshot:
     drawdown_fraction: float
 
     def __post_init__(self) -> None:
-        if type(self.as_of) is not date or type(self.quote_date) is not date:
-            raise RiskContractError("risk dates are invalid")
-        for field in ("observed_at", "quote_at", "reconciliation_at"):
-            timestamp = getattr(self, field)
-            if (
-                type(timestamp) is not datetime
-                or timestamp.utcoffset() is None
-                or timestamp.utcoffset().total_seconds() != 0
-            ):
-                raise RiskContractError(f"{field.replace('_', ' ')} must be UTC")
-        for field in (
-            "account_snapshot_sha256",
-            "reconciliation_sha256",
-            "market_state_sha256",
-            "performance_state_sha256",
-            "operational_control_sha256",
-        ):
-            _sha256(getattr(self, field), field.replace("_", " "))
-        for field in (
-            "account_active",
-            "margin_enabled",
-            "instrument_active",
-            "instrument_liquid",
-            "instrument_quarantined",
-            "market_session_open",
-            "clock_synchronized",
-            "storage_healthy",
-            "broker_healthy",
-            "reconciled",
-            "operational_halt",
-            "corporate_action_clear",
-        ):
-            _boolean(getattr(self, field), field.replace("_", " "))
-        if self.instrument_type not in {"equity", "etf"}:
-            raise RiskContractError("instrument type must be equity or etf")
-        if self.currency != "USD":
-            raise RiskContractError("risk currency must be USD")
-        for field in (
-            "quote_price",
-            "reference_price",
-            "equity",
-        ):
-            object.__setattr__(self, field, _positive(getattr(self, field), field))
-        if self.median_dollar_volume is not None:
-            object.__setattr__(
-                self,
-                "median_dollar_volume",
-                _positive(self.median_dollar_volume, "median dollar volume"),
-            )
-        for field in (
-            "cash",
-            "buying_power",
-            "gross_exposure",
-            "symbol_exposure",
-            "held_quantity",
-            "pending_sell_quantity",
-            "reserved_buy_notional",
-            "reserved_symbol_buy_notional",
-            "reserved_turnover_notional",
-            "daily_turnover",
-        ):
-            object.__setattr__(self, field, _nonnegative(getattr(self, field), field))
-        for field in ("reserved_order_count", "daily_order_count"):
-            value = getattr(self, field)
-            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise RiskContractError(f"{field.replace('_', ' ')} must be nonnegative")
-        if (
-            isinstance(self.daily_pnl, bool)
-            or not isinstance(self.daily_pnl, (int, float))
-            or not math.isfinite(self.daily_pnl)
-        ):
-            raise RiskContractError("daily P&L must be finite")
-        object.__setattr__(
-            self,
-            "daily_pnl",
-            float(self.daily_pnl),
-        )
-        object.__setattr__(
-            self,
-            "drawdown_fraction",
-            _fraction(self.drawdown_fraction, "drawdown fraction"),
-        )
+        _validate_snapshot_times(self)
+        _validate_snapshot_evidence(self)
+        _normalize_snapshot_values(self)
 
 
 def _gate(name: str, passed: bool, detail: str) -> dict:

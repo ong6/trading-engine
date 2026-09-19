@@ -11163,4 +11163,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +3 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce pre-trade snapshot validation complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/broker_risk.py` reports
+  `PreTradeSnapshot.__post_init__` at complexity 14 against the repository CI limit of 10.
+- **What:** separate snapshot time, evidence, and value validation while preserving fail-closed
+  ordering, normalization, exact errors, and no execution authority.
+- **Evidence:** focused 84 tests and the full warnings-as-errors suite pass; the targeted C90
+  finding is gone and the repository count falls from 18 to 17.
+- **Metrics:** server +6 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
