@@ -11328,4 +11328,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +19 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce emergency-stop coordination complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/broker_emergency_stop.py`
+  reports `cancel_all_and_halt` at complexity 18 against the repository CI limit of 10.
+- **What:** separate start-event establishment and cancellation execution while preserving
+  halt-first ordering, replay, uncertainty, acknowledgements, exact errors, and no authority.
+- **Evidence:** focused 30 tests and the full warnings-as-errors suite pass; the file is C90
+  clean and the repository count falls from 3 to 2.
+- **Metrics:** server +63 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

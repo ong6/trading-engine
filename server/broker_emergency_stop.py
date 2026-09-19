@@ -274,113 +274,67 @@ def _verified_acknowledgements(
     return acknowledgements
 
 
-def cancel_all_and_halt(
+def _start_events(
     con: duckdb.DuckDBPyConnection,
     adapter: BrokerAdapter,
-    account_id: str,
     *,
     halt_key: str,
+    account_id: str,
     reason: str,
-    now: datetime | None = None,
-) -> dict:
-    """Persist a halt first, then cancel every stable open order exactly once."""
-    require_identifier(account_id, "account identifier")
-    require_identifier(halt_key, "halt key")
-    stopped_at = _utc(now)
-    stopped_at_text = stopped_at.isoformat().replace("+00:00", "Z")
-    control = broker_risk_control.record_halt(
-        con,
-        halt_key=halt_key,
-        account_id=account_id,
-        reason=reason,
-        now=stopped_at,
-    )
-    if not control.halted:
-        raise BrokerStateError("emergency stop did not establish halted state")
-    halt_event_sha256 = broker_risk_control.halt_event_sha256(
-        con,
-        halt_key=halt_key,
-        account_id=account_id,
-    )
-
-    broker_ledger.init_broker_ledger_schema(con)
+    halt_event_sha256: str,
+    stopped_at: datetime,
+    stopped_at_text: str,
+) -> tuple[dict, ...]:
     events = broker_ledger.emergency_stop_events(con, halt_key)
-    if not events:
-        operation_states = broker_ledger.emergency_stop_states_for_account(
-            con,
-            account_id,
-        )
-        if any(state == "started" for state in operation_states.values()):
-            raise BrokerStateError(
-                "another emergency-stop operation is already in progress"
-            )
-        existing_cancellations = broker_ledger.cancellation_states_for_account(
-            con,
-            account_id,
-        )
-        if any(state == "uncertain" for state in existing_cancellations.values()):
-            raise BrokerCancellationUncertain(
-                f"account {account_id!r} has uncertain cancellation evidence"
-            )
-        initial = broker_reconciliation.capture_snapshot(adapter, account_id)
-        start = _start_payload(
-            halt_key=halt_key,
-            account_id=account_id,
-            reason=reason,
-            halt_event_sha256=halt_event_sha256,
-            snapshot=initial,
-            occurred_at=stopped_at_text,
-        )
-        with db.transaction(con):
-            broker_ledger.record_emergency_stop_event(
-                con,
-                halt_key=halt_key,
-                account_id=account_id,
-                event_type="emergency_stop_started",
-                payload=start,
-                now=stopped_at,
-            )
-        events = (start,)
-    start = events[0]
-    planned = _validate_start(start, halt_key=halt_key, account_id=account_id)
-    if (
-        start["reason"] != reason
-        or start["halt_event_sha256"] != halt_event_sha256
-    ):
-        raise BrokerStateError("stored emergency-stop start conflicts with halt event")
-    completed = _completed_result(
-        events,
-        start=start,
-        planned_order_ids=[order.broker_order_id for _key, order in planned],
+    if events:
+        return events
+    operation_states = broker_ledger.emergency_stop_states_for_account(con, account_id)
+    if any(state == "started" for state in operation_states.values()):
+        raise BrokerStateError("another emergency-stop operation is already in progress")
+    existing_cancellations = broker_ledger.cancellation_states_for_account(
+        con, account_id
     )
-    states = broker_ledger.cancellation_states_for_account(con, account_id)
-    uncertain = sorted(key for key, state in states.items() if state == "uncertain")
-    if uncertain:
+    if any(state == "uncertain" for state in existing_cancellations.values()):
         raise BrokerCancellationUncertain(
             f"account {account_id!r} has uncertain cancellation evidence"
         )
-    if completed is not None:
-        if completed["account_id"] != account_id or completed["halt_key"] != halt_key:
-            raise BrokerStateError("stored emergency-stop completion conflicts with request")
-        _verified_acknowledgements(con, planned=planned, states=states)
-        closing = broker_reconciliation.capture_snapshot(adapter, account_id)
-        if closing.open_orders:
-            raise BrokerStateError("open orders exist after completed emergency stop")
-        return completed
+    initial = broker_reconciliation.capture_snapshot(adapter, account_id)
+    start = _start_payload(
+        halt_key=halt_key,
+        account_id=account_id,
+        reason=reason,
+        halt_event_sha256=halt_event_sha256,
+        snapshot=initial,
+        occurred_at=stopped_at_text,
+    )
+    with db.transaction(con):
+        broker_ledger.record_emergency_stop_event(
+            con,
+            halt_key=halt_key,
+            account_id=account_id,
+            event_type="emergency_stop_started",
+            payload=start,
+            now=stopped_at,
+        )
+    return (start,)
 
-    current = broker_reconciliation.capture_snapshot(adapter, account_id)
-    current_by_id = {order.broker_order_id: order for order in current.open_orders}
-    planned_ids = {order.broker_order_id for _key, order in planned}
-    if set(current_by_id) - planned_ids:
-        raise BrokerStateError("open-order set changed after emergency stop started")
 
+def _cancel_planned_orders(
+    con: duckdb.DuckDBPyConnection,
+    adapter: BrokerAdapter,
+    *,
+    account_id: str,
+    planned: list[tuple[str, BrokerOrder]],
+    states: dict[str, broker_ledger.CancellationState],
+    current_by_id: dict[str, BrokerOrder],
+    stopped_at: datetime,
+) -> list[BrokerOrder]:
     cancelled = []
     for cancellation_key, order in planned:
         state = states.get(cancellation_key)
         if state == "acknowledged":
             acknowledgement = broker_ledger.acknowledged_cancellation_order(
-                con,
-                cancellation_key,
+                con, cancellation_key
             )
             if (
                 acknowledgement is None
@@ -417,6 +371,115 @@ def cancel_all_and_halt(
                 now=stopped_at,
             )
         cancelled.append(acknowledgement)
+    return cancelled
+
+
+def _completed_replay(
+    con: duckdb.DuckDBPyConnection,
+    adapter: BrokerAdapter,
+    *,
+    account_id: str,
+    halt_key: str,
+    completed: dict | None,
+    planned: list[tuple[str, BrokerOrder]],
+    states: dict[str, broker_ledger.CancellationState],
+) -> dict | None:
+    if completed is None:
+        return None
+    if completed["account_id"] != account_id or completed["halt_key"] != halt_key:
+        raise BrokerStateError("stored emergency-stop completion conflicts with request")
+    _verified_acknowledgements(con, planned=planned, states=states)
+    closing = broker_reconciliation.capture_snapshot(adapter, account_id)
+    if closing.open_orders:
+        raise BrokerStateError("open orders exist after completed emergency stop")
+    return completed
+
+
+def cancel_all_and_halt(
+    con: duckdb.DuckDBPyConnection,
+    adapter: BrokerAdapter,
+    account_id: str,
+    *,
+    halt_key: str,
+    reason: str,
+    now: datetime | None = None,
+) -> dict:
+    """Persist a halt first, then cancel every stable open order exactly once."""
+    require_identifier(account_id, "account identifier")
+    require_identifier(halt_key, "halt key")
+    stopped_at = _utc(now)
+    stopped_at_text = stopped_at.isoformat().replace("+00:00", "Z")
+    control = broker_risk_control.record_halt(
+        con,
+        halt_key=halt_key,
+        account_id=account_id,
+        reason=reason,
+        now=stopped_at,
+    )
+    if not control.halted:
+        raise BrokerStateError("emergency stop did not establish halted state")
+    halt_event_sha256 = broker_risk_control.halt_event_sha256(
+        con,
+        halt_key=halt_key,
+        account_id=account_id,
+    )
+
+    broker_ledger.init_broker_ledger_schema(con)
+    events = _start_events(
+        con,
+        adapter,
+        halt_key=halt_key,
+        account_id=account_id,
+        reason=reason,
+        halt_event_sha256=halt_event_sha256,
+        stopped_at=stopped_at,
+        stopped_at_text=stopped_at_text,
+    )
+    start = events[0]
+    planned = _validate_start(start, halt_key=halt_key, account_id=account_id)
+    if (
+        start["reason"] != reason
+        or start["halt_event_sha256"] != halt_event_sha256
+    ):
+        raise BrokerStateError("stored emergency-stop start conflicts with halt event")
+    completed = _completed_result(
+        events,
+        start=start,
+        planned_order_ids=[order.broker_order_id for _key, order in planned],
+    )
+    states = broker_ledger.cancellation_states_for_account(con, account_id)
+    uncertain = sorted(key for key, state in states.items() if state == "uncertain")
+    if uncertain:
+        raise BrokerCancellationUncertain(
+            f"account {account_id!r} has uncertain cancellation evidence"
+        )
+    replay = _completed_replay(
+        con,
+        adapter,
+        account_id=account_id,
+        halt_key=halt_key,
+        completed=completed,
+        planned=planned,
+        states=states,
+    )
+    if replay is not None:
+        return replay
+
+    current = broker_reconciliation.capture_snapshot(adapter, account_id)
+    current_by_id = {order.broker_order_id: order for order in current.open_orders}
+    planned_ids = {order.broker_order_id for _key, order in planned}
+    if set(current_by_id) - planned_ids:
+        raise BrokerStateError("open-order set changed after emergency stop started")
+
+    cancelled = _cancel_planned_orders(
+        con,
+        adapter,
+        account_id=account_id,
+        planned=planned,
+        states=states,
+        current_by_id=current_by_id,
+        stopped_at=stopped_at,
+    )
 
     closing = broker_reconciliation.capture_snapshot(adapter, account_id)
     if closing.open_orders:
