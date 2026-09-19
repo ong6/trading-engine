@@ -219,6 +219,18 @@ def _inode_identity(value: os.stat_result) -> tuple[int, int]:
     return value.st_dev, value.st_ino
 
 
+def _read_bounded_descriptor(descriptor: int) -> bytes:
+    chunks = []
+    remaining = MAX_OPERATIONAL_FILE_BYTES + 1
+    while remaining:
+        chunk = os.read(descriptor, min(remaining, 64 * 1024))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
 def _read_source_file(repo_root: Path, relative: str, label: str) -> bytes:
     parts = Path(relative).parts
     if not parts or Path(relative).is_absolute():
@@ -239,15 +251,7 @@ def _read_source_file(repo_root: Path, relative: str, label: str) -> bytes:
                 before = os.fstat(descriptor)
                 if not stat.S_ISREG(before.st_mode):
                     raise BackupError(f"required {label} is not a regular file: {relative}")
-                chunks = []
-                remaining = MAX_OPERATIONAL_FILE_BYTES + 1
-                while remaining:
-                    chunk = os.read(descriptor, min(remaining, 64 * 1024))
-                    if not chunk:
-                        break
-                    chunks.append(chunk)
-                    remaining -= len(chunk)
-                content = b"".join(chunks)
+                content = _read_bounded_descriptor(descriptor)
                 after = os.fstat(descriptor)
                 path_after = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
             finally:
