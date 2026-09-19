@@ -71,20 +71,7 @@ def _result(
     return result
 
 
-def _validate_result(result: dict) -> None:
-    if not isinstance(result, dict) or set(result) != RESPONSE_FIELDS:
-        raise ValueError("public agent proposal result shape is invalid")
-    require_public_positive_integer(result.get("proposal_record_id"))
-    proposal_id = result.get("proposal_id")
-    if not isinstance(proposal_id, str) or _IDENTIFIER.fullmatch(proposal_id) is None:
-        raise ValueError("public agent proposal identifier is invalid")
-    if result.get("status") not in {"shadow_accepted", "shadow_rejected"}:
-        raise ValueError("public agent proposal status is invalid")
-    if (
-        result.get("validation_scope")
-        != "deterministic_shadow_recomputation_and_risk"
-    ):
-        raise ValueError("public agent validation scope is invalid")
+def _validate_validation_identity(result: dict) -> str:
     validation_status = result.get("validation_status")
     if validation_status not in {"pass", "fail", "not_run", "legacy_unvalidated"}:
         raise ValueError("public agent validation status is invalid")
@@ -97,6 +84,10 @@ def _validate_result(result: dict) -> None:
             raise ValueError("public agent validation identity is invalid")
     elif validation_sha256 is not None:
         raise ValueError("public agent validation identity is invalid")
+    return validation_status
+
+
+def _validate_result_bindings(result: dict) -> None:
     if result.get("execution_authority") != "none":
         raise ValueError("public agent execution authority is invalid")
     context_sha256 = result.get("context_sha256")
@@ -110,6 +101,9 @@ def _validate_result(result: dict) -> None:
         raise ValueError("public agent validated context identity is invalid")
     if type(result.get("replayed")) is not bool:
         raise ValueError("public agent replay flag is invalid")
+
+
+def _validate_result_outcome(result: dict, validation_status: str) -> None:
     if (
         not isinstance(result.get("reasons"), list)
         or len(result["reasons"]) > MAX_PUBLIC_REASONS
@@ -132,6 +126,25 @@ def _validate_result(result: dict) -> None:
         raise ValueError("accepted shadow proposal requires passing validation")
     if result["status"] == "shadow_rejected" and validation_status == "pass":
         raise ValueError("rejected shadow proposal cannot have passing validation")
+
+
+def _validate_result(result: dict) -> None:
+    if not isinstance(result, dict) or set(result) != RESPONSE_FIELDS:
+        raise ValueError("public agent proposal result shape is invalid")
+    require_public_positive_integer(result.get("proposal_record_id"))
+    proposal_id = result.get("proposal_id")
+    if not isinstance(proposal_id, str) or _IDENTIFIER.fullmatch(proposal_id) is None:
+        raise ValueError("public agent proposal identifier is invalid")
+    if result.get("status") not in {"shadow_accepted", "shadow_rejected"}:
+        raise ValueError("public agent proposal status is invalid")
+    if (
+        result.get("validation_scope")
+        != "deterministic_shadow_recomputation_and_risk"
+    ):
+        raise ValueError("public agent validation scope is invalid")
+    validation_status = _validate_validation_identity(result)
+    _validate_result_bindings(result)
+    _validate_result_outcome(result, validation_status)
 
 
 def _context_reasons(proposal: dict, context: dict | None, error: Exception | None) -> list[str]:
