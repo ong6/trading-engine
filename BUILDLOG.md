@@ -11053,4 +11053,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server -9 LOC; tools and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce paper lease validation complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 server/broker_paper_lease.py` reports
+  `PaperAuthorityLease.__post_init__` at complexity 13 against the CI limit of 10.
+- **What:** separated model-boundary, risk-limit, symbol, and UTC-window checks while preserving
+  validation order, exact errors, immutable normalization, and no authority.
+- **Evidence:** focused 62 tests and the full warnings-as-errors suite pass; the targeted C90
+  finding is gone and the repository count falls from 28 to 27.
+- **Metrics:** server +4 LOC; tools and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
