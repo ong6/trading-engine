@@ -298,17 +298,16 @@ def _require_policy_stable(policy: dict, policy_id: str) -> None:
         )
 
 
-def initialize(
+def _initialization_inputs(
     database: Path,
     backup_bundle: Path,
     expected_manifest_sha256: str,
     policy_id: str,
     attribution_start_date: date,
     *,
-    repo_root: Path = REPO_ROOT,
-    planned_at: datetime | None = None,
-) -> dict:
-    """Create one exact inactive book after backup, preflight, and scope proofs."""
+    repo_root: Path,
+    planned_at: datetime | None,
+) -> tuple[Path, dict, dict, dict, dict]:
     if (
         not isinstance(expected_manifest_sha256, str)
         or _SHA256.fullmatch(expected_manifest_sha256) is None
@@ -326,9 +325,7 @@ def initialize(
         or planning_time.utcoffset() is None
         or planning_time.utcoffset().total_seconds() != 0
     ):
-        raise PaperBookInitializationError(
-            "paper book planning time must be UTC"
-        )
+        raise PaperBookInitializationError("paper book planning time must be UTC")
     database = database.resolve(strict=True)
     expected_location = _database_location(repo_root, database)
     try:
@@ -355,6 +352,31 @@ def initialize(
         agent_paper_book_plan.PaperBookPlanError,
     ) as exc:
         raise PaperBookInitializationError(str(exc)) from exc
+    return database, expected_location, verified_backup, policy, plan
+
+
+def initialize(
+    database: Path,
+    backup_bundle: Path,
+    expected_manifest_sha256: str,
+    policy_id: str,
+    attribution_start_date: date,
+    *,
+    repo_root: Path = REPO_ROOT,
+    planned_at: datetime | None = None,
+) -> dict:
+    """Create one exact inactive book after backup, preflight, and scope proofs."""
+    database, expected_location, verified_backup, policy, plan = (
+        _initialization_inputs(
+            database,
+            backup_bundle,
+            expected_manifest_sha256,
+            policy_id,
+            attribution_start_date,
+            repo_root=repo_root,
+            planned_at=planned_at,
+        )
+    )
 
     try:
         con = engine_db.connect(database, wait_s=0)

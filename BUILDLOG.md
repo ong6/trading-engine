@@ -11284,4 +11284,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** tools +16 LOC; server and product unchanged; budget remains green.
 - **Next:** continue the remaining CI complexity debt one admitted slice at a time.
 
+## 2026-09-19 — Reduce paper-book initialization complexity
+
+- **Why:** demonstrated defect: `ruff check --select C90 tools/initialize_agent_paper_book.py`
+  reports `initialize` at complexity 13 against the repository CI limit of 10.
+- **What:** separate input, backup, and plan preflight while preserving validation order, the
+  atomic transaction, rollback and scope proofs, inactive output, and no authority.
+- **Evidence:** focused 92 tests and the full warnings-as-errors suite pass; the file is C90
+  clean and the repository count falls from 7 to 6.
+- **Metrics:** tools +22 LOC; server and product unchanged; budget remains green.
+- **Next:** continue the remaining CI complexity debt one admitted slice at a time.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
