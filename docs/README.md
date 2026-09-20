@@ -21,8 +21,9 @@ measurements supporting those decisions, not the live runtime state.
 - [`plans/README.md`](plans/README.md) — follow-up plans:
   [P1 appliance mode](plans/p1-appliance-mode.md), [P2 league collapse](plans/p2-league-collapse.md),
   [P3 point-in-time data](plans/p3-point-in-time-data.md), [P4 broker decision](plans/p4-broker-decision.md),
-  [P5 agent paper decisions](plans/p5-agent-paper-decisions.md), and
-  [P6 alpha experiment](plans/p6-alpha-experiment.md).
+  [P5 agent paper decisions](plans/p5-agent-paper-decisions.md),
+  [P6 alpha experiment](plans/p6-alpha-experiment.md), and
+  [P7 autonomous paper trial](plans/p7-autonomous-paper-trial.md).
 
 ## Current operating documents
 
@@ -31,8 +32,8 @@ measurements supporting those decisions, not the live runtime state.
 - [`live-readiness-goal.md`](live-readiness-goal.md) — the former handoff objective for strategy
   evidence, point-in-time data upgrades, optional algorithm/agent/hybrid paper flows, and
   capital-disabled execution hardening; it does not authorize live trading. Since 2026-09-18 it
-  is reference only: its workstreams C, D and E are frozen pending
-  [P4](plans/p4-broker-decision.md), and `scope.md` is the work queue.
+  is reference only: [P7](plans/p7-autonomous-paper-trial.md) selectively admits the internal
+  simulator trial, while broker-paper and live-capital work remain frozen; `scope.md` is the queue.
 - [`recoverability-audit-2026-09-11.md`](recoverability-audit-2026-09-11.md) — dated
   Workstream A inventory and closure sequence; its observed counts are not live status.
 - [`worktree-review-2026-09-11.md`](worktree-review-2026-09-11.md) — recursive ownership

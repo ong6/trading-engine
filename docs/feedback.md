@@ -118,3 +118,27 @@ Moomoo remains a secondary broker candidate.
    delisted-security, historical-membership, and publication-timestamped fundamental coverage.
 4. P3 remains purchase-blocked until the owner sets a spend ceiling and accepts current licence
    terms; no vendor account or data ingestion is authorized yet.
+
+## 2026-09-20 — Approve an autonomous S$10,000 paper comparison
+
+**Verdict.** The owner set S$10,000 as the starting capital envelope, required fully AI decisions
+without routine per-order approval, requested several months of paper operation first, and asked
+for algorithm-only, AI-only, and algorithm-plus-AI designs with sound logging and observability.
+
+**Rule changes.**
+
+1. P7 is approved and active for a simulator-only three-arm comparison. “Fully AI” delegates the
+   paper policy choice, not data admission, sizing, risk, accounting, execution, or kill switches.
+2. Each counterfactual arm models the same frozen USD equivalent of S$10,000; this is one owner
+   capital envelope, not three deployable allocations. The conversion must be independently
+   recorded when the trial activates.
+3. The first review gate is 90 calendar days and 60 completed sessions; no comparative strategy
+   verdict is allowed before 12 paired monthly decisions. No tuning occurs mid-cohort.
+4. P7 permits only internal simulator orders. Broker connections, credentials, subscriptions,
+   live orders, and real capital remain forbidden and need later explicit plans.
+5. The S$10,000 envelope is not a P3 vendor-data budget. Sharadar/Norgate purchase remains blocked
+   on a separate initial and recurring spend decision.
+
+**Ceiling changes for later P7 implementation.** `server/` 48,100 lines, `tools/` 7,400 lines,
+and `sim/` 7,000 lines. These are caps, not targets; P7 requires reuse of the existing evidence,
+attribution, simulator, scheduler, and fault-drill machinery.

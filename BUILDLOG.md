@@ -11427,4 +11427,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server, tools, and product unchanged; budget remains green.
 - **Next:** resume P1; P3 waits for a spend ceiling and P4 waits for the new P7 plan.
 
+## 2026-09-20 — Define the autonomous three-mode paper trial
+
+- **Why:** the owner approved S$10,000 simulated starting capital, fully autonomous AI paper
+  decisions, several months of observation, and comparison with algorithm and hybrid controls.
+- **What:** activate P7 with three paired simulator books, frozen safety/currency contracts,
+  logging and observability gates, a 90-day operational pilot, and no broker authority.
+- **Evidence:** `uv run python -m pytest -q -W error` reached 100%; 54 UI tests, production build,
+  operating-contract checks, static gates, and live scheduler/model-status inspection are green.
+- **Metrics:** server, tools, and product unchanged; approved P7 ceilings remain green.
+- **Next:** implement P7 trial identity and read-only status before any portfolio mutation.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

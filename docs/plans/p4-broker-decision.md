@@ -1,7 +1,7 @@
 ---
 plan: P4
 title: Decide whether a real broker is ever the goal
-status: active
+status: done
 opened: 2026-09-18
 owner_decision: none
 ---
@@ -16,6 +16,9 @@ This is an architecture decision, not connection authority. The next step is a s
 execution-layer plan using the next free plan number (P7, because P5 and P6 already exist). Until
 that plan is approved, every current freeze remains: no credentials, gateway installation, market
 data subscription, adapter connection, live order, or real capital.
+
+Completed 2026-09-20: P7 is active for an internal simulator-only three-mode paper trial. It does
+not yet authorize the later IBKR-paper stage.
 
 ## Goal
 
