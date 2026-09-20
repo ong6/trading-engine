@@ -135,8 +135,8 @@ def test_current_status_reports_every_activation_blocker_without_writes(con, mon
         "attribution_table_count": 0,
         "required_attribution_table_count": 2,
         "exact_attribution_balance_date_config_verified": False,
-        "semantic_verifier_available": False,
-        "verification_status": "unverified",
+        "semantic_verifier_available": True,
+        "verification_status": "unavailable_no_live_schema",
         "legacy_p5_initializer_usable_for_p7": False,
     }
     assert (
@@ -225,8 +225,6 @@ def test_forged_hashes_and_dummy_books_leave_every_unverified_gate_blocked(
     for name in (
         "trial_policy_implementations",
         "shared_data_admission",
-        "independent_fx_boundary",
-        "three_isolated_books",
         "simulator_only_orchestrator",
         "complete_dry_run_window",
         "fault_drills_current",
@@ -238,6 +236,14 @@ def test_forged_hashes_and_dummy_books_leave_every_unverified_gate_blocked(
     ):
         assert gates[name]["status"] == "blocked"
         assert gates[name]["evidence"]["verification_status"] == "unverified"
+    assert gates["independent_fx_boundary"]["status"] == "blocked"
+    assert gates["independent_fx_boundary"]["evidence"][
+        "verification_status"
+    ] == "unavailable_no_fx_evidence"
+    assert gates["three_isolated_books"]["status"] == "blocked"
+    assert gates["three_isolated_books"]["evidence"][
+        "verification_status"
+    ] == "unavailable_no_live_schema"
     assert gates["three_isolated_books"]["evidence"]["matching_inactive_name_count"] == 3
     assert (
         gates["three_isolated_books"]["evidence"]["exact_attribution_balance_date_config_verified"]

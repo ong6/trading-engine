@@ -43,7 +43,7 @@ reconciliation, halts, and immutable attribution. No broker connection or real c
 | Shared-data comparability | 8/10 | A hash-bound three-arm manifest now exists; shared content evidence, cohort identity, and FX remain blocked | 9/10 |
 | Model reproducibility | 7/10 | Paper calls bind proxy source, runtime, catalog/routing identity, upstream model family, request IDs, and usage; provider exposes no immutable revision | 8/10 |
 | Trial automation | 3/10 | Agent-only shadow is scheduled; hybrid is manual and no tri-arm orchestrator exists | 9/10 |
-| Isolated return attribution | 2/10 | Reserved AI/hybrid portfolios and return series do not exist in the live store | 9/10 |
+| Isolated return attribution | 5/10 | Pure tri-arm semantic verifier now binds FX, books, decisions, orders, fills, costs, attempts and equity; live schema/books remain absent | 9/10 |
 | Unified operator observability | 7/10 | One read-only status now names all activation blockers; paired windows and arm performance await runtime evidence | 9/10 |
 | Strategy evidence | 3/10 | One legacy model no-action and cadence-only registered attempts cannot compare policies | Time-gated |
 
@@ -102,6 +102,9 @@ excluded from paired performance; they are never recreated after observing later
    old evidence. Replace the single-ticker proposal with a versioned SPY/EFA/BIL/cash target policy.
 3. **Isolated books.** Use the existing backup-gated migrations/preflight to create inactive AI
    and hybrid portfolios at the same frozen USD equivalent as a new algorithm control clone.
+   **Attribution prerequisite completed 2026-09-20:** a pure schema contract and read-only verifier
+   cover trial/cohort/arm/FX identity, all three decision types, execution evidence, equal capital,
+   uniform lifecycle and aligned equity. Live migration and atomic initialization remain blocked.
 4. **One simulator-only orchestrator.** On each monthly boundary, snapshot once, derive all three
    decisions, validate, persist attribution, and write only simulator orders. Partial publication
    halts the cohort. No broker adapter is reachable.

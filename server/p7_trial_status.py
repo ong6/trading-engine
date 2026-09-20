@@ -13,7 +13,12 @@ from engine.lib.settings import REPO_ROOT
 from sim.execution import PROFILES
 from sim.strategies.configs import config_by_id
 
-from . import agent_authority_read_models, agent_model_client, agent_policy
+from . import (
+    agent_authority_read_models,
+    agent_model_client,
+    agent_policy,
+    p7_trial_attribution,
+)
 from .file_utils import read_bytes
 from .json_utils import loads_object
 from .status_validation import iso_date, iso_timestamp
@@ -462,8 +467,8 @@ def project(
                 "fx_observation_registered": capital["fx_observation_sha256"] is not None,
                 "fx_observed_at": capital["fx_observed_at"],
                 "usd_opening_balance": capital["usd_opening_balance"],
-                "semantic_verifier_available": False,
-                "verification_status": "unverified",
+                "semantic_verifier_available": callable(p7_trial_attribution.verify),
+                "verification_status": "unavailable_no_fx_evidence",
             },
         ),
         _gate(
@@ -476,8 +481,8 @@ def project(
                 "attribution_table_count": len(attribution_tables),
                 "required_attribution_table_count": 2,
                 "exact_attribution_balance_date_config_verified": False,
-                "semantic_verifier_available": False,
-                "verification_status": "unverified",
+                "semantic_verifier_available": callable(p7_trial_attribution.verify),
+                "verification_status": "unavailable_no_live_schema",
                 "legacy_p5_initializer_usable_for_p7": False,
             },
         ),

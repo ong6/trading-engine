@@ -11460,4 +11460,14 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +38, tools/product unchanged; approved P7 budget remains green.
 - **Next:** freeze the AI target-choice and explicit cash-versus-hold contract.
 
+## 2026-09-20 — Define P7 tri-arm attribution contract
+
+- **Why:** P7 requires immutable return ownership before any autonomous simulator writer exists.
+- **What:** add a pure verifier for trial/cohort/arm/FX, decision, order, fill, cost, attempt,
+  lifecycle, exposure, and aligned-equity evidence; no schema or live-store mutation is included.
+- **Evidence:** full warnings-as-errors suite reached 100%; 31 attribution/adjacent tests, 54 UI
+  tests, production build, static gates, and cross-book/cost/equity adversarial cases pass.
+- **Metrics:** server +579, sim +234, tools/product unchanged; approved P7 budgets remain green.
+- **Next:** implement the backup-gated atomic P7 schema and three-book initializer.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
