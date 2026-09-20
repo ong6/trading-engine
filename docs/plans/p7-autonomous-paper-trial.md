@@ -41,7 +41,7 @@ reconciliation, halts, and immutable attribution. No broker connection or real c
 | Decision provenance and logging | 8/10 | Append-only attempts/events retain context, request/response identity, terminal result, and token usage | 9/10 |
 | Scheduler and service continuity | 8/10 | Agent data/shadow timers are enabled; last services succeeded | 9/10 |
 | Shared-data comparability | 8/10 | A hash-bound three-arm manifest now exists; shared content evidence, cohort identity, and FX remain blocked | 9/10 |
-| Model reproducibility | 4/10 | Current model uses an unversioned alias with no provider revision | 8/10 |
+| Model reproducibility | 7/10 | Paper calls bind proxy source, runtime, catalog/routing identity, upstream model family, request IDs, and usage; provider exposes no immutable revision | 8/10 |
 | Trial automation | 3/10 | Agent-only shadow is scheduled; hybrid is manual and no tri-arm orchestrator exists | 9/10 |
 | Isolated return attribution | 2/10 | Reserved AI/hybrid portfolios and return series do not exist in the live store | 9/10 |
 | Unified operator observability | 7/10 | One read-only status now names all activation blockers; paired windows and arm performance await runtime evidence | 9/10 |
@@ -61,9 +61,10 @@ do not substitute for evidence that any arm has an edge.
   capped; the model cannot submit quantity, bypass risk, or mutate the portfolio directly.
 - Hybrid v1 remains veto-only. A more creative overlay is a different policy and requires a new
   preregistered plan after this trial; it cannot be introduced mid-cohort.
-- AI-only model/role/prompt/toolset/catalog identities are frozen. A model alias or provider
-  revision that cannot be made stable blocks activation; later identity drift halts the affected
-  arm and starts no replacement cohort without an explicit review.
+- AI-only model/role/prompt/toolset/catalog, exact proxy source, and upstream-reported model family
+  are frozen for this capital-disabled paper trial. Every response must carry the same observable
+  identity; drift halts the arm. Trae currently exposes no immutable provider build, so a later
+  real-capital plan remains blocked until that stronger identity exists.
 - AI-only transport or malformed-output failure becomes cash/no action. Hybrid failure preserves
   the unmodified deterministic signal. Neither outcome is regenerated for that window.
 
@@ -96,9 +97,9 @@ excluded from paired performance; they are never recreated after observing later
    **Completed 2026-09-20:** the manifest freezes the three arms and non-authorizing contracts;
    `GET /paper-trial/status` reports 13 fail-closed blockers. Forged hashes, dummy books, and
    legacy P5 US$39k artifacts cannot satisfy semantic gates.
-2. **Stable model and fair AI contract.** Replace the single-ticker proposal shape with a new
-   versioned SPY/EFA/BIL/cash target-choice policy while preserving the old evidence. Pin a stable
-   model revision or remain blocked.
+2. **Observable model identity and fair AI contract.** Bind each paper response to the exact proxy
+   source, runtime, catalog/routing entry, upstream model family and request ID while preserving
+   old evidence. Replace the single-ticker proposal with a versioned SPY/EFA/BIL/cash target policy.
 3. **Isolated books.** Use the existing backup-gated migrations/preflight to create inactive AI
    and hybrid portfolios at the same frozen USD equivalent as a new algorithm control clone.
 4. **One simulator-only orchestrator.** On each monthly boundary, snapshot once, derive all three
@@ -115,7 +116,9 @@ excluded from paired performance; they are never recreated after observing later
 ## Activation gates
 
 - One complete dry-run signal window for every arm, with exact replay and zero extra model calls.
-- Stable model revision available; no `unversioned-catalog-alias` in the active trial manifest.
+- Observable model identity is healthy and exact on the dry-run response. An immutable provider
+  revision is not required for this capital-disabled paper cohort, but remains mandatory before
+  any future real-capital plan.
 - Three inactive isolated books reconcile from the same opening balance and date.
 - Unified status is `ready`, fault drills are current, backup/restore rehearsal passes, and the
   full Python/UI/static suite and metrics budget are green.

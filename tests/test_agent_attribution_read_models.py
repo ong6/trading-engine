@@ -40,10 +40,11 @@ def _connector_result(model_input: dict, output: dict):
         model=agent_model_client.MODEL,
         model_version=agent_model_client.MODEL_VERSION,
         proxy_version=agent_model_client.REQUIRED_PROXY_VERSION,
+        proxy_source_sha256=agent_model_client.REQUIRED_PROXY_SOURCE_SHA256,
         traecli_runtime=agent_model_client.REQUIRED_TRAECLI_RUNTIME,
-        model_catalog_entry_sha256=(
-            agent_model_client.MODEL_CATALOG_ENTRY_SHA256
-        ),
+        upstream_model_family=agent_model_client.UPSTREAM_MODEL_FAMILY,
+        upstream_request_id="upstream-attribution",
+        model_catalog_entry_sha256=(agent_model_client.MODEL_CATALOG_ENTRY_SHA256),
         request_sha256=canonical_sha256(request),
         usage={"input_tokens": 100, "output_tokens": 20, "total_tokens": 120},
     )
@@ -74,16 +75,11 @@ def test_empty_attribution_contract_has_no_performance_claim(con):
                 "completed_attempt_count": 0,
                 "completed_market_sessions": 0,
                 "terminal_outcomes": {
-                    event_type: 0
-                    for event_type in sorted(
-                        agent_shadow_store.TERMINAL_EVENT_TYPES
-                    )
+                    event_type: 0 for event_type in sorted(agent_shadow_store.TERMINAL_EVENT_TYPES)
                 },
                 "records_returned": 0,
                 "reserved_portfolio_created": False,
-                "return_attribution_status": (
-                    "unavailable_no_isolated_paper_portfolio"
-                ),
+                "return_attribution_status": ("unavailable_no_isolated_paper_portfolio"),
                 "paper_book_attribution": {
                     "status": "unavailable_no_isolated_paper_portfolio",
                     "portfolio_id": policy["reserved_portfolio_id"],
@@ -113,12 +109,12 @@ def test_empty_attribution_contract_has_no_performance_claim(con):
             }
             for policy in agent_policy.registry()["policies"]
         ],
-            "paper_decision_consumption": {
-                "matching_count": 0,
-                "limit": 10_000,
-                "truncated": False,
-                "receipts": [],
-            },
+        "paper_decision_consumption": {
+            "matching_count": 0,
+            "limit": 10_000,
+            "truncated": False,
+            "receipts": [],
+        },
         "records": [],
     }
 
@@ -146,9 +142,7 @@ def test_registered_cadence_no_action_is_attributed_without_model_or_order(con):
     assert payload["matching_count"] == 1
     assert payload["legacy_attempt_count"] == 0
     summary = next(
-        item
-        for item in payload["policy_summaries"]
-        if item["policy_id"] == policy["id"]
+        item for item in payload["policy_summaries"] if item["policy_id"] == policy["id"]
     )
     assert summary["completed_attempt_count"] == 1
     assert summary["completed_market_sessions"] == 1
@@ -164,9 +158,7 @@ def test_registered_cadence_no_action_is_attributed_without_model_or_order(con):
     assert record["model_requested"] is False
     assert record["normalized_model_response_recorded"] is False
     assert record["counterfactual_order_count"] == 0
-    assert record["return_attribution_status"] == (
-        "unavailable_no_isolated_paper_portfolio"
-    )
+    assert record["return_attribution_status"] == ("unavailable_no_isolated_paper_portfolio")
     assert record["execution_authority"] == "none"
     assert con.execute("SELECT COUNT(*) FROM sim_orders").fetchone() == (0,)
 

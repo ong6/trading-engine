@@ -82,7 +82,8 @@ def health():
     return {
         "ok": True,
         "proxy_version": "0.7",
-        "traex": "traecli 0.204.1(internal edition)",
+        "proxy_source_sha256": agent_model_client.REQUIRED_PROXY_SOURCE_SHA256,
+        "traex": "traecli 0.205.1(internal edition)",
         "token": {"present": True, "user": "secret-not-public"},
         "upstream": "secret-not-public",
     }
@@ -108,6 +109,10 @@ def response(output):
         "object": "response",
         "status": "completed",
         "model": agent_model_client.MODEL,
+        "provider_metadata": {
+            "model_family": agent_model_client.UPSTREAM_MODEL_FAMILY,
+            "request_id": "upstream-123",
+        },
         "output": [
             {
                 "type": "message",
@@ -137,7 +142,7 @@ def test_status_uses_only_loopback_allowlisted_routes_and_sanitizes_health():
     result = agent_model_client.status(connection_factory=factory)
 
     assert result == {
-        "schema_version": 2,
+        "schema_version": 3,
         "transport": "trae_cli_proxy",
         "endpoint": "http://127.0.0.1:8317/v1/responses",
         "api": "openai_responses",
@@ -146,16 +151,14 @@ def test_status_uses_only_loopback_allowlisted_routes_and_sanitizes_health():
         "provider_model_revision": None,
         "provider_model_revision_available": False,
         "model_catalog_entry": agent_model_client.EXPECTED_MODEL_CATALOG_ENTRY,
-        "model_catalog_entry_sha256": (
-            agent_model_client.MODEL_CATALOG_ENTRY_SHA256
-        ),
+        "model_catalog_entry_sha256": (agent_model_client.MODEL_CATALOG_ENTRY_SHA256),
         "required_proxy_version": "0.7",
-        "required_traecli_runtime": "traecli 0.204.1(internal edition)",
+        "required_proxy_source_sha256": agent_model_client.REQUIRED_PROXY_SOURCE_SHA256,
+        "required_traecli_runtime": "traecli 0.205.1(internal edition)",
         "proxy_version": "0.7",
-        "traecli_runtime": "traecli 0.204.1(internal edition)",
-        "observed_model_catalog_entry_sha256": (
-            agent_model_client.MODEL_CATALOG_ENTRY_SHA256
-        ),
+        "proxy_source_sha256": agent_model_client.REQUIRED_PROXY_SOURCE_SHA256,
+        "traecli_runtime": "traecli 0.205.1(internal edition)",
+        "observed_model_catalog_entry_sha256": (agent_model_client.MODEL_CATALOG_ENTRY_SHA256),
         "instructions_sha256": canonical_sha256(agent_model_client.INSTRUCTIONS),
         "toolset_sha256": canonical_sha256([]),
         "tools": "none",
@@ -189,19 +192,17 @@ def test_generate_json_uses_no_tools_and_returns_strict_object():
     assert result.model == agent_model_client.MODEL
     assert result.model_version == agent_model_client.MODEL_VERSION
     assert result.proxy_version == "0.7"
+    assert result.proxy_source_sha256 == agent_model_client.REQUIRED_PROXY_SOURCE_SHA256
+    assert result.upstream_model_family == agent_model_client.UPSTREAM_MODEL_FAMILY
+    assert result.upstream_request_id == "upstream-123"
     assert result.traecli_runtime == agent_model_client.REQUIRED_TRAECLI_RUNTIME
-    assert (
-        result.model_catalog_entry_sha256
-        == agent_model_client.MODEL_CATALOG_ENTRY_SHA256
-    )
+    assert result.model_catalog_entry_sha256 == agent_model_client.MODEL_CATALOG_ENTRY_SHA256
     assert result.usage == {
         "input_tokens": 10,
         "output_tokens": 4,
         "total_tokens": 14,
     }
-    model_request = next(
-        item for item in observed if item["path"] == "/v1/responses"
-    )
+    model_request = next(item for item in observed if item["path"] == "/v1/responses")
     request = json.loads(model_request["body"])
     assert request["model"] == "GPT-5.6-Sol:max"
     assert request["stream"] is False
@@ -230,11 +231,7 @@ def test_generate_veto_json_uses_distinct_fixed_prompt_and_no_tools():
         connection_factory=factory,
     )
 
-    request = json.loads(
-        next(item for item in observed if item["path"] == "/v1/responses")[
-            "body"
-        ]
-    )
+    request = json.loads(next(item for item in observed if item["path"] == "/v1/responses")["body"])
     assert result.output == {"decision": "allow"}
     assert request["instructions"] == agent_model_client.VETO_INSTRUCTIONS
     assert request["instructions"] != agent_model_client.INSTRUCTIONS
@@ -268,6 +265,39 @@ def test_generation_rejects_catalog_drift_after_model_response():
         agent_model_client.ConnectorError,
         match="catalog entry has drifted",
     ):
+        agent_model_client.generate_json({}, connection_factory=factory)
+
+    assert all(connection.closed for connection in connections)
+
+
+@pytest.mark.parametrize(
+    ("provider_metadata", "detail"),
+    [
+        (None, "identity is unavailable"),
+        ({"model_family": "different", "request_id": "upstream-123"}, "family"),
+        (
+            {"model_family": agent_model_client.UPSTREAM_MODEL_FAMILY, "request_id": ""},
+            "request identity",
+        ),
+    ],
+)
+def test_generation_requires_bounded_upstream_identity(provider_metadata, detail):
+    payload = response({"decision": "no_action"})
+    if provider_metadata is None:
+        payload.pop("provider_metadata")
+    else:
+        payload["provider_metadata"] = provider_metadata
+    factory, _observed, connections, _timeouts = factory_for(
+        [
+            Response(health()),
+            Response(models(agent_model_client.MODEL)),
+            Response(payload),
+            Response(health()),
+            Response(models(agent_model_client.MODEL)),
+        ]
+    )
+
+    with pytest.raises(agent_model_client.ConnectorError, match=detail):
         agent_model_client.generate_json({}, connection_factory=factory)
 
     assert all(connection.closed for connection in connections)

@@ -99,14 +99,8 @@ def _context(value: object, *, expected_mode: str) -> dict:
         or not isinstance(instrument, dict)
         or not isinstance(provenance, dict)
         or not isinstance(model, dict)
-        or (
-            expected_mode == "agent_only"
-            and context.get("algorithm_candidate") is not None
-        )
-        or (
-            expected_mode == "hybrid"
-            and not isinstance(context.get("algorithm_candidate"), dict)
-        )
+        or (expected_mode == "agent_only" and context.get("algorithm_candidate") is not None)
+        or (expected_mode == "hybrid" and not isinstance(context.get("algorithm_candidate"), dict))
     ):
         raise AgentPaperEvidenceError("retained agent context is invalid")
     return context
@@ -133,36 +127,58 @@ def _verify_model_response(
     context: dict,
     request_sha256: str,
 ) -> dict:
+    legacy = context["decision_model"].get("schema_version") == 2
+    expected_fields = {
+        "output",
+        "response_id",
+        "model",
+        "model_version",
+        "proxy_version",
+        "traecli_runtime",
+        "model_catalog_entry_sha256",
+        "request_sha256",
+        "usage",
+    }
+    if not legacy:
+        expected_fields |= {
+            "proxy_source_sha256",
+            "upstream_model_family",
+            "upstream_request_id",
+        }
     if (
         not isinstance(response, dict)
-        or set(response)
-        != {
-            "output",
-            "response_id",
-            "model",
-            "model_version",
-            "proxy_version",
-            "traecli_runtime",
-            "model_catalog_entry_sha256",
-            "request_sha256",
-            "usage",
-        }
+        or set(response) != expected_fields
         or response["model"] != context["decision_model"]["model"]
         or response["model_version"] != context["decision_model"]["model_version"]
-        or response["proxy_version"]
-        != context["decision_model"]["required_proxy_version"]
-        or response["traecli_runtime"]
-        != context["decision_model"]["required_traecli_runtime"]
+        or response["proxy_version"] != context["decision_model"]["required_proxy_version"]
+        or (
+            not legacy
+            and response["proxy_source_sha256"]
+            != context["decision_model"]["required_proxy_source_sha256"]
+        )
+        or response["traecli_runtime"] != context["decision_model"]["required_traecli_runtime"]
         or response["model_catalog_entry_sha256"]
         != context["decision_model"]["model_catalog_entry_sha256"]
+        or (
+            not legacy
+            and response["upstream_model_family"] != agent_model_client.UPSTREAM_MODEL_FAMILY
+        )
+        or (
+            not legacy
+            and (
+                not isinstance(response["upstream_request_id"], str)
+                or not response["upstream_request_id"]
+                or len(response["upstream_request_id"]) > 128
+                or not response["upstream_request_id"].isprintable()
+            )
+        )
         or response["request_sha256"] != request_sha256
         or not isinstance(response["response_id"], str)
         or not response["response_id"]
         or len(response["response_id"]) > 128
         or not response["response_id"].isprintable()
         or not isinstance(response["usage"], dict)
-        or set(response["usage"])
-        != {"input_tokens", "output_tokens", "total_tokens"}
+        or set(response["usage"]) != {"input_tokens", "output_tokens", "total_tokens"}
         or any(
             isinstance(value, bool) or not isinstance(value, int) or value < 0
             for value in response["usage"].values()
@@ -208,9 +224,7 @@ def _attempt(
     try:
         registered_policy = agent_policy.get(policy["id"])
     except agent_policy.PolicyError as exc:
-        raise AgentPaperEvidenceError(
-            "retained agent policy is no longer registered"
-        ) from exc
+        raise AgentPaperEvidenceError("retained agent policy is no longer registered") from exc
     expected_policy = {
         "id": registered_policy["id"],
         "registration_sha256": registered_policy["registration_sha256"],
@@ -259,20 +273,17 @@ def _attempt(
         else agent_model_client.veto_request_payload(model_input)
     )
     started_at = _utc(stored["started_at"], "agent attempt start time")
-    expected_window = (
-        "agent-shadow-v2:"
-        + canonical_sha256(
-            {
-                "schema_version": 2,
-                "policy_id": policy["id"],
-                "policy_registration_sha256": policy["registration_sha256"],
-                "mode": expected_mode,
-                "agent_id": stored["agent_id"],
-                "strategy_id": strategy["id"],
-                "ticker": instrument["ticker"],
-                "market_date": stored["market_date"].isoformat(),
-            }
-        )
+    expected_window = "agent-shadow-v2:" + canonical_sha256(
+        {
+            "schema_version": 2,
+            "policy_id": policy["id"],
+            "policy_registration_sha256": policy["registration_sha256"],
+            "mode": expected_mode,
+            "agent_id": stored["agent_id"],
+            "strategy_id": strategy["id"],
+            "ticker": instrument["ticker"],
+            "market_date": stored["market_date"].isoformat(),
+        }
     )
     if (
         stored["decision_window"] != decision_window_id
@@ -292,7 +303,12 @@ def _attempt(
         or stored["required_proxy_version"] != model["required_proxy_version"]
         or stored["execution_authority"] != "none"
         or policy != expected_policy
-        or model != agent_model_client.identity(role=role)
+        or model
+        != (
+            agent_model_client.legacy_identity(role=role)
+            if model.get("schema_version") == 2
+            else agent_model_client.identity(role=role)
+        )
         or model_input != expected_input
         or model_request != expected_request
         or stored["request_sha256"] != canonical_sha256(model_request)
@@ -387,9 +403,7 @@ def _proposal(
     rows = cursor.fetchall()
     if len(rows) != 1:
         raise AgentPaperEvidenceError("accepted agent proposal is unavailable or ambiguous")
-    stored = dict(
-        zip((item[0] for item in cursor.description), rows[0], strict=True)
-    )
+    stored = dict(zip((item[0] for item in cursor.description), rows[0], strict=True))
     try:
         raw_proposal = loads_object(stored["normalized_proposal"])
         received_at = _utc(stored["received_at"], "agent proposal receipt time")
@@ -496,12 +510,9 @@ def _proposal(
         and claim.get("signal_close") == signal_close
         and claim.get("maximum_notional") == proposal["max_notional"]
         and claim.get("stop") == proposal["stop"]
-        and claim.get("reserved_portfolio_id")
-        == context["policy"]["reserved_portfolio_id"]
-        and claim.get("execution_profile_id")
-        == context["policy"]["execution_profile_id"]
-        and claim.get("execution_profile_sha256")
-        == context["policy"]["execution_profile_sha256"]
+        and claim.get("reserved_portfolio_id") == context["policy"]["reserved_portfolio_id"]
+        and claim.get("execution_profile_id") == context["policy"]["execution_profile_id"]
+        and claim.get("execution_profile_sha256") == context["policy"]["execution_profile_sha256"]
         and not isinstance(quantity, bool)
         and isinstance(quantity, (int, float))
         and math.isfinite(quantity)
@@ -524,22 +535,18 @@ def _proposal(
         or stored["validated_context_sha256"] != context["context_sha256"]
         or stored["proposal_sha256"] != canonical_sha256(proposal_identity)
         or any(stored[field] != proposal[field] for field in scalar_fields)
-        or _utc(stored["signal_at"], "agent proposal signal time")
-        != proposal["signal_at"]
+        or _utc(stored["signal_at"], "agent proposal signal time") != proposal["signal_at"]
         or proposal["signal_at"] != started_at
         or received_at < started_at
         or received_at != terminal_at
-        or _utc(stored["expires_at"], "agent proposal expiry")
-        != proposal["expires_at"]
+        or _utc(stored["expires_at"], "agent proposal expiry") != proposal["expires_at"]
         or evidence_ids != proposal["evidence_ids"]
         or proposal["idempotency_key"] != decision_window_id
         or proposal["mode"] != "agent_only"
         or proposal["context_sha256"] != context["context_sha256"]
         or proposal["policy_id"] != context["policy"]["id"]
-        or proposal["policy_registration_sha256"]
-        != context["policy"]["registration_sha256"]
-        or proposal["data_snapshot_sha256"]
-        != context["provenance"]["data_snapshot_sha256"]
+        or proposal["policy_registration_sha256"] != context["policy"]["registration_sha256"]
+        or proposal["data_snapshot_sha256"] != context["provenance"]["data_snapshot_sha256"]
         or proposal["ticker"] != context["instrument"]["ticker"]
         or proposal["side"] != decision["side"]
         or proposal["max_notional"] != decision["max_notional"]
@@ -630,9 +637,7 @@ def load_agent_only_intent(
         or not math.isfinite(request_notional)
         or request_notional > proposal["max_notional"]
     ):
-        raise AgentPaperEvidenceError(
-            "broker request does not match retained agent proposal"
-        )
+        raise AgentPaperEvidenceError("broker request does not match retained agent proposal")
     request_payload = {
         "idempotency_key": request.idempotency_key,
         "account_id": request.account_id,
@@ -744,9 +749,7 @@ def _algorithm_candidate(context: dict) -> dict:
         "execution_authority",
         "candidate_sha256",
     }
-    body = {
-        key: value for key, value in candidate.items() if key != "candidate_sha256"
-    }
+    body = {key: value for key, value in candidate.items() if key != "candidate_sha256"}
     orders = candidate.get("orders")
     state = candidate.get("portfolio_state")
     if (
@@ -756,14 +759,11 @@ def _algorithm_candidate(context: dict) -> dict:
         or candidate.get("cadence_admitted") is not True
         or candidate.get("cadence") != context["policy"]["cadence"]
         or candidate.get("policy_id") != context["policy"]["id"]
-        or candidate.get("policy_registration_sha256")
-        != context["policy"]["registration_sha256"]
+        or candidate.get("policy_registration_sha256") != context["policy"]["registration_sha256"]
         or candidate.get("strategy_id") != context["strategy"]["id"]
         or candidate.get("source_portfolio_id") != context["strategy"]["id"]
-        or candidate.get("strategy_config_sha256")
-        != context["strategy"]["config_sha256"]
-        or candidate.get("execution_profile_id")
-        != context["policy"]["execution_profile_id"]
+        or candidate.get("strategy_config_sha256") != context["strategy"]["config_sha256"]
+        or candidate.get("execution_profile_id") != context["policy"]["execution_profile_id"]
         or candidate.get("execution_profile_sha256")
         != context["policy"]["execution_profile_sha256"]
         or candidate.get("market_date") != context["market_date"]
@@ -978,9 +978,7 @@ def _model_output_failure_metadata(terminal: dict, request_sha256: str) -> None:
         raise AgentPaperEvidenceError("hybrid model-output usage is invalid")
 
 
-def _model_failure_expectation(
-    terminal: dict, request_sha256: str
-) -> tuple[dict, str]:
+def _model_failure_expectation(terminal: dict, request_sha256: str) -> tuple[dict, str]:
     detail = terminal.get("detail")
     error_type = terminal.get("error_type")
     if (
@@ -1084,8 +1082,7 @@ def _hybrid_events(
     terminal_type = event_types[-1]
     if (
         event_types[0] != "started"
-        or terminal_type
-        not in {"hybrid_allow", "hybrid_veto", "hybrid_fallback_allow"}
+        or terminal_type not in {"hybrid_allow", "hybrid_veto", "hybrid_fallback_allow"}
         or event_types
         not in (
             ["started", terminal_type],
@@ -1101,9 +1098,7 @@ def _hybrid_events(
     try:
         payloads = [loads_object(row[2]) for row in rows]
     except (TypeError, ValueError, UnicodeDecodeError) as exc:
-        raise AgentPaperEvidenceError(
-            "hybrid decision event payload is invalid"
-        ) from exc
+        raise AgentPaperEvidenceError("hybrid decision event payload is invalid") from exc
     if payloads[0] != {
         "request_sha256": request_sha256,
         "execution_authority": "none",
@@ -1135,9 +1130,7 @@ def _hybrid_decision(
         )
     if event_types != ["started", "model_response", terminal_type]:
         raise AgentPaperEvidenceError("hybrid model decision has no retained response")
-    response = _verify_model_response(
-        payloads[1], context=context, request_sha256=request_sha256
-    )
+    response = _verify_model_response(payloads[1], context=context, request_sha256=request_sha256)
     if response["output"] != decision:
         raise AgentPaperEvidenceError("retained hybrid model response is invalid")
     try:
@@ -1212,10 +1205,7 @@ def _hybrid_terminal(
         "execution_authority": "none",
         "replayed": False,
     }
-    if (
-        not isinstance(result, dict)
-        or result != expected_result
-    ):
+    if not isinstance(result, dict) or result != expected_result:
         raise AgentPaperEvidenceError("retained hybrid terminal result is invalid")
     terminal_sha256 = canonical_sha256(
         {
@@ -1248,8 +1238,7 @@ def load_hybrid_intent(
         raise TypeError("request must be a SubmitOrderRequest")
     require_identifier(decision_window_id, "hybrid decision-window identifier")
     if not all(
-        table_exists(con, table)
-        for table in ("agent_shadow_attempts", "agent_shadow_events")
+        table_exists(con, table) for table in ("agent_shadow_attempts", "agent_shadow_events")
     ):
         raise AgentPaperEvidenceError("retained hybrid evidence is unavailable")
     stored, context, _model_input, started_at = _attempt(
