@@ -11,12 +11,13 @@ plan and the BUILDLOG.
 | [P1 — Appliance mode](p1-appliance-mode.md) | active | Freeze growth, shrink the session loop, retire doc-pinning tests, put the box on a weekly check | None |
 | [P2 — League collapse](p2-league-collapse.md) | approved | Retire 11 of 21 books whose question the evidence already answered | None |
 | [P3 — Point-in-time data](p3-point-in-time-data.md) | approved | Sharadar recommended for survivorship-free research data; Norgate fallback | Set a spend ceiling before purchase |
-| [P4 — Broker decision](p4-broker-decision.md) | active | Real broker eventually: IBKR primary, Moomoo fallback; implementation still frozen | None |
+| [P4 — Broker decision](p4-broker-decision.md) | done | Real broker eventually: IBKR primary, Moomoo fallback; P7 carries the simulator-only next step | None |
 | [P5 — Agent paper decisions](p5-agent-paper-decisions.md) | done | Let a constrained agent control one isolated simulator-only paper book | None |
 | [P6 — Alpha experiment](p6-alpha-experiment.md) | done | Run one theory-led fixed-instrument experiment under a frozen protocol | None |
+| [P7 — Autonomous paper trial](p7-autonomous-paper-trial.md) | active | Compare algorithm-only, AI-only, and hybrid policies with a cloned S$10k envelope | Separate data-vendor budget remains unset |
 
-Recommended order: P1 now, P2 the following week, P3 when the owner has picked a vendor, P4
-by its date or earlier.
+Recommended order: P7 observability and activation gates now; P1 and P2 remain admitted maintenance
+work, and P3 resumes when the owner separately approves a data-vendor budget.
 
 ## Plan template
 
