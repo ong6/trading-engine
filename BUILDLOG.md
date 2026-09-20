@@ -11438,4 +11438,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server, tools, and product unchanged; approved P7 ceilings remain green.
 - **Next:** implement P7 trial identity and read-only status before any portfolio mutation.
 
+## 2026-09-20 — Add fail-closed P7 trial readiness status
+
+- **Why:** P7 scope item 1 requires immutable trial identity and honest activation blockers before
+  any portfolio, scheduler, or simulator mutation.
+- **What:** add the hash-bound three-arm manifest and one bounded read-only status route; semantic
+  gates reject forged hashes, dummy books, and incompatible legacy P5 artifacts.
+- **Evidence:** full warnings-as-errors suite reached 100%; live status is blocked on 13 named
+  gates with no execution authority, and UI/static gates pass.
+- **Metrics:** server +590, tools/product unchanged; approved P7 budget remains green.
+- **Next:** freeze P7 target-choice/hold semantics and response-bound model identity contract.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
