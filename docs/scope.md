@@ -20,8 +20,8 @@ Maintaining these means keeping them running unchanged. It does not mean improvi
 
 ## Approved plans
 
-Plans live in [`plans/`](plans/README.md). Only `approved` or `active` plans admit work. P1 is
-active; P2-P4 are approved, subject to their stated prerequisites and sequencing. P5 and P6
+Plans live in [`plans/`](plans/README.md). Only `approved` or `active` plans admit work. P1 and
+P4 are active; P2-P3 are approved, subject to their stated prerequisites and sequencing. P5 and P6
 completed on 2026-09-18; their bounded outputs remain in scope for operation and evidence, but
 they authorize no further feature growth.
 
@@ -30,8 +30,8 @@ they authorize no further feature growth.
 | Area | Current state | Trigger that unfreezes it | Until then |
 |---|---|---|---|
 | Agent-only / hybrid paper books (`server/agent_*`, shadow runner, proposal ledgers) | ~20k lines built, shadow timer on, no order authority | P5 only: one agent-only simulator consumption path | No growth outside P5; hybrid and broker paths remain frozen |
-| Broker-paper shadow, capital-disabled adapters, paper-authority state machine (`server/broker_*`) | ~15k lines built, inert | Same P4 decision | No growth |
-| Independent risk supervisor, fault drills, human-approval flows | Built, inert | Same P4 decision | No growth |
+| Broker-paper shadow, capital-disabled adapters, paper-authority state machine (`server/broker_*`) | ~15k lines built, inert; IBKR selected as the eventual primary broker | A separately approved P7 execution-layer plan | No growth or broker connection |
+| Independent risk supervisor, fault drills, human-approval flows | Built, inert | Same P7 plan | No growth |
 | Release manifest, worktree audit, backup, install-automation hardening | Working | A demonstrated recovery failure | No growth; no new invariants |
 | Documentation-pinning tests (`tests/test_docs*.py`) | ~150 assertions on prose | Never | Frozen at current count |
 | New league books | 21 active | A charter whose gate cleared in the backlog table | None |

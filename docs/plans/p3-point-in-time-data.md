@@ -3,8 +3,22 @@ plan: P3
 title: Survivorship-free point-in-time data
 status: approved
 opened: 2026-09-18
-owner_decision: pick a vendor and a spend ceiling
+owner_decision: set a spend ceiling and confirm purchase
 ---
+
+## Vendor comparison — 2026-09-20
+
+| Candidate | Role fit | Relevant official coverage | Decision |
+|---|---|---|---|
+| [Sharadar via Nasdaq Data Link](https://data.nasdaq.com/databases/SEP) | Point-in-time research | Daily US-equity prices, corporate actions, delisting reasons, ticker changes, reference data, and separately available fundamental tables | **Recommended**; verify current SF1/SEP/TICKERS licence and price before purchase |
+| [Norgate Data](https://norgatedata.com/data-content-tables.php) | Point-in-time research fallback | Delisted securities and historical index constituent histories designed to avoid survivorship bias | Fallback if Sharadar licence, export, or price is unsuitable |
+| [IBKR](https://ibkrcampus.com/campus/ibkr-api-page/contracts/) | Execution and live/paper market access | Stable contract identifiers, broad execution API and subscription-backed market data | Primary future broker; not the P3 historical research source |
+| [Moomoo OpenAPI](https://openapi.futunn.com/futu-api-doc/en/intro/authority.html) | Secondary execution candidate | Live/paper trading through OpenD, with permission and rolling historical-candlestick quotas | Secondary broker; not the P3 historical research source |
+| EODHD / Polygon | Price/reference alternatives | Delisted coverage varies; historical membership and point-in-time fundamentals are incomplete for this plan | Not preferred for P3 |
+
+**Recommendation.** Keep execution and research-data concerns separate. Review Sharadar first,
+with Norgate as fallback. The next owner input is a maximum initial and recurring spend; purchase,
+credentials, ingestion, and licence acceptance remain out of scope until then.
 
 ## Goal
 
@@ -24,7 +38,7 @@ changes that date. Buying data does.
 
 ## Scope
 
-1. **Vendor shortlist and audit protocol (one session, no purchase).** Candidates known to
+1. **Vendor shortlist and audit protocol (one session, no purchase).** **Complete 2026-09-20.** Candidates known to
    carry delisted US equities and point-in-time membership: Norgate Data (Platinum tier,
    delisted securities and historical index constituents), Sharadar via Nasdaq Data Link
    (SEP prices plus the Tickers table with delisting dates, SF1 fundamentals with
