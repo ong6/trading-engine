@@ -77,12 +77,15 @@ measurements supporting those decisions, not the live runtime state.
   checkpoint as soon as a scheduled producer publishes newer evidence.
 - [`../data/reports/walkforward/GUIDE.md`](../data/reports/walkforward/GUIDE.md) — the evidence map
   for the latest generated historical walk-forward cohort in the sibling `README.md`. The
-  completed 2026-09-13 Sunday revalidation stamped all 18 active, replayable books with source
-  `2a45f846b7a4628661c4539adf71074377c529a450c90cb07cd4125aafed7d75`, data snapshot
-  `039bd02c7cdb5678f28e5cf93098393c7e695625c4fc37fc5281d2e8e19fa80e`, and one coherent
+  completed 2026-09-20 Sunday revalidation stamped all 18 active, replayable books with source
+  `158dd063aa57e6e37448fdf630ca3e2f244043f4d1bd2520a7b30edcc76b2371`, data snapshot
+  `c868f4fcc1655450840ca9fb0f244fb9c3c708ec50ec181d46905f33faba08b8`, and one coherent
   source/data/execution cohort, signature
-  `b304ae92d54e27a8f3a3adaa77dcf5b77175f9be141e71dfa232f29c3b32aec2`, with the versioned
-  comparator declaration and 2026-09-11 anchor.
+  `fff94c2e7c4355ed9c0c118d19f3d39e95387a0fde7da2335f73c17066f12c9c`, with the versioned
+  comparator declaration and 2026-09-18 anchor.
+  It supersedes the 2026-09-13 cohort signature
+  `b304ae92d54e27a8f3a3adaa77dcf5b77175f9be141e71dfa232f29c3b32aec2`, which remains dated
+  historical context rather than current evidence.
   On 2026-09-13 the protected source first advanced after the weekly liquidity pending-backfill
   retry, Nasdaq plural security-class parser correction, and atomic universe reconciliation/CSV
   publication, then advanced to
@@ -95,13 +98,14 @@ measurements supporting those decisions, not the live runtime state.
   screen recovery-anchor/connection corrections, and exception-safe temporary DataFrame cleanup
   advanced the protected identity to
   `8ed2b751127c17ab3631583ae4f0e9e87b8b041250263b447092c5c5c8711d90`. Centralized
-  interruption-safe transaction cleanup then advanced the current protected identity to
+  interruption-safe transaction cleanup then advanced that protected identity to
   `2a45f846b7a4628661c4539adf71074377c529a450c90cb07cd4125aafed7d75` and was explicitly
   migrated through XS contract v20, sector contract v9, and E1 contract v6 without changing their
   observations, strategy rules, or execution economics. The final identity also includes
   failure-safe cleanup of the signal breadth reader's temporary universe relation and the
-  historical screener's call-scoped temporary tables. The
-  published 18-result cohort is therefore source-matching and current.
+  historical screener's call-scoped temporary tables. Later verified maintenance advanced the
+  protected 113-file identity to the source recorded above. The published 18-result cohort is
+  therefore source-matching and current.
   Older unstamped artifacts remain absolute historical context only.
   Publication time is not the same as live freshness: the `walkforward_evidence` object in
   `GET /meta` is the authority on whether that cohort still matches every active config and the

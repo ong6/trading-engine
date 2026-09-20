@@ -101,3 +101,20 @@ completed commits to be pushed. Work proceeds in the documented order, beginning
 3. P4 is approved as a decision plan. Execution or archival still requires the owner to choose
    its explicit yes/no branch; broker connections, credentials, and real capital remain forbidden.
 4. The agent may push completed, verified commits to the configured `origin/main` upstream.
+
+## 2026-09-20 — Separate the research-data and execution vendors
+
+**Verdict.** The owner delegated the long-term provider choice, naming Moomoo and IBKR as likely
+candidates. The selected architecture is IBKR for eventual broker execution and Sharadar via
+Nasdaq Data Link for point-in-time US-equity research data. Norgate is the research-data fallback;
+Moomoo remains a secondary broker candidate.
+
+**Rule changes.**
+
+1. P4 takes the **yes, real-broker operation eventually** branch, with IBKR as the primary target.
+2. A separate execution-layer plan is required before implementation. No broker connection,
+   credentials, market-data subscription, live order, or capital is authorized by this decision.
+3. P3 recommends Sharadar for purchase review because broker APIs do not establish complete
+   delisted-security, historical-membership, and publication-timestamped fundamental coverage.
+4. P3 remains purchase-blocked until the owner sets a spend ceiling and accepts current licence
+   terms; no vendor account or data ingestion is authorized yet.

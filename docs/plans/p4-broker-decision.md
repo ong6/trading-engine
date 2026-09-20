@@ -1,10 +1,21 @@
 ---
 plan: P4
 title: Decide whether a real broker is ever the goal
-status: approved
+status: active
 opened: 2026-09-18
-owner_decision: the decision itself, by 2027-09-04 at the latest
+owner_decision: none
 ---
+
+## Decision — 2026-09-20
+
+**Yes: real-broker operation on personal hardware remains a long-term goal.** IBKR is the primary
+target because its contract identifiers and execution APIs fit a durable, broker-neutral state
+machine better than a region-dependent consumer OpenAPI. Moomoo remains a fallback candidate.
+
+This is an architecture decision, not connection authority. The next step is a separately scoped
+execution-layer plan using the next free plan number (P7, because P5 and P6 already exist). Until
+that plan is approved, every current freeze remains: no credentials, gateway installation, market
+data subscription, adapter connection, live order, or real capital.
 
 ## Goal
 
@@ -31,7 +42,7 @@ evidence; it needs to be made on intent. Until it is made, the safe default is f
 ## Scope
 
 1. Owner writes the decision and the reasoning in `../feedback.md`.
-2. If **yes**: open P5 "execution layer" with gates copied from `../live-readiness-goal.md`
+2. If **yes**: open a new "execution layer" plan with gates copied from `../live-readiness-goal.md`
    workstreams C, D, E, trimmed to what a single personal account needs, and with the P1
    budget discipline. `../scope.md` moves those rows from "Not yet" to "Approved plans".
 3. If **no**: one session, one commit per moved package, links fixed, tests moved with the

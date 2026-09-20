@@ -11416,4 +11416,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server, tools, and product unchanged; budget remains green.
 - **Next:** execute P1 in its specified order, one logical change per session.
 
+## 2026-09-20 — Select separate data and execution vendors
+
+- **Why:** the owner delegated the provider choice, with Moomoo and IBKR as likely candidates,
+  and approved choosing the system-compatible long-term direction.
+- **What:** select IBKR for eventual execution, Sharadar for P3 research data, Norgate as the data
+  fallback, and Moomoo as the secondary broker; keep purchase and connectivity disabled.
+- **Evidence:** `uv run python -m pytest -q -W error` reached 100%; the settled 18-result
+  walk-forward cohort reports `current` with one signature, and UI tests/build are green.
+- **Metrics:** server, tools, and product unchanged; budget remains green.
+- **Next:** resume P1; P3 waits for a spend ceiling and P4 waits for the new P7 plan.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

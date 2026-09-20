@@ -122,6 +122,10 @@ failed strategy verdict, and the artifacts were not reconstructed or manually re
 normal Sunday job subsequently completed at 08:45 UTC with source
 `2a45f846b7a4628661c4539adf71074377c529a450c90cb07cd4125aafed7d75`;
 `walkforward_evidence.status = current`.
+The next normal Sunday job completed on 2026-09-20 with all 18 active replayable books, source
+`158dd063aa57e6e37448fdf630ca3e2f244043f4d1bd2520a7b30edcc76b2371`, and one cohort signature
+`fff94c2e7c4355ed9c0c118d19f3d39e95387a0fde7da2335f73c17066f12c9c`; live evidence remains
+`current`. This refresh likewise changes no strategy verdict or admission gate.
 Do not tune a frozen rule, reopen a rejected charter, launch a discretionary sweep, or interpret
 the current E1 estimate before its terminal gate.
 
