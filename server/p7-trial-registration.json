@@ -1,0 +1,130 @@
+{
+  "activation_requirements": [
+    "manifest_dependencies_current",
+    "trial_policy_implementations",
+    "stable_model_revision",
+    "model_transport_healthy",
+    "shared_data_admission",
+    "independent_fx_boundary",
+    "three_isolated_books",
+    "simulator_only_orchestrator",
+    "complete_dry_run_window",
+    "fault_drills_current",
+    "trial_scheduler_current",
+    "backup_restore_rehearsal",
+    "validation_evidence",
+    "prohibited_routes_absent",
+    "future_activation_date",
+    "immutable_cohort_identity"
+  ],
+  "arms": [
+    {
+      "allowed_assets": [
+        "BIL",
+        "CASH",
+        "EFA",
+        "SPY"
+      ],
+      "arm_id": "algorithm_only",
+      "behavior": "registered_deterministic_dual_momentum",
+      "implementation_binding": {
+        "policy_registration_sha256": null,
+        "portfolio_id": null,
+        "runtime_source_sha256": null
+      },
+      "model_role": "none",
+      "policy_id": "p7_algorithm_dual_momentum_v1",
+      "policy_sha256": "ec19cf8ee13cbcbc4a31ccf85c129aa61681bc0177bc4f8c293874b243b1bf9e",
+      "policy_version": 1
+    },
+    {
+      "allowed_assets": [
+        "BIL",
+        "CASH",
+        "EFA",
+        "SPY"
+      ],
+      "arm_id": "ai_only",
+      "behavior": "model_target_choice_deterministic_order_derivation",
+      "implementation_binding": {
+        "policy_registration_sha256": null,
+        "portfolio_id": null,
+        "runtime_source_sha256": null
+      },
+      "model_role": "target_choice",
+      "policy_id": "p7_ai_target_choice_v1",
+      "policy_sha256": "02c33969a575bcdb8688bfd7e6af02a9876555189c1ad331be0ff61526203ae9",
+      "policy_version": 1
+    },
+    {
+      "allowed_assets": [
+        "BIL",
+        "CASH",
+        "EFA",
+        "SPY"
+      ],
+      "arm_id": "algorithm_plus_ai",
+      "behavior": "model_veto_only_on_eligible_buy",
+      "implementation_binding": {
+        "policy_registration_sha256": null,
+        "portfolio_id": null,
+        "runtime_source_sha256": null
+      },
+      "model_role": "veto_only",
+      "policy_id": "p7_hybrid_veto_v1",
+      "policy_sha256": "27e56710079f5fa9d88000717d076e3b35e4ac09441d919cbda476420787bc6d",
+      "policy_version": 1
+    }
+  ],
+  "capital": {
+    "accounting_currency": "USD",
+    "counterfactual_book_count": 3,
+    "fx_observation_sha256": null,
+    "fx_observed_at": null,
+    "owner_envelope_currency": "SGD",
+    "owner_envelope_value": 10000,
+    "usd_opening_balance": null
+  },
+  "cohort": {
+    "activation_market_date": null,
+    "cohort_id": null,
+    "minimum_calendar_days": 90,
+    "minimum_completed_sessions": 60,
+    "minimum_paired_windows_for_pilot": 3,
+    "minimum_paired_windows_for_verdict": 12,
+    "retrospective_backfill": false,
+    "tuning_during_cohort": false
+  },
+  "decision_contract": {
+    "cadence": "monthly",
+    "execution_profile_id": "baseline_v1",
+    "execution_profile_sha256": "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db",
+    "fill_timing": "next_session_open",
+    "gross_exposure_ceiling": "opening_capital",
+    "leverage": false,
+    "long_only": true,
+    "margin": false,
+    "options": false,
+    "shorting": false
+  },
+  "execution_authority": "none",
+  "legacy_bindings": {
+    "agent_policy_registry_sha256": "77575d69f1e3e3cd40c086c21f99554ed1708b373ceb0b92548131d5f6a6ccf4",
+    "algorithm_strategy_config_sha256": "c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35",
+    "proposal_model_identity_sha256": "d9d53f80d4a9acd7a79b2a2865516a298eedc3b4701d800c799dd19c891be717",
+    "veto_model_identity_sha256": "03904932ce0d3d2c6a877abbbdb1248f93a56e35cb70a5821bf1a024041b6e73"
+  },
+  "live_trading": "disabled",
+  "manifest_sha256": "2dee90dde86dc9b8c44272bdb2b67f4899ad786bc7235083fbf743fba3330598",
+  "registration_status": "preregistered_inactive",
+  "runtime_evidence": {
+    "backup_restore_rehearsal_sha256": null,
+    "dry_run_window_sha256": null,
+    "orchestrator_source_sha256": null,
+    "scheduler_registration_sha256": null,
+    "validation_evidence_sha256": null
+  },
+  "schema_version": 1,
+  "trial_id": "p7-autonomous-paper-trial",
+  "trial_version": 1
+}

@@ -40,11 +40,11 @@ reconciliation, halts, and immutable attribution. No broker connection or real c
 | Deterministic safety boundary | 9/10 | No broker route or authority; validation, risk, idempotency, next-open fills, and fault drills exist | 9/10 |
 | Decision provenance and logging | 8/10 | Append-only attempts/events retain context, request/response identity, terminal result, and token usage | 9/10 |
 | Scheduler and service continuity | 8/10 | Agent data/shadow timers are enabled; last services succeeded | 9/10 |
-| Shared-data comparability | 7/10 | Policies share frozen data contracts, but the three-arm trial identity and FX boundary do not exist | 9/10 |
+| Shared-data comparability | 8/10 | A hash-bound three-arm manifest now exists; shared content evidence, cohort identity, and FX remain blocked | 9/10 |
 | Model reproducibility | 4/10 | Current model uses an unversioned alias with no provider revision | 8/10 |
 | Trial automation | 3/10 | Agent-only shadow is scheduled; hybrid is manual and no tri-arm orchestrator exists | 9/10 |
 | Isolated return attribution | 2/10 | Reserved AI/hybrid portfolios and return series do not exist in the live store | 9/10 |
-| Unified operator observability | 6/10 | Strong read models exist, but trial health is distributed and has no paired-cohort status | 9/10 |
+| Unified operator observability | 7/10 | One read-only status now names all activation blockers; paired windows and arm performance await runtime evidence | 9/10 |
 | Strategy evidence | 3/10 | One legacy model no-action and cadence-only registered attempts cannot compare policies | Time-gated |
 
 The current system is safe enough to extend but **not ready to activate this trial**. Safety ratings
@@ -93,6 +93,9 @@ excluded from paired performance; they are never recreated after observing later
 
 1. **Trial manifest and status first.** Add a versioned, hash-bound trial registration and a
    read-only status projection over existing ledgers. Prove it reports every current blocker.
+   **Completed 2026-09-20:** the manifest freezes the three arms and non-authorizing contracts;
+   `GET /paper-trial/status` reports 13 fail-closed blockers. Forged hashes, dummy books, and
+   legacy P5 US$39k artifacts cannot satisfy semantic gates.
 2. **Stable model and fair AI contract.** Replace the single-ticker proposal shape with a new
    versioned SPY/EFA/BIL/cash target-choice policy while preserving the old evidence. Pin a stable
    model revision or remain blocked.

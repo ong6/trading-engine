@@ -47,6 +47,7 @@ from . import (
     market_read_models,
     meta_projection,
     order_read_models,
+    p7_trial_status,
     paper_read_models,
     position_read_models,
     ticket_contract,
@@ -485,6 +486,15 @@ def agent_shadow_control_status():
         return agent_shadow_schedule.control_status()
     except agent_shadow_schedule.ScheduleError as exc:
         raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/paper-trial/status")
+def paper_trial_status():
+    with _connection(read_con) as con:
+        try:
+            return p7_trial_status.project(con)
+        except p7_trial_status.TrialStatusError as exc:
+            raise HTTPException(503, "paper trial status unavailable") from exc
 
 
 @app.post("/agent/proposals/shadow", dependencies=JSON_MUTATION_DEPENDENCY)
