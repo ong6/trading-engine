@@ -142,3 +142,15 @@ for algorithm-only, AI-only, and algorithm-plus-AI designs with sound logging an
 **Ceiling changes for later P7 implementation.** `server/` 48,100 lines, `tools/` 7,400 lines,
 and `sim/` 7,000 lines. These are caps, not targets; P7 requires reuse of the existing evidence,
 attribution, simulator, scheduler, and fault-drill machinery.
+
+## 2026-09-20 — Use Trae under an observable paper-only identity
+
+**Verdict.** The owner directed the project to fix and exercise the working Trae model rather than
+leave the paper programme blocked on an unavailable provider field. A real tool-free inference
+succeeded, while raw upstream metadata exposed a model family and request ID but no immutable
+provider build.
+
+**Rule changes.** P7 paper operation may use Trae when every response is bound to the exact proxy
+source, CLI runtime, catalog/routing identity, prompt/toolset, upstream-reported model family, and
+request identity. Any visible drift fails closed. This acceptance is simulator-only; a provider-
+issued immutable revision remains required before any later real-capital authorization.

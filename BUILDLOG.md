@@ -11449,4 +11449,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +590, tools/product unchanged; approved P7 budget remains green.
 - **Next:** freeze P7 target-choice/hold semantics and response-bound model identity contract.
 
+## 2026-09-20 — Bind Trae observable identity for paper use
+
+- **Why:** P7 scope item 2 and a live probe showed the model works but its bridge discarded the
+  upstream family/request metadata and pinned an older CLI runtime.
+- **What:** bind proxy source, runtime, catalog/routing, upstream family and request identities on
+  every new response; preserve schema-v2 evidence and keep immutable revision as a live-capital gate.
+- **Evidence:** real tool-free inference returned strict no-action with the complete identity; full
+  Python, 11 proxy, 54 UI, production-build, and static gates pass.
+- **Metrics:** server +38, tools/product unchanged; approved P7 budget remains green.
+- **Next:** freeze the AI target-choice and explicit cash-versus-hold contract.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

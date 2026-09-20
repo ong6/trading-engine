@@ -107,7 +107,6 @@ def test_current_status_reports_every_activation_blocker_without_writes(con, mon
     assert status["live_trading"] == "disabled"
     assert status["blockers"] == [
         "trial_policy_implementations",
-        "stable_model_revision",
         "shared_data_admission",
         "independent_fx_boundary",
         "three_isolated_books",
@@ -126,7 +125,8 @@ def test_current_status_reports_every_activation_blocker_without_writes(con, mon
     assert gates["fault_drills_current"]["status"] == "blocked"
     assert gates["fault_drills_current"]["evidence"]["p7_trial_drills_implemented"] is False
     assert gates["shared_data_admission"]["evidence"]["content_fingerprint_verified"] is False
-    assert gates["stable_model_revision"]["evidence"]["response_binding_verified"] is False
+    assert gates["observable_model_identity"]["status"] == "pass"
+    assert gates["observable_model_identity"]["evidence"]["response_binding_required"] is True
     assert gates["prohibited_routes_absent"]["status"] == "pass"
     assert gates["three_isolated_books"]["evidence"] == {
         "matching_inactive_name_count": 0,
@@ -224,7 +224,6 @@ def test_forged_hashes_and_dummy_books_leave_every_unverified_gate_blocked(
     gates = {gate["name"]: gate for gate in status["gates"]}
     for name in (
         "trial_policy_implementations",
-        "stable_model_revision",
         "shared_data_admission",
         "independent_fx_boundary",
         "three_isolated_books",

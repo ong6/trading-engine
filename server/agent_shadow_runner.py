@@ -845,7 +845,9 @@ def _generated_response(
         response.model != expected["model"]
         or response.model_version != expected["model_version"]
         or response.proxy_version != expected["required_proxy_version"]
+        or response.proxy_source_sha256 != expected["required_proxy_source_sha256"]
         or response.traecli_runtime != expected["required_traecli_runtime"]
+        or response.upstream_model_family != agent_model_client.UPSTREAM_MODEL_FAMILY
         or response.model_catalog_entry_sha256 != expected["model_catalog_entry_sha256"]
     ):
         raise ShadowRunError("connector response identity differs from the persisted context")
@@ -855,7 +857,10 @@ def _generated_response(
         "model": response.model,
         "model_version": response.model_version,
         "proxy_version": response.proxy_version,
+        "proxy_source_sha256": response.proxy_source_sha256,
         "traecli_runtime": response.traecli_runtime,
+        "upstream_model_family": response.upstream_model_family,
+        "upstream_request_id": response.upstream_request_id,
         "model_catalog_entry_sha256": response.model_catalog_entry_sha256,
         "request_sha256": response.request_sha256,
         "usage": response.usage,

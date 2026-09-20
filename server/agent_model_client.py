@@ -13,7 +13,7 @@ from engine.lib.provenance import canonical_sha256
 
 from .json_utils import loads_object
 
-CONNECTOR_SCHEMA_VERSION = 2
+CONNECTOR_SCHEMA_VERSION = 3
 PROXY_HOST = "127.0.0.1"
 PROXY_PORT = 8317
 PROXY_API = "openai_responses"
@@ -21,9 +21,11 @@ PROXY_HEALTH_PATH = "/healthz"
 PROXY_MODELS_PATH = "/v1/models"
 PROXY_RESPONSES_PATH = "/v1/responses"
 REQUIRED_PROXY_VERSION = "0.7"
-REQUIRED_TRAECLI_RUNTIME = "traecli 0.204.1(internal edition)"
+REQUIRED_TRAECLI_RUNTIME = "traecli 0.205.1(internal edition)"
+REQUIRED_PROXY_SOURCE_SHA256 = "f469f5d94cef4c2cedc472c396e236846b230859c1d150529a3763e6a17bae25"
 MODEL = "GPT-5.6-Sol:max"
 MODEL_VERSION = "unversioned-catalog-alias"
+UPSTREAM_MODEL_FAMILY = "gpt-5.6-sol"
 EXPECTED_MODEL_CATALOG_ENTRY = {
     "id": MODEL,
     "object": "model",
@@ -102,7 +104,10 @@ class ConnectorResult:
     model: str
     model_version: str
     proxy_version: str
+    proxy_source_sha256: str
     traecli_runtime: str
+    upstream_model_family: str
+    upstream_request_id: str
     model_catalog_entry_sha256: str
     request_sha256: str
     usage: dict[str, int]
@@ -194,6 +199,13 @@ def _traecli_runtime(health: dict) -> str:
     return value
 
 
+def _proxy_source_sha256(health: dict) -> str:
+    value = health.get("proxy_source_sha256")
+    if value != REQUIRED_PROXY_SOURCE_SHA256:
+        raise ConnectorError("Trae proxy source identity is invalid")
+    return value
+
+
 def _selected_catalog_entry(catalog: dict) -> dict:
     if catalog.get("object") != "list" or not isinstance(catalog.get("data"), list):
         raise ConnectorError("Trae proxy model catalog is invalid")
@@ -227,6 +239,7 @@ def status(*, connection_factory: ConnectionFactory = _connection) -> dict:
         connection_factory=connection_factory,
     )
     proxy_version = _proxy_version(health)
+    proxy_source_sha256 = _proxy_source_sha256(health)
     traecli_runtime = _traecli_runtime(health)
     selected = _selected_catalog_entry(
         _request(
@@ -240,6 +253,7 @@ def status(*, connection_factory: ConnectionFactory = _connection) -> dict:
     return {
         **identity(),
         "proxy_version": proxy_version,
+        "proxy_source_sha256": proxy_source_sha256,
         "traecli_runtime": traecli_runtime,
         "observed_model_catalog_entry_sha256": canonical_sha256(selected),
     }
@@ -265,12 +279,22 @@ def identity(*, role: str = "proposal") -> dict:
         "model_catalog_entry": dict(EXPECTED_MODEL_CATALOG_ENTRY),
         "model_catalog_entry_sha256": MODEL_CATALOG_ENTRY_SHA256,
         "required_proxy_version": REQUIRED_PROXY_VERSION,
+        "required_proxy_source_sha256": REQUIRED_PROXY_SOURCE_SHA256,
         "required_traecli_runtime": REQUIRED_TRAECLI_RUNTIME,
         "instructions_sha256": canonical_sha256(instructions),
         "toolset_sha256": canonical_sha256([]),
         "tools": "none",
         "execution_authority": "none",
     }
+
+
+def legacy_identity(*, role: str = "proposal") -> dict:
+    """Return the immutable schema-v2 identity used by retained shadow evidence."""
+    current = identity(role=role)
+    current["schema_version"] = 2
+    current.pop("required_proxy_source_sha256")
+    current["required_traecli_runtime"] = "traecli 0.204.1(internal edition)"
+    return current
 
 
 def _usage(value: object) -> dict[str, int]:
@@ -283,6 +307,24 @@ def _usage(value: object) -> dict[str, int]:
             raise ConnectorError("Trae proxy response usage is invalid")
         result[field] = item
     return result
+
+
+def _provider_metadata(response: dict) -> tuple[str, str]:
+    value = response.get("provider_metadata")
+    if not isinstance(value, dict) or set(value) != {"model_family", "request_id"}:
+        raise ConnectorError("Trae upstream model identity is unavailable")
+    family = value["model_family"]
+    request_id = value["request_id"]
+    if family != UPSTREAM_MODEL_FAMILY:
+        raise ConnectorError("Trae upstream model family is invalid")
+    if (
+        not isinstance(request_id, str)
+        or not request_id
+        or len(request_id) > 128
+        or not request_id.isprintable()
+    ):
+        raise ConnectorError("Trae upstream request identity is invalid")
+    return family, request_id
 
 
 def _output_text(response: dict) -> str:
@@ -383,13 +425,11 @@ def _generate_json(
     transport_after = status(connection_factory=connection_factory)
     attestation_fields = (
         "proxy_version",
+        "proxy_source_sha256",
         "traecli_runtime",
         "observed_model_catalog_entry_sha256",
     )
-    if any(
-        transport_before[field] != transport_after[field]
-        for field in attestation_fields
-    ):
+    if any(transport_before[field] != transport_after[field] for field in attestation_fields):
         raise ConnectorError("Trae model transport identity changed during generation")
     response_id = response.get("id")
     if (
@@ -400,6 +440,7 @@ def _generate_json(
     ):
         raise ConnectorError("Trae proxy response identifier is invalid")
     usage = _usage(response.get("usage"))
+    upstream_model_family, upstream_request_id = _provider_metadata(response)
     response_sha256 = canonical_sha256(response)
     try:
         text = _output_text(response)
@@ -426,10 +467,11 @@ def _generate_json(
         model=MODEL,
         model_version=MODEL_VERSION,
         proxy_version=transport_after["proxy_version"],
+        proxy_source_sha256=transport_after["proxy_source_sha256"],
         traecli_runtime=transport_after["traecli_runtime"],
-        model_catalog_entry_sha256=transport_after[
-            "observed_model_catalog_entry_sha256"
-        ],
+        upstream_model_family=upstream_model_family,
+        upstream_request_id=upstream_request_id,
+        model_catalog_entry_sha256=transport_after["observed_model_catalog_entry_sha256"],
         request_sha256=canonical_sha256(request),
         usage=usage,
     )

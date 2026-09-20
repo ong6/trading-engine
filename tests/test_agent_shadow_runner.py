@@ -43,10 +43,11 @@ def connector_result(model_input, output):
         model=agent_model_client.MODEL,
         model_version=agent_model_client.MODEL_VERSION,
         proxy_version=agent_model_client.REQUIRED_PROXY_VERSION,
+        proxy_source_sha256=agent_model_client.REQUIRED_PROXY_SOURCE_SHA256,
         traecli_runtime=agent_model_client.REQUIRED_TRAECLI_RUNTIME,
-        model_catalog_entry_sha256=(
-            agent_model_client.MODEL_CATALOG_ENTRY_SHA256
-        ),
+        upstream_model_family=agent_model_client.UPSTREAM_MODEL_FAMILY,
+        upstream_request_id="upstream-test",
+        model_catalog_entry_sha256=(agent_model_client.MODEL_CATALOG_ENTRY_SHA256),
         request_sha256=canonical_sha256(request),
         usage={"input_tokens": 100, "output_tokens": 20, "total_tokens": 120},
     )
@@ -102,23 +103,20 @@ def test_no_action_is_persisted_and_replayed_without_second_model_call(con, runn
     assert calls[0]["model_role"] == "independent_shadow_proposal"
     assert calls[0]["context"]["mode"] == "shadow"
     assert con.execute("SELECT COUNT(*) FROM agent_shadow_attempts").fetchone() == (1,)
+    assert con.execute("SELECT event_type FROM agent_shadow_events ORDER BY id").fetchall() == [
+        ("started",),
+        ("model_response",),
+        ("no_action",),
+    ]
     assert con.execute(
-        "SELECT event_type FROM agent_shadow_events ORDER BY id"
-    ).fetchall() == [("started",), ("model_response",), ("no_action",)]
-    assert con.execute(
-        "SELECT COUNT(*) FROM information_schema.tables "
-        "WHERE table_name = 'agent_proposals'"
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'agent_proposals'"
     ).fetchone() == (0,)
     assert con.execute("SELECT COUNT(*) FROM sim_orders").fetchone() == (0,)
-    assert con.execute(
-        "SELECT COUNT(*) FROM agent_daily_price_observations"
-    ).fetchone() == (1,)
-    assert con.execute(
-        "SELECT COUNT(*) FROM agent_corporate_action_observations"
-    ).fetchone() == (0,)
-    stored_context = con.execute(
-        "SELECT context_payload FROM agent_shadow_attempts"
-    ).fetchone()[0]
+    assert con.execute("SELECT COUNT(*) FROM agent_daily_price_observations").fetchone() == (1,)
+    assert con.execute("SELECT COUNT(*) FROM agent_corporate_action_observations").fetchone() == (
+        0,
+    )
+    stored_context = con.execute("SELECT context_payload FROM agent_shadow_attempts").fetchone()[0]
     assert '"policy":"append_only_normalized_observation"' in stored_context
     assert '"raw_retained":false' in stored_context
 
@@ -176,8 +174,7 @@ def test_scheduled_no_action_uses_runner_replay_without_order_mutation(
     assert second == {**first, "replayed": True}
     assert model_calls == 1
     assert con.execute(
-        "SELECT COUNT(*) FROM information_schema.tables "
-        "WHERE table_name = 'agent_proposals'"
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'agent_proposals'"
     ).fetchone() == (0,)
     assert con.execute("SELECT COUNT(*) FROM sim_orders").fetchone() == (0,)
 
@@ -275,9 +272,7 @@ def test_connector_model_output_error_is_audited_as_malformed(con, runner):
         raise agent_model_client.ModelOutputError(
             "model output is not one strict JSON object",
             response_id="resp-malformed",
-            request_sha256=canonical_sha256(
-                agent_model_client.request_payload(model_input)
-            ),
+            request_sha256=canonical_sha256(agent_model_client.request_payload(model_input)),
             response_sha256="b" * 64,
             usage={"input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
         )
@@ -304,9 +299,7 @@ def test_started_attempt_without_response_becomes_uncertain_without_retry(con, r
             "dual_momentum",
             "SPY",
             mode="agent_only",
-            generate=lambda _input: (_ for _ in ()).throw(
-                BaseException("simulated process death")
-            ),
+            generate=lambda _input: (_ for _ in ()).throw(BaseException("simulated process death")),
             **runner,
         )
 
@@ -344,9 +337,7 @@ def test_unfinished_prior_market_date_is_resolved_before_new_window(con, runner)
             "dual_momentum",
             "SPY",
             mode="agent_only",
-            generate=lambda _input: (_ for _ in ()).throw(
-                BaseException("simulated process death")
-            ),
+            generate=lambda _input: (_ for _ in ()).throw(BaseException("simulated process death")),
             **runner,
         )
     con.execute(
@@ -376,9 +367,7 @@ def test_unfinished_prior_market_date_is_resolved_before_new_window(con, runner)
     assert con.execute("SELECT COUNT(*) FROM sim_orders").fetchone() == (0,)
 
 
-def test_recorded_response_is_completed_after_restart_without_model_retry(
-    con, runner, monkeypatch
-):
+def test_recorded_response_is_completed_after_restart_without_model_retry(con, runner, monkeypatch):
     original_complete = agent_shadow_runner._complete_response
 
     def crash_after_response(*_args, **_kwargs):
@@ -424,9 +413,11 @@ def test_recorded_response_is_completed_after_restart_without_model_retry(
     assert result["status"] == "no_action"
     assert result["replayed"] is False
     assert calls == 0
-    assert con.execute(
-        "SELECT event_type FROM agent_shadow_events ORDER BY id"
-    ).fetchall() == [("started",), ("model_response",), ("no_action",)]
+    assert con.execute("SELECT event_type FROM agent_shadow_events ORDER BY id").fetchall() == [
+        ("started",),
+        ("model_response",),
+        ("no_action",),
+    ]
     assert con.execute("SELECT COUNT(*) FROM sim_orders").fetchone() == (0,)
 
 
@@ -539,8 +530,7 @@ def test_hybrid_allow_is_attributed_without_proposal_or_order(con, runner, monke
     assert result["proposal_result"]["vetoed_order_count"] == 0
     assert con.execute("SELECT COUNT(*) FROM sim_orders").fetchone() == (0,)
     assert con.execute(
-        "SELECT COUNT(*) FROM information_schema.tables "
-        "WHERE table_name = 'agent_proposals'"
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'agent_proposals'"
     ).fetchone() == (0,)
 
     replay = agent_shadow_runner.run(
@@ -636,9 +626,7 @@ def test_hybrid_transport_failure_uses_registered_fallback(con, runner, monkeypa
     assert con.execute("SELECT COUNT(*) FROM sim_orders").fetchone() == (0,)
 
 
-def test_hybrid_candidate_hash_mismatch_uses_registered_fallback(
-    con, runner, monkeypatch
-):
+def test_hybrid_candidate_hash_mismatch_uses_registered_fallback(con, runner, monkeypatch):
     order = {
         "sequence": 1,
         "portfolio_id": "dual_momentum",
@@ -660,9 +648,7 @@ def test_hybrid_candidate_hash_mismatch_uses_registered_fallback(
                 "decision": "veto",
                 "candidate_sha256": "f" * 64,
                 "reason": "Attempted stale-candidate veto.",
-                "evidence_ids": [
-                    model_input["context"]["algorithm_candidate"]["candidate_sha256"]
-                ],
+                "evidence_ids": [model_input["context"]["algorithm_candidate"]["candidate_sha256"]],
             },
         )
 
@@ -681,9 +667,7 @@ def test_hybrid_candidate_hash_mismatch_uses_registered_fallback(
     assert con.execute("SELECT COUNT(*) FROM sim_orders").fetchone() == (0,)
 
 
-def test_interrupted_hybrid_request_falls_back_without_regeneration(
-    con, runner, monkeypatch
-):
+def test_interrupted_hybrid_request_falls_back_without_regeneration(con, runner, monkeypatch):
     order = {
         "sequence": 1,
         "portfolio_id": "dual_momentum",
@@ -703,9 +687,7 @@ def test_interrupted_hybrid_request_falls_back_without_regeneration(
             "SPY",
             mode="hybrid",
             policy_id="dual_momentum_hybrid_veto_shadow_v1",
-            generate=lambda _input: (_ for _ in ()).throw(
-                BaseException("simulated process death")
-            ),
+            generate=lambda _input: (_ for _ in ()).throw(BaseException("simulated process death")),
             **runner,
         )
 
@@ -721,9 +703,10 @@ def test_interrupted_hybrid_request_falls_back_without_regeneration(
     assert result["status"] == "hybrid_fallback_allow"
     assert result["proposal_result"]["policy_effect"] == "unmodified_algorithm_signal"
     assert result["proposal_result"]["effective_order_count"] == 1
-    assert con.execute(
-        "SELECT event_type FROM agent_shadow_events ORDER BY id"
-    ).fetchall() == [("started",), ("hybrid_fallback_allow",)]
+    assert con.execute("SELECT event_type FROM agent_shadow_events ORDER BY id").fetchall() == [
+        ("started",),
+        ("hybrid_fallback_allow",),
+    ]
 
 
 def test_hybrid_without_buy_candidate_skips_model(con, runner):
@@ -748,9 +731,7 @@ def test_hybrid_without_buy_candidate_skips_model(con, runner):
     assert con.execute("SELECT COUNT(*) FROM sim_orders").fetchone() == (0,)
 
 
-def test_non_signal_date_is_recorded_without_context_or_model_request(
-    con, runner, monkeypatch
-):
+def test_non_signal_date_is_recorded_without_context_or_model_request(con, runner, monkeypatch):
     monkeypatch.setattr(agent_shadow_runner, "is_month_signal", sim_calendar.is_month_signal)
     calls = 0
 
@@ -783,9 +764,9 @@ def test_non_signal_date_is_recorded_without_context_or_model_request(
         "request_sha256 FROM agent_shadow_attempts"
     ).fetchone()
     assert row == ("dual_momentum_agent_shadow_v1", None, None, None, None)
-    assert con.execute(
-        "SELECT event_type FROM agent_shadow_events"
-    ).fetchall() == [("cadence_no_action",)]
+    assert con.execute("SELECT event_type FROM agent_shadow_events").fetchall() == [
+        ("cadence_no_action",)
+    ]
     assert con.execute("SELECT COUNT(*) FROM sim_orders").fetchone() == (0,)
 
 
@@ -795,8 +776,7 @@ def test_shadow_schema_adds_nullable_policy_identity_without_rewriting_legacy(co
         "id BIGINT PRIMARY KEY, decision_window VARCHAR UNIQUE, mode VARCHAR)"
     )
     con.execute(
-        "INSERT INTO agent_shadow_attempts VALUES "
-        "(1, 'agent-shadow-v1:legacy', 'agent_only')"
+        "INSERT INTO agent_shadow_attempts VALUES (1, 'agent-shadow-v1:legacy', 'agent_only')"
     )
 
     agent_shadow_store.init_schema(con)
@@ -804,9 +784,7 @@ def test_shadow_schema_adds_nullable_policy_identity_without_rewriting_legacy(co
     assert con.execute(
         "SELECT id, decision_window, mode, policy_id, "
         "policy_registration_sha256 FROM agent_shadow_attempts"
-    ).fetchall() == [
-        (1, "agent-shadow-v1:legacy", "agent_only", None, None)
-    ]
+    ).fetchall() == [(1, "agent-shadow-v1:legacy", "agent_only", None, None)]
 
 
 def test_shadow_store_records_exact_request_and_usage(con, runner):
@@ -825,11 +803,16 @@ def test_shadow_store_records_exact_request_and_usage(con, runner):
     )
     row = agent_shadow_store.find_window(con, result["decision_window"])
     assert row is not None
-    assert canonical_sha256(agent_model_client.request_payload(
-        agent_shadow_runner._model_input(
-            agent_shadow_runner.agent_context.build(con, "dual_momentum", "SPY"),
-            "agent_only",
+    assert (
+        canonical_sha256(
+            agent_model_client.request_payload(
+                agent_shadow_runner._model_input(
+                    agent_shadow_runner.agent_context.build(con, "dual_momentum", "SPY"),
+                    "agent_only",
+                )
+            )
         )
-    )) == row[11]
+        == row[11]
+    )
     response_payload = agent_shadow_store.events(con, result["attempt_id"])[1][2]
     assert '"total_tokens":120' in response_payload

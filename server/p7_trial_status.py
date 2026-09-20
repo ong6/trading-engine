@@ -44,7 +44,7 @@ ARM_CONTRACTS = {
 REQUIREMENTS = (
     "manifest_dependencies_current",
     "trial_policy_implementations",
-    "stable_model_revision",
+    "observable_model_identity",
     "model_transport_healthy",
     "shared_data_admission",
     "independent_fx_boundary",
@@ -399,10 +399,7 @@ def project(
         )
     capital = manifest["capital"]
     runtime = manifest["runtime_evidence"]
-    provider_revision_visible = (
-        agent_model_client.MODEL_VERSION != "unversioned-catalog-alias"
-        and agent_model_client.identity()["provider_model_revision_available"] is True
-    )
+    model_identity = agent_model_client.identity()
     prohibited_absent = (
         authority.get("broker_route") == "absent"
         and authority.get("live_trading") == "disabled"
@@ -424,14 +421,19 @@ def project(
             },
         ),
         _gate(
-            "stable_model_revision",
-            False,
+            "observable_model_identity",
+            model_transport_healthy,
             {
-                "model": agent_model_client.MODEL,
-                "model_version": agent_model_client.MODEL_VERSION,
-                "provider_model_revision_available": provider_revision_visible,
-                "response_binding_verified": False,
-                "verification_status": "unverified",
+                "model": model_identity["model"],
+                "model_version": model_identity["model_version"],
+                "proxy_source_sha256": model_identity["required_proxy_source_sha256"],
+                "catalog_sha256": model_identity["model_catalog_entry_sha256"],
+                "upstream_model_family": agent_model_client.UPSTREAM_MODEL_FAMILY,
+                "response_binding_required": True,
+                "provider_model_revision_available": model_identity[
+                    "provider_model_revision_available"
+                ],
+                "paper_authority_only": True,
             },
         ),
         _gate(
