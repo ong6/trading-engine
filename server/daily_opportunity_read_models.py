@@ -6,7 +6,7 @@ import duckdb
 from engine.lib.util import table_exists
 
 from .daily_opportunity_store import PORTFOLIO_ID
-from .json_utils import loads_strict
+from .json_utils import loads_object, loads_strict
 
 ASSESSMENT_LIMIT = 20
 
@@ -24,7 +24,8 @@ def status(con: duckdb.DuckDBPyConnection) -> dict:
             "broker_route": "absent", "assessments": [],
         }
     run = con.execute(
-        "SELECT id, market_date, status, news_status, reason, completed_at "
+        "SELECT id, market_date, status, news_status, reason, completed_at, "
+        "model_response_id, model_response_payload "
         "FROM daily_opportunity_runs ORDER BY market_date DESC LIMIT 1"
     ).fetchone()
     if run is None:
@@ -36,7 +37,7 @@ def status(con: duckdb.DuckDBPyConnection) -> dict:
             "execution_authority": "local_simulator_only", "broker_route": "absent",
             "assessments": [],
         }
-    run_id, market_date, run_status, news_status, reason, completed_at = run
+    run_id, market_date, run_status, news_status, reason, completed_at, response_id, raw_response = run
     rows = con.execute(
         "SELECT ticker, decision, action, horizon_sessions, confidence, thesis, invalidation, "
         "evidence_ids, created_at FROM daily_opportunity_assessments WHERE run_id = ? "
@@ -55,6 +56,14 @@ def status(con: duckdb.DuckDBPyConnection) -> dict:
     order_count = int(con.execute(
         "SELECT COUNT(*) FROM daily_opportunity_order_attribution"
     ).fetchone()[0]) if table_exists(con, "daily_opportunity_order_attribution") else 0
+    positions = int(con.execute(
+        "SELECT COUNT(*) FROM sim_positions WHERE portfolio_id = ? AND qty > 0", [PORTFOLIO_ID]
+    ).fetchone()[0])
+    pending = int(con.execute(
+        "SELECT COUNT(*) FROM sim_orders WHERE portfolio_id = ? AND status = 'pending'",
+        [PORTFOLIO_ID],
+    ).fetchone()[0])
+    response = {} if raw_response is None else loads_object(raw_response)
     return {
         "status": "ok" if run_status == "completed" else "issues",
         "latest_market_date": market_date, "latest_run_status": run_status,
@@ -63,6 +72,10 @@ def status(con: duckdb.DuckDBPyConnection) -> dict:
         "triggered_alert_count": int(counts.get("triggered", 0)),
         "expired_alert_count": int(counts.get("expired", 0)),
         "paper_order_count": order_count, "book_active": bool(book and book[0]),
+        "position_count": positions, "pending_order_count": pending,
+        "model": response.get("model"), "model_version": response.get("model_version"),
+        "model_response_id": response_id, "usage": response.get("usage"),
+        "schedule": {"on_calendar": "Tue..Sat *-*-* 02:00:00 UTC", "persistent": True},
         "execution_authority": "local_simulator_only", "broker_route": "absent",
         "assessments": [
             {"ticker": row[0], "decision": row[1], "action": row[2],

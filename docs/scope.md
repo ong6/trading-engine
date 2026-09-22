@@ -38,7 +38,7 @@ evidence, but they authorize no further feature growth outside P7's exact trial 
 | Parameter sweeps and grids | `OPEN_RECURRING_GRIDS` empty | P6 permits one pre-registered fixed-instrument experiment, not a grid | No sweep or nearby variant |
 | Stock-selection or fundamentals research | Gated | 756 qualifying dates / 156 snapshots, or an audited point-in-time dataset (P3) | None |
 | Intraday research | Gated | 252 qualifying sessions over 365 days in both resolutions | None |
-| New API endpoints, dashboard cards, operator CLIs, migrations | — | P7 names one bounded trial status/API panel and backup-gated isolated-book changes | Nothing else |
+| New API endpoints, dashboard cards, operator CLIs, migrations | — | P7/P8 name bounded status and isolated-book changes | Nothing else |
 | Daily opportunity agent | Approved P8; no active runtime yet | P8's bounded simulator-only implementation | No broker path, real capital, retrospective trades, or P7 evidence pooling |
 
 ## Never on this host

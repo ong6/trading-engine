@@ -209,6 +209,29 @@ def test_alert_triggers_only_on_later_bar_and_expires_by_sessions(tmp_path):
     con.close()
 
 
+def test_alert_expires_after_its_session_budget(tmp_path):
+    path = tmp_path / "market.duckdb"
+    _database(path)
+    daily_opportunity_runner.run(
+        database=path, now=NOW, generate=_connector, fetch_news=_news_response
+    )
+    con = db.connect(path)
+    later = date(2026, 9, 30)
+    for offset in range(1, 10):
+        session = MARKET_DATE + timedelta(days=offset)
+        if session.weekday() < 5:
+            con.execute(
+                "INSERT INTO prices (ticker,date,open,high,low,close,volume) VALUES ('SPY',?,?,?,?,?,?)",
+                [session, 120, 121, 119, 120, 1_000_000],
+            )
+    with db.transaction(con):
+        assert daily_opportunity_store.evaluate_alerts(con, later) == []
+    assert con.execute(
+        "SELECT event_type FROM daily_opportunity_alert_events ORDER BY id"
+    ).fetchall() == [("opened",), ("expired",)]
+    con.close()
+
+
 def test_active_isolated_book_gets_only_capped_next_open_pending_order(tmp_path):
     path = tmp_path / "market.duckdb"
     _database(path)
@@ -260,3 +283,6 @@ def test_status_is_bounded_and_reports_inactive_book(tmp_path):
     assert status["broker_route"] == "absent"
     assert status["open_alert_count"] == 1
     assert status["paper_order_count"] == 0
+    assert status["model"] == agent_model_client.MODEL
+    assert status["position_count"] == status["pending_order_count"] == 0
+    assert status["schedule"]["on_calendar"] == "Tue..Sat *-*-* 02:00:00 UTC"

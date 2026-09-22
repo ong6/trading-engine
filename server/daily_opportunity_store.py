@@ -9,6 +9,8 @@ import duckdb
 from engine.lib.provenance import canonical_sha256
 
 PORTFOLIO_ID = "daily_opportunity_agent_v1"
+MAX_OPEN_ALERTS = 10
+ALERT_EVALUATION_LIMIT = 10
 
 
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
@@ -119,6 +121,20 @@ def complete_run(
         )
         alert = assessment["alert"]
         if alert is not None:
+            open_count = con.execute(
+                "SELECT COUNT(*) FROM daily_opportunity_alerts a WHERE NOT EXISTS ("
+                "SELECT 1 FROM daily_opportunity_alert_events e WHERE e.alert_id = a.id "
+                "AND e.event_type IN ('triggered','expired'))"
+            ).fetchone()[0]
+            open_alert = con.execute(
+                "SELECT 1 FROM daily_opportunity_alerts a WHERE a.ticker = ? AND NOT EXISTS ("
+                "SELECT 1 FROM daily_opportunity_alert_events e WHERE e.alert_id = a.id "
+                "AND e.event_type IN ('triggered','expired')) LIMIT 1",
+                [assessment["ticker"]],
+            ).fetchone()
+            if open_alert is not None or open_count >= MAX_OPEN_ALERTS:
+                assessment_id += 1
+                continue
             identity = {
                 "assessment_sha256": digest, "ticker": assessment["ticker"],
                 "direction": alert["direction"], "trigger_price": alert["price"],
@@ -164,7 +180,8 @@ def evaluate_alerts(con: duckdb.DuckDBPyConnection, market_date: date) -> list[d
         "a.expires_sessions, a.alert_sha256 FROM daily_opportunity_alerts a "
         "WHERE NOT EXISTS (SELECT 1 FROM daily_opportunity_alert_events e "
         "WHERE e.alert_id = a.id AND e.event_type IN ('triggered','expired')) "
-        "ORDER BY a.id"
+        "ORDER BY a.id LIMIT ?",
+        [ALERT_EVALUATION_LIMIT],
     ).fetchall()
     triggered = []
     for alert_id, ticker, direction, price, created, expires, alert_sha256 in rows:
