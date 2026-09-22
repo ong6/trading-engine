@@ -11568,4 +11568,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** source LOC unchanged; P10 uses the existing farm ceiling.
 - **Next:** run and publish the price-only diagnostic without any promotion claim.
 
+## 2026-09-22 — Run the 2022 agent replay
+
+- **Why:** P10 permits four frozen 2022 decisions under named and blinded chart-only prompts, with
+  future prices withheld and absent point-in-time fundamentals/news reported rather than invented.
+- **What:** retain eight model decisions and delayed 20-session outcomes; both variants selected
+  XOM four times and produced identical diagnostic results, explicitly marked contaminated.
+- **Evidence:** rerun uses all retained responses with zero model calls; each variant is 3/4 correct,
+  +19.78% compounded, -1.83% max drawdown, and +5.85pp mean excess versus SPY.
+- **Metrics:** pending final snapshot; farm remains within its approved ceiling.
+- **Next:** do not promote; collect genuine prospective P8/P9 evidence and acquire audited PIT data.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

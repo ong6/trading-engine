@@ -1,0 +1,1029 @@
+{
+  "experiment_id": "agent-2022-replay-v1",
+  "interpretation": "contaminated_retrospective_diagnostic_only",
+  "known_contamination": [
+    "current_model_may_have_training_memory_of_2022",
+    "assets_selected_with_hindsight",
+    "current-universe survivorship bias"
+  ],
+  "results": [
+    {
+      "alias_map": null,
+      "decision": {
+        "asset": "XOM",
+        "confidence": 0.64,
+        "direction": "up",
+        "expected_return_pct": 5.5,
+        "invalidation": "The thesis is invalidated by a decisive momentum reversal, especially a break below the 50-day average accompanied by weakening relative volume and negative short-term returns.",
+        "schema_version": 1,
+        "thesis": "XOM has the strongest multi-horizon momentum, trades above both major averages at a 252-session high, and combines positive 5-, 20-, 60-, 126-, and 252-session returns with lower recent volatility than AAPL or MSFT."
+      },
+      "decision_date": "2022-01-31",
+      "excess_vs_spy": 0.08134652504825957,
+      "model": "GPT-5.6-Sol:max",
+      "model_version": "unversioned-catalog-alias",
+      "outcome": {
+        "entry_date": "2022-02-01",
+        "entry_open": 76.44999694824219,
+        "exit_close": 79.16999816894531,
+        "exit_date": "2022-03-01",
+        "gross_return": 0.0355788270671169,
+        "net_return": 0.03350973850154837,
+        "round_trip_cost_bps": 20
+      },
+      "prompt": {
+        "assets": [
+          {
+            "asset": "AAPL",
+            "data_prefix_sha256": "51793b2ce52f06990f4c00d73118a47e32bfff362b8eddb8e52ae18543b65232",
+            "features": {
+              "above_200d_average": true,
+              "above_50d_average": true,
+              "close": 174.77999877929688,
+              "drawdown_from_252d_high": -0.03972306986288887,
+              "relative_volume_20d": 1.2053223728477616,
+              "return_126d": 0.201071973940103,
+              "return_20d": -0.015712161006040226,
+              "return_252d": 0.3029670461798484,
+              "return_5d": 0.081425591261572,
+              "return_60d": 0.15373947086683404,
+              "volatility_20d_annualized": 0.34981487299264724
+            }
+          },
+          {
+            "asset": "MSFT",
+            "data_prefix_sha256": "408078ad65f6de734c17f8c234b02d157d98fe309b3f4e4ed9a48d43f8f6f94d",
+            "features": {
+              "above_200d_average": true,
+              "above_50d_average": false,
+              "close": 310.9800109863281,
+              "drawdown_from_252d_high": -0.09364336724946343,
+              "relative_volume_20d": 1.127464724624488,
+              "return_126d": 0.09184749311634799,
+              "return_20d": -0.07534489708030478,
+              "return_252d": 0.2976424740517807,
+              "return_5d": 0.04929654185594501,
+              "return_60d": -0.06892212279542476,
+              "volatility_20d_annualized": 0.31037527138564874
+            }
+          },
+          {
+            "asset": "XOM",
+            "data_prefix_sha256": "a0517730a0cc1cd1359aaaa6c7d4d1948bfb1cee5b9ba2098e8c943f86c1a795",
+            "features": {
+              "above_200d_average": true,
+              "above_50d_average": true,
+              "close": 75.95999908447266,
+              "drawdown_from_252d_high": 0.0,
+              "relative_volume_20d": 1.2074705874479676,
+              "return_126d": 0.3192080005024429,
+              "return_20d": 0.24137932324313982,
+              "return_252d": 0.691006281852129,
+              "return_5d": 0.04354991247526008,
+              "return_60d": 0.1881745459388482,
+              "volatility_20d_annualized": 0.2632108304874127
+            }
+          }
+        ],
+        "choices": [
+          "AAPL",
+          "MSFT",
+          "XOM",
+          "CASH"
+        ],
+        "decision_date": "2022-01-31",
+        "execution_authority": "none",
+        "known_limitations": [
+          "possible_model_training_memory",
+          "current_universe_survivorship_bias"
+        ],
+        "market_context": {
+          "asset": "SPY",
+          "data_prefix_sha256": "285288946e66cd50280f639600b969d6175ea187f5bcc8a789d6e6e9d6343ac0",
+          "features": {
+            "above_200d_average": true,
+            "above_50d_average": false,
+            "close": 449.9100036621094,
+            "drawdown_from_252d_high": -0.05819427747008499,
+            "relative_volume_20d": 1.4235987966142503,
+            "return_126d": 0.028154225250400122,
+            "return_20d": -0.05274125872418456,
+            "return_252d": 0.19583762731373056,
+            "return_5d": 0.02289470582043851,
+            "return_60d": -0.03186864675437162,
+            "volatility_20d_annualized": 0.1867537486648992
+          }
+        },
+        "schema_version": 1,
+        "task": "select one asset or cash for the next 20 sessions",
+        "variant": "price_named"
+      },
+      "request_sha256": "6a59cd22fb055fa796e484e30d545b0143e65eec5a5c645da51348ba6de8cb5c",
+      "response_id": "resp_83d48b6f2bdd4ce096b98180cb31afb1",
+      "selected_ticker": "XOM",
+      "spy_net_return": -0.047836786546711196,
+      "usage": {
+        "input_tokens": 1013,
+        "output_tokens": 203,
+        "total_tokens": 1216
+      },
+      "variant": "price_named"
+    },
+    {
+      "alias_map": null,
+      "decision": {
+        "asset": "XOM",
+        "confidence": 0.68,
+        "direction": "up",
+        "expected_return_pct": 3.5,
+        "invalidation": "The thesis is invalidated if XOM loses its 50- and 200-session averages or its positive 20-session momentum reverses materially, especially alongside continued elevated volume.",
+        "schema_version": 1,
+        "thesis": "XOM has the strongest relative and absolute momentum: it is above both major averages, near its 252-session high, positive across 20-, 60-, 126-, and 252-session horizons, and supported by elevated volume while the other assets and SPY are below key averages."
+      },
+      "decision_date": "2022-04-29",
+      "excess_vs_spy": 0.13996090739348,
+      "model": "GPT-5.6-Sol:max",
+      "model_version": "unversioned-catalog-alias",
+      "outcome": {
+        "entry_date": "2022-05-02",
+        "entry_open": 85.01000213623047,
+        "exit_close": 97.58999633789062,
+        "exit_date": "2022-05-27",
+        "gross_return": 0.1479825183570802,
+        "net_return": 0.14568884699173168,
+        "round_trip_cost_bps": 20
+      },
+      "prompt": {
+        "assets": [
+          {
+            "asset": "AAPL",
+            "data_prefix_sha256": "c0d6457ef717ef12c6de46446c77f40cfd05b2f9c8eaac91b54b324a9b4e8ec1",
+            "features": {
+              "above_200d_average": false,
+              "above_50d_average": false,
+              "close": 157.64999389648438,
+              "drawdown_from_252d_high": -0.13383880745865662,
+              "relative_volume_20d": 1.685333810906579,
+              "return_126d": 0.03329610230318991,
+              "return_20d": -0.09713078663640828,
+              "return_252d": 0.19922399091019138,
+              "return_5d": -0.025588723415833625,
+              "return_60d": -0.10344633087032551,
+              "volatility_20d_annualized": 0.3397352416935782
+            }
+          },
+          {
+            "asset": "MSFT",
+            "data_prefix_sha256": "5d6684fe913ae504924886513fe3ac35444e9ced15f89dc0eaf2b653be7fc6e1",
+            "features": {
+              "above_200d_average": false,
+              "above_50d_average": false,
+              "close": 277.5199890136719,
+              "drawdown_from_252d_high": -0.19116318130667287,
+              "relative_volume_20d": 1.2597230056200774,
+              "return_126d": -0.14438111980456703,
+              "return_20d": -0.09986704546961789,
+              "return_252d": 0.10048376982257023,
+              "return_5d": 0.012735796262896892,
+              "return_60d": -0.11465578836575963,
+              "volatility_20d_annualized": 0.40306441447582564
+            }
+          },
+          {
+            "asset": "XOM",
+            "data_prefix_sha256": "aa3961cbd64f04612972640eee585df57ad06954b9a9e6a11dcab248811bcfcd",
+            "features": {
+              "above_200d_average": true,
+              "above_50d_average": true,
+              "close": 85.25,
+              "drawdown_from_252d_high": -0.03726711392464832,
+              "relative_volume_20d": 1.4392831928236223,
+              "return_126d": 0.3256103753126023,
+              "return_20d": 0.032207334786973796,
+              "return_252d": 0.48934307302912483,
+              "return_5d": 0.001409641142414264,
+              "return_60d": 0.057429882109676145,
+              "volatility_20d_annualized": 0.3029405194796861
+            }
+          }
+        ],
+        "choices": [
+          "AAPL",
+          "MSFT",
+          "XOM",
+          "CASH"
+        ],
+        "decision_date": "2022-04-29",
+        "execution_authority": "none",
+        "known_limitations": [
+          "possible_model_training_memory",
+          "current_universe_survivorship_bias"
+        ],
+        "market_context": {
+          "asset": "SPY",
+          "data_prefix_sha256": "002dd320a483341c053c0c97085bff12e5ad0b9a8c2eb00f46744a67243f69c1",
+          "features": {
+            "above_200d_average": false,
+            "above_50d_average": false,
+            "close": 412.0,
+            "drawdown_from_252d_high": -0.13755205591352426,
+            "relative_volume_20d": 1.667843781685955,
+            "return_126d": -0.1010647726130176,
+            "return_20d": -0.08776904916030037,
+            "return_252d": -0.012700666062799404,
+            "return_5d": -0.03295467154099796,
+            "return_60d": -0.09915820596545744,
+            "volatility_20d_annualized": 0.24937596956995917
+          }
+        },
+        "schema_version": 1,
+        "task": "select one asset or cash for the next 20 sessions",
+        "variant": "price_named"
+      },
+      "request_sha256": "252d51cc38b021577770e84467dce076d7b0d168793f8fd02524e745941c3710",
+      "response_id": "resp_d7691d7963ec4c6a9fbaee44a2c1ee1d",
+      "selected_ticker": "XOM",
+      "spy_net_return": 0.005727939598251686,
+      "usage": {
+        "input_tokens": 1015,
+        "output_tokens": 175,
+        "total_tokens": 1190
+      },
+      "variant": "price_named"
+    },
+    {
+      "alias_map": null,
+      "decision": {
+        "asset": "XOM",
+        "confidence": 0.64,
+        "direction": "up",
+        "expected_return_pct": 4.0,
+        "invalidation": "The thesis is invalidated by a loss of the 50-day average accompanied by negative short-term returns and weakening relative volume.",
+        "schema_version": 1,
+        "thesis": "XOM has the strongest multi-horizon momentum, remains above both its 50-day and 200-day averages, is only 7.3% below its 252-day high, and has elevated relative volume supporting the advance."
+      },
+      "decision_date": "2022-07-29",
+      "excess_vs_spy": 0.04179452747124046,
+      "model": "GPT-5.6-Sol:max",
+      "model_version": "unversioned-catalog-alias",
+      "outcome": {
+        "entry_date": "2022-08-01",
+        "entry_open": 94.79000091552734,
+        "exit_close": 97.87000274658203,
+        "exit_date": "2022-08-26",
+        "gross_return": 0.03249289799880306,
+        "net_return": 0.030429975125678688,
+        "round_trip_cost_bps": 20
+      },
+      "prompt": {
+        "assets": [
+          {
+            "asset": "AAPL",
+            "data_prefix_sha256": "d9e833fb29fb4873664f0d0d10b5d7c3165e2496d550617f9101ec40a3fe30c7",
+            "features": {
+              "above_200d_average": true,
+              "above_50d_average": true,
+              "close": 162.50999450683594,
+              "drawdown_from_252d_high": -0.10713697372958064,
+              "relative_volume_20d": 1.4084311959230493,
+              "return_126d": 0.02066319093649782,
+              "return_20d": 0.18863365312951386,
+              "return_252d": 0.11583352916703293,
+              "return_5d": 0.054643379642127066,
+              "return_60d": 0.018999240409270035,
+              "volatility_20d_annualized": 0.24686772008375032
+            }
+          },
+          {
+            "asset": "MSFT",
+            "data_prefix_sha256": "19b77ce876f02f946c8c4af28451fce1c0a604e411b872e567830397a66fe494",
+            "features": {
+              "above_200d_average": false,
+              "above_50d_average": true,
+              "close": 280.739990234375,
+              "drawdown_from_252d_high": -0.1817784319313267,
+              "relative_volume_20d": 1.3750678920740547,
+              "return_126d": -0.06370066147543496,
+              "return_20d": 0.09309661999060093,
+              "return_252d": -0.02010474612783597,
+              "return_5d": 0.07827625606635946,
+              "return_60d": -0.0036908529683700175,
+              "volatility_20d_annualized": 0.3519399786568964
+            }
+          },
+          {
+            "asset": "XOM",
+            "data_prefix_sha256": "1129db1d4709848181c7a98200dfda6cc31f6391160f69a689fc3feece56f89c",
+            "features": {
+              "above_200d_average": true,
+              "above_50d_average": true,
+              "close": 96.93000030517578,
+              "drawdown_from_252d_high": -0.07323832394035368,
+              "relative_volume_20d": 1.5169106203781877,
+              "return_126d": 0.29033542014328684,
+              "return_20d": 0.13183093176074911,
+              "return_252d": 0.6448328491975672,
+              "return_5d": 0.11311435768261968,
+              "return_60d": 0.09910417985957554,
+              "volatility_20d_annualized": 0.3300644676981465
+            }
+          }
+        ],
+        "choices": [
+          "AAPL",
+          "MSFT",
+          "XOM",
+          "CASH"
+        ],
+        "decision_date": "2022-07-29",
+        "execution_authority": "none",
+        "known_limitations": [
+          "possible_model_training_memory",
+          "current_universe_survivorship_bias"
+        ],
+        "market_context": {
+          "asset": "SPY",
+          "data_prefix_sha256": "bf0d90624c9d237ff3b34f0bea854bbc06bd5aa60cebc0bf6980f77451536451",
+          "features": {
+            "above_200d_average": false,
+            "above_50d_average": true,
+            "close": 411.989990234375,
+            "drawdown_from_252d_high": -0.13757300955863128,
+            "relative_volume_20d": 1.2034114572347197,
+            "return_126d": -0.044638717270951145,
+            "return_20d": 0.0920874492627568,
+            "return_252d": -0.06504029061405603,
+            "return_5d": 0.042775048857554676,
+            "return_60d": -0.010543288815400786,
+            "volatility_20d_annualized": 0.1917195910296357
+          }
+        },
+        "schema_version": 1,
+        "task": "select one asset or cash for the next 20 sessions",
+        "variant": "price_named"
+      },
+      "request_sha256": "c33f709fe0490aa8ea6a896ca4012a090660c8590870ff15ea6946e4d8fd03e5",
+      "response_id": "resp_96f4a7c0d20b43abad8ef9532219aef6",
+      "selected_ticker": "XOM",
+      "spy_net_return": -0.011364552345561774,
+      "usage": {
+        "input_tokens": 1015,
+        "output_tokens": 261,
+        "total_tokens": 1276
+      },
+      "variant": "price_named"
+    },
+    {
+      "alias_map": null,
+      "decision": {
+        "asset": "XOM",
+        "confidence": 0.67,
+        "direction": "up",
+        "expected_return_pct": 4.5,
+        "invalidation": "The outlook is invalidated if momentum reverses sharply, particularly if XOM falls below its 50-day average on sustained elevated volume.",
+        "schema_version": 1,
+        "thesis": "XOM has the strongest multi-horizon momentum, trades above both major averages, and is at a 252-session high with elevated volume, favoring continued relative strength over the next 20 sessions."
+      },
+      "decision_date": "2022-10-31",
+      "excess_vs_spy": -0.029273484552372442,
+      "model": "GPT-5.6-Sol:max",
+      "model_version": "unversioned-catalog-alias",
+      "outcome": {
+        "entry_date": "2022-11-01",
+        "entry_open": 112.37000274658203,
+        "exit_close": 110.54000091552734,
+        "exit_date": "2022-11-29",
+        "gross_return": -0.016285501346669284,
+        "net_return": -0.018250964880441978,
+        "round_trip_cost_bps": 20
+      },
+      "prompt": {
+        "assets": [
+          {
+            "asset": "AAPL",
+            "data_prefix_sha256": "98c058560c305d52c2a7bdc788f5ee0cd50354bee42cbb56e3af15985292eef2",
+            "features": {
+              "above_200d_average": false,
+              "above_50d_average": true,
+              "close": 153.33999633789062,
+              "drawdown_from_252d_high": -0.15751881234120102,
+              "relative_volume_20d": 1.1443533428946147,
+              "return_126d": -0.029247975307733265,
+              "return_20d": 0.07644787380097462,
+              "return_252d": 0.02363146337793931,
+              "return_5d": 0.02602876861212411,
+              "return_60d": -0.07263386345511391,
+              "volatility_20d_annualized": 0.42412353407733216
+            }
+          },
+          {
+            "asset": "MSFT",
+            "data_prefix_sha256": "2fdd85d76e5a2e18d0a2563c1b7d3b76006007816817325914d8ce6d1232bb96",
+            "features": {
+              "above_200d_average": false,
+              "above_50d_average": false,
+              "close": 232.1300048828125,
+              "drawdown_from_252d_high": -0.3234530768757313,
+              "relative_volume_20d": 0.9674297216157205,
+              "return_126d": -0.18399126837027424,
+              "return_20d": -0.03576472714916523,
+              "return_252d": -0.3000120369678473,
+              "return_5d": -0.06115265972573303,
+              "return_60d": -0.17949170450665797,
+              "volatility_20d_annualized": 0.48379499000117643
+            }
+          },
+          {
+            "asset": "XOM",
+            "data_prefix_sha256": "dbfc5d73816ec67848da6364d69cf015453d0b23a1e557f34ee4c2a995bbf65b",
+            "features": {
+              "above_200d_average": true,
+              "above_50d_average": true,
+              "close": 110.80999755859375,
+              "drawdown_from_252d_high": 0.0,
+              "relative_volume_20d": 1.4660295795724927,
+              "return_126d": 0.2823746425459732,
+              "return_20d": 0.20550478422474905,
+              "return_252d": 0.7187838600972378,
+              "return_5d": 0.039493425372747026,
+              "return_60d": 0.2527982066911303,
+              "volatility_20d_annualized": 0.3076234430997687
+            }
+          }
+        ],
+        "choices": [
+          "AAPL",
+          "MSFT",
+          "XOM",
+          "CASH"
+        ],
+        "decision_date": "2022-10-31",
+        "execution_authority": "none",
+        "known_limitations": [
+          "possible_model_training_memory",
+          "current_universe_survivorship_bias"
+        ],
+        "market_context": {
+          "asset": "SPY",
+          "data_prefix_sha256": "21043eb4b3e7c7f8558df5d664330cd671427d4af433ed87d4b147a11ffc0ff3",
+          "features": {
+            "above_200d_average": false,
+            "above_50d_average": true,
+            "close": 386.2099914550781,
+            "drawdown_from_252d_high": -0.19153880311629257,
+            "relative_volume_20d": 1.060488050601599,
+            "return_126d": -0.06820599011271133,
+            "return_20d": 0.05346282667320179,
+            "return_252d": -0.15904193477391804,
+            "return_5d": 0.01937339043072095,
+            "return_60d": -0.06592983695345311,
+            "volatility_20d_annualized": 0.27354753497293777
+          }
+        },
+        "schema_version": 1,
+        "task": "select one asset or cash for the next 20 sessions",
+        "variant": "price_named"
+      },
+      "request_sha256": "06c493fc684dd50e9ce1484b1a8bd575bf8e059da5b7c16dc16d66e9d104b91a",
+      "response_id": "resp_f301e1ab30f64bb5a4ce877617b23d18",
+      "selected_ticker": "XOM",
+      "spy_net_return": 0.011022519671930464,
+      "usage": {
+        "input_tokens": 1018,
+        "output_tokens": 163,
+        "total_tokens": 1181
+      },
+      "variant": "price_named"
+    },
+    {
+      "alias_map": {
+        "AAPL": "Asset A",
+        "MSFT": "Asset B",
+        "XOM": "Asset C"
+      },
+      "decision": {
+        "asset": "Asset C",
+        "confidence": 0.66,
+        "direction": "up",
+        "expected_return_pct": 4.5,
+        "invalidation": "The thesis is invalidated by a decisive momentum reversal, particularly a move below the 50-day average accompanied by negative short-term returns and elevated relative volume.",
+        "schema_version": 1,
+        "thesis": "Asset C has the strongest multi-horizon momentum, remains above both major averages, is at its 252-session high, and combines positive 5-, 20-, 60-, 126-, and 252-session returns with lower recent volatility than the other assets."
+      },
+      "decision_date": "2022-01-31",
+      "excess_vs_spy": 0.08134652504825957,
+      "model": "GPT-5.6-Sol:max",
+      "model_version": "unversioned-catalog-alias",
+      "outcome": {
+        "entry_date": "2022-02-01",
+        "entry_open": 76.44999694824219,
+        "exit_close": 79.16999816894531,
+        "exit_date": "2022-03-01",
+        "gross_return": 0.0355788270671169,
+        "net_return": 0.03350973850154837,
+        "round_trip_cost_bps": 20
+      },
+      "prompt": {
+        "assets": [
+          {
+            "asset": "Asset A",
+            "data_prefix_sha256": "51793b2ce52f06990f4c00d73118a47e32bfff362b8eddb8e52ae18543b65232",
+            "features": {
+              "above_200d_average": true,
+              "above_50d_average": true,
+              "close": 174.77999877929688,
+              "drawdown_from_252d_high": -0.03972306986288887,
+              "relative_volume_20d": 1.2053223728477616,
+              "return_126d": 0.201071973940103,
+              "return_20d": -0.015712161006040226,
+              "return_252d": 0.3029670461798484,
+              "return_5d": 0.081425591261572,
+              "return_60d": 0.15373947086683404,
+              "volatility_20d_annualized": 0.34981487299264724
+            }
+          },
+          {
+            "asset": "Asset B",
+            "data_prefix_sha256": "408078ad65f6de734c17f8c234b02d157d98fe309b3f4e4ed9a48d43f8f6f94d",
+            "features": {
+              "above_200d_average": true,
+              "above_50d_average": false,
+              "close": 310.9800109863281,
+              "drawdown_from_252d_high": -0.09364336724946343,
+              "relative_volume_20d": 1.127464724624488,
+              "return_126d": 0.09184749311634799,
+              "return_20d": -0.07534489708030478,
+              "return_252d": 0.2976424740517807,
+              "return_5d": 0.04929654185594501,
+              "return_60d": -0.06892212279542476,
+              "volatility_20d_annualized": 0.31037527138564874
+            }
+          },
+          {
+            "asset": "Asset C",
+            "data_prefix_sha256": "a0517730a0cc1cd1359aaaa6c7d4d1948bfb1cee5b9ba2098e8c943f86c1a795",
+            "features": {
+              "above_200d_average": true,
+              "above_50d_average": true,
+              "close": 75.95999908447266,
+              "drawdown_from_252d_high": 0.0,
+              "relative_volume_20d": 1.2074705874479676,
+              "return_126d": 0.3192080005024429,
+              "return_20d": 0.24137932324313982,
+              "return_252d": 0.691006281852129,
+              "return_5d": 0.04354991247526008,
+              "return_60d": 0.1881745459388482,
+              "volatility_20d_annualized": 0.2632108304874127
+            }
+          }
+        ],
+        "choices": [
+          "Asset A",
+          "Asset B",
+          "Asset C",
+          "CASH"
+        ],
+        "decision_date": "withheld",
+        "execution_authority": "none",
+        "known_limitations": [
+          "possible_model_training_memory",
+          "current_universe_survivorship_bias"
+        ],
+        "market_context": {
+          "asset": "Market",
+          "data_prefix_sha256": "285288946e66cd50280f639600b969d6175ea187f5bcc8a789d6e6e9d6343ac0",
+          "features": {
+            "above_200d_average": true,
+            "above_50d_average": false,
+            "close": 449.9100036621094,
+            "drawdown_from_252d_high": -0.05819427747008499,
+            "relative_volume_20d": 1.4235987966142503,
+            "return_126d": 0.028154225250400122,
+            "return_20d": -0.05274125872418456,
+            "return_252d": 0.19583762731373056,
+            "return_5d": 0.02289470582043851,
+            "return_60d": -0.03186864675437162,
+            "volatility_20d_annualized": 0.1867537486648992
+          }
+        },
+        "schema_version": 1,
+        "task": "select one asset or cash for the next 20 sessions",
+        "variant": "price_blinded"
+      },
+      "request_sha256": "a8fd0ab4cbc54fae0f2662eb4979b689afd7a030392956dfa2e6968a51f62c5a",
+      "response_id": "resp_f724f496609642c7965b1d140ffb0641",
+      "selected_ticker": "XOM",
+      "spy_net_return": -0.047836786546711196,
+      "usage": {
+        "input_tokens": 1009,
+        "output_tokens": 274,
+        "total_tokens": 1283
+      },
+      "variant": "price_blinded"
+    },
+    {
+      "alias_map": {
+        "AAPL": "Asset A",
+        "MSFT": "Asset B",
+        "XOM": "Asset C"
+      },
+      "decision": {
+        "asset": "Asset C",
+        "confidence": 0.67,
+        "direction": "up",
+        "expected_return_pct": 3.0,
+        "invalidation": "The thesis is invalidated if Asset C falls below its 50-session average and its 20-session return turns materially negative, signaling that relative strength has failed.",
+        "schema_version": 1,
+        "thesis": "Asset C has the strongest momentum and relative strength: it is above both major averages, near its 252-session high, and has positive returns across 20, 60, 126, and 252 sessions despite weak market conditions."
+      },
+      "decision_date": "2022-04-29",
+      "excess_vs_spy": 0.13996090739348,
+      "model": "GPT-5.6-Sol:max",
+      "model_version": "unversioned-catalog-alias",
+      "outcome": {
+        "entry_date": "2022-05-02",
+        "entry_open": 85.01000213623047,
+        "exit_close": 97.58999633789062,
+        "exit_date": "2022-05-27",
+        "gross_return": 0.1479825183570802,
+        "net_return": 0.14568884699173168,
+        "round_trip_cost_bps": 20
+      },
+      "prompt": {
+        "assets": [
+          {
+            "asset": "Asset A",
+            "data_prefix_sha256": "c0d6457ef717ef12c6de46446c77f40cfd05b2f9c8eaac91b54b324a9b4e8ec1",
+            "features": {
+              "above_200d_average": false,
+              "above_50d_average": false,
+              "close": 157.64999389648438,
+              "drawdown_from_252d_high": -0.13383880745865662,
+              "relative_volume_20d": 1.685333810906579,
+              "return_126d": 0.03329610230318991,
+              "return_20d": -0.09713078663640828,
+              "return_252d": 0.19922399091019138,
+              "return_5d": -0.025588723415833625,
+              "return_60d": -0.10344633087032551,
+              "volatility_20d_annualized": 0.3397352416935782
+            }
+          },
+          {
+            "asset": "Asset B",
+            "data_prefix_sha256": "5d6684fe913ae504924886513fe3ac35444e9ced15f89dc0eaf2b653be7fc6e1",
+            "features": {
+              "above_200d_average": false,
+              "above_50d_average": false,
+              "close": 277.5199890136719,
+              "drawdown_from_252d_high": -0.19116318130667287,
+              "relative_volume_20d": 1.2597230056200774,
+              "return_126d": -0.14438111980456703,
+              "return_20d": -0.09986704546961789,
+              "return_252d": 0.10048376982257023,
+              "return_5d": 0.012735796262896892,
+              "return_60d": -0.11465578836575963,
+              "volatility_20d_annualized": 0.40306441447582564
+            }
+          },
+          {
+            "asset": "Asset C",
+            "data_prefix_sha256": "aa3961cbd64f04612972640eee585df57ad06954b9a9e6a11dcab248811bcfcd",
+            "features": {
+              "above_200d_average": true,
+              "above_50d_average": true,
+              "close": 85.25,
+              "drawdown_from_252d_high": -0.03726711392464832,
+              "relative_volume_20d": 1.4392831928236223,
+              "return_126d": 0.3256103753126023,
+              "return_20d": 0.032207334786973796,
+              "return_252d": 0.48934307302912483,
+              "return_5d": 0.001409641142414264,
+              "return_60d": 0.057429882109676145,
+              "volatility_20d_annualized": 0.3029405194796861
+            }
+          }
+        ],
+        "choices": [
+          "Asset A",
+          "Asset B",
+          "Asset C",
+          "CASH"
+        ],
+        "decision_date": "withheld",
+        "execution_authority": "none",
+        "known_limitations": [
+          "possible_model_training_memory",
+          "current_universe_survivorship_bias"
+        ],
+        "market_context": {
+          "asset": "Market",
+          "data_prefix_sha256": "002dd320a483341c053c0c97085bff12e5ad0b9a8c2eb00f46744a67243f69c1",
+          "features": {
+            "above_200d_average": false,
+            "above_50d_average": false,
+            "close": 412.0,
+            "drawdown_from_252d_high": -0.13755205591352426,
+            "relative_volume_20d": 1.667843781685955,
+            "return_126d": -0.1010647726130176,
+            "return_20d": -0.08776904916030037,
+            "return_252d": -0.012700666062799404,
+            "return_5d": -0.03295467154099796,
+            "return_60d": -0.09915820596545744,
+            "volatility_20d_annualized": 0.24937596956995917
+          }
+        },
+        "schema_version": 1,
+        "task": "select one asset or cash for the next 20 sessions",
+        "variant": "price_blinded"
+      },
+      "request_sha256": "1602ba03f2b72223b99f78943ace185a64037870d9af907e2fe0f60f20dd24f4",
+      "response_id": "resp_48b6abb0180e4965be5b164176e4d40d",
+      "selected_ticker": "XOM",
+      "spy_net_return": 0.005727939598251686,
+      "usage": {
+        "input_tokens": 1011,
+        "output_tokens": 170,
+        "total_tokens": 1181
+      },
+      "variant": "price_blinded"
+    },
+    {
+      "alias_map": {
+        "AAPL": "Asset A",
+        "MSFT": "Asset B",
+        "XOM": "Asset C"
+      },
+      "decision": {
+        "asset": "Asset C",
+        "confidence": 0.67,
+        "direction": "up",
+        "expected_return_pct": 4.8,
+        "invalidation": "The thesis is invalidated if recent momentum reverses sharply, particularly if the asset falls below its 50-day average as elevated volatility and strong short-term gains increase pullback risk.",
+        "schema_version": 1,
+        "thesis": "Asset C has the strongest broad-based momentum across 5-, 20-, 60-, 126-, and 252-session horizons, remains above both major moving averages, and has elevated relative volume supporting trend continuation."
+      },
+      "decision_date": "2022-07-29",
+      "excess_vs_spy": 0.04179452747124046,
+      "model": "GPT-5.6-Sol:max",
+      "model_version": "unversioned-catalog-alias",
+      "outcome": {
+        "entry_date": "2022-08-01",
+        "entry_open": 94.79000091552734,
+        "exit_close": 97.87000274658203,
+        "exit_date": "2022-08-26",
+        "gross_return": 0.03249289799880306,
+        "net_return": 0.030429975125678688,
+        "round_trip_cost_bps": 20
+      },
+      "prompt": {
+        "assets": [
+          {
+            "asset": "Asset A",
+            "data_prefix_sha256": "d9e833fb29fb4873664f0d0d10b5d7c3165e2496d550617f9101ec40a3fe30c7",
+            "features": {
+              "above_200d_average": true,
+              "above_50d_average": true,
+              "close": 162.50999450683594,
+              "drawdown_from_252d_high": -0.10713697372958064,
+              "relative_volume_20d": 1.4084311959230493,
+              "return_126d": 0.02066319093649782,
+              "return_20d": 0.18863365312951386,
+              "return_252d": 0.11583352916703293,
+              "return_5d": 0.054643379642127066,
+              "return_60d": 0.018999240409270035,
+              "volatility_20d_annualized": 0.24686772008375032
+            }
+          },
+          {
+            "asset": "Asset B",
+            "data_prefix_sha256": "19b77ce876f02f946c8c4af28451fce1c0a604e411b872e567830397a66fe494",
+            "features": {
+              "above_200d_average": false,
+              "above_50d_average": true,
+              "close": 280.739990234375,
+              "drawdown_from_252d_high": -0.1817784319313267,
+              "relative_volume_20d": 1.3750678920740547,
+              "return_126d": -0.06370066147543496,
+              "return_20d": 0.09309661999060093,
+              "return_252d": -0.02010474612783597,
+              "return_5d": 0.07827625606635946,
+              "return_60d": -0.0036908529683700175,
+              "volatility_20d_annualized": 0.3519399786568964
+            }
+          },
+          {
+            "asset": "Asset C",
+            "data_prefix_sha256": "1129db1d4709848181c7a98200dfda6cc31f6391160f69a689fc3feece56f89c",
+            "features": {
+              "above_200d_average": true,
+              "above_50d_average": true,
+              "close": 96.93000030517578,
+              "drawdown_from_252d_high": -0.07323832394035368,
+              "relative_volume_20d": 1.5169106203781877,
+              "return_126d": 0.29033542014328684,
+              "return_20d": 0.13183093176074911,
+              "return_252d": 0.6448328491975672,
+              "return_5d": 0.11311435768261968,
+              "return_60d": 0.09910417985957554,
+              "volatility_20d_annualized": 0.3300644676981465
+            }
+          }
+        ],
+        "choices": [
+          "Asset A",
+          "Asset B",
+          "Asset C",
+          "CASH"
+        ],
+        "decision_date": "withheld",
+        "execution_authority": "none",
+        "known_limitations": [
+          "possible_model_training_memory",
+          "current_universe_survivorship_bias"
+        ],
+        "market_context": {
+          "asset": "Market",
+          "data_prefix_sha256": "bf0d90624c9d237ff3b34f0bea854bbc06bd5aa60cebc0bf6980f77451536451",
+          "features": {
+            "above_200d_average": false,
+            "above_50d_average": true,
+            "close": 411.989990234375,
+            "drawdown_from_252d_high": -0.13757300955863128,
+            "relative_volume_20d": 1.2034114572347197,
+            "return_126d": -0.044638717270951145,
+            "return_20d": 0.0920874492627568,
+            "return_252d": -0.06504029061405603,
+            "return_5d": 0.042775048857554676,
+            "return_60d": -0.010543288815400786,
+            "volatility_20d_annualized": 0.1917195910296357
+          }
+        },
+        "schema_version": 1,
+        "task": "select one asset or cash for the next 20 sessions",
+        "variant": "price_blinded"
+      },
+      "request_sha256": "120ae1207cb66dcac468a5040e9c4c5d8fec485582ebf3e7317b8c629e64ba4b",
+      "response_id": "resp_d2fab25ed8e64aae8fc0b1fa85912f86",
+      "selected_ticker": "XOM",
+      "spy_net_return": -0.011364552345561774,
+      "usage": {
+        "input_tokens": 1011,
+        "output_tokens": 230,
+        "total_tokens": 1241
+      },
+      "variant": "price_blinded"
+    },
+    {
+      "alias_map": {
+        "AAPL": "Asset A",
+        "MSFT": "Asset B",
+        "XOM": "Asset C"
+      },
+      "decision": {
+        "asset": "Asset C",
+        "confidence": 0.72,
+        "direction": "up",
+        "expected_return_pct": 5.5,
+        "invalidation": "The thesis is invalidated by a decisive loss of the 50-day average accompanied by weakening 5- and 20-session returns or materially elevated downside volume.",
+        "schema_version": 1,
+        "thesis": "Asset C has the strongest multi-horizon momentum, trades above both major averages, and is at a 252-session high with elevated volume and lower volatility than the other listed assets."
+      },
+      "decision_date": "2022-10-31",
+      "excess_vs_spy": -0.029273484552372442,
+      "model": "GPT-5.6-Sol:max",
+      "model_version": "unversioned-catalog-alias",
+      "outcome": {
+        "entry_date": "2022-11-01",
+        "entry_open": 112.37000274658203,
+        "exit_close": 110.54000091552734,
+        "exit_date": "2022-11-29",
+        "gross_return": -0.016285501346669284,
+        "net_return": -0.018250964880441978,
+        "round_trip_cost_bps": 20
+      },
+      "prompt": {
+        "assets": [
+          {
+            "asset": "Asset A",
+            "data_prefix_sha256": "98c058560c305d52c2a7bdc788f5ee0cd50354bee42cbb56e3af15985292eef2",
+            "features": {
+              "above_200d_average": false,
+              "above_50d_average": true,
+              "close": 153.33999633789062,
+              "drawdown_from_252d_high": -0.15751881234120102,
+              "relative_volume_20d": 1.1443533428946147,
+              "return_126d": -0.029247975307733265,
+              "return_20d": 0.07644787380097462,
+              "return_252d": 0.02363146337793931,
+              "return_5d": 0.02602876861212411,
+              "return_60d": -0.07263386345511391,
+              "volatility_20d_annualized": 0.42412353407733216
+            }
+          },
+          {
+            "asset": "Asset B",
+            "data_prefix_sha256": "2fdd85d76e5a2e18d0a2563c1b7d3b76006007816817325914d8ce6d1232bb96",
+            "features": {
+              "above_200d_average": false,
+              "above_50d_average": false,
+              "close": 232.1300048828125,
+              "drawdown_from_252d_high": -0.3234530768757313,
+              "relative_volume_20d": 0.9674297216157205,
+              "return_126d": -0.18399126837027424,
+              "return_20d": -0.03576472714916523,
+              "return_252d": -0.3000120369678473,
+              "return_5d": -0.06115265972573303,
+              "return_60d": -0.17949170450665797,
+              "volatility_20d_annualized": 0.48379499000117643
+            }
+          },
+          {
+            "asset": "Asset C",
+            "data_prefix_sha256": "dbfc5d73816ec67848da6364d69cf015453d0b23a1e557f34ee4c2a995bbf65b",
+            "features": {
+              "above_200d_average": true,
+              "above_50d_average": true,
+              "close": 110.80999755859375,
+              "drawdown_from_252d_high": 0.0,
+              "relative_volume_20d": 1.4660295795724927,
+              "return_126d": 0.2823746425459732,
+              "return_20d": 0.20550478422474905,
+              "return_252d": 0.7187838600972378,
+              "return_5d": 0.039493425372747026,
+              "return_60d": 0.2527982066911303,
+              "volatility_20d_annualized": 0.3076234430997687
+            }
+          }
+        ],
+        "choices": [
+          "Asset A",
+          "Asset B",
+          "Asset C",
+          "CASH"
+        ],
+        "decision_date": "withheld",
+        "execution_authority": "none",
+        "known_limitations": [
+          "possible_model_training_memory",
+          "current_universe_survivorship_bias"
+        ],
+        "market_context": {
+          "asset": "Market",
+          "data_prefix_sha256": "21043eb4b3e7c7f8558df5d664330cd671427d4af433ed87d4b147a11ffc0ff3",
+          "features": {
+            "above_200d_average": false,
+            "above_50d_average": true,
+            "close": 386.2099914550781,
+            "drawdown_from_252d_high": -0.19153880311629257,
+            "relative_volume_20d": 1.060488050601599,
+            "return_126d": -0.06820599011271133,
+            "return_20d": 0.05346282667320179,
+            "return_252d": -0.15904193477391804,
+            "return_5d": 0.01937339043072095,
+            "return_60d": -0.06592983695345311,
+            "volatility_20d_annualized": 0.27354753497293777
+          }
+        },
+        "schema_version": 1,
+        "task": "select one asset or cash for the next 20 sessions",
+        "variant": "price_blinded"
+      },
+      "request_sha256": "9a0c94b11c16c4eeb91db6b0c76edf5fb7f59ae010b2867d600ad3c5a61f91cc",
+      "response_id": "resp_018e5033ea2946519b8dd30ffa5cdebd",
+      "selected_ticker": "XOM",
+      "spy_net_return": 0.011022519671930464,
+      "usage": {
+        "input_tokens": 1014,
+        "output_tokens": 163,
+        "total_tokens": 1177
+      },
+      "variant": "price_blinded"
+    }
+  ],
+  "summary": {
+    "price_blinded": {
+      "cumulative_return": 0.19784389976271455,
+      "decision_count": 4,
+      "direction_accuracy": 0.75,
+      "maximum_drawdown": -0.018250964880441978,
+      "mean_excess_vs_spy": 0.058457118840151895,
+      "mean_net_return": 0.04784439893462919,
+      "total_cost_bps": 80,
+      "turnover_round_trips": 4
+    },
+    "price_named": {
+      "cumulative_return": 0.19784389976271455,
+      "decision_count": 4,
+      "direction_accuracy": 0.75,
+      "maximum_drawdown": -0.018250964880441978,
+      "mean_excess_vs_spy": 0.058457118840151895,
+      "mean_net_return": 0.04784439893462919,
+      "total_cost_bps": 80,
+      "turnover_round_trips": 4
+    }
+  },
+  "unavailable_variants": {
+    "price_fundamentals": "local point-in-time fundamentals begin in 2026",
+    "price_historical_news": "no timestamped local historical news archive exists for 2022"
+  }
+}
