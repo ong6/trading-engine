@@ -64,9 +64,11 @@ def test_decision_contract_rejects_cash_direction_and_unknown_asset():
 
 def test_direction_accuracy_uses_prediction_not_only_positive_return():
     rows = [
-        {"decision": {"direction": "down"}, "selected_ticker": "AAPL",
-         "outcome": {"net_return": -0.1, "round_trip_cost_bps": 20}, "excess_vs_spy": 0.0},
-        {"decision": {"direction": "up"}, "selected_ticker": "MSFT",
-         "outcome": {"net_return": -0.1, "round_trip_cost_bps": 20}, "excess_vs_spy": 0.0},
+        {"decision": {"direction": "down", "expected_return_pct": -5.0}, "selected_ticker": "AAPL",
+         "outcome": {"net_return": -0.1, "maximum_drawdown": -0.2,
+                     "round_trip_cost_bps": 20}, "excess_vs_spy": 0.0},
+        {"decision": {"direction": "up", "expected_return_pct": 5.0}, "selected_ticker": "MSFT",
+         "outcome": {"net_return": -0.1, "maximum_drawdown": -0.1,
+                     "round_trip_cost_bps": 20}, "excess_vs_spy": 0.0},
     ]
     assert replay.summarize(rows)["direction_accuracy"] == 0.5

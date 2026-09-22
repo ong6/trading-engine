@@ -19,5 +19,5 @@ The current model may remember 2022 and the current-symbol archive is survivor-b
 
 | Variant | Decisions | Accuracy | Mean net | Cumulative | Max DD | Mean excess vs SPY |
 |---|---:|---:|---:|---:|---:|---:|
-| price_named | 4 | 75% | +4.78% | +19.78% | -1.83% | +5.85% |
-| price_blinded | 4 | 75% | +4.78% | +19.78% | -1.83% | +5.85% |
+| price_named | 4 | 75% | +4.78% | +19.78% | -8.20% | +5.85% |
+| price_blinded | 4 | 75% | +4.78% | +19.78% | -8.20% | +5.85% |

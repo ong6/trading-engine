@@ -30,6 +30,8 @@ measurements supporting those decisions, not the live runtime state.
 
 ## Current operating documents
 
+- [`agent-trading-review-2026-09-22.md`](agent-trading-review-2026-09-22.md) — current agent,
+  cadence, alert, simulator-tool, algorithm-overlay, and 2022 replay assessment.
 - [`how-it-works.md`](how-it-works.md) — architecture, schedules, paper league, UI/API,
   and operations.
 - [`live-readiness-goal.md`](live-readiness-goal.md) — the former handoff objective for strategy

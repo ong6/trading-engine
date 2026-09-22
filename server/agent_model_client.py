@@ -313,6 +313,7 @@ def status(*, connection_factory: ConnectionFactory = _connection) -> dict:
 
 def identity(*, role: str = "proposal") -> dict:
     """Return the frozen non-secret connector identity without network access."""
+    toolset = []
     if role == "proposal":
         instructions = INSTRUCTIONS
     elif role == "veto":
@@ -321,6 +322,7 @@ def identity(*, role: str = "proposal") -> dict:
         instructions = OPPORTUNITY_INSTRUCTIONS
     elif role == "trade_tool":
         instructions = TRADE_TOOL_INSTRUCTIONS
+        toolset = [TRADE_TOOL]
     elif role == "historical_replay":
         instructions = HISTORICAL_REPLAY_INSTRUCTIONS
     else:
@@ -340,8 +342,8 @@ def identity(*, role: str = "proposal") -> dict:
         "required_proxy_source_sha256": REQUIRED_PROXY_SOURCE_SHA256,
         "required_traecli_runtime": REQUIRED_TRAECLI_RUNTIME,
         "instructions_sha256": canonical_sha256(instructions),
-        "toolset_sha256": canonical_sha256([]),
-        "tools": "none",
+        "toolset_sha256": canonical_sha256(toolset),
+        "tools": "submit_paper_trade" if toolset else "none",
         "execution_authority": "none",
     }
 
