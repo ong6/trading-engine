@@ -25,7 +25,8 @@ measurements supporting those decisions, not the live runtime state.
   [P6 alpha experiment](plans/p6-alpha-experiment.md), and
   [P7 autonomous paper trial](plans/p7-autonomous-paper-trial.md),
   [P8 daily opportunity agent](plans/p8-daily-opportunity-agent.md), and
-  [P9 multi-cadence agent tools](plans/p9-multi-cadence-agent-tools.md).
+  [P9 multi-cadence agent tools](plans/p9-multi-cadence-agent-tools.md), and
+  [P10 contamination-aware 2022 agent replay](plans/p10-2022-agent-replay.md).
 
 ## Current operating documents
 

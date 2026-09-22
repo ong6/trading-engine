@@ -21,7 +21,7 @@ Maintaining these means keeping them running unchanged. It does not mean improvi
 ## Approved plans
 
 Plans live in [`plans/`](plans/README.md). Only `approved` or `active` plans admit work. P1, P7,
-P8, and P9 are active; P2-P3 are approved, subject to their stated prerequisites and sequencing. P4 is done.
+P8, P9, and P10 are active; P2-P3 are approved, subject to their stated prerequisites and sequencing. P4 is done.
 P5 and P6 completed on 2026-09-18; their bounded outputs remain in scope for operation and
 evidence, but they authorize no further feature growth outside P7's exact trial scope.
 

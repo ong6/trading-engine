@@ -11557,4 +11557,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** pending final snapshot; all approved P9 ceilings remain green.
 - **Next:** run the full suite, refresh/install units, activate only the isolated simulator book.
 
+## 2026-09-22 — Register the contaminated 2022 agent replay
+
+- **Why:** the owner requested a few 2022 model decisions using contemporaneous charts and any
+  valid fundamentals/news while explicitly accounting for possible training-data memory.
+- **What:** freeze four decision dates, AAPL/MSFT/XOM/cash, a 20-session horizon, delayed outcome
+  reveal, and unavailable status for the absent 2022 fundamental and news archives.
+- **Evidence:** the store has 251 sessions and 3,589 current symbols in 2022 but zero 2022
+  fundamentals and no timestamped 2022 news; no present data may be substituted.
+- **Metrics:** source LOC unchanged; P10 uses the existing farm ceiling.
+- **Next:** run and publish the price-only diagnostic without any promotion claim.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

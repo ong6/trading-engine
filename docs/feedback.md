@@ -194,3 +194,15 @@ All variants remain isolated from broker code and real capital, and their eviden
 
 **Ceiling changes.** P9 may add 900 lines under `server/`, 250 under `engine/`, 150 under `sim/`,
 and 150 under `tools/`. Ceilings become server 50,400, engine 12,050, sim 7,250, and tools 7,550.
+
+## 2026-09-22 — Approve a contamination-aware 2022 agent replay
+
+**Verdict.** The owner requested a small 2022 model backtest using historical charts and, where
+available, point-in-time fundamentals and news, with explicit consideration of model training data.
+
+**Rule changes.** P10 is approved and active as a diagnostic only. Four dates and three assets are
+frozen before inference; future prices stay out of prompts and are revealed only after responses
+are saved. The price-only variant may run. Fundamentals and news variants must report unavailable
+because the local point-in-time archives begin in 2026; present data cannot be backfilled into 2022.
+Results are labeled contaminated by possible model memory and current-universe survivorship bias,
+and cannot promote a strategy, paper book, broker connection, or real capital.
