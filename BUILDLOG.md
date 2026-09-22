@@ -11579,4 +11579,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** farm +312 lines; approved budget remains green.
 - **Next:** do not promote; collect genuine prospective P8/P9 evidence and acquire audited PIT data.
 
+## 2026-09-22 — Publish the agent-trading review
+
+- **Why:** P8-P10 require a final evidence review separating deployed operation, simulated
+  authority, historical diagnostics, and unproven performance.
+- **What:** publish the architecture/control audit, correct replay drawdown and direction metrics,
+  require exact tool identity, and close P10 while P8/P9 collect prospective evidence.
+- **Evidence:** full warnings-as-errors suite reaches 100%; Ruff, dedicated self-test, live status,
+  installed schedules, real tool transport, and retained-decision replay all pass.
+- **Metrics:** final snapshot is within every approved source budget.
+- **Next:** observe P8/P9 unchanged; no promotion before their frozen evidence gates.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -1,7 +1,7 @@
 ---
 plan: P10
 title: Contamination-aware 2022 agent replay
-status: active
+status: done
 opened: 2026-09-22
 owner_decision: approved 2026-09-22
 ---
