@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from engine.daily_opportunities import detect
+from engine.gap_volume_candidate import select
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from server import (
@@ -18,6 +19,7 @@ from server import (
     daily_opportunity_store,
     daily_opportunity_tools,
 )
+from sim import league
 from sim.schema import init_sim_schema
 
 NOW = datetime(2026, 9, 22, 1, 30, tzinfo=timezone.utc)
@@ -39,7 +41,7 @@ def _database(path):
         )
         rows = []
         for index, session in enumerate(sessions):
-            close = 100 + index
+            close = 100 + index * 0.1
             volume = 1_000_000
             if ticker == "FAST" and session == MARKET_DATE:
                 close, volume = 160, 8_000_000
@@ -136,6 +138,7 @@ def test_detector_ranks_abnormal_liquid_move_with_point_in_time_evidence(tmp_pat
     assert result["bundle_sha256"] == canonical_sha256(
         {key: value for key, value in result.items() if key != "bundle_sha256"}
     )
+    assert select(result)["ticker"] == "FAST"
 
 
 def test_daily_run_records_news_assessments_alert_and_replays_without_calls(tmp_path):
@@ -157,7 +160,8 @@ def test_daily_run_records_news_assessments_alert_and_replays_without_calls(tmp_
     assert first == {
         "status": "completed", "market_date": "2026-09-21",
         "assessment_count": 1, "news_status": "available", "paper_order_count": 0,
-        "execution_authority": "none", "replayed": False,
+        "paper_order_ids": [], "execution_authority": "local_simulator_only",
+        "replayed": False,
     }
     assert second == {**first, "replayed": True}
     assert calls == {"model": 1, "news": 2}
@@ -268,9 +272,10 @@ def test_active_isolated_book_gets_only_capped_next_open_pending_order(tmp_path)
         return result
 
     result = daily_opportunity_runner.run(
-        database=path, now=NOW, generate=swing, fetch_news=_news_response
+        database=path, now=NOW, generate=swing, fetch_news=_news_response,
+        tool_generate=_tool_connector,
     )
-    assert result["paper_order_count"] == 0
+    assert result["paper_order_count"] == 1
     con = db.connect(path, read_only=True)
     assessment_id = con.execute(
         "SELECT id FROM daily_opportunity_assessments WHERE ticker = 'FAST'"
@@ -285,7 +290,7 @@ def test_active_isolated_book_gets_only_capped_next_open_pending_order(tmp_path)
         generate=lambda _payload: pytest.fail("replay must not call model"),
         lock_path=tmp_path / "tool.lock",
     )
-    assert tool_result["paper_order_id"] is not None
+    assert tool_result["paper_order_id"] == result["paper_order_ids"][0]
     assert replay["replayed"] is True
     assert replay["paper_order_id"] == tool_result["paper_order_id"]
     con = db.connect(path, read_only=True)
@@ -297,6 +302,18 @@ def test_active_isolated_book_gets_only_capped_next_open_pending_order(tmp_path)
     assert order[4:] == (MARKET_DATE, "pending")
     assert con.execute("SELECT COUNT(*) FROM sim_fills").fetchone() == (0,)
     assert con.execute("SELECT COUNT(*) FROM daily_opportunity_order_attribution").fetchone() == (1,)
+    con.close()
+    con = db.connect(path)
+    fill_date = date(2026, 9, 22)
+    con.execute(
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume) VALUES ('FAST',?,?,?,?,?,?)",
+        [fill_date, 162, 166, 160, 164, 2_000_000],
+    )
+    counts = league.fill_pending(con, fill_date)
+    assert counts == {"filled": 1, "rejected": 0, "pending": 0}
+    assert con.execute(
+        "SELECT fill_date, open_px, fill_px FROM sim_fills"
+    ).fetchone()[0:2] == (fill_date, 162.0)
     con.close()
 
 
@@ -321,7 +338,12 @@ def test_status_is_bounded_and_reports_inactive_book(tmp_path):
     assert status["paper_order_count"] == 0
     assert status["model"] == agent_model_client.MODEL
     assert status["position_count"] == status["pending_order_count"] == 0
-    assert status["schedule"]["on_calendar"] == "Tue..Sat *-*-* 02:00:00 UTC"
+    assert status["schedule"]["nightly"] == "Tue..Sat *-*-* 02:00:00 UTC"
+    assert status["algorithm_candidate"]["ticker"] == "FAST"
+    assert status["algorithm_agent_veto"] == {
+        "ticker": "FAST", "algorithm_action": "buy", "agent_outcome": "veto",
+        "execution_authority": "none",
+    }
 
 
 def test_activation_requires_exact_empty_book(tmp_path):

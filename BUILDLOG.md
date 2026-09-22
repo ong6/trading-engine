@@ -11546,4 +11546,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** pending final snapshot; all approved P9 ceilings remain green.
 - **Next:** install shadow cadence timers and complete the full-suite/recovery gate.
 
+## 2026-09-22 — Complete the multi-cadence paper-agent flow
+
+- **Why:** P9 requires deployable shadow cadences, an exactly-once trade-tool boundary, a paired
+  deterministic comparator, and a self-test before simulator authority is enabled.
+- **What:** add DST-safe hourly/four-hour model observers, a durable typed-tool ledger, one exact
+  assessment consumer, and a frozen gap-volume candidate with a veto-only comparison projection.
+- **Evidence:** focused integration tests and the P8/P9 self-test pass, including later-open fill,
+  malformed/replay/inactive-book cases, four variants, one writer, and no broker route.
+- **Metrics:** pending final snapshot; all approved P9 ceilings remain green.
+- **Next:** run the full suite, refresh/install units, activate only the isolated simulator book.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
