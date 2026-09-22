@@ -11514,4 +11514,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** pending final snapshot; within approved P8 server/engine/tools caps.
 - **Next:** initialize the book inactive, install the timer, run one live assessment, then validate all.
 
+## 2026-09-22 — Deploy the daily paper observer
+
+- **Why:** P8 scope item 6 and activation safety require scheduling, an inactive isolated book,
+  recovery evidence, bounded status, and a real tool-free model observation.
+- **What:** install the 02:00 UTC weekday timer, initialize a US$10k inactive book, expose status,
+  and retain the first five model decisions plus two multi-session alerts with zero orders.
+- **Evidence:** backup verification and focused integration tests pass; live replay reports five
+  assessments, available news, zero orders, inactive book, and no broker route.
+- **Metrics:** pending final snapshot; all approved P8 ceilings remain green.
+- **Next:** observe daily outcomes; activate simulator execution only after final validation review.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

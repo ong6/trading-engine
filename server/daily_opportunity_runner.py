@@ -214,8 +214,18 @@ def run(*, database: Path = DEFAULT_DB, now: datetime | None = None, generate: G
     request_sha256 = canonical_sha256(agent_model_client.opportunity_request_payload(model_input))
     try:
         response = generate(model_input)
-        if response.request_sha256 != request_sha256:
-            raise DailyOpportunityError("daily connector request identity is invalid")
+        identity = agent_model_client.identity(role="opportunity")
+        if (
+            response.request_sha256 != request_sha256
+            or response.model != identity["model"]
+            or response.model_version != identity["model_version"]
+            or response.proxy_version != identity["required_proxy_version"]
+            or response.proxy_source_sha256 != identity["required_proxy_source_sha256"]
+            or response.traecli_runtime != identity["required_traecli_runtime"]
+            or response.upstream_model_family != agent_model_client.UPSTREAM_MODEL_FAMILY
+            or response.model_catalog_entry_sha256 != identity["model_catalog_entry_sha256"]
+        ):
+            raise DailyOpportunityError("daily connector identity is invalid")
         assessments = _validate_output(response.output, bundle, allowed, set(held))
         response_payload = {**asdict(response), "output": response.output}
         with _connection(database) as con, engine_db.transaction(con):

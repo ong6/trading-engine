@@ -94,6 +94,7 @@ curl -fsS http://127.0.0.1:8000/agent/data/independent-price-evidence
 .venv/bin/python -m tools.review_agent_data_discrepancy list
 curl -fsS http://127.0.0.1:8000/agent/fault-drills
 curl -fsS http://127.0.0.1:8000/agent/shadow/control # operator-controlled shadow schedule
+curl -fsS http://127.0.0.1:8000/daily-opportunities/status # P8 decisions, alerts, and paper state
 .venv/bin/python -m tools.verify_friday_postflight  # inspect Friday; publishing is opt-in
 ```
 
