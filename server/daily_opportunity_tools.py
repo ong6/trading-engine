@@ -15,7 +15,7 @@ from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 
 from . import agent_model_client, daily_opportunity_execution, daily_opportunity_store
-from .json_utils import loads_object
+from .json_utils import loads_object, loads_strict
 
 LOCK_PATH = REPO_ROOT / ".daily-opportunity-tool.lock"
 Generate = Callable[[dict], agent_model_client.ConnectorResult]
@@ -58,7 +58,7 @@ def _input(item: dict) -> dict:
             "assessment_sha256": item["assessment_sha256"],
             "horizon_sessions": item["horizon_sessions"], "thesis": item["thesis"],
             "invalidation": item["invalidation"],
-            "evidence_ids": loads_object("{\"values\":" + item["evidence_ids"] + "}")["values"],
+            "evidence_ids": loads_strict(item["evidence_ids"]),
         },
         "tool": agent_model_client.TRADE_TOOL,
     }
@@ -99,14 +99,14 @@ def submit(
                     request_sha256, observed,
                 )
             if attempt["status"] == "completed":
-                order = con.execute(
-                    "SELECT order_id FROM daily_opportunity_order_attribution "
-                    "WHERE assessment_id = ?", [assessment_id],
-                ).fetchone()
+                arguments = _validate(loads_object(attempt["arguments_payload"]), assessment)
+                with engine_db.transaction(con):
+                    order_id = daily_opportunity_execution.consume_assessment(
+                        con, assessment_id, now=observed
+                    )
                 return {"status": "completed", "assessment_id": assessment_id,
-                        "arguments": loads_object(attempt["arguments_payload"]),
-                        "paper_order_id": None if order is None else int(order[0]),
-                        "replayed": True}
+                        "arguments": arguments, "paper_order_id": order_id,
+                        "execution_authority": "local_simulator_only", "replayed": True}
             if attempt["status"] != "new":
                 raise ToolCallError("paper trade tool attempt is not safely replayable")
         try:
@@ -121,14 +121,18 @@ def submit(
             with _connection(database) as con, engine_db.transaction(con):
                 daily_opportunity_store.mark_tool_uncertain(con, attempt["id"], observed)
             raise
-        with _connection(database) as con, engine_db.transaction(con):
-            daily_opportunity_store.complete_tool_attempt(
-                con, attempt["id"], response_id=response.response_id,
-                call_id=response.output["call_id"], arguments=arguments,
-                response=payload, now=observed,
-            )
-            order_id = daily_opportunity_execution.consume_assessment(
-                con, assessment_id, now=observed
-            )
+        with _connection(database) as con:
+            with engine_db.transaction(con):
+                daily_opportunity_store.complete_tool_attempt(
+                    con, attempt["id"], response_id=response.response_id,
+                    call_id=response.output["call_id"], arguments=arguments,
+                    response=payload, now=observed,
+                )
+        with _connection(database) as con:
+            with engine_db.transaction(con):
+                order_id = daily_opportunity_execution.consume_assessment(
+                    con, assessment_id, now=observed
+                )
         return {"status": "completed", "assessment_id": assessment_id,
-                "arguments": arguments, "paper_order_id": order_id, "replayed": False}
+                "arguments": arguments, "paper_order_id": order_id,
+                "execution_authority": "local_simulator_only", "replayed": False}

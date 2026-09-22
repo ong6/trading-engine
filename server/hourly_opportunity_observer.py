@@ -112,9 +112,9 @@ def _observe(
         "usage": response.usage,
         "execution_authority": "none",
     }
-    artifact["observation_sha256"] = canonical_sha256(artifact)
     target.parent.mkdir(parents=True, exist_ok=True)
     artifact["window"] = window
+    artifact["observation_sha256"] = canonical_sha256(artifact)
     with target.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(artifact, sort_keys=True, separators=(",", ":")) + "\n")
     return {"status": "completed", "variant_id": variant_id,
