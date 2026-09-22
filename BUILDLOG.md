@@ -11492,4 +11492,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** source LOC unchanged; server, engine, and sim ceilings raised only by the approved caps.
 - **Next:** implement the deterministic daily candidate and assessment evidence core.
 
+## 2026-09-22 — Add the daily standout assessment core
+
+- **Why:** P8 scope items 1-4 require deterministic candidates, exact headline evidence, a
+  constrained model contract, append-only outcomes, and replay before alerts can act.
+- **What:** rank five liquid daily standouts from price, gap, volume, screen, earnings, and regime;
+  retain bounded Yahoo responses; record validated ignore/watch/hold/swing results and alerts.
+- **Evidence:** focused P8 tests prove deterministic ranking, exact news receipts, one model call,
+  replay without new calls, bounded alerts, and fail-closed malformed output.
+- **Metrics:** pending final snapshot; within the approved P8 engine/server caps.
+- **Next:** add later-session alert evaluation, fresh reassessment, and isolated simulator orders.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
