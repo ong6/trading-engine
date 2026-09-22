@@ -15,9 +15,11 @@ plan and the BUILDLOG.
 | [P5 — Agent paper decisions](p5-agent-paper-decisions.md) | done | Let a constrained agent control one isolated simulator-only paper book | None |
 | [P6 — Alpha experiment](p6-alpha-experiment.md) | done | Run one theory-led fixed-instrument experiment under a frozen protocol | None |
 | [P7 — Autonomous paper trial](p7-autonomous-paper-trial.md) | active | Compare algorithm-only, AI-only, and hybrid policies with a cloned S$10k envelope | Separate data-vendor budget remains unset |
+| [P8 — Daily opportunity agent](p8-daily-opportunity-agent.md) | active | Detect daily standouts and retain bounded watch/hold/swing assessments and alerts | None |
 
-Recommended order: P7 observability and activation gates now; P1 and P2 remain admitted maintenance
-work, and P3 resumes when the owner separately approves a data-vendor budget.
+Recommended order: P8's daily observation path and P7's monthly comparison may proceed without
+sharing books or performance evidence; P1 and P2 remain admitted maintenance work, and P3 resumes
+when the owner separately approves a data-vendor budget.
 
 ## Plan template
 
