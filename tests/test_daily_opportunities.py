@@ -16,6 +16,7 @@ from server import (
     daily_opportunity_read_models,
     daily_opportunity_runner,
     daily_opportunity_store,
+    daily_opportunity_tools,
 )
 from sim.schema import init_sim_schema
 
@@ -104,6 +105,24 @@ def _connector(model_input):
     )
 
 
+def _tool_connector(model_input):
+    assessment = model_input["assessment"]
+    request = agent_model_client.trade_tool_request_payload(model_input)
+    return agent_model_client.ConnectorResult(
+        output={"name": "submit_paper_trade", "call_id": "call-p8",
+                "arguments": assessment},
+        response_id="resp-tool-p8", model=agent_model_client.MODEL,
+        model_version=agent_model_client.MODEL_VERSION, proxy_version="0.7",
+        proxy_source_sha256=agent_model_client.REQUIRED_PROXY_SOURCE_SHA256,
+        traecli_runtime=agent_model_client.REQUIRED_TRAECLI_RUNTIME,
+        upstream_model_family=agent_model_client.UPSTREAM_MODEL_FAMILY,
+        upstream_request_id="upstream-tool-p8",
+        model_catalog_entry_sha256=agent_model_client.MODEL_CATALOG_ENTRY_SHA256,
+        request_sha256=canonical_sha256(request),
+        usage={"input_tokens": 10, "output_tokens": 10, "total_tokens": 20},
+    )
+
+
 def test_detector_ranks_abnormal_liquid_move_with_point_in_time_evidence(tmp_path):
     path = tmp_path / "market.duckdb"
     _database(path)
@@ -138,7 +157,7 @@ def test_daily_run_records_news_assessments_alert_and_replays_without_calls(tmp_
     assert first == {
         "status": "completed", "market_date": "2026-09-21",
         "assessment_count": 1, "news_status": "available", "paper_order_count": 0,
-        "execution_authority": "local_simulator_only", "replayed": False,
+        "execution_authority": "none", "replayed": False,
     }
     assert second == {**first, "replayed": True}
     assert calls == {"model": 1, "news": 2}
@@ -251,7 +270,24 @@ def test_active_isolated_book_gets_only_capped_next_open_pending_order(tmp_path)
     result = daily_opportunity_runner.run(
         database=path, now=NOW, generate=swing, fetch_news=_news_response
     )
-    assert result["paper_order_count"] == 1
+    assert result["paper_order_count"] == 0
+    con = db.connect(path, read_only=True)
+    assessment_id = con.execute(
+        "SELECT id FROM daily_opportunity_assessments WHERE ticker = 'FAST'"
+    ).fetchone()[0]
+    con.close()
+    tool_result = daily_opportunity_tools.submit(
+        assessment_id, database=path, now=NOW + timedelta(minutes=1),
+        generate=_tool_connector, lock_path=tmp_path / "tool.lock",
+    )
+    replay = daily_opportunity_tools.submit(
+        assessment_id, database=path, now=NOW + timedelta(minutes=2),
+        generate=lambda _payload: pytest.fail("replay must not call model"),
+        lock_path=tmp_path / "tool.lock",
+    )
+    assert tool_result["paper_order_id"] is not None
+    assert replay["replayed"] is True
+    assert replay["paper_order_id"] == tool_result["paper_order_id"]
     con = db.connect(path, read_only=True)
     order = con.execute(
         "SELECT portfolio_id, ticker, side, qty, signal_date, status FROM sim_orders"
@@ -302,3 +338,33 @@ def test_activation_requires_exact_empty_book(tmp_path):
         "SELECT active FROM portfolios WHERE id = 'daily_opportunity_agent_v1'"
     ).fetchone() == (True,)
     con.close()
+
+
+def test_trade_tool_rejects_inactive_book_before_model_call(tmp_path):
+    path = tmp_path / "market.duckdb"
+    _database(path)
+    con = db.connect(path)
+    with db.transaction(con):
+        daily_opportunity_store.init_schema(con)
+        daily_opportunity_execution.initialize_book(con, MARKET_DATE, active=False)
+    con.close()
+
+    def swing(payload):
+        result = _connector(payload)
+        result.output["assessments"][0].update(
+            decision="swing", action="buy", alert=None
+        )
+        return result
+
+    daily_opportunity_runner.run(
+        database=path, now=NOW, generate=swing, fetch_news=_news_response
+    )
+    con = db.connect(path, read_only=True)
+    assessment_id = con.execute("SELECT id FROM daily_opportunity_assessments").fetchone()[0]
+    con.close()
+    with pytest.raises(daily_opportunity_tools.ToolCallError, match="inactive"):
+        daily_opportunity_tools.submit(
+            assessment_id, database=path, now=NOW,
+            generate=lambda _payload: pytest.fail("inactive book must not invoke model"),
+            lock_path=tmp_path / "tool.lock",
+        )

@@ -57,6 +57,14 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         quantity DOUBLE NOT NULL, signal_date DATE NOT NULL, assessment_sha256 VARCHAR NOT NULL,
         attribution_sha256 VARCHAR NOT NULL UNIQUE, recorded_at TIMESTAMP NOT NULL)"""
     )
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS daily_opportunity_tool_attempts (
+        id BIGINT PRIMARY KEY, assessment_id BIGINT NOT NULL UNIQUE, run_id BIGINT NOT NULL,
+        idempotency_key VARCHAR NOT NULL UNIQUE, request_payload VARCHAR NOT NULL,
+        request_sha256 VARCHAR NOT NULL, status VARCHAR NOT NULL, response_id VARCHAR,
+        call_id VARCHAR, arguments_payload VARCHAR, response_payload VARCHAR,
+        started_at TIMESTAMP NOT NULL, completed_at TIMESTAMP)"""
+    )
 
 
 def next_id(con: duckdb.DuckDBPyConnection, table: str) -> int:
@@ -65,6 +73,7 @@ def next_id(con: duckdb.DuckDBPyConnection, table: str) -> int:
         "daily_opportunity_assessments",
         "daily_opportunity_alerts",
         "daily_opportunity_alert_events",
+        "daily_opportunity_tool_attempts",
     }
     if table not in allowed:
         raise ValueError("invalid daily opportunity table")
@@ -215,3 +224,46 @@ def evaluate_alerts(con: duckdb.DuckDBPyConnection, market_date: date) -> list[d
                               "alert_sha256": alert_sha256, "direction": direction,
                               "trigger_price": float(price)})
     return triggered
+
+
+def start_tool_attempt(
+    con: duckdb.DuckDBPyConnection, assessment_id: int, run_id: int,
+    request: dict, request_sha256: str, now: datetime,
+) -> dict:
+    existing = con.execute(
+        "SELECT id, status, arguments_payload FROM daily_opportunity_tool_attempts "
+        "WHERE assessment_id = ?", [assessment_id]
+    ).fetchone()
+    if existing is not None:
+        return {"id": existing[0], "status": existing[1], "arguments_payload": existing[2]}
+    attempt_id = next_id(con, "daily_opportunity_tool_attempts")
+    key = f"p8-trade:{canonical_sha256({'assessment_id': assessment_id, 'run_id': run_id})}"
+    con.execute(
+        "INSERT INTO daily_opportunity_tool_attempts VALUES (?, ?, ?, ?, ?, ?, 'in_progress', "
+        "NULL, NULL, NULL, NULL, ?, NULL)",
+        [attempt_id, assessment_id, run_id, key,
+         json.dumps(request, sort_keys=True, separators=(",", ":")), request_sha256, now],
+    )
+    return {"id": attempt_id, "status": "new", "arguments_payload": None}
+
+
+def complete_tool_attempt(
+    con: duckdb.DuckDBPyConnection, attempt_id: int, *, response_id: str, call_id: str,
+    arguments: dict, response: dict, now: datetime,
+) -> None:
+    changed = con.execute(
+        "UPDATE daily_opportunity_tool_attempts SET status = 'completed', response_id = ?, "
+        "call_id = ?, arguments_payload = ?, response_payload = ?, completed_at = ? "
+        "WHERE id = ? AND status = 'in_progress' RETURNING id",
+        [response_id, call_id, json.dumps(arguments, sort_keys=True, separators=(",", ":")),
+         json.dumps(response, sort_keys=True, separators=(",", ":")), now, attempt_id],
+    ).fetchone()
+    if changed is None:
+        raise ValueError("daily opportunity tool attempt is not open")
+
+
+def mark_tool_uncertain(con: duckdb.DuckDBPyConnection, attempt_id: int, now: datetime) -> None:
+    con.execute(
+        "UPDATE daily_opportunity_tool_attempts SET status = 'uncertain', completed_at = ? "
+        "WHERE id = ? AND status = 'in_progress'", [now, attempt_id]
+    )

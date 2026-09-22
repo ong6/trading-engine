@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import duckdb
 
@@ -17,6 +17,7 @@ INITIAL_CASH = 10_000.0
 POSITION_FRACTION = 0.10
 MAX_POSITIONS = 3
 MIN_CONFIDENCE = 0.65
+SUBMISSION_CUTOFF_UTC_HOUR = 12
 BOOK_CONFIG = {
     "schema_version": 1, "policy_id": "daily-opportunity-v1",
     "strategy": "agent_only_policy", "cadence": "daily",
@@ -94,63 +95,66 @@ def _eligible_buy(con: duckdb.DuckDBPyConnection, candidate: dict, confidence: f
             and quarantine_reason(con, candidate["ticker"]) is None)
 
 
-def consume_run(con: duckdb.DuckDBPyConnection, run_id: int, *, now: datetime) -> list[int]:
+def consume_assessment(
+    con: duckdb.DuckDBPyConnection, assessment_id: int, *, now: datetime
+) -> int | None:
     run = con.execute(
-        "SELECT market_date, bundle_payload, status FROM daily_opportunity_runs WHERE id = ?",
-        [run_id],
+        "SELECT r.id, r.market_date, r.bundle_payload, r.status, a.ticker, a.action, "
+        "a.confidence, a.assessment_sha256 FROM daily_opportunity_assessments a "
+        "JOIN daily_opportunity_runs r ON r.id = a.run_id "
+        "WHERE a.id = ? AND a.decision = 'swing'", [assessment_id],
     ).fetchone()
-    if run is None or run[2] != "completed":
-        raise ExecutionError("daily opportunity run is not complete")
+    if run is None or run[3] != "completed":
+        raise ExecutionError("daily opportunity swing assessment is not complete")
     book = con.execute(
         "SELECT active, config, cash FROM portfolios WHERE id = ?", [PORTFOLIO_ID]
     ).fetchone()
     if book is None or book[0] is not True or loads_object(book[1]) != BOOK_CONFIG:
-        return []
-    market_date, bundle = run[0], loads_object(run[1])
-    orders = []
-    rows = con.execute(
-        "SELECT id, ticker, action, confidence, assessment_sha256 "
-        "FROM daily_opportunity_assessments WHERE run_id = ? AND decision = 'swing' ORDER BY id",
-        [run_id],
-    ).fetchall()
-    for assessment_id, ticker, side, confidence, assessment_sha256 in rows:
-        if con.execute(
-            "SELECT 1 FROM daily_opportunity_order_attribution WHERE assessment_id = ?",
-            [assessment_id],
-        ).fetchone():
-            continue
-        candidate = _candidate(bundle, ticker)
-        if side == "buy":
-            if bundle["market"]["regime"] != "risk_on" or not _eligible_buy(
-                con, candidate, float(confidence), market_date
-            ):
-                continue
-            quantity = min(float(book[2]) * POSITION_FRACTION, INITIAL_CASH * POSITION_FRACTION) / candidate["close"]
-        elif side == "sell":
-            position = con.execute(
-                "SELECT qty FROM sim_positions WHERE portfolio_id = ? AND ticker = ? AND qty > 0",
-                [PORTFOLIO_ID, ticker],
-            ).fetchone()
-            if position is None:
-                continue
-            quantity = float(position[0])
-        else:
-            continue
-        order_id = int(con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM sim_orders").fetchone()[0])
-        con.execute(
-            "INSERT INTO sim_orders VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",
-            [order_id, PORTFOLIO_ID, ticker, side, quantity, market_date],
-        )
-        attribution = {
-            "order_id": order_id, "assessment_id": assessment_id, "run_id": run_id,
-            "portfolio_id": PORTFOLIO_ID, "ticker": ticker, "side": side,
-            "quantity": quantity, "signal_date": market_date.isoformat(),
-            "assessment_sha256": assessment_sha256, "recorded_at": now.isoformat(),
-        }
-        con.execute(
-            "INSERT INTO daily_opportunity_order_attribution VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [order_id, assessment_id, run_id, PORTFOLIO_ID, ticker, side, quantity, market_date,
-             assessment_sha256, canonical_sha256(attribution), now],
-        )
-        orders.append(order_id)
-    return orders
+        return None
+    run_id, market_date, bundle, _status, ticker, side, confidence, assessment_sha256 = (
+        run[0], run[1], loads_object(run[2]), *run[3:]
+    )
+    observed = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+    observed = observed.astimezone(timezone.utc)
+    if observed.date() > market_date and observed.hour >= SUBMISSION_CUTOFF_UTC_HOUR:
+        raise ExecutionError("paper intent missed the pre-open submission cutoff")
+    prior = con.execute(
+        "SELECT order_id FROM daily_opportunity_order_attribution WHERE assessment_id = ?",
+        [assessment_id],
+    ).fetchone()
+    if prior is not None:
+        return int(prior[0])
+    candidate = _candidate(bundle, ticker)
+    if side == "buy":
+        if bundle["market"]["regime"] != "risk_on" or not _eligible_buy(
+            con, candidate, float(confidence), market_date
+        ):
+            return None
+        quantity = min(float(book[2]) * POSITION_FRACTION, INITIAL_CASH * POSITION_FRACTION) / candidate["close"]
+    elif side == "sell":
+        position = con.execute(
+            "SELECT qty FROM sim_positions WHERE portfolio_id = ? AND ticker = ? AND qty > 0",
+            [PORTFOLIO_ID, ticker],
+        ).fetchone()
+        if position is None:
+            return None
+        quantity = float(position[0])
+    else:
+        return None
+    order_id = int(con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM sim_orders").fetchone()[0])
+    con.execute(
+        "INSERT INTO sim_orders VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",
+        [order_id, PORTFOLIO_ID, ticker, side, quantity, market_date],
+    )
+    attribution = {
+        "order_id": order_id, "assessment_id": assessment_id, "run_id": run_id,
+        "portfolio_id": PORTFOLIO_ID, "ticker": ticker, "side": side,
+        "quantity": quantity, "signal_date": market_date.isoformat(),
+        "assessment_sha256": assessment_sha256, "recorded_at": now.isoformat(),
+    }
+    con.execute(
+        "INSERT INTO daily_opportunity_order_attribution VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [order_id, assessment_id, run_id, PORTFOLIO_ID, ticker, side, quantity, market_date,
+         assessment_sha256, canonical_sha256(attribution), now],
+    )
+    return order_id

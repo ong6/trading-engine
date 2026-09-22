@@ -11535,4 +11535,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** source LOC unchanged; approved ceilings raised by the bounded P9 allowances.
 - **Next:** finish P8 validation, then implement P9's typed tool and cadence registry.
 
+## 2026-09-22 — Add locked paper tool and cadence variants
+
+- **Why:** P9 requires distinct hourly, four-hour, nightly, and algorithm-veto identities plus one
+  durable tool boundary whose request cannot directly size or route an order.
+- **What:** register four non-pooled variants, add shadow intraday observations, and require one
+  exact `submit_paper_trade` call before deterministic simulator consumption.
+- **Evidence:** the P8/P9 self-test passes four variants, one execution policy, the bounded tool
+  schema, no broker route, and focused replay/isolation/risk tests.
+- **Metrics:** pending final snapshot; all approved P9 ceilings remain green.
+- **Next:** install shadow cadence timers and complete the full-suite/recovery gate.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

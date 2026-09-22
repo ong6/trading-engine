@@ -23,7 +23,9 @@ measurements supporting those decisions, not the live runtime state.
   [P3 point-in-time data](plans/p3-point-in-time-data.md), [P4 broker decision](plans/p4-broker-decision.md),
   [P5 agent paper decisions](plans/p5-agent-paper-decisions.md),
   [P6 alpha experiment](plans/p6-alpha-experiment.md), and
-  [P7 autonomous paper trial](plans/p7-autonomous-paper-trial.md).
+  [P7 autonomous paper trial](plans/p7-autonomous-paper-trial.md),
+  [P8 daily opportunity agent](plans/p8-daily-opportunity-agent.md), and
+  [P9 multi-cadence agent tools](plans/p9-multi-cadence-agent-tools.md).
 
 ## Current operating documents
 

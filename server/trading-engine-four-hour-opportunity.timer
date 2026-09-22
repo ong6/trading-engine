@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule four-hour market opportunity observations
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 14:30:00 UTC
+OnCalendar=Mon..Fri *-*-* 18:30:00 UTC
+Persistent=false
+AccuracySec=1min
+Unit=trading-engine-four-hour-opportunity.service
+
+[Install]
+WantedBy=timers.target

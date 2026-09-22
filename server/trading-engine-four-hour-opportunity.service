@@ -1,0 +1,17 @@
+[Unit]
+Description=Trading engine four-hour market opportunity observer
+After=network-online.target trae-proxy.service
+Wants=network-online.target trae-proxy.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/trading-engine
+ExecStart=%h/trading-engine/.venv/bin/python -m server.hourly_opportunity_observer four_hour_opportunity_review_v1
+Environment=PYTHONUNBUFFERED=1
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=10min
+PrivateTmp=true
+ProtectSystem=full
+ProtectControlGroups=true
+UMask=0077
