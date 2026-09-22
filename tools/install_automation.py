@@ -40,12 +40,26 @@ UNIT_SOURCES = {
     "trading-engine-daily-opportunity.timer": Path(
         "server/trading-engine-daily-opportunity.timer"
     ),
+    "trading-engine-hourly-opportunity.service": Path(
+        "server/trading-engine-hourly-opportunity.service"
+    ),
+    "trading-engine-hourly-opportunity.timer": Path(
+        "server/trading-engine-hourly-opportunity.timer"
+    ),
+    "trading-engine-four-hour-opportunity.service": Path(
+        "server/trading-engine-four-hour-opportunity.service"
+    ),
+    "trading-engine-four-hour-opportunity.timer": Path(
+        "server/trading-engine-four-hour-opportunity.timer"
+    ),
 }
 AUTOSTART_UNITS = frozenset(
     {
         "trading-engine-agent-data-capture.timer",
         "trading-engine-agent-shadow.timer",
         "trading-engine-daily-opportunity.timer",
+        "trading-engine-hourly-opportunity.timer",
+        "trading-engine-four-hour-opportunity.timer",
         "trading-engine-api.service",
         "trading-engine-ui.service",
     }

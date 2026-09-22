@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "execution_policy_id": "nightly_opportunity_tool_v1",
+  "variants": [
+    {
+      "id": "hourly_market_watch_v1",
+      "cadence": "hourly",
+      "prompt_role": "rapid_catalyst_watch",
+      "candidate_limit": 3,
+      "data": ["bounded_live_quote", "public_headlines"],
+      "execution_authority": "none"
+    },
+    {
+      "id": "four_hour_opportunity_review_v1",
+      "cadence": "four_hour",
+      "prompt_role": "catalyst_and_structure_review",
+      "candidate_limit": 5,
+      "data": ["bounded_live_quote", "public_headlines", "latest_intraday_archive"],
+      "execution_authority": "none"
+    },
+    {
+      "id": "nightly_opportunity_tool_v1",
+      "cadence": "nightly",
+      "prompt_role": "eod_swing_decision",
+      "candidate_limit": 5,
+      "data": ["completed_daily_bars", "screen", "earnings", "corporate_actions", "public_headlines"],
+      "execution_authority": "local_simulator_only"
+    },
+    {
+      "id": "daily_gap_volume_veto_v1",
+      "cadence": "nightly",
+      "prompt_role": "algorithm_buy_veto_only",
+      "candidate_limit": 5,
+      "data": ["completed_daily_bars", "screen", "earnings", "public_headlines"],
+      "execution_authority": "none"
+    }
+  ]
+}
