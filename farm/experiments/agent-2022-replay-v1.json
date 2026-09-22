@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "experiment_id": "agent-2022-replay-v1",
+  "status": "preregistered",
+  "decision_dates": [
+    "2022-01-31",
+    "2022-04-29",
+    "2022-07-29",
+    "2022-10-31"
+  ],
+  "assets": [
+    "AAPL",
+    "MSFT",
+    "XOM"
+  ],
+  "cash_symbol": "CASH",
+  "market_context_symbol": "SPY",
+  "variants": [
+    "price_named",
+    "price_blinded"
+  ],
+  "unavailable_variants": {
+    "price_fundamentals": "local point-in-time fundamentals begin in 2026",
+    "price_historical_news": "no timestamped local historical news archive exists for 2022"
+  },
+  "input_windows_sessions": [
+    5,
+    20,
+    60,
+    126,
+    252
+  ],
+  "holding_sessions": 20,
+  "entry": "next_session_open",
+  "exit": "twentieth_later_session_close",
+  "execution_profile": "baseline_v1",
+  "round_trip_cost_bps": 20,
+  "capital_per_window_usd": 10000,
+  "control": "SPY over identical entry and exit dates",
+  "metrics": [
+    "direction_accuracy",
+    "mean_net_return",
+    "cumulative_return",
+    "maximum_drawdown",
+    "turnover",
+    "costs",
+    "mean_excess_vs_spy"
+  ],
+  "interpretation": "contaminated_retrospective_diagnostic_only",
+  "known_contamination": [
+    "current_model_may_have_training_memory_of_2022",
+    "assets_selected_with_hindsight",
+    "current-universe survivorship bias"
+  ],
+  "promotion_authority": "none"
+}
