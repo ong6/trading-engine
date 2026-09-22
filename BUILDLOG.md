@@ -11482,4 +11482,14 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server, tools, and product LOC unchanged; budget remains green.
 - **Next:** implement P7's backup-gated atomic schema and three-book initializer.
 
+## 2026-09-22 — Approve the daily opportunity-agent plan
+
+- **Why:** the owner directed daily market/news and standout-stock assessment with multi-day
+  watches and asked for the bounded simulator implementation now.
+- **What:** activate P8 with deterministic candidate ranking, structured daily model judgments,
+  trigger-time reassessment, isolated next-open paper execution, and no broker authority.
+- **Evidence:** the operating-contract tests pass and the raised P8 ceilings precede source work.
+- **Metrics:** source LOC unchanged; server, engine, and sim ceilings raised only by the approved caps.
+- **Next:** implement the deterministic daily candidate and assessment evidence core.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

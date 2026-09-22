@@ -154,3 +154,29 @@ provider build.
 source, CLI runtime, catalog/routing identity, prompt/toolset, upstream-reported model family, and
 request identity. Any visible drift fails closed. This acceptance is simulator-only; a provider-
 issued immutable revision remains required before any later real-capital authorization.
+
+## 2026-09-22 — Approve a daily opportunity agent
+
+**Verdict.** The owner asked the agents to run daily, identify market-moving context and standout
+stocks, assess whether each should be ignored, watched, held, or swing-traded, retain multi-day
+price alerts, and implement the necessary flow now. The daily programme supplements rather than
+changes the frozen monthly P7 comparison.
+
+**Rule changes.**
+
+1. P8 is approved and active for one simulator-only daily opportunity pipeline using admitted
+   point-in-time prices, volume, screens, earnings, corporate actions, macro context, and optional
+   provenance-bound public headlines. Missing news is explicit and cannot be filled by the model.
+2. The model may classify a bounded deterministic candidate set as ignore, watch, hold, or swing
+   and may propose a price alert, horizon, thesis, and invalidation. Deterministic code owns the
+   universe, ranks, validation, sizing, trigger evaluation, expiry, idempotency, execution, and risk.
+3. P8 may add one isolated inactive simulator book, append-only assessment/alert tables, one daily
+   scheduler, and one bounded read-only status route. Broker routes, credentials, real capital,
+   leverage, shorting, options, arbitrary symbols, and same-bar fills remain forbidden.
+4. A triggered alert is not an order. The model must reassess fresh retained evidence after the
+   trigger; only an eligible swing decision may produce a capped next-session simulator order.
+5. P8 may use staged commits during this explicit implementation goal, each under 1,500 inserted
+   non-data lines, followed by full validation and independent evidence review.
+
+**Ceiling changes.** P8 may add up to 1,400 lines under `server/`, 400 under `engine/`, and 100
+under `sim/`. Ceilings become server 49,500, engine 11,800, and sim 7,100 lines.
