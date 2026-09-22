@@ -42,6 +42,14 @@ book.
 - A claim of profitability from operational evidence. Promotion requires a separately frozen
   evaluation period and owner decision.
 
+## Evaluation rule
+
+The first review is after at least 90 calendar days and 60 completed market sessions. Operational
+reliability, alert precision, turnover, costs, drawdown, and return versus SPY may be reported then,
+but trade expectancy is not interpreted before 20 completed round trips. The detector thresholds,
+model identity/prompt, sizing, and risk rules remain frozen throughout that cohort. No result grants
+broker or real-capital authority.
+
 ## Done when
 
 - A fixture-backed daily run deterministically ranks candidates, records one terminal assessment

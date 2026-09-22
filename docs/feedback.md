@@ -180,3 +180,17 @@ changes the frozen monthly P7 comparison.
 
 **Ceiling changes.** P8 may add up to 1,400 lines under `server/`, 400 under `engine/`, and 100
 under `sim/`. Ceilings become server 49,500, engine 11,800, and sim 7,100 lines.
+
+## 2026-09-22 — Approve multi-cadence agents and a locked paper-trade tool
+
+**Verdict.** The owner asked the always-on box to compare hourly, multi-hour, and nightly agents,
+test distinct prompts and scales, provide an actionable tool-call path, self-test the entire flow,
+and integrate an agent with an algorithmic candidate.
+
+**Rule changes.** P9 is approved and active. Hourly and four-hour variants are observation-only;
+one nightly policy may request a typed simulator trade through a locked, append-only, idempotent
+consumer. The model never selects size or risk limits. The algorithm-plus-agent arm is veto-only.
+All variants remain isolated from broker code and real capital, and their evidence cannot be pooled.
+
+**Ceiling changes.** P9 may add 900 lines under `server/`, 250 under `engine/`, 150 under `sim/`,
+and 150 under `tools/`. Ceilings become server 50,400, engine 12,050, sim 7,250, and tools 7,550.

@@ -11525,4 +11525,14 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** pending final snapshot; all approved P8 ceilings remain green.
 - **Next:** observe daily outcomes; activate simulator execution only after final validation review.
 
+## 2026-09-22 — Approve multi-cadence paper-agent tools
+
+- **Why:** the owner directed hourly, multi-hour, and nightly prompt comparisons, a locked tool-call
+  execution flow, self-testing, and a paired algorithm-plus-agent path.
+- **What:** activate P9 with observation-only intraday variants, one nightly simulator writer,
+  deterministic sizing/risk, exact replay, and a frozen gap-volume algorithm comparator.
+- **Evidence:** operating-contract validation will precede P9 runtime source changes.
+- **Metrics:** source LOC unchanged; approved ceilings raised by the bounded P9 allowances.
+- **Next:** finish P8 validation, then implement P9's typed tool and cadence registry.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
