@@ -594,10 +594,15 @@ def generate_trade_tool(
         "observed_model_catalog_entry_sha256",
     )):
         raise ConnectorError("Trae model transport identity changed during generation")
-    calls = [item for item in response.get("output", []) if isinstance(item, dict)
-             and item.get("type") == "function_call"]
-    other = [item for item in response.get("output", []) if isinstance(item, dict)
-             and item.get("type") not in {"function_call", "reasoning"}]
+    output = response.get("output")
+    if (response.get("status") != "completed" or response.get("model") != MODEL
+            or not isinstance(output, list) or not output
+            or any(not isinstance(item, dict) for item in output)):
+        raise ConnectorError("Trae trade-tool response identity is invalid")
+    calls = [item for item in output if item.get("type") == "function_call"]
+    other = [
+        item for item in output if item.get("type") not in {"function_call", "reasoning"}
+    ]
     if len(calls) != 1 or other or calls[0].get("name") != "submit_paper_trade":
         raise ModelOutputError("Trae proxy did not return exactly one allowed trade tool call")
     try:
