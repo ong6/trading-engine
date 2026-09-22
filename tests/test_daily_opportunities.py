@@ -286,3 +286,19 @@ def test_status_is_bounded_and_reports_inactive_book(tmp_path):
     assert status["model"] == agent_model_client.MODEL
     assert status["position_count"] == status["pending_order_count"] == 0
     assert status["schedule"]["on_calendar"] == "Tue..Sat *-*-* 02:00:00 UTC"
+
+
+def test_activation_requires_exact_empty_book(tmp_path):
+    path = tmp_path / "market.duckdb"
+    _database(path)
+    con = db.connect(path)
+    with db.transaction(con):
+        daily_opportunity_store.init_schema(con)
+        daily_opportunity_execution.initialize_book(con, MARKET_DATE, active=False)
+        result = daily_opportunity_execution.activate_book(con, MARKET_DATE)
+    assert result["active"] is True
+    assert result["execution_authority"] == "local_simulator_only"
+    assert con.execute(
+        "SELECT active FROM portfolios WHERE id = 'daily_opportunity_agent_v1'"
+    ).fetchone() == (True,)
+    con.close()

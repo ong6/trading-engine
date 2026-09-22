@@ -53,6 +53,25 @@ def initialize_book(con: duckdb.DuckDBPyConnection, start: date, *, active: bool
     return {"portfolio_id": PORTFOLIO_ID, "active": active, "book_sha256": canonical_sha256(BOOK_CONFIG)}
 
 
+def activate_book(con: duckdb.DuckDBPyConnection, start: date) -> dict:
+    """Activate only an exact empty P8 book at its registered start boundary."""
+    initialize_book(con, start, active=False)
+    counts = {}
+    for table in ("sim_orders", "sim_fills", "sim_positions"):
+        counts[table] = int(con.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE portfolio_id = ?", [PORTFOLIO_ID]
+        ).fetchone()[0])
+    equity = con.execute(
+        "SELECT date, equity, cash, n_positions FROM sim_equity WHERE portfolio_id = ?",
+        [PORTFOLIO_ID],
+    ).fetchall()
+    if any(counts.values()) or equity != [(start, INITIAL_CASH, INITIAL_CASH, 0)]:
+        raise ExecutionError("daily opportunity book is not empty at activation")
+    con.execute("UPDATE portfolios SET active = TRUE WHERE id = ? AND active = FALSE", [PORTFOLIO_ID])
+    return {"portfolio_id": PORTFOLIO_ID, "active": True,
+            "activation_market_date": start.isoformat(), "execution_authority": "local_simulator_only"}
+
+
 def _candidate(bundle: dict, ticker: str) -> dict:
     matches = [item for item in bundle["candidates"] if item["ticker"] == ticker]
     if len(matches) != 1:

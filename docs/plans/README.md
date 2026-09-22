@@ -16,6 +16,7 @@ plan and the BUILDLOG.
 | [P6 — Alpha experiment](p6-alpha-experiment.md) | done | Run one theory-led fixed-instrument experiment under a frozen protocol | None |
 | [P7 — Autonomous paper trial](p7-autonomous-paper-trial.md) | active | Compare algorithm-only, AI-only, and hybrid policies with a cloned S$10k envelope | Separate data-vendor budget remains unset |
 | [P8 — Daily opportunity agent](p8-daily-opportunity-agent.md) | active | Detect daily standouts and retain bounded watch/hold/swing assessments and alerts | None |
+| [P9 — Multi-cadence agent tools](p9-multi-cadence-agent-tools.md) | active | Compare shadow cadences and add one locked nightly simulator tool path | None |
 
 Recommended order: P8's daily observation path and P7's monthly comparison may proceed without
 sharing books or performance evidence; P1 and P2 remain admitted maintenance work, and P3 resumes

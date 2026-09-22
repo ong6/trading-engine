@@ -21,7 +21,7 @@ Maintaining these means keeping them running unchanged. It does not mean improvi
 ## Approved plans
 
 Plans live in [`plans/`](plans/README.md). Only `approved` or `active` plans admit work. P1, P7,
-and P8 are active; P2-P3 are approved, subject to their stated prerequisites and sequencing. P4 is done.
+P8, and P9 are active; P2-P3 are approved, subject to their stated prerequisites and sequencing. P4 is done.
 P5 and P6 completed on 2026-09-18; their bounded outputs remain in scope for operation and
 evidence, but they authorize no further feature growth outside P7's exact trial scope.
 
@@ -40,6 +40,7 @@ evidence, but they authorize no further feature growth outside P7's exact trial 
 | Intraday research | Gated | 252 qualifying sessions over 365 days in both resolutions | None |
 | New API endpoints, dashboard cards, operator CLIs, migrations | — | P7/P8 name bounded status and isolated-book changes | Nothing else |
 | Daily opportunity agent | Approved P8; no active runtime yet | P8's bounded simulator-only implementation | No broker path, real capital, retrospective trades, or P7 evidence pooling |
+| Multi-cadence and tool-call agents | Approved P9; nightly execution policy plus shadow variants | P9's locked, attributed simulator-only implementation | No order authority for intraday variants and no broker path |
 
 ## Never on this host
 
