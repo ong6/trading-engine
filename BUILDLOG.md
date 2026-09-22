@@ -11470,4 +11470,16 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server +579, sim +234, tools/product unchanged; approved P7 budgets remain green.
 - **Next:** implement the backup-gated atomic P7 schema and three-book initializer.
 
+## 2026-09-22 — Repin the reviewed Trae proxy source
+
+- **Why:** demonstrated defect: live `GET /agent/model/status` returns 503 with `Trae proxy
+  source identity is invalid` after the reviewed proxy deployment changed only tool-message
+  translation, leaving scheduled signal-date model decisions fail-closed.
+- **What:** repin the exact deployed proxy source and update the P7 proposal/veto and manifest
+  identities; the model, prompts, tool-free boundary, risk, strategy, and authority stay unchanged.
+- **Evidence:** the full warnings-as-errors suite reaches 100%; live connector status now binds
+  `GPT-5.6-Sol:max`, proxy 0.7, Trae CLI 0.205.1, and the reviewed source identity.
+- **Metrics:** server, tools, and product LOC unchanged; budget remains green.
+- **Next:** implement P7's backup-gated atomic schema and three-book initializer.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
