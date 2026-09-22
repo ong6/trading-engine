@@ -160,31 +160,31 @@
   },
   "metrics": {
     "drawdown_improvement": 0.00762406398676585,
-    "excess_return": -0.006346181141395402,
+    "excess_return": -0.0018700131420867905,
     "sector_momentum": {
-      "end_equity": 41758.16162228574,
+      "end_equity": 41938.521318900515,
       "max_drawdown": -0.013272325239999438,
       "start_equity": 41742.09372396311,
-      "total_return": 0.0003849327354992216
+      "total_return": 0.004705743708889321
     },
     "spy_benchmark": {
-      "end_equity": 40434.26100708009,
+      "end_equity": 40428.02126098634,
       "max_drawdown": -0.02089638922676529,
       "start_equity": 40163.91313403321,
-      "total_return": 0.006731113876894623
+      "total_return": 0.006575756850976111
     }
   },
   "observation": {
-    "as_of": "2026-09-21",
-    "calendar_days_available": 17,
+    "as_of": "2026-09-22",
+    "calendar_days_available": 18,
     "eligible_after": "2027-09-04",
-    "equity_sha256": "0c999d3c4c52297ead05e1ec2f2fd21b920daf9e5bcb65818428f5efa83e6327",
+    "equity_sha256": "138953d9c10ccd6b170f89840d874d56b948639c94241b4c412c066e3fbac37b",
     "first_shared_date": "2026-09-04",
     "forward_ledger_sha256": "4735419b52c6e636d7e0f679bf8d0e1bdab6e2fdfea3ecaa27221ea7789c003b",
     "mature": false,
     "minimum_shared_sessions": 200,
-    "shared_sessions_available": 11,
-    "shared_sessions_in_window": 11,
+    "shared_sessions_available": 12,
+    "shared_sessions_in_window": 12,
     "window_start": "2026-09-04"
   },
   "paper_only": true,
