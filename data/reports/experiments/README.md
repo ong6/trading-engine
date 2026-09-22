@@ -14,6 +14,8 @@ before treating any result as actionable.
 
 ## Completed historical studies
 
+- [`agent-2022-replay-v1/`](agent-2022-replay-v1/) — contaminated retrospective
+  model-behavior diagnostic only; its results cannot establish or promote an edge.
 - [`credit-confirmed-spy-v1/`](credit-confirmed-spy-v1/) — `REJECT-V1`.
 - [`fixed-etf-rebalancing-v1/`](fixed-etf-rebalancing-v1/) — `REJECT-V1`.
 - [`gross-voltarget-matched-static/`](gross-voltarget-matched-static/) —
