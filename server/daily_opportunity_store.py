@@ -126,7 +126,9 @@ def complete_run(
                 "expires_sessions": alert["expires_sessions"],
             }
             con.execute(
-                "INSERT INTO daily_opportunity_alerts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO daily_opportunity_alerts (id, assessment_id, ticker, direction, "
+                "trigger_price, created_market_date, expires_sessions, alert_sha256) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 [alert_id, assessment_id, assessment["ticker"], alert["direction"],
                  alert["price"], date.fromisoformat(assessment["market_date"]),
                  alert["expires_sessions"], canonical_sha256(identity)],

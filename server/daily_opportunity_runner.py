@@ -97,6 +97,10 @@ def _validate_output(output: object, bundle: dict, allowed: dict[str, set[str]],
             raise DailyOpportunityError("swing assessment needs an action")
         if (decision == "hold" or action == "sell") and ticker not in held:
             raise DailyOpportunityError("assessment refers to an unheld position")
+        if ticker in held and not (
+            decision == "hold" or (decision == "swing" and action == "sell")
+        ):
+            raise DailyOpportunityError("held position requires hold or swing-sell assessment")
         alert = raw["alert"]
         candidate = next(item for item in bundle["candidates"] if item["ticker"] == ticker)
         if decision == "watch":
@@ -122,17 +126,22 @@ def _model_input(bundle: dict, news: dict, held: list[str]) -> tuple[dict, dict[
     for item in news["observations"]:
         if item["ticker"] in by_ticker:
             by_ticker[item["ticker"]].append(item)
+    market_headlines = [
+        item for item in news["observations"] if item["ticker"] == "SPY"
+    ]
+    market_news_ids = {item["evidence_id"] for item in market_headlines}
     allowed = {}
     market_id = bundle["market"]["evidence_id"]
     for candidate in bundle["candidates"]:
         allowed[candidate["ticker"]] = {
-            market_id, candidate["evidence_id"],
+            market_id, candidate["evidence_id"], *market_news_ids,
             *(item["evidence_id"] for item in by_ticker[candidate["ticker"]]),
         }
     model_input = {
         "schema_version": 1, "task": "assess each deterministic daily opportunity",
         "execution_authority": "none", "market_date": bundle["market_date"],
         "news_status": news["status"], "market": bundle["market"],
+        "market_headlines": market_headlines,
         "held_positions": held,
         "candidates": [{**item, "headlines": by_ticker[item["ticker"]]} for item in bundle["candidates"]],
         "allowed_evidence_ids": sorted(set().union(*allowed.values()) if allowed else set()),
@@ -174,11 +183,11 @@ def run(*, database: Path = DEFAULT_DB, now: datetime | None = None, generate: G
             with engine_db.transaction(con):
                 triggered = daily_opportunity_store.evaluate_alerts(con, market_date)
         with _connection(database, read_only=True) as con:
+            held = _held(con)
             bundle = detect(
                 con, market_date,
-                required_tickers={item["ticker"] for item in triggered},
+                required_tickers={item["ticker"] for item in triggered} | set(held),
             )
-            held = _held(con)
         trigger_by_ticker = {item["ticker"]: item for item in triggered}
         for candidate in bundle["candidates"]:
             candidate["triggered_alert"] = trigger_by_ticker.get(candidate["ticker"])
@@ -235,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     except (DailyOpportunityError, OpportunityError, duckdb.Error, OSError) as exc:
         result = {"status": "failed", "reason": str(exc), "execution_authority": "none"}
     print(json.dumps(result, sort_keys=True))
-    return 0 if result["status"] in {"completed", "failed"} else 1
+    return 0 if result["status"] == "completed" else 1
 
 
 if __name__ == "__main__":
