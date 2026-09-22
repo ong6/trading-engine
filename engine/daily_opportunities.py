@@ -105,7 +105,13 @@ def _candidate_rows(con: duckdb.DuckDBPyConnection, market_date: date) -> list[t
     ).fetchall()
 
 
-def detect(con: duckdb.DuckDBPyConnection, market_date: date, *, limit: int = MAX_CANDIDATES) -> dict:
+def detect(
+    con: duckdb.DuckDBPyConnection,
+    market_date: date,
+    *,
+    limit: int = MAX_CANDIDATES,
+    required_tickers: set[str] | None = None,
+) -> dict:
     """Return a stable top-N candidate bundle for one completed market date."""
     if type(market_date) is not date or isinstance(limit, bool) or not 1 <= limit <= 20:
         raise OpportunityError("daily opportunity request is invalid")
@@ -150,7 +156,12 @@ def detect(con: duckdb.DuckDBPyConnection, market_date: date, *, limit: int = MA
         }
         candidates.append({**facts, "standout_score": score, "evidence_id": canonical_sha256(facts)})
     candidates.sort(key=lambda item: (-item["standout_score"], item["ticker"]))
+    required = required_tickers or set()
     selected = candidates[:limit]
+    present = {item["ticker"] for item in selected}
+    selected.extend(
+        item for item in candidates if item["ticker"] in required - present
+    )
     body = {
         "schema_version": SCHEMA_VERSION,
         "market_date": market_date.isoformat(),

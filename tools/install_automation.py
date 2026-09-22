@@ -34,11 +34,18 @@ UNIT_SOURCES = {
     "trading-engine-agent-data-capture.timer": Path(
         "server/trading-engine-agent-data-capture.timer"
     ),
+    "trading-engine-daily-opportunity.service": Path(
+        "server/trading-engine-daily-opportunity.service"
+    ),
+    "trading-engine-daily-opportunity.timer": Path(
+        "server/trading-engine-daily-opportunity.timer"
+    ),
 }
 AUTOSTART_UNITS = frozenset(
     {
         "trading-engine-agent-data-capture.timer",
         "trading-engine-agent-shadow.timer",
+        "trading-engine-daily-opportunity.timer",
         "trading-engine-api.service",
         "trading-engine-ui.service",
     }

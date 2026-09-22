@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule trading engine daily opportunity assessment
+
+[Timer]
+OnCalendar=Tue..Sat *-*-* 02:00:00 UTC
+Persistent=true
+AccuracySec=1min
+Unit=trading-engine-daily-opportunity.service
+
+[Install]
+WantedBy=timers.target

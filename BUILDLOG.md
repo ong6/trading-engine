@@ -11503,4 +11503,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** pending final snapshot; within the approved P8 engine/server caps.
 - **Next:** add later-session alert evaluation, fresh reassessment, and isolated simulator orders.
 
+## 2026-09-22 — Add P8 alert, simulator, and status boundaries
+
+- **Why:** P8 scope items 4-6 require multi-session alert state, fresh daily reassessment, isolated
+  simulator order derivation, scheduling, and bounded observability.
+- **What:** add append-only alert events, later-bar crossing and session expiry, inactive-book
+  initialization, capped long-only next-open intents, a status route, and a 02:00 UTC timer.
+- **Evidence:** focused P8 and service tests pass alert replay, inactive-book no-order, capped active
+  order, no same-day fill, attribution, and read-only status cases.
+- **Metrics:** pending final snapshot; within approved P8 server/engine/tools caps.
+- **Next:** initialize the book inactive, install the timer, run one live assessment, then validate all.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

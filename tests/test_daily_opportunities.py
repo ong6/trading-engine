@@ -11,8 +11,11 @@ from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from server import (
     agent_model_client,
+    daily_opportunity_execution,
     daily_opportunity_news,
+    daily_opportunity_read_models,
     daily_opportunity_runner,
+    daily_opportunity_store,
 )
 from sim.schema import init_sim_schema
 
@@ -26,8 +29,8 @@ def _database(path):
     db.init_screen_policy_schema(con)
     db.init_mining_schema(con)
     init_sim_schema(con)
-    sessions = [date(2026, 8, 24) + timedelta(days=i) for i in range(29)]
-    sessions = [value for value in sessions if value.weekday() < 5]
+    sessions = [MARKET_DATE - timedelta(days=i) for i in range(300)]
+    sessions = sorted(value for value in sessions if value.weekday() < 5)[-210:]
     for ticker in ("SPY", "FAST", "QUIET"):
         con.execute(
             "INSERT INTO universe VALUES (?, ?, ?, 'NYSE', ?, 'test', ?, TRUE, TRUE, TRUE)",
@@ -134,17 +137,20 @@ def test_daily_run_records_news_assessments_alert_and_replays_without_calls(tmp_
 
     assert first == {
         "status": "completed", "market_date": "2026-09-21",
-        "assessment_count": 2, "news_status": "available",
-        "execution_authority": "none", "replayed": False,
+        "assessment_count": 2, "news_status": "available", "paper_order_count": 0,
+        "execution_authority": "local_simulator_only", "replayed": False,
     }
     assert second == {**first, "replayed": True}
     assert calls == {"model": 1, "news": 3}
     con = db.connect(path, read_only=True)
     assert con.execute("SELECT COUNT(*) FROM daily_opportunity_news_responses").fetchone() == (3,)
     assert con.execute(
-        "SELECT ticker, direction, trigger_price, expires_sessions, status "
+        "SELECT ticker, direction, trigger_price, expires_sessions "
         "FROM daily_opportunity_alerts"
-    ).fetchone() == ("FAST", "above", 165.0, 5, "open")
+    ).fetchone() == ("FAST", "above", 165.0, 5)
+    assert con.execute(
+        "SELECT event_type, detail FROM daily_opportunity_alert_events ORDER BY id"
+    ).fetchall() == [("opened", "model_watch")]
     con.close()
 
 
@@ -176,3 +182,81 @@ def test_news_failure_is_explicit_and_does_not_fabricate_headlines():
     assert result["status"] == "unavailable"
     assert result["receipts"] == result["observations"] == []
     assert result["failures"] == [{"ticker": "FAST", "reason": "offline"}]
+
+
+def test_alert_triggers_only_on_later_bar_and_expires_by_sessions(tmp_path):
+    path = tmp_path / "market.duckdb"
+    _database(path)
+    daily_opportunity_runner.run(
+        database=path, now=NOW, generate=_connector, fetch_news=_news_response
+    )
+    con = db.connect(path)
+    next_date = date(2026, 9, 22)
+    con.executemany(
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume) VALUES (?,?,?,?,?,?,?)",
+        [("SPY", next_date, 120, 121, 119, 120, 1_000_000),
+         ("FAST", next_date, 164, 166, 160, 165, 2_000_000)],
+    )
+    with db.transaction(con):
+        first = daily_opportunity_store.evaluate_alerts(con, next_date)
+    with db.transaction(con):
+        second = daily_opportunity_store.evaluate_alerts(con, next_date)
+    assert first[0]["ticker"] == "FAST"
+    assert second == []
+    assert con.execute(
+        "SELECT event_type FROM daily_opportunity_alert_events ORDER BY id"
+    ).fetchall() == [("opened",), ("triggered",)]
+    con.close()
+
+
+def test_active_isolated_book_gets_only_capped_next_open_pending_order(tmp_path):
+    path = tmp_path / "market.duckdb"
+    _database(path)
+    con = db.connect(path)
+    with db.transaction(con):
+        daily_opportunity_store.init_schema(con)
+        daily_opportunity_execution.initialize_book(con, MARKET_DATE, active=True)
+    con.close()
+
+    def swing(payload):
+        result = _connector(payload)
+        for item in result.output["assessments"]:
+            if item["ticker"] == "FAST":
+                item.update(decision="swing", action="buy", alert=None)
+        return result
+
+    result = daily_opportunity_runner.run(
+        database=path, now=NOW, generate=swing, fetch_news=_news_response
+    )
+    assert result["paper_order_count"] == 1
+    con = db.connect(path, read_only=True)
+    order = con.execute(
+        "SELECT portfolio_id, ticker, side, qty, signal_date, status FROM sim_orders"
+    ).fetchone()
+    assert order[:3] == ("daily_opportunity_agent_v1", "FAST", "buy")
+    assert order[3] == pytest.approx(1000 / 160)
+    assert order[4:] == (MARKET_DATE, "pending")
+    assert con.execute("SELECT COUNT(*) FROM sim_fills").fetchone() == (0,)
+    assert con.execute("SELECT COUNT(*) FROM daily_opportunity_order_attribution").fetchone() == (1,)
+    con.close()
+
+
+def test_status_is_bounded_and_reports_inactive_book(tmp_path):
+    path = tmp_path / "market.duckdb"
+    _database(path)
+    con = db.connect(path)
+    with db.transaction(con):
+        daily_opportunity_store.init_schema(con)
+        daily_opportunity_execution.initialize_book(con, MARKET_DATE, active=False)
+    con.close()
+    daily_opportunity_runner.run(
+        database=path, now=NOW, generate=_connector, fetch_news=_news_response
+    )
+    con = db.connect(path, read_only=True)
+    status = daily_opportunity_read_models.status(con)
+    con.close()
+    assert status["status"] == "ok"
+    assert status["book_active"] is False
+    assert status["broker_route"] == "absent"
+    assert status["open_alert_count"] == 1
+    assert status["paper_order_count"] == 0
