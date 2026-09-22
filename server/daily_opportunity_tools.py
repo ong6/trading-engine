@@ -111,7 +111,17 @@ def submit(
                 raise ToolCallError("paper trade tool attempt is not safely replayable")
         try:
             response = generate(request_input)
-            if response.request_sha256 != request_sha256:
+            identity = agent_model_client.identity(role="trade_tool")
+            if (
+                response.request_sha256 != request_sha256
+                or response.model != identity["model"]
+                or response.model_version != identity["model_version"]
+                or response.proxy_version != identity["required_proxy_version"]
+                or response.proxy_source_sha256 != identity["required_proxy_source_sha256"]
+                or response.traecli_runtime != identity["required_traecli_runtime"]
+                or response.upstream_model_family != agent_model_client.UPSTREAM_MODEL_FAMILY
+                or response.model_catalog_entry_sha256 != identity["model_catalog_entry_sha256"]
+            ):
                 raise ToolCallError("paper trade tool request identity is invalid")
             if response.output.get("name") != "submit_paper_trade":
                 raise ToolCallError("paper trade tool name is invalid")

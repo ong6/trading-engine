@@ -7,7 +7,7 @@ import math
 import sys
 from contextlib import contextmanager
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Iterator
 
@@ -185,7 +185,7 @@ def _submit_nightly_tools(
         market_date = con.execute(
             "SELECT market_date FROM daily_opportunity_runs WHERE id = ?", [run_id]
         ).fetchone()[0]
-    if observed_at.date() > market_date and observed_at.hour >= 12:
+    if observed_at.date() != market_date + timedelta(days=1) or observed_at.hour >= 12:
         return []
     for assessment_id in ids:
         result = daily_opportunity_tools.submit(

@@ -136,7 +136,7 @@ def outcome(con, ticker: str | None, decision_date: date, horizon: int) -> dict:
         raise ReplayError("future outcome window is incomplete")
     if ticker is None:
         return {"entry_date": dates[0].isoformat(), "exit_date": dates[-1].isoformat(),
-                "net_return": 0.0, "round_trip_cost_bps": 0}
+                "net_return": 0.0, "maximum_drawdown": 0.0, "round_trip_cost_bps": 0}
     entry = con.execute(
         "SELECT open FROM prices WHERE ticker=? AND date=?", [ticker, dates[0]]
     ).fetchone()
@@ -147,9 +147,20 @@ def outcome(con, ticker: str | None, decision_date: date, horizon: int) -> dict:
         raise ReplayError("selected outcome bar is unavailable")
     gross = float(exit_row[0]) / float(entry[0]) - 1
     net = float(exit_row[0]) * 0.999 / (float(entry[0]) * 1.001) - 1
+    closes = [float(row[0]) for row in con.execute(
+        "SELECT close FROM prices WHERE ticker=? AND date>=? AND date<=? ORDER BY date",
+        [ticker, dates[0], dates[-1]],
+    ).fetchall()]
+    values = [float(entry[0]) * 1.001, *[close * 0.999 for close in closes]]
+    peak = values[0]
+    maximum_drawdown = 0.0
+    for value in values:
+        peak = max(peak, value)
+        maximum_drawdown = min(maximum_drawdown, value / peak - 1)
     return {"entry_date": dates[0].isoformat(), "exit_date": dates[-1].isoformat(),
             "entry_open": float(entry[0]), "exit_close": float(exit_row[0]),
-            "gross_return": gross, "net_return": net, "round_trip_cost_bps": 20}
+            "gross_return": gross, "net_return": net,
+            "maximum_drawdown": maximum_drawdown, "round_trip_cost_bps": 20}
 
 
 def summarize(rows: list[dict]) -> dict:
@@ -160,21 +171,22 @@ def summarize(rows: list[dict]) -> dict:
         or (row["decision"]["direction"] == "flat" and row["outcome"]["net_return"] == 0)
         for row in rows
     ]
-    wealth = peak = 1.0
-    drawdown = 0.0
+    wealth = 1.0
     for value in values:
         wealth *= 1 + value
-        peak = max(peak, wealth)
-        drawdown = min(drawdown, wealth / peak - 1)
     return {
         "decision_count": len(rows),
         "direction_accuracy": sum(correct) / len(correct),
         "mean_net_return": sum(values) / len(values),
         "cumulative_return": wealth - 1,
-        "maximum_drawdown": drawdown,
+        "maximum_drawdown": min(row["outcome"]["maximum_drawdown"] for row in rows),
         "turnover_round_trips": sum(row["selected_ticker"] != "CASH" for row in rows),
         "total_cost_bps": sum(row["outcome"]["round_trip_cost_bps"] for row in rows),
         "mean_excess_vs_spy": sum(row["excess_vs_spy"] for row in rows) / len(rows),
+        "mean_absolute_prediction_error_pct": sum(
+            abs(row["decision"]["expected_return_pct"] - row["outcome"]["net_return"] * 100)
+            for row in rows
+        ) / len(rows),
     }
 
 
@@ -209,6 +221,27 @@ def _generate_decisions(con, config: dict, decision_file: Path) -> list[dict]:
                 decision_file, json.dumps(decisions, indent=2, sort_keys=True) + "\n"
             )
     return decisions
+
+
+def _verify_decisions(con, config: dict, decisions: list[dict]) -> None:
+    expected = {(variant, raw_date) for variant in config["variants"]
+                for raw_date in config["decision_dates"]}
+    observed = {(item.get("variant"), item.get("decision_date")) for item in decisions}
+    if len(decisions) != len(observed) or observed != expected:
+        raise ReplayError("historical decisions are incomplete or duplicated")
+    for record in decisions:
+        decision_date = date.fromisoformat(record["decision_date"])
+        prompt, aliases = build_input(con, config, decision_date, record["variant"])
+        expected_aliases = aliases if record["variant"] == "price_blinded" else None
+        request_hash = canonical_sha256(
+            agent_model_client.historical_replay_request_payload(prompt)
+        )
+        if (record.get("prompt") != prompt or record.get("alias_map") != expected_aliases
+                or record.get("request_sha256") != request_hash
+                or record.get("model") != agent_model_client.MODEL
+                or record.get("model_version") != agent_model_client.MODEL_VERSION):
+            raise ReplayError("retained historical decision identity is invalid")
+        validate(record.get("decision"), prompt["choices"])
 
 
 def _reveal(con, config: dict, decisions: list[dict]) -> list[dict]:
@@ -278,6 +311,7 @@ def run(*, database: Path = DEFAULT_DB, output: Path = OUTPUT) -> dict:
         required = len(config["variants"]) * len(config["decision_dates"])
         if len(decisions) != required:
             raise ReplayError("historical decisions are incomplete; outcomes remain withheld")
+        _verify_decisions(con, config, decisions)
         results = _reveal(con, config, decisions)
     finally:
         con.close()

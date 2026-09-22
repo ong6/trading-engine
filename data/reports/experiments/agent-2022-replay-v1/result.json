@@ -28,6 +28,7 @@
         "exit_close": 79.16999816894531,
         "exit_date": "2022-03-01",
         "gross_return": 0.0355788270671169,
+        "maximum_drawdown": -0.07998539126969084,
         "net_return": 0.03350973850154837,
         "round_trip_cost_bps": 20
       },
@@ -150,6 +151,7 @@
         "exit_close": 97.58999633789062,
         "exit_date": "2022-05-27",
         "gross_return": 0.1479825183570802,
+        "maximum_drawdown": -0.07895308729242356,
         "net_return": 0.14568884699173168,
         "round_trip_cost_bps": 20
       },
@@ -272,6 +274,7 @@
         "exit_close": 97.87000274658203,
         "exit_date": "2022-08-26",
         "gross_return": 0.03249289799880306,
+        "maximum_drawdown": -0.08201502477178835,
         "net_return": 0.030429975125678688,
         "round_trip_cost_bps": 20
       },
@@ -394,6 +397,7 @@
         "exit_close": 110.54000091552734,
         "exit_date": "2022-11-29",
         "gross_return": -0.016285501346669284,
+        "maximum_drawdown": -0.044736828720360444,
         "net_return": -0.018250964880441978,
         "round_trip_cost_bps": 20
       },
@@ -520,6 +524,7 @@
         "exit_close": 79.16999816894531,
         "exit_date": "2022-03-01",
         "gross_return": 0.0355788270671169,
+        "maximum_drawdown": -0.07998539126969084,
         "net_return": 0.03350973850154837,
         "round_trip_cost_bps": 20
       },
@@ -646,6 +651,7 @@
         "exit_close": 97.58999633789062,
         "exit_date": "2022-05-27",
         "gross_return": 0.1479825183570802,
+        "maximum_drawdown": -0.07895308729242356,
         "net_return": 0.14568884699173168,
         "round_trip_cost_bps": 20
       },
@@ -772,6 +778,7 @@
         "exit_close": 97.87000274658203,
         "exit_date": "2022-08-26",
         "gross_return": 0.03249289799880306,
+        "maximum_drawdown": -0.08201502477178835,
         "net_return": 0.030429975125678688,
         "round_trip_cost_bps": 20
       },
@@ -898,6 +905,7 @@
         "exit_close": 110.54000091552734,
         "exit_date": "2022-11-29",
         "gross_return": -0.016285501346669284,
+        "maximum_drawdown": -0.044736828720360444,
         "net_return": -0.018250964880441978,
         "round_trip_cost_bps": 20
       },
@@ -1005,7 +1013,8 @@
       "cumulative_return": 0.19784389976271455,
       "decision_count": 4,
       "direction_accuracy": 0.75,
-      "maximum_drawdown": -0.018250964880441978,
+      "maximum_drawdown": -0.08201502477178835,
+      "mean_absolute_prediction_error_pct": 5.450002456123665,
       "mean_excess_vs_spy": 0.058457118840151895,
       "mean_net_return": 0.04784439893462919,
       "total_cost_bps": 80,
@@ -1015,7 +1024,8 @@
       "cumulative_return": 0.19784389976271455,
       "decision_count": 4,
       "direction_accuracy": 0.75,
-      "maximum_drawdown": -0.018250964880441978,
+      "maximum_drawdown": -0.08201502477178835,
+      "mean_absolute_prediction_error_pct": 5.125002456123665,
       "mean_excess_vs_spy": 0.058457118840151895,
       "mean_net_return": 0.04784439893462919,
       "total_cost_bps": 80,
