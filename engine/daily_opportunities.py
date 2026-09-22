@@ -16,6 +16,7 @@ from engine.lib.util import table_exists
 
 SCHEMA_VERSION = 1
 MAX_CANDIDATES = 5
+MIN_STANDOUT_SCORE = 2.0
 MIN_HISTORY = 21
 MIN_CLOSE = 3.0
 MAX_ABS_DAILY_RETURN = 0.80
@@ -154,7 +155,8 @@ def detect(
             "new_screen_pass": bool(new_today), "earnings": _earnings(con, ticker, market_date),
             "alert_bounds": {"minimum": float(close) * 0.70, "maximum": float(close) * 1.30},
         }
-        candidates.append({**facts, "standout_score": score, "evidence_id": canonical_sha256(facts)})
+        if score >= MIN_STANDOUT_SCORE or ticker in (required_tickers or set()):
+            candidates.append({**facts, "standout_score": score, "evidence_id": canonical_sha256(facts)})
     candidates.sort(key=lambda item: (-item["standout_score"], item["ticker"]))
     required = required_tickers or set()
     selected = candidates[:limit]
@@ -162,6 +164,11 @@ def detect(
     selected.extend(
         item for item in candidates if item["ticker"] in required - present
     )
+    missing_required = required - {item["ticker"] for item in selected}
+    if missing_required:
+        raise OpportunityError(
+            f"required opportunity ticker lacks current admissible data: {sorted(missing_required)}"
+        )
     body = {
         "schema_version": SCHEMA_VERSION,
         "market_date": market_date.isoformat(),

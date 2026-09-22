@@ -137,13 +137,13 @@ def test_daily_run_records_news_assessments_alert_and_replays_without_calls(tmp_
 
     assert first == {
         "status": "completed", "market_date": "2026-09-21",
-        "assessment_count": 2, "news_status": "available", "paper_order_count": 0,
+        "assessment_count": 1, "news_status": "available", "paper_order_count": 0,
         "execution_authority": "local_simulator_only", "replayed": False,
     }
     assert second == {**first, "replayed": True}
-    assert calls == {"model": 1, "news": 3}
+    assert calls == {"model": 1, "news": 2}
     con = db.connect(path, read_only=True)
-    assert con.execute("SELECT COUNT(*) FROM daily_opportunity_news_responses").fetchone() == (3,)
+    assert con.execute("SELECT COUNT(*) FROM daily_opportunity_news_responses").fetchone() == (2,)
     assert con.execute(
         "SELECT ticker, direction, trigger_price, expires_sessions "
         "FROM daily_opportunity_alerts"
