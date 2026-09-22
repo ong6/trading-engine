@@ -11,6 +11,7 @@ import numpy as np
 
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
+from engine.lib.resources import write_text_atomic
 from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT
 from server import agent_model_client
 from server.file_utils import read_bytes
@@ -204,7 +205,9 @@ def _generate_decisions(con, config: dict, decision_file: Path) -> list[dict]:
                 "upstream_request_id": response.upstream_request_id,
                 "model_catalog_entry_sha256": response.model_catalog_entry_sha256,
             })
-            decision_file.write_text(json.dumps(decisions, indent=2, sort_keys=True) + "\n")
+            write_text_atomic(
+                decision_file, json.dumps(decisions, indent=2, sort_keys=True) + "\n"
+            )
     return decisions
 
 
@@ -290,8 +293,10 @@ def run(*, database: Path = DEFAULT_DB, output: Path = OUTPUT) -> dict:
         "results": results,
         "summary": summary,
     }
-    (output / "result.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
-    (output / "README.md").write_text(_render(report))
+    write_text_atomic(
+        output / "result.json", json.dumps(report, indent=2, sort_keys=True) + "\n"
+    )
+    write_text_atomic(output / "README.md", _render(report))
     return report
 
 

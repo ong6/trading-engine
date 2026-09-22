@@ -11500,7 +11500,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   retain bounded Yahoo responses; record validated ignore/watch/hold/swing results and alerts.
 - **Evidence:** focused P8 tests prove deterministic ranking, exact news receipts, one model call,
   replay without new calls, bounded alerts, and fail-closed malformed output.
-- **Metrics:** pending final snapshot; within the approved P8 engine/server caps.
+- **Metrics:** included in final P8/P9 snapshot; approved caps remain green.
 - **Next:** add later-session alert evaluation, fresh reassessment, and isolated simulator orders.
 
 ## 2026-09-22 — Add P8 alert, simulator, and status boundaries
@@ -11511,7 +11511,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   initialization, capped long-only next-open intents, a status route, and a 02:00 UTC timer.
 - **Evidence:** focused P8 and service tests pass alert replay, inactive-book no-order, capped active
   order, no same-day fill, attribution, and read-only status cases.
-- **Metrics:** pending final snapshot; within approved P8 server/engine/tools caps.
+- **Metrics:** included in final P8/P9 snapshot; approved caps remain green.
 - **Next:** initialize the book inactive, install the timer, run one live assessment, then validate all.
 
 ## 2026-09-22 — Deploy the daily paper observer
@@ -11522,7 +11522,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   and retain the first five model decisions plus two multi-session alerts with zero orders.
 - **Evidence:** backup verification and focused integration tests pass; live replay reports five
   assessments, available news, zero orders, inactive book, and no broker route.
-- **Metrics:** pending final snapshot; all approved P8 ceilings remain green.
+- **Metrics:** included in final P8/P9 snapshot; approved caps remain green.
 - **Next:** observe daily outcomes; activate simulator execution only after final validation review.
 
 ## 2026-09-22 — Approve multi-cadence paper-agent tools
@@ -11543,7 +11543,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   exact `submit_paper_trade` call before deterministic simulator consumption.
 - **Evidence:** the P8/P9 self-test passes four variants, one execution policy, the bounded tool
   schema, no broker route, and focused replay/isolation/risk tests.
-- **Metrics:** pending final snapshot; all approved P9 ceilings remain green.
+- **Metrics:** included in final P8/P9 snapshot; approved caps remain green.
 - **Next:** install shadow cadence timers and complete the full-suite/recovery gate.
 
 ## 2026-09-22 — Complete the multi-cadence paper-agent flow
@@ -11554,7 +11554,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   assessment consumer, and a frozen gap-volume candidate with a veto-only comparison projection.
 - **Evidence:** focused integration tests and the P8/P9 self-test pass, including later-open fill,
   malformed/replay/inactive-book cases, four variants, one writer, and no broker route.
-- **Metrics:** pending final snapshot; all approved P9 ceilings remain green.
+- **Metrics:** server +1,468, tools +58, product +528, tests +533 since 2026-09-20; budget green.
 - **Next:** run the full suite, refresh/install units, activate only the isolated simulator book.
 
 ## 2026-09-22 — Register the contaminated 2022 agent replay
@@ -11576,7 +11576,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   XOM four times and produced identical diagnostic results, explicitly marked contaminated.
 - **Evidence:** rerun uses all retained responses with zero model calls; each variant is 3/4 correct,
   +19.78% compounded, -1.83% max drawdown, and +5.85pp mean excess versus SPY.
-- **Metrics:** pending final snapshot; farm remains within its approved ceiling.
+- **Metrics:** farm +312 lines; approved budget remains green.
 - **Next:** do not promote; collect genuine prospective P8/P9 evidence and acquire audited PIT data.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
