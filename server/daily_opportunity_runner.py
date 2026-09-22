@@ -19,12 +19,7 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 
-from . import (
-    agent_model_client,
-    daily_opportunity_execution,
-    daily_opportunity_news,
-    daily_opportunity_store,
-)
+from . import agent_model_client, daily_opportunity_news, daily_opportunity_store
 from .json_utils import loads_object
 
 LOCK_PATH = REPO_ROOT / ".daily-opportunity.lock"
@@ -167,8 +162,43 @@ def _result(con: duckdb.DuckDBPyConnection, run: dict, *, replayed: bool) -> dic
             "replayed": replayed}
 
 
+def _submit_nightly_tools(
+    database: Path, run_id: int, observed_at: datetime, tool_generate=None
+) -> list[int]:
+    """Confirm each eligible swing through the sole P9 execution-bearing tool role."""
+    with _connection(database) as con:
+        book = con.execute(
+            "SELECT active FROM portfolios WHERE id = ?",
+            [daily_opportunity_store.PORTFOLIO_ID],
+        ).fetchone()
+        if book is None or book[0] is not True:
+            return []
+        ids = [row[0] for row in con.execute(
+            "SELECT id FROM daily_opportunity_assessments WHERE run_id = ? "
+            "AND decision = 'swing' ORDER BY id", [run_id],
+        ).fetchall()]
+    from . import daily_opportunity_tools
+
+    orders = []
+    market_date = None
+    with _connection(database) as con:
+        market_date = con.execute(
+            "SELECT market_date FROM daily_opportunity_runs WHERE id = ?", [run_id]
+        ).fetchone()[0]
+    if observed_at.date() > market_date and observed_at.hour >= 12:
+        return []
+    for assessment_id in ids:
+        result = daily_opportunity_tools.submit(
+            assessment_id, database=database, now=observed_at, generate=tool_generate
+        )
+        if result["paper_order_id"] is not None:
+            orders.append(result["paper_order_id"])
+    return orders
+
+
 def run(*, database: Path = DEFAULT_DB, now: datetime | None = None, generate: Generate | None = None,
-        fetch_news: daily_opportunity_news.Fetch = daily_opportunity_news._fetch) -> dict:
+        fetch_news: daily_opportunity_news.Fetch = daily_opportunity_news._fetch,
+        tool_generate=None) -> dict:
     observed_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     generate = generate or agent_model_client.generate_opportunity_json
     with advisory_file_lock(LOCK_PATH):
@@ -179,9 +209,25 @@ def run(*, database: Path = DEFAULT_DB, now: datetime | None = None, generate: G
                 raise DailyOpportunityError("no breadth-qualified market date")
             existing = daily_opportunity_store.find_run(con, market_date)
             if existing is not None:
-                return _result(con, existing, replayed=True)
+                result = _result(con, existing, replayed=True)
+                run_id = existing["id"]
+                completed = existing["status"] == "completed"
+            else:
+                result = None
+                completed = False
+            if result is not None:
+                break_out = True
+            else:
+                break_out = False
             with engine_db.transaction(con):
-                triggered = daily_opportunity_store.evaluate_alerts(con, market_date)
+                triggered = [] if break_out else daily_opportunity_store.evaluate_alerts(con, market_date)
+        if break_out:
+            if completed:
+                result["paper_order_ids"] = _submit_nightly_tools(
+                    database, run_id, observed_at, tool_generate
+                )
+                result["paper_order_count"] = len(result["paper_order_ids"])
+            return result
         with _connection(database, read_only=True) as con:
             held = _held(con)
             bundle = detect(
@@ -233,11 +279,12 @@ def run(*, database: Path = DEFAULT_DB, now: datetime | None = None, generate: G
                 con, run_id, request_sha256=request_sha256, response_id=response.response_id,
                 assessments=assessments, response_payload=response_payload, completed_at=observed_at,
             )
-            order_ids = daily_opportunity_execution.consume_run(con, run_id, now=observed_at)
+        order_ids = _submit_nightly_tools(database, run_id, observed_at, tool_generate)
         return {"status": "completed", "market_date": market_date.isoformat(),
                 "assessment_count": len(assessments), "news_status": news["status"],
-                "paper_order_count": len(order_ids),
-                "execution_authority": "local_simulator_only", "replayed": False}
+                "paper_order_count": len(order_ids), "paper_order_ids": order_ids,
+                "execution_authority": "local_simulator_only",
+                "replayed": False}
     except (agent_model_client.ConnectorError, DailyOpportunityError) as exc:
         with _connection(database) as con, engine_db.transaction(con):
             daily_opportunity_store.fail_run(con, run_id, str(exc), observed_at)

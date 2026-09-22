@@ -131,6 +131,15 @@ def response(output):
     }
 
 
+def tool_response(arguments):
+    payload = response({})
+    payload["output"] = [{
+        "type": "function_call", "name": "submit_paper_trade",
+        "call_id": "call_123", "arguments": json.dumps(arguments),
+    }]
+    return payload
+
+
 def test_status_uses_only_loopback_allowlisted_routes_and_sanitizes_health():
     factory, observed, connections, timeouts = factory_for(
         [
@@ -244,6 +253,28 @@ def test_generate_veto_json_uses_distinct_fixed_prompt_and_no_tools():
     )
     assert all(connection.closed for connection in connections)
     assert timeouts == [5.0, 5.0, 240.0, 5.0, 5.0]
+
+
+def test_generate_trade_tool_allows_exactly_one_bounded_function():
+    arguments = {"ticker": "FAST", "side": "buy", "assessment_sha256": "a" * 64,
+                 "horizon_sessions": 5, "thesis": "Momentum",
+                 "invalidation": "Breakdown", "evidence_ids": ["b" * 64]}
+    factory, observed, _connections, _timeouts = factory_for([
+        Response(health()), Response(models(agent_model_client.MODEL)),
+        Response(tool_response(arguments)), Response(health()),
+        Response(models(agent_model_client.MODEL)),
+    ])
+    result = agent_model_client.generate_trade_tool(
+        {"assessment": arguments}, connection_factory=factory
+    )
+    request = json.loads(
+        next(item for item in observed if item["path"] == "/v1/responses")["body"]
+    )
+    assert result.output == {"name": "submit_paper_trade", "call_id": "call_123",
+                             "arguments": arguments}
+    assert request["tools"] == [agent_model_client.TRADE_TOOL]
+    assert request["tool_choice"] == "required"
+    assert request["parallel_tool_calls"] is False
 
 
 def test_generation_rejects_catalog_drift_after_model_response():
