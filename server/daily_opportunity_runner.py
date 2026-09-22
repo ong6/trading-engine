@@ -19,11 +19,15 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 
-from . import agent_model_client, daily_opportunity_news, daily_opportunity_store
+from . import (
+    agent_model_client,
+    daily_opportunity_execution,
+    daily_opportunity_news,
+    daily_opportunity_store,
+)
 from .json_utils import loads_object
 
 LOCK_PATH = REPO_ROOT / ".daily-opportunity.lock"
-PORTFOLIO_ID = "daily_opportunity_agent_v1"
 MAX_TEXT = 1000
 DECISIONS = {"ignore", "watch", "hold", "swing"}
 ACTIONS = {"none", "buy", "sell"}
@@ -53,7 +57,7 @@ def _held(con: duckdb.DuckDBPyConnection) -> list[str]:
     try:
         return [row[0] for row in con.execute(
             "SELECT ticker FROM sim_positions WHERE portfolio_id = ? AND qty > 0 ORDER BY ticker",
-            [PORTFOLIO_ID],
+            [daily_opportunity_store.PORTFOLIO_ID],
         ).fetchall()]
     except duckdb.Error:
         return []
@@ -144,9 +148,14 @@ def _result(con: duckdb.DuckDBPyConnection, run: dict, *, replayed: bool) -> dic
     count = con.execute(
         "SELECT COUNT(*) FROM daily_opportunity_assessments WHERE run_id = ?", [run["id"]]
     ).fetchone()[0]
+    orders = con.execute(
+        "SELECT COUNT(*) FROM daily_opportunity_order_attribution WHERE run_id = ?",
+        [run["id"]],
+    ).fetchone()[0]
     return {"status": run["status"], "market_date": loads_object(run["bundle_payload"])["market_date"],
             "assessment_count": count, "news_status": run["news_status"],
-            "execution_authority": "none", "replayed": replayed}
+            "paper_order_count": orders, "execution_authority": "local_simulator_only",
+            "replayed": replayed}
 
 
 def run(*, database: Path = DEFAULT_DB, now: datetime | None = None, generate: Generate | None = None,
@@ -162,8 +171,17 @@ def run(*, database: Path = DEFAULT_DB, now: datetime | None = None, generate: G
             existing = daily_opportunity_store.find_run(con, market_date)
             if existing is not None:
                 return _result(con, existing, replayed=True)
+            with engine_db.transaction(con):
+                triggered = daily_opportunity_store.evaluate_alerts(con, market_date)
         with _connection(database, read_only=True) as con:
-            bundle, held = detect(con, market_date), _held(con)
+            bundle = detect(
+                con, market_date,
+                required_tickers={item["ticker"] for item in triggered},
+            )
+            held = _held(con)
+        trigger_by_ticker = {item["ticker"]: item for item in triggered}
+        for candidate in bundle["candidates"]:
+            candidate["triggered_alert"] = trigger_by_ticker.get(candidate["ticker"])
         news = daily_opportunity_news.capture(
             ["SPY", *(item["ticker"] for item in bundle["candidates"])],
             now=observed_at, fetch=fetch_news,
@@ -196,9 +214,11 @@ def run(*, database: Path = DEFAULT_DB, now: datetime | None = None, generate: G
                 con, run_id, request_sha256=request_sha256, response_id=response.response_id,
                 assessments=assessments, response_payload=response_payload, completed_at=observed_at,
             )
+            order_ids = daily_opportunity_execution.consume_run(con, run_id, now=observed_at)
         return {"status": "completed", "market_date": market_date.isoformat(),
                 "assessment_count": len(assessments), "news_status": news["status"],
-                "execution_authority": "none", "replayed": False}
+                "paper_order_count": len(order_ids),
+                "execution_authority": "local_simulator_only", "replayed": False}
     except (agent_model_client.ConnectorError, DailyOpportunityError) as exc:
         with _connection(database) as con, engine_db.transaction(con):
             daily_opportunity_store.fail_run(con, run_id, str(exc), observed_at)

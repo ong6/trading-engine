@@ -42,6 +42,7 @@ from . import (
     agent_release_readiness,
     agent_shadow_read_models,
     agent_shadow_schedule,
+    daily_opportunity_read_models,
     journal_read_models,
     league_read_models,
     market_read_models,
@@ -495,6 +496,12 @@ def paper_trial_status():
             return p7_trial_status.project(con)
         except p7_trial_status.TrialStatusError as exc:
             raise HTTPException(503, "paper trial status unavailable") from exc
+
+
+@app.get("/daily-opportunities/status")
+def daily_opportunity_status():
+    with _connection(read_con) as con:
+        return daily_opportunity_read_models.status(con)
 
 
 @app.post("/agent/proposals/shadow", dependencies=JSON_MUTATION_DEPENDENCY)

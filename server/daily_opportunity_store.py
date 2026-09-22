@@ -8,6 +8,8 @@ import duckdb
 
 from engine.lib.provenance import canonical_sha256
 
+PORTFOLIO_ID = "daily_opportunity_agent_v1"
+
 
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     con.execute(
@@ -31,8 +33,13 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         """CREATE TABLE IF NOT EXISTS daily_opportunity_alerts (
         id BIGINT PRIMARY KEY, assessment_id BIGINT NOT NULL UNIQUE, ticker VARCHAR NOT NULL,
         direction VARCHAR NOT NULL, trigger_price DOUBLE NOT NULL, created_market_date DATE NOT NULL,
-        expires_sessions INTEGER NOT NULL, status VARCHAR NOT NULL, triggered_on DATE,
-        terminal_reason VARCHAR, alert_sha256 VARCHAR NOT NULL UNIQUE)"""
+        expires_sessions INTEGER NOT NULL, alert_sha256 VARCHAR NOT NULL UNIQUE)"""
+    )
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS daily_opportunity_alert_events (
+        id BIGINT PRIMARY KEY, alert_id BIGINT NOT NULL, event_type VARCHAR NOT NULL,
+        market_date DATE NOT NULL, detail VARCHAR NOT NULL, event_sha256 VARCHAR NOT NULL UNIQUE,
+        UNIQUE(alert_id, event_type))"""
     )
     con.execute(
         """CREATE TABLE IF NOT EXISTS daily_opportunity_news_responses (
@@ -41,6 +48,13 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         content_type VARCHAR NOT NULL, response_sha256 VARCHAR NOT NULL, response_body BLOB NOT NULL,
         receipt_sha256 VARCHAR NOT NULL UNIQUE, UNIQUE(run_id, ticker))"""
     )
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS daily_opportunity_order_attribution (
+        order_id BIGINT PRIMARY KEY, assessment_id BIGINT NOT NULL UNIQUE, run_id BIGINT NOT NULL,
+        portfolio_id VARCHAR NOT NULL, ticker VARCHAR NOT NULL, side VARCHAR NOT NULL,
+        quantity DOUBLE NOT NULL, signal_date DATE NOT NULL, assessment_sha256 VARCHAR NOT NULL,
+        attribution_sha256 VARCHAR NOT NULL UNIQUE, recorded_at TIMESTAMP NOT NULL)"""
+    )
 
 
 def next_id(con: duckdb.DuckDBPyConnection, table: str) -> int:
@@ -48,6 +62,7 @@ def next_id(con: duckdb.DuckDBPyConnection, table: str) -> int:
         "daily_opportunity_runs",
         "daily_opportunity_assessments",
         "daily_opportunity_alerts",
+        "daily_opportunity_alert_events",
     }
     if table not in allowed:
         raise ValueError("invalid daily opportunity table")
@@ -111,10 +126,17 @@ def complete_run(
                 "expires_sessions": alert["expires_sessions"],
             }
             con.execute(
-                "INSERT INTO daily_opportunity_alerts VALUES (?, ?, ?, ?, ?, ?, ?, 'open', NULL, NULL, ?)",
+                "INSERT INTO daily_opportunity_alerts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 [alert_id, assessment_id, assessment["ticker"], alert["direction"],
                  alert["price"], date.fromisoformat(assessment["market_date"]),
                  alert["expires_sessions"], canonical_sha256(identity)],
+            )
+            event = {"alert_sha256": canonical_sha256(identity), "event_type": "opened",
+                     "market_date": assessment["market_date"], "detail": "model_watch"}
+            con.execute(
+                "INSERT INTO daily_opportunity_alert_events VALUES (?, ?, 'opened', ?, 'model_watch', ?)",
+                [next_id(con, "daily_opportunity_alert_events"), alert_id,
+                 date.fromisoformat(assessment["market_date"]), canonical_sha256(event)],
             )
             alert_id += 1
         assessment_id += 1
@@ -131,3 +153,46 @@ def fail_run(con: duckdb.DuckDBPyConnection, run_id: int, reason: str, now: date
         "UPDATE daily_opportunity_runs SET status = 'failed', reason = ?, completed_at = ? "
         "WHERE id = ? AND status = 'in_progress'", [reason[:512], now, run_id]
     )
+
+
+def evaluate_alerts(con: duckdb.DuckDBPyConnection, market_date: date) -> list[dict]:
+    """Append terminal events for alerts crossed or expired on a later real session."""
+    rows = con.execute(
+        "SELECT a.id, a.ticker, a.direction, a.trigger_price, a.created_market_date, "
+        "a.expires_sessions, a.alert_sha256 FROM daily_opportunity_alerts a "
+        "WHERE NOT EXISTS (SELECT 1 FROM daily_opportunity_alert_events e "
+        "WHERE e.alert_id = a.id AND e.event_type IN ('triggered','expired')) "
+        "ORDER BY a.id"
+    ).fetchall()
+    triggered = []
+    for alert_id, ticker, direction, price, created, expires, alert_sha256 in rows:
+        if market_date <= created:
+            continue
+        elapsed = int(con.execute(
+            "SELECT COUNT(DISTINCT date) FROM prices WHERE ticker = 'SPY' "
+            "AND date > ? AND date <= ? AND volume > 0", [created, market_date]
+        ).fetchone()[0])
+        bar = con.execute(
+            "SELECT high, low FROM prices WHERE ticker = ? AND date = ? AND volume > 0",
+            [ticker, market_date],
+        ).fetchone()
+        crossed = bar is not None and (
+            (direction == "above" and bar[0] is not None and float(bar[0]) >= price)
+            or (direction == "below" and bar[1] is not None and float(bar[1]) <= price)
+        )
+        event_type = "triggered" if crossed and elapsed <= expires else ("expired" if elapsed > expires else None)
+        if event_type is None:
+            continue
+        detail = "price_crossed" if event_type == "triggered" else "session_expiry"
+        event = {"alert_sha256": alert_sha256, "event_type": event_type,
+                 "market_date": market_date.isoformat(), "detail": detail}
+        con.execute(
+            "INSERT INTO daily_opportunity_alert_events VALUES (?, ?, ?, ?, ?, ?)",
+            [next_id(con, "daily_opportunity_alert_events"), alert_id, event_type, market_date,
+             detail, canonical_sha256(event)],
+        )
+        if event_type == "triggered":
+            triggered.append({"alert_id": alert_id, "ticker": ticker,
+                              "alert_sha256": alert_sha256, "direction": direction,
+                              "trigger_price": float(price)})
+    return triggered
