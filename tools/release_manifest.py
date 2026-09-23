@@ -176,6 +176,7 @@ INDEPENDENT_RISK_SOURCE_FILES = (
 )
 EXPERIMENT_REGISTRATION_FILES = (
     "farm/agent_evaluation_analysis.py",
+    "farm/experiments/agent-2022-contamination-probes-v1.json",
     "farm/experiments/credit-confirmed-spy-v1.yaml",
     "farm/experiments/e1-spy-monday.forward.json",
     "farm/experiments/e1-spy-monday.yaml",

@@ -11797,4 +11797,16 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** P12 net additions remain within every layer allocation and source ceiling.
 - **Next:** run the final full suite, refresh/install services, verify recovery, and publish audit.
 
+## 2026-09-23 — Close evaluation completeness gaps
+
+- **Why:** P12 completion audit found no due-window ledger, trigger rate mislabeled as precision, and
+  only the named/blinded contamination probe completed.
+- **What:** freeze a DST-aware forward evaluation schedule, report missing due windows and true
+  next-session alert precision, move pure analysis into `farm`, and retain separate date-recall,
+  prompt-order, and synthetic-trend diagnostics without changing the original 2022 replay.
+- **Evidence:** original eight and new twelve decision identities verify; focused replay/report tests
+  pass. Date recall selected cash, prompt order retained XOM, synthetic accuracy fell to 25%.
+- **Metrics:** every P12 layer allocation and repository source ceiling remains green.
+- **Next:** regenerate one coherent final-source walk-forward cohort, full suite, and recovery bundle.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
