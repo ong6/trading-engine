@@ -11716,4 +11716,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** all source ceilings remain within the approved P12 budget.
 - **Next:** run the final manifest, recovery, service, and live-state completion audit.
 
+## 2026-09-23 — Extend recovery identity through P12
+
+- **Why:** P12 recovery review found that the backup copied the database but its named release
+  groups did not cover the new opportunity, provenance, evaluation, ingestion, and cadence files.
+- **What:** add those runtime modules, tools, schedules, schema sources, and the canonical agent
+  evaluation artifact to the release identity consumed by backup creation and verification.
+- **Evidence:** release-manifest and backup test suites pass, including exact tree/hash verification.
+- **Metrics:** tools remain below the approved P12 ceiling; all source budgets are green.
+- **Next:** commit, create and verify a pre-migration backup, initialize live additive schemas, then
+  create and verify the post-migration recovery bundle.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

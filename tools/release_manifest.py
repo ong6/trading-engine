@@ -33,10 +33,13 @@ DEPENDENCY_FILES = (
     "ui/package-lock.json",
 )
 SCHEMA_SOURCE_FILES = (
+    "engine/pit_import.py",
     "engine/lib/db.py",
     "engine/queue_runner.py",
     "server/broker_ledger.py",
     "server/broker_risk_control.py",
+    "server/bitemporal_facts.py",
+    "server/daily_opportunity_store.py",
     "server/simulator_broker_adapter.py",
     "sim/schema.py",
     "sim/settle.py",
@@ -47,6 +50,12 @@ SERVICE_FILES = (
     "server/trading-engine-agent-shadow.service",
     "server/trading-engine-agent-shadow.timer",
     "server/trading-engine-api.service",
+    "server/trading-engine-daily-opportunity.service",
+    "server/trading-engine-daily-opportunity.timer",
+    "server/trading-engine-four-hour-opportunity.service",
+    "server/trading-engine-four-hour-opportunity.timer",
+    "server/trading-engine-hourly-opportunity.service",
+    "server/trading-engine-hourly-opportunity.timer",
     "ui/trading-engine-ui.service",
 )
 RECOVERY_SOURCE_FILES = (
@@ -79,7 +88,9 @@ AUDIT_SOURCE_FILES = (
     "tools/worktree_audit.py",
 )
 AGENT_SOURCE_FILES = (
+    "engine/daily_opportunities.py",
     "engine/verify_prices.py",
+    "server/agent-cadence-registration.json",
     "server/agent_algorithm_candidate.py",
     "server/agent_attribution_read_models.py",
     "server/agent_authority_read_models.py",
@@ -89,9 +100,21 @@ AGENT_SOURCE_FILES = (
     "server/agent_data_contract.py",
     "server/agent_data_discrepancy_adjudication.py",
     "server/agent_decision_contract.py",
+    "server/agent_evaluation.py",
+    "server/agent_evaluation_reporting.py",
     "server/agent_fault_drills.py",
     "server/agent_independent_price_evidence.py",
     "server/agent_model_client.py",
+    "server/daily_opportunity_execution.py",
+    "server/daily_opportunity_news.py",
+    "server/daily_opportunity_read_models.py",
+    "server/daily_opportunity_runner.py",
+    "server/daily_opportunity_self_test.py",
+    "server/daily_opportunity_store.py",
+    "server/daily_opportunity_tools.py",
+    "server/hourly_opportunity_observer.py",
+    "server/intraday_source.py",
+    "server/sec_edgar_capture.py",
     "server/agent_paper_attribution.py",
     "server/agent_paper_book_plan.py",
     "server/agent_paper_book_preflight.py",
@@ -115,6 +138,10 @@ AGENT_SOURCE_FILES = (
     "server/agent_veto_contract.py",
     "server/main.py",
     "tools/adjudicate_agent_data_discrepancy.py",
+    "tools/agent_evaluation_report.py",
+    "tools/backfill_agent_evaluation.py",
+    "tools/pit_import.py",
+    "tools/sec_edgar_capture.py",
 )
 BROKER_BOUNDARY_SOURCE_FILES = (
     "server/broker_contract.py",
@@ -158,6 +185,7 @@ EXPERIMENT_REGISTRATION_FILES = (
 STRATEGY_REGISTRATION_FILES = ("sim/strategies/configs.py",)
 EXECUTION_PROFILE_FILES = ("sim/execution.py",)
 PROSPECTIVE_EVIDENCE_FILES = (
+    "data/reports/agent-evaluation.json",
     "data/reports/experiments/e1-spy-monday-forward.json",
     "data/reports/forward/sector_momentum.json",
     "data/reports/forward/xs_momentum_12_1.json",
@@ -182,6 +210,12 @@ SCHEDULE_SOURCE_FILES = (
     "server/trading-engine-agent-shadow.timer",
     "server/trading-engine-agent-data-capture.service",
     "server/trading-engine-agent-data-capture.timer",
+    "server/trading-engine-daily-opportunity.service",
+    "server/trading-engine-daily-opportunity.timer",
+    "server/trading-engine-four-hour-opportunity.service",
+    "server/trading-engine-four-hour-opportunity.timer",
+    "server/trading-engine-hourly-opportunity.service",
+    "server/trading-engine-hourly-opportunity.timer",
 )
 REQUIRED_FILES = tuple(
     sorted(
