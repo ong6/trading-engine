@@ -322,6 +322,49 @@ def test_evaluation_labels_wait_for_horizon_and_replay_exactly(tmp_path):
     con.close()
 
 
+def test_hourly_trace_labels_start_after_observation_date(tmp_path):
+    path = tmp_path / "market.duckdb"
+    _database(path)
+    con = db.connect(path)
+    agent_evaluation.init_schema(con)
+    trace = {
+        "window_id": "hourly_market_watch_v1:2026-09-22T15",
+        "policy_id": "hourly_market_watch_v1", "cadence": "hourly",
+        "prompt_role": "rapid_catalyst_watch", "market_date": MARKET_DATE,
+        "observed_at": datetime(2026, 9, 22, 15, 0, tzinfo=timezone.utc),
+        "information_cutoff_at": datetime(2026, 9, 22, 15, 1, tzinfo=timezone.utc),
+        "completed_at": datetime(2026, 9, 22, 15, 2, tzinfo=timezone.utc),
+        "source_kind": "jsonl_artifact", "source_identifier": "test:window",
+        "source_refs": [{"kind": "artifact", "sha256": "a" * 64}],
+        "input_payload": {"test": True}, "output_payload": {"test": True},
+        "request_sha256": "b" * 64, "response_id": "response-test",
+        "model": agent_model_client.MODEL, "model_version": agent_model_client.MODEL_VERSION,
+        "instructions_sha256": "c" * 64, "toolset_sha256": "d" * 64,
+        "model_catalog_entry_sha256": "e" * 64, "proxy_source_sha256": "f" * 64,
+        "traecli_runtime": agent_model_client.REQUIRED_TRAECLI_RUNTIME,
+        "upstream_model_family": agent_model_client.UPSTREAM_MODEL_FAMILY,
+        "upstream_request_id": "upstream-test", "latency_ms": 100.0,
+        "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+        "terminal_status": "completed", "execution_authority": "none",
+        "decisions": [{"ticker": "FAST", "decision": "watch", "action": "none",
+                       "horizon_sessions": 5, "confidence": 0.5}],
+    }
+    agent_evaluation.record_trace(con, trace)
+    con.executemany(
+        "INSERT OR IGNORE INTO prices (ticker,date,open,high,low,close,volume) VALUES (?,?,?,?,?,?,?)",
+        [("SPY", date(2026, 9, 22), 100, 101, 99, 100, 1_000_000),
+         ("FAST", date(2026, 9, 22), 100, 101, 99, 100, 1_000_000),
+         ("SPY", date(2026, 9, 23), 101, 102, 100, 101, 1_000_000),
+         ("FAST", date(2026, 9, 23), 101, 103, 100, 102, 1_000_000)],
+    )
+    with db.transaction(con):
+        agent_evaluation.label_mature(con, labeled_at=NOW + timedelta(days=3))
+    assert con.execute(
+        "SELECT entry_date FROM agent_evaluation_labels WHERE horizon_sessions=1"
+    ).fetchone() == (date(2026, 9, 23),)
+    con.close()
+
+
 def test_alert_expires_after_its_session_budget(tmp_path):
     path = tmp_path / "market.duckdb"
     _database(path)
