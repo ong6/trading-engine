@@ -121,6 +121,23 @@ separates missing mature labels from still-immature labels. The existing 2022 na
 included only as a contamination diagnostic; unrun probes and unavailable numeric forecasts remain
 explicit, and all report output has no promotion authority.
 
+Phase 5 status: [the provider-neutral manifest example](pit-import-manifest.example.json) defines the
+only accepted CSV envelope for future licensed datasets. `python -m tools.pit_import MANIFEST
+--data-root ROOT` audits by default; `--apply` is required to write isolated `pit_import_*` staging
+tables. The importer validates an accepted license declaration, path containment, regular-file and
+size/hash identity, exact columns, stable entity/security IDs, JSON payloads, duplicate keys, and
+event/publication/availability ordering. It never writes operational `prices` or activates research.
+
+SEC EDGAR forward capture is implemented for at most the latest five nightly candidates. It retains
+the exact current-ticker-map and submissions responses, records the current mapping as
+explicitly lacking historical-membership authority, and records material filing facts with report
+date as event time, SEC `acceptanceDateTime` as publication time, and HTTP receipt as availability.
+Activation is gated on a monitored contact identity in `TRADING_ENGINE_SEC_USER_AGENT` and a
+successful one-ticker smoke test; this host's anonymous test received HTTP 403, so no failing timer
+was installed. After setting it, run `python -m tools.sec_edgar_capture --tickers AAPL`; schedule
+the command only after it returns `complete`. A partial or failed capture exits nonzero. SEC data
+does not satisfy the paid historical-universe gate.
+
 ## Explicit external gates
 
 - Sharadar/Norgate/news purchase: owner must approve initial and recurring spend and license terms.

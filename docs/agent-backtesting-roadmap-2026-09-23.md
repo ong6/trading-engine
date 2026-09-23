@@ -89,6 +89,18 @@ memorized training windows. Blinding symbols helps but cannot hide famous events
 - Select historical news only after timestamp, revision, and license review.
 - Recalculate readiness without silently mixing datasets.
 
+Implementation status: a vendor-neutral, apply-gated importer now validates exact file manifests
+and writes only isolated `pit_import_*` staging tables. It is ready for a licensed export but no paid
+dataset has been purchased or admitted. A separate bounded SEC collector now accumulates raw
+submissions receipts and acceptance-time filing facts for current nightly candidates; its current
+ticker map is explicitly not treated as historical membership.
+
+External acceptance gates remain: a paid dataset requires an owner-approved initial/recurring
+budget, accepted license, and a manifest whose checksum and schema pass audit before `--apply`; SEC
+activation requires `TRADING_ENGINE_SEC_USER_AGENT` with a monitored contact and a successful
+one-ticker capture. The anonymous live probe on 2026-09-23 returned HTTP 403, so no SEC timer was
+installed and no operational data was changed.
+
 ### C. Execution
 
 - Enforce maximum-hold and executable invalidation exits.

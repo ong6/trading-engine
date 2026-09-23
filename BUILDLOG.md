@@ -11692,4 +11692,16 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server/tools remain within P12 ceilings; all source budgets are green.
 - **Next:** add provider-neutral PIT manifests/import validation and SEC acceptance-time capture.
 
+## 2026-09-23 — Add point-in-time ingestion boundaries
+
+- **Why:** P12 requires a safe vendor-neutral historical import boundary and SEC filing capture
+  keyed by exact acceptance time, while paid acquisition and credentials remain owner-gated.
+- **What:** add audit-first/apply-explicit manifests into isolated `pit_import_*` tables and a
+  five-ticker SEC adapter retaining raw mapping/submission responses plus acceptance-time facts.
+  Current SEC mappings explicitly have no historical-membership authority.
+- **Evidence:** focused importer/SEC/service tests and the full warnings-as-errors suite pass; the
+  live anonymous SEC probe returned 403 and therefore no failing timer or live rows were installed.
+- **Metrics:** engine/server/tools remain within P12 ceilings; all source budgets are green.
+- **Next:** configure a monitored SEC contact, smoke-test activation, then run final recovery audit.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

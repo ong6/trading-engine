@@ -158,3 +158,4 @@ def test_report_cli_atomically_publishes_empty_forward_state(tmp_path):
     assert report["coverage"]["trace_count"] == 0
     assert report["contamination"]["status"] == "unavailable"
     assert report["promotion_authority"] == "none"
+    assert report["data_provenance"]["historical_membership_authority"] is False
