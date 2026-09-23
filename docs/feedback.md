@@ -221,3 +221,19 @@ not tune policies, pool variants, authorize brokers, or promote retrospective re
 
 **Ceiling changes.** P11 may add 650 lines under `server/`, 200 under `engine/`, 150 under `tools/`,
 and 100 under `farm/`. Ceilings become server 51,050, engine 12,250, tools 7,700, and farm 11,600.
+
+## 2026-09-23 — Approve the complete agent-research product programme
+
+**Verdict.** The owner asked to implement every previously recommended feature and capture the full
+product intent in one product document. This expands the local roadmap to bitemporal source facts,
+raw intraday provenance, deterministic exits, execution-quality attribution, paired agent scoring,
+contamination diagnostics, and vendor-neutral historical-data ingestion.
+
+**Rule changes.** P12 is approved and active for the product programme. Locally implementable work
+may proceed in bounded stages. Paid data purchase remains blocked on a separate spend ceiling; IBKR
+or any broker connection remains blocked on a later execution plan. No new strategy or increased
+capital authority is implied.
+
+**Ceiling changes.** P12 may add 900 lines under `server/`, 500 under `engine/`, 350 under `tools/`,
+250 under `farm/`, and 150 under `sim/`. Ceilings become server 51,950, engine 12,750, tools 8,050,
+farm 11,850, and sim 7,400.

@@ -27,10 +27,13 @@ measurements supporting those decisions, not the live runtime state.
   [P8 daily opportunity agent](plans/p8-daily-opportunity-agent.md), and
   [P9 multi-cadence agent tools](plans/p9-multi-cadence-agent-tools.md), and
   [P10 contamination-aware 2022 agent replay](plans/p10-2022-agent-replay.md), and
-  [P11 forward agent evaluation](plans/p11-forward-agent-evaluation.md).
+  [P11 forward agent evaluation](plans/p11-forward-agent-evaluation.md), and
+  [P12 agent research product](plans/p12-agent-research-product.md).
 
 ## Current operating documents
 
+- [`product-agent-research-platform.md`](product-agent-research-platform.md) — canonical product
+  requirements for point-in-time data, agent decisions, execution, evaluation, and external gates.
 - [`agent-backtesting-roadmap-2026-09-23.md`](agent-backtesting-roadmap-2026-09-23.md) — researched
   point-in-time data, execution, evaluation, and LLM-contamination roadmap.
 - [`agent-trading-review-2026-09-22.md`](agent-trading-review-2026-09-22.md) — current agent,
