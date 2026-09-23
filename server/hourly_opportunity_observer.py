@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import math
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 
-from . import agent_model_client, daily_opportunity_news
+from . import agent_evaluation, agent_model_client, daily_opportunity_news
 from .daily_opportunity_runner import _model_input, _validate_output
 from .file_utils import read_bytes
 
@@ -41,6 +42,19 @@ def _observe(
     existing = target.read_text().splitlines() if target.exists() else []
     prior = next((json.loads(line) for line in existing if json.loads(line).get("window") == window), None)
     if prior is not None:
+        write_con = db.connect(database, wait_s=0)
+        try:
+            with db.transaction(write_con):
+                agent_evaluation.init_schema(write_con)
+                trace = agent_evaluation.replay_artifact_trace(
+                    prior, source_identifier=f"{target.name}:{window}"
+                )
+                agent_evaluation.record_trace(write_con, trace)
+                agent_evaluation.label_mature(
+                    write_con, labeled_at=datetime.now(timezone.utc)
+                )
+        finally:
+            write_con.close()
         return {"status": "completed", "variant_id": variant_id,
                 "quote_count": len(prior["quotes"]),
                 "headline_count": len(prior["headlines"]),
@@ -95,7 +109,10 @@ def _observe(
     model_input["variant_id"] = variant_id
     model_input["execution_authority"] = "none"
     model_input["allowed_evidence_ids"] = sorted(set().union(*allowed.values()) if allowed else set())
+    information_cutoff_at = datetime.now(timezone.utc)
+    generation_started = time.monotonic()
     response = generate(model_input)
+    latency_ms = (time.monotonic() - generation_started) * 1000
     assessments = _validate_output(response.output, bundle, allowed, set())
     artifact = {
         "schema_version": 1, "variant_id": variant_id, "cadence": variant["cadence"],
@@ -110,6 +127,27 @@ def _observe(
         "assessments": assessments, "model": response.model,
         "model_version": response.model_version, "response_id": response.response_id,
         "usage": response.usage,
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "information_cutoff_at": information_cutoff_at.isoformat(),
+        "latency_ms": latency_ms,
+        "model_input": model_input,
+        "model_response": {
+            "output": response.output, "response_id": response.response_id,
+            "model": response.model, "model_version": response.model_version,
+            "request_sha256": response.request_sha256,
+            "instructions_sha256": agent_model_client.identity(role="opportunity")[
+                "instructions_sha256"
+            ],
+            "toolset_sha256": agent_model_client.identity(role="opportunity")[
+                "toolset_sha256"
+            ],
+            "model_catalog_entry_sha256": response.model_catalog_entry_sha256,
+            "proxy_source_sha256": response.proxy_source_sha256,
+            "traecli_runtime": response.traecli_runtime,
+            "upstream_model_family": response.upstream_model_family,
+            "upstream_request_id": response.upstream_request_id,
+            "usage": response.usage,
+        },
         "execution_authority": "none",
     }
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -117,6 +155,22 @@ def _observe(
     artifact["observation_sha256"] = canonical_sha256(artifact)
     with target.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(artifact, sort_keys=True, separators=(",", ":")) + "\n")
+    write_con = db.connect(database, wait_s=0)
+    try:
+        with db.transaction(write_con):
+            agent_evaluation.init_schema(write_con)
+            agent_evaluation.record_trace(
+                write_con,
+                agent_evaluation.artifact_trace(
+                    artifact, source_identifier=f"{target.name}:{window}",
+                    latency_ms=latency_ms,
+                ),
+            )
+            agent_evaluation.label_mature(
+                write_con, labeled_at=datetime.now(timezone.utc)
+            )
+    finally:
+        write_con.close()
     return {"status": "completed", "variant_id": variant_id,
             "quote_count": len(quotes), "headline_count": len(news["observations"]),
             "assessment_count": len(assessments),

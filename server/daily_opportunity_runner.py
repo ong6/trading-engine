@@ -5,6 +5,7 @@ import argparse
 import json
 import math
 import sys
+import time
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
@@ -19,7 +20,7 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 
-from . import agent_model_client, daily_opportunity_news, daily_opportunity_store
+from . import agent_evaluation, agent_model_client, daily_opportunity_news, daily_opportunity_store
 from .json_utils import loads_object
 
 LOCK_PATH = REPO_ROOT / ".daily-opportunity.lock"
@@ -162,6 +163,17 @@ def _result(con: duckdb.DuckDBPyConnection, run: dict, *, replayed: bool) -> dic
             "replayed": replayed}
 
 
+def _index_evaluation(database: Path, run_id: int, now: datetime) -> None:
+    """Best-effort derived index; the authoritative decision remains committed on failure."""
+    try:
+        with _connection(database) as con, engine_db.transaction(con):
+            agent_evaluation.init_schema(con)
+            agent_evaluation.record_trace(con, agent_evaluation.daily_trace(con, run_id))
+            agent_evaluation.label_mature(con, labeled_at=now)
+    except (agent_evaluation.EvaluationError, duckdb.Error):
+        pass
+
+
 def _submit_nightly_tools(
     database: Path, run_id: int, observed_at: datetime, tool_generate=None
 ) -> list[int]:
@@ -223,6 +235,7 @@ def run(*, database: Path = DEFAULT_DB, now: datetime | None = None, generate: G
                 triggered = [] if break_out else daily_opportunity_store.evaluate_alerts(con, market_date)
         if break_out:
             if completed:
+                _index_evaluation(database, run_id, observed_at)
                 result["paper_order_ids"] = _submit_nightly_tools(
                     database, run_id, observed_at, tool_generate
                 )
@@ -258,8 +271,12 @@ def run(*, database: Path = DEFAULT_DB, now: datetime | None = None, generate: G
                 )
     model_input, allowed = _model_input(bundle, news, held)
     request_sha256 = canonical_sha256(agent_model_client.opportunity_request_payload(model_input))
+    information_cutoff_at = datetime.now(timezone.utc)
+    generation_started = time.monotonic()
     try:
         response = generate(model_input)
+        latency_ms = (time.monotonic() - generation_started) * 1000
+        completed_at = datetime.now(timezone.utc)
         identity = agent_model_client.identity(role="opportunity")
         if (
             response.request_sha256 != request_sha256
@@ -277,8 +294,11 @@ def run(*, database: Path = DEFAULT_DB, now: datetime | None = None, generate: G
         with _connection(database) as con, engine_db.transaction(con):
             daily_opportunity_store.complete_run(
                 con, run_id, request_sha256=request_sha256, response_id=response.response_id,
-                assessments=assessments, response_payload=response_payload, completed_at=observed_at,
+                assessments=assessments, response_payload=response_payload, model_input=model_input,
+                information_cutoff_at=information_cutoff_at, latency_ms=latency_ms,
+                completed_at=completed_at,
             )
+        _index_evaluation(database, run_id, completed_at)
         order_ids = _submit_nightly_tools(database, run_id, observed_at, tool_generate)
         return {"status": "completed", "market_date": market_date.isoformat(),
                 "assessment_count": len(assessments), "news_status": news["status"],

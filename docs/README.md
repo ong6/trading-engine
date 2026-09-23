@@ -31,6 +31,8 @@ measurements supporting those decisions, not the live runtime state.
 
 ## Current operating documents
 
+- [`agent-backtesting-roadmap-2026-09-23.md`](agent-backtesting-roadmap-2026-09-23.md) — researched
+  point-in-time data, execution, evaluation, and LLM-contamination roadmap.
 - [`agent-trading-review-2026-09-22.md`](agent-trading-review-2026-09-22.md) — current agent,
   cadence, alert, simulator-tool, algorithm-overlay, and 2022 replay assessment.
 - [`how-it-works.md`](how-it-works.md) — architecture, schedules, paper league, UI/API,

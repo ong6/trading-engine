@@ -11601,4 +11601,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** source unchanged; approved P11 ceilings precede implementation.
 - **Next:** implement canonical trace capture and maturity-gated labels.
 
+## 2026-09-23 — Add canonical forward agent traces
+
+- **Why:** P11 requires comparable, point-in-time evidence across daily, hourly, and four-hour
+  policies instead of separate DuckDB and JSONL histories.
+- **What:** add immutable trace/decision/execution-link tables, exact cutoff/latency/model identity,
+  replay healing, and maturity-gated 1/5/10/20-session return and excursion labels.
+- **Evidence:** focused evaluation and operations tests pass; live migration reports seven legacy
+  artifacts skipped because they predate complete trace identity and creates no fabricated trace.
+- **Metrics:** server/tools remain within the approved P11 ceilings.
+- **Next:** capture the first native P11 windows and evaluate label completeness after maturity.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

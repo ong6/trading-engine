@@ -6,6 +6,7 @@ import duckdb
 from engine.gap_volume_candidate import select
 from engine.lib.util import table_exists
 
+from . import agent_evaluation
 from .daily_opportunity_store import PORTFOLIO_ID
 from .json_utils import loads_object, loads_strict
 
@@ -96,6 +97,7 @@ def status(con: duckdb.DuckDBPyConnection) -> dict:
         "model_response_id": response_id, "usage": response.get("usage"),
         "algorithm_candidate": algorithm_candidate,
         "algorithm_agent_veto": veto_observation,
+        "evaluation": agent_evaluation.status(con),
         "schedule": {
             "nightly": "Tue..Sat *-*-* 02:00:00 UTC",
             "hourly": "Mon..Fri *-*-* 09..16:15:00 America/New_York",

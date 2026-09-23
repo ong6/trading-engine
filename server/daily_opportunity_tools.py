@@ -14,7 +14,12 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 
-from . import agent_model_client, daily_opportunity_execution, daily_opportunity_store
+from . import (
+    agent_evaluation,
+    agent_model_client,
+    daily_opportunity_execution,
+    daily_opportunity_store,
+)
 from .json_utils import loads_object, loads_strict
 
 LOCK_PATH = REPO_ROOT / ".daily-opportunity-tool.lock"
@@ -104,6 +109,10 @@ def submit(
                     order_id = daily_opportunity_execution.consume_assessment(
                         con, assessment_id, now=observed
                     )
+                    agent_evaluation.link_execution(
+                        con, assessment_id=assessment_id, tool_attempt_id=attempt["id"],
+                        order_id=order_id, linked_at=observed,
+                    )
                 return {"status": "completed", "assessment_id": assessment_id,
                         "arguments": arguments, "paper_order_id": order_id,
                         "execution_authority": "local_simulator_only", "replayed": True}
@@ -142,6 +151,10 @@ def submit(
             with engine_db.transaction(con):
                 order_id = daily_opportunity_execution.consume_assessment(
                     con, assessment_id, now=observed
+                )
+                agent_evaluation.link_execution(
+                    con, assessment_id=assessment_id, tool_attempt_id=attempt["id"],
+                    order_id=order_id, linked_at=observed,
                 )
         return {"status": "completed", "assessment_id": assessment_id,
                 "arguments": arguments, "paper_order_id": order_id,
