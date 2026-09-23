@@ -43,7 +43,7 @@ does not. No external gate is presented as an achieved data acquisition or perfo
 | Historical universe membership | external gate | current SEC ticker map explicitly lacks historical-membership authority; requires audited licensed data |
 | Intraday microstructure execution | external data/authority gate | hourly/four-hour remain shadow-only; partial fills, queue position, and cancel latency require quote/trade data before intraday authority |
 | Broker connectivity and real capital | external owner gate | no broker route/credentials/real money; requires separate IBKR plan and prospective evidence |
-| Recovery identity and rehearsal | implemented | P8–P12 sources/services/evidence added to release manifest; pre/post bundles created and independently verified; restored copy contains all new tables |
+| Recovery identity and rehearsal | implemented | P8–P12 sources/services/evidence are release-bound; final bundle `/data00/home/jun.ong/trading-engine-p12-final-20260923` has 57 tables and independently verifies |
 | Full validation and budgets | implemented | full warnings-as-errors suite, Ruff, agent self-test, installer audit, metrics `--check-budget`; P12 layer allocations remain within caps |
 
 ## Commands and observed state
@@ -54,8 +54,16 @@ does not. No external gate is presented as an achieved data acquisition or perfo
 - `.venv/bin/python -m tools.install_automation` — installed-source and scheduler audit.
 - `.venv/bin/python -m tools.metrics_snapshot --check-budget` — global source ceilings.
 - `.venv/bin/python -m tools.backup_database verify <bundle>` — independent database/evidence verification.
-- Live book: active, US$10,000 cash, zero positions/orders/fills; simulator-only.
-- Live forward evaluation: native traces exist, all labels still immature, performance claim `none`.
+- Live book: active, US$10,000 initial cash, zero agent orders/fills; simulator-only.
+- Live forward evaluation: 6 native traces, 22 decisions, 88 immature horizon labels, zero mature
+  labels, and performance claim `none`.
+- Live provenance: 19 exact response receipts and 1,930 bitemporal facts.
+- Walk-forward: 18/18 expected results, one source/data/execution cohort, zero missing/invalid/
+  duplicate/config/registration mismatches, validator status `current`.
+- Recovery: `/data00/home/jun.ong/trading-engine-p12-final-20260923`, 57 tables, 4,108,333,056
+  database bytes, independently verified; restored agent book is active with US$10,000 initial cash.
+- Deployment: hourly, four-hour, and nightly timers enabled/active; latest observer service results
+  successful; installed units match source.
 
 ## Honest remaining gates
 

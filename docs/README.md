@@ -91,13 +91,14 @@ measurements supporting those decisions, not the live runtime state.
   checkpoint as soon as a scheduled producer publishes newer evidence.
 - [`../data/reports/walkforward/GUIDE.md`](../data/reports/walkforward/GUIDE.md) — the evidence map
   for the latest generated historical walk-forward cohort in the sibling `README.md`. The
-  completed 2026-09-20 Sunday revalidation stamped all 18 active, replayable books with source
-  `158dd063aa57e6e37448fdf630ca3e2f244043f4d1bd2520a7b30edcc76b2371`, data snapshot
-  `c868f4fcc1655450840ca9fb0f244fb9c3c708ec50ec181d46905f33faba08b8`, and one coherent
+  completed 2026-09-23 P12 revalidation stamped all 18 active, replayable books with source
+  `e41e0968a995a82ddca7ebea7aa09c09a9b5351e58b343f7155c30e5b2778dda`, data snapshot
+  `315382aa846d597a2feffa8bbd2d170de62f535c07a1f6313d73681bef4e676f`, and one coherent
   source/data/execution cohort, signature
-  `fff94c2e7c4355ed9c0c118d19f3d39e95387a0fde7da2335f73c17066f12c9c`, with the versioned
-  comparator declaration and 2026-09-18 anchor.
-  It supersedes the 2026-09-13 cohort signature
+  `6c29e7f585d428c0f6d5f3b1ca14709d22f22463f21dfee094a1359322766eb4`, with the versioned
+  comparator declaration and 2026-09-22 anchor.
+  It supersedes the 2026-09-20 cohort signature
+  `fff94c2e7c4355ed9c0c118d19f3d39e95387a0fde7da2335f73c17066f12c9c` and the 2026-09-13 signature
   `b304ae92d54e27a8f3a3adaa77dcf5b77175f9be141e71dfa232f29c3b32aec2`, which remains dated
   historical context rather than current evidence.
   On 2026-09-13 the protected source first advanced after the weekly liquidity pending-backfill

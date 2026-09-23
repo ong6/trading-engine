@@ -1,12 +1,12 @@
 # SPY Buy & Hold — walk-forward re-validation
 
-_`spy_benchmark` · spy_benchmark · once cadence · verdict **reference** · generated 2026-09-20T06:07:11+00:00_
+_`spy_benchmark` · spy_benchmark · once cadence · verdict **reference** · generated 2026-09-23T15:56:02+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-09-18. Each fold is an independent replay starting at $39,000. Span 2014-09-18 → 2026-09-18 (3018 sessions); data floor 1994-01-27; screen source `not-used`.
+**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-09-22. Each fold is an independent replay starting at $39,000. Span 2014-09-22 → 2026-09-22 (3018 sessions); data floor 1994-01-27; screen source `not-used`.
 
-**Provenance.** Source `158dd063aa57e6e37448fdf630ca3e2f244043f4d1bd2520a7b30edcc76b2371`; config `277c8f3c71e7fe220af0b0cd80ff41400ccacebd6be90495ad3433fc5b040e1e`.
+**Provenance.** Source `e41e0968a995a82ddca7ebea7aa09c09a9b5351e58b343f7155c30e5b2778dda`; config `277c8f3c71e7fe220af0b0cd80ff41400ccacebd6be90495ad3433fc5b040e1e`.
 
-**Evidence and execution.** Data quality `fixed_etf_history`; execution profile `baseline_v1`; data snapshot `c868f4fcc1655450840ca9fb0f244fb9c3c708ec50ec181d46905f33faba08b8`; comparison protocol `wf-controls-2026-09-07-v1`.
+**Evidence and execution.** Data quality `fixed_etf_history`; execution profile `baseline_v1`; data snapshot `315382aa846d597a2feffa8bbd2d170de62f535c07a1f6313d73681bef4e676f`; comparison protocol `wf-controls-2026-09-07-v1`.
 
 **Pre-registered expectation.** Baseline market return; the absolute-return yardstick.
 
@@ -64,25 +64,25 @@ _`spy_benchmark` · spy_benchmark · once cadence · verdict **reference** · ge
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills | Universe |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2014-09-18→2016-09-16 | +10.01% | +4.90% | 2016-09-16→2017-09-18 | **+18.53%** | +18.43% | +7.41% | +2.33 | −3.82% | · | +0.00% | 0 | 2,752 |
-| 2 | 2015-09-18→2017-09-18 | +31.68% | +14.74% | 2017-09-18→2018-09-18 | **+17.33%** | +17.35% | +11.93% | +1.40 | −9.74% | · | +0.00% | 0 | 2,902 |
-| 3 | 2016-09-19→2018-09-18 | +39.49% | +18.15% | 2018-09-18→2019-09-18 | **+5.22%** | +5.22% | +16.02% | +0.40 | −18.70% | · | +0.00% | 0 | 3,014 |
-| 4 | 2017-09-18→2019-09-18 | +23.96% | +11.35% | 2019-09-18→2020-09-18 | **+11.80%** | +11.78% | +31.10% | +0.51 | −32.53% | · | +0.00% | 0 | 3,143 |
-| 5 | 2018-09-18→2020-09-18 | +17.81% | +8.53% | 2020-09-18→2021-09-17 | **+33.93%** | +34.06% | +13.25% | +2.28 | −7.09% | · | +0.00% | 0 | 3,398 |
-| 6 | 2019-09-18→2021-09-17 | +50.46% | +22.68% | 2021-09-17→2022-09-16 | **−10.94%** | −10.97% | +20.96% | −0.45 | −22.29% | · | +0.00% | 0 | 3,555 |
-| 7 | 2020-09-18→2022-09-16 | +21.58% | +10.30% | 2022-09-16→2023-09-18 | **+16.06%** | +15.98% | +16.68% | +0.98 | −7.90% | · | +0.00% | 0 | 3,663 |
-| 8 | 2021-09-20→2023-09-18 | +4.43% | +2.20% | 2023-09-18→2024-09-18 | **+26.96%** | +26.90% | +12.22% | +2.02 | −8.15% | · | +0.00% | 0 | 3,837 |
-| 9 | 2022-09-19→2024-09-18 | +48.31% | +21.80% | 2024-09-18→2025-09-18 | **+18.75%** | +18.76% | +18.85% | +1.01 | −18.17% | · | +0.00% | 0 | 4,045 |
-| 10 ◈ | 2023-09-18→2025-09-18 | +52.20% | +23.35% | 2025-09-18→2026-09-18 | **+15.84%** | +15.85% | +12.59% | +1.24 | −8.67% | · | +0.00% | 0 | 12,565 |
+| 1 | 2014-09-22→2016-09-22 | +13.61% | +6.58% | 2016-09-22→2017-09-22 | **+16.37%** | +16.38% | +7.31% | +2.11 | −3.81% | · | +0.00% | 0 | 2,755 |
+| 2 | 2015-09-22→2017-09-22 | +33.11% | +15.36% | 2017-09-22→2018-09-21 | **+18.39%** | +18.46% | +11.97% | +1.48 | −9.74% | · | +0.00% | 0 | 2,906 |
+| 3 | 2016-09-22→2018-09-21 | +39.07% | +17.97% | 2018-09-21→2019-09-20 | **+3.90%** | +3.91% | +16.03% | +0.32 | −18.61% | · | +0.00% | 0 | 3,018 |
+| 4 | 2017-09-22→2019-09-20 | +23.81% | +11.31% | 2019-09-20→2020-09-22 | **+12.21%** | +12.11% | +31.12% | +0.53 | −32.52% | · | +0.00% | 0 | 3,144 |
+| 5 | 2018-09-24→2020-09-22 | +17.01% | +8.19% | 2020-09-22→2021-09-22 | **+33.16%** | +33.18% | +13.33% | +2.22 | −7.12% | · | +0.00% | 0 | 3,401 |
+| 6 | 2019-09-23→2021-09-22 | +49.88% | +22.44% | 2021-09-22→2022-09-22 | **−12.79%** | −12.80% | +21.02% | −0.55 | −22.36% | · | +0.00% | 0 | 3,555 |
+| 7 | 2020-09-22→2022-09-22 | +16.55% | +7.96% | 2022-09-22→2023-09-22 | **+16.24%** | +16.26% | +16.81% | +0.98 | −7.30% | · | +0.00% | 0 | 3,666 |
+| 8 | 2021-09-22→2023-09-22 | +0.64% | +0.32% | 2023-09-22→2024-09-20 | **+32.69%** | +32.82% | +12.20% | +2.40 | −8.15% | · | +0.00% | 0 | 3,837 |
+| 9 | 2022-09-22→2024-09-20 | +56.33% | +25.09% | 2024-09-20→2025-09-22 | **+18.09%** | +18.00% | +18.78% | +0.99 | −18.17% | · | +0.00% | 0 | 4,046 |
+| 10 ◈ | 2023-09-22→2025-09-22 | +58.43% | +25.85% | 2025-09-22→2026-09-22 | **+16.74%** | +16.75% | +12.65% | +1.29 | −8.66% | · | +0.00% | 0 | 12,565 |
 
 ## Summary
 
 * validate windows: **10**, win rate **90%**
-* mean validate return **+15.35%** (median +16.70%, worst −10.94%, best +33.93%)
-* mean validate CAGR **+15.34%** vs mean train CAGR +13.80% → decay **+1.54%**
-* mean validate Sharpe +1.17, worst validate max drawdown −32.53%
+* mean validate return **+15.50%** (median +16.55%, worst −12.79%, best +33.16%)
+* mean validate CAGR **+15.51%** vs mean train CAGR +14.11% → decay **+1.40%**
+* mean validate Sharpe +1.18, worst validate max drawdown −32.52%
 * 0 fill(s) inside validate windows
-* runtime 415.9s (scratch 25.2s, screen 0.0s)
+* runtime 408.5s (scratch 27.4s, screen 0.0s)
 
 **Verdict rule (mechanical exploratory triage, NOT an automatic kill).** For
 each book, against the versioned comparison declared in its result artifact:

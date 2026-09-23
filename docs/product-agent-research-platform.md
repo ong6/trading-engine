@@ -149,3 +149,29 @@ does not satisfy the paid historical-universe gate.
 - Sharadar/Norgate/news purchase: owner must approve initial and recurring spend and license terms.
 - IBKR gateway, credentials, subscription, or API: requires a separately approved broker plan.
 - Real capital: requires prospective evidence, immutable model revision, and explicit owner decision.
+
+## Implemented product state — 2026-09-23
+
+The locally buildable product is complete. Hourly and four-hour agents are shadow-only; the nightly
+agent can request one typed trade, but deterministic code validates the symbol, confidence, size,
+risk, next-open execution, and exits before the isolated US$10,000 simulator book changes. Every
+accepted call is locked, idempotent, append-only, and joined from source evidence through decision,
+tool attempt, order, fill, position, cash, equity, and delayed outcome. The hybrid policy remains a
+buy-side veto and cannot rewrite an order or suppress a sell.
+
+The forward dataset currently contains 19 exact source receipts, 1,930 bitemporal facts, 6 native
+traces, and 22 decisions. Its 88 possible 1/5/10/20-session labels remain immature because the
+prospective schedule activates on 2026-09-24; no result has been fabricated or promoted. The
+separate retrospective 2022 suite contains the original 8 named/blinded decisions and 12 diagnostic
+probe decisions, all marked contamination-prone and non-promotable.
+
+The algorithm fleet was revalidated as one 18/18 cohort against the same source, data snapshot,
+execution profile, and 2026-09-22 anchor. The canonical validator reports `current`, with no missing,
+invalid, duplicate, configuration-mismatched, or registration-mismatched result. This is historical
+context only and does not change any strategy or authorize capital.
+
+Operations are installed and self-tested: hourly, four-hour, and nightly timers are enabled and
+active; their latest service results are successful; installed files match source; the simulator
+self-test reports `pass` and `broker_route: absent`. The definitive recovery bundle is documented
+in the completion audit. Calendar-mature outcomes and the external gates above are the only remaining
+work; they are evidence collection or owner/vendor decisions, not missing implementation.

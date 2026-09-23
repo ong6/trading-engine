@@ -19,7 +19,7 @@ plan and the BUILDLOG.
 | [P9 — Multi-cadence agent tools](p9-multi-cadence-agent-tools.md) | active | Compare shadow cadences and add one locked nightly simulator tool path | None |
 | [P10 — 2022 agent replay](p10-2022-agent-replay.md) | active | Run a contamination-labelled price-only historical model diagnostic | None |
 | [P11 — Forward agent evaluation](p11-forward-agent-evaluation.md) | active | Unify point-in-time traces and delayed outcome labels | None |
-| [P12 — Agent research product](p12-agent-research-product.md) | active | Deliver the full data, execution, and evaluation product programme | Data/news spend remains external |
+| [P12 — Agent research product](p12-agent-research-product.md) | done | Delivered the full data, execution, and evaluation product programme | Data/news spend remains external |
 
 Recommended order: P8's daily observation path and P7's monthly comparison may proceed without
 sharing books or performance evidence; P1 and P2 remain admitted maintenance work, and P3 resumes

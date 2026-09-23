@@ -41,7 +41,10 @@ This is a dated observation, not a replacement for the endpoints or generated re
 
 - The complete 18-result walk-forward cohort is `current`, with one matching source/data/
   execution signature and no missing, invalid, duplicate, config-mismatched, or
-  registration-mismatched artifacts.
+  registration-mismatched artifacts. The 2026-09-23 P12 refresh uses source
+  `e41e0968a995a82ddca7ebea7aa09c09a9b5351e58b343f7155c30e5b2778dda`, data snapshot
+  `315382aa846d597a2feffa8bbd2d170de62f535c07a1f6313d73681bef4e676f`, and cohort signature
+  `6c29e7f585d428c0f6d5f3b1ca14709d22f22463f21dfee094a1359322766eb4`.
 - Sector momentum is `ACCUMULATING` at 5/200 shared sessions and cannot mature before
   2027-09-04. XS momentum is `WAITING` at 0/48 paired complete months; its first frozen signal is
   2026-09-30 and measurement begins at the post-fill 2026-10-01 boundary.
