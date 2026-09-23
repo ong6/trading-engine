@@ -175,6 +175,7 @@ INDEPENDENT_RISK_SOURCE_FILES = (
     "tools/review_agent_paper_intent.py",
 )
 EXPERIMENT_REGISTRATION_FILES = (
+    "farm/agent_evaluation_analysis.py",
     "farm/experiments/credit-confirmed-spy-v1.yaml",
     "farm/experiments/e1-spy-monday.forward.json",
     "farm/experiments/e1-spy-monday.yaml",
@@ -183,6 +184,9 @@ STRATEGY_REGISTRATION_FILES = ("sim/strategies/configs.py",)
 EXECUTION_PROFILE_FILES = ("sim/execution.py",)
 PROSPECTIVE_EVIDENCE_FILES = (
     "data/reports/agent-evaluation.json",
+    "data/reports/experiments/agent-2022-contamination-probes-v1/README.md",
+    "data/reports/experiments/agent-2022-contamination-probes-v1/decisions.json",
+    "data/reports/experiments/agent-2022-contamination-probes-v1/result.json",
     "data/reports/experiments/e1-spy-monday-forward.json",
     "data/reports/forward/sector_momentum.json",
     "data/reports/forward/xs_momentum_12_1.json",

@@ -122,6 +122,10 @@ named/blinded diagnostic and marks the remaining contamination probes as not run
 cohort is still empty/immature, so these mechanics currently support collection rather than a policy
 ranking or promotion claim.
 
+The separate contamination-probe artifact completes date-recall, prompt-permutation, and synthetic
+trend-perturbation checks without rewriting the original 2022 replay. All are retrospective and
+non-promotable; only naturally accumulated post-cutoff traces can upgrade evidence quality.
+
 ## References
 
 - [SEC EDGAR APIs](https://www.sec.gov/edgar/sec-api-documentation)

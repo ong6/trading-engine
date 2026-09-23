@@ -11785,4 +11785,16 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server remains within its P12 allocation and repository ceiling.
 - **Next:** complete locally runnable contamination probes and scheduler-window accounting.
 
+## 2026-09-23 — Complete evaluation coverage diagnostics
+
+- **Why:** P12 completion audit found schedule windows uncounted, alert trigger rate mislabeled as
+  precision, and three locally runnable contamination probes still marked not run.
+- **What:** freeze a DST-aware evaluation start/schedule, report missing due windows, compute alert
+  precision only from post-trigger outcomes, and retain separate date-recall, prompt-order, and
+  synthetic-trend diagnostic artifacts without altering the original 2022 replay.
+- **Evidence:** v1 eight-decision and v2 twelve-decision identities verify; focused evaluation, replay,
+  service, and operating-contract suites pass. Synthetic accuracy is 25% with -11.02% compounded.
+- **Metrics:** P12 net additions remain within every layer allocation and source ceiling.
+- **Next:** run the final full suite, refresh/install services, verify recovery, and publish audit.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

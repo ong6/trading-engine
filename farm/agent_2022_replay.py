@@ -26,8 +26,8 @@ class ReplayError(RuntimeError):
     """Historical replay input, output, or retained evidence is invalid."""
 
 
-def registration() -> dict:
-    return json.loads(read_bytes(REGISTRATION, label="2022 replay registration"))
+def registration(path: Path = REGISTRATION) -> dict:
+    return json.loads(read_bytes(path, label="2022 replay registration"))
 
 
 def _rows(con, ticker: str, end: date, count: int) -> list[tuple]:
@@ -65,29 +65,54 @@ def build_input(con, config: dict, decision_date: date, variant: str) -> tuple[d
         ticker: f"Asset {chr(65 + index)}"
         for index, ticker in enumerate(config["assets"])
     }
-    named = variant == "price_named"
+    hide_symbols = variant in {"price_blinded", "price_synthetic_perturbed"}
+    hide_date = variant in {"price_blinded", "price_synthetic_perturbed"}
     assets = []
-    for ticker in config["assets"]:
+    ordered = list(reversed(config["assets"])) if variant == "price_permuted" else config["assets"]
+    for ticker in ordered:
         features, digest = _features(_rows(con, ticker, decision_date, 253))
-        assets.append({
-            "asset": ticker if named else aliases[ticker],
+        transformation = "none"
+        if variant == "price_synthetic_perturbed":
+            transformation = "negate_returns_and_invert_moving_average_flags_v1"
+            for field in ("return_5d", "return_20d", "return_60d",
+                          "return_126d", "return_252d"):
+                features[field] = -features[field]
+            features["above_50d_average"] = not features["above_50d_average"]
+            features["above_200d_average"] = not features["above_200d_average"]
+        asset = {
+            "asset": aliases[ticker] if hide_symbols else ticker,
             "features": features,
-            "data_prefix_sha256": digest,
-        })
+        }
+        if variant == "price_date_recall":
+            asset.pop("features")
+        if variant in {"price_named", "price_blinded"}:
+            asset["data_prefix_sha256"] = digest
+        else:
+            asset.update(source_data_prefix_sha256=digest, transformation=transformation,
+                         input_sha256=canonical_sha256({"source": digest,
+                                                       "transformation": transformation,
+                                                       "features": features}))
+        assets.append(asset)
     market, market_hash = _features(
         _rows(con, config["market_context_symbol"], decision_date, 253)
     )
+    market_context = {"asset": "Market" if hide_symbols else "SPY", "features": market}
+    if variant == "price_date_recall":
+        market_context.pop("features")
+    if variant in {"price_named", "price_blinded"}:
+        market_context["data_prefix_sha256"] = market_hash
+    else:
+        market_context.update(source_data_prefix_sha256=market_hash, transformation="none",
+                              input_sha256=canonical_sha256({"source": market_hash,
+                                                            "transformation": "none",
+                                                            "features": market}))
     prompt = {
         "schema_version": 1,
         "task": "select one asset or cash for the next 20 sessions",
         "variant": variant,
-        "decision_date": decision_date.isoformat() if named else "withheld",
+        "decision_date": "withheld" if hide_date else decision_date.isoformat(),
         "choices": [item["asset"] for item in assets] + ["CASH"],
-        "market_context": {
-            "asset": "SPY" if named else "Market",
-            "features": market,
-            "data_prefix_sha256": market_hash,
-        },
+        "market_context": market_context,
         "assets": assets,
         "known_limitations": [
             "possible_model_training_memory",
@@ -206,7 +231,8 @@ def _generate_decisions(con, config: dict, decision_file: Path) -> list[dict]:
             decisions.append({
                 "variant": variant, "decision_date": raw_date, "prompt": prompt,
                 "decision": validate(response.output, prompt["choices"]),
-                "alias_map": aliases if variant == "price_blinded" else None,
+                "alias_map": aliases if variant in {"price_blinded",
+                                                       "price_synthetic_perturbed"} else None,
                 "model": response.model, "model_version": response.model_version,
                 "response_id": response.response_id,
                 "request_sha256": response.request_sha256, "usage": response.usage,
@@ -232,7 +258,9 @@ def _verify_decisions(con, config: dict, decisions: list[dict]) -> None:
     for record in decisions:
         decision_date = date.fromisoformat(record["decision_date"])
         prompt, aliases = build_input(con, config, decision_date, record["variant"])
-        expected_aliases = aliases if record["variant"] == "price_blinded" else None
+        expected_aliases = aliases if record["variant"] in {
+            "price_blinded", "price_synthetic_perturbed"
+        } else None
         request_hash = canonical_sha256(
             agent_model_client.historical_replay_request_payload(prompt)
         )
@@ -301,8 +329,9 @@ def _render(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def run(*, database: Path = DEFAULT_DB, output: Path = OUTPUT) -> dict:
-    config = registration()
+def run(*, database: Path = DEFAULT_DB, output: Path = OUTPUT,
+        registration_path: Path = REGISTRATION) -> dict:
+    config = registration(registration_path)
     output.mkdir(parents=True, exist_ok=True)
     decision_file = output / "decisions.json"
     con = db.connect(database, read_only=True, wait_s=0)
@@ -338,8 +367,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, default=DEFAULT_DB)
     parser.add_argument("--output", type=Path, default=OUTPUT)
+    parser.add_argument("--registration", type=Path, default=REGISTRATION)
     args = parser.parse_args()
-    report = run(database=args.database, output=args.output)
+    report = run(database=args.database, output=args.output,
+                 registration_path=args.registration)
     print(json.dumps({
         "status": "complete", "decisions": len(report["results"]),
         "summary": report["summary"],

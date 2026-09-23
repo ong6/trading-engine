@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "evaluation_start_at": "2026-09-24T00:00:00Z",
   "execution_policy_id": "nightly_opportunity_tool_v1",
   "variants": [
     {
@@ -7,6 +8,8 @@
       "cadence": "hourly",
       "prompt_role": "rapid_catalyst_watch",
       "candidate_limit": 3,
+      "timezone": "America/New_York",
+      "scheduled_local_times": ["09:15", "10:15", "11:15", "12:15", "13:15", "14:15", "15:15", "16:15"],
       "data": ["bounded_live_quote", "public_headlines"],
       "execution_authority": "none"
     },
@@ -15,6 +18,8 @@
       "cadence": "four_hour",
       "prompt_role": "catalyst_and_structure_review",
       "candidate_limit": 5,
+      "timezone": "America/New_York",
+      "scheduled_local_times": ["09:30", "13:30"],
       "data": ["bounded_live_quote", "public_headlines", "latest_intraday_archive"],
       "execution_authority": "none"
     },
@@ -23,6 +28,8 @@
       "cadence": "nightly",
       "prompt_role": "eod_swing_decision",
       "candidate_limit": 5,
+      "timezone": "UTC",
+      "scheduled_local_times": ["02:00"],
       "data": ["completed_daily_bars", "screen", "earnings", "corporate_actions", "public_headlines"],
       "execution_authority": "local_simulator_only"
     },

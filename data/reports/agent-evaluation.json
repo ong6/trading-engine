@@ -1,51 +1,93 @@
 {
-  "cohorts": [],
+  "cohorts": [
+    {
+      "cadence": "hourly",
+      "instructions_sha256": "df5eb017576a3d4a0196f1679dc627fd82f81a110de06ef56a16a56224f5573d",
+      "model": "GPT-5.6-Sol:max",
+      "model_version": "unversioned-catalog-alias",
+      "policy_id": "hourly_market_watch_v1",
+      "prompt_role": "rapid_catalyst_watch",
+      "trace_count": 2
+    }
+  ],
   "contamination": {
+    "artifacts": [
+      "agent-2022-replay-v1",
+      "agent-2022-contamination-probes-v1"
+    ],
     "choice_agreement": 1.0,
     "direction_agreement": 1.0,
     "interpretation": "contaminated_retrospective_diagnostic_only",
     "known_contamination": [
-      "current_model_may_have_training_memory_of_2022",
       "assets_selected_with_hindsight",
-      "current-universe survivorship bias"
+      "current-universe survivorship bias",
+      "current_model_may_have_training_memory_of_2022"
     ],
     "mean_confidence_delta": 0.027499999999999997,
     "mean_forecast_delta_pct": 0.825,
     "paired_dates": 4,
     "probes": {
-      "date_recall": "not_run",
+      "date_recall": "complete",
       "named_vs_blinded": "complete",
-      "post_cutoff_prospective": "not_run",
-      "prompt_permutation": "not_run",
-      "synthetic_perturbation": "not_run"
+      "post_cutoff_prospective": "collecting",
+      "prompt_permutation": "complete",
+      "synthetic_perturbation": "complete"
     },
     "promotion_authority": "none",
-    "status": "diagnostic_only"
+    "status": "diagnostic_only",
+    "variant_comparisons": {
+      "price_blinded": {
+        "choice_agreement": 1.0,
+        "direction_agreement": 1.0,
+        "paired_dates": 4
+      },
+      "price_date_recall": {
+        "choice_agreement": 0.0,
+        "direction_agreement": 0.0,
+        "paired_dates": 4
+      },
+      "price_permuted": {
+        "choice_agreement": 1.0,
+        "direction_agreement": 1.0,
+        "paired_dates": 4
+      },
+      "price_synthetic_perturbed": {
+        "choice_agreement": 0.0,
+        "direction_agreement": 1.0,
+        "paired_dates": 4
+      }
+    }
   },
   "coverage": {
-    "decision_count": 0,
-    "immature_label_count": 0,
+    "decision_count": 6,
+    "expected_window_count": 0,
+    "immature_label_count": 24,
     "label_count": 0,
     "mature_expected_label_count": 0,
     "missing_mature_label_count": 0,
-    "scheduled_window_reason": "scheduler invocation ledger is not yet implemented",
-    "scheduled_window_status": "unavailable",
-    "trace_count": 0
+    "missing_window_count": 0,
+    "missing_windows": [],
+    "missing_windows_truncated": false,
+    "observed_expected_window_count": 0,
+    "scheduled_window_status": "complete",
+    "trace_count": 2
   },
   "data_provenance": {
-    "fact_count": 0,
+    "fact_count": 1137,
     "historical_membership_authority": false,
     "pit_import_batch_count": 0,
     "pit_import_row_count": 0,
-    "receipt_count": 0,
+    "receipt_count": 11,
     "sec_current_mapping_fact_count": 0,
     "sec_filing_fact_count": 0
   },
   "evidence_class": "prospective_forward_only",
   "execution": {
     "alert_open_count": 5,
-    "alert_precision": 1.0,
+    "alert_precision": null,
+    "alert_precision_count": 0,
     "alert_terminal_count": 1,
+    "alert_trigger_rate": 1.0,
     "completed_exit_count": 0,
     "exit_rate": null,
     "exit_rule_count": 0,
@@ -61,7 +103,7 @@
     "turnover_notional": 0,
     "turnover_over_initial_cash": 0.0
   },
-  "generated_at": "2026-09-23T10:20:46.210660+00:00",
+  "generated_at": "2026-09-23T15:04:22.776191+00:00",
   "horizons": [
     1,
     5,
@@ -246,7 +288,7 @@
       "trace_count": 0
     },
     "hourly_market_watch_v1": {
-      "abstention_rate": null,
+      "abstention_rate": 1.0,
       "brier_score": null,
       "by_horizon": {
         "1": {
@@ -355,7 +397,7 @@
           "upper": 1.0
         }
       ],
-      "decision_count": 0,
+      "decision_count": 6,
       "directional_accuracy": null,
       "forecast_error": {
         "reason": "forward policy does not emit a numeric return forecast",
@@ -365,11 +407,11 @@
       "mean_adverse_excursion": null,
       "mean_excess_return": null,
       "mean_favorable_excursion": null,
-      "mean_latency_ms": null,
+      "mean_latency_ms": 9605.606196448207,
       "mean_signed_return": null,
-      "p95_latency_ms": null,
-      "total_tokens": 0,
-      "trace_count": 0
+      "p95_latency_ms": 9804.52649667859,
+      "total_tokens": 11438,
+      "trace_count": 2
     },
     "nightly_opportunity_tool_v1": {
       "abstention_rate": null,

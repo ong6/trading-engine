@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from engine.lib import db
+from farm.agent_evaluation_analysis import contamination_diagnostics, expected_windows
 from server import agent_evaluation, agent_evaluation_reporting, daily_opportunity_store
 
 NOW = datetime(2026, 9, 23, 12, tzinfo=timezone.utc)
@@ -103,6 +104,7 @@ def test_report_accounts_for_missing_labels_and_absent_forecasts(con):
     assert report["coverage"]["mature_expected_label_count"] == 0
     assert report["coverage"]["missing_mature_label_count"] == 0
     assert report["coverage"]["immature_label_count"] == 4
+    assert report["coverage"]["scheduled_window_status"] == "complete"
     assert report["policies"][policy]["abstention_rate"] == 1.0
     assert report["policies"][policy]["forecast_error"]["status"] == "unavailable"
     for offset in range(1, 3):
@@ -115,6 +117,46 @@ def test_report_accounts_for_missing_labels_and_absent_forecasts(con):
     assert missing["coverage"]["mature_expected_label_count"] == 1
     assert missing["coverage"]["missing_mature_label_count"] == 1
     assert missing["coverage"]["immature_label_count"] == 3
+
+
+def test_report_accounts_for_due_cadence_windows(con, tmp_path):
+    agent_evaluation.init_schema(con)
+    registration = tmp_path / "cadence.json"
+    registration.write_text(json.dumps({
+        "evaluation_start_at": "2026-09-23T00:00:00Z",
+        "variants": [
+            {"id": "nightly_opportunity_tool_v1", "cadence": "nightly",
+             "timezone": "UTC", "scheduled_local_times": ["02:00"]},
+            {"id": "hourly_market_watch_v1", "cadence": "hourly",
+             "timezone": "America/New_York", "scheduled_local_times": ["09:15"]},
+        ],
+    }))
+    con.execute(
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+        "VALUES ('SPY','2026-09-23',100,101,99,100,1000)"
+    )
+    report = agent_evaluation_reporting.build_report(
+        con, generated_at=datetime(2026, 9, 24, 1, tzinfo=timezone.utc),
+        registration_path=registration,
+    )
+    assert report["coverage"]["scheduled_window_status"] == "incomplete"
+    assert report["coverage"]["expected_window_count"] == 1
+    assert report["coverage"]["missing_window_count"] == 1
+
+
+def test_expected_windows_uses_dst_aware_utc_bucket_ids():
+    variants = [{"id": "hourly_market_watch_v1", "cadence": "hourly",
+                 "timezone": "America/New_York", "scheduled_local_times": ["09:15"]}]
+    summer = expected_windows(
+        datetime(2026, 7, 1, tzinfo=timezone.utc), datetime(2026, 7, 2, tzinfo=timezone.utc),
+        [date(2026, 7, 1)], variants,
+    )
+    winter = expected_windows(
+        datetime(2026, 12, 1, tzinfo=timezone.utc), datetime(2026, 12, 2, tzinfo=timezone.utc),
+        [date(2026, 12, 1)], variants,
+    )
+    assert summer == {"hourly_market_watch_v1:2026-07-01T13"}
+    assert winter == {"hourly_market_watch_v1:2026-12-01T14"}
 
 
 def test_contamination_report_never_claims_promotion(tmp_path):
@@ -134,12 +176,13 @@ def test_contamination_report_never_claims_promotion(tmp_path):
         ],
     }))
 
-    result = agent_evaluation_reporting.contamination_diagnostics(path)
+    result = contamination_diagnostics((path,))
 
     assert result["promotion_authority"] == "none"
     assert result["probes"]["named_vs_blinded"] == "complete"
     assert result["probes"]["synthetic_perturbation"] == "not_run"
     assert result["choice_agreement"] == result["direction_agreement"] == 1.0
+    assert result["variant_comparisons"]["price_blinded"]["choice_agreement"] == 1.0
 
 
 def test_report_projects_execution_quality_without_ambiguous_columns(con):
