@@ -122,7 +122,7 @@ included only as a contamination diagnostic; unrun probes and unavailable numeri
 explicit, and all report output has no promotion authority.
 
 Phase 5 status: [the provider-neutral manifest example](pit-import-manifest.example.json) defines the
-only accepted CSV envelope for future licensed datasets. `python -m tools.pit_import MANIFEST
+only accepted CSV envelope for future licensed datasets. `python -m engine.pit_import MANIFEST
 --data-root ROOT` audits by default; `--apply` is required to write isolated `pit_import_*` staging
 tables. The importer validates an accepted license declaration, path containment, regular-file and
 size/hash identity, exact columns, stable entity/security IDs, JSON payloads, duplicate keys, and

@@ -1,4 +1,4 @@
-"""Vendor-neutral append-only bitemporal fact and raw-source receipt contract."""
+"""Vendor-neutral append-only bitemporal facts and raw-source receipts."""
 from __future__ import annotations
 
 import hashlib

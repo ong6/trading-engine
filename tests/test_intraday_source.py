@@ -6,8 +6,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from engine import intraday_source
 from engine.lib import db
-from server import agent_evaluation, hourly_opportunity_observer, intraday_source
+from server import agent_evaluation, hourly_opportunity_observer
 from tests.test_daily_opportunities import _connector, _database, _news_response
 
 NOW = datetime(2026, 9, 23, 15, 1, tzinfo=timezone.utc)

@@ -5,8 +5,7 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 
-from server import sec_edgar_capture
-from tools import sec_edgar_capture as sec_tool
+from tools import sec_edgar_capture
 
 NOW = datetime(2026, 9, 23, 12, tzinfo=timezone.utc)
 
@@ -116,7 +115,7 @@ def test_sec_cli_waits_without_a_candidate_cohort(tmp_path, capsys):
 
     con = db.connect(database)
     con.close()
-    assert sec_tool.main(["--database", str(database)]) == 0
+    assert sec_edgar_capture.main(["--database", str(database)]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["status"] == "waiting"
     assert result["historical_membership_authority"] is False

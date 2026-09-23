@@ -9,7 +9,7 @@ StartLimitBurst=3
 Type=exec
 WorkingDirectory=%h/trading-engine
 ExecStart=%h/trading-engine/.venv/bin/python -m server.daily_opportunity_runner
-ExecStartPost=%h/trading-engine/.venv/bin/python -m tools.agent_evaluation_report
+ExecStartPost=%h/trading-engine/.venv/bin/python -m server.agent_evaluation_reporting
 Environment=PYTHONUNBUFFERED=1
 Nice=19
 IOSchedulingClass=idle

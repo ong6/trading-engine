@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from server import bitemporal_facts
+from engine import bitemporal_facts
 
 NOW = datetime(2026, 9, 23, 12, 0, tzinfo=timezone.utc)
 
