@@ -7,7 +7,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from engine.lib import db
-from server import agent_evaluation, agent_evaluation_reporting
+from server import agent_evaluation, agent_evaluation_reporting, daily_opportunity_store
 from tools import agent_evaluation_report
 
 NOW = datetime(2026, 9, 23, 12, tzinfo=timezone.utc)
@@ -141,6 +141,28 @@ def test_contamination_report_never_claims_promotion(tmp_path):
     assert result["probes"]["named_vs_blinded"] == "complete"
     assert result["probes"]["synthetic_perturbation"] == "not_run"
     assert result["choice_agreement"] == result["direction_agreement"] == 1.0
+
+
+def test_report_projects_execution_quality_without_ambiguous_columns(con):
+    daily_opportunity_store.init_schema(con)
+    con.execute(
+        "INSERT INTO portfolios (id,initial_cash) VALUES ('daily_opportunity_agent_v1',10000)"
+    )
+    con.execute(
+        "INSERT INTO sim_fills VALUES (1,'daily_opportunity_agent_v1','SPY','buy',2,"
+        "'2026-09-02',101,101.1,10,10)"
+    )
+    con.execute(
+        "INSERT INTO daily_opportunity_execution_quality VALUES ("
+        "1,1,'buy',?,?,?,?, '2026-09-02','session_open_date',1,2,3,1,100,101,101.1,100,110,10,?,?)",
+        [NOW, NOW, NOW, NOW, NOW, "a" * 64],
+    )
+
+    report = agent_evaluation_reporting.build_report(con, generated_at=NOW)
+
+    assert report["execution"]["fill_count"] == 1
+    assert report["execution"]["mean_cost_bps"] == 10.0
+    assert report["execution"]["turnover_notional"] == pytest.approx(202.2)
 
 
 def test_report_cli_atomically_publishes_empty_forward_state(tmp_path):

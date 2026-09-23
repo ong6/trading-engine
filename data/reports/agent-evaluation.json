@@ -32,6 +32,15 @@
     "scheduled_window_status": "unavailable",
     "trace_count": 0
   },
+  "data_provenance": {
+    "fact_count": 0,
+    "historical_membership_authority": false,
+    "pit_import_batch_count": 0,
+    "pit_import_row_count": 0,
+    "receipt_count": 0,
+    "sec_current_mapping_fact_count": 0,
+    "sec_filing_fact_count": 0
+  },
   "evidence_class": "prospective_forward_only",
   "execution": {
     "alert_open_count": 5,
@@ -49,10 +58,10 @@
     "order_count": 0,
     "rejection_rate": null,
     "timestamp_latency_observations": 0,
-    "turnover_notional": 0.0,
+    "turnover_notional": 0,
     "turnover_over_initial_cash": 0.0
   },
-  "generated_at": "2026-09-23T08:19:50.571021+00:00",
+  "generated_at": "2026-09-23T10:00:51.380525+00:00",
   "horizons": [
     1,
     5,

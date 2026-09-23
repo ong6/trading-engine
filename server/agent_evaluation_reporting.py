@@ -140,8 +140,8 @@ def _operations(con: duckdb.DuckDBPyConnection) -> dict:
     }
     if table_exists(con, "daily_opportunity_execution_quality"):
         quality = con.execute(
-            "SELECT total_shortfall_bps,cost_bps,order_to_fill_sessions,"
-            "decision_to_tool_ms,tool_latency_ms,tool_to_order_ms,qty*fill_px "
+            "SELECT q.total_shortfall_bps,q.cost_bps,q.order_to_fill_sessions,"
+            "q.decision_to_tool_ms,q.tool_latency_ms,q.tool_to_order_ms,f.qty*f.fill_px "
             "FROM daily_opportunity_execution_quality q JOIN sim_fills f USING(order_id) "
             "ORDER BY order_id"
         ).fetchall()
