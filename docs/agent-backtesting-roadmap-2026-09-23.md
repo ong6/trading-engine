@@ -103,6 +103,13 @@ memorized training windows. Blinding symbols helps but cannot hide famous events
 - Separate selection quality from execution quality.
 - Require post-cutoff prospective evidence before promotion.
 
+Implementation status: the canonical report now performs deterministic per-horizon scoring, pairs
+policy outputs only across compatible outcome prefixes, reports input/source parity and missing or
+ambiguous matches, and includes long-candidate and cash controls. It also exposes the completed
+named/blinded diagnostic and marks the remaining contamination probes as not run. The live forward
+cohort is still empty/immature, so these mechanics currently support collection rather than a policy
+ranking or promotion claim.
+
 ## References
 
 - [SEC EDGAR APIs](https://www.sec.gov/edgar/sec-api-documentation)

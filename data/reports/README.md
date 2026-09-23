@@ -18,6 +18,9 @@ paper promotion, broker connection, or live capital.
   portfolios. It is an operational snapshot, not proof of an edge.
 - [`league.csv`](league.csv) is the complete historical paper-equity export, including retired
   portfolios. It is intentionally broader than the active-only Markdown standings.
+- [`agent-evaluation.json`](agent-evaluation.json) is the nightly, deterministic P11/P12 scorecard
+  for canonical agent traces, mature labels, compatible policy pairs, execution quality, and
+  contamination-probe status. Empty or immature cohorts remain explicit and never imply promotion.
 
 ## Historical and implementation evidence
 

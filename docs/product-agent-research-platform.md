@@ -113,6 +113,14 @@ receive append-only arrival/open/fill shortfall, simulated cost, session latency
 source timestamps exist—decision/tool/order latency. Missing sub-day fill timestamps are explicitly
 represented by `session_open_date` precision.
 
+Phase 4 status: a deterministic nightly report groups canonical traces by policy, cadence, prompt,
+model, and version; scores each horizon separately; reports abstention, direction, confusion, Brier
+calibration, return, excursion, latency, tokens, alerts, fills, exits, costs, shortfall, turnover, and
+drawdown; and pairs policies only where date, ticker, horizon, and outcome prefix match uniquely. It
+separates missing mature labels from still-immature labels. The existing 2022 named/blinded run is
+included only as a contamination diagnostic; unrun probes and unavailable numeric forecasts remain
+explicit, and all report output has no promotion authority.
+
 ## Explicit external gates
 
 - Sharadar/Norgate/news purchase: owner must approve initial and recurring spend and license terms.

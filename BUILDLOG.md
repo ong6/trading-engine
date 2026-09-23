@@ -11680,4 +11680,16 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** all source ceilings remain within the approved P12 budget.
 - **Next:** add paired policy scoring, calibration, missing-window, and contamination reports.
 
+## 2026-09-23 — Add canonical agent evaluation report
+
+- **Why:** P12 requires consistent paired scoring, calibration, coverage accounting, deterministic
+  controls, execution metrics, and explicit contamination diagnostics.
+- **What:** add an atomic nightly report grouped by immutable policy/model/prompt cohorts, with
+  per-horizon accuracy, confusion, Brier/calibration, returns, excursions, latency, tokens, control
+  deltas, compatible-window pairs, mature/immature labels, and execution/alert metrics.
+- **Evidence:** focused report/CLI/service tests and the full warnings-as-errors suite pass; the live
+  report truthfully shows zero native traces and four contaminated named/blinded 2022 pairs.
+- **Metrics:** server/tools remain within P12 ceilings; all source budgets are green.
+- **Next:** add provider-neutral PIT manifests/import validation and SEC acceptance-time capture.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
