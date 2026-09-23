@@ -11668,4 +11668,16 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server remains below 51,950 lines; all source budgets are green.
 - **Next:** add deterministic maximum-hold/invalidation exits and execution-quality attribution.
 
+## 2026-09-23 — Add deterministic agent exits and shortfall
+
+- **Why:** P12 requires bounded maximum-hold/invalidation exits and complete execution-quality
+  attribution without changing the frozen simulator or model authority.
+- **What:** freeze each accepted buy's horizon and signal-day-low rule; the P8 post-step lifecycle
+  creates an idempotent next-open sell on expiry or breach. Append entry/exit latency, arrival gap,
+  simulated fill shortfall, cost, and honest date-only fill precision; expose bounded counts.
+- **Evidence:** the full warnings-as-errors suite passes at 100%, including horizon, invalidation,
+  replay, exact next-open fill, paired shortfall, and frozen forward-contract regressions.
+- **Metrics:** all source ceilings remain within the approved P12 budget.
+- **Next:** add paired policy scoring, calibration, missing-window, and contamination reports.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

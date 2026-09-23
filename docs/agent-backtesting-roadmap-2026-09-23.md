@@ -23,10 +23,11 @@ Replay joins must use availability time at or before the decision cutoff.
 
 ### Execution
 
-The current close-decision/next-open model is suitable for swing trading. It includes adverse
-spread/slippage, participation, fees, gap and missing-bar handling, and deterministic limits. Add
-machine-readable maximum-hold and invalidation exits plus decision-to-tool, tool-to-order, and
-order-to-fill latency.
+The close-decision/next-open model is suitable for swing trading. It includes adverse
+spread/slippage, participation, fees, gap and missing-bar handling, and deterministic limits. P8
+now freezes maximum-hold and close-below-signal-low exits, generates their orders after the close,
+and records decision/tool/order latency, session-level order-to-fill latency, and arrival/open/fill
+shortfall. Sub-day fill latency remains unavailable because the simulator records a session date.
 
 Intraday policies should remain shadow-only until quote/trade data supports bid/ask, latency,
 partial fills, liquidity consumption, cancel latency, and passive-order queue position. OHLC bars

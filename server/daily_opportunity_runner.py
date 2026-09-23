@@ -20,7 +20,13 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 
-from . import agent_evaluation, agent_model_client, daily_opportunity_news, daily_opportunity_store
+from . import (
+    agent_evaluation,
+    agent_model_client,
+    daily_opportunity_execution,
+    daily_opportunity_news,
+    daily_opportunity_store,
+)
 from .json_utils import loads_object
 
 LOCK_PATH = REPO_ROOT / ".daily-opportunity.lock"
@@ -175,7 +181,8 @@ def _index_evaluation(database: Path, run_id: int, now: datetime) -> None:
 
 
 def _submit_nightly_tools(
-    database: Path, run_id: int, observed_at: datetime, tool_generate=None
+    database: Path, run_id: int, observed_at: datetime, tool_generate=None,
+    *, preserve_observed_time: bool = False,
 ) -> list[int]:
     """Confirm each eligible swing through the sole P9 execution-bearing tool role."""
     with _connection(database) as con:
@@ -201,7 +208,8 @@ def _submit_nightly_tools(
         return []
     for assessment_id in ids:
         result = daily_opportunity_tools.submit(
-            assessment_id, database=database, now=observed_at, generate=tool_generate
+            assessment_id, database=database,
+            now=observed_at if preserve_observed_time else None, generate=tool_generate,
         )
         if result["paper_order_id"] is not None:
             orders.append(result["paper_order_id"])
@@ -233,11 +241,15 @@ def run(*, database: Path = DEFAULT_DB, now: datetime | None = None, generate: G
                 break_out = False
             with engine_db.transaction(con):
                 triggered = [] if break_out else daily_opportunity_store.evaluate_alerts(con, market_date)
+                daily_opportunity_execution.process_lifecycle(
+                    con, market_date, captured_at=observed_at
+                )
         if break_out:
             if completed:
                 _index_evaluation(database, run_id, observed_at)
                 result["paper_order_ids"] = _submit_nightly_tools(
-                    database, run_id, observed_at, tool_generate
+                    database, run_id, observed_at, tool_generate,
+                    preserve_observed_time=now is not None,
                 )
                 result["paper_order_count"] = len(result["paper_order_ids"])
             return result
@@ -271,12 +283,12 @@ def run(*, database: Path = DEFAULT_DB, now: datetime | None = None, generate: G
                 )
     model_input, allowed = _model_input(bundle, news, held)
     request_sha256 = canonical_sha256(agent_model_client.opportunity_request_payload(model_input))
-    information_cutoff_at = datetime.now(timezone.utc)
+    information_cutoff_at = observed_at if now is not None else datetime.now(timezone.utc)
     generation_started = time.monotonic()
     try:
         response = generate(model_input)
         latency_ms = (time.monotonic() - generation_started) * 1000
-        completed_at = datetime.now(timezone.utc)
+        completed_at = observed_at if now is not None else datetime.now(timezone.utc)
         identity = agent_model_client.identity(role="opportunity")
         if (
             response.request_sha256 != request_sha256
@@ -298,8 +310,14 @@ def run(*, database: Path = DEFAULT_DB, now: datetime | None = None, generate: G
                 information_cutoff_at=information_cutoff_at, latency_ms=latency_ms,
                 completed_at=completed_at,
             )
+            daily_opportunity_execution.process_lifecycle(
+                con, market_date, captured_at=completed_at
+            )
         _index_evaluation(database, run_id, completed_at)
-        order_ids = _submit_nightly_tools(database, run_id, observed_at, tool_generate)
+        order_ids = _submit_nightly_tools(
+            database, run_id, observed_at, tool_generate,
+            preserve_observed_time=now is not None,
+        )
         return {"status": "completed", "market_date": market_date.isoformat(),
                 "assessment_count": len(assessments), "news_status": news["status"],
                 "paper_order_count": len(order_ids), "paper_order_ids": order_ids,

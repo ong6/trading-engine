@@ -105,6 +105,14 @@ agent-visible quotes are implemented. Each admitted quote links to the same reta
 and normalized bitemporal bars. Broad nightly archive capture remains a separate scale-up item; its
 legacy DataFrame fetch is not presented as exact-response evidence.
 
+Phase 3 status: accepted P8 buys freeze a deterministic exit contract at order creation. The
+maximum hold is the selected 1-20 session horizon and the executable invalidation is a daily close
+at or below the signal-day low; model-written invalidation prose never executes. Both conditions
+create a pending sell for the following session rather than a same-bar fill. Entry and exit fills
+receive append-only arrival/open/fill shortfall, simulated cost, session latency, and—where the
+source timestamps exist—decision/tool/order latency. Missing sub-day fill timestamps are explicitly
+represented by `session_open_date` precision.
+
 ## Explicit external gates
 
 - Sharadar/Norgate/news purchase: owner must approve initial and recurring spend and license terms.

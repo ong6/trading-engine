@@ -437,6 +437,10 @@ def test_active_isolated_book_gets_only_capped_next_open_pending_order(tmp_path)
     assert con.execute("SELECT COUNT(*) FROM sim_fills").fetchone() == (0,)
     assert con.execute("SELECT COUNT(*) FROM daily_opportunity_order_attribution").fetchone() == (1,)
     assert con.execute(
+        "SELECT max_hold_sessions,invalidation_kind,invalidation_price,signal_reference_price "
+        "FROM daily_opportunity_exit_rules"
+    ).fetchone() == (5, "close_below_signal_low", 158.0, 160.0)
+    assert con.execute(
         "SELECT COUNT(*) FROM agent_evaluation_execution_links"
     ).fetchone() == (1,)
     con.close()
@@ -447,10 +451,189 @@ def test_active_isolated_book_gets_only_capped_next_open_pending_order(tmp_path)
         [fill_date, 162, 166, 160, 164, 2_000_000],
     )
     counts = league.fill_pending(con, fill_date)
+    lifecycle = daily_opportunity_execution.process_lifecycle(
+        con, fill_date, captured_at=NOW + timedelta(days=1)
+    )
     assert counts == {"filled": 1, "rejected": 0, "pending": 0}
+    assert lifecycle == {"execution_quality_inserted": 1, "exit_orders_created": 0}
     assert con.execute(
         "SELECT fill_date, open_px, fill_px FROM sim_fills"
     ).fetchone()[0:2] == (fill_date, 162.0)
+    quality = con.execute(
+        "SELECT fill_time_precision,decision_to_tool_ms,tool_latency_ms,tool_to_order_ms,"
+        "order_to_fill_sessions,arrival_price,open_price,gap_shortfall_bps,"
+        "total_shortfall_bps,cost_bps FROM daily_opportunity_execution_quality"
+    ).fetchone()
+    assert quality[:5] == ("session_open_date", 0.0, 0.0, 0.0, 1)
+    assert quality[5:8] == pytest.approx((160.0, 162.0, 125.0))
+    assert quality[8] > quality[7]
+    assert quality[9] > 0
+    con.close()
+
+
+def test_agent_position_exits_next_open_on_max_hold(tmp_path):
+    path = tmp_path / "market.duckdb"
+    _database(path)
+    con = db.connect(path)
+    with db.transaction(con):
+        daily_opportunity_store.init_schema(con)
+        daily_opportunity_execution.initialize_book(con, MARKET_DATE, active=True)
+    con.close()
+
+    def swing(payload):
+        result = _connector(payload)
+        result.output["assessments"][0].update(
+            decision="swing", action="buy", alert=None, horizon_sessions=2
+        )
+        return result
+
+    daily_opportunity_runner.run(
+        database=path, now=NOW, generate=swing, fetch_news=_news_response,
+        tool_generate=_tool_connector,
+    )
+    con = db.connect(path)
+    first = date(2026, 9, 22)
+    second = date(2026, 9, 23)
+    third = date(2026, 9, 24)
+    for session, close in ((first, 164), (second, 165), (third, 166)):
+        con.execute(
+            "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+            "VALUES ('FAST',?,?,?,?,?,?)", [session, close - 1, close + 1, close - 2, close, 2_000_000],
+        )
+        con.execute(
+            "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+            "VALUES ('SPY',?,?,?,?,?,?)", [session, 120, 121, 119, 120, 2_000_000],
+        )
+    assert league.fill_pending(con, first)["filled"] == 1
+    assert daily_opportunity_execution.process_lifecycle(
+        con, first, captured_at=NOW + timedelta(days=1)
+    ) == {"execution_quality_inserted": 1, "exit_orders_created": 0}
+    assert daily_opportunity_execution.process_lifecycle(
+        con, second, captured_at=NOW + timedelta(days=2)
+    )["exit_orders_created"] == 1
+    assert daily_opportunity_execution.process_lifecycle(
+        con, second, captured_at=NOW + timedelta(days=2, minutes=1)
+    ) == {"execution_quality_inserted": 0, "exit_orders_created": 0}
+    assert con.execute(
+        "SELECT reason,signal_date,attempt FROM daily_opportunity_exit_events"
+    ).fetchone() == ("maximum_hold_sessions", second, 1)
+    assert con.execute(
+        "SELECT side,status FROM sim_orders ORDER BY id DESC LIMIT 1"
+    ).fetchone() == ("sell", "pending")
+    assert league.fill_pending(con, third)["filled"] == 1
+    assert daily_opportunity_execution.process_lifecycle(
+        con, third, captured_at=NOW + timedelta(days=3)
+    )["execution_quality_inserted"] == 1
+    assert con.execute(
+        "SELECT qty FROM sim_positions WHERE portfolio_id=? AND ticker='FAST'",
+        [daily_opportunity_store.PORTFOLIO_ID],
+    ).fetchone() == (0.0,)
+    assert con.execute(
+        "SELECT COUNT(*) FROM daily_opportunity_execution_quality"
+    ).fetchone() == (2,)
+    con.close()
+
+
+def test_agent_position_invalidation_is_machine_readable_and_next_open(tmp_path):
+    path = tmp_path / "market.duckdb"
+    _database(path)
+    con = db.connect(path)
+    with db.transaction(con):
+        daily_opportunity_store.init_schema(con)
+        daily_opportunity_execution.initialize_book(con, MARKET_DATE, active=True)
+    con.close()
+
+    def swing(payload):
+        result = _connector(payload)
+        result.output["assessments"][0].update(
+            decision="swing", action="buy", alert=None, horizon_sessions=10,
+            invalidation="Any prose the model chooses cannot execute directly.",
+        )
+        return result
+
+    daily_opportunity_runner.run(
+        database=path, now=NOW, generate=swing, fetch_news=_news_response,
+        tool_generate=_tool_connector,
+    )
+    con = db.connect(path)
+    first = date(2026, 9, 22)
+    second = date(2026, 9, 23)
+    third = date(2026, 9, 24)
+    for session, close in ((first, 164), (second, 157), (third, 156)):
+        con.execute(
+            "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+            "VALUES ('FAST',?,?,?,?,?,?)", [session, close, close + 1, close - 1, close, 2_000_000],
+        )
+        con.execute(
+            "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+            "VALUES ('SPY',?,?,?,?,?,?)", [session, 120, 121, 119, 120, 2_000_000],
+        )
+    league.fill_pending(con, first)
+    daily_opportunity_execution.process_lifecycle(
+        con, first, captured_at=NOW + timedelta(days=1)
+    )
+    assert daily_opportunity_execution.process_lifecycle(
+        con, second, captured_at=NOW + timedelta(days=2)
+    )["exit_orders_created"] == 1
+    assert con.execute(
+        "SELECT reason,observed_close,signal_date,attempt FROM daily_opportunity_exit_events"
+    ).fetchone() == ("close_below_signal_low", 157.0, second, 1)
+    assert con.execute("SELECT COUNT(*) FROM sim_fills WHERE side='sell'").fetchone() == (0,)
+    league.fill_pending(con, third)
+    daily_opportunity_execution.process_lifecycle(
+        con, third, captured_at=NOW + timedelta(days=3)
+    )
+    assert con.execute("SELECT COUNT(*) FROM sim_fills WHERE side='sell'").fetchone() == (1,)
+    con.close()
+
+
+def test_rejected_agent_exit_is_retried_once_no_exit_is_pending(tmp_path):
+    path = tmp_path / "market.duckdb"
+    _database(path)
+    con = db.connect(path)
+    with db.transaction(con):
+        daily_opportunity_store.init_schema(con)
+        daily_opportunity_execution.initialize_book(con, MARKET_DATE, active=True)
+    con.close()
+
+    def swing(payload):
+        result = _connector(payload)
+        result.output["assessments"][0].update(
+            decision="swing", action="buy", alert=None, horizon_sessions=1
+        )
+        return result
+
+    daily_opportunity_runner.run(
+        database=path, now=NOW, generate=swing, fetch_news=_news_response,
+        tool_generate=_tool_connector,
+    )
+    con = db.connect(path)
+    first, second = date(2026, 9, 22), date(2026, 9, 23)
+    for session in (first, second):
+        con.execute(
+            "INSERT INTO prices VALUES ('FAST',?,?,?,?,?,?,?,?)",
+            [session, 163, 165, 162, 164, 2_000_000, "test", NOW],
+        )
+        con.execute(
+            "INSERT INTO prices VALUES ('SPY',?,?,?,?,?,?,?,?)",
+            [session, 120, 121, 119, 120, 2_000_000, "test", NOW],
+        )
+    league.fill_pending(con, first)
+    assert daily_opportunity_execution.process_lifecycle(
+        con, first, captured_at=NOW + timedelta(days=1)
+    )["exit_orders_created"] == 1
+    con.execute(
+        "UPDATE sim_orders SET status='rejected',reject_reason='no_bar' WHERE side='sell'"
+    )
+    assert daily_opportunity_execution.process_lifecycle(
+        con, second, captured_at=NOW + timedelta(days=2)
+    )["exit_orders_created"] == 1
+    assert con.execute(
+        "SELECT attempt FROM daily_opportunity_exit_events ORDER BY attempt"
+    ).fetchall() == [(1,), (2,)]
+    assert con.execute(
+        "SELECT COUNT(*) FROM sim_orders WHERE side='sell' AND status='pending'"
+    ).fetchone() == (1,)
     con.close()
 
 
@@ -475,6 +658,8 @@ def test_status_is_bounded_and_reports_inactive_book(tmp_path):
     assert status["paper_order_count"] == 0
     assert status["model"] == agent_model_client.MODEL
     assert status["position_count"] == status["pending_order_count"] == 0
+    assert status["exit_rule_count"] == status["exit_event_count"] == 0
+    assert status["execution_quality_count"] == 0
     assert status["schedule"]["nightly"] == "Tue..Sat *-*-* 02:00:00 UTC"
     assert status["algorithm_candidate"]["ticker"] == "FAST"
     assert status["algorithm_agent_veto"] == {
