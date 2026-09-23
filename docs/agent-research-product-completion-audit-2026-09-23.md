@@ -43,7 +43,7 @@ does not. No external gate is presented as an achieved data acquisition or perfo
 | Historical universe membership | external gate | current SEC ticker map explicitly lacks historical-membership authority; requires audited licensed data |
 | Intraday microstructure execution | external data/authority gate | hourly/four-hour remain shadow-only; partial fills, queue position, and cancel latency require quote/trade data before intraday authority |
 | Broker connectivity and real capital | external owner gate | no broker route/credentials/real money; requires separate IBKR plan and prospective evidence |
-| Recovery identity and rehearsal | implemented | P8–P12 sources/services/evidence are release-bound; clean bundle `/data00/home/jun.ong/trading-engine-p12-release-20260923` has 57 tables and independently verifies |
+| Recovery identity and rehearsal | implemented | P8–P12 sources/services/evidence are release-bound; clean bundle `/data00/home/jun.ong/trading-engine-p12-release3-20260923` has 57 tables and independently verifies |
 | Full validation and budgets | implemented | full warnings-as-errors suite, Ruff, agent self-test, installer audit, metrics `--check-budget`; P12 layer allocations remain within caps |
 
 ## Commands and observed state
@@ -60,7 +60,7 @@ does not. No external gate is presented as an achieved data acquisition or perfo
 - Live provenance: 22 exact response receipts and 2,376 bitemporal facts.
 - Walk-forward: 18/18 expected results, one source/data/execution cohort, zero missing/invalid/
   duplicate/config/registration mismatches, validator status `current`.
-- Recovery: `/data00/home/jun.ong/trading-engine-p12-release-20260923`, 57 tables, 4,108,333,056
+- Recovery: `/data00/home/jun.ong/trading-engine-p12-release3-20260923`, 57 tables, 4,108,333,056
   database bytes, independently verified; restored agent book is active with US$10,000 initial cash.
 - Deployment: hourly, four-hour, and nightly timers enabled/active; latest observer service results
   successful; installed units match source.
