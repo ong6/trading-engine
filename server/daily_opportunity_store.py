@@ -100,8 +100,18 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         order_to_fill_sessions INTEGER NOT NULL, arrival_price DOUBLE NOT NULL,
         open_price DOUBLE NOT NULL, fill_price DOUBLE NOT NULL, gap_shortfall_bps DOUBLE NOT NULL,
         total_shortfall_bps DOUBLE NOT NULL, cost_bps DOUBLE NOT NULL, captured_at TIMESTAMP NOT NULL,
-        quality_sha256 VARCHAR NOT NULL UNIQUE)"""
+        quality_sha256 VARCHAR NOT NULL UNIQUE,
+        post_fill_position_qty DOUBLE NOT NULL, post_fill_cash DOUBLE NOT NULL,
+        post_fill_equity DOUBLE, equity_as_of DATE)"""
     )
+    con.execute("ALTER TABLE daily_opportunity_execution_quality "
+                "ADD COLUMN IF NOT EXISTS post_fill_position_qty DOUBLE")
+    con.execute("ALTER TABLE daily_opportunity_execution_quality "
+                "ADD COLUMN IF NOT EXISTS post_fill_cash DOUBLE")
+    con.execute("ALTER TABLE daily_opportunity_execution_quality "
+                "ADD COLUMN IF NOT EXISTS post_fill_equity DOUBLE")
+    con.execute("ALTER TABLE daily_opportunity_execution_quality "
+                "ADD COLUMN IF NOT EXISTS equity_as_of DATE")
 
 
 def next_id(con: duckdb.DuckDBPyConnection, table: str) -> int:
