@@ -89,7 +89,6 @@ AUDIT_SOURCE_FILES = (
 )
 AGENT_SOURCE_FILES = (
     "engine/daily_opportunities.py",
-    "engine/intraday_source.py",
     "engine/verify_prices.py",
     "server/agent-cadence-registration.json",
     "server/agent_algorithm_candidate.py",
@@ -114,6 +113,7 @@ AGENT_SOURCE_FILES = (
     "server/daily_opportunity_store.py",
     "server/daily_opportunity_tools.py",
     "server/hourly_opportunity_observer.py",
+    "server/intraday_source.py",
     "server/agent_paper_attribution.py",
     "server/agent_paper_book_plan.py",
     "server/agent_paper_book_preflight.py",
