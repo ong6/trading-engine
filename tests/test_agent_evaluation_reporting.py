@@ -8,7 +8,6 @@ import pytest
 
 from engine.lib import db
 from server import agent_evaluation, agent_evaluation_reporting, daily_opportunity_store
-from tools import agent_evaluation_report
 
 NOW = datetime(2026, 9, 23, 12, tzinfo=timezone.utc)
 
@@ -171,7 +170,7 @@ def test_report_cli_atomically_publishes_empty_forward_state(tmp_path):
     agent_evaluation.init_schema(con)
     con.close()
 
-    assert agent_evaluation_report.main([
+    assert agent_evaluation_reporting.main([
         "--database", str(database), "--output", str(output),
         "--contamination", str(tmp_path / "absent.json"),
     ]) == 0

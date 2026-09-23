@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 import pytest
 
 from engine import pit_import
-from tools import pit_import as pit_import_tool
 
 NOW = datetime(2026, 9, 23, 12, tzinfo=timezone.utc)
 HEADER = "entity_id,security_id,event_at,published_at,available_at,payload_json\n"
@@ -53,8 +52,8 @@ def test_manifest_audit_and_apply_are_isolated_and_replay_stable(con, tmp_path, 
     with pytest.raises(pit_import.PitImportError, match="replay differs"):
         pit_import.import_manifest(con, manifest, tmp_path, imported_at=NOW)
     database = tmp_path / "audit.duckdb"
-    assert pit_import_tool.main([str(manifest), "--data-root", str(tmp_path),
-                                 "--database", str(database)]) == 0
+    assert pit_import.main([str(manifest), "--data-root", str(tmp_path),
+                            "--database", str(database)]) == 0
     assert json.loads(capsys.readouterr().out)["mode"] == "audit"
     assert not database.exists()
 

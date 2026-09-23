@@ -34,11 +34,11 @@ DEPENDENCY_FILES = (
 )
 SCHEMA_SOURCE_FILES = (
     "engine/pit_import.py",
+    "engine/bitemporal_facts.py",
     "engine/lib/db.py",
     "engine/queue_runner.py",
     "server/broker_ledger.py",
     "server/broker_risk_control.py",
-    "server/bitemporal_facts.py",
     "server/daily_opportunity_store.py",
     "server/simulator_broker_adapter.py",
     "sim/schema.py",
@@ -89,6 +89,7 @@ AUDIT_SOURCE_FILES = (
 )
 AGENT_SOURCE_FILES = (
     "engine/daily_opportunities.py",
+    "engine/intraday_source.py",
     "engine/verify_prices.py",
     "server/agent-cadence-registration.json",
     "server/agent_algorithm_candidate.py",
@@ -113,8 +114,6 @@ AGENT_SOURCE_FILES = (
     "server/daily_opportunity_store.py",
     "server/daily_opportunity_tools.py",
     "server/hourly_opportunity_observer.py",
-    "server/intraday_source.py",
-    "server/sec_edgar_capture.py",
     "server/agent_paper_attribution.py",
     "server/agent_paper_book_plan.py",
     "server/agent_paper_book_preflight.py",
@@ -138,9 +137,7 @@ AGENT_SOURCE_FILES = (
     "server/agent_veto_contract.py",
     "server/main.py",
     "tools/adjudicate_agent_data_discrepancy.py",
-    "tools/agent_evaluation_report.py",
     "tools/backfill_agent_evaluation.py",
-    "tools/pit_import.py",
     "tools/sec_edgar_capture.py",
 )
 BROKER_BOUNDARY_SOURCE_FILES = (

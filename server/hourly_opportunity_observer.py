@@ -11,6 +11,7 @@ from typing import Callable
 
 import duckdb
 
+from engine import bitemporal_facts, intraday_source
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock
@@ -19,9 +20,7 @@ from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 from . import (
     agent_evaluation,
     agent_model_client,
-    bitemporal_facts,
     daily_opportunity_news,
-    intraday_source,
 )
 from .daily_opportunity_runner import _model_input, _validate_output
 from .file_utils import read_bytes

@@ -11750,4 +11750,16 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** farm/tools remain within P12 ceilings; all source budgets are green.
 - **Next:** refresh the affected walk-forward cohort, then perform post-schema recovery rehearsal.
 
+## 2026-09-23 — Bring P12 within phase budgets
+
+- **Why:** completion audit found cumulative P12 server/tool additions exceeded their stricter
+  plan allocations even though repository-wide ceilings remained green.
+- **What:** move generic bitemporal and intraday adapters into `engine`, consolidate the PIT CLI
+  with its importer and SEC CLI with its collector, and fold report publication into its module.
+  Recovery identity and the installed daily service now name the relocated files exactly.
+- **Evidence:** focused provenance, ingestion, report, service, release-manifest, and backup suites
+  pass; P12 net additions are server +743, engine +276, tools +324, farm +4, and sim +0.
+- **Metrics:** every P12 phase allocation and repository source ceiling is green.
+- **Next:** reinstall the changed service, create/verify post-schema backup, and close the audit.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

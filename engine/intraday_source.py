@@ -1,4 +1,4 @@
-"""Exact-response Yahoo chart adapter for bounded agent intraday context."""
+"""Exact-response Yahoo chart adapter for bounded intraday context."""
 from __future__ import annotations
 
 import json

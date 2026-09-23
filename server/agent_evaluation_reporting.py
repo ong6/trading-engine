@@ -1,6 +1,7 @@
 """Deterministic scoring and contamination diagnostics for canonical agent traces."""
 from __future__ import annotations
 
+import argparse
 import itertools
 import json
 import math
@@ -9,12 +10,17 @@ from pathlib import Path
 
 import duckdb
 
+from engine.lib import db, resources
 from engine.lib.provenance import canonical_sha256
+from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 from engine.lib.util import table_exists
 
 from .agent_evaluation import HORIZONS, POLICIES
 
 SCHEMA_VERSION = 1
+DEFAULT_OUTPUT = REPO_ROOT / "data" / "reports" / "agent-evaluation.json"
+DEFAULT_CONTAMINATION = (REPO_ROOT / "data" / "reports" / "experiments"
+                         / "agent-2022-replay-v1" / "result.json")
 CALIBRATION_BINS = ((0.0, 0.2), (0.2, 0.4), (0.4, 0.6), (0.6, 0.8), (0.8, 1.0))
 
 
@@ -373,3 +379,25 @@ def build_report(
         "execution": _operations(con),
         "contamination": contamination_diagnostics(contamination_path),
     }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--database", type=Path, default=DEFAULT_DB)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--contamination", type=Path, default=DEFAULT_CONTAMINATION)
+    args = parser.parse_args(argv)
+    con = db.connect(args.database, read_only=True, wait_s=0)
+    try:
+        report = build_report(con, generated_at=datetime.now(timezone.utc),
+                              contamination_path=args.contamination)
+    finally:
+        con.close()
+    resources.write_text_atomic(args.output, json.dumps(report, indent=2, sort_keys=True) + "\n")
+    print(json.dumps({"status": "complete", "output": str(args.output),
+                      "trace_count": report["coverage"]["trace_count"]}, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

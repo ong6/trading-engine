@@ -1,6 +1,7 @@
 """Validated, isolated ingestion boundary for licensed point-in-time datasets."""
 from __future__ import annotations
 
+import argparse
 import csv
 import hashlib
 import io
@@ -248,3 +249,28 @@ def audit_manifest(manifest_path: Path, data_root: Path) -> dict:
         "available_end": max(availability).isoformat(),
         "operational_tables_mutated": False, "strategy_authority": "none",
     }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("manifest", type=Path)
+    parser.add_argument("--data-root", type=Path, required=True)
+    parser.add_argument("--database", type=Path, default=db.DEFAULT_DB)
+    parser.add_argument("--apply", action="store_true")
+    args = parser.parse_args(argv)
+    result = audit_manifest(args.manifest, args.data_root)
+    result["mode"] = "audit"
+    if args.apply:
+        con = db.connect(args.database, wait_s=0)
+        try:
+            result = {**result, **import_manifest(
+                con, args.manifest, args.data_root, imported_at=datetime.now(timezone.utc)
+            ), "mode": "apply"}
+        finally:
+            con.close()
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

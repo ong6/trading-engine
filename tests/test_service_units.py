@@ -120,7 +120,7 @@ def test_persistent_header_exposes_scheduler_health_and_entry_count():
 def test_daily_opportunity_publishes_canonical_evaluation_after_success():
     unit = _unit("server/trading-engine-daily-opportunity.service")
     assert "ExecStart=%h/trading-engine/.venv/bin/python -m server.daily_opportunity_runner" in unit
-    assert "ExecStartPost=%h/trading-engine/.venv/bin/python -m tools.agent_evaluation_report" in unit
+    assert "ExecStartPost=%h/trading-engine/.venv/bin/python -m server.agent_evaluation_reporting" in unit
     _assert_common_service_hardening(unit)
 
 
