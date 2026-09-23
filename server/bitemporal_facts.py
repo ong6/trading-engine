@@ -149,9 +149,12 @@ def record_fact(
 def record_intraday_quote_batch(
     con: duckdb.DuckDBPyConnection, *, source: str, endpoint: str, request: dict,
     requested_at: datetime, received_at: datetime, content_type: str, body: bytes,
-    quotes: list[dict], source_version: str, license_class: str,
+    quotes: list[dict], interval: str, source_version: str, license_class: str,
+    ingested_at: datetime | None = None,
 ) -> dict:
     """Atomically retain one raw response and normalized quote facts."""
+    interval = _text(interval, "interval", 16)
+    ingested = received_at if ingested_at is None else ingested_at
     seen = set()
     for quote in quotes:
         if not isinstance(quote, dict) or set(quote) != {
@@ -173,8 +176,9 @@ def record_intraday_quote_batch(
         for quote in quotes:
             facts.append(record_fact(
                 con, entity_id=quote["ticker"], security_id=quote["ticker"],
-                fact_type="intraday.ohlcv", event_at=quote["event_at"], published_at=None,
-                available_at=received_at, ingested_at=received_at,
+                fact_type=f"intraday.ohlcv.{interval}", event_at=quote["event_at"],
+                published_at=None,
+                available_at=received_at, ingested_at=ingested,
                 payload={key: quote[key] for key in ("open", "high", "low", "close", "volume")},
                 source=source, source_version=source_version,
                 receipt_sha256=receipt["receipt_sha256"],

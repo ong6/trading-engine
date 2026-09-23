@@ -100,6 +100,11 @@ joinable to later outcomes, simulated execution, cost, and risk evidence.
 6. Paid historical data acquisition after owner spend and license approval.
 7. Broker-paper evaluation only under a separate execution plan.
 
+Phase 2 status: the generic receipt/fact envelope and exact-response capture for hourly/four-hour
+agent-visible quotes are implemented. Each admitted quote links to the same retained provider bytes
+and normalized bitemporal bars. Broad nightly archive capture remains a separate scale-up item; its
+legacy DataFrame fetch is not presented as exact-response evidence.
+
 ## Explicit external gates
 
 - Sharadar/Norgate/news purchase: owner must approve initial and recurring spend and license terms.
