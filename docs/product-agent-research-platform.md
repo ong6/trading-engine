@@ -159,8 +159,8 @@ accepted call is locked, idempotent, append-only, and joined from source evidenc
 tool attempt, order, fill, position, cash, equity, and delayed outcome. The hybrid policy remains a
 buy-side veto and cannot rewrite an order or suppress a sell.
 
-The forward dataset currently contains 19 exact source receipts, 1,930 bitemporal facts, 6 native
-traces, and 22 decisions. Its 88 possible 1/5/10/20-session labels remain immature because the
+The forward dataset currently contains 22 exact source receipts, 2,376 bitemporal facts, 7 native
+traces, and 25 decisions. Its 100 possible 1/5/10/20-session labels remain immature because the
 prospective schedule activates on 2026-09-24; no result has been fabricated or promoted. The
 separate retrospective 2022 suite contains the original 8 named/blinded decisions and 12 diagnostic
 probe decisions, all marked contamination-prone and non-promotable.

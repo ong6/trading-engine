@@ -16,7 +16,7 @@
       "model_version": "unversioned-catalog-alias",
       "policy_id": "hourly_market_watch_v1",
       "prompt_role": "rapid_catalyst_watch",
-      "trace_count": 4
+      "trace_count": 5
     }
   ],
   "contamination": {
@@ -68,9 +68,9 @@
     }
   },
   "coverage": {
-    "decision_count": 22,
+    "decision_count": 25,
     "expected_window_count": 0,
-    "immature_label_count": 88,
+    "immature_label_count": 100,
     "label_count": 0,
     "mature_expected_label_count": 0,
     "missing_mature_label_count": 0,
@@ -79,14 +79,14 @@
     "missing_windows_truncated": false,
     "observed_expected_window_count": 0,
     "scheduled_window_status": "complete",
-    "trace_count": 6
+    "trace_count": 7
   },
   "data_provenance": {
-    "fact_count": 1930,
+    "fact_count": 2376,
     "historical_membership_authority": false,
     "pit_import_batch_count": 0,
     "pit_import_row_count": 0,
-    "receipt_count": 19,
+    "receipt_count": 22,
     "sec_current_mapping_fact_count": 0,
     "sec_filing_fact_count": 0
   },
@@ -112,7 +112,7 @@
     "turnover_notional": 0,
     "turnover_over_initial_cash": 0.0
   },
-  "generated_at": "2026-09-23T19:09:23.892114+00:00",
+  "generated_at": "2026-09-23T19:24:22.389114+00:00",
   "horizons": [
     1,
     5,
@@ -406,7 +406,7 @@
           "upper": 1.0
         }
       ],
-      "decision_count": 12,
+      "decision_count": 15,
       "directional_accuracy": null,
       "forecast_error": {
         "reason": "forward policy does not emit a numeric return forecast",
@@ -416,11 +416,11 @@
       "mean_adverse_excursion": null,
       "mean_excess_return": null,
       "mean_favorable_excursion": null,
-      "mean_latency_ms": 10991.70299153775,
+      "mean_latency_ms": 10734.074193239212,
       "mean_signed_return": null,
       "p95_latency_ms": 12724.051032215357,
-      "total_tokens": 22929,
-      "trace_count": 4
+      "total_tokens": 28854,
+      "trace_count": 5
     },
     "nightly_opportunity_tool_v1": {
       "abstention_rate": null,

@@ -54,7 +54,7 @@ create a new strategy merely to exercise infrastructure.
 ## Completion — 2026-09-23
 
 Every locally implementable requirement is shipped and verified. The final prospective ledger has
-6 native traces and 22 decisions; all 88 horizon outcomes are honestly immature at activation. The
+7 native traces and 25 decisions; all 100 horizon outcomes are honestly immature at activation. The
 deterministic research fleet has one current 18/18 walk-forward cohort, the three agent cadence
 timers are enabled, the locked simulator self-test passes with no broker route, and a final 57-table
 recovery bundle verifies independently. Paid PIT acquisition, SEC activation, intraday authority,
