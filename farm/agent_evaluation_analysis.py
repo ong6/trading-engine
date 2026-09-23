@@ -14,19 +14,14 @@ from engine.lib.util import table_exists
 
 def mean(values: list[float]) -> float | None:
     return None if not values else sum(values) / len(values)
-
-
 def signed_return(row: dict) -> float:
     if row["action"] == "buy":
         return float(row["asset_return"])
     if row["action"] == "sell":
         return -float(row["asset_return"])
     return 0.0
-
-
-def expected_windows(
-    start: datetime, end: datetime, sessions: list, variants: list[dict]
-) -> set[str]:
+def expected_windows(start: datetime, end: datetime, sessions: list,
+                     variants: list[dict]) -> set[str]:
     result = set()
     session_set = set(sessions)
     for item in variants:
@@ -51,12 +46,8 @@ def expected_windows(
                         result.add(f"{item['id']}:{due.date().isoformat()}T{bucket:02d}")
             local_day += timedelta(days=1)
     return result
-
-
-def coverage(
-    con: duckdb.DuckDBPyConnection, rows: list[dict], generated_at: datetime,
-    registration_path: Path, horizons: tuple[int, ...],
-) -> dict:
+def coverage(con: duckdb.DuckDBPyConnection, rows: list[dict], generated_at: datetime,
+             registration_path: Path, horizons: tuple[int, ...]) -> dict:
     decisions = con.execute(
         "SELECT d.id,t.market_date,t.cadence,t.observed_at FROM agent_evaluation_decisions d "
         "JOIN agent_evaluation_traces t ON t.id=d.trace_id ORDER BY d.id"
@@ -80,8 +71,7 @@ def coverage(
         ).astimezone(timezone.utc)
         sessions = [row[0] for row in con.execute(
             "SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>=? AND date<? ORDER BY date",
-            [start.date(), generated_at.date()],
-        ).fetchall()] if prices_ready else []
+            [start.date(), generated_at.date()]).fetchall()] if prices_ready else []
         expected = expected_windows(start, generated_at, sessions, registration["variants"])
         missing = sorted(expected - {row["window_id"] for row in rows})
         status = "complete" if not missing else "incomplete"
@@ -98,8 +88,6 @@ def coverage(
         "missing_window_count": len(missing), "missing_windows": missing[:100],
         "missing_windows_truncated": len(missing) > 100,
     }
-
-
 def _unique_by_key(rows: list[dict]) -> tuple[dict, int]:
     grouped = {}
     for row in rows:
@@ -109,11 +97,9 @@ def _unique_by_key(rows: list[dict]) -> tuple[dict, int]:
         grouped.setdefault(key, []).append(row)
     ambiguous = sum(len(items) for items in grouped.values() if len(items) != 1)
     return {key: items[0] for key, items in grouped.items() if len(items) == 1}, ambiguous
-
-
 def paired_metrics(rows: list[dict], policies: tuple | dict) -> list[dict]:
-    by_policy = {policy: _unique_by_key([row for row in rows if row["policy_id"] == policy])
-                 for policy in policies}
+    by_policy = {p: _unique_by_key([row for row in rows if row["policy_id"] == p])
+                 for p in policies}
     result = []
     for left, right in itertools.combinations(policies, 2):
         left_rows, left_ambiguous = by_policy[left]
@@ -122,8 +108,7 @@ def paired_metrics(rows: list[dict], policies: tuple | dict) -> list[dict]:
         shared = [key for key in candidate_shared
                   if left_rows[key]["price_prefix_sha256"]
                   == right_rows[key]["price_prefix_sha256"]]
-        deltas = [signed_return(left_rows[key]) - signed_return(right_rows[key])
-                  for key in shared]
+        deltas = [signed_return(left_rows[k]) - signed_return(right_rows[k]) for k in shared]
         result.append({
             "left_policy": left, "right_policy": right, "paired_count": len(shared),
             "left_missing_count": len(set(right_rows) - set(left_rows)),
@@ -131,23 +116,19 @@ def paired_metrics(rows: list[dict], policies: tuple | dict) -> list[dict]:
             "left_ambiguous_count": left_ambiguous,
             "right_ambiguous_count": right_ambiguous,
             "incompatible_outcome_count": len(candidate_shared) - len(shared),
-            "same_input_count": sum(left_rows[key]["input_sha256"]
-                                    == right_rows[key]["input_sha256"] for key in shared),
-            "same_source_set_count": sum(left_rows[key]["source_refs_sha256"]
-                                         == right_rows[key]["source_refs_sha256"] for key in shared),
+            "same_input_count": sum(left_rows[k]["input_sha256"]
+                                    == right_rows[k]["input_sha256"] for k in shared),
+            "same_source_set_count": sum(left_rows[k]["source_refs_sha256"]
+                                         == right_rows[k]["source_refs_sha256"] for k in shared),
             "left_wins": sum(value > 0 for value in deltas),
             "ties": sum(value == 0 for value in deltas),
             "right_wins": sum(value < 0 for value in deltas),
             "mean_signed_return_delta": mean(deltas),
         })
     return result
-
-
 def contamination_diagnostics(paths: tuple[Path, ...]) -> dict:
-    probes = {name: "not_run" for name in (
-        "named_vs_blinded", "date_recall", "synthetic_perturbation",
-        "prompt_permutation", "post_cutoff_prospective",
-    )}
+    probes = {name: "not_run" for name in ("named_vs_blinded", "date_recall",
+        "synthetic_perturbation", "prompt_permutation", "post_cutoff_prospective")}
     available = [path for path in paths if path.exists()]
     if not available:
         return {"status": "unavailable", "promotion_authority": "none",
@@ -172,10 +153,10 @@ def contamination_diagnostics(paths: tuple[Path, ...]) -> dict:
         shared = sorted(set(named) & set(other))
         comparisons[variant] = {
             "paired_dates": len(shared),
-            "choice_agreement": mean([float(named[d]["selected_ticker"]
-                                            == other[d]["selected_ticker"]) for d in shared]),
-            "direction_agreement": mean([float(named[d]["decision"]["direction"]
-                                               == other[d]["decision"]["direction"]) for d in shared]),
+            "choice_agreement": mean([float(named[d]["selected_ticker"] ==
+                                            other[d]["selected_ticker"]) for d in shared]),
+            "direction_agreement": mean([float(named[d]["decision"]["direction"] ==
+                                               other[d]["decision"]["direction"]) for d in shared]),
         }
     return {
         "status": "diagnostic_only", "promotion_authority": "none",

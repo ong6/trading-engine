@@ -11820,4 +11820,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** all P12 layer allocations and source ceilings remain green.
 - **Next:** complete final full suite, cohort refresh, recovery rehearsal, and audit matrix.
 
+## 2026-09-23 — Freeze the final P12 research source
+
+- **Why:** P12's final evidence cohort must use one immutable runtime-source identity and the
+  approved farm allocation had only two lines of remaining capacity.
+- **What:** mechanically compact the pure agent-evaluation analysis module without changing its
+  paired metrics, schedule coverage, or contamination semantics.
+- **Evidence:** `.venv/bin/python -m pytest -q tests/test_agent_evaluation_reporting.py -W error`
+  passes all seven tests and Ruff reports no findings.
+- **Metrics:** farm 11,637 lines; every repository and P12 source budget remains green.
+- **Next:** rebuild one uninterrupted walk-forward cohort, then close validation and recovery.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
