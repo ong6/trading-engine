@@ -41,6 +41,34 @@ def test_blinded_prompt_hides_symbols_and_date():
     assert all(symbol not in encoded for symbol in aliases)
 
 
+def test_contamination_probe_inputs_are_isolated_and_deterministic():
+    con = _con()
+    config = replay.registration()
+    named, _ = replay.build_input(con, config, date(2022, 1, 31), "price_named")
+    dated, _ = replay.build_input(con, config, date(2022, 1, 31), "price_date_recall")
+    permuted, _ = replay.build_input(con, config, date(2022, 1, 31), "price_permuted")
+    synthetic, _ = replay.build_input(
+        con, config, date(2022, 1, 31), "price_synthetic_perturbed"
+    )
+    con.close()
+    assert dated["decision_date"] == "2022-01-31"
+    assert [item["asset"] for item in dated["assets"]] == config["assets"]
+    assert all(set(item) == {"asset", "source_data_prefix_sha256",
+                             "transformation", "input_sha256"} for item in dated["assets"])
+    assert "features" not in dated["market_context"]
+    assert [item["asset"] for item in permuted["assets"]] == list(reversed(config["assets"]))
+    assert synthetic["assets"][0]["asset"] == "Asset A"
+    assert synthetic["assets"][0]["features"]["return_20d"] == pytest.approx(
+        -named["assets"][0]["features"]["return_20d"]
+    )
+    assert synthetic["assets"][0]["source_data_prefix_sha256"] == (
+        named["assets"][0]["data_prefix_sha256"]
+    )
+    assert synthetic["assets"][0]["input_sha256"] != (
+        synthetic["assets"][0]["source_data_prefix_sha256"]
+    )
+
+
 def test_future_outcome_is_next_open_to_twentieth_close():
     con = _con()
     result = replay.outcome(con, "AAPL", date(2022, 1, 31), 20)

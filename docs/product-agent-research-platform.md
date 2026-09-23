@@ -120,6 +120,12 @@ drawdown; and pairs policies only where date, ticker, horizon, and outcome prefi
 separates missing mature labels from still-immature labels. The existing 2022 named/blinded run is
 included only as a contamination diagnostic; unrun probes and unavailable numeric forecasts remain
 explicit, and all report output has no promotion authority.
+The forward evaluation schedule is frozen from `2026-09-24T00:00:00Z`; expected hourly, four-hour,
+and nightly windows are derived from registered DST-aware slots and missing windows are explicit.
+The contamination suite now retains separate named/blinded, date-recall, prompt-order, and synthetic
+trend-perturbation diagnostics. Date recall chose cash in all four windows, prompt reordering retained
+the original XOM choices, and the synthetic perturbation fell to 25% accuracy and -11.02% compounded.
+These are sensitivity diagnostics only; the post-cutoff prospective cohort is collecting.
 
 Phase 5 status: [the provider-neutral manifest example](pit-import-manifest.example.json) defines the
 only accepted CSV envelope for future licensed datasets. `python -m engine.pit_import MANIFEST
