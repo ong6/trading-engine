@@ -16,6 +16,8 @@ before treating any result as actionable.
 
 - [`agent-2022-replay-v1/`](agent-2022-replay-v1/) — contaminated retrospective
   model-behavior diagnostic only; its results cannot establish or promote an edge.
+- [`agent-2022-contamination-probes-v1/`](agent-2022-contamination-probes-v1/) — separate
+  date-recall, prompt-order, and synthetic-trend sensitivity diagnostics; no promotion authority.
 - [`credit-confirmed-spy-v1/`](credit-confirmed-spy-v1/) — `REJECT-V1`.
 - [`fixed-etf-rebalancing-v1/`](fixed-etf-rebalancing-v1/) — `REJECT-V1`.
 - [`gross-voltarget-matched-static/`](gross-voltarget-matched-static/) —
