@@ -444,7 +444,7 @@ def status(con: duckdb.DuckDBPyConnection) -> dict:
     """Bounded coverage and maturity summary, never raw prompts or responses."""
     if any(not table_exists(con, table) for table in (
         "agent_evaluation_traces", "agent_evaluation_decisions",
-        "agent_evaluation_labels",
+        "agent_evaluation_labels", "agent_evaluation_execution_links",
     )):
         return {"schema_version": 1, "status": "not_initialized",
                 "trace_count": 0, "decision_count": 0, "label_count": 0,
