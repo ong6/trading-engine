@@ -206,3 +206,18 @@ are saved. The price-only variant may run. Fundamentals and news variants must r
 because the local point-in-time archives begin in 2026; present data cannot be backfilled into 2022.
 Results are labeled contaminated by possible model memory and current-universe survivorship bias,
 and cannot promote a strategy, paper book, broker connection, or real capital.
+
+## 2026-09-23 — Build forward data and consistent agent evaluation
+
+**Verdict.** The owner identified three blockers to effective agent backtesting: incomplete
+point-in-time data, an under-specified execution flow, and inconsistent agent evaluations. The
+owner requested online research and immediate forward storage/logging improvements.
+
+**Rule changes.** P11 is approved and active. Add one append-only evaluation ledger that binds
+information cutoff and availability time, exact model/prompt/tool/input/output identities, cadence,
+policy, latency, tokens, authority, source references, and maturity-gated market outcomes across
+daily, hourly, and four-hour agents. Existing raw source ledgers remain authoritative. Labels may
+not tune policies, pool variants, authorize brokers, or promote retrospective results.
+
+**Ceiling changes.** P11 may add 650 lines under `server/`, 200 under `engine/`, 150 under `tools/`,
+and 100 under `farm/`. Ceilings become server 51,050, engine 12,250, tools 7,700, and farm 11,600.

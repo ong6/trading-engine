@@ -11590,4 +11590,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** final snapshot is within every approved source budget.
 - **Next:** observe P8/P9 unchanged; no promotion before their frozen evidence gates.
 
+## 2026-09-23 — Approve unified forward agent evaluation
+
+- **Why:** the owner identified point-in-time data, execution realism, and inconsistent evaluation
+  as the main blockers and asked the box to start building usable historical evidence now.
+- **What:** activate P11 for one append-only cross-cadence trace ledger, delayed outcome labels,
+  completeness checks, and a researched roadmap without changing P8/P9 policy rules.
+- **Evidence:** live audit finds daily evidence in DuckDB, intraday evidence in JSONL, and execution
+  attribution in separate ledgers with no unified delayed-label dataset.
+- **Metrics:** source unchanged; approved P11 ceilings precede implementation.
+- **Next:** implement canonical trace capture and maturity-gated labels.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

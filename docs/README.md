@@ -26,7 +26,8 @@ measurements supporting those decisions, not the live runtime state.
   [P7 autonomous paper trial](plans/p7-autonomous-paper-trial.md),
   [P8 daily opportunity agent](plans/p8-daily-opportunity-agent.md), and
   [P9 multi-cadence agent tools](plans/p9-multi-cadence-agent-tools.md), and
-  [P10 contamination-aware 2022 agent replay](plans/p10-2022-agent-replay.md).
+  [P10 contamination-aware 2022 agent replay](plans/p10-2022-agent-replay.md), and
+  [P11 forward agent evaluation](plans/p11-forward-agent-evaluation.md).
 
 ## Current operating documents
 
