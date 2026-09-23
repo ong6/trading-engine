@@ -11809,4 +11809,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** every P12 layer allocation and repository source ceiling remains green.
 - **Next:** regenerate one coherent final-source walk-forward cohort, full suite, and recovery bundle.
 
+## 2026-09-23 — Add net forward outcome labels
+
+- **Why:** P12 audit found maturity labels exposed gross returns while the product contract requires
+  a frozen cost assumption for every shadow and executable decision horizon.
+- **What:** retain gross returns and append explicit 20 bp round-trip cost, net return, and net
+  excess fields; scoring now reads net outcomes while realized fill quality remains separately linked.
+- **Evidence:** maturity/replay and report tests pass; net return is proven below gross return and
+  existing zero-label live schema migrates additively without fabricated outcomes.
+- **Metrics:** all P12 layer allocations and source ceilings remain green.
+- **Next:** complete final full suite, cohort refresh, recovery rehearsal, and audit matrix.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

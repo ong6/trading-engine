@@ -13,7 +13,8 @@ from engine.lib.util import table_exists
 from . import agent_model_client
 
 SCHEMA_VERSION = 1
-LABEL_SCHEMA_VERSION = 1
+LABEL_SCHEMA_VERSION = 2
+ROUND_TRIP_COST_BPS = 20.0
 HORIZONS = (1, 5, 10, 20)
 TRACE_LIMIT = 500
 POLICIES = {
@@ -89,8 +90,14 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         spy_return DOUBLE NOT NULL, excess_return DOUBLE NOT NULL,
         maximum_adverse_excursion DOUBLE NOT NULL, maximum_favorable_excursion DOUBLE NOT NULL,
         price_prefix_sha256 VARCHAR NOT NULL, labeled_at TIMESTAMP NOT NULL,
-        label_sha256 VARCHAR NOT NULL UNIQUE, UNIQUE(decision_id, horizon_sessions))"""
+        label_sha256 VARCHAR NOT NULL UNIQUE, round_trip_cost_bps DOUBLE NOT NULL DEFAULT 20,
+        net_return DOUBLE NOT NULL DEFAULT 0, net_excess_return DOUBLE NOT NULL DEFAULT 0,
+        UNIQUE(decision_id, horizon_sessions))"""
     )
+    con.execute("ALTER TABLE agent_evaluation_labels ADD COLUMN IF NOT EXISTS "
+                "round_trip_cost_bps DOUBLE DEFAULT 20")
+    con.execute("ALTER TABLE agent_evaluation_labels ADD COLUMN IF NOT EXISTS net_return DOUBLE DEFAULT 0")
+    con.execute("ALTER TABLE agent_evaluation_labels ADD COLUMN IF NOT EXISTS net_excess_return DOUBLE DEFAULT 0")
     con.execute(
         """CREATE TABLE IF NOT EXISTS agent_evaluation_execution_links (
         id BIGINT PRIMARY KEY, decision_id BIGINT NOT NULL UNIQUE, tool_attempt_id BIGINT NOT NULL,
@@ -385,6 +392,8 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> dic
             entry, exit_close = float(asset[0][1]), float(asset[-1][4])
             asset_return = exit_close / entry - 1
             spy_return = float(spy[-1][4]) / float(spy[0][1]) - 1
+            net_return = exit_close * 0.999 / (entry * 1.001) - 1
+            spy_net = float(spy[-1][4]) * 0.999 / (float(spy[0][1]) * 1.001) - 1
             lows = [float(item[3]) / entry - 1 for item in asset if item[3] is not None]
             highs = [float(item[2]) / entry - 1 for item in asset if item[2] is not None]
             prefix = [(item[0].isoformat(), *item[1:]) for item in asset]
@@ -396,14 +405,17 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> dic
                 "spy_return": spy_return, "excess_return": asset_return - spy_return,
                 "maximum_adverse_excursion": min(lows),
                 "maximum_favorable_excursion": max(highs),
+                "round_trip_cost_bps": ROUND_TRIP_COST_BPS, "net_return": net_return,
+                "net_excess_return": net_return - spy_net,
                 "price_prefix_sha256": canonical_sha256(prefix),
             }
             con.execute(
-                "INSERT INTO agent_evaluation_labels VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO agent_evaluation_labels VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 [_next_id(con, "agent_evaluation_labels"), LABEL_SCHEMA_VERSION,
                  decision_id, horizon, entry_date, exit_date, entry, exit_close,
                  asset_return, spy_return, asset_return - spy_return, min(lows), max(highs),
-                 body["price_prefix_sha256"], _timestamp(labeled_at), canonical_sha256(body)],
+                 body["price_prefix_sha256"], _timestamp(labeled_at), canonical_sha256(body),
+                 ROUND_TRIP_COST_BPS, net_return, net_return - spy_net],
             )
             inserted += 1
     return {"inserted": inserted, "latest_market_date": latest.isoformat()}
