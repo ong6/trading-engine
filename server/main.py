@@ -29,6 +29,7 @@ from . import (
     agent_context,
     agent_contract,
     agent_corporate_action_observations,
+    agent_evaluation,
     agent_fault_drills,
     agent_independent_price_evidence,
     agent_model_client,
@@ -502,6 +503,12 @@ def paper_trial_status():
 def daily_opportunity_status():
     with _connection(read_con) as con:
         return daily_opportunity_read_models.status(con)
+
+
+@app.get("/agent/evaluation/status")
+def agent_evaluation_status():
+    with _connection(read_con) as con:
+        return agent_evaluation.status(con)
 
 
 @app.post("/agent/proposals/shadow", dependencies=JSON_MUTATION_DEPENDENCY)

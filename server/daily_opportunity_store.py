@@ -18,9 +18,19 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         """CREATE TABLE IF NOT EXISTS daily_opportunity_runs (
         id BIGINT PRIMARY KEY, market_date DATE UNIQUE, bundle_payload VARCHAR NOT NULL,
         bundle_sha256 VARCHAR NOT NULL UNIQUE, news_status VARCHAR NOT NULL,
+        model_input_payload VARCHAR, information_cutoff_at TIMESTAMP, model_latency_ms DOUBLE,
         model_request_sha256 VARCHAR, model_response_id VARCHAR, model_response_payload VARCHAR,
         status VARCHAR NOT NULL,
         reason VARCHAR, started_at TIMESTAMP NOT NULL, completed_at TIMESTAMP)"""
+    )
+    con.execute(
+        "ALTER TABLE daily_opportunity_runs ADD COLUMN IF NOT EXISTS model_input_payload VARCHAR"
+    )
+    con.execute(
+        "ALTER TABLE daily_opportunity_runs ADD COLUMN IF NOT EXISTS information_cutoff_at TIMESTAMP"
+    )
+    con.execute(
+        "ALTER TABLE daily_opportunity_runs ADD COLUMN IF NOT EXISTS model_latency_ms DOUBLE"
     )
     con.execute(
         """CREATE TABLE IF NOT EXISTS daily_opportunity_assessments (
@@ -82,7 +92,8 @@ def next_id(con: duckdb.DuckDBPyConnection, table: str) -> int:
 
 def find_run(con: duckdb.DuckDBPyConnection, market_date: date) -> dict | None:
     cursor = con.execute(
-        "SELECT id, bundle_payload, bundle_sha256, news_status, model_request_sha256, "
+        "SELECT id, bundle_payload, bundle_sha256, news_status, model_input_payload, "
+        "information_cutoff_at, model_latency_ms, model_request_sha256, "
         "model_response_id, model_response_payload, status, reason, started_at, completed_at "
         "FROM daily_opportunity_runs WHERE market_date = ?", [market_date]
     )
@@ -98,8 +109,8 @@ def insert_run(
 ) -> int:
     run_id = next_id(con, "daily_opportunity_runs")
     con.execute(
-        "INSERT INTO daily_opportunity_runs VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, 'in_progress', "
-        "NULL, ?, NULL)",
+        "INSERT INTO daily_opportunity_runs (id,market_date,bundle_payload,bundle_sha256,news_status,"
+        "status,reason,started_at,completed_at) VALUES (?,?,?,?,?,'in_progress',NULL,?,NULL)",
         [run_id, date.fromisoformat(bundle["market_date"]), json.dumps(bundle, sort_keys=True, separators=(",", ":")), bundle["bundle_sha256"], news_status, started_at],
     )
     for receipt in news_receipts or []:
@@ -114,7 +125,8 @@ def insert_run(
 
 def complete_run(
     con: duckdb.DuckDBPyConnection, run_id: int, *, request_sha256: str, response_id: str,
-    assessments: list[dict], response_payload: dict, completed_at: datetime
+    assessments: list[dict], response_payload: dict, model_input: dict,
+    information_cutoff_at: datetime, latency_ms: float, completed_at: datetime
 ) -> None:
     assessment_id = next_id(con, "daily_opportunity_assessments")
     alert_id = next_id(con, "daily_opportunity_alerts")
@@ -168,10 +180,12 @@ def complete_run(
             alert_id += 1
         assessment_id += 1
     con.execute(
-        "UPDATE daily_opportunity_runs SET model_request_sha256 = ?, model_response_id = ?, "
-        "model_response_payload = ?, "
+        "UPDATE daily_opportunity_runs SET model_input_payload=?, information_cutoff_at=?, "
+        "model_latency_ms=?, model_request_sha256 = ?, model_response_id = ?, model_response_payload = ?, "
         "status = 'completed', completed_at = ? WHERE id = ? AND status = 'in_progress'",
-        [request_sha256, response_id, json.dumps(response_payload, sort_keys=True, separators=(",", ":")), completed_at, run_id],
+        [json.dumps(model_input, sort_keys=True, separators=(",", ":")),
+         information_cutoff_at, float(latency_ms), request_sha256, response_id,
+         json.dumps(response_payload, sort_keys=True, separators=(",", ":")), completed_at, run_id],
     )
 
 

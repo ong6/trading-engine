@@ -11,6 +11,7 @@ from engine.gap_volume_candidate import select
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from server import (
+    agent_evaluation,
     agent_model_client,
     daily_opportunity_execution,
     daily_opportunity_news,
@@ -166,6 +167,9 @@ def test_daily_run_records_news_assessments_alert_and_replays_without_calls(tmp_
     assert second == {**first, "replayed": True}
     assert calls == {"model": 1, "news": 2}
     con = db.connect(path, read_only=True)
+    assert agent_evaluation.status(con)["trace_count"] == 1
+    assert agent_evaluation.status(con)["decision_count"] == 1
+    assert agent_evaluation.status(con)["label_count"] == 0
     assert con.execute("SELECT COUNT(*) FROM daily_opportunity_news_responses").fetchone() == (2,)
     assert con.execute(
         "SELECT ticker, direction, trigger_price, expires_sessions "
@@ -174,6 +178,60 @@ def test_daily_run_records_news_assessments_alert_and_replays_without_calls(tmp_
     assert con.execute(
         "SELECT event_type, detail FROM daily_opportunity_alert_events ORDER BY id"
     ).fetchall() == [("opened", "model_watch")]
+    con.close()
+
+
+def test_evaluation_trace_replay_rejects_identity_drift(tmp_path):
+    path = tmp_path / "market.duckdb"
+    _database(path)
+    daily_opportunity_runner.run(
+        database=path, now=NOW, generate=_connector, fetch_news=_news_response
+    )
+    con = db.connect(path)
+    row = con.execute(
+        "SELECT id, window_id, policy_id, cadence, prompt_role, market_date, observed_at, "
+        "completed_at, information_cutoff_at, source_kind, source_identifier, source_refs, "
+        "input_payload, output_payload, request_sha256, response_id, model, model_version, "
+        "instructions_sha256, toolset_sha256, model_catalog_entry_sha256, proxy_source_sha256, "
+        "traecli_runtime, upstream_model_family, upstream_request_id, latency_ms, input_tokens, "
+        "output_tokens, total_tokens, terminal_status, execution_authority FROM agent_evaluation_traces"
+    ).fetchone()
+    columns = [item[0] for item in con.description]
+    stored = dict(zip(columns, row, strict=True))
+    decisions = [json.loads(item[0]) for item in con.execute(
+        "SELECT decision_payload FROM agent_evaluation_decisions ORDER BY id"
+    ).fetchall()]
+    trace = {
+        "window_id": stored["window_id"], "policy_id": stored["policy_id"],
+        "cadence": stored["cadence"], "prompt_role": stored["prompt_role"],
+        "market_date": stored["market_date"],
+        "observed_at": stored["observed_at"].replace(tzinfo=timezone.utc),
+        "completed_at": stored["completed_at"].replace(tzinfo=timezone.utc),
+        "information_cutoff_at": stored["information_cutoff_at"].replace(tzinfo=timezone.utc),
+        "source_kind": stored["source_kind"], "source_identifier": stored["source_identifier"],
+        "source_refs": json.loads(stored["source_refs"]),
+        "input_payload": json.loads(stored["input_payload"]),
+        "output_payload": json.loads(stored["output_payload"]),
+        "request_sha256": stored["request_sha256"], "response_id": stored["response_id"],
+        "model": stored["model"], "model_version": stored["model_version"],
+        "instructions_sha256": stored["instructions_sha256"],
+        "toolset_sha256": stored["toolset_sha256"],
+        "model_catalog_entry_sha256": stored["model_catalog_entry_sha256"],
+        "proxy_source_sha256": stored["proxy_source_sha256"],
+        "traecli_runtime": stored["traecli_runtime"],
+        "upstream_model_family": stored["upstream_model_family"],
+        "upstream_request_id": stored["upstream_request_id"],
+        "latency_ms": stored["latency_ms"],
+        "usage": {"input_tokens": stored["input_tokens"],
+                  "output_tokens": stored["output_tokens"],
+                  "total_tokens": stored["total_tokens"]},
+        "terminal_status": stored["terminal_status"],
+        "execution_authority": stored["execution_authority"], "decisions": decisions,
+    }
+    assert agent_evaluation.record_trace(con, trace)["replayed"] is True
+    trace["output_payload"] = {"changed": True}
+    with pytest.raises(agent_evaluation.EvaluationError, match="differs"):
+        agent_evaluation.record_trace(con, trace)
     con.close()
 
 
@@ -229,6 +287,38 @@ def test_alert_triggers_only_on_later_bar_and_expires_by_sessions(tmp_path):
     assert con.execute(
         "SELECT event_type FROM daily_opportunity_alert_events ORDER BY id"
     ).fetchall() == [("opened",), ("triggered",)]
+    con.close()
+
+
+def test_evaluation_labels_wait_for_horizon_and_replay_exactly(tmp_path):
+    path = tmp_path / "market.duckdb"
+    _database(path)
+    daily_opportunity_runner.run(
+        database=path, now=NOW, generate=_connector, fetch_news=_news_response
+    )
+    con = db.connect(path)
+    decision = con.execute(
+        "SELECT ticker FROM agent_evaluation_decisions ORDER BY id LIMIT 1"
+    ).fetchone()[0]
+    for offset in range(1, 32):
+        session = MARKET_DATE + timedelta(days=offset)
+        if session.weekday() >= 5:
+            continue
+        for ticker in {"SPY", decision}:
+            con.execute(
+                "INSERT OR IGNORE INTO prices (ticker,date,open,high,low,close,volume) "
+                "VALUES (?,?,?,?,?,?,?)",
+                [ticker, session, 100, 102, 98, 101, 1_000_000],
+            )
+    with db.transaction(con):
+        first = agent_evaluation.label_mature(con, labeled_at=NOW + timedelta(days=32))
+    with db.transaction(con):
+        second = agent_evaluation.label_mature(con, labeled_at=NOW + timedelta(days=32))
+    assert first["inserted"] == 4
+    assert second["inserted"] == 0
+    assert con.execute(
+        "SELECT horizon_sessions FROM agent_evaluation_labels ORDER BY horizon_sessions"
+    ).fetchall() == [(1,), (5,), (10,), (20,)]
     con.close()
 
 
@@ -303,6 +393,9 @@ def test_active_isolated_book_gets_only_capped_next_open_pending_order(tmp_path)
     assert order[4:] == (MARKET_DATE, "pending")
     assert con.execute("SELECT COUNT(*) FROM sim_fills").fetchone() == (0,)
     assert con.execute("SELECT COUNT(*) FROM daily_opportunity_order_attribution").fetchone() == (1,)
+    assert con.execute(
+        "SELECT COUNT(*) FROM agent_evaluation_execution_links"
+    ).fetchone() == (1,)
     con.close()
     con = db.connect(path)
     fill_date = date(2026, 9, 22)
