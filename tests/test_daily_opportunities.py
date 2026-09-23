@@ -319,6 +319,13 @@ def test_evaluation_labels_wait_for_horizon_and_replay_exactly(tmp_path):
     assert con.execute(
         "SELECT horizon_sessions FROM agent_evaluation_labels ORDER BY horizon_sessions"
     ).fetchall() == [(1,), (5,), (10,), (20,)]
+    assert con.execute(
+        "SELECT DISTINCT round_trip_cost_bps FROM agent_evaluation_labels"
+    ).fetchall() == [(20.0,)]
+    gross, net = con.execute(
+        "SELECT asset_return,net_return FROM agent_evaluation_labels LIMIT 1"
+    ).fetchone()
+    assert net < gross
     con.close()
 
 

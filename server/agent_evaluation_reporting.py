@@ -47,7 +47,7 @@ def _scored_rows(con: duckdb.DuckDBPyConnection) -> list[dict]:
     rows = con.execute(
         "SELECT t.policy_id,t.cadence,t.market_date,t.window_id,t.input_sha256,"
         "t.source_refs,t.latency_ms,t.total_tokens,d.ticker,d.decision,d.action,d.confidence,"
-        "l.horizon_sessions,l.asset_return,l.excess_return,l.maximum_adverse_excursion,"
+        "l.horizon_sessions,l.net_return,l.net_excess_return,l.maximum_adverse_excursion,"
         "l.maximum_favorable_excursion,l.price_prefix_sha256 "
         "FROM agent_evaluation_traces t JOIN agent_evaluation_decisions d ON d.trace_id=t.id "
         "LEFT JOIN agent_evaluation_labels l ON l.decision_id=d.id "

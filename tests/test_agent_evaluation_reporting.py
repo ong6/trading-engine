@@ -44,10 +44,16 @@ def _label(con, policy: str, asset_return: float, prefix: str = "9" * 64) -> Non
         "SELECT COALESCE(MAX(id),0)+1 FROM agent_evaluation_labels"
     ).fetchone()[0]
     con.execute(
-        "INSERT INTO agent_evaluation_labels VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO agent_evaluation_labels "
+        "(id,schema_version,decision_id,horizon_sessions,entry_date,exit_date,entry_open,"
+        "exit_close,asset_return,spy_return,excess_return,maximum_adverse_excursion,"
+        "maximum_favorable_excursion,price_prefix_sha256,labeled_at,label_sha256,"
+        "round_trip_cost_bps,net_return,net_excess_return) VALUES "
+        "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         [label_id, 1, decision_id, 5, date(2026, 9, 2), date(2026, 9, 8),
          100.0, 100 * (1 + asset_return), asset_return, 0.01, asset_return - 0.01,
-         -0.02, 0.04, prefix, NOW, f"{label_id:064x}"],
+         -0.02, 0.04, prefix, NOW, f"{label_id:064x}", 20.0, asset_return,
+         asset_return - 0.01],
     )
 
 
