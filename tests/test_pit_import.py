@@ -22,6 +22,11 @@ def _fixture(root, *, row=ROW):
         "schema_version": 1, "dataset_id": "vendor-fundamentals-v1",
         "dataset_kind": "fundamental", "vendor": "example-vendor",
         "source_version": "2026-09",
+        "revision_semantics": "vendor_revisions_preserved",
+        "availability_policy": "available_at is the first licensed delivery timestamp",
+        "coverage": {"event_start": "2022-01-01T00:00:00Z",
+                     "event_end": "2022-01-01T00:00:00Z",
+                     "security_count": 1, "row_count": 1},
         "license": {"id": "research-license-v1",
                     "accepted_at": "2026-09-01T00:00:00Z",
                     "redistribution_allowed": False},
@@ -44,6 +49,9 @@ def test_manifest_audit_and_apply_are_isolated_and_replay_stable(con, tmp_path, 
     assert first["replayed"] is False and second["replayed"] is True
     assert con.execute("SELECT COUNT(*) FROM pit_import_rows").fetchone() == (1,)
     assert con.execute("SELECT COUNT(*) FROM prices").fetchone() == (0,)
+    con.execute("DELETE FROM pit_import_rows")
+    with pytest.raises(pit_import.PitImportError, match="replay differs"):
+        pit_import.import_manifest(con, manifest, tmp_path, imported_at=NOW)
     database = tmp_path / "audit.duckdb"
     assert pit_import_tool.main([str(manifest), "--data-root", str(tmp_path),
                                  "--database", str(database)]) == 0
@@ -69,4 +77,13 @@ def test_manifest_rejects_source_symlink(tmp_path):
     source.rename(real)
     source.symlink_to(real)
     with pytest.raises(pit_import.PitImportError, match="symlink"):
+        pit_import.audit_manifest(manifest, tmp_path)
+
+
+def test_manifest_rejects_coverage_drift(tmp_path):
+    manifest, _source = _fixture(tmp_path)
+    payload = json.loads(manifest.read_text())
+    payload["coverage"]["row_count"] = 2
+    manifest.write_text(json.dumps(payload))
+    with pytest.raises(pit_import.PitImportError, match="coverage differs"):
         pit_import.audit_manifest(manifest, tmp_path)

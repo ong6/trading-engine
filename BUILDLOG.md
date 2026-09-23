@@ -11704,4 +11704,16 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** engine/server/tools remain within P12 ceilings; all source budgets are green.
 - **Next:** configure a monitored SEC contact, smoke-test activation, then run final recovery audit.
 
+## 2026-09-23 — Complete PIT and SEC ingestion contracts
+
+- **Why:** completion audit found the initial P12 importer omitted declared coverage/revision
+  semantics and could trust an incomplete replay; SEC also needs a real monitored contact identity.
+- **What:** require and verify coverage, revision policy, availability policy, file containment,
+  checksum, and complete replay rows. Add bounded SEC raw-response and acceptance-time capture; keep
+  activation gated because this host's anonymous probe returned HTTP 403.
+- **Evidence:** focused PIT/SEC tests and the full warnings-as-errors suite pass at 100%; no live
+  database, operational prices, strategy state, or broker route was changed.
+- **Metrics:** all source ceilings remain within the approved P12 budget.
+- **Next:** run the final manifest, recovery, service, and live-state completion audit.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

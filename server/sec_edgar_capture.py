@@ -46,7 +46,8 @@ Fetch = Callable[[str], Response]
 
 def _user_agent() -> str:
     value = os.environ.get("TRADING_ENGINE_SEC_USER_AGENT", "")
-    if not value.strip() or len(value) > 200 or not value.isprintable():
+    if (not value.strip() or len(value) > 200 or not value.isprintable()
+            or "@" not in value or " " not in value.strip()):
         raise SecCaptureError("TRADING_ENGINE_SEC_USER_AGENT contact identity is required")
     return value
 
