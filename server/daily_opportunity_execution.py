@@ -210,7 +210,7 @@ def capture_execution_quality(con: duckdb.DuckDBPyConnection, *, captured_at: da
     rows = con.execute(
         "SELECT a.order_id,a.assessment_id,a.ticker,a.side,a.recorded_at,r.completed_at,"
         "t.started_at,t.completed_at,a.signal_date,f.fill_date,f.open_px,f.fill_px,f.cost_bps,"
-        "CAST(json_extract(r.bundle_payload, '$.candidates') AS VARCHAR) "
+        "CAST(json_extract(r.bundle_payload, '$.candidates') AS VARCHAR),f.portfolio_id "
         "FROM daily_opportunity_order_attribution a "
         "JOIN daily_opportunity_runs r ON r.id=a.run_id "
         "LEFT JOIN daily_opportunity_tool_attempts t ON t.assessment_id=a.assessment_id "
@@ -220,7 +220,8 @@ def capture_execution_quality(con: duckdb.DuckDBPyConnection, *, captured_at: da
     ).fetchall()
     inserted = 0
     for (order_id, assessment_id, ticker, side, recorded_at, decision_at, tool_started,
-         tool_completed, signal_date, fill_date, open_px, fill_px, cost_bps, raw_candidates) in rows:
+         tool_completed, signal_date, fill_date, open_px, fill_px, cost_bps, raw_candidates,
+         portfolio_id) in rows:
         candidates = json.loads(raw_candidates)
         arrival = next(float(item["close"]) for item in candidates if item["ticker"] == ticker)
         direction = 1.0 if side == "buy" else -1.0
@@ -234,6 +235,15 @@ def capture_execution_quality(con: duckdb.DuckDBPyConnection, *, captured_at: da
             if start is None or end is None or end < start:
                 return None
             return (end - start).total_seconds() * 1000
+        position = con.execute(
+            "SELECT qty FROM sim_positions WHERE portfolio_id=? AND ticker=?",
+            [portfolio_id, ticker],
+        ).fetchone()
+        cash = con.execute("SELECT cash FROM portfolios WHERE id=?", [portfolio_id]).fetchone()
+        equity = con.execute(
+            "SELECT date,equity FROM sim_equity WHERE portfolio_id=? AND date>=? "
+            "ORDER BY date LIMIT 1", [portfolio_id, fill_date],
+        ).fetchone()
         identity = {
             "order_id": int(order_id), "assessment_id": int(assessment_id), "side": side,
             "decision_at": None if decision_at is None else decision_at.isoformat(),
@@ -248,19 +258,31 @@ def capture_execution_quality(con: duckdb.DuckDBPyConnection, *, captured_at: da
             "open_price": float(open_px), "fill_price": float(fill_px),
             "gap_shortfall_bps": gap_bps, "total_shortfall_bps": total_bps,
             "cost_bps": float(cost_bps), "captured_at": captured_at.isoformat(),
+            "post_fill_position_qty": 0.0 if position is None else float(position[0]),
+            "post_fill_cash": float(cash[0]),
+            "post_fill_equity": None if equity is None else float(equity[1]),
+            "equity_as_of": None if equity is None else equity[0].isoformat(),
         }
         con.execute(
-            "INSERT INTO daily_opportunity_execution_quality VALUES "
-            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO daily_opportunity_execution_quality "
+            "(order_id,assessment_id,side,decision_at,tool_started_at,tool_completed_at,"
+            "order_recorded_at,fill_date,fill_time_precision,decision_to_tool_ms,"
+            "tool_latency_ms,tool_to_order_ms,order_to_fill_sessions,arrival_price,open_price,"
+            "fill_price,gap_shortfall_bps,total_shortfall_bps,cost_bps,captured_at,"
+            "post_fill_position_qty,post_fill_cash,post_fill_equity,equity_as_of,quality_sha256) VALUES "
+            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [order_id, assessment_id, side, decision_at, tool_started, tool_completed, recorded_at,
              fill_date, "session_open_date", identity["decision_to_tool_ms"],
              identity["tool_latency_ms"], identity["tool_to_order_ms"], session_count, arrival,
-             open_px, fill_px, gap_bps, total_bps, cost_bps, captured_at, canonical_sha256(identity)],
+             open_px, fill_px, gap_bps, total_bps, cost_bps, captured_at,
+             identity["post_fill_position_qty"], identity["post_fill_cash"],
+             identity["post_fill_equity"], equity[0] if equity else None,
+             canonical_sha256(identity)],
         )
         inserted += 1
     exit_rows = con.execute(
         "SELECT e.exit_order_id,r.assessment_id,e.signal_date,e.observed_close,e.created_at,"
-        "f.fill_date,f.open_px,f.fill_px,f.cost_bps,o.ticker "
+        "f.fill_date,f.open_px,f.fill_px,f.cost_bps,o.ticker,f.portfolio_id "
         "FROM daily_opportunity_exit_events e JOIN daily_opportunity_exit_rules r "
         "ON r.rule_sha256=e.rule_sha256 JOIN sim_orders o ON o.id=e.exit_order_id "
         "JOIN sim_fills f ON f.order_id=e.exit_order_id "
@@ -268,13 +290,22 @@ def capture_execution_quality(con: duckdb.DuckDBPyConnection, *, captured_at: da
         "WHERE q.order_id IS NULL ORDER BY e.exit_order_id"
     ).fetchall()
     for (order_id, assessment_id, signal_date, arrival, decision_at, fill_date, open_px, fill_px,
-         cost_bps, ticker) in exit_rows:
+         cost_bps, ticker, portfolio_id) in exit_rows:
         gap_bps = -(float(open_px) / float(arrival) - 1.0) * 10_000
         total_bps = -(float(fill_px) / float(arrival) - 1.0) * 10_000
         session_count = int(con.execute(
             "SELECT COUNT(DISTINCT date) FROM prices WHERE ticker=? AND date>? AND date<=?",
             [ticker, signal_date, fill_date],
         ).fetchone()[0])
+        position = con.execute(
+            "SELECT qty FROM sim_positions WHERE portfolio_id=? AND ticker=?",
+            [portfolio_id, ticker],
+        ).fetchone()
+        cash = con.execute("SELECT cash FROM portfolios WHERE id=?", [portfolio_id]).fetchone()
+        equity = con.execute(
+            "SELECT date,equity FROM sim_equity WHERE portfolio_id=? AND date>=? "
+            "ORDER BY date LIMIT 1", [portfolio_id, fill_date],
+        ).fetchone()
         identity = {
             "order_id": int(order_id), "assessment_id": int(assessment_id), "side": "sell",
             "decision_at": decision_at.isoformat(), "tool_started_at": None,
@@ -286,13 +317,24 @@ def capture_execution_quality(con: duckdb.DuckDBPyConnection, *, captured_at: da
             "open_price": float(open_px), "fill_price": float(fill_px),
             "gap_shortfall_bps": gap_bps, "total_shortfall_bps": total_bps,
             "cost_bps": float(cost_bps), "captured_at": captured_at.isoformat(),
+            "post_fill_position_qty": 0.0 if position is None else float(position[0]),
+            "post_fill_cash": float(cash[0]),
+            "post_fill_equity": None if equity is None else float(equity[1]),
+            "equity_as_of": None if equity is None else equity[0].isoformat(),
         }
         con.execute(
-            "INSERT INTO daily_opportunity_execution_quality VALUES "
-            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO daily_opportunity_execution_quality "
+            "(order_id,assessment_id,side,decision_at,tool_started_at,tool_completed_at,"
+            "order_recorded_at,fill_date,fill_time_precision,decision_to_tool_ms,"
+            "tool_latency_ms,tool_to_order_ms,order_to_fill_sessions,arrival_price,open_price,"
+            "fill_price,gap_shortfall_bps,total_shortfall_bps,cost_bps,captured_at,"
+            "post_fill_position_qty,post_fill_cash,post_fill_equity,equity_as_of,quality_sha256) VALUES "
+            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [order_id, assessment_id, "sell", decision_at, None, None, decision_at, fill_date,
              "session_open_date", None, None, None, session_count, arrival, open_px, fill_px,
-             gap_bps, total_bps, cost_bps, captured_at, canonical_sha256(identity)],
+             gap_bps, total_bps, cost_bps, captured_at, identity["post_fill_position_qty"],
+             identity["post_fill_cash"], identity["post_fill_equity"],
+             equity[0] if equity else None, canonical_sha256(identity)],
         )
         inserted += 1
     return inserted

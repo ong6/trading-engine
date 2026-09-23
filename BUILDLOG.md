@@ -11774,4 +11774,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** engine remains within its P12 allocation and repository ceiling.
 - **Next:** finish contamination/window diagnostics and the final recovery/completion audit.
 
+## 2026-09-23 — Complete agent execution attribution
+
+- **Why:** P12 completion audit found fill/cost attribution did not retain the post-fill position,
+  cash, and nearest available equity state required for a complete lifecycle record.
+- **What:** extend append-only execution-quality rows with post-fill quantity, cash, equity, and
+  equity date; qualify joined cost fields and retain null equity honestly before end-of-day marking.
+- **Evidence:** focused lifecycle/report tests and the full warnings-as-errors suite pass, including
+  entry and deterministic-exit fills and a row-bearing execution report regression.
+- **Metrics:** server remains within its P12 allocation and repository ceiling.
+- **Next:** complete locally runnable contamination probes and scheduler-window accounting.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

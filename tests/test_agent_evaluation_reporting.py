@@ -152,8 +152,14 @@ def test_report_projects_execution_quality_without_ambiguous_columns(con):
         "'2026-09-02',101,101.1,10,10)"
     )
     con.execute(
-        "INSERT INTO daily_opportunity_execution_quality VALUES ("
-        "1,1,'buy',?,?,?,?, '2026-09-02','session_open_date',1,2,3,1,100,101,101.1,100,110,10,?,?)",
+        "INSERT INTO daily_opportunity_execution_quality "
+        "(order_id,assessment_id,side,decision_at,tool_started_at,tool_completed_at,"
+        "order_recorded_at,fill_date,fill_time_precision,decision_to_tool_ms,tool_latency_ms,"
+        "tool_to_order_ms,order_to_fill_sessions,arrival_price,open_price,fill_price,"
+        "gap_shortfall_bps,total_shortfall_bps,cost_bps,captured_at,quality_sha256,"
+        "post_fill_position_qty,post_fill_cash,post_fill_equity,equity_as_of) VALUES ("
+        "1,1,'buy',?,?,?,?, '2026-09-02','session_open_date',1,2,3,1,100,101,101.1,"
+        "100,110,10,?,?,2,9797.8,NULL,NULL)",
         [NOW, NOW, NOW, NOW, NOW, "a" * 64],
     )
 
