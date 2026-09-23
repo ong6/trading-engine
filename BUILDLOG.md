@@ -11727,4 +11727,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Next:** commit, create and verify a pre-migration backup, initialize live additive schemas, then
   create and verify the post-migration recovery bundle.
 
+## 2026-09-23 — Fix live execution-quality reporting
+
+- **Why:** live schema initialization reproduced a DuckDB binder error because the evaluation
+  report joined two `cost_bps` columns without qualifying the selected source.
+- **What:** qualify every execution-quality projection and add a row-bearing report regression test;
+  regenerate the live empty-cohort report after additive P11/P12 schema initialization.
+- **Evidence:** focused report tests pass and live report generation completes with zero fabricated
+  traces, labels, fills, PIT imports, or SEC facts.
+- **Metrics:** all source ceilings remain within the approved P12 budget.
+- **Next:** finish the requirement matrix and post-schema backup/restore rehearsal.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
