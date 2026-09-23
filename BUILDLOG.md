@@ -11634,4 +11634,14 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server/tools/product remain within the approved P11 budgets.
 - **Next:** let native P11 traces accumulate, then audit first 1/5/10/20-session labels.
 
+## 2026-09-23 — Define the agent research product
+
+- **Why:** P12 admits the owner's complete data, execution, evaluation, and historical-ingestion
+  programme while retaining explicit paid-data and broker gates.
+- **What:** publish the canonical PRD with users, principles, functional/nonfunctional requirements,
+  success gates, phased delivery, and external authority boundaries.
+- **Evidence:** operating-contract and documentation-index tests pass; P12 budgets precede source work.
+- **Metrics:** source unchanged; bounded P12 ceilings are recorded in the owner ledger.
+- **Next:** deliver bitemporal source receipts and execution/evaluation product phases.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
