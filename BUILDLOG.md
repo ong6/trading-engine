@@ -11644,4 +11644,16 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** source unchanged; bounded P12 ceilings are recorded in the owner ledger.
 - **Next:** deliver bitemporal source receipts and execution/evaluation product phases.
 
+## 2026-09-23 — Add bitemporal source facts
+
+- **Why:** P12 requires immutable raw receipts and event/publication/availability/ingestion times
+  before provider capture or historical imports can become evaluation evidence.
+- **What:** add vendor-neutral receipt and fact tables, stable replay identities, revision chains,
+  and an atomic raw-response plus normalized intraday-quote batch writer. Invalid timing, missing
+  receipts, duplicate quote identities, and partial batches fail closed.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error` passes at 100%, including receipt replay,
+  immutable revisions, timestamp validation, centralized transactions, and rollback coverage.
+- **Metrics:** server remains below 51,950 lines; all source budgets are green.
+- **Next:** wire the existing intraday fetcher to preserve exact raw response bytes through P12.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
