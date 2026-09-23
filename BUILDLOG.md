@@ -11762,4 +11762,16 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** every P12 phase allocation and repository source ceiling is green.
 - **Next:** reinstall the changed service, create/verify post-schema backup, and close the audit.
 
+## 2026-09-23 — Complete bitemporal as-of semantics
+
+- **Why:** P12 completion audit found same-value later observations collapsed and no canonical
+  cutoff query or typed security-history event boundary existed.
+- **What:** preserve distinct receipt/availability observations, expose latest-revision facts only
+  when both available and ingested by a requested cutoff, and validate listing, delisting, symbol,
+  share-class, and merger event types through the same immutable fact contract.
+- **Evidence:** focused bitemporal, intraday, SEC, and PIT suites pass, including exact replay, later
+  same-value revisions, as-of selection, security-event typing, and atomic rollback.
+- **Metrics:** engine remains within its P12 allocation and repository ceiling.
+- **Next:** finish contamination/window diagnostics and the final recovery/completion audit.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
