@@ -51,6 +51,51 @@ def test_receipt_and_fact_are_replay_stable_and_revision_preserving(con):
     assert con.execute("SELECT COUNT(*) FROM bitemporal_facts").fetchone() == (2,)
 
 
+def test_same_value_from_later_receipt_preserves_a_new_observation(con):
+    first_receipt = _receipt(con)
+    first = bitemporal_facts.record_fact(
+        con, entity_id="SPY", security_id="US-SPY", fact_type="quote.close",
+        event_at=NOW - timedelta(minutes=1), published_at=NOW,
+        available_at=NOW + timedelta(seconds=1), ingested_at=NOW + timedelta(seconds=2),
+        payload={"value": 100.0}, source="test", source_version="v1",
+        receipt_sha256=first_receipt["receipt_sha256"],
+    )
+    later_receipt = bitemporal_facts.record_receipt(
+        con, source="test", dataset="intraday_quote", endpoint="https://example.test/data",
+        request={"ticker": "SPY"}, requested_at=NOW + timedelta(minutes=1),
+        received_at=NOW + timedelta(minutes=1, seconds=1), http_status=200,
+        content_type="application/json", body=b'{"price":100}',
+        license_class="public-test",
+    )
+    second = bitemporal_facts.record_fact(
+        con, entity_id="SPY", security_id="US-SPY", fact_type="quote.close",
+        event_at=NOW - timedelta(minutes=1), published_at=NOW,
+        available_at=NOW + timedelta(minutes=1, seconds=1),
+        ingested_at=NOW + timedelta(minutes=1, seconds=2), payload={"value": 100.0},
+        source="test", source_version="v1",
+        receipt_sha256=later_receipt["receipt_sha256"],
+    )
+    assert first["revision"] == 1 and second["revision"] == 2
+    assert second["replayed"] is False
+    known_before = bitemporal_facts.facts_as_known(con, NOW + timedelta(seconds=2))
+    known_after = bitemporal_facts.facts_as_known(con, NOW + timedelta(minutes=2))
+    assert len(known_before) == 1 and known_before[0]["revision"] == 1
+    assert len(known_after) == 1 and known_after[0]["revision"] == 2
+
+
+def test_security_master_event_is_typed_and_receipt_linked(con):
+    receipt = _receipt(con)
+    result = bitemporal_facts.record_security_event(
+        con, entity_id="issuer-1", security_id="security-1", event_type="symbol_change",
+        event_at=NOW, published_at=NOW, available_at=NOW + timedelta(seconds=1),
+        ingested_at=NOW + timedelta(seconds=2),
+        payload={"event_type": "symbol_change", "old_symbol": "OLD", "new_symbol": "NEW"},
+        source="test", source_version="v1", receipt_sha256=receipt["receipt_sha256"],
+    )
+    assert result["revision"] == 1
+    assert con.execute("SELECT fact_type FROM bitemporal_facts").fetchone() == ("security.symbol_change",)
+
+
 def test_fact_rejects_future_availability_or_missing_receipt(con):
     bitemporal_facts.init_schema(con)
     with pytest.raises(bitemporal_facts.FactError, match="receipt"):

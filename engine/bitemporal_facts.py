@@ -12,6 +12,8 @@ from engine.lib.provenance import canonical_sha256
 
 SCHEMA_VERSION = 1
 MAX_RAW_BYTES = 2_000_000
+SECURITY_EVENT_TYPES = frozenset({"listing", "delisting", "symbol_change",
+                                  "share_class", "merger"})
 
 
 class FactError(ValueError):
@@ -118,11 +120,14 @@ def record_fact(
     normalized = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
     normalized_sha = canonical_sha256(payload)
     latest = con.execute(
-        "SELECT revision,normalized_sha256,fact_sha256 FROM bitemporal_facts "
+        "SELECT revision,normalized_sha256,fact_sha256,available_at,ingested_at,source,"
+        "source_version,receipt_sha256,security_id,published_at FROM bitemporal_facts "
         "WHERE entity_id=? AND fact_type=? AND event_at=? ORDER BY revision DESC LIMIT 1",
         [entity_id, fact_type, event],
     ).fetchone()
-    if latest is not None and latest[1] == normalized_sha:
+    replay_identity = (normalized_sha, available, ingested, source, source_version,
+                       receipt_sha256, security_id, published)
+    if latest is not None and (latest[1], *latest[3:]) == replay_identity:
         return {"fact_sha256": latest[2], "revision": int(latest[0]), "replayed": True}
     revision = 1 if latest is None else int(latest[0]) + 1
     previous = None if latest is None else latest[2]
@@ -186,3 +191,27 @@ def record_intraday_quote_batch(
     return {"receipt_sha256": receipt["receipt_sha256"], "fact_count": len(facts),
             "fact_sha256s": [item["fact_sha256"] for item in facts],
             "replayed": receipt["replayed"] and all(item["replayed"] for item in facts)}
+
+
+def facts_as_known(con: duckdb.DuckDBPyConnection, cutoff_at: datetime) -> list[dict]:
+    """Return only the latest revision actually available and ingested by cutoff."""
+    cutoff = _utc(cutoff_at, "cutoff_at")
+    cursor = con.execute(
+        "SELECT entity_id,security_id,fact_type,event_at,published_at,available_at,ingested_at,"
+        "revision,normalized_payload,source,source_version,receipt_sha256,fact_sha256 "
+        "FROM bitemporal_facts WHERE available_at<=? AND ingested_at<=? "
+        "QUALIFY revision=MAX(revision) OVER (PARTITION BY entity_id,fact_type,event_at) "
+        "ORDER BY entity_id,fact_type,event_at", [cutoff, cutoff],
+    )
+    return [dict(zip((item[0] for item in cursor.description), row, strict=True))
+            for row in cursor.fetchall()]
+
+
+def record_security_event(con: duckdb.DuckDBPyConnection, *, event_type: str, **fact) -> dict:
+    """Record a stable security identity event using the bitemporal contract."""
+    if event_type not in SECURITY_EVENT_TYPES or not fact.get("security_id"):
+        raise FactError("security event type or security_id is invalid")
+    payload = fact.get("payload")
+    if not isinstance(payload, dict) or payload.get("event_type") != event_type:
+        raise FactError("security event payload is invalid")
+    return record_fact(con, fact_type=f"security.{event_type}", **fact)
