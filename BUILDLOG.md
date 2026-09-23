@@ -11623,4 +11623,15 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server and tools remain within the approved P11 ceilings.
 - **Next:** capture the first native P11 windows and audit label coverage after maturity.
 
+## 2026-09-23 — Publish the agent backtesting roadmap
+
+- **Why:** P11 requires a researched, actionable roadmap across point-in-time data, execution
+  realism, and consistent model evaluation before more strategy or authority expansion.
+- **What:** document bitemporal data, vendor audits, execution tiers, delayed labels, paired metrics,
+  contamination probes, and the phased acquisition/evaluation programme.
+- **Evidence:** full suite, Ruff, dedicated agent self-test, live migration, status endpoints, and a
+  verified post-migration recovery bundle all pass; seven legacy traces remain explicitly skipped.
+- **Metrics:** server/tools/product remain within the approved P11 budgets.
+- **Next:** let native P11 traces accumulate, then audit first 1/5/10/20-session labels.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
