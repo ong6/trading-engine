@@ -11738,4 +11738,16 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** all source ceilings remain within the approved P12 budget.
 - **Next:** finish the requirement matrix and post-schema backup/restore rehearsal.
 
+## 2026-09-23 — Exclude agent-only books from historical replay
+
+- **Why:** live `/meta` incorrectly expected a walk-forward artifact for the active P8 book even
+  though agent decisions are retained external inputs and its registered strategy is intentionally no-op.
+- **What:** classify every `agent_only_policy` configuration as forward-evaluation-only in both
+  historical replay and walk-forward registries; expand recovery identity across P8-P12 sources,
+  services, schedules, schema, tools, and canonical evaluation evidence.
+- **Evidence:** replay, walk-forward, meta, release-manifest, and backup suites pass; shared algorithm
+  behavior is unchanged and no synthetic agent result was created.
+- **Metrics:** farm/tools remain within P12 ceilings; all source budgets are green.
+- **Next:** refresh the affected walk-forward cohort, then perform post-schema recovery rehearsal.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -112,6 +112,8 @@ EXCLUDED: dict[str, str] = {
 # The same reasons, reachable by strategy so that ANY config running the rule is
 # covered — twins, sweep candidates, and configs nobody has written yet.
 EXCLUDED_STRATEGIES: dict[str, str] = {
+    "agent_only_policy": "agent decisions are external retained inputs, not a deterministic "
+                         "historical strategy generator. Forward evaluation only.",
     "pead_ear": EXCLUDED["pead_ear"],
     "discretionary": EXCLUDED["discretionary"],
     "macro_composite": EXCLUDED["macro_composite"],

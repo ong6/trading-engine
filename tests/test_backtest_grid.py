@@ -39,6 +39,7 @@ def test_grid_excludes_retired_and_missing_historical_inputs():
 def test_strategy_level_exclusion_catches_twins():
     assert replay.excluded_reason("some_future_twin", "pead_ear")
     assert replay.excluded_reason("some_future_macro", "macro_composite")
+    assert replay.excluded_reason("some_agent_book", "agent_only_policy")
     assert replay.excluded_reason("xs_momentum_12_1", "xs_momentum_12_1") is None
 
 

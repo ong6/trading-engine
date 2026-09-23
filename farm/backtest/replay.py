@@ -108,6 +108,8 @@ EXCLUDED = {
                        "a neutral allocation rather than test the registered rule.",
 }
 EXCLUDED_STRATEGIES = {
+    "agent_only_policy": "agent decisions are external retained inputs, not a deterministic "
+                         "historical strategy generator. Forward evaluation only.",
     "pead_ear": EXCLUDED["pead_ear"],
     "discretionary": EXCLUDED["discretionary"],
     "macro_composite": EXCLUDED["macro_composite"],
