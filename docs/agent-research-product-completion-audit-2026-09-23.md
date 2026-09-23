@@ -55,9 +55,9 @@ does not. No external gate is presented as an achieved data acquisition or perfo
 - `.venv/bin/python -m tools.metrics_snapshot --check-budget` — global source ceilings.
 - `.venv/bin/python -m tools.backup_database verify <bundle>` — independent database/evidence verification.
 - Live book: active, US$10,000 initial cash, zero agent orders/fills; simulator-only.
-- Live forward evaluation: 6 native traces, 22 decisions, 88 immature horizon labels, zero mature
+- Live forward evaluation: 7 native traces, 25 decisions, 100 immature horizon labels, zero mature
   labels, and performance claim `none`.
-- Live provenance: 19 exact response receipts and 1,930 bitemporal facts.
+- Live provenance: 22 exact response receipts and 2,376 bitemporal facts.
 - Walk-forward: 18/18 expected results, one source/data/execution cohort, zero missing/invalid/
   duplicate/config/registration mismatches, validator status `current`.
 - Recovery: `/data00/home/jun.ong/trading-engine-p12-release-20260923`, 57 tables, 4,108,333,056
