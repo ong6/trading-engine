@@ -30,6 +30,10 @@ def run() -> dict:
     if (daily_opportunity_execution.BOOK_CONFIG.get("simulator_only") is not True
             or daily_opportunity_execution.BOOK_CONFIG.get("strategy") != "agent_only_policy"):
         errors.append("book_contract")
+    if not {"maximum_hold_sessions", "close_below_signal_low"} == set(
+        daily_opportunity_execution.EXIT_REASONS
+    ):
+        errors.append("exit_contract")
     return {
         "status": "pass" if not errors else "failed",
         "errors": errors, "variant_count": len(variants or []),

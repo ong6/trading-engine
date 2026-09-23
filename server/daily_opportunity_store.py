@@ -75,6 +75,33 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         call_id VARCHAR, arguments_payload VARCHAR, response_payload VARCHAR,
         started_at TIMESTAMP NOT NULL, completed_at TIMESTAMP)"""
     )
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS daily_opportunity_exit_rules (
+        entry_order_id BIGINT PRIMARY KEY, assessment_id BIGINT NOT NULL UNIQUE,
+        ticker VARCHAR NOT NULL, max_hold_sessions INTEGER NOT NULL,
+        invalidation_kind VARCHAR NOT NULL, invalidation_price DOUBLE NOT NULL,
+        signal_reference_price DOUBLE NOT NULL, created_at TIMESTAMP NOT NULL,
+        rule_sha256 VARCHAR NOT NULL UNIQUE)"""
+    )
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS daily_opportunity_exit_events (
+        id BIGINT PRIMARY KEY, rule_sha256 VARCHAR NOT NULL, attempt INTEGER NOT NULL,
+        signal_date DATE NOT NULL,
+        reason VARCHAR NOT NULL, observed_close DOUBLE NOT NULL, exit_order_id BIGINT NOT NULL UNIQUE,
+        created_at TIMESTAMP NOT NULL, event_sha256 VARCHAR NOT NULL UNIQUE,
+        UNIQUE(rule_sha256, attempt))"""
+    )
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS daily_opportunity_execution_quality (
+        order_id BIGINT PRIMARY KEY, assessment_id BIGINT NOT NULL, side VARCHAR NOT NULL,
+        decision_at TIMESTAMP NOT NULL, tool_started_at TIMESTAMP, tool_completed_at TIMESTAMP,
+        order_recorded_at TIMESTAMP NOT NULL, fill_date DATE NOT NULL, fill_time_precision VARCHAR NOT NULL,
+        decision_to_tool_ms DOUBLE, tool_latency_ms DOUBLE, tool_to_order_ms DOUBLE,
+        order_to_fill_sessions INTEGER NOT NULL, arrival_price DOUBLE NOT NULL,
+        open_price DOUBLE NOT NULL, fill_price DOUBLE NOT NULL, gap_shortfall_bps DOUBLE NOT NULL,
+        total_shortfall_bps DOUBLE NOT NULL, cost_bps DOUBLE NOT NULL, captured_at TIMESTAMP NOT NULL,
+        quality_sha256 VARCHAR NOT NULL UNIQUE)"""
+    )
 
 
 def next_id(con: duckdb.DuckDBPyConnection, table: str) -> int:
@@ -84,6 +111,7 @@ def next_id(con: duckdb.DuckDBPyConnection, table: str) -> int:
         "daily_opportunity_alerts",
         "daily_opportunity_alert_events",
         "daily_opportunity_tool_attempts",
+        "daily_opportunity_exit_events",
     }
     if table not in allowed:
         raise ValueError("invalid daily opportunity table")

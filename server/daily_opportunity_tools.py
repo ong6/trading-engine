@@ -140,21 +140,22 @@ def submit(
             with _connection(database) as con, engine_db.transaction(con):
                 daily_opportunity_store.mark_tool_uncertain(con, attempt["id"], observed)
             raise
+        completed_at = observed if now is not None else datetime.now(timezone.utc)
         with _connection(database) as con:
             with engine_db.transaction(con):
                 daily_opportunity_store.complete_tool_attempt(
                     con, attempt["id"], response_id=response.response_id,
                     call_id=response.output["call_id"], arguments=arguments,
-                    response=payload, now=observed,
+                    response=payload, now=completed_at,
                 )
         with _connection(database) as con:
             with engine_db.transaction(con):
                 order_id = daily_opportunity_execution.consume_assessment(
-                    con, assessment_id, now=observed
+                    con, assessment_id, now=completed_at
                 )
                 agent_evaluation.link_execution(
                     con, assessment_id=assessment_id, tool_attempt_id=attempt["id"],
-                    order_id=order_id, linked_at=observed,
+                    order_id=order_id, linked_at=completed_at,
                 )
         return {"status": "completed", "assessment_id": assessment_id,
                 "arguments": arguments, "paper_order_id": order_id,

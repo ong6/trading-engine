@@ -22,6 +22,8 @@ def status(con: duckdb.DuckDBPyConnection) -> dict:
             "latest_run_status": None, "news_status": None, "assessment_count": 0,
             "open_alert_count": 0, "triggered_alert_count": 0,
             "expired_alert_count": 0, "paper_order_count": 0,
+            "exit_rule_count": 0, "exit_event_count": 0,
+            "execution_quality_count": 0,
             "book_active": False, "execution_authority": "local_simulator_only",
             "broker_route": "absent", "assessments": [],
         }
@@ -36,6 +38,8 @@ def status(con: duckdb.DuckDBPyConnection) -> dict:
             "news_status": None, "assessment_count": 0, "open_alert_count": 0,
             "triggered_alert_count": 0, "expired_alert_count": 0,
             "paper_order_count": 0, "book_active": False,
+            "exit_rule_count": 0, "exit_event_count": 0,
+            "execution_quality_count": 0,
             "execution_authority": "local_simulator_only", "broker_route": "absent",
             "assessments": [],
         }
@@ -58,6 +62,12 @@ def status(con: duckdb.DuckDBPyConnection) -> dict:
     order_count = int(con.execute(
         "SELECT COUNT(*) FROM daily_opportunity_order_attribution"
     ).fetchone()[0]) if table_exists(con, "daily_opportunity_order_attribution") else 0
+    lifecycle_counts = {table: int(con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+                        if table_exists(con, table) else 0 for table in (
+                            "daily_opportunity_exit_rules",
+                            "daily_opportunity_exit_events",
+                            "daily_opportunity_execution_quality",
+                        )}
     positions = int(con.execute(
         "SELECT COUNT(*) FROM sim_positions WHERE portfolio_id = ? AND qty > 0", [PORTFOLIO_ID]
     ).fetchone()[0])
@@ -92,6 +102,9 @@ def status(con: duckdb.DuckDBPyConnection) -> dict:
         "triggered_alert_count": int(counts.get("triggered", 0)),
         "expired_alert_count": int(counts.get("expired", 0)),
         "paper_order_count": order_count, "book_active": bool(book and book[0]),
+        "exit_rule_count": lifecycle_counts["daily_opportunity_exit_rules"],
+        "exit_event_count": lifecycle_counts["daily_opportunity_exit_events"],
+        "execution_quality_count": lifecycle_counts["daily_opportunity_execution_quality"],
         "position_count": positions, "pending_order_count": pending,
         "model": response.get("model"), "model_version": response.get("model_version"),
         "model_response_id": response_id, "usage": response.get("usage"),
