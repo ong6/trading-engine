@@ -1,20 +1,20 @@
 # Dual Momentum (regime-gated) — walk-forward re-validation
 
-_`dual_momentum_gated` · dual_momentum · monthly cadence · verdict **REVIEW** · generated 2026-09-20T06:08:15+00:00_
+_`dual_momentum_gated` · dual_momentum · monthly cadence · verdict **REVIEW** · generated 2026-09-23T15:57:37+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-09-18. Each fold is an independent replay starting at $39,000. Span 2014-09-18 → 2026-09-18 (3018 sessions); data floor 2008-05-29; screen source `not-used`.
+**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-09-22. Each fold is an independent replay starting at $39,000. Span 2014-09-22 → 2026-09-22 (3018 sessions); data floor 2008-05-29; screen source `not-used`.
 
-**Provenance.** Source `158dd063aa57e6e37448fdf630ca3e2f244043f4d1bd2520a7b30edcc76b2371`; config `f4c370ee82ba101c9f24b17a981303f4b5c663a49ec05722373fc98a47f86624`.
+**Provenance.** Source `e41e0968a995a82ddca7ebea7aa09c09a9b5351e58b343f7155c30e5b2778dda`; config `f4c370ee82ba101c9f24b17a981303f4b5c663a49ec05722373fc98a47f86624`.
 
-**Evidence and execution.** Data quality `fixed_etf_history`; execution profile `baseline_v1`; data snapshot `c868f4fcc1655450840ca9fb0f244fb9c3c708ec50ec181d46905f33faba08b8`; comparison protocol `wf-controls-2026-09-07-v1`.
+**Evidence and execution.** Data quality `fixed_etf_history`; execution profile `baseline_v1`; data snapshot `315382aa846d597a2feffa8bbd2d170de62f535c07a1f6313d73681bef4e676f`; comparison protocol `wf-controls-2026-09-07-v1`.
 
 **Pre-registered expectation.** Near-identical to ungated GEM; gate is a belt-and-braces check.
 
 **Pre-registered kill criterion.** Diverges materially from ungated GEM (would signal a gate bug).
 
-**Measured against `spy_benchmark` on the same folds:** beats it in 30% of 10 window(s), mean excess −6.28%, latest −2.65% → **REVIEW**.
+**Measured against `spy_benchmark` on the same folds:** beats it in 30% of 10 window(s), mean excess −6.43%, latest −2.99% → **REVIEW**.
 
-**90% CI on mean excess vs `spy_benchmark`:** [−10.05%, −2.63%] → **distinguishable −**. The verdict above is unchanged by this interval — see the note below the fold table.
+**90% CI on mean excess vs `spy_benchmark`:** [−10.63%, −2.39%] → **distinguishable −**. The verdict above is unchanged by this interval — see the note below the fold table.
 
 ## Disclosures — read before any number below
 
@@ -64,25 +64,25 @@ _`dual_momentum_gated` · dual_momentum · monthly cadence · verdict **REVIEW**
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills | Universe |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2014-09-18→2016-09-16 | +1.26% | +0.63% | 2016-09-16→2017-09-18 | **+20.68%** | +20.57% | +7.68% | +2.49 | −3.97% | · | +2.15% | 6 | 2,752 |
-| 2 | 2015-09-18→2017-09-18 | +22.87% | +10.84% | 2017-09-18→2018-09-18 | **+11.01%** | +11.01% | +10.68% | +1.03 | −9.71% | · | −6.33% | 4 | 2,902 |
-| 3 | 2016-09-19→2018-09-18 | +32.31% | +15.06% | 2018-09-18→2019-09-18 | **−6.53%** | −6.53% | +11.61% | −0.53 | −12.70% | · | −11.74% | 6 | 3,014 |
-| 4 | 2017-09-18→2019-09-18 | +3.47% | +1.72% | 2019-09-18→2020-09-18 | **+9.58%** | +9.56% | +14.49% | +0.70 | −12.91% | · | −2.22% | 5 | 3,143 |
-| 5 | 2018-09-18→2020-09-18 | +1.45% | +0.72% | 2020-09-18→2021-09-17 | **+35.34%** | +35.48% | +13.74% | +2.28 | −7.35% | · | +1.42% | 4 | 3,398 |
-| 6 | 2019-09-18→2021-09-17 | +49.14% | +22.14% | 2021-09-17→2022-09-16 | **−10.36%** | −10.40% | +13.28% | −0.76 | −17.47% | · | +0.57% | 5 | 3,555 |
-| 7 | 2020-09-18→2022-09-16 | +18.68% | +8.97% | 2022-09-16→2023-09-18 | **−4.65%** | −4.63% | +6.19% | −0.74 | −6.64% | · | −20.71% | 6 | 3,663 |
-| 8 | 2021-09-20→2023-09-18 | −12.56% | −6.51% | 2023-09-18→2024-09-18 | **+17.13%** | +17.09% | +12.12% | +1.37 | −8.41% | · | −9.84% | 5 | 3,837 |
-| 9 | 2022-09-19→2024-09-18 | +11.68% | +5.68% | 2024-09-18→2025-09-18 | **+5.32%** | +5.32% | +12.16% | +0.49 | −10.10% | · | −13.43% | 8 | 4,045 |
-| 10 ◈ | 2023-09-18→2025-09-18 | +28.03% | +13.14% | 2025-09-18→2026-09-18 | **+13.19%** | +13.20% | +13.92% | +0.96 | −11.42% | · | −2.65% | 10 | 12,565 |
+| 1 | 2014-09-22→2016-09-22 | +3.06% | +1.52% | 2016-09-22→2017-09-22 | **+18.99%** | +19.00% | +7.61% | +2.32 | −3.97% | · | +2.62% | 6 | 2,755 |
+| 2 | 2015-09-22→2017-09-22 | +23.31% | +11.04% | 2017-09-22→2018-09-21 | **+11.53%** | +11.57% | +10.71% | +1.08 | −9.71% | · | −6.86% | 4 | 2,906 |
+| 3 | 2016-09-22→2018-09-21 | +33.40% | +15.53% | 2018-09-21→2019-09-20 | **−7.74%** | −7.76% | +11.61% | −0.64 | −12.62% | · | −11.64% | 6 | 3,018 |
+| 4 | 2017-09-22→2019-09-20 | +2.97% | +1.48% | 2019-09-20→2020-09-22 | **+9.99%** | +9.91% | +14.56% | +0.73 | −12.91% | · | −2.22% | 5 | 3,144 |
+| 5 | 2018-09-24→2020-09-22 | +1.34% | +0.67% | 2020-09-22→2021-09-22 | **+34.40%** | +34.43% | +13.77% | +2.22 | −7.35% | · | +1.24% | 4 | 3,401 |
+| 6 | 2019-09-23→2021-09-22 | +47.95% | +21.65% | 2021-09-22→2022-09-22 | **−9.64%** | −9.65% | +13.12% | −0.71 | −17.47% | · | +3.15% | 5 | 3,555 |
+| 7 | 2020-09-22→2022-09-22 | +18.68% | +8.95% | 2022-09-22→2023-09-22 | **−6.30%** | −6.30% | +6.41% | −0.99 | −6.64% | · | −22.54% | 6 | 3,666 |
+| 8 | 2021-09-22→2023-09-22 | −14.07% | −7.31% | 2023-09-22→2024-09-20 | **+21.01%** | +21.09% | +12.15% | +1.64 | −8.41% | · | −11.67% | 5 | 3,837 |
+| 9 | 2022-09-22→2024-09-20 | +13.39% | +6.50% | 2024-09-20→2025-09-22 | **+4.73%** | +4.71% | +12.06% | +0.45 | −10.10% | · | −13.36% | 8 | 4,046 |
+| 10 ◈ | 2023-09-22→2025-09-22 | +29.27% | +13.69% | 2025-09-22→2026-09-22 | **+13.74%** | +13.75% | +13.95% | +1.00 | −11.42% | · | −2.99% | 10 | 12,565 |
 
 ## Summary
 
 * validate windows: **10**, win rate **70%**
-* mean validate return **+9.07%** (median +10.30%, worst −10.36%, best +35.34%)
-* mean validate CAGR **+9.07%** vs mean train CAGR +7.24% → decay **+1.83%**
-* mean validate Sharpe +0.73, worst validate max drawdown −17.47%
+* mean validate return **+9.07%** (median +10.76%, worst −9.64%, best +34.40%)
+* mean validate CAGR **+9.08%** vs mean train CAGR +7.37% → decay **+1.70%**
+* mean validate Sharpe +0.71, worst validate max drawdown −17.47%
 * 59 fill(s) inside validate windows
-* runtime 488.7s (scratch 30.5s, screen 0.0s)
+* runtime 510.7s (scratch 25.3s, screen 0.0s)
 
 **Verdict rule (mechanical exploratory triage, NOT an automatic kill).** For
 each book, against the versioned comparison declared in its result artifact:

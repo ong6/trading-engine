@@ -1,7 +1,7 @@
 ---
 plan: P12
 title: Agent research product programme
-status: active
+status: done
 opened: 2026-09-23
 owner_decision: approved 2026-09-23
 ---
@@ -50,3 +50,12 @@ capped at 900 server, 500 engine, 350 tools, 250 farm, and 150 sim lines.
 The programme can become infrastructure-heavy without better research. Each phase must produce a
 queryable dataset, measurable decision/execution metric, or verified external gate. No phase may
 create a new strategy merely to exercise infrastructure.
+
+## Completion — 2026-09-23
+
+Every locally implementable requirement is shipped and verified. The final prospective ledger has
+6 native traces and 22 decisions; all 88 horizon outcomes are honestly immature at activation. The
+deterministic research fleet has one current 18/18 walk-forward cohort, the three agent cadence
+timers are enabled, the locked simulator self-test passes with no broker route, and a final 57-table
+recovery bundle verifies independently. Paid PIT acquisition, SEC activation, intraday authority,
+and broker/real-capital operation remain explicit external gates rather than simulated completion.

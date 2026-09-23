@@ -11831,4 +11831,16 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** farm 11,637 lines; every repository and P12 source budget remains green.
 - **Next:** rebuild one uninterrupted walk-forward cohort, then close validation and recovery.
 
+## 2026-09-23 — Complete the agent research product
+
+- **Why:** P12 closes only after one coherent evidence cohort, live deployment audit, full tests,
+  and a post-schema recovery rehearsal.
+- **What:** publish the final 18-book walk-forward cohort and agent report, migrate the live schema,
+  verify all cadence services, document exact product state, and preserve external authority gates.
+- **Evidence:** full warnings-as-errors suite and Ruff pass; cohort is current 18/18; self-test and
+  installer audit pass; the 57-table final recovery bundle verifies independently.
+- **Metrics:** source unchanged at server 51,042, engine 11,871, farm 11,637, tools 7,333, sim 6,891;
+  all repository and P12 allocations remain green.
+- **Next:** collect prospective labels; paid data, SEC activation, and any broker work require owners.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
