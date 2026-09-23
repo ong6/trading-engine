@@ -327,6 +327,31 @@ def build_report(
         policy_rows = [row for row in rows if row["policy_id"] == policy]
         policy_traces = [row for row in trace_rows if row["policy_id"] == policy]
         policies[policy] = _policy_metrics(policy_rows, policy_traces)
+    provenance = {
+        "receipt_count": 0, "fact_count": 0, "sec_filing_fact_count": 0,
+        "sec_current_mapping_fact_count": 0, "pit_import_batch_count": 0,
+        "pit_import_row_count": 0, "historical_membership_authority": False,
+    }
+    if table_exists(con, "source_response_receipts"):
+        provenance["receipt_count"] = int(con.execute(
+            "SELECT COUNT(*) FROM source_response_receipts"
+        ).fetchone()[0])
+    if table_exists(con, "bitemporal_facts"):
+        fact_counts = con.execute(
+            "SELECT COUNT(*),COUNT(*) FILTER (WHERE fact_type LIKE 'sec.filing:%'),"
+            "COUNT(*) FILTER (WHERE fact_type='sec.current_ticker_mapping') "
+            "FROM bitemporal_facts"
+        ).fetchone()
+        provenance.update(fact_count=int(fact_counts[0]),
+                          sec_filing_fact_count=int(fact_counts[1]),
+                          sec_current_mapping_fact_count=int(fact_counts[2]))
+    if table_exists(con, "pit_import_batches"):
+        provenance["pit_import_batch_count"] = int(con.execute(
+            "SELECT COUNT(*) FROM pit_import_batches"
+        ).fetchone()[0])
+        provenance["pit_import_row_count"] = int(con.execute(
+            "SELECT COUNT(*) FROM pit_import_rows"
+        ).fetchone()[0])
     cohorts = []
     if rows:
         cohorts = [{"policy_id": row[0], "cadence": row[1], "prompt_role": row[2],
@@ -343,6 +368,7 @@ def build_report(
         "evidence_class": "prospective_forward_only", "promotion_authority": "none",
         "horizons": list(HORIZONS), "policies": policies, "cohorts": cohorts,
         "pairs": _pairs(rows),
+        "data_provenance": provenance,
         "coverage": _coverage(con, rows),
         "execution": _operations(con),
         "contamination": contamination_diagnostics(contamination_path),

@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "dataset_id": "vendor-dataset-version",
+  "dataset_kind": "fundamental",
+  "vendor": "vendor-id",
+  "source_version": "vendor-release-id",
+  "license": {
+    "id": "accepted-license-id",
+    "accepted_at": "2026-09-23T00:00:00Z",
+    "redistribution_allowed": false
+  },
+  "file": {
+    "path": "relative/path/to/data.csv",
+    "bytes": 1,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "columns": [
+    "entity_id",
+    "security_id",
+    "event_at",
+    "published_at",
+    "available_at",
+    "payload_json"
+  ]
+}
