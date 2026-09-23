@@ -4,17 +4,25 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import math
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
+
+import duckdb
 
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 
-from . import agent_evaluation, agent_model_client, daily_opportunity_news
+from . import (
+    agent_evaluation,
+    agent_model_client,
+    bitemporal_facts,
+    daily_opportunity_news,
+    intraday_source,
+)
 from .daily_opportunity_runner import _model_input, _validate_output
 from .file_utils import read_bytes
 
@@ -28,9 +36,81 @@ def _variants() -> dict[str, dict]:
     return {item["id"]: item for item in payload["variants"]}
 
 
+def _capture_quotes(
+    tickers: list[tuple[str, str]], *, database: Path, observed_at: datetime,
+    fetch=intraday_source._fetch,
+    clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+) -> tuple[list[dict], list[dict]]:
+    """Retain exact responses before admitting bounded quotes to a prompt."""
+    quotes, failures = [], []
+    for ticker, provider_ticker in tickers[:MAX_QUOTES]:
+        try:
+            request = intraday_source.request_identity(provider_ticker)
+            endpoint = intraday_source.endpoint_url(provider_ticker)
+            response = fetch(provider_ticker, observed_at)
+            try:
+                bars = intraday_source.parse(ticker, provider_ticker, response)
+            except intraday_source.IntradaySourceError as exc:
+                write_con = db.connect(database, wait_s=0)
+                try:
+                    bitemporal_facts.init_schema(write_con)
+                    receipt = bitemporal_facts.record_receipt(
+                        write_con, source="yfinance", dataset="intraday_quote",
+                        endpoint=endpoint, request=request, requested_at=response.requested_at,
+                        received_at=response.received_at, http_status=response.status_code,
+                        content_type=response.content_type or "application/octet-stream",
+                        body=response.body, license_class="provider-terms-research",
+                    )
+                finally:
+                    write_con.close()
+                failures.append({"ticker": ticker, "reason": str(exc)[:200],
+                                 "receipt_sha256": receipt["receipt_sha256"]})
+                continue
+            write_con = db.connect(database, wait_s=0)
+            try:
+                bitemporal_facts.init_schema(write_con)
+                retained = bitemporal_facts.record_intraday_quote_batch(
+                    write_con, source="yfinance", endpoint=endpoint,
+                    request=request, requested_at=response.requested_at,
+                    received_at=response.received_at, content_type=response.content_type,
+                    body=response.body, quotes=bars,
+                    interval=intraday_source.INTERVAL,
+                    source_version=intraday_source.source_version(),
+                    license_class="provider-terms-research",
+                    ingested_at=clock(),
+                )
+            finally:
+                write_con.close()
+            bars = sorted(bars, key=lambda item: item["event_at"])
+            if len(bars) < 2:
+                failures.append({
+                    "ticker": ticker,
+                    "reason": "intraday response has fewer than two usable bars",
+                    "receipt_sha256": retained["receipt_sha256"],
+                })
+                continue
+            last, prior = bars[-1], bars[-2]
+            body = {
+                "ticker": ticker, "observed_at": response.received_at.isoformat(),
+                "event_at": last["event_at"].isoformat(), "last": last["close"],
+                "change_5m": last["close"] / prior["close"] - 1,
+                "last_volume": last["volume"],
+                "receipt_sha256": retained["receipt_sha256"],
+            }
+            quotes.append({**body, "evidence_id": canonical_sha256(body)})
+        except (
+            intraday_source.IntradaySourceError, bitemporal_facts.FactError,
+            db.DBBusyError, duckdb.Error, OSError, ValueError,
+        ) as exc:
+            failures.append({"ticker": ticker, "reason": str(exc)[:200]})
+    return quotes, failures
+
+
 def _observe(
     variant_id: str, *, database: Path = DEFAULT_DB, now: datetime | None = None,
     generate=agent_model_client.generate_opportunity_json, fetch_news=daily_opportunity_news._fetch,
+    fetch_quote=intraday_source._fetch,
+    clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> dict:
     variant = _variants().get(variant_id)
     if variant is None or variant["execution_authority"] != "none":
@@ -51,7 +131,7 @@ def _observe(
                 )
                 agent_evaluation.record_trace(write_con, trace)
                 agent_evaluation.label_mature(
-                    write_con, labeled_at=datetime.now(timezone.utc)
+                    write_con, labeled_at=clock()
                 )
         finally:
             write_con.close()
@@ -70,32 +150,16 @@ def _observe(
 
         bundle = detect(con, market_date, limit=variant["candidate_limit"])
         tickers = [item["ticker"] for item in bundle["candidates"]]
+        provider_tickers = dict(con.execute(
+            "SELECT ticker,COALESCE(NULLIF(yf_ticker,''),ticker) FROM universe "
+            f"WHERE ticker IN ({','.join(['?'] * len(tickers))})", tickers,
+        ).fetchall()) if tickers else {}
     finally:
         con.close()
-    try:
-        import yfinance as yf
-
-        raw = yf.download(tickers, period="2d", interval="5m", group_by="ticker",
-                          auto_adjust=False, threads=True, progress=False, timeout=20)
-    except Exception:
-        raw = None
-    quotes = []
-    for ticker in tickers[:MAX_QUOTES]:
-        try:
-            frame = raw[ticker] if len(tickers) > 1 else raw
-            closes = frame["Close"].dropna()
-            volumes = frame["Volume"].dropna()
-            if len(closes) < 2 or not len(volumes):
-                continue
-            last, prior = float(closes.iloc[-1]), float(closes.iloc[-2])
-            if not all(math.isfinite(value) and value > 0 for value in (last, prior)):
-                continue
-            body = {"ticker": ticker, "observed_at": observed.isoformat(),
-                    "last": last, "change_5m": last / prior - 1,
-                    "last_volume": int(volumes.iloc[-1])}
-            quotes.append({**body, "evidence_id": canonical_sha256(body)})
-        except (KeyError, TypeError, ValueError):
-            continue
+    quotes, quote_failures = _capture_quotes(
+        [(ticker, provider_tickers.get(ticker, ticker)) for ticker in tickers],
+        database=database, observed_at=observed, fetch=fetch_quote, clock=clock,
+    )
     news = daily_opportunity_news.capture(["SPY", *tickers], now=observed, fetch=fetch_news)
     for candidate in bundle["candidates"]:
         quote = next((item for item in quotes if item["ticker"] == candidate["ticker"]), None)
@@ -109,7 +173,7 @@ def _observe(
     model_input["variant_id"] = variant_id
     model_input["execution_authority"] = "none"
     model_input["allowed_evidence_ids"] = sorted(set().union(*allowed.values()) if allowed else set())
-    information_cutoff_at = datetime.now(timezone.utc)
+    information_cutoff_at = clock()
     generation_started = time.monotonic()
     response = generate(model_input)
     latency_ms = (time.monotonic() - generation_started) * 1000
@@ -118,6 +182,7 @@ def _observe(
         "schema_version": 1, "variant_id": variant_id, "cadence": variant["cadence"],
         "prompt_role": variant["prompt_role"], "observed_at": observed.isoformat(),
         "market_date": market_date.isoformat(), "quotes": quotes,
+        "quote_failures": quote_failures,
         "news_status": news["status"], "headlines": news["observations"],
         "news_receipts": [
             {key: value for key, value in receipt.items() if key != "response_body"}
@@ -127,7 +192,7 @@ def _observe(
         "assessments": assessments, "model": response.model,
         "model_version": response.model_version, "response_id": response.response_id,
         "usage": response.usage,
-        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": clock().isoformat(),
         "information_cutoff_at": information_cutoff_at.isoformat(),
         "latency_ms": latency_ms,
         "model_input": model_input,
@@ -167,7 +232,7 @@ def _observe(
                 ),
             )
             agent_evaluation.label_mature(
-                write_con, labeled_at=datetime.now(timezone.utc)
+                write_con, labeled_at=clock()
             )
     finally:
         write_con.close()
@@ -181,9 +246,12 @@ def _observe(
 def observe(
     variant_id: str, *, database: Path = DEFAULT_DB, now: datetime | None = None,
     generate=agent_model_client.generate_opportunity_json, fetch_news=daily_opportunity_news._fetch,
+    fetch_quote=intraday_source._fetch,
+    clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> dict:
     with advisory_file_lock(LOCK_PATH):
-        return _observe(variant_id, database=database, now=now, generate=generate, fetch_news=fetch_news)
+        return _observe(variant_id, database=database, now=now, generate=generate,
+                        fetch_news=fetch_news, fetch_quote=fetch_quote, clock=clock)
 
 
 def main() -> int:

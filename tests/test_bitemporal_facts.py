@@ -79,7 +79,7 @@ def test_intraday_batch_retains_raw_receipt_and_event_availability_times(con):
         con, source="test", endpoint="https://example.test/quotes",
         request={"symbols": ["SPY"]}, requested_at=NOW,
         received_at=NOW + timedelta(seconds=1), content_type="application/json",
-        body=b'{"bars":[]}', quotes=[quote], source_version="v1",
+        body=b'{"bars":[]}', quotes=[quote], interval="5m", source_version="v1",
         license_class="public-test",
     )
     assert result["fact_count"] == 1
@@ -111,7 +111,7 @@ def test_intraday_batch_rolls_back_receipt_when_a_fact_is_invalid(con):
             con, source="test", endpoint="https://example.test/quotes",
             request={"symbols": ["SPY"]}, requested_at=NOW,
             received_at=NOW + timedelta(seconds=1), content_type="application/json",
-            body=b'{"bars":[]}', quotes=[quote], source_version="v1",
+            body=b'{"bars":[]}', quotes=[quote], interval="5m", source_version="v1",
             license_class="public-test",
         )
     assert con.execute("SELECT COUNT(*) FROM source_response_receipts").fetchone() == (0,)

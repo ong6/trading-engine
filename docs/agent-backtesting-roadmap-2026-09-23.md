@@ -13,7 +13,8 @@ starts a canonical trace and delayed-label dataset now so each future decision b
 
 - Historical prices use today's surviving symbols; delisted names and old memberships are missing.
 - Point-in-time fundamentals and timestamped news begin in 2026.
-- Intraday derived quotes do not yet retain first-class raw quote receipts.
+- Agent-visible intraday quotes now retain exact response receipts and bitemporal normalized bars;
+  the broad nightly archive still uses its legacy DataFrame-only collector.
 - Stable security/issuer identity and revision-aware symbol history remain incomplete.
 
 Every fact should carry entity/security ID, event time, publication time, availability time,
@@ -74,7 +75,8 @@ memorized training windows. Blinding symbols helps but cannot hide famous events
 ### A. Accumulate now
 
 - Complete P11 canonical traces and maturity-gated labels.
-- Add raw intraday quote receipts and exact source timestamps.
+- Extend exact-response capture from the bounded agent quote set to the broad nightly archive only
+  when the provider adapter can do so without duplicating requests or weakening rate controls.
 - Link tools, orders, fills, costs, positions, and equity to traces.
 - Alert on missing windows, source latency, identity drift, and incomplete labels.
 - Freeze P8/P9 for 90 days/60 sessions and at least 20 completed trades.

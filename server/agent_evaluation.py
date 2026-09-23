@@ -300,6 +300,9 @@ def artifact_trace(artifact: dict, *, source_identifier: str, latency_ms: float)
     ]
     source_refs = [
         {"kind": "artifact", "sha256": artifact["observation_sha256"]},
+        *[{"kind": "intraday_receipt", "ticker": item["ticker"],
+           "sha256": item["receipt_sha256"]} for item in artifact["quotes"]
+          if item.get("receipt_sha256")],
         *[{"kind": "news_receipt", "ticker": item["ticker"],
            "sha256": item["receipt_sha256"]} for item in artifact["news_receipts"]],
     ]

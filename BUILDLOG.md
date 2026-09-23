@@ -11656,4 +11656,16 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Metrics:** server remains below 51,950 lines; all source budgets are green.
 - **Next:** wire the existing intraday fetcher to preserve exact raw response bytes through P12.
 
+## 2026-09-23 — Retain exact agent intraday responses
+
+- **Why:** P12 requires first-class raw intraday provenance for every quote admitted to an hourly
+  or four-hour agent prompt.
+- **What:** replace the bounded observer's DataFrame-only quote fetch with an exact Yahoo chart
+  adapter. Retain the same response bytes, request/receipt times, normalized 5-minute bars, and
+  receipt hash before admitting a derived quote; malformed responses remain auditable but unusable.
+- **Evidence:** the full warnings-as-errors suite passes at 100%; a live SPY probe returned one 200
+  JSON response and 157 usable bars, and integration tests prove one fetch plus exact trace linkage.
+- **Metrics:** server remains below 51,950 lines; all source budgets are green.
+- **Next:** add deterministic maximum-hold/invalidation exits and execution-quality attribution.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
