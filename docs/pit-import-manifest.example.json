@@ -4,6 +4,14 @@
   "dataset_kind": "fundamental",
   "vendor": "vendor-id",
   "source_version": "vendor-release-id",
+  "revision_semantics": "vendor_revisions_preserved",
+  "availability_policy": "available_at is the first licensed delivery timestamp",
+  "coverage": {
+    "event_start": "2000-01-01T00:00:00Z",
+    "event_end": "2026-09-22T23:59:59Z",
+    "security_count": 1,
+    "row_count": 1
+  },
   "license": {
     "id": "accepted-license-id",
     "accepted_at": "2026-09-23T00:00:00Z",

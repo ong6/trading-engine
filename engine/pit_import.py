@@ -17,6 +17,7 @@ from engine.lib.provenance import canonical_sha256
 SCHEMA_VERSION = 1
 KINDS = frozenset({"security", "price", "fundamental", "membership",
                    "corporate_action", "news"})
+REVISION_SEMANTICS = frozenset({"append_only_snapshots", "vendor_revisions_preserved"})
 REQUIRED_COLUMNS = ("entity_id", "security_id", "event_at", "published_at",
                     "available_at", "payload_json")
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -72,13 +73,30 @@ def load_manifest(path: Path, data_root: Path) -> tuple[dict, Path, bytes]:
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise PitImportError("manifest is unreadable") from exc
     required = {"schema_version", "dataset_id", "dataset_kind", "vendor",
-                "source_version", "license", "file", "columns"}
+                "source_version", "license", "file", "columns", "coverage",
+                "revision_semantics", "availability_policy"}
     if not isinstance(manifest, dict) or set(manifest) != required:
         raise PitImportError("manifest shape is invalid")
     if manifest["schema_version"] != SCHEMA_VERSION or manifest["dataset_kind"] not in KINDS:
         raise PitImportError("manifest version or dataset kind is invalid")
     for field in ("dataset_id", "vendor", "source_version"):
         _identifier(manifest[field], field)
+    if manifest["revision_semantics"] not in REVISION_SEMANTICS:
+        raise PitImportError("revision semantics are invalid")
+    if (not isinstance(manifest["availability_policy"], str)
+            or not manifest["availability_policy"].strip()
+            or len(manifest["availability_policy"]) > 500):
+        raise PitImportError("availability policy is invalid")
+    coverage = manifest["coverage"]
+    if (not isinstance(coverage, dict)
+            or set(coverage) != {"event_start", "event_end", "security_count", "row_count"}
+            or any(isinstance(coverage[field], bool) or not isinstance(coverage[field], int)
+                   or coverage[field] < 1 for field in ("security_count", "row_count"))):
+        raise PitImportError("coverage declaration is invalid")
+    start = _timestamp(coverage["event_start"], "coverage event_start")
+    end = _timestamp(coverage["event_end"], "coverage event_end")
+    if start > end:
+        raise PitImportError("coverage range is invalid")
     license_info = manifest["license"]
     if (not isinstance(license_info, dict)
             or set(license_info) != {"id", "accepted_at", "redistribution_allowed"}
@@ -107,6 +125,8 @@ def load_manifest(path: Path, data_root: Path) -> tuple[dict, Path, bytes]:
         raise PitImportError("source file escapes the import root") from exc
     if not source.is_file():
         raise PitImportError("source file is not regular")
+    if not 0 < source.stat().st_size <= MAX_IMPORT_BYTES:
+        raise PitImportError("source file size is invalid")
     body = source.read_bytes()
     if len(body) != file_info["bytes"] or hashlib.sha256(body).hexdigest() != file_info["sha256"]:
         raise PitImportError("source file does not match its manifest")
@@ -125,6 +145,8 @@ def _rows(manifest: dict, body: bytes) -> list[dict]:
         raise PitImportError("source header differs from manifest schema")
     rows, seen = [], set()
     for number, raw in enumerate(reader, 2):
+        if set(raw) != set(REQUIRED_COLUMNS) or any(value is None for value in raw.values()):
+            raise PitImportError(f"row {number} shape is invalid")
         entity = _identifier(raw["entity_id"], f"row {number} entity_id")
         security = _identifier(raw["security_id"], f"row {number} security_id")
         event = _timestamp(raw["event_at"], f"row {number} event_at")
@@ -148,6 +170,13 @@ def _rows(manifest: dict, body: bytes) -> list[dict]:
                      "payload": payload, "payload_sha256": canonical_sha256(payload)})
     if not rows:
         raise PitImportError("source file has no data rows")
+    coverage = manifest["coverage"]
+    events = [row["event_at"] for row in rows]
+    if (coverage["row_count"] != len(rows)
+            or coverage["security_count"] != len({row["security_id"] for row in rows})
+            or _timestamp(coverage["event_start"], "coverage event_start") != min(events)
+            or _timestamp(coverage["event_end"], "coverage event_end") != max(events)):
+        raise PitImportError("declared coverage differs from source rows")
     return rows
 
 
@@ -162,6 +191,8 @@ def import_manifest(
     imported = imported_at.astimezone(timezone.utc).replace(tzinfo=None)
     if accepted > imported:
         raise PitImportError("license acceptance is after import time")
+    if any(row["available_at"] > imported for row in rows):
+        raise PitImportError("row availability is after import time")
     manifest_payload = json.dumps(manifest, sort_keys=True, separators=(",", ":"))
     batch_sha = canonical_sha256({"manifest": manifest, "row_count": len(rows)})
     init_schema(con)
@@ -170,7 +201,10 @@ def import_manifest(
         [batch_sha],
     ).fetchone()
     if existing is not None:
-        if existing != (len(rows), manifest_payload):
+        stored_rows = int(con.execute(
+            "SELECT COUNT(*) FROM pit_import_rows WHERE batch_sha256=?", [batch_sha]
+        ).fetchone()[0])
+        if existing != (len(rows), manifest_payload) or stored_rows != len(rows):
             raise PitImportError("historical import replay differs")
         return {"batch_sha256": batch_sha, "row_count": len(rows), "replayed": True}
     with db.transaction(con):
@@ -206,6 +240,8 @@ def audit_manifest(manifest_path: Path, data_root: Path) -> dict:
         "status": "valid", "dataset_id": manifest["dataset_id"],
         "dataset_kind": manifest["dataset_kind"], "vendor": manifest["vendor"],
         "source_version": manifest["source_version"], "license_id": manifest["license"]["id"],
+        "revision_semantics": manifest["revision_semantics"],
+        "availability_policy": manifest["availability_policy"],
         "redistribution_allowed": manifest["license"]["redistribution_allowed"],
         "source_path": str(source), "source_bytes": len(body), "row_count": len(rows),
         "security_count": len(securities), "available_start": min(availability).isoformat(),

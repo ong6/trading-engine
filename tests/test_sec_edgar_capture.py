@@ -99,6 +99,13 @@ def test_sec_fetch_requires_operator_contact_identity(monkeypatch):
         assert "contact identity is required" in str(exc)
     else:
         raise AssertionError("SEC fetch must not run without an operator contact identity")
+    monkeypatch.setenv("TRADING_ENGINE_SEC_USER_AGENT", "unmonitored-identity")
+    try:
+        sec_edgar_capture._user_agent()
+    except sec_edgar_capture.SecCaptureError:
+        pass
+    else:
+        raise AssertionError("SEC identity must include a monitored email contact")
     monkeypatch.setenv("TRADING_ENGINE_SEC_USER_AGENT", "Research Example contact@example.test")
     assert sec_edgar_capture._user_agent() == os.environ["TRADING_ENGINE_SEC_USER_AGENT"]
 
