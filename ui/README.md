@@ -121,7 +121,7 @@ Restore the persistent production service afterward with
 Access the dashboard through an SSH tunnel:
 
 ```bash
-ssh -L 3000:127.0.0.1:3000 <you>@<devbox>
+ssh -L 3000:127.0.0.1:3000 <you>@<host>
 ```
 
 Then open <http://localhost:3000>. The dashboard and API are paper-only; no

@@ -13,7 +13,7 @@ that describe implementation as future work are historical; use
 execution-safety gates.
 
 **Scope (revised 2026-07-16):** the current build is a **fully local mock trading system** on the
-devbox — internal fill simulator, paper league, local UI. **No broker API, no Telegram, no
+host — internal fill simulator, paper league, local UI. **No broker API, no Telegram, no
 credentials, nothing inbound; only public data in and public derived data out (git).** The
 historical moomoo integration notes remain in **Appendix A** for the deferred live phase (M5).
 Elapsed time alone is not a gate: M5 requires mature positive prospective excess evidence plus
@@ -26,7 +26,7 @@ in the current live-readiness goal.
 |---|---|
 | Execution (current build) | **Internal fill simulator** — no external broker. Simulated next-open fills + configurable slippage/cost model |
 | Portfolios | **Paper league** (spec §12.4): N auto-traded strategy portfolios + benchmarks + **one human-traded discretionary portfolio via the ticket UI** |
-| Topology | Everything **local to the devbox**; API and UI bind loopback only and are reached through an SSH tunnel. No Tailscale or application-auth complexity |
+| Topology | Everything **local to the host**; API and UI bind loopback only and are reached through an SSH tunnel. No Tailscale or application-auth complexity |
 | Stack | **FastAPI** backend + **Next.js** frontend (unchanged) |
 | Autonomy | Strategy portfolios trade **fully automatically** (they're evidence generators); the discretionary portfolio is **manual approval per ticket** (it trains the real process) |
 | Notifications | **Local only**: UI badges + daily `data/reports/` + journal lines. Telegram deferred to M5 |
@@ -37,7 +37,7 @@ in the current live-readiness goal.
 ## 1 · Architecture — one box, three loops
 
 ```
-DEVBOX (loopback services; SSH-tunnel access; public data in, conditional git out — zero secrets)
+HOST (loopback services; SSH-tunnel access; public data in, conditional git out — zero secrets)
 │
 │  NIGHTLY LOOP (cron, post-US-close)
 │    collect.py (full-universe EOD + point-in-time snapshots)

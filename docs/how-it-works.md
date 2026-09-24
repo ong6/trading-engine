@@ -1473,11 +1473,11 @@ The servers bind to localhost only (by design — nothing is exposed on the netw
 From your Mac, tunnel both ports over SSH:
 
 ```bash
-ssh -L 3000:127.0.0.1:3000 -L 8000:127.0.0.1:8000 <you>@<devbox>
+ssh -L 3000:127.0.0.1:3000 -L 8000:127.0.0.1:8000 <you>@<host>
 ```
 
 then open **http://localhost:3000**. Port 3000 alone is enough for the UI (the `/api`
-proxy runs server-side on the devbox); forward 8000 too if you want to curl the API
+proxy runs server-side on the host); forward 8000 too if you want to curl the API
 directly. If you use VS Code Remote-SSH, its Ports panel auto-forwards — click the
 forwarded 3000 and it opens in your browser. If the pages 503, a queue job is holding the
 DB writer lock — wait for the drain or check `SELECT * FROM jobs WHERE state='running'`.

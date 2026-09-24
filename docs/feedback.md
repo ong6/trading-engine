@@ -46,14 +46,14 @@ because the artifacts are all dated from 2026-07-15 and a false timeline would b
 and trivially detectable. The real record (first commit 2026-07-16, nightly since 2026-07-17)
 stands.
 
-**What changed.** History rewritten with `git filter-repo` to replace an employer email, a devbox
+**What changed.** History rewritten with `git filter-repo` to replace an employer email, an internal-host
 home path, an internal tool name and an agent co-author trailer; every commit date and count is
 unchanged (201 commits). A separate working-tree scrub commit became empty under the rewrite and was pruned by filter-repo.
 Visibility set to public. Any existing clone must be re-cloned.
 
 **Rule changes.**
 
-1. Public repo: no employer, devbox or internal-tool identifiers in any file or commit message.
+1. Public repo: no employer, internal-host, or internal-tool identifiers in any file or commit message.
    "One Linux box" is the only description of the host. → `AGENTS.md` absolute rules.
 2. Commit dates are never edited. → this ledger.
 

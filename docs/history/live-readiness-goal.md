@@ -547,7 +547,7 @@ Build and drill:
   halts, and authorization changes.
 
 Real-money infrastructure belongs on a personal machine or personal VPS, not the current company
-devbox. Use least-privilege credentials, encrypted storage and backups, private authenticated
+host. Use least-privilege credentials, encrypted storage and backups, private authenticated
 access, off-machine audit retention, process supervision, and monitored UTC clock
 synchronization. Browser requests may create intents but must never directly invoke a broker.
 
