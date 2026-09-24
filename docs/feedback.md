@@ -252,3 +252,26 @@ credentials, or real capital on this host, and real capital still needs a separa
 plan, personal hardware, and a provider-pinned model identity. Agents should prefer work that
 shortens the path to an honest verdict on the AI policies (P7 activation, P8/P9 observability) over
 new surfaces.
+
+## 2026-09-24 — Documentation cleanup and public hygiene
+
+**Verdict.** The owner asked for the agent-created documentation to be audited and cleaned up
+("do cleanup and then create new directional docs"). The audit found stale and contradictory plan
+status, hash chains restated in prose, dated snapshots mixed with current guides, a README that
+no longer described the project, a legacy BUILDLOG too long to read, and host identifiers in
+tracked docs.
+
+**Rule changes.**
+
+1. Dated audits, reviews, and snapshots live under `docs/history/`, indexed one line each (date,
+   what, why kept) in `docs/history/README.md`. `docs/history/live-readiness-goal.md` is reference
+   only. BUILDLOG entries before 2026-09-18 live verbatim in
+   `docs/history/buildlog-2026-07-15-to-2026-09-17.md`; the root `BUILDLOG.md` holds v2 entries.
+2. Plan status lives in one table, `docs/plans/README.md` (plan, title, status, one-line outcome).
+   `scope.md` links to it instead of restating it, and plan frontmatter must match it.
+3. Prose docs carry no SHA-256 chains. Cohort, source, and data identities live in generated
+   artifacts and `GET /meta` (`walkforward_evidence`); each forward monitor's doc keeps only its
+   current runtime-contract digest.
+4. Tracked docs use "the host" and `$HOME/…` or `<host>/…` instead of host-specific wording and
+   absolute home paths. Runtime model-identity literals in code, units, tests, and data are
+   unchanged because they bind the live model identity.
