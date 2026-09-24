@@ -12,13 +12,14 @@ The research verdict so far is that nothing beats its control, and the next rese
 are calendar-bound (2027 and 2029; see the backlog). Building more infrastructure does not
 move those dates. The default outcome of a session is therefore **verify, report, stop**.
 
-## Read order (five files, in this order, nothing else by default)
+## Read order (six files, in this order, nothing else by default)
 
 1. `AGENTS.md` (this file).
 2. `docs/feedback.md` — the owner's verdict ledger. The newest entry overrides older docs.
 3. `docs/scope.md` — what is in scope now, what is approved, what is explicitly *not yet*.
 4. `data/reports/metrics/README.md` — the latest drift snapshot and budget status.
 5. `docs/strategy-research-backlog.md#next-admissible-actions` — the only research queue.
+6. `docs/direction.md` — the north star and the order in which admitted work matters.
 
 Open `docs/how-it-works.md` only for the ops runbook when a scheduled run misbehaved. Do not
 read `docs/live-readiness-goal.md` as a work queue; it is reference, and its workstreams C, D
@@ -54,13 +55,17 @@ while reading code is not a defect until it has a reproduction.
 
 ## Session shape
 
-1. Read the five files. Run `python -m tools.metrics_snapshot --dry-run` and compare with the
+1. `git pull --rebase origin main`, then read the six files. Run `python -m tools.metrics_snapshot --dry-run` and compare with the
    last snapshot. Query `GET /meta` if the API is up.
 2. If a scheduled producer failed, fix that (it is a demonstrated defect). Otherwise apply the
    admission test to whatever you intended to do.
 3. Do the one admitted thing. Run the tests it touches, then the full suite.
 4. Publish the snapshot: `python -m tools.metrics_snapshot --check-budget`.
 5. Append a v2 BUILDLOG entry (format below). Commit. Stop.
+
+Never end a session with uncommitted or unstaged changes: the nightly pipeline pulls with rebase
+and runs on stale code when the tree is dirty. Commits are pushed to the public upstream
+automatically; commit with the repository's configured identity and add no co-author trailers.
 
 Do not loop. One admitted item per session. If the item is done and the tests pass, the
 session is over even if context remains.

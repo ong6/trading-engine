@@ -10,6 +10,8 @@ measurements supporting those decisions, not the live runtime state.
 
 - [`../AGENTS.md`](../AGENTS.md) — the contract: maintain mode, admission test, budgets,
   session shape, BUILDLOG v2 format. Overrides everything below except the feedback ledger.
+- [`direction.md`](direction.md) — north star (autonomous, AI-in-the-loop, net-profitable),
+  what "makes money" means, stages to live capital, and the order admitted work matters in.
 - [`feedback.md`](feedback.md) — the owner's dated verdicts and the rule each one changed.
   Newest entry wins.
 - [`scope.md`](scope.md) — in scope now, approved plans, frozen "not yet" areas with their
