@@ -1432,6 +1432,41 @@ silently appearing to have no history. It also rejects portfolio-count metadata 
 with the standings response. The page visibly discloses either kind of truncation: a table beyond
 100 ranked books or a curve beyond its 500-observation window.
 
+## Agent services (P8, P9, P11)
+
+Five user-systemd timers run the AI agent alongside the cron appliance. Unit files live in
+`server/*.service` / `server/*.timer`; each service runs one `.venv/bin/python -m server.<module>`
+command, prints one JSON result line, and has only local-simulator authority or none.
+
+| Timer | Schedule | Runs | Authority |
+|---|---|---|---|
+| `trading-engine-agent-data-capture.timer` | 01:25 UTC Tue–Sat | price, corporate-action, provider-response, and independent-price observation capture | none (append-only data) |
+| `trading-engine-agent-shadow.timer` | 01:30 UTC Tue–Sat | `server.agent_shadow_schedule run` (agent-only shadow decision) | none |
+| `trading-engine-daily-opportunity.timer` | 02:00 UTC Tue–Sat | `server.daily_opportunity_runner` (P8 standouts, assessments, locked simulator trade tool), then `server.agent_evaluation_reporting` (P11 report) | local simulator only |
+| `trading-engine-hourly-opportunity.timer` | Mon–Fri 09:15–16:15 America/New_York, hourly | `server.hourly_opportunity_observer hourly_market_watch_v1` (P9 shadow) | none |
+| `trading-engine-four-hour-opportunity.timer` | Mon–Fri 09:30 and 13:30 America/New_York | `server.hourly_opportunity_observer four_hour_opportunity_review_v1` (P9 shadow) | none |
+
+The two UTC agent timers and the daily timer are `Persistent=true` (a missed run fires after the
+host wakes); the intraday timers are `Persistent=false`, so a missed window is not replayed.
+
+**Status.** `GET /daily-opportunities/status` (P8 runs, assessments, and simulator orders),
+`GET /agent/evaluation/status` (P11 ledger coverage and label maturity), and
+`GET /paper-trial/status` (P7 activation blockers). The P11 report is also published to
+`data/reports/agent-evaluation.json` after each daily run.
+
+**Logs.** Output goes to the user journal:
+
+```bash
+systemctl --user list-timers 'trading-engine-*'
+journalctl --user -u trading-engine-daily-opportunity.service -n 50 --no-pager
+```
+
+**Disable.** Stop a service's future runs with
+`systemctl --user disable --now trading-engine-<name>.timer`; re-enable with
+`systemctl --user enable --now …`. The agent-only shadow additionally honours its persistent
+control (`server.agent_shadow_schedule disable --reason …`, described above). Disabling a timer
+never rewrites or retries a recorded decision.
+
 ## Viewing the UI from your Mac
 
 The servers bind to localhost only (by design — nothing is exposed on the network).

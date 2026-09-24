@@ -1,24 +1,36 @@
 # trading-engine
 
-A fully local mock trading bot + research engine on one devbox: real market data in DuckDB,
-a nightly Minervini screen, **21 active paper portfolios** (18 historically replayable
-rules) against a conservative next-open fill simulator, a gated discretionary
-paper-trading UI, and a backtest/experiment farm that works the box overnight. No broker,
-no real money, and no credentials. Generated public data may be pushed only when the current
-branch has a configured upstream. The `source_control` object in `GET /meta` is authoritative for
-the current tracking state; `local-only` means Git is not an off-machine backup.
+A paper-only trading research engine with an AI agent in the decision loop, running unattended on
+one always-on Linux host. No broker, no real money, and no credentials.
+
+- **Research engine.** Real market data in DuckDB, a nightly Minervini screen, **21 active paper
+  portfolios** (18 historically replayable rules) stepped against a conservative next-open fill
+  simulator, a weekly walk-forward, and three frozen forward records. So far nothing has beaten
+  its frozen control.
+- **Nightly AI agent.** A model reviews the day's standouts and may act only through a locked
+  simulator trade tool: deterministic code owns data admission, sizing, risk, fills, and halts.
+  Hourly and four-hour variants run as shadow observers with no order authority.
+- **Evaluation ledger.** Every agent decision is recorded with its information cutoff, exact
+  model/prompt/input identities, and later market outcomes, so each AI policy can be judged
+  prospectively against its paired control.
+- **North star:** [`docs/direction.md`](docs/direction.md) — an engine that runs on its own and
+  makes money net of every cost, with AI choosing and deterministic code in control.
+
+Generated public data may be pushed only when the current branch has a configured upstream. The
+`source_control` object in `GET /meta` is authoritative for the current tracking state;
+`local-only` means Git is not an off-machine backup.
 
 **Agents start at [`AGENTS.md`](AGENTS.md)** — the operating contract (maintain mode,
-admission test, budgets). Humans: **[`docs/README.md`](docs/README.md)** — the documentation index and current
-strategy/evidence status. The operating guide is
-[`docs/how-it-works.md`](docs/how-it-works.md).
+admission test, budgets). Humans: **[`docs/README.md`](docs/README.md)** — the documentation index
+and current strategy/evidence status. The operating guide is
+[`docs/how-it-works.md`](docs/how-it-works.md); plan status is in
+[`docs/plans/README.md`](docs/plans/README.md).
 
 - Design specs (the law): [`docs/design/`](docs/design/) — engine design (§12 wins on
   conflict) + execution design (§7 exit criteria).
-- Live-readiness handoff: [`docs/history/live-readiness-goal.md`](docs/history/live-readiness-goal.md) —
-  data quality, algorithm-only/agent-only/hybrid paper evidence, recoverability,
-  broker-paper, independent-risk, and recovery gates. It permits only gated paper-agent
-  automation and does not authorize live trading.
+- Former live-readiness handoff (historical reference):
+  [`docs/history/live-readiness-goal.md`](docs/history/live-readiness-goal.md) — the gates a
+  future execution-layer plan would inherit. It does not authorize live trading.
 - Current decision ledger: [`docs/strategy-research-backlog.md`](docs/strategy-research-backlog.md),
   including the ordered
   [next admissible actions](docs/strategy-research-backlog.md#next-admissible-actions).
