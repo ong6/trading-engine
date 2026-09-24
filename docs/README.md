@@ -75,40 +75,9 @@ measurements supporting those decisions, not the live runtime state.
   counts and the next permitted action. The endpoints and generated reports supersede that
   checkpoint as soon as a scheduled producer publishes newer evidence.
 - [`../data/reports/walkforward/GUIDE.md`](../data/reports/walkforward/GUIDE.md) — the evidence map
-  for the latest generated historical walk-forward cohort in the sibling `README.md`. The
-  completed 2026-09-23 P12 revalidation stamped all 18 active, replayable books with source
-  `e41e0968a995a82ddca7ebea7aa09c09a9b5351e58b343f7155c30e5b2778dda`, data snapshot
-  `315382aa846d597a2feffa8bbd2d170de62f535c07a1f6313d73681bef4e676f`, and one coherent
-  source/data/execution cohort, signature
-  `6c29e7f585d428c0f6d5f3b1ca14709d22f22463f21dfee094a1359322766eb4`, with the versioned
-  comparator declaration and 2026-09-22 anchor.
-  It supersedes the 2026-09-20 cohort signature
-  `fff94c2e7c4355ed9c0c118d19f3d39e95387a0fde7da2335f73c17066f12c9c` and the 2026-09-13 signature
-  `b304ae92d54e27a8f3a3adaa77dcf5b77175f9be141e71dfa232f29c3b32aec2`, which remains dated
-  historical context rather than current evidence.
-  On 2026-09-13 the protected source first advanced after the weekly liquidity pending-backfill
-  retry, Nasdaq plural security-class parser correction, and atomic universe reconciliation/CSV
-  publication, then advanced to
-  `cfcdcb5dc3bb690567173dd87d85adff49e32b76863f4a8e0494f923dcf34592` when the historical
-  replay scratch-cardinality guard and corporate-actions proof checks were made explicit under
-  optimized Python and the replay, proof, walk-forward, and shakedown scratch connections were
-  made exception-safe, followed by exception-safe ownership for the historical screen,
-  execution-drag reader, queue grids, queue schema setup, and legacy dividend backfill. Those
-  final daily screen/league ownership, atomic-publication, committed-run artifact recovery,
-  screen recovery-anchor/connection corrections, and exception-safe temporary DataFrame cleanup
-  advanced the protected identity to
-  `8ed2b751127c17ab3631583ae4f0e9e87b8b041250263b447092c5c5c8711d90`. Centralized
-  interruption-safe transaction cleanup then advanced that protected identity to
-  `2a45f846b7a4628661c4539adf71074377c529a450c90cb07cd4125aafed7d75` and was explicitly
-  migrated through XS contract v20, sector contract v9, and E1 contract v6 without changing their
-  observations, strategy rules, or execution economics. The final identity also includes
-  failure-safe cleanup of the signal breadth reader's temporary universe relation and the
-  historical screener's call-scoped temporary tables. Later verified maintenance advanced the
-  protected 113-file identity to the source recorded above. The published 18-result cohort is
-  therefore source-matching and current.
-  Older unstamped artifacts remain absolute historical context only.
-  Publication time is not the same as live freshness: the `walkforward_evidence` object in
-  `GET /meta` is the authority on whether that cohort still matches every active config and the
+  for the latest generated walk-forward cohort (18 active, replayable books). Cohort, source, and
+  data identities live in the generated artifacts, not in prose; the `walkforward_evidence` object
+  in `GET /meta` is the authority on whether that cohort still matches every active config and the
   deployed source.
 - [`execution-capital-data-hardening-2026-09-06.md`](history/execution-capital-data-hardening-2026-09-06.md#measured-five-year-capital-and-cost-sensitivity--2026-09-07)
   — capital and doubled-cost sensitivity summary; machine-readable cells are under

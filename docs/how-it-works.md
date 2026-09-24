@@ -2030,88 +2030,71 @@ an unexpected field introduced after server-side validation cannot be treated as
 
 Both forward monitors are read-only and fail closed. The sector report accumulates the
 post-fill-model-v4 `sector_momentum`/SPY record from 2026-09-04. Its schema-v2 boundary reconciles
-frozen cash, exact inherited positions, position counts, and dated closes to both equity
-rows. It hashes the permanent equity prefix plus post-boundary order intent, fills, named
-cost detail, execution attempts, and settlements; changing report logic is also detected
-because the monitor itself is part of runtime contract v10
-`8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce`. It supersedes
-v9 `c430b451ee510c858705ba4235f81b68f9d7443745a60b4716035acb32741788` so attributed
+frozen cash, exact inherited positions, position counts, and dated closes to both equity rows. It
+hashes the permanent equity prefix plus post-boundary order intent, fills, named cost detail,
+execution attempts, and settlements; changing report logic is also detected because the monitor
+itself is part of runtime contract v10 (current,
+`8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce`). It supersedes v9 so attributed
 agent-paper orders survive same-date reruns and the no-op agent book uses the ordinary simulator
-lifecycle without changing sector strategy or execution economics. V9 superseded v8
-`c0788167bf63f734c6c9b3428b425a0054f1cead1754048aa00a6cc48eb5662f` so every explicit
-DuckDB transaction rolls back process-level interruptions, retains the original exception if
-rollback also fails, and leaves borrowed connections reusable. V8 released temporary DuckDB
-DataFrame views even when their consuming statement failed. V7 made an
-idempotently skipped committed league step reconstruct both companion reports from ledger state.
-V6 atomically replaced the league Markdown and CSV reports. V5 superseded
-v4 `d8ad1e801ee5703ae8f29e7eb9e56fa0f2736c7f9b37afc10bad1704d27276ca` to make
-the daily league connection exception-safe on every exit. V4 superseded
-v3 `20c106ed0a6a7e29ac01ba8616c44909cbadaf90f53c8c8d2712b1e50631414a` to keep the
-existing no-same-bar fill rule active under optimized Python. V3 superseded v2
-`1854c24767dddfa8e1f0eb2544b860c8e7c3897d82f5fb297888dd4e13eaad6d` to keep
-retired portfolio positions and orders from driving current verification, liquidity, and
-corporate-action work. V2 superseded
-`2ffc24889541656457c28dcebfabc5a6532f62f38b234839292f228a0765fedd` to make
-corporate-action collection retry-safe, transactional, and connection-narrowed. Strategy,
-execution economics, baseline, and evidence-continuity rules did not change in these migrations.
-The XS report waits for the frozen
-2026-09-30 monthly signal and uses the 2026-10-01 post-fill close as its prospective
-baseline against `ew_benchmark`; it does not credit either book's legacy performance. Its
-runtime-contract v21 (`f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac`)
-supersedes v20 (`8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e`)
-before the first signal so the isolated agent-paper lifecycle remains coherent without changing XS
-strategy, signal, or execution economics. V20 superseded v19
-(`7f4085fca17872a9ef1125c64ed03f58b2191abe68286e9720441df74f8f06f3`)
-before the first signal so explicit DuckDB transactions clean up interruptions without masking
-their original failure and borrowed connections remain reusable. V19 released temporary DuckDB
-DataFrame views after failed statements. V18 kept the borrowed screen connection owned and closed exactly once by the outer runtime even
-when no names are eligible. V17 made the non-derivable dated screen anchor
-precede row commit and made committed rows without it fail closed instead of being recomputed. V16 made idempotently skipped committed
-screen and league runs reconstruct their CSV, EOD, and report companions from ledger state. V15 made universe-cache, screen, league, and
-monthly walk-forward artifacts use same-directory atomic replacement. V14 made the daily screen
-and league connections close on every exit. V13 made
-directory reconciliation and daily snapshot publication one
-database transaction and the derived universe CSV is atomically replaced. Strategy, signal,
-execution economics, and statistical rules are unchanged. V12 made plural Nasdaq security-class
-descriptions enforce the existing common-stock/ETF universe policy. V11 made every real weekly liquidity refresh retry the complete resumable
-pending-backfill set, including on a zero-admission run. V10 kept the existing no-same-bar fill rule active
-under optimized Python. V9 excluded retired portfolio positions from current liquidity protection. V8 made
-shared-metadata publication refuse to replace malformed JSON as though
-it were an empty snapshot. V7 made an idempotently skipped screen validate and restore its
-persisted summary. V6 serialized every shared-metadata read/merge/write, routed the screener
+lifecycle without changing sector strategy or execution economics. V9 superseded v8 so every
+explicit DuckDB transaction rolls back process-level interruptions, retains the original exception
+if rollback also fails, and leaves borrowed connections reusable. V8 released temporary DuckDB
+DataFrame views even when their consuming statement failed. V7 made an idempotently skipped
+committed league step reconstruct both companion reports from ledger state. V6 atomically replaced
+the league Markdown and CSV reports. V5 superseded v4 to make the daily league connection
+exception-safe on every exit. V4 superseded v3 to keep the existing no-same-bar fill rule active
+under optimized Python. V3 superseded v2 to keep retired portfolio positions and orders from
+driving current verification, liquidity, and corporate-action work. V2 superseded v1 to make
+corporate-action collection retry-safe, transactional, and connection-narrowed. Strategy, execution
+economics, baseline, and evidence-continuity rules did not change in these migrations. The XS
+report waits for the frozen 2026-09-30 monthly signal and uses the 2026-10-01 post-fill close as
+its prospective baseline against `ew_benchmark`; it does not credit either book's legacy
+performance. Its runtime-contract v21 (current,
+`f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac`) supersedes v20 before the first
+signal so the isolated agent-paper lifecycle remains coherent without changing XS strategy, signal,
+or execution economics. V20 superseded v19 before the first signal so explicit DuckDB transactions
+clean up interruptions without masking their original failure and borrowed connections remain
+reusable. V19 released temporary DuckDB DataFrame views after failed statements. V18 kept the
+borrowed screen connection owned and closed exactly once by the outer runtime even when no names
+are eligible. V17 made the non-derivable dated screen anchor precede row commit and made committed
+rows without it fail closed instead of being recomputed. V16 made idempotently skipped committed
+screen and league runs reconstruct their CSV, EOD, and report companions from ledger state. V15
+made universe-cache, screen, league, and monthly walk-forward artifacts use same-directory atomic
+replacement. V14 made the daily screen and league connections close on every exit. V13 made
+directory reconciliation and daily snapshot publication one database transaction and the derived
+universe CSV is atomically replaced. Strategy, signal, execution economics, and statistical rules
+are unchanged. V12 made plural Nasdaq security-class descriptions enforce the existing
+common-stock/ETF universe policy. V11 made every real weekly liquidity refresh retry the complete
+resumable pending-backfill set, including on a zero-admission run. V10 kept the existing
+no-same-bar fill rule active under optimized Python. V9 excluded retired portfolio positions from
+current liquidity protection. V8 made shared-metadata publication refuse to replace malformed JSON
+as though it were an empty snapshot. V7 made an idempotently skipped screen validate and restore
+its persisted summary. V6 serialized every shared-metadata read/merge/write, routed the screener
 through that common publisher, and froze the helper itself. V5 made EOD collection preserve
 independently published metadata, v4 made liquidity dry-run counts truthful, and v3 narrowed the
-EOD collector's DuckDB leases. Each explicit migration was
-allowed only while the report remained `WAITING`, no signal boundary existed, and the live store
-contained no signal-date orders or post-fill observations; all strategy, execution, date, and
-statistical rules stayed fixed.
-`GET /meta` exposes these separately as `forward_review` and `xs_forward_review`, including
-each validated report schema, runtime-contract version, and runtime SHA-256. The UI header labels
-them “sector forward” and “XS forward” with their active contract versions, so an invalid or stale
-record cannot hide behind the other monitor's healthy status. The dashboard's “Prospective
-strategy evidence” section shows the monitor-owned sample counts and eligibility boundaries in
-one place; it explicitly does not turn an accumulating paper record into a profitability claim or
-promotion signal. It also exposes `e1_forward`, the frozen
-40-observation SPY Monday experiment. That projection validates every stored trade against
-its registration, requires one row per settled eligible Monday, caps the sample at exactly
-40 (the final eligible date is 2027-05-10), and verifies the last published database-prefix
-hash before reporting `ACCUMULATING`, `KILLED`, `SURVIVED`, or fail-closed `INVALID`.
-Checkpoint schema v2 additionally hashes the runner, calendar, execution/fill logic,
-config/hash helpers, DB semantics, and atomic publisher. Runtime contract v6
-(`5a665966f7bad78474dab9367618aab4016ea847fec8bba9a92966e7706e5612`)
-supersedes v5 `31ff0e06dad3ee1063dc25210cf049df5dffba1662621bc6a97de30e535420a2`
-so explicit DuckDB transactions clean up interruptions without masking their original failure and
-borrowed connections remain reusable. V5 released temporary DuckDB DataFrame views after failed
-statements. V4 superseded v3
-`32b56bb6b2cb4d234cf0131bf27054a024820d8207ed4130ed988a8c340b0d72`
-only to keep the shared no-same-bar fill rule active under optimized Python. V3 superseded v2
-`78ca95709bdcf6bcd4026af6a0417381111fb7baa5e056a237a7497757fe8610` so shared-metadata
-publication fails closed on malformed JSON. V2 superseded v1
-`6cf141a68d41b01d04f910d4d64aefd333605bbb758161ad9130c2f23348ca56` for process-safe
-shared publication. All migrations retain all seven observations through 2026-08-31 and prefix
-SHA-256 `e2603b7c85f5e24e3b019a4ee7058c6732a792647b0c1c2e62a0d111fdf360ad`.
-The original schema-v1 migration recorded no predecessor hash because that schema never captured
-one.
+EOD collector's DuckDB leases. Each explicit migration was allowed only while the report remained
+`WAITING`, no signal boundary existed, and the live store contained no signal-date orders or
+post-fill observations; all strategy, execution, date, and statistical rules stayed fixed. `GET
+/meta` exposes these separately as `forward_review` and `xs_forward_review`, including each
+validated report schema, runtime-contract version, and runtime SHA-256. The UI header labels them
+“sector forward” and “XS forward” with their active contract versions, so an invalid or stale
+record cannot hide behind the other monitor's healthy status. The dashboard's “Prospective strategy
+evidence” section shows the monitor-owned sample counts and eligibility boundaries in one place; it
+explicitly does not turn an accumulating paper record into a profitability claim or promotion
+signal. It also exposes `e1_forward`, the frozen 40-observation SPY Monday experiment. That
+projection validates every stored trade against its registration, requires one row per settled
+eligible Monday, caps the sample at exactly 40 (the final eligible date is 2027-05-10), and
+verifies the last published database-prefix hash before reporting `ACCUMULATING`, `KILLED`,
+`SURVIVED`, or fail-closed `INVALID`. Checkpoint schema v2 additionally hashes the runner,
+calendar, execution/fill logic, config/hash helpers, DB semantics, and atomic publisher. Runtime
+contract v6 (current, `5a665966f7bad78474dab9367618aab4016ea847fec8bba9a92966e7706e5612`)
+supersedes v5 so explicit DuckDB transactions clean up interruptions without masking their original
+failure and borrowed connections remain reusable. V5 released temporary DuckDB DataFrame views
+after failed statements. V4 superseded v3 only to keep the shared no-same-bar fill rule active
+under optimized Python. V3 superseded v2 so shared-metadata publication fails closed on malformed
+JSON. V2 superseded v1 for process-safe shared publication. All migrations retain all seven
+observations through 2026-08-31 and the same anchored prefix. The original schema-v1 migration
+recorded no predecessor hash because that schema never captured one.
 
 The `market_freshness` object in `GET /meta` is the authoritative data-age signal. Its
 `latest_date` is the same
