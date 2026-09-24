@@ -65,7 +65,7 @@ while reading code is not a defect until it has a reproduction.
 
 Never end a session with uncommitted or unstaged changes: the nightly pipeline pulls with rebase
 and runs on stale code when the tree is dirty. Commits are pushed to the public upstream
-automatically; commit with the repository's configured identity and add no co-author trailers.
+automatically; commit with the repository's configured identity and add no employer or internal-tool co-author trailers.
 
 Do not loop. One admitted item per session. If the item is done and the tests pass, the
 session is over even if context remains.
