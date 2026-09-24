@@ -45,7 +45,7 @@ evidence; it needs to be made on intent. Until it is made, the safe default is f
 ## Scope
 
 1. Owner writes the decision and the reasoning in `../feedback.md`.
-2. If **yes**: open a new "execution layer" plan with gates copied from `../live-readiness-goal.md`
+2. If **yes**: open a new "execution layer" plan with gates copied from `../history/live-readiness-goal.md`
    workstreams C, D, E, trimmed to what a single personal account needs, and with the P1
    budget discipline. `../scope.md` moves those rows from "Not yet" to "Approved plans".
 3. If **no**: one session, one commit per moved package, links fixed, tests moved with the

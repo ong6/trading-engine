@@ -22,7 +22,7 @@ move those dates. The default outcome of a session is therefore **verify, report
 6. `docs/direction.md` — the north star and the order in which admitted work matters.
 
 Open `docs/how-it-works.md` only for the ops runbook when a scheduled run misbehaved. Do not
-read `docs/live-readiness-goal.md` as a work queue; it is reference, and its workstreams C, D
+read `docs/history/live-readiness-goal.md` as a work queue; it is reference, and its workstreams C, D
 and E are frozen (see `docs/scope.md`).
 
 ## Admission test for any change

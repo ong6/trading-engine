@@ -36,23 +36,8 @@ measurements supporting those decisions, not the live runtime state.
 
 - [`product-agent-research-platform.md`](product-agent-research-platform.md) — canonical product
   requirements for point-in-time data, agent decisions, execution, evaluation, and external gates.
-- [`agent-backtesting-roadmap-2026-09-23.md`](agent-backtesting-roadmap-2026-09-23.md) — researched
-  point-in-time data, execution, evaluation, and LLM-contamination roadmap.
-- [`agent-research-product-completion-audit-2026-09-23.md`](agent-research-product-completion-audit-2026-09-23.md)
-  — requirement-to-artifact audit, live verification evidence, and explicit external gates for P12.
-- [`agent-trading-review-2026-09-22.md`](agent-trading-review-2026-09-22.md) — current agent,
-  cadence, alert, simulator-tool, algorithm-overlay, and 2022 replay assessment.
-- [`how-it-works.md`](how-it-works.md) — architecture, schedules, paper league, UI/API,
-  and operations.
-- [`live-readiness-goal.md`](live-readiness-goal.md) — the former handoff objective for strategy
-  evidence, point-in-time data upgrades, optional algorithm/agent/hybrid paper flows, and
-  capital-disabled execution hardening; it does not authorize live trading. Since 2026-09-18 it
-  is reference only: [P7](plans/p7-autonomous-paper-trial.md) selectively admits the internal
-  simulator trial, while broker-paper and live-capital work remain frozen; `scope.md` is the queue.
-- [`recoverability-audit-2026-09-11.md`](recoverability-audit-2026-09-11.md) — dated
-  Workstream A inventory and closure sequence; its observed counts are not live status.
-- [`worktree-review-2026-09-11.md`](worktree-review-2026-09-11.md) — recursive ownership
-  inventory and review-safe commit sequence for the large local implementation.
+- [`how-it-works.md`](how-it-works.md) — architecture, schedules, paper league, agent services,
+  UI/API, and operations.
 - [`settlement-runbook.md`](settlement-runbook.md) — manual adjudication of dead or
   untradeable positions.
 - [`../BUILDLOG.md`](../BUILDLOG.md) — chronological implementation decisions and
@@ -70,8 +55,6 @@ measurements supporting those decisions, not the live runtime state.
 
 ## Current strategy and evidence status
 
-- [`review-2026-09-06.md`](review-2026-09-06.md) — dated full-review snapshot, extended with
-  the then-current 2026-09-07 v4 walk-forward cohort.
 - [`strategy-research-backlog.md`](strategy-research-backlog.md) — what has been ruled
   out, what remains uncertain, and the
   [ordered next admissible actions](strategy-research-backlog.md#next-admissible-actions).
@@ -127,7 +110,7 @@ measurements supporting those decisions, not the live runtime state.
   Publication time is not the same as live freshness: the `walkforward_evidence` object in
   `GET /meta` is the authority on whether that cohort still matches every active config and the
   deployed source.
-- [`execution-capital-data-hardening-2026-09-06.md`](execution-capital-data-hardening-2026-09-06.md#measured-five-year-capital-and-cost-sensitivity--2026-09-07)
+- [`execution-capital-data-hardening-2026-09-06.md`](history/execution-capital-data-hardening-2026-09-06.md#measured-five-year-capital-and-cost-sensitivity--2026-09-07)
   — capital and doubled-cost sensitivity summary; machine-readable cells are under
   `data/reports/capital-sensitivity/`.
 - [`../data/reports/league.md`](../data/reports/league.md) — latest completed nightly paper
@@ -183,20 +166,27 @@ All hypotheses, expectations, controls, and kill criteria are under [`charters/`
 
 ## Historical audits and snapshots
 
-These remain valuable evidence about what was known on their dates. Their old strategy
-counts, fold counts, and recommendations are not current configuration:
+Dated snapshots live in [`history/`](history/README.md), whose index says what each one is and
+why it is kept. They remain valuable evidence about what was known on their dates; their old
+strategy counts, fold counts, process state, and recommendations are not current configuration.
+[`history/live-readiness-goal.md`](history/live-readiness-goal.md) is the former handoff objective
+and does not authorize work or live trading; `scope.md` is the queue.
 
-- [`architecture-review-2026-09-02.md`](architecture-review-2026-09-02.md)
-- [`evaluation-2026-09-02.md`](evaluation-2026-09-02.md)
-- [`data-sources-audit-2026-08-20.md`](data-sources-audit-2026-08-20.md)
-- [`evidence-ceiling-2026-08-20.md`](evidence-ceiling-2026-08-20.md)
-- [`fill-model-audit-2026-08-20.md`](fill-model-audit-2026-08-20.md)
-- [`leveraged-etf-audit-2026-08-20.md`](leveraged-etf-audit-2026-08-20.md)
-- [`split-restatements-reaudit-2026-09-03.md`](split-restatements-reaudit-2026-09-03.md)
-- [`synthesis-price-adjustment-and-fills-2026-08-20.md`](synthesis-price-adjustment-and-fills-2026-08-20.md)
-- [`execution-capital-data-hardening-2026-09-06.md`](execution-capital-data-hardening-2026-09-06.md)
-  — implementation and measured-sensitivity snapshot for fill-model v4, capital, capacity,
-  provenance, and quarantine behavior.
+- 2026-08-20: [`data-sources-audit`](history/data-sources-audit-2026-08-20.md),
+  [`evidence-ceiling`](history/evidence-ceiling-2026-08-20.md),
+  [`fill-model-audit`](history/fill-model-audit-2026-08-20.md),
+  [`leveraged-etf-audit`](history/leveraged-etf-audit-2026-08-20.md),
+  [`synthesis-price-adjustment-and-fills`](history/synthesis-price-adjustment-and-fills-2026-08-20.md)
+- 2026-09-02 to 09-06: [`architecture-review`](history/architecture-review-2026-09-02.md),
+  [`evaluation`](history/evaluation-2026-09-02.md),
+  [`split-restatements-reaudit`](history/split-restatements-reaudit-2026-09-03.md),
+  [`review-2026-09-06.md`](history/review-2026-09-06.md),
+  [`execution-capital-data-hardening-2026-09-06.md`](history/execution-capital-data-hardening-2026-09-06.md)
+- 2026-09-11: [`recoverability-audit-2026-09-11.md`](history/recoverability-audit-2026-09-11.md),
+  [`worktree-review-2026-09-11.md`](history/worktree-review-2026-09-11.md)
+- 2026-09-22 to 09-23: [`agent-trading-review`](history/agent-trading-review-2026-09-22.md),
+  [`agent-backtesting-roadmap`](history/agent-backtesting-roadmap-2026-09-23.md),
+  [`agent-research-product-completion-audit`](history/agent-research-product-completion-audit-2026-09-23.md)
 
 ## Generated reports
 

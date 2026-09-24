@@ -70,8 +70,8 @@ def test_root_readme_separates_current_evidence_from_dated_review():
     assert "Dashboard prospective-evidence cards" in readme
     assert "and generated forward reports" in readme
     assert (
-        "[`docs/review-2026-09-06.md`](docs/review-2026-09-06.md) is a detailed dated "
-        "historical snapshot"
+        "[`docs/history/review-2026-09-06.md`](docs/history/review-2026-09-06.md) is a detailed "
+        "dated historical snapshot"
     ) in readme
     assert "Deterministic Sunday walk-forward re-validation" in readme
     assert "former autonomous model review is retired" in readme
@@ -152,7 +152,7 @@ def test_entry_points_link_directly_to_next_admissible_actions():
 
 def test_current_guides_document_the_completed_walkforward_source_transition():
     index = " ".join((REPO_ROOT / "docs" / "README.md").read_text().split())
-    goal = " ".join((REPO_ROOT / "docs" / "live-readiness-goal.md").read_text().split())
+    goal = " ".join((REPO_ROOT / "docs" / "history" / "live-readiness-goal.md").read_text().split())
     current_source = "2a45f846b7a4628661c4539adf71074377c529a450c90cb07cd4125aafed7d75"
     current_cohort = "b304ae92d54e27a8f3a3adaa77dcf5b77175f9be141e71dfa232f29c3b32aec2"
 

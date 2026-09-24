@@ -41,7 +41,7 @@ moving no research counter.
 4. **BUILDLOG.** Nothing is rewritten. New entries are v2 only (tested). Add a one-paragraph
    "Reading this file" note at the top saying entries before the v2 marker are verbose
    historical narration and the snapshot table is the summary.
-5. **`live-readiness-goal.md`.** Keep, banner already added. Delete nothing.
+5. **`history/live-readiness-goal.md`.** Keep, banner already added. Delete nothing.
 
 ## Not in scope
 

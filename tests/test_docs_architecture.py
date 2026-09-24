@@ -53,7 +53,7 @@ def test_current_api_identity_is_not_tied_to_a_retired_milestone():
 
 
 def test_dated_architecture_debts_are_marked_resolved_without_rewriting_history():
-    review = (REPO_ROOT / "docs" / "architecture-review-2026-09-02.md").read_text()
+    review = (REPO_ROOT / "docs" / "history" / "architecture-review-2026-09-02.md").read_text()
     addendum = review.split("> **Resolution addendum, 2026-09-11.**", 1)[1].split("\n\n", 1)[0]
     compact = " ".join(line.removeprefix("> ") for line in addendum.splitlines())
 
@@ -121,8 +121,8 @@ def test_current_security_and_design_docs_match_loopback_deployment():
 def test_live_readiness_requires_evidence_and_operational_gates():
     root = (REPO_ROOT / "README.md").read_text()
     index = (REPO_ROOT / "docs" / "README.md").read_text()
-    goal = (REPO_ROOT / "docs" / "live-readiness-goal.md").read_text()
-    audit = (REPO_ROOT / "docs" / "recoverability-audit-2026-09-11.md").read_text()
+    goal = (REPO_ROOT / "docs" / "history" / "live-readiness-goal.md").read_text()
+    audit = (REPO_ROOT / "docs" / "history" / "recoverability-audit-2026-09-11.md").read_text()
     execution = (REPO_ROOT / "docs" / "design" / "trading-execution-design.md").read_text()
     engine = (REPO_ROOT / "docs" / "design" / "trading-engine-design.md").read_text()
 
@@ -195,7 +195,7 @@ def test_live_readiness_requires_evidence_and_operational_gates():
 
 
 def test_worktree_review_separates_inventory_from_release_state():
-    review = (REPO_ROOT / "docs" / "worktree-review-2026-09-11.md").read_text()
+    review = (REPO_ROOT / "docs" / "history" / "worktree-review-2026-09-11.md").read_text()
     compact = " ".join(review.split())
 
     assert ".venv/bin/python -m tools.worktree_audit --strict" in compact
@@ -214,7 +214,7 @@ def test_worktree_review_separates_inventory_from_release_state():
 
 def test_current_docs_do_not_present_the_dated_worktree_counts_as_live_state():
     architecture = " ".join(
-        (REPO_ROOT / "docs" / "architecture-review-2026-09-02.md")
+        (REPO_ROOT / "docs" / "history" / "architecture-review-2026-09-02.md")
         .read_text()
         .replace(">", "")
         .split()
@@ -229,7 +229,7 @@ def test_current_docs_do_not_present_the_dated_worktree_counts_as_live_state():
 
 
 def test_dated_review_does_not_present_historical_stale_state_as_current():
-    review = (REPO_ROOT / "docs" / "review-2026-09-06.md").read_text()
+    review = (REPO_ROOT / "docs" / "history" / "review-2026-09-06.md").read_text()
     addendum = review.split("> **Historical operational addendum", 1)[1].split("\n\n", 1)[0]
     compact = " ".join(line.removeprefix("> ") for line in addendum.splitlines())
 
