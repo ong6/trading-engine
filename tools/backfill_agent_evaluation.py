@@ -36,7 +36,9 @@ def run(database: Path = DEFAULT_DB) -> dict:
                     indexed += not result["replayed"]
                 except agent_evaluation.EvaluationError:
                     skipped += 1
-            for variant in ("hourly_market_watch_v1", "four_hour_opportunity_review_v1"):
+            for variant in ("hourly_market_watch_v1", "four_hour_opportunity_review_v1",
+                            "hourly_market_watch_v2", "four_hour_opportunity_review_v2",
+                            "hourly_market_watch_v3", "four_hour_opportunity_review_v3"):
                 path = REPO_ROOT / "logs" / f"{variant}.jsonl"
                 for artifact in _jsonl(path):
                     try:

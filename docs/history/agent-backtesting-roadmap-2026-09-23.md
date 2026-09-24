@@ -61,6 +61,15 @@ implementation shortfall, latency, tokens, and alert precision. Resample decisio
 - Use point-in-time security-master/corporate-action semantics such as Databento documents as a
   benchmark even if another vendor is selected.
 
+P13 source review found no credential-free US-equity feed with both a stable official API and clear
+automated non-display/retention rights. The implemented next step is an Alpaca Basic adapter: after
+account terms and credentials are configured it can capture IEX-only realtime snapshots and bounded
+raw daily history as secondary research evidence. IEX represents only one venue, and retrieved
+history has no historical publication timestamp, so neither may be called consolidated, overwrite
+operational prices, or unlock PIT backtesting. TradingView's unofficial WebSocket is technically
+reachable but legally blocked from agent use by its current non-display restrictions. Sharadar
+remains the preferred survivor-aware historical master after budget and license approval.
+
 ## LLM contamination controls
 
 Historical tests need named versus symbol/date-blinded prompts, post-training-cutoff prospective
@@ -138,6 +147,8 @@ non-promotable; only naturally accumulated post-cutoff traces can upgrade eviden
 - [QuantConnect slippage models](https://www.quantconnect.com/docs/v2/writing-algorithms/reality-modeling/slippage/supported-models)
 - [Look-Ahead-Bench](https://arxiv.org/html/2601.13770v1)
 - [Detecting Lookahead Bias in LLM Forecasts](https://arxiv.org/html/2512.23847)
+- [Alpaca market-data feeds](https://docs.alpaca.markets/docs/market-data-faq)
+- [TradingView terms, section 3](https://www.tradingview.com/policies/)
 
 ## Decision needed
 

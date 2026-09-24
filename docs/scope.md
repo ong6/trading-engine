@@ -26,8 +26,9 @@ Maintaining these means keeping them running unchanged. It does not mean improvi
 
 Plan status lives in one place: the table in [`plans/README.md`](plans/README.md). Only plans
 marked `approved` or `active` there admit work, subject to their stated prerequisites. Completed
-plans' outputs (P5, P6, P10, P11, P12) stay in scope for operation and evidence but authorize no
+plans' outputs (P5, P6, P10, P11, P12, P13) stay in scope for operation and evidence but authorize no
 further feature growth.
+P13's optional provider activation remains externally gated on data credentials and accepted terms.
 
 ## Not yet — frozen until its trigger fires
 
@@ -49,8 +50,9 @@ further feature growth.
 
 ## Never on this host
 
-Broker connections, credentials, real capital, anything that leaves the box other than public
-data pushes to the configured upstream.
+Broker connections, broker credentials, real capital, anything that leaves the box other than
+public data pushes to the configured upstream. P13 may load owner-only research-data credentials
+solely for an admitted provider whose automated non-display terms were explicitly accepted.
 
 ## Proposed, not approved
 

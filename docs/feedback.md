@@ -293,3 +293,13 @@ or broker authority. Tonight's pass must use only sources whose terms and creden
 
 **Ceiling changes.** None. P13 may use at most 350 existing spare engine lines, 250 server lines,
 and 150 tools lines; sim and farm remain unchanged.
+
+## 2026-09-24 — Expand P13 only for review remediation
+
+**Verdict.** The owner required three fresh-agent critique and remediation cycles and asked that
+the design mimic real trading well enough to support a later evidence-gated live transition. The
+first review found source-security, cohort-identity, freshness, and service sequencing defects.
+
+**Rule changes.** P13's server allocation increases from 250 to 500 lines solely to remediate those
+findings and add their tests. This does not authorize TradingView data, execution-price use, broker
+connectivity, or real capital.

@@ -19,9 +19,13 @@ HORIZONS = (1, 5, 10, 20)
 TRACE_LIMIT = 500
 POLICIES = {
     "nightly_opportunity_tool_v1": "nightly",
-    "hourly_market_watch_v1": "hourly",
-    "four_hour_opportunity_review_v1": "four_hour",
+    "hourly_market_watch_v3": "hourly",
+    "four_hour_opportunity_review_v3": "four_hour",
 }
+LEGACY_POLICIES = {"hourly_market_watch_v1": "hourly",
+                   "four_hour_opportunity_review_v1": "four_hour",
+                   "hourly_market_watch_v2": "hourly",
+                   "four_hour_opportunity_review_v2": "four_hour"}
 TRACE_REQUIRED_FIELDS = frozenset({
     "window_id", "policy_id", "cadence", "prompt_role", "market_date",
     "observed_at", "completed_at", "information_cutoff_at", "source_kind",
@@ -109,7 +113,8 @@ def _validate_trace(trace: dict) -> None:
     if set(trace) != TRACE_REQUIRED_FIELDS:
         raise EvaluationError("evaluation trace shape is invalid")
     policy_id = trace.get("policy_id")
-    if policy_id not in POLICIES or trace.get("cadence") != POLICIES[policy_id]:
+    if policy_id not in POLICIES | LEGACY_POLICIES or trace.get("cadence") != (
+            POLICIES | LEGACY_POLICIES)[policy_id]:
         raise EvaluationError("evaluation policy or cadence is invalid")
     if type(trace.get("market_date")) is not date:
         raise EvaluationError("evaluation market date is invalid")
@@ -309,6 +314,11 @@ def artifact_trace(artifact: dict, *, source_identifier: str, latency_ms: float)
         {"kind": "artifact", "sha256": artifact["observation_sha256"]},
         *[{"kind": "intraday_receipt", "ticker": item["ticker"],
            "sha256": item["receipt_sha256"]} for item in artifact["quotes"]
+          if item.get("receipt_sha256")],
+        *[{"kind": "realtime_cross_check_receipt", "ticker": item["ticker"],
+           "source_id": item["source_id"], "sha256": item["receipt_sha256"],
+           "execution_authority": "none"}
+          for item in artifact.get("realtime_cross_checks", [])
           if item.get("receipt_sha256")],
         *[{"kind": "news_receipt", "ticker": item["ticker"],
            "sha256": item["receipt_sha256"]} for item in artifact["news_receipts"]],

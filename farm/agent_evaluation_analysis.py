@@ -32,7 +32,7 @@ def expected_windows(start: datetime, end: datetime, sessions: list,
                 if start <= due <= end:
                     result.add(f"nightly:{session.isoformat()}")
             continue
-        if item["id"] not in {"hourly_market_watch_v1", "four_hour_opportunity_review_v1"}:
+        if item.get("cadence") not in {"hourly", "four_hour"}:
             continue
         zone = ZoneInfo(item["timezone"])
         local_day = start.astimezone(zone).date()

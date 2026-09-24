@@ -1040,4 +1040,17 @@ decisions) are preserved verbatim in
 - **Metrics:** source unchanged; P13 uses existing repository headroom with no ceiling increase.
 - **Next:** implement the admitted provider boundary, fixtures, live smoke, and tonight's audit.
 
+## 2026-09-24 — Add an admitted market-data boundary
+
+- **Why:** P13 requires better realtime/historical inputs without allowing API availability to
+  bypass market-data rights or execution boundaries.
+- **What:** add a source registry, exact-response Alpaca IEX snapshot/history adapter, optional
+  hourly/four-hour cross-check evidence, trace linkage, and a private environment-file hook.
+  TradingView is blocked under its current non-display terms; sequence the nightly report after its
+  runner to remove their reproduced DuckDB race; v3 shadow policies require fresh completed bars.
+- **Evidence:** focused source/intraday/service/release tests pass; status reports Alpaca unavailable
+  before network access and TradingView blocked; the 2026-09-23 nightly rerun completed six decisions.
+- **Metrics:** server +487, tools +102, farm net unchanged; P13 and repository caps are green.
+- **Next:** owner accepts Alpaca terms/adds credentials for a live smoke, or licenses PIT history.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -119,9 +119,24 @@ def test_persistent_header_exposes_scheduler_health_and_entry_count():
 
 def test_daily_opportunity_publishes_canonical_evaluation_after_success():
     unit = _unit("server/trading-engine-daily-opportunity.service")
-    assert "ExecStart=%h/trading-engine/.venv/bin/python -m server.daily_opportunity_runner" in unit
-    assert "ExecStartPost=%h/trading-engine/.venv/bin/python -m server.agent_evaluation_reporting" in unit
+    runner = _unit("server/run_daily_opportunity.sh")
+    assert "Type=exec" in unit and "Restart=on-failure" in unit
+    assert "ExecStart=%h/trading-engine/server/run_daily_opportunity.sh" in unit
+    assert "ExecStartPost=" not in unit
+    assert "python -m server.daily_opportunity_runner" in runner
+    assert "exec .venv/bin/python -m server.agent_evaluation_reporting" in runner
     _assert_common_service_hardening(unit)
+
+
+def test_intraday_agents_validate_credentials_before_loading_them():
+    runner = _unit("server/run_hourly_opportunity.sh")
+    for name, variant in (("hourly", "hourly_market_watch_v3"),
+                          ("four-hour", "four_hour_opportunity_review_v3")):
+        unit = _unit(f"server/trading-engine-{name}-opportunity.service")
+        assert "EnvironmentFile=" not in unit
+        assert f"run_hourly_opportunity.sh {variant}" in unit
+    assert runner.index("--preflight") < runner.index("--run-observer")
+    assert "\nsource " not in runner and "read -r" not in runner
 
 
 def test_league_ui_does_not_present_operational_rank_as_research_evidence():

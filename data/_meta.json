@@ -65,8 +65,8 @@
     "store_gb": 4.03
   },
   "price_verify": {
-    "last_run": "2026-09-22T22:41:02.220037+00:00",
-    "as_of": "2026-09-22",
+    "last_run": "2026-09-23T22:41:07.969644+00:00",
+    "as_of": "2026-09-23",
     "source": "api.nasdaq.com/api/quote/{ticker}/historical",
     "role": "verify-only; this source never writes a price row",
     "sessions_requested": 5,
@@ -79,53 +79,220 @@
       "low",
       "close"
     ],
-    "names_selected": 163,
-    "names_checked": 163,
-    "names_agreeing": 163,
-    "names_disagreeing": 0,
+    "names_selected": 162,
+    "names_checked": 162,
+    "names_agreeing": 141,
+    "names_disagreeing": 21,
     "names_not_checked": 0,
     "not_checked_reasons": {},
     "not_checked_names": [],
-    "bars_compared": 652,
-    "field_comparisons": 2608,
+    "bars_compared": 648,
+    "field_comparisons": 2592,
     "worst": {
-      "ticker": "WTI",
-      "date": "2026-09-18",
+      "ticker": "FTRE",
+      "date": "2026-09-22",
       "field": "open",
-      "store": 3.93,
-      "source": 3.925,
-      "diff_bp": 12.72
+      "store": 20.35,
+      "source": 20.13,
+      "diff_bp": 108.11
     },
-    "worst_is_disagreement": false,
-    "disagreements": [],
-    "n_disagreements": 0,
-    "disagreements_by_field": {},
-    "disagreements_by_date": {},
+    "worst_is_disagreement": true,
+    "disagreements": [
+      {
+        "ticker": "FTRE",
+        "date": "2026-09-22",
+        "field": "open",
+        "store": 20.35,
+        "source": 20.13,
+        "diff_bp": 108.11
+      },
+      {
+        "ticker": "CRWL",
+        "date": "2026-09-22",
+        "field": "open",
+        "store": 92.110001,
+        "source": 93.0,
+        "diff_bp": 95.7
+      },
+      {
+        "ticker": "PAGP",
+        "date": "2026-09-22",
+        "field": "open",
+        "store": 27.2997,
+        "source": 27.04,
+        "diff_bp": 95.13
+      },
+      {
+        "ticker": "PRCT",
+        "date": "2026-09-22",
+        "field": "open",
+        "store": 18.73,
+        "source": 18.87,
+        "diff_bp": 74.19
+      },
+      {
+        "ticker": "PCTY",
+        "date": "2026-09-22",
+        "field": "open",
+        "store": 146.020004,
+        "source": 146.92,
+        "diff_bp": 61.26
+      },
+      {
+        "ticker": "MEI",
+        "date": "2026-09-22",
+        "field": "low",
+        "store": 13.49,
+        "source": 13.41,
+        "diff_bp": 59.3
+      },
+      {
+        "ticker": "FRSH",
+        "date": "2026-09-22",
+        "field": "open",
+        "store": 12.7,
+        "source": 12.625,
+        "diff_bp": 59.05
+      },
+      {
+        "ticker": "MNPR",
+        "date": "2026-09-22",
+        "field": "open",
+        "store": 96.089996,
+        "source": 96.6,
+        "diff_bp": 52.8
+      },
+      {
+        "ticker": "ECPG",
+        "date": "2026-09-22",
+        "field": "open",
+        "store": 100.495003,
+        "source": 100.1,
+        "diff_bp": 39.31
+      },
+      {
+        "ticker": "TXG",
+        "date": "2026-09-22",
+        "field": "open",
+        "store": 79.110001,
+        "source": 79.415,
+        "diff_bp": 38.41
+      },
+      {
+        "ticker": "PRU",
+        "date": "2026-09-22",
+        "field": "high",
+        "store": 118.665001,
+        "source": 119.0,
+        "diff_bp": 28.15
+      },
+      {
+        "ticker": "FET",
+        "date": "2026-09-22",
+        "field": "low",
+        "store": 78.510002,
+        "source": 78.31,
+        "diff_bp": 25.47
+      },
+      {
+        "ticker": "DKS",
+        "date": "2026-09-22",
+        "field": "low",
+        "store": 126.239998,
+        "source": 125.95,
+        "diff_bp": 22.97
+      },
+      {
+        "ticker": "TVTX",
+        "date": "2026-09-22",
+        "field": "open",
+        "store": 60.240002,
+        "source": 60.37,
+        "diff_bp": 21.53
+      },
+      {
+        "ticker": "TWST",
+        "date": "2026-09-22",
+        "field": "low",
+        "store": 163.149994,
+        "source": 162.86,
+        "diff_bp": 17.77
+      },
+      {
+        "ticker": "PRCT",
+        "date": "2026-09-22",
+        "field": "high",
+        "store": 19.17,
+        "source": 19.2,
+        "diff_bp": 15.62
+      },
+      {
+        "ticker": "PSNL",
+        "date": "2026-09-22",
+        "field": "low",
+        "store": 16.15,
+        "source": 16.13,
+        "diff_bp": 12.38
+      },
+      {
+        "ticker": "ELVN",
+        "date": "2026-09-22",
+        "field": "high",
+        "store": 49.07,
+        "source": 49.13,
+        "diff_bp": 12.21
+      },
+      {
+        "ticker": "DNTH",
+        "date": "2026-09-22",
+        "field": "high",
+        "store": 100.349998,
+        "source": 100.47,
+        "diff_bp": 11.94
+      },
+      {
+        "ticker": "MNPR",
+        "date": "2026-09-22",
+        "field": "high",
+        "store": 97.254997,
+        "source": 97.37,
+        "diff_bp": 11.81
+      }
+    ],
+    "n_disagreements": 24,
+    "disagreements_by_field": {
+      "open": 11,
+      "low": 5,
+      "high": 8
+    },
+    "disagreements_by_date": {
+      "2026-09-22": 24
+    },
     "n_material": 0,
     "parse_errors": [],
     "n_parse_errors": 0,
     "volume_note": "volume differs by design on the newest session (same-day volume settles after the close); measured, never alarmed on",
     "volume_median_abs_diff_pct_latest_session": null,
     "volume_median_abs_diff_pct_prior_sessions": 0.01,
-    "volume_bars_compared": 652,
-    "provisional_note": "on 2026-09-22 (newest stored session) open/high/low are measured but never flagged; the close IS checked on every name",
+    "volume_bars_compared": 648,
+    "provisional_note": "on 2026-09-23 (newest stored session) open/high/low are measured but never flagged; the close IS checked on every name",
     "provisional_ohl_median_bp": null,
     "provisional_ohl_max_bp": null,
     "provisional_ohl_over_tolerance": 0,
     "provisional_comparisons": 0,
     "store_missing_sessions": {},
     "n_names_store_missing_sessions": 0,
-    "secs": 436.8
+    "secs": 439.8
   },
   "intraday": {
-    "last_run": "2026-09-22T22:44:02.384844+00:00",
-    "tickers_requested": 945,
-    "tickers_with_data": 945,
-    "new_rows_1m": 365927,
-    "new_rows_5m": 113771,
+    "last_run": "2026-09-23T22:43:38.917345+00:00",
+    "tickers_requested": 914,
+    "tickers_with_data": 914,
+    "new_rows_1m": 341190,
+    "new_rows_5m": 125230,
     "failed_tickers": 0,
     "failed_batches": 0,
-    "store_gb": 4.03
+    "store_gb": 4.08
   },
   "signals_incremental": {
     "mode": "incremental",
@@ -133,18 +300,18 @@
     "sources": {
       "squeezemetrics": {
         "status": "ok",
-        "rows_fetched": 7742,
+        "rows_fetched": 7744,
         "rows_inserted": 2,
         "series": [
           "dix",
           "gex"
         ],
-        "secs": 5.3
+        "secs": 2.1
       },
       "vix": {
         "status": "ok",
-        "rows_fetched": 13555,
-        "rows_inserted": 2,
+        "rows_fetched": 13556,
+        "rows_inserted": 1,
         "series": [
           "vix",
           "vix3m"
@@ -154,14 +321,14 @@
       "fred": {
         "status": "ok",
         "rows_fetched": 100,
-        "rows_inserted": 2,
+        "rows_inserted": 3,
         "series": [
           "hy_oas",
           "icsa",
           "nfci",
           "t10y2y"
         ],
-        "secs": 1.7
+        "secs": 1.9
       },
       "putcall": {
         "status": "ok",
@@ -171,7 +338,7 @@
           "pc_equity",
           "pc_total"
         ],
-        "secs": 6.3
+        "secs": 6.9
       },
       "aaii": {
         "status": "ok",
@@ -181,7 +348,7 @@
           "aaii_bear",
           "aaii_bull"
         ],
-        "secs": 49.5
+        "secs": 1.1
       },
       "finra_margin": {
         "status": "ok",
@@ -200,7 +367,7 @@
         "series": [
           "short_interest_dtc"
         ],
-        "secs": 12.0
+        "secs": 11.8
       },
       "cot": {
         "status": "ok",
@@ -209,7 +376,7 @@
         "series": [
           "cot_es_lev_net"
         ],
-        "secs": 3.0
+        "secs": 1.0
       },
       "breadth": {
         "status": "ok",
@@ -220,7 +387,7 @@
           "breadth_pct_200",
           "zweig_ratio"
         ],
-        "secs": 0.4
+        "secs": 0.5
       }
     },
     "rows_inserted": 11,
@@ -228,39 +395,39 @@
     "series_totals": {
       "aaii_bear": 2042,
       "aaii_bull": 2042,
-      "breadth_nh_nl": 3700,
-      "breadth_pct_200": 3700,
+      "breadth_nh_nl": 3701,
+      "breadth_pct_200": 3701,
       "cot_es_lev_net": 1058,
-      "dix": 3871,
+      "dix": 3872,
       "free_credit": 199,
-      "gex": 3871,
-      "hy_oas": 824,
+      "gex": 3872,
+      "hy_oas": 825,
       "icsa": 3115,
       "margin_debt": 356,
-      "nfci": 2906,
-      "pc_equity": 4186,
-      "pc_total": 4186,
+      "nfci": 2907,
+      "pc_equity": 4187,
+      "pc_total": 4187,
       "short_interest_dtc": 74,
-      "t10y2y": 12574,
-      "vix": 9277,
+      "t10y2y": 12575,
+      "vix": 9278,
       "vix3m": 4278,
-      "zweig_ratio": 3700
+      "zweig_ratio": 3701
     },
-    "last_run": "2026-09-22T22:45:24.137755+00:00",
-    "store_gb": 4.03
+    "last_run": "2026-09-23T22:44:07.631212+00:00",
+    "store_gb": 4.08
   },
   "earnings": {
-    "last_run": "2026-09-22T23:05:55.426896+00:00",
-    "as_of": "2026-09-22",
-    "universe": 2859,
+    "last_run": "2026-09-23T23:04:38.637975+00:00",
+    "as_of": "2026-09-23",
+    "universe": 2858,
     "universe_source": "fundamentals-coverage \u222a screen-passers",
-    "pulled_this_run": 2859,
-    "with_upcoming_date": 2800,
+    "pulled_this_run": 2858,
+    "with_upcoming_date": 2799,
     "no_upcoming_date": 59,
     "failed_tickers": 0,
-    "rows_inserted_this_run": 2800,
-    "rows_for_as_of": 2800,
-    "store_gb": 4.03
+    "rows_inserted_this_run": 2799,
+    "rows_for_as_of": 2799,
+    "store_gb": 4.08
   },
   "screen_date": "2026-09-23",
   "last_screen": "2026-09-23T22:32:19.632094+00:00",

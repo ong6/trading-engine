@@ -22,6 +22,7 @@ from . import (
     agent_model_client,
     daily_opportunity_news,
     intraday_source,
+    official_quote_source,
 )
 from .daily_opportunity_runner import _model_input, _validate_output
 from .file_utils import read_bytes
@@ -106,10 +107,27 @@ def _capture_quotes(
     return quotes, failures
 
 
+def _capture_cross_checks(
+    tickers: list[str], *, database: Path, observed_at: datetime,
+    capture=official_quote_source.capture_realtime_many,
+) -> tuple[list[dict], list[dict], dict]:
+    status = official_quote_source.market_data_sources.source_status(
+        official_quote_source.SOURCE_ID
+    )
+    if status["status"] != "admitted":
+        return [], [], status
+    try:
+        return capture(tickers[:MAX_QUOTES], database=database, observed_at=observed_at), [], status
+    except (official_quote_source.OfficialSourceError,
+            official_quote_source.market_data_sources.MarketDataError,
+            bitemporal_facts.FactError, db.DBBusyError, duckdb.Error, OSError) as exc:
+        return [], [{"ticker": "*", "reason": str(exc)[:200]}], status
+
+
 def _observe(
     variant_id: str, *, database: Path = DEFAULT_DB, now: datetime | None = None,
     generate=agent_model_client.generate_opportunity_json, fetch_news=daily_opportunity_news._fetch,
-    fetch_quote=intraday_source._fetch,
+    fetch_quote=intraday_source._fetch, capture_cross_checks=_capture_cross_checks,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> dict:
     variant = _variants().get(variant_id)
@@ -160,18 +178,30 @@ def _observe(
         [(ticker, provider_tickers.get(ticker, ticker)) for ticker in tickers],
         database=database, observed_at=observed, fetch=fetch_quote, clock=clock,
     )
+    if len(quotes) != len(tickers):
+        raise ValueError("complete fresh intraday evidence is required for this shadow window")
+    cross_checks, cross_check_failures, cross_check_status = capture_cross_checks(
+        tickers, database=database, observed_at=observed,
+    )
     news = daily_opportunity_news.capture(["SPY", *tickers], now=observed, fetch=fetch_news)
     for candidate in bundle["candidates"]:
         quote = next((item for item in quotes if item["ticker"] == candidate["ticker"]), None)
         candidate["intraday_observation"] = quote
+        cross_check = next((item for item in cross_checks
+                            if item["ticker"] == candidate["ticker"]), None)
+        candidate["realtime_cross_check"] = cross_check
     model_input, allowed = _model_input(bundle, news, [])
     for ticker, values in allowed.items():
         quote = next((item for item in quotes if item["ticker"] == ticker), None)
         if quote is not None:
             values.add(quote["evidence_id"])
+        cross_check = next((item for item in cross_checks if item["ticker"] == ticker), None)
+        if cross_check is not None:
+            values.add(cross_check["evidence_id"])
     model_input["task"] = variant["prompt_role"]
     model_input["variant_id"] = variant_id
     model_input["execution_authority"] = "none"
+    model_input["realtime_cross_check_source"] = cross_check_status
     model_input["allowed_evidence_ids"] = sorted(set().union(*allowed.values()) if allowed else set())
     information_cutoff_at = clock()
     generation_started = time.monotonic()
@@ -183,6 +213,9 @@ def _observe(
         "prompt_role": variant["prompt_role"], "observed_at": observed.isoformat(),
         "market_date": market_date.isoformat(), "quotes": quotes,
         "quote_failures": quote_failures,
+        "realtime_cross_checks": cross_checks,
+        "realtime_cross_check_failures": cross_check_failures,
+        "realtime_cross_check_source": cross_check_status,
         "news_status": news["status"], "headlines": news["observations"],
         "news_receipts": [
             {key: value for key, value in receipt.items() if key != "response_body"}
@@ -246,17 +279,18 @@ def _observe(
 def observe(
     variant_id: str, *, database: Path = DEFAULT_DB, now: datetime | None = None,
     generate=agent_model_client.generate_opportunity_json, fetch_news=daily_opportunity_news._fetch,
-    fetch_quote=intraday_source._fetch,
+    fetch_quote=intraday_source._fetch, capture_cross_checks=_capture_cross_checks,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> dict:
     with advisory_file_lock(LOCK_PATH):
         return _observe(variant_id, database=database, now=now, generate=generate,
-                        fetch_news=fetch_news, fetch_quote=fetch_quote, clock=clock)
+                        fetch_news=fetch_news, fetch_quote=fetch_quote,
+                        capture_cross_checks=capture_cross_checks, clock=clock)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("variant_id", choices=("hourly_market_watch_v1", "four_hour_opportunity_review_v1"))
+    parser.add_argument("variant_id", choices=("hourly_market_watch_v3", "four_hour_opportunity_review_v3"))
     args = parser.parse_args()
     print(json.dumps(observe(args.variant_id), sort_keys=True))
     return 0

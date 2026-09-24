@@ -149,6 +149,10 @@ does not satisfy the paid historical-universe gate.
 - Sharadar/Norgate/news purchase: owner must approve initial and recurring spend and license terms.
 - IBKR gateway, credentials, subscription, or API: requires a separately approved broker plan.
 - Real capital: requires prospective evidence, immutable model revision, and explicit owner decision.
+- TradingView automation: its current terms prohibit non-display algorithmic use; require a separate
+  written TradingView/data-provider agreement before any payload can be retained or shown to an agent.
+- Official realtime cross-check: Alpaca Basic is supported as an IEX-only research source after the
+  owner accepts its data terms and supplies API credentials. It is not consolidated or execution truth.
 
 ## Implemented product state — 2026-09-23
 
@@ -159,8 +163,9 @@ accepted call is locked, idempotent, append-only, and joined from source evidenc
 tool attempt, order, fill, position, cash, equity, and delayed outcome. The hybrid policy remains a
 buy-side veto and cannot rewrite an order or suppress a sell.
 
-The forward dataset currently contains 22 exact source receipts, 2,376 bitemporal facts, 7 native
-traces, and 25 decisions. Its 100 possible 1/5/10/20-session labels remain immature because the
+The forward dataset currently contains 11 retained traces and 42 decisions across active and legacy
+policies. The active v3 intraday cohort begins with the first scheduled post-open window; all
+currently possible 1/5/10/20-session labels remain immature because the
 prospective schedule activates on 2026-09-24; no result has been fabricated or promoted. The
 separate retrospective 2022 suite contains the original 8 named/blinded decisions and 12 diagnostic
 probe decisions, all marked contamination-prone and non-promotable.
@@ -175,3 +180,23 @@ active; their latest service results are successful; installed files match sourc
 self-test reports `pass` and `broker_route: absent`. The definitive recovery bundle is documented
 in the completion audit. Calendar-mature outcomes and the external gates above are the only remaining
 work; they are evidence collection or owner/vendor decisions, not missing implementation.
+
+## Optional market-data sources
+
+P13 adds a source admission registry and an official Alpaca Market Data adapter. A source is
+classified separately for realtime research, historical staging, execution, operational-price
+mutation, and redistribution. Responses are retained byte-for-byte before normalization, and every
+observation exposes its feed, venue scope, event/receipt time, freshness class, entitlement class,
+and receipt identity. Historical bars are explicitly retrieval-time observations written only to
+the bitemporal fact ledger; they cannot become point-in-time backtest truth without the existing PIT
+manifest audit. Missing credentials return `unavailable` without network or database access.
+The revised intraday policies are versioned as v3, require a complete set of closed, no-more-than-
+20-minute-old five-minute bars, and start after the open. Older v1/v2 artifacts remain immutable
+legacy diagnostics and are excluded from active policy scoring.
+
+The Mathieu2301 Tradingview-API project was reviewed at upstream commit
+`5baea86c8c7e576f13464919c86c3b4c4b0ecf4c`. Its package declares ISC, but the repository contains
+no license file, and neither fact grants rights to TradingView market data. TradingView's current
+terms classify agent decisions and algorithmic price use as prohibited non-display use absent a
+separate agreement. The source is therefore registered as `blocked` and is never contacted by the
+runtime.

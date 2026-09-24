@@ -113,8 +113,8 @@ def status(con: duckdb.DuckDBPyConnection) -> dict:
         "evaluation": agent_evaluation.status(con),
         "schedule": {
             "nightly": "Tue..Sat *-*-* 02:00:00 UTC",
-            "hourly": "Mon..Fri *-*-* 09..16:15:00 America/New_York",
-            "four_hour": ["09:30", "13:30 America/New_York"],
+            "hourly": "Mon..Fri *-*-* 10..16:15:00 America/New_York",
+            "four_hour": ["10:30", "13:30 America/New_York"],
             "persistent_nightly": True,
         },
         "execution_authority": "local_simulator_only", "broker_route": "absent",

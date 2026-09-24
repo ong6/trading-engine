@@ -278,11 +278,13 @@ def build_report(
                        "instructions_sha256,COUNT(*) FROM agent_evaluation_traces "
                        "GROUP BY ALL ORDER BY policy_id,prompt_role,model,model_version"
                    ).fetchall()]
+    legacy = sorted({row["policy_id"] for row in rows if row["policy_id"] not in POLICIES})
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": generated_at.astimezone(timezone.utc).isoformat(),
         "evidence_class": "prospective_forward_only", "promotion_authority": "none",
         "horizons": list(HORIZONS), "policies": policies, "cohorts": cohorts,
+        "legacy_policy_ids": legacy,
         "pairs": paired_metrics(rows, POLICIES),
         "data_provenance": provenance,
         "coverage": coverage(con, rows, generated_at, registration_path, HORIZONS),
