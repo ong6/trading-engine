@@ -19,14 +19,14 @@ These are final and baked into everything below — not up for re-litigation in 
 
 | Decision | Value |
 |---|---|
-| Repo | **`trading-engine`**, cloned as a **sibling of this store** on every machine (skills here read `../trading-engine/data/`; on Windows/WSL that's `~/coding/trading-engine`, on the devbox it sits next to wherever the store is cloned) |
+| Repo | **`trading-engine`**, cloned as a **sibling of this store** on every machine (skills here read `../trading-engine/data/`; on Windows/WSL that's `~/coding/trading-engine`, on the host it sits next to wherever the store is cloned) |
 | Primary data source | **yfinance** batched EOD OHLCV; Nasdaq historical API is verification-only. Stooq is blocked from this network and is not a runtime fallback. |
-| Split | Multi-GB DuckDB (`store/market.duckdb`) is **devbox-only and gitignored**; only compact derived outputs commit and sync |
-| Runtime | **Devbox** (32 cores / 62 GB RAM / 119 GB root disk, Debian 10, always on — inventory retained privately at `personal-data-store/life/tech/devices.md`) runs the engine; every other machine only pulls outputs |
+| Split | Multi-GB DuckDB (`store/market.duckdb`) is **host-only and gitignored**; only compact derived outputs commit and sync |
+| Runtime | **The always-on host** (32 cores / 62 GB RAM / 119 GB root disk, Debian 10, always on — inventory retained privately at `personal-data-store/life/tech/devices.md`) runs the engine; every other machine only pulls outputs |
 | Phase 1 target | **Daily screener**: yfinance → DuckDB → breadth-qualified market date → Minervini trend template (all 8 checks) + IBD-style RS-rank → ranked candidate list syncing back |
 | Positioning (2026-07-15, per the private research note cited above) | **Decision-support + risk-management engine** feeding the discretionary playbook process — not an autonomous alpha bot. Screener = candidate *filter* (proxies documented factors); expectations anchored to the factor literature, and past performance does not model future results |
 | Capital base (2026-07-15) | **≈ S$50k (~US$39k)** reference notional, US market from Singapore. Strategy families: momentum + mean reversion, value via ETF sleeve |
-| **Scope revision (2026-07-16)** | **The devbox build is a fully local MOCK trading bot + research engine — no broker connection, no credentials, and no Telegram. Only public derived data may leave through Git, and only when a usable upstream is configured.** Real-money execution (moomoo) is a deferred future phase on personal hardware — see [trading-execution-design.md](trading-execution-design.md). Full scope in **§12** |
+| **Scope revision (2026-07-16)** | **The host build is a fully local MOCK trading bot + research engine — no broker connection, no credentials, and no Telegram. Only public derived data may leave through Git, and only when a usable upstream is configured.** Real-money execution (moomoo) is a deferred future phase on personal hardware — see [trading-execution-design.md](trading-execution-design.md). Full scope in **§12** |
 | Compute goal (2026-07-16) | **Work the box fully, never overload it**: full-US universe scanning (thousands of names, not 550), a backtest farm on idle cores, a multi-portfolio paper league, and continuous data mining/archiving (§12) — all heavy work goes through a job queue with capped workers and load/RAM/disk guards (§12.7), so the engine can never overrun the machine |
 
 ---
@@ -43,14 +43,14 @@ lessons). Its weak point is the **data layer**, in exactly the ways an always-on
 - **No candidate generation.** The watchlist is hand-fed. Nothing sweeps the market *for* you.
 - **Scheduling is ephemeral** (the trading README says so outright).
 
-The devbox removes all four. First deliverable: a daily screener that pulls the market into
+The host removes all four. First deliverable: a daily screener that pulls the market into
 a local database and produces a ranked candidate list on every machine by morning.
 
 ---
 
 ## 2 · Architecture — two repos, clean split
 
-`personal-data-store` is **synced across every machine**; only the **devbox is always
+`personal-data-store` is **synced across every machine**; only the **host is always
 running**. So the engine and its heavy data must NOT live in the synced judgment store.
 They get their own repo, and only **compact derived outputs** sync back.
 
@@ -60,7 +60,7 @@ personal-data-store/        ← THIS repo. Synced everywhere. Judgment + query l
                                Skills gain read-only access to ../trading-engine/data/.
 
 trading-engine/             ← NEW repo. Sibling clone next to this store on every machine.
-  engine/                   ← committed, small. Runs ONLY on the devbox.
+  engine/                   ← committed, small. Runs ONLY on the host.
     collect.py                 batched yfinance EOD → DuckDB
     market_date.py             fail-closed breadth gate for nightly state
     screen.py                  Minervini template + RS rank over the universe
@@ -76,7 +76,7 @@ trading-engine/             ← NEW repo. Sibling clone next to this store on ev
     eod/<TICKER>.csv           last ~250 bars for watchlist + top-100 passing names
     universe.csv               current screened universe + index membership
     _meta.json                 last run timestamp, row counts, source health
-  store/                    ← GITIGNORED. Devbox-only.
+  store/                    ← GITIGNORED. Host-only.
     market.duckdb              full universe OHLCV history (big; re-screen/backtest)
   logs/                     ← GITIGNORED. run logs.
   .gitignore                   store/, logs/, .venv/, __pycache__/
@@ -84,13 +84,13 @@ trading-engine/             ← NEW repo. Sibling clone next to this store on ev
 
 **Daily data flow:**
 
-1. **Devbox**, post-US-close (cron): `run_daily.sh` → `collect.py` (yfinance → DuckDB)
+1. **The always-on host**, post-US-close (cron): `run_daily.sh` → `collect.py` (yfinance → DuckDB)
    → `market_date.py` (breadth gate) → `screen.py` and `league.py` on that exact date
    → monitors/verification/farm → `sync.py` (path-limited `data/` commit and conditional push).
 2. **Any laptop:** `git pull` in `trading-engine` → today's screen is a **local file**.
    A skill in this repo reads `../trading-engine/data/screens/latest.md` and surfaces new names.
 
-**The invariant:** the multi-GB `market.duckdb` never leaves the devbox (gitignored). Only
+**The invariant:** the multi-GB `market.duckdb` never leaves the host (gitignored). Only
 the ranked list + small EOD windows for names actually being watched sync. The payload stays
 git-friendly, and this store's rule holds — *regenerable machine data = gitignored; the
 engine scripts = committed.*
@@ -184,7 +184,7 @@ CREATE TABLE screen_results (
 );
 ```
 
-History accumulates forever on the devbox, so real backtests and exact "since last scan"
+History accumulates forever on the host, so real backtests and exact "since last scan"
 deltas become possible for free.
 
 **Point-in-time discipline (2026-07-15):** `screen_results` and daily `universe` membership
@@ -275,7 +275,7 @@ reduced size — the single most robust verified finding from the research (SPY 
 
 ## 7 · Sync & git strategy (`sync.py`)
 
-- **Only the devbox writes `data/`.** Laptops read. → no merge conflicts on outputs.
+- **Only the host writes `data/`.** Laptops read. → no merge conflicts on outputs.
 - `run_daily.sh` pulls only when the current branch has a resolvable configured upstream; pull
   failure is visible but does not discard the validated local working state.
 - `engine.sync` refuses a pre-existing staged index, stages/commits only `data/`, restores only
@@ -291,7 +291,7 @@ reduced size — the single most robust verified finding from the research (SPY 
 
 ---
 
-## 8 · Devbox deploy plan
+## 8 · Host deploy plan
 
 - **Python env:** **`uv`-managed Python 3.12** — Debian 10 ships Python 3.7, too old for
   current DuckDB/pandas, so the system interpreter is never used. Direct runtime requirements
@@ -310,9 +310,9 @@ reduced size — the single most robust verified finding from the research (SPY 
   → screen (explicit date) → actions/reconcile → league (same explicit date) → forward monitors
   → sync/verification/farm → log to `logs/`. Fatal failures leave a stage-named `TODO:`
   breadcrumb; partial market data never silently advances paper state.
-- **Build on the devbox directly** (decided 2026-07-16) — the real risks are environmental
+- **Build on the host directly** (decided 2026-07-16) — the real risks are environmental
   (corp egress blocking Stooq, pip MITM, cron, disk), so the code is written and tested where
-  it runs. **M0's literal first task: verify each data source from the devbox network.**
+  it runs. **M0's literal first task: verify each data source from the host network.**
   Laptops only `git pull` outputs. This store never runs the engine.
 
 ---
@@ -344,11 +344,11 @@ so their future-tense bullets are provenance, not promises about files that exis
 
 | Phase | Deliverable | Runs on |
 |---|---|---|
-| **1 — Screener** (this spec's target) | `trading-engine` repo, collect + screen + sync, daily ranked candidates syncing back | devbox cron |
+| **1 — Screener** (this spec's target) | `trading-engine` repo, collect + screen + sync, daily ranked candidates syncing back | host cron |
 | 2 — Local-first skills | `/watchlist-scan` + `/analyze-stock` read the engine's cache | any machine |
-| 3 — Trigger watcher | always-on Python daemon: checks written triggers/stops vs live quotes every ~10 min RTH → push alert + inbox line. **No LLM.** | devbox systemd |
+| 3 — Trigger watcher | always-on Python daemon: checks written triggers/stops vs live quotes every ~10 min RTH → push alert + inbox line. **No LLM.** | host systemd |
 | 4 — Autonomous weekly run (**retired 2026-08-18**) | The former `claude -p` review loop was removed with the agentic layer after repeated authentication failures and no decision value. Current algorithm cron remains deterministic. A replacement agent may affect only separately registered agent-only or hybrid paper books after the structured-proposal and automatic-paper gates in [`../history/live-readiness-goal.md`](../history/live-readiness-goal.md); it cannot alter algorithm-only books, promote a strategy, or trade live capital. | retired implementation; replacement gated |
-| 5 — Universe expansion / backtest | screen thousands of names; backtest on stored history (where the spare cores finally matter). **First two jobs (2026-07-15):** (a) re-run the trend template on the engine's own point-in-time universe with next-open fills — the honest test; (b) validate the regime gate + any mean-reversion sleeve before either touches sizing | devbox |
+| 5 — Universe expansion / backtest | screen thousands of names; backtest on stored history (where the spare cores finally matter). **First two jobs (2026-07-15):** (a) re-run the trend template on the engine's own point-in-time universe with next-open fills — the honest test; (b) validate the regime gate + any mean-reversion sleeve before either touches sizing | host |
 
 ---
 
@@ -358,7 +358,7 @@ so their future-tense bullets are provenance, not promises about files that exis
 |---|---|---|
 | 1 | Backfill depth | **Max available history** (settled 5y on 2026-07-15, superseded by §12.1 the next day) — backtesting headroom is a first-class goal and storage is trivial |
 | 2 | Universe source of truth | **Nasdaq Trader symbol directory** (`nasdaqtraded.txt` — keyless, official, covers all US-listed stocks/ETFs), filtered by the §12.1 liquidity floor computed from our own price history. S&P 500 / NDX membership (Wikipedia, refreshed weekly) becomes a *tag* on rows, per §12.1. **Daily membership snapshot archived, append-only** (settled 2026-07-15) |
-| 3 | `eod/` cache scope | **Watchlist names + the current passing set** — still bounded (typically well under 100 small CSVs), and laptops can chart any live candidate offline. Anything else is queried on the devbox |
+| 3 | `eod/` cache scope | **Watchlist names + the current passing set** — still bounded (typically well under 100 small CSVs), and laptops can chart any live candidate offline. Anything else is queried on the host |
 | 4 | Run time | **22:30 UTC weekdays**, market-calendar gated. There is no second catch-up run; incomplete data fails at the breadth-qualified date gate. A later run may retry the same session, but cannot skip it and reconstruct history using later-known state. |
 | 5 | Push cadence | **At most one path-limited `data/` commit per driver run**, only when generated outputs changed; push occurs only when a usable upstream is configured. |
 
@@ -366,7 +366,7 @@ so their future-tense bullets are provenance, not promises about files that exis
 
 ## 12 · Mock-bot & research-engine scope (2026-07-16) — what we are actually building
 
-**Decision:** the devbox build is a **self-contained mock trading system + research engine.**
+**Decision:** the host build is a **self-contained mock trading system + research engine.**
 No broker API, no Telegram, no credentials of any kind on the machine — its only external
 traffic is public market data in and, only when a usable upstream is configured, public derived
 data out through Git. Real-money execution is a
@@ -461,7 +461,7 @@ snapshots spanning at least 1,095 days (and stock selection has its own 756-date
 ### 12.5 What syncs vs what stays
 
 Unchanged invariant, bigger store: `store/market.duckdb` (now including intraday + fundamentals
-+ results) stays devbox-only and gitignored; `data/` (screens, league, reports, small EOD
++ results) stays host-only and gitignored; `data/` (screens, league, reports, small EOD
 windows) commits and syncs. The mock system's trades live in the engine repo, **not** in this
 store's `trades/` (that folder remains reserved for the owner's real/graded trades).
 

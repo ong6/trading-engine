@@ -107,13 +107,13 @@ def test_current_security_and_design_docs_match_loopback_deployment():
     assert "do not expose ports 8000 or 3000" in security
     assert "SSH tunnel" in security
     assert "API and UI bind loopback only" in execution
-    assert "DEVBOX (loopback services; SSH-tunnel access" in execution
+    assert "HOST (loopback services; SSH-tunnel access" in execution
     assert "SSH port-forwarding is the supported access path" in execution
     assert "Deterministic Sunday revalidation" in execution
     assert "scheduled revalidation cannot change membership" in execution
     assert "loopback-only" in engine
     assert "UI reachable from the corp intranet" not in execution
-    assert "DEVBOX (company intranet" not in execution
+    assert "(company intranet" not in execution
     assert "direct intranet access is a convenience" not in execution
     assert "Weekly review + refinement loop" not in execution
 

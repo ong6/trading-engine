@@ -48,7 +48,7 @@ conflict; execution design §7 has exit criteria).
   (earnings nightly, fundamentals Fridays, `ac9fa72`); first real full runs in flight
   2026-07-18 (jobs 7+8).
 
-## Environment truth (verified 2026-07-16, from this devbox)
+## Environment truth (verified 2026-07-16, from this host)
 
 | Source / tool | Status | Evidence |
 |---|---|---|
@@ -59,7 +59,7 @@ conflict; execution design §7 has exit criteria).
 | PyPI via uv | **WORKS** — no TLS interception problems | `uv pip install duckdb pandas yfinance …` clean |
 | uv + Python 3.12 | Installed: uv 0.11.29 → `~/.local/bin`, CPython 3.12.13; system python is 3.7 (never use) | `.venv` created at repo root |
 | gh CLI | **NOT AVAILABLE** — `/usr/local/bin/gh` is an unrelated internal tool, not GitHub CLI | repo is **local-only** for now; store's remote proves GitHub SSH (`ssh://git@ssh.github.com:443`) works, so a remote can be added once the owner creates the GitHub repo |
-| Disk | Repo lives on `/data00` — **411 GB free** (root `/` has 99 GB free) | `df -h` 2026-07-16 |
+| Disk | Repo lives on the `<host>` data volume — **411 GB free** (root `/` has 99 GB free) | `df -h` 2026-07-16 |
 | Box | 32 cores, 62 GB RAM confirmed | `nproc`, `free -g` |
 | Node.js | Not installed, but nodejs.org tarball (HTTP 200) + registry.npmjs.org (HTTP 200) both reachable — install user-space at M3 | curl checks 2026-07-16 |
 
@@ -7491,7 +7491,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   checked UI pages/proxies return HTTP 200. `/meta` fell from 8,359 to 8,101 bytes; removing only
   the four present `log` fields from the captured predecessor yields the new response exactly,
   weekly liquidity remains legitimately `null` before its first scheduled slot, and no
-  `/data00/home/` path remains. `/health` retains its exact three-field path-free response. Both
+  absolute host home path remains. `/health` retains its exact three-field path-free response. Both
   services remain enabled and active with `NRestarts=0`; automation remains converged at six
   entries with `Linger=yes`; and all five discoverable retained original/restored schema-v1/v2
   bundle trees verify.
@@ -7614,7 +7614,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   production npm vulnerabilities, documentation contracts, diff hygiene, and the empty-index
   gate. After restarting only the changed UI, twelve read-only direct API requests and six UI
   pages/proxies return HTTP 200. Direct and proxied `/meta` are byte-identical at 7,911 bytes,
-  pass the source-tree browser validator, and expose no `/data00/home/` path. Both services remain
+  pass the source-tree browser validator, and expose no absolute host home path. Both services remain
   enabled and active with `NRestarts=0`; the read-only automation plan is converged at six managed
   entries with `Linger=yes`; and all five retained original/restored schema-v1/v2 recovery trees
   verify. Strategy evidence remains an honest wait: Sector is `ACCUMULATING` at 5/200, XS is
@@ -7684,7 +7684,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   twelve read-only direct API requests and six UI pages/proxies return HTTP 200. Direct and proxied
   `/meta` remain byte-identical at 7,911 bytes with SHA-256
   `c43a029dd9d84c525e14ad88edb5106a7bf332b9edf283d15dff9b1b5c5fd66f`, pass the source-tree
-  browser validator, and expose no `/data00/home/` path. Both services remain enabled and active
+  browser validator, and expose no absolute host home path. Both services remain enabled and active
   with `NRestarts=0`; the read-only automation plan is converged at six managed entries with
   `Linger=yes`; and all five retained original/restored schema-v1/v2 recovery trees verify.
 - Strict inventory remains 336 fully owned changed paths (102 tracked modifications and 234
@@ -7719,7 +7719,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   changed UI, twelve read-only direct API requests and six UI pages/proxies return HTTP 200. Direct
   and proxied `/meta` remain byte-identical at 7,911 bytes with SHA-256
   `c43a029dd9d84c525e14ad88edb5106a7bf332b9edf283d15dff9b1b5c5fd66f`, pass the source-tree
-  browser validator, and expose no `/data00/home/` path. Both services remain enabled and active
+  browser validator, and expose no absolute host home path. Both services remain enabled and active
   with `NRestarts=0`; the read-only automation plan is converged at six managed entries with
   `Linger=yes`; and all five retained original/restored schema-v1/v2 recovery trees verify.
 - Strict inventory remains 336 fully owned changed paths (102 tracked modifications and 234
@@ -7750,7 +7750,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   gate. After restarting both changed services, the complete `/meta` response is byte-for-byte
   unchanged at 7,911 bytes with SHA-256
   `c43a029dd9d84c525e14ad88edb5106a7bf332b9edf283d15dff9b1b5c5fd66f`; direct and proxied
-  copies pass the source-tree browser validator and expose no `/data00/home/` path. Twelve direct
+  copies pass the source-tree browser validator and expose no absolute host home path. Twelve direct
   read-only API routes and six UI pages/proxies return HTTP 200. Both services remain enabled and
   active with `NRestarts=0`; automation is converged at six managed entries with `Linger=yes`; and
   all five retained original/restored schema-v1/v2 recovery trees verify.
@@ -7783,7 +7783,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   gate. After restarting both changed services, the complete `/meta` response is byte-for-byte
   unchanged at 7,911 bytes with SHA-256
   `c43a029dd9d84c525e14ad88edb5106a7bf332b9edf283d15dff9b1b5c5fd66f`; direct and proxied
-  copies pass the source-tree browser validator and expose no `/data00/home/` path. Twelve direct
+  copies pass the source-tree browser validator and expose no absolute host home path. Twelve direct
   read-only API routes and six UI pages/proxies return HTTP 200. Both services remain enabled and
   active with `NRestarts=0`; automation is converged at six managed entries with `Linger=yes`; and
   all five retained original/restored schema-v1/v2 recovery trees verify.
@@ -7814,7 +7814,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   gate. After restarting both changed services, the complete `/meta` response is byte-for-byte
   unchanged at 7,911 bytes with SHA-256
   `c43a029dd9d84c525e14ad88edb5106a7bf332b9edf283d15dff9b1b5c5fd66f`; direct and proxied
-  copies pass the source-tree browser validator and expose no `/data00/home/` path. Twelve direct
+  copies pass the source-tree browser validator and expose no absolute host home path. Twelve direct
   read-only API routes and six UI pages/proxies return HTTP 200. Both services remain enabled and
   active with `NRestarts=0`; automation is converged at six managed entries with `Linger=yes`; and
   all five retained original/restored schema-v1/v2 recovery trees verify.
@@ -7848,7 +7848,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   empty-index gate. After restarting the changed services, the complete `/meta` response remains
   byte-for-byte unchanged at 7,911 bytes with SHA-256
   `c43a029dd9d84c525e14ad88edb5106a7bf332b9edf283d15dff9b1b5c5fd66f`; direct and proxied
-  copies pass the source-tree browser validator and expose no `/data00/home/` path. Thirteen direct
+  copies pass the source-tree browser validator and expose no absolute host home path. Thirteen direct
   read-only API routes and six UI pages/proxies return HTTP 200. Both services remain enabled and
   active with `NRestarts=0`; automation is converged at six managed entries with `Linger=yes`; and
   all five retained original/restored schema-v1/v2 recovery trees verify.
@@ -7878,7 +7878,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   vulnerabilities, strict worktree ownership, diff hygiene, and the empty-index gate. After
   restarting both changed services, `/meta` remains byte-for-byte unchanged at 7,911 bytes with
   SHA-256 `c43a029dd9d84c525e14ad88edb5106a7bf332b9edf283d15dff9b1b5c5fd66f`; direct and proxied
-  copies pass the source-tree browser validator and expose no `/data00/home/` path. Thirteen direct
+  copies pass the source-tree browser validator and expose no absolute host home path. Thirteen direct
   read-only API routes and six UI pages/proxies return HTTP 200. Both services remain enabled and
   active with `NRestarts=0`, and automation remains converged at six entries with `Linger=yes`.
 - Strict inventory remains 336 fully owned changed paths (102 tracked modifications and 234
@@ -7911,7 +7911,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   controlled API/UI restart, oversized route IDs fail with HTTP 422 before database access and
   `/meta` remains byte-for-byte unchanged at 7,911 bytes with SHA-256
   `c43a029dd9d84c525e14ad88edb5106a7bf332b9edf283d15dff9b1b5c5fd66f`; direct and proxied
-  copies are identical, pass the source-tree browser validator, and expose no `/data00/home/`
+  copies are identical, pass the source-tree browser validator, and expose no absolute host home
   path. Thirteen direct read-only API routes and six UI pages/proxies return HTTP 200. Both services
   remain enabled and active with `NRestarts=0`; automation is drift-free at six managed entries
   with `Linger=yes`; and all five retained original/restored schema-v1/v2 recovery trees verify.
@@ -7947,7 +7947,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   controlled API/UI restart, malformed ticker route forms fail with HTTP 422 before database access
   and `/meta` remains byte-for-byte unchanged at 7,911 bytes with SHA-256
   `c43a029dd9d84c525e14ad88edb5106a7bf332b9edf283d15dff9b1b5c5fd66f`; direct and proxied
-  copies are identical, pass the source-tree browser validator, and expose no `/data00/home/`
+  copies are identical, pass the source-tree browser validator, and expose no absolute host home
   path. Thirteen direct read-only API routes and six UI pages/proxies return HTTP 200. Both services
   remain enabled and active with `NRestarts=0`; automation is drift-free at six managed entries
   with `Linger=yes`; and all five retained original/restored schema-v1/v2 recovery trees verify.
@@ -8028,7 +8028,7 @@ raw-data paths removed from every commit). Secret scan across full history: clea
   ownership, diff hygiene, and the empty-index gate. After a controlled API/UI restart, `/meta`
   remains byte-for-byte unchanged at 7,911 bytes with SHA-256
   `c43a029dd9d84c525e14ad88edb5106a7bf332b9edf283d15dff9b1b5c5fd66f`; direct/proxied copies
-  are identical, pass the source-tree browser validator, and expose no `/data00/home/` path.
+  are identical, pass the source-tree browser validator, and expose no absolute host home path.
   Thirteen direct read-only API routes and six UI pages/proxies return HTTP 200. Both services are
   enabled and active with `NRestarts=0`; automation is drift-free at six managed entries with
   `Linger=yes`; and all five retained original/restored schema-v1/v2 recovery bundles verify.
@@ -10864,13 +10864,13 @@ raw-data paths removed from every commit). Secret scan across full history: clea
 - **Why:** owner decision (`docs/feedback.md`, second 2026-09-18 entry) to publish the repo as a
   showcase and case-study target for junxiong.dev/trading-engine.
 - **What:** history rewritten with
-  `git filter-repo --replace-text` / `--replace-message` for an employer email, the devbox home
+  `git filter-repo --replace-text` / `--replace-message` for an employer email, the host home
   path, an internal tool name and an agent co-author trailer; force-pushed; visibility public.
   201 commits, dates unchanged. Backdating was requested and refused.
 - **Evidence:** fresh clone, `git log main -p | grep -ciE '<the four patterns>'` → 0;
   `gh repo view --json visibility` → PUBLIC.
 - **Metrics:** unchanged (docs only).
-- **Next:** nothing admitted. Existing clones (devbox) must be re-cloned before the next session.
+- **Next:** nothing admitted. Existing clones (the host) must be re-cloned before the next session.
 
 ## 2026-09-18 — Resume bounded agent decisions and alpha research
 
