@@ -6,24 +6,30 @@ backlog row or a reproduced defect (see `AGENTS.md`). Each plan has a YAML heade
 `approved`. Agents may move `approved → active → done` and must record the transition in the
 plan and the BUILDLOG.
 
-| Plan | Status | One line | Owner decision needed |
-|---|---|---|---|
-| [P1 — Appliance mode](p1-appliance-mode.md) | active | Freeze growth, shrink the session loop, retire doc-pinning tests, put the box on a weekly check | None |
-| [P2 — League collapse](p2-league-collapse.md) | approved | Retire 11 of 21 books whose question the evidence already answered | None |
-| [P3 — Point-in-time data](p3-point-in-time-data.md) | approved | Sharadar recommended for survivorship-free research data; Norgate fallback | Set a spend ceiling before purchase |
-| [P4 — Broker decision](p4-broker-decision.md) | done | Real broker eventually: IBKR primary, Moomoo fallback; P7 carries the simulator-only next step | None |
-| [P5 — Agent paper decisions](p5-agent-paper-decisions.md) | done | Let a constrained agent control one isolated simulator-only paper book | None |
-| [P6 — Alpha experiment](p6-alpha-experiment.md) | done | Run one theory-led fixed-instrument experiment under a frozen protocol | None |
-| [P7 — Autonomous paper trial](p7-autonomous-paper-trial.md) | active | Compare algorithm-only, AI-only, and hybrid policies with a cloned S$10k envelope | Separate data-vendor budget remains unset |
-| [P8 — Daily opportunity agent](p8-daily-opportunity-agent.md) | active | Detect daily standouts and retain bounded watch/hold/swing assessments and alerts | None |
-| [P9 — Multi-cadence agent tools](p9-multi-cadence-agent-tools.md) | active | Compare shadow cadences and add one locked nightly simulator tool path | None |
-| [P10 — 2022 agent replay](p10-2022-agent-replay.md) | active | Run a contamination-labelled price-only historical model diagnostic | None |
-| [P11 — Forward agent evaluation](p11-forward-agent-evaluation.md) | active | Unify point-in-time traces and delayed outcome labels | None |
-| [P12 — Agent research product](p12-agent-research-product.md) | done | Delivered the full data, execution, and evaluation product programme | Data/news spend remains external |
+This table is the single source of plan status. `scope.md` links here instead of restating it;
+each plan's YAML `status` must match its row.
 
-Recommended order: P8's daily observation path and P7's monthly comparison may proceed without
-sharing books or performance evidence; P1 and P2 remain admitted maintenance work, and P3 resumes
-when the owner separately approves a data-vendor budget.
+| Plan | Title | Status | One-line outcome |
+|---|---|---|---|
+| [P1](p1-appliance-mode.md) | Appliance mode | active | Admitted maintenance; not progressed since approval (doc-pinning tests not yet retired) |
+| [P2](p2-league-collapse.md) | League collapse | approved | Retire 11 of 21 books whose question the evidence already answered; not started |
+| [P3](p3-point-in-time-data.md) | Point-in-time data | approved | Sharadar recommended, Norgate fallback; **blocked** until the owner sets a spend ceiling |
+| [P4](p4-broker-decision.md) | Broker decision | done | Decided 2026-09-20: IBKR eventually (Moomoo fallback) on personal hardware, via a later execution plan |
+| [P5](p5-agent-paper-decisions.md) | Agent paper decisions | done | Completed 2026-09-18: a constrained agent controls one isolated simulator-only book |
+| [P6](p6-alpha-experiment.md) | Alpha experiment | done | Completed 2026-09-18: one frozen credit-confirmed SPY/BIL experiment |
+| [P7](p7-autonomous-paper-trial.md) | Autonomous paper trial | active | Algorithm vs AI vs hybrid on a cloned S$10k envelope; built but **not yet activated** |
+| [P8](p8-daily-opportunity-agent.md) | Daily opportunity agent | active | Live: nightly standouts, watch/hold/swing assessments, locked simulator trade tool |
+| [P9](p9-multi-cadence-agent-tools.md) | Multi-cadence agent tools | active | Live: hourly and four-hour shadow observers plus the nightly simulator tool path |
+| [P10](p10-2022-agent-replay.md) | 2022 agent replay | done | Contamination-labelled price-only diagnostic; cannot promote anything |
+| [P11](p11-forward-agent-evaluation.md) | Forward agent evaluation | done | Evaluation ledger built; it operates as part of the appliance |
+| [P12](p12-agent-research-product.md) | Agent research product | done | Full data, execution, and evaluation programme delivered 2026-09-23; data/news spend external |
+
+P13 (one official market-data API as a cross-check) is expected next; add its row when its plan
+file lands.
+
+Recommended order: follow [`../direction.md`](../direction.md) ("Focus now"). P8/P9 run untouched
+while P7 is activated; P1 and P2 remain admitted maintenance work; P3 waits for the owner's
+data-vendor budget.
 
 ## Plan template
 

@@ -20,7 +20,8 @@ measurements supporting those decisions, not the live runtime state.
   entry budget, enforced by `tests/test_operating_contract.py`.
 - [`metrics.md`](metrics.md) — what the drift snapshot measures and how to read it; the
   generated table is [`../data/reports/metrics/README.md`](../data/reports/metrics/README.md).
-- [`plans/README.md`](plans/README.md) — follow-up plans:
+- [`plans/README.md`](plans/README.md) — the single plan status table (status and one-line
+  outcome per plan):
   [P1 appliance mode](plans/p1-appliance-mode.md), [P2 league collapse](plans/p2-league-collapse.md),
   [P3 point-in-time data](plans/p3-point-in-time-data.md), [P4 broker decision](plans/p4-broker-decision.md),
   [P5 agent paper decisions](plans/p5-agent-paper-decisions.md),
