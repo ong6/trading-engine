@@ -1,10 +1,10 @@
 {
-  "last_run": "2026-09-23T22:32:15.812321+00:00",
+  "last_run": "2026-09-24T22:32:09.120212+00:00",
   "mode": "incremental",
-  "universe_size": 12678,
-  "active_count": 11861,
+  "universe_size": 12687,
+  "active_count": 11866,
   "liquid_count": 4100,
-  "prices_rows": 20784003,
+  "prices_rows": 20788080,
   "tickers_with_data": 12565,
   "stale_tickers": {
     "count": 24,
@@ -43,17 +43,17 @@
   "regime": "risk-on",
   "actions_incremental": {
     "mode": "incremental",
-    "universe": 152,
+    "universe": 153,
     "universe_source": "active-held \u222a active-pending \u222a core-ETFs \u222a screen-top-N",
-    "pulled_this_run": 152,
-    "with_actions": 99,
-    "no_actions": 53,
+    "pulled_this_run": 153,
+    "with_actions": 98,
+    "no_actions": 55,
     "failed_tickers": 0,
-    "rows_written_this_run": 8038,
+    "rows_written_this_run": 7901,
     "total_splits": 8707,
     "total_dividends": 401075,
-    "last_run": "2026-09-23T22:33:38.308563+00:00",
-    "store_gb": 4.03
+    "last_run": "2026-09-24T22:34:28.605331+00:00",
+    "store_gb": 4.08
   },
   "disk_warning": null,
   "actions_reconcile": {
@@ -61,8 +61,8 @@
     "rows_restated": 0,
     "outcomes": {},
     "warnings": 0,
-    "last_run": "2026-09-23T22:33:39.484850+00:00",
-    "store_gb": 4.03
+    "last_run": "2026-09-24T22:34:29.917291+00:00",
+    "store_gb": 4.08
   },
   "price_verify": {
     "last_run": "2026-09-23T22:41:07.969644+00:00",
@@ -429,11 +429,11 @@
     "rows_for_as_of": 2799,
     "store_gb": 4.08
   },
-  "screen_date": "2026-09-23",
-  "last_screen": "2026-09-23T22:32:19.632094+00:00",
-  "passing_count": 503,
-  "new_today_count": 36,
-  "screened": 3862,
+  "screen_date": "2026-09-24",
+  "last_screen": "2026-09-24T22:32:13.131698+00:00",
+  "passing_count": 495,
+  "new_today_count": 38,
+  "screened": 3861,
   "skipped_stale": 1,
   "skipped_phantom": 0,
   "skipped_short": 201,
