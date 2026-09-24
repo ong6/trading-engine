@@ -237,3 +237,18 @@ capital authority is implied.
 **Ceiling changes.** P12 may add 900 lines under `server/`, 500 under `engine/`, 350 under `tools/`,
 250 under `farm/`, and 150 under `sim/`. Ceilings become server 51,950, engine 12,750, tools 8,050,
 farm 11,850, and sim 7,400.
+
+## 2026-09-24 — State the end goal: autonomous, AI-in-the-loop profit
+
+**Verdict.** The owner restated the project's end goal: the engine should eventually run on its own
+and make money, with AI in the decision loop. The model chooses; deterministic code keeps data
+admission, sizing, risk, execution, accounting, and halts. "Makes money" means prospective,
+after-cost (including model and data cost) excess return over the policy's paired control, with
+drawdown inside the owner's envelope.
+
+**Rule changes.** None to current authority. This names the direction that P4 (IBKR eventually),
+P7, P8, P9, and P11 already serve. Every freeze in `scope.md` holds: no broker connection,
+credentials, or real capital on this host, and real capital still needs a separate execution-layer
+plan, personal hardware, and a provider-pinned model identity. Agents should prefer work that
+shortens the path to an honest verdict on the AI policies (P7 activation, P8/P9 observability) over
+new surfaces.
