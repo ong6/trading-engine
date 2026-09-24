@@ -1010,4 +1010,24 @@ decisions) are preserved verbatim in
   all repository and P12 allocations remain green.
 - **Next:** collect prospective labels; paid data, SEC activation, and any broker work require owners.
 
+## 2026-09-24 — Documentation cleanup, history split, and a timezone defect
+
+- **Why:** owner request of 2026-09-24 (`docs/feedback.md`), plus a reproduction:
+  `TZ=Asia/Singapore .venv/bin/python -m pytest -q tests/test_adjudicate_agent_data_discrepancy.py`
+  failed with "stored provider response receipt is invalid" and passed only with `TZ=UTC`.
+- **What:** receipt times are stored as naive UTC in the provider-response and independent-price
+  ledgers (DuckDB shifted aware datetimes to local time). Sixteen dated snapshots and the
+  pre-2026-09-18 BUILDLOG moved to `docs/history/` with an index; `docs/plans/README.md` is the
+  single plan status table (P11 done); scope lists the P8/P9 timers and the P11 ledger; prose hash
+  chains removed; README intro and a how-it-works agent-services section added; host wording
+  scrubbed. Doc tests follow the moves; removed assertions pinned only the deleted cohort/source
+  hashes (six, in two walk-forward tests).
+- **Evidence:** `pytest -q -W error tests/test_operating_contract.py tests/test_docs*.py` passes;
+  the reproduction passes under Asia/Singapore, America/New_York, and UTC; zero broken relative
+  Markdown links.
+- **Metrics:** server +2 lines (51,044); engine, sim, farm, tools unchanged; budget ok.
+- **Next:** 134 other tests still fail only under a non-UTC `TZ` (agent/broker ledgers); 124 pass
+  once the DuckDB session `TimeZone` is UTC, so the fix belongs at connection setup outside the
+  contract-hashed `engine/lib/db.py`. Needs its own admitted pass.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
