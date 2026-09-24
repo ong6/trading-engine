@@ -1042,7 +1042,7 @@ registered deterministic checks. It is not permission to trade. The endpoint nev
 `sim_orders`, never changes a portfolio, and is not wired into the nightly strategy flow.
 Hybrid proposal envelopes are rejected because hybrid operation is restricted to the separate
 candidate-bound veto contract. Approved-paper and automatic-paper promotion remain future gated work under
-[`live-readiness-goal.md`](live-readiness-goal.md).
+[`history/live-readiness-goal.md`](history/live-readiness-goal.md).
 
 The first model-driven producer is an **agent-only shadow runner** that may be invoked manually:
 
@@ -1865,7 +1865,7 @@ malformed ticker, blank reason or evidence, missing confirmation timestamp, over
 text, or incoherent truncation state; it never repairs that stored row while reading it. The stored adjudication and the
 per-ticker buy gate remain complete. Confirmed active primary-store defects block new buys; an
 empty quarantine list must not be read as “the verifier found no differences.” See the dated adjudication and post-repair evidence in
-[`execution-capital-data-hardening-2026-09-06.md`](execution-capital-data-hardening-2026-09-06.md).
+[`execution-capital-data-hardening-2026-09-06.md`](history/execution-capital-data-hardening-2026-09-06.md).
 The `stale_exposure` object in `GET /meta` separately lists active-book positions and pending
 orders whose portfolio is active and whose ticker has no real bar at the breadth-qualified
 operational date. Complete distinct-ticker, position, and pending-order totals remain visible,

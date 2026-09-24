@@ -12,7 +12,7 @@ Status: **book — the control** · Class: `sim/strategies/xs_momentum_12_1.py`
 
 Every comparison in this store is "vs `ew_benchmark`", and `ew_benchmark` *is* the
 Minervini trend-template screen: the top 50 passers by RS, equal weight, monthly.
-"The screen is the edge" (`docs/evaluation-2026-09-02.md` §2) is therefore the
+"The screen is the edge" (`docs/history/evaluation-2026-09-02.md` §2) is therefore the
 untested assumption underneath every other result. The template is a dressed-up
 momentum filter — RS rank, price above rising 150/200-day averages, within 25% of
 the 52-week high — so the null hypothesis is:
@@ -106,7 +106,7 @@ below the weekly template books. At the fill model's 10–30 bp per side this is
    today; `universe.active/liquid/etf` are today's flags (snapshots only since 2026-07-16).
    The top 50 of a 12-month return rank is *exactly* the population where delisting,
    acquisition and blow-up are most frequent, so this book inherits *more* survivor lift
-   than a 50-name screen basket, not the same amount (`evaluation-2026-09-02.md` §2). A
+   than a 50-name screen basket, not the same amount (`../history/evaluation-2026-09-02.md` §2). A
    backtested edge over EW is therefore an upper bound; a backtested deficit is more
    credible than a surplus.
 2. **Today's liquidity flag.** A name that is liquid in 2026 may have been a $6k/day

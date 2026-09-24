@@ -9,7 +9,7 @@ current scope**) and the private sibling-store research note
 This file preserves the original design and deferred-live-execution boundary. Statements below
 that describe implementation as future work are historical; use
 [`../how-it-works.md`](../how-it-works.md) for the current operating system and
-[`../live-readiness-goal.md`](../live-readiness-goal.md) for the current evidence and
+[`../history/live-readiness-goal.md`](../history/live-readiness-goal.md) for the evidence and
 execution-safety gates.
 
 **Scope (revised 2026-07-16):** the current build is a **fully local mock trading system** on the
@@ -164,7 +164,7 @@ in the league table (tombstoned): negative results are results.
 These provider facts and the original safety sketch are retained for provenance. Reverify every
 broker capability, rate limit, platform requirement, and account restriction against current
 official documentation before implementation. This appendix is not an authorization or current
-security design; [`../live-readiness-goal.md`](../live-readiness-goal.md) is the current gate.
+security design; [`../history/live-readiness-goal.md`](../history/live-readiness-goal.md) records the gates a future execution plan inherits.
 
 - **Host:** a personal machine only (small SG VPS ~US$6–12/mo or home mini PC) — never company
   hardware: broker credentials on corp infra = policy + inspection risk, corp egress

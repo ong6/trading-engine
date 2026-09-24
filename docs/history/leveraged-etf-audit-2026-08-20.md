@@ -1,7 +1,7 @@
 # Leveraged & inverse ETFs in the universe — audit, 2026-08-20
 
 > **Historical snapshot.** Findings and counts are as of 2026-08-20. See
-> [`README.md`](README.md) for the current documentation map.
+> [`README.md`](../README.md) for the current documentation map.
 
 **Status: measured, nothing turned on.** A classifier and an off-by-default
 exclusion flag were built. No stored screen, fill or result was mutated. Every

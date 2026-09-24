@@ -1,7 +1,7 @@
 # Split restatements re-audit — 2026-09-03
 
 > **Historical snapshot.** This records the re-audit performed on 2026-09-03. See
-> [`how-it-works.md`](how-it-works.md) for current reconciler operation.
+> [`how-it-works.md`](../how-it-works.md) for current reconciler operation.
 
 Read-only audit of every `split_adjustments` row with `outcome = 'applied'` against (a) the
 2026-09-02 adjudicator rule in `engine/actions.py::_adjudicate` and (b) Yahoo's current view

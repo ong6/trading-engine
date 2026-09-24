@@ -19,7 +19,7 @@ must not be described as a current league book.
 ## Hypothesis
 
 `dual_momentum` promises drawdown protection and, on 15 years of replay, did not deliver
-it (CAGR 7.9% vs SPY 13.1% *with a worse max DD*, `evaluation-2026-09-02.md` §1). Its
+it (CAGR 7.9% vs SPY 13.1% *with a worse max DD*, `../history/evaluation-2026-09-02.md` §1). Its
 structural problem is not the absolute-momentum hurdle — it is that the book is 100%
 in **one** asset at all times, so every switch is a whole-book bet and every whipsaw is
 paid in full.

@@ -26,7 +26,7 @@ don't need yet", then for follow-up plans.
    `docs/scope-budget.json`; the test suite fails on growth. → `tests/test_operating_contract.py`.
 4. BUILDLOG entries: at most 25 lines, one hash. → `AGENTS.md`, budget, test.
 5. No new documentation-pinning tests. → `AGENTS.md`, `docs/scope.md`.
-6. `docs/live-readiness-goal.md` is reference, not the work queue; workstreams C, D, E are
+6. `docs/history/live-readiness-goal.md` is reference, not the work queue; workstreams C, D, E are
    frozen pending the P4 decision. → banner in that file, `docs/scope.md`.
 7. A drift metrics snapshot closes every session. → `tools/metrics_snapshot.py`,
    `docs/metrics.md`.

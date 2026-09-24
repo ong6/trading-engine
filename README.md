@@ -15,7 +15,7 @@ strategy/evidence status. The operating guide is
 
 - Design specs (the law): [`docs/design/`](docs/design/) — engine design (§12 wins on
   conflict) + execution design (§7 exit criteria).
-- Live-readiness handoff: [`docs/live-readiness-goal.md`](docs/live-readiness-goal.md) —
+- Live-readiness handoff: [`docs/history/live-readiness-goal.md`](docs/history/live-readiness-goal.md) —
   data quality, algorithm-only/agent-only/hybrid paper evidence, recoverability,
   broker-paper, independent-risk, and recovery gates. It permits only gated paper-agent
   automation and does not authorize live trading.
@@ -23,8 +23,9 @@ strategy/evidence status. The operating guide is
   including the ordered
   [next admissible actions](docs/strategy-research-backlog.md#next-admissible-actions).
   Current runtime evidence comes from `GET /meta`, the Dashboard prospective-evidence cards,
-  and generated forward reports. [`docs/review-2026-09-06.md`](docs/review-2026-09-06.md) is a
-  detailed dated historical snapshot, as are the 2026-09-02 evaluation and architecture review.
+  and generated forward reports. [`docs/history/review-2026-09-06.md`](docs/history/review-2026-09-06.md)
+  is a detailed dated historical snapshot, as are the other files in
+  [`docs/history/`](docs/history/README.md).
 - Build state + every decision and incident: [`BUILDLOG.md`](BUILDLOG.md).
 - Latest completed nightly league standings: [`data/reports/league.md`](data/reports/league.md).
 - Historical replays of every book: [`data/reports/backtests/`](data/reports/backtests/).
