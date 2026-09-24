@@ -47,6 +47,7 @@ def _markdown_files(root: Path = REPO_ROOT) -> list[Path]:
 
 
 def test_buildlog_recent_records_are_ordered_and_end_at_unique_tail_marker():
+    legacy = (REPO_ROOT / "docs" / "history" / "buildlog-2026-07-15-to-2026-09-17.md").read_text()
     buildlog = (REPO_ROOT / "BUILDLOG.md").read_text()
     markers = (
         "- Completed the structured local-upstream boundary.",
@@ -124,8 +125,8 @@ def test_buildlog_recent_records_are_ordered_and_end_at_unique_tail_marker():
         "- Made the next evidence-authorized strategy actions explicit.",
     )
 
-    assert [buildlog.count(marker) for marker in markers] == [1] * len(markers)
-    offsets = [buildlog.index(marker) for marker in markers]
+    assert [legacy.count(marker) for marker in markers] == [1] * len(markers)
+    offsets = [legacy.index(marker) for marker in markers]
     assert offsets == sorted(offsets)
     assert buildlog.count(BUILDLOG_TAIL_MARKER) == 1
     assert buildlog.endswith(f"{BUILDLOG_TAIL_MARKER}\n")

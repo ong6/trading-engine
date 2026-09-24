@@ -7,6 +7,7 @@ generated reports under [`../../data/reports/`](../../data/reports/README.md).
 
 | Date | Document | What it is | Why it is kept |
 |---|---|---|---|
+| 2026-07-15 → 09-17 | [`buildlog-2026-07-15-to-2026-09-17.md`](buildlog-2026-07-15-to-2026-09-17.md) | Legacy BUILDLOG (pre-v2 format), verbatim | Decisions, incidents and proofs behind every early design choice |
 | 2026-08-20 | [`data-sources-audit-2026-08-20.md`](data-sources-audit-2026-08-20.md) | Robustness audit of every market-data source | Why the verifier and fallbacks look the way they do |
 | 2026-08-20 | [`evidence-ceiling-2026-08-20.md`](evidence-ceiling-2026-08-20.md) | Why the walk-forward fold count cannot be increased | Why more history cannot manufacture more independent evidence |
 | 2026-08-20 | [`fill-model-audit-2026-08-20.md`](fill-model-audit-2026-08-20.md) | Read-only fill-model diagnosis (repro: `docs/repro_fill_integer_clamp.py`) | Diagnosis behind the later fill-model fixes |
