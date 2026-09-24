@@ -31,7 +31,8 @@ measurements supporting those decisions, not the live runtime state.
   [P9 multi-cadence agent tools](plans/p9-multi-cadence-agent-tools.md), and
   [P10 contamination-aware 2022 agent replay](plans/p10-2022-agent-replay.md), and
   [P11 forward agent evaluation](plans/p11-forward-agent-evaluation.md), and
-  [P12 agent research product](plans/p12-agent-research-product.md).
+  [P12 agent research product](plans/p12-agent-research-product.md), and
+  [P13 market-data source hardening](plans/p13-market-data-source-hardening.md).
 
 ## Current operating documents
 

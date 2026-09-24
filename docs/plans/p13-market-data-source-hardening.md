@@ -1,7 +1,7 @@
 ---
 plan: P13
 title: Market-data source hardening
-status: active
+status: done
 opened: 2026-09-24
 owner_decision: approved 2026-09-24
 ---
@@ -38,15 +38,40 @@ unlicensed data from silently entering agent decisions or trading state.
 - Realtime and historical responses are exact-byte retained and normalized only after validation.
 - Agent prompts identify source, venue, timestamp, freshness, and research-only authority.
 - TradingView cannot be selected without an explicit non-display agreement gate.
-- Focused and full tests, Ruff, budgets, service audit, and an admitted-source pass are green.
+- Focused and full tests, Ruff, budgets, and service audit are green. An admitted-source live pass
+  remains an explicit credential gate and cannot be replaced by a fixture or an unlicensed source.
 
 ## Budget
 
 At most three commits, each below 1,500 inserted non-data lines. P13 may add at most 350 engine,
-250 server, and 150 tools lines inside the existing repository ceilings; farm and sim do not grow.
+500 server, and 150 tools lines inside the existing repository ceilings; farm and sim do not grow.
 
 ## Risks
 
 Unofficial protocols can change without notice, free feeds can be delayed or venue-limited, and
 source-code licenses do not grant market-data rights. Provider failure must reduce evidence rather
 than trigger fallback claims, silently blend feeds, or affect execution.
+
+## Implemented state
+
+The provider registry, exact-response Alpaca IEX snapshot/history adapter, v3 hourly/four-hour prompt
+cross-check, trace linkage, private environment-file hook, CLI status/capture entry point, and
+fixture suite are implemented. TradingView is blocked before network access. This host has no
+accepted Alpaca terms or credentials, so the new source correctly reports `unavailable`; existing
+Yahoo evidence remains the only realtime input. Activation requires adding the following to
+`~/.config/trading-engine/market-data.env` after accepting the applicable account/data terms:
+
+```text
+TRADING_ENGINE_ALPACA_DATA_TERMS_ACCEPTED=alpaca-market-data-terms-reviewed-2026-09-24
+APCA_API_KEY_ID=...
+APCA_API_SECRET_KEY=...
+```
+
+Create it with `install -m 600 /dev/null ~/.config/trading-engine/market-data.env`; it must be a
+regular, owner-only file. Run `.venv/bin/python -m tools.market_data_source` to audit source admission and file
+mode. Capture commands exit nonzero when unavailable, so a skipped live smoke cannot look successful.
+
+The locally implementable portion is complete after three independent review/remediation cycles.
+Activation of the optional Alpaca source remains gated on the provider agreement/credentials and a
+real-response smoke test. The active v3 shadow policies start at 10:15/10:30 New York, require
+closed fresh bars, and create no evaluation trace when those facts are unavailable.

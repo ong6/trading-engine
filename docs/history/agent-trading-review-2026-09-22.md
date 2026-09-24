@@ -22,8 +22,8 @@ Only the normal simulator may fill it, at a later session open.
 
 | Variant | Schedule | Role | Order authority |
 |---|---|---|---|
-| Hourly watch | 09:15-16:15 New York, weekdays | rapid quote/headline reassessment | none |
-| Four-hour review | 09:30 and 13:30 New York, weekdays | catalyst/structure review | none |
+| Hourly watch | 10:15-16:15 New York, weekdays | rapid quote/headline reassessment | none |
+| Four-hour review | 10:30 and 13:30 New York, weekdays | catalyst/structure review | none |
 | Nightly opportunity | 02:00 UTC Tuesday-Saturday | completed-EOD swing decision | isolated simulator only |
 | Gap-volume plus AI | nightly paired projection | deterministic candidate and model allow/veto | shadow only |
 

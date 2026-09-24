@@ -45,6 +45,8 @@ SCHEMA_SOURCE_FILES = (
     "sim/settle.py",
 )
 SERVICE_FILES = (
+    "server/run_daily_opportunity.sh",
+    "server/run_hourly_opportunity.sh",
     "server/trading-engine-agent-data-capture.service",
     "server/trading-engine-agent-data-capture.timer",
     "server/trading-engine-agent-shadow.service",
@@ -84,6 +86,7 @@ AUDIT_SOURCE_FILES = (
     "tools/migrate_agent_paper_attribution.py",
     "tools/migrate_agent_paper_authority_store.py",
     "tools/migrate_agent_release_review.py",
+    "tools/market_data_source.py",
     "tools/release_manifest.py",
     "tools/worktree_audit.py",
 )
@@ -114,6 +117,8 @@ AGENT_SOURCE_FILES = (
     "server/daily_opportunity_tools.py",
     "server/hourly_opportunity_observer.py",
     "server/intraday_source.py",
+    "server/market_data_sources.py",
+    "server/official_quote_source.py",
     "server/agent_paper_attribution.py",
     "server/agent_paper_book_plan.py",
     "server/agent_paper_book_preflight.py",
@@ -209,6 +214,8 @@ SCHEDULE_SOURCE_FILES = (
     "tools/install_automation.py",
     "tools/verify_friday_postflight.py",
     "server/trading-engine-agent-shadow.service",
+    "server/run_daily_opportunity.sh",
+    "server/run_hourly_opportunity.sh",
     "server/trading-engine-agent-shadow.timer",
     "server/trading-engine-agent-data-capture.service",
     "server/trading-engine-agent-data-capture.timer",

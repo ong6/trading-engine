@@ -2,7 +2,7 @@
 Description=Schedule hourly market opportunity observations
 
 [Timer]
-OnCalendar=Mon..Fri *-*-* 09..16:15:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 10..16:15:00 America/New_York
 Persistent=false
 AccuracySec=1min
 Unit=trading-engine-hourly-opportunity.service

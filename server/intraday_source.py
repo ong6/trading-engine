@@ -5,7 +5,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from importlib.metadata import PackageNotFoundError, version
 from typing import Callable
 from urllib.parse import quote
@@ -15,6 +15,7 @@ ENDPOINT_API_VERSION = "yahoo_finance_chart_v8"
 INTERVAL = "5m"
 RANGE = "2d"
 EVENTS = "div,splits"
+MAX_BAR_AGE_SECONDS = 20 * 60
 MAX_RESPONSE_BYTES = 2_000_000
 PROVIDER_TICKER = re.compile(r"^[A-Za-z0-9.^=-]{1,32}$")
 
@@ -144,6 +145,10 @@ def parse(ticker: str, provider_ticker: str, response: Response) -> list[dict]:
         })
     if not bars:
         raise IntradaySourceError("intraday response has no usable bars")
+    bars = [item for item in bars if received >= item["event_at"] + timedelta(minutes=5)]
+    if (not bars or (received - max(item["event_at"] for item in bars)).total_seconds()
+            > MAX_BAR_AGE_SECONDS):
+        raise IntradaySourceError("intraday response has no fresh bar")
     return bars
 
 

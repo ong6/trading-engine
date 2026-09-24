@@ -2,7 +2,7 @@
 Description=Schedule four-hour market opportunity observations
 
 [Timer]
-OnCalendar=Mon..Fri *-*-* 09:30:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 10:30:00 America/New_York
 OnCalendar=Mon..Fri *-*-* 13:30:00 America/New_York
 Persistent=false
 AccuracySec=1min

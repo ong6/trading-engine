@@ -248,6 +248,11 @@ def test_price_verification_recomputes_reported_basis_point_difference(reported_
     assert result == {"status": "invalid", "reason": "malformed-evidence"}
 
 
+def test_price_verification_accepts_two_decimal_half_cent_rounding_boundary():
+    item = {"diff_bp": 59.05}
+    assert market_health._price_diff_bp(item, 12.7, 12.625) == 59.05
+
+
 @pytest.mark.parametrize(
     "details",
     [

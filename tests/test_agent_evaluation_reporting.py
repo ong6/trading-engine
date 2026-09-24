@@ -133,7 +133,7 @@ def test_report_accounts_for_due_cadence_windows(con, tmp_path):
         "variants": [
             {"id": "nightly_opportunity_tool_v1", "cadence": "nightly",
              "timezone": "UTC", "scheduled_local_times": ["02:00"]},
-            {"id": "hourly_market_watch_v1", "cadence": "hourly",
+            {"id": "hourly_market_watch_v3", "cadence": "hourly",
              "timezone": "America/New_York", "scheduled_local_times": ["09:15"]},
         ],
     }))
@@ -151,7 +151,7 @@ def test_report_accounts_for_due_cadence_windows(con, tmp_path):
 
 
 def test_expected_windows_uses_dst_aware_utc_bucket_ids():
-    variants = [{"id": "hourly_market_watch_v1", "cadence": "hourly",
+    variants = [{"id": "hourly_market_watch_v3", "cadence": "hourly",
                  "timezone": "America/New_York", "scheduled_local_times": ["09:15"]}]
     summer = expected_windows(
         datetime(2026, 7, 1, tzinfo=timezone.utc), datetime(2026, 7, 2, tzinfo=timezone.utc),
@@ -161,8 +161,8 @@ def test_expected_windows_uses_dst_aware_utc_bucket_ids():
         datetime(2026, 12, 1, tzinfo=timezone.utc), datetime(2026, 12, 2, tzinfo=timezone.utc),
         [date(2026, 12, 1)], variants,
     )
-    assert summer == {"hourly_market_watch_v1:2026-07-01T13"}
-    assert winter == {"hourly_market_watch_v1:2026-12-01T14"}
+    assert summer == {"hourly_market_watch_v3:2026-07-01T13"}
+    assert winter == {"hourly_market_watch_v3:2026-12-01T14"}
 
 
 def test_contamination_report_never_claims_promotion(tmp_path):

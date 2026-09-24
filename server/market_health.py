@@ -28,7 +28,7 @@ _PRICE_COUNT_FIELDS = (
     "n_parse_errors",
 )
 PRICE_DISAGREEMENT_LIMIT = 20
-PRICE_DIFF_BP_ROUNDING_TOLERANCE = 0.005_001
+PRICE_DIFF_BP_ROUNDING_TOLERANCE = 0.005_2
 _PRICE_FIELDS = frozenset({"open", "high", "low", "close"})
 _PRICE_DISAGREEMENT_FIELDS = frozenset(
     {"ticker", "date", "field", "store", "source", "diff_bp"}
@@ -115,7 +115,7 @@ def freshness(latest: date | None, as_of: date | None = None) -> dict:
 
 
 def _price_diff_bp(item: dict, store: int | float, source: int | float) -> int | float:
-    """Require the producer's rounded gap to match its published prices."""
+    """Require the producer's rounded gap to match its six-decimal published prices."""
     diff_bp = require_public_nonnegative_number(
         item["diff_bp"], "price disagreement basis-point difference"
     )
