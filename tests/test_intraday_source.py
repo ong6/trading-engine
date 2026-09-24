@@ -283,3 +283,28 @@ def test_admitted_cross_check_reaches_prompt_artifact_and_trace(monkeypatch, tmp
         assert any(item.get("sha256") == receipt for item in refs)
     finally:
         con.close()
+
+
+def test_missing_fresh_quote_skips_without_model_or_trace(monkeypatch, tmp_path):
+    database = tmp_path / "market.duckdb"
+    _database(database)
+    monkeypatch.setattr(hourly_opportunity_observer, "REPO_ROOT", tmp_path)
+    model_calls = []
+    result = hourly_opportunity_observer.observe(
+        "hourly_market_watch_v3", database=database, now=NOW,
+        generate=lambda payload: model_calls.append(payload), fetch_news=_news_response,
+        fetch_quote=lambda *_: intraday_source.Response(
+            _body(), "application/json", 200, NOW + timedelta(days=1),
+            NOW + timedelta(days=1)),
+    )
+    assert result["status"] == "skipped"
+    assert result["execution_authority"] == "none" and model_calls == []
+    assert not (tmp_path / "logs/hourly_market_watch_v3.jsonl").exists()
+    con = db.connect(database, read_only=True)
+    try:
+        assert con.execute(
+            "SELECT COUNT(*) FROM information_schema.tables "
+            "WHERE table_name='agent_evaluation_traces'"
+        ).fetchone() == (0,)
+    finally:
+        con.close()

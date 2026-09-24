@@ -109,11 +109,11 @@
     "trace_count": 11
   },
   "data_provenance": {
-    "fact_count": 4097,
+    "fact_count": 5531,
     "historical_membership_authority": false,
     "pit_import_batch_count": 0,
     "pit_import_row_count": 0,
-    "receipt_count": 42,
+    "receipt_count": 66,
     "sec_current_mapping_fact_count": 0,
     "sec_filing_fact_count": 0
   },
@@ -139,7 +139,7 @@
     "turnover_notional": 0,
     "turnover_over_initial_cash": 0.0
   },
-  "generated_at": "2026-09-24T12:50:30.158421+00:00",
+  "generated_at": "2026-09-24T13:43:15.278066+00:00",
   "horizons": [
     1,
     5,
