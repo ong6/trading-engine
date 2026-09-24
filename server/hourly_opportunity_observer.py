@@ -179,7 +179,11 @@ def _observe(
         database=database, observed_at=observed, fetch=fetch_quote, clock=clock,
     )
     if len(quotes) != len(tickers):
-        raise ValueError("complete fresh intraday evidence is required for this shadow window")
+        return {"status": "skipped", "variant_id": variant_id,
+                "reason": "complete fresh intraday evidence is unavailable",
+                "quote_count": len(quotes), "required_quote_count": len(tickers),
+                "quote_failures": quote_failures, "execution_authority": "none",
+                "replayed": False}
     cross_checks, cross_check_failures, cross_check_status = capture_cross_checks(
         tickers, database=database, observed_at=observed,
     )
