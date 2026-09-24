@@ -41,10 +41,9 @@ This is a dated observation, not a replacement for the endpoints or generated re
 
 - The complete 18-result walk-forward cohort is `current`, with one matching source/data/
   execution signature and no missing, invalid, duplicate, config-mismatched, or
-  registration-mismatched artifacts. The 2026-09-23 P12 refresh uses source
-  `e41e0968a995a82ddca7ebea7aa09c09a9b5351e58b343f7155c30e5b2778dda`, data snapshot
-  `315382aa846d597a2feffa8bbd2d170de62f535c07a1f6313d73681bef4e676f`, and cohort signature
-  `6c29e7f585d428c0f6d5f3b1ca14709d22f22463f21dfee094a1359322766eb4`.
+  registration-mismatched artifacts. (Later cohorts replaced this one; the current cohort's
+  identities are in [`../data/reports/walkforward/GUIDE.md`](../data/reports/walkforward/GUIDE.md)
+  and `GET /meta` `walkforward_evidence`.)
 - Sector momentum is `ACCUMULATING` at 5/200 shared sessions and cannot mature before
   2027-09-04. XS momentum is `WAITING` at 0/48 paired complete months; its first frozen signal is
   2026-09-30 and measurement begins at the post-fill 2026-10-01 boundary.
@@ -105,99 +104,74 @@ the derived CSV. XS remains `WAITING` at 0/48 with
 no signal boundary and no changed strategy or execution economics.
 
 Those operational corrections first advanced the protected runtime identity, and the subsequent
-optimized-Python replay and proof guards advanced the 111-file identity to
-`cfcdcb5dc3bb690567173dd87d85adff49e32b76863f4a8e0494f923dcf34592`, including exception-safe
-closure for replay, proof, walk-forward, and shakedown scratch database handles, historical screen
-and execution-drag CLIs, both queue grids, queue schema initialization, and the legacy dividend
-backfill. Daily screen/league ownership, atomic publication, and committed-run artifact recovery
-were inside the frozen XS and sector runtime boundaries, so their exact checkpoints were explicitly
-migrated through v19 and v8 respectively. The subsequent breadth-reader and historical-screener
-cleanup guaranteed removal of temporary SQL relations after a failed calculation. Centralized
-interruption-safe transaction cleanup then advanced the exact checkpoints to XS v20, sector v9,
-and E1 v6. Every migration changed only contract metadata; no signal or screening formula, stored
-observation, strategy rule, execution assumption, or statistical gate changed. The resulting
-current 111-file identity is
-`2a45f846b7a4628661c4539adf71074377c529a450c90cb07cd4125aafed7d75`.
-At this checkpoint the latest published 18-result walk-forward cohort still recorded source
-`2876fdc6e5d36e532b535fb229dcbb653fba6077f4d5f7fe01b63db581cc6c53`, so
-`walkforward_evidence.status = stale-source`. That was an explicit provenance mismatch, not a
-failed strategy verdict, and the artifacts were not reconstructed or manually relabelled. The
-normal Sunday job subsequently completed at 08:45 UTC with source
-`2a45f846b7a4628661c4539adf71074377c529a450c90cb07cd4125aafed7d75`;
+optimized-Python replay and proof guards advanced the 111-file identity again, including
+exception-safe closure for replay, proof, walk-forward, and shakedown scratch database handles,
+historical screen and execution-drag CLIs, both queue grids, queue schema initialization, and the
+legacy dividend backfill. Daily screen/league ownership, atomic publication, and committed-run
+artifact recovery were inside the frozen XS and sector runtime boundaries, so their exact
+checkpoints were explicitly migrated through v19 and v8 respectively. The subsequent
+breadth-reader and historical-screener cleanup guaranteed removal of temporary SQL relations after
+a failed calculation. Centralized interruption-safe transaction cleanup then advanced the exact
+checkpoints to XS v20, sector v9, and E1 v6. Every migration changed only contract metadata; no
+signal or screening formula, stored observation, strategy rule, execution assumption, or
+statistical gate changed.
+At this checkpoint the latest published 18-result walk-forward cohort still recorded the previous
+source, so `walkforward_evidence.status = stale-source`. That was an explicit provenance
+mismatch, not a failed strategy verdict, and the artifacts were not reconstructed or manually
+relabelled. The normal Sunday job subsequently completed at 08:45 UTC with the new source;
 `walkforward_evidence.status = current`.
-The next normal Sunday job completed on 2026-09-20 with all 18 active replayable books, source
-`158dd063aa57e6e37448fdf630ca3e2f244043f4d1bd2520a7b30edcc76b2371`, and one cohort signature
-`fff94c2e7c4355ed9c0c118d19f3d39e95387a0fde7da2335f73c17066f12c9c`; live evidence remains
-`current`. This refresh likewise changes no strategy verdict or admission gate.
+The next normal Sunday job completed on 2026-09-20 with all 18 active replayable books and one
+cohort signature; live evidence remains `current`. This refresh likewise changes no strategy
+verdict or admission gate.
 Do not tune a frozen rule, reopen a rejected charter, launch a discretionary sweep, or interpret
 the current E1 estimate before its terminal gate.
 
-The canonical observation starts at the shared 2026-09-04 closing marks, when fill model
-v4 and its exact `baseline_v1` assumptions were frozen. Earlier July–September league
-returns remain operational history but are excluded because they span older fill models.
-The opening holdings are inherited and disclosed; no pre-boundary return is credited.
-The schema-v2 checkpoint now reconciles those exact inherited positions, cash, position
-counts, and frozen closes to both baseline equity rows. It also anchors the complete equity
-prefix and post-boundary order/fill/cost/attempt/settlement ledger. Legitimate pending-order
-status transitions and late dividend credits remain possible without weakening the immutable
-event checkpoint. The next gate is therefore new untouched sessions, not more code or tuning.
-Sector runtime-contract v10 SHA-256
-`8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce` preserves the isolated
-agent-paper lifecycle without changing sector strategy or execution economics. V9 SHA-256
-`c430b451ee510c858705ba4235f81b68f9d7443745a60b4716035acb32741788` makes explicit DuckDB
-transactions interruption-safe and preserves the original failure if rollback also fails; its
-exact five-session equity and execution-ledger evidence remain unchanged. V8 SHA-256
-`c0788167bf63f734c6c9b3428b425a0054f1cead1754048aa00a6cc48eb5662f` releases temporary
-DuckDB DataFrame views after failed statements. V7 SHA-256
-`8bc5fae78807daadc9502060659a05df4ca022fb046ecea39b93b4d4ef0926b5` reconstructs both league
-reports from committed ledger state on an idempotently skipped step. V6 SHA-256
-`43ff467d091a9777703c9a260899fc14c536a552dc28f2d5270034ca63ad2ffe` atomically replaces league
-Markdown and CSV output. V5 makes the daily league connection close on every exit, v4 made the existing no-same-bar fill rule
-unconditional under optimized Python, and v3
-excluded retired portfolio state from current verification and corporate-action work. XS
-runtime-contract v21 SHA-256
-`f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac` preserves the isolated
-agent-paper lifecycle before the first signal without changing XS strategy or economics. V20 SHA-256
-`8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e` makes explicit DuckDB
-transactions interruption-safe before the first signal. V19 SHA-256
-`7f4085fca17872a9ef1125c64ed03f58b2191abe68286e9720441df74f8f06f3` releases temporary
-DuckDB DataFrame views after failed statements. V18 SHA-256
-`1ddc09660316ab2479855298b73bd5c8481a76b7b93553d4963e3b92ceb13211` keeps the borrowed screen
-connection open through the no-eligible return so the outer runtime owns its one close. V17 SHA-256
-`4c6bfa198684a82bf05d500856039214a2ad105ab63afa107eb36603bae42906` publishes the dated screen
-recovery anchor before committing rows and refuses to recompute committed rows when that
-non-derivable anchor is missing. V16 SHA-256
-`86942578863d96b1005aab08ae06cd63e789874124f7b9c0da6cfced8b643d21` reconstructs screen CSV/EOD
-exports and league reports from committed state on idempotent skips before the first signal. V15
-SHA-256 `28a53cfaaa4803d23123c7d7e9f3efbcec3f98b57da08f8f9522cc5926e544eb`
-makes universe-cache, screen, league, and monthly walk-forward artifacts atomic. V14 SHA-256
-`71ed966bca01af6c5a4b9f9cbf00d67c115ecf17c1c3a607588d9c100dcf6d5a` makes the daily screen and
-league connections close on every exit. V13 SHA-256
-`345fcea5fd72606b1fc3a0700c1b22c9c977f6ded0cbd5b297cd4c875b6de1d5` makes directory
-insert/update/deactivation and daily snapshot publication one transaction and atomically replaces
-the derived universe CSV. V12 SHA-256
-`158ed6666d4005c9a555f41ea829925503214838199e4887acfc94169b9c32d9` enforces the existing
-common-stock/ETF policy for Nasdaq's plural rights, warrants, preferred classes, and dedicated
-unit symbols before the first signal. V11 SHA-256
-`2dc2b853419cadb448f45c2b895998be0f73c617183cd9c3afc70c53876b8455` adds unconditional retry
-of the complete resumable pending liquid-backfill set on every real weekly refresh, including
-zero-admission runs. V10 SHA-256
-`90f68c2616757a724c390fb65cb9e27a9b7654ba34e2d5aab08183b689be12a9` makes the same guard
-unconditional before the first signal. V9 excluded retired portfolio positions from liquidity
-protection before the first signal. V8 made malformed shared
-metadata fail closed instead of being replaced as an empty snapshot. V7 made an existing screen's
-stored rows and report agree before its metadata is restored, with no historical recomputation. V6
-made concurrent publishers serialize the complete read/merge/write operation, routed the screener
-through the common helper, and froze that dependency. V5 made EOD collection merge its own counters instead of erasing
-independently generated miner, verifier, and screen blocks. V4 changed only weekly-liquidity dry-run
-reporting: `liquid_after` became the projected post-reconciliation
-count while the store remained unchanged. V3 changed only EOD collector connection lifetime:
-universe preparation, Yahoo downloads, bounded batch writes, and final metadata no longer shared
-one long-lived DuckDB connection, and backfill state was checkpointed transactionally with each
-batch. V2's sole change was corporate-action fetch recovery. Each explicit pre-signal migration
-verified the exact prior record, unchanged
-strategy/execution/statistical rules, no frozen signal boundary, and no signal-date orders or
-post-fill observations.
+The canonical observation starts at the shared 2026-09-04 closing marks, when fill model v4 and its
+exact `baseline_v1` assumptions were frozen. Earlier July–September league returns remain
+operational history but are excluded because they span older fill models. The opening holdings are
+inherited and disclosed; no pre-boundary return is credited. The schema-v2 checkpoint now
+reconciles those exact inherited positions, cash, position counts, and frozen closes to both
+baseline equity rows. It also anchors the complete equity prefix and post-boundary
+order/fill/cost/attempt/settlement ledger. Legitimate pending-order status transitions and late
+dividend credits remain possible without weakening the immutable event checkpoint. The next gate is
+therefore new untouched sessions, not more code or tuning. Sector runtime-contract v10 (current,
+`8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce`) preserves the isolated
+agent-paper lifecycle without changing sector strategy or execution economics. V9 makes explicit
+DuckDB transactions interruption-safe and preserves the original failure if rollback also fails;
+its exact five-session equity and execution-ledger evidence remain unchanged. V8 releases temporary
+DuckDB DataFrame views after failed statements. V7 reconstructs both league reports from committed
+ledger state on an idempotently skipped step. V6 atomically replaces league Markdown and CSV
+output. V5 makes the daily league connection close on every exit, v4 made the existing no-same-bar
+fill rule unconditional under optimized Python, and v3 excluded retired portfolio state from
+current verification and corporate-action work. XS runtime-contract v21 (current,
+`f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac`) preserves the isolated
+agent-paper lifecycle before the first signal without changing XS strategy or economics. V20 makes
+explicit DuckDB transactions interruption-safe before the first signal. V19 releases temporary
+DuckDB DataFrame views after failed statements. V18 keeps the borrowed screen connection open
+through the no-eligible return so the outer runtime owns its one close. V17 publishes the dated
+screen recovery anchor before committing rows and refuses to recompute committed rows when that
+non-derivable anchor is missing. V16 reconstructs screen CSV/EOD exports and league reports from
+committed state on idempotent skips before the first signal. V15 makes universe-cache, screen,
+league, and monthly walk-forward artifacts atomic. V14 makes the daily screen and league
+connections close on every exit. V13 makes directory insert/update/deactivation and daily snapshot
+publication one transaction and atomically replaces the derived universe CSV. V12 enforces the
+existing common-stock/ETF policy for Nasdaq's plural rights, warrants, preferred classes, and
+dedicated unit symbols before the first signal. V11 adds unconditional retry of the complete
+resumable pending liquid-backfill set on every real weekly refresh, including zero-admission runs.
+V10 makes the same guard unconditional before the first signal. V9 excluded retired portfolio
+positions from liquidity protection before the first signal. V8 made malformed shared metadata fail
+closed instead of being replaced as an empty snapshot. V7 made an existing screen's stored rows and
+report agree before its metadata is restored, with no historical recomputation. V6 made concurrent
+publishers serialize the complete read/merge/write operation, routed the screener through the
+common helper, and froze that dependency. V5 made EOD collection merge its own counters instead of
+erasing independently generated miner, verifier, and screen blocks. V4 changed only
+weekly-liquidity dry-run reporting: `liquid_after` became the projected post-reconciliation count
+while the store remained unchanged. V3 changed only EOD collector connection lifetime: universe
+preparation, Yahoo downloads, bounded batch writes, and final metadata no longer shared one
+long-lived DuckDB connection, and backfill state was checkpointed transactionally with each batch.
+V2's sole change was corporate-action fetch recovery. Each explicit pre-signal migration verified
+the exact prior record, unchanged strategy/execution/statistical rules, no frozen signal boundary,
+and no signal-date orders or post-fill observations.
 
 The second priority is a prospectively frozen comparison of `xs_momentum_12_1` with
 `ew_benchmark`. Historical XS results cannot establish an edge: the stored
@@ -215,27 +189,23 @@ returns, and a 90% stationary-bootstrap interval on mean monthly excess wholly a
 zero. A 55% candidate drawdown or dirty post-baseline execution requests human review.
 Even `PASS-FORWARD` permits only continued paper review; there is no automatic action.
 
-The nearer-term falsification test is the already registered **E1 SPY Monday intraday**
-experiment. It is not a deployable strategy, and no running result may be treated as a verdict.
-The generated E1 report and `GET /meta`'s `e1_forward` object are authoritative for the current
-count and running statistics. The append-only record is cryptographically anchored, requires
-every eligible NYSE Monday, and stops at exactly 40 observations on the expected final date
-2027-05-10. At that boundary it is killed if net mean return is nonpositive or the one-sample
-t-statistic is below 0.5; surviving that permissive gate would justify only further research,
-not paper-book activation or live trading.
-Checkpoint schema v2 also freezes the exact runtime source that selects eligible sessions,
-computes costs/returns, appends observations, evaluates the kill rule, and publishes the
-checkpoint. Runtime-contract v6 SHA-256
-`5a665966f7bad78474dab9367618aab4016ea847fec8bba9a92966e7706e5612` makes explicit DuckDB
+The nearer-term falsification test is the already registered **E1 SPY Monday intraday** experiment.
+It is not a deployable strategy, and no running result may be treated as a verdict. The generated
+E1 report and `GET /meta`'s `e1_forward` object are authoritative for the current count and running
+statistics. The append-only record is cryptographically anchored, requires every eligible NYSE
+Monday, and stops at exactly 40 observations on the expected final date 2027-05-10. At that
+boundary it is killed if net mean return is nonpositive or the one-sample t-statistic is below 0.5;
+surviving that permissive gate would justify only further research, not paper-book activation or
+live trading. Checkpoint schema v2 also freezes the exact runtime source that selects eligible
+sessions, computes costs/returns, appends observations, evaluates the kill rule, and publishes the
+checkpoint. Runtime-contract v6 (current,
+`5a665966f7bad78474dab9367618aab4016ea847fec8bba9a92966e7706e5612`) makes explicit DuckDB
 transactions interruption-safe and preserves the original failure if rollback also fails. V5
-SHA-256 `31ff0e06dad3ee1063dc25210cf049df5dffba1662621bc6a97de30e535420a2`
-releases temporary DuckDB DataFrame views after failed statements. V4 SHA-256
-`da752d28c1b9bb18e3520139bbce71c885b89b192a47d00d5cd8fbfa0f1399ae` makes the shared
-no-same-bar fill rule unconditional under optimized Python. V3 changed only fail-closed
-shared-metadata recovery. These migrations preserve
-all seven observations through 2026-08-31 with prefix SHA-256
-`e2603b7c85f5e24e3b019a4ee7058c6732a792647b0c1c2e62a0d111fdf360ad`. Its original
-schema-v1 migration has no invented predecessor hash because schema v1 did not record one.
+releases temporary DuckDB DataFrame views after failed statements. V4 makes the shared no-same-bar
+fill rule unconditional under optimized Python. V3 changed only fail-closed shared-metadata
+recovery. These migrations preserve all seven observations through 2026-08-31 with the same
+anchored prefix. Its original schema-v1 migration has no invented predecessor hash because schema
+v1 did not record one.
 
 ## Ranked backlog
 
@@ -349,11 +319,7 @@ artifact. Results created before that field existed remain useful absolute conte
 current renderer withholds a relative verdict rather than inferring a comparator from mutable
 report code. The normal 2026-09-13 Sunday refresh completed all 18 active replayable books and
 `GET /meta` reported `weekly_walkforward = ok` and `walkforward_evidence.status = current`. The
-cohort has one signature
-`b304ae92d54e27a8f3a3adaa77dcf5b77175f9be141e71dfa232f29c3b32aec2`, source
-`2a45f846b7a4628661c4539adf71074377c529a450c90cb07cd4125aafed7d75`, data snapshot
-`039bd02c7cdb5678f28e5cf93098393c7e695625c4fc37fc5281d2e8e19fa80e`, fill model v4,
-`baseline_v1`, $39,000 initial capital, and the frozen 24/12/12-month protocol anchored on
+cohort had one signature, one source and data snapshot, fill model v4, `baseline_v1`, $39,000 initial capital, and the frozen 24/12/12-month protocol anchored on
 2026-09-11. This was scheduled provenance maintenance, not a new strategy search or promotion.
 
 The old/new artifact audit did not claim false exact equivalence. Six books differed only in the
