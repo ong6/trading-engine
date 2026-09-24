@@ -1030,4 +1030,14 @@ decisions) are preserved verbatim in
   once the DuckDB session `TimeZone` is UTC, so the fix belongs at connection setup outside the
   contract-hashed `engine/lib/db.py`. Needs its own admitted pass.
 
+## 2026-09-24 — Admit market-data source hardening
+
+- **Why:** the owner requested Tradingview-API plus stronger realtime and historical datasets.
+- **What:** open P13 for an exact-response official-API adapter and encode TradingView's current
+  non-display prohibition as a hard admission gate rather than feeding it to automated decisions.
+- **Evidence:** upstream source/license review and a live anonymous protocol probe establish
+  technical reachability; TradingView terms explicitly bar the requested automated use.
+- **Metrics:** source unchanged; P13 uses existing repository headroom with no ceiling increase.
+- **Next:** implement the admitted provider boundary, fixtures, live smoke, and tonight's audit.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
