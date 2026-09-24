@@ -63,6 +63,12 @@ def _timestamp(value: datetime) -> str:
     return _utc(value, "timestamp").isoformat().replace("+00:00", "Z")
 
 
+def _db_timestamp(value: str) -> datetime:
+    # TIMESTAMP columns are naive UTC; an aware value would be shifted to local time.
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return _utc(parsed, "timestamp").replace(tzinfo=None)
+
+
 def _library_version() -> str:
     try:
         value = version("yfinance")
@@ -523,8 +529,8 @@ def _source_observation(
             json.dumps(normalized, sort_keys=True, separators=(",", ":")),
             normalized_sha256,
             fact["value_sha256"],
-            received_at,
-            observed_at,
+            _db_timestamp(receipt["received_at"]),
+            _db_timestamp(receipt["received_at"]),
             SOURCE_OBSERVATION_ADAPTER,
             SOURCE_OBSERVATION_ADAPTER_VERSION,
             receipt["source_library_version"],
@@ -725,12 +731,8 @@ def _persist(
                         receipt["interval"],
                         receipt["events"],
                         receipt["request_sha256"],
-                        datetime.fromisoformat(
-                            receipt["requested_at"].replace("Z", "+00:00")
-                        ),
-                        datetime.fromisoformat(
-                            receipt["received_at"].replace("Z", "+00:00")
-                        ),
+                        _db_timestamp(receipt["requested_at"]),
+                        _db_timestamp(receipt["received_at"]),
                         receipt["http_status"],
                         receipt["content_type"],
                         receipt["source_library_version"],
@@ -792,9 +794,7 @@ def _persist(
                         fact["kind"],
                         fact["value_sha256"],
                         observation_sha256,
-                        datetime.fromisoformat(
-                            linked_at.replace("Z", "+00:00")
-                        ),
+                        _db_timestamp(linked_at),
                         link_sha256,
                     ],
                 )

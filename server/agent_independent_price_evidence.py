@@ -105,6 +105,12 @@ def _timestamp(value: datetime, label: str = "timestamp") -> str:
     return _utc(value, label).isoformat().replace("+00:00", "Z")
 
 
+def _db_timestamp(value: str) -> datetime:
+    # TIMESTAMP columns are naive UTC; an aware value would be shifted to local time.
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return _utc(parsed, "timestamp").replace(tzinfo=None)
+
+
 def _requests_version() -> str:
     try:
         result = version("requests")
@@ -454,8 +460,8 @@ def _persist(
                 date.fromisoformat(receipt["period_start"]),
                 date.fromisoformat(receipt["period_end_inclusive"]),
                 receipt["request_sha256"],
-                datetime.fromisoformat(receipt["requested_at"].replace("Z", "+00:00")),
-                datetime.fromisoformat(receipt["received_at"].replace("Z", "+00:00")),
+                _db_timestamp(receipt["requested_at"]),
+                _db_timestamp(receipt["received_at"]),
                 receipt["http_status"],
                 receipt["content_type"],
                 receipt["source_library_version"],
@@ -534,12 +540,8 @@ def _persist(
                     ),
                     normalized_sha256,
                     fact["value_sha256"],
-                    datetime.fromisoformat(
-                        receipt["received_at"].replace("Z", "+00:00")
-                    ),
-                    datetime.fromisoformat(
-                        receipt["received_at"].replace("Z", "+00:00")
-                    ),
+                    _db_timestamp(receipt["received_at"]),
+                    _db_timestamp(receipt["received_at"]),
                     SOURCE_ADAPTER,
                     SOURCE_ADAPTER_VERSION,
                     receipt["source_library_version"],
