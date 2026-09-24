@@ -1,7 +1,7 @@
 ---
 plan: P11
 title: Forward agent data and evaluation ledger
-status: active
+status: done
 opened: 2026-09-23
 owner_decision: approved 2026-09-23
 ---
@@ -46,3 +46,10 @@ and 100 farm non-test lines.
 
 A second ledger can create conflicting truth. P11 stores immutable references and hashes, never
 rewrites source evidence, and treats delayed labels as mechanical observations, not promotion gates.
+
+## Status — 2026-09-24
+
+Built and marked `done`: the evaluation ledger now operates as part of the appliance. The daily
+opportunity service indexes each terminal decision and refreshes `data/reports/agent-evaluation.json`
+after every run; `GET /agent/evaluation/status` reports coverage and maturity. Keeping it running is
+maintenance under `../scope.md`, not further P11 work.
