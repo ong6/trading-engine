@@ -45,6 +45,7 @@ further feature growth.
 | New API endpoints, dashboard cards, operator CLIs, migrations | — | P7/P8 name bounded status and isolated-book changes | Nothing else |
 | Daily opportunity agent | P8 deployed and live (02:00 UTC timer) | P8's bounded simulator-only scope | No broker path, real capital, retrospective trades, or P7 evidence pooling |
 | Multi-cadence and tool-call agents | P9 deployed and live: nightly locked simulator tool plus hourly/four-hour shadow observers | P9's locked, attributed simulator-only scope | No order authority for intraday variants and no broker path |
+| Additional market-data sources | Approved P13; provider-neutral research boundary | Explicit provider terms, credentials, and source admission | No unlicensed non-display data, operational-price overwrite, or execution authority |
 
 ## Never on this host
 

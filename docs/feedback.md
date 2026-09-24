@@ -275,3 +275,21 @@ tracked docs.
 4. Tracked docs use "the host" and `$HOME/…` or `<host>/…` instead of host-specific wording and
    absolute home paths. Runtime model-identity literals in code, units, tests, and data are
    unchanged because they bind the live model identity.
+
+## 2026-09-24 — Harden realtime and historical data sources
+
+**Verdict.** The owner asked to evaluate the unofficial Mathieu2301 Tradingview-API repository,
+add useful realtime and historical sources, and exercise the resulting data flow in the next agent
+pass. TradingView's current terms prohibit using its displayed market data for automated decisions,
+price referencing, or algorithmic trading without a separate agreement, so repository availability
+does not authorize non-display ingestion.
+
+**Rule changes.** P13 is approved and active. Add a provider-neutral, exact-response market-data
+boundary and one credential-gated official API adapter for realtime cross-checks and historical
+capture. TradingView is registered as blocked unless the owner obtains written non-display rights;
+its data cannot enter prompts, alerts, orders, risk, labels, or historical tests. New source data is
+research-only, availability-timestamped, isolated from operational prices, and cannot expand agent
+or broker authority. Tonight's pass must use only sources whose terms and credentials are admitted.
+
+**Ceiling changes.** None. P13 may use at most 350 existing spare engine lines, 250 server lines,
+and 150 tools lines; sim and farm remain unchanged.
