@@ -41,8 +41,8 @@ measurements supporting those decisions, not the live runtime state.
   UI/API, and operations.
 - [`settlement-runbook.md`](settlement-runbook.md) — manual adjudication of dead or
   untradeable positions.
-- [`../BUILDLOG.md`](../BUILDLOG.md) — chronological implementation decisions and
-  incidents.
+- [`../BUILDLOG.md`](../BUILDLOG.md) — v2 implementation log since 2026-09-18; earlier entries
+  are in [`history/buildlog-2026-07-15-to-2026-09-17.md`](history/buildlog-2026-07-15-to-2026-09-17.md).
 
 ## Design and specification
 
