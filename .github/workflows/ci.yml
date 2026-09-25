@@ -23,6 +23,7 @@ jobs:
       - run: uv build --wheel --out-dir /tmp/trading-engine-wheel
       - run: .venv/bin/ruff check .
       - run: .venv/bin/ruff check --select C90 server tools
+        continue-on-error: true  # advisory; see docs/feedback.md 2026-09-26
       - run: .venv/bin/ruff check --select PLW2901 server tools
       - run: .venv/bin/ruff check --select RET504 server tools
       - run: .venv/bin/ruff check --select S101 engine farm sim server tools

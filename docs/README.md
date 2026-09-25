@@ -8,8 +8,10 @@ measurements supporting those decisions, not the live runtime state.
 
 ## Operating contract (read first if you are an agent)
 
-- [`../AGENTS.md`](../AGENTS.md) — the contract: maintain mode, admission test, budgets,
-  session shape, BUILDLOG v2 format. Overrides everything below except the feedback ledger.
+- [`../AGENTS.md`](../AGENTS.md) — the contract: document precedence, session rules, admission
+  test, budgets, BUILDLOG v2 format.
+- [`system-blueprint.md`](system-blueprint.md) — what is being built, where the edge could
+  come from, the layered architecture, and the idea register.
 - [`product.md`](product.md) — the central product document: north star, what "makes money"
   means, every owner decision (made and open), stages to live capital, and the order admitted
   work matters in.
@@ -39,7 +41,7 @@ measurements supporting those decisions, not the live runtime state.
 
 ## Current operating documents
 
-- [`product-agent-research-platform.md`](product-agent-research-platform.md) — canonical product
+- [`product-agent-research-platform.md`](product-agent-research-platform.md) — P12 requirements (reference; `product.md` is canonical) for the
   requirements for point-in-time data, agent decisions, execution, evaluation, and external gates.
 - [`how-it-works.md`](how-it-works.md) — architecture, schedules, paper league, agent services,
   UI/API, and operations.

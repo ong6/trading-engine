@@ -1,5 +1,9 @@
 # Strategy research backlog
 
+> **Scope: deterministic strategies only.** AI policies are judged by their own plan gates (P8,
+> P15, P16) and ordered by [`product.md`](product.md). "No evidence-authorized new strategy run"
+> below refers to deterministic strategies.
+
 This is the current decision ledger, not a promise of profit. A strategy “works” only when
 it survives its prospectively declared control, costs, capacity, data-quality, and forward-paper
 tests. Positive standalone CAGR is insufficient.

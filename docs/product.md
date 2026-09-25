@@ -3,9 +3,10 @@
 The central product document: where the engine is going, what "makes money" means, every owner
 decision (made and open), and the order in which admitted work matters. `AGENTS.md` governs *how*
 sessions work, `scope.md` governs *what is admitted*, `feedback.md` keeps the dated verdicts in
-full, and [`plans/README.md`](plans/README.md) holds plan status. When two admitted items compete,
-pick the one higher on this page. When a decision here and an older document disagree, this page
-and the newest `feedback.md` entry win.
+full, and [`plans/README.md`](plans/README.md) holds plan status.
+[`system-blueprint.md`](system-blueprint.md) is the picture of what is being built and why it
+might make money. When two admitted items compete, pick the one higher on this page. Precedence
+between documents is defined once, in `AGENTS.md`.
 
 ## North star
 
@@ -97,6 +98,8 @@ Each row has the default that applies until the owner decides.
 
 | Decision | Unblocks | Default until decided |
 |---|---|---|
+| **Approve P16** (challenger lab, filing reader, text lab, optimizer books) with its ceilings, once P15 W8 is done | The next long run | Stays `proposed` |
+| **`research-text` dependency group** (`torch`, `transformers` in a separate virtual environment) | P16's time-locked historical text lab | P16 W4 stops after building the corpus |
 | **SEC EDGAR contact**: set `TRADING_ENGINE_SEC_USER_AGENT` to a monitored email | P15 8-K event triggers (the capture is built; anonymous requests get HTTP 403) | P15 runs its other trigger sources; the 8-K source reports `unconfigured` |
 | **Simulator short side** | Using the ~half of candidates that are losers | Long-only. P15 filters candidates to upside and trend names |
 | **P8 v1 order authority** once P15 books are live | A single AI book to watch | P8 v1 keeps running unchanged as its own cohort |
@@ -120,8 +123,11 @@ Each row has the default that applies until the owner decides.
 3. **Activate P7.** Backup-gated tri-arm schema and initializer, the recorded SGD/USD opening
    observation, then the tri-arm orchestrator and its status panel. It tests whether the AI
    allocates better than the rule at low turnover, which the research verdicts favour.
-4. **P2 league collapse.** Retire books that answer no open question to cut nightly noise.
-5. **First-fill lifecycle rehearsal.** Rehearse backup and restore across the whole order → fill →
+4. **[P16](plans/p16-challenger-lab-and-text-edge.md) (proposed, next long run).** Challenger
+   lab, filing reader, time-locked historical text lab, optimizer books, fill calibration, weekly
+   digest, and a Stage 2 design. Starts after P15 W8.
+5. **P2 league collapse.** Retire books that answer no open question to cut nightly noise.
+6. **First-fill lifecycle rehearsal.** Rehearse backup and restore across the whole order → fill →
    exit path using the P8 FSLY position.
 
 ## Expansion candidates (after Stage 1, each needs its own plan)

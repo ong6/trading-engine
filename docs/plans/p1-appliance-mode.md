@@ -1,10 +1,15 @@
 ---
 plan: P1
 title: Appliance mode
-status: active
+status: done
 opened: 2026-09-18
 owner_decision: none
 ---
+
+> **Closed 2026-09-26 (owner, `feedback.md`).** Its maintain-only premise no longer fits the
+> north star, and its "every build session costs tokens" rationale is void now that credit cost
+> is ignored. Its one live item, retiring the doc-pinning tests so `how-it-works.md` can be split,
+> moves to P16 W9. The text below is kept for provenance.
 
 ## Goal
 
