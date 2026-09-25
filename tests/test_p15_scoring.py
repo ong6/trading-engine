@@ -4,11 +4,28 @@ from __future__ import annotations
 import shutil
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from engine.daily_opportunities import p15_universe
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from server import agent_evaluation, agent_model_client, p15_scoring_runner
 from tests.test_daily_opportunities import MARKET_DATE, _database, _news_response
+
+P15_NOW = datetime(2026, 9, 22, 2, 30, tzinfo=timezone.utc)
+
+
+def _p15_database(path):
+    _database(path)
+    con = db.connect(path)
+    captured = P15_NOW.replace(hour=1).replace(tzinfo=None)
+    con.execute("UPDATE prices SET fetched_at=?", [captured])
+    con.executemany(
+        "INSERT INTO earnings_fetch_log VALUES (?,?,?,?,?,?)",
+        [("FAST", MARKET_DATE, "ok", 1, "test", captured),
+         ("QUIET", MARKET_DATE, "empty", 0, "test", captured)],
+    )
+    con.close()
 
 
 def test_p15_universe_keeps_p8_frozen_and_assigns_deterministic_strata(tmp_path):
@@ -81,7 +98,7 @@ def test_p15_universe_uses_prior_session_dollar_volume_and_quarantine(tmp_path):
 
 def test_p15_universe_excludes_post_cutoff_prices_and_earnings(tmp_path):
     database = tmp_path / "market.duckdb"
-    _database(database)
+    _p15_database(database)
     cutoff = datetime(2026, 9, 22, 2, 30, tzinfo=timezone.utc)
     con = db.connect(database)
     con.execute(
@@ -99,6 +116,26 @@ def test_p15_universe_excludes_post_cutoff_prices_and_earnings(tmp_path):
 
     assert [item["ticker"] for item in bundle["candidates"]] == ["FAST"]
     assert bundle["candidates"][0]["earnings"]["next_date"] == "2026-10-01"
+
+
+def test_p15_trade_gates_rebind_candidate_and_bundle_evidence(tmp_path):
+    database = tmp_path / "market.duckdb"
+    _database(database)
+    con = db.connect(database, read_only=True)
+    original = p15_universe(con, MARKET_DATE)
+    con.close()
+    original["market"]["regime"] = "risk_off"
+
+    gated = p15_scoring_runner._gate_candidates(original)
+
+    assert gated is not original
+    assert all(not item["tradeable"] and item["reason"] == "risk_off"
+               for item in gated["candidates"])
+    for candidate in gated["candidates"]:
+        body = {key: value for key, value in candidate.items() if key != "evidence_id"}
+        assert candidate["evidence_id"] == canonical_sha256(body)
+    body = {key: value for key, value in gated.items() if key != "bundle_sha256"}
+    assert gated["bundle_sha256"] == canonical_sha256(body)
 
 
 def _scoring_result(payload, *, invalid=False):
@@ -133,7 +170,7 @@ def _scoring_result(payload, *, invalid=False):
 
 def test_p15_scoring_runner_retains_three_samples_and_replays_without_calls(tmp_path):
     database = tmp_path / "market.duckdb"
-    _database(database)
+    _p15_database(database)
     now = datetime(2026, 9, 22, 2, 30, tzinfo=timezone.utc)
     calls = []
 
@@ -162,6 +199,7 @@ def test_p15_scoring_runner_retains_three_samples_and_replays_without_calls(tmp_
     assert len(calls) == 3
     assert all(sorted(item["ticker"] for item in call["candidates"]) == ["FAST", "QUIET"]
                for call in calls)
+    assert len({tuple(item["ticker"] for item in call["candidates"]) for call in calls}) == 2
     con = db.connect(database, read_only=True)
     try:
         assert con.execute("SELECT COUNT(*) FROM p15_scoring_samples").fetchone() == (3,)
@@ -181,7 +219,7 @@ def test_p15_scoring_runner_retains_three_samples_and_replays_without_calls(tmp_
 
 def test_p15_scoring_invalid_sample_marks_whole_chunk_unavailable(tmp_path):
     database = tmp_path / "market.duckdb"
-    _database(database)
+    _p15_database(database)
     now = datetime(2026, 9, 22, 2, 30, tzinfo=timezone.utc)
 
     result = p15_scoring_runner.run(
@@ -207,9 +245,10 @@ def test_p15_scoring_invalid_sample_marks_whole_chunk_unavailable(tmp_path):
     con = db.connect(database)
     for ticker in ("SPY", "FAST", "QUIET"):
         con.execute(
-            "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
-            "VALUES (?,?,?,?,?,?,?)",
-            [ticker, MARKET_DATE + timedelta(days=1), 100, 102, 99, 101, 1_000_000],
+            "INSERT INTO prices (ticker,date,open,high,low,close,volume,fetched_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            [ticker, MARKET_DATE + timedelta(days=1), 100, 102, 99, 101, 1_000_000,
+             now.replace(tzinfo=None)],
         )
     agent_evaluation.label_mature(con, labeled_at=now)
     assert con.execute(
@@ -221,7 +260,7 @@ def test_p15_scoring_invalid_sample_marks_whole_chunk_unavailable(tmp_path):
 
 def test_p15_scoring_dry_run_uses_copy_and_leaves_source_unchanged(tmp_path):
     database = tmp_path / "market.duckdb"
-    _database(database)
+    _p15_database(database)
     before = database.read_bytes()
     now = datetime(2026, 9, 22, 2, 30, tzinfo=timezone.utc)
 
@@ -239,5 +278,51 @@ def test_p15_scoring_dry_run_uses_copy_and_leaves_source_unchanged(tmp_path):
             "SELECT COUNT(*) FROM information_schema.tables "
             "WHERE table_name LIKE 'p15_scoring_%'"
         ).fetchone() == (0,)
+    finally:
+        con.close()
+
+
+def test_p15_scoring_rejects_noon_start_before_writing(tmp_path):
+    database = tmp_path / "market.duckdb"
+    _p15_database(database)
+    late = datetime(2026, 9, 22, 12, 0, tzinfo=timezone.utc)
+
+    with pytest.raises(p15_scoring_runner.ScoringError, match="12:00 UTC"):
+        p15_scoring_runner.run(
+            database=database, now=late, generate=_scoring_result,
+            fetch_news=_news_response, clock=lambda: late,
+        )
+
+    con = db.connect(database, read_only=True)
+    try:
+        assert con.execute(
+            "SELECT COUNT(*) FROM information_schema.tables "
+            "WHERE table_name LIKE 'p15_scoring_%'"
+        ).fetchone() == (0,)
+    finally:
+        con.close()
+
+
+def test_p15_scoring_discards_complete_samples_if_finalization_crosses_noon(tmp_path):
+    database = tmp_path / "market.duckdb"
+    _p15_database(database)
+    start = datetime(2026, 9, 22, 11, 59, tzinfo=timezone.utc)
+    calls = 0
+
+    def clock():
+        nonlocal calls
+        calls += 1
+        return start if calls < 10 else start.replace(hour=12, minute=0)
+
+    result = p15_scoring_runner.run(
+        database=database, now=start, generate=_scoring_result,
+        fetch_news=_news_response, clock=clock,
+    )
+
+    assert result["status"] == "failed" and result["reason"] == "deadline_exceeded"
+    con = db.connect(database, read_only=True)
+    try:
+        assert con.execute("SELECT status FROM p15_scoring_runs").fetchone() == ("failed",)
+        assert con.execute("SELECT COUNT(*) FROM agent_evaluation_traces").fetchone() == (0,)
     finally:
         con.close()

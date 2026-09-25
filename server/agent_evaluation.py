@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 
 import duckdb
 
+from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
 
@@ -258,14 +259,15 @@ def record_trace(con: duckdb.DuckDBPyConnection, trace: dict) -> dict:
     )
     decision_id = _next_id(con, "agent_evaluation_decisions")
     seen = set()
+    allowed_decisions = {"ignore", "watch", "hold", "swing", "unavailable"}
+    if trace["policy_id"] == "p15-scoring-v1":
+        allowed_decisions |= {"buy_candidate", "exit"}
     for item in trace["decisions"]:
         ticker = item.get("ticker")
         if not isinstance(ticker, str) or not ticker or ticker in seen:
             raise EvaluationError("evaluation decision ticker is invalid or duplicated")
         seen.add(ticker)
-        if (item.get("decision") not in {
-                "ignore", "watch", "hold", "swing", "unavailable",
-                "buy_candidate", "exit"}
+        if (item.get("decision") not in allowed_decisions
                 or item.get("action") not in {"none", "buy", "sell"}
                 or isinstance(item.get("horizon_sessions"), bool)
                 or not isinstance(item.get("horizon_sessions"), int)
@@ -417,25 +419,47 @@ def _label_outcome(
     con: duckdb.DuckDBPyConnection,
     ticker: str,
     sessions: list[date],
+    labeled_at: datetime,
 ) -> dict | None:
     entry_date, exit_date = sessions[0], sessions[-1]
     asset = con.execute(
-        "SELECT date,open,high,low,close FROM prices WHERE ticker=? "
-        "AND date>=? AND date<=? ORDER BY date",
-        [ticker, entry_date, exit_date],
+        f"SELECT date,open,high,low,close FROM prices WHERE ticker=? "
+        f"AND date>=? AND date<=? AND fetched_at IS NOT NULL AND fetched_at<=? "
+        f"AND {REAL_BAR_SQL} ORDER BY date",
+        [ticker, entry_date, exit_date, labeled_at],
     ).fetchall()
     spy = con.execute(
-        "SELECT date,open,high,low,close FROM prices WHERE ticker='SPY' "
-        "AND date>=? AND date<=? ORDER BY date",
-        [entry_date, exit_date],
+        f"SELECT date,open,high,low,close FROM prices WHERE ticker='SPY' "
+        f"AND date>=? AND date<=? AND fetched_at IS NOT NULL AND fetched_at<=? "
+        f"AND {REAL_BAR_SQL} ORDER BY date",
+        [entry_date, exit_date, labeled_at],
     ).fetchall()
-    if (
-        not asset
-        or len(spy) != len(sessions)
-        or asset[0][0] != entry_date
-        or asset[0][1] in (None, 0)
-    ):
+    if len(spy) != len(sessions):
         return None
+    if not asset or asset[0][0] != entry_date or asset[0][1] in (None, 0):
+        last = con.execute(
+            f"SELECT date,close FROM prices WHERE ticker=? AND date<? "
+            f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
+            "ORDER BY date DESC LIMIT 1",
+            [ticker, entry_date, labeled_at],
+        ).fetchone()
+        if last is None or last[1] in (None, 0):
+            return None
+        previous_date, previous_close = last[0], float(last[1])
+        return {
+            "entry_date": entry_date, "exit_date": previous_date,
+            "entry_open": previous_close, "exit_close": previous_close,
+            "asset_return": 0.0, "spy_return": 0.0, "excess_return": 0.0,
+            "maximum_adverse_excursion": 0.0, "maximum_favorable_excursion": 0.0,
+            "price_prefix_sha256": canonical_sha256({
+                "expected_sessions": [item.isoformat() for item in sessions],
+                "asset_rows": [(previous_date.isoformat(), previous_close)],
+            }),
+            "missing_bar_status": "missing_entry_last_available_close",
+            "round_trip_cost_bps": ROUND_TRIP_COST_BPS,
+            "net_return": 0.999 / 1.001 - 1,
+            "net_excess_return": 0.0,
+        }
     asset_dates = [item[0] for item in asset]
     missing_bar_status = (
         "complete" if asset_dates == sessions else "last_available_close"
@@ -555,14 +579,15 @@ def _label_common_entries(
             continue
         boundary = max(market_date, observed_at.date())
         sessions = [item[0] for item in con.execute(
-            "SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>? AND date<=? "
+            f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>? AND date<=? "
+            f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
             "ORDER BY date LIMIT 20",
-            [boundary, latest],
+            [boundary, latest, labeled_at],
         ).fetchall()]
         for horizon in HORIZONS:
             if len(sessions) < horizon:
                 continue
-            outcome = _label_outcome(con, ticker, sessions[:horizon])
+            outcome = _label_outcome(con, ticker, sessions[:horizon], labeled_at)
             if outcome is None:
                 continue
             for decision_id in (int(nightly_id), int(intraday_id)):
@@ -586,14 +611,15 @@ def _label_p15_entries(
     inserted = 0
     for decision_id, ticker, market_date in rows:
         sessions = [item[0] for item in con.execute(
-            "SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>? AND date<=? "
+            f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>? AND date<=? "
+            f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
             "ORDER BY date LIMIT 20",
-            [market_date, latest],
+            [market_date, latest, labeled_at],
         ).fetchall()]
         for horizon in HORIZONS:
             if len(sessions) < horizon:
                 continue
-            outcome = _label_outcome(con, ticker, sessions[:horizon])
+            outcome = _label_outcome(con, ticker, sessions[:horizon], labeled_at)
             if outcome is None:
                 continue
             inserted += _insert_v2_label(
@@ -671,8 +697,19 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> dic
                  ROUND_TRIP_COST_BPS, net_return, net_return - spy_net],
             )
             inserted += 1
-    v2_inserted = _label_common_entries(con, latest=latest, labeled_at=labeled_at)
-    v2_inserted += _label_p15_entries(con, latest=latest, labeled_at=labeled_at)
+    v2_latest = con.execute(
+        f"SELECT MAX(date) FROM prices WHERE ticker='SPY' AND fetched_at IS NOT NULL "
+        f"AND fetched_at<=? AND {REAL_BAR_SQL}",
+        [_timestamp(labeled_at)],
+    ).fetchone()[0]
+    v2_inserted = 0
+    if v2_latest is not None:
+        v2_inserted = _label_common_entries(
+            con, latest=v2_latest, labeled_at=labeled_at
+        )
+        v2_inserted += _label_p15_entries(
+            con, latest=v2_latest, labeled_at=labeled_at
+        )
     return {
         "inserted": inserted,
         "v2_inserted": v2_inserted,

@@ -252,3 +252,23 @@ def complete_run(
         ).fetchone()
         if row != ("completed", trace_sha256):
             raise ScoringStoreError("P15 scoring run completion differs")
+
+
+def fail_run(
+    con: duckdb.DuckDBPyConnection,
+    run_id: int,
+    *,
+    reason: str,
+    completed_at: datetime,
+) -> None:
+    changed = con.execute(
+        "UPDATE p15_scoring_runs SET status='failed',reason=?,completed_at=? "
+        "WHERE id=? AND status='running' RETURNING id",
+        [reason[:512], completed_at, run_id],
+    ).fetchone()
+    if changed is None:
+        row = con.execute(
+            "SELECT status,reason FROM p15_scoring_runs WHERE id=?", [run_id]
+        ).fetchone()
+        if row != ("failed", reason[:512]):
+            raise ScoringStoreError("P15 scoring run failure differs")

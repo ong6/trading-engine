@@ -39,11 +39,20 @@ def _finite(value: object, field: str) -> float:
     return result
 
 
-def _market_context(con: duckdb.DuckDBPyConnection, market_date: date) -> dict:
+def _market_context(
+    con: duckdb.DuckDBPyConnection, market_date: date, cutoff_at=None
+) -> dict:
+    cutoff_clause = ""
+    params = [market_date]
+    if cutoff_at is not None:
+        cutoff_clause = (
+            f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
+        )
+        params.append(cutoff_at)
     rows = con.execute(
         "SELECT date, close FROM prices WHERE ticker = 'SPY' AND date <= ? "
-        "AND close > 0 ORDER BY date DESC LIMIT 200",
-        [market_date],
+        f"AND close > 0 {cutoff_clause}ORDER BY date DESC LIMIT 200",
+        params,
     ).fetchall()
     if not rows or rows[0][0] != market_date:
         raise OpportunityError("SPY market-date bar is unavailable")
@@ -69,7 +78,30 @@ def _earnings(
 ) -> dict:
     if not table_exists(con, "earnings_calendar"):
         return {"status": "unavailable", "next_date": None, "is_estimate": None}
-    cutoff_clause = "" if cutoff_at is None else "AND (fetched_at IS NULL OR fetched_at<=?) "
+    if cutoff_at is not None:
+        if not table_exists(con, "earnings_fetch_log"):
+            return {"status": "unavailable", "next_date": None, "is_estimate": None}
+        attempt = con.execute(
+            "SELECT as_of,status FROM earnings_fetch_log WHERE ticker=? AND as_of<=? "
+            "AND attempted_at<=? ORDER BY as_of DESC,attempted_at DESC LIMIT 1",
+            [ticker, market_date, cutoff_at],
+        ).fetchone()
+        if attempt is None or attempt[1] == "failed":
+            return {"status": "unavailable", "next_date": None, "is_estimate": None}
+        if attempt[1] == "empty":
+            return {"status": "no_upcoming_date", "next_date": None, "is_estimate": None}
+        snapshot_date = attempt[0]
+        row = con.execute(
+            "SELECT earnings_date,is_estimate,as_of FROM earnings_calendar "
+            "WHERE ticker=? AND as_of=? AND earnings_date>=? AND fetched_at IS NOT NULL "
+            "AND fetched_at<=? ORDER BY earnings_date LIMIT 1",
+            [ticker, snapshot_date, market_date, cutoff_at],
+        ).fetchone()
+        if row is None:
+            return {"status": "unavailable", "next_date": None, "is_estimate": None}
+        return {"status": "available", "next_date": row[0].isoformat(),
+                "is_estimate": bool(row[1]), "snapshot_date": row[2].isoformat()}
+    cutoff_clause = "" if cutoff_at is None else "AND fetched_at<=? "
     params = [ticker, market_date, market_date]
     if cutoff_at is not None:
         params.append(cutoff_at)
@@ -121,10 +153,14 @@ def _candidate_rows(con: duckdb.DuckDBPyConnection, market_date: date) -> list[t
 
 
 def _p15_candidate_rows(
-    con: duckdb.DuckDBPyConnection, market_date: date, cutoff_at=None
+    con: duckdb.DuckDBPyConnection, market_date: date, cutoff_at=None,
+    held_tickers: set[str] | None = None,
 ) -> list[tuple]:
-    cutoff_clause = "" if cutoff_at is None else "AND (p.fetched_at IS NULL OR p.fetched_at<=?)"
+    held = sorted(held_tickers or set())
+    held_clause = "" if not held else f"OR p.ticker IN ({','.join('?' for _ in held)})"
+    cutoff_clause = "" if cutoff_at is None else "AND p.fetched_at IS NOT NULL AND p.fetched_at<=?"
     params = [market_date, MIN_CLOSE]
+    params.extend(held)
     if cutoff_at is not None:
         params.append(cutoff_at)
     params.extend([market_date, MIN_HISTORY])
@@ -134,7 +170,7 @@ def _p15_candidate_rows(
           SELECT p.ticker,p.date,p.open,p.close,p.volume,u.active,u.liquid,u.etf,
                  ROW_NUMBER() OVER (PARTITION BY p.ticker ORDER BY p.date DESC) AS rn
           FROM prices p JOIN universe u ON u.ticker=p.ticker
-          WHERE p.date<=? AND p.close>=? {cutoff_clause} AND {REAL_BAR_SQL}
+          WHERE p.date<=? AND (p.close>=? {held_clause}) {cutoff_clause} AND {REAL_BAR_SQL}
         ), history AS (
           SELECT ticker,
                  MAX(date) FILTER (WHERE rn=1) AS latest_date,
@@ -273,7 +309,9 @@ def p15_universe(
     quarantined = {item["ticker"] for item in active_quarantines(con)}
     candidates = []
     observed_tickers = set()
-    for row in _p15_candidate_rows(con, market_date, information_cutoff_at):
+    for row in _p15_candidate_rows(
+        con, market_date, information_cutoff_at, held
+    ):
         (ticker, open_px, close, volume, prior, close_5d, median_volume,
          median_dollar_volume, active, liquid, etf) = row
         observed_tickers.add(ticker)
@@ -285,7 +323,9 @@ def p15_universe(
             ticker, (None, None, False, False)
         )
         reason = "eligible"
-        if abs(daily_return) > MAX_ABS_DAILY_RETURN:
+        if float(close) < MIN_CLOSE:
+            reason = "below_min_close"
+        elif abs(daily_return) > MAX_ABS_DAILY_RETURN:
             reason = "extreme_daily_return"
         elif active is not True:
             reason = "inactive"
@@ -326,11 +366,18 @@ def p15_universe(
                 daily_return, gap_return, relative_volume, rs_rank, bool(new_today)
             ),
         })
-    missing_held = held - observed_tickers
-    if missing_held:
-        raise OpportunityError(
-            f"held P15 ticker lacks current admissible price history: {sorted(missing_held)}"
-        )
+    for ticker in sorted(held - observed_tickers):
+        candidates.append({
+            "ticker": ticker, "market_date": market_date.isoformat(), "close": None,
+            "daily_return": None, "overnight_gap": None, "return_5d": None,
+            "relative_volume_20d": None, "median_dollar_volume_20d": None,
+            "rs_rank": None, "template_score": None, "passes_template": False,
+            "new_screen_pass": False,
+            "earnings": {"status": "unavailable", "next_date": None,
+                         "is_estimate": None},
+            "held": True, "tradeable": False, "reason": "held_data_unavailable",
+            "standout_score": 0.0,
+        })
     tradeable = [item for item in candidates if item["tradeable"]]
     movers = sorted(
         (item for item in tradeable if item["daily_return"] > 0),
@@ -374,6 +421,7 @@ def p15_universe(
             "selection_ordinal": ordinal,
             "baseline_rank": baseline_rank[candidate["ticker"]],
             "baseline_score": total - baseline_rank[candidate["ticker"]] + 1,
+            "baseline_version": "p15-baseline-v1",
         }
         if stratum == "held_only" and body["reason"] == "eligible":
             body.update(tradeable=False, reason="held_only")
@@ -381,9 +429,10 @@ def p15_universe(
     body = {
         "schema_version": 1,
         "universe_version": "p15-universe-v1",
+        "baseline_version": "p15-baseline-v1",
         "market_date": market_date.isoformat(),
         "screen_date": None if screen_date is None else screen_date.isoformat(),
-        "market": _market_context(con, market_date),
+        "market": _market_context(con, market_date, information_cutoff_at),
         "candidates": output,
         "stratum_counts": {
             "mover": len(movers), "trend": len(trends), "held_only": len(held_only),

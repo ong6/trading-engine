@@ -7,8 +7,10 @@ import json
 import math
 import random
 import tempfile
+from collections import Counter
 from dataclasses import asdict
 from datetime import date, datetime, timezone
+from datetime import time as datetime_time
 from pathlib import Path
 from statistics import median
 from typing import Callable
@@ -37,9 +39,11 @@ POLICY_ID = "p15-scoring-v1"
 CHUNK_SIZE = 10
 SAMPLE_COUNT = 3
 MAX_EXPECTED_EXCESS_BP = 10_000.0
+AGGREGATION_RULE = "numeric_median_majority_action_representative_text_v1"
 P15_BOOKS = ("p15_ai_ranked", "p15_rule_control", "p15_hybrid_veto")
 LOCK_PATH = REPO_ROOT / ".p15-scoring.lock"
 NIGHTLY_LOCK = REPO_ROOT / ".nightly.lock"
+DEADLINE_UTC = datetime_time(12, 0, tzinfo=timezone.utc)
 
 
 class ScoringError(RuntimeError):
@@ -66,24 +70,31 @@ def _sessions_until(market_date: date, event_date: date, limit: int = 5) -> int:
     return count if current == event_date else limit + 1
 
 
-def _gate_candidates(bundle: dict) -> None:
+def _gate_candidates(bundle: dict) -> dict:
     risk_on = bundle["market"]["regime"] == "risk_on"
-    for candidate in bundle["candidates"]:
+    candidates = []
+    for original in bundle["candidates"]:
+        candidate = {key: value for key, value in original.items() if key != "evidence_id"}
         if candidate["reason"] != "eligible":
-            continue
-        earnings = candidate["earnings"]
-        if not risk_on:
-            candidate.update(tradeable=False, reason="risk_off")
-        elif earnings["status"] == "unavailable":
-            candidate.update(tradeable=False, reason="earnings_unavailable")
-        elif (
-            earnings["status"] == "available"
-            and _sessions_until(
-                date.fromisoformat(bundle["market_date"]),
-                date.fromisoformat(earnings["next_date"]),
-            ) <= 5
-        ):
-            candidate.update(tradeable=False, reason="earnings_within_5_sessions")
+            pass
+        else:
+            earnings = candidate["earnings"]
+            if not risk_on:
+                candidate.update(tradeable=False, reason="risk_off")
+            elif earnings["status"] == "unavailable":
+                candidate.update(tradeable=False, reason="earnings_unavailable")
+            elif (
+                earnings["status"] == "available"
+                and _sessions_until(
+                    date.fromisoformat(bundle["market_date"]),
+                    date.fromisoformat(earnings["next_date"]),
+                ) <= 5
+            ):
+                candidate.update(tradeable=False, reason="earnings_within_5_sessions")
+        candidates.append({**candidate, "evidence_id": canonical_sha256(candidate)})
+    body = {key: value for key, value in bundle.items() if key != "bundle_sha256"}
+    body["candidates"] = candidates
+    return {**body, "bundle_sha256": canonical_sha256(body)}
 
 
 def _context(bundle: dict, news: dict) -> tuple[dict, dict[str, set[str]]]:
@@ -124,9 +135,16 @@ def _request_input(
     sample_index: int,
     seed: int,
     cutoff: datetime,
+    used_orders: set[tuple[str, ...]],
 ) -> dict:
     order = [dict(item) for item in candidates]
     random.Random(seed).shuffle(order)
+    for _rotation in range(max(0, len(order) - 1)):
+        identity = tuple(item["ticker"] for item in order)
+        if identity not in used_orders:
+            break
+        order = [*order[1:], order[0]]
+    used_orders.add(tuple(item["ticker"] for item in order))
     return {
         "schema_version": 1, "policy_id": POLICY_ID,
         "market_date": bundle["market_date"], "information_cutoff_at": cutoff.isoformat(),
@@ -221,8 +239,11 @@ def _aggregate(candidates: list[dict], samples: list[dict[str, dict]]) -> list[d
             field: float(median(row[field] for row in rows))
             for field in ("p_outperform_5", "expected_excess_bp_5", "expected_excess_bp_10")
         }
+        counts = Counter(row["action"] for row in rows)
+        max_votes = max(counts.values())
+        winning_actions = {action for action, count in counts.items() if count == max_votes}
         representative_index = min(
-            range(len(rows)),
+            (index for index, row in enumerate(rows) if row["action"] in winning_actions),
             key=lambda index: (abs(rows[index]["expected_excess_bp_5"]
                                    - numeric["expected_excess_bp_5"]), index),
         )
@@ -231,8 +252,16 @@ def _aggregate(candidates: list[dict], samples: list[dict[str, dict]]) -> list[d
             **candidate, **numeric, "action": representative["action"],
             "thesis": representative["thesis"],
             "invalidation": representative["invalidation"],
-            "evidence_ids": representative["evidence_ids"],
+            "evidence_ids": sorted({value for row in rows for value in row["evidence_ids"]}),
             "representative_sample_index": representative_index,
+            "aggregation_rule": AGGREGATION_RULE,
+            "sample_support": [{
+                "sample_index": index, "action": row["action"],
+                "p_outperform_5": row["p_outperform_5"],
+                "expected_excess_bp_5": row["expected_excess_bp_5"],
+                "expected_excess_bp_10": row["expected_excess_bp_10"],
+                "evidence_ids": row["evidence_ids"],
+            } for index, row in enumerate(rows)],
             "scoring_status": "available",
         })
     return output
@@ -243,6 +272,7 @@ def _unavailable(candidates: list[dict], reason: str) -> list[dict]:
              "expected_excess_bp_10": None, "action": "unavailable", "thesis": None,
              "invalidation": None, "evidence_ids": [candidate["evidence_id"]],
              "representative_sample_index": None, "scoring_status": "unavailable",
+             "aggregation_rule": AGGREGATION_RULE, "sample_support": [],
              "unavailable_reason": reason[:512]} for candidate in candidates]
 
 
@@ -279,7 +309,8 @@ def _trace(
         "proxy_source_sha256": identity["required_proxy_source_sha256"],
         "traecli_runtime": identity["required_traecli_runtime"],
         "upstream_model_family": agent_model_client.UPSTREAM_MODEL_FAMILY,
-        "upstream_request_id": f"aggregate-{digest[:32]}", "latency_ms": 0.0,
+        "upstream_request_id": f"aggregate-{digest[:32]}",
+        "latency_ms": max(0.0, (completed_at - started_at).total_seconds() * 1000),
         "usage": usage, "terminal_status": "completed",
         "execution_authority": "local_simulator_only",
         "decisions": [{
@@ -309,6 +340,9 @@ def _run(
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> dict:
     started = (now or clock()).astimezone(timezone.utc)
+    deadline = datetime.combine(started.date(), DEADLINE_UTC)
+    if started >= deadline:
+        raise ScoringError("P15 scoring cannot start at or after 12:00 UTC")
     con = db.connect(database, read_only=True, wait_s=0)
     try:
         market_date = db.latest_operational_market_date(con)
@@ -338,7 +372,7 @@ def _run(
         }
         run_id = int(existing["id"])
     else:
-        _gate_candidates(bundle)
+        bundle = _gate_candidates(bundle)
         news = daily_opportunity_news.capture(
             ["SPY", *(item["ticker"] for item in bundle["candidates"])],
             now=started, fetch=fetch_news,
@@ -374,14 +408,20 @@ def _run(
             con.close()
     chunks = [context["candidates"][index:index + CHUNK_SIZE]
               for index in range(0, len(context["candidates"]), CHUNK_SIZE)]
-    aggregates, calls = [], 0
+    aggregates, calls, deadline_exceeded = [], 0, False
     for chunk_index, chunk in enumerate(chunks):
         validated, failure = [], None
+        used_orders: set[tuple[str, ...]] = set()
         for sample_index in range(SAMPLE_COUNT):
+            if clock().astimezone(timezone.utc) >= deadline:
+                deadline_exceeded = True
+                failure = "P15 scoring exceeded the 12:00 UTC deadline"
+                break
             seed = _seed(bundle["market_date"], chunk_index, sample_index)
             payload = _request_input(
                 bundle, context, chunk, chunk_index=chunk_index,
                 sample_index=sample_index, seed=seed, cutoff=cutoff,
+                used_orders=used_orders,
             )
             request = agent_model_client.p15_scoring_request_payload(payload)
             order = [item["ticker"] for item in payload["candidates"]]
@@ -418,6 +458,9 @@ def _run(
             try:
                 result = generate(payload)
                 calls += 1
+                sample_completed = clock().astimezone(timezone.utc)
+                if sample_completed >= deadline:
+                    raise ScoringError("P15 scoring exceeded the 12:00 UTC deadline")
                 if result.request_sha256 != canonical_sha256(request):
                     raise ScoringError("P15 scoring request identity differs")
                 _validate_identity(result)
@@ -427,13 +470,14 @@ def _run(
                     with db.transaction(con):
                         store.complete_sample(
                             con, started_sample["sample_id"], response=asdict(result),
-                            completed_at=clock(),
+                            completed_at=sample_completed,
                         )
                 finally:
                     con.close()
                 validated.append(parsed)
             except (agent_model_client.ConnectorError, ScoringError, TypeError, ValueError) as exc:
                 failure = str(exc)
+                deadline_exceeded = "12:00 UTC deadline" in failure
                 retained = None if result is None else asdict(result)
                 metadata = {
                     key: getattr(exc, key, None)
@@ -448,12 +492,42 @@ def _run(
                         )
                 finally:
                     con.close()
+                if deadline_exceeded:
+                    break
         aggregates.extend(
             _aggregate(chunk, validated)
             if failure is None and len(validated) == SAMPLE_COUNT
             else _unavailable(chunk, failure or "incomplete sample set")
         )
-    completed = clock()
+        if deadline_exceeded:
+            break
+    if deadline_exceeded:
+        con = db.connect(database, wait_s=0)
+        try:
+            with db.transaction(con):
+                store.fail_run(
+                    con, run_id, reason="P15 scoring exceeded the 12:00 UTC deadline",
+                    completed_at=clock(),
+                )
+        finally:
+            con.close()
+        return {"status": "failed", "market_date": bundle["market_date"],
+                "reason": "deadline_exceeded", "model_call_count": calls,
+                "replayed": False}
+    completed = clock().astimezone(timezone.utc)
+    if completed >= deadline:
+        con = db.connect(database, wait_s=0)
+        try:
+            with db.transaction(con):
+                store.fail_run(
+                    con, run_id, reason="P15 scoring exceeded the 12:00 UTC deadline",
+                    completed_at=completed,
+                )
+        finally:
+            con.close()
+        return {"status": "failed", "market_date": bundle["market_date"],
+                "reason": "deadline_exceeded", "model_call_count": calls,
+                "replayed": False}
     con = db.connect(database, wait_s=0)
     try:
         with db.transaction(con):
