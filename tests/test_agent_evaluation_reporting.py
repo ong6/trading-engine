@@ -124,6 +124,15 @@ def test_report_scores_and_pairs_only_identical_outcome_prefixes(con):
     assert pair["paired_count"] == 0 and pair["incompatible_outcome_count"] == 1
 
 
+def test_p8_trace_cannot_use_p15_decision_vocabulary(con):
+    agent_evaluation.init_schema(con)
+    trace = _trace("nightly_opportunity_tool_v1", "none", 0.5)
+    trace["decisions"][0]["decision"] = "buy_candidate"
+
+    with pytest.raises(agent_evaluation.EvaluationError, match="decision values"):
+        agent_evaluation.record_trace(con, trace)
+
+
 def test_common_entry_pairing_uses_first_window_and_reports_all_windows(con):
     agent_evaluation.init_schema(con)
     market_date = date(2026, 9, 25)
@@ -162,6 +171,7 @@ def test_common_entry_pairing_uses_first_window_and_reports_all_windows(con):
                 [ticker, session, close - 1, close + 1, close - 2, close, 1_000],
             )
 
+    con.execute("UPDATE prices SET fetched_at=?", [NOW.replace(tzinfo=None)])
     agent_evaluation.label_mature(con, labeled_at=NOW)
 
     legacy_entries = dict(con.execute(
@@ -234,6 +244,7 @@ def test_missing_first_window_is_not_replaced_in_primary_pairing(con, first_wind
                 [ticker, session, 100, 102, 99, 101, 1_000],
             )
 
+    con.execute("UPDATE prices SET fetched_at=?", [NOW.replace(tzinfo=None)])
     agent_evaluation.label_mature(con, labeled_at=NOW)
     report = agent_evaluation_reporting.build_report(con, generated_at=NOW)
 
@@ -306,6 +317,10 @@ def test_common_entry_labels_missing_path_at_last_available_close(con):
             [session, 100 + index, 102 + index, 99 + index, 101 + index, 1_000],
         )
 
+    con.execute(
+        "UPDATE prices SET fetched_at=?",
+        [datetime(2026, 10, 6, tzinfo=timezone.utc).replace(tzinfo=None)],
+    )
     agent_evaluation.label_mature(
         con, labeled_at=datetime(2026, 10, 6, tzinfo=timezone.utc)
     )
@@ -318,6 +333,30 @@ def test_common_entry_labels_missing_path_at_last_available_close(con):
         ("common_entry", "last_available_close", date(2026, 9, 29), date(2026, 9, 30)),
         ("common_entry", "last_available_close", date(2026, 9, 29), date(2026, 9, 30)),
     ]
+
+
+def test_v2_label_records_missing_entry_at_prior_last_close(con):
+    labeled_at = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    for session in (date(2026, 9, 29), date(2026, 9, 30)):
+        con.execute(
+            "INSERT INTO prices (ticker,date,open,high,low,close,volume,fetched_at) "
+            "VALUES ('SPY',?,?,?,?,?,?,?)",
+            [session, 100, 102, 99, 101, 1_000, labeled_at.replace(tzinfo=None)],
+        )
+    con.execute(
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume,fetched_at) "
+        "VALUES ('FAST','2026-09-28',100,102,99,101,1000,?)",
+        [labeled_at.replace(tzinfo=None)],
+    )
+
+    outcome = agent_evaluation._label_outcome(
+        con, "FAST", [date(2026, 9, 29), date(2026, 9, 30)], labeled_at
+    )
+
+    assert outcome["missing_bar_status"] == "missing_entry_last_available_close"
+    assert outcome["entry_date"] == date(2026, 9, 29)
+    assert outcome["exit_date"] == date(2026, 9, 28)
+    assert outcome["net_excess_return"] == 0.0
 
 
 def test_report_accounts_for_missing_labels_and_absent_forecasts(con):
