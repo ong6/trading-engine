@@ -109,15 +109,18 @@ def _capture_quotes(
 
 def _capture_cross_checks(
     tickers: list[str], *, database: Path, observed_at: datetime,
-    capture=official_quote_source.capture_realtime_many,
+    provider_symbols: dict[str, str] | None = None,
+    capture=official_quote_source.capture_tradingview_many,
 ) -> tuple[list[dict], list[dict], dict]:
     status = official_quote_source.market_data_sources.source_status(
-        official_quote_source.SOURCE_ID
+        official_quote_source.market_data_sources.TRADINGVIEW
     )
     if status["status"] != "admitted":
         return [], [], status
     try:
-        return capture(tickers[:MAX_QUOTES], database=database, observed_at=observed_at), [], status
+        requested = [provider_symbols.get(ticker, ticker) if provider_symbols else ticker
+                     for ticker in tickers[:MAX_QUOTES]]
+        return capture(requested, database=database, observed_at=observed_at), [], status
     except (official_quote_source.OfficialSourceError,
             official_quote_source.market_data_sources.MarketDataError,
             bitemporal_facts.FactError, db.DBBusyError, duckdb.Error, OSError) as exc:
@@ -172,21 +175,31 @@ def _observe(
             "SELECT ticker,COALESCE(NULLIF(yf_ticker,''),ticker) FROM universe "
             f"WHERE ticker IN ({','.join(['?'] * len(tickers))})", tickers,
         ).fetchall()) if tickers else {}
+        exchanges = dict(con.execute(
+            "SELECT ticker,exchange FROM universe "
+            f"WHERE ticker IN ({','.join(['?'] * len(tickers))})", tickers,
+        ).fetchall()) if tickers else {}
     finally:
         con.close()
     quotes, quote_failures = _capture_quotes(
         [(ticker, provider_tickers.get(ticker, ticker)) for ticker in tickers],
         database=database, observed_at=observed, fetch=fetch_quote, clock=clock,
     )
+    exchange_prefix = {"Q": "NASDAQ", "P": "NYSEARCA", "N": "NYSE",
+                       "A": "NYSEAMERICAN", "Z": "CBOE", "F": "OTC"}
+    tradingview_symbols = {ticker: f"{exchange_prefix.get(exchanges.get(ticker), 'NASDAQ')}:{ticker}"
+                           for ticker in tickers}
+    cross_checks, cross_check_failures, cross_check_status = capture_cross_checks(
+        tickers, database=database, observed_at=observed, provider_symbols=tradingview_symbols,
+    )
     if len(quotes) != len(tickers):
         return {"status": "skipped", "variant_id": variant_id,
                 "reason": "complete fresh intraday evidence is unavailable",
                 "quote_count": len(quotes), "required_quote_count": len(tickers),
-                "quote_failures": quote_failures, "execution_authority": "none",
-                "replayed": False}
-    cross_checks, cross_check_failures, cross_check_status = capture_cross_checks(
-        tickers, database=database, observed_at=observed,
-    )
+                "quote_failures": quote_failures, "realtime_cross_check_count": len(cross_checks),
+                "realtime_cross_check_failures": cross_check_failures,
+                "realtime_cross_check_source": cross_check_status,
+                "execution_authority": "none", "replayed": False}
     news = daily_opportunity_news.capture(["SPY", *tickers], now=observed, fetch=fetch_news)
     for candidate in bundle["candidates"]:
         quote = next((item for item in quotes if item["ticker"] == candidate["ticker"]), None)

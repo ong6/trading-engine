@@ -33,13 +33,14 @@ SOURCES = {
     },
     TRADINGVIEW: {
         "provider": "TradingView via Mathieu2301/TradingView-API",
-        "product": "unofficial websocket protocol", "venue_scope": "provider-dependent",
-        "consolidated": False, "delay_class": "entitlement-dependent",
-        "credential_envs": (), "terms_env": None,
+        "product": "anonymous websocket quote/chart protocol",
+        "venue_scope": "resolved-provider-dependent",
+        "consolidated": False, "delay_class": "anonymous-entitlement-dependent",
+        "credential_envs": (), "terms_env": None, "terms_acceptance": None,
         "terms_url": "https://www.tradingview.com/policies/",
-        "license_class": "not-admitted-for-nondisplay",
-        "realtime_authority": "none", "historical_authority": "none",
-        "blocked_reason": "current terms prohibit automated non-display market-data use",
+        "license_class": "owner-asserted-nondisplay-rights-internal-research",
+        "realtime_authority": "research_cross_check_only",
+        "historical_authority": "retrieval_time_research_only",
     },
 }
 
@@ -67,7 +68,7 @@ def source_status(source_id: str, environ: Mapping[str, str] | None = None) -> d
     if policy.get("blocked_reason"):
         return {**public, "status": "blocked", "reason": policy["blocked_reason"]}
     values = os.environ if environ is None else environ
-    if values.get(policy["terms_env"]) != policy["terms_acceptance"]:
+    if policy["terms_env"] is not None and values.get(policy["terms_env"]) != policy["terms_acceptance"]:
         return {**public, "status": "unavailable",
                 "reason": "provider data terms have not been explicitly accepted"}
     missing = [name for name in policy["credential_envs"] if not values.get(name)]

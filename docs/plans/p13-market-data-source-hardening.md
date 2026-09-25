@@ -75,3 +75,16 @@ The locally implementable portion is complete after three independent review/rem
 Activation of the optional Alpaca source remains gated on the provider agreement/credentials and a
 real-response smoke test. The active v3 shadow policies start at 10:15/10:30 New York, require
 closed fresh bars, and create no evaluation trace when those facts are unavailable.
+
+## TradingView activation — 2026-09-25
+
+The owner asserts the applicable non-display rights and authorizes anonymous TradingView quote and
+chart access for internal automated research. P13 therefore adds exact WebSocket transcript capture,
+realtime quote normalization, and bounded historical bar capture. Alpaca remains dormant. TradingView
+data stays outside operational prices, fills, broker logic, and real-capital authority.
+
+Implementation is complete: v4 shadow services query TradingView, exact sent/received WebSocket
+transcripts are retained, fresh observations may enter prompts, and stale observations remain ledger-
+only. A live AAPL capture retained a truthful stale overnight snapshot with no invented spread; a
+bounded September 2022 capture retained 21 daily bars. Deployed hourly/four-hour services succeeded,
+Alpaca remains dormant, and operational price/order/fill/position counts were unchanged.

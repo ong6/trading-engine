@@ -1053,4 +1053,16 @@ decisions) are preserved verbatim in
 - **Metrics:** server +487, tools +102, farm net unchanged; P13 and repository caps are green.
 - **Next:** owner accepts Alpaca terms/adds credentials for a live smoke, or licenses PIT history.
 
+## 2026-09-25 — Activate TradingView research data
+
+- **Why:** the owner asserted the required non-display rights and directed full TradingView
+  realtime/historical activation while leaving Alpaca dormant.
+- **What:** implement the anonymous quote/chart WebSocket protocol directly, retain exact sent/
+  received transcripts, add v4 TradingView-enabled shadow agents, and isolate historical facts.
+  Stale or spreadless snapshots are stored truthfully but cannot become prompt or execution data.
+- **Evidence:** live AAPL realtime and September 2022 captures succeeded; deployed v4 services exit
+  successfully; focused tests and the full warnings-as-errors suite pass.
+- **Metrics:** server remains within 51,950 lines; engine/farm/sim unchanged; budget green.
+- **Next:** accumulate market-session v4 traces; TradingView remains research-only.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

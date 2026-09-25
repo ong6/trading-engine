@@ -303,3 +303,18 @@ first review found source-security, cohort-identity, freshness, and service sequ
 **Rule changes.** P13's server allocation increases from 250 to 500 lines solely to remediate those
 findings and add their tests. This does not authorize TradingView data, execution-price use, broker
 connectivity, or real capital.
+
+## 2026-09-25 — Authorize TradingView market-data activation
+
+**Verdict.** The owner states that the required TradingView non-display rights are already held and
+directs the engine to activate TradingView fully for realtime and historical research data, without
+further entitlement gates. Alpaca remains implemented but dormant.
+
+**Rule changes.** P13 is active again for bounded TradingView activation. Anonymous TradingView
+WebSocket quote/chart data may be retained and used by hourly/four-hour shadow agents and isolated
+historical research. It remains prohibited from mutating operational prices, pricing simulator
+fills, granting intraday execution authority, connecting a broker, or using real capital. Raw
+transcripts remain private and non-redistributable.
+
+**Ceiling changes.** P13 may use the remaining repository headroom: at most 400 additional server
+lines and 150 tools lines; engine, farm, sim, and existing source ceilings do not increase.

@@ -56,8 +56,8 @@ authorises a broker connection, credentials, or real capital; `scope.md` still g
    status projection; alert on missed windows and model/prompt drift.
 4. **First-fill lifecycle rehearsal.** After the first P8 fill, rehearse backup and restore across
    the whole order → fill → exit path.
-5. **P13 once credentials exist.** One official market-data API as a cross-check only; no
-   execution-price authority.
+5. **P13 evidence collection.** TradingView is active as a research cross-check/history source;
+   Alpaca remains dormant; neither has execution-price authority.
 6. **P2 league collapse.** Retire books that answer no open question (regime-gated twins that
    currently match their parents) to cut nightly noise and review load.
 7. **Cost per decision.** Report tokens and data cost per decision next to excess return, so the

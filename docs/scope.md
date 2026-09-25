@@ -28,7 +28,7 @@ Plan status lives in one place: the table in [`plans/README.md`](plans/README.md
 marked `approved` or `active` there admit work, subject to their stated prerequisites. Completed
 plans' outputs (P5, P6, P10, P11, P12, P13) stay in scope for operation and evidence but authorize no
 further feature growth.
-P13's optional provider activation remains externally gated on data credentials and accepted terms.
+P13 TradingView capture is active for research operation; Alpaca remains gated.
 
 ## Not yet — frozen until its trigger fires
 
@@ -46,7 +46,7 @@ P13's optional provider activation remains externally gated on data credentials 
 | New API endpoints, dashboard cards, operator CLIs, migrations | — | P7/P8 name bounded status and isolated-book changes | Nothing else |
 | Daily opportunity agent | P8 deployed and live (02:00 UTC timer) | P8's bounded simulator-only scope | No broker path, real capital, retrospective trades, or P7 evidence pooling |
 | Multi-cadence and tool-call agents | P9 deployed and live: nightly locked simulator tool plus hourly/four-hour shadow observers | P9's locked, attributed simulator-only scope | No order authority for intraday variants and no broker path |
-| Additional market-data sources | Approved P13; provider-neutral research boundary | Explicit provider terms, credentials, and source admission | No unlicensed non-display data, operational-price overwrite, or execution authority |
+| Additional market-data sources | P13 deployed; TradingView active for internal research | Owner-asserted TradingView rights; Alpaca credential-gated | No operational-price overwrite, fill pricing, or execution authority |
 
 ## Never on this host
 

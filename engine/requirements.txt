@@ -3,6 +3,7 @@ numpy>=2.0
 pandas>=3.0
 PyYAML>=6.0
 requests>=2.31
+websockets>=17.1
 yfinance>=1.5
 pandas_market_calendars>=5.4
 fastapi>=0.139

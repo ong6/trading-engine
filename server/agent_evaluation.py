@@ -19,13 +19,15 @@ HORIZONS = (1, 5, 10, 20)
 TRACE_LIMIT = 500
 POLICIES = {
     "nightly_opportunity_tool_v1": "nightly",
-    "hourly_market_watch_v3": "hourly",
-    "four_hour_opportunity_review_v3": "four_hour",
+    "hourly_market_watch_v4": "hourly",
+    "four_hour_opportunity_review_v4": "four_hour",
 }
 LEGACY_POLICIES = {"hourly_market_watch_v1": "hourly",
                    "four_hour_opportunity_review_v1": "four_hour",
                    "hourly_market_watch_v2": "hourly",
                    "four_hour_opportunity_review_v2": "four_hour"}
+LEGACY_POLICIES.update({"hourly_market_watch_v3": "hourly",
+                        "four_hour_opportunity_review_v3": "four_hour"})
 TRACE_REQUIRED_FIELDS = frozenset({
     "window_id", "policy_id", "cadence", "prompt_role", "market_date",
     "observed_at", "completed_at", "information_cutoff_at", "source_kind",

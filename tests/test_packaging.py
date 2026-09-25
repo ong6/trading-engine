@@ -18,6 +18,7 @@ IMPORT_TO_DISTRIBUTION = {
     "pandas": "pandas",
     "pandas_market_calendars": "pandas-market-calendars",
     "requests": "requests",
+    "websockets": "websockets",
     "xlrd": "xlrd",
     "yaml": "pyyaml",
     "yfinance": "yfinance",
