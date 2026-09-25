@@ -55,17 +55,23 @@ def expected_windows(start: datetime, end: datetime, sessions: list,
             local_day += timedelta(days=1)
     return result
 def coverage(con: duckdb.DuckDBPyConnection, rows: list[dict], generated_at: datetime,
-             registration_path: Path, horizons: tuple[int, ...]) -> dict:
+             registration_path: Path, horizons: tuple[int, ...],
+             policy_starts: dict[str, datetime] | None = None) -> dict:
     decisions = con.execute(
-        "SELECT d.id,t.market_date,t.cadence,t.observed_at,d.decision "
+        "SELECT d.id,t.market_date,t.cadence,t.observed_at,d.decision,t.policy_id "
         "FROM agent_evaluation_decisions d "
         "JOIN agent_evaluation_traces t ON t.id=d.trace_id ORDER BY d.id"
     ).fetchall() if table_exists(con, "agent_evaluation_decisions") else []
+    policy_starts = policy_starts or {}
+    decisions = [
+        row for row in decisions
+        if row[5] not in policy_starts or row[3] >= policy_starts[row[5]].replace(tzinfo=None)
+    ]
     prices_ready = table_exists(con, "prices")
     latest = con.execute("SELECT MAX(date) FROM prices WHERE ticker='SPY'").fetchone()[0] if prices_ready else None
     mature_expected = 0
     if latest is not None:
-        for _decision_id, market_date, cadence, observed_at, decision in decisions:
+        for _decision_id, market_date, cadence, observed_at, decision, _policy_id in decisions:
             if decision == "unavailable":
                 continue
             boundary = market_date if cadence == "nightly" else observed_at.date()
@@ -101,12 +107,16 @@ def coverage(con: duckdb.DuckDBPyConnection, rows: list[dict], generated_at: dat
         "missing_window_count": len(missing), "missing_windows": missing[:100],
         "missing_windows_truncated": len(missing) > 100,
     }
-def _pair_groups(rows: list[dict], policy: str) -> tuple[dict, int]:
+def _pair_groups(
+    rows: list[dict], policy: str, *, first_window_only: bool
+) -> tuple[dict, int]:
     grouped = {}
     duplicates = 0
     seen_windows = set()
     for row in rows:
         if row["policy_id"] != policy or row["horizon"] is None:
+            continue
+        if first_window_only and not row.get("is_first_window", False):
             continue
         identity = (row["window_id"], row["ticker"], row["horizon"], row["label_basis"])
         if identity in seen_windows:
@@ -139,7 +149,14 @@ def paired_metrics(
             for policy in policies
         }
     )
-    by_policy = {policy: _pair_groups(rows, policy) for policy in policies}
+    by_policy = {
+        policy: _pair_groups(
+            rows,
+            policy,
+            first_window_only=window_scope == "first" and cadences[policy] != "nightly",
+        )
+        for policy in policies
+    }
     result = []
     for left, right in itertools.combinations(policies, 2):
         left_cadence, right_cadence = cadences[left], cadences[right]

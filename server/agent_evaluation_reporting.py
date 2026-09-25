@@ -16,11 +16,17 @@ from engine.lib.util import table_exists
 from farm.agent_evaluation_analysis import (
     contamination_diagnostics,
     coverage,
+    expected_windows,
     paired_metrics,
     signed_return,
 )
 
-from .agent_evaluation import HORIZONS, POLICIES
+from .agent_evaluation import (
+    HORIZONS,
+    POLICIES,
+    POLICY_EVALUATION_STARTS,
+    in_evaluation_cohort,
+)
 
 SCHEMA_VERSION = 1
 DEFAULT_OUTPUT = REPO_ROOT / "data" / "reports" / "agent-evaluation.json"
@@ -48,7 +54,7 @@ def _scored_rows(con: duckdb.DuckDBPyConnection) -> list[dict]:
         "SELECT t.policy_id,t.cadence,t.market_date,t.window_id,t.input_sha256,"
         "t.source_refs,t.latency_ms,t.total_tokens,d.ticker,d.decision,d.action,d.confidence,"
         "l.horizon_sessions,l.net_return,l.net_excess_return,l.maximum_adverse_excursion,"
-        "l.maximum_favorable_excursion,l.price_prefix_sha256 "
+        "l.maximum_favorable_excursion,l.price_prefix_sha256,t.observed_at "
         "FROM agent_evaluation_traces t JOIN agent_evaluation_decisions d ON d.trace_id=t.id "
         "LEFT JOIN agent_evaluation_labels l ON l.decision_id=d.id "
         "ORDER BY t.policy_id,t.window_id,d.ticker,l.horizon_sessions"
@@ -62,17 +68,48 @@ def _scored_rows(con: duckdb.DuckDBPyConnection) -> list[dict]:
         "horizon": None if row[12] is None else int(row[12]),
         "asset_return": row[13], "excess_return": row[14],
         "mae": row[15], "mfe": row[16], "price_prefix_sha256": row[17],
-    } for row in rows]
+        "is_first_window": True,
+    } for row in rows if in_evaluation_cohort(
+        row[0], row[18].replace(tzinfo=timezone.utc)
+    )]
 
 
-def _common_entry_rows(con: duckdb.DuckDBPyConnection) -> list[dict]:
+def _registered_first_windows(
+    con: duckdb.DuckDBPyConnection,
+    generated_at: datetime,
+    registration_path: Path,
+) -> set[str]:
+    try:
+        registration = json.loads(registration_path.read_text())
+        start = datetime.fromisoformat(
+            registration["evaluation_start_at"].replace("Z", "+00:00")
+        ).astimezone(timezone.utc)
+        sessions = [row[0] for row in con.execute(
+            "SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>=? AND date<? "
+            "ORDER BY date",
+            [start.date(), generated_at.date()],
+        ).fetchall()]
+        due = expected_windows(start, generated_at, sessions, registration["variants"])
+    except (KeyError, OSError, TypeError, ValueError, duckdb.Error):
+        return set()
+    first = {}
+    for window_id in sorted(item for item in due if not item.startswith("nightly:")):
+        policy_id, window = window_id.split(":", 1)
+        first.setdefault((policy_id, window[:10]), window_id)
+    return set(first.values())
+
+
+def _common_entry_rows(
+    con: duckdb.DuckDBPyConnection,
+    first_windows: set[str],
+) -> list[dict]:
     if not table_exists(con, "agent_evaluation_labels_v2"):
         return []
     rows = con.execute(
         "SELECT t.policy_id,t.cadence,t.market_date,t.window_id,t.input_sha256,"
         "t.source_refs,t.latency_ms,t.total_tokens,d.ticker,d.decision,d.action,d.confidence,"
         "l.horizon_sessions,l.net_return,l.net_excess_return,l.maximum_adverse_excursion,"
-        "l.maximum_favorable_excursion,l.price_prefix_sha256,l.label_basis "
+        "l.maximum_favorable_excursion,l.price_prefix_sha256,l.label_basis,t.observed_at "
         "FROM agent_evaluation_traces t JOIN agent_evaluation_decisions d ON d.trace_id=t.id "
         "JOIN agent_evaluation_labels_v2 l ON l.decision_id=d.id "
         "WHERE l.label_basis='common_entry' AND d.decision<>'unavailable' "
@@ -87,7 +124,10 @@ def _common_entry_rows(con: duckdb.DuckDBPyConnection) -> list[dict]:
         "horizon": int(row[12]), "asset_return": row[13], "excess_return": row[14],
         "mae": row[15], "mfe": row[16], "price_prefix_sha256": row[17],
         "label_basis": row[18],
-    } for row in rows]
+        "is_first_window": row[1] == "nightly" or row[3] in first_windows,
+    } for row in rows if in_evaluation_cohort(
+        row[0], row[19].replace(tzinfo=timezone.utc)
+    )]
 
 
 def _horizon_metrics(rows: list[dict]) -> dict:
@@ -264,7 +304,9 @@ def build_report(
         rows = []
     else:
         rows = _scored_rows(con)
-    common_rows = _common_entry_rows(con)
+    common_rows = _common_entry_rows(
+        con, _registered_first_windows(con, generated_at, registration_path)
+    )
     trace_rows = {
         (row["policy_id"], row["window_id"]): row for row in rows
     }.values()
@@ -300,14 +342,24 @@ def build_report(
         ).fetchone()[0])
     cohorts = []
     if rows:
-        cohorts = [{"policy_id": row[0], "cadence": row[1], "prompt_role": row[2],
-                    "model": row[3], "model_version": row[4],
-                    "instructions_sha256": row[5], "trace_count": int(row[6])}
-                   for row in con.execute(
-                       "SELECT policy_id,cadence,prompt_role,model,model_version,"
-                       "instructions_sha256,COUNT(*) FROM agent_evaluation_traces "
-                       "GROUP BY ALL ORDER BY policy_id,prompt_role,model,model_version"
-                   ).fetchall()]
+        grouped = {}
+        for row in con.execute(
+            "SELECT policy_id,cadence,prompt_role,model,model_version,"
+            "instructions_sha256,observed_at FROM agent_evaluation_traces "
+            "ORDER BY policy_id,prompt_role,model,model_version"
+        ).fetchall():
+            if not in_evaluation_cohort(row[0], row[6].replace(tzinfo=timezone.utc)):
+                continue
+            key = row[:6]
+            grouped[key] = grouped.get(key, 0) + 1
+        cohorts = [
+            {
+                "policy_id": key[0], "cadence": key[1], "prompt_role": key[2],
+                "model": key[3], "model_version": key[4],
+                "instructions_sha256": key[5], "trace_count": count,
+            }
+            for key, count in grouped.items()
+        ]
     legacy = sorted({row["policy_id"] for row in rows if row["policy_id"] not in POLICIES})
     return {
         "schema_version": SCHEMA_VERSION,
@@ -320,7 +372,10 @@ def build_report(
             common_rows, POLICIES, window_scope="all"
         ),
         "data_provenance": provenance,
-        "coverage": coverage(con, rows, generated_at, registration_path, HORIZONS),
+        "coverage": coverage(
+            con, rows, generated_at, registration_path, HORIZONS,
+            POLICY_EVALUATION_STARTS,
+        ),
         "execution": _operations(con),
         "contamination": contamination_diagnostics(tuple(path for path in (
             (contamination_path, DEFAULT_CONTAMINATION_PROBES)

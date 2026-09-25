@@ -19,6 +19,10 @@ COMMON_ENTRY_BASIS = "common_entry"
 ROUND_TRIP_COST_BPS = 20.0
 HORIZONS = (1, 5, 10, 20)
 TRACE_LIMIT = 500
+POLICY_EVALUATION_STARTS = {
+    "hourly_market_watch_v5": datetime(2026, 9, 25, 17, tzinfo=timezone.utc),
+    "four_hour_opportunity_review_v5": datetime(2026, 9, 25, 17, tzinfo=timezone.utc),
+}
 POLICIES = {
     "nightly_opportunity_tool_v1": "nightly",
     "hourly_market_watch_v5": "hourly",
@@ -56,6 +60,16 @@ def _timestamp(value: datetime) -> datetime:
 
 def _json(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def in_evaluation_cohort(policy_id: str, observed_at: datetime) -> bool:
+    start = POLICY_EVALUATION_STARTS.get(policy_id)
+    stored = (
+        observed_at.replace(tzinfo=timezone.utc)
+        if type(observed_at) is datetime and observed_at.utcoffset() is None
+        else observed_at
+    )
+    return start is None or _timestamp(stored) >= _timestamp(start)
 
 
 def _next_id(con: duckdb.DuckDBPyConnection, table: str) -> int:
@@ -411,16 +425,34 @@ def _label_outcome(
         "AND date>=? AND date<=? ORDER BY date",
         [entry_date, exit_date],
     ).fetchall()
-    if len(asset) != len(sessions) or len(spy) != len(sessions) or asset[0][1] in (None, 0):
+    if (
+        not asset
+        or len(spy) != len(sessions)
+        or asset[0][0] != entry_date
+        or asset[0][1] in (None, 0)
+    ):
+        return None
+    asset_dates = [item[0] for item in asset]
+    missing_bar_status = (
+        "complete" if asset_dates == sessions else "last_available_close"
+    )
+    exit_date = asset[-1][0]
+    spy_by_date = {item[0]: item for item in spy}
+    if exit_date not in spy_by_date:
         return None
     entry, exit_close = float(asset[0][1]), float(asset[-1][4])
     asset_return = exit_close / entry - 1
-    spy_return = float(spy[-1][4]) / float(spy[0][1]) - 1
+    spy_return = float(spy_by_date[exit_date][4]) / float(spy[0][1]) - 1
     net_return = exit_close * 0.999 / (entry * 1.001) - 1
-    spy_net = float(spy[-1][4]) * 0.999 / (float(spy[0][1]) * 1.001) - 1
+    spy_net = (
+        float(spy_by_date[exit_date][4]) * 0.999 / (float(spy[0][1]) * 1.001) - 1
+    )
     lows = [float(item[3]) / entry - 1 for item in asset if item[3] is not None]
     highs = [float(item[2]) / entry - 1 for item in asset if item[2] is not None]
-    prefix = [(item[0].isoformat(), *item[1:]) for item in asset]
+    prefix = {
+        "expected_sessions": [item.isoformat() for item in sessions],
+        "asset_rows": [(item[0].isoformat(), *item[1:]) for item in asset],
+    }
     return {
         "entry_date": entry_date,
         "exit_date": exit_date,
@@ -432,6 +464,7 @@ def _label_outcome(
         "maximum_adverse_excursion": min(lows),
         "maximum_favorable_excursion": max(highs),
         "price_prefix_sha256": canonical_sha256(prefix),
+        "missing_bar_status": missing_bar_status,
         "round_trip_cost_bps": ROUND_TRIP_COST_BPS,
         "net_return": net_return,
         "net_excess_return": net_return - spy_net,
@@ -460,7 +493,7 @@ def _insert_v2_label(
             key: value.isoformat() if isinstance(value, date) else value
             for key, value in outcome.items()
         },
-        "missing_bar_status": "complete",
+        "missing_bar_status": outcome["missing_bar_status"],
     }
     con.execute(
         "INSERT INTO agent_evaluation_labels_v2 VALUES ("
@@ -482,7 +515,7 @@ def _insert_v2_label(
             outcome["maximum_adverse_excursion"],
             outcome["maximum_favorable_excursion"],
             outcome["price_prefix_sha256"],
-            "complete",
+            outcome["missing_bar_status"],
             _timestamp(labeled_at),
             canonical_sha256(body),
             outcome["round_trip_cost_bps"],
@@ -501,7 +534,7 @@ def _label_common_entries(
 ) -> int:
     intraday = [policy for policy, cadence in POLICIES.items() if cadence != "nightly"]
     rows = con.execute(
-        "SELECT nd.id,id.id,nd.ticker,nt.market_date,it.observed_at "
+        "SELECT nd.id,id.id,nd.ticker,nt.market_date,it.observed_at,it.policy_id "
         "FROM agent_evaluation_decisions nd "
         "JOIN agent_evaluation_traces nt ON nt.id=nd.trace_id "
         "JOIN agent_evaluation_decisions id ON id.ticker=nd.ticker "
@@ -512,7 +545,9 @@ def _label_common_entries(
         intraday,
     ).fetchall()
     inserted = 0
-    for nightly_id, intraday_id, ticker, market_date, observed_at in rows:
+    for nightly_id, intraday_id, ticker, market_date, observed_at, policy_id in rows:
+        if not in_evaluation_cohort(policy_id, observed_at):
+            continue
         boundary = max(market_date, observed_at.date())
         sessions = [item[0] for item in con.execute(
             "SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>? AND date<=? "
@@ -540,12 +575,12 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> dic
     if latest is None:
         return {"inserted": 0, "latest_market_date": None}
     rows = con.execute(
-        "SELECT d.id, d.ticker, t.market_date, t.cadence, t.observed_at, d.decision "
+        "SELECT d.id,d.ticker,t.market_date,t.cadence,t.observed_at,d.decision,t.policy_id "
         "FROM agent_evaluation_decisions d "
         "JOIN agent_evaluation_traces t ON t.id = d.trace_id ORDER BY d.id"
     ).fetchall()
-    for decision_id, ticker, market_date, cadence, observed_at, decision in rows:
-        if decision == "unavailable":
+    for decision_id, ticker, market_date, cadence, observed_at, decision, policy_id in rows:
+        if decision == "unavailable" or not in_evaluation_cohort(policy_id, observed_at):
             continue
         label_after = market_date if cadence == "nightly" else observed_at.date()
         sessions = [item[0] for item in con.execute(
