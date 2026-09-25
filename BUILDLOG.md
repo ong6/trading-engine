@@ -660,4 +660,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server and product unchanged; tools -3 lines; budget ok.
 - **Next:** resume P15 W0 after the scheduled-producer gate is green.
 
+## 2026-09-26 — Restore the existing CI complexity gate
+
+- **Why:** reproduced defect: `.venv/bin/ruff check --select C90 server tools` reports nine
+  C901 errors and prevents CI from reaching the Python regression suite.
+- **What:** extract existing validation and parsing steps into private helpers without changing
+  admission rules, source data, simulator behavior, or execution authority.
+- **Evidence:** all Ruff gates and 66 affected Python 3.12 regressions pass, including retained
+  evidence, validation rejection, and next-open simulator lifecycle checks. Full local testing
+  encounters existing Linux `/proc` and `flock` dependencies unavailable on macOS.
+- **Metrics:** server +54, tools +12, product unchanged; all source ceilings remain green.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

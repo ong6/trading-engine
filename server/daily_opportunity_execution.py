@@ -98,6 +98,35 @@ def _eligible_buy(con: duckdb.DuckDBPyConnection, candidate: dict, confidence: f
             and quarantine_reason(con, candidate["ticker"]) is None)
 
 
+def _assessment_quantity(
+    con: duckdb.DuckDBPyConnection, *, side: str, ticker: str, candidate: dict,
+    confidence: float, market_date: date, bundle: dict, cash: float,
+) -> float | None:
+    if side == "buy":
+        if bundle["market"]["regime"] != "risk_on" or not _eligible_buy(
+            con, candidate, float(confidence), market_date
+        ):
+            return None
+        quantity = min(float(cash) * POSITION_FRACTION, INITIAL_CASH * POSITION_FRACTION) / candidate["close"]
+    elif side == "sell":
+        position = con.execute(
+            "SELECT qty FROM sim_positions WHERE portfolio_id = ? AND ticker = ? AND qty > 0",
+            [PORTFOLIO_ID, ticker],
+        ).fetchone()
+        if position is None:
+            return None
+        pending_exit = con.execute(
+            "SELECT 1 FROM sim_orders WHERE portfolio_id=? AND ticker=? "
+            "AND side='sell' AND status='pending'", [PORTFOLIO_ID, ticker],
+        ).fetchone()
+        if pending_exit is not None:
+            return None
+        quantity = float(position[0])
+    else:
+        return None
+    return quantity
+
+
 def consume_assessment(
     con: duckdb.DuckDBPyConnection, assessment_id: int, *, now: datetime
 ) -> int | None:
@@ -128,27 +157,11 @@ def consume_assessment(
     if prior is not None:
         return int(prior[0])
     candidate = _candidate(bundle, ticker)
-    if side == "buy":
-        if bundle["market"]["regime"] != "risk_on" or not _eligible_buy(
-            con, candidate, float(confidence), market_date
-        ):
-            return None
-        quantity = min(float(book[2]) * POSITION_FRACTION, INITIAL_CASH * POSITION_FRACTION) / candidate["close"]
-    elif side == "sell":
-        position = con.execute(
-            "SELECT qty FROM sim_positions WHERE portfolio_id = ? AND ticker = ? AND qty > 0",
-            [PORTFOLIO_ID, ticker],
-        ).fetchone()
-        if position is None:
-            return None
-        pending_exit = con.execute(
-            "SELECT 1 FROM sim_orders WHERE portfolio_id=? AND ticker=? "
-            "AND side='sell' AND status='pending'", [PORTFOLIO_ID, ticker],
-        ).fetchone()
-        if pending_exit is not None:
-            return None
-        quantity = float(position[0])
-    else:
+    quantity = _assessment_quantity(
+        con, side=side, ticker=ticker, candidate=candidate, confidence=confidence,
+        market_date=market_date, bundle=bundle, cash=book[2],
+    )
+    if quantity is None:
         return None
     order_id = int(con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM sim_orders").fetchone()[0])
     con.execute(

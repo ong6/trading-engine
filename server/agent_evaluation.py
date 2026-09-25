@@ -111,17 +111,7 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     )
 
 
-def _validate_trace(trace: dict) -> None:
-    if set(trace) != TRACE_REQUIRED_FIELDS:
-        raise EvaluationError("evaluation trace shape is invalid")
-    policy_id = trace.get("policy_id")
-    if policy_id not in POLICIES | LEGACY_POLICIES or trace.get("cadence") != (
-            POLICIES | LEGACY_POLICIES)[policy_id]:
-        raise EvaluationError("evaluation policy or cadence is invalid")
-    if type(trace.get("market_date")) is not date:
-        raise EvaluationError("evaluation market date is invalid")
-    if not isinstance(trace.get("decisions"), list) or not trace["decisions"]:
-        raise EvaluationError("evaluation decisions are empty")
+def _validate_trace_observation(trace: dict) -> dict:
     usage = trace.get("usage")
     if not isinstance(usage, dict) or set(usage) != {"input_tokens", "output_tokens", "total_tokens"}:
         raise EvaluationError("evaluation usage is invalid")
@@ -135,6 +125,21 @@ def _validate_trace(trace: dict) -> None:
     cutoff = _timestamp(trace["information_cutoff_at"])
     if observed > cutoff or cutoff > completed:
         raise EvaluationError("evaluation event and availability times are inconsistent")
+    return usage
+
+
+def _validate_trace(trace: dict) -> None:
+    if set(trace) != TRACE_REQUIRED_FIELDS:
+        raise EvaluationError("evaluation trace shape is invalid")
+    policy_id = trace.get("policy_id")
+    if policy_id not in POLICIES | LEGACY_POLICIES or trace.get("cadence") != (
+            POLICIES | LEGACY_POLICIES)[policy_id]:
+        raise EvaluationError("evaluation policy or cadence is invalid")
+    if type(trace.get("market_date")) is not date:
+        raise EvaluationError("evaluation market date is invalid")
+    if not isinstance(trace.get("decisions"), list) or not trace["decisions"]:
+        raise EvaluationError("evaluation decisions are empty")
+    usage = _validate_trace_observation(trace)
     if not isinstance(trace.get("source_refs"), list) or not trace["source_refs"]:
         raise EvaluationError("evaluation source references are empty")
     for field in (

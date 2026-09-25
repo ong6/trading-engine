@@ -65,6 +65,55 @@ def _held(con: duckdb.DuckDBPyConnection) -> list[str]:
         return []
 
 
+def _validate_alert(decision: str, alert: object, candidate: dict) -> None:
+    if decision == "watch":
+        if not isinstance(alert, dict) or set(alert) != {"direction", "price", "expires_sessions"}:
+            raise DailyOpportunityError("watch assessment alert is invalid")
+        price, expires = alert["price"], alert["expires_sessions"]
+        bounds = candidate["alert_bounds"]
+        if (alert["direction"] not in {"above", "below"}
+                or isinstance(price, bool) or not isinstance(price, (int, float))
+                or not math.isfinite(float(price)) or not bounds["minimum"] <= price <= bounds["maximum"]
+                or isinstance(expires, bool) or not isinstance(expires, int) or not 1 <= expires <= 10):
+            raise DailyOpportunityError("watch assessment alert is outside bounds")
+    elif alert is not None:
+        raise DailyOpportunityError("only watch assessments may create alerts")
+
+
+def _validate_assessment(
+    raw: object, bundle: dict, expected: list[str], allowed: dict[str, set[str]], held: set[str],
+) -> dict:
+    fields = {"ticker", "decision", "action", "horizon_sessions", "confidence",
+              "thesis", "invalidation", "evidence_ids", "alert"}
+    if not isinstance(raw, dict) or set(raw) != fields or raw.get("ticker") not in expected:
+        raise DailyOpportunityError("daily assessment shape is invalid")
+    ticker, decision, action = raw["ticker"], raw["decision"], raw["action"]
+    horizon, confidence = raw["horizon_sessions"], raw["confidence"]
+    evidence_ids = raw["evidence_ids"]
+    if (decision not in DECISIONS or action not in ACTIONS
+            or isinstance(horizon, bool) or not isinstance(horizon, int) or not 1 <= horizon <= 20
+            or isinstance(confidence, bool) or not isinstance(confidence, (int, float))
+            or not math.isfinite(float(confidence)) or not 0 <= confidence <= 1
+            or not isinstance(evidence_ids, list) or not evidence_ids
+            or any(not isinstance(value, str) for value in evidence_ids)
+            or not set(evidence_ids) <= allowed[ticker]):
+        raise DailyOpportunityError("daily assessment values are invalid")
+    if decision in {"ignore", "watch", "hold"} and action != "none":
+        raise DailyOpportunityError("non-swing assessment cannot act")
+    if decision == "swing" and action not in {"buy", "sell"}:
+        raise DailyOpportunityError("swing assessment needs an action")
+    if (decision == "hold" or action == "sell") and ticker not in held:
+        raise DailyOpportunityError("assessment refers to an unheld position")
+    if ticker in held and not (
+        decision == "hold" or (decision == "swing" and action == "sell")
+    ):
+        raise DailyOpportunityError("held position requires hold or swing-sell assessment")
+    alert = raw["alert"]
+    candidate = next(item for item in bundle["candidates"] if item["ticker"] == ticker)
+    _validate_alert(decision, alert, candidate)
+    return {**raw, "confidence": float(confidence), "market_date": bundle["market_date"]}
+
+
 def _validate_output(output: object, bundle: dict, allowed: dict[str, set[str]], held: set[str]) -> list[dict]:
     if (
         not isinstance(output, dict)
@@ -78,46 +127,7 @@ def _validate_output(output: object, bundle: dict, allowed: dict[str, set[str]],
         raise DailyOpportunityError("daily model output does not assess every candidate")
     normalized = []
     for raw in output["assessments"]:
-        fields = {"ticker", "decision", "action", "horizon_sessions", "confidence",
-                  "thesis", "invalidation", "evidence_ids", "alert"}
-        if not isinstance(raw, dict) or set(raw) != fields or raw.get("ticker") not in expected:
-            raise DailyOpportunityError("daily assessment shape is invalid")
-        ticker, decision, action = raw["ticker"], raw["decision"], raw["action"]
-        horizon, confidence = raw["horizon_sessions"], raw["confidence"]
-        evidence_ids = raw["evidence_ids"]
-        if (decision not in DECISIONS or action not in ACTIONS
-                or isinstance(horizon, bool) or not isinstance(horizon, int) or not 1 <= horizon <= 20
-                or isinstance(confidence, bool) or not isinstance(confidence, (int, float))
-                or not math.isfinite(float(confidence)) or not 0 <= confidence <= 1
-                or not isinstance(evidence_ids, list) or not evidence_ids
-                or any(not isinstance(value, str) for value in evidence_ids)
-                or not set(evidence_ids) <= allowed[ticker]):
-            raise DailyOpportunityError("daily assessment values are invalid")
-        if decision in {"ignore", "watch", "hold"} and action != "none":
-            raise DailyOpportunityError("non-swing assessment cannot act")
-        if decision == "swing" and action not in {"buy", "sell"}:
-            raise DailyOpportunityError("swing assessment needs an action")
-        if (decision == "hold" or action == "sell") and ticker not in held:
-            raise DailyOpportunityError("assessment refers to an unheld position")
-        if ticker in held and not (
-            decision == "hold" or (decision == "swing" and action == "sell")
-        ):
-            raise DailyOpportunityError("held position requires hold or swing-sell assessment")
-        alert = raw["alert"]
-        candidate = next(item for item in bundle["candidates"] if item["ticker"] == ticker)
-        if decision == "watch":
-            if not isinstance(alert, dict) or set(alert) != {"direction", "price", "expires_sessions"}:
-                raise DailyOpportunityError("watch assessment alert is invalid")
-            price, expires = alert["price"], alert["expires_sessions"]
-            bounds = candidate["alert_bounds"]
-            if (alert["direction"] not in {"above", "below"}
-                    or isinstance(price, bool) or not isinstance(price, (int, float))
-                    or not math.isfinite(float(price)) or not bounds["minimum"] <= price <= bounds["maximum"]
-                    or isinstance(expires, bool) or not isinstance(expires, int) or not 1 <= expires <= 10):
-                raise DailyOpportunityError("watch assessment alert is outside bounds")
-        elif alert is not None:
-            raise DailyOpportunityError("only watch assessments may create alerts")
-        normalized.append({**raw, "confidence": float(confidence), "market_date": bundle["market_date"]})
+        normalized.append(_validate_assessment(raw, bundle, expected, allowed, held))
     if sorted(item["ticker"] for item in normalized) != sorted(expected):
         raise DailyOpportunityError("daily model output contains duplicate candidates")
     return normalized
@@ -216,6 +226,23 @@ def _submit_nightly_tools(
     return orders
 
 
+def _validate_connector_identity(
+    response: agent_model_client.ConnectorResult, request_sha256: str,
+) -> None:
+    identity = agent_model_client.identity(role="opportunity")
+    if (
+        response.request_sha256 != request_sha256
+        or response.model != identity["model"]
+        or response.model_version != identity["model_version"]
+        or response.proxy_version != identity["required_proxy_version"]
+        or response.proxy_source_sha256 != identity["required_proxy_source_sha256"]
+        or response.traecli_runtime != identity["required_traecli_runtime"]
+        or response.upstream_model_family != agent_model_client.UPSTREAM_MODEL_FAMILY
+        or response.model_catalog_entry_sha256 != identity["model_catalog_entry_sha256"]
+    ):
+        raise DailyOpportunityError("daily connector identity is invalid")
+
+
 def run(*, database: Path = DEFAULT_DB, now: datetime | None = None, generate: Generate | None = None,
         fetch_news: daily_opportunity_news.Fetch = daily_opportunity_news._fetch,
         tool_generate=None) -> dict:
@@ -289,18 +316,7 @@ def run(*, database: Path = DEFAULT_DB, now: datetime | None = None, generate: G
         response = generate(model_input)
         latency_ms = (time.monotonic() - generation_started) * 1000
         completed_at = observed_at if now is not None else datetime.now(timezone.utc)
-        identity = agent_model_client.identity(role="opportunity")
-        if (
-            response.request_sha256 != request_sha256
-            or response.model != identity["model"]
-            or response.model_version != identity["model_version"]
-            or response.proxy_version != identity["required_proxy_version"]
-            or response.proxy_source_sha256 != identity["required_proxy_source_sha256"]
-            or response.traecli_runtime != identity["required_traecli_runtime"]
-            or response.upstream_model_family != agent_model_client.UPSTREAM_MODEL_FAMILY
-            or response.model_catalog_entry_sha256 != identity["model_catalog_entry_sha256"]
-        ):
-            raise DailyOpportunityError("daily connector identity is invalid")
+        _validate_connector_identity(response, request_sha256)
         assessments = _validate_output(response.output, bundle, allowed, set(held))
         response_payload = {**asdict(response), "output": response.output}
         with _connection(database) as con, engine_db.transaction(con):
