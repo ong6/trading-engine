@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from engine.daily_opportunities import p15_universe
+from engine.daily_opportunities import OpportunityError, p15_universe
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from server import agent_evaluation, agent_model_client, p15_scoring_runner
@@ -122,6 +122,48 @@ def test_p15_universe_excludes_post_cutoff_prices_and_earnings(tmp_path):
 
     assert [item["ticker"] for item in bundle["candidates"]] == ["FAST"]
     assert bundle["candidates"][0]["earnings"]["next_date"] == "2026-10-01"
+
+
+@pytest.mark.parametrize("fetched_at", [None, "2026-09-22 03:00:00"])
+def test_p15_market_context_rejects_unavailable_spy_rows(tmp_path, fetched_at):
+    database = tmp_path / "market.duckdb"
+    _p15_database(database)
+    cutoff = datetime(2026, 9, 22, 2, 30, tzinfo=timezone.utc)
+    con = db.connect(database)
+    con.execute("UPDATE prices SET fetched_at=? WHERE ticker='SPY'", [fetched_at])
+
+    with pytest.raises(OpportunityError, match="SPY market-date bar is unavailable"):
+        p15_universe(con, MARKET_DATE, information_cutoff_at=cutoff)
+    con.close()
+
+
+def test_p15_context_excludes_headlines_retrieved_after_cutoff(tmp_path):
+    database = tmp_path / "market.duckdb"
+    _database(database)
+    con = db.connect(database, read_only=True)
+    bundle = p15_universe(con, MARKET_DATE)
+    con.close()
+    cutoff = datetime(2026, 9, 22, 2, 30, tzinfo=timezone.utc)
+    candidate = bundle["candidates"][0]
+    before = {
+        "ticker": candidate["ticker"], "evidence_id": "a" * 64,
+        "retrieved_at": "2026-09-22T02:29:00+00:00",
+    }
+    after = {
+        "ticker": candidate["ticker"], "evidence_id": "b" * 64,
+        "retrieved_at": "2026-09-22T02:31:00+00:00",
+    }
+
+    context, allowed = p15_scoring_runner._context(
+        bundle, {"status": "available", "observations": [before, after]}, cutoff
+    )
+
+    scored = next(item for item in context["candidates"]
+                  if item["ticker"] == candidate["ticker"])
+    assert scored["headlines"] == [before]
+    assert "a" * 64 in allowed[candidate["ticker"]]
+    assert "b" * 64 not in allowed[candidate["ticker"]]
+    assert context["event_facts"] == [] and context["tradingview_quotes"] == []
 
 
 def test_p15_trade_gates_rebind_candidate_and_bundle_evidence(tmp_path):
@@ -249,6 +291,23 @@ def test_p15_scoring_runner_retains_three_samples_and_replays_without_calls(tmp_
                    for payload in payloads)
     finally:
         con.close()
+    con = db.connect(database)
+    for ticker in ("SPY", "FAST", "QUIET"):
+        con.execute(
+            "INSERT INTO prices (ticker,date,open,high,low,close,volume,fetched_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            [ticker, MARKET_DATE + timedelta(days=1), 100, 102, 99, 101, 1_000_000,
+             now.replace(tzinfo=None)],
+        )
+    agent_evaluation.label_mature(con, labeled_at=now)
+    assert con.execute(
+        "SELECT COUNT(*) FROM agent_evaluation_labels"
+    ).fetchone() == (0,)
+    assert con.execute(
+        "SELECT COUNT(*) FROM agent_evaluation_labels_v2 "
+        "WHERE label_basis='next_session_open' AND horizon_sessions=1"
+    ).fetchone() == (2,)
+    con.close()
 
 
 def test_p15_scoring_invalid_sample_marks_whole_chunk_unavailable(tmp_path):
@@ -370,6 +429,15 @@ def test_p15_scoring_discards_complete_samples_if_finalization_crosses_noon(tmp_
     )
 
     assert result["status"] == "failed" and result["reason"] == "deadline_exceeded"
+    replay = p15_scoring_runner.run(
+        database=database, now=start, generate=lambda _payload: (_ for _ in ()).throw(
+            AssertionError("failed run retried")
+        ), fetch_news=lambda *_args: (_ for _ in ()).throw(
+            AssertionError("failed run refetched news")
+        ), clock=lambda: start,
+    )
+    assert replay["status"] == "failed" and replay["replayed"] is True
+    assert replay["model_call_count"] == 0
     con = db.connect(database, read_only=True)
     try:
         assert con.execute("SELECT status FROM p15_scoring_runs").fetchone() == ("failed",)

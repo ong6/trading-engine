@@ -447,7 +447,7 @@ def _label_outcome(
             return None
         previous_date, previous_close = last[0], float(last[1])
         return {
-            "entry_date": entry_date, "exit_date": previous_date,
+            "entry_date": previous_date, "exit_date": previous_date,
             "entry_open": previous_close, "exit_close": previous_close,
             "asset_return": 0.0, "spy_return": 0.0, "excess_return": 0.0,
             "maximum_adverse_excursion": 0.0, "maximum_favorable_excursion": 0.0,
@@ -456,6 +456,7 @@ def _label_outcome(
                 "asset_rows": [(previous_date.isoformat(), previous_close)],
             }),
             "missing_bar_status": "missing_entry_last_available_close",
+            "label_basis_override": "missing_entry_last_available_close",
             "round_trip_cost_bps": ROUND_TRIP_COST_BPS,
             "net_return": 0.999 / 1.001 - 1,
             "net_excess_return": 0.0,
@@ -507,20 +508,26 @@ def _insert_v2_label(
     labeled_at: datetime,
     label_basis: str = COMMON_ENTRY_BASIS,
 ) -> bool:
+    stored_basis = outcome.get("label_basis_override", label_basis)
+    terminal_bases = [label_basis]
+    if label_basis in {COMMON_ENTRY_BASIS, NEXT_SESSION_OPEN_BASIS}:
+        terminal_bases.append("missing_entry_last_available_close")
     if con.execute(
         "SELECT 1 FROM agent_evaluation_labels_v2 "
-        "WHERE decision_id=? AND horizon_sessions=? AND label_basis=?",
-        [decision_id, horizon, label_basis],
+        f"WHERE decision_id=? AND horizon_sessions=? AND label_basis IN "
+        f"({','.join('?' for _ in terminal_bases)})",
+        [decision_id, horizon, *terminal_bases],
     ).fetchone():
         return False
     body = {
         "schema_version": LABEL_V2_SCHEMA_VERSION,
         "decision_id": decision_id,
         "horizon_sessions": horizon,
-        "label_basis": label_basis,
+        "label_basis": stored_basis,
         **{
             key: value.isoformat() if isinstance(value, date) else value
             for key, value in outcome.items()
+            if key != "label_basis_override"
         },
         "missing_bar_status": outcome["missing_bar_status"],
     }
@@ -533,7 +540,7 @@ def _insert_v2_label(
             LABEL_V2_SCHEMA_VERSION,
             decision_id,
             horizon,
-            label_basis,
+            stored_basis,
             outcome["entry_date"],
             outcome["exit_date"],
             outcome["entry_open"],
@@ -642,7 +649,11 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> dic
         "JOIN agent_evaluation_traces t ON t.id = d.trace_id ORDER BY d.id"
     ).fetchall()
     for decision_id, ticker, market_date, cadence, observed_at, decision, policy_id in rows:
-        if decision == "unavailable" or not in_evaluation_cohort(policy_id, observed_at):
+        if (
+            decision == "unavailable"
+            or policy_id == "p15-scoring-v1"
+            or not in_evaluation_cohort(policy_id, observed_at)
+        ):
             continue
         label_after = market_date if cadence == "nightly" else observed_at.date()
         sessions = [item[0] for item in con.execute(

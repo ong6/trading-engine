@@ -316,6 +316,11 @@ def test_common_entry_labels_missing_path_at_last_available_close(con):
             "VALUES ('FAST',?,?,?,?,?,?)",
             [session, 100 + index, 102 + index, 99 + index, 101 + index, 1_000],
         )
+    con.execute(
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+        "VALUES ('FAST',?,?,?,?,?,0)",
+        [sessions[3], 50, 50, 50, 50],
+    )
 
     con.execute(
         "UPDATE prices SET fetched_at=?",
@@ -336,6 +341,7 @@ def test_common_entry_labels_missing_path_at_last_available_close(con):
 
 
 def test_v2_label_records_missing_entry_at_prior_last_close(con):
+    agent_evaluation.init_schema(con)
     labeled_at = datetime(2026, 10, 1, tzinfo=timezone.utc)
     for session in (date(2026, 9, 29), date(2026, 9, 30)):
         con.execute(
@@ -354,9 +360,26 @@ def test_v2_label_records_missing_entry_at_prior_last_close(con):
     )
 
     assert outcome["missing_bar_status"] == "missing_entry_last_available_close"
-    assert outcome["entry_date"] == date(2026, 9, 29)
+    assert outcome["entry_date"] == date(2026, 9, 28)
     assert outcome["exit_date"] == date(2026, 9, 28)
+    assert outcome["label_basis_override"] == "missing_entry_last_available_close"
     assert outcome["net_excess_return"] == 0.0
+    assert agent_evaluation._insert_v2_label(
+        con, 999, 2, outcome, labeled_at,
+        label_basis=agent_evaluation.NEXT_SESSION_OPEN_BASIS,
+    ) is True
+    assert con.execute(
+        "SELECT label_basis,entry_date,exit_date FROM agent_evaluation_labels_v2 "
+        "WHERE decision_id=999"
+    ).fetchone() == (
+        "missing_entry_last_available_close", date(2026, 9, 28), date(2026, 9, 28)
+    )
+    complete = {**outcome, "label_basis_override": None}
+    complete.pop("label_basis_override")
+    assert agent_evaluation._insert_v2_label(
+        con, 999, 2, complete, labeled_at,
+        label_basis=agent_evaluation.NEXT_SESSION_OPEN_BASIS,
+    ) is False
 
 
 def test_report_accounts_for_missing_labels_and_absent_forecasts(con):
