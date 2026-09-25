@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from engine.daily_opportunities import p15_universe
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
-from server import agent_model_client, p15_scoring_runner
+from server import agent_evaluation, agent_model_client, p15_scoring_runner
 from tests.test_daily_opportunities import MARKET_DATE, _database, _news_response
 
 
@@ -204,6 +204,19 @@ def test_p15_scoring_invalid_sample_marks_whole_chunk_unavailable(tmp_path):
         ).fetchone() == (1,)
     finally:
         con.close()
+    con = db.connect(database)
+    for ticker in ("SPY", "FAST", "QUIET"):
+        con.execute(
+            "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+            "VALUES (?,?,?,?,?,?,?)",
+            [ticker, MARKET_DATE + timedelta(days=1), 100, 102, 99, 101, 1_000_000],
+        )
+    agent_evaluation.label_mature(con, labeled_at=now)
+    assert con.execute(
+        "SELECT COUNT(*) FROM agent_evaluation_labels_v2 "
+        "WHERE label_basis='next_session_open' AND horizon_sessions=1"
+    ).fetchone() == (2,)
+    con.close()
 
 
 def test_p15_scoring_dry_run_uses_copy_and_leaves_source_unchanged(tmp_path):
