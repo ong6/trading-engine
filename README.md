@@ -112,8 +112,9 @@ curl -fsS http://127.0.0.1:8000/daily-opportunities/status # P8 decisions, alert
 .venv/bin/python -m tools.verify_friday_postflight  # inspect Friday; publishing is opt-in
 ```
 
-The API, production UI, agent-data-capture timer, and agent-shadow timer are enabled user units
-bound to local operation. The data timer retains normalized price and corporate-action
+The API, production UI, and six timers (agent data capture, agent shadow, daily, hourly, and
+four-hour opportunity agents, and the TradingView history archive) are enabled user units bound
+to local operation; the operating guide's agent-services table lists their schedules. The data timer retains normalized price and corporate-action
 observations, exact bounded future Yahoo and independent Nasdaq response bodies, and source
 observations derived from those exact bytes without a model;
 the shadow timer invokes a static worker through the local Trae proxy and remains gated by an explicit
