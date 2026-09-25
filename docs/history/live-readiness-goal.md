@@ -7,7 +7,7 @@
 > [P4](../plans/p4-broker-decision.md) on 2026-09-20 (IBKR eventually, on personal hardware, under
 > a separate execution-layer plan); workstreams C, D and E still admit no work until such a plan is
 > approved. Apart from relative links, nothing below has been edited; read it for the gates a future execution plan would
-> inherit, and [`direction.md`](../direction.md) for where the project is going now.
+> inherit, and [`product.md`](../product.md) (then `direction.md`) for where the project is going now.
 
 Use this document as the handoff objective for the next Codex agent.
 
