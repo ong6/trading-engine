@@ -44,7 +44,9 @@ measurements supporting those decisions, not the live runtime state.
 - [`settlement-runbook.md`](settlement-runbook.md) — manual adjudication of dead or
   untradeable positions.
 - [`../BUILDLOG.md`](../BUILDLOG.md) — v2 implementation log since 2026-09-18; earlier entries
-  are in [`history/buildlog-2026-07-15-to-2026-09-17.md`](history/buildlog-2026-07-15-to-2026-09-17.md).
+  are in [`history/buildlog-2026-07-15-to-2026-09-17.md`](history/buildlog-2026-07-15-to-2026-09-17.md),
+  and the 42-entry 2026-09-19 C90 series in
+  [`history/buildlog-2026-09-19-c90-complexity-series.md`](history/buildlog-2026-09-19-c90-complexity-series.md).
 
 ## Design and specification
 
