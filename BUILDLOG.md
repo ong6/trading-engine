@@ -720,4 +720,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +179, tools unchanged, product +50, tests +132; budget ok.
 - **Next:** wire selection, ATR sizing/stops, SPY sleeve, time exits, and isolated P15 fills.
 
+## 2026-09-25 — P15 W3: queue isolated comparator intents
+
+- **Why:** approved P15 W3 requires the three books to consume one scoring window with identical
+  mechanics and only their registered selection policies differing.
+- **What:** consume retained P15 decisions into book-local intents; apply AI, rule, and hybrid-veto
+  ranking, ATR risk sizing, 15% name and 2-entry/8-position caps, drawdown halts, deterministic
+  stops/time exits, and whole-share SPY funding intents. Generic pending orders remain untouched.
+- **Evidence:** `./.venv/bin/python -m pytest -q -W error tests/test_p15_books.py` passes 5 tests.
+- **Metrics:** server +216, tools/product unchanged, tests +112; budget ok.
+- **Next:** execute scoped intents, persist fills/rules, rebalance SPY, and prove a full window.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
