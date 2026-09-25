@@ -5,7 +5,7 @@ reused. Issues and pull requests are welcome; expect slow replies.
 
 - **Agents read `AGENTS.md` first** and stay inside `docs/scope.md`; the frozen-layer ceilings in
   `docs/scope-budget.json` are a test, not advice.
-- **Read `docs/how-it-works.md` first.** The honesty rules there are not negotiable:
+- **Humans: read `docs/how-it-works.md` first.** The honesty rules there are not negotiable:
   never invent a price, point-in-time tables are append-only, no same-bar fills,
   every strategy is pre-registered with a kill criterion before evidence accrues.
 - **Tests:** `.venv/bin/python -m pytest -q -W error` must pass. Tests use in-memory DuckDB only and

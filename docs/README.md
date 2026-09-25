@@ -25,13 +25,13 @@ measurements supporting those decisions, not the live runtime state.
   [P1 appliance mode](plans/p1-appliance-mode.md), [P2 league collapse](plans/p2-league-collapse.md),
   [P3 point-in-time data](plans/p3-point-in-time-data.md), [P4 broker decision](plans/p4-broker-decision.md),
   [P5 agent paper decisions](plans/p5-agent-paper-decisions.md),
-  [P6 alpha experiment](plans/p6-alpha-experiment.md), and
+  [P6 alpha experiment](plans/p6-alpha-experiment.md),
   [P7 autonomous paper trial](plans/p7-autonomous-paper-trial.md),
-  [P8 daily opportunity agent](plans/p8-daily-opportunity-agent.md), and
-  [P9 multi-cadence agent tools](plans/p9-multi-cadence-agent-tools.md), and
-  [P10 contamination-aware 2022 agent replay](plans/p10-2022-agent-replay.md), and
-  [P11 forward agent evaluation](plans/p11-forward-agent-evaluation.md), and
-  [P12 agent research product](plans/p12-agent-research-product.md), and
+  [P8 daily opportunity agent](plans/p8-daily-opportunity-agent.md),
+  [P9 multi-cadence agent tools](plans/p9-multi-cadence-agent-tools.md),
+  [P10 contamination-aware 2022 agent replay](plans/p10-2022-agent-replay.md),
+  [P11 forward agent evaluation](plans/p11-forward-agent-evaluation.md),
+  [P12 agent research product](plans/p12-agent-research-product.md),
   [P13 market-data source hardening](plans/p13-market-data-source-hardening.md), and
   [P14 TradingView historical archive](plans/p14-tradingview-history-archive.md).
 
