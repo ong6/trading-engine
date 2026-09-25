@@ -132,6 +132,30 @@ def _capture_cross_checks(
         return [], [{"ticker": "*", "reason": str(exc)[:200]}], status
 
 
+def _unavailable_assessment(candidate: dict, failures: list[dict], market_date: str) -> dict:
+    failure = next(
+        (item for item in failures if item.get("ticker") == candidate["ticker"]),
+        {"reason": "fresh intraday evidence is unavailable"},
+    )
+    evidence_ids = [candidate["evidence_id"]]
+    if failure.get("receipt_sha256"):
+        evidence_ids.append(failure["receipt_sha256"])
+    return {
+        "ticker": candidate["ticker"],
+        "decision": "unavailable",
+        "action": "none",
+        "horizon_sessions": 5,
+        "confidence": 0.0,
+        "thesis": "Fresh intraday evidence was unavailable for this window.",
+        "invalidation": "A later scheduled window may reassess fresh retained evidence.",
+        "evidence_ids": evidence_ids,
+        "alert": None,
+        "market_date": market_date,
+        "availability_status": "unavailable",
+        "unavailable_reason": failure["reason"],
+    }
+
+
 def _observe(
     variant_id: str, *, database: Path = DEFAULT_DB, now: datetime | None = None,
     generate=agent_model_client.generate_opportunity_json, fetch_news=daily_opportunity_news._fetch,
@@ -163,6 +187,9 @@ def _observe(
             write_con.close()
         return {"status": "completed", "variant_id": variant_id,
                 "quote_count": len(prior["quotes"]),
+                "required_quote_count": prior.get("required_quote_count", len(prior["quotes"])),
+                "unavailable_count": prior.get("unavailable_count", 0),
+                "unavailable_ratio": prior.get("unavailable_ratio", 0.0),
                 "headline_count": len(prior["headlines"]),
                 "assessment_count": len(prior["assessments"]),
                 "execution_authority": "none", "replayed": True,
@@ -195,22 +222,31 @@ def _observe(
     cross_checks, cross_check_failures, cross_check_status = capture_cross_checks(
         tickers, database=database, observed_at=observed, provider_symbols=tradingview_symbols,
     )
-    if len(quotes) != len(tickers):
+    if not quotes:
         return {"status": "skipped", "variant_id": variant_id,
-                "reason": "complete fresh intraday evidence is unavailable",
+                "reason": "fresh intraday evidence is unavailable for every candidate",
                 "quote_count": len(quotes), "required_quote_count": len(tickers),
                 "quote_failures": quote_failures, "realtime_cross_check_count": len(cross_checks),
                 "realtime_cross_check_failures": cross_check_failures,
                 "realtime_cross_check_source": cross_check_status,
                 "execution_authority": "none", "replayed": False}
+    fresh_tickers = {item["ticker"] for item in quotes}
+    scoring_bundle = {
+        **bundle,
+        "candidates": [
+            {**candidate}
+            for candidate in bundle["candidates"]
+            if candidate["ticker"] in fresh_tickers
+        ],
+    }
     news = daily_opportunity_news.capture(["SPY", *tickers], now=observed, fetch=fetch_news)
-    for candidate in bundle["candidates"]:
+    for candidate in scoring_bundle["candidates"]:
         quote = next((item for item in quotes if item["ticker"] == candidate["ticker"]), None)
         candidate["intraday_observation"] = quote
         cross_check = next((item for item in cross_checks
                             if item["ticker"] == candidate["ticker"]), None)
         candidate["realtime_cross_check"] = cross_check
-    model_input, allowed = _model_input(bundle, news, [])
+    model_input, allowed = _model_input(scoring_bundle, news, [])
     for ticker, values in allowed.items():
         quote = next((item for item in quotes if item["ticker"] == ticker), None)
         if quote is not None:
@@ -227,12 +263,22 @@ def _observe(
     generation_started = time.monotonic()
     response = generate(model_input)
     latency_ms = (time.monotonic() - generation_started) * 1000
-    assessments = _validate_output(response.output, bundle, allowed, set())
+    scored = _validate_output(response.output, scoring_bundle, allowed, set())
+    scored_by_ticker = {item["ticker"]: item for item in scored}
+    assessments = [
+        scored_by_ticker.get(candidate["ticker"])
+        or _unavailable_assessment(candidate, quote_failures, bundle["market_date"])
+        for candidate in bundle["candidates"]
+    ]
+    unavailable_count = len(tickers) - len(quotes)
     artifact = {
         "schema_version": 1, "variant_id": variant_id, "cadence": variant["cadence"],
         "prompt_role": variant["prompt_role"], "observed_at": observed.isoformat(),
         "market_date": market_date.isoformat(), "quotes": quotes,
         "quote_failures": quote_failures,
+        "required_quote_count": len(tickers),
+        "unavailable_count": unavailable_count,
+        "unavailable_ratio": unavailable_count / len(tickers),
         "realtime_cross_checks": cross_checks,
         "realtime_cross_check_failures": cross_check_failures,
         "realtime_cross_check_source": cross_check_status,
@@ -290,7 +336,10 @@ def _observe(
     finally:
         write_con.close()
     return {"status": "completed", "variant_id": variant_id,
-            "quote_count": len(quotes), "headline_count": len(news["observations"]),
+            "quote_count": len(quotes), "required_quote_count": len(tickers),
+            "unavailable_count": unavailable_count,
+            "unavailable_ratio": unavailable_count / len(tickers),
+            "headline_count": len(news["observations"]),
             "assessment_count": len(assessments),
             "execution_authority": "none", "replayed": False,
             "artifact_sha256": hashlib.sha256(target.read_bytes()).hexdigest()}
@@ -310,7 +359,10 @@ def observe(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("variant_id", choices=("hourly_market_watch_v3", "four_hour_opportunity_review_v3"))
+    parser.add_argument(
+        "variant_id",
+        choices=("hourly_market_watch_v5", "four_hour_opportunity_review_v5"),
+    )
     args = parser.parse_args()
     print(json.dumps(observe(args.variant_id), sort_keys=True))
     return 0

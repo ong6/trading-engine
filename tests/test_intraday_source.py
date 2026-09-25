@@ -132,7 +132,7 @@ def test_capture_quotes_fails_closed_without_model_evidence(monkeypatch, tmp_pat
 def test_hourly_trace_links_the_exact_intraday_receipt():
     receipt_sha256 = "a" * 64
     artifact = {
-        "variant_id": "hourly_market_watch_v4", "cadence": "hourly",
+        "variant_id": "hourly_market_watch_v5", "cadence": "hourly",
         "prompt_role": "rapid_catalyst_watch", "market_date": "2026-09-23",
         "observed_at": NOW.isoformat(), "completed_at": NOW.isoformat(),
         "information_cutoff_at": NOW.isoformat(), "window": "2026-09-23T15",
@@ -219,12 +219,12 @@ def test_hourly_observer_retains_and_replays_exact_quote_evidence(monkeypatch, t
         return _response(_body(symbol=provider_ticker))
 
     first = hourly_opportunity_observer.observe(
-        "hourly_market_watch_v4", database=database, now=NOW, generate=_connector,
+        "hourly_market_watch_v5", database=database, now=NOW, generate=_connector,
         fetch_news=_news_response, fetch_quote=fetch,
         clock=lambda: NOW + timedelta(seconds=1),
     )
     second = hourly_opportunity_observer.observe(
-        "hourly_market_watch_v4", database=database, now=NOW, generate=_connector,
+        "hourly_market_watch_v5", database=database, now=NOW, generate=_connector,
         fetch_news=_news_response, fetch_quote=fetch,
         clock=lambda: NOW + timedelta(seconds=1),
     )
@@ -267,7 +267,7 @@ def test_admitted_cross_check_reaches_prompt_artifact_and_trace(monkeypatch, tmp
         return _connector(payload)
 
     result = hourly_opportunity_observer.observe(
-        "hourly_market_watch_v4", database=database, now=NOW, generate=generate,
+        "hourly_market_watch_v5", database=database, now=NOW, generate=generate,
         fetch_news=_news_response,
         fetch_quote=lambda provider_ticker, _now: _response(_body(symbol=provider_ticker)),
         capture_cross_checks=lambda *_args, **_kwargs: (
@@ -278,7 +278,7 @@ def test_admitted_cross_check_reaches_prompt_artifact_and_trace(monkeypatch, tmp
     assert result["status"] == "completed"
     assert seen["candidates"][0]["realtime_cross_check"] == cross_check
     assert cross_check["evidence_id"] in seen["allowed_evidence_ids"]
-    artifact = json.loads((tmp_path / "logs/hourly_market_watch_v4.jsonl").read_text())
+    artifact = json.loads((tmp_path / "logs/hourly_market_watch_v5.jsonl").read_text())
     assert artifact["realtime_cross_checks"] == [cross_check]
     con = db.connect(database, read_only=True)
     try:
@@ -296,7 +296,7 @@ def test_missing_fresh_quote_skips_without_model_or_trace(monkeypatch, tmp_path)
     monkeypatch.setattr(hourly_opportunity_observer, "REPO_ROOT", tmp_path)
     model_calls = []
     result = hourly_opportunity_observer.observe(
-        "hourly_market_watch_v4", database=database, now=NOW,
+        "hourly_market_watch_v5", database=database, now=NOW,
         generate=lambda payload: model_calls.append(payload), fetch_news=_news_response,
         fetch_quote=lambda *_: intraday_source.Response(
             _body(), "application/json", 200, NOW + timedelta(days=1),
@@ -306,12 +306,79 @@ def test_missing_fresh_quote_skips_without_model_or_trace(monkeypatch, tmp_path)
     )
     assert result["status"] == "skipped"
     assert result["execution_authority"] == "none" and model_calls == []
-    assert not (tmp_path / "logs/hourly_market_watch_v4.jsonl").exists()
+    assert not (tmp_path / "logs/hourly_market_watch_v5.jsonl").exists()
     con = db.connect(database, read_only=True)
     try:
         assert con.execute(
             "SELECT COUNT(*) FROM information_schema.tables "
             "WHERE table_name='agent_evaluation_traces'"
+        ).fetchone() == (0,)
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize(
+    "variant_id",
+    ["hourly_market_watch_v5", "four_hour_opportunity_review_v5"],
+)
+def test_one_stale_quote_records_unavailable_without_skipping_window(
+    monkeypatch, tmp_path, variant_id
+):
+    database = tmp_path / "market.duckdb"
+    _database(database)
+    con = db.connect(database)
+    con.execute(
+        "UPDATE prices SET open=149,high=151,low=148,close=150,volume=6000000 "
+        "WHERE ticker='QUIET' AND date=?",
+        [NOW.date() - timedelta(days=2)],
+    )
+    con.close()
+    monkeypatch.setattr(hourly_opportunity_observer, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(intraday_source, "source_version", lambda: "test-v1")
+    seen = {}
+
+    def generate(payload):
+        seen.update(payload)
+        return _connector(payload)
+
+    def fetch(provider_ticker, _observed_at):
+        if provider_ticker == "QUIET":
+            return intraday_source.Response(
+                _body(symbol=provider_ticker), "application/json", 200,
+                NOW + timedelta(days=1), NOW + timedelta(days=1),
+            )
+        return _response(_body(symbol=provider_ticker))
+
+    result = hourly_opportunity_observer.observe(
+        variant_id, database=database, now=NOW, generate=generate,
+        fetch_news=_news_response, fetch_quote=fetch,
+        capture_cross_checks=lambda *_args, **_kwargs: (
+            [], [], {"status": "admitted", "source_id": "tradingview_unofficial"}
+        ),
+        clock=lambda: NOW + timedelta(seconds=1),
+    )
+
+    assert result["status"] == "completed"
+    assert result["quote_count"] == 1
+    assert result["required_quote_count"] == 2
+    assert result["unavailable_count"] == 1
+    assert result["unavailable_ratio"] == 0.5
+    assert [item["ticker"] for item in seen["candidates"]] == ["FAST"]
+    artifact = json.loads((tmp_path / "logs" / f"{variant_id}.jsonl").read_text())
+    unavailable = next(
+        item for item in artifact["assessments"] if item["ticker"] == "QUIET"
+    )
+    assert unavailable["decision"] == "unavailable"
+    assert unavailable["availability_status"] == "unavailable"
+    con = db.connect(database, read_only=True)
+    try:
+        assert con.execute(
+            "SELECT decision,action FROM agent_evaluation_decisions WHERE ticker='QUIET'"
+        ).fetchone() == ("unavailable", "none")
+        assert con.execute(
+            "SELECT COUNT(*) FROM agent_evaluation_labels l "
+            "JOIN agent_evaluation_decisions d ON d.id=l.decision_id "
+            "WHERE d.ticker='QUIET'"
         ).fetchone() == (0,)
     finally:
         con.close()

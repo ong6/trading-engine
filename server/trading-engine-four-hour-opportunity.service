@@ -6,7 +6,7 @@ Wants=network-online.target trae-proxy.service
 [Service]
 Type=oneshot
 WorkingDirectory=%h/trading-engine
-ExecStart=%h/trading-engine/server/run_hourly_opportunity.sh four_hour_opportunity_review_v4
+ExecStart=%h/trading-engine/server/run_hourly_opportunity.sh four_hour_opportunity_review_v5
 Environment=PYTHONUNBUFFERED=1
 Nice=19
 IOSchedulingClass=idle

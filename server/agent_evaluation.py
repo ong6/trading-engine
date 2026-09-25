@@ -19,8 +19,8 @@ HORIZONS = (1, 5, 10, 20)
 TRACE_LIMIT = 500
 POLICIES = {
     "nightly_opportunity_tool_v1": "nightly",
-    "hourly_market_watch_v4": "hourly",
-    "four_hour_opportunity_review_v4": "four_hour",
+    "hourly_market_watch_v5": "hourly",
+    "four_hour_opportunity_review_v5": "four_hour",
 }
 LEGACY_POLICIES = {"hourly_market_watch_v1": "hourly",
                    "four_hour_opportunity_review_v1": "four_hour",
@@ -28,6 +28,8 @@ LEGACY_POLICIES = {"hourly_market_watch_v1": "hourly",
                    "four_hour_opportunity_review_v2": "four_hour"}
 LEGACY_POLICIES.update({"hourly_market_watch_v3": "hourly",
                         "four_hour_opportunity_review_v3": "four_hour"})
+LEGACY_POLICIES.update({"hourly_market_watch_v4": "hourly",
+                        "four_hour_opportunity_review_v4": "four_hour"})
 TRACE_REQUIRED_FIELDS = frozenset({
     "window_id", "policy_id", "cadence", "prompt_role", "market_date",
     "observed_at", "completed_at", "information_cutoff_at", "source_kind",
@@ -224,7 +226,7 @@ def record_trace(con: duckdb.DuckDBPyConnection, trace: dict) -> dict:
         if not isinstance(ticker, str) or not ticker or ticker in seen:
             raise EvaluationError("evaluation decision ticker is invalid or duplicated")
         seen.add(ticker)
-        if (item.get("decision") not in {"ignore", "watch", "hold", "swing"}
+        if (item.get("decision") not in {"ignore", "watch", "hold", "swing", "unavailable"}
                 or item.get("action") not in {"none", "buy", "sell"}
                 or isinstance(item.get("horizon_sessions"), bool)
                 or not isinstance(item.get("horizon_sessions"), int)
@@ -322,6 +324,9 @@ def artifact_trace(artifact: dict, *, source_identifier: str, latency_ms: float)
         *[{"kind": "intraday_receipt", "ticker": item["ticker"],
            "sha256": item["receipt_sha256"]} for item in artifact["quotes"]
           if item.get("receipt_sha256")],
+        *[{"kind": "intraday_failure_receipt", "ticker": item["ticker"],
+           "sha256": item["receipt_sha256"]} for item in artifact.get("quote_failures", [])
+          if item.get("receipt_sha256")],
         *[{"kind": "realtime_cross_check_receipt", "ticker": item["ticker"],
            "source_id": item["source_id"], "sha256": item["receipt_sha256"],
            "execution_authority": "none"}
@@ -377,11 +382,13 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> dic
     if latest is None:
         return {"inserted": 0, "latest_market_date": None}
     rows = con.execute(
-        "SELECT d.id, d.ticker, t.market_date, t.cadence, t.observed_at "
+        "SELECT d.id, d.ticker, t.market_date, t.cadence, t.observed_at, d.decision "
         "FROM agent_evaluation_decisions d "
         "JOIN agent_evaluation_traces t ON t.id = d.trace_id ORDER BY d.id"
     ).fetchall()
-    for decision_id, ticker, market_date, cadence, observed_at in rows:
+    for decision_id, ticker, market_date, cadence, observed_at, decision in rows:
+        if decision == "unavailable":
+            continue
         label_after = market_date if cadence == "nightly" else observed_at.date()
         sessions = [item[0] for item in con.execute(
             "SELECT DISTINCT date FROM prices WHERE ticker = 'SPY' AND date > ? "
