@@ -43,6 +43,25 @@ def _load_environment(path: Path) -> dict[str, str]:
     return values
 
 
+def _capture_or_status(args: argparse.Namespace, environ: dict[str, str], file_status: dict) -> dict:
+    if args.realtime:
+        result = official_quote_source.capture_realtime(
+            args.realtime, database=args.database, environ=environ)
+    elif args.history and args.start and args.end:
+        result = official_quote_source.capture_history(
+            args.history, args.start, args.end, database=args.database, environ=environ)
+    elif args.tradingview_realtime:
+        result = official_quote_source.capture_tradingview_realtime(
+            args.tradingview_realtime, database=args.database)
+    elif args.tradingview_history and args.start and args.end:
+        result = official_quote_source.capture_tradingview_history(
+            args.tradingview_history, args.start, args.end, database=args.database)
+    else:
+        result = {"credential_file": file_status,
+                  "sources": market_data_sources.public_statuses(environ)}
+    return result
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, default=DEFAULT_DB)
@@ -82,21 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("historical capture requires --start and --end")
     if not history_requested and (args.start is not None or args.end is not None):
         parser.error("--start/--end require a historical capture")
-    if args.realtime:
-        result = official_quote_source.capture_realtime(
-            args.realtime, database=args.database, environ=environ)
-    elif args.history and args.start and args.end:
-        result = official_quote_source.capture_history(
-            args.history, args.start, args.end, database=args.database, environ=environ)
-    elif args.tradingview_realtime:
-        result = official_quote_source.capture_tradingview_realtime(
-            args.tradingview_realtime, database=args.database)
-    elif args.tradingview_history and args.start and args.end:
-        result = official_quote_source.capture_tradingview_history(
-            args.tradingview_history, args.start, args.end, database=args.database)
-    else:
-        result = {"credential_file": file_status,
-                  "sources": market_data_sources.public_statuses(environ)}
+    result = _capture_or_status(args, environ, file_status)
     print(json.dumps(result, sort_keys=True))
     if args.realtime or args.history or args.tradingview_realtime or args.tradingview_history:
         return 0 if result.get("status") == "complete" else 2

@@ -95,10 +95,9 @@ def _price(value: object) -> float:
     return number
 
 
-def parse(ticker: str, provider_ticker: str, response: Response) -> list[dict]:
-    """Normalize complete OHLCV bars from one exact chart response."""
-    requested = _utc(response.requested_at, "request timestamp")
-    received = _utc(response.received_at, "receipt timestamp")
+def _response_series(
+    provider_ticker: str, response: Response, requested: datetime, received: datetime,
+) -> tuple[list, dict, tuple[str, ...]]:
     content_type = response.content_type.split(";", 1)[0].strip().lower()
     if requested > received or response.status_code != 200 or content_type != "application/json":
         raise IntradaySourceError("intraday response metadata is invalid")
@@ -120,6 +119,14 @@ def parse(ticker: str, provider_ticker: str, response: Response) -> list[dict]:
                or len(values[field]) != len(timestamps) for field in fields)
     ):
         raise IntradaySourceError("intraday response shape is invalid")
+    return timestamps, values, fields
+
+
+def parse(ticker: str, provider_ticker: str, response: Response) -> list[dict]:
+    """Normalize complete OHLCV bars from one exact chart response."""
+    requested = _utc(response.requested_at, "request timestamp")
+    received = _utc(response.received_at, "receipt timestamp")
+    timestamps, values, fields = _response_series(provider_ticker, response, requested, received)
     bars, seen = [], set()
     for index, epoch in enumerate(timestamps):
         row = [values[field][index] for field in fields]

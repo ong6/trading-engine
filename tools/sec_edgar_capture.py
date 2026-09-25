@@ -160,6 +160,25 @@ def _retain_response(
     )
 
 
+def _record_ticker_mapping(
+    con: duckdb.DuckDBPyConnection, wanted: list[str], mapping: dict, map_response: Response,
+    map_receipt: dict, ingested_at: datetime | None,
+) -> None:
+    with db.transaction(con):
+        for ticker in wanted:
+            item = mapping.get(ticker)
+            if item is None:
+                continue
+            bitemporal_facts.record_fact(
+                con, entity_id=f"sec-cik:{item['cik']}", security_id=ticker,
+                fact_type="sec.current_ticker_mapping", event_at=map_response.received_at,
+                published_at=None, available_at=map_response.received_at,
+                ingested_at=ingested_at or datetime.now(timezone.utc), payload={**item,
+                    "historical_membership_authority": False}, source="sec_edgar",
+                source_version=SOURCE_VERSION, receipt_sha256=map_receipt["receipt_sha256"],
+            )
+
+
 def capture(
     con: duckdb.DuckDBPyConnection, tickers: list[str], *, fetch: Fetch = _fetch,
     sleep: Callable[[float], None] = time.sleep, ingested_at: datetime | None = None,
@@ -191,19 +210,7 @@ def capture(
                           "receipt_sha256": map_receipt["receipt_sha256"]}],
             "historical_membership_authority": False, "execution_authority": "none",
         }
-    with db.transaction(con):
-        for ticker in wanted:
-            item = mapping.get(ticker)
-            if item is None:
-                continue
-            bitemporal_facts.record_fact(
-                con, entity_id=f"sec-cik:{item['cik']}", security_id=ticker,
-                fact_type="sec.current_ticker_mapping", event_at=map_response.received_at,
-                published_at=None, available_at=map_response.received_at,
-                ingested_at=ingested_at or datetime.now(timezone.utc), payload={**item,
-                    "historical_membership_authority": False}, source="sec_edgar",
-                source_version=SOURCE_VERSION, receipt_sha256=map_receipt["receipt_sha256"],
-            )
+    _record_ticker_mapping(con, wanted, mapping, map_response, map_receipt, ingested_at)
     filings, failures, requests = 0, [], 1
     for ticker in wanted:
         item = mapping.get(ticker)

@@ -118,6 +118,26 @@ def _commands(
     return commands
 
 
+def _handle_packets(socket, transcript: dict, message: str, mode: str, transcript_bytes: int) -> tuple[int, bool]:
+    done = False
+    for packet in parse_frames(message):
+        if isinstance(packet, int):
+            value = f"~h~{packet}"
+            heartbeat = f"~m~{len(value)}~m~{value}"
+            transcript_bytes += len(heartbeat.encode())
+            if transcript_bytes > MAX_TRANSCRIPT_BYTES:
+                raise TradingViewSourceError("TradingView transcript is too large")
+            socket.send(heartbeat)
+            transcript["sent"].append(heartbeat)
+        elif packet.get("m") == "protocol_error":
+            raise TradingViewSourceError("TradingView protocol error")
+        elif mode == "realtime" and packet.get("m") == "quote_completed":
+            done = True
+        elif mode == "history" and packet.get("m") == "series_completed":
+            done = True
+    return transcript_bytes, done
+
+
 def _fetch(
     symbol: str, *, mode: str, bars: int = 0, reference: int | None = None,
     timeout: float = 15.0,
@@ -147,21 +167,9 @@ def _fetch(
                 if transcript_bytes > MAX_TRANSCRIPT_BYTES:
                     raise TradingViewSourceError("TradingView transcript is too large")
                 transcript["received"].append(message)
-                for packet in parse_frames(message):
-                    if isinstance(packet, int):
-                        value = f"~h~{packet}"
-                        heartbeat = f"~m~{len(value)}~m~{value}"
-                        transcript_bytes += len(heartbeat.encode())
-                        if transcript_bytes > MAX_TRANSCRIPT_BYTES:
-                            raise TradingViewSourceError("TradingView transcript is too large")
-                        socket.send(heartbeat)
-                        transcript["sent"].append(heartbeat)
-                    elif packet.get("m") == "protocol_error":
-                        raise TradingViewSourceError("TradingView protocol error")
-                    elif mode == "realtime" and packet.get("m") == "quote_completed":
-                        done = True
-                    elif mode == "history" and packet.get("m") == "series_completed":
-                        done = True
+                transcript_bytes, done = _handle_packets(
+                    socket, transcript, message, mode, transcript_bytes,
+                )
             if not done:
                 raise TradingViewSourceError("TradingView request timed out")
     except (OSError, TimeoutError, WebSocketException) as exc:
@@ -224,8 +232,7 @@ def parse_realtime(symbol: str, transcript: Transcript) -> dict:
             "requested_symbol": symbol, "feed": "tradingview_anonymous"}}
 
 
-def parse_history(symbol: str, start: date, end: date, transcript: Transcript) -> list[dict]:
-    _symbol(symbol)
+def _history_rows(transcript: Transcript) -> tuple[dict, list]:
     resolved = {}
     rows = []
     complete = False
@@ -244,6 +251,12 @@ def parse_history(symbol: str, start: date, end: date, transcript: Transcript) -
             complete = True
     if not complete or not isinstance(resolved, dict):
         raise TradingViewSourceError("TradingView history is incomplete")
+    return resolved, rows
+
+
+def parse_history(symbol: str, start: date, end: date, transcript: Transcript) -> list[dict]:
+    _symbol(symbol)
+    resolved, rows = _history_rows(transcript)
     provider = resolved.get("source_id") or resolved.get("provider_id") or "unknown"
     exchange = resolved.get("exchange") or resolved.get("listed_exchange") or "unknown"
     if any(not isinstance(item, str) or VENUE.fullmatch(item) is None for item in (provider, exchange)):
