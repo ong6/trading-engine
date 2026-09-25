@@ -39,7 +39,7 @@ and current strategy/evidence status. The operating guide is
   is a detailed dated historical snapshot, as are the other files in
   [`docs/history/`](docs/history/README.md).
 - Build state + every decision and incident: [`BUILDLOG.md`](BUILDLOG.md) (entries before
-  2026-09-18 are in [`docs/history/`](docs/history/buildlog-2026-07-15-to-2026-09-17.md)).
+  2026-09-18 and the 2026-09-19 C90 refactor series are in [`docs/history/`](docs/history/README.md)).
 - Latest completed nightly league standings: [`data/reports/league.md`](data/reports/league.md).
 - Historical replays of every book: [`data/reports/backtests/`](data/reports/backtests/).
 - Deterministic Sunday walk-forward re-validation:

@@ -21,6 +21,7 @@ generated reports under [`../../data/reports/`](../../data/reports/README.md).
 | 2026-09-11 | [`recoverability-audit-2026-09-11.md`](recoverability-audit-2026-09-11.md) | Workstream A recoverability inventory | Closure sequence for backup and install automation |
 | 2026-09-11 | [`worktree-review-2026-09-11.md`](worktree-review-2026-09-11.md) | Working-tree ownership review | Commit sequence that made the local work releasable |
 | 2026-09-17 | [`live-readiness-goal.md`](live-readiness-goal.md) | Former handoff objective (workstreams A–E) | Gates a future execution-layer plan would inherit |
+| 2026-09-19 | [`buildlog-2026-09-19-c90-complexity-series.md`](buildlog-2026-09-19-c90-complexity-series.md) | The 42 v2 BUILDLOG entries of the C90 complexity refactor series, verbatim | Per-function evidence behind the one summary entry left in `BUILDLOG.md` |
 | 2026-09-22 | [`agent-trading-review-2026-09-22.md`](agent-trading-review-2026-09-22.md) | Agent, cadence, simulator-tool and 2022 replay assessment | Rationale for P8, P9 and P10 |
 | 2026-09-23 | [`agent-backtesting-roadmap-2026-09-23.md`](agent-backtesting-roadmap-2026-09-23.md) | Point-in-time data, execution and LLM-contamination roadmap | Research behind P11 and P12 |
 | 2026-09-23 | [`agent-research-product-completion-audit-2026-09-23.md`](agent-research-product-completion-audit-2026-09-23.md) | Requirement-to-artifact audit for P12 | Proof of P12 completion and its external gates |
