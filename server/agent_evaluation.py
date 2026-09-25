@@ -16,6 +16,7 @@ SCHEMA_VERSION = 1
 LABEL_SCHEMA_VERSION = 2
 LABEL_V2_SCHEMA_VERSION = 1
 COMMON_ENTRY_BASIS = "common_entry"
+NEXT_SESSION_OPEN_BASIS = "next_session_open"
 ROUND_TRIP_COST_BPS = 20.0
 HORIZONS = (1, 5, 10, 20)
 TRACE_LIMIT = 500
@@ -480,18 +481,19 @@ def _insert_v2_label(
     horizon: int,
     outcome: dict,
     labeled_at: datetime,
+    label_basis: str = COMMON_ENTRY_BASIS,
 ) -> bool:
     if con.execute(
         "SELECT 1 FROM agent_evaluation_labels_v2 "
         "WHERE decision_id=? AND horizon_sessions=? AND label_basis=?",
-        [decision_id, horizon, COMMON_ENTRY_BASIS],
+        [decision_id, horizon, label_basis],
     ).fetchone():
         return False
     body = {
         "schema_version": LABEL_V2_SCHEMA_VERSION,
         "decision_id": decision_id,
         "horizon_sessions": horizon,
-        "label_basis": COMMON_ENTRY_BASIS,
+        "label_basis": label_basis,
         **{
             key: value.isoformat() if isinstance(value, date) else value
             for key, value in outcome.items()
@@ -507,7 +509,7 @@ def _insert_v2_label(
             LABEL_V2_SCHEMA_VERSION,
             decision_id,
             horizon,
-            COMMON_ENTRY_BASIS,
+            label_basis,
             outcome["entry_date"],
             outcome["exit_date"],
             outcome["entry_open"],
@@ -567,6 +569,37 @@ def _label_common_entries(
                 inserted += _insert_v2_label(
                     con, decision_id, horizon, outcome, labeled_at
                 )
+    return inserted
+
+
+def _label_p15_entries(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    latest: date,
+    labeled_at: datetime,
+) -> int:
+    rows = con.execute(
+        "SELECT d.id,d.ticker,t.market_date FROM agent_evaluation_decisions d "
+        "JOIN agent_evaluation_traces t ON t.id=d.trace_id "
+        "WHERE t.policy_id='p15-scoring-v1' ORDER BY d.id"
+    ).fetchall()
+    inserted = 0
+    for decision_id, ticker, market_date in rows:
+        sessions = [item[0] for item in con.execute(
+            "SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>? AND date<=? "
+            "ORDER BY date LIMIT 20",
+            [market_date, latest],
+        ).fetchall()]
+        for horizon in HORIZONS:
+            if len(sessions) < horizon:
+                continue
+            outcome = _label_outcome(con, ticker, sessions[:horizon])
+            if outcome is None:
+                continue
+            inserted += _insert_v2_label(
+                con, int(decision_id), horizon, outcome, labeled_at,
+                label_basis=NEXT_SESSION_OPEN_BASIS,
+            )
     return inserted
 
 
@@ -639,6 +672,7 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> dic
             )
             inserted += 1
     v2_inserted = _label_common_entries(con, latest=latest, labeled_at=labeled_at)
+    v2_inserted += _label_p15_entries(con, latest=latest, labeled_at=labeled_at)
     return {
         "inserted": inserted,
         "v2_inserted": v2_inserted,
