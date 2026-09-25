@@ -1,26 +1,34 @@
 # Operating contract for agents
 
 This file governs any LLM session in this repository (Claude Code, Codex, or another agent).
-It overrides every other document except `docs/feedback.md`, where the owner's latest verdict
-wins. Read it in full before doing anything. It is short on purpose.
+Read it in full before doing anything. It is short on purpose.
 
-## The mode is MAINTAIN, not BUILD
+**Precedence:** newest `docs/feedback.md` entry > `docs/product.md` (goals, decisions, order) >
+this file (how sessions work) > `docs/scope.md` (what is admitted) > everything else. Other
+documents link here instead of restating the order.
 
-Since 2026-09-18 the engine is an **evidence-collecting appliance**. Its job is to run the
-nightly, append the three frozen forward records, run the Sunday walk-forward, and stay honest.
-The research verdict so far is that nothing beats its control, and the next research gates
-are calendar-bound (2027 and 2029; see the backlog). Building more infrastructure does not
-move those dates. The default outcome of a session is therefore **verify, report, stop**.
+## Mode: build toward a verdict
 
-## Read order (six files, in this order, nothing else by default)
+The goal is `docs/product.md`'s north star: an engine that runs on its own and makes money with
+AI in the loop. Work inside an approved or active plan is BUILD work and runs until that plan's
+"Done when" holds. Outside a plan, a session verifies, fixes a reproduced defect, reports, and
+stops. The running producers and the calendar-bound deterministic records (E1, sector, XS) are
+never disturbed by either kind of session. Model credit cost is not a reason to stop or to cut
+corners (owner, 2026-09-25).
+
+## Read order
 
 1. `AGENTS.md` (this file).
-2. `docs/feedback.md` — the owner's verdict ledger. The newest entry overrides older docs.
-3. `docs/scope.md` — what is in scope now, what is approved, what is explicitly *not yet*.
-4. `data/reports/metrics/README.md` — the latest drift snapshot and budget status.
-5. `docs/strategy-research-backlog.md#next-admissible-actions` — the only research queue.
-6. `docs/product.md` — the north star, every owner decision (made and open), and the order in
-   which admitted work matters.
+2. The newest entries of `docs/feedback.md`, the owner's verdict ledger.
+3. `docs/product.md`: north star, every owner decision, and the focus order.
+4. `docs/system-blueprint.md`: what is being built and why. Read it before drafting or building
+   a plan.
+5. `docs/scope.md`: what is admitted now and what is frozen.
+6. The active plan you are working on, or `data/reports/metrics/README.md` for a verify-only
+   session.
+
+`docs/strategy-research-backlog.md` is the queue for *deterministic* strategy research only; AI
+policy work is ordered by `product.md` ("Focus now").
 
 Open `docs/how-it-works.md` only for the ops runbook when a scheduled run misbehaved. Do not
 read `docs/history/live-readiness-goal.md` as a work queue; it is reference, and its workstreams C, D
@@ -34,7 +42,9 @@ Before editing anything other than a doc typo, the change must match exactly one
 - **A plan in `docs/plans/` with `status: approved` or `active`**, and the change is inside
   that plan's stated scope.
 - **A demonstrated defect**: a failing test or a reproduction command whose output is wrong,
-  written into the BUILDLOG entry before the fix.
+  written into the BUILDLOG entry before the fix. A defect is wrong behaviour or output of a
+  producer, the evidence, or the simulator. Lint and complexity findings are not defects, and a
+  lint cleanup never becomes a series of commits.
 
 If none matches: do not build it. Write one line under "Proposed, not approved" in
 `docs/scope.md` with the reason and stop. "Hardening", "provenance", "fail-closed",
@@ -56,7 +66,7 @@ while reading code is not a defect until it has a reproduction.
 
 ## Session shape
 
-1. `git pull --rebase origin main`, then read the six files. Run `python -m tools.metrics_snapshot --dry-run` and compare with the
+1. `git pull --rebase origin main`, then read the files in the read order. Run `python -m tools.metrics_snapshot --dry-run` and compare with the
    last snapshot. Query `GET /meta` if the API is up.
 2. If a scheduled producer failed, fix that (it is a demonstrated defect). Otherwise apply the
    admission test to whatever you intended to do.
@@ -68,9 +78,11 @@ Never end a session with uncommitted or unstaged changes: the nightly pipeline p
 and runs on stale code when the tree is dirty. Commits are pushed to the public upstream
 automatically; commit with the repository's configured identity and add no employer or internal-tool co-author trailers.
 
-Do not loop. One admitted item per session. If the item is done and the tests pass, the
-session is over even if context remains. Exception: an approved plan that carries a "How to run
-this plan" section (P15) may be run end to end in one session, as that section says.
+Outside a plan: one admitted item per session, then stop. An approved or active plan with a
+"How to run this plan" section is run end to end as that section says, including long sessions
+and sub-agents under its one-writer rule. Never drift from the active plan into side work: a
+problem found along the way that the plan does not need goes on one line under "Proposed, not
+approved" in `docs/scope.md`.
 
 ## BUILDLOG entry format v2
 
@@ -81,7 +93,8 @@ this plan" section (P15) may be run end to end in one session, as that section s
 - **What:** two to five lines of what changed, in plain words.
 - **Evidence:** the one command that proves it and its salient output line.
 - **Metrics:** server/tools/product LOC deltas from the snapshot, or "unchanged".
-- **Next:** the single next admitted step, or "nothing admitted".
+- **Next:** the single next step in the active plan, or "nothing admitted". This line records
+  intent; it never admits work by itself.
 ```
 
 No hashes beyond one, no PIDs, no restatement of unchanged state, no list of every gate that

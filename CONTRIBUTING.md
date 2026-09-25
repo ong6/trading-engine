@@ -12,7 +12,7 @@ reused. Issues and pull requests are welcome; expect slow replies.
   never touch a live store or the network. Run `npm test` from `ui/` for the dependency-free UI
   response-contract tests.
 - **Lint:** `.venv/bin/ruff check .` must pass. The API and operator-tool layers additionally
-  enforce `.venv/bin/ruff check --select C90 server tools` and
+  report `.venv/bin/ruff check --select C90 server tools` (advisory) and enforce
   `.venv/bin/ruff check --select PLW2901,RET504 server tools`, keeping complexity bounded, raw
   database or filesystem values distinct from their validated public forms, and return paths free
   of dead intermediates. All executable source additionally

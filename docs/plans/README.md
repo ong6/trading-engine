@@ -11,7 +11,7 @@ each plan's YAML `status` must match its row.
 
 | Plan | Title | Status | One-line outcome |
 |---|---|---|---|
-| [P1](p1-appliance-mode.md) | Appliance mode | active | Admitted maintenance; not progressed since approval (doc-pinning tests not yet retired) |
+| [P1](p1-appliance-mode.md) | Appliance mode | done | Closed 2026-09-26: maintain-only premise superseded; doc-pinning test retirement moved to P16 W9 |
 | [P2](p2-league-collapse.md) | League collapse | approved | Retire 11 of 21 books whose question the evidence already answered; not started |
 | [P3](p3-point-in-time-data.md) | Point-in-time data | approved | Sharadar recommended, Norgate fallback; **blocked** until the owner sets a spend ceiling |
 | [P4](p4-broker-decision.md) | Broker decision | done | Decided 2026-09-20: IBKR eventually (Moomoo fallback) on personal hardware, via a later execution plan |
@@ -26,9 +26,10 @@ each plan's YAML `status` must match its row.
 | [P13](p13-market-data-source-hardening.md) | Market-data source hardening | done | TradingView realtime/history active under owner-asserted rights; Alpaca dormant |
 | [P14](p14-tradingview-history-archive.md) | TradingView historical archive | done | Resumable current-liquid-universe daily bars with exact transcripts and research-only authority |
 | [P15](p15-profitability-evidence-loop.md) | Profitability evidence loop | approved | Score every candidate against a deterministic baseline, add comparator books, a pre-open check and event triggers, and code the gates |
+| [P16](p16-challenger-lab-and-text-edge.md) | Challenger lab, text edge, evaluation science | proposed | Shadow challengers, filing reader, time-locked historical text lab, optimizer books, fill calibration, weekly digest, Stage 2 design |
 
 Recommended order: follow [`../product.md`](../product.md) ("Focus now"). P15 comes first, then P7
-activation; P8/P9 keep running untouched; P1 and P2 remain admitted maintenance work; P3 waits for the owner's
+activation; P8/P9 keep running untouched; P2 remains admitted; P3 waits for the owner's
 data-vendor budget.
 
 ## Plan template

@@ -117,6 +117,24 @@ registration and the BUILDLOG.
   - TradingView quotes may appear as model inputs; they never price a fill or set a limit.
 - **Model identity:** the existing bound model identity. Drift fails closed.
 
+**Prompt requirements for `p15-scoring-v1`.** Added 2026-09-26, before W2, from the prompt review
+in [`../design/prompt-review.md`](../design/prompt-review.md). Every live prompt's problems are
+recorded there. The scoring prompt must:
+- **State the objective truthfully.** Say what happens to the scores: they rank a simulator book
+  judged against SPY and against a rule-ranked control. Do not describe the model as having "no
+  authority" when its output is traded.
+- **Define every number exactly.**
+  - `p_outperform_5` is the calibrated probability that the 5-session return, entered at the
+    next open and net of 20 bp round-trip, beats SPY on the same basis.
+  - `expected_excess_bp_5` and `expected_excess_bp_10` are the expected values of that excess.
+- **Set the base rate.** Say that roughly half the candidates are expected to have negative
+  excess, so the model neither anchors on 0.5 nor leans toward abstaining.
+- **Show what the code will refuse.** Pass the deterministic gates as input fields
+  (`tradeable`, `reason`), so the model knows which names the code will refuse. It still scores
+  every candidate.
+- **Keep safety text short.** One sentence on authority and one on untrusted input text replace
+  the repeated disclaimers.
+
 **Deterministic baseline (`p15-baseline-v1`):** rank candidates by RS rank, highest first. A
 missing RS rank ranks last. Ties break by standout score, then ticker. This is also the control
 book's ranking.

@@ -13,7 +13,7 @@ however green the tests are.
 
 | Group | Metric | Why it matters | Healthy direction |
 |---|---|---|---|
-| Code size | LOC per layer: `engine`, `sim`, `farm` (product), `server`, `tools`, `tests`, `ui/app` | Growth in `server`/`tools` with flat product is governance for its own sake | Flat or down for frozen layers |
+| Code size | LOC per layer: `engine`, `sim`, `farm` (product), `server`, `tools`, `tests`, `ui/app` | Growth with no plan behind it is governance for its own sake | Growth only inside a plan's owner-raised ceiling |
 | Code size | `docs_md`, `buildlog` line counts | Doc mass is read cost for every future session | Flat or down |
 | Commit shape | Non-screen commits in the last 30 days; how many touched research paths, how many touched product, how many were support-only | Support-only share is the ceremony ratio | Support-only share falling |
 | Commit shape | Largest single commit (insertions) | Unreviewable drops are how 61k lines landed in one day | Under 1,500 |
@@ -39,8 +39,8 @@ however green the tests are.
 
 ## Reading a snapshot
 
-- **Frozen layer up, research flat** → the session built something the scope ledger forbids.
-  Revert or get a plan approved.
+- **Layer up with no plan admitting it** → the session built something the scope ledger forbids.
+  Revert or get a plan approved. Growth inside an active plan is expected.
 - **Budget OVER** → the test suite is red until the owner raises the ceiling in
   `feedback.md`. Do not edit `scope-budget.json` in the same change that needs it.
 - **Research counters unchanged for a week** → check the scheduler, not the strategy.

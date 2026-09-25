@@ -362,3 +362,32 @@ using sub-agents, with no cost limit.
 **Ceiling changes.** P15 may add up to 2,500 lines under `server/`, 1,000 under `engine/`, 400
 under `tools/`, 700 under `farm/`, and 500 under `sim/`. Ceilings become server 54,450, engine
 13,750, tools 8,450, farm 12,550, and sim 7,900. Code that P15 makes obsolete is deleted first.
+
+## 2026-09-26 — Refresh instructions that no longer fit the goal; add the blueprint and P16
+
+**Verdict.** The owner observed that agents get caught up in earlier instructions and asked for any
+legacy prompting or rules that do not fit the future goals to be fixed. The owner also asked for a
+document describing what is being built, and for the next long run to be planned. An audit found the
+maintain-only framing in `AGENTS.md`, a read order without the product or blueprint documents,
+lint findings counted as defects (the source of the 42-commit C90 series and a new C90 pass on
+2026-09-26), metrics that treat all growth as bad, a stale P1, and live prompts that hide the
+execution gates from the model.
+
+**Rule changes.**
+
+1. `AGENTS.md`: "Mode: build toward a verdict" replaces "MAINTAIN, not BUILD". Precedence is
+   defined once: feedback > product > AGENTS > scope. The read order includes `product.md` and
+   `system-blueprint.md`. Lint and complexity findings are not defects. `Next:` never admits work.
+   Any approved plan with a "How to run this plan" section runs end to end.
+2. CI's C90 complexity check is advisory (`continue-on-error`). The other lint gates still block.
+3. P1 is closed; its doc-pinning test retirement and the `how-it-works.md` split move to P16 W9.
+4. `metrics.md`, `scope.md`, and the backlog header drop the appliance framing and stale counts;
+   the backlog is scoped to deterministic strategies.
+5. New `docs/system-blueprint.md` (target system, edge hypotheses, idea register) and
+   `docs/design/prompt-review.md`. P15's scoring prompt must follow the prompt requirements added
+   to P15 before W2.
+6. P16 (challenger lab, filing reader, time-locked text lab, optimizer books, fill calibration,
+   digest, Stage 2 design) is filed as `proposed`; the owner approves it and its ceilings after
+   P15 W8.
+
+**Ceiling changes.** None.

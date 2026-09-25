@@ -4,12 +4,12 @@ What the engine is allowed to become, and what it is not allowed to become yet. 
 makes this the second thing an agent reads. Edit it only through a plan in `plans/` or an
 owner entry in `feedback.md`.
 
-## In scope now (the appliance)
+## In scope now (running components)
 
 | Component | Runs | Owner action if it fails |
 |---|---|---|
 | Nightly pipeline (`engine/run_daily.sh`) | Weekdays 22:30 UTC | Fix as a defect; reproduce first |
-| Paper league day-step, 21 active books | Nightly | Same |
+| Paper league day-step (active count in the metrics snapshot) | Nightly | Same |
 | Three frozen forward records: sector momentum, XS 12-1, E1 Monday | Nightly / per signal | Never touch the rule; only the monitor may append |
 | Sunday walk-forward revalidation | Weekly | Same |
 | Saturday verifier, Sunday liquidity refresh, Friday postflight | Weekly | Same |
@@ -21,7 +21,8 @@ owner entry in `feedback.md`.
 | P11 evaluation ledger (indexed after each daily run; `GET /agent/evaluation/status`) | Nightly, after P8 | Same; labels are mechanical and never tune a policy |
 | P14 TradingView daily-history archive (existing queue, bounded slices) | Every four hours (`trading-engine-tradingview-history.timer`); nightly enqueue is a fallback | Same; retrieval-time research only, current-universe survivor bias explicit |
 
-Maintaining these means keeping them running unchanged. It does not mean improving them.
+Change a running component only through a plan, as a new registered version. Existing versions
+and their evidence are never edited.
 
 ## Approved plans
 
@@ -42,7 +43,7 @@ resumable current-liquid-universe daily history, isolated from operational price
 | Independent risk supervisor and fault drills | Built, inert | P7 may reuse/extend only for its internal simulator safety gates | No broker or live authority |
 | Release manifest, worktree audit, backup, install-automation hardening | Working | A demonstrated recovery failure; P15 may register its own units in `tools/install_automation.py` | No growth; no new invariants |
 | Documentation-pinning tests (`tests/test_docs*.py`) | ~150 assertions on prose | Never | Frozen at current count |
-| New league books | 21 active | A charter whose gate cleared in the backlog table | None |
+| New league books | See the metrics snapshot | A charter whose gate cleared in the backlog table | None |
 | Parameter sweeps and grids | `OPEN_RECURRING_GRIDS` empty | P6 permits one pre-registered fixed-instrument experiment, not a grid | No sweep or nearby variant |
 | Stock-selection or fundamentals research | Gated | 756 qualifying dates / 156 snapshots, or an audited point-in-time dataset (P3) | None |
 | Intraday research | Gated | 252 qualifying sessions over 365 days in both resolutions | None, except P15's shadow mover scan and `next_bar` labels, which are evidence collection, not research verdicts |
@@ -63,6 +64,6 @@ Agents append one line here instead of building. The owner promotes a line to a 
 deletes it.
 
 - 2026-09-18 · Split `docs/how-it-works.md` (2,247 lines) into ops runbook vs architecture
-  reference. Blocked by the doc-pinning tests; needs P1 to retire them first.
+  reference. Blocked by the doc-pinning tests; moved into P16 W9 with P1's closure.
 - 2026-09-18 · Move dated audits under `docs/history/`. Done 2026-09-24 on owner request
   (`feedback.md`); doc tests' path constants followed the move.
