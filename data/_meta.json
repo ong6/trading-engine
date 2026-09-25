@@ -533,15 +533,15 @@
     "target_symbols": 4063,
     "limitation": "current-liquid-universe snapshot; survivor-biased and retrieval-time-only; not historical membership or promotion-quality stock-selection evidence",
     "attempts": {
-      "complete": 45,
-      "empty": 5,
+      "complete": 129,
+      "empty": 21,
       "failed": 0
     },
     "unresolved_failed_windows": 0,
-    "fact_count": 16573,
-    "symbols_with_facts": 45,
-    "symbols_checkpointed": 50,
-    "symbols_unstarted": 4013,
+    "fact_count": 47455,
+    "symbols_with_facts": 129,
+    "symbols_checkpointed": 150,
+    "symbols_unstarted": 3913,
     "checkpoint_start": "2023-07-05",
     "checkpoint_end": "2023-07-05",
     "target_through": "2026-09-24",
@@ -553,10 +553,10 @@
     "execution_authority": "none",
     "operational_price_mutation": false,
     "attempted_this_run": 50,
-    "completed_this_run": 45,
-    "empty_this_run": 5,
+    "completed_this_run": 39,
+    "empty_this_run": 11,
     "failed_this_run": 0,
     "through": "2026-09-24",
-    "last_run": "2026-09-25T09:46:47.410335+00:00"
+    "last_run": "2026-09-25T15:50:25.640893+00:00"
   }
 }
