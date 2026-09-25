@@ -318,3 +318,18 @@ transcripts remain private and non-redistributable.
 
 **Ceiling changes.** P13 may use the remaining repository headroom: at most 400 additional server
 lines and 150 tools lines; engine, farm, sim, and existing source ceilings do not increase.
+
+## 2026-09-25 — Build a durable TradingView historical archive
+
+**Verdict.** The owner confirmed that the initial TradingView sample is not enough and directed the
+engine to retain historical data for future trading needs. P14 is approved and active for a
+resumable daily-bar archive beginning with the current active/liquid universe.
+
+**Rule changes.** P14 may freeze a current-universe cohort, add per-symbol/date checkpoints and
+attempt logging, run bounded archive work through the existing queue, and schedule continued
+collection. Exact transcripts and bitemporal facts remain authoritative. This cohort must be labeled
+survivor-biased and retrieval-time-only; it cannot fill historical membership, fundamentals, or news
+gaps and cannot mutate operational prices, fills, orders, positions, or execution authority.
+
+**Ceiling changes.** None. P14 may use up to 650 existing spare engine lines and 100 tools lines;
+server, farm, and sim do not grow.

@@ -19,6 +19,7 @@ owner entry in `feedback.md`.
 | P9 hourly and four-hour shadow observers (`trading-engine-{hourly,four-hour}-opportunity.timer`) | Weekdays 09:15–16:15 and 09:30/13:30 America/New_York | Same; missed windows are not replayed (`Persistent=false`) |
 | Agent data capture and agent-only shadow (`trading-engine-agent-{data-capture,shadow}.timer`) | 01:25 and 01:30 UTC Tue–Sat | Same |
 | P11 evaluation ledger (indexed after each daily run; `GET /agent/evaluation/status`) | Nightly, after P8 | Same; labels are mechanical and never tune a policy |
+| P14 TradingView daily-history archive (existing queue, bounded nightly slice) | Nightly after core miners | Same; retrieval-time research only, current-universe survivor bias explicit |
 
 Maintaining these means keeping them running unchanged. It does not mean improving them.
 
@@ -28,7 +29,8 @@ Plan status lives in one place: the table in [`plans/README.md`](plans/README.md
 marked `approved` or `active` there admit work, subject to their stated prerequisites. Completed
 plans' outputs (P5, P6, P10, P11, P12, P13) stay in scope for operation and evidence but authorize no
 further feature growth.
-P13 TradingView capture is active for research operation; Alpaca remains gated.
+P13 TradingView capture is active for research operation; Alpaca remains gated. P14 is active for
+resumable current-liquid-universe daily history, isolated from operational prices and execution.
 
 ## Not yet — frozen until its trigger fires
 

@@ -1065,4 +1065,14 @@ decisions) are preserved verbatim in
 - **Metrics:** server remains within 51,950 lines; engine/farm/sim unchanged; budget green.
 - **Next:** accumulate market-session v4 traces; TradingView remains research-only.
 
+## 2026-09-25 — Admit the TradingView history archive
+
+- **Why:** owner approval of 2026-09-25 admits P14 after the live source proof retained only 21
+  AAPL bars and had no resumable universe archive.
+- **What:** approve a bounded current-liquid-universe daily archive with exact transcripts,
+  per-symbol/date checkpoints, queue execution, and explicit retrieval-time/survivorship limits.
+- **Evidence:** `python -m tools.metrics_snapshot --dry-run` reports `budget.ok = true`.
+- **Metrics:** source unchanged; P14 may use existing engine/tools headroom only.
+- **Next:** implement, test, and canary the checkpointed queue worker.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
