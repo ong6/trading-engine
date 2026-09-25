@@ -61,16 +61,26 @@ def _market_context(con: duckdb.DuckDBPyConnection, market_date: date) -> dict:
     return {**body, "evidence_id": canonical_sha256(body)}
 
 
-def _earnings(con: duckdb.DuckDBPyConnection, ticker: str, market_date: date) -> dict:
+def _earnings(
+    con: duckdb.DuckDBPyConnection,
+    ticker: str,
+    market_date: date,
+    cutoff_at=None,
+) -> dict:
     if not table_exists(con, "earnings_calendar"):
         return {"status": "unavailable", "next_date": None, "is_estimate": None}
-    row = con.execute(
+    cutoff_clause = "" if cutoff_at is None else "AND (fetched_at IS NULL OR fetched_at<=?) "
+    params = [ticker, market_date, market_date]
+    if cutoff_at is not None:
+        params.append(cutoff_at)
+    query = (
         "SELECT earnings_date, is_estimate, as_of FROM earnings_calendar "
         "WHERE ticker = ? AND as_of <= ? AND earnings_date >= ? "
-        "QUALIFY as_of = MAX(as_of) OVER (PARTITION BY ticker) "
-        "ORDER BY earnings_date LIMIT 1",
-        [ticker, market_date, market_date],
-    ).fetchone()
+        + cutoff_clause
+        + "QUALIFY as_of = MAX(as_of) OVER (PARTITION BY ticker) "
+        "ORDER BY earnings_date LIMIT 1"
+    )
+    row = con.execute(query, params).fetchone()
     if row is None:
         return {"status": "no_upcoming_date", "next_date": None, "is_estimate": None}
     return {
@@ -110,14 +120,21 @@ def _candidate_rows(con: duckdb.DuckDBPyConnection, market_date: date) -> list[t
     ).fetchall()
 
 
-def _p15_candidate_rows(con: duckdb.DuckDBPyConnection, market_date: date) -> list[tuple]:
+def _p15_candidate_rows(
+    con: duckdb.DuckDBPyConnection, market_date: date, cutoff_at=None
+) -> list[tuple]:
+    cutoff_clause = "" if cutoff_at is None else "AND (p.fetched_at IS NULL OR p.fetched_at<=?)"
+    params = [market_date, MIN_CLOSE]
+    if cutoff_at is not None:
+        params.append(cutoff_at)
+    params.extend([market_date, MIN_HISTORY])
     return con.execute(
         f"""
         WITH eligible AS (
           SELECT p.ticker,p.date,p.open,p.close,p.volume,u.active,u.liquid,u.etf,
                  ROW_NUMBER() OVER (PARTITION BY p.ticker ORDER BY p.date DESC) AS rn
           FROM prices p JOIN universe u ON u.ticker=p.ticker
-          WHERE p.date<=? AND p.close>=? AND {REAL_BAR_SQL}
+          WHERE p.date<=? AND p.close>=? {cutoff_clause} AND {REAL_BAR_SQL}
         ), history AS (
           SELECT ticker,
                  MAX(date) FILTER (WHERE rn=1) AS latest_date,
@@ -138,7 +155,7 @@ def _p15_candidate_rows(con: duckdb.DuckDBPyConnection, market_date: date) -> li
         FROM history WHERE latest_date=? AND history_count>=? AND prior_close>0
           AND open>0 AND close>0 AND volume>0 AND median_volume>0
         """,
-        [market_date, MIN_CLOSE, market_date, MIN_HISTORY],
+        params,
     ).fetchall()
 
 
@@ -234,6 +251,7 @@ def p15_universe(
     market_date: date,
     *,
     held_tickers: set[str] | None = None,
+    information_cutoff_at=None,
 ) -> dict:
     """Build the deterministic, long-usable P15 scoring universe."""
     if type(market_date) is not date:
@@ -255,7 +273,7 @@ def p15_universe(
     quarantined = {item["ticker"] for item in active_quarantines(con)}
     candidates = []
     observed_tickers = set()
-    for row in _p15_candidate_rows(con, market_date):
+    for row in _p15_candidate_rows(con, market_date, information_cutoff_at):
         (ticker, open_px, close, volume, prior, close_5d, median_volume,
          median_dollar_volume, active, liquid, etf) = row
         observed_tickers.add(ticker)
@@ -295,7 +313,9 @@ def p15_universe(
             "template_score": template_score,
             "passes_template": bool(passes),
             "new_screen_pass": bool(new_today),
-            "earnings": _earnings(con, ticker, market_date),
+            "earnings": _earnings(
+                con, ticker, market_date, information_cutoff_at
+            ),
             "held": is_held,
             "tradeable": reason == "eligible",
             "reason": reason,

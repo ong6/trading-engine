@@ -27,6 +27,7 @@ POLICIES = {
     "nightly_opportunity_tool_v1": "nightly",
     "hourly_market_watch_v5": "hourly",
     "four_hour_opportunity_review_v5": "four_hour",
+    "p15-scoring-v1": "nightly",
 }
 LEGACY_POLICIES = {"hourly_market_watch_v1": "hourly",
                    "four_hour_opportunity_review_v1": "four_hour",
@@ -261,7 +262,9 @@ def record_trace(con: duckdb.DuckDBPyConnection, trace: dict) -> dict:
         if not isinstance(ticker, str) or not ticker or ticker in seen:
             raise EvaluationError("evaluation decision ticker is invalid or duplicated")
         seen.add(ticker)
-        if (item.get("decision") not in {"ignore", "watch", "hold", "swing", "unavailable"}
+        if (item.get("decision") not in {
+                "ignore", "watch", "hold", "swing", "unavailable",
+                "buy_candidate", "exit"}
                 or item.get("action") not in {"none", "buy", "sell"}
                 or isinstance(item.get("horizon_sessions"), bool)
                 or not isinstance(item.get("horizon_sessions"), int)
