@@ -23,7 +23,7 @@ each plan's YAML `status` must match its row.
 | [P10](p10-2022-agent-replay.md) | 2022 agent replay | done | Contamination-labelled price-only diagnostic; cannot promote anything |
 | [P11](p11-forward-agent-evaluation.md) | Forward agent evaluation | done | Evaluation ledger built; it operates as part of the appliance |
 | [P12](p12-agent-research-product.md) | Agent research product | done | Full data, execution, and evaluation programme delivered 2026-09-23; data/news spend external |
-| [P13](p13-market-data-source-hardening.md) | Market-data source hardening | done | Provider-neutral exact-response boundary and an Alpaca adapter built; activation needs Alpaca credentials, accepted terms and a live smoke; TradingView blocked by its terms |
+| [P13](p13-market-data-source-hardening.md) | Market-data source hardening | done | TradingView realtime/history active under owner-asserted rights; Alpaca dormant |
 
 Recommended order: follow [`../direction.md`](../direction.md) ("Focus now"). P8/P9 run untouched
 while P7 is activated; P1 and P2 remain admitted maintenance work; P3 waits for the owner's

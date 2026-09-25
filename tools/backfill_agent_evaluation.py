@@ -38,7 +38,8 @@ def run(database: Path = DEFAULT_DB) -> dict:
                     skipped += 1
             for variant in ("hourly_market_watch_v1", "four_hour_opportunity_review_v1",
                             "hourly_market_watch_v2", "four_hour_opportunity_review_v2",
-                            "hourly_market_watch_v3", "four_hour_opportunity_review_v3"):
+                            "hourly_market_watch_v3", "four_hour_opportunity_review_v3",
+                            "hourly_market_watch_v4", "four_hour_opportunity_review_v4"):
                 path = REPO_ROOT / "logs" / f"{variant}.jsonl"
                 for artifact in _jsonl(path):
                     try:

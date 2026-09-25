@@ -15,7 +15,7 @@ import requests
 from engine.lib import db
 from engine.lib.settings import DEFAULT_DB
 
-from . import market_data_sources
+from . import market_data_sources, tradingview_source
 
 SOURCE_ID = market_data_sources.ALPACA
 SOURCE_VERSION = "alpaca_market_data_v2"
@@ -267,3 +267,81 @@ def capture_history(symbol: str, start: date, end: date, *, database: Path = DEF
         con.close()
     return {**status, "status": "complete", "receipt_sha256": receipt["receipt_sha256"],
             "fact_count": len(facts), "historical_authority": "retrieval_time_staging_only"}
+
+
+def capture_tradingview_realtime(
+    provider_symbol: str, *, database: Path = DEFAULT_DB, observed_at: datetime | None = None,
+    fetch: tradingview_source.Fetch = tradingview_source._fetch,
+) -> dict:
+    status = market_data_sources.source_status(market_data_sources.TRADINGVIEW)
+    transcript = fetch(provider_symbol, mode="realtime")
+    response = market_data_sources.SourceResponse(
+        transcript.body, "application/json", 200,
+        transcript.requested_at, transcript.received_at)
+    request = {"provider_symbol": provider_symbol, "mode": "realtime",
+               "protocol_version": tradingview_source.SOURCE_VERSION}
+    con = db.connect(database, wait_s=0)
+    try:
+        receipt = market_data_sources.retain_response(
+            con, source_id=market_data_sources.TRADINGVIEW, dataset="realtime_snapshot",
+            endpoint=tradingview_source.ENDPOINT, request=request, response=response)
+        observation = tradingview_source.parse_realtime(provider_symbol, transcript)
+        market_data_sources.retain_observations(
+            con, source_id=market_data_sources.TRADINGVIEW,
+            receipt_sha256=receipt["receipt_sha256"], receipt_dataset="realtime_snapshot",
+            received_at=transcript.received_at, observations=[{k: observation[k] for k in
+            ("ticker", "event_at", "payload")}], fact_type="market.quote.realtime",
+            source_version=tradingview_source.SOURCE_VERSION)
+    finally:
+        con.close()
+    return {**status, "status": "complete", "observation":
+            market_data_sources.evidence(observation, receipt["receipt_sha256"], status)}
+
+
+def capture_tradingview_many(
+    symbols: list[str], *, database: Path = DEFAULT_DB, observed_at: datetime | None = None,
+) -> list[dict]:
+    observations = [capture_tradingview_realtime(
+        symbol, database=database, observed_at=observed_at)["observation"]
+        for symbol in symbols[:5]]
+    return [item for item in observations if item.get("fresh") is True]
+
+
+def capture_tradingview_history(
+    provider_symbol: str, start: date, end: date, *, database: Path = DEFAULT_DB,
+    fetch: tradingview_source.Fetch = tradingview_source._fetch,
+) -> dict:
+    if not isinstance(start, date) or not isinstance(end, date) or not start <= end:
+        raise OfficialSourceError("TradingView historical range is invalid")
+    if (end - start).days > tradingview_source.MAX_HISTORY_DAYS:
+        raise OfficialSourceError("TradingView historical range exceeds the bounded window")
+    trading_days = (end - start).days + 10
+    bars = min(tradingview_source.MAX_HISTORY_BARS, max(10, trading_days))
+    reference = int(datetime.combine(end + timedelta(days=1), datetime.min.time(),
+                                     timezone.utc).timestamp())
+    transcript = fetch(provider_symbol, mode="history", bars=bars, reference=reference)
+    response = market_data_sources.SourceResponse(
+        transcript.body, "application/json", 200,
+        transcript.requested_at, transcript.received_at)
+    request = {"provider_symbol": provider_symbol, "mode": "history",
+               "start": start.isoformat(), "end": end.isoformat(), "bars": bars,
+               "reference": reference,
+               "timeframe": "1D", "adjustment": "splits",
+               "protocol_version": tradingview_source.SOURCE_VERSION}
+    con = db.connect(database, wait_s=0)
+    try:
+        receipt = market_data_sources.retain_response(
+            con, source_id=market_data_sources.TRADINGVIEW, dataset="historical_daily_bars",
+            endpoint=tradingview_source.ENDPOINT, request=request, response=response)
+        observations = tradingview_source.parse_history(provider_symbol, start, end, transcript)
+        facts = market_data_sources.retain_observations(
+            con, source_id=market_data_sources.TRADINGVIEW,
+            receipt_sha256=receipt["receipt_sha256"], receipt_dataset="historical_daily_bars",
+            received_at=transcript.received_at, observations=observations,
+            fact_type="market.ohlcv.1d.retrieved",
+            source_version=tradingview_source.SOURCE_VERSION)
+    finally:
+        con.close()
+    return {"status": "complete", "source_id": market_data_sources.TRADINGVIEW,
+            "receipt_sha256": receipt["receipt_sha256"], "fact_count": len(facts),
+            "historical_authority": "retrieval_time_research_only"}

@@ -41,14 +41,14 @@ def _snapshot(price: float = 100.0, *, event_at: datetime | None = None):
     }}}
 
 
-def test_source_registry_blocks_tradingview_and_gates_alpaca():
-    blocked = market_data_sources.source_status(market_data_sources.TRADINGVIEW, {})
+def test_source_registry_admits_tradingview_and_gates_alpaca():
+    tradingview = market_data_sources.source_status(market_data_sources.TRADINGVIEW, {})
     missing = market_data_sources.source_status(market_data_sources.ALPACA, {})
     admitted = market_data_sources.source_status(market_data_sources.ALPACA, ADMITTED)
 
-    assert blocked["status"] == "blocked"
-    assert blocked["execution_authority"] == "none"
-    assert blocked["historical_authority"] == "none"
+    assert tradingview["status"] == "admitted"
+    assert tradingview["execution_authority"] == "none"
+    assert tradingview["historical_authority"] == "retrieval_time_research_only"
     assert missing["status"] == "unavailable"
     assert admitted["status"] == "admitted"
     assert admitted["venue_scope"] == "IEX single-exchange"

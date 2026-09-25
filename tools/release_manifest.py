@@ -119,6 +119,7 @@ AGENT_SOURCE_FILES = (
     "server/intraday_source.py",
     "server/market_data_sources.py",
     "server/official_quote_source.py",
+    "server/tradingview_source.py",
     "server/agent_paper_attribution.py",
     "server/agent_paper_book_plan.py",
     "server/agent_paper_book_preflight.py",

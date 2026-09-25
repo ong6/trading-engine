@@ -149,8 +149,8 @@ does not satisfy the paid historical-universe gate.
 - Sharadar/Norgate/news purchase: owner must approve initial and recurring spend and license terms.
 - IBKR gateway, credentials, subscription, or API: requires a separately approved broker plan.
 - Real capital: requires prospective evidence, immutable model revision, and explicit owner decision.
-- TradingView automation: its current terms prohibit non-display algorithmic use; require a separate
-  written TradingView/data-provider agreement before any payload can be retained or shown to an agent.
+- TradingView automation: active under the owner's asserted non-display rights for internal realtime
+  and historical research. Anonymous feed identity and freshness remain explicit and research-only.
 - Official realtime cross-check: Alpaca Basic is supported as an IEX-only research source after the
   owner accepts its data terms and supplies API credentials. It is not consolidated or execution truth.
 
@@ -195,8 +195,9 @@ The revised intraday policies are versioned as v3, require a complete set of clo
 legacy diagnostics and are excluded from active policy scoring.
 
 The Mathieu2301 Tradingview-API project was reviewed at upstream commit
-`5baea86c8c7e576f13464919c86c3b4c4b0ecf4c`. Its package declares ISC, but the repository contains
-no license file, and neither fact grants rights to TradingView market data. TradingView's current
-terms classify agent decisions and algorithmic price use as prohibited non-display use absent a
-separate agreement. The source is therefore registered as `blocked` and is never contacted by the
-runtime.
+`5baea86c8c7e576f13464919c86c3b4c4b0ecf4c`. The runtime does not import that package; it implements
+the bounded anonymous quote/chart framing contract directly and records that commit as its protocol
+reference. TradingView is active under owner-asserted rights. Anonymous snapshots may resolve to a
+different underlying feed than the requested listing venue—for example Cboe One/ICE for a Nasdaq
+symbol—so requested symbol, resolved exchange, provider, age, spread availability, and consolidated
+status are retained separately. Stale snapshots are stored but never admitted to agent prompts.

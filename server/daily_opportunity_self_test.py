@@ -14,7 +14,7 @@ REGISTRATION = REPO_ROOT / "server" / "agent-cadence-registration.json"
 def run() -> dict:
     registration = json.loads(REGISTRATION.read_text())
     variants = registration.get("variants")
-    expected = {"hourly_market_watch_v3", "four_hour_opportunity_review_v3",
+    expected = {"hourly_market_watch_v4", "four_hour_opportunity_review_v4",
                 "nightly_opportunity_tool_v1", "daily_gap_volume_veto_v1"}
     errors = []
     if not isinstance(variants, list) or {item.get("id") for item in variants} != expected:

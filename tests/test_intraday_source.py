@@ -132,7 +132,7 @@ def test_capture_quotes_fails_closed_without_model_evidence(monkeypatch, tmp_pat
 def test_hourly_trace_links_the_exact_intraday_receipt():
     receipt_sha256 = "a" * 64
     artifact = {
-        "variant_id": "hourly_market_watch_v3", "cadence": "hourly",
+        "variant_id": "hourly_market_watch_v4", "cadence": "hourly",
         "prompt_role": "rapid_catalyst_watch", "market_date": "2026-09-23",
         "observed_at": NOW.isoformat(), "completed_at": NOW.isoformat(),
         "information_cutoff_at": NOW.isoformat(), "window": "2026-09-23T15",
@@ -214,12 +214,12 @@ def test_hourly_observer_retains_and_replays_exact_quote_evidence(monkeypatch, t
         return _response(_body(symbol=provider_ticker))
 
     first = hourly_opportunity_observer.observe(
-        "hourly_market_watch_v3", database=database, now=NOW, generate=_connector,
+        "hourly_market_watch_v4", database=database, now=NOW, generate=_connector,
         fetch_news=_news_response, fetch_quote=fetch,
         clock=lambda: NOW + timedelta(seconds=1),
     )
     second = hourly_opportunity_observer.observe(
-        "hourly_market_watch_v3", database=database, now=NOW, generate=_connector,
+        "hourly_market_watch_v4", database=database, now=NOW, generate=_connector,
         fetch_news=_news_response, fetch_quote=fetch,
         clock=lambda: NOW + timedelta(seconds=1),
     )
@@ -262,7 +262,7 @@ def test_admitted_cross_check_reaches_prompt_artifact_and_trace(monkeypatch, tmp
         return _connector(payload)
 
     result = hourly_opportunity_observer.observe(
-        "hourly_market_watch_v3", database=database, now=NOW, generate=generate,
+        "hourly_market_watch_v4", database=database, now=NOW, generate=generate,
         fetch_news=_news_response,
         fetch_quote=lambda provider_ticker, _now: _response(_body(symbol=provider_ticker)),
         capture_cross_checks=lambda *_args, **_kwargs: (
@@ -273,7 +273,7 @@ def test_admitted_cross_check_reaches_prompt_artifact_and_trace(monkeypatch, tmp
     assert result["status"] == "completed"
     assert seen["candidates"][0]["realtime_cross_check"] == cross_check
     assert cross_check["evidence_id"] in seen["allowed_evidence_ids"]
-    artifact = json.loads((tmp_path / "logs/hourly_market_watch_v3.jsonl").read_text())
+    artifact = json.loads((tmp_path / "logs/hourly_market_watch_v4.jsonl").read_text())
     assert artifact["realtime_cross_checks"] == [cross_check]
     con = db.connect(database, read_only=True)
     try:
@@ -291,15 +291,17 @@ def test_missing_fresh_quote_skips_without_model_or_trace(monkeypatch, tmp_path)
     monkeypatch.setattr(hourly_opportunity_observer, "REPO_ROOT", tmp_path)
     model_calls = []
     result = hourly_opportunity_observer.observe(
-        "hourly_market_watch_v3", database=database, now=NOW,
+        "hourly_market_watch_v4", database=database, now=NOW,
         generate=lambda payload: model_calls.append(payload), fetch_news=_news_response,
         fetch_quote=lambda *_: intraday_source.Response(
             _body(), "application/json", 200, NOW + timedelta(days=1),
             NOW + timedelta(days=1)),
+        capture_cross_checks=lambda *_args, **_kwargs: (
+            [], [], {"status": "admitted", "source_id": "tradingview_unofficial"}),
     )
     assert result["status"] == "skipped"
     assert result["execution_authority"] == "none" and model_calls == []
-    assert not (tmp_path / "logs/hourly_market_watch_v3.jsonl").exists()
+    assert not (tmp_path / "logs/hourly_market_watch_v4.jsonl").exists()
     con = db.connect(database, read_only=True)
     try:
         assert con.execute(
