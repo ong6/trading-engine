@@ -697,4 +697,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +261, tools unchanged, product +29; budget ok.
 - **Next:** W2 scoring universe, prompt, baseline, ledger, and inert nightly dry-run.
 
+## 2026-09-25 — P15 W2: build the scoring evidence loop
+
+- **Why:** approved P15 W2 requires broad candidate scoring against a frozen deterministic
+  baseline, with retained samples, point-in-time inputs, and an inert nightly delivery path.
+- **What:** add the 40-mover/20-trend universe, higher-is-better baseline, truthful scoring prompt,
+  three-sample durable aggregation, basis-aware labels, terminal replay, and hard noon deadline.
+  The versioned service and timer remain uninstalled and excluded from autostart until W8.
+- **Evidence:** `.venv/bin/python -m server.p15_scoring_runner --dry-run` completed 60 candidates
+  through 18 model calls with zero unavailable outcomes and did not create live P15 tables.
+- **Metrics:** server +1,014, tools +13, product +261; budget ok.
+- **Next:** W3 inactive comparator books and limit-on-open simulator mechanics.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
