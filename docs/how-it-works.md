@@ -1463,8 +1463,8 @@ command, prints one JSON result line, and has only local-simulator authority or 
 | `trading-engine-agent-data-capture.timer` | 01:25 UTC Tue–Sat | price, corporate-action, provider-response, and independent-price observation capture | none (append-only data) |
 | `trading-engine-agent-shadow.timer` | 01:30 UTC Tue–Sat | `server.agent_shadow_schedule run` (agent-only shadow decision) | none |
 | `trading-engine-daily-opportunity.timer` | 02:00 UTC Tue–Sat | `server.daily_opportunity_runner` (P8 standouts, assessments, locked simulator trade tool), then `server.agent_evaluation_reporting` (P11 report) | local simulator only |
-| `trading-engine-hourly-opportunity.timer` | Mon–Fri 09:15–16:15 America/New_York, hourly | `server/run_hourly_opportunity.sh hourly_market_watch_v4` (P9 shadow; P13 TradingView cross-check) | none |
-| `trading-engine-four-hour-opportunity.timer` | Mon–Fri 09:30 and 13:30 America/New_York | `server/run_hourly_opportunity.sh four_hour_opportunity_review_v4` (P9 shadow; P13 TradingView cross-check) | none |
+| `trading-engine-hourly-opportunity.timer` | Mon–Fri 10:15–16:15 America/New_York, hourly | `server/run_hourly_opportunity.sh hourly_market_watch_v5` (P15 shadow; P13 TradingView cross-check) | none |
+| `trading-engine-four-hour-opportunity.timer` | Mon–Fri 10:30 and 13:30 America/New_York | `server/run_hourly_opportunity.sh four_hour_opportunity_review_v5` (P15 shadow; P13 TradingView cross-check) | none |
 | `trading-engine-tradingview-history.timer` | 03:40, 07:40, 11:40, 15:40, 19:40, 23:40 UTC daily | `server/run_tradingview_history_archive.sh` (P14 bounded archive slice) | none (research facts only) |
 
 The two UTC agent timers, the daily timer, and the TradingView archive timer are

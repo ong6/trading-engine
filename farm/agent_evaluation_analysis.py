@@ -25,11 +25,19 @@ def expected_windows(start: datetime, end: datetime, sessions: list,
     result = set()
     session_set = set(sessions)
     for item in variants:
+        variant_start = start
+        if item.get("evaluation_start_at"):
+            variant_start = max(
+                start,
+                datetime.fromisoformat(
+                    item["evaluation_start_at"].replace("Z", "+00:00")
+                ).astimezone(timezone.utc),
+            )
         if item["id"] == "nightly_opportunity_tool_v1":
             for session in sessions:
                 hour, minute = map(int, item["scheduled_local_times"][0].split(":"))
                 due = datetime.combine(session + timedelta(days=1), time(hour, minute), timezone.utc)
-                if start <= due <= end:
+                if variant_start <= due <= end:
                     result.add(f"nightly:{session.isoformat()}")
             continue
         if item.get("cadence") not in {"hourly", "four_hour"}:
@@ -41,7 +49,7 @@ def expected_windows(start: datetime, end: datetime, sessions: list,
                 for raw_time in item["scheduled_local_times"]:
                     hour, minute = map(int, raw_time.split(":"))
                     due = datetime.combine(local_day, time(hour, minute), zone).astimezone(timezone.utc)
-                    if start <= due <= end:
+                    if variant_start <= due <= end:
                         bucket = due.hour if item["cadence"] == "hourly" else due.hour // 4 * 4
                         result.add(f"{item['id']}:{due.date().isoformat()}T{bucket:02d}")
             local_day += timedelta(days=1)
@@ -49,21 +57,25 @@ def expected_windows(start: datetime, end: datetime, sessions: list,
 def coverage(con: duckdb.DuckDBPyConnection, rows: list[dict], generated_at: datetime,
              registration_path: Path, horizons: tuple[int, ...]) -> dict:
     decisions = con.execute(
-        "SELECT d.id,t.market_date,t.cadence,t.observed_at FROM agent_evaluation_decisions d "
+        "SELECT d.id,t.market_date,t.cadence,t.observed_at,d.decision "
+        "FROM agent_evaluation_decisions d "
         "JOIN agent_evaluation_traces t ON t.id=d.trace_id ORDER BY d.id"
     ).fetchall() if table_exists(con, "agent_evaluation_decisions") else []
     prices_ready = table_exists(con, "prices")
     latest = con.execute("SELECT MAX(date) FROM prices WHERE ticker='SPY'").fetchone()[0] if prices_ready else None
     mature_expected = 0
     if latest is not None:
-        for _decision_id, market_date, cadence, observed_at in decisions:
+        for _decision_id, market_date, cadence, observed_at, decision in decisions:
+            if decision == "unavailable":
+                continue
             boundary = market_date if cadence == "nightly" else observed_at.date()
             count = int(con.execute(
                 "SELECT COUNT(DISTINCT date) FROM prices WHERE ticker='SPY' AND date>? AND date<=?",
                 [boundary, latest],
             ).fetchone()[0])
             mature_expected += sum(count >= horizon for horizon in horizons)
-    actual, possible = sum(row["horizon"] is not None for row in rows), len(decisions) * len(horizons)
+    available = sum(row[4] != "unavailable" for row in decisions)
+    actual, possible = sum(row["horizon"] is not None for row in rows), available * len(horizons)
     try:
         registration = json.loads(registration_path.read_text())
         start = datetime.fromisoformat(
@@ -79,7 +91,8 @@ def coverage(con: duckdb.DuckDBPyConnection, rows: list[dict], generated_at: dat
         expected, missing, status = set(), [], "invalid"
     return {
         "trace_count": len({row["window_id"] for row in rows}),
-        "decision_count": len(decisions), "label_count": actual,
+        "decision_count": len(decisions), "available_decision_count": available,
+        "unavailable_decision_count": len(decisions) - available, "label_count": actual,
         "mature_expected_label_count": mature_expected,
         "missing_mature_label_count": max(0, mature_expected - actual),
         "immature_label_count": max(0, possible - mature_expected),

@@ -96,7 +96,11 @@ def _horizon_metrics(rows: list[dict]) -> dict:
 
 
 def _policy_metrics(rows: list[dict], trace_rows: list[dict]) -> dict:
-    decisions = {(row["window_id"], row["ticker"]): row for row in rows}
+    decisions = {
+        (row["window_id"], row["ticker"]): row
+        for row in rows
+        if row["decision"] != "unavailable"
+    }
     actionable = [row for row in rows if row["horizon"] is not None and row["action"] != "none"]
     correctness = [1.0 if signed_return(row) > 0 else 0.0 for row in actionable]
     brier = [(row["confidence"] - correct) ** 2

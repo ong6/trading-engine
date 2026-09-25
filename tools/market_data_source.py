@@ -67,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--database", type=Path, default=DEFAULT_DB)
     parser.add_argument("--preflight", type=Path)
     parser.add_argument("--run-observer", choices=(
-        "hourly_market_watch_v4", "four_hour_opportunity_review_v4"))
+        "hourly_market_watch_v5", "four_hour_opportunity_review_v5"))
     action = parser.add_mutually_exclusive_group()
     action.add_argument("--realtime")
     action.add_argument("--history")

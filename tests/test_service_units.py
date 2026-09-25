@@ -130,8 +130,8 @@ def test_daily_opportunity_publishes_canonical_evaluation_after_success():
 
 def test_intraday_agents_validate_credentials_before_loading_them():
     runner = _unit("server/run_hourly_opportunity.sh")
-    for name, variant in (("hourly", "hourly_market_watch_v4"),
-                          ("four-hour", "four_hour_opportunity_review_v4")):
+    for name, variant in (("hourly", "hourly_market_watch_v5"),
+                          ("four-hour", "four_hour_opportunity_review_v5")):
         unit = _unit(f"server/trading-engine-{name}-opportunity.service")
         assert "EnvironmentFile=" not in unit
         assert f"run_hourly_opportunity.sh {variant}" in unit

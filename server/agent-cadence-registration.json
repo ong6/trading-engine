@@ -4,22 +4,24 @@
   "execution_policy_id": "nightly_opportunity_tool_v1",
   "variants": [
     {
-      "id": "hourly_market_watch_v4",
+      "id": "hourly_market_watch_v5",
       "cadence": "hourly",
       "prompt_role": "rapid_catalyst_watch",
       "candidate_limit": 3,
       "timezone": "America/New_York",
       "scheduled_local_times": ["10:15", "11:15", "12:15", "13:15", "14:15", "15:15", "16:15"],
+      "evaluation_start_at": "2026-09-25T17:00:00Z",
       "data": ["bounded_live_quote", "optional_official_realtime_cross_check", "public_headlines"],
       "execution_authority": "none"
     },
     {
-      "id": "four_hour_opportunity_review_v4",
+      "id": "four_hour_opportunity_review_v5",
       "cadence": "four_hour",
       "prompt_role": "catalyst_and_structure_review",
       "candidate_limit": 5,
       "timezone": "America/New_York",
       "scheduled_local_times": ["10:30", "13:30"],
+      "evaluation_start_at": "2026-09-25T17:00:00Z",
       "data": ["bounded_live_quote", "optional_official_realtime_cross_check", "public_headlines", "latest_intraday_archive"],
       "execution_authority": "none"
     },
