@@ -709,4 +709,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +1,014, tools +13, product +261; budget ok.
 - **Next:** W3 inactive comparator books and limit-on-open simulator mechanics.
 
+## 2026-09-25 — P15 W3: create inactive comparator books
+
+- **Why:** approved P15 W3 requires three isolated comparator books that remain inactive until
+  W8 and share one registered mechanics contract.
+- **What:** add exact AI-ranked, rule-control, and hybrid-veto book definitions at US$10,000 each,
+  isolated intent and position-rule evidence tables, and guarded all-or-none activation at an
+  already-completed common league checkpoint. Initialization creates no runtime rows.
+- **Evidence:** `./.venv/bin/python -m pytest -q -W error tests/test_p15_books.py` passes 3 tests.
+- **Metrics:** server +179, tools unchanged, product +50, tests +132; budget ok.
+- **Next:** wire selection, ATR sizing/stops, SPY sleeve, time exits, and isolated P15 fills.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
