@@ -641,3 +641,11 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Next:** let the 4,063-symbol cohort accumulate; obtain survivor-free PIT membership separately.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
+
+## 2026-09-25 — Central product document and P15 profitability evidence loop
+
+- **Why:** owner verdict 2026-09-25 (`docs/feedback.md`): one central decision document, and the AI-loop review scoped into one plan for a long-running builder session.
+- **What:** `docs/direction.md` became `docs/product.md` with a decision register (made and open). P15 approved with a frozen-registration spec, workstreams W0–W8 and a run contract that allows one long session with sub-agents. Ceilings raised per the feedback entry. `scope.md`, `AGENTS.md` and the plan table point at both.
+- **Evidence:** `TZ=UTC pytest -q tests` shows the same failures as the clean tree (host-only scheduler-monitor tests on a non-systemd machine); the markdown link test passes.
+- **Metrics:** docs only; code LOC unchanged.
+- **Next:** P15 W0 on the host.
