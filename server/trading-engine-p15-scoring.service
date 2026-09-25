@@ -1,0 +1,17 @@
+[Unit]
+Description=Trading engine P15 nightly candidate scoring
+After=network-online.target trae-proxy.service
+Wants=network-online.target trae-proxy.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/trading-engine
+ExecStart=%h/trading-engine/.venv/bin/python -m server.p15_scoring_runner --run
+Environment=PYTHONUNBUFFERED=1
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=9h
+PrivateTmp=true
+ProtectSystem=full
+ProtectControlGroups=true
+UMask=0077

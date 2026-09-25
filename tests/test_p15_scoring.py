@@ -1,6 +1,7 @@
 """P15 scoring-universe and policy-contract tests."""
 from __future__ import annotations
 
+import shutil
 from datetime import datetime, timedelta, timezone
 
 from engine.daily_opportunities import p15_universe
@@ -201,5 +202,29 @@ def test_p15_scoring_invalid_sample_marks_whole_chunk_unavailable(tmp_path):
             "SELECT COUNT(*) FROM p15_scoring_samples "
             "WHERE status='failed' AND response_payload IS NOT NULL"
         ).fetchone() == (1,)
+    finally:
+        con.close()
+
+
+def test_p15_scoring_dry_run_uses_copy_and_leaves_source_unchanged(tmp_path):
+    database = tmp_path / "market.duckdb"
+    _database(database)
+    before = database.read_bytes()
+    now = datetime(2026, 9, 22, 2, 30, tzinfo=timezone.utc)
+
+    result = p15_scoring_runner.dry_run(
+        database=database, now=now, generate=_scoring_result,
+        fetch_news=_news_response, clock=lambda: now,
+        copier=lambda source, target: shutil.copy2(source, target),
+    )
+
+    assert result["dry_run"] is True and result["candidate_count"] == 2
+    assert database.read_bytes() == before
+    con = db.connect(database, read_only=True)
+    try:
+        assert con.execute(
+            "SELECT COUNT(*) FROM information_schema.tables "
+            "WHERE table_name LIKE 'p15_scoring_%'"
+        ).fetchone() == (0,)
     finally:
         con.close()

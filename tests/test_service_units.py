@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+from tools import install_automation
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -149,6 +151,16 @@ def test_tradingview_archive_timer_is_bounded_and_queue_owned():
     assert "--enqueue tradingview_history" in runner
     assert "--run --run-kind tradingview_history" in runner
     assert '"max_chunks":50' in runner and "official_quote_source" not in runner
+
+
+def test_p15_scoring_unit_is_registered_but_not_autostarted():
+    service = _unit("server/trading-engine-p15-scoring.service")
+    timer = _unit("server/trading-engine-p15-scoring.timer")
+    _assert_common_service_hardening(service)
+    assert "server.p15_scoring_runner --run" in service
+    assert "TimeoutStartSec=9h" in service
+    assert "02:30:00 UTC" in timer and "Persistent=true" in timer
+    assert "trading-engine-p15-scoring.timer" not in install_automation.AUTOSTART_UNITS
 
 
 def test_league_ui_does_not_present_operational_rank_as_research_evidence():

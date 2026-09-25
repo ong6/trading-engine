@@ -1,0 +1,10 @@
+[Unit]
+Description=Run P15 scoring after the nightly evidence pipeline
+
+[Timer]
+OnCalendar=Tue..Sat *-*-* 02:30:00 UTC
+Persistent=true
+Unit=trading-engine-p15-scoring.service
+
+[Install]
+WantedBy=timers.target
