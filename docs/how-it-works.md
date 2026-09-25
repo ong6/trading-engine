@@ -48,6 +48,7 @@ engine/               data layer + nightly driver
                         declared safe), resumable jobs, stale-job reclaim, bounded budget
   forward_review.py     frozen sector-momentum-vs-SPY paper monitor
   xs_forward_review.py  frozen prospective 12-1-momentum-vs-EW paper monitor
+  tradingview_history_archive.py  P14 resumable TradingView daily-bar archive (research facts only)
   run_daily.sh          the nightly driver (see pipeline below)
 sim/                  the paper league
   strategies/           one file per strategy + configs.py (the frozen pre-registrations)
@@ -63,6 +64,7 @@ server/               FastAPI backend (localhost:8000) — read endpoints + disc
   scheduler_monitor.py exact schedule and launch-readiness audit
   friday_postflight.py schedule-aware validation of the auxiliary Friday audit receipt
   meta_snapshot.py    fail-soft loader for the optional engine health snapshot
+  market_data_sources.py P13 source admission registry; tradingview_source.py exact-transcript client
   market_health.py    market freshness + independent-price evidence projection
   liquidity_monitor.py scheduled liquidity-evidence reconciliation
   exposure_monitor.py stale active-position/order projection with exposure-scoped quote history
@@ -494,6 +496,8 @@ state rather than being serialized as usable capital. Malformed dates or active 
 the projection. The producer and browser also require the exact eight-field ticket-context
 envelope, preventing an unreviewed backend field from silently becoming sizing input.
 
+## The agent paper path (shadow admission)
+
 The replacement paper-agent path currently stops at **shadow admission**. `GET /agent/context`
 returns a bounded, deterministic context only for the active fixed-instrument strategies
 `dual_momentum`, `dual_momentum_gated`, and `sector_momentum`, and only for an active, liquid,
@@ -621,6 +625,8 @@ contracts therefore remain `quality_status = limited` and
 bounded capture coverage, receipt bytes, exact-match links, kinds, and revision classifications
 without exposing market-data rows or raw response bodies.
 
+### Decision features and model transport
+
 The same context includes a bounded `decision_features` section derived only from the instruments
 and lookbacks in the frozen strategy registration. For dual momentum this is SPY/EFA/BIL over 252
 sessions; for sector momentum it is the 11 registered sector ETFs over 63/126/252 sessions. Each
@@ -639,7 +645,8 @@ The model transport is the separately supervised local Trae CLI proxy at
 requires the allowlisted `GPT-5.6-Sol:max` model, exact expected catalog mapping, proxy version,
 and Trae CLI runtime, and returns only sanitized connector metadata. Context schema v10 binds the
 canonical selected-catalog-entry hash, `gpt-5.6-sol__max` routing key, catalog component marker,
-proxy v0.7, and Trae CLI `0.204.1` runtime. Every generation brackets the model POST with identical
+proxy v0.7 and its source hash, and Trae CLI `0.205.1` runtime (retained schema-v2 shadow evidence
+keeps its original `0.204.1` identity). Every generation brackets the model POST with identical
 health and selected-catalog reads, and every retained model response binds the resulting catalog
 hash and runtime identity. Alias remapping or transport drift before response acceptance therefore
 fails closed. The status does not expose the proxy's token, user, upstream
@@ -656,6 +663,8 @@ alias, internal routing key, catalog component marker, `config_name`, context si
 runtime binding detects transport drift but is not relabeled as a model revision. This is
 acceptable for connector/shadow evaluation but must be replaced by a provider-stable revision
 identity before either paper authority gate can pass.
+
+### Registration, proposals, and attribution
 
 Agent behavior is registered separately from the algorithm portfolio in
 `server/agent-shadow-registration.json`. The registry currently freezes an agent-only
@@ -713,6 +722,8 @@ attempts are counted but excluded, and evidence pooling is prohibited. Because t
 agent and hybrid portfolios do not yet exist, the endpoint explicitly reports
 `return_attribution_status = unavailable_no_isolated_paper_portfolio` and makes no performance
 claim. It does not create a portfolio, order, fill, or equity row.
+
+### Isolated agent paper books
 
 The read model now also contains a verifier for a future isolated-book registration and
 per-order ownership contract. It accepts return attribution only when a reserved book exactly
@@ -803,6 +814,8 @@ date, the explicit operator command is:
 Each policy requires its own fresh backup matching the then-current database snapshot. Do not run
 this command against the live store until the operator has selected that external backup
 destination and the preflight for the exact start date passes.
+
+### Human paper review and approval
 
 `server/broker_human_paper_review.py` now derives one source-neutral, short-lived review packet
 from the complete retained agent-only or hybrid evidence path and one exact
@@ -921,6 +934,8 @@ Both paths force DuckDB read-only. Duplicate JSON keys, non-finite values, overs
 expired packets, changed evidence, and packet drift fail closed. The CLI has no `approve`,
 `reject`, signer, persistence, activation, lease, adapter, or submission command.
 
+### Promotion readiness, release review, and fault drills
+
 `GET /agent/authority/readiness` is the fail-closed promotion view. It always reports the current
 stage as `shadow`, both later paper stages as ineligible, and both paper and broker routes as
 absent. Schema v3 introduced separate nested `human_approved_paper` and `automatic_paper`
@@ -978,8 +993,7 @@ trust source, pass the release gate, or grant paper authority. The future operat
   --manifest-sha256 <verified-manifest-sha256>
 ```
 
-The current dirty worktree and untracked required files therefore remain visible
-release blockers. The endpoint is diagnostic only:
+A dirty worktree or untracked required files remain visible release blockers. The endpoint is diagnostic only:
 there is no mutation route that can turn a reported gate into authority.
 
 Fault/restart evidence is produced explicitly with:
@@ -1043,6 +1057,8 @@ registered deterministic checks. It is not permission to trade. The endpoint nev
 Hybrid proposal envelopes are rejected because hybrid operation is restricted to the separate
 candidate-bound veto contract. Approved-paper and automatic-paper promotion remain future gated work under
 [`history/live-readiness-goal.md`](history/live-readiness-goal.md).
+
+### The agent-only shadow runner
 
 The first model-driven producer is an **agent-only shadow runner** that may be invoked manually:
 
@@ -1137,6 +1153,8 @@ no-model-call outcome. Hybrid remains absent from the timer and simulator. Algor
 scheduling remains unchanged and independent of Trae availability. A simulator route still
 requires the later risk, full return-attribution, fault-test, and authority gates in the
 live-readiness goal.
+
+### Capital-disabled broker boundary (inert)
 
 The capital-disabled broker boundary remains internal to `server/` and is not imported by an API,
 agent runner, ticket path, scheduler, or the existing league fill loop. Its typed adapter supports
@@ -1309,6 +1327,8 @@ approval prompt. The existing exact-intent approve/reject packet remains a separ
 supervised-paper path. Algorithm-only schedules remain independent; agent-only and hybrid books
 remain separately registered and attributable.
 
+## Dashboard and API boundaries
+
 The Positions & Orders page is a current-state projection: both lists join `portfolios` and
 include active books only. An explicit position lookup for an unknown or retired portfolio
 returns 404 instead of presenting archival shares as current exposure. Retired position and
@@ -1432,10 +1452,10 @@ silently appearing to have no history. It also rejects portfolio-count metadata 
 with the standings response. The page visibly discloses either kind of truncation: a table beyond
 100 ranked books or a curve beyond its 500-observation window.
 
-## Agent services (P8, P9, P11)
+## Agent services (P8, P9, P11, P13, P14)
 
-Five user-systemd timers run the AI agent alongside the cron appliance. Unit files live in
-`server/*.service` / `server/*.timer`; each service runs one `.venv/bin/python -m server.<module>`
+Six user-systemd timers run the AI agent and its research-data capture alongside the cron
+appliance. Unit files live in `server/*.service` / `server/*.timer`; each service runs one bounded
 command, prints one JSON result line, and has only local-simulator authority or none.
 
 | Timer | Schedule | Runs | Authority |
@@ -1443,11 +1463,23 @@ command, prints one JSON result line, and has only local-simulator authority or 
 | `trading-engine-agent-data-capture.timer` | 01:25 UTC Tue–Sat | price, corporate-action, provider-response, and independent-price observation capture | none (append-only data) |
 | `trading-engine-agent-shadow.timer` | 01:30 UTC Tue–Sat | `server.agent_shadow_schedule run` (agent-only shadow decision) | none |
 | `trading-engine-daily-opportunity.timer` | 02:00 UTC Tue–Sat | `server.daily_opportunity_runner` (P8 standouts, assessments, locked simulator trade tool), then `server.agent_evaluation_reporting` (P11 report) | local simulator only |
-| `trading-engine-hourly-opportunity.timer` | Mon–Fri 09:15–16:15 America/New_York, hourly | `server.hourly_opportunity_observer hourly_market_watch_v1` (P9 shadow) | none |
-| `trading-engine-four-hour-opportunity.timer` | Mon–Fri 09:30 and 13:30 America/New_York | `server.hourly_opportunity_observer four_hour_opportunity_review_v1` (P9 shadow) | none |
+| `trading-engine-hourly-opportunity.timer` | Mon–Fri 09:15–16:15 America/New_York, hourly | `server/run_hourly_opportunity.sh hourly_market_watch_v4` (P9 shadow; P13 TradingView cross-check) | none |
+| `trading-engine-four-hour-opportunity.timer` | Mon–Fri 09:30 and 13:30 America/New_York | `server/run_hourly_opportunity.sh four_hour_opportunity_review_v4` (P9 shadow; P13 TradingView cross-check) | none |
+| `trading-engine-tradingview-history.timer` | 03:40, 07:40, 11:40, 15:40, 19:40, 23:40 UTC daily | `server/run_tradingview_history_archive.sh` (P14 bounded archive slice) | none (research facts only) |
 
-The two UTC agent timers and the daily timer are `Persistent=true` (a missed run fires after the
-host wakes); the intraday timers are `Persistent=false`, so a missed window is not replayed.
+The two UTC agent timers, the daily timer, and the TradingView archive timer are
+`Persistent=true` (a missed run fires after the host wakes); the intraday timers are
+`Persistent=false`, so a missed window is not replayed.
+
+**Market-data sources (P13/P14).** The hourly wrapper preflights the optional
+`~/.config/trading-engine/market-data.env` and runs the v4 observer through
+`tools.market_data_source`. TradingView quotes and daily bars are active for internal research
+under the owner's asserted non-display rights; exact WebSocket transcripts are retained, stale
+snapshots stay ledger-only, and Alpaca remains dormant without credentials. The P14 archive advances
+a frozen, explicitly survivor-biased current-liquid cohort in resumable windows through the job
+queue (nightly enqueue is a fallback to the timer). Neither source writes `prices`, prices fills, or
+grants execution authority. Details: [`product-agent-research-platform.md`](product-agent-research-platform.md#optional-market-data-sources),
+[P13](plans/p13-market-data-source-hardening.md), [P14](plans/p14-tradingview-history-archive.md).
 
 **Status.** `GET /daily-opportunities/status` (P8 runs, assessments, and simulator orders),
 `GET /agent/evaluation/status` (P11 ledger coverage and label maturity), and
