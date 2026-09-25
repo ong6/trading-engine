@@ -32,7 +32,8 @@ measurements supporting those decisions, not the live runtime state.
   [P10 contamination-aware 2022 agent replay](plans/p10-2022-agent-replay.md), and
   [P11 forward agent evaluation](plans/p11-forward-agent-evaluation.md), and
   [P12 agent research product](plans/p12-agent-research-product.md), and
-  [P13 market-data source hardening](plans/p13-market-data-source-hardening.md).
+  [P13 market-data source hardening](plans/p13-market-data-source-hardening.md), and
+  [P14 TradingView historical archive](plans/p14-tradingview-history-archive.md).
 
 ## Current operating documents
 
@@ -64,7 +65,7 @@ measurements supporting those decisions, not the live runtime state.
   the frozen P6 registration for one credit-confirmed SPY/BIL alpha experiment.
 - `GET /meta` and the dashboard prospective-evidence cards — live authority for scheduler,
   source, nightly/miner, walk-forward-cohort, and frozen forward-monitor state. In particular,
-  `miner_evidence` reconciles the four canonical producers, while `friday_postflight` interprets
+  `miner_evidence` reconciles the five canonical producers, while `friday_postflight` interprets
   the auxiliary receipt against its Saturday schedule and grace window. Read the projected state,
   not `logs/friday-postflight.json` alone: a well-formed old receipt can still be stale. Generated
   forward reports remain the authority for each monitor's full evidence detail;

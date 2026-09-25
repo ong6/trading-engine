@@ -1075,4 +1075,15 @@ decisions) are preserved verbatim in
 - **Metrics:** source unchanged; P14 may use existing engine/tools headroom only.
 - **Next:** implement, test, and canary the checkpointed queue worker.
 
+## 2026-09-25 — Complete the TradingView history archive
+
+- **Why:** active P14 required resumable broad history beyond the 21-bar AAPL source proof.
+- **What:** freeze a current-liquid cohort, checkpoint bounded exact-transcript requests, expose
+  failure/coverage state, add queue/miner integration and a persistent four-hour continuation timer.
+  Correct TradingView ETF symbols to the live-proven `AMEX` prefix.
+- **Evidence:** full warnings-as-errors suite and Ruff pass; live AAPL/IBM/SPY canary retains 1,131
+  daily facts with zero failures and no operational-price authority.
+- **Metrics:** engine 12,249; server 51,926; tools 7,458; all source ceilings green.
+- **Next:** let the 4,063-symbol cohort accumulate; obtain survivor-free PIT membership separately.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

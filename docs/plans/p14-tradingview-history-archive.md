@@ -1,7 +1,7 @@
 ---
 plan: P14
 title: TradingView historical archive
-status: active
+status: done
 opened: 2026-09-25
 owner_decision: approved 2026-09-25
 ---
@@ -50,8 +50,8 @@ coverage, or unattended continuation contract.
 
 ## Budget
 
-At most two commits, each below 1,500 inserted non-data lines. Use no more than 650 existing spare
-engine lines and 100 tools lines; server, farm, and sim do not grow. Repository ceilings do not
+At most two commits, each below 1,500 inserted non-data lines. Use no more than 700 existing spare
+engine lines, 20 server Python lines, and 20 tools lines; farm and sim do not grow. Repository ceilings do not
 increase.
 
 ## Risks
@@ -60,3 +60,12 @@ TradingView's unofficial protocol may change or throttle a broad archive. Work i
 bounded per run, backoff-controlled, and resumable. The current liquid cohort is useful for present
 research but survivor-biased; its facts remain retrieval-time research evidence and cannot promote
 a historical stock-selection strategy.
+
+## Implemented state
+
+The archive freezes a 4,063-symbol current liquid cohort, advances one 550-day window per symbol at
+a time, and records every complete, empty, or failed attempt. The existing queue runs 50 sequential
+requests per slice; a persistent four-hour timer continues bounded slices while nightly enqueue is a
+fallback. Coverage reports exact cohort/checkpoint/fact/failure state. A three-symbol live canary
+retained 1,131 AAPL, IBM, and SPY bars with zero failures after correcting TradingView's ETF prefix
+to `AMEX`. The archive remains isolated from operational prices and execution.

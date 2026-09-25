@@ -139,6 +139,18 @@ def test_intraday_agents_validate_credentials_before_loading_them():
     assert "\nsource " not in runner and "read -r" not in runner
 
 
+def test_tradingview_archive_timer_is_bounded_and_queue_owned():
+    service = _unit("server/trading-engine-tradingview-history.service")
+    timer = _unit("server/trading-engine-tradingview-history.timer")
+    runner = _unit("server/run_tradingview_history_archive.sh")
+    _assert_common_service_hardening(service)
+    assert "TimeoutStartSec=4h" in service and "Nice=19" in service
+    assert "03,07,11,15,19,23:40:00 UTC" in timer and "Persistent=true" in timer
+    assert "--enqueue tradingview_history" in runner
+    assert "--run --run-kind tradingview_history" in runner
+    assert '"max_chunks":50' in runner and "official_quote_source" not in runner
+
+
 def test_league_ui_does_not_present_operational_rank_as_research_evidence():
     league = _unit("ui/app/league/page.js")
     standings = _unit("ui/app/components/LeagueStandings.js")

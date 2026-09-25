@@ -20,12 +20,15 @@ _MINER_META_KEYS = {
     "signals": "signals_incremental",
     "earnings": "earnings",
     "fundamentals": "fundamentals",
+    "tradingview_history": "tradingview_history",
 }
 _SCHEDULED_MINER_PARAMS = {
     "intraday": {},
     "signals": {"mode": "incremental"},
     "earnings": {},
     "fundamentals": {},
+    "tradingview_history": {"cohort_id": "liquid-current-v1", "start": "2022-01-01",
+                            "max_chunks": 50},
 }
 JOB_SCAN_BATCH_SIZE = 256
 
@@ -78,18 +81,33 @@ def _signals_has_issues(raw: dict) -> bool:
     return has_issue
 
 
+def _tradingview_history_has_issues(raw: dict) -> bool:
+    attempted = require_public_nonnegative_integer(nonnegative_int(raw, "attempted_this_run"))
+    complete = require_public_nonnegative_integer(nonnegative_int(raw, "completed_this_run"))
+    empty = require_public_nonnegative_integer(nonnegative_int(raw, "empty_this_run"))
+    failed = require_public_nonnegative_integer(nonnegative_int(raw, "failed_this_run"))
+    unresolved = require_public_nonnegative_integer(
+        nonnegative_int(raw, "unresolved_failed_windows")
+    )
+    if complete + empty + failed != attempted:
+        raise ValueError("TradingView archive attempt accounting is inconsistent")
+    return bool(failed or unresolved)
+
+
 _ISSUE_CHECKS = {
     "intraday": _intraday_has_issues,
     "signals": _signals_has_issues,
     "earnings": _earnings_has_issues,
     "fundamentals": _fundamentals_has_issues,
+    "tradingview_history": _tradingview_history_has_issues,
 }
 
 
 def _latest_scheduled_jobs(con: duckdb.DuckDBPyConnection) -> dict[str, tuple]:
     cursor = con.execute(
         "SELECT kind, id, params, state, progress, created_at, updated_at, last_error "
-        "FROM jobs WHERE kind IN ('intraday', 'signals', 'earnings', 'fundamentals') "
+        "FROM jobs WHERE kind IN ('intraday', 'signals', 'earnings', 'fundamentals', "
+        "'tradingview_history') "
         "ORDER BY id DESC"
     )
     latest_jobs = {}

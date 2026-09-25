@@ -48,7 +48,7 @@ def test_docs_index_separates_live_authority_from_dated_snapshots():
     assert "`GET /meta` and the dashboard prospective-evidence cards" in current
     assert "dated narrative documents are snapshots" in current
     assert "document filename or top-level title marks a snapshot" in current
-    assert "`miner_evidence` reconciles the four canonical producers" in current
+    assert "`miner_evidence` reconciles the five canonical producers" in current
     assert "`friday_postflight` interprets" in current
     assert "not `logs/friday-postflight.json` alone" in current
     assert "# Strategy research backlog\n" in backlog

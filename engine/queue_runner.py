@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """§12.7 job-queue runner — one DuckDB `jobs` table, no ad-hoc worker pools.
 
-Every heavy job (backfill, intraday archive, backtest sweeps, and walk-forwards)
+Every heavy job (backfill, market-data archive, backtest sweeps, and walk-forwards)
 is enqueued as a row and drained here. Store-writing jobs run one at a time;
 intraday, signals, earnings, fundamentals, and actions are supervised children that
 lease the writer for checkpoints, while other store writers run in-process. Explicitly
@@ -190,6 +190,11 @@ def _load_capital_sensitivity():
     return capital_sensitivity.run_job
 
 
+def _load_tradingview_history_connection_narrowed():
+    from engine import tradingview_history_archive
+    return tradingview_history_archive.run_connection_narrowed
+
+
 JOB_TYPES: dict[str, dict] = {
     # type      loader (lazy)        archive?  default declared memory (MB)
     # Optional keys:
@@ -225,6 +230,9 @@ JOB_TYPES: dict[str, dict] = {
     "signals":      {"loader": _load_signals,      "archive": False, "mem_mb": 500,
                      "releases_writer": True,
                      "detached_loader": _load_signals_connection_narrowed},
+    "tradingview_history": {"loader": lambda: None, "archive": True, "mem_mb": 500,
+                            "releases_writer": True, "timeout_s": 4 * 3600,
+                            "detached_loader": _load_tradingview_history_connection_narrowed},
     "experiment":   {"loader": _load_experiment,   "archive": False, "mem_mb": 2000},
     # Forward (out-of-sample) experiment record. Milliseconds of work, so the
     # nightly runs it inline after the league (see run_daily.sh) rather than
@@ -301,6 +309,8 @@ NIGHTLY_PLAN = (
     ("intraday", 100, "{}"),
     ("signals", 105, '{"mode": "incremental"}'),
     ("earnings", 110, "{}"),
+    ("tradingview_history", 130,
+     '{"cohort_id":"liquid-current-v1","start":"2022-01-01","max_chunks":50}'),
 )
 NIGHTLY_FRIDAY_PLAN = (
     ("fundamentals", 120, "{}"),
@@ -936,7 +946,7 @@ def main() -> int:
     g.add_argument("--enqueue", metavar="TYPE", help="enqueue a job of this type")
     g.add_argument("--enqueue-nightly", action="store_true",
                    help="enqueue the nightly mining plan (intraday 100, signals 105, "
-                        "earnings 110; +fundamentals 120 on Fridays)")
+                        "earnings 110, TradingView history 130; +fundamentals 120 Fridays)")
     g.add_argument("--run", action="store_true", help="drain pending jobs (guarded)")
     g.add_argument("--status", action="store_true", help="print the jobs table")
     g.add_argument("--run-one", type=int, metavar="JOB_ID",
