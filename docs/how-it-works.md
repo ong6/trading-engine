@@ -2061,7 +2061,9 @@ evidence that finishes during that request cannot appear newer than the observat
 it; schedule admission is still checked before the request begins.
 Success requires the latest nightly to have started on that Friday, fatal-core evidence to be
 current for its operational market date (which may precede a market-holiday Friday), and all four
-canonical miner receipts—including fundamentals—to be current. Each receipt must fall inside that
+canonical nightly miner receipts—including fundamentals—to be current. Other independently
+scheduled miners remain visible in `GET /meta` but are outside this nightly receipt gate. Each
+nightly receipt must fall inside that
 Friday driver's start/finish window, and the four globally unique queue job IDs must be distinct.
 Run the same check manually with
 `.venv/bin/python -m tools.verify_friday_postflight --dry-run --expected-date YYYY-MM-DD`.
