@@ -10,8 +10,9 @@ measurements supporting those decisions, not the live runtime state.
 
 - [`../AGENTS.md`](../AGENTS.md) — the contract: maintain mode, admission test, budgets,
   session shape, BUILDLOG v2 format. Overrides everything below except the feedback ledger.
-- [`direction.md`](direction.md) — north star (autonomous, AI-in-the-loop, net-profitable),
-  what "makes money" means, stages to live capital, and the order admitted work matters in.
+- [`product.md`](product.md) — the central product document: north star, what "makes money"
+  means, every owner decision (made and open), stages to live capital, and the order admitted
+  work matters in.
 - [`feedback.md`](feedback.md) — the owner's dated verdicts and the rule each one changed.
   Newest entry wins.
 - [`scope.md`](scope.md) — in scope now, approved plans, frozen "not yet" areas with their
@@ -32,8 +33,9 @@ measurements supporting those decisions, not the live runtime state.
   [P10 contamination-aware 2022 agent replay](plans/p10-2022-agent-replay.md),
   [P11 forward agent evaluation](plans/p11-forward-agent-evaluation.md),
   [P12 agent research product](plans/p12-agent-research-product.md),
-  [P13 market-data source hardening](plans/p13-market-data-source-hardening.md), and
-  [P14 TradingView historical archive](plans/p14-tradingview-history-archive.md).
+  [P13 market-data source hardening](plans/p13-market-data-source-hardening.md),
+  [P14 TradingView historical archive](plans/p14-tradingview-history-archive.md), and
+  [P15 profitability evidence loop](plans/p15-profitability-evidence-loop.md).
 
 ## Current operating documents
 

@@ -19,7 +19,8 @@ move those dates. The default outcome of a session is therefore **verify, report
 3. `docs/scope.md` — what is in scope now, what is approved, what is explicitly *not yet*.
 4. `data/reports/metrics/README.md` — the latest drift snapshot and budget status.
 5. `docs/strategy-research-backlog.md#next-admissible-actions` — the only research queue.
-6. `docs/direction.md` — the north star and the order in which admitted work matters.
+6. `docs/product.md` — the north star, every owner decision (made and open), and the order in
+   which admitted work matters.
 
 Open `docs/how-it-works.md` only for the ops runbook when a scheduled run misbehaved. Do not
 read `docs/history/live-readiness-goal.md` as a work queue; it is reference, and its workstreams C, D
@@ -68,7 +69,8 @@ and runs on stale code when the tree is dirty. Commits are pushed to the public 
 automatically; commit with the repository's configured identity and add no employer or internal-tool co-author trailers.
 
 Do not loop. One admitted item per session. If the item is done and the tests pass, the
-session is over even if context remains.
+session is over even if context remains. Exception: an approved plan that carries a "How to run
+this plan" section (P15) may be run end to end in one session, as that section says.
 
 ## BUILDLOG entry format v2
 

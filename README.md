@@ -13,8 +13,8 @@ one always-on Linux host. No broker, no real money, and no credentials.
 - **Evaluation ledger.** Every agent decision is recorded with its information cutoff, exact
   model/prompt/input identities, and later market outcomes, so each AI policy can be judged
   prospectively against its paired control.
-- **North star:** [`docs/direction.md`](docs/direction.md) — an engine that runs on its own and
-  makes money net of every cost, with AI choosing and deterministic code in control.
+- **North star:** [`docs/product.md`](docs/product.md) — an engine that runs on its own and
+  makes money net of trading and data cost, with AI choosing and deterministic code in control.
 
 Generated public data may be pushed only when the current branch has a configured upstream. The
 `source_control` object in `GET /meta` is authoritative for the current tracking state;
