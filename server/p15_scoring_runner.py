@@ -369,6 +369,12 @@ def _run(
         if existing["status"] == "completed":
             return {"status": "completed", "market_date": market_date.isoformat(),
                     "replayed": True, "model_call_count": 0}
+        if existing["status"] == "failed":
+            return {"status": "failed", "market_date": market_date.isoformat(),
+                    "reason": existing["reason"], "replayed": True,
+                    "model_call_count": 0}
+        if existing["status"] != "running":
+            raise ScoringError("P15 scoring run status is invalid")
         bundle = json.loads(existing["universe_payload"])
         context = json.loads(existing["context_payload"])
         cutoff = existing["information_cutoff_at"].replace(tzinfo=timezone.utc)
