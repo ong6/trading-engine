@@ -101,38 +101,80 @@ def coverage(con: duckdb.DuckDBPyConnection, rows: list[dict], generated_at: dat
         "missing_window_count": len(missing), "missing_windows": missing[:100],
         "missing_windows_truncated": len(missing) > 100,
     }
-def _unique_by_key(rows: list[dict]) -> tuple[dict, int]:
+def _pair_groups(rows: list[dict], policy: str) -> tuple[dict, int]:
     grouped = {}
+    duplicates = 0
+    seen_windows = set()
     for row in rows:
-        if row["horizon"] is None:
+        if row["policy_id"] != policy or row["horizon"] is None:
             continue
-        key = (row["market_date"], row["ticker"], row["horizon"])
+        identity = (row["window_id"], row["ticker"], row["horizon"], row["label_basis"])
+        if identity in seen_windows:
+            duplicates += 1
+            continue
+        seen_windows.add(identity)
+        key = (row["market_date"], row["ticker"], row["horizon"], row["label_basis"])
         grouped.setdefault(key, []).append(row)
-    ambiguous = sum(len(items) for items in grouped.values() if len(items) != 1)
-    return {key: items[0] for key, items in grouped.items() if len(items) == 1}, ambiguous
-def paired_metrics(rows: list[dict], policies: tuple | dict) -> list[dict]:
-    by_policy = {p: _unique_by_key([row for row in rows if row["policy_id"] == p])
-                 for p in policies}
+    for values in grouped.values():
+        values.sort(key=lambda item: item["window_id"])
+    return grouped, duplicates
+
+
+def paired_metrics(
+    rows: list[dict],
+    policies: tuple | dict,
+    *,
+    window_scope: str = "first",
+) -> list[dict]:
+    if window_scope not in {"first", "all"}:
+        raise ValueError("pairing window scope is invalid")
+    cadences = (
+        dict(policies)
+        if isinstance(policies, dict)
+        else {
+            policy: next(
+                (row["cadence"] for row in rows if row["policy_id"] == policy),
+                "unknown",
+            )
+            for policy in policies
+        }
+    )
+    by_policy = {policy: _pair_groups(rows, policy) for policy in policies}
     result = []
     for left, right in itertools.combinations(policies, 2):
+        left_cadence, right_cadence = cadences[left], cadences[right]
+        if "nightly" not in {left_cadence, right_cadence}:
+            continue
         left_rows, left_ambiguous = by_policy[left]
         right_rows, right_ambiguous = by_policy[right]
-        candidate_shared = sorted(set(left_rows) & set(right_rows))
-        shared = [key for key in candidate_shared
-                  if left_rows[key]["price_prefix_sha256"]
-                  == right_rows[key]["price_prefix_sha256"]]
-        deltas = [signed_return(left_rows[k]) - signed_return(right_rows[k]) for k in shared]
+        keys = sorted(set(left_rows) & set(right_rows))
+        comparisons = []
+        for key in keys:
+            left_values, right_values = left_rows[key], right_rows[key]
+            if window_scope == "first":
+                comparisons.append((left_values[0], right_values[0]))
+            elif left_cadence == "nightly":
+                comparisons.extend((left_values[0], item) for item in right_values)
+            else:
+                comparisons.extend((item, right_values[0]) for item in left_values)
+        shared = [pair for pair in comparisons
+                  if pair[0]["price_prefix_sha256"] == pair[1]["price_prefix_sha256"]]
+        deltas = [signed_return(left_row) - signed_return(right_row)
+                  for left_row, right_row in shared]
         result.append({
-            "left_policy": left, "right_policy": right, "paired_count": len(shared),
+            "left_policy": left, "right_policy": right, "window_scope": window_scope,
+            "paired_count": len(shared),
             "left_missing_count": len(set(right_rows) - set(left_rows)),
             "right_missing_count": len(set(left_rows) - set(right_rows)),
             "left_ambiguous_count": left_ambiguous,
             "right_ambiguous_count": right_ambiguous,
-            "incompatible_outcome_count": len(candidate_shared) - len(shared),
-            "same_input_count": sum(left_rows[k]["input_sha256"]
-                                    == right_rows[k]["input_sha256"] for k in shared),
-            "same_source_set_count": sum(left_rows[k]["source_refs_sha256"]
-                                         == right_rows[k]["source_refs_sha256"] for k in shared),
+            "incompatible_outcome_count": len(comparisons) - len(shared),
+            "same_input_count": sum(left_row["input_sha256"] == right_row["input_sha256"]
+                                    for left_row, right_row in shared),
+            "same_source_set_count": sum(
+                left_row["source_refs_sha256"] == right_row["source_refs_sha256"]
+                for left_row, right_row in shared
+            ),
             "left_wins": sum(value > 0 for value in deltas),
             "ties": sum(value == 0 for value in deltas),
             "right_wins": sum(value < 0 for value in deltas),

@@ -55,6 +55,18 @@ def _label(con, policy: str, asset_return: float, prefix: str = "9" * 64) -> Non
          -0.02, 0.04, prefix, NOW, f"{label_id:064x}", 20.0, asset_return,
          asset_return - 0.01],
     )
+    label_v2_id = con.execute(
+        "SELECT COALESCE(MAX(id),0)+1 FROM agent_evaluation_labels_v2"
+    ).fetchone()[0]
+    con.execute(
+        "INSERT INTO agent_evaluation_labels_v2 VALUES ("
+        + ",".join("?" for _ in range(21))
+        + ")",
+        [label_v2_id, 1, decision_id, 5, "common_entry", date(2026, 9, 2),
+         date(2026, 9, 8), 100.0, 100 * (1 + asset_return), asset_return, 0.01,
+         asset_return - 0.01, -0.02, 0.04, prefix, "complete", NOW,
+         f"{label_v2_id + 1000:064x}", 20.0, asset_return, asset_return - 0.01],
+    )
 
 
 def test_report_scores_and_pairs_only_identical_outcome_prefixes(con):
@@ -87,7 +99,7 @@ def test_report_scores_and_pairs_only_identical_outcome_prefixes(con):
     assert pair["mean_signed_return_delta"] == pytest.approx(0.10)
     assert pair["same_input_count"] == 1
     con.execute(
-        "UPDATE agent_evaluation_labels SET price_prefix_sha256=? WHERE decision_id=("
+        "UPDATE agent_evaluation_labels_v2 SET price_prefix_sha256=? WHERE decision_id=("
         "SELECT d.id FROM agent_evaluation_decisions d JOIN agent_evaluation_traces t "
         "ON t.id=d.trace_id WHERE t.policy_id=?)", ["8" * 64, right],
     )
@@ -95,6 +107,72 @@ def test_report_scores_and_pairs_only_identical_outcome_prefixes(con):
     pair = next(item for item in changed["pairs"]
                 if item["left_policy"] == left and item["right_policy"] == right)
     assert pair["paired_count"] == 0 and pair["incompatible_outcome_count"] == 1
+
+
+def test_common_entry_pairing_uses_first_window_and_reports_all_windows(con):
+    agent_evaluation.init_schema(con)
+    market_date = date(2026, 9, 21)
+    observed = datetime(2026, 9, 22, 15, tzinfo=timezone.utc)
+    nightly = _trace("nightly_opportunity_tool_v1", "buy", 0.7)
+    nightly.update(
+        window_id="nightly:2026-09-21",
+        market_date=market_date,
+        observed_at=datetime(2026, 9, 22, 2, tzinfo=timezone.utc),
+        information_cutoff_at=datetime(2026, 9, 22, 2, tzinfo=timezone.utc),
+        completed_at=datetime(2026, 9, 22, 2, tzinfo=timezone.utc),
+    )
+    hourly = _trace("hourly_market_watch_v5", "buy", 0.6)
+    hourly.update(
+        window_id="hourly_market_watch_v5:2026-09-22T15",
+        market_date=market_date,
+        observed_at=observed,
+        information_cutoff_at=observed,
+        completed_at=observed,
+    )
+    later = {**hourly, "window_id": "hourly_market_watch_v5:2026-09-22T16"}
+    for trace in (nightly, hourly, later):
+        trace["decisions"] = [{
+            **trace["decisions"][0],
+            "ticker": "FAST",
+        }]
+        agent_evaluation.record_trace(con, trace)
+    for session, close in (
+        (date(2026, 9, 22), 101.0),
+        (date(2026, 9, 23), 103.0),
+    ):
+        for ticker in ("SPY", "FAST"):
+            con.execute(
+                "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+                "VALUES (?,?,?,?,?,?,?)",
+                [ticker, session, close - 1, close + 1, close - 2, close, 1_000],
+            )
+
+    agent_evaluation.label_mature(con, labeled_at=NOW)
+
+    legacy_entries = dict(con.execute(
+        "SELECT t.policy_id,MIN(l.entry_date) FROM agent_evaluation_labels l "
+        "JOIN agent_evaluation_decisions d ON d.id=l.decision_id "
+        "JOIN agent_evaluation_traces t ON t.id=d.trace_id "
+        "WHERE l.horizon_sessions=1 GROUP BY t.policy_id"
+    ).fetchall())
+    assert legacy_entries == {
+        "nightly_opportunity_tool_v1": date(2026, 9, 22),
+        "hourly_market_watch_v5": date(2026, 9, 23),
+    }
+    common = con.execute(
+        "SELECT COUNT(*),COUNT(DISTINCT entry_date),MIN(entry_date) "
+        "FROM agent_evaluation_labels_v2 WHERE label_basis='common_entry' "
+        "AND horizon_sessions=1"
+    ).fetchone()
+    assert common == (3, 1, date(2026, 9, 23))
+    report = agent_evaluation_reporting.build_report(con, generated_at=NOW)
+    primary = next(item for item in report["pairs"]
+                   if item["right_policy"] == "hourly_market_watch_v5")
+    secondary = next(item for item in report["pairs_all_windows"]
+                     if item["right_policy"] == "hourly_market_watch_v5")
+    assert primary["window_scope"] == "first" and primary["paired_count"] == 1
+    assert primary["right_ambiguous_count"] == 0
+    assert secondary["window_scope"] == "all" and secondary["paired_count"] == 2
 
 
 def test_report_accounts_for_missing_labels_and_absent_forecasts(con):

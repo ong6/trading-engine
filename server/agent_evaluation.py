@@ -14,6 +14,8 @@ from . import agent_model_client
 
 SCHEMA_VERSION = 1
 LABEL_SCHEMA_VERSION = 2
+LABEL_V2_SCHEMA_VERSION = 1
+COMMON_ENTRY_BASIS = "common_entry"
 ROUND_TRIP_COST_BPS = 20.0
 HORIZONS = (1, 5, 10, 20)
 TRACE_LIMIT = 500
@@ -57,7 +59,12 @@ def _json(value: object) -> str:
 
 
 def _next_id(con: duckdb.DuckDBPyConnection, table: str) -> int:
-    if table not in {"agent_evaluation_traces", "agent_evaluation_decisions", "agent_evaluation_labels"}:
+    if table not in {
+        "agent_evaluation_traces",
+        "agent_evaluation_decisions",
+        "agent_evaluation_labels",
+        "agent_evaluation_labels_v2",
+    }:
         raise EvaluationError("evaluation table is invalid")
     return int(con.execute(f"SELECT COALESCE(MAX(id), 0) + 1 FROM {table}").fetchone()[0])
 
@@ -106,6 +113,20 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
                 "round_trip_cost_bps DOUBLE DEFAULT 20")
     con.execute("ALTER TABLE agent_evaluation_labels ADD COLUMN IF NOT EXISTS net_return DOUBLE DEFAULT 0")
     con.execute("ALTER TABLE agent_evaluation_labels ADD COLUMN IF NOT EXISTS net_excess_return DOUBLE DEFAULT 0")
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS agent_evaluation_labels_v2 (
+        id BIGINT PRIMARY KEY, schema_version INTEGER NOT NULL, decision_id BIGINT NOT NULL,
+        horizon_sessions INTEGER NOT NULL, label_basis VARCHAR NOT NULL,
+        entry_date DATE NOT NULL, exit_date DATE NOT NULL,
+        entry_open DOUBLE NOT NULL, exit_close DOUBLE NOT NULL, asset_return DOUBLE NOT NULL,
+        spy_return DOUBLE NOT NULL, excess_return DOUBLE NOT NULL,
+        maximum_adverse_excursion DOUBLE NOT NULL, maximum_favorable_excursion DOUBLE NOT NULL,
+        price_prefix_sha256 VARCHAR NOT NULL, missing_bar_status VARCHAR NOT NULL,
+        labeled_at TIMESTAMP NOT NULL, label_sha256 VARCHAR NOT NULL UNIQUE,
+        round_trip_cost_bps DOUBLE NOT NULL, net_return DOUBLE NOT NULL,
+        net_excess_return DOUBLE NOT NULL,
+        UNIQUE(decision_id, horizon_sessions, label_basis))"""
+    )
     con.execute(
         """CREATE TABLE IF NOT EXISTS agent_evaluation_execution_links (
         id BIGINT PRIMARY KEY, decision_id BIGINT NOT NULL UNIQUE, tool_attempt_id BIGINT NOT NULL,
@@ -374,6 +395,143 @@ def replay_artifact_trace(artifact: dict, *, source_identifier: str) -> dict:
     )
 
 
+def _label_outcome(
+    con: duckdb.DuckDBPyConnection,
+    ticker: str,
+    sessions: list[date],
+) -> dict | None:
+    entry_date, exit_date = sessions[0], sessions[-1]
+    asset = con.execute(
+        "SELECT date,open,high,low,close FROM prices WHERE ticker=? "
+        "AND date>=? AND date<=? ORDER BY date",
+        [ticker, entry_date, exit_date],
+    ).fetchall()
+    spy = con.execute(
+        "SELECT date,open,high,low,close FROM prices WHERE ticker='SPY' "
+        "AND date>=? AND date<=? ORDER BY date",
+        [entry_date, exit_date],
+    ).fetchall()
+    if len(asset) != len(sessions) or len(spy) != len(sessions) or asset[0][1] in (None, 0):
+        return None
+    entry, exit_close = float(asset[0][1]), float(asset[-1][4])
+    asset_return = exit_close / entry - 1
+    spy_return = float(spy[-1][4]) / float(spy[0][1]) - 1
+    net_return = exit_close * 0.999 / (entry * 1.001) - 1
+    spy_net = float(spy[-1][4]) * 0.999 / (float(spy[0][1]) * 1.001) - 1
+    lows = [float(item[3]) / entry - 1 for item in asset if item[3] is not None]
+    highs = [float(item[2]) / entry - 1 for item in asset if item[2] is not None]
+    prefix = [(item[0].isoformat(), *item[1:]) for item in asset]
+    return {
+        "entry_date": entry_date,
+        "exit_date": exit_date,
+        "entry_open": entry,
+        "exit_close": exit_close,
+        "asset_return": asset_return,
+        "spy_return": spy_return,
+        "excess_return": asset_return - spy_return,
+        "maximum_adverse_excursion": min(lows),
+        "maximum_favorable_excursion": max(highs),
+        "price_prefix_sha256": canonical_sha256(prefix),
+        "round_trip_cost_bps": ROUND_TRIP_COST_BPS,
+        "net_return": net_return,
+        "net_excess_return": net_return - spy_net,
+    }
+
+
+def _insert_v2_label(
+    con: duckdb.DuckDBPyConnection,
+    decision_id: int,
+    horizon: int,
+    outcome: dict,
+    labeled_at: datetime,
+) -> bool:
+    if con.execute(
+        "SELECT 1 FROM agent_evaluation_labels_v2 "
+        "WHERE decision_id=? AND horizon_sessions=? AND label_basis=?",
+        [decision_id, horizon, COMMON_ENTRY_BASIS],
+    ).fetchone():
+        return False
+    body = {
+        "schema_version": LABEL_V2_SCHEMA_VERSION,
+        "decision_id": decision_id,
+        "horizon_sessions": horizon,
+        "label_basis": COMMON_ENTRY_BASIS,
+        **{
+            key: value.isoformat() if isinstance(value, date) else value
+            for key, value in outcome.items()
+        },
+        "missing_bar_status": "complete",
+    }
+    con.execute(
+        "INSERT INTO agent_evaluation_labels_v2 VALUES ("
+        + ",".join("?" for _ in range(21))
+        + ")",
+        [
+            _next_id(con, "agent_evaluation_labels_v2"),
+            LABEL_V2_SCHEMA_VERSION,
+            decision_id,
+            horizon,
+            COMMON_ENTRY_BASIS,
+            outcome["entry_date"],
+            outcome["exit_date"],
+            outcome["entry_open"],
+            outcome["exit_close"],
+            outcome["asset_return"],
+            outcome["spy_return"],
+            outcome["excess_return"],
+            outcome["maximum_adverse_excursion"],
+            outcome["maximum_favorable_excursion"],
+            outcome["price_prefix_sha256"],
+            "complete",
+            _timestamp(labeled_at),
+            canonical_sha256(body),
+            outcome["round_trip_cost_bps"],
+            outcome["net_return"],
+            outcome["net_excess_return"],
+        ],
+    )
+    return True
+
+
+def _label_common_entries(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    latest: date,
+    labeled_at: datetime,
+) -> int:
+    intraday = [policy for policy, cadence in POLICIES.items() if cadence != "nightly"]
+    rows = con.execute(
+        "SELECT nd.id,id.id,nd.ticker,nt.market_date,it.observed_at "
+        "FROM agent_evaluation_decisions nd "
+        "JOIN agent_evaluation_traces nt ON nt.id=nd.trace_id "
+        "JOIN agent_evaluation_decisions id ON id.ticker=nd.ticker "
+        "JOIN agent_evaluation_traces it ON it.id=id.trace_id AND it.market_date=nt.market_date "
+        "WHERE nt.policy_id='nightly_opportunity_tool_v1' "
+        "AND it.policy_id IN (?,?) AND nd.decision<>'unavailable' "
+        "AND id.decision<>'unavailable' ORDER BY nt.market_date,nd.ticker,it.window_id",
+        intraday,
+    ).fetchall()
+    inserted = 0
+    for nightly_id, intraday_id, ticker, market_date, observed_at in rows:
+        boundary = max(market_date, observed_at.date())
+        sessions = [item[0] for item in con.execute(
+            "SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>? AND date<=? "
+            "ORDER BY date LIMIT 20",
+            [boundary, latest],
+        ).fetchall()]
+        for horizon in HORIZONS:
+            if len(sessions) < horizon:
+                continue
+            outcome = _label_outcome(con, ticker, sessions[:horizon])
+            if outcome is None:
+                continue
+            for decision_id in (int(nightly_id), int(intraday_id)):
+                inserted += _insert_v2_label(
+                    con, decision_id, horizon, outcome, labeled_at
+                )
+    return inserted
+
+
 def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> dict:
     """Append every newly mature price label; never expose or rewrite immature horizons."""
     init_schema(con)
@@ -442,7 +600,12 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> dic
                  ROUND_TRIP_COST_BPS, net_return, net_return - spy_net],
             )
             inserted += 1
-    return {"inserted": inserted, "latest_market_date": latest.isoformat()}
+    v2_inserted = _label_common_entries(con, latest=latest, labeled_at=labeled_at)
+    return {
+        "inserted": inserted,
+        "v2_inserted": v2_inserted,
+        "latest_market_date": latest.isoformat(),
+    }
 
 
 def link_execution(
