@@ -672,4 +672,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +54, tools +12, product unchanged; all source ceilings remain green.
 - **Next:** nothing admitted.
 
+## 2026-09-25 — P15 W0: freeze the live safety baseline
+
+- **Why:** approved P15 workstream W0 requires a clean live baseline and verified recovery point
+  before its first schema change.
+- **What:** verified an external recovery bundle of all 60 tables and seven operational artifacts.
+  All six project timers are active and their latest service runs succeeded after the v5 observer
+  repair. P8 v1 remains simulator-only at US$9,961.29 equity, one FSLY position, no pending order.
+- **Evidence:** `.venv/bin/python -m tools.backup_database verify
+  "$(readlink -f "$HOME")/trading-engine-p15-w0-backup-20260925-1555"` reports `status: ok`.
+- **Metrics:** server +117, tools +13, product +13 since the prior snapshot; includes the first
+  W1 slice and the concurrent upstream validation refactor; budget ok.
+- **Next:** finish W1 common-entry pairing and delete the obsolete read-model veto lane.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
