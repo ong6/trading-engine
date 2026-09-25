@@ -65,6 +65,31 @@ def _scored_rows(con: duckdb.DuckDBPyConnection) -> list[dict]:
     } for row in rows]
 
 
+def _common_entry_rows(con: duckdb.DuckDBPyConnection) -> list[dict]:
+    if not table_exists(con, "agent_evaluation_labels_v2"):
+        return []
+    rows = con.execute(
+        "SELECT t.policy_id,t.cadence,t.market_date,t.window_id,t.input_sha256,"
+        "t.source_refs,t.latency_ms,t.total_tokens,d.ticker,d.decision,d.action,d.confidence,"
+        "l.horizon_sessions,l.net_return,l.net_excess_return,l.maximum_adverse_excursion,"
+        "l.maximum_favorable_excursion,l.price_prefix_sha256,l.label_basis "
+        "FROM agent_evaluation_traces t JOIN agent_evaluation_decisions d ON d.trace_id=t.id "
+        "JOIN agent_evaluation_labels_v2 l ON l.decision_id=d.id "
+        "WHERE l.label_basis='common_entry' AND d.decision<>'unavailable' "
+        "ORDER BY t.policy_id,t.window_id,d.ticker,l.horizon_sessions"
+    ).fetchall()
+    return [{
+        "policy_id": row[0], "cadence": row[1], "market_date": row[2].isoformat(),
+        "window_id": row[3], "input_sha256": row[4],
+        "source_refs_sha256": canonical_sha256(json.loads(row[5])),
+        "latency_ms": float(row[6]), "total_tokens": int(row[7]), "ticker": row[8],
+        "decision": row[9], "action": row[10], "confidence": float(row[11]),
+        "horizon": int(row[12]), "asset_return": row[13], "excess_return": row[14],
+        "mae": row[15], "mfe": row[16], "price_prefix_sha256": row[17],
+        "label_basis": row[18],
+    } for row in rows]
+
+
 def _horizon_metrics(rows: list[dict]) -> dict:
     actionable = [row for row in rows if row["action"] != "none"]
     correctness = [1.0 if signed_return(row) > 0 else 0.0 for row in actionable]
@@ -239,6 +264,7 @@ def build_report(
         rows = []
     else:
         rows = _scored_rows(con)
+    common_rows = _common_entry_rows(con)
     trace_rows = {
         (row["policy_id"], row["window_id"]): row for row in rows
     }.values()
@@ -289,7 +315,10 @@ def build_report(
         "evidence_class": "prospective_forward_only", "promotion_authority": "none",
         "horizons": list(HORIZONS), "policies": policies, "cohorts": cohorts,
         "legacy_policy_ids": legacy,
-        "pairs": paired_metrics(rows, POLICIES),
+        "pairs": paired_metrics(common_rows, POLICIES, window_scope="first"),
+        "pairs_all_windows": paired_metrics(
+            common_rows, POLICIES, window_scope="all"
+        ),
         "data_provenance": provenance,
         "coverage": coverage(con, rows, generated_at, registration_path, HORIZONS),
         "execution": _operations(con),
