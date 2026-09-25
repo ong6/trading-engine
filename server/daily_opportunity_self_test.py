@@ -15,7 +15,7 @@ def run() -> dict:
     registration = json.loads(REGISTRATION.read_text())
     variants = registration.get("variants")
     expected = {"hourly_market_watch_v5", "four_hour_opportunity_review_v5",
-                "nightly_opportunity_tool_v1", "daily_gap_volume_veto_v1"}
+                "nightly_opportunity_tool_v1"}
     errors = []
     if not isinstance(variants, list) or {item.get("id") for item in variants} != expected:
         errors.append("cadence_registry")

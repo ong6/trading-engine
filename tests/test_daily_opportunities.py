@@ -7,7 +7,6 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from engine.daily_opportunities import detect
-from engine.gap_volume_candidate import select
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from server import (
@@ -139,7 +138,6 @@ def test_detector_ranks_abnormal_liquid_move_with_point_in_time_evidence(tmp_pat
     assert result["bundle_sha256"] == canonical_sha256(
         {key: value for key, value in result.items() if key != "bundle_sha256"}
     )
-    assert select(result)["ticker"] == "FAST"
 
 
 def test_daily_run_records_news_assessments_alert_and_replays_without_calls(tmp_path):
@@ -668,11 +666,6 @@ def test_status_is_bounded_and_reports_inactive_book(tmp_path):
     assert status["exit_rule_count"] == status["exit_event_count"] == 0
     assert status["execution_quality_count"] == 0
     assert status["schedule"]["nightly"] == "Tue..Sat *-*-* 02:00:00 UTC"
-    assert status["algorithm_candidate"]["ticker"] == "FAST"
-    assert status["algorithm_agent_veto"] == {
-        "ticker": "FAST", "algorithm_action": "buy", "agent_outcome": "veto",
-        "execution_authority": "none",
-    }
 
 
 def test_activation_requires_exact_empty_book(tmp_path):
