@@ -102,8 +102,10 @@ joinable to later outcomes, simulated execution, cost, and risk evidence.
 
 Phase 2 status: the generic receipt/fact envelope and exact-response capture for hourly/four-hour
 agent-visible quotes are implemented. Each admitted quote links to the same retained provider bytes
-and normalized bitemporal bars. Broad nightly archive capture remains a separate scale-up item; its
-legacy DataFrame fetch is not presented as exact-response evidence.
+and normalized bitemporal bars. P14 adds bounded nightly TradingView daily-history capture through
+the existing single-writer queue. Its frozen current-liquid cohort, per-window checkpoints, raw
+transcripts, failures, empty ranges, and coverage stay explicitly survivor-biased and retrieval-time
+only; they do not replace licensed historical membership or point-in-time fundamentals/news.
 
 Phase 3 status: accepted P8 buys freeze a deterministic exit contract at order creation. The
 maximum hold is the selected 1-20 session horizon and the executable invalidation is a daily close
@@ -201,3 +203,7 @@ reference. TradingView is active under owner-asserted rights. Anonymous snapshot
 different underlying feed than the requested listing venue—for example Cboe One/ICE for a Nasdaq
 symbol—so requested symbol, resolved exchange, provider, age, spread availability, and consolidated
 status are retained separately. Stale snapshots are stored but never admitted to agent prompts.
+Historical daily bars are chunked within the protocol's 500-bar/550-day limits and scheduled in
+small sequential slices. Successful or empty windows advance a symbol checkpoint; failed windows
+remain visible and retry only to a fixed ceiling. Neither the archive nor its coverage projection
+writes `prices`, prices fills, or expands execution authority.

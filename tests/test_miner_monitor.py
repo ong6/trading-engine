@@ -41,6 +41,14 @@ def _miner_meta(last_run="2026-09-07T23:00:00+00:00"):
             "with_market_cap": 1,
             "failed_tickers": 0,
         },
+        "tradingview_history": {
+            "last_run": last_run,
+            "attempted_this_run": 2,
+            "completed_this_run": 1,
+            "empty_this_run": 1,
+            "failed_this_run": 0,
+            "unresolved_failed_windows": 0,
+        },
     }
 
 
@@ -55,7 +63,8 @@ def _setup_miner_jobs(con, *, state="done", progress="complete", last_error=None
             (
                 job_id,
                 kind,
-                '{"mode": "incremental"}' if kind == "signals" else "{}",
+                (json.dumps(miner_monitor._SCHEDULED_MINER_PARAMS[kind])
+                 if miner_monitor._SCHEDULED_MINER_PARAMS[kind] else "{}"),
                 state,
                 progress,
                 datetime(2026, 9, 7, 22),
@@ -63,7 +72,8 @@ def _setup_miner_jobs(con, *, state="done", progress="complete", last_error=None
                 last_error,
             )
             for job_id, kind in enumerate(
-                ("intraday", "signals", "earnings", "fundamentals"), start=1
+                ("intraday", "signals", "earnings", "fundamentals",
+                 "tradingview_history"), start=1
             )
         ],
     )
@@ -84,8 +94,10 @@ def test_miner_evidence_status_requires_current_coherent_metadata(con):
     result = miner_monitor.evidence_status(_miner_meta(), con)
 
     assert result["status"] == "current"
-    assert result["current"] == result["expected"] == 4
-    assert set(result["miners"]) == {"intraday", "signals", "earnings", "fundamentals"}
+    assert result["current"] == result["expected"] == 5
+    assert set(result["miners"]) == {
+        "intraday", "signals", "earnings", "fundamentals",
+        "tradingview_history"}
     assert all(item["status"] == "current" for item in result["miners"].values())
 
 
@@ -120,7 +132,7 @@ def test_miner_evidence_status_exposes_missing_weekly_block(con):
     result = miner_monitor.evidence_status(meta, con)
 
     assert result["status"] == "incomplete"
-    assert result["current"] == 3
+    assert result["current"] == 4
     assert result["miners"]["fundamentals"] == {
         "status": "missing",
         "job_id": 4,
@@ -224,6 +236,8 @@ def test_latest_scheduled_jobs_stream_until_all_miner_kinds_are_found():
         "intraday": "{}",
         "earnings": "{}",
         "fundamentals": "{}",
+        "tradingview_history": json.dumps(
+            miner_monitor._SCHEDULED_MINER_PARAMS["tradingview_history"]),
     }
 
     class Cursor:
@@ -247,7 +261,9 @@ def test_latest_scheduled_jobs_stream_until_all_miner_kinds_are_found():
                     ("intraday", 7, canonical["intraday"], "done", None, None, None, None),
                     ("earnings", 6, canonical["earnings"], "done", None, None, None, None),
                     ("fundamentals", 5, canonical["fundamentals"], "done", None, None, None, None),
-                    ("signals", 4, canonical["signals"], "failed", None, None, None, None),
+                    ("tradingview_history", 4, canonical["tradingview_history"],
+                     "done", None, None, None, None),
+                    ("signals", 3, canonical["signals"], "failed", None, None, None, None),
                 ],
             ]
             self.batch_sizes = []
@@ -275,6 +291,7 @@ def test_latest_scheduled_jobs_stream_until_all_miner_kinds_are_found():
         "intraday": 7,
         "earnings": 6,
         "fundamentals": 5,
+        "tradingview_history": 4,
     }
     assert con.cursor.batch_sizes == [
         miner_monitor.JOB_SCAN_BATCH_SIZE,

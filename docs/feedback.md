@@ -331,5 +331,5 @@ collection. Exact transcripts and bitemporal facts remain authoritative. This co
 survivor-biased and retrieval-time-only; it cannot fill historical membership, fundamentals, or news
 gaps and cannot mutate operational prices, fills, orders, positions, or execution authority.
 
-**Ceiling changes.** None. P14 may use up to 650 existing spare engine lines and 100 tools lines;
-server, farm, and sim do not grow.
+**Ceiling changes.** None. P14 may use up to 700 existing spare engine lines, 20 server Python lines,
+and 20 tools lines; farm and sim do not grow.

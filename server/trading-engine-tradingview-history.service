@@ -1,0 +1,17 @@
+[Unit]
+Description=Trading engine resumable TradingView history archive
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/trading-engine
+ExecStart=%h/trading-engine/server/run_tradingview_history_archive.sh
+Environment=PYTHONUNBUFFERED=1
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=4h
+PrivateTmp=true
+ProtectSystem=full
+ProtectControlGroups=true
+UMask=0077

@@ -333,7 +333,12 @@ def capture_tradingview_history(
         receipt = market_data_sources.retain_response(
             con, source_id=market_data_sources.TRADINGVIEW, dataset="historical_daily_bars",
             endpoint=tradingview_source.ENDPOINT, request=request, response=response)
-        observations = tradingview_source.parse_history(provider_symbol, start, end, transcript)
+        try:
+            observations = tradingview_source.parse_history(provider_symbol, start, end, transcript)
+        except tradingview_source.TradingViewSourceError as exc:
+            if str(exc) != "TradingView history range has no bars":
+                raise
+            observations = []
         facts = market_data_sources.retain_observations(
             con, source_id=market_data_sources.TRADINGVIEW,
             receipt_sha256=receipt["receipt_sha256"], receipt_dataset="historical_daily_bars",
@@ -342,6 +347,7 @@ def capture_tradingview_history(
             source_version=tradingview_source.SOURCE_VERSION)
     finally:
         con.close()
-    return {"status": "complete", "source_id": market_data_sources.TRADINGVIEW,
+    return {"status": "complete" if facts else "empty",
+            "source_id": market_data_sources.TRADINGVIEW,
             "receipt_sha256": receipt["receipt_sha256"], "fact_count": len(facts),
             "historical_authority": "retrieval_time_research_only"}

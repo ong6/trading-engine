@@ -1,0 +1,11 @@
+[Unit]
+Description=Continue the bounded TradingView history archive every four hours
+
+[Timer]
+OnCalendar=*-*-* 03,07,11,15,19,23:40:00 UTC
+Persistent=true
+RandomizedDelaySec=10min
+Unit=trading-engine-tradingview-history.service
+
+[Install]
+WantedBy=timers.target

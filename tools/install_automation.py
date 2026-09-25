@@ -52,6 +52,12 @@ UNIT_SOURCES = {
     "trading-engine-four-hour-opportunity.timer": Path(
         "server/trading-engine-four-hour-opportunity.timer"
     ),
+    "trading-engine-tradingview-history.service": Path(
+        "server/trading-engine-tradingview-history.service"
+    ),
+    "trading-engine-tradingview-history.timer": Path(
+        "server/trading-engine-tradingview-history.timer"
+    ),
 }
 AUTOSTART_UNITS = frozenset(
     {
@@ -60,6 +66,7 @@ AUTOSTART_UNITS = frozenset(
         "trading-engine-daily-opportunity.timer",
         "trading-engine-hourly-opportunity.timer",
         "trading-engine-four-hour-opportunity.timer",
+        "trading-engine-tradingview-history.timer",
         "trading-engine-api.service",
         "trading-engine-ui.service",
     }

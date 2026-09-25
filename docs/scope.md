@@ -27,7 +27,7 @@ Maintaining these means keeping them running unchanged. It does not mean improvi
 
 Plan status lives in one place: the table in [`plans/README.md`](plans/README.md). Only plans
 marked `approved` or `active` there admit work, subject to their stated prerequisites. Completed
-plans' outputs (P5, P6, P10, P11, P12, P13) stay in scope for operation and evidence but authorize no
+plans' outputs (P5, P6, P10, P11, P12, P13, P14) stay in scope for operation and evidence but authorize no
 further feature growth.
 P13 TradingView capture is active for research operation; Alpaca remains gated. P14 is active for
 resumable current-liquid-universe daily history, isolated from operational prices and execution.

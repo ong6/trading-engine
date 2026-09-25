@@ -32,6 +32,11 @@ MAX_QUOTES = 5
 LOCK_PATH = REPO_ROOT / ".hourly-opportunity.lock"
 
 
+def _tradingview_symbol(ticker: str, exchange: str | None) -> str:
+    from engine.tradingview_history_archive import EXCHANGE_PREFIX
+    return f"{EXCHANGE_PREFIX.get(exchange, 'NASDAQ')}:{ticker}"
+
+
 def _variants() -> dict[str, dict]:
     payload = json.loads(read_bytes(REGISTRATION, label="agent cadence registration"))
     return {item["id"]: item for item in payload["variants"]}
@@ -185,9 +190,7 @@ def _observe(
         [(ticker, provider_tickers.get(ticker, ticker)) for ticker in tickers],
         database=database, observed_at=observed, fetch=fetch_quote, clock=clock,
     )
-    exchange_prefix = {"Q": "NASDAQ", "P": "NYSEARCA", "N": "NYSE",
-                       "A": "NYSEAMERICAN", "Z": "CBOE", "F": "OTC"}
-    tradingview_symbols = {ticker: f"{exchange_prefix.get(exchanges.get(ticker), 'NASDAQ')}:{ticker}"
+    tradingview_symbols = {ticker: _tradingview_symbol(ticker, exchanges.get(ticker))
                            for ticker in tickers}
     cross_checks, cross_check_failures, cross_check_status = capture_cross_checks(
         tickers, database=database, observed_at=observed, provider_symbols=tradingview_symbols,

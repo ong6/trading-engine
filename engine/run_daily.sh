@@ -164,7 +164,8 @@ body() {
     set +e
     echo "--- farm (post-sync, lowest priority §12.7): mining enqueue + drain ---"
     # The enqueue POLICY (intraday 100, signals 105 incremental, earnings 110,
-    # fundamentals 120 on Fridays UTC) lives in engine/queue_runner.py
+    # fundamentals 120 on Fridays UTC, bounded TradingView history 130) lives in
+    # engine/queue_runner.py
     # `nightly_plan` since 2026-09-03 — tested in tests/test_queue_runner.py
     # rather than expressed in bash. Every job is attempted even if one refuses.
     "${PY}" -m engine.queue_runner --enqueue-nightly

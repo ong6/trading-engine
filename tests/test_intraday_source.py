@@ -178,6 +178,11 @@ def test_cross_check_unavailable_never_calls_capture(monkeypatch, tmp_path):
     assert calls == [] and not (tmp_path / "never.duckdb").exists()
 
 
+def test_tradingview_symbol_uses_provider_exchange_names():
+    assert hourly_opportunity_observer._tradingview_symbol("SPY", "P") == "AMEX:SPY"
+    assert hourly_opportunity_observer._tradingview_symbol("AAPL", "Q") == "NASDAQ:AAPL"
+
+
 def test_cross_check_persistence_error_degrades_to_missing(monkeypatch, tmp_path):
     from engine import bitemporal_facts
     from server import market_data_sources
