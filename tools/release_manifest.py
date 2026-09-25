@@ -40,6 +40,7 @@ SCHEMA_SOURCE_FILES = (
     "server/broker_ledger.py",
     "server/broker_risk_control.py",
     "server/daily_opportunity_store.py",
+    "server/p15_scoring_store.py",
     "server/simulator_broker_adapter.py",
     "sim/schema.py",
     "sim/settle.py",
@@ -58,6 +59,8 @@ SERVICE_FILES = (
     "server/trading-engine-four-hour-opportunity.timer",
     "server/trading-engine-hourly-opportunity.service",
     "server/trading-engine-hourly-opportunity.timer",
+    "server/trading-engine-p15-scoring.service",
+    "server/trading-engine-p15-scoring.timer",
     "ui/trading-engine-ui.service",
 )
 RECOVERY_SOURCE_FILES = (
@@ -116,6 +119,8 @@ AGENT_SOURCE_FILES = (
     "server/daily_opportunity_store.py",
     "server/daily_opportunity_tools.py",
     "server/hourly_opportunity_observer.py",
+    "server/p15_scoring_runner.py",
+    "server/p15_scoring_store.py",
     "server/intraday_source.py",
     "server/market_data_sources.py",
     "server/official_quote_source.py",
@@ -226,6 +231,8 @@ SCHEDULE_SOURCE_FILES = (
     "server/trading-engine-four-hour-opportunity.timer",
     "server/trading-engine-hourly-opportunity.service",
     "server/trading-engine-hourly-opportunity.timer",
+    "server/trading-engine-p15-scoring.service",
+    "server/trading-engine-p15-scoring.timer",
 )
 REQUIRED_FILES = tuple(
     sorted(

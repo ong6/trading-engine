@@ -1,10 +1,12 @@
 """P15 nightly candidate scoring with retained independent samples."""
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import math
 import random
+import tempfile
 from dataclasses import asdict
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -20,6 +22,7 @@ from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 from engine.lib.util import table_exists
 from sim import nyse
+from tools.backup_database import _copy_database
 
 from . import (
     agent_evaluation,
@@ -480,3 +483,42 @@ def run(
             database=database, now=now, generate=generate,
             fetch_news=fetch_news, clock=clock,
         )
+
+
+def dry_run(
+    *, database: Path = DEFAULT_DB, now: datetime | None = None,
+    generate: Callable[[dict], agent_model_client.ConnectorResult]
+    = agent_model_client.generate_p15_scoring_json,
+    fetch_news=daily_opportunity_news._fetch,
+    clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    copier: Callable[[Path, Path], object] = _copy_database,
+) -> dict:
+    """Run the exact mutating flow against an isolated DuckDB snapshot."""
+    with tempfile.TemporaryDirectory(prefix="trading-engine-p15-dry-run-") as directory:
+        copied = Path(directory) / "market.duckdb"
+        with advisory_file_lock(NIGHTLY_LOCK):
+            copier(database, copied)
+        result = run(
+            database=copied, now=now, generate=generate,
+            fetch_news=fetch_news, clock=clock,
+        )
+        return {**result, "dry_run": True}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--database", type=Path, default=DEFAULT_DB)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--run", action="store_true")
+    mode.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args(argv)
+    result = (
+        dry_run(database=args.database)
+        if args.dry_run else run(database=args.database)
+    )
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -58,6 +58,12 @@ UNIT_SOURCES = {
     "trading-engine-tradingview-history.timer": Path(
         "server/trading-engine-tradingview-history.timer"
     ),
+    "trading-engine-p15-scoring.service": Path(
+        "server/trading-engine-p15-scoring.service"
+    ),
+    "trading-engine-p15-scoring.timer": Path(
+        "server/trading-engine-p15-scoring.timer"
+    ),
 }
 AUTOSTART_UNITS = frozenset(
     {
