@@ -333,3 +333,32 @@ gaps and cannot mutate operational prices, fills, orders, positions, or executio
 
 **Ceiling changes.** None. P14 may use up to 700 existing spare engine lines, 20 server Python lines,
 and 20 tools lines; farm and sim do not grow.
+
+## 2026-09-25 — Approve P15 and make product.md the central decision document
+
+**Verdict.** The owner reviewed the AI loop and asked for it to be made profitable from a trading
+perspective, with latency, AI evaluation, and trigger timing as the levers. Model credit cost is to
+be ignored. The owner asked for all decisions to live in one central product document, and for
+the resulting changes to be scoped into one plan that a long-running model executes on its own,
+using sub-agents, with no cost limit.
+
+**Rule changes.**
+
+1. `docs/direction.md` becomes `docs/product.md`, the central product document. It holds the
+   north star, the "makes money" definition, a register of every made and open owner decision,
+   and the focus order. New owner decisions are recorded there as well as here.
+2. Model token cost is excluded from the profitability definition; trading and data costs still
+   count. → `docs/product.md`.
+3. P15 is approved: candidate scoring against a deterministic baseline, three comparator books,
+   limit-on-open entries with a cancel-only AI pre-open check, observer evidence fixes, event
+   triggers in shadow, and coded gates. BUILD mode is permitted inside P15's scope.
+4. For P15 only, a session may run every workstream in sequence without stopping, and may use
+   sub-agents for exploration, tests, and independent review under a single-writer rule. This
+   overrides "one admitted item per session" and "do not loop" for P15 only. → `AGENTS.md`,
+   P15 "How to run this plan".
+5. Unchanged: simulator-only, long-only, next-open fills, no broker, credentials, or real
+   capital, and P8 v1 and P7 are not modified.
+
+**Ceiling changes.** P15 may add up to 2,500 lines under `server/`, 1,000 under `engine/`, 400
+under `tools/`, 700 under `farm/`, and 500 under `sim/`. Ceilings become server 54,450, engine
+13,750, tools 8,450, farm 12,550, and sim 7,900. Code that P15 makes obsolete is deleted first.
