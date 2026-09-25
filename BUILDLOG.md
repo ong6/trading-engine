@@ -685,4 +685,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
   W1 slice and the concurrent upstream validation refactor; budget ok.
 - **Next:** finish W1 common-entry pairing and delete the obsolete read-model veto lane.
 
+## 2026-09-25 — P15 W1: repair observer evidence
+
+- **Why:** P15 W1 reproduces whole-window loss from one stale quote, ambiguous multi-window
+  pairing, incompatible entry dates, and a status-only veto lane with no book or history.
+- **What:** ship v5 hourly/four-hour cohorts with explicit per-candidate unavailability; append
+  common-entry v2 labels and report first-window plus all-window pairs. Remove only the obsolete
+  gap-volume read model; P8 v1 and the P5/P7 algorithm candidate remain unchanged. The first live
+  v5 hourly window completed 3/3 with shadow-only authority.
+- **Evidence:** `TZ=UTC .venv/bin/python -m pytest -q -W error` reached `[100%]` and exited 0.
+- **Metrics:** server +261, tools unchanged, product +29; budget ok.
+- **Next:** W2 scoring universe, prompt, baseline, ledger, and inert nightly dry-run.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

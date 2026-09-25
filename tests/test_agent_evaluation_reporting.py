@@ -10,7 +10,7 @@ from engine.lib import db
 from farm.agent_evaluation_analysis import contamination_diagnostics, expected_windows
 from server import agent_evaluation, agent_evaluation_reporting, daily_opportunity_store
 
-NOW = datetime(2026, 9, 23, 12, tzinfo=timezone.utc)
+NOW = datetime(2026, 9, 30, 12, tzinfo=timezone.utc)
 
 
 def _trace(policy: str, action: str, confidence: float) -> dict:
@@ -72,10 +72,25 @@ def _label(con, policy: str, asset_return: float, prefix: str = "9" * 64) -> Non
 def test_report_scores_and_pairs_only_identical_outcome_prefixes(con):
     agent_evaluation.init_schema(con)
     left, right = list(agent_evaluation.POLICIES)[:2]
-    agent_evaluation.record_trace(con, _trace(left, "buy", 0.8))
-    agent_evaluation.record_trace(con, _trace(right, "sell", 0.7))
+    left_trace = _trace(left, "buy", 0.8)
+    left_trace.update(window_id="nightly:2026-09-25", market_date=date(2026, 9, 25))
+    right_trace = _trace(right, "sell", 0.7)
+    observed = datetime(2026, 9, 28, 14, tzinfo=timezone.utc)
+    right_trace.update(
+        window_id="hourly_market_watch_v5:2026-09-28T14",
+        market_date=date(2026, 9, 25),
+        observed_at=observed,
+        information_cutoff_at=observed,
+        completed_at=observed,
+    )
+    agent_evaluation.record_trace(con, left_trace)
+    agent_evaluation.record_trace(con, right_trace)
     _label(con, left, 0.05)
     _label(con, right, 0.05)
+    con.execute(
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+        "VALUES ('SPY','2026-09-28',100,101,99,100,1000)"
+    )
 
     report = agent_evaluation_reporting.build_report(con, generated_at=NOW)
 
@@ -111,25 +126,25 @@ def test_report_scores_and_pairs_only_identical_outcome_prefixes(con):
 
 def test_common_entry_pairing_uses_first_window_and_reports_all_windows(con):
     agent_evaluation.init_schema(con)
-    market_date = date(2026, 9, 21)
-    observed = datetime(2026, 9, 22, 15, tzinfo=timezone.utc)
+    market_date = date(2026, 9, 25)
+    observed = datetime(2026, 9, 28, 15, tzinfo=timezone.utc)
     nightly = _trace("nightly_opportunity_tool_v1", "buy", 0.7)
     nightly.update(
-        window_id="nightly:2026-09-21",
+        window_id="nightly:2026-09-25",
         market_date=market_date,
-        observed_at=datetime(2026, 9, 22, 2, tzinfo=timezone.utc),
-        information_cutoff_at=datetime(2026, 9, 22, 2, tzinfo=timezone.utc),
-        completed_at=datetime(2026, 9, 22, 2, tzinfo=timezone.utc),
+        observed_at=datetime(2026, 9, 26, 2, tzinfo=timezone.utc),
+        information_cutoff_at=datetime(2026, 9, 26, 2, tzinfo=timezone.utc),
+        completed_at=datetime(2026, 9, 26, 2, tzinfo=timezone.utc),
     )
     hourly = _trace("hourly_market_watch_v5", "buy", 0.6)
     hourly.update(
-        window_id="hourly_market_watch_v5:2026-09-22T15",
+        window_id="hourly_market_watch_v5:2026-09-28T14",
         market_date=market_date,
         observed_at=observed,
         information_cutoff_at=observed,
         completed_at=observed,
     )
-    later = {**hourly, "window_id": "hourly_market_watch_v5:2026-09-22T16"}
+    later = {**hourly, "window_id": "hourly_market_watch_v5:2026-09-28T15"}
     for trace in (nightly, hourly, later):
         trace["decisions"] = [{
             **trace["decisions"][0],
@@ -137,8 +152,8 @@ def test_common_entry_pairing_uses_first_window_and_reports_all_windows(con):
         }]
         agent_evaluation.record_trace(con, trace)
     for session, close in (
-        (date(2026, 9, 22), 101.0),
-        (date(2026, 9, 23), 103.0),
+        (date(2026, 9, 28), 101.0),
+        (date(2026, 9, 29), 103.0),
     ):
         for ticker in ("SPY", "FAST"):
             con.execute(
@@ -156,15 +171,15 @@ def test_common_entry_pairing_uses_first_window_and_reports_all_windows(con):
         "WHERE l.horizon_sessions=1 GROUP BY t.policy_id"
     ).fetchall())
     assert legacy_entries == {
-        "nightly_opportunity_tool_v1": date(2026, 9, 22),
-        "hourly_market_watch_v5": date(2026, 9, 23),
+        "nightly_opportunity_tool_v1": date(2026, 9, 28),
+        "hourly_market_watch_v5": date(2026, 9, 29),
     }
     common = con.execute(
         "SELECT COUNT(*),COUNT(DISTINCT entry_date),MIN(entry_date) "
         "FROM agent_evaluation_labels_v2 WHERE label_basis='common_entry' "
         "AND horizon_sessions=1"
     ).fetchone()
-    assert common == (3, 1, date(2026, 9, 23))
+    assert common == (3, 1, date(2026, 9, 29))
     report = agent_evaluation_reporting.build_report(con, generated_at=NOW)
     primary = next(item for item in report["pairs"]
                    if item["right_policy"] == "hourly_market_watch_v5")
@@ -173,6 +188,136 @@ def test_common_entry_pairing_uses_first_window_and_reports_all_windows(con):
     assert primary["window_scope"] == "first" and primary["paired_count"] == 1
     assert primary["right_ambiguous_count"] == 0
     assert secondary["window_scope"] == "all" and secondary["paired_count"] == 2
+
+
+@pytest.mark.parametrize("first_window", ["unavailable", "absent"])
+def test_missing_first_window_is_not_replaced_in_primary_pairing(con, first_window):
+    agent_evaluation.init_schema(con)
+    market_date = date(2026, 9, 25)
+    nightly = _trace("nightly_opportunity_tool_v1", "buy", 0.7)
+    nightly.update(
+        window_id="nightly:2026-09-25",
+        market_date=market_date,
+        observed_at=datetime(2026, 9, 26, 2, tzinfo=timezone.utc),
+        information_cutoff_at=datetime(2026, 9, 26, 2, tzinfo=timezone.utc),
+        completed_at=datetime(2026, 9, 26, 2, tzinfo=timezone.utc),
+    )
+    first = _trace("hourly_market_watch_v5", "none", 0.0)
+    first.update(
+        window_id="hourly_market_watch_v5:2026-09-28T14",
+        market_date=market_date,
+        observed_at=datetime(2026, 9, 28, 14, tzinfo=timezone.utc),
+        information_cutoff_at=datetime(2026, 9, 28, 14, tzinfo=timezone.utc),
+        completed_at=datetime(2026, 9, 28, 14, tzinfo=timezone.utc),
+    )
+    first["decisions"][0].update(
+        ticker="FAST", decision="unavailable", action="none", confidence=0.0
+    )
+    later = _trace("hourly_market_watch_v5", "buy", 0.6)
+    later.update(
+        window_id="hourly_market_watch_v5:2026-09-28T15",
+        market_date=market_date,
+        observed_at=datetime(2026, 9, 28, 15, tzinfo=timezone.utc),
+        information_cutoff_at=datetime(2026, 9, 28, 15, tzinfo=timezone.utc),
+        completed_at=datetime(2026, 9, 28, 15, tzinfo=timezone.utc),
+    )
+    nightly["decisions"][0]["ticker"] = "FAST"
+    later["decisions"][0]["ticker"] = "FAST"
+    traces = (nightly, later) if first_window == "absent" else (nightly, first, later)
+    for trace in traces:
+        agent_evaluation.record_trace(con, trace)
+    for session in (date(2026, 9, 28), date(2026, 9, 29)):
+        for ticker in ("SPY", "FAST"):
+            con.execute(
+                "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+                "VALUES (?,?,?,?,?,?,?)",
+                [ticker, session, 100, 102, 99, 101, 1_000],
+            )
+
+    agent_evaluation.label_mature(con, labeled_at=NOW)
+    report = agent_evaluation_reporting.build_report(con, generated_at=NOW)
+
+    primary = next(item for item in report["pairs"]
+                   if item["right_policy"] == "hourly_market_watch_v5")
+    secondary = next(item for item in report["pairs_all_windows"]
+                     if item["right_policy"] == "hourly_market_watch_v5")
+    assert primary["paired_count"] == 0
+    assert secondary["paired_count"] == 1
+
+
+def test_precohort_trace_is_retained_but_excluded_from_evaluation(con):
+    agent_evaluation.init_schema(con)
+    trace = _trace("hourly_market_watch_v5", "none", 0.5)
+    before_start = datetime(2026, 9, 25, 16, 55, tzinfo=timezone.utc)
+    trace.update(
+        window_id="hourly_market_watch_v5:2026-09-25T16",
+        market_date=date(2026, 9, 24),
+        observed_at=before_start,
+        information_cutoff_at=before_start,
+        completed_at=before_start,
+    )
+    trace["decisions"][0].update(decision="watch", action="none")
+    agent_evaluation.record_trace(con, trace)
+    _label(con, "hourly_market_watch_v5", 0.01)
+
+    report = agent_evaluation_reporting.build_report(con, generated_at=NOW)
+
+    assert con.execute("SELECT COUNT(*) FROM agent_evaluation_traces").fetchone() == (1,)
+    assert report["policies"]["hourly_market_watch_v5"]["trace_count"] == 0
+    assert report["coverage"]["decision_count"] == 0
+
+
+def test_common_entry_labels_missing_path_at_last_available_close(con):
+    agent_evaluation.init_schema(con)
+    market_date = date(2026, 9, 25)
+    nightly = _trace("nightly_opportunity_tool_v1", "buy", 0.7)
+    nightly.update(
+        window_id="nightly:2026-09-25",
+        market_date=market_date,
+        observed_at=datetime(2026, 9, 26, 2, tzinfo=timezone.utc),
+        information_cutoff_at=datetime(2026, 9, 26, 2, tzinfo=timezone.utc),
+        completed_at=datetime(2026, 9, 26, 2, tzinfo=timezone.utc),
+    )
+    hourly = _trace("hourly_market_watch_v5", "buy", 0.6)
+    hourly.update(
+        window_id="hourly_market_watch_v5:2026-09-28T15",
+        market_date=market_date,
+        observed_at=datetime(2026, 9, 28, 15, tzinfo=timezone.utc),
+        information_cutoff_at=datetime(2026, 9, 28, 15, tzinfo=timezone.utc),
+        completed_at=datetime(2026, 9, 28, 15, tzinfo=timezone.utc),
+    )
+    for trace in (nightly, hourly):
+        trace["decisions"][0]["ticker"] = "FAST"
+        agent_evaluation.record_trace(con, trace)
+    sessions = [
+        date(2026, 9, 28), date(2026, 9, 29), date(2026, 9, 30),
+        date(2026, 10, 1), date(2026, 10, 2), date(2026, 10, 5),
+    ]
+    for index, session in enumerate(sessions):
+        con.execute(
+            "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+            "VALUES ('SPY',?,?,?,?,?,?)",
+            [session, 100 + index, 102 + index, 99 + index, 101 + index, 1_000],
+        )
+    for index, session in enumerate(sessions[1:3]):
+        con.execute(
+            "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+            "VALUES ('FAST',?,?,?,?,?,?)",
+            [session, 100 + index, 102 + index, 99 + index, 101 + index, 1_000],
+        )
+
+    agent_evaluation.label_mature(
+        con, labeled_at=datetime(2026, 10, 6, tzinfo=timezone.utc)
+    )
+
+    rows = con.execute(
+        "SELECT label_basis,missing_bar_status,entry_date,exit_date "
+        "FROM agent_evaluation_labels_v2 WHERE horizon_sessions=5 ORDER BY decision_id"
+    ).fetchall()
+    assert rows == [
+        ("common_entry", "last_available_close", date(2026, 9, 29), date(2026, 9, 30)),
+        ("common_entry", "last_available_close", date(2026, 9, 29), date(2026, 9, 30)),
+    ]
 
 
 def test_report_accounts_for_missing_labels_and_absent_forecasts(con):

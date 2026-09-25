@@ -434,7 +434,7 @@ only** (owner, 2026-09-25). Every other AGENTS.md rule still applies.
 | Workstream | Status | Evidence (BUILDLOG date) |
 |---|---|---|
 | W0 Baseline and safety | done | 2026-09-25 |
-| W1 Observer evidence defects | not started | |
+| W1 Observer evidence defects | done | 2026-09-25 |
 | W2 Scoring policy and baseline | not started | |
 | W3 Comparator books | not started | |
 | W4 Pre-open reassessment | not started | |
