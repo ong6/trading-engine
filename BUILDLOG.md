@@ -1081,8 +1081,8 @@ decisions) are preserved verbatim in
 - **What:** freeze a current-liquid cohort, checkpoint bounded exact-transcript requests, expose
   failure/coverage state, add queue/miner integration and a persistent four-hour continuation timer.
   Correct TradingView ETF symbols to the live-proven `AMEX` prefix.
-- **Evidence:** full warnings-as-errors suite and Ruff pass; live AAPL/IBM/SPY canary retains 1,131
-  daily facts with zero failures and no operational-price authority.
+- **Evidence:** full warnings-as-errors suite and Ruff pass; first production slice checkpoints all
+  50 windows, retains 16,573 bars, reports five empty ranges and zero failures.
 - **Metrics:** engine 12,249; server 51,926; tools 7,458; all source ceilings green.
 - **Next:** let the 4,063-symbol cohort accumulate; obtain survivor-free PIT membership separately.
 

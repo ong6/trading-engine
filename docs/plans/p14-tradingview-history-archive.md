@@ -68,4 +68,6 @@ a time, and records every complete, empty, or failed attempt. The existing queue
 requests per slice; a persistent four-hour timer continues bounded slices while nightly enqueue is a
 fallback. Coverage reports exact cohort/checkpoint/fact/failure state. A three-symbol live canary
 retained 1,131 AAPL, IBM, and SPY bars with zero failures after correcting TradingView's ETF prefix
-to `AMEX`. The archive remains isolated from operational prices and execution.
+to `AMEX`. The first production slice checkpointed 50 symbols, retaining 16,573 bars for 45 and
+reporting five honest empty ranges with no failures. The archive remains isolated from operational
+prices and execution.
