@@ -11,8 +11,7 @@ owner_decision: approved 2026-09-22
 Compare hourly, four-hour, and nightly agent observations without multiplying execution risk. One
 nightly policy may emit a typed paper-trade tool call; deterministic code locks, validates, records,
 and converts it into a next-open simulator order. Intraday variants remain observation-only until
-their independent evidence supports a later promotion decision. Add one algorithm-plus-agent lane
-where the agent can veto, but never enlarge or rewrite, a deterministic candidate.
+their independent evidence supports a later promotion decision.
 
 ## Scope
 
@@ -25,9 +24,6 @@ where the agent can veto, but never enlarge or rewrite, a deterministic candidat
    and bounded status. No intraday bar may cause a same-bar fill.
 5. Add a self-test covering malformed/duplicate tool calls, interruption replay, lock contention,
    cross-book isolation, risk rejection, and next-open execution.
-6. Register, but do not tune or promote, one deterministic gap-and-volume candidate whose signal is
-   the same P8 ranking input; compare algorithm-only, model-only, and veto-overlay outcomes on paired
-   future windows.
 
 ## Not in scope
 
@@ -36,8 +32,6 @@ where the agent can veto, but never enlarge or rewrite, a deterministic candidat
   after its output may have been observed.
 - Giving all cadence variants order authority, pooling their results, or selecting a winning prompt
   before a frozen minimum sample.
-- Adding another algorithm after seeing P8 outcomes; the gap-volume comparator is frozen from the
-  already-defined P8 inputs before it begins prospective measurement.
 
 ## Done when
 
@@ -45,8 +39,7 @@ where the agent can veto, but never enlarge or rewrite, a deterministic candidat
   order writer; the nightly variant can create at most one attributed simulator intent per ticker.
 - Every accepted tool call is durably recorded before an order, replays exactly without a second
   order or model call, and fills only through the ordinary later-session simulator step.
-- The paired deterministic and veto-overlay paths share data/cost windows but retain separate books
-  and attribution; status reports cadence, prompt, token, order, fill, and performance evidence.
+- Status reports cadence, prompt, token, order, fill, and performance evidence.
 - The self-test, full warnings-as-errors suite, static checks, backup/restore verification, and
   metrics budget pass before any timer with order authority is enabled.
 

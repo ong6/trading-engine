@@ -19,7 +19,7 @@ each plan's YAML `status` must match its row.
 | [P6](p6-alpha-experiment.md) | Alpha experiment | done | Completed 2026-09-18: one frozen credit-confirmed SPY/BIL experiment |
 | [P7](p7-autonomous-paper-trial.md) | Autonomous paper trial | active | Algorithm vs AI vs hybrid on a cloned S$10k envelope; built but **not yet activated** |
 | [P8](p8-daily-opportunity-agent.md) | Daily opportunity agent | active | Live: nightly standouts, watch/hold/swing assessments, locked simulator trade tool |
-| [P9](p9-multi-cadence-agent-tools.md) | Multi-cadence agent tools | active | Live: hourly and four-hour shadow observers plus the nightly simulator tool path. P15 supersedes its gap-volume veto lane and ships fixed observer versions |
+| [P9](p9-multi-cadence-agent-tools.md) | Multi-cadence agent tools | active | Live: hourly and four-hour shadow observers plus the nightly simulator tool path. P15 removed its status-only veto lane and ships fixed observer versions |
 | [P10](p10-2022-agent-replay.md) | 2022 agent replay | done | Contamination-labelled price-only diagnostic; cannot promote anything |
 | [P11](p11-forward-agent-evaluation.md) | Forward agent evaluation | done | Evaluation ledger built; it operates as part of the appliance |
 | [P12](p12-agent-research-product.md) | Agent research product | done | Full data, execution, and evaluation programme delivered 2026-09-23; data/news spend external |

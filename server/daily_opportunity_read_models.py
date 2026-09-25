@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import duckdb
 
-from engine.gap_volume_candidate import select
 from engine.lib.util import table_exists
 
 from . import agent_evaluation
@@ -76,24 +75,6 @@ def status(con: duckdb.DuckDBPyConnection) -> dict:
         [PORTFOLIO_ID],
     ).fetchone()[0])
     response = {} if raw_response is None else loads_object(raw_response)
-    bundle = loads_object(con.execute(
-        "SELECT bundle_payload FROM daily_opportunity_runs WHERE id = ?", [run_id]
-    ).fetchone()[0])
-    algorithm_candidate = select(bundle)
-    veto_observation = None
-    if algorithm_candidate is not None:
-        matching = next(
-            (item for item in rows if item[0] == algorithm_candidate["ticker"]), None
-        )
-        if matching is not None:
-            veto_observation = {
-                "ticker": matching[0],
-                "algorithm_action": "buy",
-                "agent_outcome": (
-                    "allow" if matching[1] == "swing" and matching[2] == "buy" else "veto"
-                ),
-                "execution_authority": "none",
-            }
     return {
         "status": "ok" if run_status == "completed" else "issues",
         "latest_market_date": market_date, "latest_run_status": run_status,
@@ -108,8 +89,6 @@ def status(con: duckdb.DuckDBPyConnection) -> dict:
         "position_count": positions, "pending_order_count": pending,
         "model": response.get("model"), "model_version": response.get("model_version"),
         "model_response_id": response_id, "usage": response.get("usage"),
-        "algorithm_candidate": algorithm_candidate,
-        "algorithm_agent_veto": veto_observation,
         "evaluation": agent_evaluation.status(con),
         "schedule": {
             "nightly": "Tue..Sat *-*-* 02:00:00 UTC",
