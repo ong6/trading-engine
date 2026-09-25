@@ -95,6 +95,12 @@ def test_p15_universe_uses_prior_session_dollar_volume_and_quarantine(tmp_path):
     assert held["reason"] == "quarantined"
     assert held["stratum"] == "held_only" and held["tradeable"] is False
 
+    check = db.connect(database, read_only=True)
+    missing = p15_universe(check, MARKET_DATE, held_tickers={"MISSING"})
+    check.close()
+    missing_held = next(item for item in missing["candidates"] if item["ticker"] == "MISSING")
+    assert missing_held["reason"] == "held_data_unavailable"
+
 
 def test_p15_universe_excludes_post_cutoff_prices_and_earnings(tmp_path):
     database = tmp_path / "market.duckdb"
@@ -168,6 +174,30 @@ def _scoring_result(payload, *, invalid=False):
     )
 
 
+def test_p15_aggregate_uses_numeric_medians_and_majority_action():
+    candidate = {
+        "ticker": "AAA", "evidence_id": "a" * 64, "baseline_score": 1,
+        "baseline_rank": 1, "stratum": "mover", "held": False,
+    }
+    samples = []
+    for index, (value, action) in enumerate(((50.0, "buy_candidate"),
+                                               (70.0, "buy_candidate"),
+                                               (90.0, "ignore"))):
+        samples.append({"AAA": {
+            "ticker": "AAA", "p_outperform_5": 0.5 + index * 0.1,
+            "expected_excess_bp_5": value, "expected_excess_bp_10": value + 10,
+            "action": action, "thesis": f"sample {index}",
+            "invalidation": "invalidated", "evidence_ids": ["a" * 64],
+        }})
+
+    result = p15_scoring_runner._aggregate([candidate], samples)[0]
+
+    assert result["p_outperform_5"] == 0.6
+    assert result["expected_excess_bp_5"] == 70.0
+    assert result["action"] == "buy_candidate" and result["thesis"] == "sample 1"
+    assert len(result["sample_support"]) == 3
+
+
 def test_p15_scoring_runner_retains_three_samples_and_replays_without_calls(tmp_path):
     database = tmp_path / "market.duckdb"
     _p15_database(database)
@@ -185,6 +215,10 @@ def test_p15_scoring_runner_retains_three_samples_and_replays_without_calls(tmp_
     con = db.connect(database)
     con.execute(
         "UPDATE prices SET close=999 WHERE ticker='FAST' AND date=?", [MARKET_DATE]
+    )
+    con.execute(
+        "UPDATE screen_results SET rs_rank=1 WHERE run_date=? AND ticker='FAST'",
+        [MARKET_DATE],
     )
     con.close()
     second = p15_scoring_runner.run(
@@ -301,6 +335,22 @@ def test_p15_scoring_rejects_noon_start_before_writing(tmp_path):
         ).fetchone() == (0,)
     finally:
         con.close()
+
+
+def test_p15_scoring_dry_run_rejects_late_start_before_copy(tmp_path):
+    database = tmp_path / "market.duckdb"
+    _p15_database(database)
+    late = datetime(2026, 9, 22, 12, 0, tzinfo=timezone.utc)
+    copied = []
+
+    with pytest.raises(p15_scoring_runner.ScoringError, match="12:00 UTC"):
+        p15_scoring_runner.dry_run(
+            database=database, now=late, generate=_scoring_result,
+            fetch_news=_news_response, clock=lambda: late,
+            copier=lambda *_args: copied.append(True),
+        )
+
+    assert copied == []
 
 
 def test_p15_scoring_discards_complete_samples_if_finalization_crosses_noon(tmp_path):

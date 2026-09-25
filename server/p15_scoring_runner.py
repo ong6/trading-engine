@@ -97,13 +97,19 @@ def _gate_candidates(bundle: dict) -> dict:
     return {**body, "bundle_sha256": canonical_sha256(body)}
 
 
-def _context(bundle: dict, news: dict) -> tuple[dict, dict[str, set[str]]]:
-    market_news = [item for item in news["observations"] if item["ticker"] == "SPY"]
+def _context(
+    bundle: dict, news: dict, cutoff: datetime
+) -> tuple[dict, dict[str, set[str]]]:
+    observations = [
+        item for item in news["observations"]
+        if datetime.fromisoformat(item["retrieved_at"]).astimezone(timezone.utc) <= cutoff
+    ]
+    market_news = [item for item in observations if item["ticker"] == "SPY"]
     allowed = {}
     candidates = []
     for candidate in bundle["candidates"]:
         headlines = [
-            item for item in news["observations"] if item["ticker"] == candidate["ticker"]
+            item for item in observations if item["ticker"] == candidate["ticker"]
         ]
         ids = {
             bundle["market"]["evidence_id"], candidate["evidence_id"],
@@ -372,13 +378,13 @@ def _run(
         }
         run_id = int(existing["id"])
     else:
-        bundle = _gate_candidates(bundle)
+        bundle = _gate_candidates({**bundle, "snapshot_at": started.isoformat()})
         news = daily_opportunity_news.capture(
             ["SPY", *(item["ticker"] for item in bundle["candidates"])],
             now=started, fetch=fetch_news,
         )
         cutoff = now or clock()
-        context, allowed = _context(bundle, news)
+        context, allowed = _context(bundle, news, cutoff.astimezone(timezone.utc))
         context.update(
             information_cutoff_at=cutoff.astimezone(timezone.utc).isoformat(),
             news_receipts=[{
@@ -568,6 +574,9 @@ def dry_run(
     copier: Callable[[Path, Path], object] = _copy_database,
 ) -> dict:
     """Run the exact mutating flow against an isolated DuckDB snapshot."""
+    requested = (now or clock()).astimezone(timezone.utc)
+    if requested >= datetime.combine(requested.date(), DEADLINE_UTC):
+        raise ScoringError("P15 scoring cannot start at or after 12:00 UTC")
     with tempfile.TemporaryDirectory(prefix="trading-engine-p15-dry-run-") as directory:
         copied = Path(directory) / "market.duckdb"
         with advisory_file_lock(NIGHTLY_LOCK):
