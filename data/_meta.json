@@ -523,5 +523,40 @@
       "failed": 0
     },
     "last_run": "2026-09-20T02:03:52.303519+00:00"
+  },
+  "tradingview_history": {
+    "status": "active",
+    "cohort_id": "liquid-current-v1",
+    "selected_at": "2026-09-25T09:43:53.638003Z",
+    "start_date": "2022-01-01",
+    "selection_sha256": "abdf56e6b91ac4b0b5d4f2d09d5762e0bae099ad30b1a9f07bf909ff35b10800",
+    "target_symbols": 4063,
+    "limitation": "current-liquid-universe snapshot; survivor-biased and retrieval-time-only; not historical membership or promotion-quality stock-selection evidence",
+    "attempts": {
+      "complete": 45,
+      "empty": 5,
+      "failed": 0
+    },
+    "unresolved_failed_windows": 0,
+    "fact_count": 16573,
+    "symbols_with_facts": 45,
+    "symbols_checkpointed": 50,
+    "symbols_unstarted": 4013,
+    "checkpoint_start": "2023-07-05",
+    "checkpoint_end": "2023-07-05",
+    "target_through": "2026-09-24",
+    "symbols_caught_up": 0,
+    "symbols_pending": 4063,
+    "fact_start": "2022-01-03",
+    "fact_end": "2023-07-05",
+    "historical_authority": "retrieval_time_research_only",
+    "execution_authority": "none",
+    "operational_price_mutation": false,
+    "attempted_this_run": 50,
+    "completed_this_run": 45,
+    "empty_this_run": 5,
+    "failed_this_run": 0,
+    "through": "2026-09-24",
+    "last_run": "2026-09-25T09:46:47.410335+00:00"
   }
 }

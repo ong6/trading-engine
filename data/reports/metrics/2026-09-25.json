@@ -5,7 +5,7 @@
   },
   "code_size": {
     "buildlog": 1089,
-    "docs_md": 22661,
+    "docs_md": 22663,
     "engine": 12249,
     "farm": 11637,
     "product": 30777,
@@ -19,9 +19,9 @@
     "largest_insertions": 86905,
     "largest_sha": "89b416d",
     "largest_subject": "Harden paper-trading operations and research recovery",
-    "non_screen_commits": 171,
-    "product_touching": 45,
-    "research_touching": 52,
+    "non_screen_commits": 172,
+    "product_touching": 46,
+    "research_touching": 53,
     "support_only": 126,
     "window_days": 30
   },
