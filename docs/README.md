@@ -36,8 +36,9 @@ measurements supporting those decisions, not the live runtime state.
   [P11 forward agent evaluation](plans/p11-forward-agent-evaluation.md),
   [P12 agent research product](plans/p12-agent-research-product.md),
   [P13 market-data source hardening](plans/p13-market-data-source-hardening.md),
-  [P14 TradingView historical archive](plans/p14-tradingview-history-archive.md), and
-  [P15 profitability evidence loop](plans/p15-profitability-evidence-loop.md).
+  [P14 TradingView historical archive](plans/p14-tradingview-history-archive.md),
+  [P15 profitability evidence loop](plans/p15-profitability-evidence-loop.md), and
+  [P16 challenger lab and text edge](plans/p16-challenger-lab-and-text-edge.md).
 
 ## Current operating documents
 
@@ -54,6 +55,8 @@ measurements supporting those decisions, not the live runtime state.
 
 ## Design and specification
 
+- [`design/prompt-review.md`](design/prompt-review.md) — review of the live model prompts and
+  requirements for P15/P16 scoring, challenger, pre-open, and filing-reader prompts.
 - [`design/trading-engine-design.md`](design/trading-engine-design.md) — governing engine
   design; §12 wins on conflicts.
 - [`design/trading-execution-design.md`](design/trading-execution-design.md) — execution
