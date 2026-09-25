@@ -102,8 +102,8 @@ joinable to later outcomes, simulated execution, cost, and risk evidence.
 
 Phase 2 status: the generic receipt/fact envelope and exact-response capture for hourly/four-hour
 agent-visible quotes are implemented. Each admitted quote links to the same retained provider bytes
-and normalized bitemporal bars. P14 adds bounded nightly TradingView daily-history capture through
-the existing single-writer queue. Its frozen current-liquid cohort, per-window checkpoints, raw
+and normalized bitemporal bars. P14 adds bounded TradingView daily-history capture (a four-hourly timer, with nightly enqueue as a
+fallback) through the existing single-writer queue. Its frozen current-liquid cohort, per-window checkpoints, raw
 transcripts, failures, empty ranges, and coverage stay explicitly survivor-biased and retrieval-time
 only; they do not replace licensed historical membership or point-in-time fundamentals/news.
 
@@ -192,9 +192,10 @@ observation exposes its feed, venue scope, event/receipt time, freshness class, 
 and receipt identity. Historical bars are explicitly retrieval-time observations written only to
 the bitemporal fact ledger; they cannot become point-in-time backtest truth without the existing PIT
 manifest audit. Missing credentials return `unavailable` without network or database access.
-The revised intraday policies are versioned as v3, require a complete set of closed, no-more-than-
-20-minute-old five-minute bars, and start after the open. Older v1/v2 artifacts remain immutable
-legacy diagnostics and are excluded from active policy scoring.
+The revised intraday policies were versioned as v3: they require a complete set of closed,
+no-more-than-20-minute-old five-minute bars and start after the open. The active v4 policies add the
+TradingView cross-check. Older v1–v3 artifacts remain immutable legacy diagnostics and are excluded
+from active policy scoring.
 
 The Mathieu2301 Tradingview-API project was reviewed at upstream commit
 `5baea86c8c7e576f13464919c86c3b4c4b0ecf4c`. The runtime does not import that package; it implements

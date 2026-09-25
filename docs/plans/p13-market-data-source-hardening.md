@@ -54,6 +54,8 @@ than trigger fallback claims, silently blend feeds, or affect execution.
 
 ## Implemented state
 
+_Superseded for TradingView by the 2026-09-25 activation below; the Alpaca gate still applies._
+
 The provider registry, exact-response Alpaca IEX snapshot/history adapter, v3 hourly/four-hour prompt
 cross-check, trace linkage, private environment-file hook, CLI status/capture entry point, and
 fixture suite are implemented. TradingView is blocked before network access. This host has no
