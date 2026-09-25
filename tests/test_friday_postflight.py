@@ -39,6 +39,13 @@ def _payload() -> dict:
             "job_updated_at": "2026-09-12T00:30:00",
             "evidence_at": "2026-09-12T00:29:59+00:00",
         }
+    miners["tradingview_history"] = {
+        "status": "current",
+        "job_id": 480,
+        "job_state": "done",
+        "job_updated_at": "2026-09-12T03:42:00",
+        "evidence_at": "2026-09-12T03:41:59+00:00",
+    }
     return {
         "nightly": {
             "status": "ok",
@@ -48,8 +55,8 @@ def _payload() -> dict:
         "nightly_evidence": {"status": "current", "as_of": "2026-09-11"},
         "miner_evidence": {
             "status": "current",
-            "current": 4,
-            "expected": 4,
+            "current": 5,
+            "expected": 5,
             "miners": miners,
         },
     }
@@ -67,6 +74,19 @@ def test_verify_accepts_real_same_run_friday_evidence():
     assert result["expected_date"] == "2026-09-11"
     assert result["market_date"] == "2026-09-11"
     assert result["miner_job_ids"]["fundamentals"] == 479
+    assert "tradingview_history" not in result["miner_job_ids"]
+
+
+def test_verify_ignores_independently_running_non_nightly_miner():
+    payload = _payload()
+    payload["miner_evidence"].update(status="updating", current=4)
+    payload["miner_evidence"]["miners"]["tradingview_history"].update(
+        status="running", job_state="running", evidence_at=None
+    )
+
+    result = verify_friday_postflight.verify(payload, date(2026, 9, 11))
+
+    assert set(result["miner_job_ids"]) == friday_postflight.EXPECTED_MINERS
 
 
 def test_receipt_validation_rejects_unsafe_miner_job_identifier():
@@ -97,8 +117,10 @@ def test_verify_rejects_a_non_friday_expected_date():
             "market date 2026-09-12 is after Friday",
         ),
         (
-            lambda value: value["miner_evidence"].update(status="incomplete", current=3),
-            "not current at 4/4",
+            lambda value: value["miner_evidence"]["miners"]["intraday"].update(
+                status="issues"
+            ),
+            "intraday evidence is not current",
         ),
         (
             lambda value: value["miner_evidence"]["miners"]["fundamentals"].update(
