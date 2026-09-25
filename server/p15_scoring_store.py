@@ -192,13 +192,32 @@ def fail_sample(
     *,
     reason: str,
     completed_at: datetime,
+    response: dict | None = None,
+    metadata: dict | None = None,
 ) -> None:
     if not reason.strip():
         raise ScoringStoreError("P15 scoring failure reason is empty")
+    metadata = metadata or {}
+    usage = (response or {}).get("usage") or metadata.get("usage") or {}
+    response_payload = None if response is None else _json(response)
+    response_sha = metadata.get("response_sha256") or (
+        None if response is None else canonical_sha256(response)
+    )
     changed = con.execute(
-        "UPDATE p15_scoring_samples SET status='failed',error=?,completed_at=? "
-        "WHERE id=? AND status='started' RETURNING id",
-        [reason[:512], completed_at, sample_id],
+        "UPDATE p15_scoring_samples SET status='failed',response_id=?,response_payload=?,"
+        "response_sha256=?,model=?,model_version=?,proxy_version=?,proxy_source_sha256=?,"
+        "traecli_runtime=?,upstream_model_family=?,upstream_request_id=?,"
+        "model_catalog_entry_sha256=?,input_tokens=?,output_tokens=?,total_tokens=?,"
+        "error=?,completed_at=? WHERE id=? AND status='started' RETURNING id",
+        [metadata.get("response_id") or (response or {}).get("response_id"),
+         response_payload, response_sha, (response or {}).get("model"),
+         (response or {}).get("model_version"), (response or {}).get("proxy_version"),
+         (response or {}).get("proxy_source_sha256"), (response or {}).get("traecli_runtime"),
+         (response or {}).get("upstream_model_family"),
+         (response or {}).get("upstream_request_id"),
+         (response or {}).get("model_catalog_entry_sha256"), usage.get("input_tokens"),
+         usage.get("output_tokens"), usage.get("total_tokens"), reason[:512],
+         completed_at, sample_id],
     ).fetchone()
     if changed is None:
         status = con.execute(
