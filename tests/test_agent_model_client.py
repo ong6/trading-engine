@@ -255,6 +255,34 @@ def test_generate_veto_json_uses_distinct_fixed_prompt_and_no_tools():
     assert timeouts == [5.0, 5.0, 240.0, 5.0, 5.0]
 
 
+def test_p15_scoring_uses_truthful_distinct_prompt_and_no_tools():
+    factory, observed, connections, timeouts = factory_for([
+        Response(health()), Response(models(agent_model_client.MODEL)),
+        Response(response({"schema_version": 1, "assessments": []})),
+        Response(health()), Response(models(agent_model_client.MODEL)),
+    ])
+
+    result = agent_model_client.generate_p15_scoring_json(
+        {"policy_id": "p15-scoring-v1", "candidates": []},
+        connection_factory=factory,
+    )
+
+    request = json.loads(
+        next(item for item in observed if item["path"] == "/v1/responses")["body"]
+    )
+    assert result.output == {"schema_version": 1, "assessments": []}
+    assert request["instructions"] == agent_model_client.P15_SCORING_INSTRUCTIONS
+    assert "next session open" in request["instructions"]
+    assert "20 basis points" in request["instructions"]
+    assert "Roughly half" in request["instructions"]
+    assert request["tools"] == [] and request["tool_choice"] == "none"
+    assert agent_model_client.identity(role="p15_scoring")["instructions_sha256"] == (
+        canonical_sha256(agent_model_client.P15_SCORING_INSTRUCTIONS)
+    )
+    assert all(connection.closed for connection in connections)
+    assert timeouts == [5.0, 5.0, 240.0, 5.0, 5.0]
+
+
 def test_generate_trade_tool_allows_exactly_one_bounded_function():
     arguments = {"ticker": "FAST", "side": "buy", "assessment_sha256": "a" * 64,
                  "horizon_sessions": 5, "thesis": "Momentum",
