@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "registration_id": "p15-profitability-evidence-loop-v1",
-  "registered_at": "2026-09-26T17:51:13Z",
+  "registered_at": "2026-09-26T18:07:15Z",
   "activation_session": "2026-09-29",
   "status": "registered_inactive",
   "authority": {
@@ -174,11 +174,11 @@
     "model_call_count": "attempted_calls_including_connector_failures"
   },
   "code_identity": {
-    "source_commit": "79e3b11fe12ef0f59202cb4cb6da5cdc6ebeee85",
+    "source_commit": "5d23cb4049f69e1a32a7d912b19ee371bcd98295",
     "files": {
       "engine/bitemporal_facts.py": "f33ed3530af9fa89f5ed80e3a2e4b46043d127fcb455ef31e1b371f84d32b607",
       "engine/collect.py": "23ec8da4be7342101b061f6db49b2338dcbe8fd127c2fb607c66995652d340f1",
-      "engine/daily_opportunities.py": "af295c4899c02b5d058d21f9e4fc696d22e733a62aaf3e1212636d29834ffae6",
+      "engine/daily_opportunities.py": "d0f8b323bfa26f4b543a8796207245a9fbfd8501e32ffa54884092b9f93969ba",
       "engine/lib/db.py": "e4ff47cde08563d3d807d92220ad39fd6bcc350139796c04e2828220e0895e29",
       "engine/p15_evaluation.py": "6b4a7489657d2fdb0de1afa605d1a5fb27036ebe8d1f2b4b6beb98de4ab8cba0",
       "engine/p15_event_sources.py": "998eca1f6b174573ac9dd2717171ea1e47a9f22d787a231cb702cca18fd816f7",
@@ -209,5 +209,5 @@
   },
   "registration_revision": 2,
   "revision_reason": "P16 W0 review findings R1-R16",
-  "registration_sha256": "61dbb1e9f8c6a6d5d6871c73187e696f88978fa273e158731a5762f6ea62ca07"
+  "registration_sha256": "ae4be9fd63ace5d74375f749269032653dad0db2b66ec77e6a72a2da67a4d376"
 }
