@@ -173,6 +173,18 @@ def test_p15_preopen_unit_is_registered_but_not_autostarted():
     assert "trading-engine-p15-preopen.timer" not in install_automation.AUTOSTART_UNITS
 
 
+def test_p15_event_unit_is_intraday_shadow_and_not_autostarted():
+    service = _unit("server/trading-engine-p15-events.service")
+    timer = _unit("server/trading-engine-p15-events.timer")
+    _assert_common_service_hardening(service)
+    assert "farm.p15_event_runner --run" in service
+    assert "TimeoutStartSec=14min" in service
+    assert "09:35,50:00 America/New_York" in timer
+    assert "10..15:05,20,35,50 America/New_York" in timer
+    assert "Persistent=false" in timer
+    assert "trading-engine-p15-events.timer" not in install_automation.AUTOSTART_UNITS
+
+
 def test_league_ui_does_not_present_operational_rank_as_research_evidence():
     league = _unit("ui/app/league/page.js")
     standings = _unit("ui/app/components/LeagueStandings.js")

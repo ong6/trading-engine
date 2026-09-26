@@ -855,4 +855,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine/product +182, tests +237; server, farm, sim, and tools unchanged; budget ok.
 - **Next:** persist rate-limited shadow decisions, latency, and both forward label bases.
 
+## 2026-09-26 — P15 W5: complete shadow event evidence
+
+- **Why:** approved P15 W5 requires rate-limited shadow event decisions, latency, and independent
+  next-bar and next-session-open labels for the three retained trigger sources.
+- **What:** add strict tool-free event scoring in 10-name chunks, a 60-decision session cap,
+  explicit unavailable and skipped outcomes, crash-safe terminal replay, and immutable decision
+  latency. Label both bases independently, including terminal missing-entry paths, without order
+  or portfolio authority. The service and timer remain uninstalled until W8.
+- **Evidence:** `./.venv/bin/python -m pytest -q -W error` reaches `[100%]` and exits 0.
+- **Metrics:** farm/product +805, server +32, tools +9, tests +527; other layers unchanged; budget ok.
+- **Next:** W6 coded gates, comparisons, status projection, and generated report.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
