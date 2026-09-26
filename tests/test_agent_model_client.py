@@ -275,6 +275,10 @@ def test_p15_scoring_uses_truthful_distinct_prompt_and_no_tools():
     assert "next session open" in request["instructions"]
     assert "20 basis points" in request["instructions"]
     assert "Roughly half" in request["instructions"]
+    assert (
+        "When a candidate is held in p15_ai_ranked, a negative "
+        "expected_excess_bp_5 makes deterministic code exit it."
+    ) in request["instructions"]
     assert request["tools"] == [] and request["tool_choice"] == "none"
     assert agent_model_client.identity(role="p15_scoring")["instructions_sha256"] == (
         canonical_sha256(agent_model_client.P15_SCORING_INSTRUCTIONS)
