@@ -731,4 +731,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +216, tools/product unchanged, tests +112; budget ok.
 - **Next:** execute scoped intents, persist fills/rules, rebalance SPY, and prove a full window.
 
+## 2026-09-26 — P15 W3: execute book-local fills
+
+- **Why:** approved P15 W3 requires next-open fills, fixed ATR stops, time exits, and an invested
+  benchmark sleeve without exposing P15 intents to the generic market-order consumer.
+- **What:** process only P15-owned intents with sells before stock entries and SPY last; persist
+  terminal orders, costs, limit attempts and fixed stops. Limit misses keep their counterfactual
+  price, cash shortages reject rather than resize, and exit proceeds rebuy whole-share SPY next open.
+- **Evidence:** `./.venv/bin/python -m pytest -q -W error tests/test_p15_books.py tests/test_p15_fills.py`
+  passes 11 tests.
+- **Metrics:** server +152, tools/product unchanged, tests +133; budget ok.
+- **Next:** wire a copied full-window dry-run and prove non-P15 state is unchanged.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
