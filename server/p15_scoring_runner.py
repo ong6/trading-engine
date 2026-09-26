@@ -30,6 +30,7 @@ from . import (
     agent_evaluation,
     agent_model_client,
     daily_opportunity_news,
+    p15_books,
 )
 from . import (
     p15_scoring_store as store,
@@ -565,10 +566,19 @@ def run(
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> dict:
     with advisory_file_lock(LOCK_PATH), advisory_file_lock(NIGHTLY_LOCK):
-        return _run(
+        result = _run(
             database=database, now=now, generate=generate,
             fetch_news=fetch_news, clock=clock,
         )
+        if result["status"] == "completed":
+            con = db.connect(database, wait_s=0)
+            try:
+                result = {**result, "books": p15_books.run_window(
+                    con, date.fromisoformat(result["market_date"]), observed_at=clock()
+                )}
+            finally:
+                con.close()
+        return result
 
 
 def dry_run(

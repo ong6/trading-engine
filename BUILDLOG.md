@@ -743,4 +743,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +152, tools/product unchanged, tests +133; budget ok.
 - **Next:** wire a copied full-window dry-run and prove non-P15 state is unchanged.
 
+## 2026-09-26 — P15 W3: wire the scoring consumer
+
+- **Why:** approved P15 W3 requires completed retained scores to drive only the three isolated
+  comparator books and to support a complete replay-safe dry-run window.
+- **What:** invoke the P15 book window after successful scoring; inactive books are a strict no-op.
+  The window processes prior intents, replaces only P15 marks, queues current decisions, and is
+  transactionally replay-safe without changing non-P15 portfolio or equity rows.
+- **Evidence:** the full warnings-as-errors Python suite reaches `[100%]` and exits 0.
+- **Metrics:** server +10, tools/product unchanged, tests +40; budget ok.
+- **Next:** initialize the three live books inactive after the nightly writer releases its lock.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

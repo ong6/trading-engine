@@ -315,3 +315,41 @@ def test_spy_funds_entries_and_time_exit_reinvests_next_open(con):
         "AND order_role='spy_reinvest' AND side='buy'",
         [exit_fill],
     ).fetchone() == (3,)
+
+
+def test_complete_window_is_replay_safe_and_does_not_touch_other_book(con):
+    signal_date, fill_date = SESSIONS[29:31]
+    for ticker in ("SPY", "AAA"):
+        insert_bars(con, ticker, SESSIONS[:31], open_=100, close=100, high=101, low=99)
+    _activate(con, signal_date)
+    _seed_decisions(con, signal_date, [_decision("AAA", 1, 100)])
+    sentinel_before = con.execute(
+        "SELECT * FROM portfolios WHERE id='control'"
+    ).fetchall(), con.execute(
+        "SELECT * FROM sim_equity WHERE portfolio_id='control'"
+    ).fetchall()
+
+    first = p15_books.run_window(
+        con, signal_date, observed_at=datetime(2026, 9, 25, tzinfo=timezone.utc)
+    )
+    _seed_decisions(con, fill_date, [
+        {**_decision("AAA", 1, 100, action="watch"), "tradeable": False}
+    ])
+    second = p15_books.run_window(
+        con, fill_date, observed_at=datetime(2026, 9, 26, tzinfo=timezone.utc)
+    )
+    replay = p15_books.run_window(
+        con, fill_date, observed_at=datetime(2026, 9, 26, tzinfo=timezone.utc)
+    )
+
+    assert first["queued"] == 6 and first["filled"] == 0
+    assert second["filled"] == 6 and second["queued"] == 0
+    assert replay["filled"] == replay["rejected"] == replay["pending"] == 0
+    assert replay["queued"] == 0
+    assert sentinel_before == (
+        con.execute("SELECT * FROM portfolios WHERE id='control'").fetchall(),
+        con.execute("SELECT * FROM sim_equity WHERE portfolio_id='control'").fetchall(),
+    )
+    assert con.execute(
+        "SELECT COUNT(DISTINCT portfolio_id) FROM sim_fills"
+    ).fetchone() == (3,)
