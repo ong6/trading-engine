@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 import duckdb
@@ -614,6 +615,28 @@ def test_p15_scoring_dry_run_uses_copy_and_leaves_source_unchanged(tmp_path):
         con.close()
 
 
+def test_p15_dry_run_holds_production_lock_only_while_copying(tmp_path, monkeypatch):
+    database = tmp_path / "market.duckdb"
+    _p15_database(database)
+    now = datetime(2026, 9, 22, 2, 30, tzinfo=timezone.utc)
+    locks = []
+
+    @contextmanager
+    def observed_lock(path):
+        locks.append(path)
+        yield
+
+    monkeypatch.setattr(p15_scoring_runner, "advisory_file_lock", observed_lock)
+    result = p15_scoring_runner.dry_run(
+        database=database, now=now, generate=_scoring_result,
+        fetch_news=_news_response, clock=lambda: now,
+        copier=lambda source, target: shutil.copy2(source, target),
+    )
+
+    assert result["status"] == "completed"
+    assert locks == [p15_scoring_runner.NIGHTLY_LOCK]
+
+
 def test_p15_scoring_rejects_d_plus_2_post_entry_retry_and_records_failure(tmp_path):
     database = tmp_path / "market.duckdb"
     _p15_database(database)
@@ -686,23 +709,34 @@ def test_p15_scoring_rejects_d_plus_2_post_entry_retry_and_records_failure(tmp_p
         con.close()
 
 
-def test_p15_scoring_rejects_noon_start_before_writing(tmp_path):
+def test_p15_scoring_records_noon_start_refusal_without_external_calls(tmp_path):
     database = tmp_path / "market.duckdb"
     _p15_database(database)
     late = datetime(2026, 9, 22, 12, 0, tzinfo=timezone.utc)
 
-    with pytest.raises(p15_scoring_runner.ScoringError, match="12:00 UTC"):
-        p15_scoring_runner.run(
-            database=database, now=late, generate=_scoring_result,
-            fetch_news=_news_response, clock=lambda: late,
-        )
+    result = p15_scoring_runner._run(
+        database=database, now=late,
+        generate=lambda _payload: (_ for _ in ()).throw(
+            AssertionError("late run called model")
+        ),
+        fetch_news=lambda *_args: (_ for _ in ()).throw(
+            AssertionError("late run fetched news")
+        ),
+        clock=lambda: late,
+    )
+
+    assert result == {
+        "status": "failed", "market_date": MARKET_DATE.isoformat(),
+        "reason": "deadline_start_refusal", "model_call_count": 0,
+        "replayed": False,
+    }
 
     con = db.connect(database, read_only=True)
     try:
         assert con.execute(
-            "SELECT COUNT(*) FROM information_schema.tables "
-            "WHERE table_name LIKE 'p15_scoring_%'"
-        ).fetchone() == (0,)
+            "SELECT status,reason FROM p15_scoring_runs"
+        ).fetchone() == ("failed", "deadline_start_refusal")
+        assert con.execute("SELECT COUNT(*) FROM p15_scoring_samples").fetchone() == (0,)
     finally:
         con.close()
 
