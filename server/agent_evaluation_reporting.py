@@ -444,9 +444,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with db.transaction(con):
             init_schema(con)
+        registered = p15_evaluation.registration_sha256()
+        with db.transaction(con):
+            p15_evaluation.publish_pending_look_anchors(con, registered)
+        with db.transaction(con):
+            validate_p15_evidence(con, generated_at)
             p15_evaluation.primary(
                 con, generated_at, persist_looks=True,
+                registration_sha=registered,
             )
+        with db.transaction(con):
+            p15_evaluation.publish_pending_look_anchors(con, registered)
     finally:
         con.close()
     con = db.connect(args.database, read_only=True, wait_s=0)
