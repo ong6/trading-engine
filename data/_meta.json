@@ -65,8 +65,8 @@
     "store_gb": 4.18
   },
   "price_verify": {
-    "last_run": "2026-09-24T22:41:46.995684+00:00",
-    "as_of": "2026-09-24",
+    "last_run": "2026-09-25T22:42:17.504609+00:00",
+    "as_of": "2026-09-25",
     "source": "api.nasdaq.com/api/quote/{ticker}/historical",
     "role": "verify-only; this source never writes a price row",
     "sessions_requested": 5,
@@ -79,220 +79,53 @@
       "low",
       "close"
     ],
-    "names_selected": 162,
-    "names_checked": 162,
-    "names_agreeing": 143,
-    "names_disagreeing": 19,
+    "names_selected": 165,
+    "names_checked": 165,
+    "names_agreeing": 165,
+    "names_disagreeing": 0,
     "names_not_checked": 0,
     "not_checked_reasons": {},
     "not_checked_names": [],
-    "bars_compared": 648,
-    "field_comparisons": 2592,
+    "bars_compared": 660,
+    "field_comparisons": 2640,
     "worst": {
-      "ticker": "PAYC",
-      "date": "2026-09-22",
-      "field": "high",
-      "store": 229.059998,
-      "source": 232.86,
-      "diff_bp": 163.19
+      "ticker": "ACHV",
+      "date": "2026-09-21",
+      "field": "open",
+      "store": 8.03,
+      "source": 8.025,
+      "diff_bp": 6.23
     },
-    "worst_is_disagreement": true,
-    "disagreements": [
-      {
-        "ticker": "PAYC",
-        "date": "2026-09-22",
-        "field": "high",
-        "store": 229.059998,
-        "source": 232.86,
-        "diff_bp": 163.19
-      },
-      {
-        "ticker": "FTRE",
-        "date": "2026-09-22",
-        "field": "open",
-        "store": 20.35,
-        "source": 20.13,
-        "diff_bp": 108.11
-      },
-      {
-        "ticker": "CRWL",
-        "date": "2026-09-22",
-        "field": "open",
-        "store": 92.110001,
-        "source": 93.0,
-        "diff_bp": 95.7
-      },
-      {
-        "ticker": "PAGP",
-        "date": "2026-09-22",
-        "field": "open",
-        "store": 27.2997,
-        "source": 27.04,
-        "diff_bp": 95.13
-      },
-      {
-        "ticker": "CMPS",
-        "date": "2026-09-22",
-        "field": "open",
-        "store": 15.0,
-        "source": 15.13,
-        "diff_bp": 85.92
-      },
-      {
-        "ticker": "MEI",
-        "date": "2026-09-22",
-        "field": "low",
-        "store": 13.49,
-        "source": 13.41,
-        "diff_bp": 59.3
-      },
-      {
-        "ticker": "FRSH",
-        "date": "2026-09-22",
-        "field": "open",
-        "store": 12.7,
-        "source": 12.625,
-        "diff_bp": 59.05
-      },
-      {
-        "ticker": "MNPR",
-        "date": "2026-09-22",
-        "field": "open",
-        "store": 96.089996,
-        "source": 96.6,
-        "diff_bp": 52.8
-      },
-      {
-        "ticker": "DCO",
-        "date": "2026-09-22",
-        "field": "high",
-        "store": 169.899994,
-        "source": 170.74,
-        "diff_bp": 49.2
-      },
-      {
-        "ticker": "DCO",
-        "date": "2026-09-22",
-        "field": "low",
-        "store": 164.740005,
-        "source": 164.1,
-        "diff_bp": 38.85
-      },
-      {
-        "ticker": "TXG",
-        "date": "2026-09-22",
-        "field": "open",
-        "store": 79.110001,
-        "source": 79.415,
-        "diff_bp": 38.41
-      },
-      {
-        "ticker": "FET",
-        "date": "2026-09-22",
-        "field": "low",
-        "store": 78.510002,
-        "source": 78.31,
-        "diff_bp": 25.47
-      },
-      {
-        "ticker": "TVTX",
-        "date": "2026-09-22",
-        "field": "open",
-        "store": 60.240002,
-        "source": 60.37,
-        "diff_bp": 21.53
-      },
-      {
-        "ticker": "TWST",
-        "date": "2026-09-22",
-        "field": "low",
-        "store": 163.149994,
-        "source": 162.86,
-        "diff_bp": 17.77
-      },
-      {
-        "ticker": "PSNL",
-        "date": "2026-09-22",
-        "field": "low",
-        "store": 16.15,
-        "source": 16.13,
-        "diff_bp": 12.38
-      },
-      {
-        "ticker": "ELVN",
-        "date": "2026-09-22",
-        "field": "high",
-        "store": 49.07,
-        "source": 49.13,
-        "diff_bp": 12.21
-      },
-      {
-        "ticker": "DNTH",
-        "date": "2026-09-22",
-        "field": "high",
-        "store": 100.349998,
-        "source": 100.47,
-        "diff_bp": 11.94
-      },
-      {
-        "ticker": "MNPR",
-        "date": "2026-09-22",
-        "field": "high",
-        "store": 97.254997,
-        "source": 97.37,
-        "diff_bp": 11.81
-      },
-      {
-        "ticker": "FRSH",
-        "date": "2026-09-22",
-        "field": "high",
-        "store": 12.755,
-        "source": 12.77,
-        "diff_bp": 11.75
-      },
-      {
-        "ticker": "CDNA",
-        "date": "2026-09-22",
-        "field": "high",
-        "store": 56.790001,
-        "source": 56.85,
-        "diff_bp": 10.55
-      }
-    ],
-    "n_disagreements": 22,
-    "disagreements_by_field": {
-      "high": 8,
-      "open": 9,
-      "low": 5
-    },
-    "disagreements_by_date": {
-      "2026-09-22": 22
-    },
+    "worst_is_disagreement": false,
+    "disagreements": [],
+    "n_disagreements": 0,
+    "disagreements_by_field": {},
+    "disagreements_by_date": {},
     "n_material": 0,
     "parse_errors": [],
     "n_parse_errors": 0,
     "volume_note": "volume differs by design on the newest session (same-day volume settles after the close); measured, never alarmed on",
     "volume_median_abs_diff_pct_latest_session": null,
     "volume_median_abs_diff_pct_prior_sessions": 0.01,
-    "volume_bars_compared": 648,
-    "provisional_note": "on 2026-09-24 (newest stored session) open/high/low are measured but never flagged; the close IS checked on every name",
+    "volume_bars_compared": 660,
+    "provisional_note": "on 2026-09-25 (newest stored session) open/high/low are measured but never flagged; the close IS checked on every name",
     "provisional_ohl_median_bp": null,
     "provisional_ohl_max_bp": null,
     "provisional_ohl_over_tolerance": 0,
     "provisional_comparisons": 0,
     "store_missing_sessions": {},
     "n_names_store_missing_sessions": 0,
-    "secs": 428.6
+    "secs": 450.7
   },
   "intraday": {
-    "last_run": "2026-09-24T22:44:37.326873+00:00",
-    "tickers_requested": 909,
-    "tickers_with_data": 909,
-    "new_rows_1m": 340828,
-    "new_rows_5m": 111936,
+    "last_run": "2026-09-25T22:45:09.774516+00:00",
+    "tickers_requested": 905,
+    "tickers_with_data": 905,
+    "new_rows_1m": 326002,
+    "new_rows_5m": 97952,
     "failed_tickers": 0,
     "failed_batches": 0,
-    "store_gb": 4.13
+    "store_gb": 4.21
   },
   "signals_incremental": {
     "mode": "incremental",
@@ -300,35 +133,35 @@
     "sources": {
       "squeezemetrics": {
         "status": "ok",
-        "rows_fetched": 7746,
+        "rows_fetched": 7748,
         "rows_inserted": 2,
         "series": [
           "dix",
           "gex"
         ],
-        "secs": 2.0
+        "secs": 2.1
       },
       "vix": {
         "status": "ok",
-        "rows_fetched": 13556,
-        "rows_inserted": 0,
+        "rows_fetched": 13561,
+        "rows_inserted": 5,
         "series": [
           "vix",
           "vix3m"
         ],
-        "secs": 1.7
+        "secs": 0.6
       },
       "fred": {
         "status": "ok",
-        "rows_fetched": 102,
-        "rows_inserted": 3,
+        "rows_fetched": 104,
+        "rows_inserted": 2,
         "series": [
           "hy_oas",
           "icsa",
           "nfci",
           "t10y2y"
         ],
-        "secs": 1.8
+        "secs": 2.3
       },
       "putcall": {
         "status": "ok",
@@ -338,17 +171,17 @@
           "pc_equity",
           "pc_total"
         ],
-        "secs": 6.8
+        "secs": 7.7
       },
       "aaii": {
         "status": "ok",
         "rows_fetched": 4086,
-        "rows_inserted": 2,
+        "rows_inserted": 0,
         "series": [
           "aaii_bear",
           "aaii_bull"
         ],
-        "secs": 1.3
+        "secs": 1.9
       },
       "finra_margin": {
         "status": "ok",
@@ -358,25 +191,25 @@
           "free_credit",
           "margin_debt"
         ],
-        "secs": 0.9
+        "secs": 0.8
       },
       "short_interest": {
         "status": "ok",
         "rows_fetched": 2,
-        "rows_inserted": 1,
+        "rows_inserted": 0,
         "series": [
           "short_interest_dtc"
         ],
-        "secs": 10.8
+        "secs": 11.2
       },
       "cot": {
         "status": "ok",
         "rows_fetched": 10,
-        "rows_inserted": 0,
+        "rows_inserted": 1,
         "series": [
           "cot_es_lev_net"
         ],
-        "secs": 0.9
+        "secs": 1.0
       },
       "breadth": {
         "status": "ok",
@@ -387,38 +220,38 @@
           "breadth_pct_200",
           "zweig_ratio"
         ],
-        "secs": 0.4
+        "secs": 0.5
       }
     },
-    "rows_inserted": 13,
+    "rows_inserted": 15,
     "warnings": [],
     "series_totals": {
       "aaii_bear": 2043,
       "aaii_bull": 2043,
-      "breadth_nh_nl": 3702,
-      "breadth_pct_200": 3702,
-      "cot_es_lev_net": 1058,
-      "dix": 3873,
+      "breadth_nh_nl": 3703,
+      "breadth_pct_200": 3703,
+      "cot_es_lev_net": 1059,
+      "dix": 3874,
       "free_credit": 199,
-      "gex": 3873,
-      "hy_oas": 826,
+      "gex": 3874,
+      "hy_oas": 827,
       "icsa": 3116,
       "margin_debt": 356,
       "nfci": 2907,
-      "pc_equity": 4188,
-      "pc_total": 4188,
+      "pc_equity": 4189,
+      "pc_total": 4189,
       "short_interest_dtc": 75,
-      "t10y2y": 12576,
-      "vix": 9278,
-      "vix3m": 4278,
-      "zweig_ratio": 3702
+      "t10y2y": 12577,
+      "vix": 9280,
+      "vix3m": 4281,
+      "zweig_ratio": 3703
     },
-    "last_run": "2026-09-24T22:45:04.949005+00:00",
-    "store_gb": 4.13
+    "last_run": "2026-09-25T22:45:38.723993+00:00",
+    "store_gb": 4.21
   },
   "earnings": {
-    "last_run": "2026-09-24T23:10:41.726213+00:00",
-    "as_of": "2026-09-24",
+    "last_run": "2026-09-25T23:17:45.898352+00:00",
+    "as_of": "2026-09-25",
     "universe": 2856,
     "universe_source": "fundamentals-coverage \u222a screen-passers",
     "pulled_this_run": 2856,
@@ -427,7 +260,7 @@
     "failed_tickers": 0,
     "rows_inserted_this_run": 2797,
     "rows_for_as_of": 2797,
-    "store_gb": 4.13
+    "store_gb": 4.21
   },
   "screen_date": "2026-09-25",
   "last_screen": "2026-09-25T22:32:15.966568+00:00",
@@ -441,16 +274,16 @@
   "excluded_leveraged": 0,
   "screen_metadata_source": "fresh-run",
   "fundamentals": {
-    "last_run": "2026-09-12T00:52:17.790800+00:00",
-    "as_of": "2026-09-11",
-    "universe": 4118,
-    "pulled_this_run": 4118,
-    "with_data": 4118,
-    "with_market_cap": 2848,
-    "failed_tickers": 0,
-    "rows_inserted_this_run": 4118,
-    "rows_for_as_of": 4118,
-    "store_gb": 3.63
+    "last_run": "2026-09-26T00:11:58.951580+00:00",
+    "as_of": "2026-09-25",
+    "universe": 4100,
+    "pulled_this_run": 4100,
+    "with_data": 4097,
+    "with_market_cap": 2875,
+    "failed_tickers": 3,
+    "rows_inserted_this_run": 4097,
+    "rows_for_as_of": 4097,
+    "store_gb": 4.21
   },
   "liquid_refresh": {
     "admitted": [
@@ -533,18 +366,18 @@
     "target_symbols": 4063,
     "limitation": "current-liquid-universe snapshot; survivor-biased and retrieval-time-only; not historical membership or promotion-quality stock-selection evidence",
     "attempts": {
-      "complete": 168,
-      "empty": 32,
+      "complete": 213,
+      "empty": 37,
       "failed": 0
     },
     "unresolved_failed_windows": 0,
-    "fact_count": 61636,
-    "symbols_with_facts": 168,
-    "symbols_checkpointed": 200,
-    "symbols_unstarted": 3863,
+    "fact_count": 78455,
+    "symbols_with_facts": 213,
+    "symbols_checkpointed": 250,
+    "symbols_unstarted": 3813,
     "checkpoint_start": "2023-07-05",
     "checkpoint_end": "2023-07-05",
-    "target_through": "2026-09-24",
+    "target_through": "2026-09-25",
     "symbols_caught_up": 0,
     "symbols_pending": 4063,
     "fact_start": "2022-01-03",
@@ -553,10 +386,10 @@
     "execution_authority": "none",
     "operational_price_mutation": false,
     "attempted_this_run": 50,
-    "completed_this_run": 39,
-    "empty_this_run": 11,
+    "completed_this_run": 45,
+    "empty_this_run": 5,
     "failed_this_run": 0,
-    "through": "2026-09-24",
-    "last_run": "2026-09-25T19:44:41.660144+00:00"
+    "through": "2026-09-25",
+    "last_run": "2026-09-26T00:14:59.091708+00:00"
   }
 }
