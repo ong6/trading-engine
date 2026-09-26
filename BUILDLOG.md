@@ -844,4 +844,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine/product +144, server/tools unchanged, tests +38; budget ok.
 - **Next:** persist rate-limited event decisions and both forward label bases.
 
+## 2026-09-26 — P15 W5: close event-source integrity gaps
+
+- **Why:** independent W5 review reproduced mutable-start, source-crash, future-session,
+  concurrent-append, malformed-segment, source-identity, and cross-session dedup defects.
+- **What:** add an immutable evidence start and atomic paged scan cursor; bind each event type to
+  its registered producer; retain future-session triggers and malformed RSS receipts; defer bytes
+  appended after open; and map every recovered fact against its point-in-time session universe.
+- **Evidence:** `./.venv/bin/python -m pytest -q -W error` reaches `[100%]` and exits 0.
+- **Metrics:** engine/product +182, tests +237; server, farm, sim, and tools unchanged; budget ok.
+- **Next:** persist rate-limited shadow decisions, latency, and both forward label bases.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
