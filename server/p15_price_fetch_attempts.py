@@ -13,6 +13,7 @@ from sim import nyse
 
 SOURCE = "yfinance"
 OPEN_LABEL_SOURCE = "yfinance_ticker_history_v1"
+OPEN_LABEL_MISSING_REASON = "not_found_no_data_symbol_may_be_delisted"
 HORIZONS = (1, 5, 10, 20)
 
 
@@ -36,8 +37,13 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         id BIGINT PRIMARY KEY, ticker VARCHAR NOT NULL, provider_ticker VARCHAR NOT NULL,
         market_date DATE NOT NULL, requested_at TIMESTAMP NOT NULL,
         completed_at TIMESTAMP NOT NULL, source VARCHAR NOT NULL, status VARCHAR NOT NULL,
+        outcome_reason VARCHAR,
         request_sha256 VARCHAR NOT NULL, response_sha256 VARCHAR NOT NULL,
         receipt_sha256 VARCHAR NOT NULL UNIQUE)"""
+    )
+    con.execute(
+        "ALTER TABLE p15_open_label_fetch_receipts ADD COLUMN IF NOT EXISTS "
+        "outcome_reason VARCHAR"
     )
 
 
@@ -154,13 +160,15 @@ def open_label_obligations(
 def record_open_label_receipt(
     con: duckdb.DuckDBPyConnection, *, ticker: str, provider_ticker: str,
     market_date: date, requested_at: datetime, completed_at: datetime,
-    status: str, request_sha256: str, response_sha256: str,
+    status: str, outcome_reason: str | None,
+    request_sha256: str, response_sha256: str,
 ) -> str:
     """Append one completed, exact-date, per-ticker fetch receipt."""
     if (
         requested_at.utcoffset() is None or completed_at.utcoffset() is None
         or completed_at < requested_at or not nyse.is_session(market_date)
         or status not in {"present", "missing"}
+        or (status == "missing") != (outcome_reason == OPEN_LABEL_MISSING_REASON)
         or any(
             not isinstance(value, str) or len(value) != 64
             for value in (request_sha256, response_sha256)
@@ -181,7 +189,8 @@ def record_open_label_receipt(
         "market_date": market_date.isoformat(),
         "requested_at": requested_at.astimezone(timezone.utc).isoformat(),
         "completed_at": completed.isoformat(), "source": OPEN_LABEL_SOURCE,
-        "status": status, "request_sha256": request_sha256,
+        "status": status, "outcome_reason": outcome_reason,
+        "request_sha256": request_sha256,
         "response_sha256": response_sha256,
     }
     receipt_sha = canonical_sha256(body)
@@ -189,10 +198,13 @@ def record_open_label_receipt(
         "SELECT COALESCE(MAX(id),0)+1 FROM p15_open_label_fetch_receipts"
     ).fetchone()[0])
     con.execute(
-        "INSERT INTO p15_open_label_fetch_receipts VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO p15_open_label_fetch_receipts "
+        "(id,ticker,provider_ticker,market_date,requested_at,completed_at,source,status,"
+        "outcome_reason,request_sha256,response_sha256,receipt_sha256) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         [next_id, ticker, provider_ticker, market_date,
          requested_at.astimezone(timezone.utc).replace(tzinfo=None),
-         completed.replace(tzinfo=None), OPEN_LABEL_SOURCE, status,
+         completed.replace(tzinfo=None), OPEN_LABEL_SOURCE, status, outcome_reason,
          request_sha256, response_sha256, receipt_sha],
     )
     return receipt_sha
@@ -323,17 +335,19 @@ def validate(con: duckdb.DuckDBPyConnection, error_type) -> None:
         return
     for row in con.execute(
         "SELECT ticker,provider_ticker,market_date,requested_at,completed_at,source,status,"
+        "outcome_reason,"
         "request_sha256,response_sha256,receipt_sha256 "
         "FROM p15_open_label_fetch_receipts ORDER BY id"
     ).fetchall():
         (ticker, provider_ticker, market_date, requested_at, completed_at, source, status,
-         request_sha, response_sha, receipt_sha) = row
+         outcome_reason, request_sha, response_sha, receipt_sha) = row
         body = {
             "ticker": ticker, "provider_ticker": provider_ticker,
             "market_date": market_date.isoformat(),
             "requested_at": requested_at.replace(tzinfo=timezone.utc).isoformat(),
             "completed_at": completed_at.replace(tzinfo=timezone.utc).isoformat(),
-            "source": source, "status": status, "request_sha256": request_sha,
+            "source": source, "status": status, "outcome_reason": outcome_reason,
+            "request_sha256": request_sha,
             "response_sha256": response_sha,
         }
         had_bar = con.execute(
@@ -343,6 +357,9 @@ def validate(con: duckdb.DuckDBPyConnection, error_type) -> None:
         ).fetchone() is not None
         if (
             source != OPEN_LABEL_SOURCE or status not in {"present", "missing"}
+            or (status == "missing") != (
+                outcome_reason == OPEN_LABEL_MISSING_REASON
+            )
             or requested_at > completed_at or had_bar != (status == "present")
             or canonical_sha256(body) != receipt_sha
         ):

@@ -229,6 +229,7 @@ def test_demoted_p15_ticker_keeps_exact_date_fetch_obligations_until_labeled(con
         p15_price_fetch_attempts.record_open_label_receipt(
             con, **obligation, requested_at=labeled_at - timedelta(minutes=1),
             completed_at=labeled_at, status="missing",
+            outcome_reason=p15_price_fetch_attempts.OPEN_LABEL_MISSING_REASON,
             request_sha256=canonical_sha256({"request": index}),
             response_sha256=canonical_sha256({"missing": index}),
         )
@@ -251,13 +252,33 @@ def test_exact_label_fetch_distinguishes_missing_from_ambiguous_empty():
     requested_at = datetime(2026, 9, 26, 1, tzinfo=timezone.utc)
 
     def missing(*_args):
-        raise p15_incremental_collect.YFPricesMissingError("AAA", "no prices")
+        raise p15_incremental_collect.YFPricesMissingError(
+            "AAA", "exact date", "Not Found, No data found, symbol may be delisted",
+        )
 
     receipt, frame = p15_incremental_collect._fetch_exact(
         obligation, requested_at=requested_at, history=missing,
         sleep=lambda _seconds: None,
     )
     assert receipt["status"] == "missing" and frame is None
+    assert receipt["outcome_reason"] == (
+        p15_price_fetch_attempts.OPEN_LABEL_MISSING_REASON
+    )
+
+    calls = 0
+
+    def server_error(*_args):
+        nonlocal calls
+        calls += 1
+        raise p15_incremental_collect.YFPricesMissingError(
+            "AAA", "exact date", "Internal Server Error",
+        )
+
+    assert p15_incremental_collect._fetch_exact(
+        obligation, requested_at=requested_at, history=server_error,
+        sleep=lambda _seconds: None,
+    ) == (None, None)
+    assert calls == 2
     assert p15_incremental_collect._fetch_exact(
         obligation, requested_at=requested_at,
         history=lambda *_args: pd.DataFrame(), sleep=lambda _seconds: None,

@@ -44,11 +44,21 @@ def _fetch_exact(
         try:
             raw = history(provider, market_date, market_date + timedelta(days=1))
         except YFPricesMissingError as exc:
+            normalized_reason = (exc.yahoo_reason or "").strip().casefold()
+            if normalized_reason not in {
+                "no data found, symbol may be delisted",
+                "not found, no data found, symbol may be delisted",
+            }:
+                if attempt == 0:
+                    sleep(2)
+                    continue
+                return None, None
             response_sha = canonical_sha256({
-                "result": "completed_missing", "error_type": type(exc).__name__,
-                "detail_sha256": canonical_sha256(str(exc)),
+                "result": "completed_missing",
+                "outcome_reason": p15_price_fetch_attempts.OPEN_LABEL_MISSING_REASON,
             })
             return ({**obligation, "status": "missing", "requested_at": requested_at,
+                     "outcome_reason": p15_price_fetch_attempts.OPEN_LABEL_MISSING_REASON,
                      "request_sha256": request_sha, "response_sha256": response_sha}, None)
         except Exception:  # noqa: BLE001 - one bounded retry, then no evidence
             if attempt == 0:
@@ -67,6 +77,7 @@ def _fetch_exact(
                     for row in exact.to_dict(orient="records")
                 ])
                 return ({**obligation, "status": "present", "requested_at": requested_at,
+                         "outcome_reason": None,
                          "request_sha256": request_sha,
                          "response_sha256": response_sha}, exact)
         if attempt == 0:
