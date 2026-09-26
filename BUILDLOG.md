@@ -867,4 +867,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm/product +805, server +32, tools +9, tests +527; other layers unchanged; budget ok.
 - **Next:** W6 coded gates, comparisons, status projection, and generated report.
 
+## 2026-09-26 — Exclude inactive names from scheduled fundamentals
+
+- **Why:** `GET /meta` reported fundamentals `issues` and failed Friday postflight; the three
+  failed tickers were all inactive but remained liquid, reproducing an incorrect default cohort.
+- **What:** require `active = TRUE` in the scheduled liquid-universe query while preserving the
+  explicitly requested ticker override. A mistaken Saturday retry was stopped after 50 durable
+  rows and marked failed; that partial snapshot is retained and cannot meet the 1,000-name gate.
+- **Evidence:** `./.venv/bin/python -m pytest -q -W error` reaches `[100%]` and exits 0; the focused
+  miner/postflight suite passes 63 tests. Live confirmation waits for the next Friday producer.
+- **Metrics:** engine/product +1, tests +15; server, farm, sim, and tools unchanged; budget ok.
+- **Next:** resume P15 W6 after the scheduled producer reports current evidence.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
