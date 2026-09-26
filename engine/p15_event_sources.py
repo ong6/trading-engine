@@ -6,15 +6,17 @@ import json
 import os
 import re
 import stat
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import duckdb
 
-from engine import bitemporal_facts
+from engine import bitemporal_facts, daily_opportunities
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
+from server import intraday_source
 from sim import nyse
 
 RSS_PATH = Path.home() / "news-scraper" / "data" / "news.jsonl"
@@ -23,6 +25,7 @@ RSS_VERSION = "news-jsonl-v1"
 MAX_READ_BYTES = 1_000_000
 MAX_HEADLINE_BYTES = 8_192
 MAX_TRIGGER_UNIVERSE = 300
+MAX_INTRADAY_WORKERS = 8
 ET = ZoneInfo("America/New_York")
 CASHTAG = re.compile(r"\$([A-Z][A-Z0-9.-]{0,15})(?![A-Z0-9.-])")
 
@@ -262,3 +265,122 @@ def create_text_triggers(
         created += changed is not None
         seen.add((ticker, source))
     return {"created": created, "examined": len(rows)}
+
+
+def _mover_universe(con) -> list[tuple[str, str, float, float, float]]:
+    selected = list(_universe_names(con)[0])
+    selected = list(dict.fromkeys(["SPY", *selected]))[:MAX_TRIGGER_UNIVERSE]
+    if not selected:
+        return []
+    rows = con.execute(
+        f"SELECT ticker,yf_ticker FROM universe WHERE ticker IN "
+        f"({','.join('?' for _ in selected)})", selected,
+    ).fetchall()
+    provider = {row[0]: row[1] for row in rows}
+    provider.setdefault("SPY", "SPY")
+    result = []
+    for ticker in selected:
+        daily = con.execute(
+            "SELECT date,close FROM prices WHERE ticker=? AND close>0 AND volume>0 "
+            "ORDER BY date DESC LIMIT 1", [ticker],
+        ).fetchone()
+        volumes = con.execute(
+            "SELECT volume FROM prices WHERE ticker=? AND date<=? AND volume>0 "
+            "ORDER BY date DESC LIMIT 20", [ticker, daily[0] if daily else date.min],
+        ).fetchall()
+        atr = None if daily is None else daily_opportunities._p15_atr(
+            con, ticker, daily[0]
+        )
+        if daily is None or atr is None or not volumes or not provider.get(ticker):
+            continue
+        ordered = sorted(float(row[0]) for row in volumes)
+        middle = len(ordered) // 2
+        median_volume = (ordered[middle] if len(ordered) % 2
+                         else (ordered[middle - 1] + ordered[middle]) / 2)
+        result.append((ticker, provider[ticker], float(daily[1]), median_volume, atr))
+    return result
+
+
+def scan_intraday(
+    con: duckdb.DuckDBPyConnection, *, observed_at: datetime,
+    capture=intraday_source.capture, workers: int = MAX_INTRADAY_WORKERS,
+) -> dict:
+    """Capture the bounded universe and retain threshold-crossing mover triggers."""
+    if type(observed_at) is not datetime or observed_at.utcoffset() is None:
+        raise EventSourceError("intraday scan timestamp is invalid")
+    init_schema(con)
+    local = observed_at.astimezone(ET)
+    if (not nyse.is_session(local.date())
+            or not time(9, 30) <= local.timetz().replace(tzinfo=None) < time(16)):
+        raise EventSourceError("intraday scan is outside the regular session")
+    universe = _mover_universe(con)
+    captures, failures = [], []
+    with ThreadPoolExecutor(max_workers=max(1, min(workers, MAX_INTRADAY_WORKERS))) as pool:
+        futures = {pool.submit(capture, ticker, provider, observed_at): ticker
+                   for ticker, provider, _close, _volume, _atr in universe}
+        for future in as_completed(futures):
+            try:
+                captures.append(future.result())
+            except (intraday_source.IntradaySourceError, OSError, ValueError) as exc:
+                failures.append({"ticker": futures[future], "reason": str(exc)[:200]})
+    inputs = {row[0]: row[2:] for row in universe}
+    created, retained = 0, 0
+    elapsed = max(1.0, (local.hour * 60 + local.minute) - (9 * 60 + 30)) / 390
+    for capture_result in sorted(captures, key=lambda item: item["quotes"][0]["ticker"]):
+        response = capture_result["response"]
+        ingested_at = max(observed_at.astimezone(timezone.utc),
+                          response.received_at.astimezone(timezone.utc))
+        stored = bitemporal_facts.record_intraday_quote_batch(
+            con, source="yfinance", endpoint=capture_result["endpoint"],
+            request=capture_result["request"], requested_at=response.requested_at,
+            received_at=response.received_at, content_type=response.content_type,
+            body=response.body, quotes=capture_result["quotes"],
+            interval=intraday_source.INTERVAL, source_version=intraday_source.source_version(),
+            license_class="provider-terms-research", ingested_at=ingested_at,
+        )
+        retained += len(capture_result["quotes"])
+        ticker = capture_result["quotes"][0]["ticker"]
+        prior_close, median_volume, atr = inputs[ticker]
+        current = [item for item in capture_result["quotes"]
+                   if item["event_at"].astimezone(ET).date() == local.date()
+                   and item["event_at"] <= observed_at]
+        if not current:
+            continue
+        latest = max(current, key=lambda item: item["event_at"])
+        session_return = float(latest["close"]) / prior_close - 1
+        relative_volume = sum(float(item["volume"]) for item in current) / (median_volume * elapsed)
+        threshold = max(0.04, 2 * float(atr) / prior_close)
+        if ticker == "SPY" or abs(session_return) < threshold or relative_volume < 2:
+            continue
+        payload = {"ticker": ticker, "event_type": "intraday_mover",
+                   "session_return": session_return, "relative_volume": relative_volume,
+                   "threshold": threshold, "source_fact_sha256": stored["fact_sha256s"][-1]}
+        fact = bitemporal_facts.record_fact(
+            con, entity_id=ticker, security_id=ticker, fact_type="p15.event.intraday_mover",
+            event_at=latest["event_at"], published_at=None,
+            available_at=response.received_at, ingested_at=ingested_at,
+            payload=payload, source="yfinance", source_version=intraday_source.source_version(),
+            receipt_sha256=stored["receipt_sha256"],
+        )
+        identity = {"session_date": local.date().isoformat(), "ticker": ticker,
+                    "source": "intraday_mover", "event_type": "intraday_mover",
+                    "fact_sha256": fact["fact_sha256"],
+                    "triggered_at": ingested_at.isoformat()}
+        prior = con.execute(
+            "SELECT 1 FROM p15_event_triggers WHERE session_date=? AND ticker=? "
+            "AND source='intraday_mover'", [local.date(), ticker],
+        ).fetchone()
+        if prior is None:
+            trigger_id = int(con.execute(
+                "SELECT COALESCE(MAX(id),0)+1 FROM p15_event_triggers"
+            ).fetchone()[0])
+            con.execute(
+                "INSERT INTO p15_event_triggers VALUES (?,?,?,?,?,?,?,?,?,'pending',NULL,?)",
+                [trigger_id, local.date(), ticker, "intraday_mover", "intraday_mover",
+                 latest["event_at"], response.received_at, ingested_at.replace(tzinfo=None),
+                 fact["fact_sha256"], canonical_sha256(identity)],
+            )
+            created += 1
+    return {"status": "complete" if not failures else "partial",
+            "universe": len(universe), "captured": len(captures),
+            "facts": retained, "triggers": created, "failures": failures}
