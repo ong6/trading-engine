@@ -15,6 +15,7 @@ import duckdb
 import numpy as np
 
 from engine.lib import settings
+from engine.lib.db import REAL_BAR_SQL
 from engine.lib.log import get_logger
 
 log = get_logger("gate")
@@ -239,13 +240,20 @@ def rsi_wilder(closes: np.ndarray, period: int = 2) -> float | None:
     return 100.0 - 100.0 / (1.0 + rs)
 
 
-def atr_wilder(con, ticker: str, as_of: date, period: int = 20) -> float | None:
+def atr_wilder(
+    con, ticker: str, as_of: date, period: int = 20, cutoff_at=None,
+) -> float | None:
     """Wilder-smoothed ATR at as_of. None if fewer than period+1 bars, or if any
     high/low/close in the window is NULL (never patch a missing bar)."""
+    cutoff_clause = ""
+    params = [ticker, as_of]
+    if cutoff_at is not None:
+        cutoff_clause = "AND fetched_at IS NOT NULL AND fetched_at<=? "
+        params.append(cutoff_at)
     rows = con.execute(
         "SELECT high, low, close FROM prices WHERE ticker = ? AND date <= ? "
-        "ORDER BY date DESC LIMIT ?",
-        [ticker, as_of, period * 3 + 1],
+        f"AND {REAL_BAR_SQL} {cutoff_clause}ORDER BY date DESC LIMIT ?",
+        [*params, period * 3 + 1],
     ).fetchall()
     if len(rows) < period + 1:
         return None
