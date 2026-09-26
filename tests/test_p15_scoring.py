@@ -6,10 +6,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from engine.daily_opportunities import OpportunityError, p15_universe
+from engine.daily_opportunities import OpportunityError, _p15_atr, p15_universe
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from server import agent_evaluation, agent_model_client, p15_scoring_runner
+from tests.conftest import SESSIONS, insert_bars
 from tests.test_daily_opportunities import MARKET_DATE, _database, _news_response
 
 P15_NOW = datetime(2026, 9, 22, 2, 30, tzinfo=timezone.utc)
@@ -32,6 +33,30 @@ def _p15_database(path):
     )
     con.execute("INSERT INTO sim_equity VALUES ('control',?,100,100,0)", [MARKET_DATE])
     con.close()
+
+
+def test_p15_atr_ignores_non_real_and_post_cutoff_rows(con):
+    dates = SESSIONS[:18]
+    cutoff = datetime(2024, 6, 27, 12, tzinfo=timezone.utc)
+    insert_bars(
+        con, "ATR", dates, open_=100, close=100, high=101, low=99,
+    )
+    con.execute(
+        "UPDATE prices SET fetched_at=? WHERE ticker='ATR'",
+        [(cutoff - timedelta(minutes=1)).replace(tzinfo=None)],
+    )
+    con.execute(
+        "UPDATE prices SET open=50,high=150,low=50,close=100,fetched_at=? "
+        "WHERE ticker='ATR' AND date=?",
+        [(cutoff + timedelta(minutes=1)).replace(tzinfo=None), dates[-2]],
+    )
+    con.execute(
+        "UPDATE prices SET open=100,high=100,low=100,close=100,volume=0 "
+        "WHERE ticker='ATR' AND date=?",
+        [dates[-1]],
+    )
+
+    assert _p15_atr(con, "ATR", dates[-1], cutoff) == pytest.approx(2.0)
 
 
 def test_p15_universe_keeps_p8_frozen_and_assigns_deterministic_strata(tmp_path):

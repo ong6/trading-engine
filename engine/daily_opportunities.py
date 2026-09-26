@@ -14,6 +14,7 @@ from engine.lib.data_quality import active_quarantines
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
+from sim.strategies.base import atr_wilder
 
 SCHEMA_VERSION = 1
 MAX_CANDIDATES = 5
@@ -32,27 +33,10 @@ class OpportunityError(ValueError):
 
 
 def _p15_atr(con, ticker: str, market_date: date, cutoff_at=None) -> float | None:
-    params = [ticker, market_date]
-    cutoff = ""
-    if cutoff_at is not None:
-        cutoff = "AND fetched_at IS NOT NULL AND fetched_at<=? "
-        params.append(cutoff_at)
-    rows = con.execute(
-        "SELECT high,low,close FROM prices WHERE ticker=? AND date<=? "
-        f"{cutoff}ORDER BY date DESC LIMIT ?", [*params, P15_ATR_PERIOD * 3 + 1],
-    ).fetchall()
-    if len(rows) < P15_ATR_PERIOD + 1 or any(
-        value is None for row in rows for value in row
-    ):
-        return None
-    bars = list(reversed(rows))
-    ranges = [max(high - low, abs(high - bars[index - 1][2]),
-                  abs(low - bars[index - 1][2]))
-              for index, (high, low, _close) in enumerate(bars[1:], 1)]
-    atr = sum(ranges[:P15_ATR_PERIOD]) / P15_ATR_PERIOD
-    for value in ranges[P15_ATR_PERIOD:]:
-        atr = (atr * (P15_ATR_PERIOD - 1) + value) / P15_ATR_PERIOD
-    return _finite(atr, "ATR(14)")
+    atr = atr_wilder(
+        con, ticker, market_date, period=P15_ATR_PERIOD, cutoff_at=cutoff_at,
+    )
+    return None if atr is None else _finite(atr, "ATR(14)")
 
 
 def _finite(value: object, field: str) -> float:
