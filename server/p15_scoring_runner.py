@@ -361,8 +361,8 @@ def _in_admissible_window(market_date: date, started: datetime) -> bool:
 def _fail_outside_window(
     database: Path, *, market_date: date, bundle: dict | None,
     existing: dict | None, started: datetime,
+    reason: str = "outside_admissible_window",
 ) -> dict:
-    reason = "outside_admissible_window"
     con = db.connect(database, wait_s=DB_WAIT_S)
     try:
         with db.transaction(con):
@@ -402,8 +402,6 @@ def _run(
 ) -> dict:
     started = (now or clock()).astimezone(timezone.utc)
     deadline = datetime.combine(started.date(), DEADLINE_UTC)
-    if started >= deadline:
-        raise ScoringError("P15 scoring cannot start at or after 12:00 UTC")
     con = db.connect(database, read_only=True, wait_s=DB_WAIT_S)
     try:
         market_date = db.latest_operational_market_date(con)
@@ -427,6 +425,12 @@ def _run(
         return {"status": "failed", "market_date": market_date.isoformat(),
                 "reason": existing["reason"], "replayed": True,
                 "model_call_count": 0}
+    if started >= deadline:
+        return _fail_outside_window(
+            database, market_date=market_date,
+            bundle=bundle if existing is None else None,
+            existing=existing, started=started, reason="deadline_start_refusal",
+        )
     if not _in_admissible_window(market_date, started):
         return _fail_outside_window(
             database, market_date=market_date,
@@ -632,6 +636,36 @@ def _run(
                                      for item in aggregates), "replayed": False}
 
 
+def _run_with_books(
+    *, database: Path = DEFAULT_DB, now: datetime | None = None,
+    generate: Callable[[dict], agent_model_client.ConnectorResult]
+    = agent_model_client.generate_p15_scoring_json,
+    fetch_news=daily_opportunity_news._fetch,
+    clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+) -> dict:
+    result = _run(
+        database=database, now=now, generate=generate,
+        fetch_news=fetch_news, clock=clock,
+    )
+    if "market_date" in result:
+        con = db.connect(database, wait_s=DB_WAIT_S)
+        try:
+            books = p15_books.run_window(
+                con, date.fromisoformat(result["market_date"]), observed_at=clock()
+            )
+            post_open = None
+            if books["status"] == "completed":
+                with db.transaction(con):
+                    post_open = p15_preopen.capture_after_open(
+                        con, date.fromisoformat(result["market_date"]),
+                        captured_at=clock(),
+                    )
+            result = {**result, "books": books, "preopen_evidence": post_open}
+        finally:
+            con.close()
+    return result
+
+
 def run(
     *, database: Path = DEFAULT_DB, now: datetime | None = None,
     generate: Callable[[dict], agent_model_client.ConnectorResult]
@@ -640,27 +674,10 @@ def run(
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> dict:
     with advisory_file_lock(LOCK_PATH), advisory_file_lock(NIGHTLY_LOCK):
-        result = _run(
+        return _run_with_books(
             database=database, now=now, generate=generate,
             fetch_news=fetch_news, clock=clock,
         )
-        if "market_date" in result:
-            con = db.connect(database, wait_s=DB_WAIT_S)
-            try:
-                books = p15_books.run_window(
-                    con, date.fromisoformat(result["market_date"]), observed_at=clock()
-                )
-                post_open = None
-                if books["status"] == "completed":
-                    with db.transaction(con):
-                        post_open = p15_preopen.capture_after_open(
-                            con, date.fromisoformat(result["market_date"]),
-                            captured_at=clock(),
-                        )
-                result = {**result, "books": books, "preopen_evidence": post_open}
-            finally:
-                con.close()
-        return result
 
 
 def dry_run(
@@ -696,7 +713,7 @@ def dry_run(
                 p15_books.activate_books(con, checkpoint)
         finally:
             con.close()
-        result = run(
+        result = _run_with_books(
             database=copied, now=now, generate=generate,
             fetch_news=fetch_news, clock=clock,
         )

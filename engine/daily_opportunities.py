@@ -44,7 +44,7 @@ def _p15_atr(con, ticker: str, market_date: date, cutoff_at=None) -> float | Non
         f"AND {REAL_BAR_SQL} {cutoff_clause}ORDER BY date DESC LIMIT ?",
         [*params, P15_ATR_PERIOD * 3 + 1],
     ).fetchall()
-    scratch = engine_db.connect(":memory:")
+    scratch = engine_db.connect(":memory:", wait_s=60.0)
     try:
         scratch.execute(
             "CREATE TABLE prices (ticker VARCHAR,date DATE,high DOUBLE,low DOUBLE,close DOUBLE)"
