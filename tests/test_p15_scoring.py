@@ -25,6 +25,12 @@ def _p15_database(path):
         [("FAST", MARKET_DATE, "ok", 1, "test", captured),
          ("QUIET", MARKET_DATE, "empty", 0, "test", captured)],
     )
+    con.execute(
+        "INSERT INTO portfolios (id,name,strategy,config,created,active,cash,initial_cash,"
+        "execution_profile) VALUES ('control','control','noop','{}',?,TRUE,100,100,'baseline_v1')",
+        [MARKET_DATE],
+    )
+    con.execute("INSERT INTO sim_equity VALUES ('control',?,100,100,0)", [MARKET_DATE])
     con.close()
 
 
@@ -272,7 +278,8 @@ def test_p15_scoring_runner_retains_three_samples_and_replays_without_calls(tmp_
     assert first["candidate_count"] == 2 and first["model_call_count"] == 3
     assert first["unavailable_count"] == 0 and first["replayed"] is False
     assert first["books"] == {"status": "inactive", "filled": 0, "rejected": 0,
-                              "pending": 0, "queued": 0}
+                              "pending": 0, "restored": 0, "queued": 0,
+                              "counterfactual_labels": 0}
     assert second["replayed"] is True and second["model_call_count"] == 0
     assert len(calls) == 3
     assert all(sorted(item["ticker"] for item in call["candidates"]) == ["FAST", "QUIET"]
@@ -366,6 +373,8 @@ def test_p15_scoring_dry_run_uses_copy_and_leaves_source_unchanged(tmp_path):
     )
 
     assert result["dry_run"] is True and result["candidate_count"] == 2
+    assert result["books"]["status"] == "completed"
+    assert result["books"]["queued"] == 9
     assert database.read_bytes() == before
     con = db.connect(database, read_only=True)
     try:
@@ -412,6 +421,28 @@ def test_p15_scoring_dry_run_rejects_late_start_before_copy(tmp_path):
         )
 
     assert copied == []
+
+
+def test_p15_runner_advances_book_safety_on_failed_scoring(tmp_path, monkeypatch):
+    database = tmp_path / "market.duckdb"
+    _p15_database(database)
+    monkeypatch.setattr(p15_scoring_runner, "LOCK_PATH", tmp_path / "p15.lock")
+    monkeypatch.setattr(p15_scoring_runner, "NIGHTLY_LOCK", tmp_path / "nightly.lock")
+    calls = []
+    monkeypatch.setattr(p15_scoring_runner, "_run", lambda **_kwargs: {
+        "status": "failed", "market_date": MARKET_DATE.isoformat(),
+        "reason": "model unavailable", "model_call_count": 3,
+        "replayed": False,
+    })
+    monkeypatch.setattr(p15_scoring_runner.p15_books, "run_window", lambda *_args, **kwargs: (
+        calls.append(kwargs) or {"status": "completed", "queued": 0}
+    ))
+
+    result = p15_scoring_runner.run(database=database, now=P15_NOW, clock=lambda: P15_NOW)
+
+    assert result["status"] == "failed"
+    assert result["books"] == {"status": "completed", "queued": 0}
+    assert calls == [{"observed_at": P15_NOW}]
 
 
 def test_p15_scoring_discards_complete_samples_if_finalization_crosses_noon(tmp_path):

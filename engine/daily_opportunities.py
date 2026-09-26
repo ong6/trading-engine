@@ -24,10 +24,35 @@ MAX_ABS_DAILY_RETURN = 0.80
 P15_MIN_MEDIAN_DOLLAR_VOLUME = 20_000_000.0
 P15_MOVER_LIMIT = 40
 P15_TREND_LIMIT = 20
+P15_ATR_PERIOD = 14
 
 
 class OpportunityError(ValueError):
     """The point-in-time opportunity input is incomplete or invalid."""
+
+
+def _p15_atr(con, ticker: str, market_date: date, cutoff_at=None) -> float | None:
+    params = [ticker, market_date]
+    cutoff = ""
+    if cutoff_at is not None:
+        cutoff = "AND fetched_at IS NOT NULL AND fetched_at<=? "
+        params.append(cutoff_at)
+    rows = con.execute(
+        "SELECT high,low,close FROM prices WHERE ticker=? AND date<=? "
+        f"{cutoff}ORDER BY date DESC LIMIT ?", [*params, P15_ATR_PERIOD * 3 + 1],
+    ).fetchall()
+    if len(rows) < P15_ATR_PERIOD + 1 or any(
+        value is None for row in rows for value in row
+    ):
+        return None
+    bars = list(reversed(rows))
+    ranges = [max(high - low, abs(high - bars[index - 1][2]),
+                  abs(low - bars[index - 1][2]))
+              for index, (high, low, _close) in enumerate(bars[1:], 1)]
+    atr = sum(ranges[:P15_ATR_PERIOD]) / P15_ATR_PERIOD
+    for value in ranges[P15_ATR_PERIOD:]:
+        atr = (atr * (P15_ATR_PERIOD - 1) + value) / P15_ATR_PERIOD
+    return _finite(atr, "ATR(14)")
 
 
 def _finite(value: object, field: str) -> float:
@@ -349,6 +374,9 @@ def p15_universe(
             "return_5d": return_5d,
             "relative_volume_20d": relative_volume,
             "median_dollar_volume_20d": float(median_dollar_volume),
+            "atr_14": _p15_atr(
+                con, ticker, market_date, information_cutoff_at
+            ),
             "rs_rank": rs_rank,
             "template_score": template_score,
             "passes_template": bool(passes),
@@ -370,7 +398,7 @@ def p15_universe(
         candidates.append({
             "ticker": ticker, "market_date": market_date.isoformat(), "close": None,
             "daily_return": None, "overnight_gap": None, "return_5d": None,
-            "relative_volume_20d": None, "median_dollar_volume_20d": None,
+            "relative_volume_20d": None, "median_dollar_volume_20d": None, "atr_14": None,
             "rs_rank": None, "template_score": None, "passes_template": False,
             "new_screen_pass": False,
             "earnings": {"status": "unavailable", "next_date": None,
