@@ -879,4 +879,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine/product +1, tests +15; server, farm, sim, and tools unchanged; budget ok.
 - **Next:** resume P15 W6 after the scheduled producer reports current evidence.
 
+## 2026-09-26 — P15 W6: code profitability gates
+
+- **Why:** approved P15 W6 requires the primary rank test, comparator-book test, P8 review rule,
+  pre-open and event scoring, and a visible count of every evaluated policy version.
+- **What:** add average-tie IC, fixed 60/90/120 looks with lag-4 Newey-West bounds, forecast
+  diagnostics, look-frozen book comparisons, cancellation and event metrics, the exact non-gating
+  P8 review rule, and a bounded full-identity trial register. All outputs remain read-only.
+- **Evidence:** `./.venv/bin/python -m pytest -q -W error` reaches `[100%]` and exits 0.
+- **Metrics:** engine/product +673, tools +102, tests +357; other layers unchanged; budget ok.
+- **Next:** integrate one validated projection into status and the nightly Markdown report.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
