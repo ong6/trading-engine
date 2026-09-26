@@ -19,7 +19,24 @@ LOOKS = (60, 90, 120)
 ALPHA = 0.05 / 3
 NW_LAG = 4
 MISSING_LABEL_GRACE_SESSIONS = 3
+PRIMARY_HH_LAG = 4
+PRIMARY_FALLBACK_LAG = 8
+PRIMARY_T_CRITICAL = {
+    60: 2.17905062724369,
+    90: 2.1615970755415894,
+    120: 2.1530427955026177,
+}
 P15EvaluationError = ValueError
+
+
+def _primary_variance_inflation(n: int, *, fallback: bool) -> float:
+    """Analytic finite-sample correction for the registered MA(4) null."""
+    overlap_bias = (
+        37 / 45 - 457 / (45 * n) + 2272 / (75 * n**2) + 128 / (3 * n**3)
+        if fallback else
+        1 - 53 / (5 * n) + 24 / n**2 + 32 / n**3
+    )
+    return n / (n - 1) / overlap_bias
 
 
 def _mean(values: list[float]) -> float | None:
@@ -82,6 +99,67 @@ def _interval(values: list[float], *, alpha: float = ALPHA, lag: int = NW_LAG) -
     result = newey_west(values, lag)
     critical = NormalDist().inv_cdf(1 - alpha)
     result.update(alpha=alpha, lower=None, upper=None)
+    if result["mean"] is not None and result["se"] is not None:
+        result["lower"] = result["mean"] - critical * result["se"]
+        result["upper"] = result["mean"] + critical * result["se"]
+    return result
+
+
+def _primary_standard_error(values: list[float]) -> dict:
+    """Hansen-Hodrick lag-4 SE, with the registered nonpositive fallback."""
+    xs = [float(value) for value in values if math.isfinite(float(value))]
+    mean = _mean(xs)
+    base = {
+        "n": len(xs), "mean": mean, "se": None, "t": None,
+        "raw_long_run_variance": None, "long_run_variance": None,
+        "variance_inflation": None,
+        "variance_estimator": "hansen_hodrick",
+        "kernel": "uniform", "lag": min(PRIMARY_HH_LAG, max(0, len(xs) - 1)),
+        "fallback_used": False,
+    }
+    if len(xs) < 3:
+        return base
+    centered = [value - mean for value in xs]
+    n = len(xs)
+
+    def covariance(offset: int) -> float:
+        return sum(
+            centered[index] * centered[index - offset]
+            for index in range(offset, n)
+        ) / n
+
+    lag = min(PRIMARY_HH_LAG, n - 1)
+    lrv = covariance(0) + 2 * sum(covariance(offset) for offset in range(1, lag + 1))
+    if lrv <= 0:
+        lag = min(PRIMARY_FALLBACK_LAG, n - 1)
+        lrv = covariance(0) + 2 * sum(
+            (1 - offset / (lag + 1)) * covariance(offset)
+            for offset in range(1, lag + 1)
+        )
+        base.update(
+            variance_estimator="newey_west", kernel="bartlett", lag=lag,
+            fallback_used=True,
+        )
+    base["raw_long_run_variance"] = lrv
+    inflation = _primary_variance_inflation(n, fallback=base["fallback_used"])
+    base["variance_inflation"] = inflation
+    lrv *= inflation
+    base["long_run_variance"] = lrv
+    if lrv > 0:
+        base["se"] = math.sqrt(lrv / n)
+        base["t"] = mean / base["se"]
+    return base
+
+
+def _primary_interval(values: list[float], *, alpha: float = ALPHA) -> dict:
+    result = _primary_standard_error(values)
+    critical = PRIMARY_T_CRITICAL.get(result["n"])
+    if critical is None:
+        raise P15EvaluationError("P15 primary interval is outside a registered look")
+    result.update(
+        alpha=alpha, df=result["n"] - 1, critical_value=critical,
+        lower=None, upper=None,
+    )
     if result["mean"] is not None and result["se"] is not None:
         result["lower"] = result["mean"] - critical * result["se"]
         result["upper"] = result["mean"] + critical * result["se"]
@@ -261,7 +339,7 @@ def _diagnostics(rows: list[tuple]) -> dict:
 
 def _look(scored: list[dict], size: int) -> dict:
     prefix = scored[:size]
-    interval = _interval([row["delta_ic"] for row in prefix])
+    interval = _primary_interval([row["delta_ic"] for row in prefix])
     mean_model = _mean([row["model_ic"] for row in prefix])
     status = "continue"
     if interval["lower"] is not None and interval["lower"] > 0 and mean_model > 0:
