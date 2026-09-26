@@ -492,6 +492,36 @@ def _missing_next_bar(con, ticker: str, decision_at: datetime, labeled_at: datet
     return entry_at, price, outcome
 
 
+def _missing_next_bar_ready(
+    con: duckdb.DuckDBPyConnection, ticker: str,
+    decision_at: datetime, labeled_at: datetime,
+) -> bool:
+    cutoff = labeled_at.astimezone(timezone.utc).replace(tzinfo=None)
+    decision_day = decision_at.replace(tzinfo=timezone.utc).astimezone(
+        p15_event_sources.ET
+    ).date()
+    labeled_day = labeled_at.astimezone(p15_event_sources.ET).date()
+    later_sessions = int(con.execute(
+        f"SELECT COUNT(DISTINCT date) FROM prices WHERE ticker='SPY' AND date>? AND date<=? "
+        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL}",
+        [decision_day, labeled_day, cutoff],
+    ).fetchone()[0])
+    if later_sessions < agent_evaluation.MISSING_BAR_GRACE_SESSIONS:
+        return False
+    later_intraday = table_exists(con, "bitemporal_facts") and con.execute(
+        "SELECT 1 FROM bitemporal_facts WHERE security_id=? "
+        "AND fact_type='intraday.ohlcv.5m' AND event_at>? "
+        "AND available_at<=? AND ingested_at<=? LIMIT 1",
+        [ticker, decision_at, cutoff, cutoff],
+    ).fetchone() is not None
+    attempted = table_exists(con, "price_fetch_attempts") and con.execute(
+        "SELECT 1 FROM price_fetch_attempts WHERE ticker=? AND market_date=? "
+        "AND attempted_at<=? AND status IN ('present','missing') LIMIT 1",
+        [ticker, decision_day, cutoff],
+    ).fetchone() is not None
+    return later_intraday or attempted
+
+
 def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> int:
     """Append next-bar and next-session labels without changing prior outcomes."""
     latest = con.execute("SELECT MAX(date) FROM prices WHERE ticker='SPY'").fetchone()[0]
@@ -539,8 +569,11 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> int
             and labeled_local.timetz().replace(tzinfo=None)
             >= p15_event_sources.session_close(decision_day)
         ))
-        missing_next_bar = None if intraday is not None or not session_closed else _missing_next_bar(
-            con, ticker, decision_at, labeled_at
+        missing_next_bar = (
+            _missing_next_bar(con, ticker, decision_at, labeled_at)
+            if intraday is None and session_closed and _missing_next_bar_ready(
+                con, ticker, decision_at, labeled_at
+            ) else None
         )
         for horizon in HORIZONS:
             if len(sessions) >= horizon:

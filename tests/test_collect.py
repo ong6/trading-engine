@@ -9,7 +9,7 @@ import pandas as pd
 
 from engine import collect
 from engine.lib import db
-from server import p15_price_fetch_attempts
+from server import p15_incremental_collect, p15_price_fetch_attempts
 
 
 def _raw_frame(day: str = "2026-09-08", *, volume: int = 1_000_000) -> pd.DataFrame:
@@ -98,6 +98,7 @@ def test_incremental_records_append_only_price_fetch_attempts(monkeypatch, tmp_p
     with db.transaction(con):
         p15_price_fetch_attempts.record(
             con, market_date=market_date, attempted_at=first_attempt,
+            requested_count=2, failed_count=0,
         )
     con.close()
     assert collect.mode_incremental(db_path, force=True) == (2, 1)
@@ -106,6 +107,7 @@ def test_incremental_records_append_only_price_fetch_attempts(monkeypatch, tmp_p
         p15_price_fetch_attempts.record(
             con, market_date=market_date,
             attempted_at=first_attempt + timedelta(minutes=1),
+            requested_count=2, failed_count=0,
         )
     con.close()
 
@@ -118,6 +120,38 @@ def test_incremental_records_append_only_price_fetch_attempts(monkeypatch, tmp_p
         ("AAA", market_date, "present"), ("BBB", market_date, "missing"),
     ]
     assert _read(db_path, "SELECT COUNT(*) FROM prices WHERE ticker='BBB'") == [(0,)]
+
+
+def test_p15_incremental_wrapper_withholds_failed_or_misdated_attempts(monkeypatch, tmp_path):
+    db_path = tmp_path / "market.duckdb"
+    _setup_store(db_path, liquid=True)
+    market_date = date(2026, 9, 28)
+    con = db.connect(db_path)
+    con.execute(
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+        "VALUES ('AAA',?,100,101,99,100,1000)", [market_date],
+    )
+    con.close()
+    delayed = collect.datetime(2026, 9, 29, 1, tzinfo=collect.timezone.utc)
+
+    monkeypatch.setattr(
+        p15_incremental_collect.collect, "mode_incremental",
+        lambda *_args, **_kwargs: (1, 1),
+    )
+    withheld = p15_incremental_collect.run(db_path, now=delayed)
+    assert withheld["status"] == "withheld" and withheld["attempt_count"] == 0
+    assert _read(db_path, "SELECT COUNT(*) FROM price_fetch_attempts") == [(0,)]
+
+    monkeypatch.setattr(
+        p15_incremental_collect.collect, "mode_incremental",
+        lambda *_args, **_kwargs: (1, 0),
+    )
+    recorded = p15_incremental_collect.run(db_path, now=delayed)
+    assert recorded["status"] == "complete"
+    assert recorded["market_date"] == market_date.isoformat()
+    assert _read(
+        db_path, "SELECT market_date,status FROM price_fetch_attempts"
+    ) == [(market_date, "present")]
 
 
 def test_backfill_checkpoints_state_and_releases_db(monkeypatch, tmp_path):

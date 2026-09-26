@@ -1,17 +1,12 @@
 """Append exact-date EOD fetch outcomes used by P15 missing-bar labels."""
 from __future__ import annotations
 
-import argparse
-import json
 from datetime import date, datetime, timezone
-from pathlib import Path
 
 import duckdb
 
-from engine.lib import db
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
-from engine.lib.settings import DEFAULT_DB
 from sim import nyse
 
 SOURCE = "yfinance"
@@ -28,14 +23,21 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
 
 def record(
     con: duckdb.DuckDBPyConnection, *, market_date: date, attempted_at: datetime,
+    requested_count: int, failed_count: int,
 ) -> dict:
-    """Record the outcome after the nightly collector attempted every liquid ticker."""
+    """Record outcomes only after a complete all-liquid incremental collection."""
     if attempted_at.utcoffset() is None or not nyse.is_session(market_date):
         raise ValueError("price fetch attempt timestamp or market date is invalid")
     init_schema(con)
     tickers = [row[0] for row in con.execute(
         "SELECT ticker FROM universe WHERE liquid=TRUE ORDER BY ticker"
     ).fetchall()]
+    if failed_count or requested_count != len(tickers):
+        return {
+            "status": "withheld", "market_date": market_date.isoformat(),
+            "reason": "collection_incomplete", "attempt_count": 0,
+            "present_count": 0, "missing_count": 0,
+        }
     present = {row[0] for row in con.execute(
         f"SELECT ticker FROM prices WHERE date=? AND ticker IN "
         "(SELECT ticker FROM universe WHERE liquid=TRUE) "
@@ -66,30 +68,3 @@ def record(
         "attempt_count": len(rows), "present_count": len(present & set(tickers)),
         "missing_count": len(set(tickers) - present),
     }
-
-
-def run_database(
-    database: Path = DEFAULT_DB, *, now: datetime | None = None,
-) -> dict:
-    attempted = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    market_date = attempted.date()
-    if not nyse.is_session(market_date):
-        return {"status": "not_session", "market_date": market_date.isoformat()}
-    con = db.connect(database)
-    try:
-        with db.transaction(con):
-            return record(con, market_date=market_date, attempted_at=attempted)
-    finally:
-        con.close()
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--database", type=Path, default=DEFAULT_DB)
-    args = parser.parse_args(argv)
-    print(json.dumps(run_database(args.database), sort_keys=True))
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
