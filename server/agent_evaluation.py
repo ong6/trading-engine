@@ -552,7 +552,10 @@ def _label_outcome_when_ready(
         confirmed = int(con.execute(
             "SELECT COUNT(DISTINCT market_date) FROM price_fetch_attempts "
             f"WHERE ticker=? AND market_date IN ({placeholders}) "
-            "AND attempted_at<=? AND status IN ('present','missing')",
+            "AND attempted_at<=? AND status='missing' "
+            "AND EXISTS (SELECT 1 FROM p15_price_fetch_batches b "
+            "WHERE b.batch_sha256=price_fetch_attempts.batch_sha256 "
+            "AND b.failed_count=0 AND b.requested_count=b.present_count+b.missing_count)",
             [ticker, *missing_dates, cutoff],
         ).fetchone()[0])
         attempts_confirm = confirmed == len(missing_dates)

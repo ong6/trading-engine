@@ -107,7 +107,7 @@ def test_fixed_looks_use_immutable_prefixes_and_terminal_rules():
     assert status == "kill" and looks[-1]["look"] == 120 and next_look is None
 
 
-def test_reached_look_is_persisted_once_and_tamper_evident(con, monkeypatch):
+def test_reached_look_is_persisted_once_and_tamper_evident(con, monkeypatch, tmp_path):
     scored = [
         {"delta_ic": 0.2 + (index % 3) * 0.01,
          "model_ic": 0.3, "baseline_ic": 0.09, "pair_count": 40,
@@ -116,10 +116,11 @@ def test_reached_look_is_persisted_once_and_tamper_evident(con, monkeypatch):
         for index in range(60)
     ]
     registration_sha = "a" * 64
+    anchor_path = tmp_path / "look-anchors.jsonl"
     p15_evaluation.init_look_schema(con)
 
     first = p15_evaluation.persist_reached_looks(
-        con, scored, registration_sha, evaluated_at=NOW,
+        con, scored, registration_sha, evaluated_at=NOW, anchor_path=anchor_path,
     )
     retained = con.execute(
         "SELECT result_payload,look_sha256 FROM p15_evaluation_looks"
@@ -129,7 +130,7 @@ def test_reached_look_is_persisted_once_and_tamper_evident(con, monkeypatch):
         lambda *_args: (_ for _ in ()).throw(AssertionError("look recomputed")),
     )
     replay = p15_evaluation.persist_reached_looks(
-        con, scored, registration_sha, evaluated_at=NOW,
+        con, scored, registration_sha, evaluated_at=NOW, anchor_path=anchor_path,
     )
 
     assert first == replay
@@ -141,7 +142,9 @@ def test_reached_look_is_persisted_once_and_tamper_evident(con, monkeypatch):
 
     con.execute("UPDATE p15_evaluation_looks SET result_payload='{}'")
     with pytest.raises(p15_evaluation.P15EvaluationError, match="look evidence differs"):
-        p15_evaluation.load_retained_looks(con, scored, registration_sha)
+        p15_evaluation.load_retained_looks(
+            con, scored, registration_sha, anchor_path=anchor_path,
+        )
     con.execute(
         "UPDATE p15_evaluation_looks SET result_payload=?,look_sha256=?",
         list(retained),
@@ -150,6 +153,13 @@ def test_reached_look_is_persisted_once_and_tamper_evident(con, monkeypatch):
     with pytest.raises(p15_evaluation.P15EvaluationError, match="look evidence differs"):
         p15_evaluation.persist_reached_looks(
             con, scored, registration_sha, evaluated_at=NOW,
+            anchor_path=anchor_path,
+        )
+    con.execute("DELETE FROM p15_evaluation_look_anchors")
+    with pytest.raises(p15_evaluation.P15EvaluationError, match="look evidence differs"):
+        p15_evaluation.persist_reached_looks(
+            con, scored, registration_sha, evaluated_at=NOW,
+            anchor_path=anchor_path,
         )
 
 

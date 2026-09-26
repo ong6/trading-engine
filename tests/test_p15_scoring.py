@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
+import sys
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
@@ -504,6 +507,48 @@ def test_p15_scoring_uses_bounded_database_waits(tmp_path, monkeypatch):
     assert waits and all(wait == p15_scoring_runner.DB_WAIT_S for wait in waits)
 
 
+def test_p15_scoring_recovers_after_real_database_lock_contention(tmp_path, monkeypatch):
+    database = tmp_path / "market.duckdb"
+    _p15_database(database)
+    holder = subprocess.Popen(
+        [
+            sys.executable, "-c",
+            "import duckdb,sys; c=duckdb.connect(sys.argv[1]); "
+            "print('ready',flush=True); sys.stdin.readline(); c.close()",
+            str(database),
+        ],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        assert holder.stdout.readline().strip() == "ready"
+        monkeypatch.setattr(p15_scoring_runner, "DB_WAIT_S", 0.5)
+        monkeypatch.setattr(db, "_LOCK_RETRY_S", 0.05)
+        monkeypatch.setattr(db.settings, "lock_wait_s", lambda: 0.5)
+        release = threading.Timer(
+            0.1, lambda: (holder.stdin.write("\n"), holder.stdin.flush()),
+        )
+        release.start()
+        now = datetime(2026, 9, 22, 2, 30, tzinfo=timezone.utc)
+        result = p15_scoring_runner._run(
+            database=database, now=now, generate=_scoring_result,
+            fetch_news=_news_response, clock=lambda: now,
+        )
+        release.join()
+        assert result["status"] == "completed"
+        con = db.connect(database, read_only=True, wait_s=0)
+        try:
+            assert con.execute(
+                "SELECT COUNT(*) FROM p15_scoring_runs WHERE status='running'"
+            ).fetchone() == (0,)
+        finally:
+            con.close()
+    finally:
+        if holder.poll() is None:
+            holder.stdin.write("\n")
+            holder.stdin.flush()
+        holder.communicate(timeout=5)
+
+
 def test_p15_scoring_duckdb_failure_records_explicit_unavailable(tmp_path, monkeypatch):
     database = tmp_path / "market.duckdb"
     _p15_database(database)
@@ -620,15 +665,24 @@ def test_p15_dry_run_holds_production_lock_only_while_copying(tmp_path, monkeypa
     _p15_database(database)
     now = datetime(2026, 9, 22, 2, 30, tzinfo=timezone.utc)
     locks = []
+    active_locks = set()
 
     @contextmanager
     def observed_lock(path):
         locks.append(path)
-        yield
+        active_locks.add(path)
+        try:
+            yield
+        finally:
+            active_locks.remove(path)
+
+    def generate(payload):
+        assert active_locks == set()
+        return _scoring_result(payload)
 
     monkeypatch.setattr(p15_scoring_runner, "advisory_file_lock", observed_lock)
     result = p15_scoring_runner.dry_run(
-        database=database, now=now, generate=_scoring_result,
+        database=database, now=now, generate=generate,
         fetch_news=_news_response, clock=lambda: now,
         copier=lambda source, target: shutil.copy2(source, target),
     )

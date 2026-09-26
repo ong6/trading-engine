@@ -117,12 +117,20 @@ def test_incremental_records_append_only_price_fetch_attempts(monkeypatch, tmp_p
         "SELECT ticker,market_date,status FROM price_fetch_attempts "
         "ORDER BY id",
     ) == [
-        ("AAA", market_date, "present"), ("BBB", market_date, "missing"),
-        ("AAA", market_date, "present"), ("BBB", market_date, "missing"),
+        ("BBB", market_date, "missing"),
+        ("BBB", market_date, "missing"),
     ]
     assert _read(db_path, "SELECT COUNT(*) FROM prices WHERE ticker='BBB'") == [(0,)]
     con = db.connect(db_path)
     p15_price_fetch_attempts.validate(con, ValueError)
+    con.execute(
+        "INSERT INTO price_fetch_attempts VALUES "
+        "(99,'BBB',?,?, 'yfinance','missing',?,?)",
+        [market_date, first_attempt.replace(tzinfo=None), "f" * 64, "e" * 64],
+    )
+    with pytest.raises(ValueError, match="fetch attempt evidence differs"):
+        p15_price_fetch_attempts.validate(con, ValueError)
+    con.execute("DELETE FROM price_fetch_attempts WHERE id=99")
     con.execute("UPDATE price_fetch_attempts SET status='present' WHERE ticker='BBB'")
     with pytest.raises(ValueError, match="fetch attempt evidence differs"):
         p15_price_fetch_attempts.validate(con, ValueError)
@@ -163,9 +171,11 @@ def test_p15_incremental_wrapper_withholds_failed_or_misdated_attempts(monkeypat
     recorded = p15_incremental_collect.run(db_path, now=delayed)
     assert recorded["status"] == "complete"
     assert recorded["market_date"] == market_date.isoformat()
+    assert _read(db_path, "SELECT COUNT(*) FROM price_fetch_attempts") == [(0,)]
     assert _read(
-        db_path, "SELECT market_date,status FROM price_fetch_attempts"
-    ) == [(market_date, "present")]
+        db_path,
+        "SELECT market_date,present_count,missing_count FROM p15_price_fetch_batches",
+    ) == [(market_date, 1, 0)]
     assert metadata == [
         (db_path, "incremental", 1, 1),
         (db_path, "incremental", 1, 0),

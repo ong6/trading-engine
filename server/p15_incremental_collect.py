@@ -14,8 +14,8 @@ from . import p15_price_fetch_attempts
 
 
 def run(database: Path = DEFAULT_DB, *, now: datetime | None = None) -> dict:
-    attempted_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     requested, failed = collect.mode_incremental(database, force=False)
+    attempted_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     collect.write_meta(database, "incremental", requested, failed)
     if requested == 0:
         return {

@@ -17,13 +17,15 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         """CREATE TABLE IF NOT EXISTS p15_price_fetch_batches (
         id BIGINT PRIMARY KEY, market_date DATE NOT NULL, attempted_at TIMESTAMP NOT NULL,
         source VARCHAR NOT NULL, requested_count INTEGER NOT NULL,
-        failed_count INTEGER NOT NULL, batch_sha256 VARCHAR NOT NULL UNIQUE)"""
+        failed_count INTEGER NOT NULL, present_count INTEGER NOT NULL,
+        missing_count INTEGER NOT NULL, batch_sha256 VARCHAR NOT NULL UNIQUE)"""
     )
     con.execute(
         """CREATE TABLE IF NOT EXISTS price_fetch_attempts (
         id BIGINT PRIMARY KEY, ticker VARCHAR NOT NULL, market_date DATE NOT NULL,
         attempted_at TIMESTAMP NOT NULL, source VARCHAR NOT NULL, status VARCHAR NOT NULL,
-        batch_sha256 VARCHAR NOT NULL, attempt_sha256 VARCHAR NOT NULL UNIQUE)"""
+        batch_sha256 VARCHAR NOT NULL, attempt_sha256 VARCHAR NOT NULL UNIQUE,
+        UNIQUE(batch_sha256,ticker))"""
     )
 
 
@@ -54,23 +56,25 @@ def record(
         "SELECT COALESCE(MAX(id),0)+1 FROM price_fetch_attempts"
     ).fetchone()[0])
     attempted = attempted_at.astimezone(timezone.utc)
+    missing = sorted(set(tickers) - present)
     batch_identity = {
         "market_date": market_date.isoformat(), "attempted_at": attempted.isoformat(),
         "source": SOURCE, "requested_count": requested_count, "failed_count": failed_count,
-        "tickers": tickers,
+        "present_count": len(present & set(tickers)), "missing_count": len(missing),
+        "missing_tickers": missing,
     }
     batch_sha = canonical_sha256(batch_identity)
     batch_id = int(con.execute(
         "SELECT COALESCE(MAX(id),0)+1 FROM p15_price_fetch_batches"
     ).fetchone()[0])
     con.execute(
-        "INSERT INTO p15_price_fetch_batches VALUES (?,?,?,?,?,?,?)",
+        "INSERT INTO p15_price_fetch_batches VALUES (?,?,?,?,?,?,?,?,?)",
         [batch_id, market_date, attempted.replace(tzinfo=None), SOURCE,
-         requested_count, failed_count, batch_sha],
+         requested_count, failed_count, len(present & set(tickers)), len(missing), batch_sha],
     )
     rows = []
-    for offset, ticker in enumerate(tickers):
-        status = "present" if ticker in present else "missing"
+    for offset, ticker in enumerate(missing):
+        status = "missing"
         identity = {
             "ticker": ticker, "market_date": market_date.isoformat(),
             "attempted_at": attempted.isoformat(), "source": SOURCE, "status": status,
@@ -86,8 +90,8 @@ def record(
         )
     return {
         "status": "complete", "market_date": market_date.isoformat(),
-        "attempt_count": len(rows), "present_count": len(present & set(tickers)),
-        "missing_count": len(set(tickers) - present),
+        "attempt_count": requested_count, "present_count": len(present & set(tickers)),
+        "missing_count": len(missing),
     }
 
 
@@ -104,10 +108,12 @@ def validate(con: duckdb.DuckDBPyConnection, error_type) -> None:
     if not all(present):
         raise error_type("P15 price fetch attempt schema is incomplete")
     for batch in con.execute(
-        "SELECT market_date,attempted_at,source,requested_count,failed_count,batch_sha256 "
+        "SELECT market_date,attempted_at,source,requested_count,failed_count,"
+        "present_count,missing_count,batch_sha256 "
         "FROM p15_price_fetch_batches ORDER BY id"
     ).fetchall():
-        market_date, attempted_at, source, requested, failed, batch_sha = batch
+        (market_date, attempted_at, source, requested, failed,
+         present_count, missing_count, batch_sha) = batch
         attempts = con.execute(
             "SELECT ticker,status,attempt_sha256 FROM price_fetch_attempts "
             "WHERE batch_sha256=? ORDER BY ticker", [batch_sha],
@@ -116,10 +122,12 @@ def validate(con: duckdb.DuckDBPyConnection, error_type) -> None:
         batch_identity = {
             "market_date": market_date.isoformat(),
             "attempted_at": attempted_at.replace(tzinfo=timezone.utc).isoformat(),
-            "source": source, "requested_count": requested,
-            "failed_count": failed, "tickers": tickers,
+            "source": source, "requested_count": requested, "failed_count": failed,
+            "present_count": present_count, "missing_count": missing_count,
+            "missing_tickers": tickers,
         }
-        if failed != 0 or requested != len(attempts) \
+        if (failed != 0 or requested != present_count + missing_count
+                or missing_count != len(attempts) or len(tickers) != len(set(tickers))) \
                 or canonical_sha256(batch_identity) != batch_sha:
             raise error_type("P15 price fetch batch evidence differs")
         for ticker, status, attempt_sha in attempts:
@@ -128,11 +136,17 @@ def validate(con: duckdb.DuckDBPyConnection, error_type) -> None:
                 "attempted_at": attempted_at.replace(tzinfo=timezone.utc).isoformat(),
                 "source": source, "status": status, "batch_sha256": batch_sha,
             }
-            has_bar = con.execute(
+            had_bar = con.execute(
                 f"SELECT 1 FROM prices WHERE ticker=? AND date=? "
                 f"AND fetched_at<=? AND {REAL_BAR_SQL} LIMIT 1",
                 [ticker, market_date, attempted_at],
             ).fetchone() is not None
-            if status not in {"present", "missing"} or (status == "missing" and has_bar) \
+            if status != "missing" or had_bar \
                     or canonical_sha256(identity) != attempt_sha:
                 raise error_type("P15 price fetch attempt evidence differs")
+    orphans = int(con.execute(
+        "SELECT COUNT(*) FROM price_fetch_attempts a LEFT JOIN p15_price_fetch_batches b "
+        "ON b.batch_sha256=a.batch_sha256 WHERE b.batch_sha256 IS NULL"
+    ).fetchone()[0])
+    if orphans:
+        raise error_type("P15 price fetch attempt evidence differs")
