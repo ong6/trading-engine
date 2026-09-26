@@ -10,6 +10,7 @@ from datetime import date
 
 import duckdb
 
+from engine.lib import db as engine_db
 from engine.lib.data_quality import active_quarantines
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
@@ -43,7 +44,7 @@ def _p15_atr(con, ticker: str, market_date: date, cutoff_at=None) -> float | Non
         f"AND {REAL_BAR_SQL} {cutoff_clause}ORDER BY date DESC LIMIT ?",
         [*params, P15_ATR_PERIOD * 3 + 1],
     ).fetchall()
-    scratch = duckdb.connect()
+    scratch = engine_db.connect(":memory:")
     try:
         scratch.execute(
             "CREATE TABLE prices (ticker VARCHAR,date DATE,high DOUBLE,low DOUBLE,close DOUBLE)"

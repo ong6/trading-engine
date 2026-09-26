@@ -524,6 +524,7 @@ def test_missing_bar_requires_grace_and_later_ticker_bar(con):
 
 def test_missing_bar_fetch_attempt_confirms_after_grace(con):
     db.init_schema(con)
+    agent_evaluation.init_schema(con)
     sessions = [date(2026, 9, day) for day in (21, 22, 23, 24, 25)]
     later = [date(2026, 9, day) for day in (28, 29, 30)]
     labeled_at = datetime(2026, 10, 1, tzinfo=timezone.utc)
