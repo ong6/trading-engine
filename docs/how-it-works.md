@@ -1455,7 +1455,8 @@ with the standings response. The page visibly discloses either kind of truncatio
 ## Agent services (P8, P9, P11, P13, P14, P15)
 
 Six user-systemd timers currently run the AI agent and research-data capture alongside cron.
-Three additional P15 timers are registered in source but remain uninstalled and disabled until W8.
+Six P15 service/timer units are installed from source; the three P15 timers remain disabled and
+inactive until activation.
 Unit files live in `server/*.service` / `server/*.timer`; each service runs one bounded command,
 prints one JSON result line, and has only local-simulator authority or none.
 
@@ -1498,7 +1499,8 @@ looks, book comparison, P8 readiness, pre-open/event diagnostics, and bounded tr
 `GET /agent/evaluation/status` (P11 coverage plus validated P8/P15 gates and trial counts), and
 `GET /paper-trial/status` (P7 activation blockers). The P11 report is also published to
 `data/reports/agent-evaluation.json`; P15 also publishes `data/reports/agent-eval/p15.md` after its
-scoring run. Before W8, verify all six P15 units are absent and all three books are inactive.
+scoring run. Before activation, verify all six P15 units are installed and source-matching, the
+three timers are disabled and inactive, and all three books are inactive.
 
 **Logs.** Output goes to the user journal:
 
@@ -1524,8 +1526,8 @@ metrics snapshot and report, and verify `/agent/evaluation/status` says `p15: in
 1. Confirm the worktree is clean, no queue job or producer lock is active, and all non-P15 active
    books share one completed `sim_equity` checkpoint.
 2. Create and verify a fresh external recovery bundle with `tools.backup_database`.
-3. Run `.venv/bin/python -m tools.install_automation --apply` while P15 timers are still excluded from
-   `AUTOSTART_UNITS`; this installs the six source units without enabling them.
+3. Run `.venv/bin/python -m tools.install_automation` and verify the six staged P15 units match
+   their sources while the P15 timers remain excluded from `AUTOSTART_UNITS` and disabled.
 4. Under the exclusive `.nightly.lock`, initialize the P15 scoring, pre-open, and event schemas;
    recheck the three P15 contracts, zero runtime rows, and common checkpoint; then call
    `sim.p15_books.activate_books` for that checkpoint in one transaction.
@@ -1572,8 +1574,8 @@ Audit the installed units and cron configuration without changing the host:
 .venv/bin/python -m tools.install_automation
 ```
 
-Exit 0 means all currently installed unit files match their versioned sources; staged P15 units
-are reported as changes until W8 installs them without autostart. The API, UI, shadow timer, and
+Exit 0 means all currently installed unit files, including the staged P15 units, match their
+versioned sources. The staged P15 timers remain disabled until activation. The API, UI, shadow timer, and
 agent-data-capture timer are enabled and active; both workers remain static; user
 lingering is enabled for logout/reboot continuity; and the managed cron block is current. Exit 1
 with `changes-required` is a dry-run result; its `service_units` records show the observed

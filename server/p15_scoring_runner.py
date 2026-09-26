@@ -469,8 +469,8 @@ def _run(
             finally:
                 con.close()
             try:
-                result = generate(payload)
                 calls += 1
+                result = generate(payload)
                 sample_completed = clock().astimezone(timezone.utc)
                 if sample_completed >= deadline:
                     raise ScoringError("P15 scoring exceeded the 12:00 UTC deadline")
