@@ -303,11 +303,13 @@ def _session_ics(rows: list[dict], horizon: int) -> dict:
         reason = "constant_model_score"
     elif len({row[1] for row in usable}) == 1:
         reason = "constant_baseline_score"
-    elif len({row[2] for row in usable}) == 1:
-        reason = "constant_outcome"
-    model_ic = None if reason else spearman([row[0] for row in usable], [row[2] for row in usable])
-    base_ic = None if reason else spearman([row[1] for row in usable], [row[2] for row in usable])
-    return {"status": "insufficient" if reason else "scored", "reason": reason,
+    constant_outcome = len(usable) >= 20 and len({row[2] for row in usable}) == 1
+    model_ic = (None if reason else 0.0 if constant_outcome else
+                spearman([row[0] for row in usable], [row[2] for row in usable]))
+    base_ic = (None if reason else 0.0 if constant_outcome else
+               spearman([row[1] for row in usable], [row[2] for row in usable]))
+    return {"status": "insufficient" if reason else "scored",
+            "reason": "constant_outcome_neutral" if constant_outcome else reason,
             "pair_count": len(usable), "model_ic": model_ic, "baseline_ic": base_ic,
             "delta_ic": None if reason else model_ic - base_ic,
             "evaluated_at": None if not usable else max(
@@ -704,7 +706,7 @@ def primary(
         else:
             insufficient += 1
     registered = registration_sha or registration_sha256()
-    if persist_looks and not missing:
+    if persist_looks and not missing and not immature:
         looks = persist_reached_looks(
             con, scored, registered, evaluated_at=generated_at,
         )
@@ -715,8 +717,9 @@ def primary(
         None,
     )
     status = "invalid" if missing else terminal or "collecting"
+    retained_sizes = {item["look"] for item in looks}
     next_look = None if terminal else next(
-        (size for size in LOOKS if size > len(scored)), None,
+        (size for size in LOOKS if size not in retained_sizes), None,
     )
     book_look_dates = [{
         "look": item["look"], "through_market_date": item["through_market_date"],
@@ -727,18 +730,21 @@ def primary(
         maturities = []
         for market_date in immature_dates:
             maturity = market_date
-            for _ in range(5):
+            for _ in range(5 + MISSING_LABEL_GRACE_SESSIONS):
                 maturity = nyse.next_session(maturity)
-            if maturity >= generated_at.date():
-                maturities.append(maturity)
+            maturities.append(max(maturity, generated_at.date()))
         decision_day = generated_at.date()
-        while len(maturities) < next_look - len(scored):
+        remaining = max(0, next_look - len(scored))
+        while len(maturities) < remaining:
             decision_day = nyse.next_session(decision_day)
             maturity = decision_day
             for _ in range(5):
                 maturity = nyse.next_session(maturity)
             maturities.append(maturity)
-        next_date = sorted(maturities)[next_look - len(scored) - 1]
+        next_date = (
+            sorted(maturities)[max(1, remaining) - 1]
+            if maturities else generated_at.date()
+        )
     h10 = [_session_ics(members, 10) for _day, members in sorted(sessions.items())]
     h10 = [item for item in h10 if item["status"] == "scored"]
     diagnostics = _diagnostics(diagnostic_rows)

@@ -167,6 +167,83 @@ def test_fixed_looks_use_immutable_prefixes_and_terminal_rules():
     assert status == "kill" and looks[-1]["look"] == 120 and next_look is None
 
 
+def test_constant_outcome_session_keeps_a_neutral_primary_slot():
+    rows = [
+        {
+            "decision": "buy_candidate",
+            "payload": {
+                "stratum": "mover", "scoring_status": "available",
+                "expected_excess_bp_5": float(index),
+                "expected_excess_bp_10": float(index),
+                "baseline_score": float(20 - index),
+            },
+            "labels": {5: {"net_excess_return": 0.0, "labeled_at": NOW}},
+        }
+        for index in range(20)
+    ]
+
+    result = p15_evaluation._session_ics(rows, 5)
+
+    assert result["status"] == "scored"
+    assert result["reason"] == "constant_outcome_neutral"
+    assert result["model_ic"] == result["baseline_ic"] == result["delta_ic"] == 0.0
+
+
+def test_unresolved_eligible_origin_blocks_later_look_persistence(con, monkeypatch):
+    origins = [date(2025, 1, 1) + timedelta(days=index) for index in range(62)]
+    gap = origins[59]
+    rows = []
+    for market_date in origins:
+        for index in range(20):
+            rows.append({
+                "market_date": market_date,
+                "observed_at": NOW.replace(tzinfo=None),
+                "decision": "buy_candidate",
+                "payload": {
+                    "stratum": "mover", "scoring_status": "available",
+                    "expected_excess_bp_5": float(index),
+                    "expected_excess_bp_10": float(index),
+                    "baseline_score": float(20 - index),
+                },
+                "labels": {} if market_date == gap else {
+                    5: {"net_excess_return": float(index), "labeled_at": NOW},
+                },
+            })
+    monkeypatch.setattr(p15_evaluation, "_primary_rows", lambda *_args: rows)
+    monkeypatch.setattr(
+        p15_evaluation,
+        "_mature",
+        lambda _con, market_date, horizon, _generated: not (
+            market_date == gap and horizon == 8
+        ),
+    )
+    monkeypatch.setattr(
+        p15_evaluation,
+        "_session_ics",
+        lambda members, _horizon: {
+            "status": "scored", "reason": None, "pair_count": len(members),
+            "model_ic": 0.1, "baseline_ic": 0.0, "delta_ic": 0.1,
+            "evaluated_at": NOW.isoformat(), "rows": [],
+        },
+    )
+    persisted = []
+    monkeypatch.setattr(
+        p15_evaluation,
+        "persist_reached_looks",
+        lambda *_args, **_kwargs: persisted.append(True) or [],
+    )
+    monkeypatch.setattr(p15_evaluation, "load_retained_looks", lambda *_args, **_kwargs: [])
+
+    result = p15_evaluation.primary(
+        con, NOW, persist_looks=True, registration_sha="a" * 64,
+    )
+
+    assert persisted == []
+    assert result["immature_session_count"] == 1
+    assert result["scored_session_count"] == 61
+    assert result["next_look"] == 60
+
+
 def test_reached_look_is_persisted_once_and_tamper_evident(con, monkeypatch, tmp_path):
     scored = [
         {"delta_ic": 0.2 + (index % 3) * 0.01,
