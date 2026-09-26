@@ -41,6 +41,7 @@ from . import (
 POLICY_ID = "p15-scoring-v1"
 CHUNK_SIZE = 10
 SAMPLE_COUNT = 3
+DB_WAIT_S = 60.0
 MAX_EXPECTED_EXCESS_BP = 10_000.0
 AGGREGATION_RULE = "numeric_median_majority_action_representative_text_v1"
 P15_BOOKS = ("p15_ai_ranked", "p15_rule_control", "p15_hybrid_veto")
@@ -362,7 +363,7 @@ def _fail_outside_window(
     existing: dict | None, started: datetime,
 ) -> dict:
     reason = "outside_admissible_window"
-    con = db.connect(database, wait_s=0)
+    con = db.connect(database, wait_s=DB_WAIT_S)
     try:
         with db.transaction(con):
             store.init_schema(con)
@@ -403,7 +404,7 @@ def _run(
     deadline = datetime.combine(started.date(), DEADLINE_UTC)
     if started >= deadline:
         raise ScoringError("P15 scoring cannot start at or after 12:00 UTC")
-    con = db.connect(database, read_only=True, wait_s=0)
+    con = db.connect(database, read_only=True, wait_s=DB_WAIT_S)
     try:
         market_date = db.latest_operational_market_date(con)
         if market_date is None:
@@ -450,7 +451,7 @@ def _run(
             now=started, fetch=fetch_news,
         )
         cutoff = now or clock()
-        con = db.connect(database, read_only=True, wait_s=0)
+        con = db.connect(database, read_only=True, wait_s=DB_WAIT_S)
         try:
             event_facts = p15_event_sources.admitted_event_facts_as_known(
                 con,
@@ -476,7 +477,7 @@ def _run(
                 ),
             } for item in news["receipts"]],
         )
-        con = db.connect(database, wait_s=0)
+        con = db.connect(database, wait_s=DB_WAIT_S)
         try:
             with db.transaction(con):
                 store.init_schema(con)
@@ -508,7 +509,7 @@ def _run(
             )
             request = agent_model_client.p15_scoring_request_payload(payload)
             order = [item["ticker"] for item in payload["candidates"]]
-            con = db.connect(database, wait_s=0)
+            con = db.connect(database, wait_s=DB_WAIT_S)
             result = None
             try:
                 with db.transaction(con):
@@ -548,7 +549,7 @@ def _run(
                     raise ScoringError("P15 scoring request identity differs")
                 _validate_identity(result)
                 parsed = _validate_output(result.output, chunk, allowed)
-                con = db.connect(database, wait_s=0)
+                con = db.connect(database, wait_s=DB_WAIT_S)
                 try:
                     with db.transaction(con):
                         store.complete_sample(
@@ -558,7 +559,10 @@ def _run(
                 finally:
                     con.close()
                 validated.append(parsed)
-            except (agent_model_client.ConnectorError, ScoringError, TypeError, ValueError) as exc:
+            except (
+                agent_model_client.ConnectorError, ScoringError, duckdb.Error,
+                TypeError, ValueError,
+            ) as exc:
                 failure = str(exc)
                 deadline_exceeded = "12:00 UTC deadline" in failure
                 retained = None if result is None else asdict(result)
@@ -566,7 +570,7 @@ def _run(
                     key: getattr(exc, key, None)
                     for key in ("response_id", "request_sha256", "response_sha256", "usage")
                 }
-                con = db.connect(database, wait_s=0)
+                con = db.connect(database, wait_s=DB_WAIT_S)
                 try:
                     with db.transaction(con):
                         store.fail_sample(
@@ -585,7 +589,7 @@ def _run(
         if deadline_exceeded:
             break
     if deadline_exceeded:
-        con = db.connect(database, wait_s=0)
+        con = db.connect(database, wait_s=DB_WAIT_S)
         try:
             with db.transaction(con):
                 store.fail_run(
@@ -599,7 +603,7 @@ def _run(
                 "replayed": False}
     completed = clock().astimezone(timezone.utc)
     if completed >= deadline:
-        con = db.connect(database, wait_s=0)
+        con = db.connect(database, wait_s=DB_WAIT_S)
         try:
             with db.transaction(con):
                 store.fail_run(
@@ -611,7 +615,7 @@ def _run(
         return {"status": "failed", "market_date": bundle["market_date"],
                 "reason": "deadline_exceeded", "model_call_count": calls,
                 "replayed": False}
-    con = db.connect(database, wait_s=0)
+    con = db.connect(database, wait_s=DB_WAIT_S)
     try:
         with db.transaction(con):
             samples = _stored_samples(con, run_id)
@@ -641,7 +645,7 @@ def run(
             fetch_news=fetch_news, clock=clock,
         )
         if "market_date" in result:
-            con = db.connect(database, wait_s=0)
+            con = db.connect(database, wait_s=DB_WAIT_S)
             try:
                 books = p15_books.run_window(
                     con, date.fromisoformat(result["market_date"]), observed_at=clock()
@@ -675,7 +679,7 @@ def dry_run(
         copied = Path(directory) / "market.duckdb"
         with advisory_file_lock(NIGHTLY_LOCK):
             copier(database, copied)
-        con = db.connect(copied, wait_s=0)
+        con = db.connect(copied, wait_s=DB_WAIT_S)
         try:
             p15_books.init_schema(con)
             state = p15_books.activation_state(con)

@@ -2,6 +2,8 @@
 Description=Trading engine P15 nightly candidate scoring
 After=network-online.target trae-proxy.service
 Wants=network-online.target trae-proxy.service
+StartLimitIntervalSec=30min
+StartLimitBurst=3
 
 [Service]
 Type=oneshot
@@ -16,3 +18,5 @@ PrivateTmp=true
 ProtectSystem=full
 ProtectControlGroups=true
 UMask=0077
+Restart=on-failure
+RestartSec=5min
