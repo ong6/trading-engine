@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "registration_id": "p15-profitability-evidence-loop-v1",
-  "registered_at": "2026-09-26T17:30:00Z",
+  "registered_at": "2026-09-26T17:51:13Z",
   "activation_session": "2026-09-29",
   "status": "registered_inactive",
   "authority": {
@@ -174,22 +174,24 @@
     "model_call_count": "attempted_calls_including_connector_failures"
   },
   "code_identity": {
-    "source_commit": "d005d3290ac9e16ad58665261fb6fc4b75e71817",
+    "source_commit": "79e3b11fe12ef0f59202cb4cb6da5cdc6ebeee85",
     "files": {
       "engine/bitemporal_facts.py": "f33ed3530af9fa89f5ed80e3a2e4b46043d127fcb455ef31e1b371f84d32b607",
-      "engine/collect.py": "659ca90d8c0b531f240470add04b09c09d283bf395bdde6254f3641bd7a0b9ac",
-      "engine/daily_opportunities.py": "0941b6a455bb9ea77f66874e9a63f917a6d8f45e6cb1cec93b1e33c63a57e756",
-      "engine/lib/db.py": "f1d6145e9f3a134e99928fbf3663b80245b98ff20a4a7ff99b2f688bc78073e0",
+      "engine/collect.py": "23ec8da4be7342101b061f6db49b2338dcbe8fd127c2fb607c66995652d340f1",
+      "engine/daily_opportunities.py": "af295c4899c02b5d058d21f9e4fc696d22e733a62aaf3e1212636d29834ffae6",
+      "engine/lib/db.py": "e4ff47cde08563d3d807d92220ad39fd6bcc350139796c04e2828220e0895e29",
       "engine/p15_evaluation.py": "6b4a7489657d2fdb0de1afa605d1a5fb27036ebe8d1f2b4b6beb98de4ab8cba0",
       "engine/p15_event_sources.py": "998eca1f6b174573ac9dd2717171ea1e47a9f22d787a231cb702cca18fd816f7",
+      "engine/run_daily.sh": "5113ad32497484261a9efaf1c75ed5b96591adc3c0f8150f43028025491051c8",
       "farm/agent_evaluation_analysis.py": "67ba119bd1974a184e03c64852b22f42d0ae654e2844f60974082b66c1159ab8",
       "farm/p15_event_runner.py": "509e5afb0c8d5b09cd2ebbd0a4156750b05c607fd3a64aad0633866cf772e991",
       "server/agent-cadence-registration.json": "cf66040d889662f7ad740f79ce83e2c87528853bafe4f31a0634c7195b5c4b59",
-      "server/agent_evaluation.py": "3f40f0c7d46a1d8c5955877fea01b244682220a4868cacd0c74296d8e0398efc",
+      "server/agent_evaluation.py": "bfb29c3e5d074bc158e28d4c5b5389d03b6e09f55fdb5682e4cfe7052399a15f",
       "server/agent_evaluation_reporting.py": "7d8597d04e78116b03a270ceeb3b792a93baf4f2449deec02157288984b53392",
       "server/agent_model_client.py": "3c4fbdfd48aa6e1c32a8fbe7fba18f8c7470aef01a684f7ab2d9d8cadf1394f8",
       "server/hourly_opportunity_observer.py": "ea15ba6faccc137c8e4e82a9a78d94b76214ab54d6cb331afc509ecc2a2060ce",
       "server/p15_preopen.py": "d02aacdc3a70efff67584dac516874f96519767331f79ca5284d983c70543a45",
+      "server/p15_price_fetch_attempts.py": "eebff8b7d271d1ea3c90abd37f85b3515ba11ca417636c692ac19aac16f9b18d",
       "server/p15_scoring_runner.py": "4f22b33ef246b7747abe4576a63818fd1656f7a6f278b66ff485e5682fbb37b0",
       "server/p15_scoring_store.py": "4660607b6bb5b18fdb6ee7585b8bdadab9dfa9af9417f0ae51833bc87a695bee",
       "server/trading-engine-p15-events.service": "1837b19fd0e5667bc9b3d013cfbb018b5dd0b0895acafda719bd302a0480ec2c",
@@ -200,12 +202,12 @@
       "server/trading-engine-p15-scoring.timer": "065c0886d27259dbd8cb0e1527b3334dc1adb7dd0c047a0db0b7de67d8736e9a",
       "sim/p15_books.py": "21519a9d482cb7e02b8bae33caf567bc200d1d7e91dd37a09f9cb7634a28f445",
       "sim/p15_fills.py": "baf1cf1aa52277ced800908a0f8716d2693499e9c27ef895e1ab6a9a1e2b806e",
-      "sim/strategies/base.py": "ffbac2315791dbd92df7f7ba70ecb44e1a9d5ad0a845d6d8a11d15a3035711e5",
+      "sim/strategies/base.py": "82945ba5891c8f9315439d8dfccc16122e9e2ec2c0d97a877342eb53c26c5d83",
       "tools/agent_trial_register.py": "08cb4553ef83b49297f0222e063bf1da506e2b6e8d185f5a430739dc659125f6",
       "tools/p15_evidence_validation.py": "80ff7a9d6eba356df2a8d6c09115990f6d737e7c38ec299de31dd4002216632e"
     }
   },
   "registration_revision": 2,
   "revision_reason": "P16 W0 review findings R1-R16",
-  "registration_sha256": "d6b1438bb400a9334b0c1d98aeb2cf2ca73d311de9971a126a6a72dcb107d083"
+  "registration_sha256": "61dbb1e9f8c6a6d5d6871c73187e696f88978fa273e158731a5762f6ea62ca07"
 }
