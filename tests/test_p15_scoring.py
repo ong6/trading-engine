@@ -271,6 +271,8 @@ def test_p15_scoring_runner_retains_three_samples_and_replays_without_calls(tmp_
 
     assert first["candidate_count"] == 2 and first["model_call_count"] == 3
     assert first["unavailable_count"] == 0 and first["replayed"] is False
+    assert first["books"] == {"status": "inactive", "filled": 0, "rejected": 0,
+                              "pending": 0, "queued": 0}
     assert second["replayed"] is True and second["model_call_count"] == 0
     assert len(calls) == 3
     assert all(sorted(item["ticker"] for item in call["candidates"]) == ["FAST", "QUIET"]
