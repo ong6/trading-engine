@@ -834,8 +834,15 @@ def run_database(
             sec_names = _sec_names(names, session_date, local.hour, local.minute)
             sec = ({"status": "unconfigured"} if not os.environ.get(
                 "TRADING_ENGINE_SEC_USER_AGENT"
-            ) else sec_edgar_capture.capture(con, sec_names))
-            intraday = p15_event_sources.scan_intraday(con, observed_at=observed)
+            ) else sec_edgar_capture.capture(
+                con, sec_names, release_for_capture=con.release_for_model,
+                reacquire_after_capture=con.reacquire,
+            ))
+            intraday = p15_event_sources.scan_intraday(
+                con, observed_at=observed,
+                release_for_capture=con.release_for_model,
+                reacquire_after_capture=con.reacquire,
+            )
             cutoff = clock().astimezone(timezone.utc)
             triggers = p15_event_sources.create_text_triggers(
                 con, session_date, triggered_at=cutoff

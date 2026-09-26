@@ -182,14 +182,26 @@ def _record_ticker_mapping(
 def capture(
     con: duckdb.DuckDBPyConnection, tickers: list[str], *, fetch: Fetch = _fetch,
     sleep: Callable[[float], None] = time.sleep, ingested_at: datetime | None = None,
+    release_for_capture: Callable[[], None] = lambda: None,
+    reacquire_after_capture: Callable[[], None] = lambda: None,
 ) -> dict:
     """Capture current ticker identity and recent material filings for a bounded set."""
     wanted = sorted(set(tickers))
     if len(wanted) > MAX_TICKERS or any(TICKER.fullmatch(item) is None for item in wanted):
         raise SecCaptureError("SEC ticker scope is invalid")
     bitemporal_facts.init_schema(con)
+
+    def released_fetch(url: str, *, delay: float = 0.0) -> Response:
+        release_for_capture()
+        try:
+            if delay:
+                sleep(delay)
+            return _safe_fetch(fetch, url)
+        finally:
+            reacquire_after_capture()
+
     try:
-        map_response = _safe_fetch(fetch, TICKERS_URL)
+        map_response = released_fetch(TICKERS_URL)
     except SecCaptureError as exc:
         return {
             "status": "failed", "ticker_count": len(wanted), "request_count": 1,
@@ -218,9 +230,8 @@ def capture(
             failures.append({"ticker": ticker, "reason": "ticker absent from current SEC map"})
             continue
         endpoint = SUBMISSIONS_URL.format(cik=item["cik"])
-        sleep(REQUEST_DELAY_SECONDS)
         try:
-            response = _safe_fetch(fetch, endpoint)
+            response = released_fetch(endpoint, delay=REQUEST_DELAY_SECONDS)
         except SecCaptureError as exc:
             failures.append({"ticker": ticker, "reason": str(exc)})
             continue
