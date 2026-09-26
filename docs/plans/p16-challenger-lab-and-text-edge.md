@@ -484,7 +484,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 
 | Workstream | Status | Evidence (BUILDLOG date) |
 |---|---|---|
-| W0 Baseline, P15 remediation (R1–R16), P15 activation | not started | |
+| W0 Baseline, P15 remediation (R1–R16), P15 activation | **claimed 2026-09-27 by a GPT-5.6-Sol session** (host `screen` session `p16-w0-sol`, worktree branch `p16-w0-sol`). It does R1–R16, issues the registration again, and runs the dry-run; it pushes to `main` and marks this row. **P15 activation and W1 onward belong to the lead (GPT-6-Astra) session.** The lead waits for this row to say "remediation done" before activating P15, and may start W1 in parallel in its own worktree | |
 | W1 Evaluation science v2 | not started | |
 | W2 Challenger lab | not started | |
 | W3 Filing reader | not started | |
@@ -497,6 +497,10 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W10 Final refine pass | not started | |
 
 Owner inputs needed: none yet.
+
+**Parallel sessions.** A row marked *claimed* belongs to the named session. Never work a claimed
+row. Parallel sessions each use their own git worktree and push to `main` after rebasing. Only
+the lead touches the live checkout, the systemd units, and activation.
 
 ## Risks
 
