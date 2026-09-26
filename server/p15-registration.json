@@ -179,7 +179,7 @@
     "price_fetch_availability": "after_collection_completion"
   },
   "code_identity": {
-    "source_commit": "d2575ac5539f2f00694f412807a8745e452f9ece",
+    "source_commit": "f65437467537ebf988bcc83ca0f5a1286a612618",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/actions.py": "a6c2ec46d198df2318498ec7d55e1b7cfeca4c8afaccd8a5c208618e4ea8b850",
@@ -317,5 +317,5 @@
   },
   "registration_revision": 2,
   "revision_reason": "P16 W0 review findings R1-R16",
-  "registration_sha256": "d38b98463d2b97071588884a6083c5272ad3ee7587319c214619bbca43b731bc"
+  "registration_sha256": "9da275dd40515a4eb5353dec828914d7760849809eb741dd508c669194336047"
 }
