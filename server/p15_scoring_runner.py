@@ -102,8 +102,9 @@ def _gate_candidates(bundle: dict) -> dict:
 
 
 def _context(
-    bundle: dict, news: dict, cutoff: datetime
+    bundle: dict, news: dict, cutoff: datetime, event_facts: list[dict] | None = None,
 ) -> tuple[dict, dict[str, set[str]]]:
+    event_facts = event_facts or []
     observations = [
         item for item in news["observations"]
         if datetime.fromisoformat(item["retrieved_at"]).astimezone(timezone.utc) <= cutoff
@@ -119,13 +120,15 @@ def _context(
             bundle["market"]["evidence_id"], candidate["evidence_id"],
             *(item["evidence_id"] for item in market_news),
             *(item["evidence_id"] for item in headlines),
+            *(item["evidence_id"] for item in event_facts
+              if item["ticker"] in {"SPY", candidate["ticker"]}),
         }
         allowed[candidate["ticker"]] = ids
         candidates.append({**candidate, "headlines": headlines,
                            "allowed_evidence_ids": sorted(ids)})
     return {
         "news_status": news["status"], "market_headlines": market_news,
-        "event_facts": [], "tradingview_quotes": [], "candidates": candidates,
+        "event_facts": event_facts, "tradingview_quotes": [], "candidates": candidates,
     }, allowed
 
 
@@ -447,7 +450,18 @@ def _run(
             now=started, fetch=fetch_news,
         )
         cutoff = now or clock()
-        context, allowed = _context(bundle, news, cutoff.astimezone(timezone.utc))
+        con = db.connect(database, read_only=True, wait_s=0)
+        try:
+            event_facts = p15_event_sources.admitted_event_facts_as_known(
+                con,
+                tickers={"SPY", *(item["ticker"] for item in bundle["candidates"])},
+                cutoff_at=cutoff,
+            )
+        finally:
+            con.close()
+        context, allowed = _context(
+            bundle, news, cutoff.astimezone(timezone.utc), event_facts,
+        )
         context.update(
             information_cutoff_at=cutoff.astimezone(timezone.utc).isoformat(),
             news_receipts=[{

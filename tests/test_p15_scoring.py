@@ -1,11 +1,13 @@
 """P15 scoring-universe and policy-contract tests."""
 from __future__ import annotations
 
+import json
 import shutil
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from engine import bitemporal_facts
 from engine.daily_opportunities import OpportunityError, _p15_atr, p15_universe
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
@@ -195,6 +197,77 @@ def test_p15_context_excludes_headlines_retrieved_after_cutoff(tmp_path):
     assert "a" * 64 in allowed[candidate["ticker"]]
     assert "b" * 64 not in allowed[candidate["ticker"]]
     assert context["event_facts"] == [] and context["tradingview_quotes"] == []
+
+
+def test_p15_scoring_uses_only_event_fact_revision_known_at_cutoff(tmp_path):
+    database = tmp_path / "market.duckdb"
+    _p15_database(database)
+    cutoff = P15_NOW
+    con = db.connect(database)
+    bitemporal_facts.init_schema(con)
+
+    def fact(*, entity, source, fact_type, available, ingested, payload):
+        receipt = bitemporal_facts.record_receipt(
+            con, source=source, dataset="test", endpoint=f"https://example.test/{entity}",
+            request={"entity": entity, "ingested": ingested.isoformat()},
+            requested_at=ingested - timedelta(seconds=1), received_at=ingested,
+            http_status=200, content_type="application/json", body=b"{}",
+            license_class="public",
+        )
+        return bitemporal_facts.record_fact(
+            con, entity_id=entity, security_id=entity.split(":")[0],
+            fact_type=fact_type, event_at=cutoff - timedelta(hours=3),
+            published_at=cutoff - timedelta(hours=2), available_at=available,
+            ingested_at=ingested, payload=payload, source=source,
+            source_version="test", receipt_sha256=receipt["receipt_sha256"],
+        )
+
+    known = fact(
+        entity="FAST:event", source="local_rss", fact_type="news.headline",
+        available=cutoff - timedelta(hours=1), ingested=cutoff - timedelta(minutes=59),
+        payload={"headline": "known at cutoff"},
+    )
+    fact(
+        entity="FAST:event", source="local_rss", fact_type="news.headline",
+        available=cutoff - timedelta(hours=1), ingested=cutoff + timedelta(minutes=1),
+        payload={"headline": "late correction"},
+    )
+    fact(
+        entity="FAST:future", source="local_rss", fact_type="news.headline",
+        available=cutoff + timedelta(minutes=1), ingested=cutoff + timedelta(minutes=2),
+        payload={"headline": "future"},
+    )
+    fact(
+        entity="FAST:quote", source="tradingview_unofficial",
+        fact_type="intraday.ohlcv.5m", available=cutoff - timedelta(minutes=10),
+        ingested=cutoff - timedelta(minutes=9), payload={"close": 123.0},
+    )
+    con.close()
+
+    calls = []
+
+    def generate(payload):
+        calls.append(payload)
+        return _scoring_result(payload)
+
+    result = p15_scoring_runner.run(
+        database=database, now=cutoff, generate=generate,
+        fetch_news=_news_response, clock=lambda: cutoff,
+    )
+
+    assert result["status"] == "completed"
+    assert len(calls) == 3
+    for payload in calls:
+        assert [item["evidence_id"] for item in payload["event_facts"]] == [
+            known["fact_sha256"]
+        ]
+        fast = next(item for item in payload["candidates"] if item["ticker"] == "FAST")
+        quiet = next(item for item in payload["candidates"] if item["ticker"] == "QUIET")
+        assert known["fact_sha256"] in fast["allowed_evidence_ids"]
+        assert known["fact_sha256"] not in quiet["allowed_evidence_ids"]
+        assert "late correction" not in json.dumps(payload)
+        assert "future" not in json.dumps(payload)
+        assert "tradingview_unofficial" not in json.dumps(payload)
 
 
 def test_p15_trade_gates_rebind_candidate_and_bundle_evidence(tmp_path):

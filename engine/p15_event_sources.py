@@ -30,6 +30,7 @@ MAX_HEADLINE_BYTES = 8_192
 MAX_TRIGGER_UNIVERSE = 300
 TRIGGER_SCAN_PAGE_SIZE = 1_000
 MAX_INTRADAY_WORKERS = 8
+MAX_SCORING_EVENT_FACTS = 120
 ET = ZoneInfo("America/New_York")
 CASHTAG = re.compile(r"\$([A-Z][A-Z0-9.-]{0,15})(?![A-Z0-9.-])")
 
@@ -51,6 +52,41 @@ def regular_session_open(observed_at: datetime) -> bool:
     if not nyse.is_session(local.date()) or local.timetz().replace(tzinfo=None) < time(9, 30):
         return False
     return local.timetz().replace(tzinfo=None) < session_close(local.date())
+
+
+def admitted_event_facts_as_known(
+    con: duckdb.DuckDBPyConnection, *, tickers: set[str], cutoff_at: datetime,
+    limit: int = MAX_SCORING_EVENT_FACTS,
+) -> list[dict]:
+    """Return bounded P15 event facts using only revisions known at ``cutoff_at``."""
+    if not tickers or not table_exists(con, "bitemporal_facts"):
+        return []
+    cutoff = cutoff_at.astimezone(timezone.utc).replace(tzinfo=None)
+    placeholders = ",".join("?" for _ in tickers)
+    cursor = con.execute(
+        "SELECT security_id,fact_type,event_at,published_at,available_at,source,"
+        "normalized_payload,fact_sha256 FROM bitemporal_facts "
+        f"WHERE security_id IN ({placeholders}) AND available_at<=? AND ingested_at<=? "
+        "AND ((fact_type='news.headline' AND source='local_rss') "
+        "OR (fact_type='p15.event.intraday_mover' AND source='yfinance') "
+        "OR (fact_type LIKE 'sec.filing:%' AND source='sec_edgar' AND "
+        "json_extract_string(normalized_payload,'$.form') IN ('8-K','8-K/A'))) "
+        "QUALIFY revision=MAX(revision) OVER (PARTITION BY entity_id,fact_type,event_at) "
+        "ORDER BY available_at DESC,fact_sha256 DESC LIMIT ?",
+        [*sorted(tickers), cutoff, cutoff, limit],
+    )
+
+    def iso(value):
+        if value is None:
+            return None
+        return value.replace(tzinfo=timezone.utc).isoformat()
+
+    facts = [{
+        "ticker": row[0], "fact_type": row[1], "event_at": iso(row[2]),
+        "published_at": iso(row[3]), "available_at": iso(row[4]),
+        "source": row[5], "payload": json.loads(row[6]), "evidence_id": row[7],
+    } for row in cursor.fetchall()]
+    return list(reversed(facts))
 
 
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
