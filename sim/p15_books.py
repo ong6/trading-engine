@@ -836,7 +836,7 @@ def label_limit_counterfactuals(
     con: duckdb.DuckDBPyConnection, *, labeled_at: datetime,
 ) -> int:
     """Append h5 outcomes from each missed attempt's actual opening session."""
-    from . import agent_evaluation
+    from server import agent_evaluation
 
     latest = con.execute("SELECT MAX(date) FROM prices WHERE ticker='SPY'").fetchone()[0]
     if latest is None:

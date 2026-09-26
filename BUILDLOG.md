@@ -778,4 +778,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** source unchanged since the corrective snapshot; all ceilings green.
 - **Next:** W4 cancel-only pre-open reassessment and counterfactual evidence.
 
+## 2026-09-26 — P15 W4: relocate comparator mechanics
+
+- **Why:** W4 needs server-layer headroom under the fixed 54,450-line ceiling; the completed W3
+  comparator lifecycle is simulator mechanics rather than an API surface.
+- **What:** move the P15 book module intact from `server/` to `sim/`, update its imports and release
+  identity, and retain the same inactive live schema and behavior.
+- **Evidence:** `./.venv/bin/python -m pytest -q -W error` reaches `[100%]` and exits 0.
+- **Metrics:** server -928, sim +927, product +927, tools unchanged; all ceilings green.
+- **Next:** implement the cancel-only P15 pre-open decision and consumer path.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
