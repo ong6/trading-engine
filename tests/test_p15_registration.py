@@ -18,25 +18,58 @@ ROOT = Path(__file__).resolve().parents[1]
 REGISTRATION_PATH = ROOT / "server" / "p15-registration.json"
 REGISTERED_PATHS = {
     "engine/__init__.py",
+    "engine/actions.py",
     "engine/bitemporal_facts.py",
     "engine/collect.py",
     "engine/daily_opportunities.py",
+    "engine/earnings.py",
+    "engine/forward_review.py",
+    "engine/fundamentals.py",
+    "engine/intraday.py",
     "engine/lib/__init__.py",
     "engine/lib/data_quality.py",
     "engine/lib/db.py",
     "engine/lib/driver.sh",
     "engine/lib/log.py",
+    "engine/lib/leverage.py",
     "engine/lib/provenance.py",
     "engine/lib/resources.py",
     "engine/lib/settings.py",
     "engine/lib/util.py",
+    "engine/market_date.py",
     "engine/p15_evaluation.py",
     "engine/p15_event_sources.py",
+    "engine/queue_runner.py",
     "engine/run_daily.sh",
+    "engine/screen.py",
+    "engine/signals.py",
+    "engine/sync.py",
     "engine/tradingview_history_archive.py",
+    "engine/universe.py",
+    "engine/verify_prices.py",
+    "engine/xs_forward_review.py",
     "farm/__init__.py",
     "farm/agent_evaluation_analysis.py",
+    "farm/backtest/__init__.py",
+    "farm/backtest/hist_screen.py",
+    "farm/backtest/replay.py",
+    "farm/backtest/report.py",
+    "farm/backtest/stats.py",
+    "farm/capital_sensitivity.py",
+    "farm/experiment.py",
+    "farm/experiment_runner.py",
     "farm/p15_event_runner.py",
+    "farm/stats/__init__.py",
+    "farm/stats/equity.py",
+    "farm/stats/inference.py",
+    "farm/sweep/__init__.py",
+    "farm/sweep/sweep.py",
+    "farm/walkforward/__init__.py",
+    "farm/walkforward/controls.py",
+    "farm/walkforward/monthly.py",
+    "farm/walkforward/protocol.py",
+    "farm/walkforward/report.py",
+    "farm/walkforward/runner.py",
     "server/__init__.py",
     "server/agent-cadence-registration.json",
     "server/agent_evaluation.py",
@@ -74,6 +107,7 @@ REGISTERED_PATHS = {
     "sim/calendar.py",
     "sim/execution.py",
     "sim/fills.py",
+    "sim/league.py",
     "sim/nyse.py",
     "sim/p15_books.py",
     "sim/p15_fills.py",
@@ -83,6 +117,7 @@ REGISTERED_PATHS = {
     "sim/strategies/__init__.py",
     "sim/strategies/agent_only_policy.py",
     "sim/strategies/base.py",
+    "sim/strategies/configs.py",
     "sim/strategies/discretionary.py",
     "sim/strategies/dual_momentum.py",
     "sim/strategies/ew_benchmark.py",
@@ -125,6 +160,10 @@ _RELATIVE_SOURCE = re.compile(
     r'^source "\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)/([^"\n]+)"$',
     re.MULTILINE,
 )
+_PYTHON_MODULE = re.compile(
+    r"(?:^|\s)-m\s+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)",
+    re.MULTILINE,
+)
 
 
 def _local_dependency_closure(paths: set[str]) -> set[str]:
@@ -147,12 +186,25 @@ def _local_dependency_closure(paths: set[str]) -> set[str]:
                 closure.add(found)
                 pending.append(found)
 
+    def include_module(module: str) -> None:
+        parts = module.split(".")
+        if not parts or parts[0] not in roots:
+            return
+        options = [ROOT.joinpath(*parts).with_suffix(".py"), ROOT.joinpath(*parts, "__init__.py")]
+        target = next((item for item in options if item.is_file()), None)
+        if target is not None:
+            include(target)
+
     while pending:
         relative = pending.pop()
-        if relative.endswith(".sh"):
+        if relative.endswith((".sh", ".service")):
             script = ROOT / relative
-            for sourced in _RELATIVE_SOURCE.findall(script.read_text()):
-                include(script.parent / sourced)
+            content = script.read_text()
+            if relative.endswith(".sh"):
+                for sourced in _RELATIVE_SOURCE.findall(content):
+                    include(script.parent / sourced)
+            for module in _PYTHON_MODULE.findall(content):
+                include_module(module)
             continue
         if not relative.endswith(".py"):
             continue
@@ -176,13 +228,7 @@ def _local_dependency_closure(paths: set[str]) -> set[str]:
                     if alias.name != "*"
                 )
         for module in candidates:
-            parts = module.split(".")
-            if not parts or parts[0] not in roots:
-                continue
-            options = [ROOT.joinpath(*parts).with_suffix(".py"), ROOT.joinpath(*parts, "__init__.py")]
-            target = next((item for item in options if item.is_file()), None)
-            if target is not None:
-                include(target)
+            include_module(module)
     return closure
 
 
@@ -256,7 +302,7 @@ def test_p15_registered_constants_match_runtime():
         "missing_bar_grace_sessions": agent_evaluation.MISSING_BAR_GRACE_SESSIONS,
         "missing_bar_confirmation": "later_ticker_bar_or_completed_exact_date_fetch",
         "fetch_attempt_evidence": (
-            "batch_hash_bound_zero_failed_full_liquid_collection_missing_only"
+            "batch_bound_liquid_and_exact_open_label_missing_receipts"
         ),
         "spy_net_return_stored": True,
     }
@@ -363,7 +409,9 @@ def test_p15_registered_constants_match_runtime():
         "scoring_service_restart": "on-failure_after_5min_burst_3_per_30min",
         "model_call_count": "attempted_calls_including_connector_failures",
         "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
-        "price_fetch_attempts": "zero_failed_full_liquid_collection_at_operational_date",
+        "price_fetch_attempts": (
+            "zero_failed_liquid_batch_plus_exact_open_label_receipts"
+        ),
         "price_fetch_availability": "after_collection_completion",
     }
 
@@ -405,3 +453,15 @@ def test_p15_registered_file_hashes_match_checkout():
         cwd=ROOT, check=True, capture_output=True, text=True,
     ).stdout.strip()
     assert registration["code_identity"]["source_commit"] == latest_registered_change
+
+
+def test_p15_entrypoints_are_discovered_without_manual_seeds():
+    discoverable = {
+        "engine/universe.py",
+        "server/p15_incremental_collect.py",
+        "server/p15_scoring_runner.py",
+        "server/agent_evaluation_reporting.py",
+        "farm/p15_event_runner.py",
+    }
+    for relative in discoverable:
+        assert relative in _local_dependency_closure(REGISTERED_PATHS - {relative})
