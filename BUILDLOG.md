@@ -765,4 +765,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +402, engine +28, tools +3, product +28, tests +332; budget ok.
 - **Next:** migrate the added inactive evidence tables and repeat independent W3 review.
 
+## 2026-09-26 — P15 W3: complete inactive comparator books
+
+- **Why:** approved P15 W3 requires three inactive, isolated comparator books and a complete
+  dry-run before pre-open work begins.
+- **What:** initialize the live AI-ranked, rule-control, and hybrid-veto contracts inactive and
+  empty after a verified 66-table recovery bundle. An active database copy ran real scoring into
+  nine intents; a copied two-session fixture proved fills, exits, SPY, replay and isolation.
+  Three independent reviewers accepted correctness, evidence integrity, and authority safety.
+- **Evidence:** `.venv/bin/python -m server.p15_scoring_runner --dry-run` completed 60 candidates
+  through 18 calls, retained 10 explicit unavailable outcomes, and queued nine copy-only intents.
+- **Metrics:** source unchanged since the corrective snapshot; all ceilings green.
+- **Next:** W4 cancel-only pre-open reassessment and counterfactual evidence.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
