@@ -12,7 +12,7 @@ import duckdb
 from engine import p15_evaluation
 from engine.lib import db, resources
 from engine.lib.provenance import canonical_sha256
-from engine.lib.settings import DEFAULT_DB, REPO_ROOT
+from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT
 from engine.lib.util import table_exists
 from farm.agent_evaluation_analysis import (
     contamination_diagnostics,
@@ -33,8 +33,8 @@ from .agent_evaluation import (
 )
 
 SCHEMA_VERSION = 2
-DEFAULT_OUTPUT = REPO_ROOT / "data" / "reports" / "agent-evaluation.json"
-DEFAULT_P15_OUTPUT = REPO_ROOT / "data" / "reports" / "agent-eval" / "p15.md"
+DEFAULT_OUTPUT = DATA_DIR / "reports" / "agent-evaluation.json"
+DEFAULT_P15_OUTPUT = DATA_DIR / "reports" / "agent-eval" / "p15.md"
 DEFAULT_CONTAMINATION = (REPO_ROOT / "data" / "reports" / "experiments"
                          / "agent-2022-replay-v1" / "result.json")
 DEFAULT_CONTAMINATION_PROBES = (REPO_ROOT / "data" / "reports" / "experiments"
