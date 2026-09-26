@@ -40,7 +40,6 @@ import pandas as pd
 import yfinance as yf
 
 from engine.lib import db
-from engine.lib.provenance import canonical_sha256
 from engine.lib import resources as rsc
 from engine.lib.log import get_logger
 from engine.lib.settings import META_PATH
@@ -126,9 +125,7 @@ def _download(
             return yf.download(yf_tickers, **kwargs)
         except Exception as exc2:  # noqa: BLE001
             log.warning(f"[collect] batch retry failed ({exc2}); marking batch failed")
-            failed = pd.DataFrame()
-            failed.attrs["download_failed"] = True
-            return failed
+            return pd.DataFrame()
 
 
 def _batches(seq: list, size: int):
@@ -168,44 +165,6 @@ def _upsert_batch(db_path: str | Path, frame: pd.DataFrame) -> int:
     con = db.connect(db_path)
     try:
         return db.upsert_prices(con, frame)
-    finally:
-        con.close()
-
-
-def _checkpoint_incremental_batch(
-    db_path: str | Path, frame: pd.DataFrame, mapping: dict[str, str],
-    market_date: date, attempted_at: datetime,
-) -> int:
-    """Atomically retain bars and exact-date append-only fetch outcomes."""
-    con = db.connect(db_path)
-    try:
-        with db.transaction(con):
-            db.init_schema(con)
-            inserted = db.upsert_prices(con, frame)
-            failed = bool(getattr(frame, "attrs", {}).get("download_failed"))
-            present = set()
-            if frame is not None and not frame.empty:
-                present = set(frame.loc[frame["date"] == market_date, "ticker"])
-            next_id = int(con.execute(
-                "SELECT COALESCE(MAX(id),0)+1 FROM price_fetch_attempts"
-            ).fetchone()[0])
-            rows = []
-            for offset, (_yf_ticker, ticker) in enumerate(sorted(mapping.items())):
-                status = "failed" if failed else "present" if ticker in present else "missing"
-                identity = {
-                    "ticker": ticker, "market_date": market_date.isoformat(),
-                    "attempted_at": attempted_at.astimezone(timezone.utc).isoformat(),
-                    "source": "yfinance", "status": status,
-                }
-                rows.append([
-                    next_id + offset, ticker, market_date,
-                    attempted_at.astimezone(timezone.utc).replace(tzinfo=None),
-                    "yfinance", status, canonical_sha256(identity),
-                ])
-            con.executemany(
-                "INSERT INTO price_fetch_attempts VALUES (?,?,?,?,?,?,?)", rows,
-            )
-            return inserted
     finally:
         con.close()
 
@@ -544,9 +503,7 @@ def mode_incremental(
         sub_map = {y: yf_to_canon[y] for y in batch}
         raw = _download(batch, period="5d", start=None)
         df, got = _extract_long(raw, sub_map)
-        n = _checkpoint_incremental_batch(
-            db_path, df, sub_map, today, datetime.now(timezone.utc),
-        )
+        n = _upsert_batch(db_path, df)
         got_all |= got
         log.info(f"[incremental] batch {len(batch)} -> {n} rows ({len(got)} with data)")
         time.sleep(2)

@@ -47,6 +47,9 @@ body() {
   "${PY}" -m engine.universe || echo "WARN: universe refresh failed; continuing with existing universe table"
   stage collect
   "${PY}" -m engine.collect   # incremental daily (calendar-gated)
+  stage p15-price-attempts
+  "${PY}" -m server.p15_price_fetch_attempts \
+    || echo "WARN: P15 price-attempt evidence failed; missing-bar labels stay pending"
 
   # Freeze one breadth-qualified market date for both screen and league. A
   # partial batch or stray phantom quote may remain in prices for audit, but it

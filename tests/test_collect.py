@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 
 from engine import collect
 from engine.lib import db
+from server import p15_price_fetch_attempts
 
 
 def _raw_frame(day: str = "2026-09-08", *, volume: int = 1_000_000) -> pd.DataFrame:
@@ -86,21 +87,35 @@ def test_incremental_records_append_only_price_fetch_attempts(monkeypatch, tmp_p
         "VALUES ('BBB','BBB',TRUE,TRUE,FALSE)"
     )
     con.close()
-    today = collect.datetime.now(collect.timezone.utc).date()
-    raw = pd.concat({"AAA": _raw_frame(today.isoformat())}, axis=1)
+    market_date = date(2026, 9, 25)
+    raw = pd.concat({"AAA": _raw_frame(market_date.isoformat())}, axis=1)
     monkeypatch.setattr(collect, "_download", lambda *_args, **_kwargs: raw)
     monkeypatch.setattr(collect.time, "sleep", lambda _seconds: None)
 
     assert collect.mode_incremental(db_path, force=True) == (2, 1)
+    first_attempt = collect.datetime(2026, 9, 26, 1, tzinfo=collect.timezone.utc)
+    con = db.connect(db_path)
+    with db.transaction(con):
+        p15_price_fetch_attempts.record(
+            con, market_date=market_date, attempted_at=first_attempt,
+        )
+    con.close()
     assert collect.mode_incremental(db_path, force=True) == (2, 1)
+    con = db.connect(db_path)
+    with db.transaction(con):
+        p15_price_fetch_attempts.record(
+            con, market_date=market_date,
+            attempted_at=first_attempt + timedelta(minutes=1),
+        )
+    con.close()
 
     assert _read(
         db_path,
         "SELECT ticker,market_date,status FROM price_fetch_attempts "
         "ORDER BY id",
     ) == [
-        ("AAA", today, "present"), ("BBB", today, "missing"),
-        ("AAA", today, "present"), ("BBB", today, "missing"),
+        ("AAA", market_date, "present"), ("BBB", market_date, "missing"),
+        ("AAA", market_date, "present"), ("BBB", market_date, "missing"),
     ]
     assert _read(db_path, "SELECT COUNT(*) FROM prices WHERE ticker='BBB'") == [(0,)]
 
