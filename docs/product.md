@@ -67,6 +67,8 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 |---|---|---|
 | 2026-09-26 | Replace maintain-only framing with build-toward-verdict guidance; add the system blueprint; keep P16 proposed until P15 W8 | AGENTS, blueprint, P16, feedback |
 | 2026-09-25 | P15 approved: score every candidate, add deterministic comparator books, add a pre-open check and event-driven shadow triggers, and code the gates. It may run as one long session with sub-agents | [P15](plans/p15-profitability-evidence-loop.md), feedback |
+| 2026-09-26 | Data: use every free source first, scraping included; paid data waits (owner). Raw scraped text stays on the host, outside the public repo | P16 |
+| 2026-09-26 | Instructions refreshed: build toward a verdict inside plans; lint is not a defect; P1 closed | feedback |
 | 2026-09-25 | Model token cost is excluded from the profitability definition; trading and data costs still count | This page |
 | 2026-09-25 | This page is the central product and decision document (was `direction.md`) | This page |
 | 2026-09-25 | TradingView active for research data under owner-held non-display rights; never prices fills or grants execution authority. Alpaca stays dormant | P13, P14 |
@@ -99,7 +101,7 @@ Each row has the default that applies until the owner decides.
 | **P8 v1 order authority** once P15 books are live | A single AI book to watch | P8 v1 keeps running unchanged as its own cohort |
 | **P3 data budget**: initial and recurring ceiling for Sharadar (or Norgate) | Survivor-free point-in-time universe and fundamentals; historical stock-selection research | No purchase; forward evidence only |
 | **Commit metadata rewrite** for 2026-09-18 to 09-23 author and trailer lines that break the public-hygiene rule | Clean public history | Not rewritten (needs a force-push; dates would be kept) |
-| **Alpaca market-data credentials** | A second realtime cross-check source | Dormant; TradingView covers research needs |
+| **Free API keys** (Alpaca, including the Benzinga news archive; Finnhub; Alpha Vantage) | Extra historical news for the P16 replay lab; a second realtime cross-check | Free bulk archives and scraping only (GDELT, CC-NEWS, EDGAR, wire and IR pages, Wayback) |
 | **Personal execution host** | Stage 2 | None |
 | **Model provider for real capital** with a provider-pinned immutable revision | Stage 2+ | Paper only |
 | **IBKR account and an execution-layer plan** (tax check first: US dividend withholding and US-situs estate exposure favour UCITS ETFs for allocation sleeves) | Stages 2–3 | No broker work |
