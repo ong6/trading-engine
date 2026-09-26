@@ -434,11 +434,8 @@ def test_missing_next_session_entry_waits_for_late_bar_arrival(con):
     insert_bars(con, "SPY", SESSIONS[30:35], open_=100, close=101, high=102, low=99)
     con.execute("UPDATE prices SET fetched_at=?", [labeled_at.replace(tzinfo=None)])
 
-    assert p15_event_runner.label_mature(con, labeled_at=labeled_at) == 2
-    assert con.execute(
-        "SELECT label_basis,missing_bar_status FROM p15_event_labels "
-        "WHERE horizon_sessions=1 ORDER BY label_basis"
-    ).fetchall() == [("next_bar", "missing_next_bar_last_available_close")]
+    assert p15_event_runner.label_mature(con, labeled_at=labeled_at) == 0
+    assert con.execute("SELECT COUNT(*) FROM p15_event_labels").fetchone() == (0,)
     insert_bars(con, "AAA", [SESSIONS[31]], open_=100, close=101, high=102, low=99)
     con.execute(
         "UPDATE prices SET fetched_at=? WHERE ticker='AAA' AND date=?",
@@ -448,10 +445,7 @@ def test_missing_next_session_entry_waits_for_late_bar_arrival(con):
     assert con.execute(
         "SELECT label_basis,missing_bar_status FROM p15_event_labels "
         "WHERE horizon_sessions=1 ORDER BY label_basis"
-    ).fetchall() == [
-        ("next_bar", "missing_next_bar_last_available_close"),
-        ("next_session_open", "complete"),
-    ]
+    ).fetchall() == [("next_session_open", "complete")]
 
 
 def test_missing_next_session_entry_does_not_suppress_valid_next_bar(con):
@@ -515,8 +509,8 @@ def test_next_session_intraday_bar_cannot_suppress_missing_next_bar_label(con):
         source_summary={}, generate=_result,
         clock=lambda: observed + timedelta(minutes=1),
     )
-    labeled_at = datetime(2024, 7, 18, 21, tzinfo=timezone.utc)
-    insert_bars(con, "SPY", SESSIONS[30:32], open_=100, close=101, high=102, low=99)
+    labeled_at = datetime(2024, 7, 22, 21, tzinfo=timezone.utc)
+    insert_bars(con, "SPY", SESSIONS[30:34], open_=100, close=101, high=102, low=99)
     con.execute("UPDATE prices SET fetched_at=?", [labeled_at.replace(tzinfo=None)])
     receipt = bitemporal_facts.record_receipt(
         con, source="yfinance", dataset="intraday_quote", endpoint="https://example.test/bars",
