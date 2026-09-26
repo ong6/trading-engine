@@ -434,6 +434,78 @@ def test_p15_scoring_dry_run_uses_copy_and_leaves_source_unchanged(tmp_path):
         con.close()
 
 
+def test_p15_scoring_rejects_d_plus_2_post_entry_retry_and_records_failure(tmp_path):
+    database = tmp_path / "market.duckdb"
+    _p15_database(database)
+    next_session = MARKET_DATE + timedelta(days=1)
+    late = datetime(2026, 9, 23, 2, 30, tzinfo=timezone.utc)
+
+    con = db.connect(database)
+    con.execute(
+        "INSERT INTO universe VALUES "
+        "('LAG','LAG','Lag','NYSE',FALSE,'test',?,TRUE,TRUE,TRUE)",
+        [MARKET_DATE],
+    )
+    con.execute(
+        "INSERT INTO prices "
+        "(ticker,date,open,high,low,close,volume,fetched_at) "
+        "VALUES ('LAG',?,?,?,?,?,?,?)",
+        [MARKET_DATE, 100, 101, 99, 100, 1_000_000, late.replace(tzinfo=None)],
+    )
+    for ticker in ("SPY", "FAST", "QUIET"):
+        con.execute(
+            "INSERT INTO prices "
+            "(ticker,date,open,high,low,close,volume,fetched_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            [ticker, next_session, 101, 102, 100, 101, 1_000_000,
+             late.replace(tzinfo=None)],
+        )
+    assert db.latest_operational_market_date(con) == MARKET_DATE
+    con.close()
+
+    calls = []
+
+    def fetch_news(ticker, observed_at):
+        calls.append(("news", ticker))
+        return _news_response(ticker, observed_at)
+
+    def generate(payload):
+        calls.append(("model", payload))
+        return _scoring_result(payload)
+
+    result = p15_scoring_runner._run(
+        database=database, now=late, generate=generate,
+        fetch_news=fetch_news, clock=lambda: late,
+    )
+
+    assert result == {
+        "status": "failed",
+        "market_date": MARKET_DATE.isoformat(),
+        "reason": "outside_admissible_window",
+        "model_call_count": 0,
+        "replayed": False,
+    }
+    assert calls == []
+
+    con = db.connect(database, read_only=True)
+    try:
+        assert con.execute(
+            "SELECT market_date,status,reason FROM p15_scoring_runs"
+        ).fetchone() == (
+            MARKET_DATE,
+            "failed",
+            "outside_admissible_window",
+        )
+        assert con.execute(
+            "SELECT COUNT(*) FROM p15_scoring_samples"
+        ).fetchone() == (0,)
+        assert con.execute(
+            "SELECT COUNT(*) FROM p15_scoring_news_responses"
+        ).fetchone() == (0,)
+    finally:
+        con.close()
+
+
 def test_p15_scoring_rejects_noon_start_before_writing(tmp_path):
     database = tmp_path / "market.duckdb"
     _p15_database(database)
