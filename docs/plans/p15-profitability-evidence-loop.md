@@ -436,7 +436,7 @@ only** (owner, 2026-09-25). Every other AGENTS.md rule still applies.
 | W0 Baseline and safety | done | 2026-09-25 |
 | W1 Observer evidence defects | done | 2026-09-25 |
 | W2 Scoring policy and baseline | done | 2026-09-25 |
-| W3 Comparator books | not started | |
+| W3 Comparator books | done | 2026-09-26 |
 | W4 Pre-open reassessment | not started | |
 | W5 Event triggers | not started | |
 | W6 Gates and reporting | not started | |
