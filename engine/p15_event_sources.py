@@ -10,6 +10,7 @@ import stat
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, time, timezone
 from pathlib import Path
+from typing import Callable
 from zoneinfo import ZoneInfo
 
 import duckdb
@@ -531,6 +532,8 @@ def _mover_universe(con, observed_at: datetime) -> list[tuple[str, str, float, f
 def scan_intraday(
     con: duckdb.DuckDBPyConnection, *, observed_at: datetime,
     capture=intraday_source.capture, workers: int = MAX_INTRADAY_WORKERS,
+    release_for_capture: Callable[[], None] = lambda: None,
+    reacquire_after_capture: Callable[[], None] = lambda: None,
 ) -> dict:
     """Capture the bounded universe and retain threshold-crossing mover triggers."""
     if type(observed_at) is not datetime or observed_at.utcoffset() is None:
@@ -543,14 +546,18 @@ def scan_intraday(
     initialize_event_evidence(con, now=observed_at)
     universe = _mover_universe(con, observed_at)
     captures, failures = [], []
-    with ThreadPoolExecutor(max_workers=max(1, min(workers, MAX_INTRADAY_WORKERS))) as pool:
-        futures = {pool.submit(capture, ticker, provider, observed_at): ticker
-                   for ticker, provider, _close, _volume, _atr in universe}
-        for future in as_completed(futures):
-            try:
-                captures.append(future.result())
-            except (intraday_source.IntradaySourceError, OSError, ValueError) as exc:
-                failures.append({"ticker": futures[future], "reason": str(exc)[:200]})
+    release_for_capture()
+    try:
+        with ThreadPoolExecutor(max_workers=max(1, min(workers, MAX_INTRADAY_WORKERS))) as pool:
+            futures = {pool.submit(capture, ticker, provider, observed_at): ticker
+                       for ticker, provider, _close, _volume, _atr in universe}
+            for future in as_completed(futures):
+                try:
+                    captures.append(future.result())
+                except (intraday_source.IntradaySourceError, OSError, ValueError) as exc:
+                    failures.append({"ticker": futures[future], "reason": str(exc)[:200]})
+    finally:
+        reacquire_after_capture()
     inputs = {row[0]: row[2:] for row in universe}
     created, retained = 0, 0
     elapsed = max(1.0, (local.hour * 60 + local.minute) - (9 * 60 + 30)) / 390

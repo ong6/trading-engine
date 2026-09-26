@@ -1,6 +1,8 @@
 """P15 event decision, rate-limit, and shadow-authority tests."""
 from __future__ import annotations
 
+import subprocess
+import sys
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -294,7 +296,7 @@ def test_event_runner_operates_without_an_rss_file(tmp_path, monkeypatch):
     monkeypatch.delenv("TRADING_ENGINE_SEC_USER_AGENT", raising=False)
     monkeypatch.setattr(
         p15_event_sources, "scan_intraday",
-        lambda _con, *, observed_at: {
+        lambda _con, *, observed_at, **_kwargs: {
             "status": "complete", "universe": 0, "captured": 0,
             "facts": 0, "triggers": 0, "failures": [],
         },
@@ -330,7 +332,7 @@ def test_event_runner_releases_database_during_model_call(tmp_path, monkeypatch)
     monkeypatch.setattr(
         p15_event_sources,
         "scan_intraday",
-        lambda _con, *, observed_at: {
+        lambda _con, *, observed_at, **_kwargs: {
             "status": "complete",
             "universe": 0,
             "captured": 0,
@@ -364,6 +366,50 @@ def test_event_runner_releases_database_during_model_call(tmp_path, monkeypatch)
     assert observed_call_states == [[("running",)]]
     assert result["status"] == "completed"
     assert result["decisions"] == result["model_calls"] == 1
+
+
+def test_event_runner_releases_database_during_external_source_calls(tmp_path, monkeypatch):
+    database = tmp_path / "market.duckdb"
+    con = db.connect(database)
+    db.init_schema(con)
+    con.close()
+    observed = datetime(2026, 9, 28, 14, 5, tzinfo=timezone.utc)
+    monkeypatch.setattr(p15_event_runner, "LOCK_PATH", tmp_path / "p15.lock")
+    monkeypatch.setattr(p15_event_runner, "NIGHTLY_LOCK", tmp_path / "nightly.lock")
+    monkeypatch.setenv("TRADING_ENGINE_SEC_USER_AGENT", "Research contact@example.test")
+    observed_sources = []
+
+    def prove_released(label, release_for_capture, reacquire_after_capture):
+        release_for_capture()
+        subprocess.run(
+            [sys.executable, "-c", "import duckdb,sys; duckdb.connect(sys.argv[1]).close()",
+             str(database)],
+            check=True, capture_output=True, text=True,
+        )
+        observed_sources.append(label)
+        reacquire_after_capture()
+
+    def sec_capture(_con, _names, *, release_for_capture, reacquire_after_capture):
+        prove_released("sec", release_for_capture, reacquire_after_capture)
+        return {"status": "complete", "filing_fact_count": 0}
+
+    def scan_intraday(_con, *, observed_at, release_for_capture, reacquire_after_capture):
+        assert observed_at == observed
+        prove_released("intraday", release_for_capture, reacquire_after_capture)
+        return {"status": "complete", "universe": 0, "captured": 0,
+                "facts": 0, "triggers": 0, "failures": []}
+
+    monkeypatch.setattr(p15_event_runner.sec_edgar_capture, "capture", sec_capture)
+    monkeypatch.setattr(p15_event_sources, "scan_intraday", scan_intraday)
+
+    result = p15_event_runner.run_database(
+        database, observed_at=observed, rss_path=tmp_path / "missing.jsonl",
+        generate=lambda _payload: (_ for _ in ()).throw(AssertionError("no triggers")),
+        clock=lambda: observed + timedelta(minutes=1),
+    )
+
+    assert result["status"] == "completed"
+    assert observed_sources == ["sec", "intraday"]
 
 
 def test_sec_rotation_eventually_covers_aliasing_cohort_size():
