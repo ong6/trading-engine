@@ -179,7 +179,7 @@
     "price_fetch_availability": "after_collection_completion"
   },
   "code_identity": {
-    "source_commit": "f65437467537ebf988bcc83ca0f5a1286a612618",
+    "source_commit": "3e29e8b63ed734ee4356ab46988ca8903dffbfd4",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/actions.py": "a6c2ec46d198df2318498ec7d55e1b7cfeca4c8afaccd8a5c208618e4ea8b850",
@@ -255,8 +255,8 @@
       "server/nightly_reports.py": "901448247bb8169952a3ac862a64b9051840a2f6bbfb3fad400a4cfd61b34517",
       "server/official_quote_source.py": "6249c44243fa91e0c658ecc180853693c61ddcb7b7a9b6cb6f5869b8ea620de1",
       "server/p15_preopen.py": "d02aacdc3a70efff67584dac516874f96519767331f79ca5284d983c70543a45",
-      "server/p15_incremental_collect.py": "bc14c9343e4e76524500cb6cdb0aac8ae07f862c17f96ea3925a64ab12523240",
-      "server/p15_price_fetch_attempts.py": "6a18979969a088549396052bd2c24bc627af7dec2a02feeb2c20014bf24fa158",
+      "server/p15_incremental_collect.py": "7094a981f452ebdb647d51064d16fb92d632f298ea259552541afbe15db66efb",
+      "server/p15_price_fetch_attempts.py": "fd9ebc0b3eedb6e11db417fe21f9e591f24ce01d60e0b5422362a1b22632c757",
       "server/p15_scoring_runner.py": "6e97bbc9b9e51c128a7f9e2705a0cc7d590237c1f7b7368507724193fe8a3644",
       "server/p15_scoring_store.py": "4660607b6bb5b18fdb6ee7585b8bdadab9dfa9af9417f0ae51833bc87a695bee",
       "server/status_validation.py": "538a2b74aa645475cdbb760c14f0ce2f49a2a4417e4c400197b724dd2ff4c770",
@@ -317,5 +317,5 @@
   },
   "registration_revision": 2,
   "revision_reason": "P16 W0 review findings R1-R16",
-  "registration_sha256": "9da275dd40515a4eb5353dec828914d7760849809eb741dd508c669194336047"
+  "registration_sha256": "2cbaba53de3839c46adb1344726335d5ddeb00de0fff32a2a04cc2f44c986af0"
 }
