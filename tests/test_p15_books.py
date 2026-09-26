@@ -29,7 +29,7 @@ def _seed_decisions(con, market_date, decisions):
     con.execute(
         "CREATE TABLE IF NOT EXISTS agent_evaluation_traces "
         "(id BIGINT PRIMARY KEY, policy_id VARCHAR, "
-        "market_date DATE, terminal_status VARCHAR)"
+        "market_date DATE, terminal_status VARCHAR, completed_at TIMESTAMP)"
     )
     con.execute(
         "CREATE TABLE IF NOT EXISTS agent_evaluation_decisions "
@@ -44,7 +44,8 @@ def _seed_decisions(con, market_date, decisions):
     ).fetchone()[0])
     con.execute(
         "INSERT INTO agent_evaluation_traces VALUES "
-        "(?,'p15-scoring-v1',?,'completed')", [trace_id, market_date]
+        "(?,'p15-scoring-v1',?,'completed',?)",
+        [trace_id, market_date, datetime.combine(market_date, datetime.min.time())],
     )
     con.executemany(
         "INSERT INTO agent_evaluation_decisions VALUES (?, ?, ?, ?)",
@@ -64,6 +65,7 @@ def _decision(ticker, baseline_rank, expected, *, action="buy_candidate", availa
         "action": {"buy_candidate": "buy", "exit": "sell"}.get(action, "none"),
         "p_outperform_5": 0.70 if available else None,
         "expected_excess_bp_5": expected if available else None,
+        "evidence_ids": ["a" * 64],
     }
 
 

@@ -283,6 +283,35 @@ def test_p15_scoring_uses_truthful_distinct_prompt_and_no_tools():
     assert timeouts == [5.0, 5.0, 240.0, 5.0, 5.0]
 
 
+def test_p15_preopen_is_cancel_only_and_has_no_tools():
+    output = {"schema_version": 1, "decisions": [
+        {"intent_id": 1, "decision": "keep", "reason": "No adverse new fact.",
+         "evidence_ids": ["a" * 64]},
+    ]}
+    factory, observed, connections, timeouts = factory_for([
+        Response(health()), Response(models(agent_model_client.MODEL)),
+        Response(response(output)), Response(health()),
+        Response(models(agent_model_client.MODEL)),
+    ])
+
+    result = agent_model_client.generate_p15_preopen_json(
+        {"policy_id": "p15-preopen-v1", "intents": []}, connection_factory=factory,
+    )
+
+    request = json.loads(
+        next(item for item in observed if item["path"] == "/v1/responses")["body"]
+    )
+    assert result.output == output
+    assert request["instructions"] == agent_model_client.P15_PREOPEN_INSTRUCTIONS
+    assert "cancel-only" in request["instructions"]
+    assert request["tools"] == [] and request["tool_choice"] == "none"
+    assert agent_model_client.identity(role="p15_preopen")["instructions_sha256"] == (
+        canonical_sha256(agent_model_client.P15_PREOPEN_INSTRUCTIONS)
+    )
+    assert all(connection.closed for connection in connections)
+    assert timeouts == [5.0, 5.0, 240.0, 5.0, 5.0]
+
+
 def test_generate_trade_tool_allows_exactly_one_bounded_function():
     arguments = {"ticker": "FAST", "side": "buy", "assessment_sha256": "a" * 64,
                  "horizon_sessions": 5, "thesis": "Momentum",
