@@ -4,6 +4,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -23,6 +24,7 @@ REGISTERED_PATHS = {
     "engine/lib/__init__.py",
     "engine/lib/data_quality.py",
     "engine/lib/db.py",
+    "engine/lib/driver.sh",
     "engine/lib/log.py",
     "engine/lib/provenance.py",
     "engine/lib/resources.py",
@@ -78,7 +80,34 @@ REGISTERED_PATHS = {
     "sim/portfolio.py",
     "sim/schema.py",
     "sim/settle.py",
+    "sim/strategies/__init__.py",
+    "sim/strategies/agent_only_policy.py",
     "sim/strategies/base.py",
+    "sim/strategies/discretionary.py",
+    "sim/strategies/dual_momentum.py",
+    "sim/strategies/ew_benchmark.py",
+    "sim/strategies/ew_dd_throttle.py",
+    "sim/strategies/ew_gross_voltarget.py",
+    "sim/strategies/ew_sector_capped.py",
+    "sim/strategies/ew_static_exposure.py",
+    "sim/strategies/ew_trend_gated.py",
+    "sim/strategies/ew_voltarget.py",
+    "sim/strategies/high_52wk.py",
+    "sim/strategies/low_vol.py",
+    "sim/strategies/macro_composite.py",
+    "sim/strategies/momo_stopped.py",
+    "sim/strategies/mr_overlay.py",
+    "sim/strategies/multi_asset_trend.py",
+    "sim/strategies/pead_ear.py",
+    "sim/strategies/sector_momentum.py",
+    "sim/strategies/sleeve_alloc.py",
+    "sim/strategies/spy_benchmark.py",
+    "sim/strategies/template_top10_banded.py",
+    "sim/strategies/template_top5.py",
+    "sim/strategies/turtle_breakout.py",
+    "sim/strategies/xs_common.py",
+    "sim/strategies/xs_momentum_12_1.py",
+    "sim/strategies/xs_reversal_1m.py",
     "tools/__init__.py",
     "tools/agent_trial_register.py",
     "tools/backup_database.py",
@@ -92,12 +121,41 @@ def _registration() -> dict:
     return json.loads(REGISTRATION_PATH.read_text())
 
 
-def _local_import_closure(paths: set[str]) -> set[str]:
-    closure = {path for path in paths if path.endswith(".py")}
+_RELATIVE_SOURCE = re.compile(
+    r'^source "\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)/([^"\n]+)"$',
+    re.MULTILINE,
+)
+
+
+def _local_dependency_closure(paths: set[str]) -> set[str]:
+    closure = set(paths)
     pending = list(closure)
     roots = {"engine", "farm", "server", "sim", "tools"}
+
+    def include(target: Path) -> None:
+        candidates = [target]
+        candidates.extend(
+            parent / "__init__.py"
+            for parent in target.parents
+            if parent != ROOT and ROOT in parent.parents
+        )
+        for candidate in candidates:
+            if not candidate.is_file():
+                continue
+            found = candidate.relative_to(ROOT).as_posix()
+            if found not in closure:
+                closure.add(found)
+                pending.append(found)
+
     while pending:
         relative = pending.pop()
+        if relative.endswith(".sh"):
+            script = ROOT / relative
+            for sourced in _RELATIVE_SOURCE.findall(script.read_text()):
+                include(script.parent / sourced)
+            continue
+        if not relative.endswith(".py"):
+            continue
         module_parts = list(Path(relative).with_suffix("").parts)
         package = module_parts[:-1]
         tree = ast.parse((ROOT / relative).read_text())
@@ -123,12 +181,8 @@ def _local_import_closure(paths: set[str]) -> set[str]:
                 continue
             options = [ROOT.joinpath(*parts).with_suffix(".py"), ROOT.joinpath(*parts, "__init__.py")]
             target = next((item for item in options if item.is_file()), None)
-            if target is None:
-                continue
-            found = target.relative_to(ROOT).as_posix()
-            if found not in closure:
-                closure.add(found)
-                pending.append(found)
+            if target is not None:
+                include(target)
     return closure
 
 
@@ -336,7 +390,7 @@ def test_p15_registered_file_hashes_match_checkout():
     registration = _registration()
     files = registration["code_identity"]["files"]
     assert set(files) == REGISTERED_PATHS
-    assert _local_import_closure(REGISTERED_PATHS) <= REGISTERED_PATHS
+    assert _local_dependency_closure(REGISTERED_PATHS) <= REGISTERED_PATHS
     drift = {}
     for relative, recorded in files.items():
         path = ROOT / relative
