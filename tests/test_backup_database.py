@@ -7,11 +7,14 @@ import json
 import os
 import shutil
 import stat
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import duckdb
 import pytest
 
+from engine import p15_evaluation
+from engine.lib import db as engine_db
 from tools import backup_database
 
 
@@ -181,6 +184,45 @@ def test_create_and_verify_transactional_bundle(tmp_path):
         ("SPY",),
     ]
     connection.close()
+
+
+def test_backup_restores_persisted_p15_look_with_external_anchor(tmp_path):
+    root, source = _repo(tmp_path)
+    destination = tmp_path / "outside" / "snapshot"
+    relative_anchor = "data/reports/agent-eval/p15-look-anchors.jsonl"
+    anchor_path = root / relative_anchor
+    anchor_path.unlink(missing_ok=True)
+    now = datetime(2026, 12, 1, 12, tzinfo=timezone.utc)
+    scored = [
+        {"delta_ic": 0.2 + (index % 3) * 0.01,
+         "model_ic": 0.3, "baseline_ic": 0.09, "pair_count": 40,
+         "evaluated_at": now.isoformat(),
+         "market_date": (date(2026, 1, 1) + timedelta(days=index)).isoformat()}
+        for index in range(60)
+    ]
+    registration_sha = "a" * 64
+    connection = engine_db.connect(source)
+    p15_evaluation.persist_reached_looks(
+        connection, scored, registration_sha, evaluated_at=now,
+        anchor_path=anchor_path,
+    )
+    with engine_db.transaction(connection):
+        p15_evaluation.publish_pending_look_anchors(
+            connection, registration_sha, anchor_path=anchor_path,
+        )
+    connection.close()
+
+    backup_database.create_backup(root, source, destination)
+
+    bundled_anchor = destination / "evidence" / relative_anchor
+    assert bundled_anchor.read_bytes() == anchor_path.read_bytes()
+    restored = engine_db.connect(
+        destination / backup_database.DATABASE_FILENAME, read_only=True,
+    )
+    assert p15_evaluation.load_retained_looks(
+        restored, scored, registration_sha, anchor_path=bundled_anchor,
+    )[0]["look"] == 60
+    restored.close()
 
 
 def test_create_preserves_incomplete_nonreleasable_source_identity(tmp_path, monkeypatch):
