@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "purpose": "P16 W0 proof that the P8 v1 lint refactor preserved retained-run behavior",
+  "before_commit": "0de5ede0037a03a6eb60d336a89d95602e1c3719",
+  "after_commit": "61b6a261e71b6357bca548080ae00c85bea9c9a8",
+  "market_date": "2026-09-25",
+  "replay_result": {
+    "status": "completed",
+    "replayed": true,
+    "assessment_count": 8,
+    "news_status": "available",
+    "paper_order_count": 1,
+    "paper_order_ids": [1293],
+    "execution_authority": "local_simulator_only"
+  },
+  "external_calls": {
+    "model": 0,
+    "news": 0,
+    "tool": 0
+  },
+  "bundle_sha256": "9b1f53dab525b2e7ecd42f9dac8bf82dce56455fb94bd60f566f28f2735e918d",
+  "assessment_output_sha256": "94f3a49ddee6b1044d82a7c3dcc0673e4d354391aa9dbbaccbb5aa4fd635da23",
+  "logical_state_before_sha256": "47ac8186dffc490eaf1fbb734029b0260f0336f5af9112b7c7bb7bb997faae6e",
+  "logical_state_after_sha256": "47ac8186dffc490eaf1fbb734029b0260f0336f5af9112b7c7bb7bb997faae6e",
+  "logical_state_unchanged": true,
+  "assessments_match_retained": true,
+  "exact_ref_test": {
+    "path": "tests/test_daily_opportunities.py",
+    "before": "17 passed",
+    "after": "17 passed"
+  }
+}
