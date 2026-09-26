@@ -927,4 +927,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Next:** run the required 2026-09-28 full dry-run day, then activate on the registered session
   only if every gate remains green.
 
+## 2026-09-26 — P16 W1: build the evaluation foundation
+
+- **Why:** approved P16 W1 admits evaluation science and its listed input and reporting fixes.
+- **What:** add retained factor inputs, compute-time screen snapshots, paired diagnostics,
+  factor adjustment, bounded sequential evidence, deflated Sharpe, and transfer calculations.
+  An append-only trial catalogue counts attempted versions once, including failures and retirements.
+  These modules remain inert pending integration; W1 review and registration are still open.
+- **Evidence:** `.venv/bin/python -m pytest -o addopts= -q -W error tests/test_p16_*.py` → 33 passed.
+- **Metrics:** server +149, tools unchanged, product +616 (engine +238, farm +378); budget ok.
+- **Next:** W1 historical trial reconciliation, report integration, and independent review.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

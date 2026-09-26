@@ -1,7 +1,7 @@
 ---
 plan: P16
 title: Challenger lab, text edge, and evaluation science
-status: approved
+status: active
 opened: 2026-09-26
 owner_decision: approved 2026-09-26 (feedback.md), including P15 remediation and activation as W0; optional inputs listed under Prerequisites
 ---
@@ -485,7 +485,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | Workstream | Status | Evidence (BUILDLOG date) |
 |---|---|---|
 | W0 Baseline, P15 remediation (R1–R16), P15 activation | **claimed 2026-09-27 by a GPT-5.6-Sol session** (host `screen` session `p16-w0-sol`, worktree branch `p16-w0-sol`). It does R1–R16, issues the registration again, and runs the dry-run; it pushes to `main` and marks this row. **P15 activation and W1 onward belong to the lead (GPT-6-Astra) session.** The lead waits for this row to say "remediation done" before activating P15, and may start W1 in parallel in its own worktree | |
-| W1 Evaluation science v2 | not started | |
+| W1 Evaluation science v2 | in progress in the lead's `p16-lead` worktree: evaluation foundation and 33 tests pass; historical trial reconciliation, integration, and independent reviews remain | 2026-09-26 |
 | W2 Challenger lab | not started | |
 | W3 Filing reader | not started | |
 | W4 Historical labs (text lab, replay lab) | not started | |
@@ -496,7 +496,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W9 Cleanup, docs, refine gate, activation | not started | |
 | W10 Final refine pass | not started | |
 
-Owner inputs needed: none yet.
+Owner inputs needed: optional `research-text` dependency decision requested 2026-09-26; W4a remains corpus-only until approved. An optional alternate reviewer model was requested after fresh review jobs produced no output; reviews remain pending. SEC contact and free API keys retain their stated defaults.
 
 **Design inputs (parallel GPT-6-Astra design sessions, started 2026-09-27).** Three sessions write
 specs, test vectors, and numpy reference drafts on the host, outside the repo. Before building a
