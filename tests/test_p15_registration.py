@@ -1,6 +1,7 @@
 """Machine-enforced P15 frozen registration contract."""
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import subprocess
@@ -15,59 +16,120 @@ from sim import p15_books
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRATION_PATH = ROOT / "server" / "p15-registration.json"
 REGISTERED_PATHS = {
+    "engine/__init__.py",
     "engine/bitemporal_facts.py",
     "engine/collect.py",
     "engine/daily_opportunities.py",
-    "engine/lib/db.py",
+    "engine/lib/__init__.py",
     "engine/lib/data_quality.py",
+    "engine/lib/db.py",
+    "engine/lib/log.py",
     "engine/lib/provenance.py",
     "engine/lib/resources.py",
+    "engine/lib/settings.py",
     "engine/lib/util.py",
     "engine/p15_evaluation.py",
     "engine/p15_event_sources.py",
     "engine/run_daily.sh",
     "engine/tradingview_history_archive.py",
+    "farm/__init__.py",
     "farm/agent_evaluation_analysis.py",
     "farm/p15_event_runner.py",
+    "server/__init__.py",
     "server/agent-cadence-registration.json",
     "server/agent_evaluation.py",
     "server/agent_evaluation_reporting.py",
     "server/agent_model_client.py",
-    "server/daily_opportunity_runner.py",
     "server/daily_opportunity_news.py",
+    "server/daily_opportunity_execution.py",
+    "server/daily_opportunity_runner.py",
+    "server/daily_opportunity_store.py",
+    "server/daily_opportunity_tools.py",
+    "server/driver_log.py",
+    "server/driver_monitor.py",
+    "server/file_utils.py",
     "server/hourly_opportunity_observer.py",
     "server/intraday_source.py",
     "server/json_utils.py",
+    "server/market_data_sources.py",
+    "server/nightly_monitor.py",
+    "server/nightly_reports.py",
     "server/official_quote_source.py",
-    "server/p15_preopen.py",
     "server/p15_incremental_collect.py",
+    "server/p15_preopen.py",
     "server/p15_price_fetch_attempts.py",
     "server/p15_scoring_runner.py",
     "server/p15_scoring_store.py",
+    "server/status_validation.py",
     "server/trading-engine-p15-events.service",
     "server/trading-engine-p15-events.timer",
     "server/trading-engine-p15-preopen.service",
     "server/trading-engine-p15-preopen.timer",
     "server/trading-engine-p15-scoring.service",
     "server/trading-engine-p15-scoring.timer",
-    "sim/p15_books.py",
-    "sim/p15_fills.py",
+    "server/tradingview_source.py",
+    "sim/__init__.py",
     "sim/calendar.py",
     "sim/execution.py",
     "sim/fills.py",
     "sim/nyse.py",
+    "sim/p15_books.py",
+    "sim/p15_fills.py",
     "sim/portfolio.py",
     "sim/schema.py",
     "sim/settle.py",
     "sim/strategies/base.py",
+    "tools/__init__.py",
     "tools/agent_trial_register.py",
+    "tools/backup_database.py",
     "tools/p15_evidence_validation.py",
+    "tools/release_manifest.py",
     "tools/sec_edgar_capture.py",
 }
 
 
 def _registration() -> dict:
     return json.loads(REGISTRATION_PATH.read_text())
+
+
+def _local_import_closure(paths: set[str]) -> set[str]:
+    closure = {path for path in paths if path.endswith(".py")}
+    pending = list(closure)
+    roots = {"engine", "farm", "server", "sim", "tools"}
+    while pending:
+        relative = pending.pop()
+        module_parts = list(Path(relative).with_suffix("").parts)
+        package = module_parts[:-1]
+        tree = ast.parse((ROOT / relative).read_text())
+        candidates = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                candidates.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    prefix = package[:len(package) - node.level + 1]
+                    base = [*prefix, *([] if node.module is None else node.module.split("."))]
+                else:
+                    base = [] if node.module is None else node.module.split(".")
+                if base:
+                    candidates.add(".".join(base))
+                candidates.update(
+                    ".".join([*base, alias.name]) for alias in node.names
+                    if alias.name != "*"
+                )
+        for module in candidates:
+            parts = module.split(".")
+            if not parts or parts[0] not in roots:
+                continue
+            options = [ROOT.joinpath(*parts).with_suffix(".py"), ROOT.joinpath(*parts, "__init__.py")]
+            target = next((item for item in options if item.is_file()), None)
+            if target is None:
+                continue
+            found = target.relative_to(ROOT).as_posix()
+            if found not in closure:
+                closure.add(found)
+                pending.append(found)
+    return closure
 
 
 def test_p15_registration_revision_and_self_hash():
@@ -274,6 +336,7 @@ def test_p15_registered_file_hashes_match_checkout():
     registration = _registration()
     files = registration["code_identity"]["files"]
     assert set(files) == REGISTERED_PATHS
+    assert _local_import_closure(REGISTERED_PATHS) <= REGISTERED_PATHS
     drift = {}
     for relative, recorded in files.items():
         path = ROOT / relative
