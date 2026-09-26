@@ -14,6 +14,7 @@ from server import (
     agent_evaluation_reporting,
     agent_model_client,
     daily_opportunity_store,
+    p15_price_fetch_attempts,
     p15_scoring_runner,
     p15_scoring_store,
 )
@@ -558,6 +559,17 @@ def test_missing_bar_fetch_attempt_confirms_after_grace(con):
         [sessions[-1], (labeled_at - timedelta(minutes=1)).replace(tzinfo=None),
          "f" * 64, "c" * 64],
     )
+
+    con.execute(
+        "INSERT INTO universe (ticker,yf_ticker,active,liquid,backfill_done) "
+        "VALUES ('FAST','FAST',TRUE,TRUE,FALSE)"
+    )
+    with db.transaction(con):
+        p15_price_fetch_attempts.record(
+            con, market_date=sessions[-1],
+            attempted_at=labeled_at - timedelta(seconds=1),
+            requested_count=1, failed_count=0,
+        )
 
     outcome = agent_evaluation._label_outcome_when_ready(
         con, "FAST", sessions, labeled_at

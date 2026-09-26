@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 from datetime import date, datetime, timezone
+from pathlib import Path
 from statistics import NormalDist
 
 import duckdb
@@ -11,6 +12,7 @@ import duckdb
 from engine import p15_event_sources
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
+from engine.lib.resources import advisory_file_lock, write_text_atomic
 from engine.lib.settings import REPO_ROOT
 from engine.lib.util import table_exists
 from sim import nyse
@@ -30,6 +32,7 @@ PRIMARY_T_CRITICAL = {
 }
 P15EvaluationError = ValueError
 REGISTRATION_PATH = REPO_ROOT / "server" / "p15-registration.json"
+LOOK_ANCHOR_PATH = REPO_ROOT / "data" / "reports" / "agent-eval" / "p15-look-anchors.jsonl"
 
 
 def registration_sha256() -> str:
@@ -406,9 +409,56 @@ def _look_source_prefix(scored: list[dict], size: int) -> str:
     } for row in scored[:size]])
 
 
+def _external_look_anchors(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    anchors, previous = [], None
+    try:
+        lines = path.read_text().splitlines()
+    except OSError as exc:
+        raise P15EvaluationError("P15 external look anchor is unavailable") from exc
+    for line in lines:
+        try:
+            item = json.loads(line)
+        except (TypeError, ValueError) as exc:
+            raise P15EvaluationError("P15 external look anchor differs") from exc
+        body = {key: item.get(key) for key in (
+            "schema_version", "policy_id", "registration_sha256",
+            "look_sessions", "look_sha256", "previous_anchor_sha256",
+        )}
+        if (
+            set(item) != {*body, "anchor_sha256"}
+            or body["schema_version"] != 1
+            or body["previous_anchor_sha256"] != previous
+            or canonical_sha256(body) != item["anchor_sha256"]
+        ):
+            raise P15EvaluationError("P15 external look anchor differs")
+        anchors.append(item)
+        previous = item["anchor_sha256"]
+    return anchors
+
+
+def _append_external_look_anchor(
+    path: Path, *, registration_sha256: str, look_sessions: int, look_sha256: str,
+) -> None:
+    with advisory_file_lock(path.with_suffix(path.suffix + ".lock")):
+        anchors = _external_look_anchors(path)
+        body = {
+            "schema_version": 1, "policy_id": POLICY_ID,
+            "registration_sha256": registration_sha256,
+            "look_sessions": look_sessions, "look_sha256": look_sha256,
+            "previous_anchor_sha256": (
+                None if not anchors else anchors[-1]["anchor_sha256"]
+            ),
+        }
+        item = {**body, "anchor_sha256": canonical_sha256(body)}
+        text = "" if not anchors else path.read_text()
+        write_text_atomic(path, text + json.dumps(item, sort_keys=True) + "\n")
+
+
 def load_retained_looks(
     con: duckdb.DuckDBPyConnection, scored: list[dict], registration_sha256: str,
-    *, require_reached: bool = True,
+    *, require_reached: bool = True, anchor_path: Path = LOOK_ANCHOR_PATH,
 ) -> list[dict]:
     if not table_exists(con, "p15_evaluation_looks"):
         if require_reached and len(scored) >= LOOKS[0]:
@@ -427,6 +477,13 @@ def load_retained_looks(
         [POLICY_ID, registration_sha256],
     ).fetchall()
     if anchors != [(row[3], row[9]) for row in rows]:
+        raise P15EvaluationError("P15 look evidence differs")
+    external = [
+        item for item in _external_look_anchors(anchor_path)
+        if item["policy_id"] == POLICY_ID
+        and item["registration_sha256"] == registration_sha256
+    ]
+    if [(item["look_sessions"], item["look_sha256"]) for item in external] != anchors:
         raise P15EvaluationError("P15 look evidence differs")
     retained, previous = [], None
     for index, row in enumerate(rows):
@@ -466,11 +523,12 @@ def load_retained_looks(
 
 def persist_reached_looks(
     con: duckdb.DuckDBPyConnection, scored: list[dict], registration_sha256: str,
-    *, evaluated_at: datetime,
+    *, evaluated_at: datetime, anchor_path: Path = LOOK_ANCHOR_PATH,
 ) -> list[dict]:
     init_look_schema(con)
     retained = load_retained_looks(
         con, scored, registration_sha256, require_reached=False,
+        anchor_path=anchor_path,
     )
     previous_rows = con.execute(
         "SELECT look_sha256 FROM p15_evaluation_looks WHERE policy_id=? "
@@ -506,6 +564,10 @@ def persist_reached_looks(
         con.execute(
             "INSERT INTO p15_evaluation_look_anchors VALUES (?,?,?,?)",
             [POLICY_ID, registration_sha256, size, look_sha],
+        )
+        _append_external_look_anchor(
+            anchor_path, registration_sha256=registration_sha256,
+            look_sessions=size, look_sha256=look_sha,
         )
         retained.append(result)
         previous = look_sha
