@@ -385,6 +385,29 @@ def test_p15_scoring_invalid_sample_marks_whole_chunk_unavailable(tmp_path):
     con.close()
 
 
+def test_p15_scoring_counts_failed_model_call_attempts(tmp_path):
+    database = tmp_path / "market.duckdb"
+    _p15_database(database)
+    now = datetime(2026, 9, 22, 2, 30, tzinfo=timezone.utc)
+    attempted = []
+
+    def generate(payload):
+        attempted.append(payload["sample_index"])
+        if payload["sample_index"] == 1:
+            raise agent_model_client.ConnectorError("test connector failure")
+        return _scoring_result(payload)
+
+    result = p15_scoring_runner.run(
+        database=database, now=now, generate=generate,
+        fetch_news=_news_response, clock=lambda: now,
+    )
+
+    assert attempted == [0, 1, 2]
+    assert result["status"] == "completed"
+    assert result["model_call_count"] == 3
+    assert result["unavailable_count"] == 2
+
+
 def test_p15_scoring_dry_run_uses_copy_and_leaves_source_unchanged(tmp_path):
     database = tmp_path / "market.duckdb"
     _p15_database(database)
