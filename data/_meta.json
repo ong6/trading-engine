@@ -65,7 +65,7 @@
     "store_gb": 4.18
   },
   "price_verify": {
-    "last_run": "2026-09-25T22:42:17.504609+00:00",
+    "last_run": "2026-09-26T05:00:03.560667+00:00",
     "as_of": "2026-09-25",
     "source": "api.nasdaq.com/api/quote/{ticker}/historical",
     "role": "verify-only; this source never writes a price row",
@@ -79,43 +79,370 @@
       "low",
       "close"
     ],
-    "names_selected": 165,
-    "names_checked": 165,
-    "names_agreeing": 165,
-    "names_disagreeing": 0,
-    "names_not_checked": 0,
-    "not_checked_reasons": {},
-    "not_checked_names": [],
-    "bars_compared": 660,
-    "field_comparisons": 2640,
-    "worst": {
-      "ticker": "ACHV",
-      "date": "2026-09-21",
-      "field": "open",
-      "store": 8.03,
-      "source": 8.025,
-      "diff_bp": 6.23
+    "names_selected": 4063,
+    "names_checked": 3954,
+    "names_agreeing": 3948,
+    "names_disagreeing": 6,
+    "names_not_checked": 109,
+    "not_checked_reasons": {
+      "fetch_failed": 8,
+      "symbol_not_found": 4,
+      "time_budget": 97
     },
-    "worst_is_disagreement": false,
-    "disagreements": [],
-    "n_disagreements": 0,
-    "disagreements_by_field": {},
-    "disagreements_by_date": {},
-    "n_material": 0,
+    "not_checked_names": [
+      {
+        "ticker": "SGRY",
+        "why": "sample",
+        "reason": "fetch_failed",
+        "detail": "no data.tradesTable.rows in response (schema change?)"
+      },
+      {
+        "ticker": "GEF.B",
+        "why": "sample",
+        "reason": "fetch_failed",
+        "detail": "no data.tradesTable.rows in response (schema change?)"
+      },
+      {
+        "ticker": "VXX",
+        "why": "sample",
+        "reason": "symbol_not_found",
+        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
+      },
+      {
+        "ticker": "BF.B",
+        "why": "sample",
+        "reason": "fetch_failed",
+        "detail": "no data.tradesTable.rows in response (schema change?)"
+      },
+      {
+        "ticker": "FNGD",
+        "why": "sample",
+        "reason": "symbol_not_found",
+        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
+      },
+      {
+        "ticker": "DGP",
+        "why": "sample",
+        "reason": "symbol_not_found",
+        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
+      },
+      {
+        "ticker": "BAR",
+        "why": "sample",
+        "reason": "symbol_not_found",
+        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
+      },
+      {
+        "ticker": "MOG.A",
+        "why": "sample",
+        "reason": "fetch_failed",
+        "detail": "no data.tradesTable.rows in response (schema change?)"
+      },
+      {
+        "ticker": "HEI.A",
+        "why": "sample",
+        "reason": "fetch_failed",
+        "detail": "no data.tradesTable.rows in response (schema change?)"
+      },
+      {
+        "ticker": "UHAL.B",
+        "why": "sample",
+        "reason": "fetch_failed",
+        "detail": "no data.tradesTable.rows in response (schema change?)"
+      },
+      {
+        "ticker": "LEN.B",
+        "why": "sample",
+        "reason": "fetch_failed",
+        "detail": "no data.tradesTable.rows in response (schema change?)"
+      },
+      {
+        "ticker": "BH.A",
+        "why": "sample",
+        "reason": "fetch_failed",
+        "detail": "no data.tradesTable.rows in response (schema change?)"
+      },
+      {
+        "ticker": "MQ",
+        "why": "sample",
+        "reason": "time_budget",
+        "detail": "10800s budget spent"
+      },
+      {
+        "ticker": "HYLS",
+        "why": "sample",
+        "reason": "time_budget",
+        "detail": "10800s budget spent"
+      },
+      {
+        "ticker": "AFG",
+        "why": "sample",
+        "reason": "time_budget",
+        "detail": "10800s budget spent"
+      },
+      {
+        "ticker": "XRAY",
+        "why": "sample",
+        "reason": "time_budget",
+        "detail": "10800s budget spent"
+      },
+      {
+        "ticker": "PSI",
+        "why": "sample",
+        "reason": "time_budget",
+        "detail": "10800s budget spent"
+      },
+      {
+        "ticker": "USLM",
+        "why": "sample",
+        "reason": "time_budget",
+        "detail": "10800s budget spent"
+      },
+      {
+        "ticker": "WTTR",
+        "why": "sample",
+        "reason": "time_budget",
+        "detail": "10800s budget spent"
+      },
+      {
+        "ticker": "FNGU",
+        "why": "sample",
+        "reason": "time_budget",
+        "detail": "10800s budget spent"
+      },
+      {
+        "ticker": "IVT",
+        "why": "sample",
+        "reason": "time_budget",
+        "detail": "10800s budget spent"
+      },
+      {
+        "ticker": "TRV",
+        "why": "sample",
+        "reason": "time_budget",
+        "detail": "10800s budget spent"
+      },
+      {
+        "ticker": "CLOU",
+        "why": "sample",
+        "reason": "time_budget",
+        "detail": "10800s budget spent"
+      },
+      {
+        "ticker": "DSGR",
+        "why": "sample",
+        "reason": "time_budget",
+        "detail": "10800s budget spent"
+      },
+      {
+        "ticker": "SKDD",
+        "why": "sample",
+        "reason": "time_budget",
+        "detail": "10800s budget spent"
+      }
+    ],
+    "bars_compared": 19770,
+    "field_comparisons": 67218,
+    "worst": {
+      "ticker": "VFLO",
+      "date": "2026-09-22",
+      "field": "high",
+      "store": 52.860001,
+      "source": 82394.922,
+      "diff_bp": 9993.58
+    },
+    "worst_is_disagreement": true,
+    "disagreements": [
+      {
+        "ticker": "VFLO",
+        "date": "2026-09-22",
+        "field": "high",
+        "store": 52.860001,
+        "source": 82394.922,
+        "diff_bp": 9993.58
+      },
+      {
+        "ticker": "VFLO",
+        "date": "2026-09-21",
+        "field": "high",
+        "store": 53.264999,
+        "source": 82819.343,
+        "diff_bp": 9993.57
+      },
+      {
+        "ticker": "VFLO",
+        "date": "2026-09-21",
+        "field": "low",
+        "store": 52.654999,
+        "source": 81883.697,
+        "diff_bp": 9993.57
+      },
+      {
+        "ticker": "VFLO",
+        "date": "2026-09-21",
+        "field": "close",
+        "store": 52.68,
+        "source": 81915.311,
+        "diff_bp": 9993.57
+      },
+      {
+        "ticker": "VFLO",
+        "date": "2026-09-22",
+        "field": "low",
+        "store": 52.305,
+        "source": 81359.405,
+        "diff_bp": 9993.57
+      },
+      {
+        "ticker": "VFLO",
+        "date": "2026-09-22",
+        "field": "close",
+        "store": 52.419998,
+        "source": 81513.975,
+        "diff_bp": 9993.57
+      },
+      {
+        "ticker": "VFLO",
+        "date": "2026-09-23",
+        "field": "low",
+        "store": 51.955002,
+        "source": 80784.337,
+        "diff_bp": 9993.57
+      },
+      {
+        "ticker": "VFLO",
+        "date": "2026-09-23",
+        "field": "close",
+        "store": 52.0,
+        "source": 80830.282,
+        "diff_bp": 9993.57
+      },
+      {
+        "ticker": "VFLO",
+        "date": "2026-09-24",
+        "field": "high",
+        "store": 52.16,
+        "source": 81064.624,
+        "diff_bp": 9993.57
+      },
+      {
+        "ticker": "VFLO",
+        "date": "2026-09-24",
+        "field": "low",
+        "store": 51.564999,
+        "source": 80178.679,
+        "diff_bp": 9993.57
+      },
+      {
+        "ticker": "VFLO",
+        "date": "2026-09-24",
+        "field": "close",
+        "store": 51.610001,
+        "source": 80243.348,
+        "diff_bp": 9993.57
+      },
+      {
+        "ticker": "VFLO",
+        "date": "2026-09-25",
+        "field": "close",
+        "store": 51.599998,
+        "source": 80224.699,
+        "diff_bp": 9993.57
+      },
+      {
+        "ticker": "VFLO",
+        "date": "2026-09-23",
+        "field": "open",
+        "store": 52.52,
+        "source": 81513.975,
+        "diff_bp": 9993.56
+      },
+      {
+        "ticker": "VFLO",
+        "date": "2026-09-23",
+        "field": "high",
+        "store": 52.52,
+        "source": 81529.451,
+        "diff_bp": 9993.56
+      },
+      {
+        "ticker": "VFLO",
+        "date": "2026-09-21",
+        "field": "open",
+        "store": 53.150002,
+        "source": 82394.922,
+        "diff_bp": 9993.55
+      },
+      {
+        "ticker": "VFLO",
+        "date": "2026-09-22",
+        "field": "open",
+        "store": 52.860001,
+        "source": 81915.311,
+        "diff_bp": 9993.55
+      },
+      {
+        "ticker": "VFLO",
+        "date": "2026-09-24",
+        "field": "open",
+        "store": 52.119999,
+        "source": 80830.282,
+        "diff_bp": 9993.55
+      },
+      {
+        "ticker": "ETRA",
+        "date": "2026-09-23",
+        "field": "high",
+        "store": 14.0,
+        "source": 14.18,
+        "diff_bp": 126.94
+      },
+      {
+        "ticker": "ETRA",
+        "date": "2026-09-23",
+        "field": "close",
+        "store": 12.59,
+        "source": 12.67,
+        "diff_bp": 63.14
+      },
+      {
+        "ticker": "ETRA",
+        "date": "2026-09-23",
+        "field": "low",
+        "store": 12.55,
+        "source": 12.5,
+        "diff_bp": 39.84
+      }
+    ],
+    "n_disagreements": 33,
+    "disagreements_by_field": {
+      "high": 9,
+      "low": 9,
+      "close": 8,
+      "open": 7
+    },
+    "disagreements_by_date": {
+      "2026-09-22": 5,
+      "2026-09-21": 9,
+      "2026-09-23": 11,
+      "2026-09-24": 6,
+      "2026-09-25": 2
+    },
+    "n_material": 17,
     "parse_errors": [],
     "n_parse_errors": 0,
     "volume_note": "volume differs by design on the newest session (same-day volume settles after the close); measured, never alarmed on",
-    "volume_median_abs_diff_pct_latest_session": null,
+    "volume_median_abs_diff_pct_latest_session": 0.1,
     "volume_median_abs_diff_pct_prior_sessions": 0.01,
-    "volume_bars_compared": 660,
+    "volume_bars_compared": 19749,
     "provisional_note": "on 2026-09-25 (newest stored session) open/high/low are measured but never flagged; the close IS checked on every name",
-    "provisional_ohl_median_bp": null,
-    "provisional_ohl_max_bp": null,
-    "provisional_ohl_over_tolerance": 0,
-    "provisional_comparisons": 0,
+    "provisional_ohl_median_bp": 0.0,
+    "provisional_ohl_max_bp": 9993.57,
+    "provisional_ohl_over_tolerance": 663,
+    "provisional_comparisons": 11862,
     "store_missing_sessions": {},
     "n_names_store_missing_sessions": 0,
-    "secs": 450.7
+    "secs": 10801.6
   },
   "intraday": {
     "last_run": "2026-09-25T22:45:09.774516+00:00",
@@ -366,15 +693,15 @@
     "target_symbols": 4063,
     "limitation": "current-liquid-universe snapshot; survivor-biased and retrieval-time-only; not historical membership or promotion-quality stock-selection evidence",
     "attempts": {
-      "complete": 213,
-      "empty": 37,
+      "complete": 255,
+      "empty": 45,
       "failed": 0
     },
     "unresolved_failed_windows": 0,
-    "fact_count": 78455,
-    "symbols_with_facts": 213,
-    "symbols_checkpointed": 250,
-    "symbols_unstarted": 3813,
+    "fact_count": 93232,
+    "symbols_with_facts": 255,
+    "symbols_checkpointed": 300,
+    "symbols_unstarted": 3763,
     "checkpoint_start": "2023-07-05",
     "checkpoint_end": "2023-07-05",
     "target_through": "2026-09-25",
@@ -386,10 +713,10 @@
     "execution_authority": "none",
     "operational_price_mutation": false,
     "attempted_this_run": 50,
-    "completed_this_run": 45,
-    "empty_this_run": 5,
+    "completed_this_run": 42,
+    "empty_this_run": 8,
     "failed_this_run": 0,
     "through": "2026-09-25",
-    "last_run": "2026-09-26T00:14:59.091708+00:00"
+    "last_run": "2026-09-26T03:50:25.594580+00:00"
   }
 }
