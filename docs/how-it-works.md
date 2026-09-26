@@ -1455,8 +1455,8 @@ with the standings response. The page visibly discloses either kind of truncatio
 ## Agent services (P8, P9, P11, P13, P14, P15)
 
 Six user-systemd timers currently run the AI agent and research-data capture alongside cron.
-Six P15 service/timer units are installed from source; the three P15 timers remain disabled and
-inactive until activation.
+Six P15 service/timer units are staged in source. Installed copies may lag until the lead's
+activation pass; the three P15 timers remain disabled and inactive until then.
 Unit files live in `server/*.service` / `server/*.timer`; each service runs one bounded command,
 prints one JSON result line, and has only local-simulator authority or none.
 
@@ -1499,8 +1499,8 @@ looks, book comparison, P8 readiness, pre-open/event diagnostics, and bounded tr
 `GET /agent/evaluation/status` (P11 coverage plus validated P8/P15 gates and trial counts), and
 `GET /paper-trial/status` (P7 activation blockers). The P11 report is also published to
 `data/reports/agent-evaluation.json`; P15 also publishes `data/reports/agent-eval/p15.md` after its
-scoring run. Before activation, verify all six P15 units are installed and source-matching, the
-three timers are disabled and inactive, and all three books are inactive.
+scoring run. Before activation, the lead verifies or installs all six P15 units from source, keeps
+the three timers disabled and inactive, and confirms all three books are inactive.
 
 **Logs.** Output goes to the user journal:
 
@@ -1574,8 +1574,8 @@ Audit the installed units and cron configuration without changing the host:
 .venv/bin/python -m tools.install_automation
 ```
 
-Exit 0 means all currently installed unit files, including the staged P15 units, match their
-versioned sources. The staged P15 timers remain disabled until activation. The API, UI, shadow timer, and
+Exit 0 means all currently installed unit files match their versioned sources; before activation,
+staged P15 unit differences are resolved by the lead while their timers remain disabled. The API, UI, shadow timer, and
 agent-data-capture timer are enabled and active; both workers remain static; user
 lingering is enabled for logout/reboot continuity; and the managed cron block is current. Exit 1
 with `changes-required` is a dry-run result; its `service_units` records show the observed
