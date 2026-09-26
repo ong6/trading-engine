@@ -35,6 +35,7 @@ DEPENDENCY_FILES = (
 SCHEMA_SOURCE_FILES = (
     "engine/pit_import.py",
     "engine/bitemporal_facts.py",
+    "engine/p15_event_sources.py",
     "engine/lib/db.py",
     "engine/queue_runner.py",
     "server/broker_ledger.py",
@@ -99,6 +100,7 @@ AUDIT_SOURCE_FILES = (
 )
 AGENT_SOURCE_FILES = (
     "engine/daily_opportunities.py",
+    "engine/p15_event_sources.py",
     "engine/verify_prices.py",
     "server/agent-cadence-registration.json",
     "server/agent_algorithm_candidate.py",

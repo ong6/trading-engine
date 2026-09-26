@@ -822,4 +822,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** source unchanged since the corrective snapshot; all ceilings green.
 - **Next:** W5 RSS, SEC 8-K, and intraday-mover shadow event evidence.
 
+## 2026-09-26 — P15 W5: retain text-event triggers
+
+- **Why:** approved P15 W5 requires retained RSS and SEC 8-K sources with deterministic mapping
+  and one trigger per ticker, source, and session.
+- **What:** add bounded append-only RSS reads, start-at-EOF activation, exact raw receipts,
+  cashtag/company-name mapping, unmatched headline retention, the P15-plus-template universe cap,
+  and deduplicated RSS/8-K trigger records with no execution authority.
+- **Evidence:** `./.venv/bin/python -m pytest -q -W error` reaches `[100%]` and exits 0.
+- **Metrics:** engine/product +242, tools +2, server unchanged, tests +107; budget ok.
+- **Next:** add the bounded intraday mover source and shadow decision/label pipeline.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
