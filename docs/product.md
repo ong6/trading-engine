@@ -30,26 +30,19 @@ accounting, halts, and kill switches. That split is the product, not a temporary
 5. **Inside the drawdown envelope**: a policy that can lose most of the book fails regardless of
    its recent run.
 
-## Where it stands (2026-09-25)
+## Where it stands (2026-09-26)
 
 The appliance is mature: nightly data, screen, league, three frozen forward records, weekly
 walk-forward, recovery bundles, TradingView research data, and a live nightly AI agent with a
 locked simulator trade tool (P8/P9) whose decisions land in one evaluation ledger (P11/P12).
 **No policy has yet beaten its frozen control prospectively.**
 
-A review on 2026-09-25 found that the AI loop cannot produce a verdict in reasonable time:
-
-- One nightly call assesses five of yesterday's largest absolute movers and yields about one
-  actionable decision a night. About half the candidates are losers the long-only book cannot use.
-- Decisions fill at the next open about 11.5 hours after they are made, with no pre-open check.
-- The hourly and four-hour observers had produced no usable traces. One stale quote skipped a
-  whole window, and their decisions could not be paired with the nightly ones.
-- The "algorithm + AI veto" lane is a status read model, not a book, so the AI has no running
-  deterministic comparator.
-- The P8 evidence gate is not coded, and at the current rate reaches its 20-trade minimum around
-  2027-02.
-
-[P15](plans/p15-profitability-evidence-loop.md) is the response.
+[P15](plans/p15-profitability-evidence-loop.md) W0-W7 are built and independently reviewed. The
+v5 hourly/four-hour observers retain pairable evidence; the candidate-wide scoring policy, three
+equal-mechanics comparator books, cancel-only pre-open check, shadow event triggers, coded gates,
+trial register, status projection, and generated report are present. All three P15 books and all
+three P15 timers remain inactive until the W8 registration and recovery-gated activation. No P15
+performance claim exists before that prospective evidence accrues.
 
 ## Stages
 
@@ -72,6 +65,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-09-26 | Replace maintain-only framing with build-toward-verdict guidance; add the system blueprint; keep P16 proposed until P15 W8 | AGENTS, blueprint, P16, feedback |
 | 2026-09-25 | P15 approved: score every candidate, add deterministic comparator books, add a pre-open check and event-driven shadow triggers, and code the gates. It may run as one long session with sub-agents | [P15](plans/p15-profitability-evidence-loop.md), feedback |
 | 2026-09-25 | Model token cost is excluded from the profitability definition; trading and data costs still count | This page |
 | 2026-09-25 | This page is the central product and decision document (was `direction.md`) | This page |
@@ -116,10 +110,9 @@ Each row has the default that applies until the owner decides.
 1. **Keep the evidence clean.** Scheduled producers green, no missed agent windows, no identity
    drift, no uncommitted work on the host (the nightly `git pull` fails on a dirty tree).
    A broken producer beats every item below.
-2. **[P15](plans/p15-profitability-evidence-loop.md): the profitability evidence loop.** It fixes
-   the observer evidence defects, scores every candidate against a deterministic ranking, runs
-   comparator books with identical mechanics, adds a pre-open check and event triggers, and codes
-   the gates. It is the shortest path to an honest verdict on whether the AI adds value.
+2. **[P15](plans/p15-profitability-evidence-loop.md): finish the profitability evidence loop.**
+   W0-W7 are complete; finish W8 registration and safe activation.
+   It is the shortest path to an honest verdict on whether the AI adds value.
 3. **Activate P7.** Backup-gated tri-arm schema and initializer, the recorded SGD/USD opening
    observation, then the tri-arm orchestrator and its status panel. It tests whether the AI
    allocates better than the rule at low turnover, which the research verdicts favour.

@@ -19,7 +19,7 @@ however green the tests are.
 | Commit shape | Largest single commit (insertions) | Unreviewable drops are how 61k lines landed in one day | Under 1,500 |
 | Ledger | Mean and max lines of the last ten BUILDLOG entries; SHA-256 mentions | Entry length and hash spam measure narration over decision | Under 25 lines, at most one hash |
 | Ledger | Count and max size of format-v2 entries | Confirms the new format is being used | All new entries v2 |
-| Research | Sector momentum shared sessions (of 200), E1 observations (of 40), XS status, active book count, league staleness | The only counters that represent progress toward the mission | Sessions and observations rising; books falling to ~10 (P2) |
+| Research | Sector momentum shared sessions, E1 observations, XS status, active book count, league staleness | Operational evidence counters; P15 verdict progress lives in its status/report | Sessions and observations rising; books change only through approved plans |
 | Budget | Pass/fail against `scope-budget.json` | Hard stop for frozen layers | `ok` |
 
 ## Baseline, 2026-09-18
@@ -48,5 +48,6 @@ however green the tests are.
 
 ## Not measured on purpose
 
-Test count, coverage, and "gates passing" are not tracked. They were the numbers the previous
-loop optimised, and they went up while nothing useful happened.
+Test count and coverage are not tracked. Passing checks are implementation evidence, not research
+success; P15 policy progress lives in `GET /agent/evaluation/status` and
+`data/reports/agent-eval/p15.md`, not this database-free drift snapshot.

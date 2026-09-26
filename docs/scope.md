@@ -1,7 +1,7 @@
 # Scope ledger
 
 What the engine is allowed to become, and what it is not allowed to become yet. `AGENTS.md`
-makes this the second thing an agent reads. Edit it only through a plan in `plans/` or an
+defines its place in the required read order. Edit it only through a plan in `plans/` or an
 owner entry in `feedback.md`.
 
 ## In scope now (running components)
@@ -9,16 +9,16 @@ owner entry in `feedback.md`.
 | Component | Runs | Owner action if it fails |
 |---|---|---|
 | Nightly pipeline (`engine/run_daily.sh`) | Weekdays 22:30 UTC | Fix as a defect; reproduce first |
-| Paper league day-step (active count in the metrics snapshot) | Nightly | Same |
+| Paper league day-step (22 active books; three P15 comparators remain inactive until W8) | Nightly | Same |
 | Three frozen forward records: sector momentum, XS 12-1, E1 Monday | Nightly / per signal | Never touch the rule; only the monitor may append |
 | Sunday walk-forward revalidation | Weekly | Same |
 | Saturday verifier, Sunday liquidity refresh, Friday postflight | Weekly | Same |
 | Read-only API + UI on loopback, discretionary ticket path | Continuous | Same |
 | Drift metrics snapshot (`tools.metrics_snapshot`) | End of every agent session | Publish; explain any budget breach in the BUILDLOG |
 | P8 daily opportunity agent + locked simulator trade tool (`trading-engine-daily-opportunity.timer`) | 02:00 UTC Tue–Sat | Same |
-| P9 hourly and four-hour shadow observers (`trading-engine-{hourly,four-hour}-opportunity.timer`) | Weekdays 09:15–16:15 and 09:30/13:30 America/New_York | Same; missed windows are not replayed (`Persistent=false`) |
+| P9 hourly and four-hour shadow observers (`trading-engine-{hourly,four-hour}-opportunity.timer`) | Weekdays 10:15–16:15 hourly and 10:30/13:30 America/New_York | Same; missed windows are not replayed (`Persistent=false`) |
 | Agent data capture and agent-only shadow (`trading-engine-agent-{data-capture,shadow}.timer`) | 01:25 and 01:30 UTC Tue–Sat | Same |
-| P11 evaluation ledger (indexed after each daily run; `GET /agent/evaluation/status`) | Nightly, after P8 | Same; labels are mechanical and never tune a policy |
+| P11/P15 evaluation (`GET /agent/evaluation/status`, JSON and P15 Markdown reports) | After P8; refreshes after P15 scoring once activated | Same; labels are mechanical and never tune a policy |
 | P14 TradingView daily-history archive (existing queue, bounded slices) | Every four hours (`trading-engine-tradingview-history.timer`); nightly enqueue is a fallback | Same; retrieval-time research only, current-universe survivor bias explicit |
 
 Change a running component only through a plan, as a new registered version. Existing versions
@@ -27,8 +27,8 @@ and their evidence are never edited.
 ## Approved plans
 
 Plan status lives in one place: the table in [`plans/README.md`](plans/README.md). Only plans
-marked `approved` or `active` there admit work, subject to their stated prerequisites. P15
-(profitability evidence loop) is approved and may build inside its own scope and ceilings.
+marked `approved` or `active` there admit work, subject to their stated prerequisites. P15 W0-W7
+are complete; W8 registration and activation remain inside its approved scope and ceilings.
 Completed plans' outputs (P5, P6, P10, P11, P12, P13, P14) stay in scope for operation and
 evidence but authorize no further feature growth.
 P13 TradingView capture runs for research operation; Alpaca remains gated. The P14 archive runs for
@@ -38,18 +38,18 @@ resumable current-liquid-universe daily history, isolated from operational price
 
 | Area | Current state | Trigger that unfreezes it | Until then |
 |---|---|---|---|
-| Agent-only / hybrid paper books (`server/agent_*`, shadow runner, proposal ledgers) | ~20k lines built, agent-only shadow timer on; P8/P9 hold local-simulator order authority only | P7's frozen internal simulator comparison, P8/P9 within their locked simulator-only scope, or P15's registered comparator books | No work outside P7/P8/P9/P15; no broker path |
+| Agent-only / hybrid paper books (`server/agent_*`, shadow runner, proposal ledgers) | Agent-only shadow timer on; P8/P9 hold local-simulator order authority, while three P15 comparators are inactive | P7's frozen internal simulator comparison, P8/P9 within their locked simulator-only scope, or P15's registered comparator books | No work outside P7/P8/P9/P15; no broker path |
 | Broker-paper adapters and paper-authority state machine (`server/broker_*`) | ~15k lines built, inert; IBKR selected as eventual primary | A later, separately approved IBKR-paper plan after P7 review | No growth, credentials, gateway, or connection |
 | Independent risk supervisor and fault drills | Built, inert | P7 may reuse/extend only for its internal simulator safety gates | No broker or live authority |
-| Release manifest, worktree audit, backup, install-automation hardening | Working | A demonstrated recovery failure; P15 may register its own units in `tools/install_automation.py` | No growth; no new invariants |
+| Release manifest, worktree audit, backup, install-automation hardening | Working; six P15 unit files are registered but not installed or autostarted before W8 | A demonstrated recovery failure; P15 may activate only through its approved W8 sequence | No unrelated growth; no new invariants |
 | Documentation-pinning tests (`tests/test_docs*.py`) | ~150 assertions on prose | Never | Frozen at current count |
 | New league books | See the metrics snapshot | A charter whose gate cleared in the backlog table | None |
 | Parameter sweeps and grids | `OPEN_RECURRING_GRIDS` empty | P6 permits one pre-registered fixed-instrument experiment, not a grid | No sweep or nearby variant |
 | Stock-selection or fundamentals research | Gated | 756 qualifying dates / 156 snapshots, or an audited point-in-time dataset (P3) | None |
 | Intraday research | Gated | 252 qualifying sessions over 365 days in both resolutions | None, except P15's shadow mover scan and `next_bar` labels, which are evidence collection, not research verdicts |
-| New API endpoints, dashboard cards, operator CLIs, migrations | — | P7/P8 name bounded status and isolated-book changes; P15 names its tables and the `p15` section of the existing evaluation status | Nothing else |
+| New API endpoints, dashboard cards, operator CLIs, migrations | P15 extends the existing evaluation status with a bounded `p15` section | P7/P8 name bounded status and isolated-book changes; P15 names its tables and status section | Nothing else |
 | Daily opportunity agent | P8 deployed and live (02:00 UTC timer) | P8's bounded simulator-only scope | No broker path, real capital, retrospective trades, or P7 evidence pooling |
-| Multi-cadence and tool-call agents | P9 deployed and live: nightly locked simulator tool plus hourly/four-hour shadow observers | P9's locked, attributed simulator-only scope; P15's observer fixes and shadow event triggers | No order authority for intraday variants or event triggers, and no broker path |
+| Multi-cadence and tool-call agents | P9 deployed: nightly locked simulator tool plus v5 hourly/four-hour shadow observers; P15 events are built but inactive | P9's locked, attributed simulator-only scope; P15's observer fixes and shadow event triggers | No order authority for intraday variants or event triggers, and no broker path |
 | Additional market-data sources | P13 deployed; TradingView active for internal research | Owner-asserted TradingView rights; Alpaca credential-gated | No operational-price overwrite, fill pricing, or execution authority |
 
 ## Never on this host
