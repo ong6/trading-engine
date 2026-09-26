@@ -331,7 +331,9 @@ new variant versions and a new cohort; v1–v4 evidence is never rewritten.
 - Update `docs/how-it-works.md` (timers, runbook, and the P15 flow), `docs/scope.md` (including
   the active book count), `README.md`, and the metrics doc.
 
-**W8: Activation.**
+**W8: Activation.** **On hold (owner, 2026-09-26).** Do not activate. The 2026-09-26 reviews
+found defects that must be fixed first, and fixing them changes registered files. P16 W0 does the
+fixes, issues the registration again, and then carries out the steps below.
 - Commit the frozen registration by itself.
 - Pick an activation date: the next session at least one full dry-run day away.
 - New units stay out of `AUTOSTART_UNITS` until the activation commit. Install them through
@@ -438,7 +440,7 @@ only** (owner, 2026-09-25). Every other AGENTS.md rule still applies.
 | W5 Event triggers | done | 2026-09-26 |
 | W6 Gates and reporting | done | 2026-09-26 |
 | W7 Cleanup and docs | done | 2026-09-26 |
-| W8 Activation | in progress | 2026-09-26 (registration and copied-store rehearsal) |
+| W8 Activation | on hold → P16 W0 | 2026-09-26 (registration and copied-store rehearsal; review found R1–R16) |
 
 ## Risks
 

@@ -411,3 +411,30 @@ free source first, including web scraping.
    derived scores only.
 
 **Ceiling changes.** None now; P16's proposed engine and farm ceilings grow to +2,000 and +2,800.
+
+## 2026-09-26 — Hold P15 activation, approve P16 with P15 remediation, add the refine loop
+
+**Verdict.** The owner asked for a quick review of the finished P15 build, with anything that needs
+changing to be handed to the P16 run, and for the refine skill to be part of the goal. Three
+independent reviews (spec conformance, look-ahead and statistics, safety and operations) found the
+build close to the spec, with sound authority boundaries. They also found 16 issues to fix before
+activation, including:
+
+- a late scoring run that can see post-entry news;
+- an event runner that holds the DuckDB writer through its model calls;
+- stale 8-K re-triggers;
+- missed-session fills at the wrong open;
+- a Newey–West setting that makes the primary test too lenient;
+- no enforcement of the frozen registration.
+
+**Rule changes.**
+
+1. P15 W8 activation is on hold. P16 W0 fixes R1–R16 (listed in P16), issues the P15 registration
+   again (allowed because P15 has produced no evidence), and then activates P15.
+2. P16 is approved. Its ceilings include a P15 remediation allowance.
+3. The `improve-work` refine loop (fresh reviewers, threshold 8/10, at most 3 rounds) gates each
+   registration before it is committed, and a final pass runs on docs and reports after
+   activation. The loop never changes registered code after activation.
+
+**Ceiling changes.** server 57,050, engine 16,050, farm 15,550, tools 8,850, sim 8,400 (P16 plus
+about 600 server, 300 engine, 200 farm, and 200 sim lines for P15 remediation).
