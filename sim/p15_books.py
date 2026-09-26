@@ -15,7 +15,7 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import REPO_ROOT
 from engine.lib.util import table_exists
-from sim import fills, p15_fills, portfolio
+from sim import fills, nyse, p15_fills, portfolio
 from sim.schema import init_sim_schema
 
 BOOK_IDS = ("p15_ai_ranked", "p15_rule_control", "p15_hybrid_veto")
@@ -641,10 +641,13 @@ def process_pending(con: duckdb.DuckDBPyConnection, fill_date: date) -> dict:
             intent[9] = float(intent[9]) / factor
         if limit_px is not None:
             intent[10] = limit_px = float(limit_px) / factor
+        stale = role == "entry" and fill_date > nyse.next_session(signal_date)
         halted = role == "entry" and bool(con.execute(
             "SELECT entry_halted FROM p15_book_state WHERE portfolio_id=?", [intent[1]]
         ).fetchone()[0])
         result = p15_fills.LimitFillResult(
+            status="rejected", reject_reason="stale_signal"
+        ) if stale else p15_fills.LimitFillResult(
             status="rejected", reject_reason="drawdown_halt"
         ) if halted else (
             p15_fills.attempt_limit_on_open(
@@ -893,14 +896,56 @@ def run_window(
                 "counterfactual_labels": 0}
     with db.transaction(con):
         restored = _restore_rerun_evidence(con)
-        processed = process_pending(con, market_date)
-        marks = {}
-        for book_id in BOOK_IDS:
-            marks[book_id] = _mark_exact(con, book_id, market_date, observed_at)
-        queued = queue_orders(con, market_date, created_at=observed_at)
+        latest_rows = con.execute(
+            "SELECT portfolio_id,MAX(market_date) FROM p15_book_windows "
+            "WHERE portfolio_id IN (?,?,?) GROUP BY portfolio_id ORDER BY portfolio_id",
+            list(BOOK_IDS),
+        ).fetchall()
+        latest_dates = {row[1] for row in latest_rows}
+        if latest_rows and (len(latest_rows) != len(BOOK_IDS) or len(latest_dates) != 1):
+            raise P15BookError("P15 book windows are not aligned")
+        if latest_rows:
+            last_window = next(iter(latest_dates))
+            if market_date < last_window:
+                raise P15BookError("P15 book window moved backward")
+            sessions = [market_date] if market_date == last_window else []
+            cursor = last_window
+            while cursor < market_date:
+                cursor = nyse.next_session(cursor)
+                sessions.append(cursor)
+        else:
+            checkpoints = con.execute(
+                "SELECT p.id,MAX(e.date) FROM portfolios p JOIN sim_equity e "
+                "ON e.portfolio_id=p.id WHERE p.id IN (?,?,?) GROUP BY p.id ORDER BY p.id",
+                list(BOOK_IDS),
+            ).fetchall()
+            checkpoint_dates = {row[1] for row in checkpoints}
+            if len(checkpoints) != len(BOOK_IDS) or len(checkpoint_dates) != 1:
+                raise P15BookError("P15 activation checkpoints are not aligned")
+            cursor = next(iter(checkpoint_dates))
+            if market_date < cursor:
+                raise P15BookError("P15 book window precedes activation")
+            sessions = [cursor]
+            while cursor < market_date:
+                cursor = nyse.next_session(cursor)
+                sessions.append(cursor)
+        processed = {"filled": 0, "rejected": 0, "pending": 0}
+        queued_count, marks = 0, {}
+        for session in sessions:
+            current = process_pending(con, session)
+            processed["filled"] += current["filled"]
+            processed["rejected"] += current["rejected"]
+            processed["pending"] = current["pending"]
+            marks = {
+                book_id: _mark_exact(con, book_id, session, observed_at)
+                for book_id in BOOK_IDS
+            }
+            queued_count += queue_orders(
+                con, session, created_at=observed_at,
+            )["created"]
         labels = label_limit_counterfactuals(con, labeled_at=observed_at)
     return {"status": "completed", **processed, "restored": restored,
-            "queued": queued["created"], "counterfactual_labels": labels,
+            "queued": queued_count, "counterfactual_labels": labels,
             "marks": marks}
 
 

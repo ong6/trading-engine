@@ -297,6 +297,83 @@ def test_scoped_fill_executes_entries_then_whole_share_spy_sleeve(con):
     ).fetchone() == (0,)
 
 
+def test_missed_session_expires_entry_as_stale_signal(con):
+    signal_date, missed_date, resume_date = SESSIONS[29:32]
+    insert_bars(con, "SPY", SESSIONS[:32], open_=100, close=100, high=101, low=99)
+    insert_bars(con, "AAA", [*SESSIONS[:30], resume_date],
+                open_=100, close=100, high=101, low=99)
+    _activate(con, signal_date)
+    _seed_decisions(con, signal_date, [_decision("AAA", 1, 100)])
+
+    p15_books.run_window(
+        con, signal_date, observed_at=datetime(2026, 9, 25, tzinfo=timezone.utc)
+    )
+    result = p15_books.run_window(
+        con, resume_date, observed_at=datetime(2026, 9, 26, tzinfo=timezone.utc)
+    )
+
+    assert result["status"] == "completed"
+    assert con.execute(
+        "SELECT DISTINCT market_date FROM p15_book_windows ORDER BY market_date"
+    ).fetchall() == [(signal_date,), (missed_date,), (resume_date,)]
+    assert con.execute(
+        "SELECT DISTINCT status,reason FROM p15_order_intents "
+        "WHERE ticker='AAA' AND order_role='entry'"
+    ).fetchall() == [("rejected", "stale_signal")]
+    assert con.execute(
+        "SELECT COUNT(*) FROM p15_book_fills WHERE ticker='AAA'"
+    ).fetchone() == (0,)
+
+
+def test_run_window_backfills_missed_stops_and_time_exits(con):
+    entry_date = SESSIONS[20]
+    checkpoint, missed_date, resume_date = SESSIONS[28:31]
+    insert_bars(con, "SPY", SESSIONS[:31], open_=100, close=100, high=101, low=99)
+    insert_bars(con, "AAA", SESSIONS[:31], open_=100, close=100, high=101, low=99)
+    insert_bars(con, "BBB", SESSIONS[:31], open_=100, close=100, high=101, low=99)
+    con.execute(
+        "UPDATE prices SET close=90,low=89 WHERE ticker='AAA' AND date=?",
+        [missed_date],
+    )
+    _activate(con, checkpoint)
+    for index, book_id in enumerate(p15_books.BOOK_IDS, start=1):
+        con.execute("UPDATE portfolios SET cash=8000 WHERE id=?", [book_id])
+        con.execute("INSERT INTO sim_positions VALUES (?, 'AAA', 10, 100)", [book_id])
+        con.execute("INSERT INTO sim_positions VALUES (?, 'BBB', 10, 100)", [book_id])
+        con.execute(
+            "INSERT INTO p15_position_rules VALUES (?, 'AAA', ?, ?, ?, 2, 95, 'open')",
+            [book_id, index, index, checkpoint],
+        )
+        con.execute(
+            "INSERT INTO p15_position_rules VALUES (?, 'BBB', ?, ?, ?, 2, 50, 'open')",
+            [book_id, index + 10, index + 10, entry_date],
+        )
+        marked = p15_books._mark_exact(
+            con, book_id, checkpoint,
+            datetime(2026, 9, 25, tzinfo=timezone.utc),
+        )
+        assert marked["n_positions"] == 2
+
+    p15_books.run_window(
+        con, resume_date, observed_at=datetime(2026, 9, 26, tzinfo=timezone.utc)
+    )
+
+    assert con.execute(
+        "SELECT DISTINCT market_date FROM p15_book_windows ORDER BY market_date"
+    ).fetchall() == [(checkpoint,), (missed_date,), (resume_date,)]
+    assert con.execute(
+        "SELECT order_role,COUNT(*) FROM p15_order_intents "
+        "WHERE side='sell' GROUP BY order_role ORDER BY order_role"
+    ).fetchall() == [("stop", 3), ("time_exit", 3)]
+    assert con.execute(
+        "SELECT COUNT(*) FROM p15_book_fills WHERE ticker IN ('AAA','BBB') "
+        "AND fill_date=?", [resume_date]
+    ).fetchone() == (6,)
+    assert con.execute(
+        "SELECT COUNT(*) FROM sim_positions WHERE ticker IN ('AAA','BBB') AND qty>0"
+    ).fetchone() == (0,)
+
+
 def test_limit_miss_is_terminal_and_keeps_counterfactual_price(con):
     market_date, fill_date = SESSIONS[29:31]
     insert_bars(con, "SPY", SESSIONS[:35], open_=100, close=100, high=101, low=99)
@@ -397,25 +474,18 @@ def test_spy_funds_entries_and_time_exit_reinvests_next_open(con):
 
 
 def test_pending_entries_cannot_fill_after_drawdown_halt(con):
-    signal_date, missing_date, resume_date = SESSIONS[29:32]
-    insert_bars(con, "SPY", SESSIONS[:32], open_=100, close=100, high=101, low=99)
-    insert_bars(con, "AAA", SESSIONS[:30], open_=100, close=100, high=101, low=99)
+    signal_date, fill_date = SESSIONS[29:31]
+    insert_bars(con, "SPY", SESSIONS[:31], open_=100, close=100, high=101, low=99)
+    insert_bars(con, "AAA", SESSIONS[:31], open_=100, close=100, high=101, low=99)
     _activate(con, signal_date)
     _seed_decisions(con, signal_date, [_decision("AAA", 1, 100)])
     p15_books.queue_orders(
         con, signal_date, created_at=datetime(2026, 9, 25, tzinfo=timezone.utc)
     )
-    assert p15_books.process_pending(con, missing_date) == {
-        "filled": 3, "rejected": 0, "pending": 3,
-    }
-    insert_bars(con, "AAA", [missing_date], open_=100, close=100, high=101, low=99)
-    with pytest.raises(p15_books.P15BookError, match="limit-attempt replay differs"):
-        p15_books.process_pending(con, missing_date)
     con.execute("UPDATE p15_book_state SET entry_halted=TRUE")
-    insert_bars(con, "AAA", [resume_date], open_=100, close=100, high=101, low=99)
 
-    assert p15_books.process_pending(con, resume_date) == {
-        "filled": 0, "rejected": 3, "pending": 0,
+    assert p15_books.process_pending(con, fill_date) == {
+        "filled": 3, "rejected": 3, "pending": 0,
     }
     assert con.execute(
         "SELECT COUNT(*) FROM sim_positions WHERE ticker='AAA' AND qty>0"
