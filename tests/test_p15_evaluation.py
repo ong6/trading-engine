@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -130,6 +131,19 @@ def test_primary_three_look_simulation_controls_null_and_detects_planted_ic():
                 planted_passes += passed
     assert false_passes == 347
     assert planted_passes == 8_638
+
+    iid_rng = np.random.default_rng(20260927)
+    iid_false_passes = 0
+    for _ in range(trials):
+        delta = iid_rng.normal(0.0, 0.1 / math.sqrt(5), 120)
+        scored = [
+            {"delta_ic": float(value), "model_ic": float(value),
+             "baseline_ic": 0.0, "evaluated_at": NOW.isoformat(),
+             "market_date": (date(2026, 1, 1) + timedelta(days=index)).isoformat()}
+            for index, value in enumerate(delta)
+        ]
+        iid_false_passes += p15_evaluation.evaluate_looks(scored)[0] == "pass"
+    assert iid_false_passes == 320
 
 
 def test_fixed_looks_use_immutable_prefixes_and_terminal_rules():
