@@ -21,8 +21,13 @@ plan is done:
    matured outcomes, a model tournament, an ensemble, and input ablations.
 3. **Filing reader.** SEC 8-K earnings releases and other material filings are read within
    minutes of availability into structured, scored, labelled shadow decisions.
-4. **Historical text lab.** A contamination-controlled historical test of the text signal, using
-   time-locked language models whose training data ends before each test year.
+4. **Historical labs.**
+   - **(a) Text lab:** a contamination-controlled historical test of the text signal, using
+     time-locked language models whose training data ends before each test year.
+   - **(b) Post-cutoff replay lab:** the frontier models paper-trade, day by day, the stretch of
+     history after their own training cutoff, using point-in-time prices, news, and filings.
+     They write post-mortems and running notes on their mistakes. This compresses months of
+     forward evidence into days and tests whether the notes make the agent better.
 5. **Portfolio construction v2.** A score-to-weights optimizer runs as a fair pair of shadow books
    (model scores vs rule scores) beside the P15 books.
 6. **Execution realism.** The simulator's open fills are calibrated against retained intraday data,
@@ -60,7 +65,9 @@ decision based on P16's reports.
   - approves this plan and its ceilings (a `feedback.md` entry);
   - optionally sets `TRADING_ENGINE_SEC_USER_AGENT` (without it, W3 builds and tests against
     fixtures and reports `unconfigured`);
-  - optionally approves the `research-text` dependency group for W4.
+  - optionally approves the `research-text` dependency group for W4a;
+  - optionally creates free API keys (Alpaca, Finnhub, Alpha Vantage) for the W4b news archive.
+    Free bulk archives and scraping run without them.
 - **Where it runs:** the host, as in P15's "Where this runs".
 
 ## Frozen registration (fill in, commit, then never edit)
@@ -161,6 +168,98 @@ versions. Values marked *(builder sets)* are chosen once from engineering constr
   `engine/requirements.txt`, so the nightly is unaffected. Without owner approval of the group, W4
   stops after building the corpus.
 
+**Post-cutoff replay lab (`p16-replay-v1`, research; can kill or deprioritize a policy, never
+promote one):**
+- **Window, per model identity:**
+  - Start: the later of (the documented training cutoff + 60 days) and the first month in which
+    the contamination probes pass.
+  - End: the P15 activation date. After that, live evidence takes over.
+  - Pin the model identity. If it drifts, that model's replay is void.
+- **Contamination probes:** per month of the window, ≥ 50 dated public facts the model should not
+  know, held out from prompts: index closes, earnings outcomes, and major headlines.
+  - The month passes when recall accuracy is not above a registered guess baseline *(builder
+    sets the baseline and threshold before running)*.
+  - Where feasible, also run the lookahead-propensity check of Gao, Jiang & Yan
+    (arXiv:2512.23847).
+  - Results are published with the report.
+- **Point-in-time data:** stored as a separate `historical_backfill` source; never mixed into
+  live facts or the live ledger.
+  - **Prices and features:** existing EOD bars. Screens, the P15 universe, and features are
+    recomputed as of each replay date from bars on or before it. Names delisted inside the window
+    are included where bars exist, and the missing share is reported.
+  - **News, free sources first** (owner, 2026-09-26: any data now beats no data; scraping is
+    allowed). Ingest every source below that works; don't wait for the best one.
+    - **Priority 1, free bulk archives:**
+      - GDELT 2.0 event and GKG files, every 15 minutes since 2015. Availability is GDELT's
+        `DATEADDED`.
+      - Common Crawl CC-NEWS (WARC, since 2016). Availability is the crawl timestamp.
+      - SEC EDGAR full text. Availability is the acceptance time.
+      - FNSPID (Dong et al., arXiv:2402.06698): headlines with dates and tickers. It is mostly
+        before model cutoffs, so it serves the text lab and ticker mapping. Its day-only
+        timestamps get a next-session entry.
+    - **Priority 2, scraping** (respect `robots.txt`, rate-limit, identify the client):
+      - press-release wires (GlobeNewswire, PR Newswire, Business Wire) via their archives and
+        sitemaps;
+      - company investor-relations news pages;
+      - Yahoo Finance and Google News RSS for recent months;
+      - Wayback Machine CDX captures of ticker news pages.
+
+      Availability is the later of the page's stated publish time and the first independent
+      capture time (for example, a Wayback or Common Crawl capture). When only a publish time
+      exists, add a registered 15-minute lag.
+    - **Priority 3, free API tiers** (the owner creates keys; the builder asks early and
+      continues without them): the Alpaca news API (Benzinga archive), Finnhub company news, and
+      Alpha Vantage news. Record each tier's history depth and terms in W4b's first commit.
+    - **Mapping:** ticker tags where the source has them; otherwise cashtag, exact company name,
+      or CIK, as in P15. Unmapped items are kept.
+    - **Deduplication:** by normalised headline within 48 hours. The earliest available copy
+      wins, and every copy is retained.
+    - **Coverage report:** items per source, per month, per ticker decile of dollar volume, so
+      thin coverage is visible, not silent.
+    - **Privacy:** raw scraped text and transcripts stay on the host, outside git. The public repo
+      gets only counts, hashes, and derived scores.
+  - **Filings:** EDGAR acceptance timestamps.
+  - **Earnings dates:** only as known before the replay date. Where the source cannot show that,
+    the gate uses the actual date and the report flags it.
+- **Replay engine:**
+  - Steps session by session in replay time.
+  - At each session's decision time it builds the P15-identical bundle as of that moment and
+    calls the model with the registered prompt.
+  - Writes to an isolated replay store (a separate DuckDB file). A label becomes visible only
+    once the replay clock passes its horizon.
+  - Runs the P15 book mechanics on isolated replay portfolios.
+  - The same harness replays every challenger, and it is the standard onboarding test for any
+    new model identity. Each model gets its own window from its own cutoff.
+- **Mistake notes (`c-notes`):**
+  - **Post-mortems:** after each replay session, the model writes a structured post-mortem for
+    every decision whose label matured by that replay date. Each records what it expected, what
+    happened, and one error type from a fixed taxonomy: `gap_risk`, `headline_overweight`,
+    `sector_move_missed`, `earnings_surprise`, `regime`, `data_issue`, `noise`, `correct`.
+  - **Notes file:** once a replay week, the model rewrites a running notes file of at most 1,500
+    tokens from the post-mortems. Later sessions receive it in their prompt.
+  - **Retention:** post-mortems and every notes revision are stored append-only by replay date,
+    so each decision traces to the exact notes it saw.
+  - **Comparison:** `c-notes` runs against the same model without notes on the same dates.
+- **Development and lockbox:**
+  - The first two-thirds of each window is development. Prompts, the notes design, and challenger
+    choices may iterate there, and every iteration is a trial-register row.
+  - The final third is a lockbox, run **once** per frozen policy version after development ends.
+  - Report the lockbox results with the trial count.
+- **Report** `data/reports/research/replay.md`, covering per policy and model:
+  - IC, raw and factor-neutral;
+  - book results;
+  - notes vs no notes;
+  - error-type frequencies over time;
+  - lockbox results;
+  - probe results.
+- **Authority:**
+  - Replay never promotes.
+  - A lockbox IC whose upper bound is < 0 is grounds for the owner to kill or deprioritize that
+    policy.
+  - After its lockbox run, a live `c-notes` challenger may be registered in the challenger lab,
+    starting from the notes as they stood at the end of the lockbox and updating them from live
+    matured labels. The challenger cap becomes 9.
+
 **Portfolio construction v2 (`p16-construct-v1`, two shadow books):**
 - **Alpha per name:** α_i = IC_trail × σ_i × z_i (Grinold–Kahn).
   - `z_i` is the per-session z-score of the policy's score.
@@ -210,8 +309,13 @@ integrity; authority and safety).
   advisory lock. Include a dry-run.
 - **W3: Filing reader**, with a fixture-based suite and live activation only if the SEC contact is
   set.
-- **W4: Historical text lab.** The corpus builder (resumable, checkpointed like P14), the
-  time-locked scoring, and the report `data/reports/research/textlab.md`.
+- **W4: Historical labs.**
+  - **(a) Text lab:** the corpus builder (resumable, checkpointed like P14), the time-locked
+    scoring, and the report `data/reports/research/textlab.md`.
+  - **(b) Replay lab:** the historical backfill sources, the contamination probes, the replay
+    engine and isolated store, the mistake notes, the development and lockbox runs for the
+    champion and at least `c-notes`, `c-blind`, and one `c-model-*`, and
+    `data/reports/research/replay.md`.
 - **W5: Portfolio construction v2**: the optimizer, the two shadow books, and a dry-run.
 - **W6: Execution realism**: capture, calibration report, fill model v5 registration.
 - **W7: Operator digest.** A weekly generated `data/reports/weekly/<YYYY-MM-DD>.md`, one page,
@@ -265,6 +369,8 @@ integrity; authority and safety).
 - The filing reader has processed ≥ 1 live filing, or reports `unconfigured`.
 - `data/reports/research/textlab.md` exists with yearly results and the look-ahead control, or
   states that W4 stopped at the corpus pending the dependency decision.
+- `data/reports/research/replay.md` exists with probe results, development and lockbox results for
+  the champion and `c-notes`, and the news source used.
 - The first weekly digest exists.
 - `docs/design/stage2-broker-paper.md` exists, and the draft execution plan is `proposed`.
 - Independent reviews of W1–W9 have no open findings.
@@ -273,11 +379,11 @@ integrity; authority and safety).
 
 - **Proposed ceilings** (the owner confirms in `feedback.md` on approval; caps, not targets):
   - server +2,000
-  - engine +1,500
-  - farm +1,800
+  - engine +2,000
+  - farm +2,800
   - tools +400
   - sim +300
-- W4's `research-text` code lives under `farm/textlab/` and counts toward farm.
+- W4 code lives under `farm/textlab/` and `farm/replay/` and counts toward farm.
 - **Commits:** subjects start with `P16 W<n>:`, each commit under 1,500 inserted non-data lines,
   expected at 60–100 in total.
 
@@ -305,7 +411,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W1 Evaluation science v2 | not started | |
 | W2 Challenger lab | not started | |
 | W3 Filing reader | not started | |
-| W4 Historical text lab | not started | |
+| W4 Historical labs (text lab, replay lab) | not started | |
 | W5 Portfolio construction v2 | not started | |
 | W6 Execution realism | not started | |
 | W7 Operator digest | not started | |

@@ -77,17 +77,19 @@ flowchart LR
 3. Every decision is an immutable trace joined later to its outcome; failures are outcomes too.
 4. Every policy version is registered before it runs and never edited after; change means a new
    version and a new cohort.
-5. Prospective evidence alone promotes. Historical LLM results are diagnostics, except from
-   time-locked models whose training data ends before the test period.
+5. Prospective evidence alone promotes. Historical LLM results are diagnostics. Two kinds are
+   clean enough to *kill* a policy, though never to promote one: time-locked models on history
+   before their cutoff, and frontier models replayed on history after theirs (P16 replay lab,
+   with contamination probes and a lockbox).
 6. Every comparison is paired, net of trading cost, and counts the trials behind it.
 
 ## Layers: now, P15, P16, later
 
 | Layer | Exists (2026-09-25) | P15 adds | P16 proposes | Later |
 |---|---|---|---|---|
-| Data | EOD store, screens, earnings, headlines (titles), TradingView research data, P14 archive | RSS and 8-K event facts; intraday mover scan | Full 8-K earnings-release text; historical EDGAR corpus | P3 point-in-time vendor data (owner spend) |
+| Data | EOD store, screens, earnings, headlines (titles), TradingView research data, P14 archive | RSS and 8-K event facts; intraday mover scan | Full 8-K earnings-release text; historical EDGAR corpus; historical news archive (Alpaca/Benzinga or GDELT) | P3 point-in-time vendor data (owner spend) |
 | Signals | P8 nightly pick; P9 shadow observers; P7 allocator (inactive) | Scoring every candidate; deterministic baseline; pre-open cancel; event triggers | Challenger lab: blinded, memory, tournament, ensemble, ablations; filing reader | Promoted challengers get book authority |
-| Evaluation | Ledger, 1/5/10/20 labels, contamination probes | Paired IC test with looks; book comparison; coded P8 gate | Factor-neutral IC; always-valid sequential tests; deflated Sharpe over the trial register; time-locked historical text lab | Stage gates computed from live fills |
+| Evaluation | Ledger, 1/5/10/20 labels, contamination probes | Paired IC test with looks; book comparison; coded P8 gate | Factor-neutral IC; always-valid sequential tests; deflated Sharpe over the trial register; time-locked text lab; post-cutoff replay lab with lockbox | Stage gates computed from live fills |
 | Portfolio | Fixed-fraction sizing, 3 names | ATR sizing, SPY core, limit-on-open, 8 names | Optimizer from scores to weights (Grinold alpha, risk model, turnover cost) | Beta hedge if shorting is approved |
 | Execution | Next-open simulator, fill model v4 | Limit-on-open path | Slippage calibration from intraday data; fill model v5 for future cohorts | IBKR paper on personal hardware, then live |
 | Ops | Timers, recovery, metrics | P15 status and report | Weekly operator digest | Remote alerts from personal hardware |
@@ -135,6 +137,7 @@ owner decision first.
 | Challenger lab (blinded, memory, tournament, ensemble, ablations) | Next (P16) | Many hypotheses per night on identical inputs, at no marginal constraint |
 | Filing and earnings-release reader | Next (P16) | Timestamped text is the LLM's natural input |
 | Time-locked historical text lab | Next (P16) | The only contamination-controlled historical LLM test available |
+| Post-cutoff replay with mistake notes | Next (P16) | Months of out-of-sample paper trading in days; tests whether agents learn from their own post-mortems |
 | Portfolio optimizer from scores | Next (P16, shadow) | Converts IC into returns efficiently (transfer coefficient) |
 | Fill calibration from intraday data | Next (P16) | The simulator must be right before Stage 2 |
 | Weekly operator digest | Next (P16) | The owner should see state in one page |

@@ -391,3 +391,23 @@ execution gates from the model.
    P15 W8.
 
 **Ceiling changes.** None.
+
+## 2026-09-26 — Replay agents after their training cutoff; free data first
+
+**Verdict.** The owner asked for past news data so agents can paper trade the dates after their
+training cutoff, write notes on their mistakes, and improve. Any data now beats no data: use every
+free source first, including web scraping.
+
+**Rule changes.**
+
+1. P16 W4b adds a post-cutoff replay lab: per-model windows starting after the cutoff and after
+   contamination probes pass, point-in-time replay in an isolated store, structured post-mortems
+   and running notes (`c-notes`), and a development/lockbox split. Replay can kill or
+   deprioritize a policy but never promote one.
+2. Data sourcing is free-first: bulk archives (GDELT, CC-NEWS, EDGAR, FNSPID), then scraping
+   (wires, investor-relations pages, RSS, Wayback captures), then free API tiers. Each source has
+   a registered availability rule. Paid data (P3) still waits for a spend decision.
+3. Raw scraped text stays on the host, outside git; the public repo gets counts, hashes, and
+   derived scores only.
+
+**Ceiling changes.** None now; P16's proposed engine and farm ceilings grow to +2,000 and +2,800.
