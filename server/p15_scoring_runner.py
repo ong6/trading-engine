@@ -369,8 +369,15 @@ def _fail_outside_window(
             store.init_schema(con)
             if existing is None:
                 if bundle is None:
-                    raise ScoringError("P15 scoring universe is unavailable")
-                gated = _gate_candidates({**bundle, "snapshot_at": started.isoformat()})
+                    body = {
+                        "market_date": market_date.isoformat(),
+                        "snapshot_at": started.isoformat(),
+                        "refusal_reason": reason,
+                        "candidates": [],
+                    }
+                    gated = {**body, "bundle_sha256": canonical_sha256(body)}
+                else:
+                    gated = _gate_candidates({**bundle, "snapshot_at": started.isoformat()})
                 context, _allowed = _context(
                     gated, {"status": "not_requested", "observations": []}, started,
                 )
@@ -402,6 +409,7 @@ def _run(
 ) -> dict:
     started = (now or clock()).astimezone(timezone.utc)
     deadline = datetime.combine(started.date(), DEADLINE_UTC)
+    bundle = None
     con = db.connect(database, read_only=True, wait_s=DB_WAIT_S)
     try:
         market_date = db.latest_operational_market_date(con)
@@ -411,11 +419,6 @@ def _run(
             store.find_run(con, market_date)
             if table_exists(con, "p15_scoring_runs") else None
         )
-        if existing is None:
-            bundle = p15_universe(
-                con, market_date, held_tickers=_held(con),
-                information_cutoff_at=started,
-            )
     finally:
         con.close()
     if existing is not None and existing["status"] in {"completed", "failed"}:
@@ -437,6 +440,15 @@ def _run(
             bundle=bundle if existing is None else None,
             existing=existing, started=started,
         )
+    if existing is None:
+        con = db.connect(database, read_only=True, wait_s=DB_WAIT_S)
+        try:
+            bundle = p15_universe(
+                con, market_date, held_tickers=_held(con),
+                information_cutoff_at=started,
+            )
+        finally:
+            con.close()
     if existing is not None:
         if existing["status"] != "running":
             raise ScoringError("P15 scoring run status is invalid")
