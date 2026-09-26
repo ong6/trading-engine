@@ -71,6 +71,7 @@
     "spy_sleeve": "whole_shares",
     "entry_order": "limit_on_open",
     "entry_limit": "signal_close*(1+max(0.015,0.5*atr14/signal_close))",
+    "hybrid_vetoed_slot_replacement": "next_baseline_ranked_eligible_non_vetoed_name_if_available",
     "config_sha256": {
       "p15_ai_ranked": "0d0b6a39d87129471247ac586a12c462c8dacafce430d910c38d5b834e28cd71",
       "p15_hybrid_veto": "8ade3ed05e34089c53fdf62c267780a499b1f59fa5dea3f7aa52acb3aed1c2ed",
@@ -146,5 +147,5 @@
       "tools/p15_evidence_validation.py": "5faa3ac433ca444a87d01182056fd8eebf236aec15b56952daaa420762ab9cf9"
     }
   },
-  "registration_sha256": "5644a00f6d0b240d1b00ef247c5479287edcbadc4fd8e4af4c856cc59145c509"
+  "registration_sha256": "f31c48bc4bada58ff39dba393e18aba5b224b18efa30f8116884c14455f8e9ec"
 }
