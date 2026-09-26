@@ -39,8 +39,10 @@ def project(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> dict:
         cursor = con.execute(query, [cutoff])
         while batch := cursor.fetchmany(LIMIT):
             for row in batch:
+                identity = list(row[1:9])
+                identity[6] = canonical_sha256(identity[6])
                 add({"policy_id": row[0], "evidence_class": evidence_class,
-                     "identity": list(row[1:9]), "observation_count": int(row[9]),
+                     "identity": identity, "observation_count": int(row[9]),
                      "first_observed_at": row[10].isoformat(),
                      "last_observed_at": row[11].isoformat()})
     if table_exists(con, "agent_shadow_attempts"):
@@ -56,10 +58,12 @@ def project(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> dict:
         if raw is None:
             return ("no_model_call", status)
         payload = json.loads(raw)
-        return tuple(payload.get(key) for key in (
+        identity = [payload.get(key) for key in (
             "model", "model_version", "proxy_version", "proxy_source_sha256",
             "traecli_runtime", "upstream_model_family", "model_catalog_entry_sha256",
-        ))
+        )]
+        identity[4] = canonical_sha256(identity[4])
+        return tuple(identity)
 
     if table_exists(con, "p15_preopen_runs"):
         grouped = {}

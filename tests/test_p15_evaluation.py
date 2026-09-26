@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from engine import p15_evaluation
+from engine.lib.provenance import canonical_sha256
 from farm.walkforward.monthly import newey_west_t
 from tests.conftest import SESSIONS, insert_bars
 from tools import agent_trial_register
@@ -288,6 +289,10 @@ def test_trial_register_preserves_distinct_policy_model_prompt_versions(con):
     assert result["version_count"] == result["selection_trial_count"] == 2
     assert result["returned_version_count"] == 2 and result["versions_truncated"] is False
     assert [item["observation_count"] for item in result["versions"]] == [2, 1]
+    assert all(
+        item["identity"][6] == canonical_sha256("runtime")
+        for item in result["versions"]
+    )
 
 
 def test_trial_register_is_bounded_but_preserves_total(con):
@@ -335,6 +340,10 @@ def test_trial_register_keeps_distinct_event_policy_and_model_versions(con):
     assert [item["policy_id"] for item in result["versions"]] == [
         "p15-events-v1", "p15-events-v2",
     ]
+    assert all(
+        item["identity"][4] == canonical_sha256("runtime")
+        for item in result["versions"]
+    )
 
 
 def test_overall_pass_requires_primary_book_bound_and_all_drawdowns(con, monkeypatch):
