@@ -14,12 +14,20 @@ REGISTRATION = REPO_ROOT / "server" / "agent-cadence-registration.json"
 def run() -> dict:
     registration = json.loads(REGISTRATION.read_text())
     variants = registration.get("variants")
-    expected = {"hourly_market_watch_v5", "four_hour_opportunity_review_v5",
-                "nightly_opportunity_tool_v1"}
+    expected = {
+        "hourly_market_watch_v4", "four_hour_opportunity_review_v4",
+        "hourly_market_watch_v5", "four_hour_opportunity_review_v5",
+        "nightly_opportunity_tool_v1",
+    }
+    expected_active = {"hourly_market_watch_v5", "four_hour_opportunity_review_v5",
+                       "nightly_opportunity_tool_v1"}
     errors = []
     if not isinstance(variants, list) or {item.get("id") for item in variants} != expected:
         errors.append("cadence_registry")
-    writers = [item for item in variants or [] if item.get("execution_authority") != "none"]
+    active = [item for item in variants or [] if item.get("active", True)]
+    if {item.get("id") for item in active} != expected_active:
+        errors.append("active_cadence_registry")
+    writers = [item for item in active if item.get("execution_authority") != "none"]
     if len(writers) != 1 or writers[0].get("id") != registration.get("execution_policy_id"):
         errors.append("single_execution_policy")
     tool = agent_model_client.TRADE_TOOL
@@ -37,6 +45,7 @@ def run() -> dict:
     return {
         "status": "pass" if not errors else "failed",
         "errors": errors, "variant_count": len(variants or []),
+        "active_variant_count": len(active),
         "execution_policy_count": len(writers),
         "registration_sha256": canonical_sha256(registration),
         "tool_schema_sha256": canonical_sha256(tool),

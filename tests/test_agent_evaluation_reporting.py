@@ -539,6 +539,49 @@ def test_expected_windows_uses_dst_aware_utc_bucket_ids():
     assert winter == {"hourly_market_watch_v5:2026-12-01T14"}
 
 
+def test_registry_retains_retired_v4_observers():
+    registration = json.loads(
+        agent_evaluation_reporting.DEFAULT_REGISTRATION.read_text()
+    )
+    variants = {item["id"]: item for item in registration["variants"]}
+
+    assert set(variants) == {
+        "hourly_market_watch_v4",
+        "four_hour_opportunity_review_v4",
+        "hourly_market_watch_v5",
+        "four_hour_opportunity_review_v5",
+        "nightly_opportunity_tool_v1",
+    }
+    assert variants["hourly_market_watch_v4"]["active"] is False
+    assert variants["four_hour_opportunity_review_v4"]["active"] is False
+    assert {
+        item["id"] for item in registration["variants"]
+        if item.get("active", True)
+    } == {
+        "hourly_market_watch_v5",
+        "four_hour_opportunity_review_v5",
+        "nightly_opportunity_tool_v1",
+    }
+
+
+def test_expected_windows_ignores_inactive_variants():
+    variants = [
+        {"id": "hourly_market_watch_v4", "active": False, "cadence": "hourly",
+         "timezone": "America/New_York", "scheduled_local_times": ["09:15"]},
+        {"id": "hourly_market_watch_v5", "cadence": "hourly",
+         "timezone": "America/New_York", "scheduled_local_times": ["09:15"]},
+    ]
+
+    result = expected_windows(
+        datetime(2026, 7, 1, tzinfo=timezone.utc),
+        datetime(2026, 7, 2, tzinfo=timezone.utc),
+        [date(2026, 7, 1)],
+        variants,
+    )
+
+    assert result == {"hourly_market_watch_v5:2026-07-01T13"}
+
+
 
 
 def test_contamination_report_never_claims_promotion(tmp_path):

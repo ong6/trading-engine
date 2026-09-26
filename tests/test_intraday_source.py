@@ -13,6 +13,18 @@ from tests.test_daily_opportunities import _connector, _database, _news_response
 NOW = datetime(2026, 9, 23, 15, 5, tzinfo=timezone.utc)
 
 
+def test_retired_observer_variant_cannot_run(tmp_path, monkeypatch):
+    registration = tmp_path / "cadence.json"
+    registration.write_text(json.dumps({"variants": [
+        {"id": "hourly_market_watch_v4", "active": False,
+         "execution_authority": "none"},
+        {"id": "hourly_market_watch_v5", "execution_authority": "none"},
+    ]}))
+    monkeypatch.setattr(hourly_opportunity_observer, "REGISTRATION", registration)
+
+    assert set(hourly_opportunity_observer._variants()) == {"hourly_market_watch_v5"}
+
+
 def _body(*, symbol: str = "SPY", future: bool = False) -> bytes:
     epochs = [
         int((NOW - timedelta(minutes=10)).timestamp()),
