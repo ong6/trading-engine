@@ -89,6 +89,23 @@ def _label(con, policy: str, asset_return: float, prefix: str = "9" * 64) -> Non
     )
 
 
+def test_public_report_hashes_runtime_identity_but_retains_private_literal(con):
+    private_runtime = "private runtime identity"
+    agent_evaluation.init_schema(con)
+    trace = _trace("nightly_opportunity_tool_v1", "none", 0.0)
+    trace["traecli_runtime"] = private_runtime
+    agent_evaluation.record_trace(con, trace)
+
+    report = agent_evaluation_reporting.build_report(con, generated_at=NOW)
+    version = report["trial_count_register"]["versions"][0]
+
+    assert private_runtime not in json.dumps(report)
+    assert version["identity"][6] == canonical_sha256(private_runtime)
+    assert con.execute(
+        "SELECT traecli_runtime FROM agent_evaluation_traces"
+    ).fetchone() == (private_runtime,)
+
+
 def _p15_trace_with_label(con):
     agent_evaluation.init_schema(con)
     bundle_body = {"market_date": "2026-09-01", "candidates": [{"ticker": "AAA"}]}

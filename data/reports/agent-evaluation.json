@@ -147,11 +147,11 @@
     "unavailable_decision_count": 0
   },
   "data_provenance": {
-    "fact_count": 123591,
+    "fact_count": 154705,
     "historical_membership_authority": false,
     "pit_import_batch_count": 0,
     "pit_import_row_count": 0,
-    "receipt_count": 550,
+    "receipt_count": 650,
     "sec_current_mapping_fact_count": 0,
     "sec_filing_fact_count": 0
   },
@@ -177,7 +177,7 @@
     "turnover_notional": 938.54298800416,
     "turnover_over_initial_cash": 0.093854298800416
   },
-  "generated_at": "2026-09-26T08:52:47.015938+00:00",
+  "generated_at": "2026-09-26T16:33:09.625122+00:00",
   "horizons": [
     1,
     5,
@@ -279,12 +279,36 @@
       "status": "inactive"
     },
     "events": {
-      "by_basis": {},
+      "by_basis": {
+        "next_bar": {
+          "ic": null,
+          "label_count": 0,
+          "missing_mature_label_count": 0,
+          "missing_status_counts": {},
+          "reason": "fewer_than_5_labels",
+          "status": "unavailable",
+          "top_bottom_quintile_spread": null
+        },
+        "next_session_open": {
+          "ic": null,
+          "label_count": 0,
+          "missing_mature_label_count": 0,
+          "missing_status_counts": {},
+          "reason": "fewer_than_5_labels",
+          "status": "unavailable",
+          "top_bottom_quintile_spread": null
+        }
+      },
       "decision_count": 0,
-      "status": "not_initialized",
+      "latency_target_ms": 600000,
+      "p95_latency_ms_all": null,
+      "p95_latency_ms_available": null,
+      "skipped_rate_limit_count": 0,
+      "status": "collecting",
+      "unavailable_count": 0,
       "window_count": 0
     },
-    "generated_at": "2026-09-26T08:52:47.015938+00:00",
+    "generated_at": "2026-09-26T16:33:09.625122+00:00",
     "observer_pairing": {
       "four_hour_opportunity_review_v5": 0,
       "hourly_market_watch_v5": 0
@@ -1031,7 +1055,7 @@
   "promotion_authority": "none",
   "schema_version": 2,
   "trial_count_register": {
-    "register_sha256": "3b839f26712ac976844be81a905cd89a812a1f995de7e382159b421d1bd75c5f",
+    "register_sha256": "b38e802975aa129ec4c0fb2af9f6e17c9d72537322019178c140ec0cf8380c86",
     "returned_version_count": 12,
     "selection_trial_count": 12,
     "status": "capturing",
@@ -1048,7 +1072,7 @@
           "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
           "18ee8f3f3213e233abf774882351aeb36b7984332b6e31e9222e7e6b26abed7a",
           "61d66eadb3eae92306cdf080470e816b38401383b947df785820a8ad6f7d16c6",
-          "traecli 0.205.1(internal edition)",
+          "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
           "gpt-5.6-sol"
         ],
         "last_observed_at": "2026-09-23T17:30:59.051702",
@@ -1066,7 +1090,7 @@
           "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
           "18ee8f3f3213e233abf774882351aeb36b7984332b6e31e9222e7e6b26abed7a",
           "61d66eadb3eae92306cdf080470e816b38401383b947df785820a8ad6f7d16c6",
-          "traecli 0.205.1(internal edition)",
+          "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
           "gpt-5.6-sol"
         ],
         "last_observed_at": "2026-09-24T11:44:41.183042",
@@ -1084,7 +1108,7 @@
           "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
           "18ee8f3f3213e233abf774882351aeb36b7984332b6e31e9222e7e6b26abed7a",
           "61d66eadb3eae92306cdf080470e816b38401383b947df785820a8ad6f7d16c6",
-          "traecli 0.205.1(internal edition)",
+          "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
           "gpt-5.6-sol"
         ],
         "last_observed_at": "2026-09-25T14:30:59.566926",
@@ -1102,7 +1126,7 @@
           "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
           "18ee8f3f3213e233abf774882351aeb36b7984332b6e31e9222e7e6b26abed7a",
           "61d66eadb3eae92306cdf080470e816b38401383b947df785820a8ad6f7d16c6",
-          "traecli 0.205.1(internal edition)",
+          "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
           "gpt-5.6-sol"
         ],
         "last_observed_at": "2026-09-25T17:30:01.290424",
@@ -1120,7 +1144,7 @@
           "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
           "18ee8f3f3213e233abf774882351aeb36b7984332b6e31e9222e7e6b26abed7a",
           "61d66eadb3eae92306cdf080470e816b38401383b947df785820a8ad6f7d16c6",
-          "traecli 0.205.1(internal edition)",
+          "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
           "gpt-5.6-sol"
         ],
         "last_observed_at": "2026-09-23T20:15:59.065575",
@@ -1138,7 +1162,7 @@
           "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
           "18ee8f3f3213e233abf774882351aeb36b7984332b6e31e9222e7e6b26abed7a",
           "61d66eadb3eae92306cdf080470e816b38401383b947df785820a8ad6f7d16c6",
-          "traecli 0.205.1(internal edition)",
+          "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
           "gpt-5.6-sol"
         ],
         "last_observed_at": "2026-09-24T11:44:07.592548",
@@ -1156,7 +1180,7 @@
           "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
           "18ee8f3f3213e233abf774882351aeb36b7984332b6e31e9222e7e6b26abed7a",
           "61d66eadb3eae92306cdf080470e816b38401383b947df785820a8ad6f7d16c6",
-          "traecli 0.205.1(internal edition)",
+          "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
           "gpt-5.6-sol"
         ],
         "last_observed_at": "2026-09-25T15:15:54.635952",
@@ -1174,7 +1198,7 @@
           "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
           "18ee8f3f3213e233abf774882351aeb36b7984332b6e31e9222e7e6b26abed7a",
           "61d66eadb3eae92306cdf080470e816b38401383b947df785820a8ad6f7d16c6",
-          "traecli 0.205.1(internal edition)",
+          "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
           "gpt-5.6-sol"
         ],
         "last_observed_at": "2026-09-25T20:15:59.540203",
@@ -1192,7 +1216,7 @@
           "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
           "18ee8f3f3213e233abf774882351aeb36b7984332b6e31e9222e7e6b26abed7a",
           "61d66eadb3eae92306cdf080470e816b38401383b947df785820a8ad6f7d16c6",
-          "traecli 0.205.1(internal edition)",
+          "532d0062a2ea4fe22997969038087a27f5b9d53798c18ff107d0472f8a8ecc47",
           "gpt-5.6-sol"
         ],
         "last_observed_at": "2026-09-26T02:00:59.057339",
