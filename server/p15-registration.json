@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "registration_id": "p15-profitability-evidence-loop-v1",
+  "registered_at": "2026-09-26T09:00:00Z",
+  "activation_session": "2026-09-29",
+  "status": "registered_inactive",
+  "authority": {
+    "asset_side": "long_only",
+    "broker_access": false,
+    "event_execution": false,
+    "leverage": false,
+    "real_capital": false,
+    "scope": "local_simulator_only"
+  },
+  "universe": {
+    "version": "p15-universe-v1",
+    "minimum_close": 3.0,
+    "minimum_history_sessions": 21,
+    "maximum_absolute_daily_return": 0.8,
+    "minimum_median_dollar_volume_20d": 20000000.0,
+    "mover_limit": 40,
+    "trend_limit": 20,
+    "held_names_included": true,
+    "held_names_excluded_from_primary_ic": true
+  },
+  "scoring": {
+    "policy_id": "p15-scoring-v1",
+    "chunk_size": 10,
+    "samples_per_chunk": 3,
+    "aggregation": "numeric_median_majority_action_representative_text_v1",
+    "deadline_utc": "12:00:00",
+    "actions": ["ignore", "watch", "buy_candidate", "exit"],
+    "exit_requires_held": true,
+    "ai_entry_minimum_probability": 0.55,
+    "ai_entry_minimum_expected_excess_bp_5": 50.0,
+    "hybrid_veto_below_expected_excess_bp_5": 0.0,
+    "model": "GPT-5.6-Sol:max",
+    "model_version": "unversioned-catalog-alias",
+    "provider_revision_available": false,
+    "model_identity_sha256": "286127aacbb957dd217dbe41133b322cf494a33def4f7d26d4987b108e679be0",
+    "instructions_sha256": "bfd1c6e3db847b378eaa7bb594e0ca0a0e41655fff03555bb3868516d8d97c60",
+    "toolset_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  },
+  "baseline": {
+    "version": "p15-baseline-v1",
+    "ranking": ["rs_rank_desc", "standout_score_desc", "ticker_asc"],
+    "missing_rs_rank": "last"
+  },
+  "labels": {
+    "round_trip_cost_bps": 20.0,
+    "horizons_sessions": [1, 5, 10, 20],
+    "primary_horizon_sessions": 5,
+    "nightly_basis": "next_session_open",
+    "event_bases": ["next_bar", "next_session_open"],
+    "missing_bars": "last_available_close_included"
+  },
+  "books": {
+    "mechanics_version": "p15-book-v1",
+    "portfolio_ids": ["p15_ai_ranked", "p15_rule_control", "p15_hybrid_veto"],
+    "initial_cash_usd_each": 10000.0,
+    "execution_profile": "baseline_v1",
+    "risk_fraction": 0.01,
+    "atr_period": 14,
+    "atr_stop_multiple": 2.5,
+    "maximum_name_fraction": 0.15,
+    "maximum_new_entries_per_session": 2,
+    "maximum_positions": 8,
+    "maximum_gross_exposure": 1.0,
+    "drawdown_halt": -0.2,
+    "time_exit_sessions": 10,
+    "spy_sleeve": "whole_shares",
+    "entry_order": "limit_on_open",
+    "entry_limit": "signal_close*(1+max(0.015,0.5*atr14/signal_close))",
+    "config_sha256": {
+      "p15_ai_ranked": "0d0b6a39d87129471247ac586a12c462c8dacafce430d910c38d5b834e28cd71",
+      "p15_hybrid_veto": "8ade3ed05e34089c53fdf62c267780a499b1f59fa5dea3f7aa52acb3aed1c2ed",
+      "p15_rule_control": "1ef39be2e115b2ce273a015e392654aea7b7fdd47c3ae1d01c3f281775f34ad7"
+    }
+  },
+  "preopen": {
+    "policy_id": "p15-preopen-v1",
+    "schedule": "09:05 America/New_York weekdays",
+    "deadline": "09:25:00 America/New_York",
+    "authority": "cancel_only",
+    "model_identity_sha256": "ca48bf04fd84781f6bf7cd33185b5b1f5bf359d9f01afba5fef601f9deb2fd81",
+    "instructions_sha256": "11c3faf0f864ab8ce68deb81a3b08ef261501be9f7a4e0a0596b4e02d2e453a7"
+  },
+  "events": {
+    "policy_id": "p15-events-v1",
+    "schedule": "09:35,09:50,10:05-15:50 at :05/:20/:35/:50 America/New_York",
+    "sources": ["local_rss", "sec_edgar_8k", "intraday_mover"],
+    "maximum_universe": 300,
+    "maximum_workers": 8,
+    "maximum_decisions_per_session": 60,
+    "chunk_size": 10,
+    "mover_minimum_absolute_return": 0.04,
+    "mover_atr_threshold_multiple": 2.0,
+    "mover_minimum_relative_volume": 2.0,
+    "execution_authority": "none",
+    "latency_target_p95_ms": 600000,
+    "model_identity_sha256": "e8077edeeb46e6a1d4a2b17b14879ad7425c1292eb8612de951b4ee5c2802fe5",
+    "instructions_sha256": "5752e58a0672b5e16476824d2bcfaf672086a6e99392c49250a7588a4ab7324f"
+  },
+  "evaluation": {
+    "primary_statistic": "daily_spearman_model_minus_baseline",
+    "minimum_pairs_per_session": 20,
+    "newey_west_lag": 4,
+    "looks_scored_sessions": [60, 90, 120],
+    "one_sided_alpha_per_look": 0.016666666666666666,
+    "pass": "lower_bound_gt_0_and_mean_model_ic_gt_0",
+    "kill": "upper_bound_lt_0_at_any_look_or_no_pass_at_120",
+    "book_minimum_calendar_days": 90,
+    "book_minimum_closed_trades_each": 30,
+    "book_promotion": "primary_pass_and_challenger_lower_bound_gt_0_and_all_drawdowns_gte_minus_0.20",
+    "p8_review": "90_calendar_days_and_60_completed_sessions; expectancy_after_20_round_trips; confidence_bound_not_a_gate"
+  },
+  "delivery": {
+    "scoring_timer_persistent": true,
+    "preopen_timer_persistent": false,
+    "events_timer_persistent": false,
+    "report_json": "data/reports/agent-evaluation.json",
+    "report_markdown": "data/reports/agent-eval/p15.md"
+  },
+  "code_identity": {
+    "source_commit": "98683ab70e1b48afcc0ee807959ad7031de508ea",
+    "files": {
+      "engine/daily_opportunities.py": "2af8d54cc3fbc3e8ef663d238b13a2bffd5c06d38db041f0b2a57d3750f4054f",
+      "engine/p15_evaluation.py": "f95aaf58335ccf87a18ba2539afdba24957f77fa4862d018ca1dedeca27e571e",
+      "engine/p15_event_sources.py": "96a20f00b26c9a736ce9be6a1f0b720712fb3a6c6e21c786e197afb339a17f2e",
+      "farm/p15_event_runner.py": "f6affb97f4f7b8a3daeaeea8b77f0b30895ef7bbad0f8fd88e68209a802471fa",
+      "server/agent_evaluation.py": "ca23efd668f133d7d36e3060c9872d881f6343a8972e43893fa7cb0275f0810f",
+      "server/agent_evaluation_reporting.py": "00db8b444dffede6206e10a4f8b5c49b8b859bb031af4b1688f3ded6dd7ad43c",
+      "server/agent_model_client.py": "ff9e0bcd9a476a43e92b81312c373f0806b4b3599d59950acee29954e4f26bd3",
+      "server/p15_preopen.py": "3df4d876fab69da42060253eb39964655b4216e8856b4a6e5b041f3f7b98164b",
+      "server/p15_scoring_runner.py": "5971c9f0bd9a1480b39fc182ca3dceebb2107d3447959c5645c30c0aa069de27",
+      "server/p15_scoring_store.py": "4660607b6bb5b18fdb6ee7585b8bdadab9dfa9af9417f0ae51833bc87a695bee",
+      "server/trading-engine-p15-events.service": "1837b19fd0e5667bc9b3d013cfbb018b5dd0b0895acafda719bd302a0480ec2c",
+      "server/trading-engine-p15-events.timer": "aa5dae3f0a99ba2a3d346dd2758b46fd98d76c12494f06e39b2009bf12c35d3d",
+      "server/trading-engine-p15-preopen.service": "fad5831bcdbd36c36b7e8414e1f31dc7834941166a5a44f0e6cf66b3b5c66eb3",
+      "server/trading-engine-p15-preopen.timer": "7f847981860a3c2be1439305b4e98d4662a0850a30bb7e1299fc85a2ffad8c35",
+      "server/trading-engine-p15-scoring.service": "10708e7163f965aa85d8f4846bb48095539fda057f9c63aa2381f33aa1bbf454",
+      "server/trading-engine-p15-scoring.timer": "065c0886d27259dbd8cb0e1527b3334dc1adb7dd0c047a0db0b7de67d8736e9a",
+      "sim/p15_books.py": "898a02b0c965bc5dd3f01af5942db6b63fb5c4983f90425e71d89b5e974ef63e",
+      "sim/p15_fills.py": "baf1cf1aa52277ced800908a0f8716d2693499e9c27ef895e1ab6a9a1e2b806e",
+      "tools/agent_trial_register.py": "1ce5525d61b29d06abf84f3ccaf62af2d0057cee95a63b6804578ca4da3b2a4f",
+      "tools/p15_evidence_validation.py": "5faa3ac433ca444a87d01182056fd8eebf236aec15b56952daaa420762ab9cf9"
+    }
+  },
+  "registration_sha256": "5644a00f6d0b240d1b00ef247c5479287edcbadc4fd8e4af4c856cc59145c509"
+}
