@@ -23,14 +23,13 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 from engine.lib.util import table_exists
-from sim import nyse
+from sim import nyse, p15_books
 from tools.backup_database import _copy_database
 
 from . import (
     agent_evaluation,
     agent_model_client,
     daily_opportunity_news,
-    p15_books,
 )
 from . import (
     p15_scoring_store as store,

@@ -7,8 +7,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from engine.lib import db
-from server import p15_books
-from sim import league, portfolio
+from sim import league, p15_books, portfolio
 from sim.schema import init_sim_schema
 from tests.conftest import PRICES_DDL, SESSIONS, insert_bars
 
