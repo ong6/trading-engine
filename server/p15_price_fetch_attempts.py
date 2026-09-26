@@ -1,15 +1,19 @@
 """Append exact-date EOD fetch outcomes used by P15 missing-bar labels."""
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timezone
 
 import duckdb
 
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
+from engine.lib.util import table_exists
 from sim import nyse
 
 SOURCE = "yfinance"
+OPEN_LABEL_SOURCE = "yfinance_ticker_history_v1"
+HORIZONS = (1, 5, 10, 20)
 
 
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
@@ -27,6 +31,171 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         batch_sha256 VARCHAR NOT NULL, attempt_sha256 VARCHAR NOT NULL UNIQUE,
         UNIQUE(batch_sha256,ticker))"""
     )
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS p15_open_label_fetch_receipts (
+        id BIGINT PRIMARY KEY, ticker VARCHAR NOT NULL, provider_ticker VARCHAR NOT NULL,
+        market_date DATE NOT NULL, requested_at TIMESTAMP NOT NULL,
+        completed_at TIMESTAMP NOT NULL, source VARCHAR NOT NULL, status VARCHAR NOT NULL,
+        request_sha256 VARCHAR NOT NULL, response_sha256 VARCHAR NOT NULL,
+        receipt_sha256 VARCHAR NOT NULL UNIQUE)"""
+    )
+
+
+def _missing_dates(
+    con: duckdb.DuckDBPyConnection, ticker: str, boundary: date,
+    labeled: set[tuple[int, str]], through_date: date, known_at: datetime,
+) -> set[date]:
+    cutoff = known_at.astimezone(timezone.utc).replace(tzinfo=None)
+    sessions = [row[0] for row in con.execute(
+        f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>? AND date<=? "
+        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
+        "ORDER BY date LIMIT 20",
+        [boundary, through_date, cutoff],
+    ).fetchall()]
+    missing = set()
+    for horizon in HORIZONS:
+        if len(sessions) < horizon or any(
+            item[0] == horizon for item in labeled
+        ):
+            continue
+        required = sessions[:horizon]
+        present = {row[0] for row in con.execute(
+            f"SELECT date FROM prices WHERE ticker=? AND date IN "
+            f"({','.join('?' for _ in required)}) AND fetched_at IS NOT NULL "
+            f"AND fetched_at<=? AND {REAL_BAR_SQL}",
+            [ticker, *required, cutoff],
+        ).fetchall()}
+        absent = set(required) - present
+        if not absent:
+            continue
+        later = con.execute(
+            f"SELECT 1 FROM prices WHERE ticker=? AND date>? AND date<=? "
+            f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} LIMIT 1",
+            [ticker, max(absent), through_date, cutoff],
+        ).fetchone()
+        if later is None:
+            missing.update(absent)
+    return missing
+
+
+def open_label_obligations(
+    con: duckdb.DuckDBPyConnection, *, through_date: date, known_at: datetime,
+) -> list[dict]:
+    """Exact-date fetches still owed by immutable P15 decisions."""
+    if known_at.utcoffset() is None:
+        raise ValueError("open-label fetch cutoff is invalid")
+    obligations: set[tuple[str, date]] = set()
+    nightly_tables = {
+        "agent_evaluation_traces", "agent_evaluation_decisions",
+        "agent_evaluation_labels_v2",
+    }
+    if all(table_exists(con, name) for name in nightly_tables):
+        rows = con.execute(
+            "SELECT d.id,d.ticker,t.market_date,d.decision,d.decision_payload "
+            "FROM agent_evaluation_decisions d JOIN agent_evaluation_traces t "
+            "ON t.id=d.trace_id WHERE t.policy_id='p15-scoring-v1' ORDER BY d.id"
+        ).fetchall()
+        for decision_id, ticker, market_date, decision, raw in rows:
+            try:
+                available = json.loads(raw).get("scoring_status") == "available"
+            except (TypeError, ValueError):
+                available = False
+            if decision == "unavailable" or not available:
+                continue
+            labeled = set(con.execute(
+                "SELECT horizon_sessions,label_basis FROM agent_evaluation_labels_v2 "
+                "WHERE decision_id=? AND label_basis IN "
+                "('next_session_open','missing_entry_last_available_close')",
+                [decision_id],
+            ).fetchall())
+            obligations.update(
+                (ticker, missing_date) for missing_date in _missing_dates(
+                    con, ticker, market_date, labeled, through_date, known_at,
+                )
+            )
+    event_tables = {"p15_event_decisions", "p15_event_labels"}
+    if all(table_exists(con, name) for name in event_tables):
+        rows = con.execute(
+            "SELECT id,ticker,decision_at FROM p15_event_decisions "
+            "WHERE scoring_status='available' ORDER BY id"
+        ).fetchall()
+        for decision_id, ticker, decision_at in rows:
+            labeled = set(con.execute(
+                "SELECT horizon_sessions,label_basis FROM p15_event_labels "
+                "WHERE decision_id=? AND label_basis='next_session_open'",
+                [decision_id],
+            ).fetchall())
+            obligations.update(
+                (ticker, missing_date) for missing_date in _missing_dates(
+                    con, ticker, decision_at.date(), labeled, through_date, known_at,
+                )
+            )
+    if table_exists(con, "p15_open_label_fetch_receipts") and obligations:
+        cutoff = known_at.astimezone(timezone.utc).replace(tzinfo=None)
+        confirmed = set(con.execute(
+            "SELECT ticker,market_date FROM p15_open_label_fetch_receipts "
+            "WHERE status='missing' AND completed_at<=?",
+            [cutoff],
+        ).fetchall())
+        obligations -= confirmed
+    result = []
+    for ticker, market_date in sorted(obligations):
+        row = con.execute(
+            "SELECT yf_ticker FROM universe WHERE ticker=?", [ticker]
+        ).fetchone()
+        result.append({
+            "ticker": ticker,
+            "provider_ticker": ticker if row is None or not row[0] else row[0],
+            "market_date": market_date,
+        })
+    return result
+
+
+def record_open_label_receipt(
+    con: duckdb.DuckDBPyConnection, *, ticker: str, provider_ticker: str,
+    market_date: date, requested_at: datetime, completed_at: datetime,
+    status: str, request_sha256: str, response_sha256: str,
+) -> str:
+    """Append one completed, exact-date, per-ticker fetch receipt."""
+    if (
+        requested_at.utcoffset() is None or completed_at.utcoffset() is None
+        or completed_at < requested_at or not nyse.is_session(market_date)
+        or status not in {"present", "missing"}
+        or any(
+            not isinstance(value, str) or len(value) != 64
+            for value in (request_sha256, response_sha256)
+        )
+    ):
+        raise ValueError("open-label fetch receipt is invalid")
+    init_schema(con)
+    completed = completed_at.astimezone(timezone.utc)
+    had_bar = con.execute(
+        f"SELECT 1 FROM prices WHERE ticker=? AND date=? AND fetched_at<=? "
+        f"AND {REAL_BAR_SQL} LIMIT 1",
+        [ticker, market_date, completed.replace(tzinfo=None)],
+    ).fetchone() is not None
+    if had_bar != (status == "present"):
+        raise ValueError("open-label fetch receipt differs from stored prices")
+    body = {
+        "ticker": ticker, "provider_ticker": provider_ticker,
+        "market_date": market_date.isoformat(),
+        "requested_at": requested_at.astimezone(timezone.utc).isoformat(),
+        "completed_at": completed.isoformat(), "source": OPEN_LABEL_SOURCE,
+        "status": status, "request_sha256": request_sha256,
+        "response_sha256": response_sha256,
+    }
+    receipt_sha = canonical_sha256(body)
+    next_id = int(con.execute(
+        "SELECT COALESCE(MAX(id),0)+1 FROM p15_open_label_fetch_receipts"
+    ).fetchone()[0])
+    con.execute(
+        "INSERT INTO p15_open_label_fetch_receipts VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        [next_id, ticker, provider_ticker, market_date,
+         requested_at.astimezone(timezone.utc).replace(tzinfo=None),
+         completed.replace(tzinfo=None), OPEN_LABEL_SOURCE, status,
+         request_sha256, response_sha256, receipt_sha],
+    )
+    return receipt_sha
 
 
 def record(
@@ -150,3 +319,31 @@ def validate(con: duckdb.DuckDBPyConnection, error_type) -> None:
     ).fetchone()[0])
     if orphans:
         raise error_type("P15 price fetch attempt evidence differs")
+    if not table_exists(con, "p15_open_label_fetch_receipts"):
+        return
+    for row in con.execute(
+        "SELECT ticker,provider_ticker,market_date,requested_at,completed_at,source,status,"
+        "request_sha256,response_sha256,receipt_sha256 "
+        "FROM p15_open_label_fetch_receipts ORDER BY id"
+    ).fetchall():
+        (ticker, provider_ticker, market_date, requested_at, completed_at, source, status,
+         request_sha, response_sha, receipt_sha) = row
+        body = {
+            "ticker": ticker, "provider_ticker": provider_ticker,
+            "market_date": market_date.isoformat(),
+            "requested_at": requested_at.replace(tzinfo=timezone.utc).isoformat(),
+            "completed_at": completed_at.replace(tzinfo=timezone.utc).isoformat(),
+            "source": source, "status": status, "request_sha256": request_sha,
+            "response_sha256": response_sha,
+        }
+        had_bar = con.execute(
+            f"SELECT 1 FROM prices WHERE ticker=? AND date=? AND fetched_at<=? "
+            f"AND {REAL_BAR_SQL} LIMIT 1",
+            [ticker, market_date, completed_at],
+        ).fetchone() is not None
+        if (
+            source != OPEN_LABEL_SOURCE or status not in {"present", "missing"}
+            or requested_at > completed_at or had_bar != (status == "present")
+            or canonical_sha256(body) != receipt_sha
+        ):
+            raise error_type("P15 open-label fetch receipt differs")

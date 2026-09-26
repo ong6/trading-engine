@@ -546,19 +546,27 @@ def _label_outcome_when_ready(
         f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} LIMIT 1",
         [ticker, max(missing_dates), cutoff],
     ).fetchone() is not None
-    attempts_confirm = False
+    confirmed_dates = set()
     if table_exists(con, "price_fetch_attempts"):
         placeholders = ",".join("?" for _ in missing_dates)
-        confirmed = int(con.execute(
-            "SELECT COUNT(DISTINCT market_date) FROM price_fetch_attempts "
+        confirmed_dates.update(row[0] for row in con.execute(
+            "SELECT DISTINCT market_date FROM price_fetch_attempts "
             f"WHERE ticker=? AND market_date IN ({placeholders}) "
             "AND attempted_at<=? AND status='missing' "
             "AND EXISTS (SELECT 1 FROM p15_price_fetch_batches b "
             "WHERE b.batch_sha256=price_fetch_attempts.batch_sha256 "
             "AND b.failed_count=0 AND b.requested_count=b.present_count+b.missing_count)",
             [ticker, *missing_dates, cutoff],
-        ).fetchone()[0])
-        attempts_confirm = confirmed == len(missing_dates)
+        ).fetchall())
+    if table_exists(con, "p15_open_label_fetch_receipts"):
+        placeholders = ",".join("?" for _ in missing_dates)
+        confirmed_dates.update(row[0] for row in con.execute(
+            "SELECT DISTINCT market_date FROM p15_open_label_fetch_receipts "
+            f"WHERE ticker=? AND market_date IN ({placeholders}) "
+            "AND completed_at<=? AND status='missing'",
+            [ticker, *missing_dates, cutoff],
+        ).fetchall())
+    attempts_confirm = set(missing_dates) <= confirmed_dates
     return outcome if later_ticker_bar or attempts_confirm else None
 
 
@@ -850,6 +858,7 @@ def validate_p15_evidence(
         "agent_evaluation_traces", "agent_evaluation_decisions", "agent_evaluation_labels_v2",
         "p15_evaluation_looks", "p15_evaluation_look_anchors",
         "p15_price_fetch_batches", "price_fetch_attempts",
+        "p15_open_label_fetch_receipts",
     ), "scoring")
     preopen_schema = _complete_schema(con, (
         "p15_preopen_runs", "p15_preopen_decisions", "p15_preopen_news_responses",

@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 import pytest
 
 from engine import collect
 from engine.lib import db
-from server import p15_incremental_collect, p15_price_fetch_attempts
+from engine.lib.provenance import canonical_sha256
+from server import agent_evaluation, p15_incremental_collect, p15_price_fetch_attempts
+from tests.conftest import SESSIONS, insert_bars
 
 
 def _raw_frame(day: str = "2026-09-08", *, volume: int = 1_000_000) -> pd.DataFrame:
@@ -180,6 +182,86 @@ def test_p15_incremental_wrapper_withholds_failed_or_misdated_attempts(monkeypat
         (db_path, "incremental", 1, 1),
         (db_path, "incremental", 1, 0),
     ]
+
+
+def test_demoted_p15_ticker_keeps_exact_date_fetch_obligations_until_labeled(con):
+    db.init_schema(con)
+    p15_price_fetch_attempts.init_schema(con)
+    con.execute(
+        "CREATE TABLE agent_evaluation_traces "
+        "(id BIGINT,policy_id VARCHAR,market_date DATE)"
+    )
+    con.execute(
+        "CREATE TABLE agent_evaluation_decisions "
+        "(id BIGINT,trace_id BIGINT,ticker VARCHAR,decision VARCHAR,decision_payload VARCHAR)"
+    )
+    con.execute(
+        "CREATE TABLE agent_evaluation_labels_v2 "
+        "(decision_id BIGINT,horizon_sessions INTEGER,label_basis VARCHAR)"
+    )
+    con.execute(
+        "INSERT INTO universe (ticker,yf_ticker,active,liquid,backfill_done) "
+        "VALUES ('AAA','AAA',FALSE,FALSE,FALSE)"
+    )
+    con.execute(
+        "INSERT INTO agent_evaluation_traces VALUES (1,'p15-scoring-v1',?)",
+        [SESSIONS[0]],
+    )
+    con.execute(
+        "INSERT INTO agent_evaluation_decisions VALUES "
+        "(1,1,'AAA','buy_candidate',?)",
+        [json.dumps({"scoring_status": "available"})],
+    )
+    labeled_at = datetime(2024, 8, 5, tzinfo=timezone.utc)
+    horizon_sessions = SESSIONS[1:21]
+    insert_bars(con, "SPY", SESSIONS[1:24], open_=100, close=100, high=101, low=99)
+    insert_bars(con, "AAA", horizon_sessions[:4], open_=100, close=101, high=102, low=99)
+    con.execute("UPDATE prices SET fetched_at=?", [labeled_at.replace(tzinfo=None)])
+
+    obligations = p15_price_fetch_attempts.open_label_obligations(
+        con, through_date=SESSIONS[23], known_at=labeled_at,
+    )
+
+    assert {(row["ticker"], row["market_date"]) for row in obligations} == {
+        ("AAA", market_date) for market_date in horizon_sessions[4:]
+    }
+    for index, obligation in enumerate(obligations):
+        p15_price_fetch_attempts.record_open_label_receipt(
+            con, **obligation, requested_at=labeled_at - timedelta(minutes=1),
+            completed_at=labeled_at, status="missing",
+            request_sha256=canonical_sha256({"request": index}),
+            response_sha256=canonical_sha256({"missing": index}),
+        )
+    p15_price_fetch_attempts.validate(con, ValueError)
+    assert p15_price_fetch_attempts.open_label_obligations(
+        con, through_date=SESSIONS[23], known_at=labeled_at,
+    ) == []
+    for horizon in (5, 10, 20):
+        outcome = agent_evaluation._label_outcome_when_ready(
+            con, "AAA", horizon_sessions[:horizon], labeled_at,
+            grace_through=SESSIONS[23],
+        )
+        assert outcome["missing_bar_status"] == "last_available_close"
+
+
+def test_exact_label_fetch_distinguishes_missing_from_ambiguous_empty():
+    obligation = {
+        "ticker": "AAA", "provider_ticker": "AAA", "market_date": date(2026, 9, 25),
+    }
+    requested_at = datetime(2026, 9, 26, 1, tzinfo=timezone.utc)
+
+    def missing(*_args):
+        raise p15_incremental_collect.YFPricesMissingError("AAA", "no prices")
+
+    receipt, frame = p15_incremental_collect._fetch_exact(
+        obligation, requested_at=requested_at, history=missing,
+        sleep=lambda _seconds: None,
+    )
+    assert receipt["status"] == "missing" and frame is None
+    assert p15_incremental_collect._fetch_exact(
+        obligation, requested_at=requested_at,
+        history=lambda *_args: pd.DataFrame(), sleep=lambda _seconds: None,
+    ) == (None, None)
 
 
 def test_backfill_checkpoints_state_and_releases_db(monkeypatch, tmp_path):
