@@ -30,6 +30,7 @@ from . import (
     agent_evaluation,
     agent_model_client,
     daily_opportunity_news,
+    p15_preopen,
 )
 from . import (
     p15_scoring_store as store,
@@ -572,9 +573,17 @@ def run(
         if "market_date" in result:
             con = db.connect(database, wait_s=0)
             try:
-                result = {**result, "books": p15_books.run_window(
+                books = p15_books.run_window(
                     con, date.fromisoformat(result["market_date"]), observed_at=clock()
-                )}
+                )
+                post_open = None
+                if books["status"] == "completed":
+                    with db.transaction(con):
+                        post_open = p15_preopen.capture_after_open(
+                            con, date.fromisoformat(result["market_date"]),
+                            captured_at=clock(),
+                        )
+                result = {**result, "books": books, "preopen_evidence": post_open}
             finally:
                 con.close()
         return result

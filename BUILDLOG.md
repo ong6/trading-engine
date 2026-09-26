@@ -788,4 +788,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server -928, sim +927, product +927, tools unchanged; all ceilings green.
 - **Next:** implement the cancel-only P15 pre-open decision and consumer path.
 
+## 2026-09-26 — P15 W4: add cancel-only pre-open policy
+
+- **Why:** approved P15 W4 requires a bounded 09:05 ET reassessment that can only cancel pending
+  AI and hybrid entries, while the rule book records a no-op.
+- **What:** add strict tool-free keep/cancel validation, post-decision headline and event inputs,
+  retained responses, fail-open lateness/errors, cancelled-order hypothetical fills and labels,
+  per-order latency/shortfall evidence, and an inactive-until-W8 service/timer.
+- **Evidence:** `./.venv/bin/python -m pytest -q -W error` reaches `[100%]` and exits 0.
+- **Metrics:** server +463, sim +5, tools +10, product +5, tests +257; budget ok.
+- **Next:** migrate the inactive W4 evidence tables and complete independent review.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

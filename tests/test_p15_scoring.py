@@ -435,13 +435,13 @@ def test_p15_runner_advances_book_safety_on_failed_scoring(tmp_path, monkeypatch
         "replayed": False,
     })
     monkeypatch.setattr(p15_scoring_runner.p15_books, "run_window", lambda *_args, **kwargs: (
-        calls.append(kwargs) or {"status": "completed", "queued": 0}
+        calls.append(kwargs) or {"status": "inactive", "queued": 0}
     ))
 
     result = p15_scoring_runner.run(database=database, now=P15_NOW, clock=lambda: P15_NOW)
 
     assert result["status"] == "failed"
-    assert result["books"] == {"status": "completed", "queued": 0}
+    assert result["books"] == {"status": "inactive", "queued": 0}
     assert calls == [{"observed_at": P15_NOW}]
 
 

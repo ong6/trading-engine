@@ -1,0 +1,17 @@
+[Unit]
+Description=Trading engine P15 cancel-only pre-open reassessment
+After=network-online.target trae-proxy.service
+Wants=network-online.target trae-proxy.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/trading-engine
+ExecStart=%h/trading-engine/.venv/bin/python -m server.p15_preopen --run
+Environment=PYTHONUNBUFFERED=1
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=20min
+PrivateTmp=true
+ProtectSystem=full
+ProtectControlGroups=true
+UMask=0077

@@ -240,6 +240,10 @@ def _activate_books(con: duckdb.DuckDBPyConnection, checkpoint: date) -> dict:
         "SELECT COUNT(*) FROM p15_limit_labels"
     ).fetchone()[0]:
         raise P15BookError("P15 books already contain owned runtime state")
+    for table in ("p15_preopen_runs", "p15_preopen_decisions",
+                  "p15_preopen_news_responses", "p15_execution_quality"):
+        if table_exists(con, table) and con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]:
+            raise P15BookError("P15 books already contain pre-open runtime state")
     checkpoints = con.execute(
         "SELECT p.id,MAX(e.date) FROM portfolios p LEFT JOIN sim_equity e "
         "ON e.portfolio_id=p.id WHERE p.active AND p.id NOT IN (?,?,?) "
@@ -845,7 +849,8 @@ def label_limit_counterfactuals(
         "SELECT i.id,i.ticker,a.attempt_date,a.counterfactual_fill_px "
         "FROM p15_order_intents i JOIN p15_limit_attempts a ON a.intent_id=i.id "
         "LEFT JOIN p15_limit_labels l ON l.intent_id=i.id "
-        "WHERE a.outcome='limit_not_reached' AND l.intent_id IS NULL ORDER BY i.id"
+        "WHERE a.outcome IN ('limit_not_reached','cancelled_would_fill') "
+        "AND l.intent_id IS NULL ORDER BY i.id"
     ).fetchall()
     inserted = 0
     for intent_id, ticker, attempt_date, entry_px in rows:

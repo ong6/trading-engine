@@ -1,0 +1,10 @@
+[Unit]
+Description=Run P15 cancel-only reassessment before the opening auction
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 09:05:00 America/New_York
+Persistent=false
+Unit=trading-engine-p15-preopen.service
+
+[Install]
+WantedBy=timers.target
