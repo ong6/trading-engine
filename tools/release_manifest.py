@@ -211,6 +211,7 @@ STRATEGY_REGISTRATION_FILES = ("sim/strategies/configs.py",)
 EXECUTION_PROFILE_FILES = ("sim/execution.py",)
 PROSPECTIVE_EVIDENCE_FILES = (
     "data/reports/agent-evaluation.json",
+    "data/reports/agent-eval/p15-look-anchors.jsonl",
     "data/reports/agent-eval/p15.md",
     "data/reports/experiments/agent-2022-contamination-probes-v1/README.md",
     "data/reports/experiments/agent-2022-contamination-probes-v1/decisions.json",
