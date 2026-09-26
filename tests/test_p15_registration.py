@@ -244,7 +244,7 @@ def test_p15_registration_revision_and_self_hash():
 
     assert registration["schema_version"] == 1
     assert registration["registration_revision"] == 2
-    assert registration["revision_reason"] == "P16 W0 review findings R1-R16"
+    assert registration["revision_reason"] == "P16 W0 review findings R1-R16 and R7b"
     assert registration["status"] == "registered_inactive"
     assert recorded == canonical_sha256(registration)
 
@@ -362,11 +362,19 @@ def test_p15_registered_constants_match_runtime():
         "sec_acceptance_after_previous_cik_scan": True,
     }
     assert registration["evaluation"] == {
-        "primary_statistic": "daily_spearman_model_minus_baseline",
+        "primary_statistic": "nonoverlapping_offset0_daily_spearman_model_minus_baseline",
         "minimum_pairs_per_session": 20,
         "looks_scored_sessions": list(p15_evaluation.LOOKS),
         "one_sided_alpha_per_look": p15_evaluation.ALPHA,
         "primary_standard_error": {
+            "estimator": "student_t", "sampling": "nonoverlapping_offset0",
+            "stride_sessions": p15_evaluation.PRIMARY_STRIDE,
+            "offset": p15_evaluation.PRIMARY_OFFSET,
+            "variance_normalization": "n_minus_1",
+            "sample_sizes_by_look": {"60": 12, "90": 18, "120": 24},
+            "zero_variance": "no_interval",
+        },
+        "diagnostic_standard_error": {
             "estimator": "hansen_hodrick", "kernel": "uniform",
             "lag": p15_evaluation.PRIMARY_HH_LAG,
             "autocovariance_normalization": "n",
@@ -374,7 +382,7 @@ def test_p15_registered_constants_match_runtime():
             "fallback_lag": p15_evaluation.PRIMARY_FALLBACK_LAG,
             "nonpositive_after_fallback": "no_interval",
         },
-        "primary_finite_sample_correction": {
+        "diagnostic_finite_sample_correction": {
             "null_model": "equal_weight_gaussian_ma4",
             "hh_formula": "n/(n-1)/(1-53/(5*n)+24/n^2+32/n^3)",
             "bartlett_fallback_formula": (
@@ -382,7 +390,8 @@ def test_p15_registered_constants_match_runtime():
             ),
         },
         "primary_critical_values": {
-            "distribution": "student_t", "degrees_of_freedom": "n_minus_1",
+            "distribution": "student_t",
+            "degrees_of_freedom_by_look": {"60": 11, "90": 17, "120": 23},
             "tail": "one_sided", "values_by_scored_sessions": {
                 str(key): value for key, value in p15_evaluation.PRIMARY_T_CRITICAL.items()
             },
@@ -391,9 +400,12 @@ def test_p15_registered_constants_match_runtime():
             "bit_generator": "PCG64", "seed": 20260926, "draws": 10000,
             "null_model": "equal_weight_gaussian_ma4", "innovation_sd": 0.1,
             "planted_delta_ic": 0.03, "maximum_null_false_pass_rate": 0.05,
-            "minimum_planted_pass_rate": 0.8,
+            "minimum_planted_pass_rate": 0.8, "null_pass_count": 347,
+            "planted_pass_count": 8638,
+            "guarantee_scope": "iid_gaussian_or_equal_weight_gaussian_ma4",
+            "limitation": "persistent_ar_dependence_outside_guarantee",
         },
-        "pass": "lower_bound_gt_0_and_mean_model_ic_gt_0",
+        "pass": "nonoverlap_lower_bound_gt_0_and_mean_model_ic_gt_0",
         "kill": "upper_bound_lt_0_at_any_look_or_no_pass_at_120",
         "look_persistence": "append_only_hash_chained_db_and_external_registration_bound",
         "missing_label_grace_sessions": p15_evaluation.MISSING_LABEL_GRACE_SESSIONS,
