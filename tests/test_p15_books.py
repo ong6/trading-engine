@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from server import p15_books
+from sim import portfolio
 from sim.schema import init_sim_schema
 from tests.conftest import SESSIONS, insert_bars
 
@@ -25,20 +26,28 @@ def _activate(con, checkpoint):
 
 def _seed_decisions(con, market_date, decisions):
     con.execute(
-        "CREATE TABLE agent_evaluation_traces (id BIGINT PRIMARY KEY, policy_id VARCHAR, "
+        "CREATE TABLE IF NOT EXISTS agent_evaluation_traces "
+        "(id BIGINT PRIMARY KEY, policy_id VARCHAR, "
         "market_date DATE, terminal_status VARCHAR)"
     )
     con.execute(
-        "CREATE TABLE agent_evaluation_decisions (id BIGINT PRIMARY KEY, trace_id BIGINT, "
+        "CREATE TABLE IF NOT EXISTS agent_evaluation_decisions "
+        "(id BIGINT PRIMARY KEY, trace_id BIGINT, "
         "ticker VARCHAR, decision_payload VARCHAR)"
     )
+    trace_id = int(con.execute(
+        "SELECT COALESCE(MAX(id),0)+1 FROM agent_evaluation_traces"
+    ).fetchone()[0])
+    decision_id = int(con.execute(
+        "SELECT COALESCE(MAX(id),0)+1 FROM agent_evaluation_decisions"
+    ).fetchone()[0])
     con.execute(
         "INSERT INTO agent_evaluation_traces VALUES "
-        "(1,'p15-scoring-v1',?,'completed')", [market_date]
+        "(?,'p15-scoring-v1',?,'completed')", [trace_id, market_date]
     )
     con.executemany(
-        "INSERT INTO agent_evaluation_decisions VALUES (1+?,1,?,?)",
-        [(index, item["ticker"], json.dumps(item))
+        "INSERT INTO agent_evaluation_decisions VALUES (?, ?, ?, ?)",
+        [(decision_id + index, trace_id, item["ticker"], json.dumps(item))
          for index, item in enumerate(decisions)],
     )
 
@@ -181,4 +190,128 @@ def test_inactive_books_are_noop_and_drawdown_halt_blocks_entries(con):
     ) == {"status": "queued", "created": 0}
     assert con.execute(
         "SELECT COUNT(*) FROM p15_book_state WHERE entry_halted"
+    ).fetchone() == (3,)
+
+
+def test_scoped_fill_executes_entries_then_whole_share_spy_sleeve(con):
+    market_date, fill_date = SESSIONS[29:31]
+    for ticker in ("SPY", "AAA", "BBB", "CCC"):
+        insert_bars(con, ticker, SESSIONS[:31], open_=100, close=100, high=101, low=99)
+    _activate(con, market_date)
+    _seed_decisions(con, market_date, [
+        _decision("AAA", 2, 100),
+        _decision("BBB", 1, -10, action="watch"),
+        _decision("CCC", 3, 80),
+    ])
+    p15_books.queue_orders(
+        con, market_date, created_at=datetime(2026, 9, 25, tzinfo=timezone.utc)
+    )
+
+    result = p15_books.process_pending(con, fill_date)
+
+    assert result == {"filled": 9, "rejected": 0, "pending": 0}
+    assert con.execute(
+        "SELECT COUNT(*) FROM sim_orders WHERE status='filled'"
+    ).fetchone() == (9,)
+    assert con.execute("SELECT COUNT(*) FROM sim_fills").fetchone() == (9,)
+    assert con.execute(
+        "SELECT COUNT(*) FROM p15_limit_attempts WHERE outcome='filled'"
+    ).fetchone() == (6,)
+    assert con.execute(
+        "SELECT COUNT(*) FROM p15_position_rules WHERE status='open' AND stop_px=95.1"
+    ).fetchone() == (6,)
+    sleeves = con.execute(
+        "SELECT portfolio_id,qty FROM sim_positions WHERE ticker='SPY' ORDER BY portfolio_id"
+    ).fetchall()
+    assert sleeves == [(book_id, 69.0) for book_id in sorted(p15_books.BOOK_IDS)]
+    assert con.execute(
+        "SELECT COUNT(*) FROM sim_orders WHERE status='pending'"
+    ).fetchone() == (0,)
+
+
+def test_limit_miss_is_terminal_and_keeps_counterfactual_price(con):
+    market_date, fill_date = SESSIONS[29:31]
+    insert_bars(con, "SPY", SESSIONS[:31], open_=100, close=100, high=101, low=99)
+    insert_bars(
+        con, "AAA", SESSIONS[:30], open_=100, close=100, high=101, low=99
+    )
+    insert_bars(con, "AAA", [fill_date], open_=102, close=102, high=103, low=101)
+    _activate(con, market_date)
+    _seed_decisions(con, market_date, [_decision("AAA", 1, 100)])
+    p15_books.queue_orders(
+        con, market_date, created_at=datetime(2026, 9, 25, tzinfo=timezone.utc)
+    )
+
+    result = p15_books.process_pending(con, fill_date)
+
+    assert result == {"filled": 3, "rejected": 3, "pending": 0}
+    assert con.execute(
+        "SELECT DISTINCT status,reject_reason FROM sim_orders WHERE ticker='AAA'"
+    ).fetchall() == [("rejected", "limit_not_reached")]
+    attempts = con.execute(
+        "SELECT outcome,limit_px,counterfactual_fill_px FROM p15_limit_attempts ORDER BY intent_id"
+    ).fetchall()
+    assert len(attempts) == 3
+    assert all(row[0] == "limit_not_reached" and row[1] == pytest.approx(101.5)
+               and row[2] > row[1] for row in attempts)
+    assert con.execute(
+        "SELECT COUNT(*) FROM sim_positions WHERE ticker='AAA'"
+    ).fetchone() == (0,)
+
+
+def test_spy_funds_entries_and_time_exit_reinvests_next_open(con):
+    signal_date, fill_date = SESSIONS[29:31]
+    exit_signal, exit_fill = SESSIONS[39:41]
+    for ticker in ("SPY", "AAA"):
+        insert_bars(con, ticker, SESSIONS[:41], open_=100, close=100, high=101, low=99)
+    _activate(con, signal_date)
+    con.execute(
+        "UPDATE portfolios SET cash=100 WHERE id IN (?,?,?)", list(p15_books.BOOK_IDS)
+    )
+    con.executemany(
+        "INSERT INTO sim_positions VALUES (?, 'SPY', 99, 100)",
+        [(book_id,) for book_id in p15_books.BOOK_IDS],
+    )
+    _seed_decisions(con, signal_date, [_decision("AAA", 1, 100)])
+
+    queued = p15_books.queue_orders(
+        con, signal_date, created_at=datetime(2026, 9, 25, tzinfo=timezone.utc)
+    )
+    assert queued == {"status": "queued", "created": 6}
+    assert con.execute(
+        "SELECT DISTINCT qty FROM p15_order_intents WHERE order_role='spy_fund'"
+    ).fetchall() == [(15.0,)]
+    assert p15_books.process_pending(con, fill_date) == {
+        "filled": 6, "rejected": 0, "pending": 0,
+    }
+
+    for book_id in p15_books.BOOK_IDS:
+        portfolio.mark_to_market(con, book_id, exit_signal)
+    _seed_decisions(con, exit_signal, [
+        {**_decision("AAA", 1, 100, action="watch"), "tradeable": False}
+    ])
+    exits = p15_books.queue_orders(
+        con, exit_signal, created_at=datetime(2026, 9, 25, tzinfo=timezone.utc)
+    )
+    assert exits == {"status": "queued", "created": 3}
+    assert con.execute(
+        "SELECT DISTINCT order_role FROM p15_order_intents WHERE signal_date=?",
+        [exit_signal],
+    ).fetchall() == [("time_exit",)]
+    assert p15_books.process_pending(con, exit_fill) == {
+        "filled": 3, "rejected": 0, "pending": 0,
+    }
+    for book_id in p15_books.BOOK_IDS:
+        portfolio.mark_to_market(con, book_id, exit_fill)
+    _seed_decisions(con, exit_fill, [
+        {**_decision("AAA", 1, 100, action="watch"), "tradeable": False}
+    ])
+    rebuys = p15_books.queue_orders(
+        con, exit_fill, created_at=datetime(2026, 9, 25, tzinfo=timezone.utc)
+    )
+    assert rebuys == {"status": "queued", "created": 3}
+    assert con.execute(
+        "SELECT COUNT(*) FROM p15_order_intents WHERE signal_date=? "
+        "AND order_role='spy_reinvest' AND side='buy'",
+        [exit_fill],
     ).fetchone() == (3,)

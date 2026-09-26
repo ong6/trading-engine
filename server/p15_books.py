@@ -7,8 +7,9 @@ from datetime import date, datetime, timezone
 
 import duckdb
 
+from engine.lib import db
 from engine.lib.provenance import canonical_sha256
-from sim import portfolio
+from sim import fills, p15_fills, portfolio
 from sim.schema import init_sim_schema
 from sim.strategies.base import atr_wilder
 
@@ -157,6 +158,11 @@ def activation_state(con: duckdb.DuckDBPyConnection) -> str:
 
 def activate_books(con: duckdb.DuckDBPyConnection, checkpoint: date) -> dict:
     """Atomically activate exact empty books at an already-completed checkpoint."""
+    with db.transaction(con):
+        return _activate_books(con, checkpoint)
+
+
+def _activate_books(con: duckdb.DuckDBPyConnection, checkpoint: date) -> dict:
     if activation_state(con) != "inactive":
         raise P15BookError("P15 books are not jointly inactive")
     for table in ("sim_orders", "sim_fills", "sim_positions", "sim_equity"):
@@ -393,3 +399,149 @@ def queue_orders(
                     created_at=created_at,
                 )
     return {"status": "queued", "created": created}
+
+
+def _next_order_id(con: duckdb.DuckDBPyConnection) -> int:
+    return int(con.execute("SELECT COALESCE(MAX(id),0)+1 FROM sim_orders").fetchone()[0])
+
+
+def _terminal_order(
+    con: duckdb.DuckDBPyConnection, intent: tuple, fill_date: date, result,
+) -> str:
+    (intent_id, portfolio_id, ticker, side, qty, signal_date, role,
+     _priority, _signal_close, entry_atr, _limit_px) = intent
+    order_id = _next_order_id(con)
+    status, reason = result.status, result.reject_reason
+    applied = 0.0
+    if status == "filled":
+        if side == "buy" and ticker != "SPY" and qty * result.fill_px > portfolio.get_cash(
+            con, portfolio_id
+        ):
+            status, reason = "rejected", "insufficient_cash"
+        else:
+            if side == "buy" and ticker == "SPY":
+                qty = float(math.floor(portfolio.get_cash(con, portfolio_id) / result.fill_px))
+                if qty > 0:
+                    result = fills.attempt_fill(
+                        con, ticker, side, qty, signal_date, fill_date, "baseline_v1"
+                    )
+                if qty <= 0 or result.status != "filled":
+                    status, reason = "rejected", "insufficient_cash"
+            if status == "filled":
+                applied = portfolio.apply_fill(con, {
+                    "portfolio_id": portfolio_id, "ticker": ticker,
+                    "side": side, "qty": qty, "fill_px": result.fill_px,
+                })
+                if applied <= 0:
+                    status, reason = "rejected", (
+                        "insufficient_cash" if side == "buy" else "no_position_to_sell"
+                    )
+    con.execute(
+        "INSERT INTO sim_orders VALUES (?,?,?,?,?,?,?,?)",
+        [order_id, portfolio_id, ticker, side, qty, signal_date, status, reason],
+    )
+    raw_notional = None if result.open_px is None else qty * float(result.open_px)
+    con.execute(
+        "INSERT INTO sim_execution_attempts "
+        "(order_id,attempt_date,execution_profile,raw_notional,median_dollar_vol,"
+        "participation,outcome,reject_reason) VALUES (?,?,?,?,?,?,?,?)",
+        [order_id, fill_date, result.execution_profile or "baseline_v1", raw_notional,
+         result.median_dollar_vol, result.participation, status, reason],
+    )
+    if status == "filled":
+        con.execute(
+            "INSERT INTO sim_fills VALUES (?,?,?,?,?,?,?,?,?,?)",
+            [order_id, portfolio_id, ticker, side, applied, fill_date, result.open_px,
+             result.fill_px, result.slippage_bps, result.cost_bps],
+        )
+        con.execute(
+            "INSERT INTO sim_fill_costs VALUES (?,?,?,?,?,?,?)",
+            [order_id, result.execution_profile, result.participation,
+             result.slippage_bps, result.impact_bps, result.fee_bps, result.cost_bps],
+        )
+        if role == "entry":
+            stop = float(result.fill_px) - COMMON_CONFIG["atr_multiple"] * float(entry_atr)
+            existing = con.execute(
+                "SELECT status FROM p15_position_rules WHERE portfolio_id=? AND ticker=?",
+                [portfolio_id, ticker],
+            ).fetchone()
+            if existing is not None and existing[0] != "closed":
+                raise P15BookError("P15 entry would replace an open position rule")
+            con.execute(
+                "DELETE FROM p15_position_rules WHERE portfolio_id=? AND ticker=?",
+                [portfolio_id, ticker],
+            )
+            con.execute(
+                "INSERT INTO p15_position_rules VALUES (?,?,?,?,?,?,?,?)",
+                [portfolio_id, ticker, intent_id, order_id, fill_date,
+                 entry_atr, stop, "open"],
+            )
+        elif side == "sell" and ticker != "SPY":
+            con.execute(
+                "UPDATE p15_position_rules SET status='closed' "
+                "WHERE portfolio_id=? AND ticker=?", [portfolio_id, ticker],
+            )
+    con.execute(
+        "UPDATE p15_order_intents SET status=?,reason=?,sim_order_id=? WHERE id=?",
+        [status, reason, order_id, intent_id],
+    )
+    return status
+
+
+def process_pending(con: duckdb.DuckDBPyConnection, fill_date: date) -> dict:
+    """Execute only P15-owned intents; generic league orders are never selected."""
+    init_schema(con)
+    if activation_state(con) != "active":
+        return {"filled": 0, "rejected": 0, "pending": 0}
+    rows = con.execute(
+        "SELECT id,portfolio_id,ticker,side,qty,signal_date,order_role,priority,"
+        "signal_close,entry_atr,limit_px FROM p15_order_intents "
+        "WHERE status='pending' AND signal_date<? AND portfolio_id IN (?,?,?) "
+        "ORDER BY signal_date,"
+        "CASE WHEN side='sell' THEN 0 WHEN order_role='entry' THEN 1 ELSE 2 END,priority,id",
+        [fill_date, *BOOK_IDS],
+    ).fetchall()
+    counts = {"filled": 0, "rejected": 0, "pending": 0}
+    for intent in rows:
+        (intent_id, _book_id, ticker, side, qty, signal_date, role,
+         _priority, _signal_close, _entry_atr, limit_px) = intent
+        result = (
+            p15_fills.attempt_limit_on_open(
+                con, ticker, side, qty, signal_date, fill_date, limit_px, "baseline_v1"
+            )
+            if role == "entry" else
+            fills.attempt_fill(
+                con, ticker, side, qty, signal_date, fill_date, "baseline_v1"
+            )
+        )
+        if role == "entry":
+            outcome = (result.reject_reason if result.reject_reason == "limit_not_reached"
+                       else result.status)
+            con.execute(
+                "INSERT OR REPLACE INTO p15_limit_attempts VALUES (?,?,?,?,?,?,?)",
+                [intent_id, fill_date, limit_px, result.open_px,
+                 result.counterfactual_fill_px, outcome, result.reject_reason],
+            )
+        if result.status == "pending":
+            counts["pending"] += 1
+            continue
+        counts[_terminal_order(con, intent, fill_date, result)] += 1
+    return counts
+
+
+def run_window(
+    con: duckdb.DuckDBPyConnection, market_date: date, *, observed_at: datetime,
+) -> dict:
+    """Process, mark, and queue one completed market session for active P15 books."""
+    init_schema(con)
+    if activation_state(con) != "active":
+        return {"status": "inactive", "filled": 0, "rejected": 0,
+                "pending": 0, "queued": 0}
+    with db.transaction(con):
+        processed = process_pending(con, market_date)
+        marks = {}
+        for book_id in BOOK_IDS:
+            marks[book_id] = portfolio.mark_to_market(con, book_id, market_date)
+        queued = queue_orders(con, market_date, created_at=observed_at)
+    return {"status": "completed", **processed, "queued": queued["created"],
+            "marks": marks}
