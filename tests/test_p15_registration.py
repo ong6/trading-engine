@@ -130,6 +130,7 @@ def test_p15_registered_constants_match_runtime():
         "missing_bars": "last_available_close_after_confirmation",
         "missing_bar_grace_sessions": agent_evaluation.MISSING_BAR_GRACE_SESSIONS,
         "missing_bar_confirmation": "later_ticker_bar_or_completed_exact_date_fetch",
+        "fetch_attempt_evidence": "batch_hash_bound_zero_failed_full_liquid_collection",
         "spy_net_return_stored": True,
     }
     books = registration["books"]
