@@ -212,12 +212,6 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         """
     )
     con.execute(
-        """CREATE TABLE IF NOT EXISTS price_fetch_attempts (
-        id BIGINT PRIMARY KEY, ticker VARCHAR NOT NULL, market_date DATE NOT NULL,
-        attempted_at TIMESTAMP NOT NULL, source VARCHAR NOT NULL, status VARCHAR NOT NULL,
-        attempt_sha256 VARCHAR NOT NULL UNIQUE)"""
-    )
-    con.execute(
         """
         CREATE TABLE IF NOT EXISTS universe (
             ticker        VARCHAR PRIMARY KEY,

@@ -180,6 +180,7 @@ def test_daily_stage_order(fake_repo):
     assert mods == [
         "engine.universe",
         "engine.collect",
+        "server.p15_price_fetch_attempts",
         "engine.market_date",
         "engine.screen",
         "engine.actions",
@@ -201,7 +202,10 @@ def test_daily_market_date_failure_is_fatal_before_screen(fake_repo):
     rc, out, argv = run_driver(fake_repo, "run_daily.sh", fail_match="engine.market_date")
     assert rc == 3
     assert "(stage=market-date exit 3)" in out
-    assert argv == ["-m engine.universe", "-m engine.collect", "-m engine.market_date"]
+    assert argv == [
+        "-m engine.universe", "-m engine.collect",
+        "-m server.p15_price_fetch_attempts", "-m engine.market_date",
+    ]
 
 
 def test_sweeps_enqueues_each_grid_then_drains(fake_repo):

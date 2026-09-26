@@ -91,8 +91,10 @@ def _next_id(con: duckdb.DuckDBPyConnection, table: str) -> int:
 
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     from engine import p15_evaluation
+    from server import p15_price_fetch_attempts
 
     p15_evaluation.init_look_schema(con)
+    p15_price_fetch_attempts.init_schema(con)
     con.execute(
         """CREATE TABLE IF NOT EXISTS agent_evaluation_traces (
         id BIGINT PRIMARY KEY, schema_version INTEGER NOT NULL, window_id VARCHAR NOT NULL UNIQUE,
