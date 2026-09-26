@@ -11,7 +11,13 @@ from pathlib import Path
 from engine import daily_opportunities, p15_evaluation, p15_event_sources
 from engine.lib.provenance import canonical_sha256
 from farm import p15_event_runner
-from server import agent_evaluation, agent_model_client, p15_preopen, p15_scoring_runner
+from server import (
+    agent_evaluation,
+    agent_model_client,
+    p15_incremental_collect,
+    p15_preopen,
+    p15_scoring_runner,
+)
 from sim import p15_books
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -411,6 +417,9 @@ def test_p15_registered_constants_match_runtime():
         "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
         "price_fetch_attempts": (
             "zero_failed_liquid_batch_plus_exact_open_label_receipts"
+        ),
+        "maximum_open_label_fetches_per_run": (
+            p15_incremental_collect.MAX_OPEN_LABEL_FETCHES
         ),
         "price_fetch_availability": "after_collection_completion",
     }
