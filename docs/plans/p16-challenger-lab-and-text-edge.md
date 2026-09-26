@@ -1,9 +1,9 @@
 ---
 plan: P16
 title: Challenger lab, text edge, and evaluation science
-status: proposed
+status: approved
 opened: 2026-09-26
-owner_decision: approve once P15 W8 (activation) is done; confirm ceilings and the optional research-text dependency group
+owner_decision: approved 2026-09-26 (feedback.md), including P15 remediation and activation as W0; optional inputs listed under Prerequisites
 ---
 
 ## Goal
@@ -59,10 +59,11 @@ decision based on P16's reports.
 
 ## Prerequisites
 
-- **P15 W8 done:** P15 books, scoring, labels v2, and the `p15` status section are live. P16 reads
-  them and never edits P15's registered code paths.
-- **Owner:**
-  - approves this plan and its ceilings (a `feedback.md` entry);
+- **P15 W0–W7 done** (they are, as of 2026-09-26). P15 W8 activation is **on hold** and moves
+  into this plan's W0. W0 fixes the P15 review findings, issues the P15 registration again, and
+  activates P15. After W0, P16 never edits P15's registered code paths. Later fixes become new
+  P15 versions.
+- **Owner** (already done: approval and ceilings, in the 2026-09-26 feedback entry):
   - optionally sets `TRADING_ENGINE_SEC_USER_AGENT` (without it, W3 builds and tests against
     fixtures and reports `unconfigured`);
   - optionally approves the `research-text` dependency group for W4a;
@@ -295,12 +296,23 @@ Work in order. Each workstream ends as in P15: tests, the full suite, a metrics 
 BUILDLOG v2 entry, and at least three independent reviewers (correctness; look-ahead and label
 integrity; authority and safety).
 
-- **W0: Baseline.**
-  - Confirm P15 is active and healthy.
+- **W0: Baseline, P15 remediation, and P15 activation.**
   - Take a recovery bundle.
+  - Fix every item in "P15 remediation before activation" below, with a reproduction or failing
+    test first for each.
+  - Issue the P15 registration again: a new `registration_revision`, the reason, and the new code
+    hashes. This is allowed only because P15 has produced no evidence yet. If P15 has already
+    activated when this session starts, the fixes become P15 v2 versions and a new cohort
+    instead.
+  - Run the whole suite under the host timezone and `TZ=UTC`, and do a fresh dry-run day.
+  - Run the refine gate (see "How to run this plan") on the P15 registration and the fixed
+    modules.
+  - Then complete P15 W8 exactly as P15 describes: activation commit, `AUTOSTART_UNITS`, and
+    first-cycle verification. Mark P15 `active` in its plan and the plan table.
   - Run a **prompt review** of every live model prompt, and write findings into
     `docs/design/prompt-review.md`. These feed `prompt-v2`; live prompts are not edited.
   - Record the P15 pre-activation dispersion that the mSPRT mixing variance needs.
+  - Fold "P15 follow-ups" below into the P16 workstreams named against each item.
 - **W1: Evaluation science v2** in `farm/`: factor-neutral IC, mSPRT, trial register and deflated
   Sharpe, transfer coefficient. Tests use synthetic series with known answers (for example, a
   score equal to momentum must show ≈ 0 factor-neutral IC).
@@ -342,8 +354,56 @@ integrity; authority and safety).
     split `docs/how-it-works.md` into an ops runbook and an architecture reference.
   - Delete P16-obsoleted code before activation.
   - Update `system-blueprint.md` (layers table), `product.md`, `how-it-works.md`, and `scope.md`.
+  - Run the refine gate on the P16 registration and each new module before the registration
+    commit.
   - Commit the registration by itself, activate on a date at least one dry-run day away, and
     verify the first live cycle of each new producer.
+- **W10: Final refine pass.** After activation, run the refine loop on each written deliverable:
+  `system-blueprint.md`, `product.md`, the text lab and replay reports, the first weekly digest,
+  and `docs/design/stage2-broker-paper.md`. Registered code is out of bounds here.
+
+## P15 remediation before activation
+
+From three independent reviews of P15 at `edf7f05` (spec conformance; look-ahead and statistics;
+safety and operations), run on 2026-09-26. File references are as of that commit.
+
+| # | Problem | Required fix |
+|---|---|---|
+| R1 | `farm/p15_event_runner.py` (~754–784) holds the DuckDB writer through every model call, for up to 14 minutes. The hourly and four-hour observers, the TradingView slice, and the API (`wait_s=0`) fail during those windows, which brings back the empty-window defect | Open, write, and close around each model call, as the scoring runner does |
+| R2 | `server/p15_scoring_runner.py` connects with `wait_s=0` and catches only connector and validation errors. Contention with P8 (02:00–02:30 UTC) leaves a run stuck at `running`, and the persistent timer never retries | Bounded waits, catch `duckdb.Error`, write explicit `unavailable` rows, and let a retry resume the same date idempotently |
+| R3 | A late scoring run can see post-entry news. The run only refuses after 12:00 UTC on its own day and takes `latest_operational_market_date`. Suppose the timer fires on D+2 while D+1 coverage is low: it scores D with news up to D+2, labelled and filled from D+1's open | Refuse unless the start is after D's close and before 09:30 ET on `next_session(D)`; record the refusal as a failed run; add a test |
+| R4 | `engine/bitemporal_facts.py` (~128) keys replays by availability and ingest time, so every refetch creates a new revision. `engine/p15_event_sources.py` (~385) then fires old 8-Ks (and repeated RSS guids) as new triggers, which would eat the 60-a-day cap once the SEC contact is set | Trigger only on a fact's first availability (no earlier row with the same `normalized_sha256`); for 8-Ks, also require acceptance after the previous scan |
+| R5 | The nightly scoring input hard-codes `"event_facts": []` (`server/p15_scoring_runner.py` ~125; `tests/test_p15_scoring.py` ~172 pins it), though the registration lists admitted event facts as an input | Pass availability-bounded event facts; replace the pinning test with a leakage test |
+| R6 | Missed sessions fill at the wrong open. If a scoring run fails, the next `process_pending` (`sim/p15_books.py` ~627) fills older intents at a later open, and skips stops and time exits for the missed closes | Process book windows session by session from the last `p15_book_windows` row; expire entry intents older than one session as `stale_signal` |
+| R7 | The primary test's standard error is too small. Bartlett weights at lag 4 under-count a 5-session overlap, and normal critical values at n = 60 compound it; the real one-sided α per look may be about 4%, not 1.67%. The only test compares against the same formula (circular) | Use the uniform (Hansen–Hodrick) kernel at lag 4, falling back to Bartlett at lag 8 if the variance is not positive, with t critical values (df = n − 1). Add a hand-computed known-answer test and a simulation: under the null, false passes across the three looks ≤ 5%; a planted IC passes. Record the change in the re-issued registration |
+| R8 | A missing-bar label is written as soon as SPY reaches the horizon, even when the ticker's bar is merely late. It is then permanent (`server/agent_evaluation.py` ~440–470), and the missing-entry path stores a net excess of 0 against a net return of −20 bp | Label at the last close only after a later bar for that ticker exists or a fetch attempt for the date is recorded, with a 3-session grace period; make the fields consistent |
+| R9 | Nothing enforces the frozen registration. Thresholds are duplicated as literals (for example `sim/p15_books.py` ~330) | Add a test that checks every registered constant and every registered file hash against the code, so a post-activation edit fails CI |
+| R10 | The pre-open run has no session check (`server/p15_preopen.py` ~319); on holidays it can cancel orders a day early | Return `not_session` on non-sessions |
+| R11 | `_p15_atr` (`engine/daily_opportunities.py` ~34) lacks the `REAL_BAR_SQL` filter and duplicates `atr_wilder` | Reuse `atr_wilder(..., period=14)` over real bars only |
+| R12 | One missing mature label anywhere marks the whole test `invalid` (`engine/p15_evaluation.py` ~311/329), including rows the test never uses | Count only rows the test uses, with a grace period after maturity |
+| R13 | Look results are recomputed every run | Persist each look's result the first time it is reached (append-only, hashed) so the verdict is tamper-evident |
+| R14 | The public report `data/reports/agent-evaluation.json` carries internal runtime strings ("internal edition" CLI identity), against the public-hygiene rule | Publish a runtime identity hash instead; keep the literal in the private database |
+| R15 | The W8 rehearsal logged 17 model calls where 60 candidates in chunks of 10 with k = 3 means 18, and reported no unavailable count. `docs/how-it-works.md` (~1504) still says the P15 units are absent | Explain the count on the new dry-run and record `unavailable_count`; fix the doc |
+| R16 | The scoring prompt doesn't say that a negative `expected_excess_bp_5` exits a held name in the AI book | Add one sentence before the registration is issued again |
+
+## P15 follow-ups (after activation, as new versions; fold into the named workstream)
+
+| Item | Where |
+|---|---|
+| Screen results have no availability bound (`daily_opportunities.py` ~321 takes the latest `run_date`); store and filter on compute time, and flag `screen_date != market_date` | W1 |
+| `next_bar` falls back to the prior close when no later bar exists; exclude or flag those labels in the event IC | W1 |
+| Label dates taken from UTC (`observed_at.date()`, `decision_at.date()`) should use the New York date | W1 |
+| Counterfactual labels mix cost bases (modelled fill vs flat 20 bp for SPY); use one basis | W1 |
+| `observer_pairing` counts every window; make the first window of each day primary, as the spec says | W1 |
+| `books()` reports `killed` only when eligible; kill the book comparison with the primary test | W1 |
+| The Brier comparisons use different samples, and the logistic lag counts dataset sessions; align the samples and use market sessions | W1 |
+| The P8 rule counts traces, not market sessions, and omits the metrics P8 lists | W1 |
+| Earnings: a snapshot with only past dates should be `no_upcoming_date` (allow), not `unavailable`; add an `as_of` staleness limit | W2 (as `p15-universe-v2`) |
+| Mover relative volume assumes a 390-minute day on early closes; company-name matching ignores case | W3 |
+| The hybrid book fills a vetoed slot with the next-ranked name; record it explicitly in the registration | W0 (registration text only) |
+| `agent-cadence-registration.json` renamed the v4 observers to v5 instead of adding v5 alongside them; restore v4 as retired entries | W0 |
+| The laptop lint commit `61b6a26` touched P8 v1 files; prove it preserves behaviour by replaying the last P8 run bundle (identical output) and running the P8 tests | W0 |
+| The model identity is an unversioned catalogue alias; show that prominently in every report | W7 |
 
 ## Not in scope
 
@@ -373,16 +433,21 @@ integrity; authority and safety).
   the champion and `c-notes`, and the news source used.
 - The first weekly digest exists.
 - `docs/design/stage2-broker-paper.md` exists, and the draft execution plan is `proposed`.
-- Independent reviews of W1–W9 have no open findings.
+- P15 is active, with registration revision 2, and R1–R16 are closed, each with its test.
+- Independent reviews of W0–W9 have no open findings.
+- Every refine gate and the W10 refine pass ended with an eligible version scoring ≥ 8/10. The
+  final BUILDLOG entry carries the table of versions and scores, or explicitly lists what fell
+  short and why.
 
 ## Budget
 
-- **Proposed ceilings** (the owner confirms in `feedback.md` on approval; caps, not targets):
-  - server +2,000
-  - engine +2,000
-  - farm +2,800
-  - tools +400
-  - sim +300
+- **Ceilings** (raised by the 2026-09-26 feedback entry, including a P15 remediation allowance;
+  caps, not targets):
+  - server 57,050
+  - engine 16,050
+  - farm 15,550
+  - tools 8,850
+  - sim 8,400
 - W4 code lives under `farm/textlab/` and `farm/replay/` and counts toward farm.
 - **Commits:** subjects start with `P16 W<n>:`, each commit under 1,500 inserted non-data lines,
   expected at 60–100 in total.
@@ -400,6 +465,18 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 - **Use the context window.** Load this plan, the blueprint, P15, `product.md`, `AGENTS.md`, and
   the P15 evaluation and scoring modules at the start of each workstream, rather than rediscovering
   them through search.
+- **Refine loop.** Use the `improve-work` skill: in the store at `.claude/skills/improve-work/`,
+  and publicly at
+  [ong6/skillpack `skills/improve-work`](https://github.com/ong6/skillpack/tree/main/skills/improve-work).
+  If the skill is not installed, follow that file.
+  - Fresh reviewer sub-agents with no inherited context score the artifact against a rubric they
+    choose in round 1, then freeze it.
+  - The brief's hard constraints are this plan's registered values and the AGENTS.md absolute
+    rules. A reviewer suggestion that breaks one is declined and noted.
+  - Threshold 8/10, at most 3 refinement rounds, each changed version re-reviewed.
+  - Keep the best eligible version.
+  - Before activation, the loop may change code. After activation, it may change only docs and
+    reports.
 - **Ask for decisions early.** Write a one-line entry under "Owner inputs needed" in the progress
   table the moment a decision blocks progress, and continue with the next unblocked workstream.
 
@@ -407,7 +484,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 
 | Workstream | Status | Evidence (BUILDLOG date) |
 |---|---|---|
-| W0 Baseline and prompt review | not started | |
+| W0 Baseline, P15 remediation (R1–R16), P15 activation | not started | |
 | W1 Evaluation science v2 | not started | |
 | W2 Challenger lab | not started | |
 | W3 Filing reader | not started | |
@@ -416,7 +493,8 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W6 Execution realism | not started | |
 | W7 Operator digest | not started | |
 | W8 Stage 2 design | not started | |
-| W9 Cleanup, docs, activation | not started | |
+| W9 Cleanup, docs, refine gate, activation | not started | |
+| W10 Final refine pass | not started | |
 
 Owner inputs needed: none yet.
 

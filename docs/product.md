@@ -67,6 +67,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 |---|---|---|
 | 2026-09-26 | Replace maintain-only framing with build-toward-verdict guidance; add the system blueprint; keep P16 proposed until P15 W8 | AGENTS, blueprint, P16, feedback |
 | 2026-09-25 | P15 approved: score every candidate, add deterministic comparator books, add a pre-open check and event-driven shadow triggers, and code the gates. It may run as one long session with sub-agents | [P15](plans/p15-profitability-evidence-loop.md), feedback |
+| 2026-09-26 | P16 approved with ceilings. P15 activation is held and moves into P16 W0 after the review fixes (R1–R16). The `improve-work` refine loop gates each registration and ends the run | P16, feedback |
 | 2026-09-26 | Data: use every free source first, scraping included; paid data waits (owner). Raw scraped text stays on the host, outside the public repo | P16 |
 | 2026-09-26 | Instructions refreshed: build toward a verdict inside plans; lint is not a defect; P1 closed | feedback |
 | 2026-09-25 | Model token cost is excluded from the profitability definition; trading and data costs still count | This page |
@@ -94,7 +95,6 @@ Each row has the default that applies until the owner decides.
 
 | Decision | Unblocks | Default until decided |
 |---|---|---|
-| **Approve P16** (challenger lab, filing reader, text lab, optimizer books) with its ceilings, once P15 W8 is done | The next long run | Stays `proposed` |
 | **`research-text` dependency group** (`torch`, `transformers` in a separate virtual environment) | P16's time-locked historical text lab | P16 W4 stops after building the corpus |
 | **SEC EDGAR contact**: set `TRADING_ENGINE_SEC_USER_AGENT` to a monitored email | P15 8-K event triggers (the capture is built; anonymous requests get HTTP 403) | P15 runs its other trigger sources; the 8-K source reports `unconfigured` |
 | **Simulator short side** | Using the ~half of candidates that are losers | Long-only. P15 filters candidates to upside and trend names |
@@ -112,17 +112,16 @@ Each row has the default that applies until the owner decides.
 1. **Keep the evidence clean.** Scheduled producers green, no missed agent windows, no identity
    drift, no uncommitted work on the host (the nightly `git pull` fails on a dirty tree).
    A broken producer beats every item below.
-2. **[P15](plans/p15-profitability-evidence-loop.md): finish the profitability evidence loop.**
-   W0-W7 are complete; finish W8 registration and safe activation.
-   It is the shortest path to an honest verdict on whether the AI adds value.
+2. **[P16](plans/p16-challenger-lab-and-text-edge.md), starting with W0: fix, re-register, and
+   activate [P15](plans/p15-profitability-evidence-loop.md).** P15 is built, but its activation
+   is held for the review fixes R1–R16. Then P16 continues: challenger lab, filing reader,
+   historical text and replay labs, optimizer books, fill calibration, weekly digest, and a
+   Stage 2 design. It ends with the refine loop.
 3. **Activate P7.** Backup-gated tri-arm schema and initializer, the recorded SGD/USD opening
    observation, then the tri-arm orchestrator and its status panel. It tests whether the AI
    allocates better than the rule at low turnover, which the research verdicts favour.
-4. **[P16](plans/p16-challenger-lab-and-text-edge.md) (proposed, next long run).** Challenger
-   lab, filing reader, time-locked historical text lab, optimizer books, fill calibration, weekly
-   digest, and a Stage 2 design. Starts after P15 W8.
-5. **P2 league collapse.** Retire books that answer no open question to cut nightly noise.
-6. **First-fill lifecycle rehearsal.** Rehearse backup and restore across the whole order → fill →
+4. **P2 league collapse.** Retire books that answer no open question to cut nightly noise.
+5. **First-fill lifecycle rehearsal.** Rehearse backup and restore across the whole order → fill →
    exit path using the P8 FSLY position.
 
 ## Expansion candidates (after Stage 1, each needs its own plan)
