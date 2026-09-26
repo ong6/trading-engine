@@ -39,7 +39,10 @@ def _tradingview_symbol(ticker: str, exchange: str | None) -> str:
 
 def _variants() -> dict[str, dict]:
     payload = json.loads(read_bytes(REGISTRATION, label="agent cadence registration"))
-    return {item["id"]: item for item in payload["variants"]}
+    return {
+        item["id"]: item for item in payload["variants"]
+        if item.get("active", True)
+    }
 
 
 def _capture_quotes(

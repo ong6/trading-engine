@@ -25,6 +25,8 @@ def expected_windows(start: datetime, end: datetime, sessions: list,
     result = set()
     session_set = set(sessions)
     for item in variants:
+        if not item.get("active", True):
+            continue
         variant_start = start
         if item.get("evaluation_start_at"):
             variant_start = max(
