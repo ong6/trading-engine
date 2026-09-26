@@ -23,7 +23,7 @@ import duckdb
 
 from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import write_text_atomic
-from engine.lib.settings import DEFAULT_DB, REPO_ROOT
+from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT
 from server import nightly_monitor
 from server.driver_monitor import DRIVER_SCHEDULES
 from server.file_utils import MAX_OPERATIONAL_FILE_BYTES
@@ -231,10 +231,20 @@ def _read_bounded_descriptor(descriptor: int) -> bytes:
     return b"".join(chunks)
 
 
-def _read_source_file(repo_root: Path, relative: str, label: str) -> bytes:
+def _read_source_file(
+    repo_root: Path, relative: str, label: str, *, data_dir: Path | None = None,
+) -> bytes:
     parts = Path(relative).parts
     if not parts or Path(relative).is_absolute():
         raise BackupError(f"required {label} path is invalid: {relative}")
+    source_root = repo_root
+    source_parts = parts
+    if (
+        data_dir is not None and data_dir != repo_root / "data"
+        and parts[0] == "data"
+    ):
+        source_root = data_dir
+        source_parts = parts[1:]
     nofollow = getattr(os, "O_NOFOLLOW", None)
     if nofollow is None:
         raise BackupError("secure no-follow evidence opening is unavailable")
@@ -245,8 +255,8 @@ def _read_source_file(repo_root: Path, relative: str, label: str) -> bytes:
         | getattr(os, "O_NONBLOCK", 0)
     )
     try:
-        with _relative_directory_fd(repo_root, parts[:-1], create=False) as parent:
-            descriptor = os.open(parts[-1], flags, dir_fd=parent)
+        with _relative_directory_fd(source_root, source_parts[:-1], create=False) as parent:
+            descriptor = os.open(source_parts[-1], flags, dir_fd=parent)
             try:
                 before = os.fstat(descriptor)
                 if not stat.S_ISREG(before.st_mode):
@@ -915,13 +925,14 @@ def _copy_database(source: Path, destination: Path) -> dict:
 
 
 def _copy_files(
-    repo_root: Path, bundle: Path, relatives: tuple[str, ...], label: str
+    repo_root: Path, bundle: Path, relatives: tuple[str, ...], label: str,
+    *, data_dir: Path | None = None,
 ) -> dict[str, dict]:
     result = {}
     for relative in relatives:
         destination = bundle / "evidence" / relative
         _mkdir_private_tree(bundle, destination.parent)
-        content = _read_source_file(repo_root, relative, label)
+        content = _read_source_file(repo_root, relative, label, data_dir=data_dir)
         destination.write_bytes(content)
         destination.chmod(0o600)
         result[relative] = {
@@ -932,29 +943,38 @@ def _copy_files(
     return result
 
 
-def _copy_evidence(repo_root: Path, bundle: Path) -> dict[str, dict]:
-    return _copy_files(repo_root, bundle, EVIDENCE_FILES, "prospective evidence")
+def _copy_evidence(
+    repo_root: Path, bundle: Path, *, data_dir: Path,
+) -> dict[str, dict]:
+    return _copy_files(
+        repo_root, bundle, EVIDENCE_FILES, "prospective evidence", data_dir=data_dir,
+    )
 
 
 def _copy_operational_artifacts(
-    repo_root: Path, bundle: Path, latest_price_date: object
+    repo_root: Path, bundle: Path, latest_price_date: object, *, data_dir: Path,
 ) -> dict[str, dict]:
     return _copy_files(
         repo_root,
         bundle,
         _operational_files(latest_price_date),
         "operational artifact",
+        data_dir=data_dir,
     )
 
 
 def _copy_optional_operational_controls(
     repo_root: Path,
     bundle: Path,
+    *,
+    data_dir: Path,
 ) -> dict[str, dict]:
     result = {}
     for relative in OPTIONAL_OPERATIONAL_CONTROL_FILES:
         try:
-            content = _read_source_file(repo_root, relative, "operational control")
+            content = _read_source_file(
+                repo_root, relative, "operational control", data_dir=data_dir,
+            )
         except SourceFileMissing:
             continue
         destination = bundle / "evidence" / relative
@@ -993,6 +1013,7 @@ def _release_summary(repo_root: Path, source: Path, database_read_path: Path) ->
 
 def _manifest_body(
     repo_root: Path,
+    data_dir: Path,
     source: Path,
     database_read_path: Path,
     bundle: Path,
@@ -1009,18 +1030,29 @@ def _manifest_body(
             "sha256": _sha256(database),
             "snapshot": snapshot,
         },
-        "prospective_evidence": _copy_evidence(repo_root, bundle),
-        "operational_artifacts": _copy_operational_artifacts(
-            repo_root, bundle, snapshot["latest_price_date"]
+        "prospective_evidence": _copy_evidence(
+            repo_root, bundle, data_dir=data_dir,
         ),
-        "operational_controls": _copy_optional_operational_controls(repo_root, bundle),
+        "operational_artifacts": _copy_operational_artifacts(
+            repo_root, bundle, snapshot["latest_price_date"], data_dir=data_dir,
+        ),
+        "operational_controls": _copy_optional_operational_controls(
+            repo_root, bundle, data_dir=data_dir,
+        ),
         "release_identity": _release_summary(repo_root, source, database_read_path),
     }
 
 
-def create_backup(repo_root: Path, source: Path, destination: Path) -> dict:
+def create_backup(
+    repo_root: Path, source: Path, destination: Path, *, data_dir: Path | None = None,
+) -> dict:
     """Create, verify, and atomically publish a new local recovery bundle."""
     repo_root = repo_root.resolve()
+    data_dir = Path(os.path.abspath(
+        DATA_DIR if data_dir is None and repo_root == REPO_ROOT.resolve()
+        else repo_root / "data" if data_dir is None
+        else data_dir
+    ))
     source = source.resolve()
     if os.path.lexists(destination):
         raise BackupError("backup destination already exists; refusing to overwrite")
@@ -1053,7 +1085,7 @@ def create_backup(repo_root: Path, source: Path, destination: Path) -> dict:
                         source, source_parent_fd, source_fd, source_initial
                     )
                     body = _manifest_body(
-                        repo_root, source, source_read_path, temporary, snapshot
+                        repo_root, data_dir, source, source_read_path, temporary, snapshot
                     )
                     manifest = {**body, "manifest_sha256": canonical_sha256(body)}
                     manifest_path = temporary / MANIFEST_FILENAME
