@@ -113,7 +113,8 @@ P15_PREOPEN_INSTRUCTIONS = (
     "assessment with newly available headlines and event facts. Return exactly one JSON object "
     "with schema_version=1 and decisions. Each decision must contain exactly intent_id, decision "
     "(keep or cancel), a concise nonempty reason, and evidence_ids drawn only from that intent's "
-    "allowed_evidence_ids. Cover every supplied intent exactly once. You cannot add, resize, "
+    "allowed_evidence_ids. Cover every entry in the intents array exactly once; control_noops "
+    "are deterministic records and must not appear in your output. You cannot add, resize, "
     "reprice, replace, or execute an order; failure or lateness deterministically means keep."
 )
 TRADE_TOOL_INSTRUCTIONS = (

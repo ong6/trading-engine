@@ -799,4 +799,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +463, sim +5, tools +10, product +5, tests +257; budget ok.
 - **Next:** migrate the inactive W4 evidence tables and complete independent review.
 
+## 2026-09-26 — P15 W4: close pre-open integrity gaps
+
+- **Why:** independent W4 review reproduced cutoff, carried-intent, replay-completeness, deadline,
+  and cancelled-counterfactual gaps in the first pre-open implementation.
+- **What:** persist inputs and exact receipt manifests before model use; use a post-capture cutoff;
+  reassess carried intents per session; backfill missed openings; bind request, response, run,
+  decision and quality identities; and roll late cancellations back to deterministic keeps.
+- **Evidence:** `./.venv/bin/python -m pytest -q -W error` reaches `[100%]` and exits 0.
+- **Metrics:** server +208, sim/product +1, tools unchanged, tests +246; budget ok.
+- **Next:** apply the inactive W4 schema after the weekly verifier releases its lock.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
