@@ -15,13 +15,16 @@ import time
 from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
 from dataclasses import asdict
+from datetime import datetime, timezone
 from typing import Annotated, Any, Iterator, Literal, TypeAlias, TypeVar
 
 import duckdb
 from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
+from engine import p15_evaluation
 from engine.lib.settings import DATA_DIR, META_PATH
+from tools import agent_trial_register
 
 from . import (
     agent_attribution_read_models,
@@ -508,7 +511,14 @@ def daily_opportunity_status():
 @app.get("/agent/evaluation/status")
 def agent_evaluation_status():
     with _connection(read_con) as con:
-        return agent_evaluation.status(con)
+        try:
+            generated_at = datetime.now(timezone.utc)
+            agent_evaluation.validate_p15_evidence(con, generated_at)
+            return {**agent_evaluation.status(con), "schema_version": 2,
+                    **p15_evaluation.project(con, generated_at=generated_at),
+                    "trial_count_register": agent_trial_register.project(con, generated_at)}
+        except (OSError, ValueError, agent_evaluation.EvaluationError) as exc:
+            raise HTTPException(503, "agent evaluation status unavailable") from exc
 
 
 @app.post("/agent/proposals/shadow", dependencies=JSON_MUTATION_DEPENDENCY)

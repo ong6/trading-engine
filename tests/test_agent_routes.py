@@ -510,3 +510,51 @@ def test_agent_model_status_route_maps_connector_failure(monkeypatch):
         main.agent_model_status()
 
     assert error.value.status_code == 503
+
+
+def test_agent_evaluation_status_delegates_and_closes_connection(monkeypatch):
+    class Connection:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    con = Connection()
+    base = {"schema_version": 1, "status": "capturing"}
+    extra = {"p15": {"status": "collecting"}, "p8_evaluation": {},
+             "trial_count_register": {}}
+    monkeypatch.setattr(main, "read_con", lambda: con)
+    monkeypatch.setattr(
+        main.agent_evaluation, "status",
+        lambda actual: base if actual is con else pytest.fail("wrong connection"),
+    )
+    monkeypatch.setattr(main.agent_evaluation, "validate_p15_evidence", lambda *_args: None)
+    monkeypatch.setattr(main.p15_evaluation, "project", lambda *_args, **_kwargs: {
+        "p15": extra["p15"], "p8_evaluation": extra["p8_evaluation"],
+    })
+    monkeypatch.setattr(main.agent_trial_register, "project",
+                        lambda *_args, **_kwargs: extra["trial_count_register"])
+
+    assert main.agent_evaluation_status() == {**base, "schema_version": 2, **extra}
+    assert con.closed is True
+
+
+def test_agent_evaluation_status_fails_closed_and_closes_connection(monkeypatch):
+    class Connection:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    con = Connection()
+    monkeypatch.setattr(main, "read_con", lambda: con)
+    monkeypatch.setattr(
+        main.agent_evaluation, "validate_p15_evidence",
+        lambda *_args: (_ for _ in ()).throw(
+            main.agent_evaluation.EvaluationError("tampered evidence")
+        ),
+    )
+
+    with pytest.raises(HTTPException) as error:
+        main.agent_evaluation_status()
+    assert error.value.status_code == 503 and con.closed is True

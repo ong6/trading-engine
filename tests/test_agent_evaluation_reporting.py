@@ -7,8 +7,17 @@ from datetime import date, datetime, timezone
 import pytest
 
 from engine.lib import db
+from engine.lib.provenance import canonical_sha256
 from farm.agent_evaluation_analysis import contamination_diagnostics, expected_windows
-from server import agent_evaluation, agent_evaluation_reporting, daily_opportunity_store
+from server import (
+    agent_evaluation,
+    agent_evaluation_reporting,
+    agent_model_client,
+    daily_opportunity_store,
+    p15_scoring_runner,
+    p15_scoring_store,
+)
+from tests.conftest import insert_bars
 
 NOW = datetime(2026, 9, 30, 12, tzinfo=timezone.utc)
 
@@ -65,8 +74,73 @@ def _label(con, policy: str, asset_return: float, prefix: str = "9" * 64) -> Non
         [label_v2_id, 1, decision_id, 5, "common_entry", date(2026, 9, 2),
          date(2026, 9, 8), 100.0, 100 * (1 + asset_return), asset_return, 0.01,
          asset_return - 0.01, -0.02, 0.04, prefix, "complete", NOW,
-         f"{label_v2_id + 1000:064x}", 20.0, asset_return, asset_return - 0.01],
+         canonical_sha256({"schema_version": 1, "decision_id": decision_id,
+                           "horizon_sessions": 5, "label_basis": "common_entry",
+                           "entry_date": "2026-09-02", "exit_date": "2026-09-08",
+                           "entry_open": 100.0, "exit_close": 100 * (1 + asset_return),
+                           "asset_return": asset_return, "spy_return": 0.01,
+                           "excess_return": asset_return - 0.01,
+                           "maximum_adverse_excursion": -0.02,
+                           "maximum_favorable_excursion": 0.04,
+                           "price_prefix_sha256": prefix, "missing_bar_status": "complete",
+                           "round_trip_cost_bps": 20.0, "net_return": asset_return,
+                           "net_excess_return": asset_return - 0.01}),
+         20.0, asset_return, asset_return - 0.01],
     )
+
+
+def _p15_trace_with_label(con):
+    agent_evaluation.init_schema(con)
+    bundle_body = {"market_date": "2026-09-01", "candidates": [{"ticker": "AAA"}]}
+    bundle = {**bundle_body, "bundle_sha256": canonical_sha256(bundle_body)}
+    assessment = {
+        "ticker": "AAA", "stratum": "mover", "scoring_status": "available",
+        "p_outperform_5": 0.6, "expected_excess_bp_5": 50.0,
+        "expected_excess_bp_10": 75.0, "baseline_score": 1,
+        "action": "buy_candidate", "thesis": "test", "invalidation": "test",
+        "evidence_ids": ["a" * 64],
+    }
+    context = {"news_receipts": [], "candidates": [{"ticker": "AAA"}],
+               "information_cutoff_at": NOW.isoformat()}
+    p15_scoring_store.init_schema(con)
+    run = p15_scoring_store.create_run(
+        con, market_date=date(2026, 9, 1), universe=bundle, context=context,
+        information_cutoff_at=NOW, started_at=NOW, news_receipts=[],
+    )
+    for sample_index in range(3):
+        seed = p15_scoring_runner._seed("2026-09-01", 0, sample_index)
+        sample_input = {"chunk_index": 0, "sample_index": sample_index,
+                        "permutation_seed": seed,
+                        "candidates": [{"ticker": "AAA"}]}
+        request = agent_model_client.p15_scoring_request_payload(sample_input)
+        sample = p15_scoring_store.start_sample(
+            con, run_id=run["run_id"], chunk_index=0, sample_index=sample_index,
+            permutation_seed=seed, ticker_order=["AAA"],
+            request_payload=request, started_at=NOW,
+        )
+        p15_scoring_store.fail_sample(
+            con, sample["sample_id"], reason="test", completed_at=NOW,
+        )
+    trace = p15_scoring_runner._trace(
+        run["run_id"], bundle, context, [assessment],
+        p15_scoring_runner._stored_samples(con, run["run_id"]), NOW, NOW,
+    )
+    result = agent_evaluation.record_trace(con, trace)
+    p15_scoring_store.complete_run(
+        con, run["run_id"], trace_sha256=result["trace_sha256"], completed_at=NOW,
+    )
+    sessions = [date(2026, 9, day) for day in (2, 3, 4, 7, 8)]
+    insert_bars(con, "AAA", sessions, open_=100, close=102, high=103, low=99)
+    insert_bars(con, "SPY", sessions, open_=100, close=101, high=102, low=99)
+    con.execute("UPDATE prices SET fetched_at=?", [NOW.replace(tzinfo=None)])
+    outcome = agent_evaluation._label_outcome(con, "AAA", sessions, NOW)
+    decision_id = con.execute(
+        "SELECT id FROM agent_evaluation_decisions WHERE trace_id=?", [result["trace_id"]]
+    ).fetchone()[0]
+    agent_evaluation._insert_v2_label(
+        con, decision_id, 5, outcome, NOW, label_basis="next_session_open"
+    )
+    return result["trace_id"], decision_id
 
 
 def test_report_scores_and_pairs_only_identical_outcome_prefixes(con):
@@ -118,10 +192,8 @@ def test_report_scores_and_pairs_only_identical_outcome_prefixes(con):
         "SELECT d.id FROM agent_evaluation_decisions d JOIN agent_evaluation_traces t "
         "ON t.id=d.trace_id WHERE t.policy_id=?)", ["8" * 64, right],
     )
-    changed = agent_evaluation_reporting.build_report(con, generated_at=NOW)
-    pair = next(item for item in changed["pairs"]
-                if item["left_policy"] == left and item["right_policy"] == right)
-    assert pair["paired_count"] == 0 and pair["incompatible_outcome_count"] == 1
+    with pytest.raises(agent_evaluation.EvaluationError, match="common-entry label evidence"):
+        agent_evaluation_reporting.build_report(con, generated_at=NOW)
 
 
 def test_p8_trace_cannot_use_p15_decision_vocabulary(con):
@@ -508,12 +580,14 @@ def test_report_projects_execution_quality_without_ambiguous_columns(con):
 
 def test_report_cli_atomically_publishes_empty_forward_state(tmp_path):
     database, output = tmp_path / "market.duckdb", tmp_path / "report.json"
+    p15_output = tmp_path / "agent-eval" / "p15.md"
     con = db.connect(database)
     agent_evaluation.init_schema(con)
     con.close()
 
     assert agent_evaluation_reporting.main([
         "--database", str(database), "--output", str(output),
+        "--p15-output", str(p15_output),
         "--contamination", str(tmp_path / "absent.json"),
     ]) == 0
 
@@ -522,3 +596,61 @@ def test_report_cli_atomically_publishes_empty_forward_state(tmp_path):
     assert report["contamination"]["status"] == "unavailable"
     assert report["promotion_authority"] == "none"
     assert report["data_provenance"]["historical_membership_authority"] is False
+    assert report["schema_version"] == 2
+    assert report["p15"]["status"] == "not_initialized"
+    assert "Status: **not_initialized**" in p15_output.read_text()
+
+
+def test_report_uses_shared_w6_projection(con, monkeypatch):
+    agent_evaluation.init_schema(con)
+    projection = {
+        "p15": {"status": "collecting"},
+        "p8_evaluation": {"status": "collecting"},
+    }
+    trial_register = {"status": "capturing"}
+    monkeypatch.setattr(
+        agent_evaluation_reporting.p15_evaluation, "project",
+        lambda *_args, **_kwargs: projection,
+    )
+    monkeypatch.setattr(
+        agent_evaluation_reporting.agent_trial_register, "project",
+        lambda *_args, **_kwargs: trial_register,
+    )
+
+    report = agent_evaluation_reporting.build_report(con, generated_at=NOW)
+    assert all(report[key] == value for key, value in projection.items())
+    assert report["trial_count_register"] == trial_register
+
+
+def test_p15_projection_rejects_tampered_label_and_missing_decision(con):
+    trace_id, decision_id = _p15_trace_with_label(con)
+    agent_evaluation_reporting.build_report(con, generated_at=NOW)
+    con.execute(
+        "UPDATE agent_evaluation_labels_v2 SET net_excess_return=-9 WHERE decision_id=?",
+        [decision_id],
+    )
+    with pytest.raises(agent_evaluation.EvaluationError, match="label evidence"):
+        agent_evaluation_reporting.build_report(con, generated_at=NOW)
+    con.execute("DELETE FROM agent_evaluation_labels_v2 WHERE decision_id=?", [decision_id])
+    con.execute("DELETE FROM agent_evaluation_decisions WHERE id=?", [decision_id])
+    with pytest.raises(agent_evaluation.EvaluationError, match="decision set"):
+        agent_evaluation_reporting.build_report(con, generated_at=NOW)
+
+
+def test_p15_projection_rejects_missing_sample_and_changed_source_refs(con):
+    _p15_trace_with_label(con)
+    con.execute("DELETE FROM p15_scoring_samples WHERE sample_index=2")
+    with pytest.raises(agent_evaluation.EvaluationError, match="sample set"):
+        agent_evaluation_reporting.build_report(con, generated_at=NOW)
+    _trace_id = con.execute(
+        "SELECT id FROM agent_evaluation_traces WHERE policy_id='p15-scoring-v1'"
+    ).fetchone()[0]
+    con.execute("UPDATE agent_evaluation_traces SET source_refs='[]' WHERE id=?", [_trace_id])
+    with pytest.raises(agent_evaluation.EvaluationError, match="trace evidence"):
+        agent_evaluation_reporting.build_report(con, generated_at=NOW)
+
+
+def test_p15_projection_rejects_partial_schema(con):
+    con.execute("CREATE TABLE p15_event_windows (id BIGINT)")
+    with pytest.raises(agent_evaluation.EvaluationError, match="event schema is incomplete"):
+        agent_evaluation.validate_p15_evidence(con)

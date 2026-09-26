@@ -102,6 +102,9 @@ AUDIT_SOURCE_FILES = (
 )
 AGENT_SOURCE_FILES = (
     "engine/daily_opportunities.py",
+    "engine/p15_evaluation.py",
+    "tools/agent_trial_register.py",
+    "tools/p15_evidence_validation.py",
     "engine/p15_event_sources.py",
     "engine/verify_prices.py",
     "server/agent-cadence-registration.json",
@@ -208,6 +211,7 @@ STRATEGY_REGISTRATION_FILES = ("sim/strategies/configs.py",)
 EXECUTION_PROFILE_FILES = ("sim/execution.py",)
 PROSPECTIVE_EVIDENCE_FILES = (
     "data/reports/agent-evaluation.json",
+    "data/reports/agent-eval/p15.md",
     "data/reports/experiments/agent-2022-contamination-probes-v1/README.md",
     "data/reports/experiments/agent-2022-contamination-probes-v1/decisions.json",
     "data/reports/experiments/agent-2022-contamination-probes-v1/result.json",

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import duckdb
 
+from engine import p15_evaluation
 from engine.lib import db, resources
 from engine.lib.provenance import canonical_sha256
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
@@ -20,28 +21,27 @@ from farm.agent_evaluation_analysis import (
     paired_metrics,
     signed_return,
 )
+from tools import agent_trial_register
 
 from .agent_evaluation import (
     HORIZONS,
     POLICIES,
     POLICY_EVALUATION_STARTS,
     in_evaluation_cohort,
+    validate_p15_evidence,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEFAULT_OUTPUT = REPO_ROOT / "data" / "reports" / "agent-evaluation.json"
+DEFAULT_P15_OUTPUT = REPO_ROOT / "data" / "reports" / "agent-eval" / "p15.md"
 DEFAULT_CONTAMINATION = (REPO_ROOT / "data" / "reports" / "experiments"
                          / "agent-2022-replay-v1" / "result.json")
 DEFAULT_CONTAMINATION_PROBES = (REPO_ROOT / "data" / "reports" / "experiments"
                                 / "agent-2022-contamination-probes-v1" / "result.json")
 DEFAULT_REGISTRATION = REPO_ROOT / "server" / "agent-cadence-registration.json"
 CALIBRATION_BINS = ((0.0, 0.2), (0.2, 0.4), (0.4, 0.6), (0.6, 0.8), (0.8, 1.0))
-
-
 def _mean(values: list[float]) -> float | None:
     return None if not values else sum(values) / len(values)
-
-
 def _percentile(values: list[float], fraction: float) -> float | None:
     if not values:
         return None
@@ -300,6 +300,7 @@ def build_report(
     con: duckdb.DuckDBPyConnection, *, generated_at: datetime,
     contamination_path: Path | None = None, registration_path: Path = DEFAULT_REGISTRATION,
 ) -> dict:
+    validate_p15_evidence(con, generated_at)
     if not table_exists(con, "agent_evaluation_traces"):
         rows = []
     else:
@@ -381,13 +382,60 @@ def build_report(
             (contamination_path, DEFAULT_CONTAMINATION_PROBES)
             if contamination_path == DEFAULT_CONTAMINATION else (contamination_path,)
         ) if path is not None)),
+        **p15_evaluation.project(con, generated_at=generated_at),
+        "trial_count_register": agent_trial_register.project(con, generated_at),
     }
+
+
+def p15_markdown(report: dict) -> str:
+    p15, p8, trials = (report["p15"], report["p8_evaluation"],
+                       report["trial_count_register"])
+    primary, books, preopen, events = (
+        p15["primary"], p15["books"], p15["preopen"], p15["events"]
+    )
+    next_look = primary["next_look"]
+    lines = ["# P15 profitability evidence", "", f"Generated: {p15['generated_at']}", "",
+             f"Status: **{p15['status']}**", "",
+             "This is prospective evidence only. Any pass requires owner review; no broker or "
+             "real-capital authority is granted.", "", "## Primary rank test", "",
+             f"- Scored sessions: {primary['scored_session_count']}",
+             f"- Insufficient sessions: {primary['insufficient_session_count']}",
+             f"- Missing mature labels: {primary['missing_mature_label_count']}",
+             f"- Next look: {next_look if next_look is not None else 'complete'} scored sessions",
+             f"- Earliest next-look date: {primary.get('earliest_next_look_date')}", "",
+             "## Comparator books", "", f"Status: {books['status']}"]
+    for item in books["books"]:
+        lines.append(f"- {item['portfolio_id']}: {item['closed_trade_count']} closed trades, "
+                     f"drawdown {item['maximum_drawdown']}")
+    for item in books["comparisons"]:
+        lines.append(f"- {item['challenger']} vs control: {item['paired_return_count']} pairs, "
+                     f"positive lower bound {item['positive_lower_bound']}")
+    lines.extend(["", "## Pre-open", "", f"Status: {preopen['status']}; runs: "
+                  f"{preopen['run_count']}"])
+    for item in preopen["books"]:
+        lines.append(f"- {item['portfolio_id']}: {item['mature_effective_cancel_count']} mature "
+                     f"effective cancels, hit rate {item['cancel_hit_rate']}, pending/other "
+                     f"{item['pending_or_other_attempt_count']}")
+    lines.extend(["", "## Event shadow", "",
+                  f"Status: {events['status']}; windows: {events['window_count']}; decisions: "
+                  f"{events.get('decision_count', 0)}"])
+    for basis, item in events["by_basis"].items():
+        lines.append(f"- {basis}: {item['status']} ({item['reason']}), {item['label_count']} "
+                     f"h5 labels, {item['missing_mature_label_count']} missing mature, "
+                     f"IC {item['ic']}, quintile spread {item['top_bottom_quintile_spread']}")
+    lines.extend(["", "## P8 evaluation rule", "",
+                  f"Status: {p8['status']}; sessions: {p8['completed_session_count']}; "
+                  f"round trips: {p8['completed_round_trip_count']}", "",
+                  "## Trial-count register", "", f"Versions evaluated: {trials['version_count']}",
+                  ""])
+    return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, default=DEFAULT_DB)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--p15-output", type=Path, default=DEFAULT_P15_OUTPUT)
     parser.add_argument("--contamination", type=Path, default=DEFAULT_CONTAMINATION)
     args = parser.parse_args(argv)
     con = db.connect(args.database, read_only=True, wait_s=0)
@@ -397,7 +445,9 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         con.close()
     resources.write_text_atomic(args.output, json.dumps(report, indent=2, sort_keys=True) + "\n")
+    resources.write_text_atomic(args.p15_output, p15_markdown(report))
     print(json.dumps({"status": "complete", "output": str(args.output),
+                      "p15_output": str(args.p15_output),
                       "trace_count": report["coverage"]["trace_count"]}, sort_keys=True))
     return 0
 

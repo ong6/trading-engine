@@ -890,4 +890,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine/product +673, tools +102, tests +357; other layers unchanged; budget ok.
 - **Next:** integrate one validated projection into status and the nightly Markdown report.
 
+## 2026-09-26 — P15 W6: publish validated evaluation status
+
+- **Why:** approved P15 W6 requires one coded P15 status and report covering the primary test,
+  books, pre-open policy, events, the frozen P8 review rule, and all evaluated policy versions.
+- **What:** validate every P15 evidence chain before aggregation; expose one bounded schema-v2
+  projection through the existing status route; publish JSON and Markdown atomically after P15
+  scoring. Three independent reviewers accepted correctness, evidence integrity, and safety.
+- **Evidence:** the focused warnings-as-errors gate reaches `[100%]`; the live read-only report
+  builds with P15 inactive, P8 collecting at 3 sessions, and 12 registered trial versions.
+- **Metrics:** server +388, tools +318, tests +186; engine/farm/sim unchanged; budget ok.
+- **Next:** W7 remove superseded code and update product and operations documentation.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

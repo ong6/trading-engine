@@ -140,6 +140,8 @@ def test_clean_manifest_is_deterministic_and_release_eligible(tmp_path):
         release_manifest.AGENT_SOURCE_FILES
     )
     assert first["agent_sources"]["sha256"] is not None
+    assert "engine/p15_evaluation.py" in release_manifest.AGENT_SOURCE_FILES
+    assert "data/reports/agent-eval/p15.md" in release_manifest.PROSPECTIVE_EVIDENCE_FILES
     assert set(first["broker_boundary_sources"]["files"]) == set(
         release_manifest.BROKER_BOUNDARY_SOURCE_FILES
     )
