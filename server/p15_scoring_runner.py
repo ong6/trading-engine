@@ -570,7 +570,7 @@ def run(
             database=database, now=now, generate=generate,
             fetch_news=fetch_news, clock=clock,
         )
-        if result["status"] == "completed":
+        if "market_date" in result:
             con = db.connect(database, wait_s=0)
             try:
                 result = {**result, "books": p15_books.run_window(
@@ -597,6 +597,23 @@ def dry_run(
         copied = Path(directory) / "market.duckdb"
         with advisory_file_lock(NIGHTLY_LOCK):
             copier(database, copied)
+        con = db.connect(copied, wait_s=0)
+        try:
+            p15_books.init_schema(con)
+            state = p15_books.activation_state(con)
+            if state != "active":
+                checkpoint = con.execute(
+                    "SELECT MAX(e.date) FROM sim_equity e JOIN portfolios p "
+                    "ON p.id=e.portfolio_id WHERE p.active AND p.id NOT IN (?,?,?)",
+                    list(p15_books.BOOK_IDS),
+                ).fetchone()[0]
+                if checkpoint is None:
+                    raise ScoringError("P15 dry-run activation checkpoint is unavailable")
+                if state == "absent":
+                    p15_books.initialize_books(con, checkpoint)
+                p15_books.activate_books(con, checkpoint)
+        finally:
+            con.close()
         result = run(
             database=copied, now=now, generate=generate,
             fetch_news=fetch_news, clock=clock,

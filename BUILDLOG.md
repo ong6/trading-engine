@@ -754,4 +754,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +10, tools/product unchanged, tests +40; budget ok.
 - **Next:** initialize the three live books inactive after the nightly writer releases its lock.
 
+## 2026-09-26 — P15 W3: close comparator integrity gaps
+
+- **Why:** independent W3 review reproduced action-field, cap, replay, activation, split, halt,
+  counterfactual-label, and generic-rerun defects in the first comparator implementation.
+- **What:** consume the retained decision/ATR fields, enforce caps again at fill, preserve immutable
+  intent/window/fill evidence, recover P15 state after generic reruns, label misses from their
+  actual attempt date, advance safety after failed scoring, and activate only a complete checkpoint.
+- **Evidence:** `./.venv/bin/python -m pytest -q -W error` reaches `[100%]` and exits 0.
+- **Metrics:** server +402, engine +28, tools +3, product +28, tests +332; budget ok.
+- **Next:** migrate the added inactive evidence tables and repeat independent W3 review.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

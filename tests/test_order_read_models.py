@@ -41,6 +41,17 @@ def test_orders_expose_only_active_portfolios(con):
     assert filled_orders["matching_count"] == 1
 
 
+def test_orders_project_internal_p15_terminal_status_as_filled(con):
+    portfolio(con, "p15_ai_ranked")
+    con.execute(
+        "INSERT INTO sim_orders VALUES "
+        "(1,'p15_ai_ranked','AAA','buy',2,DATE '2026-09-01','p15_filled',NULL)"
+    )
+
+    assert order_read_models.orders(con, None)["orders"][0]["status"] == "filled"
+    assert order_read_models.orders(con, "filled")["matching_count"] == 1
+
+
 def test_orders_reject_malformed_stored_portfolio_identity(con):
     portfolio_id = "x" * 129
     portfolio(con, portfolio_id)

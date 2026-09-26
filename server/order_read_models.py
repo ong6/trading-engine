@@ -164,8 +164,11 @@ def _orders_payload(status: str | None, order_rows: list[dict]) -> dict:
 
 def _order_rows(con: duckdb.DuckDBPyConnection, status: str | None) -> list[dict]:
     has_tickets = table_exists(con, "disc_tickets")
-    status_clause = " AND o.status = ?" if status else ""
-    parameters = [status] if status else []
+    status_clause = (
+        " AND (o.status = ? OR (?='filled' AND o.status='p15_filled'))"
+        if status else ""
+    )
+    parameters = [status, status] if status else []
     ticket_columns = (
         ", t.id AS ticket_id, t.playbook, t.stop, t.target"
         if has_tickets
@@ -179,7 +182,9 @@ def _order_rows(con: duckdb.DuckDBPyConnection, status: str | None) -> list[dict
         "FROM sim_orders o JOIN portfolios pf ON pf.id = o.portfolio_id "
         f"WHERE pf.active{status_clause}"
         ") SELECT matching.id, matching.portfolio_id, matching.ticker, matching.side, "
-        "matching.qty, matching.signal_date, matching.status, matching.reject_reason, "
+        "matching.qty, matching.signal_date, "
+        "CASE WHEN matching.status='p15_filled' THEN 'filled' ELSE matching.status END AS status, "
+        "matching.reject_reason, "
         "matching._matching_count"
         f"{ticket_columns} FROM matching{ticket_join} "
         "ORDER BY matching.id DESC LIMIT ?",
