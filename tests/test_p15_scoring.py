@@ -5,6 +5,7 @@ import json
 import shutil
 from datetime import datetime, timedelta, timezone
 
+import duckdb
 import pytest
 
 from engine import bitemporal_facts
@@ -479,6 +480,112 @@ def test_p15_scoring_counts_failed_model_call_attempts(tmp_path):
     assert result["status"] == "completed"
     assert result["model_call_count"] == 3
     assert result["unavailable_count"] == 2
+
+
+def test_p15_scoring_uses_bounded_database_waits(tmp_path, monkeypatch):
+    database = tmp_path / "market.duckdb"
+    _p15_database(database)
+    now = datetime(2026, 9, 22, 2, 30, tzinfo=timezone.utc)
+    original = db.connect
+    waits = []
+
+    def observed_connect(*args, **kwargs):
+        waits.append(kwargs.get("wait_s"))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(p15_scoring_runner.db, "connect", observed_connect)
+    result = p15_scoring_runner.run(
+        database=database, now=now, generate=_scoring_result,
+        fetch_news=_news_response, clock=lambda: now,
+    )
+
+    assert result["status"] == "completed"
+    assert waits and all(wait == p15_scoring_runner.DB_WAIT_S for wait in waits)
+
+
+def test_p15_scoring_duckdb_failure_records_explicit_unavailable(tmp_path, monkeypatch):
+    database = tmp_path / "market.duckdb"
+    _p15_database(database)
+    now = datetime(2026, 9, 22, 2, 30, tzinfo=timezone.utc)
+    original = p15_scoring_runner.store.complete_sample
+    failed = False
+
+    def fail_once(*args, **kwargs):
+        nonlocal failed
+        if not failed:
+            failed = True
+            raise duckdb.IOException("test lock contention")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(p15_scoring_runner.store, "complete_sample", fail_once)
+    result = p15_scoring_runner.run(
+        database=database, now=now, generate=_scoring_result,
+        fetch_news=_news_response, clock=lambda: now,
+    )
+
+    assert result["status"] == "completed"
+    assert result["model_call_count"] == 3
+    assert result["unavailable_count"] == 2
+    con = db.connect(database, read_only=True)
+    try:
+        assert con.execute(
+            "SELECT COUNT(*) FROM p15_scoring_samples WHERE status='failed'"
+        ).fetchone() == (1,)
+    finally:
+        con.close()
+
+
+def test_p15_scoring_restarts_started_sample_without_duplicate_call(tmp_path, monkeypatch):
+    database = tmp_path / "market.duckdb"
+    _p15_database(database)
+    now = datetime(2026, 9, 22, 2, 30, tzinfo=timezone.utc)
+    complete_sample = p15_scoring_runner.store.complete_sample
+    fail_sample = p15_scoring_runner.store.fail_sample
+    generated = []
+
+    def generate(payload):
+        generated.append(payload["sample_index"])
+        return _scoring_result(payload)
+
+    monkeypatch.setattr(
+        p15_scoring_runner.store, "complete_sample",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            duckdb.IOException("test completion contention")
+        ),
+    )
+    monkeypatch.setattr(
+        p15_scoring_runner.store, "fail_sample",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            duckdb.IOException("test failure-write contention")
+        ),
+    )
+    with pytest.raises(duckdb.Error, match="failure-write contention"):
+        p15_scoring_runner._run(
+            database=database, now=now, generate=generate,
+            fetch_news=_news_response, clock=lambda: now,
+        )
+
+    monkeypatch.setattr(p15_scoring_runner.store, "complete_sample", complete_sample)
+    monkeypatch.setattr(p15_scoring_runner.store, "fail_sample", fail_sample)
+    resumed = p15_scoring_runner._run(
+        database=database, now=now, generate=generate,
+        fetch_news=_news_response, clock=lambda: now,
+    )
+    replay = p15_scoring_runner._run(
+        database=database, now=now,
+        generate=lambda _payload: (_ for _ in ()).throw(
+            AssertionError("completed run called the model")
+        ),
+        fetch_news=lambda *_args: (_ for _ in ()).throw(
+            AssertionError("completed run fetched news")
+        ),
+        clock=lambda: now,
+    )
+
+    assert generated == [0, 1, 2]
+    assert resumed["status"] == "completed" and resumed["unavailable_count"] == 2
+    assert replay["status"] == "completed" and replay["replayed"] is True
+    assert replay["model_call_count"] == 0
 
 
 def test_p15_scoring_dry_run_uses_copy_and_leaves_source_unchanged(tmp_path):
