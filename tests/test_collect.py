@@ -133,6 +133,13 @@ def test_p15_incremental_wrapper_withholds_failed_or_misdated_attempts(monkeypat
     )
     con.close()
     delayed = collect.datetime(2026, 9, 29, 1, tzinfo=collect.timezone.utc)
+    metadata = []
+    monkeypatch.setattr(
+        p15_incremental_collect.collect, "write_meta",
+        lambda database, mode, requested, failed: metadata.append(
+            (database, mode, requested, failed)
+        ),
+    )
 
     monkeypatch.setattr(
         p15_incremental_collect.collect, "mode_incremental",
@@ -152,6 +159,10 @@ def test_p15_incremental_wrapper_withholds_failed_or_misdated_attempts(monkeypat
     assert _read(
         db_path, "SELECT market_date,status FROM price_fetch_attempts"
     ) == [(market_date, "present")]
+    assert metadata == [
+        (db_path, "incremental", 1, 1),
+        (db_path, "incremental", 1, 0),
+    ]
 
 
 def test_backfill_checkpoints_state_and_releases_db(monkeypatch, tmp_path):

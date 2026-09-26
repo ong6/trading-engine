@@ -867,7 +867,8 @@ def validate_p15_evidence(
         raise EvaluationError("P15 pre-open book schema is missing")
     p15_evidence_validation.validate_links(con, EvaluationError)
     p15_evidence_validation.validate_common_labels(
-        con, generated_at, EvaluationError, _label_outcome
+        con, generated_at, EvaluationError, _label_outcome,
+        _label_outcome_when_ready,
     )
     cursor = con.execute(
         "SELECT * FROM agent_evaluation_traces WHERE policy_id='p15-scoring-v1' ORDER BY id"
@@ -1069,7 +1070,10 @@ def validate_p15_evidence(
         ).fetchall()]
         if len(sessions) != row["horizon_sessions"]:
             raise EvaluationError("P15 label maturity evidence differs")
-        outcome = _label_outcome(
+        outcome_fn = (
+            _label_outcome_when_ready if row["schema_version"] >= 2 else _label_outcome
+        )
+        outcome = outcome_fn(
             con, row["source_ticker"], sessions,
             row["labeled_at"].replace(tzinfo=timezone.utc),
         )
@@ -1158,7 +1162,9 @@ def validate_p15_evidence(
                     or canonical_sha256(expected) != values[11]):
                 raise EvaluationError("P15 limit label evidence differs")
     if event_schema:
-        p15_evidence_validation.validate_events(con, EvaluationError, _label_outcome)
+        p15_evidence_validation.validate_events(
+            con, EvaluationError, _label_outcome_when_ready,
+        )
 
 
 def status(con: duckdb.DuckDBPyConnection) -> dict:

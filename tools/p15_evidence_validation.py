@@ -69,7 +69,9 @@ def validate_links(con: duckdb.DuckDBPyConnection, error_type) -> None:
             raise error_type("P15 scoring evidence has orphan rows")
 
 
-def validate_common_labels(con, generated_at: datetime, error_type, _label_outcome) -> None:
+def validate_common_labels(
+    con, generated_at: datetime, error_type, label_outcome, ready_outcome,
+) -> None:
     if not con.execute(
         "SELECT COUNT(*) FROM information_schema.tables "
         "WHERE table_name='agent_evaluation_labels_v2'"
@@ -100,6 +102,17 @@ def validate_common_labels(con, generated_at: datetime, error_type, _label_outco
         if (canonical_sha256(body) != row["label_sha256"]
                 or row["labeled_at"] < close):
             raise error_type("common-entry label evidence differs")
+        if row["schema_version"] >= 2:
+            sessions = [item[0] for item in con.execute(
+                f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>=? "
+                f"AND fetched_at<=? AND {REAL_BAR_SQL} ORDER BY date LIMIT ?",
+                [row["entry_date"], row["labeled_at"], row["horizon_sessions"]],
+            ).fetchall()]
+            if len(sessions) != row["horizon_sessions"] or ready_outcome(
+                con, row["ticker"], sessions,
+                row["labeled_at"].replace(tzinfo=timezone.utc),
+            ) is None:
+                raise error_type("common-entry label evidence differs")
 
 
 def validate_preopen(con: duckdb.DuckDBPyConnection, generated_at: datetime, error_type) -> None:
@@ -172,7 +185,13 @@ def _event_label_expected(con, row: dict, label_outcome, event_runner):
         entry_px = None if outcome is None else float(outcome["entry_open"])
         spy_return = None if outcome is None else float(outcome["spy_return"])
     elif row["missing_bar_status"] == "missing_next_bar_last_available_close":
-        missing = event_runner._missing_next_bar(con, ticker, decision_at, labeled_at)
+        ready = event_runner._missing_next_bar_ready(
+            con, ticker, decision_at, labeled_at,
+        )
+        missing = (
+            event_runner._missing_next_bar(con, ticker, decision_at, labeled_at)
+            if ready else None
+        )
         entry_at, entry_px, outcome = (None, None, None) if missing is None else missing
         spy_return = 0.0
     else:

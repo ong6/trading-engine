@@ -709,10 +709,18 @@ def test_p15_scoring_rejects_d_plus_2_post_entry_retry_and_records_failure(tmp_p
         con.close()
 
 
-def test_p15_scoring_records_noon_start_refusal_without_external_calls(tmp_path):
+def test_p15_scoring_records_noon_start_refusal_without_external_calls(
+    tmp_path, monkeypatch,
+):
     database = tmp_path / "market.duckdb"
     _p15_database(database)
     late = datetime(2026, 9, 22, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        p15_scoring_runner, "p15_universe",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("late refusal built a scoring universe")
+        ),
+    )
 
     result = p15_scoring_runner._run(
         database=database, now=late,
