@@ -10,6 +10,8 @@ import duckdb
 
 from engine import p15_event_sources
 from engine.lib.db import REAL_BAR_SQL
+from engine.lib.provenance import canonical_sha256
+from engine.lib.settings import REPO_ROOT
 from engine.lib.util import table_exists
 from sim import nyse
 
@@ -27,6 +29,27 @@ PRIMARY_T_CRITICAL = {
     120: 2.1530427955026177,
 }
 P15EvaluationError = ValueError
+REGISTRATION_PATH = REPO_ROOT / "server" / "p15-registration.json"
+
+
+def registration_sha256() -> str:
+    registration = json.loads(REGISTRATION_PATH.read_text())
+    recorded = registration.pop("registration_sha256", None)
+    if recorded != canonical_sha256(registration):
+        raise P15EvaluationError("P15 registration identity differs")
+    return recorded
+
+
+def init_look_schema(con: duckdb.DuckDBPyConnection) -> None:
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS p15_evaluation_looks (
+        schema_version INTEGER NOT NULL, policy_id VARCHAR NOT NULL,
+        registration_sha256 VARCHAR NOT NULL, look_sessions INTEGER NOT NULL,
+        through_market_date DATE NOT NULL, evaluated_at TIMESTAMP NOT NULL,
+        source_prefix_sha256 VARCHAR NOT NULL, previous_look_sha256 VARCHAR,
+        result_payload VARCHAR NOT NULL, look_sha256 VARCHAR NOT NULL UNIQUE,
+        UNIQUE(policy_id,registration_sha256,look_sessions))"""
+    )
 
 
 def _primary_variance_inflation(n: int, *, fallback: bool) -> float:
@@ -369,7 +392,114 @@ def evaluate_looks(scored: list[dict]) -> tuple[str, list[dict], int | None]:
     return terminal or "collecting", looks, next_look
 
 
-def primary(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> dict:
+def _look_source_prefix(scored: list[dict], size: int) -> str:
+    return canonical_sha256([{
+        "market_date": row["market_date"], "evaluated_at": row["evaluated_at"],
+        "pair_count": row["pair_count"], "model_ic": row["model_ic"],
+        "baseline_ic": row["baseline_ic"], "delta_ic": row["delta_ic"],
+    } for row in scored[:size]])
+
+
+def load_retained_looks(
+    con: duckdb.DuckDBPyConnection, scored: list[dict], registration_sha256: str,
+    *, require_reached: bool = True,
+) -> list[dict]:
+    if not table_exists(con, "p15_evaluation_looks"):
+        if require_reached and len(scored) >= LOOKS[0]:
+            raise P15EvaluationError("P15 reached look is not persisted")
+        return []
+    rows = con.execute(
+        "SELECT schema_version,policy_id,registration_sha256,look_sessions,"
+        "through_market_date,evaluated_at,source_prefix_sha256,previous_look_sha256,"
+        "result_payload,look_sha256 FROM p15_evaluation_looks "
+        "WHERE policy_id=? AND registration_sha256=? ORDER BY look_sessions",
+        [POLICY_ID, registration_sha256],
+    ).fetchall()
+    retained, previous = [], None
+    for index, row in enumerate(rows):
+        (schema_version, policy_id, registered, size, through, evaluated,
+         prefix_sha, prior_sha, raw_result, look_sha) = row
+        if index >= len(LOOKS) or size != LOOKS[index] or len(scored) < size:
+            raise P15EvaluationError("P15 look evidence differs")
+        result = json.loads(raw_result)
+        expected_prefix = _look_source_prefix(scored, size)
+        body = {
+            "schema_version": schema_version, "policy_id": policy_id,
+            "registration_sha256": registered, "look_sessions": size,
+            "through_market_date": through.isoformat(),
+            "evaluated_at": evaluated.replace(tzinfo=timezone.utc).isoformat(),
+            "source_prefix_sha256": prefix_sha,
+            "previous_look_sha256": prior_sha, "result": result,
+        }
+        if (
+            schema_version != 1 or policy_id != POLICY_ID
+            or registered != registration_sha256 or prefix_sha != expected_prefix
+            or prior_sha != previous or canonical_sha256(body) != look_sha
+            or result.get("look") != size
+            or result.get("through_market_date") != through.isoformat()
+        ):
+            raise P15EvaluationError("P15 look evidence differs")
+        retained.append(result)
+        previous = look_sha
+        if result.get("status") in {"pass", "kill"} and index != len(rows) - 1:
+            raise P15EvaluationError("P15 look evidence differs")
+    if require_reached:
+        terminal = retained and retained[-1]["status"] in {"pass", "kill"}
+        next_size = None if terminal else LOOKS[len(retained)] if len(retained) < len(LOOKS) else None
+        if next_size is not None and len(scored) >= next_size:
+            raise P15EvaluationError("P15 reached look is not persisted")
+    return retained
+
+
+def persist_reached_looks(
+    con: duckdb.DuckDBPyConnection, scored: list[dict], registration_sha256: str,
+    *, evaluated_at: datetime,
+) -> list[dict]:
+    init_look_schema(con)
+    retained = load_retained_looks(
+        con, scored, registration_sha256, require_reached=False,
+    )
+    previous_rows = con.execute(
+        "SELECT look_sha256 FROM p15_evaluation_looks WHERE policy_id=? "
+        "AND registration_sha256=? ORDER BY look_sessions",
+        [POLICY_ID, registration_sha256],
+    ).fetchall()
+    previous = None if not previous_rows else previous_rows[-1][0]
+    terminal = bool(retained and retained[-1]["status"] in {"pass", "kill"})
+    for size in LOOKS[len(retained):]:
+        if terminal or len(scored) < size:
+            break
+        result = _look(scored, size)
+        result["through_market_date"] = scored[size - 1]["market_date"]
+        result["evaluated_at"] = max(row["evaluated_at"] for row in scored[:size])
+        prefix_sha = _look_source_prefix(scored, size)
+        evaluated = evaluated_at.astimezone(timezone.utc)
+        body = {
+            "schema_version": 1, "policy_id": POLICY_ID,
+            "registration_sha256": registration_sha256, "look_sessions": size,
+            "through_market_date": result["through_market_date"],
+            "evaluated_at": evaluated.isoformat(),
+            "source_prefix_sha256": prefix_sha,
+            "previous_look_sha256": previous, "result": result,
+        }
+        look_sha = canonical_sha256(body)
+        con.execute(
+            "INSERT INTO p15_evaluation_looks VALUES (?,?,?,?,?,?,?,?,?,?)",
+            [1, POLICY_ID, registration_sha256, size,
+             date.fromisoformat(result["through_market_date"]),
+             evaluated.replace(tzinfo=None), prefix_sha, previous,
+             json.dumps(result, sort_keys=True, separators=(",", ":")), look_sha],
+        )
+        retained.append(result)
+        previous = look_sha
+        terminal = result["status"] in {"pass", "kill"}
+    return retained
+
+
+def primary(
+    con: duckdb.DuckDBPyConnection, generated_at: datetime, *,
+    persist_looks: bool = False, registration_sha: str | None = None,
+) -> dict:
     rows = _primary_rows(con, generated_at)
     if not rows:
         next_date = generated_at.date()
@@ -409,11 +539,25 @@ def primary(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> dict:
             scored.append(result)
         else:
             insufficient += 1
-    status, looks, next_look = evaluate_looks(scored)
-    status = "invalid" if missing else status
-    book_look_dates = [{"look": size, "through_market_date": scored[size - 1]["market_date"],
-                        "evaluated_at": max(row["evaluated_at"] for row in scored[:size])}
-                       for size in LOOKS if len(scored) >= size]
+    registered = registration_sha or registration_sha256()
+    if persist_looks and not missing:
+        looks = persist_reached_looks(
+            con, scored, registered, evaluated_at=generated_at,
+        )
+    else:
+        looks = load_retained_looks(con, scored, registered)
+    terminal = next(
+        (item["status"] for item in looks if item["status"] in {"pass", "kill"}),
+        None,
+    )
+    status = "invalid" if missing else terminal or "collecting"
+    next_look = None if terminal else next(
+        (size for size in LOOKS if size > len(scored)), None,
+    )
+    book_look_dates = [{
+        "look": item["look"], "through_market_date": item["through_market_date"],
+        "evaluated_at": item["evaluated_at"],
+    } for item in looks]
     next_date = None
     if next_look is not None:
         maturities = []
