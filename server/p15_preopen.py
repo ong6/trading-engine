@@ -318,6 +318,8 @@ def run(
     local = started.astimezone(ET)
     if local.date() != session_date or local.timetz().replace(tzinfo=None) < START:
         raise PreopenError("pre-open run is outside its session window")
+    if not nyse.is_session(session_date):
+        return {"status": "not_session", "decision_count": 0, "cancelled": 0}
     init_schema(con)
     if p15_books.activation_state(con) != "active":
         return {"status": "inactive", "decision_count": 0, "cancelled": 0}

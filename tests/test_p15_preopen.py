@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -332,6 +332,40 @@ def test_preopen_rejects_early_invocation_without_writes(con):
     with pytest.raises(p15_preopen.PreopenError, match="outside"):
         p15_preopen.run(con, session_date=session_date, now=early)
     assert not p15_books.table_exists(con, "p15_preopen_runs")
+
+
+def test_preopen_returns_not_session_on_market_holiday(con):
+    signal_date = date(2024, 7, 3)
+    holiday = date(2024, 7, 4)
+    history = [item for item in SESSIONS if item <= signal_date]
+    for ticker in ("SPY", "AAA"):
+        insert_bars(con, ticker, history, open_=100, close=100, high=101, low=99)
+    _activate(con, signal_date)
+    _seed_decisions(con, signal_date, [_decision("AAA", 1, 100)])
+    p15_books.queue_orders(
+        con, signal_date,
+        created_at=datetime(2024, 7, 3, 20, tzinfo=timezone.utc),
+    )
+
+    def unexpected_call(*_args, **_kwargs):
+        raise AssertionError("holiday pre-open called an external dependency")
+
+    result = p15_preopen.run(
+        con,
+        session_date=holiday,
+        now=datetime(2024, 7, 4, 13, 10, tzinfo=timezone.utc),
+        generate=unexpected_call,
+        fetch_news=unexpected_call,
+    )
+
+    assert result == {
+        "status": "not_session",
+        "decision_count": 0,
+        "cancelled": 0,
+    }
+    assert con.execute(
+        "SELECT DISTINCT status FROM p15_order_intents"
+    ).fetchall() == [("pending",)]
 
 
 @pytest.mark.parametrize("schema,intent_id", [(True, 1), (1, True), (1, 1.0)])
