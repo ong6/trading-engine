@@ -18,6 +18,7 @@ from engine.lib.settings import DEFAULT_DB
 from . import p15_price_fetch_attempts
 
 ExactHistory = Callable[[str, date, date], object]
+MAX_OPEN_LABEL_FETCHES = 20
 
 
 def _history(provider_ticker: str, start: date, end: date):
@@ -34,12 +35,9 @@ def _fetch_exact(
     ticker = obligation["ticker"]
     provider = obligation["provider_ticker"]
     market_date = obligation["market_date"]
-    request = {
-        "ticker": ticker, "provider_ticker": provider,
-        "market_date": market_date.isoformat(), "interval": "1d",
-        "auto_adjust": False,
-    }
-    request_sha = canonical_sha256(request)
+    request_sha = p15_price_fetch_attempts.open_label_request_sha256(
+        ticker, provider, market_date,
+    )
     for attempt in range(2):
         try:
             raw = history(provider, market_date, market_date + timedelta(days=1))
@@ -53,10 +51,7 @@ def _fetch_exact(
                     sleep(2)
                     continue
                 return None, None
-            response_sha = canonical_sha256({
-                "result": "completed_missing",
-                "outcome_reason": p15_price_fetch_attempts.OPEN_LABEL_MISSING_REASON,
-            })
+            response_sha = p15_price_fetch_attempts.open_label_missing_response_sha256()
             return ({**obligation, "status": "missing", "requested_at": requested_at,
                      "outcome_reason": p15_price_fetch_attempts.OPEN_LABEL_MISSING_REASON,
                      "request_sha256": request_sha, "response_sha256": response_sha}, None)
@@ -110,6 +105,8 @@ def run(
         )
     finally:
         con.close()
+    outstanding = len(obligations)
+    obligations = obligations[:MAX_OPEN_LABEL_FETCHES]
     receipts = []
     exact_completed = 0
     exact_failed = 0
@@ -139,10 +136,12 @@ def run(
                 )
         return {
             **result, "requested": requested, "failed": failed,
-            "open_label_requested": len(obligations),
+            "open_label_requested": outstanding,
             "open_label_completed": exact_completed,
             "open_label_missing": sum(row["status"] == "missing" for row in receipts),
             "open_label_failed": exact_failed,
+            "open_label_deferred": outstanding - len(obligations),
+            "open_label_outstanding": outstanding,
         }
     finally:
         con.close()
