@@ -28,10 +28,39 @@ CHUNK_SIZE = 10
 HORIZONS = (1, 5, 10, 20)
 LOCK_PATH = REPO_ROOT / ".p15-events.lock"
 NIGHTLY_LOCK = REPO_ROOT / ".nightly.lock"
+DB_WAIT_S = 60.0
 
 
 class EventRunError(ValueError):
     """A P15 event decision or retained run violates its contract."""
+
+
+class _DatabaseLease:
+    """Reopenable writer used to release DuckDB around external model calls."""
+
+    def __init__(self, database: Path, connection: duckdb.DuckDBPyConnection):
+        self.database = database
+        self.connection = connection
+
+    def __getattr__(self, name):
+        if self.connection is None:
+            raise EventRunError("event database lease is not acquired")
+        return getattr(self.connection, name)
+
+    def release_for_model(self) -> None:
+        if self.connection is not None:
+            self.connection.close()
+            self.connection = None
+
+    def reacquire(self) -> None:
+        if self.connection is not None:
+            raise EventRunError("event database lease is already acquired")
+        self.connection = db.connect(self.database, wait_s=DB_WAIT_S)
+
+    def close(self) -> None:
+        if self.connection is not None:
+            self.connection.close()
+            self.connection = None
 
 
 def _next_id(con, table: str) -> int:
@@ -668,6 +697,8 @@ def score_pending(
              request_sha, started.replace(tzinfo=None)],
         )
         response, error = None, None
+        if isinstance(con, _DatabaseLease):
+            con.release_for_model()
         try:
             generated = generate(payload)
             _identity(generated, payload)
@@ -680,6 +711,8 @@ def score_pending(
                        "expected_excess_bp_5": None, "expected_excess_bp_10": None,
                        "action": "unavailable", "thesis": None, "invalidation": None,
                        "evidence_ids": [item["trigger_evidence_id"]]} for item in chunk]
+        if isinstance(con, _DatabaseLease):
+            con.reacquire()
         completed = clock().astimezone(timezone.utc)
         response_text = None if response is None else json.dumps(
             response, sort_keys=True, separators=(",", ":")
@@ -751,7 +784,7 @@ def run_database(
     except EventRunError:
         return {"status": "outside_session", "execution_authority": "none"}
     with advisory_file_lock(LOCK_PATH), advisory_file_lock(NIGHTLY_LOCK):
-        con = db.connect(database, wait_s=0)
+        con = _DatabaseLease(database, db.connect(database, wait_s=DB_WAIT_S))
         try:
             p15_event_sources.init_schema(con)
             p15_event_sources.initialize_event_evidence(con, now=observed)
