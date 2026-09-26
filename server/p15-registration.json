@@ -176,10 +176,11 @@
     "model_call_count": "attempted_calls_including_connector_failures",
     "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
     "price_fetch_attempts": "zero_failed_liquid_batch_plus_exact_open_label_receipts",
+    "maximum_open_label_fetches_per_run": 20,
     "price_fetch_availability": "after_collection_completion"
   },
   "code_identity": {
-    "source_commit": "3e29e8b63ed734ee4356ab46988ca8903dffbfd4",
+    "source_commit": "1a09cb52dfea673c254608aaaf8f239d165b6667",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/actions.py": "a6c2ec46d198df2318498ec7d55e1b7cfeca4c8afaccd8a5c208618e4ea8b850",
@@ -255,8 +256,8 @@
       "server/nightly_reports.py": "901448247bb8169952a3ac862a64b9051840a2f6bbfb3fad400a4cfd61b34517",
       "server/official_quote_source.py": "6249c44243fa91e0c658ecc180853693c61ddcb7b7a9b6cb6f5869b8ea620de1",
       "server/p15_preopen.py": "d02aacdc3a70efff67584dac516874f96519767331f79ca5284d983c70543a45",
-      "server/p15_incremental_collect.py": "7094a981f452ebdb647d51064d16fb92d632f298ea259552541afbe15db66efb",
-      "server/p15_price_fetch_attempts.py": "fd9ebc0b3eedb6e11db417fe21f9e591f24ce01d60e0b5422362a1b22632c757",
+      "server/p15_incremental_collect.py": "59361f8a402da6080857d7ec122c46f718476d274a127c82daa876e3275e312f",
+      "server/p15_price_fetch_attempts.py": "20e4abc509c66e37867b3fc364625e1eb7df63840eac4e21f74b4ac82d82d1df",
       "server/p15_scoring_runner.py": "6e97bbc9b9e51c128a7f9e2705a0cc7d590237c1f7b7368507724193fe8a3644",
       "server/p15_scoring_store.py": "4660607b6bb5b18fdb6ee7585b8bdadab9dfa9af9417f0ae51833bc87a695bee",
       "server/status_validation.py": "538a2b74aa645475cdbb760c14f0ce2f49a2a4417e4c400197b724dd2ff4c770",
@@ -309,7 +310,7 @@
       "sim/strategies/xs_reversal_1m.py": "84d75403e79184e80a9013ef77b24c0bcb4bb9f85a0840f0d3295583885a50e7",
       "tools/__init__.py": "1f23b3f78a32b5567d64752ddc564b1182bdfe50616b87bca6a3a603b597d927",
       "tools/agent_trial_register.py": "08cb4553ef83b49297f0222e063bf1da506e2b6e8d185f5a430739dc659125f6",
-      "tools/backup_database.py": "b779652d0cda17651baf934c31bc344ffa4624676c572df9535821ead69fd155",
+      "tools/backup_database.py": "68a12a3815ec479f025182bc9589a02dd46d1d80795bbe95de9eac4910a7f3fd",
       "tools/p15_evidence_validation.py": "9e6dda6bf2e7e247bc9e852a209212dcfad33c47b413af4d65b288e05f82a07a",
       "tools/release_manifest.py": "87ec536a9587c782af396261f30b401e723234786e002531a69fbdfed65cd649",
       "tools/sec_edgar_capture.py": "b6f46658930844cf4deed830e8e3a9412e9a19232663aced8a01472c42f0024f"
@@ -317,5 +318,5 @@
   },
   "registration_revision": 2,
   "revision_reason": "P16 W0 review findings R1-R16",
-  "registration_sha256": "2cbaba53de3839c46adb1344726335d5ddeb00de0fff32a2a04cc2f44c986af0"
+  "registration_sha256": "142239156ef2f732d675548cad08bffde488cc8532e4ca4204e40f135ae604b3"
 }
