@@ -91,7 +91,8 @@ def _select_universe(con, params: dict) -> list[tuple[str, str]]:
         return [(tk, found.get(tk, tk)) for tk in tickers]
 
     rows = con.execute(
-        "SELECT ticker, yf_ticker FROM universe WHERE liquid = TRUE ORDER BY ticker"
+        "SELECT ticker, yf_ticker FROM universe "
+        "WHERE active = TRUE AND liquid = TRUE ORDER BY ticker"
     ).fetchall()
     return [(tk, yft or tk) for tk, yft in rows]
 

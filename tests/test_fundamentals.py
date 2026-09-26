@@ -98,6 +98,21 @@ def test_orphaned_ok_log_does_not_hide_missing_snapshot(fundamentals_con):
     assert fundamentals._already_done(fundamentals_con, today) == set()
 
 
+def test_default_universe_excludes_inactive_liquid_names_but_override_does_not(
+    fundamentals_con,
+):
+    db.init_schema(fundamentals_con)
+    fundamentals_con.executemany(
+        "INSERT INTO universe (ticker,yf_ticker,active,liquid,etf) VALUES (?,?,?,?,FALSE)",
+        [("ACTIVE", "ACTIVE", True, True), ("INACTIVE", "INACTIVE", False, True)],
+    )
+
+    assert fundamentals._select_universe(fundamentals_con, {}) == [("ACTIVE", "ACTIVE")]
+    assert fundamentals._select_universe(
+        fundamentals_con, {"tickers": ["INACTIVE"]}
+    ) == [("INACTIVE", "INACTIVE")]
+
+
 def test_snapshot_and_fetch_log_checkpoint_roll_back_together(
     monkeypatch, fundamentals_con, tmp_path
 ):
