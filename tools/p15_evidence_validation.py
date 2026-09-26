@@ -89,6 +89,8 @@ def validate_common_labels(con, generated_at: datetime, error_type, _label_outco
             "maximum_adverse_excursion", "maximum_favorable_excursion", "price_prefix_sha256",
             "missing_bar_status", "round_trip_cost_bps", "net_return", "net_excess_return",
         )}
+        if row["schema_version"] >= 2:
+            body["spy_net_return"] = row["spy_net_return"]
         body.update(entry_date=row["entry_date"].isoformat(), exit_date=row["exit_date"].isoformat())
         close = datetime.combine(
             row["exit_date"], p15_event_sources.session_close(row["exit_date"]),
