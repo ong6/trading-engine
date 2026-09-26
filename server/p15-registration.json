@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "registration_id": "p15-profitability-evidence-loop-v1",
-  "registered_at": "2026-09-26T19:04:16Z",
+  "registered_at": "2026-09-26T19:14:02Z",
   "activation_session": "2026-09-29",
   "status": "registered_inactive",
   "authority": {
@@ -60,6 +60,7 @@
     "missing_bars": "last_available_close_after_confirmation",
     "missing_bar_grace_sessions": 3,
     "missing_bar_confirmation": "later_ticker_bar_or_completed_exact_date_fetch",
+    "fetch_attempt_evidence": "batch_hash_bound_zero_failed_full_liquid_collection",
     "spy_net_return_stored": true
   },
   "books": {
@@ -177,7 +178,7 @@
     "price_fetch_attempts": "zero_failed_full_liquid_collection_at_operational_date"
   },
   "code_identity": {
-    "source_commit": "36c52d60801fbe8e81fd1f8d3fc798f9ae359182",
+    "source_commit": "650d4c73b7ac2fabf47d105c2abff6b4b0139e78",
     "files": {
       "engine/bitemporal_facts.py": "f33ed3530af9fa89f5ed80e3a2e4b46043d127fcb455ef31e1b371f84d32b607",
       "engine/collect.py": "23ec8da4be7342101b061f6db49b2338dcbe8fd127c2fb607c66995652d340f1",
@@ -191,7 +192,7 @@
       "farm/agent_evaluation_analysis.py": "67ba119bd1974a184e03c64852b22f42d0ae654e2844f60974082b66c1159ab8",
       "farm/p15_event_runner.py": "61e736fdd06e9d624fdef931a94803ae0467225fdba6a304a275b6fbffb3a6f5",
       "server/agent-cadence-registration.json": "cf66040d889662f7ad740f79ce83e2c87528853bafe4f31a0634c7195b5c4b59",
-      "server/agent_evaluation.py": "aee6554fb255fd5a956180c9293faa71131481af30b24ef90cb4662d5eb0c8e0",
+      "server/agent_evaluation.py": "7ab8f0664d007cd6aaf007e32a551119fd787bf0ee193faf0ac7e0f8ee172614",
       "server/agent_evaluation_reporting.py": "7d8597d04e78116b03a270ceeb3b792a93baf4f2449deec02157288984b53392",
       "server/agent_model_client.py": "3c4fbdfd48aa6e1c32a8fbe7fba18f8c7470aef01a684f7ab2d9d8cadf1394f8",
       "server/daily_opportunity_news.py": "cfefc2b70cfaf9f50a03c387577a81fcd0a1fff3f3021c061f609e14ed6bcf10",
@@ -199,7 +200,7 @@
       "server/intraday_source.py": "83a85c249f51cfd7b0cfc3120376d2c14be628cf51806f79719c184307aeb9a2",
       "server/p15_preopen.py": "d02aacdc3a70efff67584dac516874f96519767331f79ca5284d983c70543a45",
       "server/p15_incremental_collect.py": "c4d75dfa444fc87a4c6b2e628c999711a42c4259f3a965ff1e8a545d724361a1",
-      "server/p15_price_fetch_attempts.py": "c8cb5b3385e42e89f8c8d4d428621abae87486e2a6fbba941562505a195ca0d8",
+      "server/p15_price_fetch_attempts.py": "0bb140d9af44fd05e5a47a3b069ca849b23d76ca3e5c98e43fcab6c766a4bc36",
       "server/p15_scoring_runner.py": "6e97bbc9b9e51c128a7f9e2705a0cc7d590237c1f7b7368507724193fe8a3644",
       "server/p15_scoring_store.py": "4660607b6bb5b18fdb6ee7585b8bdadab9dfa9af9417f0ae51833bc87a695bee",
       "server/trading-engine-p15-events.service": "1837b19fd0e5667bc9b3d013cfbb018b5dd0b0895acafda719bd302a0480ec2c",
@@ -216,11 +217,11 @@
       "sim/portfolio.py": "09fb43aae6f6ed4de277f61efe0d93f475945e4ec0f6e8d23d2a56d0b74e0f9d",
       "sim/strategies/base.py": "82945ba5891c8f9315439d8dfccc16122e9e2ec2c0d97a877342eb53c26c5d83",
       "tools/agent_trial_register.py": "08cb4553ef83b49297f0222e063bf1da506e2b6e8d185f5a430739dc659125f6",
-      "tools/p15_evidence_validation.py": "4b17bbd2968a6ec66dc0d694634b4ee5920c2f6500ba91f682a675ff6f5a9c43",
+      "tools/p15_evidence_validation.py": "9e6dda6bf2e7e247bc9e852a209212dcfad33c47b413af4d65b288e05f82a07a",
       "tools/sec_edgar_capture.py": "00ee6b4c7549ac784c8dd650dbb27d281593d9c1404bb89647a50993083cd33a"
     }
   },
   "registration_revision": 2,
   "revision_reason": "P16 W0 review findings R1-R16",
-  "registration_sha256": "2f018d495aacf0ac30d3fc60f477387d6121d645a8208160f4c7bf74a832dd9a"
+  "registration_sha256": "b92e75c744f5559583a86eba0af8e060f6c5bda0eab1a769a992aa1fb86656e7"
 }
