@@ -158,6 +158,8 @@ def test_p15_scoring_unit_is_registered_but_not_autostarted():
     timer = _unit("server/trading-engine-p15-scoring.timer")
     _assert_common_service_hardening(service)
     assert "server.p15_scoring_runner --run" in service
+    assert "ExecStartPost=%h/trading-engine/.venv/bin/python " \
+           "-m server.agent_evaluation_reporting" in service
     assert "TimeoutStartSec=9h" in service
     assert "02:30:00 UTC" in timer and "Persistent=true" in timer
     assert "trading-engine-p15-scoring.timer" not in install_automation.AUTOSTART_UNITS

@@ -21,6 +21,8 @@ paper promotion, broker connection, or live capital.
 - [`agent-evaluation.json`](agent-evaluation.json) is the nightly, deterministic P11/P12 scorecard
   for canonical agent traces, mature labels, compatible policy pairs, execution quality, and
   contamination-probe status. Empty or immature cohorts remain explicit and never imply promotion.
+- [`agent-eval/`](agent-eval/) contains the human-readable P15 gate report generated from the same
+  validated projection as the JSON scorecard.
 
 ## Historical and implementation evidence
 

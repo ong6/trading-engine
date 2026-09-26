@@ -1,6 +1,7 @@
 """Canonical append-only traces and delayed labels for forward agent evaluation."""
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from datetime import date, datetime, timezone
@@ -10,6 +11,7 @@ import duckdb
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
+from tools import p15_evidence_validation
 
 from . import agent_model_client
 
@@ -760,6 +762,332 @@ def link_execution(
         [next_id, decision_id, tool_attempt_id, order_id, _timestamp(linked_at), digest],
     )
     return {"decision_id": int(decision_id), "replayed": False}
+
+
+def _complete_schema(con: duckdb.DuckDBPyConnection, names: tuple[str, ...], label: str) -> bool:
+    present = [table_exists(con, name) for name in names]
+    if any(present) and not all(present):
+        raise EvaluationError(f"P15 {label} schema is incomplete")
+    return all(present)
+
+
+def validate_p15_evidence(
+    con: duckdb.DuckDBPyConnection, generated_at: datetime | None = None,
+) -> None:
+    """Fail closed if stored P15 scoring or label identities no longer replay."""
+    generated_at = generated_at or datetime.now(timezone.utc)
+    p15_evidence_validation.enforce_bounds(con, EvaluationError)
+    scoring_schema = _complete_schema(con, (
+        "agent_evaluation_traces", "agent_evaluation_decisions", "agent_evaluation_labels_v2"
+    ), "scoring")
+    preopen_schema = _complete_schema(con, (
+        "p15_preopen_runs", "p15_preopen_decisions", "p15_preopen_news_responses",
+        "p15_execution_quality"
+    ), "pre-open")
+    book_schema = _complete_schema(con, (
+        "p15_book_contracts", "p15_book_state", "p15_order_intents", "p15_position_rules",
+        "p15_limit_attempts", "p15_book_windows", "p15_book_fills", "p15_limit_labels"
+    ), "book")
+    event_schema = _complete_schema(con, (
+        "p15_event_source_state", "p15_event_triggers", "p15_event_windows",
+        "p15_event_calls", "p15_event_decisions", "p15_event_labels"
+    ), "event")
+    if not scoring_schema:
+        if preopen_schema or book_schema or event_schema:
+            raise EvaluationError("P15 scoring schema is missing")
+        return
+    if preopen_schema and not book_schema:
+        raise EvaluationError("P15 pre-open book schema is missing")
+    p15_evidence_validation.validate_links(con, EvaluationError)
+    p15_evidence_validation.validate_common_labels(
+        con, generated_at, EvaluationError, _label_outcome
+    )
+    cursor = con.execute(
+        "SELECT * FROM agent_evaluation_traces WHERE policy_id='p15-scoring-v1' ORDER BY id"
+    )
+    columns = [item[0] for item in cursor.description]
+    for values in cursor.fetchall():
+        row = dict(zip(columns, values, strict=True))
+        source_refs, input_payload, output_payload = map(
+            json.loads, (row["source_refs"], row["input_payload"], row["output_payload"])
+        )
+        bundle, context = input_payload["universe"], input_payload["context"]
+        bundle_sha = bundle["bundle_sha256"]
+        expected_refs = [{"kind": "p15_universe", "sha256": bundle_sha}, *[
+            {"kind": "news_receipt", "ticker": item["ticker"],
+             "sha256": item["receipt_sha256"]} for item in context["news_receipts"]
+        ]]
+        identity = {key: row[key] for key in (
+            "schema_version", "window_id", "policy_id", "cadence", "prompt_role",
+            "source_kind", "source_identifier", "request_sha256", "response_id", "model",
+            "model_version", "instructions_sha256", "toolset_sha256",
+            "model_catalog_entry_sha256", "proxy_source_sha256", "traecli_runtime",
+            "upstream_model_family", "upstream_request_id", "latency_ms", "terminal_status",
+            "execution_authority",
+        )}
+        identity.update(
+            market_date=row["market_date"].isoformat(),
+            observed_at=row["observed_at"].isoformat(),
+            completed_at=row["completed_at"].isoformat(),
+            information_cutoff_at=row["information_cutoff_at"].isoformat(),
+            source_refs_sha256=canonical_sha256(source_refs),
+            input_sha256=row["input_sha256"], output_sha256=row["output_sha256"],
+            usage={"input_tokens": row["input_tokens"], "output_tokens": row["output_tokens"],
+                   "total_tokens": row["total_tokens"]},
+        )
+        if (source_refs != expected_refs or canonical_sha256({
+                key: value for key, value in bundle.items() if key != "bundle_sha256"
+                }) != bundle_sha or canonical_sha256(input_payload) != row["input_sha256"]
+                or canonical_sha256(output_payload) != row["output_sha256"]
+                or canonical_sha256(identity) != row["trace_sha256"]):
+            raise EvaluationError("P15 trace evidence differs")
+        if not all(table_exists(con, table) for table in (
+            "p15_scoring_runs", "p15_scoring_samples", "p15_scoring_news_responses"
+        )):
+            raise EvaluationError("P15 scoring source ledger is missing")
+        run = con.execute(
+            "SELECT id,universe_payload,universe_sha256,context_payload,context_sha256,status,"
+            "information_cutoff_at,completed_at,aggregate_trace_sha256 FROM p15_scoring_runs "
+            "WHERE market_date=?", [row["market_date"]]
+        ).fetchone()
+        if (run is None or row["source_kind"] != "p15_scoring_run"
+                or row["source_identifier"] != str(run[0])
+                or run[5] != "completed" or run[8] != row["trace_sha256"]
+                or json.loads(run[1]) != bundle or json.loads(run[3]) != context
+                or canonical_sha256(bundle) != run[2] or canonical_sha256(context) != run[4]
+                or run[6] != row["information_cutoff_at"] or run[7] != row["completed_at"]):
+            raise EvaluationError("P15 scoring run evidence differs")
+        samples = con.execute(
+            "SELECT chunk_index,sample_index,permutation_seed,ticker_order,request_payload,"
+            "request_sha256,status,response_id,response_payload,response_sha256,model,model_version,"
+            "proxy_version,proxy_source_sha256,traecli_runtime,upstream_model_family,"
+            "upstream_request_id,model_catalog_entry_sha256,input_tokens,output_tokens,total_tokens,"
+            "started_at,completed_at FROM p15_scoring_samples WHERE run_id=? "
+            "ORDER BY chunk_index,sample_index", [run[0]]
+        ).fetchall()
+        expected_sample_count = math.ceil(len(context["candidates"]) / 10) * 3
+        expected_grid = {(chunk, sample) for chunk in range(math.ceil(
+            len(context["candidates"]) / 10)) for sample in range(3)}
+        if len(samples) != expected_sample_count or {(item[0], item[1]) for item in samples} \
+                != expected_grid:
+            raise EvaluationError("P15 scoring sample set is incomplete")
+        sample_ids, usage = [], {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        model_identity = agent_model_client.identity(role="p15_scoring")
+        for sample_row in samples:
+            (chunk, sample, seed, ticker_order, request, request_sha, status, response_id,
+             response, response_sha, model, model_version, proxy_version, proxy_sha, runtime,
+             upstream_family, upstream_id, catalog_sha, input_tokens, output_tokens, total_tokens,
+             sample_started, sample_completed) = sample_row
+            request_payload = json.loads(request)
+            request_input = json.loads(request_payload["input"])
+            expected_chunk = {item["ticker"]: item for item in context["candidates"][
+                chunk * 10:(chunk + 1) * 10
+            ]}
+            expected_seed = int.from_bytes(hashlib.sha256(
+                f"p15-scoring-v1:{row['market_date'].isoformat()}:{chunk}:{sample}".encode()
+            ).digest()[:8], "big") & ((1 << 63) - 1)
+            if (request_input["chunk_index"] != chunk or request_input["sample_index"] != sample
+                    or request_input["permutation_seed"] != seed or seed != expected_seed
+                    or json.loads(ticker_order) != [item["ticker"]
+                                                    for item in request_input["candidates"]]
+                    or {item["ticker"] for item in request_input["candidates"]}
+                    != set(expected_chunk)
+                    or any(item != expected_chunk[item["ticker"]]
+                           for item in request_input["candidates"])
+                    or agent_model_client.p15_scoring_request_payload(request_input)
+                    != request_payload
+                    or canonical_sha256(request_payload) != request_sha
+                    or status not in {"completed", "failed"}
+                    or sample_completed is None or sample_completed < sample_started
+                    or (status == "completed" and (response is None or response_sha is None))
+                    or (response is not None and canonical_sha256(json.loads(response))
+                        != response_sha)):
+                raise EvaluationError("P15 scoring sample evidence differs")
+            if status == "completed" and (model != model_identity["model"]
+                    or model_version != model_identity["model_version"]
+                    or proxy_version != model_identity["required_proxy_version"]
+                    or proxy_sha != model_identity["required_proxy_source_sha256"]
+                    or runtime != model_identity["required_traecli_runtime"]
+                    or upstream_family != agent_model_client.UPSTREAM_MODEL_FAMILY
+                    or catalog_sha != model_identity["model_catalog_entry_sha256"]):
+                raise EvaluationError("P15 scoring sample model identity differs")
+            if response is not None:
+                retained = json.loads(response)
+                if any(retained.get(key) != value for key, value in {
+                    "response_id": response_id, "model": model, "model_version": model_version,
+                    "proxy_version": proxy_version, "proxy_source_sha256": proxy_sha,
+                    "traecli_runtime": runtime, "upstream_model_family": upstream_family,
+                    "upstream_request_id": upstream_id,
+                    "model_catalog_entry_sha256": catalog_sha,
+                    "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens,
+                              "total_tokens": total_tokens},
+                }.items()):
+                    raise EvaluationError("P15 scoring sample response differs")
+            sample_ids.append({"chunk_index": chunk, "sample_index": sample,
+                               "request_sha256": request_sha, "response_id": response_id,
+                               "upstream_request_id": upstream_id, "status": status})
+            for key, value in zip(usage, (input_tokens, output_tokens, total_tokens), strict=True):
+                usage[key] += int(value or 0)
+        digest = canonical_sha256(sample_ids)
+        if (row["request_sha256"] != canonical_sha256([item["request_sha256"]
+                                                        for item in sample_ids])
+                or row["response_id"] != f"aggregate-{digest[:32]}"
+                or row["upstream_request_id"] != f"aggregate-{digest[:32]}"
+                or usage != {key: row[key] for key in usage}):
+            raise EvaluationError("P15 scoring aggregate identity differs")
+        receipts = con.execute(
+            "SELECT ticker,endpoint,requested_at,received_at,http_status,content_type,"
+            "response_sha256,response_body,receipt_sha256 FROM p15_scoring_news_responses "
+            "WHERE run_id=? ORDER BY ticker", [run[0]]
+        ).fetchall()
+        for receipt in receipts:
+            receipt_identity = {"ticker": receipt[0], "endpoint": receipt[1],
+                                "requested_at": receipt[2].replace(
+                                    tzinfo=timezone.utc).isoformat().replace("+00:00", "Z"),
+                                "received_at": receipt[3].replace(
+                                    tzinfo=timezone.utc).isoformat().replace("+00:00", "Z"),
+                                "http_status": receipt[4], "content_type": receipt[5],
+                                "response_sha256": hashlib.sha256(bytes(receipt[7])).hexdigest()}
+            if receipt_identity["response_sha256"] != receipt[6] \
+                    or canonical_sha256(receipt_identity) != receipt[8]:
+                raise EvaluationError("P15 scoring news evidence differs")
+        if {receipt[8] for receipt in receipts} != {item["receipt_sha256"]
+                                                    for item in context["news_receipts"]}:
+            raise EvaluationError("P15 scoring news receipt set is incomplete")
+        decisions = con.execute(
+            "SELECT ticker,assessment_sha256,decision_payload,decision_sha256 "
+            "FROM agent_evaluation_decisions WHERE trace_id=? ORDER BY ticker", [row["id"]]
+        ).fetchall()
+        expected = {item["ticker"]: item for item in output_payload["assessments"]}
+        if len(expected) != len(output_payload["assessments"]) or set(expected) != {
+                item[0] for item in decisions}:
+            raise EvaluationError("P15 trace decision set differs")
+        for ticker, assessment_sha, raw, decision_sha in decisions:
+            payload = json.loads(raw)
+            assessment = payload.get("assessment_sha256") or canonical_sha256(payload)
+            expected_item = expected[ticker]
+            if (assessment != assessment_sha
+                    or any(payload.get(key if key != "action" else "decision") != value
+                           for key, value in expected_item.items())
+                    or canonical_sha256({"trace_sha256": row["trace_sha256"],
+                                         "ticker": ticker,
+                                         "assessment_sha256": assessment_sha}) != decision_sha):
+                raise EvaluationError("P15 decision evidence differs")
+    labels = con.execute(
+        "SELECT l.*,d.ticker AS source_ticker,t.market_date AS source_market_date "
+        "FROM agent_evaluation_labels_v2 l JOIN agent_evaluation_decisions d "
+        "ON d.id=l.decision_id JOIN agent_evaluation_traces t ON t.id=d.trace_id "
+        "WHERE t.policy_id='p15-scoring-v1' ORDER BY l.id"
+    )
+    columns = [item[0] for item in labels.description]
+    for values in labels.fetchall():
+        row = dict(zip(columns, values, strict=True))
+        body = {key: row[key] for key in (
+            "schema_version", "decision_id", "horizon_sessions", "label_basis", "entry_open",
+            "exit_close", "asset_return", "spy_return", "excess_return",
+            "maximum_adverse_excursion", "maximum_favorable_excursion", "price_prefix_sha256",
+            "missing_bar_status", "round_trip_cost_bps", "net_return", "net_excess_return",
+        )}
+        body.update(entry_date=row["entry_date"].isoformat(),
+                    exit_date=row["exit_date"].isoformat())
+        if canonical_sha256(body) != row["label_sha256"]:
+            raise EvaluationError("P15 label evidence differs")
+        sessions = [item[0] for item in con.execute(
+            f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>? "
+            f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
+            "ORDER BY date LIMIT ?", [row["source_market_date"], row["labeled_at"],
+                                      row["horizon_sessions"]]
+        ).fetchall()]
+        if len(sessions) != row["horizon_sessions"]:
+            raise EvaluationError("P15 label maturity evidence differs")
+        outcome = _label_outcome(
+            con, row["source_ticker"], sessions,
+            row["labeled_at"].replace(tzinfo=timezone.utc),
+        )
+        expected_basis = None if outcome is None else outcome.get(
+            "label_basis_override", "next_session_open"
+        )
+        expected_body = None if outcome is None else {
+            "schema_version": row["schema_version"], "decision_id": row["decision_id"],
+            "horizon_sessions": row["horizon_sessions"], "label_basis": expected_basis,
+            **{key: value.isoformat() if isinstance(value, date) else value
+               for key, value in outcome.items() if key != "label_basis_override"},
+            "missing_bar_status": outcome["missing_bar_status"],
+        }
+        if expected_body is None or canonical_sha256(expected_body) != row["label_sha256"]:
+            raise EvaluationError("P15 label source evidence differs")
+    if preopen_schema:
+        p15_evidence_validation.validate_preopen(con, generated_at, EvaluationError)
+    if book_schema:
+        from sim import p15_books
+        rows = con.execute(
+            "SELECT c.portfolio_id,c.mechanics_version,c.config_sha256,p.config "
+            "FROM p15_book_contracts c JOIN portfolios p ON p.id=c.portfolio_id ORDER BY 1"
+        ).fetchall()
+        if {row[0] for row in rows} != set(p15_books.BOOK_IDS):
+            raise EvaluationError("P15 book evidence differs")
+        for portfolio_id, version, digest, raw in rows:
+            config = p15_books._config(portfolio_id)
+            if (version != p15_books.MECHANICS_VERSION or digest != canonical_sha256(config)
+                    or json.loads(raw) != config):
+                raise EvaluationError("P15 book evidence differs")
+        mismatch = con.execute(
+            "SELECT COUNT(*) FROM p15_book_fills f LEFT JOIN sim_fills s ON s.order_id=f.order_id "
+            "WHERE s.order_id IS NULL OR (f.portfolio_id,f.ticker,f.side,f.qty,f.fill_date,"
+            "f.open_px,f.fill_px,f.slippage_bps,f.cost_bps) IS DISTINCT FROM "
+            "(s.portfolio_id,s.ticker,s.side,s.qty,s.fill_date,s.open_px,s.fill_px,"
+            "s.slippage_bps,s.cost_bps)"
+        ).fetchone()[0]
+        mismatch += con.execute(
+            "SELECT COUNT(*) FROM p15_book_windows w LEFT JOIN sim_equity e "
+            "ON e.portfolio_id=w.portfolio_id AND e.date=w.market_date "
+            "WHERE e.portfolio_id IS NULL OR (w.equity,w.cash,w.n_positions) "
+            "IS DISTINCT FROM (e.equity,e.cash,e.n_positions)"
+        ).fetchone()[0]
+        mismatch += con.execute(
+            "SELECT COUNT(*) FROM p15_order_intents i LEFT JOIN sim_orders o ON o.id=i.sim_order_id "
+            "WHERE i.sim_order_id IS NOT NULL AND (o.id IS NULL OR "
+            "(i.portfolio_id,i.ticker,i.side,i.qty,i.signal_date,i.status) IS DISTINCT FROM "
+            "(o.portfolio_id,o.ticker,o.side,o.qty,o.signal_date,o.status))"
+        ).fetchone()[0]
+        if mismatch:
+            raise EvaluationError("P15 book runtime evidence differs")
+        p15_evidence_validation.validate_book_links(con, EvaluationError)
+        for values in con.execute(
+            "SELECT l.intent_id,l.attempt_date,l.horizon_sessions,l.entry_px,l.exit_date,"
+            "l.exit_close,l.net_return,l.spy_net_return,l.net_excess_return,"
+            "l.price_prefix_sha256,l.labeled_at,l.label_sha256,i.ticker "
+            "FROM p15_limit_labels l JOIN p15_order_intents i ON i.id=l.intent_id ORDER BY l.intent_id"
+        ).fetchall():
+            identity = {"intent_id": int(values[0]), "attempt_date": values[1].isoformat(),
+                        "horizon_sessions": int(values[2]), "entry_px": values[3],
+                        "exit_date": values[4].isoformat(), "exit_close": values[5],
+                        "net_return": values[6], "spy_net_return": values[7],
+                        "net_excess_return": values[8], "price_prefix_sha256": values[9]}
+            sessions = [row[0] for row in con.execute(
+                f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>=? "
+                f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
+                "ORDER BY date LIMIT 5", [values[1], values[10]]
+            ).fetchall()]
+            outcome = _label_outcome(
+                con, values[12], sessions, values[10].replace(tzinfo=timezone.utc)
+            ) if len(sessions) == 5 else None
+            expected = None if outcome is None else {
+                "intent_id": int(values[0]), "attempt_date": values[1].isoformat(),
+                "horizon_sessions": 5, "entry_px": values[3],
+                "exit_date": outcome["exit_date"].isoformat(),
+                "exit_close": outcome["exit_close"],
+                "net_return": float(outcome["exit_close"]) * 0.999 / values[3] - 1,
+                "spy_net_return": outcome["net_return"] - outcome["net_excess_return"],
+                "net_excess_return": (float(outcome["exit_close"]) * 0.999 / values[3] - 1)
+                - (outcome["net_return"] - outcome["net_excess_return"]),
+                "price_prefix_sha256": outcome["price_prefix_sha256"],
+            }
+            if (canonical_sha256(identity) != values[11] or expected is None
+                    or canonical_sha256(expected) != values[11]):
+                raise EvaluationError("P15 limit label evidence differs")
+    if event_schema:
+        p15_evidence_validation.validate_events(con, EvaluationError, _label_outcome)
 
 
 def status(con: duckdb.DuckDBPyConnection) -> dict:
