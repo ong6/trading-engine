@@ -438,7 +438,7 @@ only** (owner, 2026-09-25). Every other AGENTS.md rule still applies.
 | W5 Event triggers | done | 2026-09-26 |
 | W6 Gates and reporting | done | 2026-09-26 |
 | W7 Cleanup and docs | done | 2026-09-26 |
-| W8 Activation | not started | |
+| W8 Activation | in progress | 2026-09-26 (registration and copied-store rehearsal) |
 
 ## Risks
 

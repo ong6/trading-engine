@@ -913,4 +913,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** code layers unchanged; documentation only; budget ok.
 - **Next:** W8 frozen registration, pre-activation dry run, and safe activation.
 
+## 2026-09-26 — P15 W8: stage the registered activation
+
+- **Why:** approved P15 W8 requires the frozen registration and a complete dry-run day before
+  activating the three comparator books or their timers.
+- **What:** verify the separately committed registration; install all six staged units without
+  enabling them; initialize only the empty P15 schemas under the writer lock; and rehearse the
+  complete scoring and comparator flow against a database copy. The live books remain inactive,
+  every P15 runtime and simulator count remains zero, and no future equity row was seeded.
+- **Evidence:** `./.venv/bin/python -m server.p15_scoring_runner --dry-run` → `status: completed`,
+  60 candidates, 17 model calls, nine copy-only intents, and zero fills.
+- **Metrics:** source unchanged; all frozen-layer ceilings remain green.
+- **Next:** run the required 2026-09-28 full dry-run day, then activate on the registered session
+  only if every gate remains green.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
