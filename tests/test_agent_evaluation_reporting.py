@@ -770,6 +770,49 @@ def test_report_cli_atomically_publishes_empty_forward_state(tmp_path):
     assert "Status: **not_initialized**" in p15_output.read_text()
 
 
+def test_report_validates_p15_evidence_before_persisting_a_look(tmp_path, monkeypatch):
+    database = tmp_path / "market.duckdb"
+    output = tmp_path / "report.json"
+    p15_output = tmp_path / "p15.md"
+    events = []
+
+    monkeypatch.setattr(
+        agent_evaluation_reporting.p15_evaluation,
+        "registration_sha256",
+        lambda: "a" * 64,
+    )
+    monkeypatch.setattr(
+        agent_evaluation_reporting.p15_evaluation,
+        "publish_pending_look_anchors",
+        lambda *_args, **_kwargs: events.append("publish"),
+    )
+    monkeypatch.setattr(
+        agent_evaluation_reporting,
+        "validate_p15_evidence",
+        lambda *_args, **_kwargs: events.append("validate"),
+    )
+    monkeypatch.setattr(
+        agent_evaluation_reporting.p15_evaluation,
+        "primary",
+        lambda *_args, **_kwargs: events.append("persist"),
+    )
+    monkeypatch.setattr(
+        agent_evaluation_reporting,
+        "build_report",
+        lambda *_args, **_kwargs: (
+            events.append("report") or {"coverage": {"trace_count": 0}}
+        ),
+    )
+    monkeypatch.setattr(agent_evaluation_reporting, "p15_markdown", lambda _report: "")
+
+    assert agent_evaluation_reporting.main([
+        "--database", str(database), "--output", str(output),
+        "--p15-output", str(p15_output),
+    ]) == 0
+
+    assert events == ["publish", "validate", "persist", "publish", "report"]
+
+
 def test_report_uses_shared_w6_projection(con, monkeypatch):
     agent_evaluation.init_schema(con)
     projection = {

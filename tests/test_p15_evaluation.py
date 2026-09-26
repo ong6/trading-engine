@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from engine import p15_evaluation
+from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from farm.walkforward.monthly import newey_west_t
 from tests.conftest import SESSIONS, insert_bars
@@ -122,6 +123,19 @@ def test_reached_look_is_persisted_once_and_tamper_evident(con, monkeypatch, tmp
     first = p15_evaluation.persist_reached_looks(
         con, scored, registration_sha, evaluated_at=NOW, anchor_path=anchor_path,
     )
+    with db.transaction(con):
+        assert p15_evaluation.publish_pending_look_anchors(
+            con, registration_sha, anchor_path=anchor_path,
+        ) == 1
+    first_anchor = anchor_path.read_text()
+    con.execute(
+        "UPDATE p15_evaluation_look_anchors SET external_anchor_sha256=NULL"
+    )
+    with db.transaction(con):
+        assert p15_evaluation.publish_pending_look_anchors(
+            con, registration_sha, anchor_path=anchor_path,
+        ) == 1
+    assert anchor_path.read_text() == first_anchor
     retained = con.execute(
         "SELECT result_payload,look_sha256 FROM p15_evaluation_looks"
     ).fetchone()
@@ -140,6 +154,12 @@ def test_reached_look_is_persisted_once_and_tamper_evident(con, monkeypatch, tmp
         "SELECT result_payload,look_sha256 FROM p15_evaluation_looks"
     ).fetchone() == retained
 
+    anchor_path.unlink()
+    with pytest.raises(p15_evaluation.P15EvaluationError, match="look evidence differs"):
+        p15_evaluation.load_retained_looks(
+            con, scored, registration_sha, anchor_path=anchor_path,
+        )
+    anchor_path.write_text(first_anchor)
     con.execute("UPDATE p15_evaluation_looks SET result_payload='{}'")
     with pytest.raises(p15_evaluation.P15EvaluationError, match="look evidence differs"):
         p15_evaluation.load_retained_looks(
@@ -161,6 +181,33 @@ def test_reached_look_is_persisted_once_and_tamper_evident(con, monkeypatch, tmp
             con, scored, registration_sha, evaluated_at=NOW,
             anchor_path=anchor_path,
         )
+
+
+def test_rolled_back_look_never_publishes_external_anchor(con, tmp_path):
+    scored = [
+        {"delta_ic": 0.2 + (index % 3) * 0.01,
+         "model_ic": 0.3, "baseline_ic": 0.09, "pair_count": 40,
+         "evaluated_at": NOW.isoformat(),
+         "market_date": (date(2026, 1, 1) + timedelta(days=index)).isoformat()}
+        for index in range(60)
+    ]
+    registration_sha = "a" * 64
+    anchor_path = tmp_path / "look-anchors.jsonl"
+    p15_evaluation.init_look_schema(con)
+
+    with pytest.raises(RuntimeError, match="after look insert"):
+        with db.transaction(con):
+            p15_evaluation.persist_reached_looks(
+                con, scored, registration_sha, evaluated_at=NOW,
+                anchor_path=anchor_path,
+            )
+            raise RuntimeError("after look insert")
+
+    assert con.execute("SELECT COUNT(*) FROM p15_evaluation_looks").fetchone() == (0,)
+    assert con.execute(
+        "SELECT COUNT(*) FROM p15_evaluation_look_anchors"
+    ).fetchone() == (0,)
+    assert not anchor_path.exists()
 
 
 def _primary_schema(con):
