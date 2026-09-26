@@ -373,6 +373,8 @@ def test_p15_registered_constants_match_runtime():
             "variance_normalization": "n_minus_1",
             "sample_sizes_by_look": {"60": 12, "90": 18, "120": 24},
             "zero_variance": "no_interval",
+            "constant_outcome": "neutral_zero_without_offset_shift",
+            "unresolved_eligible_origin": "look_not_persisted",
         },
         "diagnostic_standard_error": {
             "estimator": "hansen_hodrick", "kernel": "uniform",
