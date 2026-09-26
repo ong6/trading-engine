@@ -132,7 +132,9 @@
         "90": 18,
         "120": 24
       },
-      "zero_variance": "no_interval"
+      "zero_variance": "no_interval",
+      "constant_outcome": "neutral_zero_without_offset_shift",
+      "unresolved_eligible_origin": "look_not_persisted"
     },
     "diagnostic_standard_error": {
       "estimator": "hansen_hodrick",
@@ -203,7 +205,7 @@
     "price_fetch_availability": "after_collection_completion"
   },
   "code_identity": {
-    "source_commit": "438e45f56e119ad1fba94a4f9eb4a4dd73fac27a",
+    "source_commit": "adb99fde45d62338e131d2c481bafec3836321b3",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/actions.py": "a6c2ec46d198df2318498ec7d55e1b7cfeca4c8afaccd8a5c208618e4ea8b850",
@@ -225,7 +227,7 @@
       "engine/lib/settings.py": "88c830214847130473e08be7a4ecb188645f6ed2d379626839b456e91bf2a17e",
       "engine/lib/util.py": "d64081f1f467432577fb90ca8d8674b80f095ca32b7e6da7b7f8bcebdab5c82b",
       "engine/market_date.py": "a1c1b0e4aa4efd994074f72458bd857a6728d73b7a5f9c22e9bcfa8f0266c667",
-      "engine/p15_evaluation.py": "c5e32f4e5764725dee20ad853a91263bdcd6e1596dbbdb78da22356c4d63b461",
+      "engine/p15_evaluation.py": "914cce2475c2650a9db6658a9c8b94677a79ffb9130f889528300bdfce08755d",
       "engine/p15_event_sources.py": "62fcef7c389685e729ac785541236b0adfd770595f893d33e0c0c320dab55388",
       "engine/queue_runner.py": "f9e07dde5205be53c7586253b05532de2b8657ed82a144d88393f2387f9ac281",
       "engine/run_daily.sh": "5bf456f947c550fc9eb419519deb75156034a02c75d4e678b67af8ca0bae7911",
@@ -341,5 +343,5 @@
   },
   "registration_revision": 2,
   "revision_reason": "P16 W0 review findings R1-R16 and R7b",
-  "registration_sha256": "3aa5ddee578d9586a84c8eda77479da8c88b0e91dc1cead12c8325fdd48ca247"
+  "registration_sha256": "66d27666ef5290a25a38fc375aeae722df8faa5416e4c68ae79ff8fccac7b212"
 }
