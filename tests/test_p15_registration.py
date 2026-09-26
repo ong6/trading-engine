@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 from engine import daily_opportunities, p15_evaluation, p15_event_sources
@@ -18,6 +19,8 @@ REGISTERED_PATHS = {
     "engine/collect.py",
     "engine/daily_opportunities.py",
     "engine/lib/db.py",
+    "engine/lib/provenance.py",
+    "engine/lib/resources.py",
     "engine/p15_evaluation.py",
     "engine/p15_event_sources.py",
     "engine/run_daily.sh",
@@ -27,7 +30,9 @@ REGISTERED_PATHS = {
     "server/agent_evaluation.py",
     "server/agent_evaluation_reporting.py",
     "server/agent_model_client.py",
+    "server/daily_opportunity_news.py",
     "server/hourly_opportunity_observer.py",
+    "server/intraday_source.py",
     "server/p15_preopen.py",
     "server/p15_incremental_collect.py",
     "server/p15_price_fetch_attempts.py",
@@ -41,9 +46,14 @@ REGISTERED_PATHS = {
     "server/trading-engine-p15-scoring.timer",
     "sim/p15_books.py",
     "sim/p15_fills.py",
+    "sim/execution.py",
+    "sim/fills.py",
+    "sim/nyse.py",
+    "sim/portfolio.py",
     "sim/strategies/base.py",
     "tools/agent_trial_register.py",
     "tools/p15_evidence_validation.py",
+    "tools/sec_edgar_capture.py",
 }
 
 
@@ -225,6 +235,7 @@ def test_p15_registered_constants_match_runtime():
         "scoring_service_restart": "on-failure_after_5min_burst_3_per_30min",
         "model_call_count": "attempted_calls_including_connector_failures",
         "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
+        "price_fetch_attempts": "zero_failed_full_liquid_collection_at_operational_date",
     }
 
 
@@ -259,3 +270,8 @@ def test_p15_registered_file_hashes_match_checkout():
         if recorded != actual:
             drift[relative] = {"registered": recorded, "actual": actual}
     assert drift == {}
+    latest_registered_change = subprocess.run(
+        ["git", "rev-list", "-1", "HEAD", "--", *sorted(files)],
+        cwd=ROOT, check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    assert registration["code_identity"]["source_commit"] == latest_registered_change
