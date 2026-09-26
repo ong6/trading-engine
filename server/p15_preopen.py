@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from dataclasses import asdict
 from datetime import date, datetime, time, timezone
@@ -33,6 +34,11 @@ class PreopenError(ValueError):
     """P15 pre-open input or retained evidence violates its contract."""
 
 
+class _LateCommit(RuntimeError):
+    def __init__(self, observed_at: datetime):
+        self.observed_at = observed_at
+
+
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     con.execute(
         """CREATE TABLE IF NOT EXISTS p15_preopen_runs (
@@ -40,15 +46,16 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         status VARCHAR NOT NULL, reason VARCHAR, input_payload VARCHAR NOT NULL,
         input_sha256 VARCHAR NOT NULL UNIQUE, response_payload VARCHAR,
         response_sha256 VARCHAR, started_at TIMESTAMP NOT NULL,
-        completed_at TIMESTAMP NOT NULL, UNIQUE(policy_id,session_date))"""
+        completed_at TIMESTAMP, run_sha256 VARCHAR UNIQUE,
+        UNIQUE(policy_id,session_date))"""
     )
     con.execute(
         """CREATE TABLE IF NOT EXISTS p15_preopen_decisions (
-        id BIGINT PRIMARY KEY, run_id BIGINT NOT NULL, intent_id BIGINT NOT NULL UNIQUE,
+        id BIGINT PRIMARY KEY, run_id BIGINT NOT NULL, intent_id BIGINT NOT NULL,
         portfolio_id VARCHAR NOT NULL, ticker VARCHAR NOT NULL,
         decision VARCHAR NOT NULL, reason VARCHAR NOT NULL,
         evidence_ids VARCHAR NOT NULL, decision_sha256 VARCHAR NOT NULL UNIQUE,
-        applied_at TIMESTAMP NOT NULL)"""
+        applied_at TIMESTAMP NOT NULL, UNIQUE(run_id,intent_id))"""
     )
     con.execute(
         """CREATE TABLE IF NOT EXISTS p15_preopen_news_responses (
@@ -60,7 +67,7 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     )
     con.execute(
         """CREATE TABLE IF NOT EXISTS p15_execution_quality (
-        intent_id BIGINT PRIMARY KEY, sim_order_id BIGINT NOT NULL UNIQUE,
+        intent_id BIGINT PRIMARY KEY, sim_order_id BIGINT UNIQUE,
         decision_id BIGINT, portfolio_id VARCHAR NOT NULL, ticker VARCHAR NOT NULL,
         side VARCHAR NOT NULL, order_role VARCHAR NOT NULL, decision_at TIMESTAMP,
         order_at TIMESTAMP NOT NULL, attempt_date DATE NOT NULL, status VARCHAR NOT NULL,
@@ -78,21 +85,24 @@ def _utc(value: datetime) -> datetime:
 
 
 def _pending(con: duckdb.DuckDBPyConnection, session_date: date) -> list[dict]:
+    if not table_exists(con, "agent_evaluation_decisions") or not table_exists(
+        con, "agent_evaluation_traces"
+    ):
+        return []
     rows = con.execute(
         "SELECT i.id,i.portfolio_id,i.ticker,i.signal_date,i.limit_px,i.created_at,"
         "d.decision_payload,t.completed_at FROM p15_order_intents i "
         "JOIN agent_evaluation_decisions d ON d.id=i.decision_id "
         "JOIN agent_evaluation_traces t ON t.id=d.trace_id "
-        "LEFT JOIN p15_preopen_decisions p ON p.intent_id=i.id "
         "WHERE i.order_role='entry' AND i.status='pending' "
-        "AND i.portfolio_id IN (?,?,?) AND p.intent_id IS NULL ORDER BY i.id",
-        [*p15_books.BOOK_IDS],
+        "AND i.signal_date<? AND i.portfolio_id IN (?,?,?) ORDER BY i.id",
+        [session_date, *p15_books.BOOK_IDS],
     ).fetchall()
     return [{
         "intent_id": int(row[0]), "portfolio_id": row[1], "ticker": row[2],
         "signal_date": row[3], "limit_px": float(row[4]), "created_at": row[5],
         "assessment": json.loads(row[6]), "decision_at": row[7],
-    } for row in rows if nyse.next_session(row[3]) == session_date]
+    } for row in rows]
 
 
 def _facts(con, ticker: str, decision_at: datetime, cutoff: datetime) -> list[dict]:
@@ -101,8 +111,8 @@ def _facts(con, ticker: str, decision_at: datetime, cutoff: datetime) -> list[di
     rows = con.execute(
         "SELECT fact_type,event_at,available_at,source,normalized_payload,fact_sha256 "
         "FROM bitemporal_facts WHERE security_id=? AND available_at>? "
-        "AND available_at<=? AND ingested_at<=? AND fact_type NOT LIKE 'intraday.ohlcv%' "
-        "AND source!='tradingview_unofficial' "
+        "AND available_at<=? AND ingested_at<=? AND fact_type NOT LIKE 'intraday.%' "
+        "AND fact_type NOT LIKE 'market.%' AND source!='tradingview_unofficial' "
         "QUALIFY revision=MAX(revision) OVER (PARTITION BY entity_id,fact_type,event_at) "
         "ORDER BY available_at,fact_sha256 LIMIT 20",
         [ticker, decision_at, cutoff.replace(tzinfo=None), cutoff.replace(tzinfo=None)],
@@ -116,7 +126,8 @@ def _facts(con, ticker: str, decision_at: datetime, cutoff: datetime) -> list[di
 
 def _validate(output: object, allowed: dict[int, set[str]]) -> list[dict]:
     if not isinstance(output, dict) or set(output) != {"schema_version", "decisions"} \
-            or output.get("schema_version") != 1 or not isinstance(output["decisions"], list):
+            or type(output.get("schema_version")) is not int \
+            or output["schema_version"] != 1 or not isinstance(output["decisions"], list):
         raise PreopenError("pre-open output shape is invalid")
     decisions, seen = [], set()
     for item in output["decisions"]:
@@ -125,11 +136,14 @@ def _validate(output: object, allowed: dict[int, set[str]]) -> list[dict]:
         }:
             raise PreopenError("pre-open decision shape is invalid")
         intent_id, evidence = item["intent_id"], item["evidence_ids"]
-        if intent_id not in allowed or intent_id in seen or item["decision"] not in {"keep", "cancel"}:
+        if type(intent_id) is not int or intent_id not in allowed or intent_id in seen \
+                or item["decision"] not in {"keep", "cancel"}:
             raise PreopenError("pre-open decision identity is invalid")
         if not isinstance(item["reason"], str) or not item["reason"].strip() or len(item["reason"]) > 500:
             raise PreopenError("pre-open reason is invalid")
-        if not isinstance(evidence, list) or not evidence or len(evidence) != len(set(evidence)) \
+        if not isinstance(evidence, list) or not evidence \
+                or any(not isinstance(value, str) for value in evidence) \
+                or len(evidence) != len(set(evidence)) \
                 or not set(evidence) <= allowed[intent_id]:
             raise PreopenError("pre-open evidence is invalid")
         seen.add(intent_id)
@@ -139,41 +153,31 @@ def _validate(output: object, allowed: dict[int, set[str]]) -> list[dict]:
     return decisions
 
 
-def _validate_identity(result: agent_model_client.ConnectorResult) -> None:
+def _validate_identity(result: agent_model_client.ConnectorResult, payload: dict) -> None:
     identity = agent_model_client.identity(role="p15_preopen")
     if (result.model != identity["model"]
             or result.model_version != identity["model_version"]
             or result.proxy_version != identity["required_proxy_version"]
             or result.proxy_source_sha256 != identity["required_proxy_source_sha256"]
             or result.traecli_runtime != identity["required_traecli_runtime"]
-            or result.model_catalog_entry_sha256 != identity["model_catalog_entry_sha256"]):
+            or result.upstream_model_family != agent_model_client.UPSTREAM_MODEL_FAMILY
+            or result.model_catalog_entry_sha256 != identity["model_catalog_entry_sha256"]
+            or result.request_sha256 != canonical_sha256(
+                agent_model_client.p15_preopen_request_payload(payload)
+            )):
         raise PreopenError("pre-open model identity differs")
 
 
-def _store(
-    con, *, session_date: date, status: str, reason: str | None, payload: dict,
-    response: dict | None, decisions: list[dict], receipts: list[dict],
-    started: datetime, completed: datetime,
-) -> dict:
-    init_schema(con)
-    existing = con.execute(
-        "SELECT id,status FROM p15_preopen_runs WHERE policy_id=? AND session_date=?",
-        [POLICY_ID, session_date],
-    ).fetchone()
-    if existing is not None:
-        return {"status": existing[1], "run_id": int(existing[0]), "replayed": True,
-                "decision_count": len(decisions)}
+def _start_run(
+    con, *, session_date: date, payload: dict, receipts: list[dict], started: datetime,
+) -> int:
     run_id = int(con.execute("SELECT COALESCE(MAX(id),0)+1 FROM p15_preopen_runs").fetchone()[0])
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    response_text = None if response is None else json.dumps(
-        response, sort_keys=True, separators=(",", ":")
-    )
     con.execute(
-        "INSERT INTO p15_preopen_runs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        [run_id, POLICY_ID, session_date, status, reason, encoded,
-         canonical_sha256(payload), response_text,
-         None if response is None else canonical_sha256(response),
-         started.replace(tzinfo=None), completed.replace(tzinfo=None)],
+        "INSERT INTO p15_preopen_runs VALUES "
+        "(?,?,?,'running',NULL,?,?,NULL,NULL,?,NULL,NULL)",
+        [run_id, POLICY_ID, session_date, encoded, canonical_sha256(payload),
+         started.replace(tzinfo=None)],
     )
     for receipt in receipts:
         con.execute(
@@ -182,11 +186,40 @@ def _store(
              receipt["received_at"], receipt["http_status"], receipt["content_type"],
              receipt["response_sha256"], receipt["response_body"], receipt["receipt_sha256"]],
         )
+    return run_id
+
+
+def _finish_run(
+    con, *, run_id: int, status: str, reason: str | None, response: dict | None,
+    decisions: list[dict], completed: datetime,
+) -> dict:
+    response_text = None if response is None else json.dumps(
+        response, sort_keys=True, separators=(",", ":")
+    )
+    row = con.execute(
+        "SELECT session_date,input_sha256,started_at FROM p15_preopen_runs WHERE id=?",
+        [run_id],
+    ).fetchone()
+    response_sha = None if response is None else canonical_sha256(response)
+    run_identity = {
+        "run_id": run_id, "policy_id": POLICY_ID, "session_date": row[0].isoformat(),
+        "status": status, "reason": reason, "input_sha256": row[1],
+        "response_sha256": response_sha, "started_at": row[2].isoformat(),
+        "completed_at": completed.replace(tzinfo=None).isoformat(),
+    }
+    changed = con.execute(
+        "UPDATE p15_preopen_runs SET status=?,reason=?,response_payload=?,response_sha256=?,"
+        "completed_at=?,run_sha256=? WHERE id=? AND status='running' RETURNING id",
+        [status, reason, response_text, response_sha, completed.replace(tzinfo=None),
+         canonical_sha256(run_identity), run_id],
+    ).fetchone()
+    if changed is None:
+        raise PreopenError("pre-open run is not pending completion")
     decision_id = int(con.execute(
         "SELECT COALESCE(MAX(id),0)+1 FROM p15_preopen_decisions"
     ).fetchone()[0])
     for item in decisions:
-        identity = {"run_id": run_id, **item}
+        identity = {"run_id": run_id, **item, "applied_at": completed.isoformat()}
         con.execute(
             "INSERT INTO p15_preopen_decisions VALUES (?,?,?,?,?,?,?,?,?,?)",
             [decision_id, run_id, item["intent_id"], item["portfolio_id"], item["ticker"],
@@ -204,6 +237,73 @@ def _store(
     return {"status": status, "run_id": run_id, "replayed": False,
             "decision_count": len(decisions),
             "cancelled": sum(item["decision"] == "cancel" for item in decisions)}
+
+
+def _replay_run(con, run_id: int, status: str) -> dict:
+    raw = con.execute(
+        "SELECT input_payload,input_sha256,response_payload,response_sha256,"
+        "session_date,reason,started_at,completed_at,run_sha256 "
+        "FROM p15_preopen_runs WHERE id=?", [run_id],
+    ).fetchone()
+    payload = json.loads(raw[0])
+    if canonical_sha256(payload) != raw[1] or (
+        raw[2] is not None and canonical_sha256(json.loads(raw[2])) != raw[3]
+    ):
+        raise PreopenError("pre-open retained run differs from its identity")
+    if raw[7] is None or raw[7] < raw[6]:
+        raise PreopenError("pre-open retained timing is invalid")
+    run_identity = {
+        "run_id": run_id, "policy_id": POLICY_ID, "session_date": raw[4].isoformat(),
+        "status": status, "reason": raw[5], "input_sha256": raw[1],
+        "response_sha256": raw[3], "started_at": raw[6].isoformat(),
+        "completed_at": raw[7].isoformat(),
+    }
+    if canonical_sha256(run_identity) != raw[8]:
+        raise PreopenError("pre-open retained run identity is invalid")
+    receipt_ids = set()
+    for receipt in con.execute(
+        "SELECT ticker,endpoint,requested_at,received_at,http_status,content_type,"
+        "response_sha256,response_body,receipt_sha256 FROM p15_preopen_news_responses "
+        "WHERE run_id=? ORDER BY ticker", [run_id],
+    ).fetchall():
+        body_sha = hashlib.sha256(bytes(receipt[7])).hexdigest()
+        receipt_identity = {
+            "ticker": receipt[0], "endpoint": receipt[1],
+            "requested_at": receipt[2].replace(tzinfo=timezone.utc).isoformat().replace(
+                "+00:00", "Z"
+            ),
+            "received_at": receipt[3].replace(tzinfo=timezone.utc).isoformat().replace(
+                "+00:00", "Z"
+            ),
+            "http_status": receipt[4], "content_type": receipt[5],
+            "response_sha256": body_sha,
+        }
+        if body_sha != receipt[6] or canonical_sha256(receipt_identity) != receipt[8]:
+            raise PreopenError("pre-open retained news receipt is invalid")
+        receipt_ids.add(receipt[8])
+    if receipt_ids != set(payload["receipt_sha256s"]):
+        raise PreopenError("pre-open retained news receipt set is incomplete")
+    rows = con.execute(
+        "SELECT portfolio_id,ticker,intent_id,decision,reason,evidence_ids,"
+        "decision_sha256,applied_at "
+        "FROM p15_preopen_decisions WHERE run_id=? ORDER BY id", [run_id],
+    ).fetchall()
+    for book_id, ticker, intent_id, decision, reason, evidence, digest, applied_at in rows:
+        identity = {"run_id": run_id, "intent_id": intent_id,
+                    "decision": decision, "reason": reason,
+                    "evidence_ids": json.loads(evidence),
+                    "portfolio_id": book_id, "ticker": ticker,
+                    "applied_at": applied_at.replace(tzinfo=timezone.utc).isoformat()}
+        if applied_at != raw[7] or canonical_sha256(identity) != digest:
+            raise PreopenError("pre-open retained decision differs from its identity")
+    expected_intents = {item["intent_id"] for item in [
+        *payload["intents"], *payload["control_noops"],
+    ]}
+    if {int(row[2]) for row in rows} != expected_intents:
+        raise PreopenError("pre-open retained decision set is incomplete")
+    return {"status": status, "run_id": run_id, "replayed": True,
+            "decision_count": len(rows),
+            "cancelled": sum(row[3] == "cancel" for row in rows)}
 
 
 def run(
@@ -226,21 +326,54 @@ def run(
         [POLICY_ID, session_date],
     ).fetchone()
     if existing is not None:
-        counts = con.execute(
-            "SELECT COUNT(*),COALESCE(SUM(CASE WHEN decision='cancel' THEN 1 ELSE 0 END),0) "
-            "FROM p15_preopen_decisions WHERE run_id=?", [existing[0]],
+        if existing[1] != "running":
+            return _replay_run(con, int(existing[0]), existing[1])
+        retained = con.execute(
+            "SELECT input_payload,input_sha256 FROM p15_preopen_runs WHERE id=?",
+            [existing[0]],
         ).fetchone()
-        return {"status": existing[1], "run_id": int(existing[0]), "replayed": True,
-                "decision_count": int(counts[0]), "cancelled": int(counts[1])}
+        payload = json.loads(retained[0])
+        if canonical_sha256(payload) != retained[1]:
+            raise PreopenError("pre-open retained input is invalid")
+        original = [*payload["intents"], *payload["control_noops"]]
+        decisions = [{"intent_id": item["intent_id"],
+                      "portfolio_id": item["portfolio_id"], "ticker": item["ticker"],
+                      "decision": "keep", "reason": "interrupted_preopen_run",
+                      "evidence_ids": []} for item in original]
+        with db.transaction(con):
+            return _finish_run(
+                con, run_id=int(existing[0]), status="unavailable",
+                reason="interrupted pre-open run", response=None,
+                decisions=decisions, completed=started,
+            )
     pending = _pending(con, session_date)
     if not pending:
-        return {"status": "idle", "decision_count": 0, "cancelled": 0}
+        payload = {"schema_version": 1, "policy_id": POLICY_ID,
+                   "session_date": session_date.isoformat(), "cutoff_at": started.isoformat(),
+                   "execution_authority": "cancel_only", "intents": [],
+                   "control_noops": [], "receipt_sha256s": []}
+        with db.transaction(con):
+            run_id = _start_run(
+                con, session_date=session_date, payload=payload,
+                receipts=[], started=started,
+            )
+            return _finish_run(
+                con, run_id=run_id, status="no_pending_orders",
+                reason="no pending P15 entries", response=None,
+                decisions=[], completed=started,
+            )
     model_intents = [item for item in pending if item["portfolio_id"] in BOOK_IDS]
     news = daily_opportunity_news.capture(
         [item["ticker"] for item in model_intents], now=started, fetch=fetch_news,
     ) if model_intents and local.timetz().replace(tzinfo=None) < DEADLINE else {
         "status": "not_called", "receipts": [], "observations": [], "failures": [],
     }
+    receipt_times = [
+        datetime.fromisoformat(item["received_at"].replace("Z", "+00:00"))
+        for item in news["receipts"]
+    ]
+    capture_finished = _utc(clock())
+    cutoff = max([started, capture_finished, *receipt_times])
     intent_payloads, allowed = [], {}
     for item in model_intents:
         decision_at = item["decision_at"].replace(tzinfo=timezone.utc)
@@ -248,11 +381,11 @@ def run(
                      if entry["ticker"] == item["ticker"]
                      and decision_at < datetime.fromisoformat(
                          entry["retrieved_at"].replace("Z", "+00:00")
-                     ) <= started
+                     ) <= cutoff
                      and datetime.fromisoformat(
                          entry["published_at"].replace("Z", "+00:00")
-                     ) <= started]
-        facts = _facts(con, item["ticker"], item["decision_at"], started)
+                     ) <= cutoff]
+        facts = _facts(con, item["ticker"], item["decision_at"], cutoff)
         ids = set(item["assessment"].get("evidence_ids", []))
         ids.update(entry["evidence_id"] for entry in [*headlines, *facts])
         allowed[item["intent_id"]] = ids
@@ -262,26 +395,36 @@ def run(
             "nightly_assessment": item["assessment"], "new_headlines": headlines,
             "new_event_facts": facts, "allowed_evidence_ids": sorted(ids),
         })
+    control_noops = [{"intent_id": item["intent_id"],
+                      "portfolio_id": item["portfolio_id"], "ticker": item["ticker"]}
+                     for item in pending if item["portfolio_id"] == "p15_rule_control"]
     payload = {"schema_version": 1, "policy_id": POLICY_ID,
-               "session_date": session_date.isoformat(), "cutoff_at": started.isoformat(),
-               "execution_authority": "cancel_only", "intents": intent_payloads}
+               "session_date": session_date.isoformat(), "cutoff_at": cutoff.isoformat(),
+               "execution_authority": "cancel_only", "intents": intent_payloads,
+               "control_noops": control_noops,
+               "receipt_sha256s": sorted(item["receipt_sha256"] for item in news["receipts"])}
+    with db.transaction(con):
+        run_id = _start_run(
+            con, session_date=session_date, payload=payload,
+            receipts=news["receipts"], started=started,
+        )
     response, status, reason, model_decisions = None, "completed", None, []
     completed = started
-    if local.timetz().replace(tzinfo=None) >= DEADLINE:
+    if cutoff.astimezone(ET).timetz().replace(tzinfo=None) >= DEADLINE:
         status, reason = "late", "pre-open deadline reached"
     elif model_intents:
         try:
             generated = generate(payload)
-            _validate_identity(generated)
+            _validate_identity(generated, payload)
             response = asdict(generated)
             completed = _utc(clock())
-            if completed < started:
+            if completed < cutoff:
                 status, reason = "unavailable", "pre-open clock moved backwards"
             elif completed.astimezone(ET).timetz().replace(tzinfo=None) >= DEADLINE:
                 status, reason = "late", "pre-open response missed deadline"
             else:
                 model_decisions = _validate(response["output"], allowed)
-        except (agent_model_client.ConnectorError, PreopenError, ValueError) as exc:
+        except (agent_model_client.ConnectorError, PreopenError, TypeError, ValueError) as exc:
             status, reason = "unavailable", str(exc)[:500]
             completed = _utc(clock())
     elif status == "late":
@@ -294,16 +437,41 @@ def run(
     decisions = [{**item, "portfolio_id": by_id[item["intent_id"]]["portfolio_id"],
                   "ticker": by_id[item["intent_id"]]["ticker"]}
                  for item in model_decisions]
-    decisions.extend({"intent_id": item["intent_id"], "portfolio_id": item["portfolio_id"],
-                      "ticker": item["ticker"], "decision": "keep",
+    decisions.extend({**item, "decision": "keep",
                       "reason": "rule_control_noop", "evidence_ids": []}
-                     for item in pending if item["portfolio_id"] == "p15_rule_control")
-    with db.transaction(con):
-        return _store(
-            con, session_date=session_date, status=status, reason=reason, payload=payload,
-            response=response, decisions=decisions, receipts=news["receipts"],
-            started=started, completed=completed,
-        )
+                     for item in control_noops)
+    try:
+        with db.transaction(con):
+            final_time = _utc(clock())
+            if final_time < completed:
+                status, reason = "unavailable", "pre-open clock moved backwards"
+            elif status == "completed" and final_time.astimezone(ET).timetz().replace(
+                tzinfo=None
+            ) >= DEADLINE:
+                status, reason = "late", "pre-open commit missed deadline"
+            if status != "completed":
+                decisions = [{**item, "decision": "keep", "reason": reason}
+                             if item["portfolio_id"] in BOOK_IDS else item
+                             for item in decisions]
+            result = _finish_run(
+                con, run_id=run_id, status=status, reason=reason, response=response,
+                decisions=decisions, completed=final_time,
+            )
+            post_apply = _utc(clock())
+            if result["cancelled"] and post_apply.astimezone(ET).timetz().replace(
+                tzinfo=None
+            ) >= DEADLINE:
+                raise _LateCommit(post_apply)
+        return result
+    except _LateCommit as exc:
+        keep = [{**item, "decision": "keep", "reason": "pre-open commit missed deadline"}
+                if item["portfolio_id"] in BOOK_IDS else item for item in decisions]
+        with db.transaction(con):
+            return _finish_run(
+                con, run_id=run_id, status="late",
+                reason="pre-open commit missed deadline", response=response,
+                decisions=keep, completed=exc.observed_at,
+            )
 
 
 def run_database(database: Path = DEFAULT_DB, *, now: datetime | None = None, **kwargs) -> dict:
@@ -328,29 +496,42 @@ def capture_after_open(
         "WHERE status='cancelled' AND order_role='entry' AND signal_date<? "
         "AND NOT EXISTS (SELECT 1 FROM p15_limit_attempts done "
         "WHERE done.intent_id=i.id AND done.outcome!='pending') "
-        "AND NOT EXISTS (SELECT 1 FROM p15_limit_attempts a "
-        "WHERE a.intent_id=i.id AND a.attempt_date=?) ORDER BY id",
-        [fill_date, fill_date],
+        "ORDER BY id", [fill_date],
     ).fetchall()
     attempts = 0
     for intent_id, _book_id, ticker, qty, signal_date, limit_px in cancelled:
-        factor = p15_books._split_factor(con, ticker, signal_date, fill_date)
-        result = p15_fills.attempt_limit_on_open(
-            con, ticker, "buy", float(qty) * factor, signal_date, fill_date,
-            float(limit_px) / factor, "baseline_v1",
-        )
-        if result.status == "filled":
-            outcome, counterfactual = "cancelled_would_fill", result.fill_px
-        elif result.reject_reason == "limit_not_reached":
-            outcome, counterfactual = "cancelled_limit_not_reached", result.counterfactual_fill_px
-        else:
-            outcome, counterfactual = result.status, result.counterfactual_fill_px
-        con.execute(
-            "INSERT INTO p15_limit_attempts VALUES (?,?,?,?,?,?,?)",
-            [intent_id, fill_date, float(limit_px) / factor, result.open_px,
-             counterfactual, outcome, result.reject_reason],
-        )
-        attempts += 1
+        attempt_date = nyse.next_session(signal_date)
+        while attempt_date <= fill_date:
+            prior = con.execute(
+                "SELECT outcome FROM p15_limit_attempts WHERE intent_id=? AND attempt_date=?",
+                [intent_id, attempt_date],
+            ).fetchone()
+            if prior is not None:
+                if prior[0] != "pending":
+                    break
+                attempt_date = nyse.next_session(attempt_date)
+                continue
+            factor = p15_books._split_factor(con, ticker, signal_date, attempt_date)
+            result = p15_fills.attempt_limit_on_open(
+                con, ticker, "buy", float(qty) * factor, signal_date, attempt_date,
+                float(limit_px) / factor, "baseline_v1",
+            )
+            if result.status == "filled":
+                outcome, counterfactual = "cancelled_would_fill", result.fill_px
+            elif result.reject_reason == "limit_not_reached":
+                outcome = "cancelled_limit_not_reached"
+                counterfactual = result.counterfactual_fill_px
+            else:
+                outcome, counterfactual = result.status, result.counterfactual_fill_px
+            con.execute(
+                "INSERT INTO p15_limit_attempts VALUES (?,?,?,?,?,?,?)",
+                [intent_id, attempt_date, float(limit_px) / factor, result.open_px,
+                 counterfactual, outcome, result.reject_reason],
+            )
+            attempts += 1
+            if outcome != "pending":
+                break
+            attempt_date = nyse.next_session(attempt_date)
     labels = p15_books.label_limit_counterfactuals(con, labeled_at=captured_at)
     quality = capture_execution_quality(con, captured_at=captured_at)
     return {"cancelled_attempts": attempts, "counterfactual_labels": labels,
@@ -362,16 +543,20 @@ def capture_execution_quality(
 ) -> int:
     rows = con.execute(
         "SELECT i.id,i.sim_order_id,i.decision_id,i.portfolio_id,i.ticker,i.side,"
-        "i.order_role,t.completed_at,i.created_at,i.signal_date,i.signal_close,o.status,"
-        "COALESCE(f.fill_date,a.attempt_date),f.open_px,f.fill_px,f.cost_bps "
-        "FROM p15_order_intents i JOIN sim_orders o ON o.id=i.sim_order_id "
+        "i.order_role,t.completed_at,i.created_at,i.signal_date,i.signal_close,i.status,"
+        "COALESCE(f.fill_date,a.attempt_date,la.attempt_date),"
+        "COALESCE(f.open_px,la.open_px),"
+        "CASE WHEN i.status='cancelled' THEN la.counterfactual_fill_px ELSE f.fill_px END,"
+        "f.cost_bps FROM p15_order_intents i LEFT JOIN sim_orders o ON o.id=i.sim_order_id "
         "LEFT JOIN sim_fills f ON f.order_id=o.id "
         "LEFT JOIN sim_execution_attempts a ON a.order_id=o.id "
+        "LEFT JOIN (SELECT * FROM p15_limit_attempts QUALIFY ROW_NUMBER() OVER "
+        "(PARTITION BY intent_id ORDER BY CASE WHEN outcome='pending' THEN 1 ELSE 0 END,"
+        "attempt_date DESC)=1) la ON la.intent_id=i.id "
         "LEFT JOIN agent_evaluation_decisions d ON d.id=i.decision_id "
         "LEFT JOIN agent_evaluation_traces t ON t.id=d.trace_id "
-        "LEFT JOIN p15_execution_quality q ON q.intent_id=i.id "
-        "WHERE q.intent_id IS NULL AND i.status IN ('filled','rejected') "
-        "ORDER BY i.id"
+        "WHERE i.status IN ('filled','rejected','cancelled') "
+        "AND (i.status!='cancelled' OR la.outcome!='pending') ORDER BY i.id"
     ).fetchall()
     inserted = 0
     for row in rows:
@@ -389,23 +574,45 @@ def capture_execution_quality(
             "SELECT COUNT(DISTINCT date) FROM prices WHERE ticker='SPY' "
             "AND date>? AND date<=? AND volume>0", [signal_date, attempt_date],
         ).fetchone()[0])
-        latency = None if decision_at is None else max(
-            0.0, (order_at - decision_at).total_seconds() * 1000
-        )
+        effective_decision_at = decision_at or order_at
+        if order_at < effective_decision_at:
+            raise PreopenError("P15 decision-to-order time is negative")
+        latency = (order_at - effective_decision_at).total_seconds() * 1000
+        if status == "cancelled" and cost is None and open_px and fill_px:
+            cost = (float(fill_px) / float(open_px) - 1) * 1e4
         identity = {
-            "intent_id": int(intent_id), "sim_order_id": int(order_id),
+            "intent_id": int(intent_id),
+            "sim_order_id": None if order_id is None else int(order_id),
             "decision_id": None if decision_id is None else int(decision_id),
             "portfolio_id": book_id, "ticker": ticker, "side": side,
-            "order_role": role, "decision_at": None if decision_at is None else decision_at.isoformat(),
+            "order_role": role, "decision_at": effective_decision_at.isoformat(),
             "order_at": order_at.isoformat(), "attempt_date": attempt_date.isoformat(),
-            "status": "filled" if status == p15_books.SIM_FILLED_STATUS else status,
+            "status": status,
             "decision_to_order_ms": latency, "order_to_attempt_sessions": sessions,
             "arrival_price": float(arrival), "open_px": open_px, "fill_px": fill_px,
             "gap_shortfall_bps": gap, "total_shortfall_bps": total, "cost_bps": cost,
+            "captured_at": captured_at.replace(tzinfo=None).isoformat(),
         }
+        digest = canonical_sha256(identity)
+        existing = con.execute(
+            "SELECT sim_order_id,decision_id,portfolio_id,ticker,side,order_role,decision_at,"
+            "order_at,attempt_date,status,decision_to_order_ms,order_to_attempt_sessions,"
+            "arrival_price,open_px,fill_px,gap_shortfall_bps,total_shortfall_bps,cost_bps,"
+            "captured_at,quality_sha256 FROM p15_execution_quality WHERE intent_id=?", [intent_id]
+        ).fetchone()
+        if existing is not None:
+            stored = dict(zip(tuple(identity)[1:], existing[:-1], strict=True))
+            for key in ("decision_at", "order_at", "attempt_date", "captured_at"):
+                if stored[key] is not None:
+                    stored[key] = stored[key].isoformat()
+            stored = {"intent_id": int(intent_id), **stored}
+            expected = {**identity, "captured_at": stored["captured_at"]}
+            if canonical_sha256(stored) != existing[-1] or existing[-1] != canonical_sha256(expected):
+                raise PreopenError("P15 execution-quality replay differs")
+            continue
         con.execute(
             "INSERT INTO p15_execution_quality VALUES (" + ",".join("?" for _ in range(21)) + ")",
-            [*identity.values(), captured_at.replace(tzinfo=None), canonical_sha256(identity)],
+            [*identity.values(), digest],
         )
         inserted += 1
     return inserted

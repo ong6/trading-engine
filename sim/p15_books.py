@@ -849,7 +849,8 @@ def label_limit_counterfactuals(
         "SELECT i.id,i.ticker,a.attempt_date,a.counterfactual_fill_px "
         "FROM p15_order_intents i JOIN p15_limit_attempts a ON a.intent_id=i.id "
         "LEFT JOIN p15_limit_labels l ON l.intent_id=i.id "
-        "WHERE a.outcome IN ('limit_not_reached','cancelled_would_fill') "
+        "WHERE a.outcome IN "
+        "('limit_not_reached','cancelled_would_fill','cancelled_limit_not_reached') "
         "AND l.intent_id IS NULL ORDER BY i.id"
     ).fetchall()
     inserted = 0
