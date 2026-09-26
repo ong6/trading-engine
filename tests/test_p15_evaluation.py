@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from datetime import date, datetime, timedelta, timezone
 
 import numpy as np
@@ -15,6 +18,30 @@ from tests.conftest import SESSIONS, insert_bars
 from tools import agent_trial_register
 
 NOW = datetime(2026, 12, 1, 12, tzinfo=timezone.utc)
+
+
+def test_p15_reports_follow_configured_data_directory(tmp_path):
+    configured = tmp_path / "restored-data"
+    environment = {**os.environ, "TRADING_ENGINE_DATA_DIR": str(configured)}
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from engine.p15_evaluation import LOOK_ANCHOR_PATH; "
+            "from server.agent_evaluation_reporting import DEFAULT_OUTPUT,DEFAULT_P15_OUTPUT; "
+            "print(LOOK_ANCHOR_PATH); print(DEFAULT_OUTPUT); print(DEFAULT_P15_OUTPUT)",
+        ],
+        cwd=p15_evaluation.REPO_ROOT,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout.splitlines() == [
+        str(configured / "reports/agent-eval/p15-look-anchors.jsonl"),
+        str(configured / "reports/agent-evaluation.json"),
+        str(configured / "reports/agent-eval/p15.md"),
+    ]
 
 
 def test_average_rank_spearman_handles_ties_and_constants():

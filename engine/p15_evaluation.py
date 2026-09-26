@@ -13,7 +13,7 @@ from engine import p15_event_sources
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock, write_text_atomic
-from engine.lib.settings import REPO_ROOT
+from engine.lib.settings import DATA_DIR, REPO_ROOT
 from engine.lib.util import table_exists
 from sim import nyse
 
@@ -32,7 +32,7 @@ PRIMARY_T_CRITICAL = {
 }
 P15EvaluationError = ValueError
 REGISTRATION_PATH = REPO_ROOT / "server" / "p15-registration.json"
-LOOK_ANCHOR_PATH = REPO_ROOT / "data" / "reports" / "agent-eval" / "p15-look-anchors.jsonl"
+LOOK_ANCHOR_PATH = DATA_DIR / "reports" / "agent-eval" / "p15-look-anchors.jsonl"
 
 
 def registration_sha256() -> str:
