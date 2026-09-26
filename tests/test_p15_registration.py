@@ -1,0 +1,256 @@
+"""Machine-enforced P15 frozen registration contract."""
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+from engine import daily_opportunities, p15_evaluation, p15_event_sources
+from engine.lib.provenance import canonical_sha256
+from farm import p15_event_runner
+from server import agent_evaluation, agent_model_client, p15_preopen, p15_scoring_runner
+from sim import p15_books
+
+ROOT = Path(__file__).resolve().parents[1]
+REGISTRATION_PATH = ROOT / "server" / "p15-registration.json"
+REGISTERED_PATHS = {
+    "engine/bitemporal_facts.py",
+    "engine/collect.py",
+    "engine/daily_opportunities.py",
+    "engine/lib/db.py",
+    "engine/p15_evaluation.py",
+    "engine/p15_event_sources.py",
+    "farm/agent_evaluation_analysis.py",
+    "farm/p15_event_runner.py",
+    "server/agent-cadence-registration.json",
+    "server/agent_evaluation.py",
+    "server/agent_evaluation_reporting.py",
+    "server/agent_model_client.py",
+    "server/hourly_opportunity_observer.py",
+    "server/p15_preopen.py",
+    "server/p15_scoring_runner.py",
+    "server/p15_scoring_store.py",
+    "server/trading-engine-p15-events.service",
+    "server/trading-engine-p15-events.timer",
+    "server/trading-engine-p15-preopen.service",
+    "server/trading-engine-p15-preopen.timer",
+    "server/trading-engine-p15-scoring.service",
+    "server/trading-engine-p15-scoring.timer",
+    "sim/p15_books.py",
+    "sim/p15_fills.py",
+    "sim/strategies/base.py",
+    "tools/agent_trial_register.py",
+    "tools/p15_evidence_validation.py",
+}
+
+
+def _registration() -> dict:
+    return json.loads(REGISTRATION_PATH.read_text())
+
+
+def test_p15_registration_revision_and_self_hash():
+    registration = _registration()
+    recorded = registration.pop("registration_sha256")
+
+    assert registration["schema_version"] == 1
+    assert registration["registration_revision"] == 2
+    assert registration["revision_reason"] == "P16 W0 review findings R1-R16"
+    assert registration["status"] == "registered_inactive"
+    assert recorded == canonical_sha256(registration)
+
+
+def test_p15_registered_constants_match_runtime():
+    registration = _registration()
+    assert registration["authority"] == {
+        "asset_side": "long_only", "broker_access": False,
+        "event_execution": False, "leverage": False, "real_capital": False,
+        "scope": "local_simulator_only",
+    }
+    assert registration["universe"] == {
+        "version": "p15-universe-v1",
+        "minimum_close": daily_opportunities.MIN_CLOSE,
+        "minimum_history_sessions": daily_opportunities.MIN_HISTORY,
+        "maximum_absolute_daily_return": daily_opportunities.MAX_ABS_DAILY_RETURN,
+        "minimum_median_dollar_volume_20d": (
+            daily_opportunities.P15_MIN_MEDIAN_DOLLAR_VOLUME
+        ),
+        "mover_limit": daily_opportunities.P15_MOVER_LIMIT,
+        "trend_limit": daily_opportunities.P15_TREND_LIMIT,
+        "held_names_included": True,
+        "held_names_excluded_from_primary_ic": True,
+    }
+    scoring_identity = agent_model_client.identity(role="p15_scoring")
+    assert registration["scoring"] == {
+        "policy_id": p15_scoring_runner.POLICY_ID,
+        "chunk_size": p15_scoring_runner.CHUNK_SIZE,
+        "samples_per_chunk": p15_scoring_runner.SAMPLE_COUNT,
+        "aggregation": p15_scoring_runner.AGGREGATION_RULE,
+        "deadline_utc": "12:00:00",
+        "actions": ["ignore", "watch", "buy_candidate", "exit"],
+        "exit_requires_held": True,
+        "ai_entry_minimum_probability": 0.55,
+        "ai_entry_minimum_expected_excess_bp_5": 50.0,
+        "hybrid_veto_below_expected_excess_bp_5": 0.0,
+        "model": scoring_identity["model"],
+        "model_version": scoring_identity["model_version"],
+        "provider_revision_available": scoring_identity["provider_model_revision_available"],
+        "model_identity_sha256": canonical_sha256(scoring_identity),
+        "instructions_sha256": scoring_identity["instructions_sha256"],
+        "toolset_sha256": scoring_identity["toolset_sha256"],
+        "database_wait_seconds": p15_scoring_runner.DB_WAIT_S,
+        "maximum_event_facts": p15_event_sources.MAX_SCORING_EVENT_FACTS,
+        "admissible_window": "after_market_close_before_next_session_open",
+    }
+    assert registration["baseline"] == {
+        "version": "p15-baseline-v1",
+        "ranking": ["rs_rank_desc", "standout_score_desc", "ticker_asc"],
+        "missing_rs_rank": "last",
+    }
+    assert registration["labels"] == {
+        "schema_version": agent_evaluation.LABEL_V2_SCHEMA_VERSION,
+        "round_trip_cost_bps": agent_evaluation.ROUND_TRIP_COST_BPS,
+        "horizons_sessions": list(agent_evaluation.HORIZONS),
+        "primary_horizon_sessions": 5,
+        "nightly_basis": agent_evaluation.NEXT_SESSION_OPEN_BASIS,
+        "event_bases": ["next_bar", "next_session_open"],
+        "missing_bars": "last_available_close_after_confirmation",
+        "missing_bar_grace_sessions": agent_evaluation.MISSING_BAR_GRACE_SESSIONS,
+        "missing_bar_confirmation": "later_ticker_bar_or_completed_exact_date_fetch",
+        "spy_net_return_stored": True,
+    }
+    books = registration["books"]
+    assert books["mechanics_version"] == p15_books.MECHANICS_VERSION
+    assert books["portfolio_ids"] == list(p15_books.BOOK_IDS)
+    assert books["initial_cash_usd_each"] == p15_books.INITIAL_CASH
+    assert books["risk_fraction"] == p15_books.COMMON_CONFIG["risk_fraction"]
+    assert books["atr_period"] == p15_books.COMMON_CONFIG["atr_period"]
+    assert books["atr_stop_multiple"] == p15_books.COMMON_CONFIG["atr_multiple"]
+    assert books["maximum_name_fraction"] == p15_books.COMMON_CONFIG["max_name_fraction"]
+    assert books["maximum_new_entries_per_session"] == p15_books.COMMON_CONFIG["max_new_entries"]
+    assert books["maximum_positions"] == p15_books.COMMON_CONFIG["max_positions"]
+    assert books["drawdown_halt"] == p15_books.COMMON_CONFIG["drawdown_halt"]
+    assert books["time_exit_sessions"] == p15_books.COMMON_CONFIG["time_exit_sessions"]
+    assert books["stale_entry_sessions"] == 1
+    assert set(books) == {
+        "mechanics_version", "portfolio_ids", "initial_cash_usd_each",
+        "execution_profile", "risk_fraction", "atr_period", "atr_stop_multiple",
+        "maximum_name_fraction", "maximum_new_entries_per_session", "maximum_positions",
+        "maximum_gross_exposure", "drawdown_halt", "time_exit_sessions", "spy_sleeve",
+        "entry_order", "entry_limit", "hybrid_vetoed_slot_replacement",
+        "stale_entry_sessions", "config_sha256",
+    }
+    preopen_identity = agent_model_client.identity(role="p15_preopen")
+    assert registration["preopen"] == {
+        "policy_id": p15_preopen.POLICY_ID,
+        "schedule": "09:05 America/New_York weekdays",
+        "deadline": "09:25:00 America/New_York", "authority": "cancel_only",
+        "model_identity_sha256": canonical_sha256(preopen_identity),
+        "instructions_sha256": preopen_identity["instructions_sha256"],
+        "session_only": True,
+    }
+    event_identity = agent_model_client.identity(role="p15_event")
+    assert registration["events"] == {
+        "policy_id": p15_event_runner.POLICY_ID,
+        "schedule": "09:35,09:50,10:05-15:50 at :05/:20/:35/:50 America/New_York",
+        "sources": ["local_rss", "sec_edgar_8k", "intraday_mover"],
+        "maximum_universe": p15_event_sources.MAX_TRIGGER_UNIVERSE,
+        "maximum_workers": p15_event_sources.MAX_INTRADAY_WORKERS,
+        "maximum_decisions_per_session": p15_event_runner.MAX_DECISIONS_PER_SESSION,
+        "chunk_size": p15_event_runner.CHUNK_SIZE,
+        "mover_minimum_absolute_return": 0.04,
+        "mover_atr_threshold_multiple": 2.0,
+        "mover_minimum_relative_volume": 2.0,
+        "execution_authority": "none", "latency_target_p95_ms": 600000,
+        "model_identity_sha256": canonical_sha256(event_identity),
+        "instructions_sha256": event_identity["instructions_sha256"],
+        "database_released_during_model_calls": True,
+        "first_availability_only": True,
+        "sec_acceptance_after_previous_cik_scan": True,
+    }
+    assert registration["evaluation"] == {
+        "primary_statistic": "daily_spearman_model_minus_baseline",
+        "minimum_pairs_per_session": 20,
+        "looks_scored_sessions": list(p15_evaluation.LOOKS),
+        "one_sided_alpha_per_look": p15_evaluation.ALPHA,
+        "primary_standard_error": {
+            "estimator": "hansen_hodrick", "kernel": "uniform",
+            "lag": p15_evaluation.PRIMARY_HH_LAG,
+            "autocovariance_normalization": "n",
+            "fallback_estimator": "newey_west", "fallback_kernel": "bartlett",
+            "fallback_lag": p15_evaluation.PRIMARY_FALLBACK_LAG,
+            "nonpositive_after_fallback": "no_interval",
+        },
+        "primary_finite_sample_correction": {
+            "null_model": "equal_weight_gaussian_ma4",
+            "hh_formula": "n/(n-1)/(1-53/(5*n)+24/n^2+32/n^3)",
+            "bartlett_fallback_formula": (
+                "n/(n-1)/(37/45-457/(45*n)+2272/(75*n^2)+128/(3*n^3))"
+            ),
+        },
+        "primary_critical_values": {
+            "distribution": "student_t", "degrees_of_freedom": "n_minus_1",
+            "tail": "one_sided", "values_by_scored_sessions": {
+                str(key): value for key, value in p15_evaluation.PRIMARY_T_CRITICAL.items()
+            },
+        },
+        "primary_simulation_validation": {
+            "bit_generator": "PCG64", "seed": 20260926, "draws": 10000,
+            "null_model": "equal_weight_gaussian_ma4", "innovation_sd": 0.1,
+            "planted_delta_ic": 0.03, "maximum_null_false_pass_rate": 0.05,
+            "minimum_planted_pass_rate": 0.8,
+        },
+        "pass": "lower_bound_gt_0_and_mean_model_ic_gt_0",
+        "kill": "upper_bound_lt_0_at_any_look_or_no_pass_at_120",
+        "look_persistence": "append_only_hash_chained_registration_bound",
+        "missing_label_grace_sessions": p15_evaluation.MISSING_LABEL_GRACE_SESSIONS,
+        "book_newey_west_lag": p15_evaluation.NW_LAG,
+        "book_minimum_calendar_days": 90, "book_minimum_closed_trades_each": 30,
+        "book_promotion": (
+            "primary_pass_and_challenger_lower_bound_gt_0_and_all_drawdowns_gte_minus_0.20"
+        ),
+        "p8_review": (
+            "90_calendar_days_and_60_completed_sessions; expectancy_after_20_round_trips; "
+            "confidence_bound_not_a_gate"
+        ),
+    }
+    assert registration["delivery"] == {
+        "scoring_timer_persistent": True, "preopen_timer_persistent": False,
+        "events_timer_persistent": False,
+        "report_json": "data/reports/agent-evaluation.json",
+        "report_markdown": "data/reports/agent-eval/p15.md",
+        "scoring_service_restart": "on-failure_after_5min_burst_3_per_30min",
+        "model_call_count": "attempted_calls_including_connector_failures",
+    }
+
+
+def test_p15_registered_derived_identities_match_code():
+    registration = _registration()
+    for section, role in (
+        ("scoring", "p15_scoring"),
+        ("preopen", "p15_preopen"),
+        ("events", "p15_event"),
+    ):
+        identity = agent_model_client.identity(role=role)
+        assert registration[section]["model_identity_sha256"] == canonical_sha256(identity)
+        assert registration[section]["instructions_sha256"] == identity["instructions_sha256"]
+    assert registration["scoring"]["toolset_sha256"] == (
+        agent_model_client.identity(role="p15_scoring")["toolset_sha256"]
+    )
+    assert registration["books"]["config_sha256"] == {
+        book: canonical_sha256(p15_books._config(book)) for book in sorted(p15_books.BOOK_IDS)
+    }
+
+
+def test_p15_registered_file_hashes_match_checkout():
+    registration = _registration()
+    files = registration["code_identity"]["files"]
+    assert set(files) == REGISTERED_PATHS
+    drift = {}
+    for relative, recorded in files.items():
+        path = ROOT / relative
+        assert not Path(relative).is_absolute() and ".." not in Path(relative).parts
+        assert path.is_file() and not path.is_symlink()
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        if recorded != actual:
+            drift[relative] = {"registered": recorded, "actual": actual}
+    assert drift == {}
