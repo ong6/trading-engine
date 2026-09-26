@@ -77,7 +77,7 @@ def test_primary_scores_same_mature_cohort_and_flags_missing_labels(con):
             "INSERT INTO agent_evaluation_labels_v2 VALUES (?,?,?,?,?,?)",
             [index + 1, 5, "next_session_open", float(index), "complete", NOW],
         )
-    sessions = [market_date + timedelta(days=index) for index in range(1, 8)]
+    sessions = [market_date + timedelta(days=index) for index in range(1, 9)]
     insert_bars(con, "SPY", sessions, open_=100, close=100, high=101, low=99)
     con.execute("UPDATE prices SET fetched_at=?", [NOW.replace(tzinfo=None)])
 
@@ -86,8 +86,58 @@ def test_primary_scores_same_mature_cohort_and_flags_missing_labels(con):
     assert result["status"] == "collecting"
     assert result["scored_session_count"] == 1
     assert result["diagnostics"]["model_brier"] is not None
+    con.execute(
+        "INSERT INTO agent_evaluation_decisions VALUES (21,1,'unavailable',?)",
+        [json.dumps({"stratum": "held_only", "scoring_status": "unavailable"})],
+    )
+    irrelevant = p15_evaluation.primary(con, NOW)
+    assert irrelevant["status"] == "collecting"
+    assert irrelevant["missing_mature_label_count"] == 0
     con.execute("DELETE FROM agent_evaluation_labels_v2 WHERE decision_id=1")
     assert p15_evaluation.primary(con, NOW)["status"] == "invalid"
+
+
+def test_primary_waits_three_sessions_before_invalidating_missing_used_label(con):
+    _primary_schema(con)
+    market_date = date(2024, 7, 1)
+    con.execute(
+        "INSERT INTO agent_evaluation_traces VALUES (1,?,?,'p15-scoring-v1')",
+        [market_date, datetime(2024, 7, 1, 22)],
+    )
+    for index in range(21):
+        payload = {
+            "stratum": "mover", "scoring_status": "available",
+            "p_outperform_5": 0.01 + index / 25,
+            "expected_excess_bp_5": float(index),
+            "expected_excess_bp_10": float(index), "baseline_score": 21 - index,
+        }
+        con.execute(
+            "INSERT INTO agent_evaluation_decisions VALUES (?,?,?,?)",
+            [index + 1, 1, "buy_candidate", json.dumps(payload)],
+        )
+        if index < 20:
+            con.execute(
+                "INSERT INTO agent_evaluation_labels_v2 VALUES (?,?,?,?,?,?)",
+                [index + 1, 5, "next_session_open", float(index), "complete", NOW],
+            )
+    first_five = [market_date + timedelta(days=index) for index in range(1, 6)]
+    insert_bars(con, "SPY", first_five, open_=100, close=100, high=101, low=99)
+    con.execute("UPDATE prices SET fetched_at=?", [NOW.replace(tzinfo=None)])
+
+    waiting = p15_evaluation.primary(con, NOW)
+
+    assert waiting["status"] == "collecting"
+    assert waiting["missing_mature_label_count"] == 0
+    assert waiting["immature_session_count"] == 1
+    assert waiting["scored_session_count"] == 0
+
+    later = [market_date + timedelta(days=index) for index in range(6, 9)]
+    insert_bars(con, "SPY", later, open_=100, close=100, high=101, low=99)
+    con.execute("UPDATE prices SET fetched_at=?", [NOW.replace(tzinfo=None)])
+
+    expired = p15_evaluation.primary(con, NOW)
+    assert expired["status"] == "invalid"
+    assert expired["missing_mature_label_count"] == 1
 
 
 def test_book_projection_pairs_only_identical_intervals_and_counts_stock_exits(con):

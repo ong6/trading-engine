@@ -18,6 +18,7 @@ BOOK_IDS = ("p15_ai_ranked", "p15_rule_control", "p15_hybrid_veto")
 LOOKS = (60, 90, 120)
 ALPHA = 0.05 / 3
 NW_LAG = 4
+MISSING_LABEL_GRACE_SESSIONS = 3
 P15EvaluationError = ValueError
 
 
@@ -307,10 +308,14 @@ def primary(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> dict:
     scored, insufficient, immature, missing, immature_dates = [], 0, 0, 0, []
     diagnostic_rows = []
     for market_date, members in sorted(sessions.items()):
+        eligible = [row for row in members if _scores(row, 5) is not None]
         mature = _mature(con, market_date, 5, generated_at)
-        missing += sum(mature and 5 not in row["labels"] for row in members)
-        if not mature:
-            possible = [scores for row in members if (scores := _scores(row, 5)) is not None]
+        missing_rows = [row for row in eligible if 5 not in row["labels"]]
+        past_grace = _mature(
+            con, market_date, 5 + MISSING_LABEL_GRACE_SESSIONS, generated_at,
+        )
+        if not mature or (missing_rows and not past_grace):
+            possible = [scores for row in eligible if (scores := _scores(row, 5)) is not None]
             if (len(possible) < 20 or len({item[0] for item in possible}) == 1
                     or len({item[1] for item in possible}) == 1):
                 insufficient += 1
@@ -318,6 +323,7 @@ def primary(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> dict:
                 immature += 1
                 immature_dates.append(market_date)
             continue
+        missing += len(missing_rows)
         result = _session_ics(members, 5)
         diagnostic_rows.extend(result.pop("rows"))
         result["market_date"] = market_date.isoformat()
