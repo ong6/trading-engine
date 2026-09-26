@@ -14,9 +14,11 @@ from datetime import time as datetime_time
 from pathlib import Path
 from statistics import median
 from typing import Callable
+from zoneinfo import ZoneInfo
 
 import duckdb
 
+from engine import p15_event_sources
 from engine.daily_opportunities import p15_universe
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
@@ -45,6 +47,7 @@ P15_BOOKS = ("p15_ai_ranked", "p15_rule_control", "p15_hybrid_veto")
 LOCK_PATH = REPO_ROOT / ".p15-scoring.lock"
 NIGHTLY_LOCK = REPO_ROOT / ".nightly.lock"
 DEADLINE_UTC = datetime_time(12, 0, tzinfo=timezone.utc)
+ET = ZoneInfo("America/New_York")
 
 
 class ScoringError(RuntimeError):
@@ -339,6 +342,53 @@ def _stored_samples(con: duckdb.DuckDBPyConnection, run_id: int) -> list[dict]:
             for row in cursor.fetchall()]
 
 
+def _in_admissible_window(market_date: date, started: datetime) -> bool:
+    if not nyse.is_session(market_date):
+        return False
+    close_at = datetime.combine(
+        market_date, p15_event_sources.session_close(market_date), ET,
+    ).astimezone(timezone.utc)
+    next_open = datetime.combine(
+        nyse.next_session(market_date), datetime_time(9, 30), ET,
+    ).astimezone(timezone.utc)
+    return close_at < started < next_open
+
+
+def _fail_outside_window(
+    database: Path, *, market_date: date, bundle: dict | None,
+    existing: dict | None, started: datetime,
+) -> dict:
+    reason = "outside_admissible_window"
+    con = db.connect(database, wait_s=0)
+    try:
+        with db.transaction(con):
+            store.init_schema(con)
+            if existing is None:
+                if bundle is None:
+                    raise ScoringError("P15 scoring universe is unavailable")
+                gated = _gate_candidates({**bundle, "snapshot_at": started.isoformat()})
+                context, _allowed = _context(
+                    gated, {"status": "not_requested", "observations": []}, started,
+                )
+                context.update(
+                    information_cutoff_at=started.isoformat(), news_receipts=[],
+                )
+                created = store.create_run(
+                    con, market_date=market_date, universe=gated, context=context,
+                    information_cutoff_at=started, started_at=started, news_receipts=[],
+                )
+                run_id = created["run_id"]
+            else:
+                run_id = int(existing["id"])
+            store.fail_run(con, run_id, reason=reason, completed_at=started)
+    finally:
+        con.close()
+    return {
+        "status": "failed", "market_date": market_date.isoformat(),
+        "reason": reason, "model_call_count": 0, "replayed": False,
+    }
+
+
 def _run(
     *, database: Path = DEFAULT_DB, now: datetime | None = None,
     generate: Callable[[dict], agent_model_client.ConnectorResult]
@@ -366,14 +416,20 @@ def _run(
             )
     finally:
         con.close()
-    if existing is not None:
+    if existing is not None and existing["status"] in {"completed", "failed"}:
         if existing["status"] == "completed":
             return {"status": "completed", "market_date": market_date.isoformat(),
                     "replayed": True, "model_call_count": 0}
-        if existing["status"] == "failed":
-            return {"status": "failed", "market_date": market_date.isoformat(),
-                    "reason": existing["reason"], "replayed": True,
-                    "model_call_count": 0}
+        return {"status": "failed", "market_date": market_date.isoformat(),
+                "reason": existing["reason"], "replayed": True,
+                "model_call_count": 0}
+    if not _in_admissible_window(market_date, started):
+        return _fail_outside_window(
+            database, market_date=market_date,
+            bundle=bundle if existing is None else None,
+            existing=existing, started=started,
+        )
+    if existing is not None:
         if existing["status"] != "running":
             raise ScoringError("P15 scoring run status is invalid")
         bundle = json.loads(existing["universe_payload"])
