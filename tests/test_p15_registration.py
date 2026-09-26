@@ -26,15 +26,19 @@ REGISTERED_PATHS = {
     "engine/p15_evaluation.py",
     "engine/p15_event_sources.py",
     "engine/run_daily.sh",
+    "engine/tradingview_history_archive.py",
     "farm/agent_evaluation_analysis.py",
     "farm/p15_event_runner.py",
     "server/agent-cadence-registration.json",
     "server/agent_evaluation.py",
     "server/agent_evaluation_reporting.py",
     "server/agent_model_client.py",
+    "server/daily_opportunity_runner.py",
     "server/daily_opportunity_news.py",
     "server/hourly_opportunity_observer.py",
     "server/intraday_source.py",
+    "server/json_utils.py",
+    "server/official_quote_source.py",
     "server/p15_preopen.py",
     "server/p15_incremental_collect.py",
     "server/p15_price_fetch_attempts.py",
@@ -48,11 +52,13 @@ REGISTERED_PATHS = {
     "server/trading-engine-p15-scoring.timer",
     "sim/p15_books.py",
     "sim/p15_fills.py",
+    "sim/calendar.py",
     "sim/execution.py",
     "sim/fills.py",
     "sim/nyse.py",
     "sim/portfolio.py",
     "sim/schema.py",
+    "sim/settle.py",
     "sim/strategies/base.py",
     "tools/agent_trial_register.py",
     "tools/p15_evidence_validation.py",
@@ -133,7 +139,9 @@ def test_p15_registered_constants_match_runtime():
         "missing_bars": "last_available_close_after_confirmation",
         "missing_bar_grace_sessions": agent_evaluation.MISSING_BAR_GRACE_SESSIONS,
         "missing_bar_confirmation": "later_ticker_bar_or_completed_exact_date_fetch",
-        "fetch_attempt_evidence": "batch_hash_bound_zero_failed_full_liquid_collection",
+        "fetch_attempt_evidence": (
+            "batch_hash_bound_zero_failed_full_liquid_collection_missing_only"
+        ),
         "spy_net_return_stored": True,
     }
     books = registration["books"]
@@ -219,7 +227,7 @@ def test_p15_registered_constants_match_runtime():
         },
         "pass": "lower_bound_gt_0_and_mean_model_ic_gt_0",
         "kill": "upper_bound_lt_0_at_any_look_or_no_pass_at_120",
-        "look_persistence": "append_only_hash_chained_dual_table_registration_bound",
+        "look_persistence": "append_only_hash_chained_db_and_external_registration_bound",
         "missing_label_grace_sessions": p15_evaluation.MISSING_LABEL_GRACE_SESSIONS,
         "book_newey_west_lag": p15_evaluation.NW_LAG,
         "book_minimum_calendar_days": 90, "book_minimum_closed_trades_each": 30,
@@ -240,6 +248,7 @@ def test_p15_registered_constants_match_runtime():
         "model_call_count": "attempted_calls_including_connector_failures",
         "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
         "price_fetch_attempts": "zero_failed_full_liquid_collection_at_operational_date",
+        "price_fetch_availability": "after_collection_completion",
     }
 
 
