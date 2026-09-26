@@ -8,6 +8,8 @@ import pytest
 
 from engine import bitemporal_facts, p15_event_sources
 from engine.lib import db
+from server import intraday_source
+from tests.conftest import SESSIONS, insert_bars
 
 
 def _database(con):
@@ -105,3 +107,39 @@ def test_text_triggers_deduplicate_rss_and_only_admit_8k(con, tmp_path):
     assert con.execute(
         "SELECT source,event_type FROM p15_event_triggers ORDER BY source"
     ).fetchall() == [("rss", "news.headline"), ("sec_8k", "sec.filing:8-K")]
+
+
+def test_intraday_mover_scan_is_bounded_retained_and_never_mutates_prices(con):
+    _database(con)
+    for ticker in ("SPY", "AAA", "BBB"):
+        insert_bars(con, ticker, SESSIONS[:30], open_=100, close=100, high=101, low=99)
+    observed = datetime(2024, 7, 17, 14, 5, tzinfo=timezone.utc)
+    before = con.execute("SELECT * FROM prices ORDER BY ticker,date").fetchall()
+
+    def capture(ticker, provider, now):
+        price = 105.0 if ticker == "AAA" else 102.0
+        quote = {"ticker": ticker, "event_at": now - timedelta(minutes=5),
+                 "open": 100.0, "high": price, "low": 99.0,
+                 "close": price, "volume": 200_000}
+        response = intraday_source.Response(
+            body=json.dumps({"ticker": ticker}).encode(), content_type="application/json",
+            status_code=200, requested_at=now - timedelta(seconds=2),
+            received_at=now - timedelta(seconds=1),
+        )
+        return {"endpoint": f"https://example.test/{provider}",
+                "request": intraday_source.request_identity(provider),
+                "response": response, "quotes": [quote]}
+
+    first = p15_event_sources.scan_intraday(con, observed_at=observed, capture=capture)
+    second = p15_event_sources.scan_intraday(con, observed_at=observed, capture=capture)
+
+    assert first == {"status": "complete", "universe": 3, "captured": 3,
+                     "facts": 3, "triggers": 1, "failures": []}
+    assert second["triggers"] == 0
+    assert con.execute(
+        "SELECT ticker,source,event_type FROM p15_event_triggers"
+    ).fetchall() == [("AAA", "intraday_mover", "intraday_mover")]
+    assert con.execute(
+        "SELECT COUNT(*) FROM bitemporal_facts WHERE fact_type='intraday.ohlcv.5m'"
+    ).fetchone() == (3,)
+    assert con.execute("SELECT * FROM prices ORDER BY ticker,date").fetchall() == before

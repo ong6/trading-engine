@@ -833,4 +833,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine/product +242, tools +2, server unchanged, tests +107; budget ok.
 - **Next:** add the bounded intraday mover source and shadow decision/label pipeline.
 
+## 2026-09-26 — P15 W5: add intraday mover triggers
+
+- **Why:** approved P15 W5 requires a shadow-only mover scan across the bounded P15 and
+  trend-template universe at each intraday window.
+- **What:** capture up to 300 symbols plus SPY with bounded parallel reads, retain exact 5-minute
+  source facts without touching operational prices, and trigger only when both the registered
+  return/ATR and elapsed-session relative-volume thresholds fire.
+- **Evidence:** `./.venv/bin/python -m pytest -q -W error` reaches `[100%]` and exits 0.
+- **Metrics:** engine/product +144, server/tools unchanged, tests +38; budget ok.
+- **Next:** persist rate-limited event decisions and both forward label bases.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
