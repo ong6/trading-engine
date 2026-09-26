@@ -29,6 +29,7 @@ REGISTERED_PATHS = {
     "server/agent_model_client.py",
     "server/hourly_opportunity_observer.py",
     "server/p15_preopen.py",
+    "server/p15_incremental_collect.py",
     "server/p15_price_fetch_attempts.py",
     "server/p15_scoring_runner.py",
     "server/p15_scoring_store.py",
@@ -102,6 +103,7 @@ def test_p15_registered_constants_match_runtime():
         "database_wait_seconds": p15_scoring_runner.DB_WAIT_S,
         "maximum_event_facts": p15_event_sources.MAX_SCORING_EVENT_FACTS,
         "admissible_window": "after_market_close_before_next_session_open",
+        "deadline_start_refusal": "persist_failed_run_without_external_calls",
     }
     assert registration["baseline"] == {
         "version": "p15-baseline-v1",
@@ -203,7 +205,7 @@ def test_p15_registered_constants_match_runtime():
         },
         "pass": "lower_bound_gt_0_and_mean_model_ic_gt_0",
         "kill": "upper_bound_lt_0_at_any_look_or_no_pass_at_120",
-        "look_persistence": "append_only_hash_chained_registration_bound",
+        "look_persistence": "append_only_hash_chained_dual_table_registration_bound",
         "missing_label_grace_sessions": p15_evaluation.MISSING_LABEL_GRACE_SESSIONS,
         "book_newey_west_lag": p15_evaluation.NW_LAG,
         "book_minimum_calendar_days": 90, "book_minimum_closed_trades_each": 30,
@@ -222,6 +224,7 @@ def test_p15_registered_constants_match_runtime():
         "report_markdown": "data/reports/agent-eval/p15.md",
         "scoring_service_restart": "on-failure_after_5min_burst_3_per_30min",
         "model_call_count": "attempted_calls_including_connector_failures",
+        "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
     }
 
 
