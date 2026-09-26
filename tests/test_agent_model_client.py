@@ -312,6 +312,28 @@ def test_p15_preopen_is_cancel_only_and_has_no_tools():
     assert timeouts == [5.0, 5.0, 240.0, 5.0, 5.0]
 
 
+def test_p15_event_scoring_is_shadow_only_and_has_no_tools():
+    output = {"schema_version": 1, "assessments": []}
+    factory, observed, connections, _timeouts = factory_for([
+        Response(health()), Response(models(agent_model_client.MODEL)),
+        Response(response(output)), Response(health()),
+        Response(models(agent_model_client.MODEL)),
+    ])
+
+    result = agent_model_client.generate_p15_event_json(
+        {"policy_id": "p15-events-v1", "events": []}, connection_factory=factory,
+    )
+
+    request = json.loads(
+        next(item for item in observed if item["path"] == "/v1/responses")["body"]
+    )
+    assert result.output == output
+    assert request["instructions"] == agent_model_client.P15_EVENT_INSTRUCTIONS
+    assert "shadow-only" in request["instructions"]
+    assert request["tools"] == [] and request["tool_choice"] == "none"
+    assert all(connection.closed for connection in connections)
+
+
 def test_generate_trade_tool_allows_exactly_one_bounded_function():
     arguments = {"ticker": "FAST", "side": "buy", "assessment_sha256": "a" * 64,
                  "horizon_sessions": 5, "thesis": "Momentum",

@@ -70,6 +70,12 @@ UNIT_SOURCES = {
     "trading-engine-p15-preopen.timer": Path(
         "server/trading-engine-p15-preopen.timer"
     ),
+    "trading-engine-p15-events.service": Path(
+        "server/trading-engine-p15-events.service"
+    ),
+    "trading-engine-p15-events.timer": Path(
+        "server/trading-engine-p15-events.timer"
+    ),
 }
 AUTOSTART_UNITS = frozenset(
     {

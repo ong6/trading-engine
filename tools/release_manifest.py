@@ -66,6 +66,8 @@ SERVICE_FILES = (
     "server/trading-engine-p15-scoring.timer",
     "server/trading-engine-p15-preopen.service",
     "server/trading-engine-p15-preopen.timer",
+    "server/trading-engine-p15-events.service",
+    "server/trading-engine-p15-events.timer",
     "ui/trading-engine-ui.service",
 )
 RECOVERY_SOURCE_FILES = (
@@ -128,6 +130,7 @@ AGENT_SOURCE_FILES = (
     "server/p15_scoring_runner.py",
     "server/p15_scoring_store.py",
     "server/p15_preopen.py",
+    "farm/p15_event_runner.py",
     "server/intraday_source.py",
     "server/market_data_sources.py",
     "server/official_quote_source.py",

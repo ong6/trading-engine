@@ -438,7 +438,7 @@ only** (owner, 2026-09-25). Every other AGENTS.md rule still applies.
 | W2 Scoring policy and baseline | done | 2026-09-25 |
 | W3 Comparator books | done | 2026-09-26 |
 | W4 Pre-open reassessment | done | 2026-09-26 |
-| W5 Event triggers | not started | |
+| W5 Event triggers | done | 2026-09-26 |
 | W6 Gates and reporting | not started | |
 | W7 Cleanup and docs | not started | |
 | W8 Activation | not started | |
