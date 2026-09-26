@@ -57,7 +57,7 @@ def test_newey_west_matches_existing_reference():
 
 
 def test_primary_interval_matches_hand_computed_hansen_hodrick_answer():
-    result = p15_evaluation._primary_interval([1.25, -0.75] * 30)
+    result = p15_evaluation._hansen_hodrick_interval([1.25, -0.75] * 30)
 
     assert result["n"] == 60
     assert result["mean"] == pytest.approx(0.25)
@@ -65,12 +65,29 @@ def test_primary_interval_matches_hand_computed_hansen_hodrick_answer():
     assert result["variance_inflation"] == pytest.approx(1.22502128663532)
     assert result["long_run_variance"] == pytest.approx(1.143353200859632)
     assert result["se"] == pytest.approx(0.13804306096647476)
-    assert result["critical_value"] == pytest.approx(2.17905062724369)
-    assert result["lower"] == pytest.approx(-0.05080281858563579)
-    assert result["upper"] == pytest.approx(0.5508028185856357)
+    assert result["critical_value"] == pytest.approx(2.128045234184983)
+    assert result["lower"] == pytest.approx(-0.043761878002013865)
+    assert result["upper"] == pytest.approx(0.5437618780020139)
     assert result["variance_estimator"] == "hansen_hodrick"
     assert result["kernel"] == "uniform" and result["lag"] == 4
-    assert result["fallback_used"] is False and result["df"] == 59
+    assert result["fallback_used"] is False
+
+
+def test_primary_interval_uses_fixed_nonoverlapping_offset_zero_sample():
+    values = [0.0] * 60
+    values[::5] = range(1, 13)
+
+    result = p15_evaluation._primary_interval(values)
+
+    assert result["origin_count"] == 60
+    assert result["n"] == 12 and result["df"] == 11
+    assert result["mean"] == pytest.approx(6.5)
+    assert result["se"] == pytest.approx((13 / 12) ** 0.5)
+    assert result["critical_value"] == pytest.approx(2.431291192871)
+    assert result["sampling"] == "nonoverlapping_offset0"
+    assert result["stride"] == 5 and result["offset"] == 0
+    constant = p15_evaluation._primary_interval([1.0] * 60)
+    assert constant["se"] is None and constant["lower"] is None
 
 
 def test_primary_standard_error_falls_back_only_for_nonpositive_hh_variance():
@@ -111,8 +128,8 @@ def test_primary_three_look_simulation_controls_null_and_detects_planted_ic():
                 false_passes += passed
             else:
                 planted_passes += passed
-    assert false_passes <= 500
-    assert planted_passes >= 8_000
+    assert false_passes == 347
+    assert planted_passes == 8_638
 
 
 def test_fixed_looks_use_immutable_prefixes_and_terminal_rules():
@@ -123,7 +140,8 @@ def test_fixed_looks_use_immutable_prefixes_and_terminal_rules():
                 for index in range(61)]
     status, looks, next_look = p15_evaluation.evaluate_looks(positive)
     assert status == "pass" and [item["look"] for item in looks] == [60]
-    assert looks[0]["delta"]["n"] == 60 and next_look is None
+    assert looks[0]["delta"]["n"] == 12 and next_look is None
+    assert looks[0]["hansen_hodrick_diagnostic"]["n"] == 60
     status, looks, next_look = p15_evaluation.evaluate_looks(positive[:59])
     assert (status, looks, next_look) == ("collecting", [], 60)
     neutral = [{"delta_ic": (-1) ** index * 0.01,
