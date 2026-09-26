@@ -189,8 +189,10 @@ def test_create_and_verify_transactional_bundle(tmp_path):
 def test_backup_restores_persisted_p15_look_with_external_anchor(tmp_path):
     root, source = _repo(tmp_path)
     destination = tmp_path / "outside" / "snapshot"
+    configured_data = tmp_path / "configured-data"
+    shutil.copytree(root / "data", configured_data)
     relative_anchor = "data/reports/agent-eval/p15-look-anchors.jsonl"
-    anchor_path = root / relative_anchor
+    anchor_path = configured_data / "reports/agent-eval/p15-look-anchors.jsonl"
     anchor_path.unlink(missing_ok=True)
     now = datetime(2026, 12, 1, 12, tzinfo=timezone.utc)
     scored = [
@@ -212,7 +214,9 @@ def test_backup_restores_persisted_p15_look_with_external_anchor(tmp_path):
         )
     connection.close()
 
-    backup_database.create_backup(root, source, destination)
+    backup_database.create_backup(
+        root, source, destination, data_dir=configured_data,
+    )
 
     bundled_anchor = destination / "evidence" / relative_anchor
     assert bundled_anchor.read_bytes() == anchor_path.read_bytes()
