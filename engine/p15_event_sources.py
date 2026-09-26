@@ -421,17 +421,31 @@ def create_text_triggers(
     with db.transaction(con):
         while True:
             rows = con.execute(
-                "SELECT security_id,fact_type,event_at,available_at,fact_sha256 "
-                "FROM bitemporal_facts WHERE security_id IS NOT NULL "
-                "AND (available_at>? OR (available_at=? AND fact_sha256>?)) "
-                "AND available_at<=? AND ingested_at<=? "
-                "AND ((fact_type='news.headline' AND source='local_rss') "
-                "OR (fact_type='p15.event.intraday_mover' AND source='yfinance') "
-                "OR (fact_type LIKE 'sec.filing:%' AND source='sec_edgar' AND "
-                "json_extract_string(normalized_payload,'$.form') IN ('8-K','8-K/A'))) "
-                "ORDER BY available_at,fact_sha256 LIMIT ?",
+                "SELECT f.security_id,f.fact_type,f.event_at,f.available_at,f.fact_sha256 "
+                "FROM bitemporal_facts f "
+                "LEFT JOIN source_response_receipts current_receipt "
+                "ON current_receipt.receipt_sha256=f.receipt_sha256 "
+                "WHERE f.security_id IS NOT NULL "
+                "AND (f.available_at>? OR (f.available_at=? AND f.fact_sha256>?)) "
+                "AND f.available_at<=? AND f.ingested_at<=? "
+                "AND NOT EXISTS (SELECT 1 FROM bitemporal_facts prior "
+                "WHERE prior.entity_id=f.entity_id AND prior.fact_type=f.fact_type "
+                "AND prior.event_at=f.event_at "
+                "AND prior.normalized_sha256=f.normalized_sha256 "
+                "AND prior.revision<f.revision) "
+                "AND ((f.fact_type='news.headline' AND f.source='local_rss') "
+                "OR (f.fact_type='p15.event.intraday_mover' AND f.source='yfinance') "
+                "OR (f.fact_type LIKE 'sec.filing:%' AND f.source='sec_edgar' AND "
+                "json_extract_string(f.normalized_payload,'$.form') IN ('8-K','8-K/A') "
+                "AND f.published_at>COALESCE((SELECT MAX(prior_receipt.received_at) "
+                "FROM source_response_receipts prior_receipt "
+                "WHERE prior_receipt.source='sec_edgar' "
+                "AND prior_receipt.dataset='sec_submissions' "
+                "AND prior_receipt.request_sha256=current_receipt.request_sha256 "
+                "AND prior_receipt.received_at<current_receipt.received_at),?))) "
+                "ORDER BY f.available_at,f.fact_sha256 LIMIT ?",
                 [cursor_at, cursor_at, cursor_sha, cutoff_naive, cutoff_naive,
-                 TRIGGER_SCAN_PAGE_SIZE],
+                 state[0], TRIGGER_SCAN_PAGE_SIZE],
             ).fetchall()
             if not rows:
                 break

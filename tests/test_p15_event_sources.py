@@ -42,10 +42,14 @@ def _receipt(con, observed):
     )["receipt_sha256"]
 
 
-def _fact(con, receipt, *, entity, fact_type, available, payload, source):
+def _fact(
+    con, receipt, *, entity, fact_type, available, payload, source,
+    published=None, event=None,
+):
     return bitemporal_facts.record_fact(
         con, entity_id=entity, security_id="AAA", fact_type=fact_type,
-        event_at=available - timedelta(seconds=1), published_at=None,
+        event_at=event or available - timedelta(seconds=1),
+        published_at=published,
         available_at=available, ingested_at=available, payload=payload,
         source=source, source_version="test", receipt_sha256=receipt,
     )
@@ -160,8 +164,8 @@ def test_text_triggers_deduplicate_rss_and_only_admit_8k(con, tmp_path):
     now = datetime(2026, 9, 28, 13, 35, tzinfo=timezone.utc)
     p15_event_sources.ingest_rss(con, path, now=now - timedelta(minutes=2))
     receipt = bitemporal_facts.record_receipt(
-        con, source="sec_edgar", dataset="submissions", endpoint="https://example.test/sec",
-        request={}, requested_at=now - timedelta(minutes=1),
+        con, source="sec_edgar", dataset="sec_submissions", endpoint="https://example.test/sec",
+        request={"cik": "0000000001"}, requested_at=now - timedelta(minutes=1),
         received_at=now - timedelta(minutes=1), http_status=200,
         content_type="application/json", body=b"{}", license_class="public",
     )
@@ -169,7 +173,8 @@ def test_text_triggers_deduplicate_rss_and_only_admit_8k(con, tmp_path):
         bitemporal_facts.record_fact(
             con, entity_id=f"sec:{form}", security_id="AAA",
             fact_type=f"sec.filing:{form}", event_at=now - timedelta(minutes=2),
-            published_at=now - timedelta(minutes=2), available_at=now - timedelta(minutes=1),
+            published_at=now - timedelta(seconds=90),
+            available_at=now - timedelta(minutes=1),
             ingested_at=now - timedelta(minutes=1), payload={"form": form},
             source="sec_edgar", source_version="test",
             receipt_sha256=receipt["receipt_sha256"],
@@ -187,6 +192,106 @@ def test_text_triggers_deduplicate_rss_and_only_admit_8k(con, tmp_path):
     assert con.execute(
         "SELECT source,event_type FROM p15_event_triggers ORDER BY source"
     ).fetchall() == [("rss", "news.headline"), ("sec_8k", "sec.filing:8-K")]
+
+
+def test_text_triggers_ignore_refetched_unchanged_fact_revision(con):
+    _database(con)
+    monday = datetime(2026, 9, 28, 13, 30, tzinfo=timezone.utc)
+    p15_event_sources.initialize_event_evidence(con, now=monday)
+    first_receipt = _receipt(con, monday + timedelta(minutes=1))
+    first = _fact(
+        con, first_receipt, entity="rss:same:AAA", fact_type="news.headline",
+        available=monday + timedelta(minutes=1), payload={"title": "$AAA same"},
+        source="local_rss",
+    )
+    assert p15_event_sources.create_text_triggers(
+        con, monday.date(), triggered_at=monday + timedelta(minutes=5)
+    ) == {"created": 1, "examined": 1}
+
+    tuesday = datetime(2026, 9, 29, 13, 35, tzinfo=timezone.utc)
+    second_receipt = _receipt(con, tuesday - timedelta(minutes=1))
+    second = bitemporal_facts.record_fact(
+        con, entity_id="rss:same:AAA", security_id="AAA",
+        fact_type="news.headline", event_at=monday + timedelta(minutes=1) - timedelta(seconds=1),
+        published_at=None, available_at=tuesday - timedelta(minutes=1),
+        ingested_at=tuesday - timedelta(minutes=1), payload={"title": "$AAA same"},
+        source="local_rss", source_version="test", receipt_sha256=second_receipt,
+    )
+    assert first["revision"] == 1 and second["revision"] == 2
+
+    assert p15_event_sources.create_text_triggers(
+        con, tuesday.date(), triggered_at=tuesday
+    ) == {"created": 0, "examined": 0}
+    assert con.execute("SELECT COUNT(*) FROM p15_event_triggers").fetchone() == (1,)
+
+
+def test_sec_trigger_requires_acceptance_after_previous_cik_poll(con):
+    _database(con)
+    start = datetime(2026, 9, 28, 13, 30, tzinfo=timezone.utc)
+    p15_event_sources.initialize_event_evidence(con, now=start)
+    request = {"cik": "0000000001"}
+    bitemporal_facts.record_receipt(
+        con, source="sec_edgar", dataset="sec_submissions",
+        endpoint="https://example.test/sec/1", request=request,
+        requested_at=start + timedelta(minutes=1),
+        received_at=start + timedelta(minutes=1), http_status=200,
+        content_type="application/json", body=b'{"first":true}',
+        license_class="public",
+    )
+    current = bitemporal_facts.record_receipt(
+        con, source="sec_edgar", dataset="sec_submissions",
+        endpoint="https://example.test/sec/1", request=request,
+        requested_at=start + timedelta(minutes=4),
+        received_at=start + timedelta(minutes=4), http_status=200,
+        content_type="application/json", body=b'{"second":true}',
+        license_class="public",
+    )
+    _fact(
+        con, current["receipt_sha256"], entity="sec-cik:0000000001",
+        fact_type="sec.filing:8-K", available=start + timedelta(minutes=4),
+        published=start + timedelta(seconds=30), payload={"form": "8-K"},
+        source="sec_edgar", event=start - timedelta(days=1),
+    )
+
+    assert p15_event_sources.create_text_triggers(
+        con, start.date(), triggered_at=start + timedelta(minutes=5)
+    ) == {"created": 0, "examined": 0}
+
+
+def test_sec_trigger_uses_per_cik_poll_not_global_scan_watermark(con):
+    _database(con)
+    start = datetime(2026, 9, 28, 13, 30, tzinfo=timezone.utc)
+    p15_event_sources.initialize_event_evidence(con, now=start)
+    request = {"cik": "0000000001"}
+    bitemporal_facts.record_receipt(
+        con, source="sec_edgar", dataset="sec_submissions",
+        endpoint="https://example.test/sec/1", request=request,
+        requested_at=start + timedelta(minutes=1),
+        received_at=start + timedelta(minutes=1), http_status=200,
+        content_type="application/json", body=b'{"first":true}',
+        license_class="public",
+    )
+    assert p15_event_sources.create_text_triggers(
+        con, start.date(), triggered_at=start + timedelta(minutes=4)
+    ) == {"created": 0, "examined": 0}
+    current = bitemporal_facts.record_receipt(
+        con, source="sec_edgar", dataset="sec_submissions",
+        endpoint="https://example.test/sec/1", request=request,
+        requested_at=start + timedelta(minutes=6),
+        received_at=start + timedelta(minutes=6), http_status=200,
+        content_type="application/json", body=b'{"second":true}',
+        license_class="public",
+    )
+    _fact(
+        con, current["receipt_sha256"], entity="sec-cik:0000000001",
+        fact_type="sec.filing:8-K", available=start + timedelta(minutes=6),
+        published=start + timedelta(minutes=2), payload={"form": "8-K"},
+        source="sec_edgar", event=start - timedelta(days=1),
+    )
+
+    assert p15_event_sources.create_text_triggers(
+        con, start.date(), triggered_at=start + timedelta(minutes=10)
+    ) == {"created": 1, "examined": 1}
 
 
 def test_intraday_mover_scan_is_bounded_retained_and_never_mutates_prices(con):
@@ -285,10 +390,16 @@ def test_trigger_recovery_uses_immutable_start_not_mutable_rss_checkpoint(con):
     _database(con)
     start = datetime(2026, 9, 28, 13, 30, tzinfo=timezone.utc)
     p15_event_sources.initialize_event_evidence(con, now=start)
-    receipt = _receipt(con, start + timedelta(minutes=1))
+    receipt = bitemporal_facts.record_receipt(
+        con, source="sec_edgar", dataset="sec_submissions",
+        endpoint="https://example.test/sec/1", request={"cik": "0000000001"},
+        requested_at=start + timedelta(minutes=1),
+        received_at=start + timedelta(minutes=1), http_status=200,
+        content_type="application/json", body=b"{}", license_class="public",
+    )["receipt_sha256"]
     _fact(con, receipt, entity="sec:AAA:8k", fact_type="sec.filing:8-K",
-          available=start + timedelta(minutes=1), payload={"form": "8-K"},
-          source="sec_edgar")
+          available=start + timedelta(minutes=1), published=start + timedelta(seconds=30),
+          event=start - timedelta(days=1), payload={"form": "8-K"}, source="sec_edgar")
     con.execute(
         "INSERT INTO p15_rss_checkpoints VALUES (?,?,?,?,?)",
         [p15_event_sources.RSS_SOURCE, 1, 1, "test", start + timedelta(minutes=4)],
@@ -338,14 +449,19 @@ def test_ineligible_sec_facts_cannot_crowd_out_later_valid_trigger(con):
     _database(con)
     start = datetime(2026, 9, 28, 13, 30, tzinfo=timezone.utc)
     p15_event_sources.initialize_event_evidence(con, now=start)
-    receipt = _receipt(con, start)
+    receipt = bitemporal_facts.record_receipt(
+        con, source="sec_edgar", dataset="sec_submissions",
+        endpoint="https://example.test/sec/1", request={"cik": "0000000001"},
+        requested_at=start, received_at=start, http_status=200,
+        content_type="application/json", body=b"{}", license_class="public",
+    )["receipt_sha256"]
     for index in range(1_001):
         available = start + timedelta(microseconds=index)
         _fact(con, receipt, entity=f"sec:10q:{index}", fact_type="sec.filing:10-Q",
               available=available, payload={"form": "10-Q"}, source="sec_edgar")
     _fact(con, receipt, entity="sec:8k:valid", fact_type="sec.filing:8-K",
-          available=start + timedelta(minutes=1), payload={"form": "8-K"},
-          source="sec_edgar")
+          available=start + timedelta(minutes=1), published=start + timedelta(seconds=30),
+          event=start - timedelta(days=1), payload={"form": "8-K"}, source="sec_edgar")
     _fact(con, receipt, entity="foreign:headline", fact_type="news.headline",
           available=start + timedelta(minutes=2), payload={"title": "$AAA foreign"},
           source="unregistered")
