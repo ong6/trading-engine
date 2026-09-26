@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -69,7 +69,7 @@ def _label(con, policy: str, asset_return: float, prefix: str = "9" * 64) -> Non
     ).fetchone()[0]
     con.execute(
         "INSERT INTO agent_evaluation_labels_v2 VALUES ("
-        + ",".join("?" for _ in range(21))
+        + ",".join("?" for _ in range(22))
         + ")",
         [label_v2_id, 1, decision_id, 5, "common_entry", date(2026, 9, 2),
          date(2026, 9, 8), 100.0, 100 * (1 + asset_return), asset_return, 0.01,
@@ -85,7 +85,7 @@ def _label(con, policy: str, asset_return: float, prefix: str = "9" * 64) -> Non
                            "price_prefix_sha256": prefix, "missing_bar_status": "complete",
                            "round_trip_cost_bps": 20.0, "net_return": asset_return,
                            "net_excess_return": asset_return - 0.01}),
-         20.0, asset_return, asset_return - 0.01],
+         20.0, asset_return, asset_return - 0.01, None],
     )
 
 
@@ -392,6 +392,7 @@ def test_common_entry_labels_missing_path_at_last_available_close(con):
     sessions = [
         date(2026, 9, 28), date(2026, 9, 29), date(2026, 9, 30),
         date(2026, 10, 1), date(2026, 10, 2), date(2026, 10, 5),
+        date(2026, 10, 6), date(2026, 10, 7), date(2026, 10, 8),
     ]
     for index, session in enumerate(sessions):
         con.execute(
@@ -410,13 +411,16 @@ def test_common_entry_labels_missing_path_at_last_available_close(con):
         "VALUES ('FAST',?,?,?,?,?,0)",
         [sessions[3], 50, 50, 50, 50],
     )
-
     con.execute(
-        "UPDATE prices SET fetched_at=?",
-        [datetime(2026, 10, 6, tzinfo=timezone.utc).replace(tzinfo=None)],
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+        "VALUES ('FAST',?,?,?,?,?,?)",
+        [sessions[6], 102, 103, 101, 102, 1_000],
     )
+
+    matured_at = datetime(2026, 10, 9, tzinfo=timezone.utc)
+    con.execute("UPDATE prices SET fetched_at=?", [matured_at.replace(tzinfo=None)])
     agent_evaluation.label_mature(
-        con, labeled_at=datetime(2026, 10, 6, tzinfo=timezone.utc)
+        con, labeled_at=matured_at
     )
 
     rows = con.execute(
@@ -469,6 +473,94 @@ def test_v2_label_records_missing_entry_at_prior_last_close(con):
         con, 999, 2, complete, labeled_at,
         label_basis=agent_evaluation.NEXT_SESSION_OPEN_BASIS,
     ) is False
+
+
+def test_missing_horizon_bar_waits_for_late_bar_during_grace(con):
+    db.init_schema(con)
+    sessions = [date(2026, 9, day) for day in (21, 22, 23, 24, 25)]
+    labeled_at = datetime(2026, 9, 26, tzinfo=timezone.utc)
+    insert_bars(con, "SPY", sessions, open_=100, close=100, high=101, low=99)
+    insert_bars(con, "FAST", sessions[:-1], open_=100, close=101, high=102, low=99)
+    con.execute("UPDATE prices SET fetched_at=?", [labeled_at.replace(tzinfo=None)])
+
+    assert agent_evaluation._label_outcome_when_ready(
+        con, "FAST", sessions, labeled_at
+    ) is None
+
+    late = labeled_at + timedelta(days=1)
+    insert_bars(con, "FAST", [sessions[-1]], open_=101, close=102, high=103, low=100)
+    con.execute(
+        "UPDATE prices SET fetched_at=? WHERE ticker='FAST' AND date=?",
+        [late.replace(tzinfo=None), sessions[-1]],
+    )
+    outcome = agent_evaluation._label_outcome_when_ready(
+        con, "FAST", sessions, late
+    )
+    assert outcome["missing_bar_status"] == "complete"
+    assert outcome["exit_date"] == sessions[-1]
+
+
+def test_missing_bar_requires_grace_and_later_ticker_bar(con):
+    db.init_schema(con)
+    sessions = [date(2026, 9, day) for day in (21, 22, 23, 24, 25)]
+    later = [date(2026, 9, day) for day in (28, 29, 30)]
+    labeled_at = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    insert_bars(con, "SPY", [*sessions, *later], open_=100, close=100, high=101, low=99)
+    insert_bars(con, "FAST", [*sessions[:-1], later[0]],
+                open_=100, close=101, high=102, low=99)
+    con.execute("UPDATE prices SET fetched_at=?", [labeled_at.replace(tzinfo=None)])
+
+    before_grace = agent_evaluation._label_outcome_when_ready(
+        con, "FAST", sessions, labeled_at, grace_through=later[1]
+    )
+    after_grace = agent_evaluation._label_outcome_when_ready(
+        con, "FAST", sessions, labeled_at, grace_through=later[2]
+    )
+
+    assert before_grace is None
+    assert after_grace["missing_bar_status"] == "last_available_close"
+    assert after_grace["exit_date"] == sessions[-2]
+
+
+def test_missing_bar_fetch_attempt_confirms_after_grace(con):
+    db.init_schema(con)
+    sessions = [date(2026, 9, day) for day in (21, 22, 23, 24, 25)]
+    later = [date(2026, 9, day) for day in (28, 29, 30)]
+    labeled_at = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    insert_bars(con, "SPY", [*sessions, *later], open_=100, close=100, high=101, low=99)
+    insert_bars(con, "FAST", sessions[:-1], open_=100, close=101, high=102, low=99)
+    con.execute("UPDATE prices SET fetched_at=?", [labeled_at.replace(tzinfo=None)])
+
+    assert agent_evaluation._label_outcome_when_ready(
+        con, "FAST", sessions, labeled_at
+    ) is None
+    con.execute(
+        "INSERT INTO price_fetch_attempts VALUES (1,'FAST',?,?,'yfinance','failed',?)",
+        [sessions[-1], labeled_at.replace(tzinfo=None), "a" * 64],
+    )
+    assert agent_evaluation._label_outcome_when_ready(
+        con, "FAST", sessions, labeled_at
+    ) is None
+    future = labeled_at + timedelta(minutes=1)
+    con.execute(
+        "INSERT INTO price_fetch_attempts VALUES (2,'FAST',?,?,'yfinance','missing',?)",
+        [sessions[-1], future.replace(tzinfo=None), "b" * 64],
+    )
+    assert agent_evaluation._label_outcome_when_ready(
+        con, "FAST", sessions, labeled_at
+    ) is None
+    con.execute(
+        "INSERT INTO price_fetch_attempts VALUES (3,'FAST',?,?,'yfinance','missing',?)",
+        [sessions[-1], (labeled_at - timedelta(minutes=1)).replace(tzinfo=None), "c" * 64],
+    )
+
+    outcome = agent_evaluation._label_outcome_when_ready(
+        con, "FAST", sessions, labeled_at
+    )
+    assert outcome["missing_bar_status"] == "last_available_close"
+    assert outcome["net_excess_return"] == pytest.approx(
+        outcome["net_return"] - outcome["spy_net_return"]
+    )
 
 
 def test_report_accounts_for_missing_labels_and_absent_forecasts(con):

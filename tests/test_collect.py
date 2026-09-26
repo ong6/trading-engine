@@ -77,6 +77,34 @@ def test_incremental_releases_db_during_download_and_sleep(monkeypatch, tmp_path
     ]
 
 
+def test_incremental_records_append_only_price_fetch_attempts(monkeypatch, tmp_path):
+    db_path = tmp_path / "market.duckdb"
+    _setup_store(db_path, liquid=True)
+    con = db.connect(db_path)
+    con.execute(
+        "INSERT INTO universe (ticker,yf_ticker,active,liquid,backfill_done) "
+        "VALUES ('BBB','BBB',TRUE,TRUE,FALSE)"
+    )
+    con.close()
+    today = collect.datetime.now(collect.timezone.utc).date()
+    raw = pd.concat({"AAA": _raw_frame(today.isoformat())}, axis=1)
+    monkeypatch.setattr(collect, "_download", lambda *_args, **_kwargs: raw)
+    monkeypatch.setattr(collect.time, "sleep", lambda _seconds: None)
+
+    assert collect.mode_incremental(db_path, force=True) == (2, 1)
+    assert collect.mode_incremental(db_path, force=True) == (2, 1)
+
+    assert _read(
+        db_path,
+        "SELECT ticker,market_date,status FROM price_fetch_attempts "
+        "ORDER BY id",
+    ) == [
+        ("AAA", today, "present"), ("BBB", today, "missing"),
+        ("AAA", today, "present"), ("BBB", today, "missing"),
+    ]
+    assert _read(db_path, "SELECT COUNT(*) FROM prices WHERE ticker='BBB'") == [(0,)]
+
+
 def test_backfill_checkpoints_state_and_releases_db(monkeypatch, tmp_path):
     db_path = tmp_path / "market.duckdb"
     _setup_store(db_path, liquid=True)

@@ -864,7 +864,9 @@ def label_limit_counterfactuals(
         ).fetchall()]
         if len(sessions) < 5:
             continue
-        outcome = agent_evaluation._label_outcome(con, ticker, sessions, labeled_at)
+        outcome = agent_evaluation._label_outcome_when_ready(
+            con, ticker, sessions, labeled_at,
+        )
         if outcome is None or outcome["entry_date"] != attempt_date:
             continue
         spy_net = outcome["net_return"] - outcome["net_excess_return"]

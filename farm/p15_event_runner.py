@@ -544,7 +544,7 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> int
         )
         for horizon in HORIZONS:
             if len(sessions) >= horizon:
-                outcome = agent_evaluation._label_outcome(
+                outcome = agent_evaluation._label_outcome_when_ready(
                     con, ticker, sessions[:horizon], labeled_at
                 )
                 if outcome is not None:
@@ -557,7 +557,7 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> int
                         float(outcome["spy_return"]), labeled_at,
                     )
             if intraday is not None and len(same_day_sessions) >= horizon:
-                outcome = agent_evaluation._label_outcome(
+                outcome = agent_evaluation._label_outcome_when_ready(
                     con, ticker, same_day_sessions[:horizon], labeled_at
                 )
                 if outcome is not None and outcome["exit_date"] >= intraday[0].date():

@@ -17,10 +17,11 @@ from . import agent_model_client
 
 SCHEMA_VERSION = 1
 LABEL_SCHEMA_VERSION = 2
-LABEL_V2_SCHEMA_VERSION = 1
+LABEL_V2_SCHEMA_VERSION = 2
 COMMON_ENTRY_BASIS = "common_entry"
 NEXT_SESSION_OPEN_BASIS = "next_session_open"
 ROUND_TRIP_COST_BPS = 20.0
+MISSING_BAR_GRACE_SESSIONS = 3
 HORIZONS = (1, 5, 10, 20)
 TRACE_LIMIT = 500
 POLICY_EVALUATION_STARTS = {
@@ -143,8 +144,12 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         price_prefix_sha256 VARCHAR NOT NULL, missing_bar_status VARCHAR NOT NULL,
         labeled_at TIMESTAMP NOT NULL, label_sha256 VARCHAR NOT NULL UNIQUE,
         round_trip_cost_bps DOUBLE NOT NULL, net_return DOUBLE NOT NULL,
-        net_excess_return DOUBLE NOT NULL,
+        net_excess_return DOUBLE NOT NULL, spy_net_return DOUBLE,
         UNIQUE(decision_id, horizon_sessions, label_basis))"""
+    )
+    con.execute(
+        "ALTER TABLE agent_evaluation_labels_v2 ADD COLUMN IF NOT EXISTS "
+        "spy_net_return DOUBLE"
     )
     con.execute(
         """CREATE TABLE IF NOT EXISTS agent_evaluation_execution_links (
@@ -448,6 +453,7 @@ def _label_outcome(
         if last is None or last[1] in (None, 0):
             return None
         previous_date, previous_close = last[0], float(last[1])
+        net_return = 0.999 / 1.001 - 1
         return {
             "entry_date": previous_date, "exit_date": previous_date,
             "entry_open": previous_close, "exit_close": previous_close,
@@ -460,7 +466,8 @@ def _label_outcome(
             "missing_bar_status": "missing_entry_last_available_close",
             "label_basis_override": "missing_entry_last_available_close",
             "round_trip_cost_bps": ROUND_TRIP_COST_BPS,
-            "net_return": 0.999 / 1.001 - 1,
+            "net_return": net_return,
+            "spy_net_return": net_return,
             "net_excess_return": 0.0,
         }
     asset_dates = [item[0] for item in asset]
@@ -498,8 +505,53 @@ def _label_outcome(
         "missing_bar_status": missing_bar_status,
         "round_trip_cost_bps": ROUND_TRIP_COST_BPS,
         "net_return": net_return,
+        "spy_net_return": spy_net,
         "net_excess_return": net_return - spy_net,
     }
+
+
+def _label_outcome_when_ready(
+    con: duckdb.DuckDBPyConnection, ticker: str, sessions: list[date],
+    labeled_at: datetime, *, grace_through: date | None = None,
+) -> dict | None:
+    """Delay only missing-bar outcomes until absence is independently confirmed."""
+    outcome = _label_outcome(con, ticker, sessions, labeled_at)
+    if outcome is None or outcome["missing_bar_status"] == "complete":
+        return outcome
+    cutoff = _timestamp(labeled_at)
+    known_dates = {row[0] for row in con.execute(
+        f"SELECT date FROM prices WHERE ticker=? AND date>=? AND date<=? "
+        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL}",
+        [ticker, sessions[0], sessions[-1], cutoff],
+    ).fetchall()}
+    missing_dates = [session for session in sessions if session not in known_dates]
+    if not missing_dates:
+        return outcome
+    grace_limit = grace_through or labeled_at.astimezone(timezone.utc).date()
+    later_sessions = int(con.execute(
+        f"SELECT COUNT(DISTINCT date) FROM prices WHERE ticker='SPY' "
+        f"AND date>? AND date<=? AND fetched_at IS NOT NULL AND fetched_at<=? "
+        f"AND {REAL_BAR_SQL}",
+        [sessions[-1], grace_limit, cutoff],
+    ).fetchone()[0])
+    if later_sessions < MISSING_BAR_GRACE_SESSIONS:
+        return None
+    later_ticker_bar = con.execute(
+        f"SELECT 1 FROM prices WHERE ticker=? AND date>? "
+        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} LIMIT 1",
+        [ticker, max(missing_dates), cutoff],
+    ).fetchone() is not None
+    attempts_confirm = False
+    if table_exists(con, "price_fetch_attempts"):
+        placeholders = ",".join("?" for _ in missing_dates)
+        confirmed = int(con.execute(
+            "SELECT COUNT(DISTINCT market_date) FROM price_fetch_attempts "
+            f"WHERE ticker=? AND market_date IN ({placeholders}) "
+            "AND attempted_at<=? AND status IN ('present','missing')",
+            [ticker, *missing_dates, cutoff],
+        ).fetchone()[0])
+        attempts_confirm = confirmed == len(missing_dates)
+    return outcome if later_ticker_bar or attempts_confirm else None
 
 
 def _insert_v2_label(
@@ -534,9 +586,13 @@ def _insert_v2_label(
         "missing_bar_status": outcome["missing_bar_status"],
     }
     con.execute(
-        "INSERT INTO agent_evaluation_labels_v2 VALUES ("
-        + ",".join("?" for _ in range(21))
-        + ")",
+        "INSERT INTO agent_evaluation_labels_v2 ("
+        "id,schema_version,decision_id,horizon_sessions,label_basis,entry_date,exit_date,"
+        "entry_open,exit_close,asset_return,spy_return,excess_return,"
+        "maximum_adverse_excursion,maximum_favorable_excursion,price_prefix_sha256,"
+        "missing_bar_status,labeled_at,label_sha256,round_trip_cost_bps,net_return,"
+        "net_excess_return,spy_net_return) VALUES ("
+        + ",".join("?" for _ in range(22)) + ")",
         [
             _next_id(con, "agent_evaluation_labels_v2"),
             LABEL_V2_SCHEMA_VERSION,
@@ -559,6 +615,7 @@ def _insert_v2_label(
             outcome["round_trip_cost_bps"],
             outcome["net_return"],
             outcome["net_excess_return"],
+            outcome["spy_net_return"],
         ],
     )
     return True
@@ -596,7 +653,9 @@ def _label_common_entries(
         for horizon in HORIZONS:
             if len(sessions) < horizon:
                 continue
-            outcome = _label_outcome(con, ticker, sessions[:horizon], labeled_at)
+            outcome = _label_outcome_when_ready(
+                con, ticker, sessions[:horizon], labeled_at,
+            )
             if outcome is None:
                 continue
             for decision_id in (int(nightly_id), int(intraday_id)):
@@ -628,7 +687,9 @@ def _label_p15_entries(
         for horizon in HORIZONS:
             if len(sessions) < horizon:
                 continue
-            outcome = _label_outcome(con, ticker, sessions[:horizon], labeled_at)
+            outcome = _label_outcome_when_ready(
+                con, ticker, sessions[:horizon], labeled_at,
+            )
             if outcome is None:
                 continue
             inserted += _insert_v2_label(
@@ -988,6 +1049,8 @@ def validate_p15_evidence(
             "maximum_adverse_excursion", "maximum_favorable_excursion", "price_prefix_sha256",
             "missing_bar_status", "round_trip_cost_bps", "net_return", "net_excess_return",
         )}
+        if row["schema_version"] >= 2:
+            body["spy_net_return"] = row["spy_net_return"]
         body.update(entry_date=row["entry_date"].isoformat(),
                     exit_date=row["exit_date"].isoformat())
         if canonical_sha256(body) != row["label_sha256"]:
@@ -1014,6 +1077,8 @@ def validate_p15_evidence(
                for key, value in outcome.items() if key != "label_basis_override"},
             "missing_bar_status": outcome["missing_bar_status"],
         }
+        if expected_body is not None and row["schema_version"] < 2:
+            expected_body.pop("spy_net_return", None)
         if expected_body is None or canonical_sha256(expected_body) != row["label_sha256"]:
             raise EvaluationError("P15 label source evidence differs")
     if preopen_schema:
