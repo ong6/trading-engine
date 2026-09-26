@@ -810,4 +810,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +208, sim/product +1, tools unchanged, tests +246; budget ok.
 - **Next:** apply the inactive W4 schema after the weekly verifier releases its lock.
 
+## 2026-09-26 — P15 W4: complete cancel-only pre-open evidence
+
+- **Why:** approved P15 W4 requires a 09:05 ET reassessment that can only cancel, retains the
+  unexecuted alternative, and measures the full decision-to-fill path.
+- **What:** finish per-session carried-intent review, pre-use source retention, post-capture and
+  commit-time deadlines, exact replay identities, attempt-date counterfactual labels, and latency
+  and implementation-shortfall evidence. The registered unit remains uninstalled until W8.
+  Three independent reviewers accepted correctness, evidence integrity, and authority safety.
+- **Evidence:** the full warnings-as-errors Python suite reaches `[100%]` and exits 0.
+- **Metrics:** source unchanged since the corrective snapshot; all ceilings green.
+- **Next:** W5 RSS, SEC 8-K, and intraday-mover shadow event evidence.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
