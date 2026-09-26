@@ -142,6 +142,15 @@ def test_reached_look_is_persisted_once_and_tamper_evident(con, monkeypatch):
     con.execute("UPDATE p15_evaluation_looks SET result_payload='{}'")
     with pytest.raises(p15_evaluation.P15EvaluationError, match="look evidence differs"):
         p15_evaluation.load_retained_looks(con, scored, registration_sha)
+    con.execute(
+        "UPDATE p15_evaluation_looks SET result_payload=?,look_sha256=?",
+        list(retained),
+    )
+    con.execute("DELETE FROM p15_evaluation_looks")
+    with pytest.raises(p15_evaluation.P15EvaluationError, match="look evidence differs"):
+        p15_evaluation.persist_reached_looks(
+            con, scored, registration_sha, evaluated_at=NOW,
+        )
 
 
 def _primary_schema(con):

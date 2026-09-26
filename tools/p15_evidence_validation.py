@@ -17,7 +17,7 @@ MAX_AUDIT_ROWS = 100_000
 def enforce_bounds(con: duckdb.DuckDBPyConnection, error_type) -> None:
     tables = (
         "agent_evaluation_traces", "agent_evaluation_decisions", "agent_evaluation_labels_v2",
-        "p15_evaluation_looks",
+        "p15_evaluation_looks", "p15_evaluation_look_anchors",
         "p15_scoring_runs", "p15_scoring_samples", "p15_scoring_news_responses",
         "p15_order_intents", "p15_limit_attempts", "p15_book_windows", "p15_book_fills",
         "p15_limit_labels", "p15_preopen_runs", "p15_preopen_decisions",

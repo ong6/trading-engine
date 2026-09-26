@@ -50,6 +50,12 @@ def init_look_schema(con: duckdb.DuckDBPyConnection) -> None:
         result_payload VARCHAR NOT NULL, look_sha256 VARCHAR NOT NULL UNIQUE,
         UNIQUE(policy_id,registration_sha256,look_sessions))"""
     )
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS p15_evaluation_look_anchors (
+        policy_id VARCHAR NOT NULL, registration_sha256 VARCHAR NOT NULL,
+        look_sessions INTEGER NOT NULL, look_sha256 VARCHAR NOT NULL UNIQUE,
+        PRIMARY KEY(policy_id,registration_sha256,look_sessions))"""
+    )
 
 
 def _primary_variance_inflation(n: int, *, fallback: bool) -> float:
@@ -415,6 +421,13 @@ def load_retained_looks(
         "WHERE policy_id=? AND registration_sha256=? ORDER BY look_sessions",
         [POLICY_ID, registration_sha256],
     ).fetchall()
+    anchors = con.execute(
+        "SELECT look_sessions,look_sha256 FROM p15_evaluation_look_anchors "
+        "WHERE policy_id=? AND registration_sha256=? ORDER BY look_sessions",
+        [POLICY_ID, registration_sha256],
+    ).fetchall()
+    if anchors != [(row[3], row[9]) for row in rows]:
+        raise P15EvaluationError("P15 look evidence differs")
     retained, previous = [], None
     for index, row in enumerate(rows):
         (schema_version, policy_id, registered, size, through, evaluated,
@@ -489,6 +502,10 @@ def persist_reached_looks(
              date.fromisoformat(result["through_market_date"]),
              evaluated.replace(tzinfo=None), prefix_sha, previous,
              json.dumps(result, sort_keys=True, separators=(",", ":")), look_sha],
+        )
+        con.execute(
+            "INSERT INTO p15_evaluation_look_anchors VALUES (?,?,?,?)",
+            [POLICY_ID, registration_sha256, size, look_sha],
         )
         retained.append(result)
         previous = look_sha
