@@ -26,10 +26,12 @@ MISSING_LABEL_GRACE_SESSIONS = 3
 PRIMARY_HH_LAG = 4
 PRIMARY_FALLBACK_LAG = 8
 PRIMARY_T_CRITICAL = {
-    60: 2.17905062724369,
-    90: 2.1615970755415894,
-    120: 2.1530427955026177,
+    60: 2.431291192871,
+    90: 2.315573401153,
+    120: 2.263728355255,
 }
+PRIMARY_STRIDE = 5
+PRIMARY_OFFSET = 0
 P15EvaluationError = ValueError
 REGISTRATION_PATH = REPO_ROOT / "server" / "p15-registration.json"
 LOOK_ANCHOR_PATH = DATA_DIR / "reports" / "agent-eval" / "p15-look-anchors.jsonl"
@@ -187,18 +189,43 @@ def _primary_standard_error(values: list[float]) -> dict:
     return base
 
 
-def _primary_interval(values: list[float], *, alpha: float = ALPHA) -> dict:
+def _hansen_hodrick_interval(values: list[float], *, alpha: float = ALPHA) -> dict:
     result = _primary_standard_error(values)
-    critical = PRIMARY_T_CRITICAL.get(result["n"])
-    if critical is None:
-        raise P15EvaluationError("P15 primary interval is outside a registered look")
+    critical = NormalDist().inv_cdf(1 - alpha)
     result.update(
-        alpha=alpha, df=result["n"] - 1, critical_value=critical,
+        alpha=alpha, critical_value=critical,
         lower=None, upper=None,
     )
     if result["mean"] is not None and result["se"] is not None:
         result["lower"] = result["mean"] - critical * result["se"]
         result["upper"] = result["mean"] + critical * result["se"]
+    return result
+
+
+def _primary_interval(values: list[float], *, alpha: float = ALPHA) -> dict:
+    """Registered offset-0, every-fifth-session Student-t interval."""
+    full = [float(value) for value in values if math.isfinite(float(value))]
+    critical = PRIMARY_T_CRITICAL.get(len(full))
+    if critical is None:
+        raise P15EvaluationError("P15 primary interval is outside a registered look")
+    selected = full[PRIMARY_OFFSET::PRIMARY_STRIDE]
+    mean = _mean(selected)
+    variance = (
+        sum((value - mean) ** 2 for value in selected) / (len(selected) - 1)
+        if len(selected) > 1 else None
+    )
+    se = None if variance is None or variance <= 0 else math.sqrt(variance / len(selected))
+    result = {
+        "n": len(selected), "origin_count": len(full), "mean": mean, "se": se,
+        "t": None if se is None else mean / se,
+        "df": len(selected) - 1, "alpha": alpha, "critical_value": critical,
+        "lower": None, "upper": None, "variance_estimator": "sample_variance",
+        "sampling": "nonoverlapping_offset0", "stride": PRIMARY_STRIDE,
+        "offset": PRIMARY_OFFSET,
+    }
+    if mean is not None and se is not None:
+        result["lower"] = mean - critical * se
+        result["upper"] = mean + critical * se
     return result
 
 
@@ -376,6 +403,7 @@ def _diagnostics(rows: list[tuple]) -> dict:
 def _look(scored: list[dict], size: int) -> dict:
     prefix = scored[:size]
     interval = _primary_interval([row["delta_ic"] for row in prefix])
+    diagnostic = _hansen_hodrick_interval([row["delta_ic"] for row in prefix])
     mean_model = _mean([row["model_ic"] for row in prefix])
     status = "continue"
     if interval["lower"] is not None and interval["lower"] > 0 and mean_model > 0:
@@ -386,7 +414,7 @@ def _look(scored: list[dict], size: int) -> dict:
         status = "kill"
     return {"look": size, "status": status, "mean_model_ic": mean_model,
             "mean_baseline_ic": _mean([row["baseline_ic"] for row in prefix]),
-            "delta": interval}
+            "delta": interval, "hansen_hodrick_diagnostic": diagnostic}
 
 
 def evaluate_looks(scored: list[dict]) -> tuple[str, list[dict], int | None]:
