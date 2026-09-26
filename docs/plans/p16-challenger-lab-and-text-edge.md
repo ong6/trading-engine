@@ -498,6 +498,19 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 
 Owner inputs needed: none yet.
 
+**Design inputs (parallel GPT-6-Astra design sessions, started 2026-09-27).** Three sessions write
+specs, test vectors, and numpy reference drafts on the host, outside the repo. Before building a
+workstream, the lead reads its folder. When the folder's `STATUS` says `done`, treat its `spec.md`
+as the starting design. Registered values stay the lead's decision, and must be recorded before
+activation. If a folder is not done yet, start the workstream anyway and merge the spec in when it
+lands.
+
+| Workstreams | Folder on the host |
+|---|---|
+| W1, W5 (and a check of R7) | `~/.tae/out/p16-design-eval/` |
+| W4a, W4b | `~/.tae/out/p16-design-replay/` |
+| W3, W6, W8 (full Stage 2 draft) | `~/.tae/out/p16-design-filings-stage2/` |
+
 **Parallel sessions.** A row marked *claimed* belongs to the named session. Never work a claimed
 row. Parallel sessions each use their own git worktree and push to `main` after rebasing. Only
 the lead touches the live checkout, the systemd units, and activation.
