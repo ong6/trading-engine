@@ -17,6 +17,22 @@ OPEN_LABEL_MISSING_REASON = "not_found_no_data_symbol_may_be_delisted"
 HORIZONS = (1, 5, 10, 20)
 
 
+def open_label_request_sha256(
+    ticker: str, provider_ticker: str, market_date: date,
+) -> str:
+    return canonical_sha256({
+        "ticker": ticker, "provider_ticker": provider_ticker,
+        "market_date": market_date.isoformat(), "source": OPEN_LABEL_SOURCE,
+        "interval": "1d", "auto_adjust": False,
+    })
+
+
+def open_label_missing_response_sha256() -> str:
+    return canonical_sha256({
+        "result": "completed_missing", "outcome_reason": OPEN_LABEL_MISSING_REASON,
+    })
+
+
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     con.execute(
         """CREATE TABLE IF NOT EXISTS p15_price_fetch_batches (
@@ -145,7 +161,7 @@ def open_label_obligations(
         ).fetchall())
         obligations -= confirmed
     result = []
-    for ticker, market_date in sorted(obligations):
+    for ticker, market_date in sorted(obligations, key=lambda item: (item[1], item[0])):
         row = con.execute(
             "SELECT yf_ticker FROM universe WHERE ticker=?", [ticker]
         ).fetchone()
@@ -167,12 +183,11 @@ def record_open_label_receipt(
     if (
         requested_at.utcoffset() is None or completed_at.utcoffset() is None
         or completed_at < requested_at or not nyse.is_session(market_date)
-        or status not in {"present", "missing"}
-        or (status == "missing") != (outcome_reason == OPEN_LABEL_MISSING_REASON)
-        or any(
-            not isinstance(value, str) or len(value) != 64
-            for value in (request_sha256, response_sha256)
+        or status != "missing" or outcome_reason != OPEN_LABEL_MISSING_REASON
+        or request_sha256 != open_label_request_sha256(
+            ticker, provider_ticker, market_date,
         )
+        or response_sha256 != open_label_missing_response_sha256()
     ):
         raise ValueError("open-label fetch receipt is invalid")
     init_schema(con)
@@ -182,7 +197,7 @@ def record_open_label_receipt(
         f"AND {REAL_BAR_SQL} LIMIT 1",
         [ticker, market_date, completed.replace(tzinfo=None)],
     ).fetchone() is not None
-    if had_bar != (status == "present"):
+    if had_bar:
         raise ValueError("open-label fetch receipt differs from stored prices")
     body = {
         "ticker": ticker, "provider_ticker": provider_ticker,
@@ -356,11 +371,13 @@ def validate(con: duckdb.DuckDBPyConnection, error_type) -> None:
             [ticker, market_date, completed_at],
         ).fetchone() is not None
         if (
-            source != OPEN_LABEL_SOURCE or status not in {"present", "missing"}
-            or (status == "missing") != (
-                outcome_reason == OPEN_LABEL_MISSING_REASON
+            source != OPEN_LABEL_SOURCE or status != "missing"
+            or outcome_reason != OPEN_LABEL_MISSING_REASON
+            or request_sha != open_label_request_sha256(
+                ticker, provider_ticker, market_date,
             )
-            or requested_at > completed_at or had_bar != (status == "present")
+            or response_sha != open_label_missing_response_sha256()
+            or requested_at > completed_at or had_bar
             or canonical_sha256(body) != receipt_sha
         ):
             raise error_type("P15 open-label fetch receipt differs")

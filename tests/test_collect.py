@@ -10,7 +10,6 @@ import pytest
 
 from engine import collect
 from engine.lib import db
-from engine.lib.provenance import canonical_sha256
 from server import agent_evaluation, p15_incremental_collect, p15_price_fetch_attempts
 from tests.conftest import SESSIONS, insert_bars
 
@@ -225,13 +224,18 @@ def test_demoted_p15_ticker_keeps_exact_date_fetch_obligations_until_labeled(con
     assert {(row["ticker"], row["market_date"]) for row in obligations} == {
         ("AAA", market_date) for market_date in horizon_sessions[4:]
     }
-    for index, obligation in enumerate(obligations):
+    for obligation in obligations:
         p15_price_fetch_attempts.record_open_label_receipt(
             con, **obligation, requested_at=labeled_at - timedelta(minutes=1),
             completed_at=labeled_at, status="missing",
             outcome_reason=p15_price_fetch_attempts.OPEN_LABEL_MISSING_REASON,
-            request_sha256=canonical_sha256({"request": index}),
-            response_sha256=canonical_sha256({"missing": index}),
+            request_sha256=p15_price_fetch_attempts.open_label_request_sha256(
+                obligation["ticker"], obligation["provider_ticker"],
+                obligation["market_date"],
+            ),
+            response_sha256=(
+                p15_price_fetch_attempts.open_label_missing_response_sha256()
+            ),
         )
     p15_price_fetch_attempts.validate(con, ValueError)
     assert p15_price_fetch_attempts.open_label_obligations(
@@ -243,6 +247,12 @@ def test_demoted_p15_ticker_keeps_exact_date_fetch_obligations_until_labeled(con
             grace_through=SESSIONS[23],
         )
         assert outcome["missing_bar_status"] == "last_available_close"
+    con.execute(
+        "UPDATE p15_open_label_fetch_receipts SET request_sha256=? WHERE id=1",
+        ["0" * 64],
+    )
+    with pytest.raises(ValueError, match="open-label fetch receipt differs"):
+        p15_price_fetch_attempts.validate(con, ValueError)
 
 
 def test_exact_label_fetch_distinguishes_missing_from_ambiguous_empty():
@@ -283,6 +293,56 @@ def test_exact_label_fetch_distinguishes_missing_from_ambiguous_empty():
         obligation, requested_at=requested_at,
         history=lambda *_args: pd.DataFrame(), sleep=lambda _seconds: None,
     ) == (None, None)
+
+
+def test_open_label_exact_fetch_is_bounded_and_reports_deferred(monkeypatch, tmp_path):
+    database = tmp_path / "market.duckdb"
+    _setup_store(database, liquid=True)
+    market_date = date(2026, 9, 28)
+    con = db.connect(database)
+    con.execute(
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume) "
+        "VALUES ('AAA',?,100,101,99,100,1000)",
+        [market_date],
+    )
+    con.close()
+    obligations = [
+        {"ticker": f"OLD{index:02d}", "provider_ticker": f"OLD{index:02d}",
+         "market_date": market_date}
+        for index in range(p15_incremental_collect.MAX_OPEN_LABEL_FETCHES + 5)
+    ]
+    monkeypatch.setattr(
+        p15_incremental_collect.collect, "mode_incremental",
+        lambda *_args, **_kwargs: (1, 0),
+    )
+    monkeypatch.setattr(
+        p15_incremental_collect.collect, "write_meta", lambda *_args: None,
+    )
+    monkeypatch.setattr(
+        p15_incremental_collect.p15_price_fetch_attempts,
+        "open_label_obligations",
+        lambda *_args, **_kwargs: obligations,
+    )
+    calls = []
+
+    def missing(provider, start, end):
+        calls.append((provider, start, end))
+        raise p15_incremental_collect.YFPricesMissingError(
+            provider, "exact date", "No data found, symbol may be delisted",
+        )
+
+    result = p15_incremental_collect.run(
+        database, now=datetime(2026, 9, 29, 1, tzinfo=timezone.utc),
+        history=missing, sleep=lambda _seconds: None,
+    )
+
+    assert len(calls) == p15_incremental_collect.MAX_OPEN_LABEL_FETCHES
+    assert result["open_label_requested"] == len(obligations)
+    assert result["open_label_completed"] == len(calls)
+    assert result["open_label_missing"] == len(calls)
+    assert result["open_label_failed"] == 0
+    assert result["open_label_deferred"] == 5
+    assert result["open_label_outstanding"] == len(obligations)
 
 
 def test_backfill_checkpoints_state_and_releases_db(monkeypatch, tmp_path):
