@@ -14,10 +14,16 @@ SOURCE = "yfinance"
 
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     con.execute(
+        """CREATE TABLE IF NOT EXISTS p15_price_fetch_batches (
+        id BIGINT PRIMARY KEY, market_date DATE NOT NULL, attempted_at TIMESTAMP NOT NULL,
+        source VARCHAR NOT NULL, requested_count INTEGER NOT NULL,
+        failed_count INTEGER NOT NULL, batch_sha256 VARCHAR NOT NULL UNIQUE)"""
+    )
+    con.execute(
         """CREATE TABLE IF NOT EXISTS price_fetch_attempts (
         id BIGINT PRIMARY KEY, ticker VARCHAR NOT NULL, market_date DATE NOT NULL,
         attempted_at TIMESTAMP NOT NULL, source VARCHAR NOT NULL, status VARCHAR NOT NULL,
-        attempt_sha256 VARCHAR NOT NULL UNIQUE)"""
+        batch_sha256 VARCHAR NOT NULL, attempt_sha256 VARCHAR NOT NULL UNIQUE)"""
     )
 
 
@@ -48,23 +54,85 @@ def record(
         "SELECT COALESCE(MAX(id),0)+1 FROM price_fetch_attempts"
     ).fetchone()[0])
     attempted = attempted_at.astimezone(timezone.utc)
+    batch_identity = {
+        "market_date": market_date.isoformat(), "attempted_at": attempted.isoformat(),
+        "source": SOURCE, "requested_count": requested_count, "failed_count": failed_count,
+        "tickers": tickers,
+    }
+    batch_sha = canonical_sha256(batch_identity)
+    batch_id = int(con.execute(
+        "SELECT COALESCE(MAX(id),0)+1 FROM p15_price_fetch_batches"
+    ).fetchone()[0])
+    con.execute(
+        "INSERT INTO p15_price_fetch_batches VALUES (?,?,?,?,?,?,?)",
+        [batch_id, market_date, attempted.replace(tzinfo=None), SOURCE,
+         requested_count, failed_count, batch_sha],
+    )
     rows = []
     for offset, ticker in enumerate(tickers):
         status = "present" if ticker in present else "missing"
         identity = {
             "ticker": ticker, "market_date": market_date.isoformat(),
             "attempted_at": attempted.isoformat(), "source": SOURCE, "status": status,
+            "batch_sha256": batch_sha,
         }
         rows.append([
             next_id + offset, ticker, market_date, attempted.replace(tzinfo=None),
-            SOURCE, status, canonical_sha256(identity),
+            SOURCE, status, batch_sha, canonical_sha256(identity),
         ])
     if rows:
         con.executemany(
-            "INSERT INTO price_fetch_attempts VALUES (?,?,?,?,?,?,?)", rows,
+            "INSERT INTO price_fetch_attempts VALUES (?,?,?,?,?,?,?,?)", rows,
         )
     return {
         "status": "complete", "market_date": market_date.isoformat(),
         "attempt_count": len(rows), "present_count": len(present & set(tickers)),
         "missing_count": len(set(tickers) - present),
     }
+
+
+def validate(con: duckdb.DuckDBPyConnection, error_type) -> None:
+    """Replay every batch and row identity that can confirm a missing label."""
+    present = [
+        con.execute(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name=?", [name]
+        ).fetchone()[0] > 0
+        for name in ("p15_price_fetch_batches", "price_fetch_attempts")
+    ]
+    if not any(present):
+        return
+    if not all(present):
+        raise error_type("P15 price fetch attempt schema is incomplete")
+    for batch in con.execute(
+        "SELECT market_date,attempted_at,source,requested_count,failed_count,batch_sha256 "
+        "FROM p15_price_fetch_batches ORDER BY id"
+    ).fetchall():
+        market_date, attempted_at, source, requested, failed, batch_sha = batch
+        attempts = con.execute(
+            "SELECT ticker,status,attempt_sha256 FROM price_fetch_attempts "
+            "WHERE batch_sha256=? ORDER BY ticker", [batch_sha],
+        ).fetchall()
+        tickers = [row[0] for row in attempts]
+        batch_identity = {
+            "market_date": market_date.isoformat(),
+            "attempted_at": attempted_at.replace(tzinfo=timezone.utc).isoformat(),
+            "source": source, "requested_count": requested,
+            "failed_count": failed, "tickers": tickers,
+        }
+        if failed != 0 or requested != len(attempts) \
+                or canonical_sha256(batch_identity) != batch_sha:
+            raise error_type("P15 price fetch batch evidence differs")
+        for ticker, status, attempt_sha in attempts:
+            identity = {
+                "ticker": ticker, "market_date": market_date.isoformat(),
+                "attempted_at": attempted_at.replace(tzinfo=timezone.utc).isoformat(),
+                "source": source, "status": status, "batch_sha256": batch_sha,
+            }
+            has_bar = con.execute(
+                f"SELECT 1 FROM prices WHERE ticker=? AND date=? "
+                f"AND fetched_at<=? AND {REAL_BAR_SQL} LIMIT 1",
+                [ticker, market_date, attempted_at],
+            ).fetchone() is not None
+            if status not in {"present", "missing"} or (status == "missing" and has_bar) \
+                    or canonical_sha256(identity) != attempt_sha:
+                raise error_type("P15 price fetch attempt evidence differs")
