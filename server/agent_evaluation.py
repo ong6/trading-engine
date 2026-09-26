@@ -845,7 +845,7 @@ def validate_p15_evidence(
     p15_evidence_validation.enforce_bounds(con, EvaluationError)
     scoring_schema = _complete_schema(con, (
         "agent_evaluation_traces", "agent_evaluation_decisions", "agent_evaluation_labels_v2",
-        "p15_evaluation_looks",
+        "p15_evaluation_looks", "p15_evaluation_look_anchors",
     ), "scoring")
     preopen_schema = _complete_schema(con, (
         "p15_preopen_runs", "p15_preopen_decisions", "p15_preopen_news_responses",
