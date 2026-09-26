@@ -90,6 +90,9 @@ def _next_id(con: duckdb.DuckDBPyConnection, table: str) -> int:
 
 
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
+    from engine import p15_evaluation
+
+    p15_evaluation.init_look_schema(con)
     con.execute(
         """CREATE TABLE IF NOT EXISTS agent_evaluation_traces (
         id BIGINT PRIMARY KEY, schema_version INTEGER NOT NULL, window_id VARCHAR NOT NULL UNIQUE,
@@ -839,7 +842,8 @@ def validate_p15_evidence(
     generated_at = generated_at or datetime.now(timezone.utc)
     p15_evidence_validation.enforce_bounds(con, EvaluationError)
     scoring_schema = _complete_schema(con, (
-        "agent_evaluation_traces", "agent_evaluation_decisions", "agent_evaluation_labels_v2"
+        "agent_evaluation_traces", "agent_evaluation_decisions", "agent_evaluation_labels_v2",
+        "p15_evaluation_looks",
     ), "scoring")
     preopen_schema = _complete_schema(con, (
         "p15_preopen_runs", "p15_preopen_decisions", "p15_preopen_news_responses",

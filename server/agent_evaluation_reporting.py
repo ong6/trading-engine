@@ -28,6 +28,7 @@ from .agent_evaluation import (
     POLICIES,
     POLICY_EVALUATION_STARTS,
     in_evaluation_cohort,
+    init_schema,
     validate_p15_evidence,
 )
 
@@ -438,9 +439,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--p15-output", type=Path, default=DEFAULT_P15_OUTPUT)
     parser.add_argument("--contamination", type=Path, default=DEFAULT_CONTAMINATION)
     args = parser.parse_args(argv)
+    generated_at = datetime.now(timezone.utc)
+    con = db.connect(args.database)
+    try:
+        with db.transaction(con):
+            init_schema(con)
+            p15_evaluation.primary(
+                con, generated_at, persist_looks=True,
+            )
+    finally:
+        con.close()
     con = db.connect(args.database, read_only=True, wait_s=0)
     try:
-        report = build_report(con, generated_at=datetime.now(timezone.utc),
+        report = build_report(con, generated_at=generated_at,
                               contamination_path=args.contamination)
     finally:
         con.close()

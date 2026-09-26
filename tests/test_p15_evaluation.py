@@ -107,6 +107,43 @@ def test_fixed_looks_use_immutable_prefixes_and_terminal_rules():
     assert status == "kill" and looks[-1]["look"] == 120 and next_look is None
 
 
+def test_reached_look_is_persisted_once_and_tamper_evident(con, monkeypatch):
+    scored = [
+        {"delta_ic": 0.2 + (index % 3) * 0.01,
+         "model_ic": 0.3, "baseline_ic": 0.09, "pair_count": 40,
+         "evaluated_at": NOW.isoformat(),
+         "market_date": (date(2026, 1, 1) + timedelta(days=index)).isoformat()}
+        for index in range(60)
+    ]
+    registration_sha = "a" * 64
+    p15_evaluation.init_look_schema(con)
+
+    first = p15_evaluation.persist_reached_looks(
+        con, scored, registration_sha, evaluated_at=NOW,
+    )
+    retained = con.execute(
+        "SELECT result_payload,look_sha256 FROM p15_evaluation_looks"
+    ).fetchone()
+    monkeypatch.setattr(
+        p15_evaluation, "_look",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("look recomputed")),
+    )
+    replay = p15_evaluation.persist_reached_looks(
+        con, scored, registration_sha, evaluated_at=NOW,
+    )
+
+    assert first == replay
+    assert first[0]["look"] == 60 and first[0]["status"] == "pass"
+    assert con.execute("SELECT COUNT(*) FROM p15_evaluation_looks").fetchone() == (1,)
+    assert con.execute(
+        "SELECT result_payload,look_sha256 FROM p15_evaluation_looks"
+    ).fetchone() == retained
+
+    con.execute("UPDATE p15_evaluation_looks SET result_payload='{}'")
+    with pytest.raises(p15_evaluation.P15EvaluationError, match="look evidence differs"):
+        p15_evaluation.load_retained_looks(con, scored, registration_sha)
+
+
 def _primary_schema(con):
     con.execute("CREATE TABLE agent_evaluation_traces "
                 "(id BIGINT,market_date DATE,observed_at TIMESTAMP,policy_id VARCHAR)")
