@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta, timezone
 
+import numpy as np
 import pytest
 
 from engine import p15_evaluation
@@ -25,6 +26,65 @@ def test_newey_west_matches_existing_reference():
     values = [0.04, -0.01, 0.03, 0.02, -0.005, 0.01]
     expected = newey_west_t(values, lag=4)
     assert p15_evaluation.newey_west(values, lag=4) == pytest.approx(expected)
+
+
+def test_primary_interval_matches_hand_computed_hansen_hodrick_answer():
+    result = p15_evaluation._primary_interval([1.25, -0.75] * 30)
+
+    assert result["n"] == 60
+    assert result["mean"] == pytest.approx(0.25)
+    assert result["raw_long_run_variance"] == pytest.approx(14 / 15)
+    assert result["variance_inflation"] == pytest.approx(1.22502128663532)
+    assert result["long_run_variance"] == pytest.approx(1.143353200859632)
+    assert result["se"] == pytest.approx(0.13804306096647476)
+    assert result["critical_value"] == pytest.approx(2.17905062724369)
+    assert result["lower"] == pytest.approx(-0.05080281858563579)
+    assert result["upper"] == pytest.approx(0.5508028185856357)
+    assert result["variance_estimator"] == "hansen_hodrick"
+    assert result["kernel"] == "uniform" and result["lag"] == 4
+    assert result["fallback_used"] is False and result["df"] == 59
+
+
+def test_primary_standard_error_falls_back_only_for_nonpositive_hh_variance():
+    values = [-1, -1, -1, -1, -1, 0, -1, -1, -1]
+
+    result = p15_evaluation._primary_standard_error(values)
+    constant = p15_evaluation._primary_standard_error([1.0] * 60)
+
+    assert result["raw_long_run_variance"] == pytest.approx(46 / 2187)
+    assert result["variance_inflation"] == pytest.approx(8.904078604516508)
+    assert result["long_run_variance"] == pytest.approx(0.18728286045165035)
+    assert result["se"] == pytest.approx(0.1442539660350801)
+    assert result["variance_estimator"] == "newey_west"
+    assert result["kernel"] == "bartlett" and result["lag"] == 8
+    assert result["fallback_used"] is True
+    assert constant["se"] is None and constant["long_run_variance"] == 0
+
+
+def test_primary_three_look_simulation_controls_null_and_detects_planted_ic():
+    rng = np.random.default_rng(20260926)
+    false_passes = planted_passes = 0
+    trials = 10_000
+    for _ in range(trials):
+        shocks = rng.normal(0.0, 0.1, 124)
+        delta = np.convolve(shocks, np.ones(5) / 5, mode="valid")
+        for shift, counter in ((0.0, "null"), (0.03, "planted")):
+            scored = [
+                {"delta_ic": float(value + shift),
+                 "model_ic": float(value + shift), "baseline_ic": 0.0,
+                 "evaluated_at": NOW.isoformat(),
+                 "market_date": (
+                     date(2026, 1, 1) + timedelta(days=index)
+                 ).isoformat()}
+                for index, value in enumerate(delta)
+            ]
+            passed = p15_evaluation.evaluate_looks(scored)[0] == "pass"
+            if counter == "null":
+                false_passes += passed
+            else:
+                planted_passes += passed
+    assert false_passes <= 500
+    assert planted_passes >= 8_000
 
 
 def test_fixed_looks_use_immutable_prefixes_and_terminal_rules():
