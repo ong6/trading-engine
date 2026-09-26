@@ -846,6 +846,7 @@ def validate_p15_evidence(
     scoring_schema = _complete_schema(con, (
         "agent_evaluation_traces", "agent_evaluation_decisions", "agent_evaluation_labels_v2",
         "p15_evaluation_looks", "p15_evaluation_look_anchors",
+        "p15_price_fetch_batches", "price_fetch_attempts",
     ), "scoring")
     preopen_schema = _complete_schema(con, (
         "p15_preopen_runs", "p15_preopen_decisions", "p15_preopen_news_responses",
@@ -865,6 +866,8 @@ def validate_p15_evidence(
         return
     if preopen_schema and not book_schema:
         raise EvaluationError("P15 pre-open book schema is missing")
+    from server import p15_price_fetch_attempts
+    p15_price_fetch_attempts.validate(con, EvaluationError)
     p15_evidence_validation.validate_links(con, EvaluationError)
     p15_evidence_validation.validate_common_labels(
         con, generated_at, EvaluationError, _label_outcome,

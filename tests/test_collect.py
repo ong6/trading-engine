@@ -6,6 +6,7 @@ import json
 from datetime import date, timedelta
 
 import pandas as pd
+import pytest
 
 from engine import collect
 from engine.lib import db
@@ -120,6 +121,12 @@ def test_incremental_records_append_only_price_fetch_attempts(monkeypatch, tmp_p
         ("AAA", market_date, "present"), ("BBB", market_date, "missing"),
     ]
     assert _read(db_path, "SELECT COUNT(*) FROM prices WHERE ticker='BBB'") == [(0,)]
+    con = db.connect(db_path)
+    p15_price_fetch_attempts.validate(con, ValueError)
+    con.execute("UPDATE price_fetch_attempts SET status='present' WHERE ticker='BBB'")
+    with pytest.raises(ValueError, match="fetch attempt evidence differs"):
+        p15_price_fetch_attempts.validate(con, ValueError)
+    con.close()
 
 
 def test_p15_incremental_wrapper_withholds_failed_or_misdated_attempts(monkeypatch, tmp_path):

@@ -536,23 +536,27 @@ def test_missing_bar_fetch_attempt_confirms_after_grace(con):
         con, "FAST", sessions, labeled_at
     ) is None
     con.execute(
-        "INSERT INTO price_fetch_attempts VALUES (1,'FAST',?,?,'yfinance','failed',?)",
-        [sessions[-1], labeled_at.replace(tzinfo=None), "a" * 64],
+        "INSERT INTO price_fetch_attempts VALUES "
+        "(1,'FAST',?,?,'yfinance','failed',?,?)",
+        [sessions[-1], labeled_at.replace(tzinfo=None), "d" * 64, "a" * 64],
     )
     assert agent_evaluation._label_outcome_when_ready(
         con, "FAST", sessions, labeled_at
     ) is None
     future = labeled_at + timedelta(minutes=1)
     con.execute(
-        "INSERT INTO price_fetch_attempts VALUES (2,'FAST',?,?,'yfinance','missing',?)",
-        [sessions[-1], future.replace(tzinfo=None), "b" * 64],
+        "INSERT INTO price_fetch_attempts VALUES "
+        "(2,'FAST',?,?,'yfinance','missing',?,?)",
+        [sessions[-1], future.replace(tzinfo=None), "e" * 64, "b" * 64],
     )
     assert agent_evaluation._label_outcome_when_ready(
         con, "FAST", sessions, labeled_at
     ) is None
     con.execute(
-        "INSERT INTO price_fetch_attempts VALUES (3,'FAST',?,?,'yfinance','missing',?)",
-        [sessions[-1], (labeled_at - timedelta(minutes=1)).replace(tzinfo=None), "c" * 64],
+        "INSERT INTO price_fetch_attempts VALUES "
+        "(3,'FAST',?,?,'yfinance','missing',?,?)",
+        [sessions[-1], (labeled_at - timedelta(minutes=1)).replace(tzinfo=None),
+         "f" * 64, "c" * 64],
     )
 
     outcome = agent_evaluation._label_outcome_when_ready(
