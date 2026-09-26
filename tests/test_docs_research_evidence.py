@@ -25,7 +25,7 @@ MARKDOWN_LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)]+)\)")
 
 def test_current_docs_match_configured_league_and_replayable_counts():
     active_configs = [config for config in CONFIGS if config.get("active", True)]
-    active_portfolios = len(active_configs) + 1  # discretionary paper book
+    active_portfolios = len(active_configs) + 2  # discretionary and P8 paper books
     replayable = sum(
         walkforward_protocol.excluded_reason(config["id"], config["strategy"]) is None
         for config in active_configs
@@ -65,7 +65,8 @@ def test_docs_index_separates_live_authority_from_dated_snapshots():
 def test_root_readme_separates_current_evidence_from_dated_review():
     readme = " ".join((REPO_ROOT / "README.md").read_text().split())
 
-    assert "Current decision ledger: [`docs/strategy-research-backlog.md`]" in readme
+    assert "Product decisions and focus order: [`docs/product.md`]" in readme
+    assert "deterministic research queue is [`docs/strategy-research-backlog.md`]" in readme
     assert "Current runtime evidence comes from `GET /meta`" in readme
     assert "Dashboard prospective-evidence cards" in readme
     assert "and generated forward reports" in readme

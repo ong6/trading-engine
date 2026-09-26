@@ -902,4 +902,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +388, tools +318, tests +186; engine/farm/sim unchanged; budget ok.
 - **Next:** W7 remove superseded code and update product and operations documentation.
 
+## 2026-09-26 — P15 W7: align current documentation
+
+- **Why:** approved P15 W7 requires obsolete paths to be removed and current operations,
+  scope, product state, evidence locations, and activation safeguards to agree before W8.
+- **What:** confirm the superseded comparison code is already absent; retain still-used P5/P7
+  contracts and legacy evidence identifiers; document W0-W7, v5 observers, three inactive P15
+  books and timers, schema-v2 status/reporting, and the recovery-gated activation sequence.
+- **Evidence:** the documentation, operating-contract, and service-unit tests reach `[100%]`.
+- **Metrics:** code layers unchanged; documentation only; budget ok.
+- **Next:** W8 frozen registration, pre-activation dry run, and safe activation.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

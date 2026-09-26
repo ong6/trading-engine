@@ -3,16 +3,19 @@
 A paper-only trading research engine with an AI agent in the decision loop, running unattended on
 one always-on Linux host. No broker, no real money, and no credentials.
 
-- **Research engine.** Real market data in DuckDB, a nightly Minervini screen, **21 active paper
-  portfolios** (18 historically replayable rules) stepped against a conservative next-open fill
-  simulator, a weekly walk-forward, and three frozen forward records. So far nothing has beaten
-  its frozen control.
+- **Research engine.** Real market data in DuckDB, a nightly Minervini screen, **22 active paper
+  portfolios** plus three inactive P15 comparators, including 18 historically replayable rules,
+  a conservative next-open fill simulator, a weekly walk-forward, and three frozen forward
+  records. No policy has yet demonstrated a prospective gate pass against its frozen control.
 - **Nightly AI agent.** A model reviews the day's standouts and may act only through a locked
   simulator trade tool: deterministic code owns data admission, sizing, risk, fills, and halts.
   Hourly and four-hour variants run as shadow observers with no order authority.
 - **Evaluation ledger.** Every agent decision is recorded with its information cutoff, exact
   model/prompt/input identities, and later market outcomes, so each AI policy can be judged
   prospectively against its paired control.
+- **P15 evidence loop.** Candidate-wide scoring, equal-mechanics comparator books, a cancel-only
+  pre-open check, shadow event triggers, and coded profitability gates are built and reviewed but
+  remain inactive until the W8 activation checkpoint.
 - **North star:** [`docs/product.md`](docs/product.md) — an engine that runs on its own and
   makes money net of trading and data cost, with AI choosing and deterministic code in control.
 
@@ -20,7 +23,7 @@ Generated public data may be pushed only when the current branch has a configure
 `source_control` object in `GET /meta` is authoritative for the current tracking state;
 `local-only` means Git is not an off-machine backup.
 
-**Agents start at [`AGENTS.md`](AGENTS.md)** — the operating contract (maintain mode,
+**Agents start at [`AGENTS.md`](AGENTS.md)** — the operating contract (build toward a verdict,
 admission test, budgets). Humans: **[`docs/README.md`](docs/README.md)** — the documentation index
 and current strategy/evidence status. The operating guide is
 [`docs/how-it-works.md`](docs/how-it-works.md); plan status is in
@@ -31,8 +34,9 @@ and current strategy/evidence status. The operating guide is
 - Former live-readiness handoff (historical reference):
   [`docs/history/live-readiness-goal.md`](docs/history/live-readiness-goal.md) — the gates a
   future execution-layer plan would inherit. It does not authorize live trading.
-- Current decision ledger: [`docs/strategy-research-backlog.md`](docs/strategy-research-backlog.md),
-  including the ordered
+- Product decisions and focus order: [`docs/product.md`](docs/product.md). The deterministic
+  research queue is [`docs/strategy-research-backlog.md`](docs/strategy-research-backlog.md),
+  including its ordered
   [next admissible actions](docs/strategy-research-backlog.md#next-admissible-actions).
   Current runtime evidence comes from `GET /meta`, the Dashboard prospective-evidence cards,
   and generated forward reports. [`docs/history/review-2026-09-06.md`](docs/history/review-2026-09-06.md)
@@ -41,7 +45,8 @@ and current strategy/evidence status. The operating guide is
 - Build state + every decision and incident: [`BUILDLOG.md`](BUILDLOG.md) (entries before
   2026-09-18 and the 2026-09-19 C90 refactor series are in [`docs/history/`](docs/history/README.md)).
 - Latest completed nightly league standings: [`data/reports/league.md`](data/reports/league.md).
-- Historical replays of every book: [`data/reports/backtests/`](data/reports/backtests/).
+- P15 profitability gate report: [`data/reports/agent-eval/p15.md`](data/reports/agent-eval/p15.md).
+- Historical replays of the 18 replayable rules: [`data/reports/backtests/`](data/reports/backtests/).
 - Deterministic Sunday walk-forward re-validation:
   [`data/reports/walkforward/`](data/reports/walkforward/) — run by
   `engine/run_weekly_walkforward.sh`, not by the weekday nightly. The former autonomous model
@@ -109,12 +114,14 @@ curl -fsS http://127.0.0.1:8000/agent/data/independent-price-evidence
 curl -fsS http://127.0.0.1:8000/agent/fault-drills
 curl -fsS http://127.0.0.1:8000/agent/shadow/control # operator-controlled shadow schedule
 curl -fsS http://127.0.0.1:8000/daily-opportunities/status # P8 decisions, alerts, and paper state
+curl -fsS http://127.0.0.1:8000/agent/evaluation/status     # P8/P15 gates and trial register
+cat data/reports/agent-eval/p15.md                          # generated P15 evidence summary
 .venv/bin/python -m tools.verify_friday_postflight  # inspect Friday; publishing is opt-in
 ```
 
-The API, production UI, and six timers (agent data capture, agent shadow, daily, hourly, and
-four-hour opportunity agents, and the TradingView history archive) are enabled user units bound
-to local operation; the operating guide's agent-services table lists their schedules. The data timer retains normalized price and corporate-action
+The API, production UI, and six existing timers are enabled user units bound to local operation.
+Three P15 timers are registered in source but remain uninstalled and disabled until W8; the
+operating guide's agent-services table lists every schedule. The data timer retains normalized price and corporate-action
 observations, exact bounded future Yahoo and independent Nasdaq response bodies, and source
 observations derived from those exact bytes without a model;
 the shadow timer invokes a static worker through the local Trae proxy and remains gated by an explicit

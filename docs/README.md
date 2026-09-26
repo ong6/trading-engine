@@ -3,8 +3,8 @@
 Use this page to distinguish current operating truth from dated evidence. A date in a
 document filename or top-level title marks a snapshot: preserve it for provenance, but do
 not assume its counts, process state, or recommendations supersede the current guides. The
-undated strategy backlog is the current decision ledger; dates inside it label the historical
-measurements supporting those decisions, not the live runtime state.
+central product document is the current decision ledger; the strategy backlog is only the
+deterministic research queue, and dates inside it label historical measurements.
 
 ## Operating contract (read first if you are an agent)
 
@@ -98,6 +98,9 @@ measurements supporting those decisions, not the live runtime state.
   standings snapshot for active portfolios. Its companion `league.csv` is the complete historical
   equity export, including retired books; current between-run stale exposure comes from `/meta`,
   and none of these is proof of an edge.
+- [`../data/reports/agent-eval/p15.md`](../data/reports/agent-eval/p15.md) — generated P15
+  primary, comparator, pre-open, event, P8-readiness, and trial-count status. It is evidence,
+  never activation or promotion authority.
 - [`../data/reports/forward/sector_momentum.md`](../data/reports/forward/sector_momentum.md)
   — maturity-aware nightly check of the selected strategy's frozen 12-month kill rule,
   with an exact baseline-state and append-only execution-ledger checkpoint.

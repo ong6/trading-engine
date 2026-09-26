@@ -15,7 +15,8 @@ and stop consuming nightly steps, comparisons, and reader attention.
 ## Why now
 
 The 2026-09-02 evaluation ranked this second of its five actions and it has not happened;
-the league is still 21 books. Three pairs are byte-identical (each regime-gated twin has
+the eleven registered legacy retirement targets remain active. Three pairs are byte-identical
+(each regime-gated twin has
 the same equity, drawdown and fill count as its ungated book, so the gate has never fired in
 two months and the pair is one book counted twice). The own-model backtest grid already showed
 no stock-picking book beats equal-weight on any window of three years or more. Fewer books
@@ -45,7 +46,8 @@ Low-Volatility Defensive, EW Screen Inverse-Vol, Discretionary.
 
 Mechanics: one `sim/league.py` or SQL path that already exists for the archived agentic books
 (`active = FALSE`); the nightly league step and reports already filter on `active`. Update
-the root README count (21 → 10), `league.md` regenerates itself. Walk-forward keeps replaying
+the root README without assuming a final total because newer separately authorized books are
+outside this frozen eleven-book set; `league.md` regenerates itself. Walk-forward keeps replaying
 retired books only if the Sunday driver selects on `active`; confirm and leave it.
 
 ## Not in scope
@@ -58,10 +60,11 @@ retired books only if the Sunday driver selects on `active`; confirm and leave i
 
 ## Done when
 
-- `data/reports/league.md` shows 10 rows after the next nightly.
+- The exact eleven listed legacy books are inactive after the next nightly, and the total active
+  count is eleven below its pre-P2 value; separately authorized P8/P15/P7 books are unchanged.
 - `league.csv` still contains every retired book's history (row count for each retired book
   unchanged before and after).
-- `research.active_books` in the metrics snapshot reads 10.
+- `research.active_books` in the metrics snapshot falls by exactly eleven.
 - Forward reports for sector and XS unchanged in status, count and hashes.
 
 ## Budget

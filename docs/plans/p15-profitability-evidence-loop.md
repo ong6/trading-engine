@@ -49,8 +49,6 @@ Evidence from the 2026-09-25 review (live `/meta` 13:37 UTC and a code trace):
   day make every key ambiguous and it is dropped. Intraday labels
   (`server/agent_evaluation.py`, `label_after = observed_at.date()`) also enter one session later
   than nightly labels, so no pair ever matches.
-- **No comparator.** The "gap-volume + AI veto" lane in `server/daily_opportunity_read_models.py`
-  is recomputed for the latest run only. It has no book and no history.
 - **Idle capital and arbitrary exits.** P8 sizes at 10% with at most 3 positions, so at least 70%
   of the book is always idle cash. The stop is the signal-day low, which sat 19% below entry on
   FSLY.
@@ -284,8 +282,8 @@ new variant versions and a new cohort; v1–v4 evidence is never rewritten.
     label basis version.
   - Primary pairing uses the first window of each day per variant; all windows is secondary.
   - Add fixture tests reproducing the 2026-09-24 ambiguity and the entry-day mismatch.
-- **Veto lane:** delete the read-model-only gap-volume veto lane (P9 scope item 6) and its status
-  fields; W3's hybrid book replaces it. Update any status consumer and UI panel that shows it.
+- **Superseded comparison:** remove the read-model-only comparison and its status fields; W3's
+  durable hybrid book replaces it. Update any status consumer and UI panel that shows it.
 
 **W2: Scoring policy and baseline.**
 - Implement `p15-universe-v1`, `p15-scoring-v1`, and `p15-baseline-v1`.
@@ -352,8 +350,7 @@ collapse.
 - Broker code, connections, credentials, real capital, shorting, leverage, options, margin.
 - Intraday execution authority. Event triggers and observers stay shadow-only.
 - Changing P8 v1, the P7 contract, the three frozen forward records, or any league book (except
-  through P2's own plan). P15 supersedes P9 scope item 6 (the gap-volume veto lane) and changes
-  P9's observers only as W1 states, as new versions.
+  through P2's own plan). P15 changes P9's observers only as W1 states, as new versions.
 - Tuning any registered value after activation, reusing labels to tune prompts, or pooling
   evidence across versions.
 - Using TradingView data to price fills, set limits, or mutate operational prices. It may appear
@@ -440,7 +437,7 @@ only** (owner, 2026-09-25). Every other AGENTS.md rule still applies.
 | W4 Pre-open reassessment | done | 2026-09-26 |
 | W5 Event triggers | done | 2026-09-26 |
 | W6 Gates and reporting | done | 2026-09-26 |
-| W7 Cleanup and docs | not started | |
+| W7 Cleanup and docs | done | 2026-09-26 |
 | W8 Activation | not started | |
 
 ## Risks

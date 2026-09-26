@@ -156,32 +156,29 @@ does not satisfy the paid historical-universe gate.
 - Official realtime cross-check: Alpaca Basic is supported as an IEX-only research source after the
   owner accepts its data terms and supplies API credentials. It is not consolidated or execution truth.
 
-## Implemented product state — 2026-09-23
+## Implemented product state — 2026-09-26
 
-The locally buildable product is complete. Hourly and four-hour agents are shadow-only; the nightly
-agent can request one typed trade, but deterministic code validates the symbol, confidence, size,
-risk, next-open execution, and exits before the isolated US$10,000 simulator book changes. Every
-accepted call is locked, idempotent, append-only, and joined from source evidence through decision,
-tool attempt, order, fill, position, cash, equity, and delayed outcome. The hybrid policy remains a
-buy-side veto and cannot rewrite an order or suppress a sell.
+The P12 foundation is complete. Hourly and four-hour agents are shadow-only; the nightly P8 agent
+can request one typed simulator trade, but deterministic code validates the symbol, confidence,
+size, risk, next-open execution, and exits. P15 W0-W7 add pairable v5 observers, candidate-wide
+scoring, three inactive comparator books, cancel-only pre-open review, shadow events, and coded
+gates. Every accepted call remains locked, idempotent, append-only, and fully attributed.
 
-The forward dataset currently contains 11 retained traces and 42 decisions across active and legacy
-policies. The active v3 intraday cohort begins with the first scheduled post-open window; all
-currently possible 1/5/10/20-session labels remain immature because the
-prospective schedule activates on 2026-09-24; no result has been fabricated or promoted. The
-separate retrospective 2022 suite contains the original 8 named/blinded decisions and 12 diagnostic
-probe decisions, all marked contamination-prone and non-promotable.
+Current counts and policy versions come from `GET /agent/evaluation/status`,
+`data/reports/agent-evaluation.json`, and `data/reports/agent-eval/p15.md`, never this prose. The v5
+intraday cohort is current; v1-v4 remain immutable legacy evidence. No result has been fabricated
+or promoted. The retrospective 2022 suite remains contamination-prone and non-promotable.
 
-The algorithm fleet was revalidated as one 18/18 cohort against the same source, data snapshot,
-execution profile, and 2026-09-22 anchor. The canonical validator reports `current`, with no missing,
-invalid, duplicate, configuration-mismatched, or registration-mismatched result. This is historical
-context only and does not change any strategy or authorize capital.
+On 2026-09-23 the algorithm fleet was revalidated as one 18/18 cohort against the same source,
+data snapshot, execution profile, and 2026-09-22 anchor. That dated result is historical context;
+`GET /meta` is authoritative for whether later source changes make it stale, and no such result
+changes a strategy or authorizes capital.
 
-Operations are installed and self-tested: hourly, four-hour, and nightly timers are enabled and
-active; their latest service results are successful; installed files match source; the simulator
-self-test reports `pass` and `broker_route: absent`. The definitive recovery bundle is documented
-in the completion audit. Calendar-mature outcomes and the external gates above are the only remaining
-work; they are evidence collection or owner/vendor decisions, not missing implementation.
+The P8/P9 operations described by this document were installed and self-tested. Their completion
+audit records the recovery bundle that existed then; P15 requires a fresh bundle before its W8
+schema initialization and activation. Current service state comes from `GET /meta` and the service
+manager. P15 registration, activation, and first-run verification remain before its evidence loop
+can begin collecting.
 
 ## Optional market-data sources
 
@@ -192,10 +189,9 @@ observation exposes its feed, venue scope, event/receipt time, freshness class, 
 and receipt identity. Historical bars are explicitly retrieval-time observations written only to
 the bitemporal fact ledger; they cannot become point-in-time backtest truth without the existing PIT
 manifest audit. Missing credentials return `unavailable` without network or database access.
-The revised intraday policies were versioned as v3: they require a complete set of closed,
-no-more-than-20-minute-old five-minute bars and start after the open. The active v4 policies add the
-TradingView cross-check. Older v1–v3 artifacts remain immutable legacy diagnostics and are excluded
-from active policy scoring.
+The current v5 intraday policies require usable closed five-minute bars per candidate and retain
+unavailable candidates explicitly; they also use the TradingView cross-check. Older v1-v4 artifacts
+remain immutable legacy diagnostics and are excluded from active policy scoring.
 
 The Mathieu2301 Tradingview-API project was reviewed at upstream commit
 `5baea86c8c7e576f13464919c86c3b4c4b0ecf4c`. The runtime does not import that package; it implements

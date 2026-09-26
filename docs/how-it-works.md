@@ -302,8 +302,8 @@ flags any held name with a >40% one-session move and no corporate-actions row.
 
 ## The league
 
-The live store currently has **21 active paper portfolios**, all long-only and each with
-its own persisted initial capital and execution profile. 18 are historically
+The live store currently has **22 active paper portfolios** plus three initialized, inactive P15
+comparators. All are long-only with persisted initial capital and execution profiles. 18 are historically
 replayable rules. Three are intentionally excluded from historical walk-forward:
 `discretionary` needs human tickets, `pead_ear` lacks historical point-in-time earnings
 dates, and `macro_composite` lacks a historical point-in-time macro reconstruction. They
@@ -1452,11 +1452,12 @@ silently appearing to have no history. It also rejects portfolio-count metadata 
 with the standings response. The page visibly discloses either kind of truncation: a table beyond
 100 ranked books or a curve beyond its 500-observation window.
 
-## Agent services (P8, P9, P11, P13, P14)
+## Agent services (P8, P9, P11, P13, P14, P15)
 
-Six user-systemd timers run the AI agent and its research-data capture alongside the cron
-appliance. Unit files live in `server/*.service` / `server/*.timer`; each service runs one bounded
-command, prints one JSON result line, and has only local-simulator authority or none.
+Six user-systemd timers currently run the AI agent and research-data capture alongside cron.
+Three additional P15 timers are registered in source but remain uninstalled and disabled until W8.
+Unit files live in `server/*.service` / `server/*.timer`; each service runs one bounded command,
+prints one JSON result line, and has only local-simulator authority or none.
 
 | Timer | Schedule | Runs | Authority |
 |---|---|---|---|
@@ -1466,13 +1467,17 @@ command, prints one JSON result line, and has only local-simulator authority or 
 | `trading-engine-hourly-opportunity.timer` | Mon–Fri 10:15–16:15 America/New_York, hourly | `server/run_hourly_opportunity.sh hourly_market_watch_v5` (P15 shadow; P13 TradingView cross-check) | none |
 | `trading-engine-four-hour-opportunity.timer` | Mon–Fri 10:30 and 13:30 America/New_York | `server/run_hourly_opportunity.sh four_hour_opportunity_review_v5` (P15 shadow; P13 TradingView cross-check) | none |
 | `trading-engine-tradingview-history.timer` | 03:40, 07:40, 11:40, 15:40, 19:40, 23:40 UTC daily | `server/run_tradingview_history_archive.sh` (P14 bounded archive slice) | none (research facts only) |
+| `trading-engine-p15-scoring.timer` *(staged)* | 02:30 UTC Tue-Sat | three-sample candidate scoring, then refreshed JSON/P15 Markdown evaluation reports | local simulator only; gated by P15 activation |
+| `trading-engine-p15-preopen.timer` *(staged)* | 09:05 America/New_York weekdays | cancel-only reassessment of pending AI/hybrid entry intents | cancel only; cannot add, resize, reprice, or fill |
+| `trading-engine-p15-events.timer` *(staged)* | 09:35/09:50 and 10:05-15:50 at :05/:20/:35/:50 America/New_York | retained RSS, optional SEC 8-K, and intraday-mover shadow decisions | none |
 
 The two UTC agent timers, the daily timer, and the TradingView archive timer are
 `Persistent=true` (a missed run fires after the host wakes); the intraday timers are
-`Persistent=false`, so a missed window is not replayed.
+`Persistent=false`, so a missed window is not replayed. The staged P15 scoring timer is persistent;
+the staged pre-open and event timers are non-persistent.
 
 **Market-data sources (P13/P14).** The hourly wrapper preflights the optional
-`~/.config/trading-engine/market-data.env` and runs the v4 observer through
+`~/.config/trading-engine/market-data.env` and runs the v5 observer through
 `tools.market_data_source`. TradingView quotes and daily bars are active for internal research
 under the owner's asserted non-display rights; exact WebSocket transcripts are retained, stale
 snapshots stay ledger-only, and Alpaca remains dormant without credentials. The P14 archive advances
@@ -1481,16 +1486,27 @@ queue (nightly enqueue is a fallback to the timer). Neither source writes `price
 grants execution authority. Details: [`product-agent-research-platform.md`](product-agent-research-platform.md#optional-market-data-sources),
 [P13](plans/p13-market-data-source-hardening.md), [P14](plans/p14-tradingview-history-archive.md).
 
+**P15 flow.** The 02:30 scorer snapshots up to 40 positive movers and 20 distinct trend names,
+runs three retained samples per chunk, and feeds three identical-mechanics US$10,000 comparator
+books only after W8 activation. The 09:05 pre-open step can only cancel AI/hybrid entries before
+09:25. Intraday event windows retain RSS headlines, configured SEC 8-K filings, and thresholded
+movers; their decisions are shadow-only and capped at 60 per session. Both next-bar and
+next-session-open labels are append-only. The W6 projection applies the registered 60/90/120 IC
+looks, book comparison, P8 readiness, pre-open/event diagnostics, and bounded trial register.
+
 **Status.** `GET /daily-opportunities/status` (P8 runs, assessments, and simulator orders),
-`GET /agent/evaluation/status` (P11 ledger coverage and label maturity), and
+`GET /agent/evaluation/status` (P11 coverage plus validated P8/P15 gates and trial counts), and
 `GET /paper-trial/status` (P7 activation blockers). The P11 report is also published to
-`data/reports/agent-evaluation.json` after each daily run.
+`data/reports/agent-evaluation.json`; P15 also publishes `data/reports/agent-eval/p15.md` after its
+scoring run. Before W8, verify all six P15 units are absent and all three books are inactive.
 
 **Logs.** Output goes to the user journal:
 
 ```bash
 systemctl --user list-timers 'trading-engine-*'
 journalctl --user -u trading-engine-daily-opportunity.service -n 50 --no-pager
+journalctl --user -u trading-engine-p15-scoring.service \
+  -u trading-engine-p15-preopen.service -u trading-engine-p15-events.service -n 50 --no-pager
 ```
 
 **Disable.** Stop a service's future runs with
@@ -1498,6 +1514,31 @@ journalctl --user -u trading-engine-daily-opportunity.service -n 50 --no-pager
 `systemctl --user enable --now …`. The agent-only shadow additionally honours its persistent
 control (`server.agent_shadow_schedule disable --reason …`, described above). Disabling a timer
 never rewrites or retries a recorded decision.
+
+### P15 activation runbook
+
+P15 stays inert until its W8 registration commit names a future NYSE activation session. On the
+preceding full dry-run day, run the full suite in the host timezone and with `TZ=UTC`, publish the
+metrics snapshot and report, and verify `/agent/evaluation/status` says `p15: inactive`. Then:
+
+1. Confirm the worktree is clean, no queue job or producer lock is active, and all non-P15 active
+   books share one completed `sim_equity` checkpoint.
+2. Create and verify a fresh external recovery bundle with `tools.backup_database`.
+3. Run `.venv/bin/python -m tools.install_automation --apply` while P15 timers are still excluded from
+   `AUTOSTART_UNITS`; this installs the six source units without enabling them.
+4. Under the exclusive `.nightly.lock`, initialize the P15 scoring, pre-open, and event schemas;
+   recheck the three P15 contracts, zero runtime rows, and common checkpoint; then call
+   `sim.p15_books.activate_books` for that checkpoint in one transaction.
+5. Only after activation succeeds, deploy the separate activation commit that adds the scoring,
+   pre-open, and event timers to `AUTOSTART_UNITS`, rerun the installer, and verify each unit.
+6. Verify the first scoring, pre-open, and event windows plus the schema-v2 status and both reports
+   within three sessions before marking P15 active in product and plan status.
+
+Rollback disables the three P15 timers first, reverts the activation commit so they are removed
+from `AUTOSTART_UNITS`, verifies the recovery bundle, preserves the current store separately,
+restores through the standard database recovery procedure, and reapplies the installer before
+rechecking the existing six timers and non-P15 book checkpoint. Never delete or rewrite P15
+evidence rows to make an activation check pass.
 
 ## Viewing the UI from your Mac
 
@@ -1531,8 +1572,9 @@ Audit the installed units and cron configuration without changing the host:
 .venv/bin/python -m tools.install_automation
 ```
 
-Exit 0 means all six installed unit files match their versioned sources; the API, UI, shadow
-timer, and agent-data-capture timer are enabled and active; both workers remain static; user
+Exit 0 means all currently installed unit files match their versioned sources; staged P15 units
+are reported as changes until W8 installs them without autostart. The API, UI, shadow timer, and
+agent-data-capture timer are enabled and active; both workers remain static; user
 lingering is enabled for logout/reboot continuity; and the managed cron block is current. Exit 1
 with `changes-required` is a dry-run result; its `service_units` records show the observed
 `matches`, `enabled`, and `active` state, while `linger` reports `yes`, `no`, or fail-closed
@@ -1607,7 +1649,7 @@ destination, including one inserted during resolution or copying. It
 takes every scheduled-driver lock, the shared
 metadata lock, the queue-drain lock, and a dedicated backup lock without waiting. It uses DuckDB database-copy semantics while
 the source is read-only, verifies the copied catalog and every table count, and atomically
-publishes the bundle only after its database and three prospective-evidence checkpoints pass
+publishes the bundle only after its database and all manifest-declared prospective-evidence files pass
 hash and invariant checks. Schema v2 introduced exactly seven hashed operational artifacts:
 `data/_meta.json`, the Friday postflight receipt, `screens/latest.md`, the dated Markdown and CSV
 screen for the database's latest price date, and the Markdown and CSV league reports. They retain
