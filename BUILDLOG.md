@@ -938,4 +938,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +149, tools unchanged, product +616 (engine +238, farm +378); budget ok.
 - **Next:** W1 historical trial reconciliation, report integration, and independent review.
 
+## 2026-09-26 — P16 W0: complete P15 remediation
+
+- **Why:** approved P16 W0 admits R1–R16, its three W0 follow-ups, registration reissue, and the
+  pre-activation refine gate; the later R7b owner decision supersedes the original primary test.
+- **What:** close every reviewed correctness, look-ahead, statistics, recovery, and operations
+  finding; reissue inactive registration revision 2 with the fixed non-overlapping primary test
+  and 132-file executable closure. The final copied-store rehearsal produced 60 candidates,
+  18 attempted calls (`ceil(60/10) × 3`), `unavailable_count=0`, nine queued intents, and no fills.
+- **Evidence:** `./.venv/bin/pytest -q && TZ=UTC .venv/bin/pytest -q` → both reach `[100%]` and exit 0.
+- **Metrics:** since 2026-09-25, server +1,648, tools +515, product +4,205; budget ok.
+- **Next:** the lead may run the registered P15 activation sequence; W1 remains lead-owned.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
