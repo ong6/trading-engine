@@ -318,6 +318,54 @@ def test_event_runner_operates_without_an_rss_file(tmp_path, monkeypatch):
     con.close()
 
 
+def test_event_runner_releases_database_during_model_call(tmp_path, monkeypatch):
+    database = tmp_path / "market.duckdb"
+    con = db.connect(database)
+    observed, _fact_sha = _setup(con)
+    con.close()
+
+    monkeypatch.setattr(p15_event_runner, "LOCK_PATH", tmp_path / "p15.lock")
+    monkeypatch.setattr(p15_event_runner, "NIGHTLY_LOCK", tmp_path / "nightly.lock")
+    monkeypatch.delenv("TRADING_ENGINE_SEC_USER_AGENT", raising=False)
+    monkeypatch.setattr(
+        p15_event_sources,
+        "scan_intraday",
+        lambda _con, *, observed_at: {
+            "status": "complete",
+            "universe": 0,
+            "captured": 0,
+            "facts": 0,
+            "triggers": 0,
+            "failures": [],
+        },
+    )
+    observed_call_states = []
+
+    def generate(payload):
+        reader = db.connect(database, read_only=True, wait_s=0)
+        try:
+            observed_call_states.append(
+                reader.execute(
+                    "SELECT status FROM p15_event_calls ORDER BY id"
+                ).fetchall()
+            )
+        finally:
+            reader.close()
+        return _result(payload)
+
+    result = p15_event_runner.run_database(
+        database,
+        observed_at=observed,
+        rss_path=tmp_path / "missing.jsonl",
+        generate=generate,
+        clock=lambda: observed + timedelta(minutes=1),
+    )
+
+    assert observed_call_states == [[("running",)]]
+    assert result["status"] == "completed"
+    assert result["decisions"] == result["model_calls"] == 1
+
+
 def test_sec_rotation_eventually_covers_aliasing_cohort_size():
     names = [f"T{index}" for index in range(131)]
     windows = [(hour, minute) for hour in range(10, 16) for minute in (5, 20, 35, 50)]
