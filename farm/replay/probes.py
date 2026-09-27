@@ -212,6 +212,22 @@ def _binomial_cdf(k: int, n: int, probability: float) -> float:
     return min(1.0, math.exp(peak) * math.fsum(math.exp(value - peak) for value in logs))
 
 
+def fisher_upper(correct: int, total: int, null_correct: int, null_total: int) -> float:
+    """One-sided exact two-sample Fisher tail for greater historical recall."""
+    successes, combined = correct + null_correct, total + null_total
+    low = max(correct, successes - null_total)
+    high = min(total, successes)
+    denominator = _log_comb(combined, total)
+    logs = [
+        _log_comb(successes, value)
+        + _log_comb(combined - successes, total - value)
+        - denominator
+        for value in range(low, high + 1)
+    ]
+    peak = max(logs)
+    return min(1.0, math.exp(peak) * math.fsum(math.exp(value - peak) for value in logs))
+
+
 def clopper_pearson_upper(correct: int, total: int, alpha: float = 0.05) -> float:
     if not 0 <= correct <= total or total < 1:
         raise ProbeError("invalid_probe_score")
@@ -256,6 +272,52 @@ def score_responses(bank: Mapping, responses: Sequence[Mapping]) -> dict:
         "upper_95": clopper_pearson_upper(correct, total),
         "category_correct": dict(hits),
         "category_n": dict(counts),
+    }
+
+
+def score_month(
+    bank: Mapping,
+    responses: Sequence[Mapping],
+    measured_null: Mapping,
+    *,
+    planned_months: int,
+    positive_control_passed: bool,
+    identity_matches: bool,
+) -> dict:
+    result = score_responses(bank, responses)
+    if result["status"] != "valid":
+        return result
+    if not positive_control_passed or not identity_matches:
+        return {"status": "untestable", "reason": "control_or_identity"}
+    if measured_null.get("status") != "valid" or measured_null.get("n", 0) < (
+        PROBE_BASELINE_MINIMUM
+    ):
+        return {"status": "baseline_unverified"}
+    if not 1 <= planned_months <= 12:
+        raise ProbeError("invalid_planned_month_count")
+    tails = {
+        "overall": fisher_upper(
+            result["correct"], result["n"], measured_null["correct"], measured_null["n"]
+        )
+    }
+    for category in PROBE_CATEGORIES:
+        left, right = result["category_n"].get(category, 0), measured_null[
+            "category_n"
+        ].get(category, 0)
+        if left and right:
+            tails[category] = fisher_upper(
+                result["category_correct"].get(category, 0),
+                left,
+                measured_null["category_correct"].get(category, 0),
+                right,
+            )
+    alpha = 0.05 / (3 * planned_months)
+    return {
+        **result,
+        "status": "fail" if min(tails.values()) <= alpha else "inconclusive",
+        "month": bank["month"],
+        "fail_alpha_per_test": alpha,
+        "fail_p": tails,
     }
 
 
