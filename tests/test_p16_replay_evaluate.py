@@ -1,6 +1,8 @@
 """W4 replay endpoint, registration, and count-only report tests."""
+from datetime import datetime, timezone
+
 from farm.replay.evaluate import paired_notes_endpoint
-from farm.replay.registration import w4_registration
+from farm.replay.registration import admitted_grid, w4_registration
 from farm.replay.report import render_replay_report, write_replay_report
 
 
@@ -55,3 +57,16 @@ def test_report_contains_counts_not_raw_text(tmp_path):
     target = tmp_path / "replay.md"
     assert write_replay_report(target, snapshot) == target
     assert target.read_text() == rendered
+
+
+def test_post_cutoff_grid_uses_c_plus_60_decision_clock_and_fixed_two_thirds():
+    activation = datetime(2024, 3, 20, 1, 59, tzinfo=timezone.utc)
+    grid = admitted_grid("2024-01-01", activation)
+    assert grid["c_plus_60_floor"] == "2024-03-01"
+    assert grid["sessions"][0] == "2024-03-01"
+    assert grid["sessions"][-1] == "2024-03-18"
+    assert len(grid["development"]) == (2 * len(grid["sessions"])) // 3
+    assert grid["lockbox"][0] == grid["first_lockbox_session"]
+    assert set(grid["development"]).isdisjoint(grid["lockbox"])
+    unknown = admitted_grid(None, activation)
+    assert unknown["status"] == "unknown_cutoff" and unknown["sessions"] == []
