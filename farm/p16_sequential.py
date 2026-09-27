@@ -1,96 +1,238 @@
-"""One-sided bounded mixture sequential test for paired IC differences.
-
-For D in [-2,2] and each frozen bet lambda in [0,.5), 1+lambda*D
-is nonnegative and has conditional expectation <=1 under E[D|past]<=0.
-A fixed positive mixture of their product processes is a test supermartingale;
-Ville's inequality gives the .05 anytime crossing bound. Nonoverlap alone does
-not prove the conditional-mean null, and this is not a Gaussian plug-in test.
-"""
+"""Registered P16 bounded e-process and fixed-family promotion logic."""
 from __future__ import annotations
 
 import math
+from datetime import datetime
+from statistics import NormalDist
 
 import numpy as np
 
+from engine.lib.provenance import canonical_sha256
+
 ALPHA = 0.05
+FALLBACK_SD = 0.15
+GRID_POINTS = 21
+MIN_CALIBRATION_ORIGINS = 20
 OFFSETS = 5
-GRID_POINTS = 64
+TARGET_OBSERVATIONS = 50
 NULL = "conditional_mean_paired_ic_difference_nonpositive"
+SKIP_REASONS = {"fewer_than_20_candidates", "constant_scores"}
+REQUIRED_PROMOTION_CHECKS = {
+    "prospective_evidence", "identity_complete", "inventory_complete", "prefix_complete",
+    "dsr_probability_at_least_0_95", "mean_neutral_ic_positive", "mean_champion_ic_positive",
+}
 
 
-def _prior(mixing_variance: float) -> tuple[np.ndarray, np.ndarray]:
-    if isinstance(mixing_variance, bool) or not math.isfinite(mixing_variance) or mixing_variance <= 0:
-        raise ValueError("mixing variance must be positive, finite and frozen before labels")
-    bets = (np.arange(GRID_POINTS) + 0.5) / (2 * GRID_POINTS)
-    squared = bets * bets
-    with np.errstate(over="ignore"):
-        log_weights = -(squared - squared.min()) / (2 * mixing_variance)
-    log_weights -= np.log(np.exp(log_weights).sum())
-    return bets, log_weights
+def _time(value) -> datetime:
+    parsed = value if isinstance(value, datetime) else datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.utcoffset() is None:
+        raise ValueError("sequential timestamp requires an explicit timezone")
+    return parsed
 
 
-def mixture_test(differences, *, mixing_variance: float) -> dict:
-    """Evaluate one fixed chronological prefix with a discrete half-normal bet prior.
+def mixing_from_pre_activation(differences, origin_ids) -> dict:
+    """Freeze the 21-atom prior from >=20 distinct origins, else use s0=.15."""
+    values = np.asarray(differences, dtype=float)
+    origins = list(origin_ids)
+    if (values.ndim != 1 or len(values) != len(origins) or len(set(origins)) != len(origins)
+            or not np.all(np.isfinite(values)) or np.any(np.abs(values) > 2)):
+        raise ValueError("invalid preactivation paired-IC origins")
+    measured = len(values) >= MIN_CALIBRATION_ORIGINS
+    scale = max(float(np.std(values, ddof=1)), 0.01) if measured else FALLBACK_SD
+    tau2 = scale * scale / TARGET_OBSERVATIONS
+    normal = NormalDist()
+    theta = np.array([
+        math.sqrt(tau2) * normal.inv_cdf(0.5 + 0.5 * (index + 0.5) / GRID_POINTS)
+        for index in range(GRID_POINTS)
+    ])
+    atoms = np.minimum(0.49, theta / (scale * scale))
+    lambdas, counts = np.unique(atoms, return_counts=True)
+    body = {
+        "scale_sd": scale, "tau2": tau2, "target_observations": TARGET_OBSERVATIONS,
+        "grid_points": GRID_POINTS, "lambdas": lambdas.tolist(),
+        "weights": (counts / GRID_POINTS).tolist(), "origin_count": len(values),
+        "origin_ids": origins if measured else [],
+        "prior_source": "preactivation_paired_d" if measured else "registered_fallback",
+        "cap_mass": float(np.mean(atoms == 0.49)),
+    }
+    return {**body, "calibration_sha256": canonical_sha256(body)}
 
-    The variance controls the prior on bets, not an estimated null noise variance.
-    The runner must retain its preactivation calibration source and freeze it.
-    """
-    bets, prior = _prior(mixing_variance)
+
+def _mixture(mixture: dict) -> tuple[np.ndarray, np.ndarray]:
+    lambdas = np.asarray(mixture.get("lambdas"), dtype=float)
+    weights = np.asarray(mixture.get("weights"), dtype=float)
+    if (lambdas.ndim != 1 or lambdas.shape != weights.shape or not len(lambdas)
+            or not np.all(np.isfinite(lambdas)) or np.any(lambdas <= 0)
+            or np.any(lambdas >= 0.5) or not np.all(np.isfinite(weights))
+            or np.any(weights <= 0) or not np.isclose(weights.sum(), 1, atol=1e-12)):
+        raise ValueError("invalid frozen bounded mixture")
+    return lambdas, weights
+
+
+def mixture_test(differences, *, mixture: dict) -> dict:
+    """Recompute a chronological prefix in log space, retaining sufficient state."""
+    lambdas, weights = _mixture(mixture)
     values = np.asarray(differences, dtype=float)
     if values.ndim != 1 or not np.all(np.isfinite(values)) or np.any(np.abs(values) > 2):
         raise ValueError("paired IC differences must be finite and inside [-2,2]")
-    components = np.zeros(GRID_POINTS)
-    maximum = current = 0.0
-    first_crossing = None
+    components = np.zeros(len(lambdas))
+    path, maximum, first_crossing = [], 0.0, None
     for index, value in enumerate(values):
-        components += np.log1p(bets * value)
-        terms = prior + components
+        components += np.log1p(lambdas * value)
+        terms = np.log(weights) + components
         largest = float(terms.max())
         current = largest + math.log(float(np.exp(terms - largest).sum()))
+        path.append(current)
         maximum = max(maximum, current)
         if first_crossing is None and maximum >= -math.log(ALPHA):
             first_crossing = index
-    return {"method": "bounded_betting_mixture", "null": NULL, "alpha": ALPHA,
-            "mixing_variance": mixing_variance, "grid_points": GRID_POINTS,
-            "observations": len(values), "log_e_value": current,
-            "max_log_e_value": maximum, "log_anytime_p_bound": -maximum,
-            "rejected": first_crossing is not None, "first_crossing_index": first_crossing,
-            "status": "rejected" if first_crossing is not None else "collecting"}
+    current = path[-1] if path else 0.0
+    return {
+        "method": "bounded_positive_tilt_mixture", "null": NULL, "alpha": ALPHA,
+        "observations": len(values), "log_e": current, "max_log_e": maximum,
+        "log_e_path": path, "component_log_wealth": components.tolist(),
+        "always_valid_p": min(1.0, math.exp(-maximum)),
+        "unadjusted_crossing": first_crossing is not None,
+        "first_crossing_index": first_crossing,
+        "calibration_sha256": mixture.get("calibration_sha256"),
+        "input_sha256": canonical_sha256(values.tolist()),
+    }
 
 
-def by_session_offset(records: list[dict], *, mixing_variance: float) -> dict:
-    """Use frozen exchange-session indices; missing dates never renumber offsets.
-
-    A pending/invalid outcome blocks later consumption in that offset. Only
-    decision_unavailable (known before outcomes) may be skipped. Its provenance
-    is checked by the runner; future label absence is not such a decision.
-    """
-    indices = [row["session_index"] for row in records]
-    if any(type(index) is not int or index < 0 for index in indices) or len(set(indices)) != len(indices):
-        raise ValueError("session indices must be unique nonnegative exchange indices")
-    by_index = {row["session_index"]: row for row in records}
+def by_session_offset(records: list[dict], *, mixture: dict, epoch: int = 0) -> dict:
+    """Consume a complete exchange-session grid without repacking skips or gaps."""
+    indices = [row.get("session_index") for row in records]
+    if (type(epoch) is not int or any(type(index) is not int for index in indices)
+            or indices != list(range(epoch, epoch + len(indices)))):
+        raise ValueError("complete ordered exchange-session grid from epoch required")
     results = []
     for offset in range(OFFSETS):
-        prefix, consumed, skipped, blocked = [], [], [], None
-        for index in range(offset, max(indices, default=-1) + 1, OFFSETS):
-            row = by_index.get(index)
-            if row is None:
-                blocked = {"session_index": index, "reason": "missing_session_record"}
-                break
-            if row["status"] == "decision_unavailable":
-                skipped.append(row["session_index"])
+        values, consumed, skipped, inputs, blocked = [], [], [], [], None
+        for row in records[offset::OFFSETS]:
+            index, status = row["session_index"], row.get("status")
+            if status == "decision_unavailable":
+                if (row.get("reason") not in SKIP_REASONS
+                        or _time(row.get("decided_at")) >= _time(row.get("forward_entry_at"))):
+                    raise ValueError("skip is not a registered pre-outcome decision")
+                skipped.append(index)
                 continue
-            if row["status"] != "scored":
-                blocked = {"session_index": row["session_index"], "reason": row["status"]}
+            if status != "scored":
+                blocked = {"session_index": index, "reason": status or "missing_status"}
                 break
-            prefix.append(row["delta_ic"])
-            consumed.append(row["session_index"])
-        result = mixture_test(prefix, mixing_variance=mixing_variance)
+            digest = row.get("input_sha256")
+            if not isinstance(digest, str) or len(digest) != 64:
+                raise ValueError("scored origin input identity is invalid")
+            values.append(row["delta_ic"])
+            consumed.append(index)
+            inputs.append(digest)
+        result = mixture_test(values, mixture=mixture)
         crossing = result.pop("first_crossing_index")
-        result.update(offset=offset, consumed_session_indices=consumed,
-                      skipped_decision_indices=skipped, blocked_at=blocked,
-                      first_crossing_session_index=None if crossing is None else consumed[crossing],
-                      primary=offset == 0)
+        result.update(
+            offset=offset, primary=offset == 0, consumed_session_indices=consumed,
+            consumed_input_sha256s=inputs, skipped_decision_indices=skipped,
+            blocked_at=blocked,
+            first_crossing_session_index=None if crossing is None else consumed[crossing],
+        )
         results.append(result)
     return {"primary": results[0], "robustness": results[1:],
             "robustness_is_gating": False, "execution_authority": "none"}
+
+
+def _multiple(log_evalues, eligible, *, method: str) -> dict:
+    values, gate = np.asarray(log_evalues, float), np.asarray(eligible, bool)
+    if (values.ndim != 1 or gate.shape != values.shape or np.any(np.isnan(values))
+            or np.any(np.isposinf(values))):
+        raise ValueError("invalid family evidence")
+    screened, size = np.where(gate, values, -np.inf), len(values)
+    selected, threshold = np.zeros(size, bool), None
+    if method == "lifetime_e_bonferroni":
+        threshold = math.log(size / ALPHA) if size else None
+        selected = screened >= threshold if size else selected
+    elif method == "current_e_bh":
+        order = np.argsort(-screened, kind="stable")
+        passed = screened[order] >= np.log(size / (ALPHA * np.arange(1, size + 1)))
+        if passed.any():
+            count = int(np.flatnonzero(passed)[-1] + 1)
+            selected[order[:count]], threshold = True, math.log(size / (ALPHA * count))
+    else:
+        raise ValueError("unknown multiplicity method")
+    return {"selected": selected.tolist(), "log_threshold": threshold,
+            "rejection_count": int(selected.sum())}
+
+
+def common_report_e_test(
+    rows: list[dict], family_ids: list[str], report_at: str, *, origin_endpoint: int,
+    alpha_allocation_id: str, level: float = ALPHA,
+) -> dict:
+    """Compute lifetime e-Bonferroni and descriptive current e-BH at one cutoff."""
+    if level != ALPHA or not alpha_allocation_id:
+        raise ValueError("registered family alpha allocation must be 0.05")
+    if len(family_ids) != len(set(family_ids)):
+        raise ValueError("duplicate family ID")
+    mapped = {row.get("comparison_id"): row for row in rows}
+    if len(mapped) != len(rows) or set(mapped) != set(family_ids):
+        raise ValueError("incomplete or duplicate registered family")
+    ordered = [mapped[item] for item in family_ids]
+    if any(row.get("report_at") != report_at for row in ordered):
+        raise ValueError("e-values must share the common report time")
+    if any(row.get("origin_endpoint") != origin_endpoint for row in ordered):
+        raise ValueError("e-values must share the common origin endpoint")
+    checks = []
+    for row in ordered:
+        dsr, neutral, champion = (row.get("dsr_probability"), row.get("mean_neutral_ic"),
+                                  row.get("mean_champion_ic"))
+        checks.append({
+            "prospective_evidence": row.get("evidence_class") == "prospective",
+            "identity_complete": row.get("identity_complete") is True,
+            "inventory_complete": row.get("inventory_complete") is True,
+            "prefix_complete": row.get("prefix_complete") is True,
+            "dsr_probability_at_least_0_95": bool(dsr is not None and math.isfinite(dsr)
+                                                     and 0.95 <= dsr <= 1),
+            "mean_neutral_ic_positive": bool(neutral is not None and math.isfinite(neutral)
+                                                and neutral > 0),
+            "mean_champion_ic_positive": bool(champion is not None and math.isfinite(champion)
+                                                 and champion > 0),
+        })
+    gate = [all(check.values()) for check in checks]
+    current = np.asarray([row.get("log_e") for row in ordered], float)
+    maximum = np.asarray([row.get("max_log_e") for row in ordered], float)
+    if (np.any(~np.isfinite(current)) or np.any(~np.isfinite(maximum))
+            or np.any(maximum < np.maximum(0, current))):
+        raise ValueError("invalid current or running-maximum e-value")
+    lifetime = _multiple(maximum, gate, method="lifetime_e_bonferroni")
+    descriptive = _multiple(current, gate, method="current_e_bh")
+    return {
+        **lifetime, "promotion_basis": "lifetime_e_bonferroni", "level": level,
+        "alpha_allocation_id": alpha_allocation_id, "family_size": len(family_ids),
+        "comparison_ids": family_ids, "report_at": report_at,
+        "origin_endpoint": origin_endpoint, "eligibility_checks": checks,
+        "eligibility_mask": gate, "current_log_e": current.tolist(),
+        "max_log_e": maximum.tolist(),
+        "descriptive_ebh_selected": descriptive["selected"],
+        "descriptive_ebh_log_threshold": descriptive["log_threshold"],
+    }
+
+
+def candidate_for_promotion(common_report: dict, comparison_id: str) -> bool:
+    """Recompute the registered lifetime boundary; never trust stored selection."""
+    if (common_report.get("promotion_basis") != "lifetime_e_bonferroni"
+            or common_report.get("level") != ALPHA):
+        raise ValueError("promotion requires the registered lifetime e-Bonferroni report")
+    ids = common_report.get("comparison_ids")
+    if not isinstance(ids, list) or ids.count(comparison_id) != 1:
+        raise ValueError("comparison ID missing or duplicated")
+    index, size = ids.index(comparison_id), len(ids)
+    if common_report.get("family_size") != size:
+        raise ValueError("family size differs")
+    checks, masks, maxima = (common_report.get("eligibility_checks", []),
+                             common_report.get("eligibility_mask", []),
+                             common_report.get("max_log_e", []))
+    if not (len(checks) == len(masks) == len(maxima) == size):
+        raise ValueError("unaligned common report output")
+    row_checks = checks[index]
+    if set(row_checks) != REQUIRED_PROMOTION_CHECKS or any(type(v) is not bool for v in row_checks.values()):
+        raise ValueError("promotion eligibility checks differ")
+    eligible = all(row_checks.values())
+    if type(masks[index]) is not bool or masks[index] != eligible:
+        raise ValueError("stored eligibility mask differs")
+    return bool(eligible and maxima[index] >= math.log(size / ALPHA))
