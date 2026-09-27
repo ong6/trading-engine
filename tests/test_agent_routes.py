@@ -521,7 +521,7 @@ def test_agent_evaluation_status_delegates_and_closes_connection(monkeypatch):
 
     con = Connection()
     base = {"schema_version": 1, "status": "capturing"}
-    extra = {"p15": {"status": "collecting"}, "p8_evaluation": {},
+    extra = {"p15": {"status": "collecting"}, "p8_evaluation": {}, "p16": {},
              "trial_count_register": {}}
     monkeypatch.setattr(main, "read_con", lambda: con)
     monkeypatch.setattr(
@@ -532,10 +532,12 @@ def test_agent_evaluation_status_delegates_and_closes_connection(monkeypatch):
     monkeypatch.setattr(main.p15_evaluation, "project", lambda *_args, **_kwargs: {
         "p15": extra["p15"], "p8_evaluation": extra["p8_evaluation"],
     })
+    monkeypatch.setattr(main.p16_reporting, "project",
+                        lambda *_args, **_kwargs: extra["p16"])
     monkeypatch.setattr(main.agent_trial_register, "project",
                         lambda *_args, **_kwargs: extra["trial_count_register"])
 
-    assert main.agent_evaluation_status() == {**base, "schema_version": 2, **extra}
+    assert main.agent_evaluation_status() == {**base, "schema_version": 3, **extra}
     assert con.closed is True
 
 

@@ -53,6 +53,7 @@ from . import (
     meta_projection,
     order_read_models,
     p7_trial_status,
+    p16_reporting,
     paper_read_models,
     position_read_models,
     ticket_contract,
@@ -514,8 +515,9 @@ def agent_evaluation_status():
         try:
             generated_at = datetime.now(timezone.utc)
             agent_evaluation.validate_p15_evidence(con, generated_at)
-            return {**agent_evaluation.status(con), "schema_version": 2,
+            return {**agent_evaluation.status(con), "schema_version": 3,
                     **p15_evaluation.project(con, generated_at=generated_at),
+                    "p16": p16_reporting.project(con, generated_at=generated_at),
                     "trial_count_register": agent_trial_register.project(con, generated_at)}
         except (OSError, ValueError, agent_evaluation.EvaluationError) as exc:
             raise HTTPException(503, "agent evaluation status unavailable") from exc
