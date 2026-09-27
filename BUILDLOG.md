@@ -994,4 +994,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
   tools 7,996/8,850; sim 7,921/8,400; budget ok.
 - **Next:** build W1 evaluation science v2 from the conditionally accepted r3 design.
 
+## 2026-09-27 — P16 W1: complete evaluation science v2
+
+- **Why:** approved P16 W1 and the conditionally accepted evaluation v3 design admit the named
+  statistical core, durable evidence state, and P16 report/status projection.
+- **What:** complete factor-neutral IC, mSPRT, lifetime e-Bonferroni eligibility, canonical trial
+  accounting, deflated Sharpe, and transfer metrics. Persist typed inputs, origin outcomes,
+  sequential checkpoints, and family reports; extend the existing evaluation status with P16.
+- **Evidence:** `.venv/bin/pytest -q` → 3,754 passed; `TZ=UTC .venv/bin/pytest -q` → 3,686 passed.
+- **Metrics:** engine 15,782; farm 14,880; server 57,925; tools 7,996; sim 7,921; budget ok.
+- **Next:** build W2's inert eight-policy challenger lab from the retained P15 origin bundle.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

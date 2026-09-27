@@ -484,7 +484,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | Workstream | Status | Evidence (BUILDLOG date) |
 |---|---|---|
 | W0 Baseline, P15 remediation (R1–R16), P15 activation | **scheduled: dry-run on the 2026-09-28 session, activation per registration revision 3 on 2026-09-29**. Remaining: host/UTC suites, fresh copied-store dry-run, recovery bundle, book activation, AUTOSTART commit/install, and first-cycle checks through 2026-10-01. Lead: `p16-sol-lead` (GPT-5.6-Sol) | 2026-09-26 |
-| W1 Evaluation science v2 | mathematical core complete; durable snapshot/e-state/report integration in progress | 2026-09-27 |
+| W1 Evaluation science v2 | complete; accepted core, durable evidence, family report, and existing-status-surface projection are verified; nonessential adapter/census refinements are deferred at checkpoint | 2026-09-27 |
 | W2 Challenger lab | not started | |
 | W3 Filing reader | components complete, inert; `unconfigured` and activation blocked on baseline/conditional-fetch/scan-orchestrator review fixes | 2026-09-27 |
 | W4 Historical labs (text lab, replay lab) | not started | |
