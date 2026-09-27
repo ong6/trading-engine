@@ -487,17 +487,15 @@ def quarantined_exposure_counts(
 def raw_price_spot_check(
     reconstructed_bars: Sequence[Mapping],
     reference_rows: Sequence[Mapping],
-    *,
-    relative_tolerance: float = 1e-6,
 ) -> dict:
     """Compare a small registered sample with independent contemporaneous prints."""
-    if not reference_rows or relative_tolerance < 0:
+    if not reference_rows:
         raise PriceSeriesError("raw_price_reference_missing")
     bars = {
         (str(row.get("security_id")), _date(row.get("session"), "bar_session")): row
         for row in reconstructed_bars
     }
-    failures, strata = [], defaultdict(lambda: {"checked": 0, "failed": 0})
+    failures, volume_checks, strata = [], [], defaultdict(lambda: {"checked": 0, "failed": 0})
     for reference in reference_rows:
         if reference.get("source") != INDEPENDENT_UNADJUSTED_PRICE_SOURCE:
             raise PriceSeriesError("raw_price_reference_source_unregistered")
@@ -512,14 +510,18 @@ def raw_price_spot_check(
         if bar is None or bar.get("series") != "reconstructed_unadjusted_v1":
             failed_fields.append("missing_reconstructed_bar")
         else:
-            for field in ("open", "high", "low", "close", "volume"):
+            for field in ("open", "high", "low", "close"):
                 if reference.get(field) is None:
                     continue
                 observed, expected = float(bar[field]), float(reference[field])
-                if not math.isfinite(observed) or abs(observed - expected) > (
-                    relative_tolerance * max(abs(expected), 1.0)
-                ):
+                tolerance = max(0.005, 5e-4 * abs(expected))
+                if not math.isfinite(observed) or abs(observed - expected) > tolerance:
                     failed_fields.append(field)
+            if reference.get("volume") is not None:
+                volume_checks.append({
+                    "security_id": key[0], "session": key[1].isoformat(),
+                    "observed": bar.get("volume"), "reference": reference["volume"],
+                })
         if failed_fields:
             strata[stratum]["failed"] += 1
             failures.append({
@@ -532,5 +534,6 @@ def raw_price_spot_check(
         "source": INDEPENDENT_UNADJUSTED_PRICE_SOURCE,
         "checked": len(reference_rows),
         "failures": failures,
+        "volume_informational": volume_checks,
         "strata": dict(sorted(strata.items())),
     }

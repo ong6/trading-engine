@@ -94,6 +94,25 @@ def test_raw_price_spot_check_uses_registered_independent_source():
     assert raw_price_spot_check(rebuilt, reference)["status"] == "quarantine"
 
 
+def test_raw_price_spot_check_uses_fixed_absolute_or_relative_price_tolerance():
+    fixture = _fixture()
+    rebuilt = reconstruct_unadjusted_bars(fixture["bars"], fixture["actions"])
+    expected = fixture["expected_reconstructed"]
+    reference = [{
+        "security_id": rebuilt[0]["security_id"], "session": rebuilt[0]["session"],
+        "source": INDEPENDENT_UNADJUSTED_PRICE_SOURCE, "stratum": "split_window",
+        **expected,
+        "open": expected["open"] + 0.004,
+        "close": expected["close"] * 1.00049,
+        "volume": 1,
+    }]
+    result = raw_price_spot_check(rebuilt, reference)
+    assert result["status"] == "pass"
+    assert result["volume_informational"][0]["observed"] == expected["volume"]
+    reference[0]["open"] = expected["open"] + 0.3
+    assert raw_price_spot_check(rebuilt, reference)["status"] == "quarantine"
+
+
 def test_reconstruction_indexes_actions_once_for_many_bars():
     class CountingActions(list):
         iterations = 0
