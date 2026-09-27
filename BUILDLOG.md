@@ -1213,4 +1213,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm +207; server, tools, and other product layers unchanged; budget ok.
 - **Next:** run the complete W4 fixture suite, then the final full host/UTC suites and metrics.
 
+## 2026-09-27 — P16 W4: complete the inert historical labs checkpoint
+
+- **Why:** approved P16 W4 and the accepted v3 design require the named historical-lab surface
+  within 3,500 production lines, followed by an orchestrator checkpoint before any real-data run.
+- **What:** complete fixture-only collectors, frozen probe coverage/scoring/power, chronological
+  isolated P15 books, the reduced text lab, inert registration and count-only reports, actual
+  early-close clocks, and independent raw-price comparison. Keep SEC and text inference disabled.
+- **Evidence:** the complete W4 fixture suite and both `.venv/bin/python -m pytest -q` host/UTC
+  runs reach `[100%]`; the atomic-publication policy regression passes after its fix.
+- **Metrics:** farm +1,230 since W4a; W4 production Python is 2,819/3,500; budget ok.
+- **Next:** orchestrator review of checkpoint W4; no W4 producer may run before acceptance.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
