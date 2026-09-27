@@ -396,6 +396,14 @@ integrity; authority and safety).
     inputs and require an exact match.
   - Isolate the P16 status projection so its validation errors cannot make P15 status return 503.
   - Wire the primary kill status through a P16 adapter only; do not edit P15 registered files.
+  - Queue recovery-detected W5 exits in the recovery window itself, with a behavioural test. The
+    accepted W5 checkpoint instead queues them for the next constructed window, a bounded deviation
+    from the evaluation design during outage recovery.
+  - Guard W5 `process_through` so it recovers only sessions whose construction deadline has passed.
+  - Derive the W5 recovery cutoff from the price-fetch schedule, or skip recovery cleanly when that
+    day's close has not been fetched, instead of silently missing stops.
+  - Before W5 activation, freeze the cohort minimum and construction registration binding in the W9
+    registration.
   - Fix the seven pre-existing non-UTC tests at `tests/test_p15_evaluation.py` lines
     489/545/637/665/744/767/794 when the fix is outside P15's registration closure; otherwise
     document why they remain. Every checkpoint also runs the full suite under `TZ=Asia/Singapore`.
@@ -576,7 +584,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W2 Challenger lab | staged; implementation and inert timer complete, while the first P15 origin gates the timer-backed rehearsal, literal epoch, final family registration, and independent activation | |
 | W3 Filing reader | components complete, inert; `unconfigured` and activation blocked on baseline/conditional-fetch/scan-orchestrator review fixes | 2026-09-27 |
 | W4 Historical labs (text lab, replay lab) | blocked after inert guard groundwork: 1,949 of v3's 2,000 production-Python lines are used; sealed use-time authority and the remaining producer/report surface do not fit the remaining 51 lines. No producer has run | 2026-09-27 |
-| W5 Portfolio construction v2 | not started | |
+| W5 Portfolio construction v2 | complete; orchestrator accepted the inert construction path and its bounded recovery deviation; W9 owns the three pre-activation guards and the recovery-window exit follow-up | 2026-09-27 |
 | W6 Execution realism | not started | |
 | W7 Operator digest | not started | |
 | W8 Stage 2 design | not started | |

@@ -1116,4 +1116,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +23; server +111; sim +93; tools unchanged; product +116; budget ok.
 - **Next:** rerun immutable frozen-rubric reviews and full host/UTC suites.
 
+## 2026-09-27 — P16 W5: complete the inert construction checkpoint
+
+- **Why:** approved P16 W5 and the orchestrator's checkpoint acceptance admit the completed
+  causal construction path and its registered, bounded outage-recovery deviation.
+- **What:** keep cutoff-visible construction state, pre-open fill refusal, split-scaled ATR,
+  ordered recovery windows, and lot-keyed recovery exits. Completed retries rely on unique keys;
+  W9 now owns the accepted recovery-window exit correction and three pre-activation guards.
+- **Evidence:** `.venv/bin/python -m pytest -q tests/test_p16_books.py tests/test_p16_runner.py`
+  reaches `[100%]` with 28 passing tests.
+- **Metrics:** unchanged.
+- **Next:** complete the W4 guard fixes and simplified historical-lab implementation.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
