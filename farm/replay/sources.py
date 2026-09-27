@@ -24,6 +24,7 @@ from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
 
 from engine.lib import db
+from engine.lib.provenance import canonical_sha256
 from farm.replay.corpus import (
     capture_sha256,
     latest_completed_cursor,
@@ -217,6 +218,12 @@ def normalize_source_record(
             _instant(result["published_at"], "published_at")
             > result.get("capture_at", available)
         )
+    result["evidence_id"] = canonical_sha256({
+        "source": source, "source_id": result["source_id"],
+        "available_at_replay": available.isoformat(),
+        "availability_rule": rule, "headline": result["headline"],
+        "body_sha256": result.get("body_sha256"),
+    })
     return result
 
 
