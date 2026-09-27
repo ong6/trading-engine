@@ -6,6 +6,8 @@ import math
 import re
 from datetime import date, datetime, timezone
 
+import numpy as np
+
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
 from sim.schema import init_sim_schema
@@ -29,6 +31,226 @@ def _timestamp(value: datetime, field: str) -> datetime:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise P16BookError(f"{field} must be timezone-aware")
     return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _same_number(left: object, right: object) -> bool:
+    return (
+        isinstance(left, (int, float)) and not isinstance(left, bool)
+        and isinstance(right, (int, float)) and not isinstance(right, bool)
+        and math.isfinite(float(left)) and math.isfinite(float(right))
+        and math.isclose(float(left), float(right), rel_tol=1e-10, abs_tol=1e-12)
+    )
+
+
+def _validate_calibration_body(body: dict) -> tuple[float, float, int]:
+    """Recompute the retained cohort, cost maximum, curve, and lambda selection."""
+    from farm import p16_calibration
+    from sim import execution
+
+    snapshots = body.get("snapshots")
+    dates = body.get("snapshot_dates")
+    risk_ids = body.get("risk_snapshot_sha256s")
+    score_ids = body.get("score_snapshot_sha256s")
+    expected_grid = [float(value) for value in p16_calibration.DEFAULT_LAMBDA_GRID]
+    curve = body.get("curve")
+    if (body.get("schema_version") != 1 or body.get("status") != "calibrated"
+            or body.get("execution_authority") != "none"
+            or body.get("ic_source") != "registered_assumption"
+            or body.get("assumed_ic") != 0.03 or body.get("observed_ic_count") != 0
+            or body.get("solver_failure_policy") != "drop_lambda_on_any_case_failure"
+            or not isinstance(snapshots, list) or not snapshots
+            or not isinstance(curve, list) or len(curve) != len(expected_grid)):
+        raise P16BookError("P16 calibration artifact is invalid")
+
+    cases, observed_dates, observed_risk, observed_scores, all_costs = [], [], [], [], []
+    seen_snapshots = set()
+    for snapshot in snapshots:
+        if not isinstance(snapshot, dict):
+            raise P16BookError("P16 calibration snapshot is invalid")
+        snapshot_sha = _digest(snapshot.get("snapshot_sha256"), "snapshot digest")
+        snapshot_body = {
+            key: value for key, value in snapshot.items() if key != "snapshot_sha256"
+        }
+        if snapshot_sha != canonical_sha256(snapshot_body) or snapshot_sha in seen_snapshots:
+            raise P16BookError("P16 calibration snapshot is invalid")
+        seen_snapshots.add(snapshot_sha)
+        try:
+            market_date = date.fromisoformat(snapshot["market_date"])
+            scoring_cutoff = datetime.fromisoformat(
+                snapshot["scoring_information_cutoff_at"].replace("Z", "+00:00"),
+            )
+            sessions = [date.fromisoformat(value) for value in snapshot["sessions"]]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise P16BookError("P16 calibration snapshot is invalid") from exc
+        tickers = snapshot.get("tickers")
+        sectors = snapshot.get("sectors")
+        scores = snapshot.get("scores")
+        inputs = snapshot.get("solver_inputs")
+        previous = snapshot.get("previous_weights")
+        if (scoring_cutoff.tzinfo is None or scoring_cutoff.utcoffset() is None
+                or scoring_cutoff.astimezone(timezone.utc).date() < market_date
+                or len(sessions) != 121 or sessions != sorted(set(sessions))
+                or sessions[-1] != market_date or not isinstance(tickers, list)
+                or tickers != sorted(set(tickers)) or not tickers or "SPY" in tickers
+                or not isinstance(sectors, list) or len(sectors) != len(tickers)
+                or not isinstance(scores, dict) or not isinstance(inputs, dict)
+                or snapshot.get("previous_weight_source") != "initial_all_spy"
+                or previous != [*([0.0] * len(tickers)), 1.0]):
+            raise P16BookError("P16 calibration snapshot is invalid")
+        risk_sha = _digest(snapshot.get("risk_snapshot_sha256"), "risk snapshot digest")
+        score_sha = _digest(snapshot.get("score_snapshot_sha256"), "score snapshot digest")
+        for policy, book_id in zip(("champion", "rule"), LOGICAL_BOOK_IDS, strict=True):
+            policy_inputs = inputs.get(policy)
+            policy_scores = scores.get(policy)
+            try:
+                alpha = np.asarray(policy_inputs["alpha_h5"], dtype=float)
+                covariance = np.asarray(policy_inputs["covariance_h5"], dtype=float)
+                beta = np.asarray(policy_inputs["beta"], dtype=float)
+                score_values = np.asarray(policy_scores, dtype=float)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise P16BookError("P16 calibration snapshot is invalid") from exc
+            count = len(tickers)
+            if (alpha.shape != (count,) or covariance.shape != (count, count)
+                    or beta.shape != (count,) or score_values.shape != (count,)
+                    or not all(np.all(np.isfinite(value)) for value in (
+                        alpha, covariance, beta, score_values,
+                    ))):
+                raise P16BookError("P16 calibration snapshot is invalid")
+            cases.append({
+                "book_id": book_id, "alpha": alpha, "covariance": covariance,
+                "beta": beta, "sectors": sectors, "previous": previous,
+                "band": 0.005, "horizon_sessions": 5,
+                "snapshot_sha256": snapshot_sha,
+                "snapshot_date": market_date.isoformat(),
+                "risk_snapshot_sha256": risk_sha,
+                "score_snapshot_sha256": score_sha,
+            })
+        champion = inputs["champion"]
+        expected_risk = canonical_sha256({
+            "market_date": market_date.isoformat(), "tickers": tickers,
+            "sessions": [value.isoformat() for value in sessions],
+            "covariance_h5": champion["covariance_h5"],
+            "beta": champion["beta"], "sectors": sectors,
+        })
+        expected_score = canonical_sha256({
+            "champion": scores["champion"], "rule": scores["rule"],
+            "tickers": tickers,
+        })
+        if expected_risk != risk_sha or expected_score != score_sha:
+            raise P16BookError("P16 calibration snapshot identity differs")
+        cost_rows = snapshot.get("cost_rows")
+        if not isinstance(cost_rows, list):
+            raise P16BookError("P16 calibration cost evidence is invalid")
+        expected_keys = {
+            (ticker, side) for ticker in [*tickers, "SPY"] for side in ("buy", "sell")
+        }
+        observed_keys = {(row.get("ticker"), row.get("side")) for row in cost_rows}
+        if len(cost_rows) != len(expected_keys) or observed_keys != expected_keys:
+            raise P16BookError("P16 calibration cost evidence is incomplete")
+        for row in cost_rows:
+            ticker, side = row["ticker"], row["side"]
+            notional = 10_000.0 if ticker == "SPY" else 1_000.0
+            role = "core_financing" if ticker == "SPY" else "stock"
+            if (row.get("market_date") != market_date.isoformat()
+                    or row.get("execution_profile") != "baseline_v1"
+                    or row.get("role") != role
+                    or not _same_number(row.get("reference_notional"), notional)
+                    or not _same_number(
+                        float(row.get("qty", 0)) * float(row.get("open_px", 0)), notional,
+                    )):
+                raise P16BookError("P16 calibration cost evidence is invalid")
+            try:
+                replayed = execution.cost_components(
+                    "baseline_v1", side=side, qty=row["qty"], open_px=row["open_px"],
+                    median_dollar_volume=row["median_dollar_volume"],
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise P16BookError("P16 calibration cost evidence is invalid") from exc
+            if any(not _same_number(row.get(key), value) for key, value in replayed.items()):
+                raise P16BookError("P16 calibration cost evidence differs")
+            all_costs.append(float(replayed["total_bps"]) / 10_000)
+        observed_dates.append(market_date.isoformat())
+        observed_risk.append(risk_sha)
+        observed_scores.append(score_sha)
+
+    if (dates != observed_dates or dates != sorted(set(dates))
+            or risk_ids != observed_risk or score_ids != observed_scores):
+        raise P16BookError("P16 calibration cohort identity differs")
+    cost = body.get("cost_per_turnover")
+    expected_cost = max(all_costs)
+    if not _same_number(cost, expected_cost):
+        raise P16BookError("P16 calibration cost maximum differs")
+    for case in cases:
+        case["cost"] = expected_cost
+    recomputed = p16_calibration.calibrate_lambda(cases)
+    if (recomputed["status"] != "calibrated"
+            or not _same_number(body.get("selected_lambda"), recomputed["selected_lambda"])
+            or body.get("selected_at_grid_endpoint") != recomputed["selected_at_grid_endpoint"]
+            or body.get("grid_bounds") != recomputed["grid_bounds"]):
+        raise P16BookError("P16 calibration selection differs")
+    for observed, expected in zip(curve, recomputed["curve"], strict=True):
+        if (not _same_number(observed.get("risk_aversion"), expected["risk_aversion"])
+                or observed.get("status") != expected["status"]
+                or observed.get("eligible") != expected["eligible"]
+                or observed.get("failures") != expected["failures"]):
+            raise P16BookError("P16 calibration curve differs")
+        if expected.get("median_tracking_error") is None:
+            if observed.get("median_tracking_error") is not None:
+                raise P16BookError("P16 calibration curve differs")
+        elif any(not _same_number(observed["median_tracking_error"].get(book), value)
+                 for book, value in expected["median_tracking_error"].items()):
+            raise P16BookError("P16 calibration curve differs")
+        if "distance" in expected and not _same_number(
+            observed.get("distance"), expected["distance"],
+        ):
+            raise P16BookError("P16 calibration curve differs")
+        observed_cases = observed.get("cases")
+        if not isinstance(observed_cases, list) or len(observed_cases) != len(cases):
+            raise P16BookError("P16 calibration cases are incomplete")
+        for observed_case, expected_case in zip(
+            observed_cases, expected["cases"], strict=True,
+        ):
+            identity_keys = (
+                "case_index", "book_id", "snapshot_sha256", "snapshot_date",
+                "risk_snapshot_sha256", "score_snapshot_sha256", "status", "reason",
+            )
+            if any(observed_case.get(key) != expected_case.get(key) for key in identity_keys):
+                raise P16BookError("P16 calibration case differs")
+            if expected_case["tracking_error"] is None:
+                if observed_case.get("tracking_error") is not None:
+                    raise P16BookError("P16 calibration case differs")
+            elif not _same_number(
+                observed_case.get("tracking_error"), expected_case["tracking_error"],
+            ):
+                raise P16BookError("P16 calibration case differs")
+            if not _same_number(
+                observed_case.get("solve_seconds"), observed_case.get("solve_seconds"),
+            ) or float(observed_case["solve_seconds"]) < 0:
+                raise P16BookError("P16 calibration timing is invalid")
+        timings = observed.get("solve_timings")
+        if not isinstance(timings, list) or len(timings) != len(cases):
+            raise P16BookError("P16 calibration timing is incomplete")
+        if any(
+            timing.get("case_index") != case_row["case_index"]
+            or timing.get("book_id") != case_row["book_id"]
+            or not _same_number(timing.get("solve_seconds"), case_row["solve_seconds"])
+            for timing, case_row in zip(timings, observed_cases, strict=True)
+        ) or not _same_number(
+            observed.get("solve_seconds_total"),
+            sum(float(row["solve_seconds"]) for row in timings),
+        ):
+            raise P16BookError("P16 calibration timing differs")
+    selected_row = next(
+        row for row in recomputed["curve"]
+        if row["risk_aversion"] == recomputed["selected_lambda"]
+    )
+    expected_books = [{
+        "book_id": book, "status": "calibrated", "snapshot_count": len(snapshots),
+        "median_tracking_error": selected_row["median_tracking_error"][book],
+    } for book in LOGICAL_BOOK_IDS]
+    if body.get("books") != expected_books:
+        raise P16BookError("P16 calibration book summary differs")
+    return float(recomputed["selected_lambda"]), expected_cost, len(snapshots)
 
 
 def versioned_book_id(logical_book_id: str, registration_sha256: str) -> str:
@@ -130,8 +352,6 @@ def record_calibration(
     con, *, registration_sha256: str, payload: dict, recorded_at: datetime,
 ) -> str:
     """Retain one complete successful preactivation calibration artifact."""
-    from farm.p16_calibration import DEFAULT_LAMBDA_GRID
-
     init_schema(con)
     registration = _digest(registration_sha256, "registration digest")
     recorded = _timestamp(recorded_at, "calibration recording time")
@@ -139,32 +359,11 @@ def record_calibration(
         raise P16BookError("P16 calibration artifact is invalid")
     digest = _digest(payload.get("calibration_sha256"), "calibration digest")
     body = {key: value for key, value in payload.items() if key != "calibration_sha256"}
-    curve = body.get("curve")
-    dates = body.get("snapshot_dates")
-    risk_ids = body.get("risk_snapshot_sha256s")
-    score_ids = body.get("score_snapshot_sha256s")
-    selected = body.get("selected_lambda")
-    cost = body.get("cost_per_turnover")
-    expected_grid = [float(value) for value in DEFAULT_LAMBDA_GRID]
-    observed_grid = [row.get("risk_aversion") for row in curve] \
-        if isinstance(curve, list) else []
-    if (digest != canonical_sha256(body) or body.get("schema_version") != 1
-            or body.get("status") != "calibrated"
-            or body.get("execution_authority") != "none"
-            or observed_grid != expected_grid or selected not in expected_grid
-            or not any(row.get("eligible") is True and row.get("risk_aversion") == selected
-                       for row in curve)
-            or not isinstance(cost, (int, float)) or isinstance(cost, bool)
-            or not math.isfinite(float(cost)) or cost < 0
-            or not isinstance(dates, list) or len(dates) < 2
-            or dates != sorted(set(dates))
-            or not isinstance(risk_ids, list) or len(risk_ids) != len(dates)
-            or not isinstance(score_ids, list) or len(score_ids) != len(dates)
-            or any(re.fullmatch(r"[0-9a-f]{64}", value or "") is None
-                   for value in [*risk_ids, *score_ids])):
+    if digest != canonical_sha256(body):
         raise P16BookError("P16 calibration artifact is invalid")
+    selected, cost, snapshot_count = _validate_calibration_body(body)
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    expected = (registration, float(selected), float(cost), len(dates), encoded, recorded)
+    expected = (registration, selected, cost, snapshot_count, encoded, recorded)
     prior = con.execute(
         "SELECT registration_sha256,selected_lambda,cost_per_turnover,snapshot_count,"
         "payload_json,recorded_at FROM p16_calibrations WHERE calibration_sha256=?",

@@ -1,11 +1,14 @@
 """Persistence contracts for versioned P16 construction books."""
 from __future__ import annotations
 
+import copy
+import json
 from datetime import date, datetime, timezone
 
 import duckdb
 import pytest
 
+from engine.lib.provenance import canonical_sha256
 from server import p16_book_store
 from tests.conftest import record_p16_calibration
 
@@ -55,6 +58,40 @@ def test_contracts_use_full_registration_digest_and_remain_inactive():
     assert all(row["active"] is False for row in projection["books"])
     assert all(row["latest_target"] is None for row in projection["books"])
     assert projection["execution_authority"] == "none"
+
+
+def test_calibration_store_recomputes_selection_cases_and_cost_evidence():
+    source = duckdb.connect(":memory:")
+    digest = record_p16_calibration(source, REGISTRATION, NOW)
+    payload = json.loads(source.execute(
+        "SELECT payload_json FROM p16_calibrations WHERE calibration_sha256=?", [digest],
+    ).fetchone()[0])
+    source.close()
+
+    mutations = []
+    changed_case = copy.deepcopy(payload)
+    changed_case["curve"][0]["cases"][0]["tracking_error"] = 9.0
+    mutations.append(changed_case)
+    changed_cost = copy.deepcopy(payload)
+    changed_cost["cost_per_turnover"] = 0.987
+    mutations.append(changed_cost)
+    changed_ic = copy.deepcopy(payload)
+    changed_ic["assumed_ic"] = 0.9
+    mutations.append(changed_ic)
+    missing_case = copy.deepcopy(payload)
+    missing_case["curve"][0]["cases"].pop()
+    mutations.append(missing_case)
+
+    for mutated in mutations:
+        body = {key: value for key, value in mutated.items() if key != "calibration_sha256"}
+        mutated["calibration_sha256"] = canonical_sha256(body)
+        target = duckdb.connect(":memory:")
+        with pytest.raises(p16_book_store.P16BookError, match="calibration"):
+            p16_book_store.record_calibration(
+                target, registration_sha256=REGISTRATION,
+                payload=mutated, recorded_at=NOW,
+            )
+        target.close()
 
 
 def test_attempts_and_horizon_labels_are_separate_tables_with_p15_parity_columns():

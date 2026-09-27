@@ -8,6 +8,10 @@ import numpy as np
 from farm import p16_optimizer
 
 DEFAULT_LAMBDA_GRID = np.logspace(-1, 3, 17)
+CASE_METADATA = {
+    "book_id", "snapshot_sha256", "snapshot_date",
+    "risk_snapshot_sha256", "score_snapshot_sha256",
+}
 
 
 def calibrate_lambda(cases: list[dict], grid=None) -> dict:
@@ -25,7 +29,10 @@ def calibrate_lambda(cases: list[dict], grid=None) -> dict:
         tracking_errors = {book: [] for book in books}
         failures, timings, case_rows = [], [], []
         for case_index, case in enumerate(cases):
-            arguments = {key: value for key, value in case.items() if key != "book_id"}
+            arguments = {key: value for key, value in case.items() if key not in CASE_METADATA}
+            identity = {
+                key: case[key] for key in CASE_METADATA - {"book_id"} if key in case
+            }
             started = time.perf_counter()
             try:
                 result = p16_optimizer.solve(
@@ -40,7 +47,7 @@ def calibrate_lambda(cases: list[dict], grid=None) -> dict:
             elapsed = time.perf_counter() - started
             timings.append({
                 "case_index": case_index, "book_id": case["book_id"],
-                "solve_seconds": elapsed,
+                **identity, "solve_seconds": elapsed,
             })
             if result["status"] not in {"converged", "zero_alpha_core"}:
                 if not any(row["case_index"] == case_index for row in failures):
@@ -50,6 +57,7 @@ def calibrate_lambda(cases: list[dict], grid=None) -> dict:
                     })
                 case_rows.append({
                     "case_index": case_index, "book_id": case["book_id"],
+                    **identity,
                     "status": result["status"], "tracking_error": None,
                     "reason": next(row["reason"] for row in failures
                                    if row["case_index"] == case_index),
@@ -59,6 +67,7 @@ def calibrate_lambda(cases: list[dict], grid=None) -> dict:
                 tracking_errors[case["book_id"]].append(result["tracking_error"])
                 case_rows.append({
                     "case_index": case_index, "book_id": case["book_id"],
+                    **identity,
                     "status": result["status"],
                     "tracking_error": float(result["tracking_error"]),
                     "reason": None, "solve_seconds": elapsed,

@@ -65,49 +65,111 @@ def insert_bars(con, ticker, dates, *, open_=100.0, close=100.0, volume=1_000_00
 
 def record_p16_calibration(con, registration, recorded_at, *, cost=0.0005):
     """Retain a compact valid synthetic calibration for construction unit tests."""
-    from engine.lib.provenance import canonical_sha256
-    from farm.p16_calibration import DEFAULT_LAMBDA_GRID
-    from server import p16_book_store
+    import numpy as np
 
-    selected = float(DEFAULT_LAMBDA_GRID[7])
+    from engine.lib.provenance import canonical_sha256
+    from farm import p16_calibration
+    from server import p16_book_store
+    from sim import execution
+
+    del cost
     dates = [
         (recorded_at.date() - timedelta(days=1)).isoformat(),
         recorded_at.date().isoformat(),
     ]
-    curve = []
-    for value in DEFAULT_LAMBDA_GRID:
-        risk_aversion = float(value)
-        eligible = risk_aversion == selected
-        curve.append({
-            "risk_aversion": risk_aversion, "status": "converged",
-            "eligible": eligible,
-            "median_tracking_error": {
-                "p16_construct_ai": 0.05 if eligible else 0.03,
-                "p16_construct_rule": 0.05 if eligible else 0.03,
-            },
-            "distance": 0.0 if eligible else 0.02, "failures": [],
-            "solve_timings": [
-                {"case_index": 0, "book_id": "p16_construct_ai", "solve_seconds": 0.01},
-                {"case_index": 1, "book_id": "p16_construct_rule", "solve_seconds": 0.01},
-                {"case_index": 2, "book_id": "p16_construct_ai", "solve_seconds": 0.01},
-                {"case_index": 3, "book_id": "p16_construct_rule", "solve_seconds": 0.01},
-            ],
-            "solve_seconds_total": 0.04,
+    tickers = ["AAA", "BBB", "CCC", "DDD"]
+    sectors = ["a", "b", "c", "d"]
+    scores = {"champion": [4.0, 3.0, 2.0, 1.0], "rule": [1.0, 3.0, 4.0, 2.0]}
+    solver_inputs = {policy: {
+        "alpha_h5": [0.004] * 4,
+        "covariance_h5": (np.eye(4) * 0.002).tolist(), "beta": [1.0] * 4,
+    } for policy in scores}
+    snapshots = []
+    for market_date in dates:
+        end = date.fromisoformat(market_date)
+        session_values = [
+            (end - timedelta(days=offset)).isoformat() for offset in range(120, -1, -1)
+        ]
+        risk_sha = canonical_sha256({
+            "market_date": market_date, "tickers": tickers, "sessions": session_values,
+            "covariance_h5": solver_inputs["champion"]["covariance_h5"],
+            "beta": solver_inputs["champion"]["beta"], "sectors": sectors,
         })
+        score_sha = canonical_sha256({**scores, "tickers": tickers})
+        cost_rows = []
+        for ticker in [*tickers, "SPY"]:
+            notional = 10_000.0 if ticker == "SPY" else 1_000.0
+            for side in ("buy", "sell"):
+                components = execution.cost_components(
+                    "baseline_v1", side=side, qty=notional / 100, open_px=100,
+                    median_dollar_volume=100_000_000,
+                )
+                cost_rows.append({
+                    "market_date": market_date, "ticker": ticker,
+                    "role": "core_financing" if ticker == "SPY" else "stock",
+                    "side": side, "reference_notional": notional,
+                    "qty": notional / 100, "open_px": 100.0,
+                    "median_dollar_volume": 100_000_000.0,
+                    "execution_profile": "baseline_v1", **components,
+                })
+        snapshot_body = {
+            "market_date": market_date,
+            "scoring_information_cutoff_at": recorded_at.isoformat(),
+            "sessions": session_values, "tickers": tickers, "sectors": sectors,
+            "scores": scores, "solver_inputs": solver_inputs,
+            "risk_snapshot_sha256": risk_sha, "score_snapshot_sha256": score_sha,
+            "previous_weights": [0.0, 0.0, 0.0, 0.0, 1.0],
+            "previous_weight_source": "initial_all_spy", "cost_rows": cost_rows,
+        }
+        snapshots.append({
+            **snapshot_body, "snapshot_sha256": canonical_sha256(snapshot_body),
+        })
+    frozen_cost = max(
+        row["total_bps"] / 10_000
+        for snapshot in snapshots for row in snapshot["cost_rows"]
+    )
+    cases = []
+    for snapshot in snapshots:
+        for book_id, policy in zip(
+            p16_book_store.LOGICAL_BOOK_IDS, ("champion", "rule"), strict=True,
+        ):
+            values = solver_inputs[policy]
+            cases.append({
+                "book_id": book_id, "alpha": values["alpha_h5"],
+                "covariance": values["covariance_h5"], "beta": values["beta"],
+                "sectors": sectors, "previous": [0.0, 0.0, 0.0, 0.0, 1.0],
+                "cost": frozen_cost, "band": 0.005, "horizon_sessions": 5,
+                "snapshot_sha256": snapshot["snapshot_sha256"],
+                "snapshot_date": snapshot["market_date"],
+                "risk_snapshot_sha256": snapshot["risk_snapshot_sha256"],
+                "score_snapshot_sha256": snapshot["score_snapshot_sha256"],
+            })
+    calibrated = p16_calibration.calibrate_lambda(cases)
+    selected = calibrated["selected_lambda"]
+    selected_row = next(
+        row for row in calibrated["curve"] if row["risk_aversion"] == selected
+    )
     body = {
-        "schema_version": 1, "status": "calibrated", "selected_lambda": selected,
-        "selected_at_grid_endpoint": False, "grid_bounds": [0.1, 1000.0],
-        "curve": curve, "books": [
+        "schema_version": 1, **calibrated, "books": [
             {"book_id": "p16_construct_ai", "status": "calibrated",
-             "snapshot_count": 2, "median_tracking_error": 0.05},
+             "snapshot_count": 2,
+             "median_tracking_error": selected_row["median_tracking_error"][
+                 "p16_construct_ai"
+             ]},
             {"book_id": "p16_construct_rule", "status": "calibrated",
-             "snapshot_count": 2, "median_tracking_error": 0.05},
+             "snapshot_count": 2,
+             "median_tracking_error": selected_row["median_tracking_error"][
+                 "p16_construct_rule"
+             ]},
         ],
         "snapshot_dates": dates,
-        "risk_snapshot_sha256s": ["b" * 64, "d" * 64],
-        "score_snapshot_sha256s": ["c" * 64, "e" * 64],
-        "cost_per_turnover": cost, "ic_source": "registered_assumption",
-        "assumed_ic": 0.03, "execution_authority": "none",
+        "risk_snapshot_sha256s": [row["risk_snapshot_sha256"] for row in snapshots],
+        "score_snapshot_sha256s": [row["score_snapshot_sha256"] for row in snapshots],
+        "snapshots": snapshots, "cost_per_turnover": frozen_cost,
+        "ic_source": "registered_assumption", "assumed_ic": 0.03,
+        "observed_ic_count": 0,
+        "solver_failure_policy": "drop_lambda_on_any_case_failure",
+        "execution_authority": "none",
     }
     payload = {**body, "calibration_sha256": canonical_sha256(body)}
     return p16_book_store.record_calibration(
