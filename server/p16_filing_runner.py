@@ -17,7 +17,7 @@ from engine.lib.settings import DEFAULT_DB
 from engine.lib.util import table_exists
 from server import agent_model_client, p16_filing_client, p16_filing_store
 
-POLICY_ID = "p16-filings-v1"
+POLICY_ID = p16_filing_client.POLICY_ID
 MAX_MODEL_CALLS = 2
 ET = ZoneInfo("America/New_York")
 MODEL_LOCK = DEFAULT_DB.parent / ".p16-filing-model.lock"
@@ -47,9 +47,11 @@ def _p15_snapshot(con, cutoff: datetime) -> dict | None:
     if not table_exists(con, "p15_scoring_runs"):
         return None
     row = con.execute(
-        "SELECT id,market_date,universe_payload,universe_sha256,completed_at "
-        "FROM p15_scoring_runs WHERE status='completed' AND completed_at<=? "
-        "ORDER BY completed_at DESC,id DESC LIMIT 1", [cutoff.replace(tzinfo=None)],
+        "SELECT id,market_date,universe_payload,universe_sha256,"
+        "timezone('UTC',completed_at AT TIME ZONE current_setting('TimeZone')) "
+        "FROM p15_scoring_runs WHERE status='completed' AND "
+        "completed_at AT TIME ZONE current_setting('TimeZone')<=? "
+        "ORDER BY completed_at DESC,id DESC LIMIT 1", [cutoff],
     ).fetchone()
     if row is None:
         return None
@@ -237,8 +239,6 @@ def _validate_identity(result, request: dict) -> None:
 def _retryable(exc: Exception) -> bool:
     reason = str(exc).casefold()
     return "proxy is unavailable" in reason or "deadline exceeded" in reason
-def _response_payload(result) -> dict:
-    return asdict(result)
 def _error_payload(error: agent_model_client.ConnectorError) -> dict | None:
     payload = {"error": str(error), "response_id": getattr(error, "response_id", None),
                "request_sha256": getattr(error, "request_sha256", None), "response_sha256": getattr(error, "response_sha256", None),
@@ -340,13 +340,13 @@ def _score_pending_locked(database, *, now, session_date, generate, clock) -> di
                     raise error
                 _validate_identity(result, request)
                 output = p16_filing_client.validate_output(result.output, payload)
-                response = {**_response_payload(result), "output": output}
+                response = {**asdict(result), "output": output}
                 p16_filing_store.record_decision(
                     con, attempt_sha256=attempt, status="scored", decided_at=completed_at,
                     response_payload=response)
                 completed.append(work["work_id"])
             except (agent_model_client.ModelOutputError, FilingRunError) as exc:
-                response = (_response_payload(result) if result is not None
+                response = (asdict(result) if result is not None
                             else _error_payload(exc) if isinstance(
                                 exc, agent_model_client.ModelOutputError) else None)
                 p16_filing_store.record_decision(
