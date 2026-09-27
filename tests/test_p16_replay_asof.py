@@ -15,6 +15,7 @@ from farm.replay.asof import (
     label_price_point,
     label_split_normalized_return,
     quarantined_exposure_counts,
+    raw_price_spot_check,
     reconstruct_unadjusted_bars,
     split_adjustment_actions,
     split_known_at,
@@ -65,6 +66,21 @@ def test_reconstruction_is_independent_of_late_real_retrieval_clock():
         "source": INDEPENDENT_UNADJUSTED_PRICE_SOURCE,
         "status": "required_before_archive_admission",
     }
+
+
+def test_raw_price_spot_check_uses_registered_independent_source():
+    fixture = _fixture()
+    rebuilt = reconstruct_unadjusted_bars(fixture["bars"], fixture["actions"])
+    reference = [{
+        "security_id": rebuilt[0]["security_id"],
+        "session": rebuilt[0]["session"],
+        "source": INDEPENDENT_UNADJUSTED_PRICE_SOURCE,
+        "stratum": "split_window",
+        **fixture["expected_reconstructed"],
+    }]
+    assert raw_price_spot_check(rebuilt, reference)["status"] == "pass"
+    reference[0]["close"] += 1
+    assert raw_price_spot_check(rebuilt, reference)["status"] == "quarantine"
 
 
 def test_reconstruction_indexes_actions_once_for_many_bars():
