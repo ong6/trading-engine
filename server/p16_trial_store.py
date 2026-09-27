@@ -7,7 +7,7 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
 from farm import p16_trials
 
-TABLE = "p16_trial_register_v3"
+TABLE = "p16_trial_register_v4"
 
 
 def init_schema(con) -> None:

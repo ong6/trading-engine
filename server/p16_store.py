@@ -600,3 +600,157 @@ def sequential_prefix(
         else:
             result.append(decisions[0])
     return result
+
+
+def checkpoint_sequential(
+    con, *, registration_sha256: str, family_id: str, comparison_id: str,
+    trial_id: str, control_trial_id: str, epoch_session: date,
+    through_session_index: int, mixture: dict, recorded_at: datetime,
+) -> str:
+    """Persist recomputed sufficient e-process state through one origin."""
+    prefix = sequential_prefix(
+        con, registration_sha256=registration_sha256, family_id=family_id,
+        comparison_id=comparison_id, trial_id=trial_id,
+        control_trial_id=control_trial_id, epoch_session=epoch_session,
+        origin_endpoint=through_session_index, report_at=recorded_at,
+    )
+    if not prefix or prefix[-1]["status"] in {"pending", "invalid"}:
+        raise ValueError("P16 sequential checkpoint endpoint is not terminal")
+    key = f"{family_id}:{comparison_id}"
+    market_date = _session_at(epoch_session, through_session_index)
+    prior_rows = _artifacts_as_of(
+        con, generated_at=recorded_at, registration_sha256=registration_sha256,
+        artifact_kind="sequential_checkpoint", artifact_key=key,
+        through_market_date=market_date,
+    )
+    same = [row for row in prior_rows if row["market_date"] == market_date]
+    if same:
+        if len(same) != 1 or same[0]["payload"].get(
+                "calibration_sha256") != mixture.get("calibration_sha256"):
+            raise ValueError("P16 sequential checkpoint was replayed differently")
+        return same[0]["artifact_sha256"]
+    previous = prior_rows[-1] if prior_rows else None
+    state = p16_sequential.by_session_offset(
+        prefix, mixture=mixture, epoch_session=epoch_session,
+        report_at=recorded_at.isoformat(),
+    )
+    event_rows = con.execute(
+        "SELECT * FROM p16_sequential_origin_events WHERE registration_sha256=? "
+        "AND family_id=? AND comparison_id=? AND trial_id=? AND control_trial_id=? "
+        "AND epoch_session=? AND session_index<=? AND recorded_at<=? "
+        "ORDER BY session_index,event_kind",
+        [registration_sha256, family_id, comparison_id, trial_id, control_trial_id,
+         epoch_session, through_session_index, _timestamp(recorded_at, "recorded at")],
+    ).fetchall()
+    verified = [_sequential_row(row) for row in event_rows]
+    body = {
+        "schema_version": 1, "registration_sha256": registration_sha256,
+        "family_id": family_id, "comparison_id": comparison_id,
+        "trial_id": trial_id, "control_trial_id": control_trial_id,
+        "epoch_session": epoch_session.isoformat(),
+        "through_session_index": through_session_index,
+        "report_at": _aware(_timestamp(recorded_at, "recorded at")).isoformat(),
+        "calibration_sha256": mixture.get("calibration_sha256"),
+        "previous_checkpoint_sha256": None if previous is None
+        else previous["artifact_sha256"],
+        "origin_event_row_sha256s": [row["row_sha256"] for row in verified],
+        "sequential": state, "execution_authority": "none",
+    }
+    payload = {**body, "checkpoint_sha256": canonical_sha256(body)}
+    dependencies = [row["row_sha256"] for row in verified]
+    if previous is not None:
+        dependencies.insert(0, previous["row_sha256"])
+    dependencies.append(_digest(mixture.get("calibration_sha256"), "calibration digest"))
+    return _record_artifact(
+        con, registration_sha256=registration_sha256,
+        artifact_kind="sequential_checkpoint", artifact_key=key,
+        market_date=market_date, information_cutoff_at=recorded_at,
+        recorded_at=recorded_at, source_sha256=canonical_sha256(dependencies),
+        payload=payload,
+    )
+
+
+def record_family_report(
+    con, *, registration_sha256: str, payload: dict,
+    dependency_artifact_sha256s: list[str], recorded_at: datetime,
+) -> str:
+    """Persist one self-hashed family report and its exact source rows."""
+    _self_hash(payload, "report_sha256")
+    report_at = _payload_time(payload.get("report_at"), "family report cutoff")
+    family_id = _text(payload.get("family_id"), "family ID")
+    if (payload.get("evaluation_policy_id") != "p16-eval-v2"
+            or payload.get("registration_sha256") != registration_sha256
+            or payload.get("execution_authority") != "none"
+            or dependency_artifact_sha256s != sorted(set(dependency_artifact_sha256s))
+            or payload.get("dependency_artifact_sha256s") != dependency_artifact_sha256s):
+        raise ValueError("P16 family report identity differs")
+    dependencies = [_artifact_by_id(con, item, visible_at=report_at)
+                    for item in dependency_artifact_sha256s]
+    if not dependencies or any(
+            row["registration_sha256"] != registration_sha256 for row in dependencies):
+        raise ValueError("P16 family report dependencies differ")
+    previous_rows = _artifacts_as_of(
+        con, generated_at=report_at, registration_sha256=registration_sha256,
+        artifact_kind="family_report", artifact_key=family_id,
+    )
+    matching = [row for row in previous_rows
+                if row["payload"].get("report_sha256") == payload["report_sha256"]]
+    if matching:
+        if len(matching) != 1:
+            raise ValueError("P16 family report is duplicated")
+        return matching[0]["artifact_sha256"]
+    previous = previous_rows[-1] if previous_rows else None
+    expected_previous = None if previous is None else previous["artifact_sha256"]
+    if payload.get("previous_report_sha256") != expected_previous:
+        raise ValueError("P16 family report chain differs")
+    market_date = max(row["market_date"] for row in dependencies)
+    return _record_artifact(
+        con, registration_sha256=registration_sha256, artifact_kind="family_report",
+        artifact_key=family_id, market_date=market_date,
+        information_cutoff_at=report_at, recorded_at=recorded_at,
+        source_sha256=canonical_sha256([
+            *[row["row_sha256"] for row in dependencies],
+            *([] if previous is None else [previous["row_sha256"]]),
+        ]),
+        payload=payload,
+    )
+
+
+def family_report_as_of(
+    con, *, generated_at: datetime, registration_sha256: str | None = None,
+    expected_report_sha256: str | None = None,
+) -> dict | None:
+    """Return the latest visible family report after validating its exact chain."""
+    rows = _artifacts_as_of(
+        con, generated_at=generated_at, registration_sha256=registration_sha256,
+        artifact_kind="family_report",
+    )
+    if not rows:
+        return None
+    latest = rows[-1]
+    if expected_report_sha256 is not None \
+            and latest["artifact_sha256"] != _digest(
+                expected_report_sha256, "expected report digest"):
+        raise ValueError("P16 family report head differs")
+    by_id = {row["artifact_sha256"]: row for row in rows}
+    current, seen = latest, set()
+    while current is not None:
+        if current["artifact_sha256"] in seen:
+            raise ValueError("P16 family report chain is cyclic")
+        seen.add(current["artifact_sha256"])
+        _self_hash(current["payload"], "report_sha256")
+        dependencies = [_artifact_by_id(con, dependency, visible_at=generated_at)
+                        for dependency in current["payload"].get(
+                            "dependency_artifact_sha256s", [])]
+        previous = current["payload"].get("previous_report_sha256")
+        prior = None if previous is None else by_id.get(previous)
+        expected_source = canonical_sha256([
+            *[row["row_sha256"] for row in dependencies],
+            *([] if prior is None else [prior["row_sha256"]]),
+        ])
+        if current["source_sha256"] != expected_source:
+            raise ValueError("P16 family report dependencies differ")
+        current = prior
+        if previous is not None and current is None:
+            raise ValueError("P16 family report chain is incomplete")
+    return latest
