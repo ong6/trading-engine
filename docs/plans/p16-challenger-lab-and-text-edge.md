@@ -486,8 +486,8 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 
 | Workstream | Status | Evidence (BUILDLOG date) |
 |---|---|---|
-| W0 Baseline, P15 remediation (R1–R16), P15 activation | **remediation done (R1–R16, registration revision 2); P15 activation pending for the lead** | 2026-09-26 |
-| W1 Evaluation science v2 | in progress in the lead's `p16-lead` worktree: evaluation foundation and 33 tests pass; historical trial reconciliation, integration, and independent reviews remain | 2026-09-26 |
+| W0 Baseline, P15 remediation (R1–R16), P15 activation | **remediation done (R1–R16, registration revision 2); P15 activation pending for `p16-sol-lead` (GPT-5.6-Sol)** | 2026-09-26 |
+| W1 Evaluation science v2 | restarting in the live checkout from salvaged branches | 2026-09-26 |
 | W2 Challenger lab | not started | |
 | W3 Filing reader | not started | |
 | W4 Historical labs (text lab, replay lab) | not started | |
