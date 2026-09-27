@@ -2,8 +2,6 @@
 
 SPLIT_KNOWLEDGE_PRIMARY = "registered_ex_date_open_v1"
 SPLIT_KNOWLEDGE_SENSITIVITY = "registered_one_session_after_ex_date_v1"
-SPLIT_OBSERVATION_REGISTRATION_KEY = SPLIT_KNOWLEDGE_SENSITIVITY
-EARLIEST_EXACT_SPLIT_OBSERVATION_AT = "2026-07-29T00:00:00Z"
 INDEPENDENT_UNADJUSTED_PRICE_SOURCE = "alpha_vantage_time_series_daily_raw_v1"
 
 TRUSTED_SPLIT_OUTCOMES = frozenset({"applied", "noop_restated"})

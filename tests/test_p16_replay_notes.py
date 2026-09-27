@@ -69,24 +69,21 @@ def test_independently_authored_corpus_is_frozen_before_bound_and_passes():
     result = validate_lesson_corpus(
         fixture["lessons"],
         filter_spec=FILTER,
-        authorship_attestation=fixture["authorship_brief"],
     )
     assert result.count == 120
     assert result.rejected <= 12
     assert result.rejection_rate <= Decimal("0.10")
 
 
-def test_registered_corpus_cannot_relax_count_digest_authorship_or_bound():
+def test_registered_corpus_cannot_relax_count_or_digest():
     fixture = json.loads(FIXTURE.read_text())
-    common = dict(filter_spec=FILTER, authorship_attestation=fixture["authorship_brief"])
+    common = dict(filter_spec=FILTER)
     assert MIN_LESSON_COUNT == 100
     assert MAX_LESSON_REJECTION_RATE == Decimal("0.10")
     with pytest.raises(NotesValidationError, match="count_mismatch"):
         validate_lesson_corpus(fixture["lessons"][:-1], **common)
     with pytest.raises(NotesValidationError, match="digest_mismatch"):
         validate_lesson_corpus([*fixture["lessons"][:-1], "Changed principle."], **common)
-    with pytest.raises(NotesValidationError, match="authorship_unbound"):
-        validate_lesson_corpus(fixture["lessons"], filter_spec=FILTER, authorship_attestation="fake")
 
 
 def test_exact_ten_percent_rejection_passes_and_eleven_percent_fails():

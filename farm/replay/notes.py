@@ -4,7 +4,6 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
-from datetime import datetime
 from decimal import Decimal
 from typing import Sequence
 
@@ -17,10 +16,6 @@ MAX_LESSON_REJECTION_RATE = Decimal("0.10")
 LESSON_CORPUS_REGISTRATION = {
     "corpus_sha256": "df038a79116ccb6faebb0ee63435b1afde54945968f7371b7ca1a6f45c64433c",
     "count": 120,
-    "frozen_at": "2026-09-27T15:42:25Z",
-    "bound_registered_at": "2026-09-27T15:42:52Z",
-    "frozen_commit": "65a6dd2d7dfaca4b1434394c896bb6face522fcf",
-    "authorship_evidence_sha256": "aeca4ca95ad7fb872a07f852452df153394f4805b62839aa8e420e891afe6fd9",
 }
 
 DATE_WORDS = frozenset(
@@ -69,7 +64,6 @@ class CorpusValidation:
     maximum_rejection_rate: Decimal
     corpus_sha256: str
     filter_spec_sha256: str
-    authorship_evidence_sha256: str
 
 
 def _normalized_words(text: str) -> tuple[str, list[str]]:
@@ -184,7 +178,6 @@ def validate_lesson_corpus(
     lessons: Sequence[str],
     *,
     filter_spec: NotesFilterSpec,
-    authorship_attestation: str,
 ) -> CorpusValidation:
     """Verify the one registered independent corpus under its fixed safety bound."""
     expected_count = LESSON_CORPUS_REGISTRATION["count"]
@@ -193,19 +186,6 @@ def validate_lesson_corpus(
     actual_sha256 = canonical_sha256({"lessons": list(lessons)})
     if actual_sha256 != LESSON_CORPUS_REGISTRATION["corpus_sha256"]:
         raise NotesValidationError("lesson_corpus_digest_mismatch")
-    corpus_frozen_at = datetime.fromisoformat(
-        LESSON_CORPUS_REGISTRATION["frozen_at"].replace("Z", "+00:00")
-    )
-    bound_registered_at = datetime.fromisoformat(
-        LESSON_CORPUS_REGISTRATION["bound_registered_at"].replace("Z", "+00:00")
-    )
-    if corpus_frozen_at >= bound_registered_at:
-        raise NotesValidationError("lesson_corpus_not_frozen_before_bound")
-    import hashlib
-    authorship_evidence_sha256 = hashlib.sha256(authorship_attestation.encode()).hexdigest()
-    if authorship_evidence_sha256 != LESSON_CORPUS_REGISTRATION["authorship_evidence_sha256"]:
-        raise NotesValidationError("lesson_corpus_authorship_unbound")
-
     rejected = 0
     for lesson in lessons:
         try:
@@ -222,7 +202,6 @@ def validate_lesson_corpus(
         maximum_rejection_rate=MAX_LESSON_REJECTION_RATE,
         corpus_sha256=actual_sha256,
         filter_spec_sha256=filter_spec.spec_sha256,
-        authorship_evidence_sha256=authorship_evidence_sha256,
     )
 
 

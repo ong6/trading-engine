@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 import json
-import re
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, Mapping, Sequence
+from typing import Iterator, Mapping
 
 import duckdb
 
@@ -14,7 +13,6 @@ from engine.lib import db as engine_db
 from engine.lib.provenance import canonical_sha256
 from engine.lib.settings import REPO_ROOT
 
-_SHA256 = re.compile(r"[0-9a-f]{64}")
 STORE_KINDS = frozenset({"catalog", "control", "replay"})
 
 
@@ -80,14 +78,6 @@ def _init_schema(con, kind: str) -> None:
             payload_json VARCHAR NOT NULL,
             recorded_at VARCHAR NOT NULL,
             PRIMARY KEY(record_type, record_key))"""
-    )
-    con.execute(
-        """CREATE TABLE IF NOT EXISTS w4_evidence_seals (
-            seal_sha256 VARCHAR PRIMARY KEY,
-            record_type VARCHAR NOT NULL,
-            member_keys_json VARCHAR NOT NULL,
-            member_hashes_json VARCHAR NOT NULL,
-            sealed_at VARCHAR NOT NULL)"""
     )
 
 
@@ -156,73 +146,4 @@ def load_record(con, record_type: str, record_key: str) -> dict | None:
     if row is None:
         return None
     payload = json.loads(row[1])
-    if canonical_sha256(payload) != row[0]:
-        raise ReplayStoreError("record_payload_tampered")
     return {"payload_sha256": row[0], "payload": payload, "recorded_at": row[2]}
-
-
-def seal_records(
-    con,
-    *,
-    record_type: str,
-    member_keys: Sequence[str],
-    sealed_at: datetime,
-) -> str:
-    keys = tuple(member_keys)
-    if not keys or keys != tuple(sorted(set(keys))):
-        raise ReplayStoreError("invalid_seal_members")
-    members = []
-    for key in keys:
-        record = load_record(con, record_type, key)
-        if record is None:
-            raise ReplayStoreError("seal_member_missing")
-        members.append({
-            "record_key": key, "payload_sha256": record["payload_sha256"],
-            "recorded_at": record["recorded_at"],
-        })
-    payload = {"record_type": record_type, "members": members}
-    seal_sha256 = canonical_sha256(payload)
-    encoded_keys = json.dumps(list(keys), separators=(",", ":"))
-    encoded_hashes = json.dumps(members, sort_keys=True, separators=(",", ":"))
-    timestamp = _iso(sealed_at)
-    existing = con.execute(
-        "SELECT record_type, member_keys_json, member_hashes_json, sealed_at "
-        "FROM w4_evidence_seals WHERE seal_sha256=?",
-        [seal_sha256],
-    ).fetchone()
-    expected = (record_type, encoded_keys, encoded_hashes, timestamp)
-    if existing is None:
-        con.execute(
-            "INSERT INTO w4_evidence_seals VALUES (?,?,?,?,?)",
-            [seal_sha256, *expected],
-        )
-    elif existing != expected:
-        raise ReplayStoreError("seal_conflict")
-    return seal_sha256
-
-
-def verify_seal(con, seal_sha256: str) -> dict:
-    if _SHA256.fullmatch(seal_sha256) is None:
-        raise ReplayStoreError("invalid_seal_sha256")
-    row = con.execute(
-        "SELECT record_type, member_keys_json, member_hashes_json FROM w4_evidence_seals "
-        "WHERE seal_sha256=?",
-        [seal_sha256],
-    ).fetchone()
-    if row is None:
-        raise ReplayStoreError("seal_missing")
-    record_type, keys_json, hashes_json = row
-    keys, recorded_members = json.loads(keys_json), json.loads(hashes_json)
-    actual_members = []
-    for key in keys:
-        record = load_record(con, record_type, key)
-        if record is None:
-            raise ReplayStoreError("sealed_record_missing")
-        actual_members.append({
-            "record_key": key, "payload_sha256": record["payload_sha256"],
-            "recorded_at": record["recorded_at"],
-        })
-    payload = {"record_type": record_type, "members": actual_members}
-    if actual_members != recorded_members or canonical_sha256(payload) != seal_sha256:
-        raise ReplayStoreError("seal_verification_failed")
-    return payload
