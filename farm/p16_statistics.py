@@ -81,7 +81,8 @@ def paired_ic(challenger, control, outcomes, *, min_pairs=20) -> dict:
     count = int(mask.sum())
     result = {"status": "insufficient", "pair_count": count,
               "excluded_count": len(y) - count, "challenger_ic": None,
-              "control_ic": None, "delta_ic": None, "reason": "fewer_than_minimum_pairs"}
+              "control_ic": None, "delta_ic": None, "pair_mask": mask.tolist(),
+              "reason": "fewer_than_minimum_pairs"}
     if count < min_pairs:
         return result
     first, second = spearman(left[mask].tolist(), y[mask].tolist()), spearman(right[mask].tolist(), y[mask].tolist())
@@ -106,30 +107,101 @@ def expected_max_sharpe(trials: int, trial_sharpe_variance: float) -> float:
         + euler * normal.inv_cdf(1 - 1 / (trials * math.e)))
 
 
-def deflated_sharpe(returns, *, trials: int, trial_sharpe_variance: float | None,
-                    min_observations: int) -> dict:
-    """Use unannualised, comparable, nonoverlapping h5 returns and all-plans N.
+def top_quintile_return(rows: list[dict]) -> dict:
+    """Build one fixed top-quintile h5 sleeve without outcome-based reselection."""
+    tickers = [row.get("ticker") for row in rows]
+    if any(not isinstance(ticker, str) or not ticker for ticker in tickers) or len(set(tickers)) != len(tickers):
+        raise ValueError("top-quintile candidate identities are invalid")
+    scored = [row for row in rows if isinstance(row.get("score"), (int, float))
+              and not isinstance(row.get("score"), bool) and math.isfinite(row["score"])]
+    result = {"status": "insufficient", "eligible_count": len(rows), "scored_count": len(scored),
+              "selected_count": 0, "selected_tickers": [], "net_excess": None,
+              "uninvestable": [], "reason": "fewer_than_20_scored_names"}
+    if len(scored) < 20:
+        return result
+    selected = sorted(scored, key=lambda row: (-row["score"], row["ticker"]))[:len(scored) // 5]
+    result.update(selected_count=len(selected), selected_tickers=[row["ticker"] for row in selected])
+    statuses = {row.get("label_status") for row in selected}
+    if statuses != {"terminal"}:
+        result.update(status="pending" if statuses <= {"terminal", "pending"} else "invalid",
+                      reason="selected_labels_not_terminal")
+        return result
+    values = np.asarray([row.get("net_excess") for row in selected], dtype=float)
+    if not np.all(np.isfinite(values)):
+        result.update(status="invalid", reason="selected_label_nonfinite")
+        return result
+    result.update(status="available", reason=None, net_excess=float(values.mean()),
+                  uninvestable=[row["ticker"] for row in selected if row.get("uninvestable")])
+    return result
 
-    The caller supplies the frozen minimum and comparable cross-trial variance;
-    neither is inferred from the candidate's favourable outcome or its own variance.
-    """
+
+def comparable_trial_variance(rows: list[dict], *, candidate_trial_id: str) -> dict:
+    """Estimate cross-trial Sharpe variance only on one exact h5/date/cost basis."""
+    trial_ids = [row.get("trial_id") for row in rows]
+    if any(not isinstance(item, str) or not item for item in trial_ids) or len(set(trial_ids)) != len(trial_ids):
+        raise ValueError("comparable trial identities are invalid")
+    matches = [row for row in rows if row.get("trial_id") == candidate_trial_id]
+    if len(matches) != 1:
+        raise ValueError("candidate trial is missing or duplicated")
+    candidate = matches[0]
+    dates = candidate.get("observation_dates")
+    basis = (dates, candidate.get("horizon"), candidate.get("cost_basis"))
+    if not isinstance(dates, list) or len(dates) != len(set(dates)) or basis[1] != 5:
+        raise ValueError("candidate comparison basis is invalid")
+    sharpes, included, excluded = [], [], {}
+    for row in rows:
+        row_basis = (row.get("observation_dates"), row.get("horizon"), row.get("cost_basis"))
+        if row_basis != basis:
+            excluded[row.get("trial_id")] = "incompatible_dates_horizon_or_cost"
+            continue
+        returns = _vector(row.get("returns"))
+        if len(returns) != len(dates) or not np.all(np.isfinite(returns)):
+            raise ValueError("comparable trial return series is invalid")
+        sd = float(np.std(returns, ddof=1)) if len(returns) > 1 else 0.0
+        if sd <= 1e-15:
+            excluded[row.get("trial_id")] = "zero_variance"
+            continue
+        sharpes.append(float(returns.mean() / sd))
+        included.append(row["trial_id"])
+    variance = float(np.var(sharpes, ddof=1)) if len(sharpes) >= 2 else None
+    available = variance is not None and variance > 0
+    return {"status": "available" if available else "dispersion_unavailable",
+            "compatible_trial_count": len(sharpes), "inventory_rows": len(rows),
+            "compatibility_coverage": len(sharpes) / len(rows) if rows else 0.0,
+            "trial_sharpe_variance": variance if available else None,
+            "compatible_trial_ids": included, "excluded": excluded,
+            "observation_dates": dates, "horizon": basis[1], "cost_basis": basis[2]}
+
+
+def deflated_sharpe(returns, *, trial_inventory: dict, dispersion: dict) -> dict:
+    """Apply fixed-T DSR using all-plan N and compatible cross-trial dispersion."""
     series = _vector(returns)
     if not np.all(np.isfinite(series)):
         raise ValueError("nonfinite DSR return; do not silently remove periods")
-    if type(min_observations) is not int or min_observations < 4:
-        raise ValueError("DSR minimum must be a registered integer of at least four")
-    expected_max_sharpe(trials, 0.0 if trial_sharpe_variance is None else trial_sharpe_variance)
+    trials = trial_inventory.get("selection_trial_count")
+    digest = trial_inventory.get("register_sha256")
+    if (type(trials) is not int or trials < 1 or not isinstance(digest, str)
+            or len(digest) != 64):
+        raise ValueError("canonical trial inventory is invalid")
+    variance = dispersion.get("trial_sharpe_variance")
+    expected_max_sharpe(trials, 0.0 if variance is None else variance)
     result = {"status": "insufficient", "observations": len(series), "trials": trials,
+              "compatible_trials": dispersion.get("compatible_trial_count"),
+              "trial_sharpe_variance": variance, "register_sha256": digest,
               "probability": None, "sharpe": None, "sr0": None,
               "skew": None, "pearson_kurtosis": None,
               "method": "bailey_lopez_de_prado_approximation",
-              "minimum_observations": min_observations}
-    if len(series) < min_observations:
+              "minimum_observations": 60}
+    if trial_inventory.get("status") != "complete":
+        result["status"] = "inventory_incomplete"
         return result
-    if trials > 1 and (trial_sharpe_variance is None or trial_sharpe_variance <= 0):
+    if len(series) < 60:
+        return result
+    if trials > 1 and (dispersion.get("status") != "available" or variance is None or variance <= 0
+                       or dispersion.get("compatible_trial_count", 0) < 2):
         result["status"] = "dispersion_unavailable"
         return result
-    benchmark = expected_max_sharpe(trials, trial_sharpe_variance or 0.0)
+    benchmark = expected_max_sharpe(trials, variance or 0.0)
     result["sr0"] = benchmark
     sd = float(np.std(series, ddof=1))
     if sd <= 1e-15:
@@ -164,8 +236,8 @@ def implied_active_weights(scores, residual_volatility, *, positive_ic: bool) ->
     return (active / np.abs(active).sum()).tolist()
 
 
-def transfer_coefficient(implied_active, actual_active) -> float | None:
-    """Pearson correlation of aligned active weights, including core and cash."""
+def weight_pearson_tc(implied_active, actual_active) -> float | None:
+    """Legacy full-instrument Pearson diagnostic, including SPY and cash."""
     left, right = map(_vector, (implied_active, actual_active))
     if left.shape != right.shape or not all(np.all(np.isfinite(v)) for v in (left, right)):
         raise ValueError("unaligned or nonfinite active weights")
@@ -174,3 +246,53 @@ def transfer_coefficient(implied_active, actual_active) -> float | None:
     left, right = left - left.mean(), right - right.mean()
     denominator = np.linalg.norm(left) * np.linalg.norm(right)
     return None if denominator <= 1e-15 else float(np.clip(left @ right / denominator, -1, 1))
+
+
+def transfer_coefficient(scores, active_volatility, stock_active_weights, *,
+                         positive_ic: bool, held_unscored_weight: float = 0.0) -> dict:
+    """Primary stock-only diagonal-risk TC: corr(z, sigma * active weight)."""
+    score, sigma, active = map(_vector, (scores, active_volatility, stock_active_weights))
+    result = {"status": "unavailable", "tc_diagonal": None, "reason": None,
+              "stock_count": len(score), "held_unscored_weight": held_unscored_weight}
+    if (score.shape != sigma.shape or score.shape != active.shape
+            or not all(np.all(np.isfinite(value)) for value in (score, sigma, active))):
+        raise ValueError("unaligned or nonfinite stock transfer inputs")
+    if held_unscored_weight < 0 or not math.isfinite(held_unscored_weight):
+        raise ValueError("held unscored weight is invalid")
+    if held_unscored_weight > 1e-15:
+        result["reason"] = "held_name_missing_score_or_risk"
+        return result
+    if len(score) < 2:
+        result["reason"] = "fewer_than_two_stocks"
+        return result
+    if np.any(sigma <= 0):
+        result["reason"] = "nonpositive_active_volatility"
+        return result
+    if not positive_ic:
+        result["reason"] = "nonpositive_trailing_ic"
+        return result
+    z = (score - score.mean()) / score.std(ddof=0) if score.std(ddof=0) > 1e-15 else score * 0
+    implemented = sigma * active
+    value = weight_pearson_tc(z, implemented)
+    if value is None:
+        result["reason"] = "constant_score_or_implemented_risk"
+        return result
+    result.update(status="available", tc_diagonal=value, reason=None)
+    return result
+
+
+def risk_transfer(alpha, active, covariance) -> float | None:
+    """Optional full-covariance TC; singular matrices are unavailable."""
+    alpha, active = map(_vector, (alpha, active))
+    covariance = np.asarray(covariance, dtype=float)
+    if (alpha.shape != active.shape or covariance.shape != (len(alpha), len(alpha))
+            or not all(np.all(np.isfinite(value)) for value in (alpha, active, covariance))
+            or not np.allclose(covariance, covariance.T, atol=1e-12)):
+        raise ValueError("unaligned or invalid full-covariance transfer inputs")
+    if np.linalg.eigvalsh(covariance).min() <= 1e-14:
+        return None
+    implemented, potential = float(active @ covariance @ active), float(
+        alpha @ np.linalg.solve(covariance, alpha))
+    if implemented <= 1e-15 or potential <= 1e-15:
+        return None
+    return float(np.clip(alpha @ active / math.sqrt(implemented * potential), -1, 1))
