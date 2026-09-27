@@ -1,4 +1,4 @@
-"""Durable, trial-set-aware lockbox consumption for P16 replay evidence."""
+"""Append-only, trial-set-aware lockbox consumption for P16 replay evidence."""
 from __future__ import annotations
 
 import json
@@ -35,10 +35,7 @@ class LockboxIntegrityError(ValueError):
 class ConfirmatoryArm:
     trial_id: str
     execution_id: str
-    model_identity_sha256: str
-    execution_manifest_sha256: str
-    endpoint_sha256: str
-    development_artifact_sha256: str
+    registration_sha256: str
     role: Literal["initiating", "paired", "cross_model"]
 
 
@@ -58,7 +55,9 @@ def _hash(value: str, field: str) -> str:
 def _iso(value: datetime, field: str) -> str:
     if not isinstance(value, datetime) or value.tzinfo is None:
         raise LockboxIntegrityError(f"invalid_{field}")
-    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace(
+        "+00:00", "Z"
+    )
 
 
 def _session_values(sessions: Sequence[date]) -> tuple[str, ...]:
@@ -71,10 +70,7 @@ def _session_values(sessions: Sequence[date]) -> tuple[str, ...]:
 def _arm_payload(arm: ConfirmatoryArm) -> dict:
     if not arm.trial_id or not arm.execution_id or arm.role not in _ROLES:
         raise LockboxIntegrityError("invalid_lockbox_arm")
-    _hash(arm.model_identity_sha256, "model_identity_sha256")
-    _hash(arm.execution_manifest_sha256, "execution_manifest_sha256")
-    _hash(arm.endpoint_sha256, "endpoint_sha256")
-    _hash(arm.development_artifact_sha256, "development_artifact_sha256")
+    _hash(arm.registration_sha256, "registration_sha256")
     return asdict(arm)
 
 
@@ -99,8 +95,10 @@ class LockboxLedger:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
             store = open_store(
-                self.path, research_root=self.research_root,
-                live_db_path=self.live_db_path, kind="control",
+                self.path,
+                research_root=self.research_root,
+                live_db_path=self.live_db_path,
+                kind="control",
             )
             con = store.__enter__()
         except ReplayStoreError as exc:
@@ -122,46 +120,24 @@ class LockboxLedger:
                     PRIMARY KEY(marker_sha256, session))"""
             )
             con.execute(
-                """CREATE TABLE IF NOT EXISTS w4_lockbox_first_sessions (
-                    session DATE PRIMARY KEY,
-                    marker_sha256 VARCHAR NOT NULL)"""
-            )
-            con.execute(
                 """CREATE TABLE IF NOT EXISTS w4_lockbox_arms (
                     marker_sha256 VARCHAR NOT NULL,
                     trial_id VARCHAR NOT NULL,
                     execution_id VARCHAR NOT NULL,
-                    model_identity_sha256 VARCHAR NOT NULL,
-                    execution_manifest_sha256 VARCHAR NOT NULL,
-                    endpoint_sha256 VARCHAR NOT NULL,
-                    development_artifact_sha256 VARCHAR NOT NULL,
+                    registration_sha256 VARCHAR NOT NULL,
                     role VARCHAR NOT NULL,
                     PRIMARY KEY(marker_sha256, execution_id))"""
             )
             con.execute(
                 """CREATE TABLE IF NOT EXISTS w4_lockbox_events (
-                    event_sha256 VARCHAR PRIMARY KEY,
                     marker_sha256 VARCHAR NOT NULL,
+                    event_index INTEGER NOT NULL,
                     execution_id VARCHAR NOT NULL,
                     event_kind VARCHAR NOT NULL,
                     occurred_at VARCHAR NOT NULL,
                     source_sha256 VARCHAR NOT NULL,
-                    event_index INTEGER NOT NULL,
-                    payload_json VARCHAR NOT NULL)"""
-            )
-            con.execute(
-                """CREATE TABLE IF NOT EXISTS w4_lockbox_event_state (
-                    marker_sha256 VARCHAR PRIMARY KEY,
-                    event_count INTEGER NOT NULL,
-                    chain_sha256 VARCHAR NOT NULL)"""
-            )
-            con.execute(
-                """CREATE TABLE IF NOT EXISTS w4_lockbox_event_chain (
-                    marker_sha256 VARCHAR NOT NULL,
-                    event_index INTEGER NOT NULL,
-                    event_sha256 VARCHAR,
-                    chain_sha256 VARCHAR NOT NULL,
-                    PRIMARY KEY(marker_sha256, event_index))"""
+                    PRIMARY KEY(marker_sha256, event_index),
+                    UNIQUE(marker_sha256, execution_id, event_kind, occurred_at, source_sha256))"""
             )
         finally:
             store.__exit__(None, None, None)
@@ -185,89 +161,24 @@ class LockboxLedger:
     def marker(self, experiment_id: str, cohort_id: str) -> dict | None:
         with self._connect() as con:
             row = con.execute(
-                "SELECT marker_sha256, payload_json FROM w4_lockbox_markers "
+                "SELECT marker_sha256,payload_json FROM w4_lockbox_markers "
                 "WHERE experiment_id=? AND cohort_id=?",
                 [experiment_id, cohort_id],
             ).fetchone()
-            if row is None:
-                return None
-            payload, _events = _validate_marker_children(con, row[0], row[1])
-            return {**payload, "marker_sha256": row[0]}
+        return None if row is None else {**json.loads(row[1]), "marker_sha256": row[0]}
 
 
-def _validate_marker_children(con, marker_sha256: str, encoded: str) -> tuple[dict, list]:
-    """Verify every child required by an immutable marker and its event chain."""
-    payload = json.loads(encoded)
-    if canonical_sha256(payload) != marker_sha256:
-        raise LockboxIntegrityError("lockbox_marker_payload_tampered")
-    sessions = [row[0].isoformat() for row in con.execute(
-        "SELECT session FROM w4_lockbox_sessions WHERE marker_sha256=? ORDER BY session",
-        [marker_sha256],
-    ).fetchall()]
-    arms = [dict(zip(
-        ("trial_id", "execution_id", "model_identity_sha256", "execution_manifest_sha256",
-         "endpoint_sha256", "development_artifact_sha256", "role"), row,
-        strict=True,
-    )) for row in con.execute(
-        "SELECT trial_id,execution_id,model_identity_sha256,execution_manifest_sha256,"
-        "endpoint_sha256,development_artifact_sha256,role FROM w4_lockbox_arms "
-        "WHERE marker_sha256=? ORDER BY trial_id,execution_id", [marker_sha256],
-    ).fetchall()]
-    owners = con.execute(
-        "SELECT session,marker_sha256 FROM w4_lockbox_first_sessions "
-        "WHERE session IN (SELECT UNNEST(?::DATE[]))", [payload["sessions"]],
-    ).fetchall()
-    derived = _derived_session_owners(con, payload["sessions"])
-    if (sessions != payload["sessions"] or arms != payload["arms"]
-            or {row[0].isoformat(): row[1] for row in owners} != derived
-            or len(owners) != len(sessions)):
-        raise LockboxIntegrityError("lockbox_marker_children_tampered")
-    events = con.execute(
-        "SELECT event_sha256,execution_id,event_kind,occurred_at,source_sha256,event_index,payload_json "
-        "FROM w4_lockbox_events WHERE marker_sha256=? ORDER BY event_index", [marker_sha256],
-    ).fetchall()
-    state = con.execute(
-        "SELECT event_count,chain_sha256 FROM w4_lockbox_event_state WHERE marker_sha256=?",
-        [marker_sha256],
-    ).fetchone()
-    chain_rows = con.execute(
-        "SELECT event_index,event_sha256,chain_sha256 FROM w4_lockbox_event_chain "
-        "WHERE marker_sha256=? ORDER BY event_index", [marker_sha256],
-    ).fetchall()
-    chain = canonical_sha256({"marker_sha256": marker_sha256, "events": []})
-    expected_chain_rows = [(0, None, chain)]
-    for expected_index, row in enumerate(events, start=1):
-        event_sha, execution, kind, occurred, source_sha, index, event_json = row
-        event_payload = json.loads(event_json)
-        expected = {
-            "marker_sha256": marker_sha256, "execution_id": execution,
-            "event_kind": kind, "occurred_at": occurred, "source_sha256": source_sha,
-            "event_index": index,
-        }
-        if index != expected_index or canonical_sha256(event_payload) != event_sha or event_payload != expected:
-            raise LockboxIntegrityError("lockbox_event_history_tampered")
-        chain = canonical_sha256({"previous": chain, "event_sha256": event_sha})
-        expected_chain_rows.append((expected_index, event_sha, chain))
-    if state != (len(events), chain) or chain_rows != expected_chain_rows:
-        raise LockboxIntegrityError("lockbox_event_history_tampered")
-    return payload, events
-
-
-def _derived_session_owners(con, sessions: Sequence[str], exclude: str | None = None) -> dict:
-    requested, owners = set(sessions), {}
+def _session_owners(con, sessions: Sequence[str]) -> dict[str, str]:
+    requested = set(sessions)
+    owners: dict[str, str] = {}
     rows = con.execute(
-        "SELECT marker_sha256,payload_json FROM w4_lockbox_markers "
-        "ORDER BY committed_at,marker_sha256"
+        "SELECT CAST(s.session AS VARCHAR),m.marker_sha256 "
+        "FROM w4_lockbox_sessions s JOIN w4_lockbox_markers m USING(marker_sha256) "
+        "ORDER BY m.committed_at,m.marker_sha256,s.session"
     ).fetchall()
-    for marker_sha256, encoded in rows:
-        if marker_sha256 == exclude:
-            continue
-        payload = json.loads(encoded)
-        if canonical_sha256(payload) != marker_sha256:
-            raise LockboxIntegrityError("lockbox_marker_payload_tampered")
-        for session in payload.get("sessions", []):
-            if session in requested:
-                owners.setdefault(session, marker_sha256)
+    for session, marker_sha256 in rows:
+        if session in requested:
+            owners.setdefault(session, marker_sha256)
     return owners
 
 
@@ -283,7 +194,7 @@ def begin_lockbox_consumption(
     committed_at: datetime,
     registration_as_of: Callable[[str, datetime], Mapping | None],
 ) -> str:
-    """Atomically commit the complete first trial set before any dispatch or view."""
+    """Atomically commit the complete registered trial set before any dispatch."""
     session_values = _session_values(sessions)
     arm_payloads = sorted(
         (_arm_payload(arm) for arm in confirmatory_arms),
@@ -301,26 +212,23 @@ def begin_lockbox_consumption(
         registered = registration_as_of(arm["trial_id"], committed_at)
         if not isinstance(registered, Mapping):
             raise LockboxIntegrityError("trial_not_registered_as_of_marker")
-        registration = dict(registered)
-        registration_sha256 = registration.pop("registration_sha256", None)
-        expected = {
-            **arm,
-            "status": "registered",
-            "sessions": list(session_values),
-            "trial_set_sha256": actual_trial_set,
-            "authority": "historical_research_only",
-        }
-        if any(registration.get(key) != value for key, value in expected.items()):
-            raise LockboxIntegrityError("registered_trial_identity_mismatch")
-        registered_at = registration.get("registered_at")
+        if registered.get("registration_sha256") != arm["registration_sha256"]:
+            raise LockboxIntegrityError("registered_trial_digest_mismatch")
+        if (
+            registered.get("status") != "registered"
+            or registered.get("authority") != "historical_research_only"
+            or registered.get("sessions") != list(session_values)
+            or registered.get("trial_set_sha256") != actual_trial_set
+        ):
+            raise LockboxIntegrityError("registered_trial_set_mismatch")
         try:
-            registered_at = datetime.fromisoformat(str(registered_at).replace("Z", "+00:00"))
+            registered_at = datetime.fromisoformat(
+                str(registered.get("registered_at")).replace("Z", "+00:00")
+            )
         except ValueError as exc:
             raise LockboxIntegrityError("invalid_trial_registered_at") from exc
         if registered_at.tzinfo is None or registered_at > committed_at:
             raise LockboxIntegrityError("trial_not_registered_as_of_marker")
-        if registration_sha256 != canonical_sha256(registration):
-            raise LockboxIntegrityError("registered_trial_digest_mismatch")
 
     payload = {
         "schema_version": 1,
@@ -336,13 +244,12 @@ def begin_lockbox_consumption(
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     with ledger._connect() as con:
         existing = con.execute(
-            "SELECT marker_sha256, payload_json FROM w4_lockbox_markers "
+            "SELECT marker_sha256,payload_json FROM w4_lockbox_markers "
             "WHERE experiment_id=? AND cohort_id=?",
             [experiment_id, cohort_id],
         ).fetchone()
         if existing is not None:
             if existing == (marker_sha256, encoded):
-                _validate_marker_children(con, marker_sha256, encoded)
                 return marker_sha256
             raise LockboxIntegrityError("lockbox_first_marker_conflict")
         latest = con.execute("SELECT MAX(committed_at) FROM w4_lockbox_markers").fetchone()[0]
@@ -358,40 +265,17 @@ def begin_lockbox_consumption(
                 [(marker_sha256, session) for session in session_values],
             )
             con.executemany(
-                "INSERT INTO w4_lockbox_arms VALUES (?,?,?,?,?,?,?,?)",
+                "INSERT INTO w4_lockbox_arms VALUES (?,?,?,?,?)",
                 [
                     (
                         marker_sha256,
                         arm["trial_id"],
                         arm["execution_id"],
-                        arm["model_identity_sha256"],
-                        arm["execution_manifest_sha256"],
-                        arm["endpoint_sha256"],
-                        arm["development_artifact_sha256"],
+                        arm["registration_sha256"],
                         arm["role"],
                     )
                     for arm in arm_payloads
                 ],
-            )
-            for session in session_values:
-                history = _derived_session_owners(con, (session,), marker_sha256).get(session)
-                owner = con.execute(
-                    "SELECT marker_sha256 FROM w4_lockbox_first_sessions WHERE session=?", [session]
-                ).fetchone()
-                if history is not None and owner != (history,):
-                    raise LockboxIntegrityError("lockbox_first_session_history_tampered")
-                if history is None and owner is None:
-                    con.execute(
-                        "INSERT INTO w4_lockbox_first_sessions VALUES (?,?)",
-                        [session, marker_sha256],
-                    )
-            con.execute(
-                "INSERT INTO w4_lockbox_event_state VALUES (?,?,?)",
-                [marker_sha256, 0, canonical_sha256({"marker_sha256": marker_sha256, "events": []})],
-            )
-            con.execute(
-                "INSERT INTO w4_lockbox_event_chain VALUES (?,?,?,?)",
-                [marker_sha256, 0, None, canonical_sha256({"marker_sha256": marker_sha256, "events": []})],
             )
     return marker_sha256
 
@@ -404,39 +288,39 @@ def append_lockbox_event(
     event_kind: str,
     occurred_at: datetime,
     source_sha256: str,
-) -> str:
+) -> int:
     if not execution_id or event_kind not in _EVENTS:
         raise LockboxIntegrityError("invalid_lockbox_event")
     marker_sha256 = _hash(marker_sha256, "marker_sha256")
     occurred = _iso(occurred_at, "occurred_at")
     source_sha256 = _hash(source_sha256, "source_sha256")
     with ledger._connect() as con:
-        marker = con.execute(
-            "SELECT committed_at, payload_json FROM w4_lockbox_markers WHERE marker_sha256=?",
+        row = con.execute(
+            "SELECT committed_at,payload_json FROM w4_lockbox_markers WHERE marker_sha256=?",
             [marker_sha256],
         ).fetchone()
-        if marker is None:
+        if row is None:
             raise LockboxIntegrityError("lockbox_marker_missing")
-        marker_payload, events = _validate_marker_children(con, marker_sha256, marker[1])
-        arm_ids = {arm["execution_id"] for arm in marker_payload["arms"]}
-        if event_kind != "development_inspected" and execution_id not in arm_ids:
+        marker = json.loads(row[1])
+        arms = {arm["execution_id"]: arm for arm in marker["arms"]}
+        if event_kind != "development_inspected" and execution_id not in arms:
             raise LockboxIntegrityError("event_execution_not_registered")
         if event_kind == "dispatched":
-            expected_source = canonical_sha256(
+            expected = canonical_sha256(
                 {"marker_sha256": marker_sha256, "dispatch": "initiating_execution_once"}
             )
-            if execution_id != marker_payload["initiating_execution_id"] or source_sha256 != expected_source:
+            if execution_id != marker["initiating_execution_id"] or source_sha256 != expected:
                 raise LockboxIntegrityError("invalid_lockbox_dispatch")
-            if any(row[2] == "dispatched" for row in events):
+            if con.execute(
+                "SELECT 1 FROM w4_lockbox_events WHERE marker_sha256=? AND event_kind='dispatched'",
+                [marker_sha256],
+            ).fetchone():
                 raise LockboxIntegrityError("lockbox_already_dispatched")
-        if event_kind == "arm_artifact_frozen":
-            expected = con.execute(
-                "SELECT development_artifact_sha256 FROM w4_lockbox_arms "
-                "WHERE marker_sha256=? AND execution_id=?", [marker_sha256, execution_id],
-            ).fetchone()
-            if expected is None or source_sha256 != expected[0]:
-                raise LockboxIntegrityError("unregistered_arm_artifact")
-        if occurred < marker[0]:
+        if event_kind == "arm_artifact_frozen" and source_sha256 != arms[
+            execution_id
+        ]["registration_sha256"]:
+            raise LockboxIntegrityError("unregistered_arm_artifact")
+        if occurred < row[0]:
             raise LockboxIntegrityError("event_before_lockbox_marker")
         previous = con.execute(
             "SELECT MAX(occurred_at) FROM w4_lockbox_events "
@@ -446,49 +330,22 @@ def append_lockbox_event(
         if previous is not None and occurred < previous:
             raise LockboxIntegrityError("non_monotone_lockbox_event")
         existing = con.execute(
-            "SELECT event_sha256 FROM w4_lockbox_events WHERE marker_sha256=? "
+            "SELECT event_index FROM w4_lockbox_events WHERE marker_sha256=? "
             "AND execution_id=? AND event_kind=? AND occurred_at=? AND source_sha256=?",
             [marker_sha256, execution_id, event_kind, occurred, source_sha256],
         ).fetchone()
         if existing is not None:
             return existing[0]
-        state = con.execute(
-            "SELECT event_count,chain_sha256 FROM w4_lockbox_event_state WHERE marker_sha256=?",
+        event_index = con.execute(
+            "SELECT COALESCE(MAX(event_index),0)+1 FROM w4_lockbox_events "
+            "WHERE marker_sha256=?",
             [marker_sha256],
-        ).fetchone()
-        if state is None:
-            raise LockboxIntegrityError("lockbox_event_history_tampered")
-        payload = {
-            "marker_sha256": marker_sha256, "execution_id": execution_id,
-            "event_kind": event_kind, "occurred_at": occurred,
-            "source_sha256": source_sha256, "event_index": state[0] + 1,
-        }
-        event_sha256 = canonical_sha256(payload)
-        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        chain = canonical_sha256({"previous": state[1], "event_sha256": event_sha256})
-        with engine_db.transaction(con):
-            con.execute(
-                "INSERT INTO w4_lockbox_events VALUES (?,?,?,?,?,?,?,?)",
-                [
-                    event_sha256,
-                    marker_sha256,
-                    execution_id,
-                    event_kind,
-                    payload["occurred_at"],
-                    source_sha256,
-                    payload["event_index"],
-                    encoded,
-                ],
-            )
-            con.execute(
-                "UPDATE w4_lockbox_event_state SET event_count=?,chain_sha256=? "
-                "WHERE marker_sha256=?", [state[0] + 1, chain, marker_sha256],
-            )
-            con.execute(
-                "INSERT INTO w4_lockbox_event_chain VALUES (?,?,?,?)",
-                [marker_sha256, state[0] + 1, event_sha256, chain],
-            )
-    return event_sha256
+        ).fetchone()[0]
+        con.execute(
+            "INSERT INTO w4_lockbox_events VALUES (?,?,?,?,?,?)",
+            [marker_sha256, event_index, execution_id, event_kind, occurred, source_sha256],
+        )
+    return event_index
 
 
 def evaluation_tag(
@@ -498,18 +355,15 @@ def evaluation_tag(
     cohort_id: str,
     trial_id: str,
     execution_id: str,
-    model_identity_sha256: str,
-    execution_manifest_sha256: str,
-    endpoint_sha256: str,
-    development_artifact_sha256: str,
+    registration_sha256: str,
     sessions: Sequence[date],
     evaluated_at: datetime,
 ) -> EvaluationClassification:
     requested = set(_session_values(sessions))
-    _iso(evaluated_at, "evaluated_at")
+    evaluated = _iso(evaluated_at, "evaluated_at")
     with ledger._connect() as con:
         marker_row = con.execute(
-            "SELECT marker_sha256, payload_json FROM w4_lockbox_markers "
+            "SELECT marker_sha256,payload_json FROM w4_lockbox_markers "
             "WHERE experiment_id=? AND cohort_id=?",
             [experiment_id, cohort_id],
         ).fetchone()
@@ -518,42 +372,25 @@ def evaluation_tag(
                 "post_lockbox_exploratory", "lockbox_marker_missing", ""
             )
         marker_sha256, encoded = marker_row
-        marker, all_events = _validate_marker_children(con, marker_sha256, encoded)
-        evaluated = _iso(evaluated_at, "evaluated_at")
+        marker = json.loads(encoded)
         if evaluated < marker["committed_at"]:
             raise LockboxIntegrityError("evaluation_before_lockbox_marker")
         if requested != set(marker["sessions"]):
             return EvaluationClassification(
                 "post_lockbox_exploratory", "sessions_not_exact_first_marker", marker_sha256
             )
-        owner_rows = con.execute(
-            "SELECT CAST(session AS VARCHAR),marker_sha256 FROM w4_lockbox_first_sessions "
-            "WHERE session IN (SELECT UNNEST(?::DATE[]))", [list(requested)]
-        ).fetchall()
-        if dict(owner_rows) != {session: marker_sha256 for session in requested}:
+        if _session_owners(con, tuple(requested)) != {
+            session: marker_sha256 for session in requested
+        }:
             return EvaluationClassification(
                 "post_lockbox_exploratory", "sessions_consumed_by_prior_marker", marker_sha256
             )
-        identity = (
-            trial_id,
-            execution_id,
-            _hash(model_identity_sha256, "model_identity_sha256"),
-            _hash(execution_manifest_sha256, "execution_manifest_sha256"),
-            _hash(endpoint_sha256, "endpoint_sha256"),
-            _hash(development_artifact_sha256, "development_artifact_sha256"),
-        )
+        identity = (trial_id, execution_id, _hash(registration_sha256, "registration_sha256"))
         matched = next(
             (
                 arm
                 for arm in marker["arms"]
-                if (
-                    arm["trial_id"],
-                    arm["execution_id"],
-                    arm["model_identity_sha256"],
-                    arm["execution_manifest_sha256"],
-                    arm["endpoint_sha256"],
-                    arm["development_artifact_sha256"],
-                )
+                if (arm["trial_id"], arm["execution_id"], arm["registration_sha256"])
                 == identity
             ),
             None,
@@ -562,38 +399,50 @@ def evaluation_tag(
             return EvaluationClassification(
                 "post_lockbox_exploratory", "identity_not_in_first_trial_set", marker_sha256
             )
-        events = [row for row in all_events if row[3] <= evaluated]
+        events = con.execute(
+            "SELECT execution_id,event_kind,occurred_at,source_sha256 "
+            "FROM w4_lockbox_events WHERE marker_sha256=? AND occurred_at<=? "
+            "ORDER BY event_index",
+            [marker_sha256, evaluated],
+        ).fetchall()
     arm_ids = {arm["execution_id"] for arm in marker["arms"]}
-    freezes = {execution: occurred for _sha, execution, kind, occurred, _source, _index, _json in events
-               if kind == "arm_artifact_frozen" and execution in arm_ids}
-    inspections = [occurred for _sha, _execution, kind, occurred, _source, _index, _json in events
-                   if kind == "development_inspected"]
-    if inspections and (
-        set(freezes) != arm_ids
-        or min(inspections) < max(freezes.values())
-    ):
+    freezes = {
+        execution: occurred
+        for execution, kind, occurred, _source in events
+        if kind == "arm_artifact_frozen" and execution in arm_ids
+    }
+    inspections = [
+        occurred
+        for _execution, kind, occurred, _source in events
+        if kind == "development_inspected"
+    ]
+    if inspections and (set(freezes) != arm_ids or min(inspections) < max(freezes.values())):
         return EvaluationClassification(
             "post_lockbox_exploratory",
             "cross_model_inspection_before_both_frozen",
             marker_sha256,
         )
-    interrupted = [(occurred, source) for _sha, execution, kind, occurred, source, _index, _json in events
-                   if execution == identity[1] and kind in {"partial", "crashed"}]
-    if interrupted:
-        reconciled = all(
-            any(
-                execution == identity[1] and kind == "completed" and occurred >= interrupted_at
-                and source == receipt
-                for _sha, execution, kind, occurred, source, _index, _json in events
-            )
-            for interrupted_at, receipt in interrupted
+    interrupted = [
+        (occurred, source)
+        for execution, kind, occurred, source in events
+        if execution == identity[1] and kind in {"partial", "crashed"}
+    ]
+    if interrupted and not all(
+        any(
+            execution == identity[1]
+            and kind == "completed"
+            and occurred >= interrupted_at
+            and source == receipt
+            for execution, kind, occurred, source in events
         )
-        if not reconciled:
-            return EvaluationClassification(
-                "post_lockbox_exploratory", "interrupted_receipt_not_reconciled", marker_sha256
-            )
+        for interrupted_at, receipt in interrupted
+    ):
+        return EvaluationClassification(
+            "post_lockbox_exploratory", "interrupted_receipt_not_reconciled", marker_sha256
+        )
     completions = {
-        source for _sha, execution, kind, _occurred, source, _index, _json in events
+        source
+        for execution, kind, _occurred, source in events
         if execution == identity[1] and kind == "completed"
     }
     if len(completions) > 1:
@@ -619,8 +468,10 @@ def dispatch_lockbox(
     )
     marker = ledger.marker(begin["experiment_id"], begin["cohort_id"])
     append_lockbox_event(
-        ledger, marker_sha256,
-        execution_id=marker["initiating_execution_id"], event_kind="dispatched",
+        ledger,
+        marker_sha256,
+        execution_id=marker["initiating_execution_id"],
+        event_kind="dispatched",
         occurred_at=datetime.fromisoformat(marker["committed_at"].replace("Z", "+00:00")),
         source_sha256=dispatch_sha256,
     )

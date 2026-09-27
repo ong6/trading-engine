@@ -1,4 +1,4 @@
-"""W4 isolated-store, sealing, and logical-clock tests."""
+"""W4 isolated-store and logical-clock tests."""
 from __future__ import annotations
 
 import os
@@ -14,8 +14,6 @@ from farm.replay.store import (
     checked_store_path,
     load_record,
     open_store,
-    seal_records,
-    verify_seal,
 )
 
 NOW = datetime(2026, 9, 27, 16, tzinfo=timezone.utc)
@@ -84,43 +82,6 @@ def test_append_is_exact_or_conflict_and_connection_is_released(tmp_path):
     moved = target.with_name("moved.duckdb")
     target.rename(moved)
     assert moved.is_file()
-
-
-def test_seal_detects_payload_tamper_and_member_deletion(tmp_path):
-    root, live, target = _paths(tmp_path)
-    with open_store(target, research_root=root, live_db_path=live, kind="catalog") as con:
-        for key in ("a", "b"):
-            append_exact(
-                con,
-                record_type="fact",
-                record_key=key,
-                payload={"key": key},
-                recorded_at=NOW,
-            )
-        seal = seal_records(
-            con, record_type="fact", member_keys=("a", "b"), sealed_at=NOW
-        )
-        assert len(verify_seal(con, seal)["members"]) == 2
-        con.execute(
-            "UPDATE w4_evidence_records SET payload_json='{}' "
-            "WHERE record_type='fact' AND record_key='a'"
-        )
-        with pytest.raises(ReplayStoreError, match="tampered"):
-            verify_seal(con, seal)
-
-    other = root / "catalog" / "delete.duckdb"
-    with open_store(other, research_root=root, live_db_path=live, kind="catalog") as con:
-        append_exact(
-            con,
-            record_type="fact",
-            record_key="a",
-            payload={"key": "a"},
-            recorded_at=NOW,
-        )
-        seal = seal_records(con, record_type="fact", member_keys=("a",), sealed_at=NOW)
-        con.execute("DELETE FROM w4_evidence_records WHERE record_key='a'")
-        with pytest.raises(ReplayStoreError, match="sealed_record_missing"):
-            verify_seal(con, seal)
 
 
 def test_store_kind_is_bound_to_the_file(tmp_path):

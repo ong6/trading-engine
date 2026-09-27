@@ -2,29 +2,22 @@
 from __future__ import annotations
 
 import math
-import re
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 from typing import Iterable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
-from engine.lib.provenance import canonical_sha256
 from farm.replay.registration import (
-    EARLIEST_EXACT_SPLIT_OBSERVATION_AT,
     PRICE_SERIES_BY_CONSUMER,
     SPLIT_KNOWLEDGE_PRIMARY,
     SPLIT_KNOWLEDGE_SENSITIVITY,
-    SPLIT_OBSERVATION_REGISTRATION_KEY,
     TRUSTED_NOOP_SPLIT_OUTCOMES,
     TRUSTED_SPLIT_OUTCOMES,
 )
-from farm.replay.store import append_exact, load_record, seal_records, verify_seal
 from sim import nyse
 
-_SHA256 = re.compile(r"[0-9a-f]{64}")
 _NY = ZoneInfo("America/New_York")
-_OBSERVATION_TOKEN = object()
-_LABEL_TOKEN = object()
 
 
 class PriceSeriesError(ValueError):
@@ -35,42 +28,15 @@ class SplitQuarantineError(PriceSeriesError):
     """A relevant action is not trustworthy enough to apply or ignore."""
 
 
+@dataclass(frozen=True)
 class LabelPricePoint:
-    __slots__ = (
-        "security_id", "session", "available_at", "price_field", "price",
-        "reconstruction_factor", "reconstruction_action_ids", "archive_row_sha256",
-        "reconstruction_sha256", "point_sha256",
-    )
-
-    def __init__(self, *values, _token=None):
-        if _token is not _LABEL_TOKEN or len(values) != len(self.__slots__):
-            raise PriceSeriesError("unverified_label_price_point")
-        for name, value in zip(self.__slots__, values, strict=True):
-            object.__setattr__(self, name, value)
-
-    def __setattr__(self, _name, _value):
-        raise AttributeError("immutable_label_price_point")
-
-
-class ExactSplitObservations:
-    __slots__ = ("registration_sha256", "seal_sha256", "entries", "entries_sha256")
-
-    def __init__(self, *values, _token=None):
-        if _token is not _OBSERVATION_TOKEN or len(values) != len(self.__slots__):
-            raise SplitQuarantineError("unverified_split_observations")
-        for name, value in zip(self.__slots__, values, strict=True):
-            object.__setattr__(self, name, value)
-
-    def __setattr__(self, _name, _value):
-        raise AttributeError("immutable_split_observations")
-
-    def get(self, action_sha256: str) -> tuple[datetime, str] | None:
-        if self.entries_sha256 != canonical_sha256([
-            [key, at.isoformat().replace("+00:00", "Z"), receipt]
-            for key, at, receipt in self.entries
-        ]):
-            raise SplitQuarantineError("split_observations_tampered")
-        return next(((at, receipt) for key, at, receipt in self.entries if key == action_sha256), None)
+    security_id: str
+    session: date
+    available_at: datetime
+    price_field: str
+    price: float
+    reconstruction_factor: float
+    reconstruction_action_ids: tuple[str, ...]
 
 
 def _date(value: object, field: str) -> date:
@@ -100,19 +66,6 @@ def _ratio(action: Mapping) -> float:
     if not math.isfinite(ratio) or ratio <= 0:
         raise SplitQuarantineError("invalid_split_ratio")
     return ratio
-
-
-def split_observation_identity(action: Mapping) -> str:
-    """Bind a first-observation receipt to one exact normalized action version."""
-    return canonical_sha256(
-        {
-            key: action.get(key)
-            for key in (
-                "action_id", "security_id", "stable_mapping", "kind", "ex_date",
-                "outcome", "new_shares_per_old",
-            )
-        }
-    )
 
 
 def _unique_actions(actions: Sequence[Mapping]) -> tuple[Mapping, ...]:
@@ -178,106 +131,8 @@ def split_outcome(action: Mapping) -> str:
     return "quarantined"
 
 
-def record_actions_fetch_log(
-    con, *, receipt: Mapping, recorded_at: datetime
-) -> str:
-    """Append one exact receipt and all normalized split versions it contained."""
-    observed = _instant(recorded_at, "actions_fetch_recorded_at")
-    if observed < _instant(EARLIEST_EXACT_SPLIT_OBSERVATION_AT, "observation_start"):
-        raise SplitQuarantineError("actions_fetch_before_collector_start")
-    actions = receipt.get("actions")
-    archive_sha = receipt.get("archive_payload_sha256")
-    if (not isinstance(actions, list) or not isinstance(receipt.get("source"), str)
-            or _SHA256.fullmatch(str(archive_sha)) is None):
-        raise SplitQuarantineError("invalid_actions_fetch_receipt")
-    identities = sorted({split_observation_identity(action) for action in actions})
-    if not identities:
-        raise SplitQuarantineError("empty_actions_fetch_log")
-    receipt_sha256 = canonical_sha256(receipt)
-    append_exact(con, record_type="actions_fetch_receipt", record_key=receipt_sha256,
-                 payload=receipt, recorded_at=recorded_at)
-    payload = {"receipt_sha256": receipt_sha256, "action_identity_sha256es": identities}
-    key = canonical_sha256(payload)
-    append_exact(con, record_type="actions_fetch_log", record_key=key,
-                 payload=payload, recorded_at=recorded_at)
-    return key
-
-
-def freeze_exact_split_observations(
-    con, *, fetch_keys: Sequence[str], frozen_at: datetime
-) -> str:
-    """Freeze the append-only fetch attempts used by the registered sensitivity."""
-    frozen = _instant(frozen_at, "split_observation_frozen_at")
-    for key in fetch_keys:
-        record = load_record(con, "actions_fetch_log", key)
-        if record is None or _instant(record["recorded_at"], "first_seen_at") > frozen:
-            raise SplitQuarantineError("actions_fetch_after_registration")
-    seal_sha256 = seal_records(
-        con, record_type="actions_fetch_log", member_keys=tuple(sorted(set(fetch_keys))),
-        sealed_at=frozen_at,
-    )
-    payload = {
-        "policy": SPLIT_KNOWLEDGE_SENSITIVITY,
-        "actions_fetch_log_seal_sha256": seal_sha256,
-        "frozen_at": frozen.isoformat().replace("+00:00", "Z"),
-        "status": "registered", "authority": "historical_research_only",
-    }
-    return append_exact(
-        con, record_type="split_observation_registration",
-        record_key=SPLIT_OBSERVATION_REGISTRATION_KEY, payload=payload, recorded_at=frozen_at,
-    )
-
-
-def load_exact_split_observations(con, registration_sha256: str) -> ExactSplitObservations:
-    registration = load_record(
-        con, "split_observation_registration", SPLIT_OBSERVATION_REGISTRATION_KEY
-    )
-    if registration is None or registration["payload_sha256"] != registration_sha256:
-        raise SplitQuarantineError("split_observation_registration_mismatch")
-    registration_payload = registration["payload"]
-    if (registration_payload.get("policy") != SPLIT_KNOWLEDGE_SENSITIVITY
-            or registration_payload.get("status") != "registered"
-            or registration_payload.get("authority") != "historical_research_only"):
-        raise SplitQuarantineError("wrong_split_observation_registration")
-    seal_sha256 = registration_payload.get("actions_fetch_log_seal_sha256")
-    manifest = verify_seal(con, seal_sha256)
-    if manifest["record_type"] != "actions_fetch_log":
-        raise SplitQuarantineError("wrong_split_observation_seal")
-    observations: dict[str, tuple[datetime, str]] = {}
-    for member in manifest["members"]:
-        record = load_record(con, "actions_fetch_log", member["record_key"])
-        payload = record["payload"]
-        receipt_sha = payload.get("receipt_sha256")
-        identities = payload.get("action_identity_sha256es")
-        if not isinstance(identities, list) or identities != sorted(set(identities)) or not isinstance(
-            receipt_sha, str
-        ) or _SHA256.fullmatch(receipt_sha) is None:
-            raise SplitQuarantineError("invalid_split_observation")
-        receipt = load_record(con, "actions_fetch_receipt", receipt_sha)
-        if receipt is None or canonical_sha256(receipt["payload"]) != receipt_sha or identities != sorted({
-            split_observation_identity(action) for action in receipt["payload"].get("actions", [])
-        }):
-            raise SplitQuarantineError("invalid_split_observation_receipt")
-        observed_at = _instant(record["recorded_at"], "first_seen_at")
-        for action_sha in identities:
-            if _SHA256.fullmatch(action_sha) is None:
-                raise SplitQuarantineError("invalid_split_observation")
-            prior = observations.get(action_sha)
-            if prior is None or (observed_at, receipt_sha) < prior:
-                observations[action_sha] = (observed_at, receipt_sha)
-    entries = tuple((key, *observations[key]) for key in sorted(observations))
-    entries_sha256 = canonical_sha256([
-        [key, at.isoformat().replace("+00:00", "Z"), receipt]
-        for key, at, receipt in entries
-    ])
-    return ExactSplitObservations(
-        registration_sha256, seal_sha256, entries, entries_sha256,
-        _token=_OBSERVATION_TOKEN,
-    )
-
-
 def split_known_at(
-    action: Mapping, policy: str, observations: ExactSplitObservations | None = None
+    action: Mapping, policy: str
 ) -> datetime:
     if policy == SPLIT_KNOWLEDGE_PRIMARY:
         return _split_effective_at(action)
@@ -310,15 +165,11 @@ def reconstruct_unadjusted_bars(
             if not math.isfinite(volume) or volume < 0:
                 raise PriceSeriesError("invalid_source_volume")
             row["volume"] = volume / factor
-        archive_row = dict(source)
         row.update(
             series="reconstructed_unadjusted_v1",
             reconstruction_factor=factor,
             reconstruction_action_ids=action_ids,
-            archive_row=archive_row,
-            archive_row_sha256=canonical_sha256(archive_row),
         )
-        row["reconstruction_sha256"] = canonical_sha256(_reconstruction_payload(row))
         rebuilt.append(row)
     return rebuilt
 
@@ -329,7 +180,6 @@ def asof_split_adjusted_bars(
     *,
     as_of: datetime,
     knowledge_policy: str = SPLIT_KNOWLEDGE_PRIMARY,
-    observations: ExactSplitObservations | None = None,
 ) -> list[dict]:
     """Restate raw bars only by splits both effective and known at the cutoff."""
     actions = _unique_actions(actions)
@@ -350,7 +200,7 @@ def asof_split_adjusted_bars(
             if not session < ex_date or _split_effective_at(action) > cutoff:
                 continue
             try:
-                known_at = split_known_at(action, knowledge_policy, observations)
+                known_at = split_known_at(action, knowledge_policy)
             except SplitQuarantineError:
                 raise SplitQuarantineError(
                     f"unknown_split_knowledge:{action.get('action_id')}"
@@ -389,7 +239,6 @@ def label_split_normalized_return(
     visible_at: datetime,
     actions: Sequence[Mapping],
     knowledge_policy: str = SPLIT_KNOWLEDGE_PRIMARY,
-    observations: ExactSplitObservations | None = None,
     entry_cost_bps: float = 10.0,
     exit_cost_bps: float = 10.0,
 ) -> float:
@@ -410,12 +259,10 @@ def label_split_normalized_return(
             raise PriceSeriesError(f"wrong_{name}_label_security")
         if expected_field is None or point.price_field != expected_field:
             raise PriceSeriesError(f"wrong_{name}_label_price_field")
-        if point.point_sha256 != canonical_sha256(_label_point_payload(point)):
-            raise PriceSeriesError(f"tampered_{name}_label_price")
         factor, action_ids = _reconstruction_scale(security_id, point.session, actions)
         if point.reconstruction_factor != factor or list(point.reconstruction_action_ids) != action_ids:
             raise PriceSeriesError(f"wrong_{name}_label_action_set")
-        if point.available_at > visible or _SHA256.fullmatch(point.archive_row_sha256) is None:
+        if point.available_at > visible:
             raise PriceSeriesError(f"unavailable_{name}_label_price")
         value = float(point.price)
         if not math.isfinite(value) or value <= 0:
@@ -429,7 +276,7 @@ def label_split_normalized_return(
         effective_at = _split_effective_at(action)
         if not entry < effective_at <= exit_:
             continue
-        if split_known_at(action, knowledge_policy, observations) > visible:
+        if split_known_at(action, knowledge_policy) > visible:
             raise SplitQuarantineError(f"late_split_knowledge:{action.get('action_id')}")
         if split_outcome(action) != "trusted":
             raise SplitQuarantineError(f"quarantined_label_split:{action.get('action_id')}")
@@ -446,31 +293,9 @@ def consumer_price_series(consumer: str) -> str:
         raise PriceSeriesError("unregistered_price_consumer") from exc
 
 
-def _reconstruction_payload(bar: Mapping) -> dict:
-    return {key: bar.get(key) for key in (
-        "security_id", "session", "available_at", "open", "high", "low", "close", "volume",
-        "reconstruction_factor", "reconstruction_action_ids", "archive_row_sha256",
-    )}
-
-
-def _label_point_payload(point: LabelPricePoint) -> dict:
-    payload = {key: getattr(point, key) for key in (
-        "security_id", "session", "available_at", "price_field", "price",
-        "reconstruction_factor", "reconstruction_action_ids", "archive_row_sha256",
-        "reconstruction_sha256",
-    )}
-    payload["session"] = payload["session"].isoformat()
-    payload["available_at"] = payload["available_at"].isoformat().replace("+00:00", "Z")
-    payload["reconstruction_action_ids"] = list(payload["reconstruction_action_ids"])
-    return payload
-
-
 def _validate_reconstructed_bar(bar: Mapping, actions: Sequence[Mapping]) -> None:
     if bar.get("series") != "reconstructed_unadjusted_v1":
         raise PriceSeriesError("wrong_reconstructed_price_series")
-    if (bar.get("archive_row_sha256") != canonical_sha256(bar.get("archive_row"))
-            or bar.get("reconstruction_sha256") != canonical_sha256(_reconstruction_payload(bar))):
-        raise PriceSeriesError("tampered_reconstructed_price_series")
     factor, action_ids = _reconstruction_scale(
         bar.get("security_id"), _date(bar.get("session"), "bar_session"), actions
     )
@@ -484,21 +309,12 @@ def label_price_point(bar: Mapping, price_field: str) -> LabelPricePoint:
     if bar.get("series") != "reconstructed_unadjusted_v1" or price_field not in {"open", "close"}:
         raise PriceSeriesError("wrong_label_price_series")
     action_ids = bar.get("reconstruction_action_ids")
-    archive_sha = bar.get("archive_row_sha256")
-    reconstruction_sha = bar.get("reconstruction_sha256")
-    if (not isinstance(action_ids, list) or not isinstance(archive_sha, str)
-            or _SHA256.fullmatch(archive_sha) is None
-            or archive_sha != canonical_sha256(bar.get("archive_row"))
-            or reconstruction_sha != canonical_sha256(_reconstruction_payload(bar))):
-        raise PriceSeriesError("incomplete_label_price_provenance")
-    values = (
+    if not isinstance(action_ids, list):
+        raise PriceSeriesError("incomplete_label_price")
+    return LabelPricePoint(
         str(bar.get("security_id")), _date(bar.get("session"), "bar_session"),
         _instant(bar.get("available_at"), "bar_available_at"), price_field, float(bar[price_field]),
-        float(bar.get("reconstruction_factor")), tuple(action_ids), archive_sha, reconstruction_sha,
-    )
-    point = LabelPricePoint(*values, "", _token=_LABEL_TOKEN)
-    return LabelPricePoint(
-        *values, canonical_sha256(_label_point_payload(point)), _token=_LABEL_TOKEN
+        float(bar.get("reconstruction_factor")), tuple(action_ids),
     )
 
 
@@ -508,7 +324,6 @@ def quarantined_exposure_counts(
     *,
     registered_windows: Sequence[str],
     knowledge_policy: str = SPLIT_KNOWLEDGE_PRIMARY,
-    observations: ExactSplitObservations | None = None,
 ) -> list[dict]:
     """Estimate held/pending action quarantines for each preregistered window."""
     exposures = tuple(exposures)
@@ -521,7 +336,7 @@ def quarantined_exposure_counts(
     for action in _unique_actions(actions):
         quarantined = split_outcome(action) == "quarantined"
         try:
-            known_at = split_known_at(action, knowledge_policy, observations)
+            known_at = split_known_at(action, knowledge_policy)
         except SplitQuarantineError:
             quarantined = True
         else:
