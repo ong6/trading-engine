@@ -12,6 +12,7 @@ from engine.lib.provenance import canonical_sha256
 from sim import nyse
 
 ALPHA = 0.05
+ALPHA_ALLOCATION_ID = "p16-family-v1-alpha-0.05"
 FALLBACK_SD = 0.15
 GRID_POINTS = 21
 MIN_CALIBRATION_ORIGINS = 20
@@ -197,7 +198,7 @@ def common_report_e_test(
 ) -> dict:
     """Compute lifetime e-Bonferroni and descriptive current e-BH at one cutoff."""
     report_time = _time(report_at)
-    if level != ALPHA or not alpha_allocation_id:
+    if level != ALPHA or alpha_allocation_id != ALPHA_ALLOCATION_ID:
         raise ValueError("registered family alpha allocation must be 0.05")
     if len(family_ids) != len(set(family_ids)):
         raise ValueError("duplicate family ID")

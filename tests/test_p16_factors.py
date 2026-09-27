@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import numpy as np
 import pytest
@@ -24,6 +24,7 @@ def _fixtures(count=25):
                           "exposures": dict.fromkeys(EXPOSURES, base)})
     origin = {
         "status": "available", "market_date": "2026-09-22",
+        "report_cutoff": "2026-10-01T00:00:00Z",
         "scoring_information_cutoff_at": "2026-09-22T20:00:00Z",
         "input_snapshot_sha256": "a" * 64,
         "source": {"trace_sha256": "b" * 64, "universe_sha256": "c" * 64},
@@ -86,6 +87,7 @@ def test_missing_exposure_is_counted_without_changing_full_sample_raw_ic():
 def test_pending_origin_cannot_reach_factor_fit():
     origin = {
         "status": "pending", "market_date": "2026-09-22",
+        "report_cutoff": "2026-10-01T00:00:00Z",
         "unresolved_h5_tickers": ["AAA"],
     }
     origin["input_snapshot_sha256"] = canonical_sha256(origin)
@@ -122,7 +124,10 @@ def test_mean_neutral_ic_uses_equal_sessions_and_twenty_session_floor():
             sessions.append(day)
         day += timedelta(days=1)
     for index, session in enumerate(sessions, 1):
-        body = {"market_date": session.isoformat(), "comparisons": {
+        body = {"market_date": session.isoformat(),
+                "report_cutoff": datetime.combine(
+                    session, datetime.min.time(), tzinfo=timezone.utc).isoformat(),
+                "comparisons": {
             "challenger": {"factor_neutral": {
                 "status": "scored", "challenger_ic": index / 100,
             }},
@@ -130,7 +135,8 @@ def test_mean_neutral_ic_uses_equal_sessions_and_twenty_session_floor():
         reports.append({**body, "factor_report_sha256": canonical_sha256(body)})
     result = mean_neutral_ic(
         list(reversed(reports)), "challenger", activation_date=date(2026, 9, 1),
-        report_cutoff=sessions[-1],
+        report_cutoff=datetime.combine(
+            sessions[-1], datetime.max.time(), tzinfo=timezone.utc),
     )
     assert result["status"] == "available"
     assert result["valid_session_count"] == 20
@@ -143,5 +149,23 @@ def test_mean_neutral_ic_uses_equal_sessions_and_twenty_session_floor():
     })
     assert mean_neutral_ic(
         reports, "challenger", activation_date=date(2026, 9, 1),
-        report_cutoff=sessions[-1],
+        report_cutoff=datetime.combine(
+            sessions[-1], datetime.max.time(), tzinfo=timezone.utc),
     )["status"] == "insufficient"
+
+
+def test_mean_neutral_ic_excludes_reports_created_after_cutoff():
+    reports = []
+    day = date(2026, 9, 1)
+    while len(reports) < 20:
+        if nyse.is_session(day):
+            body = {"market_date": day.isoformat(), "report_cutoff": "2099-01-01T00:00:00Z",
+                    "comparisons": {"challenger": {"factor_neutral": {
+                        "status": "scored", "challenger_ic": 0.5}}}}
+            reports.append({**body, "factor_report_sha256": canonical_sha256(body)})
+        day += timedelta(days=1)
+    result = mean_neutral_ic(
+        reports, "challenger", activation_date=date(2026, 9, 1),
+        report_cutoff=datetime(2026, 10, 1, tzinfo=timezone.utc),
+    )
+    assert result["status"] == "insufficient" and result["valid_session_count"] == 0

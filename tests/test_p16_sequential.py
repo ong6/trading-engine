@@ -159,6 +159,9 @@ def test_common_report_rejects_wrong_level_time_family_and_maximum():
     with pytest.raises(ValueError, match="0.05"):
         common_report_e_test([row], ["c0"], NOW.isoformat(), origin_endpoint=100,
                              alpha_allocation_id="future-family", level=0.1)
+    with pytest.raises(ValueError, match="0.05"):
+        common_report_e_test([row], ["c0"], NOW.isoformat(), origin_endpoint=100,
+                             alpha_allocation_id="second-family-alpha-0.05")
     with pytest.raises(ValueError, match="common report time"):
         common_report_e_test([row | {"report_at": (NOW + timedelta(days=1)).isoformat()}],
                              ["c0"], NOW.isoformat(), origin_endpoint=100,

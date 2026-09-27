@@ -44,10 +44,12 @@ def evaluate_origin(
     if origin.get("input_snapshot_sha256") != canonical_sha256({
             key: value for key, value in origin.items() if key != "input_snapshot_sha256"}):
         raise ValueError("factor origin identity differs")
+    report_cutoff = _instant(origin.get("report_cutoff")).isoformat()
     if origin.get("status") == "pending":
         return _report({
             "status": "pending", "reason": "origin_labels_unresolved",
             "market_date": origin.get("market_date"),
+            "report_cutoff": report_cutoff,
             "input_snapshot_sha256": origin.get("input_snapshot_sha256"),
             "unresolved_h5_tickers": origin.get("unresolved_h5_tickers", []),
         })
@@ -120,6 +122,7 @@ def evaluate_origin(
     body = {
         "status": "available" if fit["status"] == "available" else "insufficient",
         "reason": fit["reason"], "market_date": origin["market_date"],
+        "report_cutoff": report_cutoff,
         "input_snapshot_sha256": origin["input_snapshot_sha256"],
         "exposure_snapshot_sha256": exposure_snapshot.get("snapshot_sha256"),
         "score_snapshot_sha256": score_sources, "tickers": tickers,
@@ -129,20 +132,23 @@ def evaluate_origin(
 
 
 def mean_neutral_ic(
-    reports: list[dict], policy_id: str, *, activation_date: date, report_cutoff: date,
+    reports: list[dict], policy_id: str, *, activation_date: date, report_cutoff: datetime,
 ) -> dict:
     """Equal-session mean of available adjusted ICs over one declared interval."""
     if any(row.get("factor_report_sha256") != canonical_sha256({
             key: value for key, value in row.items() if key != "factor_report_sha256"})
             for row in reports):
         raise ValueError("factor report identity differs")
+    cutoff = _instant(report_cutoff.isoformat())
+    cutoff_date = cutoff.date()
     scheduled, day = [], activation_date
-    while day <= report_cutoff:
+    while day <= cutoff_date:
         if nyse.is_session(day):
             scheduled.append(day)
         day += timedelta(days=1)
     eligible = sorted((row for row in reports if activation_date <= date.fromisoformat(
-        row["market_date"]) <= report_cutoff), key=lambda row: row["market_date"])
+        row["market_date"]) <= cutoff_date and _instant(row.get("report_cutoff")) <= cutoff),
+        key=lambda row: row["market_date"])
     dates = [row["market_date"] for row in eligible]
     if len(dates) != len(set(dates)) or not set(map(date.fromisoformat, dates)) <= set(scheduled):
         raise ValueError("factor reports do not match the session grid")
@@ -161,6 +167,6 @@ def mean_neutral_ic(
         "mean_neutral_ic": float(np.mean(values)) if status == "available" else None,
         "first_valid_date": valid_dates[0] if valid_dates else None,
         "last_valid_date": valid_dates[-1] if valid_dates else None,
-        "activation_date": activation_date.isoformat(), "report_cutoff": report_cutoff.isoformat(),
+        "activation_date": activation_date.isoformat(), "report_cutoff": cutoff.isoformat(),
         "source_report_sha256": [row.get("factor_report_sha256") for row in eligible],
     }

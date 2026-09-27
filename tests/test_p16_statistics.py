@@ -1,6 +1,9 @@
+from datetime import date
+
 import numpy as np
 import pytest
 
+from engine.lib.provenance import canonical_sha256
 from farm.p16_statistics import (
     comparable_trial_variance,
     deflated_sharpe,
@@ -13,6 +16,32 @@ from farm.p16_statistics import (
     transfer_coefficient,
     weight_pearson_tc,
 )
+from sim import nyse
+
+
+def _dates(count):
+    result, day = [], date(2025, 1, 2)
+    for _ in range(count):
+        result.append(day.isoformat())
+        for _ in range(5):
+            day = nyse.next_session(day)
+    return result
+
+
+def _dispersion(returns, *, status="dispersion_unavailable", count=1, variance=None):
+    values = np.asarray(returns, dtype=float).tolist()
+    return {"status": status, "compatible_trial_count": count,
+            "trial_sharpe_variance": variance, "candidate_trial_id": "candidate",
+            "candidate_return_sha256": canonical_sha256(values),
+            "observation_dates": _dates(len(values)), "horizon": 5,
+            "cost_basis": "h5-v1"}
+
+
+def _dsr(returns, inventory, dispersion):
+    return deflated_sharpe(
+        returns, trial_inventory=inventory, dispersion=dispersion,
+        candidate_trial_id="candidate", observation_dates=_dates(len(returns)),
+        horizon=5, cost_basis="h5-v1")
 
 
 def _factor_fixture():
@@ -96,18 +125,15 @@ def test_factor_coverage_boundary_is_exactly_eighty_percent():
 def test_symmetric_sharpe_has_known_probability_and_pearson_kurtosis():
     inventory = {"status": "complete", "selection_trial_count": 1,
                  "register_sha256": "a" * 64}
-    unavailable = {"status": "dispersion_unavailable", "compatible_trial_count": 1,
-                   "trial_sharpe_variance": None}
-    result = deflated_sharpe([-1, 1] * 30, trial_inventory=inventory,
-                             dispersion=unavailable)
+    returns = [-1, 1] * 30
+    unavailable = _dispersion(returns)
+    result = _dsr(returns, inventory, unavailable)
     assert result["status"] == "available"
     assert result["sharpe"] == 0 and result["sr0"] == 0 and result["skew"] == 0
     assert result["pearson_kurtosis"] == 1 and result["probability"] == 0.5
     inventory["selection_trial_count"] = 10
-    dispersion = {"status": "available", "compatible_trial_count": 2,
-                  "trial_sharpe_variance": 0.02}
-    deflated = deflated_sharpe([-1, 1] * 30, trial_inventory=inventory,
-                               dispersion=dispersion)
+    dispersion = _dispersion(returns, status="available", count=2, variance=0.02)
+    deflated = _dsr(returns, inventory, dispersion)
     assert deflated["probability"] < 0.5 and deflated["sr0"] > 0
     assert expected_max_sharpe(20, 0.02) > expected_max_sharpe(10, 0.02)
 
@@ -115,26 +141,21 @@ def test_symmetric_sharpe_has_known_probability_and_pearson_kurtosis():
 def test_dsr_never_invents_trial_dispersion_or_deletes_bad_returns():
     one = {"status": "complete", "selection_trial_count": 1, "register_sha256": "a" * 64}
     many = one | {"selection_trial_count": 10}
-    unavailable = {"status": "dispersion_unavailable", "compatible_trial_count": 1,
-                   "trial_sharpe_variance": None}
-    assert deflated_sharpe([1, 2, 3], trial_inventory=one,
-                           dispersion=unavailable)["status"] == "insufficient"
-    assert deflated_sharpe([-1, 1] * 30, trial_inventory=many,
-                           dispersion=unavailable)["status"] == "dispersion_unavailable"
-    assert deflated_sharpe([1] * 60, trial_inventory=one,
-                           dispersion=unavailable)["status"] == "zero_variance"
+    assert _dsr([1, 2, 3], one, _dispersion([1, 2, 3]))["status"] == "insufficient"
+    returns = [-1, 1] * 30
+    assert _dsr(returns, many, _dispersion(returns))["status"] == "dispersion_unavailable"
+    returns = [1] * 60
+    assert _dsr(returns, one, _dispersion(returns))["status"] == "zero_variance"
     with pytest.raises(ValueError, match="nonfinite"):
-        deflated_sharpe([1, 2, 3, np.nan], trial_inventory=one, dispersion=unavailable)
+        _dsr([1, 2, 3, np.nan], one, _dispersion([1, 2, 3, np.nan]))
 
 
 def test_asymmetric_sharpe_matches_hand_computed_four_moments():
     # Mean=1/3, m2=8/9, m3=11/27, m4=50/27; s^2=160/177 for n=60.
-    result = deflated_sharpe(
-        [-1, 0, 0, 0, 1, 2] * 10,
-        trial_inventory={"status": "complete", "selection_trial_count": 1,
-                         "register_sha256": "a" * 64},
-        dispersion={"status": "dispersion_unavailable", "compatible_trial_count": 1,
-                    "trial_sharpe_variance": None})
+    returns = [-1, 0, 0, 0, 1, 2] * 10
+    result = _dsr(returns,
+                   {"status": "complete", "selection_trial_count": 1,
+                    "register_sha256": "a" * 64}, _dispersion(returns))
     assert result["sharpe"] == pytest.approx(0.35059473279937714)
     assert result["skew"] == pytest.approx(0.4861359120657514)
     assert result["pearson_kurtosis"] == pytest.approx(2.34375)
@@ -174,13 +195,13 @@ def test_top_quintile_selection_is_fixed_before_labels():
 
 
 def test_comparable_trial_variance_requires_common_dates_horizon_and_cost():
-    dates = [f"2026-01-{day:02d}" for day in range(1, 6)]
+    dates = _dates(5)
     rows = [
         {"trial_id": "a", "observation_dates": dates, "horizon": 5,
          "cost_basis": "h5-v1", "returns": [-1, 1, -1, 1, 0]},
         {"trial_id": "b", "observation_dates": dates, "horizon": 5,
          "cost_basis": "h5-v1", "returns": [-2, 1, -1, 2, 1]},
-        {"trial_id": "wrong", "observation_dates": dates[:-1] + ["2026-02-01"],
+        {"trial_id": "wrong", "observation_dates": dates[:-1] + ["2026-12-01"],
          "horizon": 5, "cost_basis": "h5-v1", "returns": [-1, 1, -1, 1, 0]},
     ]
     result = comparable_trial_variance(rows, candidate_trial_id="a")
@@ -194,10 +215,28 @@ def test_comparable_trial_variance_requires_common_dates_horizon_and_cost():
 def test_dsr_minimum_is_fixed_at_sixty_and_inventory_is_bound():
     inventory = {"status": "complete", "selection_trial_count": 2,
                  "register_sha256": "a" * 64}
-    dispersion = {"status": "available", "compatible_trial_count": 2,
-                  "trial_sharpe_variance": 0.02}
-    assert deflated_sharpe([-1, 1] * 29 + [1], trial_inventory=inventory,
-                           dispersion=dispersion)["status"] == "insufficient"
+    returns = [-1, 1] * 29 + [1]
+    dispersion = _dispersion(returns, status="available", count=2, variance=0.02)
+    assert _dsr(returns, inventory, dispersion)["status"] == "insufficient"
     incomplete = inventory | {"status": "incomplete"}
-    assert deflated_sharpe([-1, 1] * 30, trial_inventory=incomplete,
-                           dispersion=dispersion)["status"] == "inventory_incomplete"
+    returns = [-1, 1] * 30
+    assert _dsr(returns, incomplete,
+                 _dispersion(returns, status="available", count=2, variance=0.02))[
+                     "status"] == "inventory_incomplete"
+
+
+def test_dsr_rejects_dispersion_from_a_different_candidate_stream():
+    inventory = {"status": "complete", "selection_trial_count": 2,
+                 "register_sha256": "a" * 64}
+    dispersion = _dispersion([-1, 1] * 30, status="available", count=2, variance=0.02)
+    with pytest.raises(ValueError, match="differs"):
+        _dsr([1, -1] * 30, inventory, dispersion)
+    daily, day = [], date(2025, 1, 2)
+    for _ in range(60):
+        daily.append(day.isoformat())
+        day = nyse.next_session(day)
+    with pytest.raises(ValueError, match="offset-0"):
+        deflated_sharpe(
+            [-1, 1] * 30, trial_inventory=inventory, dispersion=dispersion,
+            candidate_trial_id="candidate", observation_dates=daily,
+            horizon=5, cost_basis="h5-v1")

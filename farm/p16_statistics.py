@@ -6,12 +6,15 @@ Bailey--Lopez de Prado approximation, not an always-valid probability guarantee.
 from __future__ import annotations
 
 import math
+from datetime import date
 from statistics import NormalDist
 
 import numpy as np
 
+from engine.lib.provenance import canonical_sha256
 from engine.p15_evaluation import spearman
 from engine.p16_features import EXPOSURES
+from sim import nyse
 
 
 def _vector(values) -> np.ndarray:
@@ -135,6 +138,24 @@ def top_quintile_return(rows: list[dict]) -> dict:
     return result
 
 
+def _nonoverlap_dates(values: object) -> list[str]:
+    if not isinstance(values, list) or not values:
+        raise ValueError("candidate comparison dates are invalid")
+    try:
+        parsed = [date.fromisoformat(value) for value in values]
+    except (TypeError, ValueError) as exc:
+        raise ValueError("candidate comparison dates are invalid") from exc
+    if values != [day.isoformat() for day in parsed] or len(set(parsed)) != len(parsed):
+        raise ValueError("candidate comparison dates are invalid")
+    for previous, current in zip(parsed, parsed[1:], strict=False):
+        expected = previous
+        for _ in range(5):
+            expected = nyse.next_session(expected)
+        if current != expected:
+            raise ValueError("candidate dates are not the registered offset-0 series")
+    return values
+
+
 def comparable_trial_variance(rows: list[dict], *, candidate_trial_id: str) -> dict:
     """Estimate cross-trial Sharpe variance only on one exact h5/date/cost basis."""
     trial_ids = [row.get("trial_id") for row in rows]
@@ -144,9 +165,9 @@ def comparable_trial_variance(rows: list[dict], *, candidate_trial_id: str) -> d
     if len(matches) != 1:
         raise ValueError("candidate trial is missing or duplicated")
     candidate = matches[0]
-    dates = candidate.get("observation_dates")
+    dates = _nonoverlap_dates(candidate.get("observation_dates"))
     basis = (dates, candidate.get("horizon"), candidate.get("cost_basis"))
-    if not isinstance(dates, list) or len(dates) != len(set(dates)) or basis[1] != 5:
+    if basis[1] != 5 or not isinstance(basis[2], str) or not basis[2]:
         raise ValueError("candidate comparison basis is invalid")
     sharpes, included, excluded = [], [], {}
     for row in rows:
@@ -165,19 +186,31 @@ def comparable_trial_variance(rows: list[dict], *, candidate_trial_id: str) -> d
         included.append(row["trial_id"])
     variance = float(np.var(sharpes, ddof=1)) if len(sharpes) >= 2 else None
     available = variance is not None and variance > 0
+    candidate_returns = _vector(candidate.get("returns"))
     return {"status": "available" if available else "dispersion_unavailable",
             "compatible_trial_count": len(sharpes), "inventory_rows": len(rows),
             "compatibility_coverage": len(sharpes) / len(rows) if rows else 0.0,
             "trial_sharpe_variance": variance if available else None,
             "compatible_trial_ids": included, "excluded": excluded,
+            "candidate_trial_id": candidate_trial_id,
+            "candidate_return_sha256": canonical_sha256(candidate_returns.tolist()),
             "observation_dates": dates, "horizon": basis[1], "cost_basis": basis[2]}
 
 
-def deflated_sharpe(returns, *, trial_inventory: dict, dispersion: dict) -> dict:
+def deflated_sharpe(returns, *, trial_inventory: dict, dispersion: dict,
+                    candidate_trial_id: str, observation_dates: list[str],
+                    horizon: int, cost_basis: str) -> dict:
     """Apply fixed-T DSR using all-plan N and compatible cross-trial dispersion."""
     series = _vector(returns)
     if not np.all(np.isfinite(series)):
         raise ValueError("nonfinite DSR return; do not silently remove periods")
+    dates = _nonoverlap_dates(observation_dates)
+    if (len(dates) != len(series) or dispersion.get("candidate_trial_id") != candidate_trial_id
+            or dispersion.get("candidate_return_sha256") != canonical_sha256(series.tolist())
+            or dispersion.get("observation_dates") != dates
+            or dispersion.get("horizon") != horizon or horizon != 5
+            or dispersion.get("cost_basis") != cost_basis or not cost_basis):
+        raise ValueError("DSR candidate return stream differs from dispersion")
     trials = trial_inventory.get("selection_trial_count")
     digest = trial_inventory.get("register_sha256")
     if (type(trials) is not int or trials < 1 or not isinstance(digest, str)
@@ -188,6 +221,9 @@ def deflated_sharpe(returns, *, trial_inventory: dict, dispersion: dict) -> dict
     result = {"status": "insufficient", "observations": len(series), "trials": trials,
               "compatible_trials": dispersion.get("compatible_trial_count"),
               "trial_sharpe_variance": variance, "register_sha256": digest,
+              "candidate_trial_id": candidate_trial_id,
+              "candidate_return_sha256": canonical_sha256(series.tolist()),
+              "observation_dates": dates, "horizon": horizon, "cost_basis": cost_basis,
               "probability": None, "sharpe": None, "sr0": None,
               "skew": None, "pearson_kurtosis": None,
               "method": "bailey_lopez_de_prado_approximation",
