@@ -39,6 +39,29 @@ def test_project_reports_not_initialized_without_family_evidence(monkeypatch):
     }
 
 
+def test_construction_validation_failure_does_not_break_evaluation_status(monkeypatch):
+    monkeypatch.setattr(
+        p16_reporting.p16_book_store, "status_projection",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            p16_reporting.p16_book_store.P16BookError("tampered construction row")
+        ),
+    )
+    monkeypatch.setattr(
+        p16_reporting.p16_store, "family_report_as_of",
+        lambda con, *, generated_at: None,
+    )
+
+    result = p16_reporting.project(object(), generated_at=NOW)
+
+    assert result["status"] == "not_initialized"
+    assert result["construction"] == {
+        "schema_version": 1, "status": "unavailable",
+        "mechanics_version": "p16-construct-v1",
+        "book_ids": ["p16_construct_ai", "p16_construct_rule"], "books": [],
+        "reason": "construction_validation_failed", "execution_authority": "none",
+    }
+
+
 def test_project_validates_and_exposes_complete_family(monkeypatch):
     family = _build()
     monkeypatch.setattr(p16_reporting.p16_store, "family_report_as_of",

@@ -54,7 +54,7 @@ def _database():
     for index, session in enumerate(sessions):
         for ticker, slope in (("SPY", 1.0), ("AAA", 1.01), ("BBB", 0.99), ("CCC", 1.02)):
             close = 100 + slope * index + (0.2 if ticker == "BBB" and index % 2 else 0)
-            rows.append((ticker, session, close, close, close, close, 1_000_000,
+            rows.append((ticker, session, close, close + 1, close - 1, close, 1_000_000,
                          "test", CUTOFF.replace(tzinfo=None)))
     con.executemany("INSERT INTO prices VALUES (?,?,?,?,?,?,?,?,?)", rows)
     con.execute("""CREATE TABLE agent_evaluation_traces (
@@ -81,7 +81,7 @@ def _database():
     for ticker, open_px in (("SPY", 200.0), ("AAA", 202.0), ("BBB", 198.0), ("CCC", 203.0)):
         con.execute(
             "INSERT INTO prices VALUES (?,?,?,?,?,?,?,?,?)",
-            [ticker, holding_date, open_px, open_px, open_px, open_px, 1_000_000,
+            [ticker, holding_date, open_px, open_px + 1, open_px - 1, open_px, 1_000_000,
              "test", CUTOFF.replace(tzinfo=None)],
         )
     for book_id in (*p16_transfer.BOOK_POLICIES.keys(),):
@@ -149,7 +149,7 @@ def test_held_name_without_same_vintage_score_makes_primary_unavailable():
         [instance, holding_date],
     )
     con.execute(
-        "INSERT INTO prices VALUES ('ZZZ',?,10,10,10,10,100,'test',?)",
+        "INSERT INTO prices VALUES ('ZZZ',?,10,11,9,10,100,'test',?)",
         [holding_date, CUTOFF.replace(tzinfo=None)],
     )
     result = p16_transfer.produce(

@@ -11,6 +11,7 @@ import duckdb
 import numpy as np
 
 from engine.lib import db
+from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
@@ -62,7 +63,7 @@ def _snapshot(con, origin: dict, cutoff: datetime) -> dict:
     rows = con.execute(
         "SELECT ticker,date,close,volume FROM prices "
         f"WHERE ticker IN ({placeholders}) AND date BETWEEN ? AND ? "
-        "AND fetched_at IS NOT NULL AND fetched_at<=? AND close>0 AND volume>0 "
+        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND close>0 AND {REAL_BAR_SQL} "
         "ORDER BY ticker,date",
         [*names, sessions[0], sessions[-1], cutoff.replace(tzinfo=None)],
     ).fetchall()

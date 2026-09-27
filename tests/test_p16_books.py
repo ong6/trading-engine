@@ -87,6 +87,22 @@ def test_limit_miss_records_attempt_and_terminal_order_without_fill(con):
     assert con.execute("SELECT COUNT(*) FROM p16_book_fills").fetchone() == (0,)
 
 
+def test_gap_cost_cannot_turn_a_whole_share_buy_into_fractional_fill(con):
+    insert_bars(con, "AAA", SESSIONS[:31], open_=100, close=100, high=101, low=99)
+    instance = _book(con)
+    _queue(con, instance, limit=110, qty=100)
+
+    result = p16_books.process_window(
+        con, book_instance_id=instance, market_date=SESSIONS[30], observed_at=NOW,
+    )
+
+    assert result["filled"] == 0 and result["rejected"] == 1
+    assert con.execute(
+        "SELECT status,reason FROM p16_order_intents",
+    ).fetchone() == ("rejected", "insufficient_cash")
+    assert con.execute("SELECT COUNT(*) FROM sim_positions").fetchone() == (0,)
+
+
 def test_limit_miss_label_waits_for_h5_and_replays_without_duplicate(con):
     dates = SESSIONS[30:35]
     insert_bars(con, "AAA", dates, open_=102, close=[102, 103, 104, 105, 106],
