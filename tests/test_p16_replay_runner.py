@@ -7,9 +7,11 @@ import pytest
 
 from farm.replay.runner import (
     ANCHOR_ID,
+    ReplaySessionStore,
     book_snapshot,
     bootstrap_books,
     run_book_session,
+    run_session,
     session_phases,
 )
 from sim import p15_books
@@ -119,3 +121,46 @@ def test_private_bootstrap_fill_pnl_retry_and_anchor_isolation():
         [ANCHOR_ID],
     ).fetchall() == [(0.0, 0.0, 0)]
     assert set(before[2]) == set(p15_books.BOOK_IDS)
+
+
+def test_run_session_owns_store_runs_exact_phase_order_and_resumes(tmp_path):
+    root = (tmp_path / "research").resolve()
+    root.mkdir()
+    live = (tmp_path / "live.duckdb").resolve()
+    live.touch()
+    target = root / "replay.duckdb"
+    checkpoint, session = SESSIONS[28:30]
+    calls = []
+
+    def execute(phase, market_date, logical_at):
+        # The callback can open the file, proving the runner released its writer.
+        with duckdb.connect(str(target), read_only=True) as reader:
+            assert reader.execute("SELECT store_kind FROM w4_store_identity").fetchone() == (
+                "replay",
+            )
+        calls.append((phase, market_date, logical_at))
+        return [{"status": "completed", "phase": phase}]
+
+    store = ReplaySessionStore(
+        path=target,
+        research_root=root,
+        live_db_path=live,
+        cohort_id="fixture-cohort",
+        policy_id="fixture-policy",
+        checkpoint=checkpoint,
+        initialized_at=datetime(2026, 9, 27, tzinfo=timezone.utc),
+        execute_phase=execute,
+        run_books=False,
+    )
+    first = run_session(store, session)
+    second = run_session(store, session)
+    assert first["status"] == second["status"] == "completed"
+    assert first["completed_phases"] == [
+        "PREOPEN", "OPEN", "CLOSE", "SCORE", "POSTMORTEM"
+    ]
+    assert second["executed"] == {}
+    assert [row[0] for row in calls] == first["completed_phases"]
+    with duckdb.connect(str(target), read_only=True) as con:
+        assert con.execute(
+            "SELECT phase FROM replay_clock ORDER BY phase_index"
+        ).fetchall() == [(phase,) for phase in first["completed_phases"]]

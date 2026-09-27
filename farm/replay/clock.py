@@ -7,8 +7,36 @@ from typing import Mapping, Sequence
 from engine.lib.provenance import canonical_sha256
 from farm.replay.store import ReplayStoreError, append_exact, load_record
 
-PHASES = ("input", "open", "close", "label", "postmortem")
+PHASES = ("PREOPEN", "OPEN", "CLOSE", "SCORE", "POSTMORTEM")
 TERMINAL_STATUSES = frozenset({"completed", "unavailable", "failed", "not_applicable"})
+
+
+def init_clock_schema(con) -> None:
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS replay_clock (
+            cohort_id VARCHAR NOT NULL,
+            policy_id VARCHAR NOT NULL,
+            session DATE NOT NULL,
+            phase VARCHAR NOT NULL,
+            phase_index INTEGER NOT NULL,
+            logical_at VARCHAR NOT NULL,
+            checkpoint_sha256 VARCHAR NOT NULL,
+            PRIMARY KEY(cohort_id, policy_id, session, phase))"""
+    )
+
+
+def completed_phases(con, *, cohort_id: str, policy_id: str, session: date) -> tuple[str, ...]:
+    rows = con.execute(
+        "SELECT phase,phase_index FROM replay_clock WHERE cohort_id=? AND policy_id=? "
+        "AND session=? ORDER BY phase_index",
+        [cohort_id, policy_id, session],
+    ).fetchall()
+    phases = tuple(row[0] for row in rows)
+    if phases != PHASES[: len(phases)] or any(
+        index != expected for expected, (_phase, index) in enumerate(rows)
+    ):
+        raise ReplayStoreError("replay_clock_not_contiguous")
+    return phases
 
 
 def record_phase_checkpoint(
@@ -23,6 +51,7 @@ def record_phase_checkpoint(
     expected_rows: int,
     recorded_at: datetime,
 ) -> str:
+    init_clock_schema(con)
     if phase not in PHASES or expected_rows < 0 or len(terminal_rows) != expected_rows:
         raise ReplayStoreError("phase_terminal_coverage_incomplete")
     if any(row.get("status") not in TERMINAL_STATUSES for row in terminal_rows):
@@ -38,7 +67,10 @@ def record_phase_checkpoint(
         if previous is None:
             raise ReplayStoreError("previous_phase_missing")
         previous_sha256 = previous["payload_sha256"]
-        if logical_at_iso <= previous["payload"]["logical_at"]:
+        previous_at = datetime.fromisoformat(
+            previous["payload"]["logical_at"].replace("Z", "+00:00")
+        )
+        if logical_at.astimezone(timezone.utc) <= previous_at:
             raise ReplayStoreError("logical_clock_not_monotone")
     payload = {
         "schema_version": 1,
@@ -51,10 +83,25 @@ def record_phase_checkpoint(
         "terminal_rows_sha256": canonical_sha256(list(terminal_rows)),
         "previous_checkpoint_sha256": previous_sha256,
     }
-    return append_exact(
+    checkpoint_sha256 = append_exact(
         con,
         record_type=record_type,
         record_key=phase,
         payload=payload,
         recorded_at=recorded_at,
     )
+    existing = con.execute(
+        "SELECT phase_index,logical_at,checkpoint_sha256 FROM replay_clock "
+        "WHERE cohort_id=? AND policy_id=? AND session=? AND phase=?",
+        [cohort_id, policy_id, session, phase],
+    ).fetchone()
+    expected = (phase_index, logical_at_iso, checkpoint_sha256)
+    if existing is None:
+        con.execute(
+            "INSERT INTO replay_clock VALUES (?,?,?,?,?,?,?)",
+            [cohort_id, policy_id, session, phase, phase_index, logical_at_iso,
+             checkpoint_sha256],
+        )
+    elif existing != expected:
+        raise ReplayStoreError("replay_clock_conflict")
+    return checkpoint_sha256
