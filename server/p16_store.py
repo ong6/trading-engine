@@ -14,7 +14,7 @@ ARTIFACT_KINDS = {
     "origin", "exposure", "policy_scores", "factor_report", "top_quintile",
     "trial_dispersion", "transfer", "sequential_checkpoint", "family_report",
 }
-ORIGIN_STATUSES = {"scored", "decision_unavailable", "pending", "invalid"}
+ORIGIN_STATUSES = {"scored", "decision_unavailable"}
 
 
 def _timestamp(value: datetime, field: str) -> datetime:
@@ -41,32 +41,37 @@ def _text(value: object, field: str) -> str:
 
 def init_schema(con) -> None:
     con.execute("""CREATE TABLE IF NOT EXISTS p16_evaluation_artifacts (
-        artifact_sha256 VARCHAR PRIMARY KEY, artifact_kind VARCHAR NOT NULL,
+        artifact_sha256 VARCHAR PRIMARY KEY, registration_sha256 VARCHAR NOT NULL,
+        artifact_kind VARCHAR NOT NULL,
         artifact_key VARCHAR NOT NULL, market_date DATE NOT NULL,
         information_cutoff_at TIMESTAMP NOT NULL, recorded_at TIMESTAMP NOT NULL,
         source_sha256 VARCHAR NOT NULL, payload_json VARCHAR NOT NULL,
         payload_sha256 VARCHAR NOT NULL, row_sha256 VARCHAR NOT NULL,
-        UNIQUE(artifact_kind,artifact_key,market_date,information_cutoff_at)
+        UNIQUE(registration_sha256,artifact_kind,artifact_key,market_date,information_cutoff_at)
     )""")
     con.execute("""CREATE TABLE IF NOT EXISTS p16_sequential_origins (
-        comparison_id VARCHAR NOT NULL, session_index INTEGER NOT NULL,
+        registration_sha256 VARCHAR NOT NULL, family_id VARCHAR NOT NULL,
+        comparison_id VARCHAR NOT NULL, trial_id VARCHAR NOT NULL,
+        epoch_session DATE NOT NULL, session_index INTEGER NOT NULL,
         market_date DATE NOT NULL, status VARCHAR NOT NULL, reason VARCHAR,
         decided_at TIMESTAMP NOT NULL, forward_entry_at TIMESTAMP NOT NULL,
         labels_available_at TIMESTAMP, delta_ic DOUBLE, input_sha256 VARCHAR,
-        recorded_at TIMESTAMP NOT NULL, row_sha256 VARCHAR NOT NULL,
-        PRIMARY KEY(comparison_id,session_index), UNIQUE(comparison_id,market_date)
+        source_sha256 VARCHAR NOT NULL, recorded_at TIMESTAMP NOT NULL,
+        row_sha256 VARCHAR NOT NULL,
+        PRIMARY KEY(registration_sha256,comparison_id,session_index),
+        UNIQUE(registration_sha256,comparison_id,market_date)
     )""")
 
 
 def _artifact_row(row: tuple) -> dict:
-    (artifact_id, kind, key, market_date, cutoff, recorded, source_sha, raw,
+    (artifact_id, registration_sha, kind, key, market_date, cutoff, recorded, source_sha, raw,
      payload_sha, row_sha) = row
     try:
         payload = json.loads(raw)
     except (TypeError, json.JSONDecodeError) as exc:
         raise ValueError("stored P16 artifact payload is invalid") from exc
     logical = {
-        "artifact_kind": kind, "artifact_key": key,
+        "registration_sha256": registration_sha, "artifact_kind": kind, "artifact_key": key,
         "market_date": market_date.isoformat(),
         "information_cutoff_at": cutoff.isoformat(), "source_sha256": source_sha,
         "payload_sha256": canonical_sha256(payload),
@@ -86,7 +91,7 @@ def _artifact_row(row: tuple) -> dict:
 
 
 def record_artifact(
-    con, *, artifact_kind: str, artifact_key: str, market_date: date,
+    con, *, registration_sha256: str, artifact_kind: str, artifact_key: str, market_date: date,
     information_cutoff_at: datetime, recorded_at: datetime, source_sha256: str,
     payload: dict,
 ) -> str:
@@ -95,6 +100,7 @@ def record_artifact(
             or isinstance(market_date, datetime) or not isinstance(payload, dict):
         raise ValueError("P16 artifact is invalid")
     key = _text(artifact_key, "artifact key")
+    registration = _digest(registration_sha256, "registration digest")
     source = _digest(source_sha256, "artifact source digest")
     cutoff = _timestamp(information_cutoff_at, "information cutoff")
     recorded = _timestamp(recorded_at, "recorded at")
@@ -102,7 +108,8 @@ def record_artifact(
         raise ValueError("P16 artifact was recorded before its cutoff")
     payload_sha = canonical_sha256(payload)
     logical = {
-        "artifact_kind": artifact_kind, "artifact_key": key,
+        "registration_sha256": registration, "artifact_kind": artifact_kind,
+        "artifact_key": key,
         "market_date": market_date.isoformat(),
         "information_cutoff_at": cutoff.isoformat(), "source_sha256": source,
         "payload_sha256": payload_sha,
@@ -111,24 +118,25 @@ def record_artifact(
     row_sha = canonical_sha256({
         "artifact_sha256": artifact_id, "recorded_at": recorded.isoformat(),
     })
-    row = (artifact_id, artifact_kind, key, market_date, cutoff, recorded, source,
+    row = (artifact_id, registration, artifact_kind, key, market_date, cutoff, recorded, source,
            json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False),
            payload_sha, row_sha)
     existing = con.execute(
-        "SELECT * FROM p16_evaluation_artifacts WHERE artifact_kind=? AND artifact_key=? "
-        "AND market_date=? AND information_cutoff_at=?",
-        [artifact_kind, key, market_date, cutoff],
+        "SELECT * FROM p16_evaluation_artifacts WHERE registration_sha256=? "
+        "AND artifact_kind=? AND artifact_key=? AND market_date=? AND information_cutoff_at=?",
+        [registration, artifact_kind, key, market_date, cutoff],
     ).fetchone()
     if existing is not None:
         if _artifact_row(existing)["artifact_sha256"] != artifact_id:
             raise ValueError("P16 artifact logical key was replayed differently")
         return artifact_id
-    con.execute("INSERT INTO p16_evaluation_artifacts VALUES (?,?,?,?,?,?,?,?,?,?)", row)
+    con.execute("INSERT INTO p16_evaluation_artifacts VALUES (?,?,?,?,?,?,?,?,?,?,?)", row)
     return artifact_id
 
 
 def artifacts_as_of(
-    con, *, generated_at: datetime, artifact_kind: str | None = None,
+    con, *, generated_at: datetime, registration_sha256: str | None = None,
+    artifact_kind: str | None = None,
     artifact_key: str | None = None, through_market_date: date | None = None,
 ) -> list[dict]:
     """Return verified artifacts visible at a common report instant."""
@@ -136,6 +144,9 @@ def artifacts_as_of(
     if not table_exists(con, "p16_evaluation_artifacts"):
         return []
     clauses, values = ["information_cutoff_at<=?", "recorded_at<=?"], [cutoff, cutoff]
+    if registration_sha256 is not None:
+        clauses.append("registration_sha256=?")
+        values.append(_digest(registration_sha256, "registration digest"))
     if artifact_kind is not None:
         if artifact_kind not in ARTIFACT_KINDS:
             raise ValueError("P16 artifact kind is invalid")
@@ -155,17 +166,34 @@ def artifacts_as_of(
     return [_artifact_row(row) for row in rows]
 
 
+def _session_at(epoch: date, index: int) -> date:
+    if (not isinstance(epoch, date) or isinstance(epoch, datetime)
+            or not p16_sequential.nyse.is_session(epoch)):
+        raise ValueError("sequential epoch is invalid")
+    current = epoch
+    for _ in range(index):
+        current = p16_sequential.nyse.next_session(current)
+    return current
+
+
 def _origin_body(
-    *, comparison_id: str, session_index: int, market_date: date, status: str,
+    *, registration_sha256: str, family_id: str, comparison_id: str, trial_id: str,
+    epoch_session: date, session_index: int, market_date: date, status: str,
     reason: str | None, decided_at: datetime, forward_entry_at: datetime,
     labels_available_at: datetime | None, delta_ic: float | None,
-    input_sha256: str | None,
+    input_sha256: str | None, source_sha256: str,
 ) -> dict:
     if (type(session_index) is not int or session_index < 0
             or not isinstance(market_date, date) or isinstance(market_date, datetime)
             or status not in ORIGIN_STATUSES):
         raise ValueError("P16 sequential origin is invalid")
     comparison = _text(comparison_id, "comparison ID")
+    registration = _digest(registration_sha256, "registration digest")
+    family = _text(family_id, "family ID")
+    trial = _digest(trial_id, "trial ID")
+    source = _digest(source_sha256, "sequential source digest")
+    if market_date != _session_at(epoch_session, session_index):
+        raise ValueError("P16 sequential origin is off the registered session grid")
     decided = _timestamp(decided_at, "decided at")
     entry = _timestamp(forward_entry_at, "forward entry at")
     if decided >= entry:
@@ -183,17 +211,14 @@ def _origin_body(
                 or labels_available_at is not None or input_sha256 is not None:
             raise ValueError("P16 skipped sequential origin is invalid")
         digest = None
-    else:
-        if not isinstance(reason, str) or not reason or delta_ic is not None \
-                or input_sha256 is not None:
-            raise ValueError("P16 blocked sequential origin is invalid")
-        digest = None
     return {
-        "comparison_id": comparison, "session_index": session_index,
+        "registration_sha256": registration, "family_id": family,
+        "comparison_id": comparison, "trial_id": trial, "epoch_session": epoch_session,
+        "session_index": session_index,
         "market_date": market_date, "status": status, "reason": reason,
         "decided_at": decided, "forward_entry_at": entry,
         "labels_available_at": available, "delta_ic": None if delta_ic is None else float(delta_ic),
-        "input_sha256": digest,
+        "input_sha256": digest, "source_sha256": source,
     }
 
 
@@ -201,13 +226,14 @@ def record_sequential_origin(con, *, recorded_at: datetime, **values) -> str:
     """Append one origin in the immutable registered exchange-session grid."""
     body = _origin_body(**values)
     recorded = _timestamp(recorded_at, "recorded at")
-    known = [body["decided_at"], body["forward_entry_at"]]
-    if body["labels_available_at"] is not None:
+    known = [body["decided_at"]]
+    if body["status"] == "scored":
         known.append(body["labels_available_at"])
     if recorded < max(known):
         raise ValueError("P16 sequential origin was recorded before known inputs")
     logical = {
         **body,
+        "epoch_session": body["epoch_session"].isoformat(),
         "market_date": body["market_date"].isoformat(),
         "decided_at": body["decided_at"].isoformat(),
         "forward_entry_at": body["forward_entry_at"].isoformat(),
@@ -217,29 +243,31 @@ def record_sequential_origin(con, *, recorded_at: datetime, **values) -> str:
     row_sha = canonical_sha256({**logical, "recorded_at": recorded.isoformat()})
     row = (*body.values(), recorded, row_sha)
     existing = con.execute(
-        "SELECT * FROM p16_sequential_origins WHERE comparison_id=? AND session_index=?",
-        [body["comparison_id"], body["session_index"]],
+        "SELECT * FROM p16_sequential_origins WHERE registration_sha256=? "
+        "AND comparison_id=? AND session_index=?",
+        [body["registration_sha256"], body["comparison_id"], body["session_index"]],
     ).fetchone()
     if existing is not None:
         if _sequential_row(existing)["row_sha256"] != row_sha:
             raise ValueError("P16 sequential origin was replayed differently")
         return row_sha
-    con.execute("INSERT INTO p16_sequential_origins VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", row)
+    con.execute("INSERT INTO p16_sequential_origins VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
     return row_sha
 
 
 def _sequential_row(row: tuple) -> dict:
-    (comparison, index, market_date, status, reason, decided, entry, available,
-     delta, input_sha, recorded, row_sha) = row
+    (registration, family, comparison, trial, epoch, index, market_date, status,
+     reason, decided, entry, available, delta, input_sha, source_sha, recorded, row_sha) = row
     body = _origin_body(
-        comparison_id=comparison, session_index=index, market_date=market_date,
+        registration_sha256=registration, family_id=family, comparison_id=comparison,
+        trial_id=trial, epoch_session=epoch, session_index=index, market_date=market_date,
         status=status, reason=reason, decided_at=_aware(decided),
         forward_entry_at=_aware(entry),
         labels_available_at=None if available is None else _aware(available),
-        delta_ic=delta, input_sha256=input_sha,
+        delta_ic=delta, input_sha256=input_sha, source_sha256=source_sha,
     )
     logical = {
-        **body, "market_date": market_date.isoformat(),
+        **body, "epoch_session": epoch.isoformat(), "market_date": market_date.isoformat(),
         "decided_at": decided.isoformat(), "forward_entry_at": entry.isoformat(),
         "labels_available_at": None if available is None else available.isoformat(),
     }
@@ -255,10 +283,14 @@ def _sequential_row(row: tuple) -> dict:
 
 
 def sequential_prefix(
-    con, *, comparison_id: str, origin_endpoint: int, report_at: datetime,
+    con, *, registration_sha256: str, family_id: str, comparison_id: str,
+    trial_id: str, epoch_session: date, origin_endpoint: int, report_at: datetime,
 ) -> list[dict]:
     """Load exactly indices 0..origin_endpoint visible by the report instant."""
     comparison = _text(comparison_id, "comparison ID")
+    registration = _digest(registration_sha256, "registration digest")
+    family = _text(family_id, "family ID")
+    trial = _digest(trial_id, "trial ID")
     if type(origin_endpoint) is not int or origin_endpoint < -1:
         raise ValueError("origin endpoint is invalid")
     cutoff = _timestamp(report_at, "report at")
@@ -266,11 +298,15 @@ def sequential_prefix(
         rows = []
     else:
         rows = con.execute(
-            "SELECT * FROM p16_sequential_origins WHERE comparison_id=? "
+            "SELECT * FROM p16_sequential_origins WHERE registration_sha256=? "
+            "AND family_id=? AND comparison_id=? AND trial_id=? AND epoch_session=? "
             "AND session_index<=? AND recorded_at<=? ORDER BY session_index",
-            [comparison, origin_endpoint, cutoff],
+            [registration, family, comparison, trial, epoch_session, origin_endpoint, cutoff],
         ).fetchall()
-    result = [_sequential_row(row) for row in rows]
-    if [row["session_index"] for row in result] != list(range(origin_endpoint + 1)):
-        raise ValueError("P16 sequential prefix is incomplete")
-    return result
+    retained = {row["session_index"]: row for row in map(_sequential_row, rows)}
+    return [retained.get(index, {
+        "registration_sha256": registration, "family_id": family,
+        "comparison_id": comparison, "trial_id": trial,
+        "session_index": index, "market_date": _session_at(epoch_session, index).isoformat(),
+        "status": "pending", "reason": "origin_not_recorded",
+    }) for index in range(origin_endpoint + 1)]
