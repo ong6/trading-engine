@@ -1,7 +1,7 @@
 """Narrow, inert boundary for feeding registered replay prices to P15 helpers."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Iterable, Mapping, Sequence
 
 from engine.daily_opportunities import p15_universe
@@ -16,6 +16,17 @@ from server import p15_preopen, p15_scoring_runner
 from sim import p15_books, p15_fills
 
 PREOPEN_MODEL_BOOKS = p15_preopen.BOOK_IDS
+
+
+def _jsonable_row(source: Mapping) -> dict:
+    return {
+        key: (
+            value.astimezone(timezone.utc).isoformat()
+            if isinstance(value, datetime) and value.tzinfo is not None
+            else value
+        )
+        for key, value in source.items()
+    }
 
 
 def universe(con, market_date, *, held_tickers, information_cutoff_at):
@@ -75,8 +86,10 @@ def visible_p15_inputs(
     visible_news = deduplicate_visible_headlines(replay_news, cutoff)
     observations = []
     for source in visible_news:
-        row = dict(source)
-        row["retrieved_at"] = source["available_at_replay"]
+        row = _jsonable_row(source)
+        row["retrieved_at"] = _jsonable_row(
+            {"value": source["available_at_replay"]}
+        )["value"]
         observations.append(row)
 
     replay_facts = []
@@ -89,9 +102,12 @@ def visible_p15_inputs(
         replay_facts.append(row)
     visible_facts = []
     for source in facts_as_of(replay_facts, cutoff):
-        row = dict(source)
-        row["available_at"] = source["available_at_replay"]
-        row["ingested_at"] = source["available_at_replay"]
+        row = _jsonable_row(source)
+        replay_available = _jsonable_row(
+            {"value": source["available_at_replay"]}
+        )["value"]
+        row["available_at"] = replay_available
+        row["ingested_at"] = replay_available
         visible_facts.append(row)
     return observations, visible_facts
 
