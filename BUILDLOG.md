@@ -1142,4 +1142,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Next:** build the inert W4 collectors, probes, replay/books, reduced text lab, registration,
   reports, early-close semantics, and raw-price spot check within the 3,500-line allocation.
 
+## 2026-09-27 — P16 W4: add inert historical source collectors
+
+- **Why:** approved P16 W4 requires the free-source collectors before coverage preflight, with
+  EDGAR disabled before transport when its contact is absent.
+- **What:** normalize GDELT Events/GKG, CC-NEWS, FNSPID, wires/RSS/IR, Wayback, and EDGAR fixture
+  records under their registered availability rules. Keep publish-only bodies out of replay,
+  bind captured bodies to archive identity, and gate EDGAR on the configured contact.
+- **Evidence:** `.venv/bin/python -m pytest -q tests/test_p16_replay_sources.py tests/test_p16_replay_corpus.py`
+  passes 12 tests; Ruff passes both touched files.
+- **Metrics:** farm +182; server, tools, and other product layers unchanged; budget ok.
+- **Next:** add the no-call probe coverage preflight and frozen-bank contracts.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
