@@ -13,12 +13,12 @@ import numpy as np
 
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
+from engine.lib.util import table_exists
 from engine.p15_event_sources import session_close
 from sim import nyse
 
 EXPOSURES = (
-    "momentum_12_1", "return_1m", "return_1d", "log_median_dollar_volume",
-    "beta_60", "volatility_60",
+    "momentum_12_1", "return_21", "return_1", "log_adv20", "beta60", "vol60",
 )
 LOOKBACK_SESSIONS = 252
 RISK_SESSIONS = 60
@@ -51,42 +51,52 @@ def _positive(value: object) -> bool:
 
 def _factor_values(bars: dict, spy: dict, dates: list[date]) -> dict:
     values = dict.fromkeys(EXPOSURES)
-    for field, end, start in (
-        ("momentum_12_1", -22, -253), ("return_1m", -1, -22),
-        ("return_1d", -1, -2),
-    ):
+    for field, end, start in (("return_21", -1, -22), ("return_1", -1, -2)):
         if dates[end] in bars and dates[start] in bars:
             values[field] = bars[dates[end]][0] / bars[dates[start]][0] - 1
+    if all(day in bars for day in dates):
+        values["momentum_12_1"] = bars[dates[-22]][0] / bars[dates[0]][0] - 1
     volume_dates = dates[-VOLUME_SESSIONS - 1:-1]
     if all(day in bars for day in volume_dates):
-        values["log_median_dollar_volume"] = math.log(float(np.median([
+        values["log_adv20"] = math.log(float(np.median([
             bars[day][0] * bars[day][1] for day in volume_dates
         ])))
     risk_dates = dates[-RISK_SESSIONS - 1:]
     if all(day in bars for day in risk_dates):
         closes = np.array([bars[day][0] for day in risk_dates])
         returns = closes[1:] / closes[:-1] - 1
-        values["volatility_60"] = float(np.std(returns, ddof=1))
+        values["vol60"] = float(np.std(returns, ddof=1))
         if all(day in spy for day in risk_dates):
             benchmark = np.array([spy[day][0] for day in risk_dates])
             benchmark = benchmark[1:] / benchmark[:-1] - 1
-            variance = float(np.var(benchmark, ddof=1))
-            if variance > 1e-16:
-                values["beta_60"] = float(np.cov(returns, benchmark, ddof=1)[0, 1] / variance)
+            centered = benchmark - benchmark.mean()
+            denominator = float(centered @ centered)
+            if denominator > 1e-16:
+                values["beta60"] = float((returns - returns.mean()) @ centered / denominator)
     return values
+
+
+def _sectors(con, names: list[str], market_date: date, cutoff: datetime) -> dict:
+    if not names or not table_exists(con, "fundamentals"):
+        return {}
+    placeholders = ",".join("?" for _ in names)
+    rows = con.execute(
+        "SELECT ticker,as_of,fetched_at,sector,source FROM fundamentals "
+        f"WHERE ticker IN ({placeholders}) AND as_of<=? AND fetched_at IS NOT NULL "
+        "AND fetched_at<=? QUALIFY ROW_NUMBER() OVER (PARTITION BY ticker "
+        "ORDER BY as_of DESC,fetched_at DESC)=1",
+        [*names, market_date, cutoff.replace(tzinfo=None)],
+    ).fetchall()
+    return {ticker: {
+        "sector": sector.strip().lower() if isinstance(sector, str) and sector.strip() else "unknown",
+        "as_of": as_of.isoformat(), "fetched_at": fetched.isoformat(), "source": source,
+    } for ticker, as_of, fetched, sector, source in rows}
 
 
 def exposure_snapshot(
     con, tickers: list[str], market_date: date, *, information_cutoff_at: datetime,
-    sector_snapshot: dict | None = None,
 ) -> dict:
-    """Read only real bars already fetched by the cutoff, keeping missing names.
-
-    An optional sector snapshot is captured from ``universe.sector`` at decision
-    time by the caller: {available_at: ISO timestamp, sectors: {ticker: sector}}.
-    The current schema has no sector column; absent/late classifications remain
-    unknown. Historical callers must not pass today's classifications.
-    """
+    """Retain cutoff-bounded split-adjusted bars and PIT sectors for each name."""
     cutoff = _utc(information_cutoff_at)
     if market_date > cutoff.date():
         raise ValueError("factor market date is after the information cutoff")
@@ -101,7 +111,7 @@ def exposure_snapshot(
     requested = sorted({*names, "SPY"})
     placeholders = ",".join("?" for _ in requested)
     rows = con.execute(
-        "SELECT ticker,date,close,volume,fetched_at FROM prices "
+        "SELECT ticker,date,close,volume,open,high,low,source,fetched_at FROM prices "
         f"WHERE ticker IN ({placeholders}) AND date BETWEEN ? AND ? "
         f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
         "ORDER BY ticker,date",
@@ -109,17 +119,15 @@ def exposure_snapshot(
     ).fetchall()
     admitted_dates = set(dates)
     history = {name: {} for name in requested}
-    for ticker, day, close, volume, fetched in rows:
+    source_rows = {name: [] for name in requested}
+    for ticker, day, close, volume, opening, high, low, source, fetched in rows:
         if day in admitted_dates and _positive(close) and _positive(volume):
             if day in history[ticker]:
                 raise ValueError("ambiguous factor bar")
-            history[ticker][day] = (float(close), int(volume), fetched.isoformat())
-    sectors, sector_available_at = {}, None
-    if sector_snapshot is not None:
-        available = _utc(datetime.fromisoformat(sector_snapshot["available_at"]))
-        if available <= cutoff:
-            sectors = sector_snapshot["sectors"]
-            sector_available_at = available.isoformat()
+            history[ticker][day] = (float(close), int(volume))
+            source_rows[ticker].append((day.isoformat(), opening, high, low, close,
+                                        volume, source, fetched.isoformat()))
+    sectors = _sectors(con, names, market_date, cutoff)
     candidates = []
     for ticker in names:
         bars = history[ticker]
@@ -129,17 +137,18 @@ def exposure_snapshot(
         candidates.append({
             "ticker": ticker, "status": "unavailable" if missing else "available",
             "missing_exposures": missing, "exposures": values,
-            "sector": sector if isinstance(sector, str) and sector.strip() else "unknown",
+            "sector": sector["sector"] if sector else "unknown",
+            "sector_source": sector,
             "real_bar_count": len(bars),
         })
     body = {
-        "schema_version": 1, "policy_id": "p16-eval-v1",
+        "schema_version": 2, "policy_id": "p16-eval-v2",
         "market_date": market_date.isoformat(), "information_cutoff_at": cutoff.isoformat(),
-        "sector_available_at": sector_available_at, "exposure_names": list(EXPOSURES),
-        "source_bars_sha256": canonical_sha256({
-            ticker: [(day.isoformat(), *bar) for day, bar in bars.items()]
-            for ticker, bars in history.items()
-        }),
+        "price_basis": "split_adjusted_price_v1",
+        "corporate_action_state": "retained_at_information_cutoff",
+        "exposure_names": list(EXPOSURES),
+        "source_bars_sha256": canonical_sha256(source_rows),
+        "sector_snapshot_sha256": canonical_sha256(sectors),
         "candidates": candidates,
     }
     return {**body, "snapshot_sha256": canonical_sha256(body)}

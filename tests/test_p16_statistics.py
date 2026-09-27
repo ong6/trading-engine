@@ -65,7 +65,7 @@ def test_winsorization_and_constant_factor_handling_do_not_change_outcomes():
     fit = neutralize(outcome, factors, ["Tech"] * 30 + [None] * 30)
     assert fit["status"] == "available"
     assert fit["winsor_limits"][1][0] < 1e9
-    assert fit["dropped_factors"] == ["volatility_60"]
+    assert fit["dropped_factors"] == ["vol60"]
     assert np.array_equal(outcome, before)
 
 
