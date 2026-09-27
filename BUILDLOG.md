@@ -1010,8 +1010,9 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Why:** the approved P16 Phase A reissue admits the reproduced host failure: systemd 241
   rejects `Type=oneshot` together with `Restart=on-failure` before P15 has produced evidence.
 - **What:** use `Type=exec` for P15 scoring while retaining its bounded transient-failure retry;
-  confirm pre-open and events do not carry the invalid restart pattern; and make the host parser
-  verify every P15 and P16 service/timer contract together. Runtime evidence tables remain empty.
+  run scoring then reporting through one sequential wrapper; confirm pre-open and events do not
+  carry the invalid restart pattern; and make the host parser verify every P15/P16 unit together.
+  Runtime evidence tables remain empty.
 - **Evidence:** `.venv/bin/pytest -q tests/test_service_units.py` reaches `[100%]`, and
   `systemd-analyze --user verify` accepts all eight P15/P16 unit files.
 - **Metrics:** server, tools, and product LOC unchanged; budget ok.

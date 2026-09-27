@@ -8,8 +8,7 @@ StartLimitBurst=3
 [Service]
 Type=exec
 WorkingDirectory=%h/trading-engine
-ExecStart=%h/trading-engine/.venv/bin/python -m server.p15_scoring_runner --run
-ExecStartPost=%h/trading-engine/.venv/bin/python -m server.agent_evaluation_reporting
+ExecStart=%h/trading-engine/server/run_p15_scoring.sh
 Environment=PYTHONUNBUFFERED=1
 Nice=19
 IOSchedulingClass=idle

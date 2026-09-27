@@ -51,6 +51,7 @@ SCHEMA_SOURCE_FILES = (
 SERVICE_FILES = (
     "server/run_daily_opportunity.sh",
     "server/run_hourly_opportunity.sh",
+    "server/run_p15_scoring.sh",
     "server/trading-engine-agent-data-capture.service",
     "server/trading-engine-agent-data-capture.timer",
     "server/trading-engine-agent-shadow.service",
@@ -267,6 +268,7 @@ SCHEDULE_SOURCE_FILES = (
     "server/trading-engine-agent-shadow.service",
     "server/run_daily_opportunity.sh",
     "server/run_hourly_opportunity.sh",
+    "server/run_p15_scoring.sh",
     "server/trading-engine-agent-shadow.timer",
     "server/trading-engine-agent-data-capture.service",
     "server/trading-engine-agent-data-capture.timer",

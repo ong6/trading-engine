@@ -157,11 +157,14 @@ def test_tradingview_archive_timer_is_bounded_and_queue_owned():
 def test_p15_scoring_unit_is_registered_but_not_autostarted():
     service = _unit("server/trading-engine-p15-scoring.service")
     timer = _unit("server/trading-engine-p15-scoring.timer")
+    runner = _unit("server/run_p15_scoring.sh")
     _assert_common_service_hardening(service)
     assert "Type=exec" in service
-    assert "server.p15_scoring_runner --run" in service
-    assert "ExecStartPost=%h/trading-engine/.venv/bin/python " \
-           "-m server.agent_evaluation_reporting" in service
+    assert "ExecStart=%h/trading-engine/server/run_p15_scoring.sh" in service
+    assert "ExecStartPost=" not in service
+    assert runner.index("server.p15_scoring_runner --run") < runner.index(
+        "exec .venv/bin/python -m server.agent_evaluation_reporting"
+    )
     assert "TimeoutStartSec=9h" in service
     assert "Restart=on-failure" in service and "RestartSec=5min" in service
     assert "StartLimitIntervalSec=30min" in service and "StartLimitBurst=3" in service
@@ -223,6 +226,7 @@ def test_p15_and_p16_units_pass_host_systemd_verification():
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
