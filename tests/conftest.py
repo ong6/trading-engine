@@ -63,6 +63,51 @@ def insert_bars(con, ticker, dates, *, open_=100.0, close=100.0, volume=1_000_00
         "VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
 
 
+def record_p16_calibration(con, registration, recorded_at, *, cost=0.0005):
+    """Retain a compact valid synthetic calibration for construction unit tests."""
+    from engine.lib.provenance import canonical_sha256
+    from farm.p16_calibration import DEFAULT_LAMBDA_GRID
+    from server import p16_book_store
+
+    selected = float(DEFAULT_LAMBDA_GRID[7])
+    curve = []
+    for value in DEFAULT_LAMBDA_GRID:
+        risk_aversion = float(value)
+        eligible = risk_aversion == selected
+        curve.append({
+            "risk_aversion": risk_aversion, "status": "converged",
+            "eligible": eligible,
+            "median_tracking_error": {
+                "p16_construct_ai": 0.05 if eligible else 0.03,
+                "p16_construct_rule": 0.05 if eligible else 0.03,
+            },
+            "distance": 0.0 if eligible else 0.02, "failures": [],
+            "solve_timings": [
+                {"case_index": 0, "book_id": "p16_construct_ai", "solve_seconds": 0.01},
+                {"case_index": 1, "book_id": "p16_construct_rule", "solve_seconds": 0.01},
+            ],
+            "solve_seconds_total": 0.02,
+        })
+    body = {
+        "schema_version": 1, "status": "calibrated", "selected_lambda": selected,
+        "selected_at_grid_endpoint": False, "grid_bounds": [0.1, 1000.0],
+        "curve": curve, "books": [
+            {"book_id": "p16_construct_ai", "status": "calibrated",
+             "snapshot_count": 1, "median_tracking_error": 0.05},
+            {"book_id": "p16_construct_rule", "status": "calibrated",
+             "snapshot_count": 1, "median_tracking_error": 0.05},
+        ],
+        "snapshot_dates": [recorded_at.date().isoformat()],
+        "risk_snapshot_sha256s": ["b" * 64], "score_snapshot_sha256s": ["c" * 64],
+        "cost_per_turnover": cost, "ic_source": "registered_assumption",
+        "assumed_ic": 0.03, "execution_authority": "none",
+    }
+    payload = {**body, "calibration_sha256": canonical_sha256(body)}
+    return p16_book_store.record_calibration(
+        con, registration_sha256=registration, payload=payload, recorded_at=recorded_at,
+    )
+
+
 @pytest.fixture
 def con():
     """In-memory DuckDB with the prices table + the sim schema."""

@@ -8,7 +8,7 @@ import pytest
 from engine.lib import db
 from server import p16_book_store
 from sim import p16_book_mechanics, p16_books
-from tests.conftest import SESSIONS, insert_bars
+from tests.conftest import SESSIONS, insert_bars, record_p16_calibration
 
 NOW = datetime(2026, 9, 27, 16, tzinfo=timezone.utc)
 REGISTRATION = "a" * 64
@@ -16,9 +16,10 @@ SOURCE = "b" * 64
 
 
 def _book(con):
+    calibration = record_p16_calibration(con, REGISTRATION, NOW)
     [instance, _] = p16_book_store.initialize_contracts(
         con, registration_sha256=REGISTRATION, activation_date=SESSIONS[29],
-        risk_aversion=5, cost_per_turnover=0.0005, created_at=NOW,
+        calibration_sha256=calibration, created_at=NOW,
     )
     con.execute("UPDATE portfolios SET active=TRUE WHERE id=?", [instance])
     return instance
@@ -191,7 +192,7 @@ def test_inactive_book_never_processes_or_marks(con):
     insert_bars(con, "AAA", SESSIONS[:31], open_=100, close=100, high=101, low=99)
     [instance, _] = p16_book_store.initialize_contracts(
         con, registration_sha256=REGISTRATION, activation_date=None,
-        risk_aversion=5, cost_per_turnover=0.0005, created_at=NOW,
+        calibration_sha256=record_p16_calibration(con, REGISTRATION, NOW), created_at=NOW,
     )
     assert p16_books.process_window(
         con, book_instance_id=instance, market_date=SESSIONS[30], observed_at=NOW,

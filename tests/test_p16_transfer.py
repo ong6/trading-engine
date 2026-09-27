@@ -11,6 +11,7 @@ from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from server import p16_book_store, p16_store, p16_transfer
 from sim import nyse
+from tests.conftest import record_p16_calibration
 
 REGISTRATION = "a" * 64
 CUTOFF = datetime(2026, 9, 28, 15, tzinfo=timezone.utc)
@@ -75,7 +76,8 @@ def _database():
         )
     instances = p16_book_store.initialize_contracts(
         con, registration_sha256=REGISTRATION, activation_date=None,
-        risk_aversion=5, cost_per_turnover=0.0005, created_at=CUTOFF,
+        calibration_sha256=record_p16_calibration(con, REGISTRATION, CUTOFF),
+        created_at=CUTOFF,
     )
     holding_date = nyse.next_session(signal_date)
     for ticker, open_px in (("SPY", 200.0), ("AAA", 202.0), ("BBB", 198.0), ("CCC", 203.0)):

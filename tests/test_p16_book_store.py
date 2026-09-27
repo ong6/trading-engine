@@ -7,16 +7,27 @@ import duckdb
 import pytest
 
 from server import p16_book_store
+from tests.conftest import record_p16_calibration
 
 NOW = datetime(2026, 9, 27, 16, tzinfo=timezone.utc)
 REGISTRATION = "a" * 64
 
 
+def test_contracts_require_a_retained_successful_calibration():
+    con = duckdb.connect(":memory:")
+    with pytest.raises(p16_book_store.P16BookError, match="calibration is absent"):
+        p16_book_store.initialize_contracts(
+            con, registration_sha256=REGISTRATION, activation_date=None,
+            calibration_sha256="f" * 64, created_at=NOW,
+        )
+
+
 def test_contracts_use_full_registration_digest_and_remain_inactive():
     con = duckdb.connect(":memory:")
+    calibration = record_p16_calibration(con, REGISTRATION, NOW)
     instances = p16_book_store.initialize_contracts(
         con, registration_sha256=REGISTRATION, activation_date=date(2026, 10, 5),
-        risk_aversion=5, cost_per_turnover=0.0005, created_at=NOW,
+        calibration_sha256=calibration, created_at=NOW,
     )
     assert instances == [
         f"p16_construct_ai@sha256:{REGISTRATION}",
@@ -31,7 +42,7 @@ def test_contracts_use_full_registration_digest_and_remain_inactive():
     ]
     assert p16_book_store.initialize_contracts(
         con, registration_sha256=REGISTRATION, activation_date=date(2026, 10, 5),
-        risk_aversion=5, cost_per_turnover=0.0005, created_at=NOW,
+        calibration_sha256=calibration, created_at=NOW,
     ) == instances
 
     projection = p16_book_store.status_projection(
@@ -68,9 +79,10 @@ def test_attempts_and_horizon_labels_are_separate_tables_with_p15_parity_columns
 
 def test_intent_and_attempt_exact_retries_are_idempotent_but_drift_is_rejected():
     con = duckdb.connect(":memory:")
+    calibration = record_p16_calibration(con, REGISTRATION, NOW)
     [instance, _] = p16_book_store.initialize_contracts(
         con, registration_sha256=REGISTRATION, activation_date=None,
-        risk_aversion=5, cost_per_turnover=0.0005, created_at=NOW,
+        calibration_sha256=calibration, created_at=NOW,
     )
     arguments = dict(
         book_instance_id=instance, signal_date=date(2026, 9, 25), ticker="AAA",
