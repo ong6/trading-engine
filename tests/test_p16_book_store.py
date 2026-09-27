@@ -78,6 +78,24 @@ def test_calibration_store_recomputes_selection_cases_and_cost_evidence():
     changed_ic = copy.deepcopy(payload)
     changed_ic["assumed_ic"] = 0.9
     mutations.append(changed_ic)
+    changed_alpha = copy.deepcopy(payload)
+    changed_alpha["snapshots"][0]["solver_inputs"]["champion"]["alpha_h5"] = [0.008] * 6
+    snapshot_body = {
+        key: value for key, value in changed_alpha["snapshots"][0].items()
+        if key != "snapshot_sha256"
+    }
+    changed_alpha["snapshots"][0]["snapshot_sha256"] = canonical_sha256(snapshot_body)
+    mutations.append(changed_alpha)
+    future_cutoff = copy.deepcopy(payload)
+    future_cutoff["snapshots"][0]["scoring_information_cutoff_at"] = (
+        "2026-09-28T16:00:00+00:00"
+    )
+    snapshot_body = {
+        key: value for key, value in future_cutoff["snapshots"][0].items()
+        if key != "snapshot_sha256"
+    }
+    future_cutoff["snapshots"][0]["snapshot_sha256"] = canonical_sha256(snapshot_body)
+    mutations.append(future_cutoff)
     missing_case = copy.deepcopy(payload)
     missing_case["curve"][0]["cases"].pop()
     mutations.append(missing_case)
@@ -92,6 +110,16 @@ def test_calibration_store_recomputes_selection_cases_and_cost_evidence():
                 payload=mutated, recorded_at=NOW,
             )
         target.close()
+
+
+def test_contracts_reject_calibration_not_strictly_before_activation():
+    con = duckdb.connect(":memory:")
+    calibration = record_p16_calibration(con, REGISTRATION, NOW)
+    with pytest.raises(p16_book_store.P16BookError, match="not preactivation"):
+        p16_book_store.initialize_contracts(
+            con, registration_sha256=REGISTRATION, activation_date=NOW.date(),
+            calibration_sha256=calibration, created_at=NOW,
+        )
 
 
 def test_attempts_and_horizon_labels_are_separate_tables_with_p15_parity_columns():

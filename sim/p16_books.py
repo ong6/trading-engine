@@ -235,6 +235,15 @@ def process_window(
         labels = label_limit_counterfactuals(
             con, book_instance_id=book_instance_id, labeled_at=observed_at,
         )
+        window = con.execute(
+            "SELECT status FROM p16_book_windows WHERE book_instance_id=? "
+            "AND market_date=?", [book_instance_id, market_date],
+        ).fetchone()
+        if window is not None:
+            p16_book_store.complete_window(
+                con, book_instance_id=book_instance_id, market_date=market_date,
+                status="completed", reason=None, completed_at=observed_at,
+            )
     return {"status": "completed", **counts, "counterfactual_labels": labels,
             "state_sha256": state_sha, "mark": mark}
 

@@ -1,6 +1,7 @@
 """Shared fixtures — every DB is in-memory. store/ is never opened."""
 from __future__ import annotations
 
+import json
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -26,6 +27,7 @@ CREATE TABLE IF NOT EXISTS prices (
 # A fixed session calendar: weekdays from 2024-06-03 through 2024-07-31 with
 # 2024-06-19 (Juneteenth) and 2024-07-04 (Independence Day) removed.
 HOLIDAYS = {date(2024, 6, 19), date(2024, 7, 4)}
+_P16_CALIBRATION_PAYLOADS = {}
 
 
 def sessions(start=date(2024, 6, 3), end=date(2024, 7, 31)) -> list[date]:
@@ -73,17 +75,36 @@ def record_p16_calibration(con, registration, recorded_at, *, cost=0.0005):
     from sim import execution
 
     del cost
+    cache_key = recorded_at.isoformat()
+    if cache_key in _P16_CALIBRATION_PAYLOADS:
+        return p16_book_store.record_calibration(
+            con, registration_sha256=registration,
+            payload=json.loads(_P16_CALIBRATION_PAYLOADS[cache_key]),
+            recorded_at=recorded_at,
+        )
     dates = [
         (recorded_at.date() - timedelta(days=1)).isoformat(),
         recorded_at.date().isoformat(),
     ]
-    tickers = ["AAA", "BBB", "CCC", "DDD"]
-    sectors = ["a", "b", "c", "d"]
-    scores = {"champion": [4.0, 3.0, 2.0, 1.0], "rule": [1.0, 3.0, 4.0, 2.0]}
+    from farm import p16_risk
+
+    tickers = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"]
+    sectors = ["a", "b", "c", "d", "e", "f"]
+    scores = {"champion": [6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+              "rule": [6.0, 5.0, 4.0, 3.0, 2.0, 1.0]}
+    rng = np.random.default_rng(23)
+    spy_returns = rng.normal(0, 0.01, 120)
+    stock_returns = spy_returns[:, None] + rng.normal(0, 0.08, (120, len(tickers)))
+    derived = {
+        policy: p16_risk.calibration_risk_and_alpha(
+            stock_returns, spy_returns, policy_scores,
+        ) for policy, policy_scores in scores.items()
+    }
     solver_inputs = {policy: {
-        "alpha_h5": [0.004] * 4,
-        "covariance_h5": (np.eye(4) * 0.002).tolist(), "beta": [1.0] * 4,
-    } for policy in scores}
+        "alpha_h5": values["alpha_h5"].tolist(),
+        "covariance_h5": values["covariance_h5"].tolist(),
+        "beta": values["beta"].tolist(),
+    } for policy, values in derived.items()}
     snapshots = []
     for market_date in dates:
         end = date.fromisoformat(market_date)
@@ -116,9 +137,10 @@ def record_p16_calibration(con, registration, recorded_at, *, cost=0.0005):
             "market_date": market_date,
             "scoring_information_cutoff_at": recorded_at.isoformat(),
             "sessions": session_values, "tickers": tickers, "sectors": sectors,
+            "stock_returns": stock_returns.tolist(), "spy_returns": spy_returns.tolist(),
             "scores": scores, "solver_inputs": solver_inputs,
             "risk_snapshot_sha256": risk_sha, "score_snapshot_sha256": score_sha,
-            "previous_weights": [0.0, 0.0, 0.0, 0.0, 1.0],
+            "previous_weights": [*([0.0] * len(tickers)), 1.0],
             "previous_weight_source": "initial_all_spy", "cost_rows": cost_rows,
         }
         snapshots.append({
@@ -137,7 +159,7 @@ def record_p16_calibration(con, registration, recorded_at, *, cost=0.0005):
             cases.append({
                 "book_id": book_id, "alpha": values["alpha_h5"],
                 "covariance": values["covariance_h5"], "beta": values["beta"],
-                "sectors": sectors, "previous": [0.0, 0.0, 0.0, 0.0, 1.0],
+                "sectors": sectors, "previous": [*([0.0] * len(tickers)), 1.0],
                 "cost": frozen_cost, "band": 0.005, "horizon_sessions": 5,
                 "snapshot_sha256": snapshot["snapshot_sha256"],
                 "snapshot_date": snapshot["market_date"],
@@ -172,6 +194,7 @@ def record_p16_calibration(con, registration, recorded_at, *, cost=0.0005):
         "execution_authority": "none",
     }
     payload = {**body, "calibration_sha256": canonical_sha256(body)}
+    _P16_CALIBRATION_PAYLOADS[cache_key] = json.dumps(payload)
     return p16_book_store.record_calibration(
         con, registration_sha256=registration, payload=payload, recorded_at=recorded_at,
     )

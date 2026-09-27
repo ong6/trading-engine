@@ -19,7 +19,7 @@ from engine.p16_features import session_dates
 from engine.p16_order_planner import plan_mandatory_exit_orders, plan_whole_share_orders
 from farm import p16_calibration, p16_eval_inputs, p16_optimizer, p16_risk
 from server import p16_book_store, p16_transfer
-from sim import execution, p16_books
+from sim import execution, nyse, p16_books
 from tools.backup_database import _copy_database
 
 
@@ -162,6 +162,7 @@ def _snapshot(
         "scoring_information_cutoff_at": cutoff.astimezone(timezone.utc).isoformat(),
         "sessions": [value.isoformat() for value in sessions],
         "tickers": tickers, "sectors": sectors,
+        "stock_returns": stock_returns.tolist(), "spy_returns": spy_returns.tolist(),
         "scores": {"champion": champion, "rule": rule},
         "solver_inputs": {
             policy: {
@@ -281,7 +282,8 @@ def _queue_mandatory_only(
              information_cutoff_at.astimezone(timezone.utc).replace(tzinfo=None)],
         ).fetchone()
         p16_book_store.claim_window(
-            con, book_instance_id=book_instance_id, market_date=signal_date,
+            con, book_instance_id=book_instance_id,
+            market_date=nyse.next_session(signal_date),
             information_cutoff_at=information_cutoff_at,
             risk_sha256=risk_sha256, score_sha256=score_sha256,
             previous_state_sha256=None if previous is None else previous[0],
@@ -291,11 +293,6 @@ def _queue_mandatory_only(
             con, book_instance_id=book_instance_id, signal_date=signal_date,
             plan=plan, limit_prices={}, source_sha256=source_sha,
             created_at=recorded_at, transactional=False,
-        )
-        p16_book_store.complete_window(
-            con, book_instance_id=book_instance_id, market_date=signal_date,
-            status="completed", reason=f"mandatory_exits_only:{reason}",
-            completed_at=recorded_at,
         )
     return {
         "book_id": logical_book_id, "status": reason, "queued": queued,
@@ -531,7 +528,8 @@ def construct_targets(
                 [instance, signal_date, scoring_cutoff.replace(tzinfo=None)],
             ).fetchone()
             p16_book_store.claim_window(
-                con, book_instance_id=instance, market_date=signal_date,
+                con, book_instance_id=instance,
+                market_date=nyse.next_session(signal_date),
                 information_cutoff_at=scoring_cutoff,
                 risk_sha256=snapshot["risk_sha256"], score_sha256=snapshot["score_sha256"],
                 previous_state_sha256=None if previous_state is None else previous_state[0],
@@ -541,10 +539,6 @@ def construct_targets(
                 con, book_instance_id=instance, signal_date=signal_date, plan=plan,
                 limit_prices=limits, source_sha256=target_sha, created_at=recorded_at,
                 entry_gates=gates, transactional=False,
-            )
-            p16_book_store.complete_window(
-                con, book_instance_id=instance, market_date=signal_date,
-                status="completed", reason=None, completed_at=recorded_at,
             )
         results.append({
             "book_id": logical, "status": plan["status"], "queued": queued,

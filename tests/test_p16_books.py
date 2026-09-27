@@ -18,7 +18,7 @@ SOURCE = "b" * 64
 def _book(con):
     calibration = record_p16_calibration(con, REGISTRATION, NOW)
     [instance, _] = p16_book_store.initialize_contracts(
-        con, registration_sha256=REGISTRATION, activation_date=SESSIONS[29],
+        con, registration_sha256=REGISTRATION, activation_date=None,
         calibration_sha256=calibration, created_at=NOW,
     )
     con.execute("UPDATE portfolios SET active=TRUE WHERE id=?", [instance])
@@ -41,6 +41,12 @@ def test_filled_limit_attempt_writes_all_parity_ledgers_and_exact_retry(con):
     insert_bars(con, "AAA", SESSIONS[:31], open_=100, close=100, high=101, low=99)
     instance = _book(con)
     assert _queue(con, instance) == 1
+    p16_book_store.claim_window(
+        con, book_instance_id=instance, market_date=SESSIONS[30],
+        information_cutoff_at=NOW, risk_sha256="c" * 64,
+        score_sha256="d" * 64, previous_state_sha256=None,
+        target_sha256=SOURCE, started_at=NOW,
+    )
 
     result = p16_books.process_window(
         con, book_instance_id=instance, market_date=SESSIONS[30], observed_at=NOW,
@@ -62,6 +68,10 @@ def test_filled_limit_attempt_writes_all_parity_ledgers_and_exact_retry(con):
     assert con.execute(
         "SELECT stop_px FROM p16_position_rules"
     ).fetchone()[0] == pytest.approx(95.1)
+    assert con.execute(
+        "SELECT status FROM p16_book_windows WHERE book_instance_id=?",
+        [instance],
+    ).fetchone() == ("completed",)
 
     replay = p16_books.process_window(
         con, book_instance_id=instance, market_date=SESSIONS[30], observed_at=NOW,

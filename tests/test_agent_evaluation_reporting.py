@@ -177,8 +177,11 @@ def test_p16_input_adapter_accepts_canonical_validated_p15_origin(con):
                     high=[value + 1 for value in values],
                     low=[value - 1 for value in values])
     _p15_trace_with_label(con)
+    after_label = NOW + timedelta(microseconds=1)
 
-    origin = load_origin(con, market_date=date(2026, 9, 1), report_cutoff=NOW)
+    origin = load_origin(
+        con, market_date=date(2026, 9, 1), report_cutoff=after_label,
+    )
     factors = exposure_snapshot(
         con, ["AAA"], date(2026, 9, 1), information_cutoff_at=NOW,
     )
