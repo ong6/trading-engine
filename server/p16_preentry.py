@@ -141,12 +141,17 @@ def grid_report(
 
 def _score_artifacts(
     con, *, registration_sha256: str, market_date: date,
-    members: list[dict], score_artifact_sha256s: list[str], visible_at: datetime,
+    information_cutoff_at: str, members: list[dict],
+    score_artifact_sha256s: list[str], visible_at: datetime,
 ) -> dict[str, tuple[str, dict]]:
     if (not isinstance(score_artifact_sha256s, list)
             or score_artifact_sha256s != sorted(set(score_artifact_sha256s))):
         raise PreentryError("P16 score artifact identities are invalid")
     expected = {row["comparison_id"] for row in members}
+    expected_cutoff = _aware(
+        datetime.fromisoformat(information_cutoff_at.replace("Z", "+00:00")),
+        "scoring information cutoff",
+    )
     result = {}
     for artifact_id in score_artifact_sha256s:
         artifact = p16_store._artifact_by_id(con, artifact_id, visible_at=visible_at)
@@ -154,6 +159,9 @@ def _score_artifacts(
         if (artifact["artifact_kind"] != "policy_scores"
                 or artifact["registration_sha256"] != registration_sha256
                 or artifact["market_date"] != market_date or policy_id not in expected
+                or _aware(datetime.fromisoformat(
+                    artifact["payload"].get("information_cutoff_at", "").replace(
+                        "Z", "+00:00")), "score information cutoff") != expected_cutoff
                 or policy_id in result):
             raise PreentryError("P16 score artifact differs from the registered origin")
         result[policy_id] = (artifact_id, artifact["payload"])
@@ -217,7 +225,8 @@ def record_preentry(
     )
     score_rows = _score_artifacts(
         con, registration_sha256=registration_sha256, market_date=market_date,
-        members=rows, score_artifact_sha256s=score_artifact_sha256s, visible_at=now,
+        information_cutoff_at=origin["scoring_information_cutoff_at"], members=rows,
+        score_artifact_sha256s=score_artifact_sha256s, visible_at=now,
     )
     challenger_scores = {key: value[1] for key, value in score_rows.items()}
     probe = p16_factors.evaluate_origin(

@@ -8,12 +8,15 @@ from datetime import date, datetime, timezone
 
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
+from server import p16_store, p16_trial_store
 
 TABLES = {
     "p16_challenger_runs", "p16_challenger_attempts",
     "p16_challenger_receipts", "p16_challenger_outputs",
 }
 NUMERIC_SCORES = ("p_outperform_5", "expected_excess_bp_5", "expected_excess_bp_10")
+ACTIONS = {"ignore", "watch", "buy_candidate", "exit"}
+RUN_MODES = {"prospective", "dry_run", "development", "lockbox"}
 
 
 def _utc(value: datetime) -> datetime:
@@ -35,6 +38,7 @@ def _text(value: object, field: str) -> str:
 
 
 def init_schema(con) -> None:
+    p16_store.init_schema(con)
     for table in sorted(TABLES):
         con.execute(
             f"CREATE TABLE IF NOT EXISTS {table} ("
@@ -83,7 +87,6 @@ def _put(
         if (
             existing["key"] != key or existing["parent_id"] != parent
             or existing["data"] != payload
-            or existing["recorded_at"] != stamp.isoformat()
         ):
             raise ValueError("P16 challenger immutable record replay differs")
         return existing
@@ -102,7 +105,7 @@ def _put(
 
 def start_run(
     con, *, registration_sha256: str, family_id: str, policy_id: str,
-    policy_sha256: str, window_id: str, market_date: date,
+    trial_id: str, window_id: str, market_date: date, run_mode: str,
     information_cutoff_at: datetime, started_at: datetime, tickers: list[str],
     source_identity: dict, treatment_id: str,
     model_contract_sha256: str | None,
@@ -113,16 +116,26 @@ def start_run(
         or cutoff > started or not tickers or len(set(tickers)) != len(tickers)
         or any(not isinstance(ticker, str) or not ticker for ticker in tickers)
         or not isinstance(source_identity, dict) or not source_identity
+        or run_mode not in RUN_MODES
     ):
         raise ValueError("invalid P16 challenger run inputs")
     if model_contract_sha256 is not None:
         _hash(model_contract_sha256, "model contract")
     registration = _hash(registration_sha256, "registration identity")
+    trial = p16_trial_store.registration_as_of(
+        con, trial_id=_hash(trial_id, "trial identity"), generated_at=started,
+    )
+    if (trial is None or trial["payload"].get("policy_id") != policy_id
+            or trial["payload"].get("trial_kind") != "policy"
+            or trial["payload"].get("identity_status") != "verified"
+            or (run_mode == "prospective"
+                and trial["payload"].get("evidence_class") != "prospective")):
+        raise ValueError("P16 challenger trial identity differs")
     key = {
         "registration_sha256": registration,
         "family_id": _text(family_id, "family ID"),
         "policy_id": _text(policy_id, "policy ID"),
-        "policy_sha256": _hash(policy_sha256, "policy identity"),
+        "trial_id": trial_id,
         "window_id": _text(window_id, "window ID"),
     }
     data = {
@@ -133,11 +146,22 @@ def start_run(
         "source_identity_sha256": canonical_sha256(source_identity),
         "treatment_id": _text(treatment_id, "treatment ID"),
         "model_contract_sha256": model_contract_sha256,
+        "run_mode": run_mode,
     }
-    return _put(
+    result = _put(
         con, "p16_challenger_runs", key=key, parent=registration,
         payload=data, recorded_at=started,
     )
+    if run_mode != "dry_run":
+        event_at = datetime.fromisoformat(result["recorded_at"])
+        p16_trial_store.record_event(
+            con, trial_id, "evaluation_started", event_at=event_at,
+            recorded_at=event_at, source_ref={
+                "p16_challenger_run_sha256": result["row_sha256"],
+                "registration_sha256": registration,
+            },
+        )
+    return result
 
 
 def start_attempt(
@@ -147,6 +171,7 @@ def start_attempt(
     run = get(con, "p16_challenger_runs", run_id)
     if (
         run is None or run["data"]["model_contract_sha256"] is None
+        or output_for_run(con, run_id) is not None
         or any(type(index) is not int or index < 0 for index in (chunk_index, sample_index))
         or not isinstance(request_payload, dict) or not request_payload
         or not isinstance(treatment, dict) or not treatment
@@ -227,11 +252,25 @@ def finish_run(
                     or not math.isfinite(value) for value in values)
                 or not 0 <= values[0] <= 1
                 or any(abs(value) > 10_000 for value in values[1:])
+                or row.get("action") not in ACTIONS
+                or any(not isinstance(row.get(field), str) or not row[field].strip()
+                       or len(row[field]) > 1_000 for field in ("thesis", "invalidation"))
+                or not isinstance(row.get("evidence_ids"), list)
+                or not row["evidence_ids"]
+                or len(row["evidence_ids"]) != len(set(row["evidence_ids"]))
+                or any(not isinstance(value, str) or not value
+                       for value in row["evidence_ids"])
             ):
-                raise ValueError("invalid P16 available score")
+                raise ValueError("invalid P16 available output")
         elif row.get("scoring_status") != "unavailable" \
-                or any(value is not None for value in values):
-            raise ValueError("unavailable P16 scores must stay explicitly null")
+                or any(value is not None for value in values) \
+                or row.get("action") != "unavailable" \
+                or row.get("thesis") is not None or row.get("invalidation") is not None \
+                or not isinstance(row.get("unavailable_reason"), str) \
+                or not row["unavailable_reason"].strip() \
+                or not isinstance(row.get("evidence_ids"), list) \
+                or not row["evidence_ids"]:
+            raise ValueError("unavailable P16 output must stay explicitly null")
 
     receipts = []
     if table_exists(con, "p16_challenger_attempts"):
@@ -251,19 +290,36 @@ def finish_run(
             receipts.append({
                 "attempt_id": attempt["record_id"],
                 "receipt_sha256": receipt["row_sha256"],
+                "status": receipt["data"]["status"],
             })
 
     dependencies = dependency_output_ids or []
     if dependencies != sorted(set(dependencies)):
         raise ValueError("P16 challenger output dependencies are invalid")
     dependency_rows = [get(con, "p16_challenger_outputs", item) for item in dependencies]
-    if any(item is None or item["parent_id"] != run["parent_id"]
-           for item in dependency_rows):
+    dependency_runs = [
+        None if item is None else get(
+            con, "p16_challenger_runs", item["key"].get("run_id", ""))
+        for item in dependency_rows
+    ]
+    if any(item is None or source is None or item["parent_id"] != run["parent_id"]
+           or source["key"]["family_id"] != run["key"]["family_id"]
+           or source["data"]["market_date"] != run["data"]["market_date"]
+           or source["data"]["information_cutoff_at"]
+           != run["data"]["information_cutoff_at"]
+           or source["data"]["tickers"] != run["data"]["tickers"]
+           or source["data"]["source_identity_sha256"]
+           != run["data"]["source_identity_sha256"]
+           for item, source in zip(dependency_rows, dependency_runs, strict=True)):
         raise ValueError("P16 challenger output dependency differs")
     unavailable = sum(row["scoring_status"] == "unavailable" for row in rows)
     if run["data"]["model_contract_sha256"] is not None and not receipts \
             and (unavailable != len(rows) or not reason):
         raise ValueError("uncalled P16 model run requires explicit unavailability")
+    if (run["data"]["model_contract_sha256"] is not None and receipts
+            and all(item["status"] == "unavailable" for item in receipts)
+            and unavailable != len(rows)):
+        raise ValueError("unavailable P16 attempts cannot support available output")
     data = {
         "run_sha256": run["row_sha256"],
         "rows": sorted(rows, key=lambda row: row["ticker"]),
@@ -272,12 +328,85 @@ def finish_run(
         "candidate_count": len(rows), "unavailable_count": unavailable,
         "reason": reason, "execution_authority": "none",
     }
-    return _put(
+    result = _put(
         con, "p16_challenger_outputs", key={"run_id": run_id}, parent=run["parent_id"],
         payload=data, recorded_at=completed_at,
     )
+    if run["data"]["run_mode"] != "dry_run":
+        event_at = datetime.fromisoformat(result["recorded_at"])
+        p16_trial_store.record_event(
+            con, run["key"]["trial_id"],
+            "failed" if unavailable == len(rows) else "evaluated",
+            event_at=event_at, recorded_at=event_at,
+            source_ref={
+                "p16_challenger_output_sha256": result["row_sha256"],
+                "registration_sha256": run["key"]["registration_sha256"],
+            },
+        )
+    return result
 
 
 def output_for_run(con, run_id: str) -> dict | None:
     return get(
         con, "p16_challenger_outputs", canonical_sha256({"run_id": run_id}))
+
+
+def find_run(
+    con, *, registration_sha256: str, family_id: str, policy_id: str,
+    market_date: date, run_mode: str,
+) -> dict | None:
+    """Find one verified logical run for restart-safe orchestration."""
+    if run_mode not in RUN_MODES or not table_exists(con, "p16_challenger_runs"):
+        return None
+    rows = [_decode(row) for row in con.execute(
+        "SELECT * FROM p16_challenger_runs ORDER BY recorded_at,record_id"
+    ).fetchall()]
+    matches = [row for row in rows if (
+        row["key"].get("registration_sha256") == registration_sha256
+        and row["key"].get("family_id") == family_id
+        and row["key"].get("policy_id") == policy_id
+        and row["data"].get("market_date") == market_date.isoformat()
+        and row["data"].get("run_mode") == run_mode
+    )]
+    if len(matches) > 1:
+        raise ValueError("P16 challenger run identity is ambiguous")
+    if not matches:
+        return None
+    run = matches[0]
+    return {**run, "output": output_for_run(con, run["record_id"])}
+
+
+def publish_score_snapshot(
+    con, output_id: str, *, evaluation_tickers: list[str], recorded_at: datetime,
+) -> tuple[str, dict]:
+    """Publish one prospective challenger output in W1's exact score contract."""
+    output = get(con, "p16_challenger_outputs", output_id)
+    if output is None:
+        raise ValueError("P16 challenger output is absent")
+    run = get(con, "p16_challenger_runs", output["key"].get("run_id", ""))
+    if run is None or run["data"].get("run_mode") != "prospective":
+        raise ValueError("only prospective P16 output may enter evaluation")
+    rows = output["data"].get("rows")
+    tickers = [row.get("ticker") for row in rows] if isinstance(rows, list) else []
+    if (not isinstance(evaluation_tickers, list) or not evaluation_tickers
+            or len(evaluation_tickers) != len(set(evaluation_tickers))
+            or set(evaluation_tickers) - set(tickers)):
+        raise ValueError("P16 evaluation ticker set differs from challenger output")
+    by_ticker = {row["ticker"]: row for row in rows}
+    scores = {
+        ticker: by_ticker[ticker]["expected_excess_bp_5"]
+        if by_ticker[ticker]["scoring_status"] == "available" else None
+        for ticker in evaluation_tickers
+    }
+    body = {
+        "policy_id": run["key"]["policy_id"],
+        "market_date": run["data"]["market_date"],
+        "information_cutoff_at": run["data"]["information_cutoff_at"],
+        "scores": scores,
+    }
+    payload = {**body, "score_snapshot_sha256": canonical_sha256(body)}
+    artifact_id = p16_store.record_policy_scores(
+        con, registration_sha256=run["key"]["registration_sha256"], payload=payload,
+        recorded_at=recorded_at,
+    )
+    return artifact_id, payload
