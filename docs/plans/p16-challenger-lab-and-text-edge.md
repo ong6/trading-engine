@@ -128,8 +128,10 @@ versions. Values marked *(builder sets)* are chosen once from engineering constr
   All three components are required; otherwise the row is `unavailable`. Choose action by
   deterministic majority, breaking ties with the component whose `expected_excess_bp_5` is
   nearest the fieldwise mean, and copy both text fields from the champion.
-- **Epoch and prior.** The literal epoch is the first NYSE session after P16 activation and is
-  written only after the staged timer passes its copied-store dry-run. The prior is the exact
+- **Epoch and prior.** After P15 supplies its first valid scoring origin, run the installed,
+  timer-backed copied-store rehearsal under a temporary pre-registration. The literal epoch is
+  the first NYSE session after the final W2 registration commit, written only after that rehearsal
+  passes; then enable the W2 timer independently of later P16 activation. The prior is the exact
   `mixing_from_pre_activation([], [])` fallback because fewer than 20 eligible pre-activation
   origins exist; the registration records that reason.
 
@@ -378,6 +380,8 @@ integrity; authority and safety).
   - model identity for real capital;
   - a draft execution-layer plan, filed as `proposed`.
 - **W9: Cleanup, docs, activation.**
+  - Activation is staged per component: W2 activates independently after its timer-backed
+    rehearsal and final family registration; W9 activates the remaining eligible P16 components.
   - Retire the doc-pinning tests (`tests/test_docs*.py`), carried over from the closed P1, and
     split `docs/how-it-works.md` into an ops runbook and an architecture reference.
   - Delete P16-obsoleted code before activation.
@@ -524,7 +528,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 |---|---|---|
 | W0 Baseline, P15 remediation (R1–R16), P15 activation | **scheduled: dry-run on the 2026-09-28 session, activation per registration revision 3 on 2026-09-29**. Remaining: host/UTC suites, fresh copied-store dry-run, recovery bundle, book activation, AUTOSTART commit/install, and first-cycle checks through 2026-10-01. Lead: `p16-sol-lead` (GPT-5.6-Sol) | 2026-09-26 |
 | W1 Evaluation science v2 | complete; accepted core, durable evidence, family report, and existing-status-surface projection are verified; nonessential adapter/census refinements are deferred at checkpoint | 2026-09-27 |
-| W2 Challenger lab | in progress; family/alpha/input/ensemble/prior choices frozen, literal epoch waits for timer-backed copied-store dry-run | |
+| W2 Challenger lab | staged; implementation and inert timer complete, while the first P15 origin gates the timer-backed rehearsal, literal epoch, final family registration, and independent activation | |
 | W3 Filing reader | components complete, inert; `unconfigured` and activation blocked on baseline/conditional-fetch/scan-orchestrator review fixes | 2026-09-27 |
 | W4 Historical labs (text lab, replay lab) | not started | |
 | W5 Portfolio construction v2 | not started | |
