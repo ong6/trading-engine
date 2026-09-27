@@ -25,13 +25,19 @@ def _trial(policy_id):
 
 TRIAL = _trial("c-blind")
 ENSEMBLE_TRIAL = _trial("c-ensemble")
+MODEL_55_TRIAL = _trial("c-model-gpt-5.5-max")
+MODEL_TERRA_TRIAL = _trial("c-model-gpt-5.6-terra-max")
 
 
 @pytest.fixture
 def con():
     value = duckdb.connect(":memory:")
     store.init_schema(value)
-    for policy_id, trial_id in (("c-blind", TRIAL), ("c-ensemble", ENSEMBLE_TRIAL)):
+    for policy_id, trial_id in (
+        ("c-blind", TRIAL), ("c-ensemble", ENSEMBLE_TRIAL),
+        ("c-model-gpt-5.5-max", MODEL_55_TRIAL),
+        ("c-model-gpt-5.6-terra-max", MODEL_TERRA_TRIAL),
+    ):
         actual = p16_trial_store.register(
             value, policy_id=policy_id, policy_version="v1", plan_id="P16",
             registration_identity=IDENTITY | {"prompt": policy_id},
@@ -57,11 +63,14 @@ def _run(con, **overrides):
             "source_request_sha256": "a" * 64,
             "source_input_sha256": "e" * 64,
         }],
+        "dependency_policy_ids": [],
         "run_mode": "prospective",
     }
     values.update(overrides)
     if "attempt_manifest" not in overrides and values["model_contract_sha256"] is None:
         values["attempt_manifest"] = []
+    if values["policy_id"] == "c-ensemble":
+        values["dependency_policy_ids"] = list(store.ENSEMBLE_COMPONENT_POLICIES)
     return store.start_run(con, **values)
 
 
@@ -166,9 +175,16 @@ def test_failed_receipt_and_explicit_unavailable_rows_are_retained(con):
 
 
 def test_ensemble_output_binds_exact_component_outputs(con):
-    first = _run(con, model_contract_sha256=None)
+    first = _run(
+        con, policy_id="c-model-gpt-5.5-max", trial_id=MODEL_55_TRIAL,
+        window_id="c-model-gpt-5.5-max:2026-09-28", model_contract_sha256=None)
     first_output = store.finish_run(
         con, first["record_id"], rows=_rows(), completed_at=NOW + timedelta(minutes=1))
+    other = _run(
+        con, policy_id="c-model-gpt-5.6-terra-max", trial_id=MODEL_TERRA_TRIAL,
+        window_id="c-model-gpt-5.6-terra-max:2026-09-28", model_contract_sha256=None)
+    other_output = store.finish_run(
+        con, other["record_id"], rows=_rows(), completed_at=NOW + timedelta(minutes=1))
     second = _run(
         con, policy_id="c-ensemble", trial_id=ENSEMBLE_TRIAL,
         window_id="c-ensemble:2026-09-28", treatment_id="ensemble_mean",
@@ -176,10 +192,12 @@ def test_ensemble_output_binds_exact_component_outputs(con):
     )
     output = store.finish_run(
         con, second["record_id"], rows=_rows(),
-        dependency_output_ids=[first_output["record_id"]],
+        dependency_output_ids=sorted([
+            first_output["record_id"], other_output["record_id"]]),
         completed_at=NOW + timedelta(minutes=2),
     )
-    assert output["data"]["dependency_output_ids"] == [first_output["record_id"]]
+    assert output["data"]["dependency_output_ids"] == sorted([
+        first_output["record_id"], other_output["record_id"]])
 
 
 def test_available_scores_require_finite_bounds(con):
