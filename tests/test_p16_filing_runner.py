@@ -16,6 +16,7 @@ from server import agent_model_client, p15_scoring_store
 from server import p16_filing_client as client
 from server import p16_filing_runner as runner
 from server import p16_filing_store as store
+from sim import nyse
 
 NOW = datetime(2026, 9, 27, 12, tzinfo=timezone.utc)
 ACCESSION = "0000320193-26-000001"
@@ -126,6 +127,27 @@ def _assessment(ticker):
             "one_off_items": [], "tone": 0.1}
 
 
+def _scope_history(con, liquidity):
+    db.init_schema(con)
+    days, current = [], NOW.date() - timedelta(days=1)
+    while len(days) < 60:
+        if nyse.is_session(current):
+            days.append(current)
+        current -= timedelta(days=1)
+    con.executemany(
+        "INSERT INTO universe_snapshot VALUES (?,?,?,?,?,?,?,?)",
+        [(NOW.date(), ticker, ticker, "NYSE", False, "test", True, True)
+         for ticker in liquidity],
+    )
+    con.executemany(
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume,source,fetched_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        [(ticker, day, 9.0, 11.0, 8.0, 10.0, volume // 10, "fixture",
+          (NOW - timedelta(minutes=1)).replace(tzinfo=None))
+         for ticker, volume in liquidity.items() for day in days],
+    )
+
+
 def _result(payload, *, drift=False):
     assessment = _assessment(payload["ticker"])
     assessment["evidence_ids"] = payload["allowed_evidence_ids"]
@@ -173,13 +195,9 @@ def test_frozen_scope_uses_cutoff_snapshots_and_sixty_session_primary(con):
                            for index, ticker in enumerate(("GOOG", "GOOGL"))}).encode()
     map_sha = hashlib.sha256(map_body).hexdigest()
     _receipt(con, "map.json", NOW - timedelta(minutes=3), dataset="ticker_map", body=map_body)
-    rows = [{"cik": "320193", "ticker": ticker, "security_id": ticker,
-             "snapshot_id": map_sha, "available_at": (NOW - timedelta(minutes=3)).isoformat(),
-             "median_dollar_volume_60d": volume}
-            for ticker, volume in (("GOOG", 10), ("GOOGL", 20))]
+    _scope_history(con, {"GOOG": 10, "GOOGL": 20})
     result = runner.frozen_scope(
         con, market_date=NOW.date(), scan_started_at=NOW, map_sha256=map_sha,
-        security_rows=rows,
     )
     assert result["status"] == "ready"
     assert result["universe"]["0000320193"]["primary_security_id"] == "GOOGL"
@@ -194,7 +212,7 @@ def test_frozen_scope_uses_cutoff_snapshots_and_sixty_session_primary(con):
     )
     later = runner.frozen_scope(
         con, market_date=NOW.date(), scan_started_at=NOW + timedelta(minutes=5),
-        map_sha256=map_sha, security_rows=rows,
+        map_sha256=map_sha,
     )
     assert later["universe"]["0000320193"]["entered_at"] == NOW.isoformat()
     store.start_scan(
@@ -204,21 +222,20 @@ def test_frozen_scope_uses_cutoff_snapshots_and_sixty_session_primary(con):
     )
     reentered = runner.frozen_scope(
         con, market_date=NOW.date(), scan_started_at=NOW + timedelta(minutes=7),
-        map_sha256=map_sha, security_rows=rows,
+        map_sha256=map_sha,
     )
     assert reentered["universe"]["0000320193"]["entered_at"] == (
         NOW + timedelta(minutes=7)
     ).isoformat()
 
-    tampered = [{**rows[0], "ticker": "MSFT"}, rows[1]]
-    with pytest.raises(runner.FilingRunError, match="differ"):
+    with pytest.raises(runner.FilingRunError, match="security master"):
         runner.frozen_scope(
             con, market_date=NOW.date(), scan_started_at=NOW, map_sha256=map_sha,
-            security_rows=tampered,
+            aliases={"GOOG": "MSFT"},
         )
     stale = runner.frozen_scope(
         con, market_date=NOW.date(), scan_started_at=NOW + timedelta(days=8),
-        map_sha256=map_sha, security_rows=rows,
+        map_sha256=map_sha,
     )
     assert stale["status"] == "map_stale"
     con.execute(
@@ -228,7 +245,12 @@ def test_frozen_scope_uses_cutoff_snapshots_and_sixty_session_primary(con):
     with pytest.raises(runner.FilingRunError, match="identity"):
         runner.frozen_scope(
             con, market_date=NOW.date(), scan_started_at=NOW, map_sha256=map_sha,
-            security_rows=rows,
+        )
+
+    with pytest.raises(runner.FilingRunError, match="timezone"):
+        runner.frozen_scope(
+            con, market_date=NOW.date(), scan_started_at=NOW.replace(tzinfo=None),
+            map_sha256=map_sha,
         )
 
 
@@ -297,6 +319,33 @@ def test_runner_lock_limits_two_concurrent_invocations_to_two_calls(tmp_path):
             database, observed_at=NOW + timedelta(minutes=3), generate=generate,
             clock=lambda: NOW + timedelta(minutes=4), **READY,
         ), range(2)))
+    assert sum(result["model_calls"] for result in results) == 4
+    assert peak == 2
+
+
+def test_runner_lock_is_shared_across_database_files(tmp_path, monkeypatch):
+    databases = [tmp_path / "first.duckdb", tmp_path / "second.duckdb"]
+    for database in databases:
+        _database(database, securities=("A", "B"))
+    monkeypatch.setattr(runner, "MODEL_LOCK", tmp_path / "host.lock")
+    barrier = threading.Barrier(2)
+    active, peak, guard = 0, 0, threading.Lock()
+
+    def generate(payload):
+        nonlocal active, peak
+        with guard:
+            active += 1
+            peak = max(peak, active)
+        barrier.wait(timeout=2)
+        with guard:
+            active -= 1
+        return _result(payload)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda database: runner.score_pending(
+            database, observed_at=NOW + timedelta(minutes=3), generate=generate,
+            clock=lambda: NOW + timedelta(minutes=4), **READY,
+        ), databases))
     assert sum(result["model_calls"] for result in results) == 4
     assert peak == 2
 
@@ -429,8 +478,20 @@ def test_orphaned_prior_session_attempt_is_recovered(tmp_path):
     con = db.connect(database, read_only=True)
     assert con.execute(
         "SELECT status FROM p16_filing_work_events ORDER BY sequence DESC LIMIT 1"
-    ).fetchone() == ("retry",)
+    ).fetchone() == ("unavailable",)
+    assert con.execute("SELECT reason FROM p16_filing_decisions").fetchone() == (
+        "transport:orphaned_prior_session",
+    )
     con.close()
+
+
+def test_score_pending_rejects_naive_external_timestamp(tmp_path):
+    database = tmp_path / "market.duckdb"
+    _database(database)
+    with pytest.raises(runner.FilingRunError, match="timezone"):
+        runner.score_pending(
+            database, observed_at=NOW.replace(tzinfo=None), generate=_result, **READY,
+        )
 
 
 def test_exchange_session_date_survives_next_utc_day(tmp_path):

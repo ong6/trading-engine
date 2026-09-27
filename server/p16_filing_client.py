@@ -334,7 +334,7 @@ def generate_json(input_payload: dict, *, connection_factory=base._connection) -
         output = validate_output(result.output, input_payload)
     except base.ModelOutputError as exc:
         exc.response_id, exc.request_sha256 = result.response_id, result.request_sha256
-        exc.response_sha256 = exc.raw_response_sha256 = response_hashes[0]
+        exc.response_sha256, exc.raw_response_sha256 = None, response_hashes[0]
         exc.usage = result.usage
         raise
     return FilingConnectorResult(

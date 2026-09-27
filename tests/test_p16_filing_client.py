@@ -169,7 +169,7 @@ def test_semantic_rejection_retains_response_provenance():
     raw_sha = hashlib.sha256(
         json.dumps(model_response, separators=(",", ":")).encode()
     ).hexdigest()
-    assert caught.value.response_sha256 == raw_sha
+    assert caught.value.response_sha256 is None
     assert caught.value.raw_response_sha256 == raw_sha
     assert caught.value.usage == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
 
