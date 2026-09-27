@@ -11,6 +11,20 @@ from server import p16_reporting
 from tests.test_p16_evaluation_report import _build
 
 NOW = datetime(2027, 1, 4, 21, tzinfo=timezone.utc)
+CONSTRUCTION = {
+    "schema_version": 1, "status": "not_initialized",
+    "mechanics_version": "p16-construct-v1",
+    "book_ids": ["p16_construct_ai", "p16_construct_rule"], "books": [],
+    "execution_authority": "none",
+}
+
+
+@pytest.fixture(autouse=True)
+def _construction_projection(monkeypatch):
+    monkeypatch.setattr(
+        p16_reporting.p16_book_store, "status_projection",
+        lambda con, *, registration_sha256=None: CONSTRUCTION,
+    )
 
 
 def test_project_reports_not_initialized_without_family_evidence(monkeypatch):
@@ -20,6 +34,7 @@ def test_project_reports_not_initialized_without_family_evidence(monkeypatch):
         "schema_version": 1, "status": "not_initialized",
         "evaluation_policy_id": "p16-eval-v2", "family_report": None,
         "origin_grid": None, "promotion_candidate_ids": [],
+        "construction": CONSTRUCTION,
         "promotion_authority": "owner_review_required", "execution_authority": "none",
     }
 
@@ -35,6 +50,7 @@ def test_project_validates_and_exposes_complete_family(monkeypatch):
     assert "Status: **available**" in text
     assert "| c0 |" in text and "## Transfer coefficient" in text
     assert "Execution authority: **none**" in text
+    assert "## Portfolio construction v2" in text
 
 
 def test_project_refuses_tampered_or_unknown_status(monkeypatch):
@@ -58,6 +74,7 @@ def test_markdown_rejects_projection_family_mismatch():
     projection = {
         "schema_version": 1, "status": "incomplete",
         "evaluation_policy_id": "p16-eval-v2", "family_report": copy.deepcopy(family),
+        "construction": CONSTRUCTION,
         "promotion_authority": "owner_review_required", "execution_authority": "none",
     }
     with pytest.raises(ValueError, match="status differs"):

@@ -34,6 +34,17 @@ def test_contracts_use_full_registration_digest_and_remain_inactive():
         risk_aversion=5, cost_per_turnover=0.0005, created_at=NOW,
     ) == instances
 
+    projection = p16_book_store.status_projection(
+        con, registration_sha256=REGISTRATION,
+    )
+    assert projection["status"] == "inactive"
+    assert [row["book_id"] for row in projection["books"]] == [
+        "p16_construct_ai", "p16_construct_rule",
+    ]
+    assert all(row["active"] is False for row in projection["books"])
+    assert all(row["latest_target"] is None for row in projection["books"])
+    assert projection["execution_authority"] == "none"
+
 
 def test_attempts_and_horizon_labels_are_separate_tables_with_p15_parity_columns():
     con = duckdb.connect(":memory:")

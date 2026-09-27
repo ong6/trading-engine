@@ -8,7 +8,7 @@ from pathlib import Path
 from engine.lib.provenance import canonical_sha256
 from farm import p16_evaluation_report
 
-from . import p16_preentry, p16_registration, p16_store
+from . import p16_book_store, p16_preentry, p16_registration, p16_store
 
 EVALUATION_POLICY_ID = "p16-eval-v2"
 
@@ -19,6 +19,10 @@ def project(
 ) -> dict:
     """Project the latest visible, validated P16 family report."""
     registration = p16_registration.load(registration_path, required=False)
+    construction = p16_book_store.status_projection(
+        con, registration_sha256=None if registration is None
+        else registration["registration_sha256"],
+    )
     origin_grid = None
     if registration is not None:
         origin_grid = p16_preentry.grid_report(
@@ -37,6 +41,7 @@ def project(
         "evaluation_policy_id": EVALUATION_POLICY_ID,
         "family_report": None,
         "origin_grid": origin_grid, "promotion_candidate_ids": [],
+        "construction": construction,
         "promotion_authority": "owner_review_required",
         "execution_authority": "none",
     }
@@ -79,11 +84,28 @@ def markdown(report: dict) -> str:
                 if key != "grid_report_sha256"})):
         raise ValueError("P16 origin-grid report differs")
     lines = ["# P16 evaluation", "", f"Status: **{status}**", ""]
+    construction = report.get("construction")
+    if not isinstance(construction, dict) or construction.get("execution_authority") != "none":
+        raise ValueError("P16 construction projection is invalid")
+    construction_lines = [
+        "## Portfolio construction v2", "",
+        f"Status: **{construction['status']}**", "",
+        "| Book | Active | Lambda | Cost / turnover | Latest target |",
+        "|---|---|---:|---:|---|",
+    ]
+    for row in construction["books"]:
+        target = row.get("latest_target")
+        construction_lines.append(
+            f"| {row['book_id']} | {'yes' if row['active'] else 'no'} | "
+            f"{_number(row.get('risk_aversion'))} | {_number(row.get('cost_per_turnover'))} | "
+            f"{target['signal_date'] if target else 'unavailable'} |"
+        )
     if family is None:
         if status != "not_initialized" and not (status == "incomplete" and blocked):
             raise ValueError("P16 status lacks its family report")
         if blocked:
             lines.extend(_gap_lines(origin_grid))
+        lines.extend(["", *construction_lines])
         return "\n".join(lines)
     p16_evaluation_report.validate_report(family)
     if status != family.get("status") and not (status == "incomplete" and blocked):
@@ -115,6 +137,7 @@ def markdown(report: dict) -> str:
     for row in family["transfer"]:
         lines.append(f"| {row['book_id']} | {row.get('status', 'unavailable')} | "
                      f"{_number(row.get('tc_diagonal'))} |")
+    lines.extend(["", *construction_lines])
     return "\n".join(lines) + "\n"
 
 

@@ -6,6 +6,7 @@ import re
 from datetime import date, datetime, timezone
 
 from engine.lib.provenance import canonical_sha256
+from engine.lib.util import table_exists
 from sim.schema import init_sim_schema
 
 LOGICAL_BOOK_IDS = ("p16_construct_ai", "p16_construct_rule")
@@ -414,3 +415,68 @@ def record_target(
         [book_instance_id, signal_date, *expected, recorded],
     )
     return target_sha
+
+
+def status_projection(con, *, registration_sha256: str | None = None) -> dict:
+    """Read-only status for the two construction slots on the existing P16 surface."""
+    base = {
+        "schema_version": 1, "status": "not_initialized",
+        "mechanics_version": MECHANICS_VERSION,
+        "book_ids": list(LOGICAL_BOOK_IDS), "books": [],
+        "execution_authority": "none",
+    }
+    if not table_exists(con, "p16_book_contracts"):
+        return base
+    clauses, values = [], []
+    if registration_sha256 is not None:
+        clauses.append("c.registration_sha256=?")
+        values.append(_digest(registration_sha256, "registration digest"))
+    rows = con.execute(
+        "SELECT c.logical_portfolio_id,c.book_instance_id,c.registration_sha256,"
+        "c.activation_date,c.risk_aversion,c.cost_per_turnover,c.no_trade_band,p.active "
+        "FROM p16_book_contracts c JOIN portfolios p ON p.id=c.portfolio_id "
+        + ("WHERE " + " AND ".join(clauses) + " " if clauses else "")
+        + "QUALIFY ROW_NUMBER() OVER (PARTITION BY c.logical_portfolio_id "
+        "ORDER BY c.created_at DESC)=1 ORDER BY c.logical_portfolio_id",
+        values,
+    ).fetchall()
+    if not rows:
+        return base
+    books = []
+    for logical, instance, registration, activation, risk_aversion, cost, band, active in rows:
+        target = con.execute(
+            "SELECT signal_date,solver_status,target_sha256,sector_status,sector_coverage "
+            "FROM p16_construct_targets WHERE book_instance_id=? "
+            "ORDER BY signal_date DESC LIMIT 1", [instance],
+        ).fetchone()
+        state = con.execute(
+            "SELECT market_date,equity,cash,entry_halted,state_sha256 "
+            "FROM p16_book_state WHERE book_instance_id=? "
+            "ORDER BY market_date DESC LIMIT 1", [instance],
+        ).fetchone()
+        books.append({
+            "book_id": logical, "book_instance_id": instance,
+            "registration_sha256": registration,
+            "activation_date": None if activation is None else activation.isoformat(),
+            "active": bool(active), "risk_aversion": risk_aversion,
+            "cost_per_turnover": cost, "no_trade_band": band,
+            "latest_target": None if target is None else {
+                "signal_date": target[0].isoformat(), "solver_status": target[1],
+                "target_sha256": target[2], "sector_status": target[3],
+                "sector_coverage": target[4],
+            },
+            "latest_state": None if state is None else {
+                "market_date": state[0].isoformat(), "equity": state[1], "cash": state[2],
+                "entry_halted": bool(state[3]), "state_sha256": state[4],
+            },
+        })
+    identities = {row["book_id"] for row in books}
+    if identities != set(LOGICAL_BOOK_IDS):
+        status = "partial"
+    elif all(row["active"] for row in books):
+        status = "active"
+    elif any(row["active"] for row in books):
+        status = "partial"
+    else:
+        status = "inactive"
+    return {**base, "status": status, "books": books}
