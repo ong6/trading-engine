@@ -1,5 +1,11 @@
 """Frozen W4 implementation-gate values; no producer authority lives here."""
 
+from __future__ import annotations
+
+from datetime import date, datetime, time, timedelta, timezone
+
+from sim import nyse
+
 SPLIT_KNOWLEDGE_PRIMARY = "registered_ex_date_open_v1"
 SPLIT_KNOWLEDGE_SENSITIVITY = "registered_one_session_after_ex_date_v1"
 INDEPENDENT_UNADJUSTED_PRICE_SOURCE = "alpha_vantage_time_series_daily_raw_v1"
@@ -19,6 +25,58 @@ TEXTLAB_REPORT_PATH = "data/reports/research/textlab.md"
 
 TRUSTED_SPLIT_OUTCOMES = frozenset({"applied", "noop_restated"})
 TRUSTED_NOOP_SPLIT_OUTCOMES = frozenset({"noop_pre_history"})
+
+
+def _cutoff_date(value: date | datetime | str | None) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid_model_cutoff") from exc
+
+
+def admitted_grid(
+    cutoff: date | datetime | str | None, activation: datetime
+) -> dict:
+    """Build the complete C+60-to-activation NYSE grid and its fixed 2/3 split."""
+    if not isinstance(activation, datetime) or activation.tzinfo is None:
+        raise ValueError("invalid_activation_clock")
+    cutoff_day = _cutoff_date(cutoff)
+    if cutoff_day is None:
+        return {
+            "status": "unknown_cutoff",
+            "cutoff": None,
+            "activation": activation.astimezone(timezone.utc).isoformat(),
+            "sessions": [],
+            "development": [],
+            "lockbox": [],
+        }
+    floor = cutoff_day + timedelta(days=60)
+    cursor = floor
+    sessions = []
+    activation_utc = activation.astimezone(timezone.utc)
+    while cursor <= activation_utc.date():
+        decision_at = datetime.combine(cursor + timedelta(days=1), time(2), timezone.utc)
+        if nyse.is_session(cursor) and decision_at < activation_utc:
+            sessions.append(cursor.isoformat())
+        cursor += timedelta(days=1)
+    split = (2 * len(sessions)) // 3
+    return {
+        "status": "admitted" if sessions else "empty_window",
+        "cutoff": cutoff_day.isoformat(),
+        "c_plus_60_floor": floor.isoformat(),
+        "activation": activation_utc.isoformat(),
+        "sessions": sessions,
+        "development": sessions[:split],
+        "lockbox": sessions[split:],
+        "split_index": split,
+        "first_lockbox_session": sessions[split] if split < len(sessions) else None,
+    }
 
 PRICE_SERIES_BY_CONSUMER = {
     "archive_validation": "reconstructed_unadjusted_v1",
