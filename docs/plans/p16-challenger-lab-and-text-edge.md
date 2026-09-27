@@ -77,7 +77,7 @@ As in P15: write `server/p16-registration.json` with every value below and the c
 and commit it by itself before any P16 evidence is produced. Changes after activation are new
 versions. Values marked *(builder sets)* are chosen once from engineering constraints and recorded.
 
-**Evaluation science (`p16-eval-v1`, reporting; never changes P15's gates):**
+**Evaluation science (`p16-eval-v2`, reporting; never changes P15's gates):**
 - **Factor-neutral IC.** Each session, regress the realised 5-session net excess on these
   cross-sectional exposures over all labelled P15-universe candidates:
   - 12-1 month momentum;
@@ -435,7 +435,7 @@ safety and operations), run on 2026-09-26. File references are as of that commit
   the champion and `c-notes`, and the news source used.
 - The first weekly digest exists.
 - `docs/design/stage2-broker-paper.md` exists, and the draft execution plan is `proposed`.
-- P15 is active, with registration revision 2, and R1–R16 are closed, each with its test.
+- P15 is active, with registration revision 3, and R1–R16 are closed, each with its test.
 - Independent reviews of W0–W9 have no open findings.
 - Every refine gate and the W10 refine pass ended with an eligible version scoring ≥ 8/10. The
   final BUILDLOG entry carries the table of versions and scores, or explicitly lists what fell
@@ -443,13 +443,10 @@ safety and operations), run on 2026-09-26. File references are as of that commit
 
 ## Budget
 
-- **Ceilings** (raised by the 2026-09-26 feedback entry, including a P15 remediation allowance;
-  caps, not targets):
-  - server 57,050
-  - engine 16,050
-  - farm 15,550
-  - tools 8,850
-  - sim 8,400
+- The owner removed the per-layer LOC ceilings on 2026-09-27. Code size remains visible in the
+  metrics snapshot, but it does not gate this plan.
+- The per-commit 1,500 inserted non-data line cap, BUILDLOG entry budget, doc-test freeze, and
+  same-change deletion of code made dead remain binding.
 - W4 code lives under `farm/textlab/` and `farm/replay/` and counts toward farm.
 - **Commits:** subjects start with `P16 W<n>:`, each commit under 1,500 inserted non-data lines,
   expected at 60–100 in total.
@@ -486,8 +483,8 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 
 | Workstream | Status | Evidence (BUILDLOG date) |
 |---|---|---|
-| W0 Baseline, P15 remediation (R1–R16), P15 activation | **scheduled: dry-run on the 2026-09-28 session, activation per registration revision 2 on 2026-09-29**. Remaining: host/UTC suites, fresh copied-store dry-run, recovery bundle, book activation, AUTOSTART commit/install, and first-cycle checks through 2026-10-01. Lead: `p16-sol-lead` (GPT-5.6-Sol) | 2026-09-26 |
-| W1 Evaluation science v2 | in progress from accepted r3; corrected retained factor snapshots landed | 2026-09-27 |
+| W0 Baseline, P15 remediation (R1–R16), P15 activation | **scheduled: dry-run on the 2026-09-28 session, activation per registration revision 3 on 2026-09-29**. Remaining: host/UTC suites, fresh copied-store dry-run, recovery bundle, book activation, AUTOSTART commit/install, and first-cycle checks through 2026-10-01. Lead: `p16-sol-lead` (GPT-5.6-Sol) | 2026-09-26 |
+| W1 Evaluation science v2 | mathematical core complete; durable snapshot/e-state/report integration in progress | 2026-09-27 |
 | W2 Challenger lab | not started | |
 | W3 Filing reader | components complete, inert; `unconfigured` and activation blocked on baseline/conditional-fetch/scan-orchestrator review fixes | 2026-09-27 |
 | W4 Historical labs (text lab, replay lab) | not started | |
