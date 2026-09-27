@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 import duckdb
 import pytest
 
+from farm.replay.notes import freeze_filter_spec
 from farm.replay.runner import (
     ANCHOR_ID,
     ReplaySessionStore,
@@ -132,13 +133,14 @@ def test_run_session_owns_store_runs_exact_phase_order_and_resumes(tmp_path):
     checkpoint, session = SESSIONS[28:30]
     calls = []
 
-    def execute(phase, market_date, logical_at):
+    def execute(phase, market_date, logical_at, context):
         # The callback can open the file, proving the runner released its writer.
         with duckdb.connect(str(target), read_only=True) as reader:
             assert reader.execute("SELECT store_kind FROM w4_store_identity").fetchone() == (
                 "replay",
             )
         calls.append((phase, market_date, logical_at))
+        assert context["evaluation_tag"] == "post_lockbox_exploratory"
         return [{"status": "completed", "phase": phase}]
 
     store = ReplaySessionStore(
@@ -164,3 +166,37 @@ def test_run_session_owns_store_runs_exact_phase_order_and_resumes(tmp_path):
         assert con.execute(
             "SELECT phase FROM replay_clock ORDER BY phase_index"
         ).fetchall() == [(phase,) for phase in first["completed_phases"]]
+
+
+def test_run_session_filters_notes_and_exposes_them_only_to_later_sessions(tmp_path):
+    root = (tmp_path / "research").resolve()
+    root.mkdir()
+    live = (tmp_path / "live.duckdb").resolve()
+    live.touch()
+    seen = []
+    first, second = SESSIONS[29:31]
+
+    def execute(phase, market_date, _logical_at, context):
+        if phase == "SCORE":
+            seen.append((market_date, context["notes"], context["evaluation_tag"]))
+        result = {"status": "completed"}
+        if phase == "POSTMORTEM" and market_date == first:
+            result["lessons"] = [
+                {"rule": "Seek independent support.", "uncertainty": "Signals can conflict."}
+            ]
+        return [result]
+
+    store = ReplaySessionStore(
+        path=root / "replay.duckdb", research_root=root, live_db_path=live,
+        cohort_id="fixture", policy_id="c-notes", checkpoint=SESSIONS[28],
+        initialized_at=datetime(2026, 9, 27, tzinfo=timezone.utc),
+        execute_phase=execute, run_books=False,
+        notes_filter_spec=freeze_filter_spec(
+            tickers=("AAA",), company_names=(), aliases=()
+        ),
+        evaluation_tag="confirmatory",
+    )
+    run_session(store, first)
+    run_session(store, second)
+    assert seen[0] == (first, [], "confirmatory")
+    assert seen[1][0] == second and seen[1][1][0]["source_session"] == first.isoformat()

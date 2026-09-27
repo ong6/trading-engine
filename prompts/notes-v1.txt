@@ -1,0 +1,4 @@
+Rewrite the supplied mature post-mortems into no more than 12 durable lessons.
+Return only JSON matching postmortem-v1 notes output: each lesson has `rule` and
+`uncertainty`. Keep lessons generic. Do not include names, tickers, dates,
+prices, quantities, percentages, horizons, or other numeric anchors.

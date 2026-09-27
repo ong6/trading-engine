@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
+import duckdb
 import pytest
 
 from farm.replay.notes import (
@@ -12,9 +14,13 @@ from farm.replay.notes import (
     MIN_LESSON_COUNT,
     NotesValidationError,
     freeze_filter_spec,
+    init_notes_schema,
     lesson_rejection_rate,
+    record_notes_output,
     validate_lesson_corpus,
     validate_notes,
+    visible_mature_labels,
+    visible_notes,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -118,3 +124,61 @@ def test_opening_punctuation_preserves_sentence_initial_one_letter_exception(tex
 def test_calendar_and_period_anchors_are_rejected(text):
     with pytest.raises(NotesValidationError, match="date_or_number"):
         validate_notes(text, filter_spec=FILTER)
+
+
+def test_pipeline_hides_future_and_immature_labels_and_future_notes():
+    con = duckdb.connect(":memory:")
+    init_notes_schema(con)
+    session = date(2024, 1, 10)
+    cutoff = datetime(2024, 1, 11, 2, tzinfo=timezone.utc)
+    con.executemany(
+        "INSERT INTO replay_labels VALUES (?,?,?,?,?,?,?)",
+        [
+            ("past", date(2024, 1, 2), "h5", "2024-01-10T20:15:00Z", "terminal", 10, -5),
+            ("tomorrow", date(2024, 1, 11), "h5", "2024-01-20T20:15:00Z", "terminal", 10, -5),
+            ("today-immature", session, "h5", "2024-01-18T20:15:00Z", "pending", 10, None),
+        ],
+    )
+    assert [row["decision_id"] for row in visible_mature_labels(
+        con, session=session, cutoff=cutoff
+    )] == ["past"]
+    revision = record_notes_output(
+        con,
+        session=date(2024, 1, 9),
+        written_at=cutoff - timedelta(hours=2),
+        postmortems=[{
+            "decision_id": "past", "expected_excess_bp": 10,
+            "realized_excess_bp": -5, "error_type": "noise",
+            "explanation": "The thesis lacked support.",
+            "lesson": "Seek independent support.", "evidence_ids": [],
+        }],
+        lessons=[{"rule": "Seek independent support.", "uncertainty": "Signals can conflict."}],
+        filter_spec=FILTER,
+    )
+    assert visible_notes(con, session=session, cutoff=cutoff)[0]["revision_sha256"] == revision
+    con.execute(
+        "UPDATE replay_notes SET effective_at='2024-01-11T03:00:00.000000Z'"
+    )
+    assert visible_notes(con, session=session, cutoff=cutoff) == []
+
+
+def test_notes_revision_has_twelve_lesson_cap():
+    con = duckdb.connect(":memory:")
+    init_notes_schema(con)
+    with pytest.raises(NotesValidationError, match="lesson_count"):
+        record_notes_output(
+            con,
+            session=date(2024, 1, 9),
+            written_at=datetime(2024, 1, 10, tzinfo=timezone.utc),
+            postmortems=[],
+            lessons=[{"rule": "Seek support.", "uncertainty": "Signals conflict."}] * 13,
+            filter_spec=FILTER,
+        )
+
+
+def test_committed_prompt_and_postmortem_schema_exist():
+    prompt = (ROOT / "prompts" / "notes-v1.txt").read_text()
+    schema = json.loads((ROOT / "schemas" / "postmortem-v1.json").read_text())
+    assert len(prompt.encode()) < 1_500
+    assert schema["additionalProperties"] is False
+    assert set(schema["required"]) == set(schema["properties"])

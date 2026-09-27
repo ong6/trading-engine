@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "P16 replay post-mortem v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decision_id",
+    "expected_excess_bp",
+    "realized_excess_bp",
+    "error_type",
+    "explanation",
+    "lesson",
+    "evidence_ids"
+  ],
+  "properties": {
+    "decision_id": {"type": "string", "minLength": 1},
+    "expected_excess_bp": {"type": "number"},
+    "realized_excess_bp": {"type": "number"},
+    "error_type": {
+      "enum": [
+        "gap_risk",
+        "headline_overweight",
+        "sector_move_missed",
+        "earnings_surprise",
+        "regime",
+        "data_issue",
+        "noise",
+        "correct"
+      ]
+    },
+    "explanation": {"type": "string", "minLength": 1},
+    "lesson": {"type": "string", "minLength": 1},
+    "evidence_ids": {"type": "array", "items": {"type": "string"}}
+  }
+}
