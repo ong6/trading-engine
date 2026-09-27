@@ -7,7 +7,7 @@ import json
 import os
 import shutil
 import stat
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import duckdb
@@ -195,13 +195,14 @@ def test_backup_restores_persisted_p15_look_with_external_anchor(tmp_path):
     anchor_path = configured_data / "reports/agent-eval/p15-look-anchors.jsonl"
     anchor_path.unlink(missing_ok=True)
     now = datetime(2026, 12, 1, 12, tzinfo=timezone.utc)
-    scored = [
-        {"delta_ic": 0.2 + (index % 3) * 0.01,
-         "model_ic": 0.3, "baseline_ic": 0.09, "pair_count": 40,
-         "evaluated_at": now.isoformat(),
-         "market_date": (date(2026, 1, 1) + timedelta(days=index)).isoformat()}
-        for index in range(60)
-    ]
+    days = [p15_evaluation.ORIGIN_EPOCH]
+    while len(days) < 60:
+        days.append(p15_evaluation.nyse.next_session(days[-1]))
+    scored = [{"origin_index": index, "status": "scored", "reason": None,
+               "skip_reason": None, "delta_ic": 0.2 + (index % 3) * 0.01,
+               "model_ic": 0.3, "baseline_ic": 0.09, "pair_count": 40,
+               "evaluated_at": now.isoformat(), "market_date": days[index].isoformat()}
+              for index in range(60)]
     registration_sha = "a" * 64
     connection = engine_db.connect(source)
     p15_evaluation.persist_reached_looks(

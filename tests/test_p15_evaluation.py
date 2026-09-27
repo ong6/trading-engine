@@ -19,6 +19,20 @@ from tests.conftest import SESSIONS, insert_bars
 from tools import agent_trial_register
 
 NOW = datetime(2026, 12, 1, 12, tzinfo=timezone.utc)
+PRIMARY_DATES = [p15_evaluation.ORIGIN_EPOCH]
+while len(PRIMARY_DATES) < 120:
+    PRIMARY_DATES.append(p15_evaluation.nyse.next_session(PRIMARY_DATES[-1]))
+
+
+def _scored_grid(values, *, model_ics=None, baseline_ics=None):
+    models = values if model_ics is None else model_ics
+    baselines = [0.0] * len(values) if baseline_ics is None else baseline_ics
+    return [{"origin_index": index, "status": "scored", "reason": None,
+             "skip_reason": None, "delta_ic": float(value),
+             "model_ic": float(models[index]), "baseline_ic": float(baselines[index]),
+             "pair_count": 40, "evaluated_at": NOW.isoformat(),
+             "market_date": PRIMARY_DATES[index].isoformat()}
+            for index, value in enumerate(values)]
 
 
 def test_p15_reports_follow_configured_data_directory(tmp_path):
@@ -75,19 +89,17 @@ def test_primary_interval_matches_hand_computed_hansen_hodrick_answer():
 
 
 def test_primary_interval_uses_fixed_nonoverlapping_offset_zero_sample():
-    values = [0.0] * 60
-    values[::5] = range(1, 13)
+    values = list(range(1, 13))
 
-    result = p15_evaluation._primary_interval(values)
+    result = p15_evaluation._primary_interval(values, 60)
 
-    assert result["origin_count"] == 60
     assert result["n"] == 12 and result["df"] == 11
     assert result["mean"] == pytest.approx(6.5)
     assert result["se"] == pytest.approx((13 / 12) ** 0.5)
     assert result["critical_value"] == pytest.approx(2.431291192871)
     assert result["sampling"] == "nonoverlapping_offset0"
     assert result["stride"] == 5 and result["offset"] == 0
-    constant = p15_evaluation._primary_interval([1.0] * 60)
+    constant = p15_evaluation._primary_interval([1.0] * 12, 60)
     assert constant["se"] is None and constant["lower"] is None
 
 
@@ -115,15 +127,7 @@ def test_primary_three_look_simulation_controls_null_and_detects_planted_ic():
         shocks = rng.normal(0.0, 0.1, 124)
         delta = np.convolve(shocks, np.ones(5) / 5, mode="valid")
         for shift, counter in ((0.0, "null"), (0.03, "planted")):
-            scored = [
-                {"delta_ic": float(value + shift),
-                 "model_ic": float(value + shift), "baseline_ic": 0.0,
-                 "evaluated_at": NOW.isoformat(),
-                 "market_date": (
-                     date(2026, 1, 1) + timedelta(days=index)
-                 ).isoformat()}
-                for index, value in enumerate(delta)
-            ]
+            scored = _scored_grid([float(value + shift) for value in delta])
             passed = p15_evaluation.evaluate_looks(scored)[0] == "pass"
             if counter == "null":
                 false_passes += passed
@@ -136,38 +140,109 @@ def test_primary_three_look_simulation_controls_null_and_detects_planted_ic():
     iid_false_passes = 0
     for _ in range(trials):
         delta = iid_rng.normal(0.0, 0.1 / math.sqrt(5), 120)
-        scored = [
-            {"delta_ic": float(value), "model_ic": float(value),
-             "baseline_ic": 0.0, "evaluated_at": NOW.isoformat(),
-             "market_date": (date(2026, 1, 1) + timedelta(days=index)).isoformat()}
-            for index, value in enumerate(delta)
-        ]
+        scored = _scored_grid([float(value) for value in delta])
         iid_false_passes += p15_evaluation.evaluate_looks(scored)[0] == "pass"
-    assert iid_false_passes == 320
+    assert iid_false_passes == 353
 
 
 def test_fixed_looks_use_immutable_prefixes_and_terminal_rules():
-    positive = [{"delta_ic": 0.2 + (index % 3) * 0.01,
-                 "model_ic": 0.3, "baseline_ic": 0.09,
-                 "evaluated_at": NOW.isoformat(),
-                 "market_date": (date(2026, 1, 1) + timedelta(days=index)).isoformat()}
-                for index in range(61)]
+    positive = _scored_grid(
+        [0.2 + (index % 3) * 0.01 for index in range(61)],
+        model_ics=[0.3] * 61, baseline_ics=[0.09] * 61)
     status, looks, next_look = p15_evaluation.evaluate_looks(positive)
     assert status == "pass" and [item["look"] for item in looks] == [60]
     assert looks[0]["delta"]["n"] == 12 and next_look is None
-    assert looks[0]["hansen_hodrick_diagnostic"]["n"] == 60
-    status, looks, next_look = p15_evaluation.evaluate_looks(positive[:59])
+    assert looks[0]["hansen_hodrick_diagnostic"]["n"] == 56
+    status, looks, next_look = p15_evaluation.evaluate_looks(positive[:55])
     assert (status, looks, next_look) == ("collecting", [], 60)
-    neutral = [{"delta_ic": (-1) ** index * 0.01,
-                "model_ic": 0.1, "baseline_ic": 0.1,
-                "evaluated_at": NOW.isoformat(),
-                "market_date": (date(2026, 1, 1) + timedelta(days=index)).isoformat()}
-               for index in range(120)]
+    neutral = _scored_grid(
+        [(-1) ** index * 0.01 for index in range(120)],
+        model_ics=[0.1] * 120, baseline_ics=[0.1] * 120)
     status, looks, next_look = p15_evaluation.evaluate_looks(neutral)
     assert status == "kill" and looks[-1]["look"] == 120 and next_look is None
 
 
-def test_constant_outcome_session_keeps_a_neutral_primary_slot():
+def test_predictable_skips_keep_offset_zero_and_block_unresolved_prefix():
+    grid = _scored_grid([0.05 + 0.001 * (index % 3) for index in range(66)],
+                        model_ics=[0.1] * 66)
+    for index, reason in ((5, "fewer_than_20_candidates"), (10, "constant_scores")):
+        grid[index].update(
+            status="skip", reason=reason, skip_reason=reason,
+            skip_decided_at=f"{grid[index]['market_date']}T20:00:00+00:00",
+            forward_entry_at=(datetime.fromisoformat(grid[index]["market_date"])
+                              + timedelta(days=1, hours=13, minutes=30)).replace(
+                                  tzinfo=timezone.utc).isoformat())
+    result = p15_evaluation._look(grid, 60)
+    assert result["status"] == "pass" and result["delta"]["n"] == 12
+    assert [item["origin_index"] for item in result["skipped_origins"]] == [5, 10]
+    assert result["retained_origins"][-1] == grid[65]["market_date"]
+    grid[15].update(status="pending", reason="label_pending")
+    blocked = p15_evaluation._look(grid, 60)
+    assert blocked["status"] == "collecting" and blocked["blocked_origin"]["origin_index"] == 15
+    grid[5]["skip_decided_at"] = grid[5]["forward_entry_at"]
+    with pytest.raises(p15_evaluation.P15EvaluationError, match="skip differs"):
+        p15_evaluation._look(grid, 60)
+    grid[5]["skip_decided_at"] = f"{grid[5]['market_date']}T20:00:00+00:00"
+    grid[10]["status"] = "scored"
+    with pytest.raises(p15_evaluation.P15EvaluationError, match="skip differs"):
+        p15_evaluation._look(grid, 60)
+
+
+def test_primary_uses_retained_champion_mean_lag1_and_high_is_good_rule_score():
+    grid = _scored_grid([0.1 + 0.001 * (index % 3) for index in range(60)],
+                        model_ics=[0.2 if index % 5 == 0 else -1.0 for index in range(60)])
+    result = p15_evaluation._look(grid, 60)
+    assert result["status"] == "pass" and result["mean_champion_ic"] == pytest.approx(0.2)
+    assert result["retained_lag1_autocorrelation"] == pytest.approx(-0.5)
+    for row in grid[::5]:
+        row["model_ic"] = -0.2
+    assert p15_evaluation._look(grid, 60)["status"] == "continue"
+    row = {"decision": "buy_candidate", "payload": {
+        "stratum": "mover", "scoring_status": "available",
+        "expected_excess_bp_5": 1.0, "baseline_rank": 1}}
+    assert p15_evaluation._scores(row, 5) == (1.0, -1.0)
+    ranks, outcomes = list(range(20, 0, -1)), list(range(20))
+    assert p15_evaluation.spearman([-rank for rank in ranks], outcomes) == 1
+    assert p15_evaluation.spearman(ranks, outcomes) == -1
+    broken = _scored_grid([0.1] * 60)
+    broken[1]["market_date"] = broken[2]["market_date"]
+    with pytest.raises(p15_evaluation.P15EvaluationError, match="grid differs"):
+        p15_evaluation._look(broken, 60)
+
+
+def test_zero_variance_and_terminal_status_are_explicit_and_stable():
+    grid = _scored_grid([0.1] * 120, model_ics=[0.2] * 120,
+                        baseline_ics=[0.1] * 120)
+    first = p15_evaluation._look(grid, 60)
+    final = p15_evaluation._look(grid, 120)
+    assert first["status"] == "zero_variance"
+    assert first["reason"] == final["reason"] == "zero_variance_no_interval"
+    assert final["status"] == "kill"
+    varied = _scored_grid([0.2 + (index % 3) * 0.01 for index in range(61)],
+                          model_ics=[0.3] * 61)
+    varied[60].update(status="invalid", reason="missing_mature_label", delta_ic=None)
+    assert p15_evaluation.evaluate_looks(varied)[0] == "pass"
+
+
+def test_origin_eligibility_persists_append_only_with_preentry_time(con):
+    grid = _scored_grid([0.1])
+    grid[0].update(status="skip", reason="constant_scores", skip_reason="constant_scores",
+                   skip_decided_at="2026-09-29T20:00:00+00:00",
+                   forward_entry_at="2026-09-30T13:30:00+00:00",
+                   eligibility_sha256="a" * 64)
+    p15_evaluation.persist_origin_grid(con, grid, "b" * 64)
+    p15_evaluation.persist_origin_grid(con, grid, "b" * 64)
+    assert con.execute("SELECT eligibility,skip_reason FROM p15_evaluation_origin_grid").fetchone() \
+        == ("skip", "constant_scores")
+    grid[0]["skip_reason"] = grid[0]["reason"] = "fewer_than_20_candidates"
+    with pytest.raises(p15_evaluation.P15EvaluationError, match="eligibility differs"):
+        p15_evaluation.persist_origin_grid(con, grid, "b" * 64)
+    grid[0]["skip_decided_at"] = grid[0]["forward_entry_at"]
+    with pytest.raises(p15_evaluation.P15EvaluationError, match="not pre-entry"):
+        p15_evaluation.persist_origin_grid(con, grid, "c" * 64)
+
+
+def test_constant_outcome_session_is_not_a_predictable_skip():
     rows = [
         {
             "decision": "buy_candidate",
@@ -175,7 +250,7 @@ def test_constant_outcome_session_keeps_a_neutral_primary_slot():
                 "stratum": "mover", "scoring_status": "available",
                 "expected_excess_bp_5": float(index),
                 "expected_excess_bp_10": float(index),
-                "baseline_score": float(20 - index),
+                "baseline_rank": float(20 - index),
             },
             "labels": {5: {"net_excess_return": 0.0, "labeled_at": NOW}},
         }
@@ -184,26 +259,30 @@ def test_constant_outcome_session_keeps_a_neutral_primary_slot():
 
     result = p15_evaluation._session_ics(rows, 5)
 
-    assert result["status"] == "scored"
-    assert result["reason"] == "constant_outcome_neutral"
-    assert result["model_ic"] == result["baseline_ic"] == result["delta_ic"] == 0.0
+    assert result["status"] == "invalid" and result["reason"] == "constant_outcome"
+    assert result["model_ic"] is result["baseline_ic"] is result["delta_ic"] is None
 
 
 def test_unresolved_eligible_origin_blocks_later_look_persistence(con, monkeypatch):
-    origins = [date(2025, 1, 1) + timedelta(days=index) for index in range(62)]
-    gap = origins[59]
+    origins = [p15_evaluation.ORIGIN_EPOCH]
+    while len(origins) < 62:
+        origins.append(p15_evaluation.nyse.next_session(origins[-1]))
+    gap = origins[55]
     rows = []
     for market_date in origins:
         for index in range(20):
             rows.append({
                 "market_date": market_date,
-                "observed_at": NOW.replace(tzinfo=None),
+                "observed_at": datetime.combine(market_date, datetime.min.time())
+                + timedelta(hours=20),
+                "completed_at": datetime.combine(market_date, datetime.min.time())
+                + timedelta(hours=20),
                 "decision": "buy_candidate",
                 "payload": {
                     "stratum": "mover", "scoring_status": "available",
                     "expected_excess_bp_5": float(index),
                     "expected_excess_bp_10": float(index),
-                    "baseline_score": float(20 - index),
+                    "baseline_rank": float(20 - index),
                 },
                 "labels": {} if market_date == gap else {
                     5: {"net_excess_return": float(index), "labeled_at": NOW},
@@ -230,7 +309,8 @@ def test_unresolved_eligible_origin_blocks_later_look_persistence(con, monkeypat
     monkeypatch.setattr(
         p15_evaluation,
         "persist_reached_looks",
-        lambda *_args, **_kwargs: persisted.append(True) or [],
+        lambda _con, grid, *_args, **_kwargs: persisted.append(
+            p15_evaluation._look(grid, 60)["status"]) or [],
     )
     monkeypatch.setattr(p15_evaluation, "load_retained_looks", lambda *_args, **_kwargs: [])
 
@@ -238,20 +318,16 @@ def test_unresolved_eligible_origin_blocks_later_look_persistence(con, monkeypat
         con, NOW, persist_looks=True, registration_sha="a" * 64,
     )
 
-    assert persisted == []
+    assert persisted == ["collecting"]
     assert result["immature_session_count"] == 1
     assert result["scored_session_count"] == 61
     assert result["next_look"] == 60
 
 
 def test_reached_look_is_persisted_once_and_tamper_evident(con, monkeypatch, tmp_path):
-    scored = [
-        {"delta_ic": 0.2 + (index % 3) * 0.01,
-         "model_ic": 0.3, "baseline_ic": 0.09, "pair_count": 40,
-         "evaluated_at": NOW.isoformat(),
-         "market_date": (date(2026, 1, 1) + timedelta(days=index)).isoformat()}
-        for index in range(60)
-    ]
+    scored = _scored_grid(
+        [0.2 + (index % 3) * 0.01 for index in range(60)],
+        model_ics=[0.3] * 60, baseline_ics=[0.09] * 60)
     registration_sha = "a" * 64
     anchor_path = tmp_path / "look-anchors.jsonl"
     p15_evaluation.init_look_schema(con)
@@ -275,10 +351,6 @@ def test_reached_look_is_persisted_once_and_tamper_evident(con, monkeypatch, tmp
     retained = con.execute(
         "SELECT result_payload,look_sha256 FROM p15_evaluation_looks"
     ).fetchone()
-    monkeypatch.setattr(
-        p15_evaluation, "_look",
-        lambda *_args: (_ for _ in ()).throw(AssertionError("look recomputed")),
-    )
     replay = p15_evaluation.persist_reached_looks(
         con, scored, registration_sha, evaluated_at=NOW, anchor_path=anchor_path,
     )
@@ -289,6 +361,14 @@ def test_reached_look_is_persisted_once_and_tamper_evident(con, monkeypatch, tmp
     assert con.execute(
         "SELECT result_payload,look_sha256 FROM p15_evaluation_looks"
     ).fetchone() == retained
+    scored[1]["outcome_sha256"] = "b" * 64
+    assert p15_evaluation.load_retained_looks(
+        con, scored, registration_sha, anchor_path=anchor_path)[0]["look"] == 60
+    scored[0]["outcome_sha256"] = "c" * 64
+    with pytest.raises(p15_evaluation.P15EvaluationError, match="look evidence differs"):
+        p15_evaluation.load_retained_looks(
+            con, scored, registration_sha, anchor_path=anchor_path)
+    scored[0].pop("outcome_sha256")
 
     anchor_path.unlink()
     with pytest.raises(p15_evaluation.P15EvaluationError, match="look evidence differs"):
@@ -320,13 +400,9 @@ def test_reached_look_is_persisted_once_and_tamper_evident(con, monkeypatch, tmp
 
 
 def test_rolled_back_look_never_publishes_external_anchor(con, tmp_path):
-    scored = [
-        {"delta_ic": 0.2 + (index % 3) * 0.01,
-         "model_ic": 0.3, "baseline_ic": 0.09, "pair_count": 40,
-         "evaluated_at": NOW.isoformat(),
-         "market_date": (date(2026, 1, 1) + timedelta(days=index)).isoformat()}
-        for index in range(60)
-    ]
+    scored = _scored_grid(
+        [0.2 + (index % 3) * 0.01 for index in range(60)],
+        model_ics=[0.3] * 60, baseline_ics=[0.09] * 60)
     registration_sha = "a" * 64
     anchor_path = tmp_path / "look-anchors.jsonl"
     p15_evaluation.init_look_schema(con)
@@ -348,33 +424,61 @@ def test_rolled_back_look_never_publishes_external_anchor(con, tmp_path):
 
 def _primary_schema(con):
     con.execute("CREATE TABLE agent_evaluation_traces "
-                "(id BIGINT,market_date DATE,observed_at TIMESTAMP,policy_id VARCHAR)")
+                "(id BIGINT,market_date DATE,observed_at TIMESTAMP,completed_at TIMESTAMP,"
+                "information_cutoff_at TIMESTAMP,trace_sha256 VARCHAR,policy_id VARCHAR)")
     con.execute("CREATE TABLE agent_evaluation_decisions "
-                "(id BIGINT,trace_id BIGINT,decision VARCHAR,decision_payload VARCHAR)")
+                "(id BIGINT,trace_id BIGINT,decision VARCHAR,decision_payload VARCHAR,"
+                "decision_sha256 VARCHAR)")
     con.execute("CREATE TABLE agent_evaluation_labels_v2 "
                 "(decision_id BIGINT,horizon_sessions INTEGER,label_basis VARCHAR,"
-                "net_excess_return DOUBLE,missing_bar_status VARCHAR,labeled_at TIMESTAMP)")
+                "net_excess_return DOUBLE,missing_bar_status VARCHAR,labeled_at TIMESTAMP,"
+                "label_sha256 VARCHAR)")
+
+
+def test_primary_rows_are_asof_and_reject_duplicate_daily_traces(con):
+    _primary_schema(con)
+    day = p15_evaluation.ORIGIN_EPOCH
+    con.executemany(
+        "INSERT INTO agent_evaluation_traces VALUES (?,?,?,?,?,?,?)",
+        [(1, day, datetime(2026, 9, 29, 20), datetime(2026, 12, 2),
+          datetime(2026, 9, 29, 20), "a" * 64, "p15-scoring-v1"),
+         (2, day, datetime(2026, 9, 29, 20), datetime(2026, 9, 29, 21),
+          datetime(2026, 9, 29, 20), "b" * 64, "p15-scoring-v1")],
+    )
+    payload = json.dumps({"stratum": "mover", "scoring_status": "available",
+                          "expected_excess_bp_5": 1.0, "baseline_rank": 1})
+    con.executemany("INSERT INTO agent_evaluation_decisions VALUES (?,?,?,?,?)", [
+        (1, 1, "buy_candidate", payload, "c" * 64),
+        (2, 2, "buy_candidate", payload, "d" * 64),
+    ])
+    assert [row["trace_sha256"] for row in p15_evaluation._primary_rows(con, NOW)] == ["b" * 64]
+    con.execute("UPDATE agent_evaluation_traces SET completed_at=? WHERE id=1",
+                [datetime(2026, 9, 29, 22)])
+    with pytest.raises(p15_evaluation.P15EvaluationError, match="multiple scoring traces"):
+        p15_evaluation._primary_rows(con, NOW)
 
 
 def test_primary_scores_same_mature_cohort_and_flags_missing_labels(con):
     _primary_schema(con)
-    market_date = date(2024, 7, 1)
+    market_date = p15_evaluation.ORIGIN_EPOCH
     con.execute(
-        "INSERT INTO agent_evaluation_traces VALUES (1,?,?,'p15-scoring-v1')",
-        [market_date, datetime(2024, 7, 1, 22)],
+        "INSERT INTO agent_evaluation_traces VALUES (1,?,?,?,?,?,'p15-scoring-v1')",
+        [market_date, datetime(2026, 9, 29, 20), datetime(2026, 9, 29, 20),
+         datetime(2026, 9, 29, 20), "a" * 64],
     )
     for index in range(20):
         payload = {"stratum": "mover", "scoring_status": "available",
                    "p_outperform_5": 0.01 + index / 25,
                    "expected_excess_bp_5": float(index),
-                   "expected_excess_bp_10": float(index), "baseline_score": 20 - index}
+                   "expected_excess_bp_10": float(index), "baseline_rank": 20 - index}
         con.execute(
-            "INSERT INTO agent_evaluation_decisions VALUES (?,?,?,?)",
-            [index + 1, 1, "buy_candidate", json.dumps(payload)],
+            "INSERT INTO agent_evaluation_decisions VALUES (?,?,?,?,?)",
+            [index + 1, 1, "buy_candidate", json.dumps(payload), f"{index:064x}"],
         )
         con.execute(
-            "INSERT INTO agent_evaluation_labels_v2 VALUES (?,?,?,?,?,?)",
-            [index + 1, 5, "next_session_open", float(index), "complete", NOW],
+            "INSERT INTO agent_evaluation_labels_v2 VALUES (?,?,?,?,?,?,?)",
+            [index + 1, 5, "next_session_open", float(index), "complete", NOW,
+             f"{index + 100:064x}"],
         )
     sessions = [market_date + timedelta(days=index) for index in range(1, 9)]
     insert_bars(con, "SPY", sessions, open_=100, close=100, high=101, low=99)
@@ -386,8 +490,8 @@ def test_primary_scores_same_mature_cohort_and_flags_missing_labels(con):
     assert result["scored_session_count"] == 1
     assert result["diagnostics"]["model_brier"] is not None
     con.execute(
-        "INSERT INTO agent_evaluation_decisions VALUES (21,1,'unavailable',?)",
-        [json.dumps({"stratum": "held_only", "scoring_status": "unavailable"})],
+        "INSERT INTO agent_evaluation_decisions VALUES (21,1,'unavailable',?,?)",
+        [json.dumps({"stratum": "held_only", "scoring_status": "unavailable"}), "f" * 64],
     )
     irrelevant = p15_evaluation.primary(con, NOW)
     assert irrelevant["status"] == "collecting"
@@ -398,26 +502,28 @@ def test_primary_scores_same_mature_cohort_and_flags_missing_labels(con):
 
 def test_primary_waits_three_sessions_before_invalidating_missing_used_label(con):
     _primary_schema(con)
-    market_date = date(2024, 7, 1)
+    market_date = p15_evaluation.ORIGIN_EPOCH
     con.execute(
-        "INSERT INTO agent_evaluation_traces VALUES (1,?,?,'p15-scoring-v1')",
-        [market_date, datetime(2024, 7, 1, 22)],
+        "INSERT INTO agent_evaluation_traces VALUES (1,?,?,?,?,?,'p15-scoring-v1')",
+        [market_date, datetime(2026, 9, 29, 20), datetime(2026, 9, 29, 20),
+         datetime(2026, 9, 29, 20), "a" * 64],
     )
     for index in range(21):
         payload = {
             "stratum": "mover", "scoring_status": "available",
             "p_outperform_5": 0.01 + index / 25,
             "expected_excess_bp_5": float(index),
-            "expected_excess_bp_10": float(index), "baseline_score": 21 - index,
+            "expected_excess_bp_10": float(index), "baseline_rank": 21 - index,
         }
         con.execute(
-            "INSERT INTO agent_evaluation_decisions VALUES (?,?,?,?)",
-            [index + 1, 1, "buy_candidate", json.dumps(payload)],
+            "INSERT INTO agent_evaluation_decisions VALUES (?,?,?,?,?)",
+            [index + 1, 1, "buy_candidate", json.dumps(payload), f"{index:064x}"],
         )
         if index < 20:
             con.execute(
-                "INSERT INTO agent_evaluation_labels_v2 VALUES (?,?,?,?,?,?)",
-                [index + 1, 5, "next_session_open", float(index), "complete", NOW],
+                "INSERT INTO agent_evaluation_labels_v2 VALUES (?,?,?,?,?,?,?)",
+                [index + 1, 5, "next_session_open", float(index), "complete", NOW,
+                 f"{index + 100:064x}"],
             )
     first_five = [market_date + timedelta(days=index) for index in range(1, 6)]
     insert_bars(con, "SPY", first_five, open_=100, close=100, high=101, low=99)

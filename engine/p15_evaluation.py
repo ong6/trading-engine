@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from pathlib import Path
 from statistics import NormalDist
+from zoneinfo import ZoneInfo
 
 import duckdb
 
@@ -20,6 +21,7 @@ from sim import nyse
 POLICY_ID = "p15-scoring-v1"
 BOOK_IDS = ("p15_ai_ranked", "p15_rule_control", "p15_hybrid_veto")
 LOOKS = (60, 90, 120)
+LOOK_TARGETS = {60: 12, 90: 18, 120: 24}
 ALPHA = 0.05 / 3
 NW_LAG = 4
 MISSING_LABEL_GRACE_SESSIONS = 3
@@ -32,6 +34,10 @@ PRIMARY_T_CRITICAL = {
 }
 PRIMARY_STRIDE = 5
 PRIMARY_OFFSET = 0
+ORIGIN_EPOCH = date(2026, 9, 29)
+PREDICTABLE_SKIPS = {"fewer_than_20_candidates", "constant_scores"}
+ET = ZoneInfo("America/New_York")
+ACTIVATED_AT = datetime(2026, 9, 29, 0, 0, tzinfo=ET)
 P15EvaluationError = ValueError
 REGISTRATION_PATH = REPO_ROOT / "server" / "p15-registration.json"
 LOOK_ANCHOR_PATH = DATA_DIR / "reports" / "agent-eval" / "p15-look-anchors.jsonl"
@@ -46,6 +52,15 @@ def registration_sha256() -> str:
 
 
 def init_look_schema(con: duckdb.DuckDBPyConnection) -> None:
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS p15_evaluation_origin_grid (
+        policy_id VARCHAR NOT NULL, registration_sha256 VARCHAR NOT NULL,
+        origin_index INTEGER NOT NULL, market_date DATE NOT NULL,
+        eligibility VARCHAR NOT NULL, skip_reason VARCHAR, decided_at TIMESTAMP NOT NULL,
+        forward_entry_at TIMESTAMP NOT NULL,
+        source_sha256 VARCHAR NOT NULL, row_sha256 VARCHAR NOT NULL UNIQUE,
+        PRIMARY KEY(policy_id,registration_sha256,origin_index))"""
+    )
     con.execute(
         """CREATE TABLE IF NOT EXISTS p15_evaluation_looks (
         schema_version INTEGER NOT NULL, policy_id VARCHAR NOT NULL,
@@ -202,21 +217,21 @@ def _hansen_hodrick_interval(values: list[float], *, alpha: float = ALPHA) -> di
     return result
 
 
-def _primary_interval(values: list[float], *, alpha: float = ALPHA) -> dict:
-    """Registered offset-0, every-fifth-session Student-t interval."""
-    full = [float(value) for value in values if math.isfinite(float(value))]
-    critical = PRIMARY_T_CRITICAL.get(len(full))
-    if critical is None:
+def _primary_interval(values: list[float], look: int, *, alpha: float = ALPHA) -> dict:
+    """Registered Student-t interval over an already retained offset-0 prefix."""
+    selected = [float(value) for value in values]
+    if look not in LOOKS or len(selected) != LOOK_TARGETS[look] \
+            or any(not math.isfinite(value) for value in selected):
         raise P15EvaluationError("P15 primary interval is outside a registered look")
-    selected = full[PRIMARY_OFFSET::PRIMARY_STRIDE]
+    critical = PRIMARY_T_CRITICAL[look]
     mean = _mean(selected)
-    variance = (
+    variance = 0.0 if len(set(selected)) == 1 else (
         sum((value - mean) ** 2 for value in selected) / (len(selected) - 1)
         if len(selected) > 1 else None
     )
     se = None if variance is None or variance <= 0 else math.sqrt(variance / len(selected))
     result = {
-        "n": len(selected), "origin_count": len(full), "mean": mean, "se": se,
+        "n": len(selected), "mean": mean, "se": se,
         "t": None if se is None else mean / se,
         "df": len(selected) - 1, "alpha": alpha, "critical_value": critical,
         "lower": None, "upper": None, "variance_estimator": "sample_variance",
@@ -227,6 +242,15 @@ def _primary_interval(values: list[float], *, alpha: float = ALPHA) -> dict:
         result["lower"] = mean - critical * se
         result["upper"] = mean + critical * se
     return result
+
+
+def _lag1(values: list[float]) -> float | None:
+    mean = _mean(values)
+    centered = [value - mean for value in values]
+    denominator = sum(value * value for value in centered)
+    return None if denominator == 0 else sum(
+        centered[index] * centered[index - 1] for index in range(1, len(centered))
+    ) / denominator
 
 
 def _finite_number(value: object) -> float | None:
@@ -242,19 +266,29 @@ def _primary_rows(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> lis
     )):
         return []
     rows = con.execute(
-        "SELECT t.market_date,t.observed_at,d.id,d.decision,d.decision_payload,"
-        "l.horizon_sessions,l.label_basis,l.net_excess_return,l.missing_bar_status,l.labeled_at "
+        "SELECT t.market_date,t.observed_at,t.completed_at,t.information_cutoff_at,t.trace_sha256,"
+        "d.id,d.decision,d.decision_payload,d.decision_sha256,l.horizon_sessions,l.label_basis,"
+        "l.net_excess_return,l.missing_bar_status,l.labeled_at,l.label_sha256 "
         "FROM agent_evaluation_traces t JOIN agent_evaluation_decisions d ON d.trace_id=t.id "
         "LEFT JOIN agent_evaluation_labels_v2 l ON l.decision_id=d.id "
         "AND l.horizon_sessions IN (5,10) AND l.label_basis IN "
         "('next_session_open','missing_entry_last_available_close') "
-        "AND l.labeled_at<=? WHERE t.policy_id=? ORDER BY t.market_date,d.id,l.horizon_sessions",
-        [generated_at.replace(tzinfo=None), POLICY_ID],
+        "AND l.labeled_at<=? WHERE t.policy_id=? AND t.completed_at<=? "
+        "ORDER BY t.market_date,d.id,l.horizon_sessions",
+        [generated_at.replace(tzinfo=None), POLICY_ID, generated_at.replace(tzinfo=None)],
     ).fetchall()
     result: dict[int, dict] = {}
-    for market_date, observed_at, decision_id, decision, raw, horizon, basis, net, missing, labeled in rows:
+    daily_traces: dict[date, str] = {}
+    for (market_date, observed_at, completed_at, cutoff_at, trace_sha, decision_id,
+         decision, raw, decision_sha, horizon, basis, net, missing, labeled, label_sha) in rows:
+        if market_date in daily_traces and daily_traces[market_date] != trace_sha:
+            raise P15EvaluationError("P15 market session has multiple scoring traces")
+        daily_traces[market_date] = trace_sha
         item = result.setdefault(int(decision_id), {
-            "market_date": market_date, "observed_at": observed_at, "decision": decision,
+            "decision_id": int(decision_id), "market_date": market_date,
+            "observed_at": observed_at, "completed_at": completed_at,
+            "information_cutoff_at": cutoff_at, "trace_sha256": trace_sha,
+            "decision": decision, "decision_sha256": decision_sha,
             "payload": json.loads(raw), "labels": {},
         })
         if horizon is not None:
@@ -263,6 +297,7 @@ def _primary_rows(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> lis
             item["labels"][int(horizon)] = {
                 "basis": basis, "net_excess_return": float(net),
                 "missing_bar_status": missing, "labeled_at": labeled,
+                "label_sha256": label_sha,
             }
     return list(result.values())
 
@@ -281,7 +316,8 @@ def _scores(row: dict, horizon: int) -> tuple[float, float] | None:
     payload = row["payload"]
     model = _finite_number(payload.get("expected_excess_bp_5" if horizon == 5
                                        else "expected_excess_bp_10"))
-    baseline = _finite_number(payload.get("baseline_score"))
+    rank = _finite_number(payload.get("baseline_rank"))
+    baseline = None if rank is None else -rank
     if (payload.get("stratum") not in {"mover", "trend"}
             or payload.get("scoring_status") != "available"
             or row["decision"] == "unavailable" or model is None or baseline is None):
@@ -303,18 +339,134 @@ def _session_ics(rows: list[dict], horizon: int) -> dict:
         reason = "constant_model_score"
     elif len({row[1] for row in usable}) == 1:
         reason = "constant_baseline_score"
-    constant_outcome = len(usable) >= 20 and len({row[2] for row in usable}) == 1
-    model_ic = (None if reason else 0.0 if constant_outcome else
-                spearman([row[0] for row in usable], [row[2] for row in usable]))
-    base_ic = (None if reason else 0.0 if constant_outcome else
-               spearman([row[1] for row in usable], [row[2] for row in usable]))
-    return {"status": "insufficient" if reason else "scored",
-            "reason": "constant_outcome_neutral" if constant_outcome else reason,
+    if not reason and len({row[2] for row in usable}) == 1:
+        reason = "constant_outcome"
+    model_ic = None if reason else spearman(
+        [row[0] for row in usable], [row[2] for row in usable])
+    base_ic = None if reason else spearman(
+        [row[1] for row in usable], [row[2] for row in usable])
+    return {"status": "invalid" if reason == "constant_outcome" else
+            "insufficient" if reason else "scored", "reason": reason,
             "pair_count": len(usable), "model_ic": model_ic, "baseline_ic": base_ic,
             "delta_ic": None if reason else model_ic - base_ic,
+            "outcome_sha256": canonical_sha256(sorted((
+                row[5].get("decision_sha256"), row[4].get("label_sha256"), row[2]
+            ) for row in usable)),
             "evaluated_at": None if not usable else max(
                 row[4]["labeled_at"] for row in usable
             ).replace(tzinfo=timezone.utc).isoformat(), "rows": usable}
+
+
+def _utc(value: datetime) -> datetime:
+    return (value.replace(tzinfo=timezone.utc) if value.tzinfo is None else
+            value.astimezone(timezone.utc))
+
+
+def _eligibility(members: list[dict], market_date: date, origin_index: int) -> dict:
+    base = {"origin_index": origin_index, "market_date": market_date.isoformat(),
+            "status": "pending", "reason": "decision_unavailable", "skip_reason": None,
+            "skip_decided_at": None, "forward_entry_at": None,
+            "eligibility_sha256": None}
+    if not members:
+        return base
+    decided = max(_utc(row.get("completed_at", row["observed_at"])) for row in members)
+    entry = datetime.combine(nyse.next_session(market_date), time(9, 30), ET).astimezone(timezone.utc)
+    scores = [(row.get("decision_id", index), *_scores(row, 5))
+              for index, row in enumerate(members) if _scores(row, 5) is not None]
+    cutoffs = [_utc(row.get("information_cutoff_at", row["observed_at"])) for row in members]
+    source = {"market_date": market_date.isoformat(), "origin_index": origin_index,
+              "decided_at": decided.isoformat(), "information_cutoffs": sorted(
+                  value.isoformat() for value in cutoffs), "scores": sorted(scores),
+              "trace_sha256": sorted({row.get("trace_sha256") for row in members}, key=str),
+              "decision_sha256": sorted(
+                  (row.get("decision_sha256") for row in members), key=str)}
+    base.update(skip_decided_at=decided.isoformat(),
+                forward_entry_at=entry.isoformat(),
+                eligibility_sha256=canonical_sha256(source))
+    if (market_date == ORIGIN_EPOCH and max(cutoffs) <= ACTIVATED_AT.astimezone(timezone.utc)):
+        return {**base, "status": "invalid", "reason": "cutoff_not_after_activation"}
+    if decided >= entry:
+        return {**base, "status": "invalid", "reason": "eligibility_not_preentry"}
+    reason = "fewer_than_20_candidates" if len(scores) < 20 else \
+        "constant_scores" if len({row[1] for row in scores}) == 1 \
+        or len({row[2] for row in scores}) == 1 else None
+    if reason:
+        return {**base, "status": "skip", "reason": reason, "skip_reason": reason,
+                "pair_count": len(scores)}
+    return {**base, "status": "eligible", "reason": None, "pair_count": len(scores)}
+
+
+def _origin_grid(sessions: dict[date, list[dict]], con: duckdb.DuckDBPyConnection,
+                 generated_at: datetime) -> tuple[list[dict], list[tuple]]:
+    if not sessions or max(sessions) < ORIGIN_EPOCH:
+        return [], []
+    dates, day = [], ORIGIN_EPOCH
+    while day <= max(sessions):
+        dates.append(day)
+        day = nyse.next_session(day)
+    grid, diagnostic_rows = [], []
+    for index, market_date in enumerate(dates):
+        members = sessions.get(market_date, [])
+        row = _eligibility(members, market_date, index)
+        if row["status"] == "eligible":
+            mature = _mature(con, market_date, 5, generated_at)
+            missing_rows = [item for item in members
+                            if _scores(item, 5) is not None and 5 not in item["labels"]]
+            past_grace = _mature(
+                con, market_date, 5 + MISSING_LABEL_GRACE_SESSIONS, generated_at)
+            if not mature or (missing_rows and not past_grace):
+                row.update(status="pending", reason="label_pending")
+            elif missing_rows:
+                row.update(status="invalid", reason="missing_mature_label",
+                           missing_label_count=len(missing_rows))
+            else:
+                outcome = _session_ics(members, 5)
+                diagnostic_rows.extend(outcome.pop("rows"))
+                row.update(outcome)
+        grid.append(row)
+    return grid, diagnostic_rows
+
+
+def persist_origin_grid(con: duckdb.DuckDBPyConnection, grid: list[dict],
+                        registration_sha: str) -> None:
+    _validate_grid(grid)
+    init_look_schema(con)
+    for row in grid:
+        if (row["origin_index"] % PRIMARY_STRIDE
+                or row.get("reason") in {"eligibility_not_preentry", "cutoff_not_after_activation"}
+                or row["status"] not in {"skip", "eligible", "scored", "pending", "invalid"}):
+            continue
+        if row["skip_decided_at"] is None or row["eligibility_sha256"] is None:
+            continue
+        if ((row["status"] == "skip") != (row["skip_reason"] in PREDICTABLE_SKIPS)
+                or row["status"] != "skip" and row["skip_reason"] is not None):
+            raise P15EvaluationError("P15 origin eligibility differs")
+        decided, entry = (datetime.fromisoformat(row[key])
+                          for key in ("skip_decided_at", "forward_entry_at"))
+        if (decided.tzinfo is None or entry.tzinfo is None or decided >= entry):
+            raise P15EvaluationError("P15 origin eligibility is not pre-entry")
+        eligibility = "skip" if row["skip_reason"] else "eligible"
+        body = {"policy_id": POLICY_ID, "registration_sha256": registration_sha,
+                "origin_index": row["origin_index"], "market_date": row["market_date"],
+                "eligibility": eligibility, "skip_reason": row["skip_reason"],
+                "decided_at": row["skip_decided_at"],
+                "forward_entry_at": row["forward_entry_at"],
+                "source_sha256": row["eligibility_sha256"]}
+        row_sha = canonical_sha256(body)
+        stored = con.execute(
+            "SELECT market_date,eligibility,skip_reason,decided_at,forward_entry_at,"
+            "source_sha256,row_sha256 "
+            "FROM p15_evaluation_origin_grid WHERE policy_id=? AND registration_sha256=? "
+            "AND origin_index=?", [POLICY_ID, registration_sha, row["origin_index"]]).fetchone()
+        expected = (date.fromisoformat(row["market_date"]), eligibility, row["skip_reason"],
+                    datetime.fromisoformat(row["skip_decided_at"]).replace(tzinfo=None),
+                    datetime.fromisoformat(row["forward_entry_at"]).replace(tzinfo=None),
+                    row["eligibility_sha256"], row_sha)
+        if stored is not None and stored != expected:
+            raise P15EvaluationError("P15 origin eligibility differs")
+        if stored is None:
+            con.execute("INSERT INTO p15_evaluation_origin_grid VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        [POLICY_ID, registration_sha, row["origin_index"], *expected])
 
 
 def _logistic(training: list[tuple[float, float]]) -> tuple[float, float, float, float] | None:
@@ -402,45 +554,99 @@ def _diagnostics(rows: list[tuple]) -> dict:
     }
 
 
-def _look(scored: list[dict], size: int) -> dict:
-    prefix = scored[:size]
-    interval = _primary_interval([row["delta_ic"] for row in prefix])
-    diagnostic = _hansen_hodrick_interval([row["delta_ic"] for row in prefix])
-    mean_model = _mean([row["model_ic"] for row in prefix])
-    status = "continue"
-    if interval["lower"] is not None and interval["lower"] > 0 and mean_model > 0:
+def _validate_grid(grid: list[dict]) -> None:
+    expected_day = ORIGIN_EPOCH
+    for index, row in enumerate(grid):
+        if row.get("origin_index") != index or row.get("market_date") != expected_day.isoformat():
+            raise P15EvaluationError("P15 primary origin grid differs")
+        expected_day = nyse.next_session(expected_day)
+
+
+def _look(grid: list[dict], size: int) -> dict:
+    _validate_grid(grid)
+    retained, skipped, blocked = [], [], None
+    for index, row in enumerate(grid):
+        if (index - PRIMARY_OFFSET) % PRIMARY_STRIDE:
+            continue
+        status = row.get("status")
+        reason = row.get("skip_reason")
+        if status == "skip":
+            decided, entry = row.get("skip_decided_at"), row.get("forward_entry_at")
+            if (row.get("status") != "skip" or row.get("reason") != reason
+                    or reason not in PREDICTABLE_SKIPS or not decided or not entry
+                    or datetime.fromisoformat(decided) >= datetime.fromisoformat(entry)):
+                raise P15EvaluationError("P15 predictable skip differs")
+            skipped.append({"origin_index": index, "market_date": row["market_date"],
+                            "reason": reason, "decided_at": row["skip_decided_at"]})
+            continue
+        if reason is not None:
+            raise P15EvaluationError("P15 predictable skip differs")
+        if status in {"pending", "invalid"}:
+            blocked = {"origin_index": index, "market_date": row["market_date"],
+                       "reason": row.get("reason") or row.get("status") or "pending"}
+            break
+        if status != "scored" or not all(
+                _finite_number(row.get(key)) is not None
+                for key in ("delta_ic", "model_ic", "baseline_ic")):
+            raise P15EvaluationError("P15 primary outcome differs")
+        retained.append(row)
+        if len(retained) == LOOK_TARGETS[size]:
+            break
+    base = {"look": size, "status": "collecting", "target_n": LOOK_TARGETS[size],
+            "retained_origins": [row["market_date"] for row in retained],
+            "skipped_origins": skipped, "blocked_origin": blocked}
+    if len(retained) < LOOK_TARGETS[size]:
+        return base
+    values = [float(row["delta_ic"]) for row in retained]
+    interval = _primary_interval(values, size)
+    through_index = retained[-1]["origin_index"]
+    daily = [float(row["delta_ic"]) for row in grid[:through_index + 1]
+             if row.get("status") == "scored" and row.get("delta_ic") is not None]
+    diagnostic = _hansen_hodrick_interval(daily)
+    mean_model = _mean([float(row["model_ic"]) for row in retained])
+    status, reason = "continue", None
+    if interval["se"] is None:
+        status = "kill" if size == LOOKS[-1] else "zero_variance"
+        reason = "zero_variance_no_interval"
+    elif interval["lower"] > 0 and mean_model > 0:
         status = "pass"
-    elif interval["upper"] is not None and interval["upper"] < 0:
+    elif interval["upper"] < 0:
         status = "kill"
-    elif size == 120:
+    elif size == LOOKS[-1]:
         status = "kill"
-    return {"look": size, "status": status, "mean_model_ic": mean_model,
-            "mean_baseline_ic": _mean([row["baseline_ic"] for row in prefix]),
-            "delta": interval, "hansen_hodrick_diagnostic": diagnostic}
+    return {**base, "status": status, "reason": reason,
+            "mean_champion_ic": mean_model,
+            "mean_rule_ic": _mean([float(row["baseline_ic"]) for row in retained]),
+            "retained_lag1_autocorrelation": _lag1(values), "delta": interval,
+            "hansen_hodrick_diagnostic": diagnostic,
+            "through_market_date": retained[-1]["market_date"],
+            "evaluated_at": max(row["evaluated_at"] for row in retained)}
 
 
 def evaluate_looks(scored: list[dict]) -> tuple[str, list[dict], int | None]:
     """Apply only the three pre-registered immutable-prefix looks."""
     looks, terminal = [], None
     for size in LOOKS:
-        if len(scored) < size or terminal is not None:
+        if terminal is not None:
             break
         item = _look(scored, size)
-        item["through_market_date"] = scored[size - 1]["market_date"]
-        item["evaluated_at"] = max(row["evaluated_at"] for row in scored[:size])
+        if item["status"] == "collecting":
+            break
         looks.append(item)
         if item["status"] in {"pass", "kill"}:
             terminal = item["status"]
-    next_look = None if terminal else next((size for size in LOOKS if size > len(scored)), None)
+    next_look = None if terminal else LOOKS[len(looks)] if len(looks) < len(LOOKS) else None
     return terminal or "collecting", looks, next_look
 
 
-def _look_source_prefix(scored: list[dict], size: int) -> str:
-    return canonical_sha256([{
-        "market_date": row["market_date"], "evaluated_at": row["evaluated_at"],
-        "pair_count": row["pair_count"], "model_ic": row["model_ic"],
-        "baseline_ic": row["baseline_ic"], "delta_ic": row["delta_ic"],
-    } for row in scored[:size]])
+def _look_source_prefix(grid: list[dict], result: dict) -> str:
+    through = result["through_market_date"]
+    return canonical_sha256([{key: row.get(key) for key in (
+        "origin_index", "market_date", "status", "reason", "skip_reason",
+        "skip_decided_at", "forward_entry_at", "eligibility_sha256", "evaluated_at",
+        "outcome_sha256", "pair_count", "model_ic", "baseline_ic", "delta_ic")}
+        for row in grid if row["market_date"] <= through
+        and row["origin_index"] % PRIMARY_STRIDE == PRIMARY_OFFSET])
 
 
 def _external_look_anchors(path: Path) -> list[dict]:
@@ -543,7 +749,7 @@ def load_retained_looks(
     *, require_reached: bool = True, anchor_path: Path = LOOK_ANCHOR_PATH,
 ) -> list[dict]:
     if not table_exists(con, "p15_evaluation_looks"):
-        if require_reached and len(scored) >= LOOKS[0]:
+        if require_reached and _look(scored, LOOKS[0])["status"] != "collecting":
             raise P15EvaluationError("P15 reached look is not persisted")
         return []
     rows = con.execute(
@@ -578,10 +784,13 @@ def load_retained_looks(
     for index, row in enumerate(rows):
         (schema_version, policy_id, registered, size, through, evaluated,
          prefix_sha, prior_sha, raw_result, look_sha) = row
-        if index >= len(LOOKS) or size != LOOKS[index] or len(scored) < size:
+        if index >= len(LOOKS) or size != LOOKS[index]:
             raise P15EvaluationError("P15 look evidence differs")
         result = json.loads(raw_result)
-        expected_prefix = _look_source_prefix(scored, size)
+        recomputed = _look(scored, size)
+        if recomputed["status"] == "collecting":
+            raise P15EvaluationError("P15 look evidence differs")
+        expected_prefix = _look_source_prefix(scored, recomputed)
         body = {
             "schema_version": schema_version, "policy_id": policy_id,
             "registration_sha256": registered, "look_sessions": size,
@@ -594,6 +803,10 @@ def load_retained_looks(
             schema_version != 1 or policy_id != POLICY_ID
             or registered != registration_sha256 or prefix_sha != expected_prefix
             or prior_sha != previous or canonical_sha256(body) != look_sha
+            or {key: value for key, value in result.items()
+                if key != "hansen_hodrick_diagnostic"} != {
+                    key: value for key, value in recomputed.items()
+                    if key != "hansen_hodrick_diagnostic"}
             or result.get("look") != size
             or result.get("through_market_date") != through.isoformat()
         ):
@@ -605,7 +818,7 @@ def load_retained_looks(
     if require_reached:
         terminal = retained and retained[-1]["status"] in {"pass", "kill"}
         next_size = None if terminal else LOOKS[len(retained)] if len(retained) < len(LOOKS) else None
-        if next_size is not None and len(scored) >= next_size:
+        if next_size is not None and _look(scored, next_size)["status"] != "collecting":
             raise P15EvaluationError("P15 reached look is not persisted")
     return retained
 
@@ -627,12 +840,12 @@ def persist_reached_looks(
     previous = None if not previous_rows else previous_rows[-1][0]
     terminal = bool(retained and retained[-1]["status"] in {"pass", "kill"})
     for size in LOOKS[len(retained):]:
-        if terminal or len(scored) < size:
+        if terminal:
             break
         result = _look(scored, size)
-        result["through_market_date"] = scored[size - 1]["market_date"]
-        result["evaluated_at"] = max(row["evaluated_at"] for row in scored[:size])
-        prefix_sha = _look_source_prefix(scored, size)
+        if result["status"] == "collecting":
+            break
+        prefix_sha = _look_source_prefix(scored, result)
         evaluated = evaluated_at.astimezone(timezone.utc)
         body = {
             "schema_version": 1, "policy_id": POLICY_ID,
@@ -668,55 +881,42 @@ def primary(
 ) -> dict:
     rows = _primary_rows(con, generated_at)
     if not rows:
-        next_date = generated_at.date()
-        for _ in range(65):
+        next_date = ORIGIN_EPOCH
+        for _ in range(60):
             next_date = nyse.next_session(next_date)
         return {"status": "not_initialized", "candidate_count": 0,
                 "scored_session_count": 0, "insufficient_session_count": 0,
                 "immature_session_count": 0, "missing_mature_label_count": 0,
                 "looks": [], "book_look_dates": [], "next_look": 60,
+                "origin_epoch": ORIGIN_EPOCH.isoformat(),
                 "earliest_next_look_date": next_date.isoformat()}
     sessions: dict[date, list[dict]] = {}
     for row in rows:
         sessions.setdefault(row["market_date"], []).append(row)
-    scored, insufficient, immature, missing, immature_dates = [], 0, 0, 0, []
-    diagnostic_rows = []
-    for market_date, members in sorted(sessions.items()):
-        eligible = [row for row in members if _scores(row, 5) is not None]
-        mature = _mature(con, market_date, 5, generated_at)
-        missing_rows = [row for row in eligible if 5 not in row["labels"]]
-        past_grace = _mature(
-            con, market_date, 5 + MISSING_LABEL_GRACE_SESSIONS, generated_at,
-        )
-        if not mature or (missing_rows and not past_grace):
-            possible = [scores for row in eligible if (scores := _scores(row, 5)) is not None]
-            if (len(possible) < 20 or len({item[0] for item in possible}) == 1
-                    or len({item[1] for item in possible}) == 1):
-                insufficient += 1
-            else:
-                immature += 1
-                immature_dates.append(market_date)
-            continue
-        missing += len(missing_rows)
-        result = _session_ics(members, 5)
-        diagnostic_rows.extend(result.pop("rows"))
-        result["market_date"] = market_date.isoformat()
-        if result["status"] == "scored":
-            scored.append(result)
-        else:
-            insufficient += 1
+    grid, diagnostic_rows = _origin_grid(sessions, con, generated_at)
+    if not grid:
+        return {"status": "not_initialized", "candidate_count": len(rows),
+                "scored_session_count": 0, "insufficient_session_count": 0,
+                "immature_session_count": 0, "missing_mature_label_count": 0,
+                "looks": [], "book_look_dates": [], "next_look": 60,
+                "origin_epoch": ORIGIN_EPOCH.isoformat(), "earliest_next_look_date": None}
+    scored = [row for row in grid if row["status"] == "scored"]
+    insufficient = sum(row["status"] == "skip" for row in grid)
+    immature = sum(row["status"] == "pending" for row in grid)
+    missing = sum(row.get("missing_label_count", 0) for row in grid)
     registered = registration_sha or registration_sha256()
-    if persist_looks and not missing and not immature:
-        looks = persist_reached_looks(
-            con, scored, registered, evaluated_at=generated_at,
-        )
+    if persist_looks:
+        persist_origin_grid(con, grid, registered)
+        looks = persist_reached_looks(con, grid, registered, evaluated_at=generated_at)
     else:
-        looks = load_retained_looks(con, scored, registered)
+        looks = load_retained_looks(con, grid, registered)
     terminal = next(
         (item["status"] for item in looks if item["status"] in {"pass", "kill"}),
         None,
     )
-    status = "invalid" if missing else terminal or "collecting"
+    primary_invalid = any(row["origin_index"] % PRIMARY_STRIDE == PRIMARY_OFFSET
+                          and row["status"] == "invalid" for row in grid)
+    status = terminal or ("invalid" if primary_invalid else "collecting")
     retained_sizes = {item["look"] for item in looks}
     next_look = None if terminal else next(
         (size for size in LOOKS if size not in retained_sizes), None,
@@ -727,25 +927,17 @@ def primary(
     } for item in looks]
     next_date = None
     if next_look is not None:
-        maturities = []
-        for market_date in immature_dates:
-            maturity = market_date
-            for _ in range(5 + MISSING_LABEL_GRACE_SESSIONS):
-                maturity = nyse.next_session(maturity)
-            maturities.append(max(maturity, generated_at.date()))
-        decision_day = generated_at.date()
-        remaining = max(0, next_look - len(scored))
-        while len(maturities) < remaining:
-            decision_day = nyse.next_session(decision_day)
-            maturity = decision_day
-            for _ in range(5):
-                maturity = nyse.next_session(maturity)
-            maturities.append(maturity)
-        next_date = (
-            sorted(maturities)[max(1, remaining) - 1]
-            if maturities else generated_at.date()
-        )
-    h10 = [_session_ics(members, 10) for _day, members in sorted(sessions.items())]
+        collecting = _look(grid, next_look)
+        remaining = LOOK_TARGETS[next_look] - len(collecting["retained_origins"])
+        day, index = date.fromisoformat(grid[-1]["market_date"]), grid[-1]["origin_index"]
+        while remaining > 0:
+            day, index = nyse.next_session(day), index + 1
+            remaining -= index % PRIMARY_STRIDE == PRIMARY_OFFSET
+        for _ in range(5):
+            day = nyse.next_session(day)
+        next_date = day
+    h10 = [_session_ics(members, 10) for day, members in sorted(sessions.items())
+           if day >= ORIGIN_EPOCH]
     h10 = [item for item in h10 if item["status"] == "scored"]
     diagnostics = _diagnostics(diagnostic_rows)
     diagnostics["h10"] = {
@@ -758,6 +950,7 @@ def primary(
             "insufficient_session_count": insufficient,
             "immature_session_count": immature, "missing_mature_label_count": missing,
             "looks": looks, "book_look_dates": book_look_dates, "next_look": next_look,
+            "origin_epoch": ORIGIN_EPOCH.isoformat(),
             "earliest_next_look_date": None if next_date is None else next_date.isoformat(),
             "diagnostics": diagnostics}
 
