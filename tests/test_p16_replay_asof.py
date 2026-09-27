@@ -25,7 +25,12 @@ from farm.replay.asof import (
     split_known_at,
     split_outcome,
 )
-from farm.replay.p15_adapter import gate_candidates, pinned_dependencies, prepare_p15_price_inputs
+from farm.replay.p15_adapter import (
+    gate_candidates,
+    pinned_dependencies,
+    prepare_p15_price_inputs,
+    visible_p15_inputs,
+)
 from farm.replay.registration import (
     INDEPENDENT_UNADJUSTED_PRICE_SOURCE,
     PRICE_SERIES_BY_CONSUMER,
@@ -377,6 +382,38 @@ def test_p15_adapter_calls_the_pinned_candidate_gate_without_live_io():
     gated = gate_candidates(bundle)
     assert gated["candidates"][0]["reason"] == "earnings_unavailable"
     assert set(pinned_dependencies()) == {"universe", "books", "fills", "scoring"}
+
+
+def test_p15_adapter_filters_future_news_and_fact_revisions_before_context():
+    cutoff = datetime(2024, 1, 3, 2, tzinfo=timezone.utc)
+    base_news = {
+        "source": "fixture", "language": "en", "headline": "Visible headline",
+        "event_at": "2024-01-02T20:00:00Z", "retrieved_at_real": "2026-09-27T00:00:00Z",
+        "ticker": "AAA", "evidence_id": "a" * 64,
+    }
+    news, facts = visible_p15_inputs(
+        [
+            {**base_news, "source_id": "visible", "available_at_replay": "2024-01-02T21:00:00Z"},
+            {**base_news, "source_id": "future", "available_at_replay": "2024-01-03T03:00:00Z"},
+        ],
+        [
+            {
+                "fact_id": "filing", "fact_sha256": "b" * 64, "revision": 1,
+                "ticker": "AAA", "available_at_replay": "2024-01-02T21:30:00Z",
+            },
+            {
+                "fact_id": "filing", "fact_sha256": "c" * 64, "revision": 2,
+                "ticker": "AAA", "available_at_replay": "2024-01-03T03:00:00Z",
+            },
+        ],
+        cutoff=cutoff,
+    )
+    assert [row["source_id"] for row in news] == ["visible"]
+    assert news[0]["retrieved_at"] == "2024-01-02T21:00:00Z"
+    assert [row["fact_sha256"] for row in facts] == ["b" * 64]
+    assert facts[0]["available_at"] == facts[0]["ingested_at"] == (
+        "2024-01-02T21:30:00Z"
+    )
 
 
 def test_session_loader_hides_next_bar_and_future_split_and_uses_available_clock():

@@ -10,6 +10,7 @@ from farm.replay.asof import (
     asof_split_adjusted_bars,
     quarantined_exposure_counts,
 )
+from farm.replay.corpus import deduplicate_visible_headlines, facts_as_of
 from farm.replay.registration import SPLIT_KNOWLEDGE_PRIMARY
 from server import p15_scoring_runner
 from sim import p15_books, p15_fills
@@ -41,7 +42,49 @@ def gate_candidates(bundle: dict) -> dict:
 def build_context(
     bundle: dict, news: dict, cutoff: datetime, event_facts: list[dict] | None = None
 ) -> tuple[dict, dict[str, set[str]]]:
-    return p15_scoring_runner._context(bundle, news, cutoff, event_facts)
+    observations, visible_facts = visible_p15_inputs(
+        news.get("observations", ()), event_facts or (), cutoff=cutoff
+    )
+    return p15_scoring_runner._context(
+        bundle,
+        {**news, "observations": observations},
+        cutoff,
+        visible_facts,
+    )
+
+
+def visible_p15_inputs(
+    news_rows: Sequence[Mapping], fact_rows: Sequence[Mapping], *, cutoff: datetime
+) -> tuple[list[dict], list[dict]]:
+    """Project replay availability into P15 shapes, then filter and deduplicate."""
+    replay_news = []
+    for source in news_rows:
+        row = dict(source)
+        if "available_at_replay" not in row:
+            row["available_at_replay"] = row.get("retrieved_at")
+        replay_news.append(row)
+    visible_news = deduplicate_visible_headlines(replay_news, cutoff)
+    observations = []
+    for source in visible_news:
+        row = dict(source)
+        row["retrieved_at"] = source["available_at_replay"]
+        observations.append(row)
+
+    replay_facts = []
+    for index, source in enumerate(fact_rows):
+        row = dict(source)
+        if "available_at_replay" not in row:
+            row["available_at_replay"] = row.get("available_at")
+        row.setdefault("fact_id", row.get("fact_sha256", f"fact-{index}"))
+        row.setdefault("revision", 1)
+        replay_facts.append(row)
+    visible_facts = []
+    for source in facts_as_of(replay_facts, cutoff):
+        row = dict(source)
+        row["available_at"] = source["available_at_replay"]
+        row["ingested_at"] = source["available_at_replay"]
+        visible_facts.append(row)
+    return observations, visible_facts
 
 
 def request_input(
