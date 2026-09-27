@@ -3,6 +3,10 @@
 SPLIT_KNOWLEDGE_PRIMARY = "registered_ex_date_open_v1"
 SPLIT_KNOWLEDGE_SENSITIVITY = "registered_one_session_after_ex_date_v1"
 INDEPENDENT_UNADJUSTED_PRICE_SOURCE = "alpha_vantage_time_series_daily_raw_v1"
+PROBE_CATEGORIES = ("earnings_outcome", "headline")
+PROBE_MONTH_MINIMUM = 300
+PROBE_BASELINE_MINIMUM = 350
+PROBE_EQUIVALENCE_DELTA = 0.08
 
 TRUSTED_SPLIT_OUTCOMES = frozenset({"applied", "noop_restated"})
 TRUSTED_NOOP_SPLIT_OUTCOMES = frozenset({"noop_pre_history"})
@@ -50,6 +54,14 @@ def mandatory_acceptance_contract() -> dict:
         "independent_unadjusted_price_validation": {
             "source": INDEPENDENT_UNADJUSTED_PRICE_SOURCE,
             "status": "required_before_archive_admission",
+        },
+        "contamination_probe": {
+            "categories": list(PROBE_CATEGORIES),
+            "historical_month_minimum": PROBE_MONTH_MINIMUM,
+            "unseen_baseline_minimum": PROBE_BASELINE_MINIMUM,
+            "equivalence_delta": PROBE_EQUIVALENCE_DELTA,
+            "category_minimum": 0,
+            "seed": 1604,
         },
         "authority": "historical_research_only",
     }

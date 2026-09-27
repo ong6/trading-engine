@@ -1,0 +1,101 @@
+"""W4 contamination probes freeze coverage before any model call."""
+from farm.replay.probes import (
+    ProbeError,
+    build_bank,
+    coverage_preflight,
+    dispatch_after_preflight,
+    pooled_admission,
+    score_responses,
+)
+
+
+def _facts(count=300, month="2024-01", categories=("headline",)):
+    rows = []
+    for index in range(count):
+        category = categories[index % len(categories)]
+        rows.append({
+            "fact_id": f"fact-{index}",
+            "event_cluster": f"cluster-{index}",
+            "event_date": f"{month}-{index % 28 + 1:02d}",
+            "category": category,
+            "question": f"Fixture question {index}?",
+            "choices": [f"choice-{index}-{choice}" for choice in range(4)],
+            "correct_choice": index % 4,
+            "receipt_ids": ["receipt"],
+            "reviewed_unambiguous": True,
+        })
+    return rows
+
+
+def test_preflight_uses_total_minimum_and_allows_empty_category():
+    plan = coverage_preflight(_facts(), ["2024-01"], ["receipt"])
+    assert plan["status"] == "ready"
+    assert plan["months"]["2024-01"]["counts"] == {
+        "earnings_outcome": 0,
+        "headline": 300,
+    }
+
+
+def test_insufficient_coverage_prevents_dispatch():
+    plan = coverage_preflight(_facts(299), ["2024-01"], ["receipt"])
+    called = []
+    assert plan["status"] == "coverage_insufficient"
+    try:
+        dispatch_after_preflight(plan, lambda: called.append(True))
+    except ProbeError as exc:
+        assert "not_ready" in str(exc)
+    else:
+        raise AssertionError("insufficient plan dispatched")
+    assert called == []
+
+
+def test_bank_is_deterministic_and_hides_answers_from_prompts():
+    facts = _facts(300, categories=("headline", "earnings_outcome"))
+    plan = coverage_preflight(facts, ["2024-01"], ["receipt"])
+    first = build_bank(facts, "2024-01", ["receipt"], plan)
+    second = build_bank(list(reversed(facts)), "2024-01", ["receipt"], plan)
+    assert first == second
+    assert len(first["prompts"]) == 300
+    assert set(first["prompts"][0]) == {"id", "date", "question", "choices"}
+    assert "correct" not in first["prompts"][0]
+
+
+def test_duplicate_event_clusters_do_not_inflate_coverage():
+    facts = _facts()
+    for row in facts[150:]:
+        row["event_cluster"] = f"cluster-{int(row['fact_id'].split('-')[1]) - 150}"
+    plan = coverage_preflight(facts, ["2024-01"], ["receipt"])
+    assert plan["status"] == "coverage_insufficient"
+    assert plan["months"]["2024-01"]["n"] == 150
+
+
+def test_fact_receipts_must_come_from_the_admitted_export():
+    try:
+        coverage_preflight(_facts(), ["2024-01"], [])
+    except ProbeError as exc:
+        assert "receipt_not_admitted" in str(exc)
+    else:
+        raise AssertionError("unadmitted receipt accepted")
+
+
+def test_response_failures_are_untestable_and_valid_bank_is_scored():
+    facts = _facts(300, categories=("headline", "earnings_outcome"))
+    plan = coverage_preflight(facts, ["2024-01"], ["receipt"])
+    bank = build_bank(facts, "2024-01", ["receipt"], plan)
+    incomplete = [{"id": row["id"], "choice": 0} for row in bank["key"][:-1]]
+    assert score_responses(bank, incomplete) == {
+        "status": "untestable",
+        "reason": "incomplete_response",
+    }
+    responses = [{"id": row["id"], "choice": row["correct"]} for row in bank["key"]]
+    result = score_responses(bank, responses)
+    assert result["status"] == "valid" and result["correct"] == 300
+
+
+def test_pooled_gate_requires_measured_baseline_of_registered_size():
+    month = {"status": "valid", "correct": 60, "n": 300}
+    assert pooled_admission([month], {"correct": 90, "n": 349}) == {
+        "status": "baseline_unverified"
+    }
+    result = pooled_admission([month], {"correct": 90, "n": 350})
+    assert result["status"] in {"pass", "inconclusive"}
