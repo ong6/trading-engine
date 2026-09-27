@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "registration_id": "p15-profitability-evidence-loop-v1",
-  "registered_at": "2026-09-27T12:37:45Z",
+  "registered_at": "2026-09-27T15:17:55Z",
   "activated_at": "2026-09-29T00:00:00-04:00",
   "activation_session": "2026-09-29",
   "status": "registered_inactive",
@@ -188,7 +188,7 @@
     "price_fetch_availability": "after_collection_completion"
   },
   "code_identity": {
-    "source_commit": "912a7e7b75b1160359a378fe9276c997e6c070cb",
+    "source_commit": "6cc10654b3e7bb1789d2761cff8d1e285ac706c0",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/actions.py": "a6c2ec46d198df2318498ec7d55e1b7cfeca4c8afaccd8a5c208618e4ea8b850",
@@ -268,12 +268,13 @@
       "server/p15_price_fetch_attempts.py": "20e4abc509c66e37867b3fc364625e1eb7df63840eac4e21f74b4ac82d82d1df",
       "server/p15_scoring_runner.py": "6e97bbc9b9e51c128a7f9e2705a0cc7d590237c1f7b7368507724193fe8a3644",
       "server/p15_scoring_store.py": "4660607b6bb5b18fdb6ee7585b8bdadab9dfa9af9417f0ae51833bc87a695bee",
+      "server/run_p15_scoring.sh": "b8c535c93365bd1b1415a3ca3f4488595edcc1f73cf9da0fa34fe253e5318f6d",
       "server/status_validation.py": "538a2b74aa645475cdbb760c14f0ce2f49a2a4417e4c400197b724dd2ff4c770",
       "server/trading-engine-p15-events.service": "1837b19fd0e5667bc9b3d013cfbb018b5dd0b0895acafda719bd302a0480ec2c",
       "server/trading-engine-p15-events.timer": "aa5dae3f0a99ba2a3d346dd2758b46fd98d76c12494f06e39b2009bf12c35d3d",
       "server/trading-engine-p15-preopen.service": "fad5831bcdbd36c36b7e8414e1f31dc7834941166a5a44f0e6cf66b3b5c66eb3",
       "server/trading-engine-p15-preopen.timer": "7f847981860a3c2be1439305b4e98d4662a0850a30bb7e1299fc85a2ffad8c35",
-      "server/trading-engine-p15-scoring.service": "daa925e9fa2e8401a0bcfe8c2b856ab06e23df90178504ade995a49e20cb615c",
+      "server/trading-engine-p15-scoring.service": "f408326164c1ddeb038ec817fc72f4b45919f983bfa2799d5adfd6abc33ce5da",
       "server/trading-engine-p15-scoring.timer": "065c0886d27259dbd8cb0e1527b3334dc1adb7dd0c047a0db0b7de67d8736e9a",
       "server/tradingview_source.py": "819132aa2583ad34c281342fe0efe3b9cc981d44fbb155076db825df689f26e0",
       "sim/__init__.py": "579569d527ff531dd9f6b0c819fe0afb317e72d13eb15fdb64564e73c9eec7f9",
@@ -320,11 +321,11 @@
       "tools/agent_trial_register.py": "08cb4553ef83b49297f0222e063bf1da506e2b6e8d185f5a430739dc659125f6",
       "tools/backup_database.py": "68a12a3815ec479f025182bc9589a02dd46d1d80795bbe95de9eac4910a7f3fd",
       "tools/p15_evidence_validation.py": "08819b0f44307812f0e6860d99aa94880565c0c429ea8ff8dc2b740bf4aa2d71",
-      "tools/release_manifest.py": "87ec536a9587c782af396261f30b401e723234786e002531a69fbdfed65cd649",
+      "tools/release_manifest.py": "c127a129afceb4e7ffa4facc0c26014209afc50329710d96e3073efae3f016d9",
       "tools/sec_edgar_capture.py": "b6f46658930844cf4deed830e8e3a9412e9a19232663aced8a01472c42f0024f"
     }
   },
   "registration_revision": 3,
-  "revision_reason": "P16 W1 fixed-grid retained-origin R7 v3",
-  "registration_sha256": "6e7fd2764426bc53fc0795d72aec2a52579ede3fb19212f30d8ab45f16341081"
+  "revision_reason": "P16 W1 R7 v3; scoring unit was invalid and no evidence exists",
+  "registration_sha256": "4211f9ac0ba95ff3d6839979760536ae9891f817074fe107e71049b184a99634"
 }

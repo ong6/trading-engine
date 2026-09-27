@@ -96,6 +96,7 @@ REGISTERED_PATHS = {
     "server/nightly_monitor.py",
     "server/nightly_reports.py",
     "server/official_quote_source.py",
+    "server/run_p15_scoring.sh",
     "server/p15_incremental_collect.py",
     "server/p15_preopen.py",
     "server/p15_price_fetch_attempts.py",
@@ -244,7 +245,9 @@ def test_p15_registration_revision_and_self_hash():
 
     assert registration["schema_version"] == 1
     assert registration["registration_revision"] == 3
-    assert registration["revision_reason"] == "P16 W1 fixed-grid retained-origin R7 v3"
+    assert registration["revision_reason"] == (
+        "P16 W1 R7 v3; scoring unit was invalid and no evidence exists"
+    )
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
     assert recorded == canonical_sha256(registration)

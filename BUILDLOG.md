@@ -1018,4 +1018,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server, tools, and product LOC unchanged; budget ok.
 - **Next:** reissue inactive P15 registration revision 3 against this corrected source identity.
 
+## 2026-09-27 — P16 Phase A: reissue the inactive P15 registration
+
+- **Why:** the orchestrator authorized a pre-evidence revision-3 reissue after the staged scoring
+  service proved invalid on this host; all P15 runtime-evidence tables remain empty.
+- **What:** bind the valid sequential scoring unit, its wrapper, and the current release manifest
+  into the 133-file identity; record the invalid-unit/no-evidence reason; and document that W2
+  activates independently after its origin-backed rehearsal while other P16 components wait.
+- **Evidence:** the P15 registration, service-unit, release-manifest, and operating-contract tests
+  reach `[100%]`; systemd verifies all eight P15/P16 units together.
+- **Metrics:** server and product LOC unchanged; tools +2; budget ok.
+- **Next:** install the reissued inert P15 units, then resume W4's mandatory acceptance contracts.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
