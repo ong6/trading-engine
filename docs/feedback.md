@@ -438,3 +438,19 @@ activation, including:
 
 **Ceiling changes.** server 57,050, engine 16,050, farm 15,550, tools 8,850, sim 8,400 (P16 plus
 about 600 server, 300 engine, 200 farm, and 200 sim lines for P15 remediation).
+
+## 2026-09-27 — Remove the per-layer size limits
+
+**Verdict.** The owner removed the per-layer LOC ceilings outright ("we don't even need this size
+limit, just remove it"). P16 had reached `server/` 57,050/57,050, which blocked W1, W2, and W5.
+
+**Rule changes.**
+
+1. `docs/scope-budget.json` no longer holds `loc_ceiling`. Code size per layer is still reported
+   by `tools.metrics_snapshot`, for visibility only. → `AGENTS.md`, `docs/metrics.md`,
+   `tests/test_operating_contract.py`.
+2. Kept: the 1,500-inserted-line reviewability cap per commit, the BUILDLOG entry budget, the
+   doc-test freeze, and the rule to delete code a change makes dead in the same change.
+3. Plan "Budget" sections that list ceilings are historical; they no longer bind.
+
+**Ceiling changes.** All per-layer ceilings removed.

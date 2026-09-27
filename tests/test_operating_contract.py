@@ -1,4 +1,4 @@
-"""The operating contract: frozen-layer budgets, BUILDLOG v2 format, plan headers, and the
+"""The operating contract: hygiene budgets, BUILDLOG v2 format, plan headers, and the
 metrics snapshot tool. These are the tests that make ``AGENTS.md`` enforceable.
 
 Do not add documentation-prose assertions here; the contract forbids new doc-pinning tests.
@@ -29,18 +29,10 @@ def test_contract_files_exist_and_point_at_each_other():
         assert required in agents, f"AGENTS.md must reference {required}"
 
 
-def test_frozen_layers_are_within_budget():
-    budget = ms.load_budget()
-    sizes = ms.code_size(REPO_ROOT)
-    over = {
-        layer: (sizes[layer], ceiling)
-        for layer, ceiling in budget["loc_ceiling"].items()
-        if sizes[layer] > ceiling
-    }
-    assert not over, (
-        "frozen layer over its ceiling; get the raise recorded in docs/feedback.md first: "
-        f"{over}"
-    )
+def test_no_per_layer_loc_ceilings():
+    """The owner removed per-layer LOC ceilings on 2026-09-27; size is reported, not capped."""
+    assert "loc_ceiling" not in ms.load_budget()
+    assert ms.snapshot(REPO_ROOT)["code_size"]["server"] > 0
 
 
 def test_buildlog_v2_entries_obey_the_entry_budget():

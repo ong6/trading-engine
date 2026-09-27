@@ -51,11 +51,11 @@ If none matches: do not build it. Write one line under "Proposed, not approved" 
 "bounded", "identity", "consistency", and "operability" are not defects. A gap you noticed
 while reading code is not a defect until it has a reproduction.
 
-## Budgets (enforced by `tests/test_operating_contract.py`)
+## Hygiene budgets (enforced by `tests/test_operating_contract.py`)
 
-- **Frozen layers** cannot grow past the ceilings in `docs/scope-budget.json`: `server/`,
-  `tools/`, and the research runtime (`engine/`, `sim/`, `farm/`). A change that needs a higher
-  ceiling stops and asks the owner; the bump is recorded in `docs/feedback.md` first.
+- **No per-layer size ceilings** (owner, 2026-09-27). Code size per layer is reported in the
+  metrics snapshot for visibility only. Keep the code lean: delete what a change makes dead in
+  the same change. `docs/scope-budget.json` holds the remaining hygiene budgets.
 - **One commit per logical step, under 1,500 inserted lines** outside `data/`. Larger work
   needs an approved plan and lands as a sequence of small commits.
 - **BUILDLOG entries are at most 25 lines and carry at most one SHA-256.** Identities live in
