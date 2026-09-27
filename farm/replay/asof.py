@@ -69,7 +69,7 @@ def _ratio(action: Mapping) -> float:
 
 
 def _unique_actions(actions: Sequence[Mapping]) -> tuple[Mapping, ...]:
-    selected, natural_keys = set(), set()
+    selected, natural_keys, unique = set(), set(), []
     for action in actions:
         action_id = action.get("action_id")
         natural_key = (
@@ -80,7 +80,15 @@ def _unique_actions(actions: Sequence[Mapping]) -> tuple[Mapping, ...]:
             raise SplitQuarantineError("ambiguous_split_action_versions")
         selected.add(action_id)
         natural_keys.add(natural_key)
-    return tuple(actions)
+        unique.append(action)
+    return tuple(unique)
+
+
+def _actions_by_security(actions: Sequence[Mapping]) -> dict[object, tuple[Mapping, ...]]:
+    indexed: dict[object, list[Mapping]] = defaultdict(list)
+    for action in _unique_actions(actions):
+        indexed[action.get("security_id")].append(action)
+    return {security_id: tuple(rows) for security_id, rows in indexed.items()}
 
 
 def _split_effective_at(action: Mapping) -> datetime:
@@ -131,6 +139,33 @@ def split_outcome(action: Mapping) -> str:
     return "quarantined"
 
 
+def split_adjustment_actions(
+    rows: Sequence[Mapping],
+    *,
+    security_ids_by_ticker: Mapping[str, str],
+    ticker_reuse_quarantine: set[str] | frozenset[str],
+) -> list[dict]:
+    """Map split-adjustment rows into replay actions using the ticker-reuse rule."""
+    actions = []
+    for row in rows:
+        ticker = str(row.get("ticker", "")).upper()
+        ex_date = _date(row.get("ex_date"), "split_ex_date")
+        security_id = security_ids_by_ticker.get(ticker)
+        actions.append(
+            {
+                "action_id": f"{ticker}:{ex_date.isoformat()}",
+                "security_id": security_id,
+                "stable_mapping": security_id is not None
+                and ticker not in ticker_reuse_quarantine,
+                "kind": "split",
+                "ex_date": ex_date,
+                "outcome": row.get("outcome"),
+                "new_shares_per_old": row.get("ratio"),
+            }
+        )
+    return actions
+
+
 def split_known_at(
     action: Mapping, policy: str
 ) -> datetime:
@@ -145,14 +180,16 @@ def reconstruct_unadjusted_bars(
     bars: Sequence[Mapping], actions: Sequence[Mapping]
 ) -> list[dict]:
     """Undo vendor back-adjustment using resolved actions, not knowledge timestamps."""
-    actions = _unique_actions(actions)
+    actions_by_security = _actions_by_security(actions)
     rebuilt = []
     for source in bars:
         if source.get("series") != "source_back_adjusted_v1":
             raise PriceSeriesError("wrong_source_price_series")
         security_id = source.get("security_id")
         session = _date(source.get("session"), "bar_session")
-        factor, action_ids = _reconstruction_scale(security_id, session, actions)
+        factor, action_ids = _reconstruction_scale(
+            security_id, session, actions_by_security.get(security_id, ())
+        )
         row = dict(source)
         for field in ("open", "high", "low", "close"):
             value = float(source[field])
@@ -182,20 +219,19 @@ def asof_split_adjusted_bars(
     knowledge_policy: str = SPLIT_KNOWLEDGE_PRIMARY,
 ) -> list[dict]:
     """Restate raw bars only by splits both effective and known at the cutoff."""
-    actions = _unique_actions(actions)
+    actions_by_security = _actions_by_security(actions)
     cutoff = _instant(as_of, "as_of")
     visible = []
     for source in reconstructed_bars:
-        _validate_reconstructed_bar(source, actions)
+        security_id = source.get("security_id")
+        security_actions = actions_by_security.get(security_id, ())
+        _validate_reconstructed_bar(source, security_actions)
         if _instant(source.get("available_at"), "bar_available_at") > cutoff:
             continue
-        security_id = source.get("security_id")
         session = _date(source.get("session"), "bar_session")
         factor = 1.0
         action_ids = []
-        for action in actions:
-            if action.get("security_id") != security_id:
-                continue
+        for action in security_actions:
             ex_date = _date(action.get("ex_date"), "split_ex_date")
             if not session < ex_date or _split_effective_at(action) > cutoff:
                 continue

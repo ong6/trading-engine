@@ -195,6 +195,44 @@ def test_marker_is_visible_before_dispatch_and_failure_prevents_call(tmp_path):
         dispatch_lockbox(other, dispatch=lambda value: pytest.fail(value), begin=begin)
 
 
+def test_failed_dispatch_is_recorded_and_retryable_once(tmp_path):
+    ledger = _ledger(tmp_path)
+    selected = _arms()
+    begin = dict(
+        experiment_id="replay-lockbox-v1",
+        cohort_id="cohort-sol-v1",
+        sessions=SESSIONS,
+        confirmatory_arms=selected,
+        initiating_execution_id="exec-notes",
+        expected_trial_set_sha256=trial_set_sha256(selected, SESSIONS),
+        committed_at=NOW,
+        registration_as_of=lambda trial_id, _at: _registrations(
+            selected, SESSIONS
+        ).get(trial_id),
+    )
+    calls = []
+
+    def fail(marker_sha256):
+        calls.append(marker_sha256)
+        raise RuntimeError("provider unavailable")
+
+    with pytest.raises(RuntimeError, match="provider unavailable"):
+        dispatch_lockbox(ledger, dispatch=fail, begin=begin)
+    marker = dispatch_lockbox(
+        ledger, dispatch=lambda marker_sha256: calls.append(marker_sha256), begin=begin
+    )
+    assert marker is None
+    assert len(calls) == 2
+    with ledger._connect() as con:
+        assert [row[0] for row in con.execute(
+            "SELECT event_kind FROM w4_lockbox_events ORDER BY event_index"
+        ).fetchall()] == [
+            "dispatch_started", "dispatch_failed", "dispatch_started", "dispatched"
+        ]
+    with pytest.raises(LockboxIntegrityError, match="already_dispatched"):
+        dispatch_lockbox(ledger, dispatch=lambda value: pytest.fail(value), begin=begin)
+
+
 def test_first_marker_conflict_and_policy_store_reset_do_not_restore_holdout(tmp_path):
     ledger = _ledger(tmp_path)
     _begin(ledger)
@@ -206,6 +244,24 @@ def test_first_marker_conflict_and_policy_store_reset_do_not_restore_holdout(tmp
     assert _tag(
         ledger, _arms()[0], execution_id="replacement"
     ).tag == "post_lockbox_exploratory"
+
+
+def test_marker_clock_is_monotone_only_within_each_experiment(tmp_path):
+    ledger = _ledger(tmp_path)
+    _begin(ledger)
+    _begin(
+        ledger,
+        experiment_id="independent-experiment",
+        cohort_id="same-time",
+        committed_at=NOW,
+    )
+    with pytest.raises(LockboxIntegrityError, match="non_monotone"):
+        _begin(
+            ledger,
+            experiment_id="replay-lockbox-v1",
+            cohort_id="older-cohort",
+            committed_at=NOW - timedelta(seconds=1),
+        )
 
 
 def test_event_membership_clocks_and_cross_model_freeze_order(tmp_path):

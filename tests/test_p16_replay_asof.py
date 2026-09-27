@@ -16,6 +16,7 @@ from farm.replay.asof import (
     label_split_normalized_return,
     quarantined_exposure_counts,
     reconstruct_unadjusted_bars,
+    split_adjustment_actions,
     split_known_at,
     split_outcome,
 )
@@ -66,6 +67,20 @@ def test_reconstruction_is_independent_of_late_real_retrieval_clock():
     }
 
 
+def test_reconstruction_indexes_actions_once_for_many_bars():
+    class CountingActions(list):
+        iterations = 0
+
+        def __iter__(self):
+            self.iterations += 1
+            return super().__iter__()
+
+    fixture = _fixture()
+    actions = CountingActions(fixture["actions"])
+    reconstruct_unadjusted_bars(fixture["bars"] * 20, actions)
+    assert actions.iterations == 1
+
+
 def test_feature_scale_changes_only_after_split_is_effective_and_known():
     fixture = _fixture()
     rebuilt = reconstruct_unadjusted_bars(fixture["bars"], fixture["actions"])
@@ -106,6 +121,33 @@ def test_fixed_lag_sensitivity_applies_one_session_after_ex_date():
 @pytest.mark.parametrize("outcome", ("applied", "noop_restated"))
 def test_only_explicit_trusted_split_outcomes_can_supply_a_ratio(outcome):
     assert split_outcome(_action(outcome=outcome)) == "trusted"
+
+
+def test_split_adjustment_adapter_uses_ticker_reuse_quarantine_for_mapping():
+    rows = [
+        {"ticker": "AAA", "ex_date": "2024-01-03", "ratio": 2, "outcome": "applied"},
+        {
+            "ticker": "OLD", "ex_date": "2024-01-04", "ratio": 3,
+            "outcome": "superseded_by_refetch",
+        },
+    ]
+    actions = split_adjustment_actions(
+        rows,
+        security_ids_by_ticker={"AAA": "security-a", "OLD": "security-old"},
+        ticker_reuse_quarantine=frozenset({"OLD"}),
+    )
+    assert actions[0] == {
+        "action_id": "AAA:2024-01-03",
+        "security_id": "security-a",
+        "stable_mapping": True,
+        "kind": "split",
+        "ex_date": datetime(2024, 1, 3).date(),
+        "outcome": "applied",
+        "new_shares_per_old": 2,
+    }
+    assert split_outcome(actions[0]) == "trusted"
+    assert actions[1]["stable_mapping"] is False
+    assert split_outcome(actions[1]) == "quarantined"
 
 
 def test_noop_pre_history_is_explicitly_trusted_without_a_ratio_application():

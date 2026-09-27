@@ -16,6 +16,8 @@ _SHA256 = re.compile(r"[0-9a-f]{64}")
 _ROLES = frozenset({"initiating", "paired", "cross_model"})
 _EVENTS = frozenset(
     {
+        "dispatch_started",
+        "dispatch_failed",
         "dispatched",
         "partial",
         "crashed",
@@ -252,7 +254,10 @@ def begin_lockbox_consumption(
             if existing == (marker_sha256, encoded):
                 return marker_sha256
             raise LockboxIntegrityError("lockbox_first_marker_conflict")
-        latest = con.execute("SELECT MAX(committed_at) FROM w4_lockbox_markers").fetchone()[0]
+        latest = con.execute(
+            "SELECT MAX(committed_at) FROM w4_lockbox_markers WHERE experiment_id=?",
+            [experiment_id],
+        ).fetchone()[0]
         if latest is not None and payload["committed_at"] <= latest:
             raise LockboxIntegrityError("non_monotone_lockbox_marker")
         with engine_db.transaction(con):
@@ -305,17 +310,30 @@ def append_lockbox_event(
         arms = {arm["execution_id"]: arm for arm in marker["arms"]}
         if event_kind != "development_inspected" and execution_id not in arms:
             raise LockboxIntegrityError("event_execution_not_registered")
-        if event_kind == "dispatched":
+        if event_kind in {"dispatch_started", "dispatch_failed", "dispatched"}:
             expected = canonical_sha256(
                 {"marker_sha256": marker_sha256, "dispatch": "initiating_execution_once"}
             )
             if execution_id != marker["initiating_execution_id"] or source_sha256 != expected:
                 raise LockboxIntegrityError("invalid_lockbox_dispatch")
-            if con.execute(
-                "SELECT 1 FROM w4_lockbox_events WHERE marker_sha256=? AND event_kind='dispatched'",
+            dispatch_events = [item[0] for item in con.execute(
+                "SELECT event_kind FROM w4_lockbox_events WHERE marker_sha256=? "
+                "AND event_kind IN ('dispatch_started','dispatch_failed','dispatched') "
+                "ORDER BY event_index",
                 [marker_sha256],
-            ).fetchone():
+            ).fetchall()]
+            starts = dispatch_events.count("dispatch_started")
+            failures = dispatch_events.count("dispatch_failed")
+            if "dispatched" in dispatch_events:
                 raise LockboxIntegrityError("lockbox_already_dispatched")
+            if event_kind == "dispatch_started" and not (
+                starts == 0 or (starts == 1 and failures == 1)
+            ):
+                raise LockboxIntegrityError("lockbox_dispatch_retry_unavailable")
+            if event_kind == "dispatch_failed" and starts != failures + 1:
+                raise LockboxIntegrityError("lockbox_dispatch_not_started")
+            if event_kind == "dispatched" and starts != failures + 1:
+                raise LockboxIntegrityError("lockbox_dispatch_not_started")
         if event_kind == "arm_artifact_frozen" and source_sha256 != arms[
             execution_id
         ]["registration_sha256"]:
@@ -459,20 +477,38 @@ def dispatch_lockbox(
     begin: dict,
 ) -> object:
     """Commit and close the marker transaction before calling the provider boundary."""
-    existing = ledger.marker(begin["experiment_id"], begin["cohort_id"])
-    if existing is not None:
-        raise LockboxIntegrityError("lockbox_already_dispatched")
     marker_sha256 = begin_lockbox_consumption(ledger, **begin)
     dispatch_sha256 = canonical_sha256(
         {"marker_sha256": marker_sha256, "dispatch": "initiating_execution_once"}
     )
     marker = ledger.marker(begin["experiment_id"], begin["cohort_id"])
+    started_at = datetime.now(timezone.utc)
+    append_lockbox_event(
+        ledger,
+        marker_sha256,
+        execution_id=marker["initiating_execution_id"],
+        event_kind="dispatch_started",
+        occurred_at=started_at,
+        source_sha256=dispatch_sha256,
+    )
+    try:
+        result = dispatch(marker_sha256)
+    except Exception:
+        append_lockbox_event(
+            ledger,
+            marker_sha256,
+            execution_id=marker["initiating_execution_id"],
+            event_kind="dispatch_failed",
+            occurred_at=datetime.now(timezone.utc),
+            source_sha256=dispatch_sha256,
+        )
+        raise
     append_lockbox_event(
         ledger,
         marker_sha256,
         execution_id=marker["initiating_execution_id"],
         event_kind="dispatched",
-        occurred_at=datetime.fromisoformat(marker["committed_at"].replace("Z", "+00:00")),
+        occurred_at=datetime.now(timezone.utc),
         source_sha256=dispatch_sha256,
     )
-    return dispatch(marker_sha256)
+    return result
