@@ -116,6 +116,14 @@ def test_origin_uses_frozen_terminal_h5_inputs_and_negative_rank(con):
     assert result["evaluation_candidate_count"] == 3
     assert result["terminal_h5_count"] == 2
     assert result["unresolved_h5_tickers"] == ["DDD"]
+    assert [row["ticker"] for row in result["decision_rows"]] == ["AAA", "BBB", "DDD"]
+    assert result["decision_rows"][0] == {
+        "ticker": "AAA", "stratum": "mover", "champion_score": 30.0,
+        "champion_score_available": True, "rule_score": -1,
+        "baseline_rank": 1, "baseline_score": 4, "decision_sha256": "1" * 64,
+    }
+    assert result["decision_rows"][1]["champion_score"] is None
+    assert result["decision_rows"][1]["champion_score_available"] is False
     assert [row["ticker"] for row in result["rows"]] == ["AAA", "BBB"]
     assert result["rows"][0]["rule_score"] == -1
     assert result["rows"][0]["champion_score"] == 30
@@ -208,3 +216,17 @@ def test_origin_requires_aware_report_cutoff(con):
             report_cutoff=datetime(2026, 9, 30, 12),
         )
     assert validation_calls == []
+
+
+def test_preentry_origin_retains_scores_before_any_h5_label_matures(con):
+    connection, _calls = con
+    _insert_origin(connection)
+
+    result = p16_eval_inputs.load_origin(
+        connection, market_date=date(2026, 9, 22),
+        report_cutoff=datetime(2026, 9, 23, 12, tzinfo=timezone.utc),
+    )
+
+    assert result["status"] == "pending" and result["rows"] == []
+    assert [row["ticker"] for row in result["decision_rows"]] == ["AAA", "BBB", "DDD"]
+    assert result["unresolved_h5_tickers"] == ["AAA", "BBB", "DDD"]
