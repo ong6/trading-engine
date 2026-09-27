@@ -431,6 +431,26 @@ def test_submissions_classification_preserves_prior_snapshot_and_strict_threshol
     )[0]["status"] == "already_queued_or_consumed"
 
 
+def test_first_fetch_marks_older_filing_dates_as_baseline_without_queueing():
+    payload = {"cik": 320193, "filings": {"recent": {
+        "accessionNumber": [ACCESSION, "0000320193-26-000002"],
+        "acceptanceDateTime": ["untrusted", "untrusted"],
+        "filingDate": ["2026-09-26", "2026-09-27"], "form": ["8-K", "8-K"],
+        "items": ["2.02", "2.02"], "primaryDocument": ["old.htm", "today.htm"],
+        "reportDate": ["2026-06-30", "2026-06-30"],
+    }}}
+    clock, req = FakeClock(), request(FakeClock())
+    parsed = sources.parse_submissions(
+        response(clock, req, body=json.dumps(payload).encode()), cik="0000320193",
+    )
+    rows = sources.classify_discoveries(
+        parsed, activation_at=NOW, cik_entered_at=NOW, response_id="first",
+    )
+    assert [row["status"] for row in rows] == [
+        "baseline_inventory", "acceptance_pending_crosscheck",
+    ]
+
+
 def test_scheduler_services_one_document_then_two_ciks_and_lends_slots():
     assert list(sources.scheduled_work(["d1", "d2", "d3"], ["c1", "c2", "c3"])) == [
         "d1", "c1", "c2", "d2", "c3", "d3",
