@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "description": "Synthetic contract fixture: real retrieval time stays separate from the registered ex-date-open replay convention.",
+  "bars": [
+    {
+      "security_id": "AAPL-fixture",
+      "session": "2020-08-28",
+      "series": "source_back_adjusted_v1",
+      "available_at": "2020-08-28T20:15:00Z",
+      "retrieved_at_real": "2026-09-27T15:20:00Z",
+      "open": 126.0125,
+      "high": 126.4425,
+      "low": 124.5775,
+      "close": 124.8075,
+      "volume": 187630000
+    }
+  ],
+  "actions": [
+    {
+      "action_id": "AAPL-2020-4-for-1",
+      "security_id": "AAPL-fixture",
+      "stable_mapping": true,
+      "kind": "split",
+      "ex_date": "2020-08-31",
+      "outcome": "applied",
+      "new_shares_per_old": 4,
+      "retrieved_at_real": "2026-09-27T15:20:00Z",
+      "first_seen_at": null,
+      "observation_sha256": null,
+      "knowledge_basis": "registered_ex_date_open_v1",
+      "known_at_replay": "2020-08-31T13:30:00Z"
+    }
+  ],
+  "expected_reconstructed": {
+    "open": 504.05,
+    "high": 505.77,
+    "low": 498.31,
+    "close": 499.23,
+    "volume": 46907500
+  },
+  "independent_validation": {
+    "source": "alpha_vantage_time_series_daily_raw_v1",
+    "status": "required_before_archive_admission"
+  }
+}
