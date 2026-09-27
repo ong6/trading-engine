@@ -11,6 +11,13 @@ from engine import p15_event_sources
 from engine.lib import db
 from farm.replay.asof import rewrite_known_split_adjustments, rewrite_private_prices
 from farm.replay.clock import PHASES, completed_phases, init_clock_schema, record_phase_checkpoint
+from farm.replay.notes import (
+    NotesFilterSpec,
+    init_notes_schema,
+    record_notes_output,
+    visible_mature_labels,
+    visible_notes,
+)
 from farm.replay.registration import SPLIT_KNOWLEDGE_PRIMARY
 from farm.replay.store import open_store
 from server import p15_scoring_store
@@ -25,11 +32,13 @@ class ReplayRunnerError(ValueError):
     """Replay chronology or private book state differs from its contract."""
 
 
-PhaseExecutor = Callable[[str, date, datetime], Sequence[Mapping]]
+PhaseExecutor = Callable[[str, date, datetime, Mapping], Sequence[Mapping]]
 PhaseApplier = Callable[[object, str, date, datetime, Sequence[Mapping]], None]
 
 
-def _completed(_phase: str, _session: date, _logical_at: datetime) -> Sequence[Mapping]:
+def _completed(
+    _phase: str, _session: date, _logical_at: datetime, _context: Mapping
+) -> Sequence[Mapping]:
     return ({"status": "completed"},)
 
 
@@ -50,6 +59,8 @@ class ReplaySessionStore:
     reconstructed_bars: Sequence[Mapping] = ()
     actions: Sequence[Mapping] = ()
     split_knowledge_policy: str = SPLIT_KNOWLEDGE_PRIMARY
+    notes_filter_spec: NotesFilterSpec | None = None
+    evaluation_tag: str = "post_lockbox_exploratory"
 
 
 def session_phases(session: date) -> dict[str, datetime]:
@@ -188,13 +199,28 @@ def run_session(store: ReplaySessionStore, session: date) -> dict:
     ) as con:
         bootstrap_books(con, checkpoint=store.checkpoint, initialized_at=store.initialized_at)
         init_clock_schema(con)
+        init_notes_schema(con)
         done = completed_phases(
             con, cohort_id=store.cohort_id, policy_id=store.policy_id, session=session,
         )
     results: dict[str, list[dict]] = {}
     for phase in PHASES[len(done):]:
         logical_at = clocks[phase]
-        terminal_rows = [dict(row) for row in store.execute_phase(phase, session, logical_at)]
+        with open_store(
+            store.path, research_root=store.research_root,
+            live_db_path=store.live_db_path, kind="replay", read_only=True,
+        ) as con:
+            phase_context = {
+                "mature_labels": visible_mature_labels(
+                    con, session=session, cutoff=logical_at
+                ),
+                "notes": visible_notes(con, session=session, cutoff=logical_at),
+                "evaluation_tag": store.evaluation_tag,
+            }
+        terminal_rows = [
+            {**dict(row), "evaluation_tag": store.evaluation_tag}
+            for row in store.execute_phase(phase, session, logical_at, phase_context)
+        ]
         if not terminal_rows:
             terminal_rows = [{"status": "not_applicable"}]
         with open_store(
@@ -223,6 +249,15 @@ def run_session(store: ReplaySessionStore, session: date) -> dict:
                 raise ReplayRunnerError("replay_price_archive_missing")
             if store.apply_phase is not None:
                 store.apply_phase(con, phase, session, logical_at, terminal_rows)
+            if phase == "POSTMORTEM" and store.notes_filter_spec is not None:
+                record_notes_output(
+                    con,
+                    session=session,
+                    written_at=logical_at,
+                    postmortems=[item for row in terminal_rows for item in row.get("postmortems", ())],
+                    lessons=[item for row in terminal_rows for item in row.get("lessons", ())],
+                    filter_spec=store.notes_filter_spec,
+                )
             if store.run_books and phase == "OPEN":
                 p15_books.process_pending(con, session)
             if store.run_books and phase == "SCORE":

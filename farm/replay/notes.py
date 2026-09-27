@@ -1,9 +1,11 @@
 """Frozen lexical guard for model-authored replay lessons."""
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Sequence
 
@@ -42,6 +44,11 @@ UNIT_WORDS = frozenset(
     "percent percentage point points basis dollar dollars cent cents euro euros yen pounds"
     .split()
 )
+ERROR_TYPES = frozenset(
+    {"gap_risk", "headline_overweight", "sector_move_missed", "earnings_surprise",
+     "regime", "data_issue", "noise", "correct"}
+)
+MAX_LESSONS = 12
 
 
 class NotesValidationError(ValueError):
@@ -211,3 +218,152 @@ def lesson_rejection_rate(rejected: int, count: int) -> Decimal:
     if count < MIN_LESSON_COUNT:
         raise NotesValidationError("lesson_corpus_too_small_or_count_mismatch")
     return Decimal(rejected) / Decimal(count)
+
+
+def _iso(value: datetime, field: str) -> str:
+    if not isinstance(value, datetime) or value.tzinfo is None:
+        raise NotesValidationError(f"invalid_{field}")
+    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace(
+        "+00:00", "Z"
+    )
+
+
+def init_notes_schema(con) -> None:
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS replay_labels (
+            decision_id VARCHAR NOT NULL,
+            decision_session DATE NOT NULL,
+            horizon VARCHAR NOT NULL,
+            visible_at VARCHAR NOT NULL,
+            status VARCHAR NOT NULL,
+            expected_excess_bp DOUBLE,
+            realized_excess_bp DOUBLE,
+            PRIMARY KEY(decision_id,horizon))"""
+    )
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS replay_postmortems (
+            decision_id VARCHAR PRIMARY KEY,
+            decision_session DATE NOT NULL,
+            written_at VARCHAR NOT NULL,
+            payload_json VARCHAR NOT NULL)"""
+    )
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS replay_notes (
+            revision_sha256 VARCHAR PRIMARY KEY,
+            source_session DATE NOT NULL,
+            effective_at VARCHAR NOT NULL,
+            previous_revision VARCHAR,
+            lessons_json VARCHAR NOT NULL)"""
+    )
+
+
+def visible_mature_labels(con, *, session: date, cutoff: datetime) -> list[dict]:
+    """Expose only terminal h5 outcomes from sessions strictly before this one."""
+    cutoff_at = datetime.fromisoformat(_iso(cutoff, "label_cutoff").replace("Z", "+00:00"))
+    rows = con.execute(
+        "SELECT decision_id,decision_session,horizon,visible_at,status,"
+        "expected_excess_bp,realized_excess_bp FROM replay_labels "
+        "WHERE decision_session<? AND horizon='h5' ORDER BY decision_session,decision_id",
+        [session],
+    ).fetchall()
+    result = []
+    for row in rows:
+        visible = datetime.fromisoformat(row[3].replace("Z", "+00:00"))
+        if row[4] == "terminal" and visible < cutoff_at:
+            result.append(
+                {
+                    "decision_id": row[0], "decision_session": row[1].isoformat(),
+                    "horizon": row[2], "visible_at": row[3], "status": row[4],
+                    "expected_excess_bp": row[5], "realized_excess_bp": row[6],
+                }
+            )
+    return result
+
+
+def visible_notes(con, *, session: date, cutoff: datetime) -> list[dict]:
+    """Return the latest notes revision from an earlier replay session."""
+    cutoff_at = datetime.fromisoformat(_iso(cutoff, "notes_cutoff").replace("Z", "+00:00"))
+    rows = con.execute(
+        "SELECT revision_sha256,source_session,effective_at,lessons_json FROM replay_notes "
+        "WHERE source_session<? ORDER BY effective_at DESC,revision_sha256",
+        [session],
+    ).fetchall()
+    for revision, source_session, effective_at, lessons_json in rows:
+        if datetime.fromisoformat(effective_at.replace("Z", "+00:00")) < cutoff_at:
+            return [{
+                "revision_sha256": revision,
+                "source_session": source_session.isoformat(),
+                "effective_at": effective_at,
+                "lessons": json.loads(lessons_json),
+            }]
+    return []
+
+
+def record_notes_output(
+    con,
+    *,
+    session: date,
+    written_at: datetime,
+    postmortems: Sequence[dict],
+    lessons: Sequence[dict],
+    filter_spec: NotesFilterSpec,
+) -> str | None:
+    """Validate and append one post-mortem batch and optional weekly notes revision."""
+    init_notes_schema(con)
+    written = _iso(written_at, "notes_written_at")
+    for row in postmortems:
+        required = {
+            "decision_id", "expected_excess_bp", "realized_excess_bp", "error_type",
+            "explanation", "lesson", "evidence_ids",
+        }
+        if set(row) != required or row["error_type"] not in ERROR_TYPES:
+            raise NotesValidationError("invalid_postmortem_schema")
+        validate_notes(row["explanation"], filter_spec=filter_spec)
+        validate_notes(row["lesson"], filter_spec=filter_spec)
+        payload = json.dumps(row, sort_keys=True, separators=(",", ":"))
+        prior = con.execute(
+            "SELECT decision_session,written_at,payload_json FROM replay_postmortems "
+            "WHERE decision_id=?", [row["decision_id"]],
+        ).fetchone()
+        expected = (session, written, payload)
+        if prior is None:
+            con.execute(
+                "INSERT INTO replay_postmortems VALUES (?,?,?,?)",
+                [row["decision_id"], session, written, payload],
+            )
+        elif prior != expected:
+            raise NotesValidationError("postmortem_append_conflict")
+    if not lessons:
+        return None
+    if len(lessons) > MAX_LESSONS or any(set(row) != {"rule", "uncertainty"} for row in lessons):
+        raise NotesValidationError("invalid_lesson_count_or_shape")
+    normalized = [
+        {
+            "rule": validate_notes(row["rule"], filter_spec=filter_spec),
+            "uncertainty": validate_notes(row["uncertainty"], filter_spec=filter_spec),
+        }
+        for row in lessons
+    ]
+    previous = con.execute(
+        "SELECT revision_sha256 FROM replay_notes ORDER BY effective_at DESC,revision_sha256 LIMIT 1"
+    ).fetchone()
+    body = {
+        "source_session": session.isoformat(), "effective_at": written,
+        "previous_revision": None if previous is None else previous[0],
+        "lessons": normalized,
+    }
+    revision = canonical_sha256(body)
+    encoded = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
+    prior = con.execute(
+        "SELECT source_session,effective_at,previous_revision,lessons_json FROM replay_notes "
+        "WHERE revision_sha256=?", [revision],
+    ).fetchone()
+    expected = (session, written, body["previous_revision"], encoded)
+    if prior is None:
+        con.execute(
+            "INSERT INTO replay_notes VALUES (?,?,?,?,?)",
+            [revision, *expected],
+        )
+    elif prior != expected:
+        raise NotesValidationError("notes_append_conflict")
+    return revision
