@@ -12,7 +12,9 @@ from engine.lib.provenance import canonical_sha256
 from sim import nyse
 
 ALPHA = 0.05
-ALPHA_ALLOCATION_ID = "p16-family-v1-alpha-0.05"
+FAMILY_ALPHA = 0.04
+FUTURE_FAMILY_ALPHA_RESERVE = 0.01
+ALPHA_ALLOCATION_ID = "p16-challengers-f1-alpha-0.04-reserve-0.01"
 FALLBACK_SD = 0.15
 GRID_POINTS = 21
 MIN_CALIBRATION_ORIGINS = 20
@@ -170,7 +172,7 @@ def by_session_offset(
             "robustness_is_gating": False, "execution_authority": "none"}
 
 
-def _multiple(log_evalues, eligible, *, method: str) -> dict:
+def _multiple(log_evalues, eligible, *, method: str, level: float) -> dict:
     values, gate = np.asarray(log_evalues, float), np.asarray(eligible, bool)
     if (values.ndim != 1 or gate.shape != values.shape or np.any(np.isnan(values))
             or np.any(np.isposinf(values))):
@@ -178,11 +180,11 @@ def _multiple(log_evalues, eligible, *, method: str) -> dict:
     screened, size = np.where(gate, values, -np.inf), len(values)
     selected, threshold = np.zeros(size, bool), None
     if method == "lifetime_e_bonferroni":
-        threshold = math.log(size / ALPHA) if size else None
+        threshold = math.log(size / level) if size else None
         selected = screened >= threshold if size else selected
     elif method == "current_e_bh":
         order = np.argsort(-screened, kind="stable")
-        passed = screened[order] >= np.log(size / (ALPHA * np.arange(1, size + 1)))
+        passed = screened[order] >= np.log(size / (level * np.arange(1, size + 1)))
         if passed.any():
             count = int(np.flatnonzero(passed)[-1] + 1)
             selected[order[:count]], threshold = True, math.log(size / (ALPHA * count))
@@ -194,12 +196,12 @@ def _multiple(log_evalues, eligible, *, method: str) -> dict:
 
 def common_report_e_test(
     rows: list[dict], family_ids: list[str], report_at: str, *, origin_endpoint: int,
-    alpha_allocation_id: str, level: float = ALPHA,
+    alpha_allocation_id: str, level: float = FAMILY_ALPHA,
 ) -> dict:
     """Compute lifetime e-Bonferroni and descriptive current e-BH at one cutoff."""
     report_time = _time(report_at)
-    if level != ALPHA or alpha_allocation_id != ALPHA_ALLOCATION_ID:
-        raise ValueError("registered family alpha allocation must be 0.05")
+    if level != FAMILY_ALPHA or alpha_allocation_id != ALPHA_ALLOCATION_ID:
+        raise ValueError("registered family alpha allocation must be 0.04")
     if len(family_ids) != len(set(family_ids)):
         raise ValueError("duplicate family ID")
     mapped = {row.get("comparison_id"): row for row in rows}
@@ -232,8 +234,8 @@ def common_report_e_test(
     if (np.any(~np.isfinite(current)) or np.any(~np.isfinite(maximum))
             or np.any(maximum < np.maximum(0, current))):
         raise ValueError("invalid current or running-maximum e-value")
-    lifetime = _multiple(maximum, gate, method="lifetime_e_bonferroni")
-    descriptive = _multiple(current, gate, method="current_e_bh")
+    lifetime = _multiple(maximum, gate, method="lifetime_e_bonferroni", level=level)
+    descriptive = _multiple(current, gate, method="current_e_bh", level=level)
     allocation = {"alpha_allocation_id": alpha_allocation_id, "level": level,
                   "comparison_ids": family_ids}
     return {
@@ -252,7 +254,7 @@ def common_report_e_test(
 def candidate_for_promotion(common_report: dict, comparison_id: str) -> bool:
     """Recompute the registered lifetime boundary; never trust stored selection."""
     if (common_report.get("promotion_basis") != "lifetime_e_bonferroni"
-            or common_report.get("level") != ALPHA
+            or common_report.get("level") != FAMILY_ALPHA
             or common_report.get("alpha_allocation_id") != ALPHA_ALLOCATION_ID):
         raise ValueError("promotion requires the registered lifetime e-Bonferroni report")
     ids = common_report.get("comparison_ids")
@@ -261,7 +263,7 @@ def candidate_for_promotion(common_report: dict, comparison_id: str) -> bool:
     index, size = ids.index(comparison_id), len(ids)
     if common_report.get("family_size") != size:
         raise ValueError("family size differs")
-    allocation = {"alpha_allocation_id": ALPHA_ALLOCATION_ID, "level": ALPHA,
+    allocation = {"alpha_allocation_id": ALPHA_ALLOCATION_ID, "level": FAMILY_ALPHA,
                   "comparison_ids": ids}
     if common_report.get("alpha_allocation_sha256") != canonical_sha256(allocation):
         raise ValueError("family alpha allocation differs")
@@ -276,4 +278,4 @@ def candidate_for_promotion(common_report: dict, comparison_id: str) -> bool:
     eligible = all(row_checks.values())
     if type(masks[index]) is not bool or masks[index] != eligible:
         raise ValueError("stored eligibility mask differs")
-    return bool(eligible and maxima[index] >= math.log(size / ALPHA))
+    return bool(eligible and maxima[index] >= math.log(size / FAMILY_ALPHA))

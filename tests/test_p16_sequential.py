@@ -5,6 +5,9 @@ import pytest
 
 from farm.p16_sequential import (
     ALPHA,
+    ALPHA_ALLOCATION_ID,
+    FAMILY_ALPHA,
+    FUTURE_FAMILY_ALPHA_RESERVE,
     by_session_offset,
     candidate_for_promotion,
     common_report_e_test,
@@ -129,10 +132,10 @@ def test_grid_binds_market_calendar_cutoff_and_input_identity():
 
 def test_common_report_separates_current_ebh_from_lifetime_bonferroni():
     rows = [_family_row(f"c{index}", current, maximum) for index, (current, maximum) in
-            enumerate(((45, 80), (45, 45), (1, 1), (1, 1)))]
+            enumerate(((55, 120), (55, 55), (1, 1), (1, 1)))]
     report = common_report_e_test(
         rows, [f"c{index}" for index in range(4)], NOW.isoformat(), origin_endpoint=100,
-        alpha_allocation_id="p16-family-v1-alpha-0.05",
+        alpha_allocation_id=ALPHA_ALLOCATION_ID,
     )
     assert report["selected"] == [True, False, False, False]
     assert report["descriptive_ebh_selected"] == [True, True, False, False]
@@ -147,7 +150,7 @@ def test_negative_champion_ic_and_incomplete_inventory_never_promote():
             _family_row("incomplete", 100, 100, inventory_complete=False)]
     report = common_report_e_test(
         rows, ["negative", "incomplete"], NOW.isoformat(), origin_endpoint=100,
-        alpha_allocation_id="p16-family-v1-alpha-0.05",
+        alpha_allocation_id=ALPHA_ALLOCATION_ID,
     )
     assert report["selected"] == [False, False]
     assert not candidate_for_promotion(report, "negative")
@@ -156,32 +159,32 @@ def test_negative_champion_ic_and_incomplete_inventory_never_promote():
 
 def test_common_report_rejects_wrong_level_time_family_and_maximum():
     row = _family_row("c0", 2, 2)
-    with pytest.raises(ValueError, match="0.05"):
+    with pytest.raises(ValueError, match="0.04"):
         common_report_e_test([row], ["c0"], NOW.isoformat(), origin_endpoint=100,
                              alpha_allocation_id="future-family", level=0.1)
-    with pytest.raises(ValueError, match="0.05"):
+    with pytest.raises(ValueError, match="0.04"):
         common_report_e_test([row], ["c0"], NOW.isoformat(), origin_endpoint=100,
                              alpha_allocation_id="second-family-alpha-0.05")
     with pytest.raises(ValueError, match="common report time"):
         common_report_e_test([row | {"report_at": (NOW + timedelta(days=1)).isoformat()}],
                              ["c0"], NOW.isoformat(), origin_endpoint=100,
-                             alpha_allocation_id="p16-family-v1-alpha-0.05")
+                             alpha_allocation_id=ALPHA_ALLOCATION_ID)
     with pytest.raises(ValueError, match="timestamp"):
         common_report_e_test([row], ["c0"], "not-a-time", origin_endpoint=100,
-                             alpha_allocation_id="p16-family-v1-alpha-0.05")
+                             alpha_allocation_id=ALPHA_ALLOCATION_ID)
     with pytest.raises(ValueError, match="registered family"):
         common_report_e_test([row], ["c0", "missing"], NOW.isoformat(), origin_endpoint=100,
-                             alpha_allocation_id="p16-family-v1-alpha-0.05")
+                             alpha_allocation_id=ALPHA_ALLOCATION_ID)
     row["max_log_e"] = -1
     with pytest.raises(ValueError, match="running-maximum"):
         common_report_e_test([row], ["c0"], NOW.isoformat(), origin_endpoint=100,
-                             alpha_allocation_id="p16-family-v1-alpha-0.05")
+                             alpha_allocation_id=ALPHA_ALLOCATION_ID)
 
 
 def test_candidate_revalidates_family_allocation_identity():
     report = common_report_e_test(
         [_family_row("c0", 100, 100)], ["c0"], NOW.isoformat(), origin_endpoint=100,
-        alpha_allocation_id="p16-family-v1-alpha-0.05")
+        alpha_allocation_id=ALPHA_ALLOCATION_ID)
     report["alpha_allocation_sha256"] = "0" * 64
     with pytest.raises(ValueError, match="allocation differs"):
         candidate_for_promotion(report, "c0")
@@ -195,6 +198,20 @@ def test_bounded_null_simulation_counts_any_crossing():
     shocks = rng.choice([-2.0, 2.0], size=(1000, 200))
     hits = [mixture_test(path, mixture=mixture)["unadjusted_crossing"] for path in shocks]
     assert np.mean(hits) < ALPHA
+
+
+def test_fixed_family_uses_point_zero_four_and_reserves_point_zero_one():
+    ids = [f"c{index}" for index in range(8)]
+    rows = [_family_row(item, 1, 200 if index == 0 else 1)
+            for index, item in enumerate(ids)]
+    report = common_report_e_test(
+        rows, ids, NOW.isoformat(), origin_endpoint=100,
+        alpha_allocation_id=ALPHA_ALLOCATION_ID,
+    )
+    assert FAMILY_ALPHA == 0.04 and FUTURE_FAMILY_ALPHA_RESERVE == 0.01
+    assert FAMILY_ALPHA + FUTURE_FAMILY_ALPHA_RESERVE == ALPHA
+    assert report["log_threshold"] == pytest.approx(np.log(200))
+    assert report["selected"] == [True, False, False, False, False, False, False, False]
 
 
 def test_invalid_bounds_and_mixture_are_rejected():
