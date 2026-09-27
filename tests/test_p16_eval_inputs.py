@@ -121,9 +121,11 @@ def test_origin_uses_frozen_terminal_h5_inputs_and_negative_rank(con):
         "ticker": "AAA", "stratum": "mover", "champion_score": 30.0,
         "champion_score_available": True, "rule_score": -1,
         "baseline_rank": 1, "baseline_score": 4, "decision_sha256": "1" * 64,
+        "tradeable": None, "entry_gate_reason": None, "close": None, "atr_14": None,
     }
     assert result["decision_rows"][1]["champion_score"] is None
     assert result["decision_rows"][1]["champion_score_available"] is False
+    assert [row["ticker"] for row in result["held_decision_rows"]] == ["CCC"]
     assert [row["ticker"] for row in result["rows"]] == ["AAA", "BBB"]
     assert result["rows"][0]["rule_score"] == -1
     assert result["rows"][0]["champion_score"] == 30

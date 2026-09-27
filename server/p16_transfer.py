@@ -148,6 +148,10 @@ def _trailing_ics(con, signal_date: date, cutoff: datetime) -> dict:
             "champion": max(0.0, float(np.mean([row[0] for row in origins]))),
             "rule": max(0.0, float(np.mean([row[1] for row in origins]))),
         },
+        "vectors": {
+            "champion": [row[0] for row in origins],
+            "rule": [row[1] for row in origins],
+        },
         "origin_dates": [row["market_date"] for row in source],
         "source_sha256": canonical_sha256(source),
     }

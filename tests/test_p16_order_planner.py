@@ -3,7 +3,24 @@ from __future__ import annotations
 
 import pytest
 
-from engine.p16_order_planner import plan_whole_share_orders
+from engine.p16_order_planner import plan_mandatory_exit_orders, plan_whole_share_orders
+
+
+def test_mandatory_exit_planner_is_independent_and_validates_roles_and_holdings():
+    result = plan_mandatory_exit_orders(
+        {"BBB": 3, "AAA": 5, "SPY": 4},
+        {"BBB": "time_exit", "AAA": "stop"},
+    )
+    assert result == {"status": "planned", "orders": [
+        {"ticker": "AAA", "side": "sell", "qty": 5.0,
+         "order_role": "stop", "target_weight": 0.0},
+        {"ticker": "BBB", "side": "sell", "qty": 3.0,
+         "order_role": "time_exit", "target_weight": 0.0},
+    ]}
+    with pytest.raises(ValueError, match="invalid mandatory exit"):
+        plan_mandatory_exit_orders({"AAA": 0}, {"AAA": "stop"})
+    with pytest.raises(ValueError, match="invalid mandatory exit"):
+        plan_mandatory_exit_orders({"AAA": 1}, {"AAA": "rebalance"})
 
 
 def test_sales_and_spy_financing_precede_stock_buys_and_cash_has_beta_zero():

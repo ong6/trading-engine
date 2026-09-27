@@ -1054,4 +1054,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Next:** obtain an orchestrator decision on W4's 2,000-line cap and sealed-authority boundary;
   1,949 lines are used and the estimated remaining mandatory implementation is 1,300–1,930.
 
+## 2026-09-27 — P16 W5: compose retained construction inputs
+
+- **Why:** approved P16 W5 and round-one review require the numerical pieces to form an inert,
+  point-in-time target-to-window path while mandatory exits remain independent of risk inputs.
+- **What:** compose retained origins, exact IC vectors, risk, gates, optimization, whole-share
+  planning, targets, and next-session intents. Persist calibration-derived contracts, preserve
+  stop/time exits through input or solver failures, and rehearse the path only in a copied store.
+- **Evidence:** `.venv/bin/python -m pytest -q tests/test_p16_{eval_inputs,optimizer,order_planner,book_store,books,runner,transfer}.py`
+  reaches `[100%]` with 188 passing tests.
+- **Metrics:** server +444, tools unchanged, product +136 (engine +23, farm +26, sim +87); budget ok.
+- **Next:** bind complete calibration cases and execution-cost evidence, then rerun the frozen reviews.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

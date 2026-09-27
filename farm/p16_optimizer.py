@@ -75,6 +75,7 @@ def solve(
     mapping = relative_mapping = math.inf
     prox_state = None
     unbanded_objective = None
+    continuous_weights = None
     warm_start_distances = []
     for _face in range(names + 2):
         face = Constraints(
@@ -124,6 +125,7 @@ def solve(
             unbanded_objective = objective(
                 weights, alpha, covariance, risk_aversion, costs, previous,
             )
+            continuous_weights = weights.copy()
         if risk_repair or band == 0:
             break
         newly_frozen = {
@@ -159,13 +161,15 @@ def solve(
         "objective": final_objective, "step_size": step_size,
         "covariance_roundoff_repair": covariance_repaired,
         "unbanded_objective": unbanded_objective,
+        "continuous_weights": continuous_weights,
         "band_objective_loss": unbanded_objective - final_objective,
     }
 
 
 def _core_result(constraints: Constraints, status: str) -> dict:
+    weights = np.r_[np.zeros(constraints.n - 1), 1.0]
     return {
-        "weights": np.r_[np.zeros(constraints.n - 1), 1.0], "status": status,
+        "weights": weights, "continuous_weights": weights.copy(), "status": status,
         "gradient_mapping": None, "relative_gradient_mapping": None,
         "iterations": 0, "tracking_error": 0.0, "violation": 0.0,
         "band_overridden": True, "sector_status": constraints.sector_status,
