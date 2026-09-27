@@ -8,8 +8,7 @@ import pytest
 
 from engine.lib.provenance import canonical_sha256
 from farm import p16_trials
-from server import p16_store
-from server import p16_trial_store
+from server import p16_store, p16_trial_store
 
 NOW = datetime(2026, 9, 27, 16, tzinfo=timezone.utc)
 DAY = date(2026, 9, 25)
@@ -158,28 +157,53 @@ def _origin(index: int, market_date: date, **updates):
         "comparison_id": "c-blind-v1", "trial_id": TRIAL,
         "control_trial_id": CONTROL,
         "epoch_session": EPOCH, "session_index": index,
-        "market_date": market_date, "status": "pending", "reason": "label_pending",
+        "market_date": market_date,
         "decided_at": decided, "forward_entry_at": entry,
-        "labels_available_at": None, "delta_ic": None, "input_sha256": None,
-        "source_sha256": DIGEST, "recorded_at": decided + timedelta(minutes=1),
     }
     value.update(updates)
     return value
 
 
+def _score_artifact(con, value: dict) -> str:
+    body = {"policy_id": value["comparison_id"],
+            "market_date": value["market_date"].isoformat(),
+            "information_cutoff_at": value["decided_at"].isoformat(),
+            "scores": {"AAA": 1.0}}
+    payload = {**body, "score_snapshot_sha256": canonical_sha256(body)}
+    return p16_store.record_policy_scores(
+        con, registration_sha256=value["registration_sha256"], payload=payload,
+        recorded_at=value["decided_at"])
+
+
+def _record_decision(con, index: int, market_date: date, *, status="eligible",
+                     reason=None, recorded_at=None, **updates):
+    value = _origin(index, market_date, **updates)
+    source = _score_artifact(con, value)
+    recorded = recorded_at or value["decided_at"] + timedelta(minutes=1)
+    return p16_store.record_origin_decision(
+        con, **value, status=status, reason=reason, source_artifact_sha256=source,
+        recorded_at=recorded)
+
+
+def _factor_artifact(con, value: dict, delta_ic: float) -> str:
+    payload = {"status": "available", "market_date": value["market_date"].isoformat(),
+               "comparisons": {value["comparison_id"]: {"full_sample_raw": {
+                   "status": "scored", "reason": None, "delta_ic": delta_ic}}}}
+    return p16_store._record_artifact(
+        con, registration_sha256=value["registration_sha256"],
+        artifact_kind="factor_report", artifact_key="p16-factor-v1",
+        market_date=value["market_date"], information_cutoff_at=NOW,
+        recorded_at=NOW, source_sha256=DIGEST, payload=payload)
+
+
 def _record_scored(con, index: int, market_date: date, **updates):
-    pending = _origin(index, market_date)
-    pending.update({key: value for key, value in updates.items() if key not in {
-        "status", "reason", "labels_available_at", "delta_ic", "input_sha256", "recorded_at",
-    }})
-    p16_store.record_sequential_origin(con, **pending)
-    scored = {
-        **pending, "status": "scored", "reason": None,
-        "labels_available_at": NOW, "delta_ic": 0.2,
-        "input_sha256": f"{index + 1:064x}", "recorded_at": NOW,
-    }
-    scored.update(updates)
-    return p16_store.record_sequential_origin(con, **scored)
+    delta = updates.pop("delta_ic", 0.2)
+    value = _origin(index, market_date, **updates)
+    _record_decision(con, index, market_date, **updates)
+    factor = _factor_artifact(con, value, delta)
+    return p16_store.record_origin_outcome(
+        con, **value, status="scored", labels_available_at=NOW,
+        factor_report_sha256=factor, recorded_at=NOW)
 
 
 def test_sequential_prefix_is_exact_and_immutable(con):
@@ -200,23 +224,21 @@ def test_sequential_prefix_is_exact_and_immutable(con):
 
 def test_sequential_event_retry_keeps_first_seen_time(con):
     value = _origin(0, EPOCH)
-    first = p16_store.record_sequential_origin(con, **value)
-    assert p16_store.record_sequential_origin(
-        con, **(value | {"recorded_at": value["recorded_at"] + timedelta(seconds=1)}),
-    ) == first
+    recorded = value["decided_at"] + timedelta(minutes=1)
+    first = _record_decision(con, 0, EPOCH, recorded_at=recorded)
+    assert _record_decision(
+        con, 0, EPOCH, recorded_at=recorded + timedelta(seconds=1)) == first
     row = p16_store.sequential_prefix(
         con, registration_sha256=REGISTRATION, family_id="p16-family-v1",
         comparison_id="c-blind-v1", trial_id=TRIAL, control_trial_id=CONTROL,
         epoch_session=EPOCH, origin_endpoint=0, report_at=NOW,
     )[0]
-    assert row["recorded_at"] == value["recorded_at"]
+    assert row["recorded_at"] == recorded
 
 
 def test_sequential_prefix_rejects_missing_retained_decisions_and_tampering(con):
     _record_scored(con, 0, date(2026, 9, 21))
-    p16_store.record_sequential_origin(
-        con, **_origin(2, date(2026, 9, 23)),
-    )
+    _record_decision(con, 2, date(2026, 9, 23))
     with pytest.raises(ValueError, match="missing a retained decision"):
         p16_store.sequential_prefix(
             con, registration_sha256=REGISTRATION, family_id="p16-family-v1",
@@ -224,7 +246,7 @@ def test_sequential_prefix_rejects_missing_retained_decisions_and_tampering(con)
             epoch_session=EPOCH, origin_endpoint=2, report_at=NOW,
         )
     con.execute("UPDATE p16_sequential_origin_events SET delta_ic=0.9 "
-                "WHERE session_index=0 AND event_kind='scored'")
+                "WHERE session_index=0 AND event_kind='outcome'")
     with pytest.raises(ValueError, match="stored P16 sequential origin event differs"):
         p16_store.sequential_prefix(
             con, registration_sha256=REGISTRATION, family_id="p16-family-v1",
@@ -236,19 +258,10 @@ def test_sequential_prefix_rejects_missing_retained_decisions_and_tampering(con)
 
 def test_sequential_origin_rules_fail_closed(con):
     with pytest.raises(ValueError, match="not pre-entry"):
-        p16_store.record_sequential_origin(
-            con, **_origin(0, EPOCH, decided_at=NOW, forward_entry_at=NOW),
-        )
+        _record_decision(con, 0, EPOCH, decided_at=NOW, forward_entry_at=NOW)
     with pytest.raises(ValueError, match="skipped"):
-        p16_store.record_sequential_origin(
-            con, **_origin(0, EPOCH, status="decision_unavailable", reason="late_label",
-                           labels_available_at=None, delta_ic=None, input_sha256=None),
-        )
-    p16_store.record_sequential_origin(
-        con, **_origin(0, EPOCH, status="decision_unavailable",
-                       reason="constant_scores", labels_available_at=None,
-                       delta_ic=None, input_sha256=None),
-    )
+        _record_decision(con, 0, EPOCH, status="decision_unavailable", reason="late_label")
+    _record_decision(con, 0, EPOCH, status="decision_unavailable", reason="constant_scores")
     row = p16_store.sequential_prefix(
         con, registration_sha256=REGISTRATION, family_id="p16-family-v1",
         comparison_id="c-blind-v1", trial_id=TRIAL, control_trial_id=CONTROL,
@@ -260,14 +273,10 @@ def test_sequential_origin_rules_fail_closed(con):
 
 def test_predictable_skip_is_retained_before_forward_entry(con):
     recorded = REGISTERED + timedelta(days=1)
-    p16_store.record_sequential_origin(
-        con, **_origin(
-            0, EPOCH, status="decision_unavailable", reason="fewer_than_20_candidates",
-            decided_at=recorded - timedelta(minutes=1),
-            forward_entry_at=recorded + timedelta(hours=1),
-            labels_available_at=None, delta_ic=None, input_sha256=None, recorded_at=recorded,
-        ),
-    )
+    _record_decision(
+        con, 0, EPOCH, status="decision_unavailable", reason="fewer_than_20_candidates",
+        decided_at=recorded - timedelta(minutes=1),
+        forward_entry_at=recorded + timedelta(hours=1), recorded_at=recorded)
     row = p16_store.sequential_prefix(
         con, registration_sha256=REGISTRATION, family_id="p16-family-v1",
         comparison_id="c-blind-v1", trial_id=TRIAL, control_trial_id=CONTROL,
@@ -294,7 +303,7 @@ def test_registration_and_trial_identity_isolate_sequential_series(con):
 def test_tampered_trial_registration_cannot_authorize_origin(con):
     con.execute(f"UPDATE {p16_trial_store.TABLE} SET payload='{{}}' WHERE trial_id=?", [TRIAL])
     with pytest.raises(ValueError, match="trial record differs"):
-        p16_store.record_sequential_origin(con, **_origin(0, EPOCH))
+        _record_decision(con, 0, EPOCH)
 
 
 def test_artifact_time_and_payload_validation(con):
