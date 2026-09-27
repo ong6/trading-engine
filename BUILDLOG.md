@@ -1202,4 +1202,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm +208; server, tools, and other product layers unchanged; budget ok.
 - **Next:** complete the W4 fixture suite and final host/UTC checkpoint proof.
 
+## 2026-09-27 — P16 W4: close replay and probe integration seams
+
+- **Why:** accepted W4 requires the replay adapter to call the pinned P15 helpers and the probe
+  gate to account for finite baseline sampling before a historical dispatch is admissible.
+- **What:** expose the six pure P15 scoring helpers and pinned universe/book/fill dependencies;
+  add the one-sided Fisher monthly guard and exact actual-size pooled power calculation while
+  preserving the frozen 300/350 coverage thresholds and 0.08 equivalence margin.
+- **Evidence:** the focused replay as-of/probe suites pass 33 tests; Ruff passes all touched files.
+- **Metrics:** farm +207; server, tools, and other product layers unchanged; budget ok.
+- **Next:** run the complete W4 fixture suite, then the final full host/UTC suites and metrics.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

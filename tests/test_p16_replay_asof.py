@@ -21,7 +21,7 @@ from farm.replay.asof import (
     split_known_at,
     split_outcome,
 )
-from farm.replay.p15_adapter import prepare_p15_price_inputs
+from farm.replay.p15_adapter import gate_candidates, pinned_dependencies, prepare_p15_price_inputs
 from farm.replay.registration import (
     INDEPENDENT_UNADJUSTED_PRICE_SOURCE,
     PRICE_SERIES_BY_CONSUMER,
@@ -354,3 +354,20 @@ def test_every_price_consumer_has_one_registered_series():
     }
     with pytest.raises(PriceSeriesError, match="unregistered_price_consumer"):
         consumer_price_series("implicit_adjusted_close")
+
+
+def test_p15_adapter_calls_the_pinned_candidate_gate_without_live_io():
+    candidate = {
+        "ticker": "AAA",
+        "reason": "eligible",
+        "earnings": {"status": "unavailable", "next_date": None},
+    }
+    bundle = {
+        "market_date": "2024-01-02",
+        "market": {"regime": "risk_on"},
+        "candidates": [candidate],
+        "bundle_sha256": "ignored-by-pure-helper",
+    }
+    gated = gate_candidates(bundle)
+    assert gated["candidates"][0]["reason"] == "earnings_unavailable"
+    assert set(pinned_dependencies()) == {"universe", "books", "fills", "scoring"}

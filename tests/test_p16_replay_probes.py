@@ -1,9 +1,13 @@
 """W4 contamination probes freeze coverage before any model call."""
+import pytest
+
+from farm.replay.probe_power import pooled_power, power_preflight
 from farm.replay.probes import (
     ProbeError,
     build_bank,
     coverage_preflight,
     dispatch_after_preflight,
+    fisher_upper,
     pooled_admission,
     score_responses,
 )
@@ -99,3 +103,12 @@ def test_pooled_gate_requires_measured_baseline_of_registered_size():
     }
     result = pooled_admission([month], {"correct": 90, "n": 350})
     assert result["status"] in {"pass", "inconclusive"}
+
+
+def test_exact_fisher_tail_and_power_gate_use_frozen_sizes():
+    assert fisher_upper(2, 2, 0, 2) == pytest.approx(1 / 6)
+    null = pooled_power([300, 300, 300], 350, 0.25, 0.25)
+    contaminated = pooled_power([300, 300, 300], 350, 0.25, 0.35)
+    assert 0 <= contaminated < null <= 1
+    result = power_preflight([300, 300, 300], 350, scenarios=(0.25,))
+    assert result["status"] in {"ready", "power_insufficient"}
