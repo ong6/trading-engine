@@ -433,12 +433,16 @@ def classify_discoveries(
     previous_response_id: str | None = None,
 ) -> list[dict]:
     previous, known = set(previous_accessions), set(known_accessions)
-    threshold = max(_utc(activation_at), _utc(cik_entered_at)).isoformat()
+    threshold_at = max(_utc(activation_at), _utc(cik_entered_at))
+    threshold = threshold_at.isoformat()
+    threshold_date = threshold_at.astimezone(ZoneInfo("America/New_York")).date()
     result = []
     for filing in current.get("filings", ()):
         accession = filing["accession"]
         status = ("already_queued_or_consumed" if accession in known else
                   "present_in_previous_response" if accession in previous else
+                  "baseline_inventory" if previous_response_id is None and
+                  datetime.strptime(filing["filing_date"], "%Y-%m-%d").date() < threshold_date else
                   "acceptance_pending_crosscheck")
         matched = [item for item in filing["metadata_items"] if item in p16_filing_parser.EVENTS]
         if not matched and status == "acceptance_pending_crosscheck":

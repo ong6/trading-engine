@@ -59,7 +59,6 @@ def _verified_receipt(con, receipt_sha256: str) -> dict:
             or canonical_sha256(identity) != stored_sha or stored_sha != receipt_sha256):
         raise ValueError("filing receipt identity differs")
     return item
-
 def init_schema(con) -> None:
     bitemporal_facts.init_schema(con)
     con.execute("""CREATE TABLE IF NOT EXISTS p16_filing_scans (
@@ -169,7 +168,6 @@ def start_scan(con, *, policy_id: str, session_date: date, activation_at: dateti
                 [scan_id, policy_id, session_date, activation, started, _json(universe),
                  universe_sha, map_sha256, row_sha])
     return scan_id
-
 def append_dispatch_event(con, event: dict) -> str:
     required = {"request_id", "scan_id", "consumer", "request_kind", "attempt",
                 "event_kind", "event_at", "url_sha256"}
@@ -300,12 +298,14 @@ def commit_cik_success(
         ).fetchone()
         if response.status_code == 200:
             parsed = p16_filing_sources.parse_submissions(response, cik=cik)
-            receipt = bitemporal_facts.record_receipt(
-                con, source="sec-edgar", dataset="submissions", endpoint=response.final_url,
-                request=request_payload, requested_at=response.requested_at,
-                received_at=response.received_at, http_status=200,
-                content_type=response.content_type, body=response.body, license_class="public",
-            )["receipt_sha256"]
+            if prior is not None and parsed["source_body_sha256"] == prior[4]:
+                parsed["source_status"], receipt = "unchanged_200", prior[3]
+            else:
+                receipt = bitemporal_facts.record_receipt(
+                    con, source="sec-edgar", dataset="submissions", endpoint=response.final_url,
+                    request=request_payload, requested_at=response.requested_at,
+                    received_at=response.received_at, http_status=200, content_type=response.content_type,
+                    body=response.body, license_class="public")["receipt_sha256"]
         elif response.status_code == 304 and prior is not None:
             verified = p16_filing_sources.Verified304(bytes(prior[5]), prior[4])
             parsed = p16_filing_sources.parse_submissions(
@@ -346,11 +346,11 @@ def commit_cik_success(
                         "cik": cik, "received_at": received.isoformat(),
                         "ingested_at": ingested.isoformat(), "accessions_sha256": accession_sha,
                         "previous_response_id": prior_id, "receipt_sha256": receipt,
-                        "reused_response_id": prior_id if source_status == "verified_304" else None,
+                        "reused_response_id": prior_id if source_status != "fresh_200" else None,
                         "source_body_sha256": source_body_sha, "source_status": source_status}
         con.execute("INSERT INTO p16_filing_cik_responses VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", [
             response_id, policy_id, scan_id, cik, received, ingested, _json(accessions), accession_sha,
-            prior_id, receipt, prior_id if source_status == "verified_304" else None,
+            prior_id, receipt, prior_id if source_status != "fresh_200" else None,
             source_body_sha, source_status, canonical_sha256(row_identity),
         ])
         if after_response:

@@ -113,6 +113,36 @@ def test_invalid_response_does_not_advance_and_verified_304_reuses_identity(con)
     assert rows[1][3] == rows[0][3]
 
 
+def test_unchanged_200_reuses_prior_raw_receipt(con):
+    first_scan = _scan(con)
+    payload = _payload()
+    first = _commit(con, first_scan, payload)
+    second_scan = _scan(con, at=NOW + timedelta(minutes=1))
+    second = _commit(con, second_scan, payload, at=NOW + timedelta(minutes=1))
+    assert second["queued"] == 0 and second["response_id"] != first["response_id"]
+    assert con.execute(
+        "SELECT COUNT(*) FROM source_response_receipts WHERE dataset='submissions'"
+    ).fetchone() == (1,)
+    rows = con.execute(
+        "SELECT receipt_sha256,reused_response_id,source_status "
+        "FROM p16_filing_cik_responses ORDER BY received_at"
+    ).fetchall()
+    assert rows[1] == (rows[0][0], first["response_id"], "unchanged_200")
+
+
+def test_first_cik_response_keeps_old_filings_as_unfetched_baseline(con):
+    scan_id = _scan(con)
+    payload = _payload((ACCESSION, AMENDMENT))
+    payload["filings"]["recent"]["filingDate"][0] = "2026-09-26"
+    result = _commit(con, scan_id, payload)
+    assert result["discovery_count"] == 2 and result["queued"] == 1
+    rows = con.execute(
+        "SELECT accession,discovery_status FROM p16_filing_accessions ORDER BY accession"
+    ).fetchall()
+    assert rows == [(ACCESSION, "baseline_inventory"),
+                    (AMENDMENT, "acceptance_pending_crosscheck")]
+
+
 def test_reappearance_changed_bytes_amendment_and_same_day_are_distinct(con):
     first = _scan(con)
     _commit(con, first, _payload())
