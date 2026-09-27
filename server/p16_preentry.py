@@ -128,11 +128,15 @@ def grid_report(
         })
     missing_dates = sorted({day for row in comparisons
                             for day in row["missing_market_dates"]})
+    missing_indices = sorted({index for row in comparisons
+                              for index in row["missing_session_indices"]})
     body = {
         "schema_version": 1, "registration_sha256": registration_sha256,
         "family_id": family_id, "epoch_session": epoch_session.isoformat(),
         "report_at": cutoff.isoformat(), "expected_through_session_index": endpoint,
         "status": "blocked_missing_origin_decision" if missing_dates else "on_schedule",
+        "first_permanently_missing_session_index": (
+            missing_indices[0] if missing_indices else None),
         "first_permanently_missing_origin": missing_dates[0] if missing_dates else None,
         "comparisons": comparisons, "execution_authority": "none",
     }
@@ -199,15 +203,6 @@ def record_preentry(
     close_at, forward_entry_at = _session_close(market_date), _next_open(market_date)
     if not close_at < now < forward_entry_at:
         raise PreentryError("P16 origin must be recorded after close and before next open")
-    prior = grid_report(
-        con, registration_sha256=registration_sha256, family_id=family_id,
-        epoch_session=epoch_session, members=rows, generated_at=now,
-    )
-    if prior["status"] != "on_schedule":
-        raise PreentryError(
-            "P16 family is permanently blocked by a missing origin decision: "
-            + str(prior["first_permanently_missing_origin"])
-        )
     origin = p16_eval_inputs.load_origin(
         con, market_date=market_date, report_cutoff=now,
     )

@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo
 
 from engine.lib.provenance import canonical_sha256
@@ -353,6 +353,12 @@ def _session_at(epoch: date, index: int) -> date:
     return current
 
 
+def _forward_entry_at(market_date: date) -> datetime:
+    return datetime.combine(
+        nyse.next_session(market_date), time(9, 30), ZoneInfo("America/New_York"),
+    ).astimezone(timezone.utc)
+
+
 def _trial_visible(con, trial_id: str, at: datetime) -> bool:
     return p16_trial_store.registration_as_of(
         con, trial_id=trial_id, generated_at=_aware(at)) is not None
@@ -585,12 +591,29 @@ def sequential_prefix(
     events: dict[int, list[dict]] = {}
     for row in map(_sequential_row, rows):
         events.setdefault(row["session_index"], []).append(row)
-    if sorted(events) != list(range(origin_endpoint + 1)):
-        raise ValueError("P16 sequential prefix is missing a retained decision")
     result = []
     for index in range(origin_endpoint + 1):
-        decisions = [row for row in events[index] if row["event_kind"] == "decision"]
-        terminals = [row for row in events[index] if row["event_kind"] == "outcome"]
+        retained = events.get(index, [])
+        decisions = [row for row in retained if row["event_kind"] == "decision"]
+        terminals = [row for row in retained if row["event_kind"] == "outcome"]
+        if not decisions and not terminals:
+            market_date = _session_at(epoch_session, index)
+            entry = _forward_entry_at(market_date)
+            pending = _aware(cutoff) < entry
+            result.append({
+                "registration_sha256": registration, "family_id": family,
+                "comparison_id": comparison, "trial_id": trial,
+                "control_trial_id": control, "epoch_session": epoch_session.isoformat(),
+                "session_index": index, "market_date": market_date.isoformat(),
+                "event_kind": "derived_gap", "status": (
+                    "pending" if pending else "missing_session_record"),
+                "reason": "before_forward_entry" if pending else "missing_preentry_decision",
+                "decided_at": None, "forward_entry_at": entry.isoformat(),
+                "labels_available_at": None, "delta_ic": None,
+                "source_sha256": None, "input_sha256": None,
+                "derived_not_persisted": True,
+            })
+            continue
         if len(decisions) != 1 or len(terminals) > 1:
             raise ValueError("P16 sequential origin event history is invalid")
         if terminals:

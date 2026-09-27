@@ -24,13 +24,15 @@ def _aggregate(policy_id: str, value: float) -> dict:
 
 
 def _comparison(index: int, current: float, maximum: float, **updates) -> dict:
-    primary = {"log_e": math.log(current), "max_log_e": math.log(maximum),
-               "consumed_session_indices": list(range(0, 101, 5)),
+    tracks = [{"offset": offset, "log_e": math.log(current),
+               "max_log_e": math.log(maximum),
+               "consumed_session_indices": list(range(offset, 101, 5)),
                "skipped_decision_indices": [], "blocked_at": None}
+              for offset in range(5)]
     row = {"comparison_id": FAMILY[index], "trial_id": TRIALS[index],
            "control_trial_id": CONTROL,
-           "sequential": {"report_at": NOW.isoformat(), "primary": primary,
-                          "robustness": [], "execution_authority": "none"},
+           "sequential": {"report_at": NOW.isoformat(), "primary": tracks[0],
+                          "robustness": tracks[1:], "execution_authority": "none"},
            "deflated_sharpe": {"status": "available", "candidate_trial_id": TRIALS[index],
                                "probability": 0.96, "trials": 4},
            "factor_neutral": _aggregate(FAMILY[index], 0.01),
@@ -112,3 +114,17 @@ def test_report_hash_and_allocation_tampering_fail_closed():
     report["status"] = "changed"
     with pytest.raises(ValueError, match="hash differs"):
         reports.validate_report(report)
+
+
+def test_any_fixed_grid_gap_makes_family_incomplete_and_blocks_promotion():
+    rows = [_comparison(index, 250, 250) for index in range(4)]
+    gap = rows[0]["sequential"]["robustness"][0]
+    gap["consumed_session_indices"].remove(6)
+    gap["blocked_at"] = {"session_index": 6, "reason": "missing_session_record"}
+
+    report = _build(rows=rows)
+
+    assert report["status"] == "incomplete"
+    assert report["comparisons"][0]["eligibility_checks"]["prefix_complete"] is False
+    assert "prefix_complete" in report["comparisons"][0]["filter_reasons"]
+    assert "c0" not in report["promotion_candidate_ids"]

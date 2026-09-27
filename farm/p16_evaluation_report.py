@@ -40,13 +40,22 @@ def _aggregate(value: object, report_at: datetime) -> dict:
     return value
 
 
-def _prefix_complete(primary: dict, endpoint: int) -> bool:
-    expected = set(range(0, endpoint + 1, p16_sequential.OFFSETS))
-    consumed = primary.get("consumed_session_indices", [])
-    skipped = primary.get("skipped_decision_indices", [])
-    return (primary.get("blocked_at") is None and isinstance(consumed, list)
-            and isinstance(skipped, list) and set(consumed) | set(skipped) == expected
-            and not set(consumed) & set(skipped))
+def _prefix_complete(sequential: dict, endpoint: int) -> bool:
+    tracks = [sequential.get("primary"), *sequential.get("robustness", [])]
+    if len(tracks) != p16_sequential.OFFSETS:
+        return False
+    for offset, track in enumerate(tracks):
+        if not isinstance(track, dict) or track.get("offset") != offset:
+            return False
+        expected = set(range(offset, endpoint + 1, p16_sequential.OFFSETS))
+        consumed = track.get("consumed_session_indices", [])
+        skipped = track.get("skipped_decision_indices", [])
+        if (track.get("blocked_at") is not None or not isinstance(consumed, list)
+                or not isinstance(skipped, list)
+                or set(consumed) | set(skipped) != expected
+                or set(consumed) & set(skipped)):
+            return False
+    return True
 
 
 def build_report(
@@ -95,7 +104,7 @@ def build_report(
         evidence_class = registration_row.get("evidence_class")
         identity_complete = bool(registration_row.get("identity_verified") is True
                                  and registration_row.get("status") != "retired")
-        prefix_complete = _prefix_complete(primary, origin_endpoint)
+        prefix_complete = _prefix_complete(sequential, origin_endpoint)
         common_rows.append({
             "comparison_id": comparison_id, "report_at": report_time.isoformat(),
             "origin_endpoint": origin_endpoint, "log_e": primary.get("log_e", 0.0),

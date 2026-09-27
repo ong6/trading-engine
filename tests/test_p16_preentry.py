@@ -183,6 +183,7 @@ def test_missed_session_report_is_permanently_blocked_and_not_backfilled(con, fa
     )
 
     assert report["status"] == "blocked_missing_origin_decision"
+    assert report["first_permanently_missing_session_index"] == 0
     assert report["first_permanently_missing_origin"] == "2026-09-21"
     assert all(row["missing_session_indices"] == [0] for row in report["comparisons"])
     assert report["grid_report_sha256"] == canonical_sha256({
