@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -101,6 +102,186 @@ def test_acceptance_requires_authoritative_crosscheck_and_consistent_references(
         sgml_value="20240502163034",
     )
     assert invalid["json_crosscheck"] == "invalid_json_timestamp"
+
+
+def test_submissions_parallel_arrays_preserve_untrusted_acceptance():
+    recent = {
+        "accessionNumber": [ACCESSION, "0000099999-26-000002"],
+        "acceptanceDateTime": ["2026-09-25T16:30:00.000Z", "2026-09-25T16:31:00.000Z"],
+        "filingDate": ["2026-09-25", "2026-09-25"],
+        "form": ["8-K", "10-Q"],
+        "items": ["2.02,7.01", ""],
+        "primaryDocument": ["primary.htm", "quarterly.htm"],
+        "reportDate": ["2026-09-25", "2026-09-25"],
+    }
+    result = filings.parse_submissions(
+        {"cik": 123, "filings": {"recent": recent}}, expected_cik="123",
+    )
+    assert result["cik"] == "0000000123"
+    assert result["response_accessions"] == [ACCESSION, "0000099999-26-000002"]
+    assert result["filings"] == [{
+        "accession": ACCESSION, "form": "8-K", "filing_date": "2026-09-25",
+        "report_date": "2026-09-25", "json_acceptance": "2026-09-25T16:30:00.000Z",
+        "primary_filename": "primary.htm", "metadata_items": ("2.02", "7.01"),
+    }]
+    recent["items"] = ["2.02"]
+    with pytest.raises(ValueError, match="parallel arrays"):
+        filings.parse_submissions({"cik": 123, "filings": {"recent": recent}}, expected_cik="123")
+
+
+def test_submissions_reject_duplicate_identity_dates_and_unsafe_names():
+    def payload(**changes):
+        recent = {
+            "accessionNumber": [ACCESSION], "acceptanceDateTime": ["untrusted-clock"],
+            "filingDate": ["2026-09-25"], "form": ["8-K"], "items": ["2.02"],
+            "primaryDocument": ["primary.htm"], "reportDate": ["2026-06-30"],
+        }
+        recent.update(changes)
+        return {"cik": "0000000123", "filings": {"recent": recent, "files": []}}
+
+    assert filings.parse_submissions(payload(), expected_cik=123)["filings"][0][
+        "json_acceptance"
+    ] == "untrusted-clock"
+    with pytest.raises(ValueError, match="CIK differs"):
+        filings.parse_submissions(payload(), expected_cik=456)
+    with pytest.raises(ValueError, match="invalid submissions CIK"):
+        filings.parse_submissions({"filings": {"recent": {}}}, expected_cik=123)
+    with pytest.raises(ValueError, match="invalid submissions form"):
+        filings.parse_submissions(payload(form=[""]), expected_cik=123)
+    with pytest.raises(ValueError, match="duplicate"):
+        filings.parse_submissions(payload(
+            accessionNumber=[ACCESSION, ACCESSION], acceptanceDateTime=["a", "b"],
+            filingDate=["2026-09-25"] * 2, form=["8-K"] * 2, items=["2.02"] * 2,
+            primaryDocument=["primary.htm"] * 2, reportDate=[""] * 2,
+        ), expected_cik=123)
+    with pytest.raises(ValueError, match="date"):
+        filings.parse_submissions(payload(filingDate=["09/25/2026"]), expected_cik=123)
+    with pytest.raises(ValueError, match="unsafe"):
+        filings.parse_submissions(payload(primaryDocument=["../primary.htm"]), expected_cik=123)
+
+
+def test_empty_submissions_response_retains_empty_inventory():
+    keys = ("accessionNumber", "acceptanceDateTime", "filingDate", "form",
+            "items", "primaryDocument", "reportDate")
+    result = filings.parse_submissions(
+        {"cik": 123, "filings": {"recent": {key: [] for key in keys}}}, expected_cik=123,
+    )
+    assert result == {"cik": "0000000123", "response_accessions": [], "filings": []}
+
+
+def test_pending_first_r4_and_cik_entry_lower_bound():
+    candidate = {
+        "entity_id": "sec-cik:0000000123",
+        "fact_type": "sec.filing:8-k",
+        "event_at": "2026-09-25T14:01:00Z",
+        "normalized_sha256": "payload-a",
+        "accepted_at": "2026-09-25T14:01:00Z",
+        "available_at": "2026-09-25T14:05:00Z",
+        "accession": ACCESSION,
+    }
+    options = {
+        "activation_at": "2026-09-25T13:00:00Z",
+        "cik_entered_at": "2026-09-25T13:30:00Z",
+    }
+    assert filings.filing_eligibility(candidate, [], **options) == "eligible"
+    pending = {**candidate, "accepted_at": None, "event_at": None}
+    assert filings.filing_eligibility(
+        pending,
+        [{**pending}],
+        consumed_accessions={ACCESSION},
+        **options,
+    ) == "already_queued_or_consumed"
+    assert filings.filing_eligibility(pending, [{**pending}], **options) == "acceptance_pending_crosscheck"
+    assert filings.filing_eligibility(
+        candidate, [], previous_accessions={ACCESSION}, **options,
+    ) == "present_in_previous_response"
+    assert filings.filing_eligibility(
+        candidate, [], consumed_accessions={ACCESSION}, **options,
+    ) == "already_queued_or_consumed"
+    assert filings.filing_eligibility(
+        candidate, [{key: candidate[key] for key in
+                     ("entity_id", "fact_type", "event_at", "normalized_sha256")}], **options,
+    ) == "duplicate"
+    assert filings.filing_eligibility(
+        candidate, [], **{**options, "activation_at": candidate["accepted_at"]},
+    ) == "pre_activation"
+    assert filings.filing_eligibility(
+        candidate, [], **{**options, "cik_entered_at": candidate["accepted_at"]},
+    ) == "pre_universe_entry"
+    assert filings.filing_eligibility(
+        {**candidate, "available_at": "2026-09-25T14:00:59Z"}, [], **options,
+    ) == "invalid_future_acceptance"
+
+
+def test_decimal_eps_counterpart_is_gaap_comparable_and_unambiguous():
+    base = {
+        "measure": "diluted_eps",
+        "basis": "GAAP",
+        "comparison": "year_over_year",
+        "same_currency": True,
+        "same_duration": True,
+        "same_scope": True,
+        "same_split_basis": True,
+        "evidence_ids": ["row-1"],
+    }
+    result = filings.eps_yoy_sign([{**base, "current": "(0.20)", "prior": "−0.50"}])
+    assert result == {
+        "status": "available",
+        "current": "-0.20",
+        "prior": "-0.50",
+        "delta": "0.30",
+        "sign": 1,
+        "evidence_ids": ["row-1"],
+    }
+    adjusted = {**base, "basis": "adjusted", "current": "1.64", "prior": "1.00"}
+    gaap = {**base, "current": "$0.97", "prior": "1.00"}
+    assert filings.eps_yoy_sign([adjusted, gaap])["sign"] == -1
+    assert filings.eps_yoy_sign([adjusted])["status"] == "unavailable"
+    assert filings.eps_yoy_sign([{**base, "current": "—", "prior": "0"}])["status"] == "unavailable"
+    assert filings.eps_yoy_sign([
+        gaap,
+        {**base, "current": "1.01", "prior": "1.00", "evidence_ids": ["row-2"]},
+    ])["status"] == "unavailable"
+    zero = filings.eps_yoy_sign([{**base, "current": "-0", "prior": "+0"}])
+    assert zero["sign"] == 0
+    assert filings.parse_reported_decimal("(−0.20)") is None
+    assert filings.eps_yoy_sign([{**base, "current": "1", "prior": "0",
+                                  "evidence_ids": []}])["status"] == "unavailable"
+    for invalid_ids in ([{}], [[]], [" "], ["row-1", "row-1"]):
+        assert filings.eps_yoy_sign([
+            {**base, "current": "1", "prior": "0", "evidence_ids": invalid_ids},
+        ])["status"] == "unavailable"
+
+
+def test_eps_table_pairs_keep_exact_gaap_decimals_and_ignore_adjusted_rows():
+    table = {
+        "columns": ["measure", "basis", "current", "prior"],
+        "rows": [
+            ["Diluted EPS", "adjusted", "1.64", "1.00"],
+            ["Diluted EPS", "GAAP", "0.97", "1.00"],
+        ],
+        "row_evidence_ids": [
+            ["adjusted:measure", "adjusted:basis", "adjusted:current", "adjusted:prior"],
+            ["gaap:measure", "gaap:basis", "gaap:current", "gaap:prior"],
+        ],
+        "comparability": {
+            "comparison": "year_over_year", "same_currency": True,
+            "same_duration": True, "same_scope": True, "same_split_basis": True,
+        },
+    }
+    result = filings.eps_yoy_sign(filings.eps_table_pairs(table))
+    assert result["current"] == "0.97"
+    assert result["delta"] == "-0.03"
+    assert result["sign"] == -1
+    assert result["evidence_ids"] == [
+        "gaap:basis", "gaap:current", "gaap:measure", "gaap:prior",
+    ]
+    assert filings.parse_reported_decimal(True) is None
+    assert filings.parse_reported_decimal("NM") is None
+    assert filings.parse_reported_decimal("1,234.50") == Decimal("1234.50")
+    table["row_evidence_ids"][1] = ["gaap:measure", "gaap:basis", " ", "gaap:prior"]
+    with pytest.raises(ValueError, match="row evidence"):
+        filings.eps_table_pairs(table)
 
 
 @pytest.mark.parametrize("when", ["20241103013000", "20240310023000"])

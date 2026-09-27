@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from html.parser import HTMLParser
 from zoneinfo import ZoneInfo
 
@@ -101,6 +102,192 @@ def cik_id(value: str | int) -> str:
     if not re.fullmatch(r"[0-9]{1,10}", str(value)) or int(value) == 0:
         raise ValueError("invalid CIK")
     return str(int(value)).zfill(10)
+
+
+def parse_submissions(payload: dict, *, expected_cik: str | int) -> dict:
+    """Validate SEC parallel arrays without interpreting the JSON acceptance clock."""
+    expected = cik_id(expected_cik)
+    if not isinstance(payload, dict):
+        raise ValueError("submissions payload is not an object")
+    try:
+        actual_cik = cik_id(payload.get("cik"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid submissions CIK") from exc
+    if actual_cik != expected:
+        raise ValueError("submissions CIK differs")
+    filings_payload = payload.get("filings")
+    if not isinstance(filings_payload, dict):
+        raise ValueError("submissions filings object is missing")
+    recent = filings_payload.get("recent")
+    required = {"accessionNumber", "acceptanceDateTime", "filingDate", "form",
+                "items", "primaryDocument", "reportDate"}
+    if not isinstance(recent, dict) or not required <= set(recent):
+        raise ValueError("submissions recent arrays are missing")
+    arrays = [recent[key] for key in required]
+    if any(not isinstance(value, list) for value in arrays) or len({len(value) for value in arrays}) != 1:
+        raise ValueError("submissions parallel arrays differ")
+    filings, inventory = [], []
+    for index, form in enumerate(recent["form"]):
+        if not isinstance(form, str) or not form.strip():
+            raise ValueError("invalid submissions form")
+        accession = recent["accessionNumber"][index]
+        if not isinstance(accession, str) or not re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", accession):
+            raise ValueError("invalid submissions accession")
+        if accession in inventory:
+            raise ValueError("duplicate submissions accession")
+        inventory.append(accession)
+        filing_date = recent["filingDate"][index]
+        report_date = recent["reportDate"][index]
+        if not filing_date:
+            raise ValueError("invalid submissions date")
+        for value in (filing_date, report_date):
+            if not value:
+                continue
+            try:
+                datetime.strptime(value, "%Y-%m-%d")
+            except (TypeError, ValueError) as exc:
+                raise ValueError("invalid submissions date") from exc
+        raw_items = recent["items"][index]
+        if not isinstance(raw_items, str):
+            raise ValueError("invalid submissions item list")
+        items = tuple(part.strip() for part in raw_items.split(",") if part.strip())
+        if any(not re.fullmatch(r"[0-9]\.\d{2}", item) for item in items):
+            raise ValueError("invalid submissions item list")
+        if form not in {"8-K", "8-K/A"}:
+            continue
+        primary = recent["primaryDocument"][index]
+        primary = safe_filename(primary) if primary else None
+        raw_acceptance = recent["acceptanceDateTime"][index]
+        if raw_acceptance is not None and not isinstance(raw_acceptance, str):
+            raise ValueError("invalid submissions acceptance clock")
+        filings.append({
+            "accession": accession, "form": form, "filing_date": filing_date,
+            "report_date": report_date or None, "json_acceptance": raw_acceptance,
+            "primary_filename": primary,
+            "metadata_items": items,
+        })
+    return {"cik": expected, "response_accessions": inventory, "filings": filings}
+
+
+def filing_eligibility(
+    candidate: dict,
+    prior_facts: list[dict],
+    *,
+    activation_at,
+    cik_entered_at,
+    previous_accessions: set[str] | tuple[str, ...] = (),
+    consumed_accessions: set[str] | tuple[str, ...] = (),
+) -> str:
+    """Apply pending-first R4 and the registered activation/universe-entry bound."""
+    if candidate["accession"] in consumed_accessions:
+        return "already_queued_or_consumed"
+    if candidate["accession"] in previous_accessions:
+        return "present_in_previous_response"
+    if candidate.get("accepted_at") is None:
+        return "acceptance_pending_crosscheck"
+    accepted = timestamp(candidate["accepted_at"])
+    if accepted > timestamp(candidate["available_at"]):
+        return "invalid_future_acceptance"
+    identity = ("entity_id", "fact_type", "event_at", "normalized_sha256")
+    if any(all(prior.get(key) == candidate.get(key) for key in identity) for prior in prior_facts):
+        return "duplicate"
+    if accepted <= timestamp(activation_at):
+        return "pre_activation"
+    if accepted <= timestamp(cik_entered_at):
+        return "pre_universe_entry"
+    return "eligible"
+
+
+def parse_reported_decimal(value) -> Decimal | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.casefold() in {"nm", "n/m"} or text in {"—", "–", "-"}:
+        return None
+    negative = text.startswith("(") and text.endswith(")")
+    if negative:
+        text = text[1:-1]
+        if text.lstrip().startswith(("+", "-", "−")):
+            return None
+    text = text.replace(",", "").replace("−", "-")
+    text = re.sub(r"^[\$€£¥]\s*", "", text)
+    try:
+        parsed = Decimal(text)
+    except InvalidOperation:
+        return None
+    if not parsed.is_finite():
+        return None
+    return -parsed if negative else parsed
+
+
+def eps_yoy_sign(rows: list[dict]) -> dict:
+    """Return the sole comparable GAAP diluted-EPS pair using decimal arithmetic."""
+    pairs: dict[tuple[Decimal, Decimal], set[str]] = {}
+    for row in rows:
+        if (str(row.get("measure", "")).casefold().replace(" ", "_") not in
+                {"diluted_eps", "diluted_earnings_per_share"}
+                or str(row.get("basis", "")).casefold() != "gaap"
+                or row.get("comparison") != "year_over_year"
+                or any(row.get(key) is not True for key in
+                       ("same_currency", "same_duration", "same_scope", "same_split_basis"))):
+            continue
+        current = parse_reported_decimal(row.get("current"))
+        prior = parse_reported_decimal(row.get("prior"))
+        evidence_ids = row.get("evidence_ids", ())
+        valid_evidence = (
+            isinstance(evidence_ids, (list, tuple))
+            and bool(evidence_ids)
+            and all(
+                isinstance(value, str) and bool(value.strip()) and value == value.strip()
+                for value in evidence_ids
+            )
+        )
+        if (current is None or prior is None or not valid_evidence
+                or len(evidence_ids) != len(set(evidence_ids))):
+            continue
+        pairs.setdefault((current, prior), set()).update(evidence_ids)
+    if len(pairs) != 1:
+        return {"status": "unavailable", "current": None, "prior": None,
+                "delta": None, "sign": None, "evidence_ids": []}
+    (current, prior), evidence_ids = next(iter(pairs.items()))
+    delta = current - prior
+    return {"status": "available", "current": str(current), "prior": str(prior),
+            "delta": str(delta), "sign": (delta > 0) - (delta < 0),
+            "evidence_ids": sorted(evidence_ids)}
+
+
+def eps_table_pairs(table: dict) -> list[dict]:
+    """Convert a deterministically parsed EPS table into typed comparison rows."""
+    if table.get("columns") != ["measure", "basis", "current", "prior"]:
+        raise ValueError("unsupported EPS table headers")
+    comparability = table.get("comparability")
+    if not isinstance(comparability, dict):
+        raise ValueError("missing EPS comparability")
+    rows = table.get("rows", ())
+    evidence_rows = table.get("row_evidence_ids")
+    if not isinstance(rows, list) or not isinstance(evidence_rows, list) or len(evidence_rows) != len(rows):
+        raise ValueError("missing EPS row evidence")
+    pairs = []
+    for cells, evidence_ids in zip(rows, evidence_rows, strict=True):
+        if not isinstance(cells, list) or len(cells) != 4:
+            raise ValueError("invalid EPS table row")
+        if (not isinstance(evidence_ids, list) or len(evidence_ids) != 4
+                or any(not isinstance(value, str) or not value.strip()
+                       or value != value.strip() for value in evidence_ids)
+                or len(evidence_ids) != len(set(evidence_ids))):
+            raise ValueError("invalid EPS row evidence")
+        measure, basis, current, prior = cells
+        if measure != "Diluted EPS" or basis != "GAAP":
+            continue
+        pairs.append({
+            **comparability,
+            "measure": "diluted_eps",
+            "basis": "GAAP",
+            "current": current,
+            "prior": prior,
+            "evidence_ids": list(evidence_ids),
+        })
+    return pairs
 
 
 def safe_filename(value: str) -> str:
