@@ -9,6 +9,7 @@ import pytest
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from farm.agent_evaluation_analysis import contamination_diagnostics, expected_windows
+from farm.p16_eval_inputs import load_origin
 from server import (
     agent_evaluation,
     agent_evaluation_reporting,
@@ -109,16 +110,20 @@ def test_public_report_hashes_runtime_identity_but_retains_private_literal(con):
 
 def _p15_trace_with_label(con):
     agent_evaluation.init_schema(con)
-    bundle_body = {"market_date": "2026-09-01", "candidates": [{"ticker": "AAA"}]}
+    candidate = {
+        "ticker": "AAA", "stratum": "mover", "baseline_rank": 1,
+        "baseline_score": 1, "evidence_id": "a" * 64,
+    }
+    bundle_body = {"market_date": "2026-09-01", "candidates": [candidate]}
     bundle = {**bundle_body, "bundle_sha256": canonical_sha256(bundle_body)}
     assessment = {
-        "ticker": "AAA", "stratum": "mover", "scoring_status": "available",
+        **candidate, "scoring_status": "available",
         "p_outperform_5": 0.6, "expected_excess_bp_5": 50.0,
         "expected_excess_bp_10": 75.0, "baseline_score": 1,
         "action": "buy_candidate", "thesis": "test", "invalidation": "test",
         "evidence_ids": ["a" * 64],
     }
-    context = {"news_receipts": [], "candidates": [{"ticker": "AAA"}],
+    context = {"news_receipts": [], "candidates": [candidate],
                "information_cutoff_at": NOW.isoformat()}
     p15_scoring_store.init_schema(con)
     run = p15_scoring_store.create_run(
@@ -129,7 +134,7 @@ def _p15_trace_with_label(con):
         seed = p15_scoring_runner._seed("2026-09-01", 0, sample_index)
         sample_input = {"chunk_index": 0, "sample_index": sample_index,
                         "permutation_seed": seed,
-                        "candidates": [{"ticker": "AAA"}]}
+                        "candidates": [candidate]}
         request = agent_model_client.p15_scoring_request_payload(sample_input)
         sample = p15_scoring_store.start_sample(
             con, run_id=run["run_id"], chunk_index=0, sample_index=sample_index,
@@ -159,6 +164,17 @@ def _p15_trace_with_label(con):
         con, decision_id, 5, outcome, NOW, label_basis="next_session_open"
     )
     return result["trace_id"], decision_id
+
+
+def test_p16_input_adapter_accepts_canonical_validated_p15_origin(con):
+    _p15_trace_with_label(con)
+
+    result = load_origin(con, market_date=date(2026, 9, 1), report_cutoff=NOW)
+
+    assert result["status"] == "available"
+    assert result["terminal_h5_count"] == 1
+    assert result["rows"][0]["ticker"] == "AAA"
+    assert result["rows"][0]["rule_score"] == -1
 
 
 def test_report_scores_and_pairs_only_identical_outcome_prefixes(con):

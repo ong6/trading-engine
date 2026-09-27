@@ -59,7 +59,7 @@ def _one_trace(con: duckdb.DuckDBPyConnection, market_date: date) -> dict:
     return dict(zip(columns, values[0], strict=True))
 
 
-def _frozen_candidates(trace: dict) -> tuple[list[dict], str]:
+def _frozen_candidates(trace: dict) -> tuple[list[dict], str, str]:
     try:
         universe = json.loads(trace["input_payload"])["universe"]
         candidates = universe["candidates"]
@@ -75,7 +75,7 @@ def _frozen_candidates(trace: dict) -> tuple[list[dict], str]:
     if len(tickers) != len(candidates) or any(not item for item in tickers) \
             or len(set(tickers)) != len(tickers):
         raise EvaluationInputError("P15 frozen candidate set is invalid")
-    return candidates, universe_sha
+    return candidates, universe_sha, canonical_sha256(universe)
 
 
 def _decisions(con: duckdb.DuckDBPyConnection, trace_id: int) -> dict[str, dict]:
@@ -83,10 +83,13 @@ def _decisions(con: duckdb.DuckDBPyConnection, trace_id: int) -> dict[str, dict]
         "SELECT id,ticker,decision,assessment_sha256,decision_payload,decision_sha256 "
         "FROM agent_evaluation_decisions WHERE trace_id=? ORDER BY ticker", [trace_id],
     ).fetchall()
-    return {row[1]: {"id": int(row[0]), "decision": row[2],
-                     "assessment_sha256": row[3], "payload": json.loads(row[4]),
-                     "decision_sha256": row[5]}
-            for row in rows}
+    result = {row[1]: {"id": int(row[0]), "decision": row[2],
+                       "assessment_sha256": row[3], "payload": json.loads(row[4]),
+                       "decision_sha256": row[5]}
+              for row in rows}
+    if len(result) != len(rows):
+        raise EvaluationInputError("P15 decision set contains duplicate tickers")
+    return result
 
 
 def _labels(
@@ -133,7 +136,7 @@ def load_origin(
     if (trace["source_kind"] != "p15_scoring_run" or trace["terminal_status"] != "completed"
             or trace["information_cutoff_at"] > cutoff or trace["completed_at"] > cutoff):
         raise EvaluationInputError("P15 scoring trace is unavailable at report cutoff")
-    candidates, universe_sha = _frozen_candidates(trace)
+    candidates, bundle_sha, universe_sha = _frozen_candidates(trace)
     decisions = _decisions(con, int(trace["id"]))
     if set(decisions) != {item["ticker"] for item in candidates}:
         raise EvaluationInputError("P15 decision set differs from frozen candidates")
@@ -197,10 +200,13 @@ def load_origin(
             **label,
         })
     body = {
-        "schema_version": 1, "policy_id": POLICY_ID, "market_date": market_date.isoformat(),
+        "schema_version": 1, "policy_id": POLICY_ID,
+        "status": "pending" if unresolved else "available",
+        "market_date": market_date.isoformat(),
         "report_cutoff": report_cutoff.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
         "scoring_information_cutoff_at": _iso(trace["information_cutoff_at"]),
-        "source": {"run_id": int(trace["source_identifier"]), "universe_sha256": universe_sha,
+        "source": {"run_id": int(trace["source_identifier"]),
+                   "bundle_sha256": bundle_sha, "universe_sha256": universe_sha,
                    "context_sha256": run[1],
                    "source_refs_sha256": canonical_sha256(json.loads(trace["source_refs"])),
                    "request_sha256": trace["request_sha256"],
