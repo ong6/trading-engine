@@ -1090,4 +1090,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +29, tools unchanged, product +9 (sim +9); budget ok.
 - **Next:** run the final frozen-rubric reviews and full host/UTC acceptance suites.
 
+## 2026-09-27 — P16 W5: keep incomplete fill windows pending
+
+- **Why:** the final correctness review reproduced a construction window completing while its
+  next-open attempt remained pending because the exact-session bar was absent.
+- **What:** preflight every due attempt before writing execution or book state. Keep the earliest
+  incomplete window running, stop ordered catch-up there, and retry the entire window atomically
+  when its exact-session inputs become available.
+- **Evidence:** `.venv/bin/python -m pytest -q tests/test_p16_books.py` reaches `[100%]` with
+  10 passing tests, including a missing-bar retry with no partial ledger or state writes.
+- **Metrics:** server and tools unchanged; product +24 (sim +24); budget ok.
+- **Next:** run immutable final reviews and the full host/UTC acceptance suites.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

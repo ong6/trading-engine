@@ -99,6 +99,37 @@ def test_limit_miss_records_attempt_and_terminal_order_without_fill(con):
     assert con.execute("SELECT COUNT(*) FROM p16_book_fills").fetchone() == (0,)
 
 
+def test_missing_next_open_keeps_window_running_until_atomic_retry(con):
+    instance = _book(con)
+    _queue(con, instance)
+    p16_book_store.claim_window(
+        con, book_instance_id=instance, market_date=SESSIONS[30],
+        information_cutoff_at=NOW, risk_sha256="c" * 64,
+        score_sha256="d" * 64, previous_state_sha256=None,
+        target_sha256=SOURCE, started_at=NOW,
+    )
+
+    pending = p16_books.process_window(
+        con, book_instance_id=instance, market_date=SESSIONS[30], observed_at=NOW,
+    )
+
+    assert pending["status"] == "pending" and pending["pending"] == 1
+    assert con.execute("SELECT status FROM p16_book_windows").fetchone() == ("running",)
+    assert con.execute("SELECT COUNT(*) FROM p16_book_state").fetchone() == (0,)
+    assert con.execute("SELECT COUNT(*) FROM sim_execution_attempts").fetchone() == (0,)
+
+    insert_bars(
+        con, "AAA", [SESSIONS[30]], open_=100, close=100, high=101, low=99,
+    )
+    completed = p16_books.process_window(
+        con, book_instance_id=instance, market_date=SESSIONS[30], observed_at=NOW,
+    )
+
+    assert completed["status"] == "completed" and completed["filled"] == 1
+    assert con.execute("SELECT status FROM p16_book_windows").fetchone() == ("completed",)
+    assert con.execute("SELECT COUNT(*) FROM p16_book_state").fetchone() == (1,)
+
+
 def test_gap_cost_cannot_turn_a_whole_share_buy_into_fractional_fill(con):
     insert_bars(con, "AAA", SESSIONS[:31], open_=100, close=100, high=101, low=99)
     instance = _book(con)
