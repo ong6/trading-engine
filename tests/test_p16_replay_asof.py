@@ -5,8 +5,10 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import duckdb
 import pytest
 
+from engine.lib import db
 from farm.replay.asof import (
     PriceSeriesError,
     SplitQuarantineError,
@@ -17,6 +19,8 @@ from farm.replay.asof import (
     quarantined_exposure_counts,
     raw_price_spot_check,
     reconstruct_unadjusted_bars,
+    rewrite_known_split_adjustments,
+    rewrite_private_prices,
     split_adjustment_actions,
     split_known_at,
     split_outcome,
@@ -29,6 +33,8 @@ from farm.replay.registration import (
     SPLIT_KNOWLEDGE_SENSITIVITY,
     mandatory_acceptance_contract,
 )
+from farm.replay.runner import bootstrap_books
+from sim import p15_books
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "p16_replay_price_actions.json"
@@ -371,3 +377,64 @@ def test_p15_adapter_calls_the_pinned_candidate_gate_without_live_io():
     gated = gate_candidates(bundle)
     assert gated["candidates"][0]["reason"] == "earnings_unavailable"
     assert set(pinned_dependencies()) == {"universe", "books", "fills", "scoring"}
+
+
+def test_session_loader_hides_next_bar_and_future_split_and_uses_available_clock():
+    con = duckdb.connect(":memory:")
+    checkpoint = datetime(2024, 1, 2).date()
+    bootstrap_books(
+        con, checkpoint=checkpoint,
+        initialized_at=datetime(2026, 9, 27, tzinfo=timezone.utc),
+    )
+    raw = [
+        {
+            "security_id": "spy", "ticker": "SPY", "session": "2024-01-03",
+            "series": "source_back_adjusted_v1", "available_at": "2024-01-03T21:15:00Z",
+            "open": 100, "high": 101, "low": 99, "close": 100, "volume": 1000,
+        },
+        {
+            "security_id": "spy", "ticker": "SPY", "session": "2024-01-04",
+            "series": "source_back_adjusted_v1", "available_at": "2024-01-04T21:15:00Z",
+            "open": 50, "high": 51, "low": 49, "close": 50, "volume": 2000,
+        },
+    ]
+    action = _action(
+        action_id="spy-later", security_id="spy", ticker="SPY",
+        ex_date="2024-01-04", new_shares_per_old=2,
+    )
+    rebuilt = reconstruct_unadjusted_bars(raw, [action])
+    assert rewrite_private_prices(
+        con, rebuilt, [action], as_of=datetime(2024, 1, 3, 21, 15, tzinfo=timezone.utc)
+    ) == 1
+    assert con.execute(
+        "SELECT ticker,date,CAST(fetched_at AS VARCHAR) FROM prices"
+    ).fetchone() == ("SPY", checkpoint.replace(day=3), "2024-01-03 21:15:00")
+    assert rewrite_known_split_adjustments(
+        con, [action], known_at=datetime(2024, 1, 3, 14, 30, tzinfo=timezone.utc)
+    ) == 0
+
+
+def test_open_split_materialization_rebuilds_a_held_position_on_correct_scale():
+    con = duckdb.connect(":memory:")
+    checkpoint = datetime(2024, 1, 2).date()
+    bootstrap_books(
+        con, checkpoint=checkpoint,
+        initialized_at=datetime(2026, 9, 27, tzinfo=timezone.utc),
+    )
+    book = p15_books.BOOK_IDS[0]
+    con.execute(
+        "INSERT INTO sim_fills VALUES (1,?,'AAA','buy',1,?,100,100,0,0)",
+        [book, checkpoint],
+    )
+    action = _action(
+        action_id="aaa-split", security_id="aaa", ticker="AAA",
+        ex_date="2024-01-03", new_shares_per_old=2,
+    )
+    with db.transaction(con):
+        assert rewrite_known_split_adjustments(
+            con, [action], known_at=datetime(2024, 1, 3, 14, 30, tzinfo=timezone.utc)
+        ) == 1
+        p15_books._rebuild_p15_state(con)
+    assert con.execute(
+        "SELECT qty,avg_cost FROM sim_positions WHERE portfolio_id=? AND ticker='AAA'", [book]
+    ).fetchone() == (2.0, 50.0)
