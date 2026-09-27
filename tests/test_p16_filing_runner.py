@@ -254,6 +254,25 @@ def test_frozen_scope_uses_cutoff_snapshots_and_sixty_session_primary(con):
         )
 
 
+def test_p15_snapshot_normalizes_duckdb_host_local_timestamp(con):
+    con.execute("SET TimeZone='Asia/Singapore'")
+    p15_scoring_store.init_schema(con)
+    body = {"market_date": NOW.date().isoformat(), "candidates": [{"ticker": "AAPL"}]}
+    universe = {**body, "bundle_sha256": canonical_sha256(body)}
+    run = p15_scoring_store.create_run(
+        con, market_date=NOW.date(), universe=universe, context={},
+        information_cutoff_at=NOW - timedelta(minutes=2),
+        started_at=NOW - timedelta(minutes=2), news_receipts=[],
+    )
+    p15_scoring_store.complete_run(
+        con, run["run_id"], trace_sha256="e" * 64,
+        completed_at=NOW - timedelta(minutes=1),
+    )
+    snapshot = runner._p15_snapshot(con, NOW)
+    assert snapshot is not None
+    assert snapshot["completed_at"] == (NOW - timedelta(minutes=1)).isoformat()
+
+
 def test_score_pending_releases_writer_limits_concurrency_and_is_terminal(tmp_path):
     database = tmp_path / "market.duckdb"
     _database(database, securities=("GOOG", "GOOGL"))
