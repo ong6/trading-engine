@@ -22,6 +22,25 @@ def test_calibration_unavailable_without_a_valid_p15_origin(con):
     ]
 
 
+def test_calibration_risk_snapshot_uses_retained_scoring_cutoff(con, monkeypatch):
+    cutoff = datetime(2026, 9, 25, 20, tzinfo=timezone.utc)
+    monkeypatch.setattr(p16_runner.p16_eval_inputs, "load_origin", lambda *_args, **_kwargs: {
+        "scoring_information_cutoff_at": "2026-09-25T20:00:00Z",
+    })
+
+    def inspect_cutoff(_con, _origin, observed_cutoff):
+        assert observed_cutoff == cutoff
+        raise ValueError("checked")
+
+    monkeypatch.setattr(p16_runner, "_snapshot", inspect_cutoff)
+    result = p16_runner.calibrate(
+        con, market_date=date(2026, 9, 25),
+        generated_at=datetime(2026, 9, 28, 15, tzinfo=timezone.utc),
+    )
+    assert result["status"] == "calibration_unavailable"
+    assert result["reason"] == "checked"
+
+
 def test_copied_store_dry_run_leaves_source_unchanged(tmp_path):
     database = tmp_path / "market.duckdb"
     con = duckdb.connect(str(database))

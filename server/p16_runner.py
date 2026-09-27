@@ -125,7 +125,10 @@ def calibrate(con, *, market_date: date, generated_at: datetime) -> dict:
         origin = p16_eval_inputs.load_origin(
             con, market_date=market_date, report_cutoff=generated_at,
         )
-        snapshot = _snapshot(con, origin, generated_at)
+        scoring_cutoff = datetime.fromisoformat(
+            origin["scoring_information_cutoff_at"].replace("Z", "+00:00"),
+        )
+        snapshot = _snapshot(con, origin, scoring_cutoff)
     except (ValueError, p16_eval_inputs.EvaluationInputError, duckdb.Error) as exc:
         return {
             "status": "calibration_unavailable", "reason": str(exc),

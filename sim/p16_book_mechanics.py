@@ -116,11 +116,16 @@ def record_sim_fill(
                  float(result.fill_px) - 2.5 * float(entry_atr), "open"],
             )
         elif side == "sell" and ticker != "SPY":
-            con.execute(
-                "UPDATE p16_position_rules SET status='closed',exit_intent_id=? "
-                "WHERE book_instance_id=? AND ticker=? AND status='open'",
-                [intent_id, book, ticker],
-            )
+            remaining = con.execute(
+                "SELECT qty FROM sim_positions WHERE portfolio_id=? AND ticker=?",
+                [book, ticker],
+            ).fetchone()
+            if remaining is None or remaining[0] <= 1e-12:
+                con.execute(
+                    "UPDATE p16_position_rules SET status='closed',exit_intent_id=? "
+                    "WHERE book_instance_id=? AND ticker=? AND status='open'",
+                    [intent_id, book, ticker],
+                )
     con.execute(
         "UPDATE p16_order_intents SET status=?,reason=?,sim_order_id=? WHERE intent_id=?",
         [status, reason, order_id, intent_id],
