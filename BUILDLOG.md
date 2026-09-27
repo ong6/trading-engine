@@ -1030,4 +1030,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server and product LOC unchanged; tools +2; budget ok.
 - **Next:** install the reissued inert P15 units, then resume W4's mandatory acceptance contracts.
 
+## 2026-09-27 — P16 W4: freeze an independent lesson corpus
+
+- **Why:** W4 mandatory condition 1 requires 100 or more plain lessons authored independently
+  and frozen before the rejection bound is applied.
+- **What:** freeze 120 unique, company-agnostic investment-research lessons supplied without
+  repository or filter context. This commit deliberately does not run or register the filter.
+- **Evidence:** the fixture-only JSON/count check reports `120 unique lessons; filter not invoked`.
+- **Metrics:** product code unchanged; budget ok.
+- **Next:** bind this frozen commit and fixed rejection bound, then rerun the W4 guard review.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
