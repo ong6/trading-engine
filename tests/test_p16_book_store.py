@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import duckdb
 import pytest
@@ -119,6 +119,52 @@ def test_contracts_reject_calibration_not_strictly_before_activation():
         p16_book_store.initialize_contracts(
             con, registration_sha256=REGISTRATION, activation_date=NOW.date(),
             calibration_sha256=calibration, created_at=NOW,
+        )
+
+
+def test_contracts_reject_calibration_recorded_after_activation():
+    source = duckdb.connect(":memory:")
+    digest = record_p16_calibration(source, REGISTRATION, NOW)
+    payload = json.loads(source.execute(
+        "SELECT payload_json FROM p16_calibrations WHERE calibration_sha256=?", [digest],
+    ).fetchone()[0])
+    source.close()
+    con = duckdb.connect(":memory:")
+    late = NOW + timedelta(days=10)
+    p16_book_store.record_calibration(
+        con, registration_sha256=REGISTRATION, payload=payload, recorded_at=late,
+    )
+
+    with pytest.raises(p16_book_store.P16BookError, match="not preactivation"):
+        p16_book_store.initialize_contracts(
+            con, registration_sha256=REGISTRATION,
+            activation_date=NOW.date() + timedelta(days=8),
+            calibration_sha256=digest, created_at=NOW,
+        )
+
+
+def test_calibration_rejects_non_exchange_session_history():
+    source = duckdb.connect(":memory:")
+    digest = record_p16_calibration(source, REGISTRATION, NOW)
+    payload = json.loads(source.execute(
+        "SELECT payload_json FROM p16_calibrations WHERE calibration_sha256=?", [digest],
+    ).fetchone()[0])
+    source.close()
+    payload["snapshots"][0]["sessions"][0] = (
+        date.fromisoformat(payload["snapshots"][0]["sessions"][0]) + timedelta(days=1)
+    ).isoformat()
+    body = {
+        key: value for key, value in payload["snapshots"][0].items()
+        if key != "snapshot_sha256"
+    }
+    payload["snapshots"][0]["snapshot_sha256"] = canonical_sha256(body)
+    payload_body = {key: value for key, value in payload.items() if key != "calibration_sha256"}
+    payload["calibration_sha256"] = canonical_sha256(payload_body)
+
+    with pytest.raises((p16_book_store.P16BookError, ValueError), match="calibration|session"):
+        p16_book_store.record_calibration(
+            duckdb.connect(":memory:"), registration_sha256=REGISTRATION,
+            payload=payload, recorded_at=NOW,
         )
 
 

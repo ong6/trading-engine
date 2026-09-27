@@ -1,14 +1,99 @@
 """Inert simulator lifecycle for versioned P16 construction books."""
 from __future__ import annotations
 
+import json
 from contextlib import nullcontext
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from engine.lib import db
-from engine.lib.data_quality import quarantine_reason
 from engine.lib.db import REAL_BAR_SQL
+from engine.lib.util import table_exists
 from server import p16_book_store
-from sim import nyse, p15_fills, p16_book_mechanics
+from sim import fills, nyse, p15_fills, p16_book_mechanics
+
+_NEW_YORK = ZoneInfo("America/New_York")
+
+
+def _session_open_utc(market_date: date) -> datetime:
+    return datetime.combine(
+        market_date, time(9, 30), tzinfo=_NEW_YORK,
+    ).astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _latest_opened_session(observed_at: datetime) -> date:
+    observed = p16_book_store._timestamp(observed_at, "window observation time")
+    local = observed.replace(tzinfo=timezone.utc).astimezone(_NEW_YORK)
+    current = local.date()
+    if not nyse.is_session(current) or local.time() < time(9, 30):
+        current -= timedelta(days=1)
+        while not nyse.is_session(current):
+            current -= timedelta(days=1)
+    return current
+
+
+def _elapsed_sessions(signal_date: date, through: date) -> int:
+    count, current = 0, signal_date
+    while current < through:
+        current = nyse.next_session(current)
+        if current <= through:
+            count += 1
+    return count
+
+
+def _quarantine_reason_at_open(con, ticker: str, market_date: date) -> str | None:
+    """Return quarantine authority known at the modeled open, never retry time."""
+    if not table_exists(con, "price_quarantine"):
+        return None
+    cutoff = _session_open_utc(market_date)
+    if table_exists(con, "audit_log"):
+        latest = None
+        for _ts, action, encoded in con.execute(
+            "SELECT ts,action,payload FROM audit_log WHERE actor='price_quarantine' "
+            "AND ts<=? ORDER BY ts,CASE action WHEN 'activate' THEN 0 ELSE 1 END",
+            [cutoff],
+        ).fetchall():
+            try:
+                payload = json.loads(encoded)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if payload.get("ticker") == ticker.upper() and action in {"activate", "resolve"}:
+                latest = (action, payload)
+        if latest is not None:
+            return latest[1].get("reason") if latest[0] == "activate" else None
+    row = con.execute(
+        "SELECT reason FROM price_quarantine WHERE ticker=? AND confirmed_at<=? "
+        "AND (resolved_at IS NULL OR resolved_at>?)",
+        [ticker.upper(), cutoff, cutoff],
+    ).fetchone()
+    return None if row is None else str(row[0])
+
+
+def _attempt_at_expected_open(
+    con, *, ticker: str, side: str, quantity: float, signal_date: date,
+    expected_session: date, limit_px: float | None, observed_at: datetime,
+):
+    observed = p16_book_store._timestamp(observed_at, "window observation time")
+    available = con.execute(
+        f"SELECT 1 FROM prices WHERE ticker=? AND date=? AND fetched_at IS NOT NULL "
+        f"AND fetched_at<=? AND {REAL_BAR_SQL}",
+        [ticker, expected_session, observed],
+    ).fetchone() is not None
+    if not available:
+        status = "rejected" if _elapsed_sessions(
+            signal_date, _latest_opened_session(observed_at),
+        ) >= fills.PENDING_MAX_DAYS else "pending"
+        return p15_fills.LimitFillResult(
+            status=status, reject_reason="no_bar" if status == "rejected" else None,
+        )
+    if limit_px is not None:
+        return p16_book_mechanics.attempt_limit_on_open(
+            con, ticker, side, quantity, signal_date, expected_session,
+            limit_px, "baseline_v1",
+        )
+    return p16_book_mechanics.attempt_fill(
+        con, ticker, side, quantity, signal_date, expected_session, "baseline_v1",
+    )
 
 
 def queue_plan(
@@ -157,6 +242,20 @@ def process_window(
         return {"status": "inactive", "filled": 0, "rejected": 0, "pending": 0}
     counts = {"filled": 0, "rejected": 0, "pending": 0}
     with db.transaction(con):
+        window = con.execute(
+            "SELECT status,previous_state_sha256 FROM p16_book_windows "
+            "WHERE book_instance_id=? AND market_date=?",
+            [book_instance_id, market_date],
+        ).fetchone()
+        if window is None:
+            raise p16_book_store.P16BookError("P16 book window was not claimed")
+        if window[0] == "completed":
+            return {
+                "status": "already_complete", "filled": 0, "rejected": 0,
+                "pending": 0, "counterfactual_labels": 0,
+            }
+        if window[0] != "running":
+            raise p16_book_store.P16BookError("P16 book window is not runnable")
         latest_date = con.execute(
             "SELECT MAX(market_date) FROM p16_book_state WHERE book_instance_id=?",
             [book_instance_id],
@@ -170,10 +269,19 @@ def process_window(
             "WHERE book_instance_id=? AND market_date<? ORDER BY market_date DESC LIMIT 1",
             [book_instance_id, market_date],
         ).fetchone()
+        actual_previous = None if previous is None else previous[0]
+        if window[1] != actual_previous:
+            raise p16_book_store.P16BookError(
+                "P16 window previous state differs",
+            )
         outcomes = []
         for row in _pending_rows(con, book_instance_id, market_date):
             (intent_id, ticker, side, quantity, signal_date, role, limit_px, _entry_atr,
              expected_session, source_sha256) = row
+            if expected_session != market_date:
+                raise p16_book_store.P16BookError(
+                    "P16 intent expected session differs from its window",
+                )
             factor = p16_book_mechanics.split_factor(con, ticker, signal_date, market_date)
             quantity = float(quantity) * factor
             adjusted_limit = None if limit_px is None else float(limit_px) / factor
@@ -181,7 +289,7 @@ def process_window(
             halted = (side == "buy" and ticker != "SPY" and role == "rebalance"
                       and bool(previous and previous[2]))
             quarantined = side == "buy" and ticker != "SPY" \
-                and quarantine_reason(con, ticker) is not None
+                and _quarantine_reason_at_open(con, ticker, market_date) is not None
             if stale:
                 result = p15_fills.LimitFillResult(
                     status="rejected", reject_reason="stale_signal",
@@ -194,14 +302,11 @@ def process_window(
                 result = p15_fills.LimitFillResult(
                     status="rejected", reject_reason="data_quarantine",
                 )
-            elif adjusted_limit is not None:
-                result = p16_book_mechanics.attempt_limit_on_open(
-                    con, ticker, side, quantity, signal_date, market_date,
-                    adjusted_limit, "baseline_v1",
-                )
             else:
-                result = p16_book_mechanics.attempt_fill(
-                    con, ticker, side, quantity, signal_date, market_date, "baseline_v1",
+                result = _attempt_at_expected_open(
+                    con, ticker=ticker, side=side, quantity=quantity,
+                    signal_date=signal_date, expected_session=expected_session,
+                    limit_px=adjusted_limit, observed_at=observed_at,
                 )
             outcomes.append((row, quantity, adjusted_limit, result))
         pending = sum(result.status == "pending" for *_rest, result in outcomes)
@@ -229,7 +334,10 @@ def process_window(
             )
             counts[status] += 1
         mark = p16_book_mechanics.mark_exact(con, book_instance_id, market_date)
-        peak = max(mark["equity"], mark["equity"] if previous is None else previous[1])
+        initial_capital = con.execute(
+            "SELECT initial_cash FROM portfolios WHERE id=?", [book_instance_id],
+        ).fetchone()[0]
+        peak = max(mark["equity"], float(initial_capital) if previous is None else previous[1])
         halted = bool(previous and previous[2]) or mark["equity"] / peak - 1 <= -0.20
         state_sha = p16_book_store.append_state(
             con, book_instance_id=book_instance_id, market_date=market_date,
@@ -243,15 +351,10 @@ def process_window(
         labels = label_limit_counterfactuals(
             con, book_instance_id=book_instance_id, labeled_at=observed_at,
         )
-        window = con.execute(
-            "SELECT status FROM p16_book_windows WHERE book_instance_id=? "
-            "AND market_date=?", [book_instance_id, market_date],
-        ).fetchone()
-        if window is not None:
-            p16_book_store.complete_window(
-                con, book_instance_id=book_instance_id, market_date=market_date,
-                status="completed", reason=None, completed_at=observed_at,
-            )
+        p16_book_store.complete_window(
+            con, book_instance_id=book_instance_id, market_date=market_date,
+            status="completed", reason=None, completed_at=observed_at,
+        )
     return {"status": "completed", **counts, "counterfactual_labels": labels,
             "state_sha256": state_sha, "mark": mark}
 
@@ -264,33 +367,23 @@ def process_through(
         "SELECT MAX(market_date) FROM p16_book_state WHERE book_instance_id=?",
         [book_instance_id],
     ).fetchone()[0]
-    running = con.execute(
-        "SELECT MIN(market_date) FROM p16_book_windows WHERE book_instance_id=? "
-        "AND status='running' AND market_date<=?", [book_instance_id, market_date],
-    ).fetchone()[0]
     if latest is not None and market_date < latest:
         raise p16_book_store.P16BookError("P16 book window moved backward")
-    if latest is None:
-        cursor = running or market_date
-    elif latest == market_date:
-        cursor = market_date
-    else:
-        cursor = nyse.next_session(latest)
-        if running is not None and running < cursor:
-            cursor = running
-    sessions = []
-    while cursor <= market_date:
-        sessions.append(cursor)
-        cursor = nyse.next_session(cursor)
     results = []
     processed_sessions = []
-    for session in sessions:
+    while True:
+        running = con.execute(
+            "SELECT MIN(market_date) FROM p16_book_windows WHERE book_instance_id=? "
+            "AND status='running' AND market_date<=?", [book_instance_id, market_date],
+        ).fetchone()[0]
+        if running is None:
+            break
         result = process_window(
-            con, book_instance_id=book_instance_id, market_date=session,
+            con, book_instance_id=book_instance_id, market_date=running,
             observed_at=observed_at,
         )
         results.append(result)
-        processed_sessions.append(session)
+        processed_sessions.append(running)
         if result["status"] == "pending":
             break
     return {

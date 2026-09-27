@@ -1102,4 +1102,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server and tools unchanged; product +24 (sim +24); budget ok.
 - **Next:** run immutable final reviews and the full host/UTC acceptance suites.
 
+## 2026-09-27 — P16 W5: close final causal and recovery gaps
+
+- **Why:** frozen authority, correctness, and leakage reviews reproduced stale predecessor,
+  retrospective fill, late quarantine/holding-state, post-activation calibration, drawdown,
+  missing-bar grace, replay, and rounded-plan repair failures.
+- **What:** bind claims to causal pre-open inputs and ordered predecessor state; make retries
+  cutoff-stable and terminal after three sessions; reconstruct transfer holdings only from
+  cutoff-visible completed book evidence; enforce preactivation/session calibration rules;
+  measure first drawdown from initial capital; and apply the registered lowest-alpha SPY repair.
+- **Evidence:** the focused W5 lifecycle, store, transfer, planner, and runner suite reaches
+  `[100%]`, including direct regressions for every reproduced failure.
+- **Metrics:** engine +23; server +111; sim +93; tools unchanged; product +116; budget ok.
+- **Next:** rerun immutable frozen-rubric reviews and full host/UTC suites.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

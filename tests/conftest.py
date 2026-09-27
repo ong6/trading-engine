@@ -70,9 +70,10 @@ def record_p16_calibration(con, registration, recorded_at, *, cost=0.0005):
     import numpy as np
 
     from engine.lib.provenance import canonical_sha256
+    from engine.p16_features import session_dates
     from farm import p16_calibration
     from server import p16_book_store
-    from sim import execution
+    from sim import execution, nyse
 
     del cost
     cache_key = recorded_at.isoformat()
@@ -82,10 +83,10 @@ def record_p16_calibration(con, registration, recorded_at, *, cost=0.0005):
             payload=json.loads(_P16_CALIBRATION_PAYLOADS[cache_key]),
             recorded_at=recorded_at,
         )
-    dates = [
-        (recorded_at.date() - timedelta(days=1)).isoformat(),
-        recorded_at.date().isoformat(),
-    ]
+    latest = recorded_at.date()
+    while not nyse.is_session(latest):
+        latest -= timedelta(days=1)
+    dates = [value.isoformat() for value in session_dates(latest, 2)]
     from farm import p16_risk
 
     tickers = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"]
@@ -108,9 +109,7 @@ def record_p16_calibration(con, registration, recorded_at, *, cost=0.0005):
     snapshots = []
     for market_date in dates:
         end = date.fromisoformat(market_date)
-        session_values = [
-            (end - timedelta(days=offset)).isoformat() for offset in range(120, -1, -1)
-        ]
+        session_values = [value.isoformat() for value in session_dates(end, 121)]
         risk_sha = canonical_sha256({
             "market_date": market_date, "tickers": tickers, "sessions": session_values,
             "covariance_h5": solver_inputs["champion"]["covariance_h5"],
