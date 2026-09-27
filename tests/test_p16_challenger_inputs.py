@@ -3,9 +3,12 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 
 import pytest
+import duckdb
 
 from engine.lib.provenance import canonical_sha256
-from engine.p16_challenger_inputs import ablate, blind, memory_examples
+from engine.p16_challenger_inputs import (
+    ablate, blind, enrich, memory_examples, metadata_envelope,
+)
 
 
 def _payload():
@@ -195,3 +198,35 @@ def test_treatment_hashes_bind_original_payload_and_transformed_payload():
     assert treatment["treatment_sha256"] == canonical_sha256({
         key: value for key, value in treatment.items() if key != "treatment_sha256"
     })
+
+
+def test_common_metadata_envelope_is_cutoff_bounded_and_self_hashed():
+    con = duckdb.connect(":memory:")
+    con.execute("CREATE TABLE universe_snapshot (snapshot_date DATE,ticker VARCHAR,name VARCHAR)")
+    con.execute("CREATE TABLE fundamentals (ticker VARCHAR,as_of DATE,fetched_at TIMESTAMP,"
+                "sector VARCHAR,source VARCHAR)")
+    con.executemany("INSERT INTO universe_snapshot VALUES (?,?,?)", [
+        ("2026-09-20", "ACME", "Acme Corporation"),
+        ("2026-09-30", "ACME", "Future Name"),
+    ])
+    con.executemany("INSERT INTO fundamentals VALUES (?,?,?,?,?)", [
+        ("ACME", "2026-09-20", "2026-09-29 20:00:00", "Technology", "fixture"),
+        ("ACME", "2026-09-29", "2026-09-29 23:00:00", "Future", "fixture"),
+    ])
+    envelope = metadata_envelope(
+        con, ["ACME"], "2026-09-29",
+        information_cutoff_at="2026-09-29T21:00:00+00:00",
+    )
+    con.close()
+    assert envelope["entries"][0]["company_name"] == "Acme Corporation"
+    assert envelope["entries"][0]["sector"] == "technology"
+    assert envelope["metadata_envelope_sha256"] == canonical_sha256({
+        key: value for key, value in envelope.items()
+        if key != "metadata_envelope_sha256"
+    })
+
+    enriched = enrich(
+        _payload(), envelope, decision_at="2026-09-29T21:01:00+00:00")
+    assert enriched["candidates"][0]["company_name"] == "Acme Corporation"
+    assert enriched["candidates"][0]["sector"] == "technology"
+    assert enriched["metadata_envelope_sha256"] == envelope["metadata_envelope_sha256"]

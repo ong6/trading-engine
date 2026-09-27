@@ -12,6 +12,7 @@ import re
 from datetime import datetime, timezone
 
 from engine.lib.provenance import canonical_sha256
+from engine.lib.util import table_exists
 
 META_FIELDS = {
     "schema_version", "policy_id", "market_date", "information_cutoff_at",
@@ -58,6 +59,91 @@ def _treatment(original: dict, payload: dict, kind: str, details: dict) -> dict:
         **details,
     }
     return {**body, "treatment_sha256": canonical_sha256(body)}
+
+
+def metadata_envelope(
+    con, tickers: list[str], market_date: str, *, information_cutoff_at: str,
+) -> dict:
+    """Build one cutoff-bounded issuer-name/sector envelope for every member."""
+    cutoff = _utc(information_cutoff_at)
+    try:
+        market_day = datetime.fromisoformat(market_date).date()
+    except (TypeError, ValueError) as exc:
+        raise ValueError("challenger metadata market date is invalid") from exc
+    if (not tickers or len(tickers) != len(set(tickers))
+            or any(not isinstance(ticker, str) or not ticker for ticker in tickers)):
+        raise ValueError("challenger metadata tickers are invalid")
+    names, name_sources = {}, {}
+    if table_exists(con, "universe_snapshot"):
+        placeholders = ",".join("?" for _ in tickers)
+        rows = con.execute(
+            "SELECT ticker,name,snapshot_date FROM universe_snapshot "
+            f"WHERE ticker IN ({placeholders}) AND snapshot_date<=? "
+            "QUALIFY ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY snapshot_date DESC)=1",
+            [*tickers, market_day],
+        ).fetchall()
+        for ticker, name, snapshot_date in rows:
+            if isinstance(name, str) and name.strip():
+                names[ticker] = name.strip()
+                name_sources[ticker] = {"snapshot_date": snapshot_date.isoformat()}
+    sectors, sector_sources = {}, {}
+    if table_exists(con, "fundamentals"):
+        placeholders = ",".join("?" for _ in tickers)
+        rows = con.execute(
+            "SELECT ticker,sector,as_of,fetched_at,source FROM fundamentals "
+            f"WHERE ticker IN ({placeholders}) AND as_of<=? AND fetched_at IS NOT NULL "
+            "AND fetched_at<=? QUALIFY ROW_NUMBER() OVER (PARTITION BY ticker "
+            "ORDER BY as_of DESC,fetched_at DESC)=1",
+            [*tickers, market_day, cutoff.replace(tzinfo=None)],
+        ).fetchall()
+        for ticker, sector, as_of, fetched_at, source in rows:
+            sectors[ticker] = sector.strip().lower() \
+                if isinstance(sector, str) and sector.strip() else "unknown"
+            sector_sources[ticker] = {
+                "as_of": as_of.isoformat(), "fetched_at": fetched_at.isoformat(),
+                "source": source,
+            }
+    entries = [{
+        "ticker": ticker, "company_name": names.get(ticker),
+        "aliases": [ticker, *([] if ticker not in names else [names[ticker]])],
+        "sector": sectors.get(ticker, "unknown"),
+        "name_source": name_sources.get(ticker),
+        "sector_source": sector_sources.get(ticker),
+    } for ticker in tickers]
+    body = {
+        "schema_version": 1, "market_date": market_date,
+        "available_at": cutoff.isoformat(), "entries": entries,
+        "name_basis": "latest_universe_snapshot_on_or_before_market_date",
+        "sector_basis": "latest_fundamentals_fetched_by_information_cutoff",
+    }
+    return {**body, "metadata_envelope_sha256": canonical_sha256(body)}
+
+
+def enrich(original: dict, envelope: dict, *, decision_at: str) -> dict:
+    """Add the identical registered metadata envelope before any treatment."""
+    expected = canonical_sha256({
+        key: value for key, value in envelope.items()
+        if key != "metadata_envelope_sha256"
+    })
+    if (envelope.get("metadata_envelope_sha256") != expected
+            or _utc(envelope.get("available_at")) > _utc(decision_at)
+            or envelope.get("market_date") != original.get("market_date")):
+        raise ValueError("challenger metadata envelope differs")
+    entries = envelope.get("entries")
+    mapped = {row.get("ticker"): row for row in entries} if isinstance(entries, list) else {}
+    candidates = original.get("candidates")
+    tickers = [row.get("ticker") for row in candidates] if isinstance(candidates, list) else []
+    if len(mapped) != len(entries or []) or set(mapped) != set(tickers):
+        raise ValueError("challenger metadata envelope is incomplete")
+    payload = copy.deepcopy(original)
+    payload["metadata_envelope_sha256"] = expected
+    for candidate in payload["candidates"]:
+        metadata = mapped[candidate["ticker"]]
+        candidate.update(
+            company_name=metadata["company_name"],
+            company_aliases=metadata["aliases"], sector=metadata["sector"],
+        )
+    return payload
 
 
 def blind(original: dict, aliases: dict, *, decision_at: str) -> dict:
