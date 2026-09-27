@@ -738,6 +738,64 @@ def claim_window(
     return "running"
 
 
+def claim_recovery_window(
+    con, *, book_instance_id: str, signal_date: date,
+    information_cutoff_at: datetime, risk_sha256: str, score_sha256: str,
+    previous_state_sha256: str, target_sha256: str, recovered_at: datetime,
+) -> str:
+    """Claim an after-the-fact mandatory-only session blocked by an earlier window."""
+    market_date = nyse.next_session(signal_date)
+    cutoff = _timestamp(information_cutoff_at, "recovery information cutoff")
+    recovered = _timestamp(recovered_at, "recovery recording time")
+    risk = _digest(risk_sha256, "risk digest")
+    score = _digest(score_sha256, "score digest")
+    previous = _digest(previous_state_sha256, "previous state digest")
+    target = _digest(target_sha256, "target digest")
+    session_open = datetime.combine(
+        market_date, time(9, 30), tzinfo=_NEW_YORK,
+    ).astimezone(timezone.utc).replace(tzinfo=None)
+    if cutoff > recovered or recovered < session_open:
+        raise P16BookError("P16 recovery timing is invalid")
+    predecessor = con.execute(
+        "SELECT state_sha256 FROM p16_book_state WHERE book_instance_id=? "
+        "AND market_date=?", [book_instance_id, signal_date],
+    ).fetchone()
+    if predecessor is None or predecessor[0] != previous:
+        raise P16BookError("P16 recovery predecessor differs")
+    body = {
+        "book_instance_id": book_instance_id, "market_date": market_date.isoformat(),
+        "information_cutoff_at": cutoff.isoformat(), "risk_sha256": risk,
+        "score_sha256": score, "previous_state_sha256": previous,
+        "target_sha256": target,
+    }
+    digest = canonical_sha256(body)
+    prior = con.execute(
+        "SELECT information_cutoff_at,risk_sha256,score_sha256,previous_state_sha256,"
+        "target_sha256,status,reason,started_at,window_sha256 FROM p16_book_windows "
+        "WHERE book_instance_id=? AND market_date=?", [book_instance_id, market_date],
+    ).fetchone()
+    expected = (
+        cutoff, risk, score, previous, target, "running", "ordered_recovery",
+        recovered, digest,
+    )
+    if prior is not None:
+        if prior != expected:
+            raise P16BookError("P16 recovery window replay differs")
+        return "running"
+    if con.execute(
+        "SELECT 1 FROM p16_book_windows WHERE book_instance_id=? "
+        "AND market_date<? AND status='running' LIMIT 1",
+        [book_instance_id, market_date],
+    ).fetchone() is not None:
+        raise P16BookError("earlier P16 book window remains running")
+    con.execute(
+        "INSERT INTO p16_book_windows VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        [book_instance_id, market_date, cutoff, risk, score, previous, target,
+         "running", "ordered_recovery", recovered, None, digest],
+    )
+    return "running"
+
+
 def complete_window(
     con, *, book_instance_id: str, market_date: date, status: str,
     reason: str | None, completed_at: datetime,

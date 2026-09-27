@@ -16,6 +16,17 @@ attempt_fill = fills.attempt_fill
 apply_fill = portfolio.apply_fill
 
 
+def current_position_state(con, book_instance_id: str) -> dict:
+    """Return the mutable simulator projection and its canonical identity."""
+    cash = portfolio.get_cash(con, book_instance_id)
+    positions = portfolio.get_positions(con, book_instance_id)
+    body = {
+        "cash": cash,
+        "positions": {ticker: positions[ticker] for ticker in sorted(positions)},
+    }
+    return {**body, "position_state_sha256": canonical_sha256(body)}
+
+
 def next_sim_order_id(con) -> int:
     return int(con.execute("SELECT COALESCE(MAX(id),0)+1 FROM sim_orders").fetchone()[0])
 
@@ -33,6 +44,7 @@ def split_factor(con, ticker: str, after: date, through: date) -> float:
 def record_sim_fill(
     con, *, intent_id: str, fill_date: date, result, source_sha256: str,
     adjusted_quantity: float | None = None,
+    adjusted_entry_atr: float | None = None,
 ) -> str:
     """Commit one terminal outcome through every P15-equivalent simulator ledger."""
     intent = con.execute(
@@ -44,6 +56,8 @@ def record_sim_fill(
     (book, ticker, side, stored_quantity, signal_date, role, entry_atr,
      stored_status, reason, order_id) = intent
     quantity = float(stored_quantity if adjusted_quantity is None else adjusted_quantity)
+    if adjusted_entry_atr is not None:
+        entry_atr = float(adjusted_entry_atr)
     if not math.isfinite(quantity) or quantity <= 0:
         raise P16BookError("P16 adjusted terminal quantity is invalid")
     if stored_status != "pending":
@@ -143,8 +157,8 @@ def record_sim_fill(
 
 def mark_exact(con, book_instance_id: str, market_date: date) -> dict:
     """Append or verify the exact close projection without carrying a fabricated price."""
-    cash = portfolio.get_cash(con, book_instance_id)
-    positions = portfolio.get_positions(con, book_instance_id)
+    position_state = current_position_state(con, book_instance_id)
+    cash, positions = position_state["cash"], position_state["positions"]
     market_value, carried, marks = 0.0, [], {}
     for ticker, position in sorted(positions.items()):
         close, stale = portfolio.close_on(con, ticker, market_date)
@@ -171,8 +185,5 @@ def mark_exact(con, book_instance_id: str, market_date: date) -> dict:
     return {
         "equity": expected[0], "cash": cash, "n_positions": len(positions),
         "carried": carried, "marks": marks,
-        "position_state_sha256": canonical_sha256({
-            "cash": cash,
-            "positions": {ticker: positions[ticker] for ticker in sorted(positions)},
-        }),
+        "position_state_sha256": position_state["position_state_sha256"],
     }

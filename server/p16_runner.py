@@ -188,7 +188,7 @@ def _snapshot(
 
 def _current_book(con, book_instance_id: str, signal_date: date, tickers: list[str],
                   cutoff: datetime) -> dict:
-    state = p16_transfer._state_as_of(con, book_instance_id, signal_date)
+    state = _construction_state_as_of(con, book_instance_id, signal_date, cutoff)
     if state is None:
         raise ValueError("book_state_unavailable")
     names = [*tickers, "SPY"]
@@ -228,6 +228,37 @@ def _current_book(con, book_instance_id: str, signal_date: date, tickers: list[s
     }
 
 
+def _construction_state_as_of(
+    con, book_instance_id: str, signal_date: date, cutoff: datetime,
+) -> dict | None:
+    """Read only cutoff-visible P16 state, with an immutable initial-book fallback."""
+    state = p16_transfer._state_as_of(
+        con, book_instance_id, signal_date, information_cutoff_at=cutoff,
+    )
+    if state is not None:
+        return state
+    cutoff_naive = cutoff.astimezone(timezone.utc).replace(tzinfo=None)
+    contract = con.execute(
+        "SELECT initial_capital FROM p16_book_contracts "
+        "WHERE book_instance_id=? AND created_at<=?",
+        [book_instance_id, cutoff_naive],
+    ).fetchone()
+    completed = con.execute(
+        "SELECT 1 FROM p16_book_windows WHERE book_instance_id=? "
+        "AND market_date<=? AND status='completed' AND completed_at<=? LIMIT 1",
+        [book_instance_id, signal_date, cutoff_naive],
+    ).fetchone()
+    if contract is None or completed is not None:
+        return None
+    body = {
+        "book_instance_id": book_instance_id,
+        "holding_date": signal_date.isoformat(),
+        "initial_cash": float(contract[0]), "fills": [], "dividends": [],
+        "positions": {}, "cash": float(contract[0]),
+    }
+    return {**body, "state_sha256": canonical_sha256(body)}
+
+
 def _unavailable_sha(kind: str, signal_date: date, reason: str) -> str:
     return canonical_sha256({
         "kind": kind, "signal_date": signal_date.isoformat(),
@@ -244,8 +275,8 @@ def _queue_mandatory_only(
     solver_result: dict | None = None,
 ) -> dict:
     """Queue independent exits without manufacturing a discretionary target."""
-    retained_state = state or p16_transfer._state_as_of(
-        con, book_instance_id, signal_date,
+    retained_state = state or _construction_state_as_of(
+        con, book_instance_id, signal_date, information_cutoff_at,
     )
     if retained_state is None:
         return {
@@ -260,6 +291,10 @@ def _queue_mandatory_only(
         con, book_instance_id=book_instance_id, market_date=signal_date,
         information_cutoff_at=information_cutoff_at, held_tickers=held,
     )
+    exit_reasons.update(p16_books.deferred_mandatory_exits(
+        con, book_instance_id=book_instance_id, held_tickers=held,
+        signal_date=signal_date, information_cutoff_at=information_cutoff_at,
+    ))
     plan = plan_mandatory_exit_orders(retained_state["positions"], exit_reasons)
     result = solver_result or {
         "status": "input_unavailable", "reason": reason,
@@ -336,13 +371,6 @@ def construct_targets(
             "status": "input_unavailable", "reason": reason,
             "books": results, "execution_authority": "none",
         }
-    held = {
-        row[0] for row in con.execute(
-            "SELECT DISTINCT ticker FROM sim_positions WHERE portfolio_id IN ("
-            "SELECT book_instance_id FROM p16_book_contracts WHERE registration_sha256=?) "
-            "AND ticker!='SPY' AND qty>0", [registration_sha256],
-        ).fetchall()
-    }
     trailing = p16_transfer._trailing_ics(
         con, signal_date, scoring_cutoff.astimezone(timezone.utc).replace(tzinfo=None),
     )
@@ -371,6 +399,18 @@ def construct_targets(
             "books": results, "execution_authority": "none",
         }
     try:
+        retained_states = [
+            _construction_state_as_of(con, instance, signal_date, scoring_cutoff)
+            for instance, *_rest in contracts
+        ]
+        if any(state is None for state in retained_states):
+            raise ValueError("book_state_unavailable")
+        held = {
+            ticker
+            for state in retained_states
+            for ticker, quantity in state["positions"].items()
+            if ticker != "SPY" and float(quantity) > 0
+        }
         snapshot = _snapshot(con, origin, scoring_cutoff, held_tickers=held)
     except (ValueError, duckdb.Error) as exc:
         reason = str(exc)
@@ -407,6 +447,14 @@ def construct_targets(
                 if ticker != "SPY" and quantity > 0
             },
         )
+        exits.update(p16_books.deferred_mandatory_exits(
+            con, book_instance_id=instance, signal_date=signal_date,
+            information_cutoff_at=scoring_cutoff,
+            held_tickers={
+                ticker for ticker, quantity in book["quantities"].items()
+                if ticker != "SPY" and quantity > 0
+            },
+        ))
         policy = "champion" if logical == "p16_construct_ai" else "rule"
         scores = [float(decisions[ticker][f"{policy}_score"])
                   for ticker in snapshot["tickers"]]

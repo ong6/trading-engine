@@ -106,6 +106,69 @@ def test_filled_limit_attempt_writes_all_parity_ledgers_and_exact_retry(con):
     assert con.execute("SELECT COUNT(*) FROM sim_fills").fetchone() == (1,)
 
 
+def test_window_rejects_intent_from_a_different_target(con):
+    insert_bars(con, "AAA", SESSIONS[:31], open_=100, close=100, high=101, low=99)
+    instance = _book(con)
+    p16_books.queue_plan(
+        con, book_instance_id=instance, signal_date=SESSIONS[29],
+        plan={"status": "planned", "orders": [{
+            "ticker": "AAA", "side": "buy", "qty": 10,
+            "order_role": "rebalance", "target_weight": 0.1, "entry_atr": 2.0,
+        }]},
+        limit_prices={"AAA": 101.5}, source_sha256="e" * 64,
+        created_at=NOW, entry_gates={"AAA": "eligible"},
+    )
+    p16_book_store.claim_window(
+        con, book_instance_id=instance, market_date=SESSIONS[30],
+        information_cutoff_at=NOW, risk_sha256="c" * 64,
+        score_sha256="d" * 64, previous_state_sha256=None,
+        target_sha256=SOURCE, started_at=NOW,
+    )
+
+    with pytest.raises(p16_book_store.P16BookError, match="intent authority differs"):
+        p16_books.process_window(
+            con, book_instance_id=instance, market_date=SESSIONS[30],
+            observed_at=_observed(SESSIONS[30]),
+        )
+    assert con.execute("SELECT COUNT(*) FROM sim_fills").fetchone() == (0,)
+
+
+def test_successor_rejects_mutated_simulator_predecessor_state(con):
+    insert_bars(con, "AAA", SESSIONS[:32], open_=100, close=100, high=101, low=99)
+    instance = _book(con)
+    _queue(con, instance)
+    p16_books.process_window(
+        con, book_instance_id=instance, market_date=SESSIONS[30],
+        observed_at=_observed(SESSIONS[30]),
+    )
+    p16_books.queue_plan(
+        con, book_instance_id=instance, signal_date=SESSIONS[30],
+        plan={"status": "planned", "orders": []}, limit_prices={},
+        source_sha256=SOURCE, created_at=_observed(SESSIONS[30]),
+    )
+    previous = con.execute(
+        "SELECT state_sha256 FROM p16_book_state WHERE book_instance_id=? "
+        "ORDER BY market_date DESC LIMIT 1",
+        [instance],
+    ).fetchone()[0]
+    p16_book_store.claim_window(
+        con, book_instance_id=instance, market_date=SESSIONS[31],
+        information_cutoff_at=_observed(SESSIONS[30]), risk_sha256="c" * 64,
+        score_sha256="d" * 64, previous_state_sha256=previous,
+        target_sha256=SOURCE, started_at=_observed(SESSIONS[30]),
+    )
+    con.execute("UPDATE portfolios SET cash=5000 WHERE id=?", [instance])
+
+    with pytest.raises(p16_book_store.P16BookError, match="mutable position state differs"):
+        p16_books.process_window(
+            con, book_instance_id=instance, market_date=SESSIONS[31],
+            observed_at=_observed(SESSIONS[31]),
+        )
+    assert con.execute(
+        "SELECT COUNT(*) FROM p16_book_state WHERE market_date=?", [SESSIONS[31]],
+    ).fetchone() == (0,)
+
+
 def test_limit_miss_records_attempt_and_terminal_order_without_fill(con):
     insert_bars(con, "AAA", SESSIONS[:30], open_=100, close=100, high=101, low=99)
     insert_bars(con, "AAA", [SESSIONS[30]], open_=102, close=102, high=103, low=101)
@@ -162,6 +225,25 @@ def test_missing_next_open_keeps_window_running_until_atomic_retry(con):
     assert con.execute("SELECT COUNT(*) FROM p16_book_state").fetchone() == (1,)
 
 
+def test_window_cannot_fill_before_its_modeled_open(con):
+    insert_bars(con, "AAA", SESSIONS[:31], open_=100, close=100, high=101, low=99)
+    instance = _book(con)
+    _queue(con, instance)
+    preopen = datetime.combine(SESSIONS[30], time(13), tzinfo=timezone.utc)
+    con.execute(
+        "UPDATE prices SET fetched_at=? WHERE ticker='AAA' AND date=?",
+        [preopen.replace(tzinfo=None), SESSIONS[30]],
+    )
+
+    result = p16_books.process_window(
+        con, book_instance_id=instance, market_date=SESSIONS[30],
+        observed_at=preopen,
+    )
+    assert result["status"] == "pending"
+    assert con.execute("SELECT COUNT(*) FROM sim_fills").fetchone() == (0,)
+    assert con.execute("SELECT status FROM p16_book_windows").fetchone() == ("running",)
+
+
 def test_missing_next_open_rejects_after_three_session_observation_grace(con):
     instance = _book(con)
     _queue(con, instance)
@@ -172,11 +254,126 @@ def test_missing_next_open_rejects_after_three_session_observation_grace(con):
     )
 
     assert result["status"] == "completed" and result["rejected"] == 1
-    assert result["sessions"] == [SESSIONS[30].isoformat()]
+    assert result["sessions"] == [
+        session.isoformat() for session in SESSIONS[30:34]
+    ]
     assert con.execute(
         "SELECT status,reason FROM p16_order_intents",
     ).fetchone() == ("rejected", "no_bar")
-    assert con.execute("SELECT status FROM p16_book_windows").fetchone() == ("completed",)
+    assert con.execute(
+        "SELECT COUNT(*) FROM p16_book_windows WHERE status='completed'",
+    ).fetchone() == (4,)
+    assert con.execute("SELECT COUNT(*) FROM p16_book_state").fetchone() == (4,)
+
+    insert_bars(
+        con, "AAA", [SESSIONS[34]], open_=100, close=100, high=101, low=99,
+    )
+    con.execute(
+        "UPDATE prices SET fetched_at=? WHERE ticker='AAA' AND date=?",
+        [_observed(SESSIONS[34]).replace(tzinfo=None), SESSIONS[34]],
+    )
+    p16_books.queue_plan(
+        con, book_instance_id=instance, signal_date=SESSIONS[33],
+        plan={"status": "planned", "orders": []}, limit_prices={},
+        source_sha256=SOURCE, created_at=_observed(SESSIONS[33]),
+    )
+    previous = con.execute(
+        "SELECT state_sha256 FROM p16_book_state WHERE book_instance_id=? "
+        "ORDER BY market_date DESC LIMIT 1", [instance],
+    ).fetchone()[0]
+    p16_book_store.claim_window(
+        con, book_instance_id=instance, market_date=SESSIONS[34],
+        information_cutoff_at=_observed(SESSIONS[33]), risk_sha256="c" * 64,
+        score_sha256="d" * 64, previous_state_sha256=previous,
+        target_sha256=SOURCE, started_at=_observed(SESSIONS[33]),
+    )
+    recovered = p16_books.process_through(
+        con, book_instance_id=instance, market_date=SESSIONS[34],
+        observed_at=_observed(SESSIONS[34]),
+    )
+    assert recovered["status"] == "completed"
+    assert recovered["sessions"] == [SESSIONS[34].isoformat()]
+
+
+def test_ordered_recovery_retains_mandatory_exit_for_the_next_future_open(con):
+    insert_bars(
+        con, "AAA", SESSIONS[:33], open_=100,
+        close=[100] * 31 + [90, 90], high=101, low=89,
+    )
+    instance = _book(con)
+    _queue(con, instance)
+    assert p16_books.process_window(
+        con, book_instance_id=instance, market_date=SESSIONS[30],
+        observed_at=_observed(SESSIONS[30]),
+    )["filled"] == 1
+    for session in SESSIONS[31:33]:
+        con.execute(
+            "UPDATE prices SET fetched_at=? WHERE ticker='AAA' AND date=?",
+            [_observed(session).replace(tzinfo=None), session],
+        )
+
+    recovered = p16_books.process_through(
+        con, book_instance_id=instance, market_date=SESSIONS[32],
+        observed_at=_observed(SESSIONS[32]),
+    )
+
+    assert recovered["sessions"] == [
+        SESSIONS[31].isoformat(), SESSIONS[32].isoformat(),
+    ]
+    assert recovered["filled"] == 0
+    assert con.execute(
+        "SELECT side,fill_date FROM p16_book_fills ORDER BY fill_date",
+    ).fetchall() == [("buy", SESSIONS[30])]
+    assert con.execute(
+        "SELECT market_date,reason FROM p16_book_windows ORDER BY market_date",
+    ).fetchall() == [
+        (SESSIONS[30], None),
+        (SESSIONS[31], "ordered_recovery"),
+        (SESSIONS[32], "ordered_recovery"),
+    ]
+    assert p16_books.deferred_mandatory_exits(
+        con, book_instance_id=instance, held_tickers={"AAA"},
+        signal_date=SESSIONS[32], information_cutoff_at=_observed(SESSIONS[32]),
+    ) == {"AAA": "stop"}
+    # A replay at an earlier cutoff must not see exits a later recovery recorded.
+    assert p16_books.deferred_mandatory_exits(
+        con, book_instance_id=instance, held_tickers={"AAA"},
+        signal_date=SESSIONS[31], information_cutoff_at=_observed(SESSIONS[31]),
+    ) == {}
+    assert con.execute(
+        "SELECT COALESCE(SUM(qty),0) FROM sim_positions WHERE portfolio_id=?", [instance],
+    ).fetchone() == (10,)
+
+
+def test_recovery_precedes_and_invalidates_a_stale_later_claim(con):
+    instance = _book(con)
+    _queue(con, instance)
+    assert p16_books.process_through(
+        con, book_instance_id=instance, market_date=SESSIONS[30],
+        observed_at=_observed(SESSIONS[33]),
+    )["status"] == "completed"
+    stale_previous = con.execute(
+        "SELECT state_sha256 FROM p16_book_state WHERE book_instance_id=?",
+        [instance],
+    ).fetchone()[0]
+    p16_book_store.claim_window(
+        con, book_instance_id=instance, market_date=SESSIONS[32],
+        information_cutoff_at=_observed(SESSIONS[31]), risk_sha256="c" * 64,
+        score_sha256="d" * 64, previous_state_sha256=stale_previous,
+        target_sha256=SOURCE, started_at=_observed(SESSIONS[31]),
+    )
+
+    with pytest.raises(p16_book_store.P16BookError, match="previous state differs"):
+        p16_books.process_through(
+            con, book_instance_id=instance, market_date=SESSIONS[32],
+            observed_at=_observed(SESSIONS[32]),
+        )
+    assert con.execute(
+        "SELECT COUNT(*) FROM p16_book_state WHERE market_date=?", [SESSIONS[31]],
+    ).fetchone() == (1,)
+    assert con.execute(
+        "SELECT status FROM p16_book_windows WHERE market_date=?", [SESSIONS[32]],
+    ).fetchone() == ("running",)
 
 
 def test_retry_uses_quarantine_state_at_historical_open(con):
@@ -338,6 +535,12 @@ def test_split_adjusts_quantity_and_limit_before_the_next_open(con):
     assert con.execute("SELECT qty FROM sim_fills").fetchone()[0] == pytest.approx(20)
     assert con.execute("SELECT limit_px FROM p16_limit_attempts").fetchone()[0] \
         == pytest.approx(50.75)
+    entry_atr, stop_px = con.execute(
+        "SELECT entry_atr,stop_px FROM p16_position_rules",
+    ).fetchone()
+    fill_px = con.execute("SELECT fill_px FROM sim_fills").fetchone()[0]
+    assert entry_atr == pytest.approx(1.0)
+    assert stop_px == pytest.approx(fill_px - 2.5)
 
 
 def test_failure_inside_terminal_accounting_rolls_back_every_ledger(con, monkeypatch):
@@ -380,7 +583,9 @@ def test_drawdown_halt_rejects_discretionary_stock_buy(con):
     p16_book_store.append_state(
         con, book_instance_id=instance, market_date=SESSIONS[29], peak_equity=10_000,
         entry_halted=True, equity=7_900, cash=10_000, spy_mark=None, stock_marks={},
-        position_state_sha256="c" * 64, previous_state_sha256=None, recorded_at=NOW,
+        position_state_sha256=p16_book_mechanics.current_position_state(
+            con, instance,
+        )["position_state_sha256"], previous_state_sha256=None, recorded_at=NOW,
     )
     _queue(con, instance)
 

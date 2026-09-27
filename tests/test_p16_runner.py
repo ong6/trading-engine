@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import duckdb
 import numpy as np
 import pytest
 
 from engine.lib import db
+from engine.lib.provenance import canonical_sha256
 from server import p16_book_store, p16_runner
 from sim.schema import init_sim_schema
 from tests.conftest import insert_bars, record_p16_calibration
@@ -174,8 +175,9 @@ def test_construct_targets_composes_gates_solver_planner_store_and_queue(con, mo
 
 def test_construct_targets_queues_stop_exits_while_ic_is_collecting(con, monkeypatch):
     signal_date = date(2024, 7, 15)
-    entry_date = date(2024, 7, 12)
+    entry_date = signal_date
     cutoff = datetime(2024, 7, 15, 20, tzinfo=timezone.utc)
+    prior_cutoff = datetime(2024, 7, 12, 20, tzinfo=timezone.utc)
     calibration = record_p16_calibration(con, REGISTRATION, cutoff)
     instances = p16_book_store.initialize_contracts(
         con, registration_sha256=REGISTRATION, activation_date=None,
@@ -192,9 +194,44 @@ def test_construct_targets_queues_stop_exits_while_ic_is_collecting(con, monkeyp
             "INSERT INTO sim_positions VALUES (?,?,?,?)", [instance, "AAA", 5, 100],
         )
         con.execute("UPDATE portfolios SET cash=9500 WHERE id=?", [instance])
+        intent_id = canonical_sha256([instance, "AAA", order_id])
+        fill_body = {
+            "intent_id": intent_id, "order_id": order_id,
+            "book_instance_id": instance, "ticker": "AAA", "side": "buy",
+            "qty": 5.0, "fill_date": signal_date.isoformat(), "open_px": 100.0,
+            "fill_px": 100.0, "slippage_bps": 0.0, "cost_bps": 0.0,
+            "execution_profile": "baseline_v1", "median_dollar_vol": None,
+            "participation": None, "impact_bps": 0.0, "fee_bps": 0.0,
+            "source_sha256": "f" * 64,
+        }
+        p16_book_store.claim_window(
+            con, book_instance_id=instance, market_date=signal_date,
+            information_cutoff_at=prior_cutoff, risk_sha256="b" * 64,
+            score_sha256="c" * 64, previous_state_sha256=None,
+            target_sha256="f" * 64, started_at=prior_cutoff,
+        )
+        con.execute(
+            "INSERT INTO p16_book_fills VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            [*fill_body.values(), canonical_sha256(fill_body)],
+        )
+        position_state = canonical_sha256({
+            "cash": 9_500.0,
+            "positions": {"AAA": {"qty": 5.0, "avg_cost": 100.0}},
+        })
+        p16_book_store.append_state(
+            con, book_instance_id=instance, market_date=signal_date,
+            peak_equity=10_000, entry_halted=False, equity=9_950, cash=9_500,
+            spy_mark=None, stock_marks={"AAA": 90},
+            position_state_sha256=position_state, previous_state_sha256=None,
+            recorded_at=cutoff,
+        )
+        p16_book_store.complete_window(
+            con, book_instance_id=instance, market_date=signal_date,
+            status="completed", reason=None, completed_at=cutoff,
+        )
         con.execute(
             "INSERT INTO p16_position_rules VALUES (?,?,?,?,?,?,?,?,?)",
-            [instance, "AAA", str(order_id), order_id, entry_date, 2.0, 95.0,
+            [instance, "AAA", intent_id, order_id, entry_date, 2.0, 95.0,
              "open", None],
         )
     monkeypatch.setattr(p16_runner.p16_eval_inputs, "load_origin", lambda *_args, **_kwargs: {
@@ -228,6 +265,86 @@ def test_construct_targets_queues_stop_exits_while_ic_is_collecting(con, monkeyp
     assert con.execute(
         "SELECT DISTINCT ticker,side,order_role,rounded_qty FROM p16_order_intents",
     ).fetchall() == [("AAA", "sell", "stop", 5.0)]
+
+
+def test_construction_book_state_ignores_late_generic_ledger_mutations(con):
+    signal_date = date(2024, 7, 15)
+    cutoff = datetime(2024, 7, 15, 20, tzinfo=timezone.utc)
+    calibration = record_p16_calibration(con, REGISTRATION, cutoff - timedelta(days=1))
+    instance = p16_book_store.initialize_contracts(
+        con, registration_sha256=REGISTRATION, activation_date=None,
+        calibration_sha256=calibration, created_at=cutoff - timedelta(days=1),
+    )[0]
+    for ticker, close in (("AAA", 103), ("SPY", 100)):
+        insert_bars(
+            con, ticker, [signal_date], open_=close, high=close + 1,
+            low=close - 1, close=close,
+        )
+    con.execute("UPDATE prices SET fetched_at=?", [cutoff.replace(tzinfo=None)])
+    intent_id = canonical_sha256([instance, "AAA", "owned"])
+    fill_body = {
+        "intent_id": intent_id, "order_id": 1, "book_instance_id": instance,
+        "ticker": "AAA", "side": "buy", "qty": 5.0,
+        "fill_date": signal_date.isoformat(), "open_px": 100.0, "fill_px": 100.0,
+        "slippage_bps": 0.0, "cost_bps": 0.0, "execution_profile": "baseline_v1",
+        "median_dollar_vol": None, "participation": None, "impact_bps": 0.0,
+        "fee_bps": 0.0, "source_sha256": "f" * 64,
+    }
+    started_at = datetime(2024, 7, 12, 20, tzinfo=timezone.utc)
+    completed_at = cutoff - timedelta(minutes=1)
+    p16_book_store.claim_window(
+        con, book_instance_id=instance, market_date=signal_date,
+        information_cutoff_at=started_at, risk_sha256="b" * 64,
+        score_sha256="c" * 64, previous_state_sha256=None,
+        target_sha256="f" * 64, started_at=started_at,
+    )
+    con.execute(
+        "INSERT INTO p16_book_fills VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        [*fill_body.values(), canonical_sha256(fill_body)],
+    )
+    position_state = canonical_sha256({
+        "cash": 9_500.0,
+        "positions": {"AAA": {"qty": 5.0, "avg_cost": 100.0}},
+    })
+    p16_book_store.append_state(
+        con, book_instance_id=instance, market_date=signal_date,
+        peak_equity=10_015, entry_halted=False, equity=10_015, cash=9_500,
+        spy_mark=100, stock_marks={"AAA": 103},
+        position_state_sha256=position_state, previous_state_sha256=None,
+        recorded_at=completed_at,
+    )
+    p16_book_store.complete_window(
+        con, book_instance_id=instance, market_date=signal_date,
+        status="completed", reason=None, completed_at=completed_at,
+    )
+    first = p16_runner._current_book(con, instance, signal_date, ["AAA"], cutoff)
+
+    con.execute(
+        "INSERT INTO sim_fills VALUES (2,?,'AAA','buy',1,?,10,10,0,0)",
+        [instance, signal_date],
+    )
+    con.execute("INSERT INTO sim_positions VALUES (?,'AAA',99,1)", [instance])
+    con.execute("UPDATE portfolios SET cash=17 WHERE id=?", [instance])
+    con.execute(
+        "INSERT INTO sim_dividends VALUES (?,'AAA',?,5,1,5)",
+        [instance, signal_date],
+    )
+    db.init_actions_schema(con)
+    con.execute(
+        "INSERT INTO split_adjustments "
+        "(ticker,ex_date,ratio,outcome,applied_at) VALUES ('AAA',?,2,'applied',?)",
+        [signal_date, (cutoff + timedelta(minutes=1)).replace(tzinfo=None)],
+    )
+
+    second = p16_runner._current_book(con, instance, signal_date, ["AAA"], cutoff)
+    assert first["quantities"] == second["quantities"]
+    assert first["marks"] == second["marks"]
+    assert first["cash"] == second["cash"]
+    assert first["equity"] == second["equity"]
+    assert first["state_sha256"] == second["state_sha256"]
+    np.testing.assert_array_equal(first["previous"], second["previous"])
+    assert second["cash"] == 9_500
+    assert second["quantities"]["AAA"] == 5
 
 
 def test_copied_store_dry_run_leaves_source_unchanged(tmp_path):
