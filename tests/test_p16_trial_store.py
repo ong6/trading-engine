@@ -81,6 +81,17 @@ def test_registration_metadata_is_immutable_and_recipe_changes_id(con):
                 key: value for key, value in IDENTITY.items() if key != field})
 
 
+def test_registration_as_of_validates_visible_row(con):
+    trial_id = _register(con)
+    assert trials.registration_as_of(
+        con, trial_id=trial_id, generated_at=NOW)["trial_id"] == trial_id
+    assert trials.registration_as_of(
+        con, trial_id=trial_id, generated_at=NOW - timedelta(seconds=1)) is None
+    con.execute(f"UPDATE {trials.TABLE} SET payload='{{}}' WHERE trial_id=?", [trial_id])
+    with pytest.raises(ValueError, match="trial record differs"):
+        trials.registration_as_of(con, trial_id=trial_id, generated_at=NOW)
+
+
 def test_alias_source_cannot_identify_two_trials_but_batch_sources_can(con):
     first, second = _register(con), _register(con, "v2")
     _event(con, first, "alias", "shared")
