@@ -583,7 +583,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W1 Evaluation science v2 | complete; accepted core, durable evidence, family report, and existing-status-surface projection are verified; nonessential adapter/census refinements are deferred at checkpoint | 2026-09-27 |
 | W2 Challenger lab | staged; implementation and inert timer complete, while the first P15 origin gates the timer-backed rehearsal, literal epoch, final family registration, and independent activation | |
 | W3 Filing reader | components complete, inert; `unconfigured` and activation blocked on baseline/conditional-fetch/scan-orchestrator review fixes | 2026-09-27 |
-| W4 Historical labs (text lab, replay lab) | guard checkpoint complete: blocking fixes 1–3, the mandated simplification, and fixes 4–7 pass the host/UTC suites; the remaining collectors, probes, replay/books, reduced text lab, registration/reports, early-close semantics, and spot check are underway and inert. No producer has run | 2026-09-27 |
+| W4 Historical labs (text lab, replay lab) | implementation checkpoint complete, awaiting orchestrator acceptance: guards, collectors, probe preflight/scoring/power, isolated replay books, reduced text lab, registration/report renderers, early-close semantics, and raw-price spot check are fixture-tested and inert. No producer has run | 2026-09-27 |
 | W5 Portfolio construction v2 | complete; orchestrator accepted the inert construction path and its bounded recovery deviation; W9 owns the three pre-activation guards and the recovery-window exit follow-up | 2026-09-27 |
 | W6 Execution realism | not started | |
 | W7 Operator digest | not started | |

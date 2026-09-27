@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Mapping
 
+from engine.lib.resources import write_text_atomic
 from farm.replay.registration import REPLAY_REPORT_PATH
 
 
@@ -44,5 +45,5 @@ def write_replay_report(path: Path, snapshot: Mapping) -> Path:
     if path.as_posix() != REPLAY_REPORT_PATH and path.name != "replay.md":
         raise ValueError("unexpected_replay_report_path")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_replay_report(snapshot))
+    write_text_atomic(path, render_replay_report(snapshot))
     return path
