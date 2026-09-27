@@ -1128,4 +1128,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** complete the W4 guard fixes and simplified historical-lab implementation.
 
+## 2026-09-27 — P16 W4: complete the replay guard checkpoint
+
+- **Why:** approved P16 W4 and the orchestrator's guard review require fixes 1–7 and the named
+  simplification before the historical-lab remainder or any producer run.
+- **What:** accept ordinary lesson prose while retaining the frozen numeric/date filter; make a
+  missing lockbox marker exploratory; register the one-session split sensitivity; index actions,
+  adapt split rows, scope markers per experiment, and record retryable dispatch lifecycle state.
+  Remove the unregistered provenance, identity, sealing, and tamper machinery named by the review.
+- **Evidence:** `.venv/bin/python -m pytest -q` and `TZ=UTC .venv/bin/python -m pytest -q` both
+  reach `[100%]`; the focused guard suite passes 71 tests.
+- **Metrics:** farm +245; server, tools, and other product layers unchanged; budget ok.
+- **Next:** build the inert W4 collectors, probes, replay/books, reduced text lab, registration,
+  reports, early-close semantics, and raw-price spot check within the 3,500-line allocation.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
