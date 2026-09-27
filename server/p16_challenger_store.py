@@ -130,9 +130,14 @@ def start_run(
     for item in attempt_manifest:
         if (not isinstance(item, dict) or set(item) != {
                 "chunk_index", "sample_index", "source_request_sha256",
-                "source_input_sha256"}
+                "source_input_sha256", "source_tickers"}
                 or any(type(item[key]) is not int or item[key] < 0
-                       for key in ("chunk_index", "sample_index"))):
+                       for key in ("chunk_index", "sample_index"))
+                or not isinstance(item["source_tickers"], list)
+                or item["source_tickers"] != sorted(set(item["source_tickers"]))
+                or not item["source_tickers"]
+                or any(not isinstance(ticker, str) or not ticker
+                       for ticker in item["source_tickers"])):
             raise ValueError("invalid P16 challenger attempt manifest")
         _hash(item["source_request_sha256"], "source request identity")
         _hash(item["source_input_sha256"], "source input identity")
@@ -143,6 +148,16 @@ def start_run(
             or (model_contract_sha256 is None and manifest)
             or (model_contract_sha256 is not None and not manifest)):
         raise ValueError("invalid P16 challenger attempt manifest")
+    if manifest:
+        chunk_tickers = {}
+        for item in manifest:
+            existing_tickers = chunk_tickers.setdefault(
+                item["chunk_index"], item["source_tickers"])
+            if existing_tickers != item["source_tickers"]:
+                raise ValueError("invalid P16 challenger attempt manifest")
+        flattened = [ticker for names in chunk_tickers.values() for ticker in names]
+        if len(flattened) != len(set(flattened)) or set(flattened) != set(tickers):
+            raise ValueError("invalid P16 challenger attempt manifest")
     dependencies = sorted(dependency_policy_ids)
     if (dependencies != sorted(set(dependencies))
             or (policy_id == "c-ensemble"
@@ -309,6 +324,7 @@ def finish_run(
             raise ValueError("unavailable P16 output must stay explicitly null")
 
     receipts = []
+    statuses = {}
     attempt_pairs = []
     if table_exists(con, "p16_challenger_attempts"):
         attempts = con.execute(
@@ -331,10 +347,23 @@ def finish_run(
                 "receipt_sha256": receipt["row_sha256"],
                 "status": receipt["data"]["status"],
             })
+            statuses[(attempt["key"]["chunk_index"],
+                      attempt["key"]["sample_index"])] = receipt["data"]["status"]
     expected_pairs = [(item["chunk_index"], item["sample_index"])
                       for item in run["data"].get("attempt_manifest", [])]
     if sorted(attempt_pairs) != expected_pairs:
         raise ValueError("P16 challenger attempt grid is incomplete")
+    output_by_ticker = {row["ticker"]: row["scoring_status"] for row in rows}
+    for chunk_index in sorted({item["chunk_index"] for item in run["data"].get(
+            "attempt_manifest", [])}):
+        manifest_rows = [item for item in run["data"]["attempt_manifest"]
+                         if item["chunk_index"] == chunk_index]
+        expected_status = "available" if all(
+            statuses[(item["chunk_index"], item["sample_index"])] == "available"
+            for item in manifest_rows) else "unavailable"
+        if any(output_by_ticker[ticker] != expected_status
+               for ticker in manifest_rows[0]["source_tickers"]):
+            raise ValueError("P16 challenger output violates whole-chunk availability")
 
     dependencies = dependency_output_ids or []
     if dependencies != sorted(set(dependencies)):

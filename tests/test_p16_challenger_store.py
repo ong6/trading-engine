@@ -59,10 +59,10 @@ def _run(con, **overrides):
         "source_identity": {"p15_run_sha256": "d" * 64},
         "treatment_id": "blind", "model_contract_sha256": MODEL,
         "attempt_manifest": [{
-            "chunk_index": 0, "sample_index": 0,
-            "source_request_sha256": "a" * 64,
-            "source_input_sha256": "e" * 64,
-        }],
+            "chunk_index": 0, "sample_index": index,
+            "source_request_sha256": f"{index + 1:064x}",
+            "source_input_sha256": "e" * 64, "source_tickers": ["AAA", "BBB"],
+        } for index in range(3)],
         "dependency_policy_ids": [],
         "run_mode": "prospective",
     }
@@ -74,12 +74,12 @@ def _run(con, **overrides):
     return store.start_run(con, **values)
 
 
-def _attempt(con, run, *, started_at=NOW):
+def _attempt(con, run, *, sample_index=0, started_at=NOW):
     request = {"model": "fixture", "input": "{}"}
     treatment = {"treatment": "blind", "payload_sha256": "e" * 64,
                  "original_sha256": "e" * 64}
     return store.start_attempt(
-        con, run["record_id"], chunk_index=0, sample_index=0,
+        con, run["record_id"], chunk_index=0, sample_index=sample_index,
         request_payload=request, treatment=treatment, started_at=started_at,
     )
 
@@ -114,16 +114,16 @@ def _rows():
 def test_append_only_run_attempt_receipt_and_output_are_idempotent(con):
     run = _run(con)
     assert _run(con, started_at=NOW + timedelta(seconds=1)) == run
-    attempt = _attempt(con, run)
-    receipt = store.finish_attempt(
+    attempts = [_attempt(con, run, sample_index=index) for index in range(3)]
+    receipts = [store.finish_attempt(
         con, attempt["record_id"], status="available", receipt=_receipt(attempt),
         completed_at=NOW + timedelta(minutes=1),
-    )
+    ) for attempt in attempts]
     output = store.finish_run(
         con, run["record_id"], rows=_rows(),
         completed_at=NOW + timedelta(minutes=2),
     )
-    assert store.get(con, "p16_challenger_receipts", receipt["record_id"]) == receipt
+    assert store.get(con, "p16_challenger_receipts", receipts[0]["record_id"]) == receipts[0]
     assert store.output_for_run(con, run["record_id"]) == output
     assert store.finish_run(
         con, run["record_id"], rows=_rows(),
@@ -138,7 +138,12 @@ def test_append_only_run_attempt_receipt_and_output_are_idempotent(con):
 def test_conflicting_replay_and_unresolved_attempt_are_rejected(con):
     run = _run(con)
     with pytest.raises(ValueError, match="replay differs"):
-        _run(con, tickers=["AAA", "CCC"])
+        _run(con, tickers=["AAA", "CCC"], attempt_manifest=[{
+            "chunk_index": 0, "sample_index": index,
+            "source_request_sha256": f"{index + 1:064x}",
+            "source_input_sha256": "e" * 64,
+            "source_tickers": ["AAA", "CCC"],
+        } for index in range(3)])
     _attempt(con, run)
     with pytest.raises(ValueError, match="unresolved"):
         store.finish_run(
@@ -149,17 +154,18 @@ def test_conflicting_replay_and_unresolved_attempt_are_rejected(con):
 
 def test_failed_receipt_and_explicit_unavailable_rows_are_retained(con):
     run = _run(con)
-    attempt = _attempt(con, run)
-    request = attempt["data"]["request"]
-    receipt = {
-        "request": request, "request_sha256": canonical_sha256(request),
-        "response": {"bad": True},
-        "response_sha256": canonical_sha256({"bad": True}),
-    }
-    store.finish_attempt(
-        con, attempt["record_id"], status="unavailable", receipt=receipt,
-        reason="invalid response", completed_at=NOW + timedelta(minutes=1),
-    )
+    for index in range(3):
+        attempt = _attempt(con, run, sample_index=index)
+        request = attempt["data"]["request"]
+        receipt = {
+            "request": request, "request_sha256": canonical_sha256(request),
+            "response": {"bad": True},
+            "response_sha256": canonical_sha256({"bad": True}),
+        }
+        store.finish_attempt(
+            con, attempt["record_id"], status="unavailable", receipt=receipt,
+            reason="invalid response", completed_at=NOW + timedelta(minutes=1),
+        )
     rows = [{
         **row, "p_outperform_5": None, "expected_excess_bp_5": None,
         "expected_excess_bp_10": None, "action": "unavailable",
@@ -245,14 +251,19 @@ def test_ensemble_dependency_must_share_the_exact_origin(con):
 
 def test_unavailable_receipt_cannot_support_available_output(con):
     run = _run(con)
-    attempt = _attempt(con, run)
-    request = attempt["data"]["request"]
-    store.finish_attempt(
-        con, attempt["record_id"], status="unavailable",
-        receipt={"request": request, "request_sha256": canonical_sha256(request)},
-        reason="connector failure", completed_at=NOW + timedelta(minutes=1),
-    )
-    with pytest.raises(ValueError, match="cannot support"):
+    for index in range(3):
+        attempt = _attempt(con, run, sample_index=index)
+        request = attempt["data"]["request"]
+        if index == 1:
+            store.finish_attempt(
+                con, attempt["record_id"], status="unavailable",
+                receipt={"request": request, "request_sha256": canonical_sha256(request)},
+                reason="connector failure", completed_at=NOW + timedelta(minutes=1))
+        else:
+            store.finish_attempt(
+                con, attempt["record_id"], status="available", receipt=_receipt(attempt),
+                completed_at=NOW + timedelta(minutes=1))
+    with pytest.raises(ValueError, match="whole-chunk availability"):
         store.finish_run(
             con, run["record_id"], rows=_rows(), completed_at=NOW + timedelta(minutes=2),
         )
@@ -262,8 +273,8 @@ def test_model_output_requires_the_complete_frozen_attempt_grid(con):
     run = _run(con, attempt_manifest=[
         {"chunk_index": 0, "sample_index": index,
          "source_request_sha256": f"{index + 1:064x}",
-         "source_input_sha256": "e" * 64}
-        for index in range(2)
+         "source_input_sha256": "e" * 64, "source_tickers": ["AAA", "BBB"]}
+        for index in range(3)
     ])
     attempt = _attempt(con, run)
     store.finish_attempt(

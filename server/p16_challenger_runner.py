@@ -468,6 +468,7 @@ def _start_member_run(
                     sample["original"], snapshot["metadata_envelope"],
                     decision_at=snapshot["cutoff"].isoformat(),
                 )),
+                "source_tickers": sorted(chunk["tickers"]),
             } for chunk in snapshot["chunks"] for sample in chunk["samples"]]
             run = p16_challenger_store.start_run(
                 con, registration_sha256=registration["registration_sha256"],
