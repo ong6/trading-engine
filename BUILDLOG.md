@@ -950,4 +950,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** since 2026-09-25, server +1,648, tools +515, product +4,205; budget ok.
 - **Next:** the lead may run the registered P15 activation sequence; W1 remains lead-owned.
 
+## 2026-09-27 — P16 W0: transfer the lead to the live checkout
+
+- **Why:** the approved P16 run was reassigned after the earlier lead stopped with work split
+  across unmerged local branches.
+- **What:** record `p16-sol-lead` (GPT-5.6-Sol) as the sole live-checkout lead and mark W1 as
+  restarting from the salvaged branches; nightly-generated data remains untouched.
+- **Evidence:** `.venv/bin/python -m tools.metrics_snapshot --dry-run` → `"ok": true` with no
+  budget violations on synchronized `main`.
+- **Metrics:** unchanged.
+- **Next:** complete the registered P15 activation sequence, then integrate or drop every
+  salvaged P16 branch.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
