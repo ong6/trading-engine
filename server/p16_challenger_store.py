@@ -108,7 +108,7 @@ def start_run(
     trial_id: str, window_id: str, market_date: date, run_mode: str,
     information_cutoff_at: datetime, started_at: datetime, tickers: list[str],
     source_identity: dict, treatment_id: str,
-    model_contract_sha256: str | None,
+    model_contract_sha256: str | None, attempt_manifest: list[dict],
 ) -> dict:
     cutoff, started = _utc(information_cutoff_at), _utc(started_at)
     if (
@@ -116,11 +116,28 @@ def start_run(
         or cutoff > started or not tickers or len(set(tickers)) != len(tickers)
         or any(not isinstance(ticker, str) or not ticker for ticker in tickers)
         or not isinstance(source_identity, dict) or not source_identity
-        or run_mode not in RUN_MODES
+        or run_mode not in RUN_MODES or not isinstance(attempt_manifest, list)
     ):
         raise ValueError("invalid P16 challenger run inputs")
     if model_contract_sha256 is not None:
         _hash(model_contract_sha256, "model contract")
+    manifest = []
+    for item in attempt_manifest:
+        if (not isinstance(item, dict) or set(item) != {
+                "chunk_index", "sample_index", "source_request_sha256",
+                "source_input_sha256"}
+                or any(type(item[key]) is not int or item[key] < 0
+                       for key in ("chunk_index", "sample_index"))):
+            raise ValueError("invalid P16 challenger attempt manifest")
+        _hash(item["source_request_sha256"], "source request identity")
+        _hash(item["source_input_sha256"], "source input identity")
+        manifest.append(dict(item))
+    manifest.sort(key=lambda item: (item["chunk_index"], item["sample_index"]))
+    pairs = [(item["chunk_index"], item["sample_index"]) for item in manifest]
+    if (len(pairs) != len(set(pairs))
+            or (model_contract_sha256 is None and manifest)
+            or (model_contract_sha256 is not None and not manifest)):
+        raise ValueError("invalid P16 challenger attempt manifest")
     registration = _hash(registration_sha256, "registration identity")
     trial = p16_trial_store.registration_as_of(
         con, trial_id=_hash(trial_id, "trial identity"), generated_at=started,
@@ -146,6 +163,7 @@ def start_run(
         "source_identity_sha256": canonical_sha256(source_identity),
         "treatment_id": _text(treatment_id, "treatment ID"),
         "model_contract_sha256": model_contract_sha256,
+        "attempt_manifest": manifest,
         "run_mode": run_mode,
     }
     result = _put(
@@ -178,6 +196,12 @@ def start_attempt(
         or _utc(started_at) < datetime.fromisoformat(run["recorded_at"])
     ):
         raise ValueError("invalid or uncatalogued P16 challenger attempt")
+    manifest = {(item["chunk_index"], item["sample_index"]): item
+                for item in run["data"].get("attempt_manifest", [])}
+    expected = manifest.get((chunk_index, sample_index))
+    if (expected is None
+            or treatment.get("original_sha256") != expected["source_input_sha256"]):
+        raise ValueError("P16 challenger attempt differs from its frozen source grid")
     key = {"run_id": run_id, "chunk_index": chunk_index, "sample_index": sample_index}
     data = {
         "request": request_payload,
@@ -273,6 +297,7 @@ def finish_run(
             raise ValueError("unavailable P16 output must stay explicitly null")
 
     receipts = []
+    attempt_pairs = []
     if table_exists(con, "p16_challenger_attempts"):
         attempts = con.execute(
             "SELECT * FROM p16_challenger_attempts WHERE parent_id=? ORDER BY record_id",
@@ -280,6 +305,8 @@ def finish_run(
         ).fetchall()
         for raw in attempts:
             attempt = _decode(raw)
+            attempt_pairs.append((attempt["key"]["chunk_index"],
+                                  attempt["key"]["sample_index"]))
             receipt_id = canonical_sha256({"attempt_id": attempt["record_id"]})
             receipt = get(con, "p16_challenger_receipts", receipt_id)
             if receipt is None or datetime.fromisoformat(receipt["recorded_at"]) > _utc(completed_at):
@@ -292,6 +319,10 @@ def finish_run(
                 "receipt_sha256": receipt["row_sha256"],
                 "status": receipt["data"]["status"],
             })
+    expected_pairs = [(item["chunk_index"], item["sample_index"])
+                      for item in run["data"].get("attempt_manifest", [])]
+    if sorted(attempt_pairs) != expected_pairs:
+        raise ValueError("P16 challenger attempt grid is incomplete")
 
     dependencies = dependency_output_ids or []
     if dependencies != sorted(set(dependencies)):

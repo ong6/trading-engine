@@ -385,6 +385,8 @@ def _origin_body(
         raise ValueError("P16 sequential origin is off its registered identity or session grid")
     decided = _timestamp(decided_at, "decided at")
     entry = _timestamp(forward_entry_at, "forward entry at")
+    if entry != _timestamp(_forward_entry_at(market_date), "derived forward entry"):
+        raise ValueError("P16 sequential forward entry differs from the NYSE session grid")
     if decided >= entry:
         raise ValueError("P16 sequential decision is not pre-entry")
     available = None if labels_available_at is None else _timestamp(

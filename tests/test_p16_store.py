@@ -151,7 +151,7 @@ def test_typed_exposure_score_and_factor_dependencies(con):
 def _origin(index: int, market_date: date, **updates):
     decided = datetime.combine(market_date, datetime.min.time(), tzinfo=timezone.utc) \
         + timedelta(hours=20)
-    entry = decided + timedelta(hours=12)
+    entry = p16_store._forward_entry_at(market_date)
     value = {
         "registration_sha256": REGISTRATION, "family_id": "p16-family-v1",
         "comparison_id": "c-blind-v1", "trial_id": TRIAL,
@@ -268,8 +268,9 @@ def test_sequential_prefix_projects_missing_decision_without_repacking(con):
 
 
 def test_sequential_origin_rules_fail_closed(con):
+    entry = p16_store._forward_entry_at(EPOCH)
     with pytest.raises(ValueError, match="not pre-entry"):
-        _record_decision(con, 0, EPOCH, decided_at=NOW, forward_entry_at=NOW)
+        _record_decision(con, 0, EPOCH, decided_at=entry, forward_entry_at=entry)
     with pytest.raises(ValueError, match="skipped"):
         _record_decision(con, 0, EPOCH, status="decision_unavailable", reason="late_label")
     _record_decision(con, 0, EPOCH, status="decision_unavailable", reason="constant_scores")
@@ -283,11 +284,10 @@ def test_sequential_origin_rules_fail_closed(con):
 
 
 def test_predictable_skip_is_retained_before_forward_entry(con):
-    recorded = REGISTERED + timedelta(days=1)
+    recorded = datetime(2026, 9, 21, 21, tzinfo=timezone.utc)
     _record_decision(
         con, 0, EPOCH, status="decision_unavailable", reason="fewer_than_20_candidates",
-        decided_at=recorded - timedelta(minutes=1),
-        forward_entry_at=recorded + timedelta(hours=1), recorded_at=recorded)
+        decided_at=recorded - timedelta(minutes=1), recorded_at=recorded)
     row = p16_store.sequential_prefix(
         con, registration_sha256=REGISTRATION, family_id="p16-family-v1",
         comparison_id="c-blind-v1", trial_id=TRIAL, control_trial_id=CONTROL,
@@ -296,6 +296,16 @@ def test_predictable_skip_is_retained_before_forward_entry(con):
     )[0]
     assert row["status"] == "decision_unavailable"
     assert row["recorded_at"] == recorded
+
+
+def test_sequential_decision_rejects_a_fabricated_late_forward_entry(con):
+    actual = p16_store._forward_entry_at(EPOCH)
+    with pytest.raises(ValueError, match="forward entry differs"):
+        _record_decision(
+            con, 0, EPOCH, decided_at=actual + timedelta(minutes=1),
+            recorded_at=actual + timedelta(minutes=2),
+            forward_entry_at=actual + timedelta(days=1),
+        )
 
 
 def test_registration_and_trial_identity_isolate_sequential_series(con):

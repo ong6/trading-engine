@@ -52,15 +52,23 @@ def _run(con, **overrides):
         "tickers": ["AAA", "BBB"],
         "source_identity": {"p15_run_sha256": "d" * 64},
         "treatment_id": "blind", "model_contract_sha256": MODEL,
+        "attempt_manifest": [{
+            "chunk_index": 0, "sample_index": 0,
+            "source_request_sha256": "a" * 64,
+            "source_input_sha256": "e" * 64,
+        }],
         "run_mode": "prospective",
     }
     values.update(overrides)
+    if "attempt_manifest" not in overrides and values["model_contract_sha256"] is None:
+        values["attempt_manifest"] = []
     return store.start_run(con, **values)
 
 
 def _attempt(con, run, *, started_at=NOW):
     request = {"model": "fixture", "input": "{}"}
-    treatment = {"treatment": "blind", "payload_sha256": "e" * 64}
+    treatment = {"treatment": "blind", "payload_sha256": "e" * 64,
+                 "original_sha256": "e" * 64}
     return store.start_attempt(
         con, run["record_id"], chunk_index=0, sample_index=0,
         request_payload=request, treatment=treatment, started_at=started_at,
@@ -227,6 +235,24 @@ def test_unavailable_receipt_cannot_support_available_output(con):
         reason="connector failure", completed_at=NOW + timedelta(minutes=1),
     )
     with pytest.raises(ValueError, match="cannot support"):
+        store.finish_run(
+            con, run["record_id"], rows=_rows(), completed_at=NOW + timedelta(minutes=2),
+        )
+
+
+def test_model_output_requires_the_complete_frozen_attempt_grid(con):
+    run = _run(con, attempt_manifest=[
+        {"chunk_index": 0, "sample_index": index,
+         "source_request_sha256": f"{index + 1:064x}",
+         "source_input_sha256": "e" * 64}
+        for index in range(2)
+    ])
+    attempt = _attempt(con, run)
+    store.finish_attempt(
+        con, attempt["record_id"], status="available", receipt=_receipt(attempt),
+        completed_at=NOW + timedelta(minutes=1),
+    )
+    with pytest.raises(ValueError, match="attempt grid is incomplete"):
         store.finish_run(
             con, run["record_id"], rows=_rows(), completed_at=NOW + timedelta(minutes=2),
         )
