@@ -962,4 +962,22 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Next:** complete the registered P15 activation sequence, then integrate or drop every
   salvaged P16 branch.
 
+## 2026-09-27 — P16 Phase B: dispose of the salvaged branches
+
+- **Why:** approved P16 Phase B requires every abandoned `p16-*` branch to be integrated or
+  deliberately dropped before the ordered workstreams continue.
+- **What:** integrate the corrected parser, fixture, and tests from `p16-filings-draft`; its stale
+  policy/transport surface was dropped. Drop `p16-census`, `p16-census-update`,
+  `p16-eval-input-draft`, `p16-evaluation-store`, `p16-integration`, `p16-lead`, `p16-selection`,
+  and `p16-sequential` because they overlap and the pending evaluation r3 supersedes their
+  incomplete statistics, identity, and inventory contracts. Drop `p16-challenger-inputs`,
+  `p16-client-draft`, and `p16-run-store` for incomplete output/receipt lineage; drop
+  `p16-optimizer-draft` for obsolete solver/calibration rules; drop `p16-replay-core` and
+  `p16-textlab-draft` for v3 leakage gaps; drop `p16-stage2-draft` for the accepted external draft.
+- **Evidence:** host and `TZ=UTC` full suites both reach `[100%]` (3,525 tests collected);
+  the parser gate passes 36 tests.
+- **Metrics:** engine 14,818/16,050; server 55,364/57,050; farm 12,967/15,550;
+  tools 7,996/8,850; sim 7,921/8,400; budget ok.
+- **Next:** build W3 from the accepted filing design, while W1/W5 wait for evaluation r3.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
