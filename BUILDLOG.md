@@ -1078,4 +1078,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +241, tools unchanged, product +9 (farm +9); budget ok.
 - **Next:** obtain fresh independent correctness, leakage, and authority reviews.
 
+## 2026-09-27 — P16 W5: close calibration and window review findings
+
+- **Why:** the second-round correctness and leakage reviews found unverified alpha derivation and
+  premature completion of next-open execution windows.
+- **What:** retain 120-session stock/SPY returns and recompute registered-IC alpha, covariance,
+  and beta before accepting calibration; reject future or post-activation snapshots. Keep each
+  construction window running until fills, accounting, labels, and close state commit together.
+- **Evidence:** focused calibration, window, composition, and strict-cutoff regressions pass 6/6;
+  the broader W5 suite also reaches `[100%]`.
+- **Metrics:** server +29, tools unchanged, product +9 (sim +9); budget ok.
+- **Next:** run the final frozen-rubric reviews and full host/UTC acceptance suites.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

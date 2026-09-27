@@ -15,6 +15,7 @@ from sim.schema import init_sim_schema
 LOGICAL_BOOK_IDS = ("p16_construct_ai", "p16_construct_rule")
 INITIAL_CAPITAL = 10_000.0
 MECHANICS_VERSION = "p16-construct-v1"
+_VALIDATED_CALIBRATIONS: set[tuple[str, str, str]] = set()
 
 
 class P16BookError(ValueError):
@@ -42,9 +43,9 @@ def _same_number(left: object, right: object) -> bool:
     )
 
 
-def _validate_calibration_body(body: dict) -> tuple[float, float, int]:
+def _validate_calibration_body(body: dict, recorded_at: datetime) -> tuple[float, float, int]:
     """Recompute the retained cohort, cost maximum, curve, and lambda selection."""
-    from farm import p16_calibration
+    from farm import p16_calibration, p16_risk
     from sim import execution
 
     snapshots = body.get("snapshots")
@@ -88,6 +89,7 @@ def _validate_calibration_body(body: dict) -> tuple[float, float, int]:
         inputs = snapshot.get("solver_inputs")
         previous = snapshot.get("previous_weights")
         if (scoring_cutoff.tzinfo is None or scoring_cutoff.utcoffset() is None
+                or scoring_cutoff.astimezone(timezone.utc).replace(tzinfo=None) > recorded_at
                 or scoring_cutoff.astimezone(timezone.utc).date() < market_date
                 or len(sessions) != 121 or sessions != sorted(set(sessions))
                 or sessions[-1] != market_date or not isinstance(tickers, list)
@@ -99,6 +101,16 @@ def _validate_calibration_body(body: dict) -> tuple[float, float, int]:
             raise P16BookError("P16 calibration snapshot is invalid")
         risk_sha = _digest(snapshot.get("risk_snapshot_sha256"), "risk snapshot digest")
         score_sha = _digest(snapshot.get("score_snapshot_sha256"), "score snapshot digest")
+        try:
+            stock_returns = np.asarray(snapshot["stock_returns"], dtype=float)
+            spy_returns = np.asarray(snapshot["spy_returns"], dtype=float)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise P16BookError("P16 calibration risk evidence is invalid") from exc
+        if (stock_returns.shape != (120, len(tickers))
+                or spy_returns.shape != (120,)
+                or not np.all(np.isfinite(stock_returns))
+                or not np.all(np.isfinite(spy_returns))):
+            raise P16BookError("P16 calibration risk evidence is invalid")
         for policy, book_id in zip(("champion", "rule"), LOGICAL_BOOK_IDS, strict=True):
             policy_inputs = inputs.get(policy)
             policy_scores = scores.get(policy)
@@ -116,6 +128,15 @@ def _validate_calibration_body(body: dict) -> tuple[float, float, int]:
                         alpha, covariance, beta, score_values,
                     ))):
                 raise P16BookError("P16 calibration snapshot is invalid")
+            derived = p16_risk.calibration_risk_and_alpha(
+                stock_returns, spy_returns, score_values, assumed_ic=0.03,
+            )
+            if (not np.allclose(alpha, derived["alpha_h5"], rtol=1e-12, atol=1e-14)
+                    or not np.allclose(
+                        covariance, derived["covariance_h5"], rtol=1e-12, atol=1e-14,
+                    )
+                    or not np.allclose(beta, derived["beta"], rtol=1e-12, atol=1e-14)):
+                raise P16BookError("P16 calibration risk derivation differs")
             cases.append({
                 "book_id": book_id, "alpha": alpha, "covariance": covariance,
                 "beta": beta, "sectors": sectors, "previous": previous,
@@ -361,8 +382,15 @@ def record_calibration(
     body = {key: value for key, value in payload.items() if key != "calibration_sha256"}
     if digest != canonical_sha256(body):
         raise P16BookError("P16 calibration artifact is invalid")
-    selected, cost, snapshot_count = _validate_calibration_body(body)
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    cache_key = (digest, encoded, recorded.isoformat())
+    if cache_key not in _VALIDATED_CALIBRATIONS:
+        selected, cost, snapshot_count = _validate_calibration_body(body, recorded)
+        _VALIDATED_CALIBRATIONS.add(cache_key)
+    else:
+        selected = float(body["selected_lambda"])
+        cost = float(body["cost_per_turnover"])
+        snapshot_count = len(body["snapshots"])
     expected = (registration, selected, cost, snapshot_count, encoded, recorded)
     prior = con.execute(
         "SELECT registration_sha256,selected_lambda,cost_per_turnover,snapshot_count,"
@@ -399,6 +427,13 @@ def initialize_contracts(
         con, registration_sha256=registration, payload=payload,
         recorded_at=calibration_row[4].replace(tzinfo=timezone.utc),
     )
+    if activation_date is not None and any(
+        datetime.fromisoformat(
+            snapshot["scoring_information_cutoff_at"].replace("Z", "+00:00"),
+        ).astimezone(timezone.utc).date() >= activation_date
+        for snapshot in payload["snapshots"]
+    ):
+        raise P16BookError("P16 calibration is not preactivation")
     risk_aversion, cost_per_turnover = calibration_row[1], calibration_row[2]
     instances = []
     for logical in LOGICAL_BOOK_IDS:

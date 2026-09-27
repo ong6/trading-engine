@@ -162,7 +162,7 @@ def test_construct_targets_composes_gates_solver_planner_store_and_queue(con, mo
     assert all(row["queued"] > 0 for row in result["books"])
     assert con.execute("SELECT COUNT(*) FROM p16_construct_targets").fetchone() == (2,)
     assert con.execute(
-        "SELECT COUNT(*) FROM p16_book_windows WHERE status='completed'",
+        "SELECT COUNT(*) FROM p16_book_windows WHERE status='running'",
     ).fetchone() == (2,)
     assert {row[0] for row in con.execute(
         "SELECT DISTINCT ticker FROM p16_order_intents WHERE side='buy'",
@@ -223,8 +223,7 @@ def test_construct_targets_queues_stop_exits_while_ic_is_collecting(con, monkeyp
         "WHERE solver_status='core_collecting' AND banded_json IS NULL",
     ).fetchone() == (2,)
     assert con.execute(
-        "SELECT COUNT(*) FROM p16_book_windows WHERE status='completed' "
-        "AND reason='mandatory_exits_only:fewer_than_60_mature_origins'",
+        "SELECT COUNT(*) FROM p16_book_windows WHERE status='running'",
     ).fetchone() == (2,)
     assert con.execute(
         "SELECT DISTINCT ticker,side,order_role,rounded_qty FROM p16_order_intents",
