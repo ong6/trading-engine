@@ -7,6 +7,7 @@ from typing import Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from engine import p15_event_sources
+from farm.replay.sources import edgar_acceptance_at
 from sim import nyse
 
 ET = ZoneInfo("America/New_York")
@@ -14,13 +15,7 @@ YEARS = tuple(range(2015, 2026))
 
 
 def _instant(value: object) -> datetime:
-    if isinstance(value, datetime):
-        result = value
-    else:
-        result = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    if result.tzinfo is None:
-        raise ValueError("naive_textlab_clock")
-    return result.astimezone(timezone.utc)
+    return edgar_acceptance_at(value)
 
 
 def first_open_strictly_after(accepted_at: datetime) -> datetime:
@@ -54,7 +49,8 @@ def build_corpus_inventory(rows: Sequence[Mapping]) -> dict:
             continue
         accession = str(source.get("accession", ""))
         accepted = _instant(source.get("accepted_at"))
-        if not accession or accession in seen or accepted.year not in YEARS:
+        filing_year = accepted.astimezone(ET).year
+        if not accession or accession in seen or filing_year not in YEARS:
             continue
         seen.add(accession)
         retained.append({
@@ -68,7 +64,7 @@ def build_corpus_inventory(rows: Sequence[Mapping]) -> dict:
     retained.sort(key=lambda row: (row["accepted_at"], row["accession"]))
     counts = {str(year): 0 for year in YEARS}
     for row in retained:
-        counts[str(row["accepted_at"].year)] += 1
+        counts[str(row["accepted_at"].astimezone(ET).year)] += 1
     return {
         "status": "corpus_ready" if retained else "corpus_empty",
         "records": retained,

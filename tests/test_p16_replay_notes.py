@@ -46,6 +46,7 @@ FILTER = freeze_filter_spec(
         "In the first pass, review assumptions.",
         "Use a per-share basis.",
         "Prefer ranges to point forecasts.",
+        "May improve with broader evidence.",
     ),
 )
 def test_notes_filter_accepts_plain_prose_and_sentence_initial_ticker(text):
@@ -62,6 +63,9 @@ def test_notes_filter_accepts_plain_prose_and_sentence_initial_ticker(text):
         "Compare Acme Holdings carefully.",
         "Inspect BRK-B after the release.",
         "The return was 4 percent.",
+        "Expect hundreds of outcomes.",
+        "Wait dozens of sessions.",
+        "Review after Thanksgiving.",
     ),
 )
 def test_notes_filter_rejects_identity_date_and_value_anchors(text):

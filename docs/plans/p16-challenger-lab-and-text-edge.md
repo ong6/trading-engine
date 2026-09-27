@@ -583,7 +583,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W1 Evaluation science v2 | complete; accepted core, durable evidence, family report, and existing-status-surface projection are verified; nonessential adapter/census refinements are deferred at checkpoint | 2026-09-27 |
 | W2 Challenger lab | staged; implementation and inert timer complete, while the first P15 origin gates the timer-backed rehearsal, literal epoch, final family registration, and independent activation | |
 | W3 Filing reader | components complete, inert; `unconfigured` and activation blocked on baseline/conditional-fetch/scan-orchestrator review fixes | 2026-09-27 |
-| W4 Historical labs (text lab, replay lab) | implementation checkpoint complete, awaiting orchestrator acceptance: guards, collectors, probe preflight/scoring/power, isolated replay books, reduced text lab, registration/report renderers, early-close semantics, and raw-price spot check are fixture-tested and inert. No producer has run | 2026-09-27 |
+| W4 Historical labs (text lab, replay lab) | implementation checkpoint complete, awaiting orchestrator acceptance: the deterministic end-to-end fixture passes twice across collectors, a 10-session split/early-close/halt replay, notes and report; all review items are fixture-tested and inert. No producer has run | 2026-09-27 |
 | W5 Portfolio construction v2 | complete; orchestrator accepted the inert construction path and its bounded recovery deviation; W9 owns the three pre-activation guards and the recovery-window exit follow-up | 2026-09-27 |
 | W6 Execution realism | not started | |
 | W7 Operator digest | not started | |
@@ -592,7 +592,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W10 Final refine pass | not started | |
 | W11 Synthetic proving ground and evaluation loops | design in progress (`p16-design-proving-ground`) | |
 
-The orchestrator raised W4's production-Python allocation to 3,500 lines. Owner input remains
+The orchestrator raised W4's production-Python allocation to 5,000 lines. Owner input remains
 optional for the `research-text` dependency requested 2026-09-26, so W4 uses the reduced text-lab
 variant. SEC contact and free API keys retain their stated defaults.
 

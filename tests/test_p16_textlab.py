@@ -67,13 +67,22 @@ def test_ridge_scaling_is_train_only_and_labels_are_strictly_visible():
     assert training_indices(
         rows,
         fit_at=datetime(2020, 1, 10, 12, tzinfo=timezone.utc),
-        checkpoint="chrono-bert-2017",
     ) == []
     assert training_indices(
         rows,
         fit_at=datetime(2020, 1, 10, 12, 0, 1, tzinfo=timezone.utc),
-        checkpoint="chrono-bert-2017",
     ) == [0]
+
+
+def test_inventory_parses_edgar_clock_and_buckets_year_in_new_york():
+    rows = [{
+        "form": "8-K", "items": "2.02", "accession": "year-edge", "cik": "2",
+        "accepted_at": "2015-01-01T00:30:00Z", "language": "en",
+        "content_sha256": "b" * 64,
+    }]
+    inventory = build_corpus_inventory(rows)
+    assert inventory["records"] == []
+    assert inventory["year_counts"]["2015"] == 0
 
 
 def test_unapproved_dependency_produces_explicit_reduced_report():

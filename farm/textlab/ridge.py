@@ -72,7 +72,7 @@ def select_lambda(folds: Sequence[Mapping]) -> dict:
 
 
 def training_indices(
-    rows: Sequence[Mapping], *, fit_at: datetime, checkpoint: str
+    rows: Sequence[Mapping], *, fit_at: datetime
 ) -> list[int]:
     cutoff = fit_at.astimezone(timezone.utc)
     selected = []
@@ -82,7 +82,6 @@ def training_indices(
         if (
             accepted.tzinfo is None
             or visible.tzinfo is None
-            or row.get("checkpoint") != checkpoint
             or row.get("label_status") != "terminal"
         ):
             continue

@@ -26,8 +26,16 @@ def paired_notes_endpoint(
     """Evaluate notes-minus-no-notes factor-neutral h5 IC by replay session."""
     if resamples < 1 or block_sessions < 1:
         raise ValueError("invalid_replay_bootstrap")
+    sessions = [str(row.get("session", "")) for row in rows]
+    if not all(sessions) or len(sessions) != len(set(sessions)):
+        raise ValueError("duplicate_or_missing_replay_session")
     eligible, excluded = [], []
+    unavailable = 0
     for row in rows:
+        if row.get("response_status") == "unavailable":
+            unavailable += 1
+            excluded.append(str(row["session"]))
+            continue
         try:
             notes = float(row["notes_factor_neutral_h5_ic"])
             control = float(row["control_factor_neutral_h5_ic"])
@@ -66,6 +74,10 @@ def paired_notes_endpoint(
         "two_sided_95": [lower, upper],
         "eligible_sessions": len(deltas),
         "excluded_sessions": excluded,
+        "zero_skill_unavailable_sensitivity": {
+            "unavailable_sessions": unavailable,
+            "estimate": sum(deltas) / (len(deltas) + unavailable),
+        },
         "block_sessions": block_sessions,
         "resamples": resamples,
         "seed": seed,
