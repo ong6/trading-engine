@@ -5,14 +5,18 @@ import json
 import math
 import re
 from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
+from engine.p16_features import EXPOSURES
 from farm import p16_sequential
+from farm.p16_factors import CHAMPION, RULE
 from server import p16_trial_store
+from sim import nyse
 
 ARTIFACT_KINDS = {
-    "origin", "exposure", "policy_scores", "factor_report", "top_quintile",
+    "evaluation_input", "exposure_snapshot", "policy_scores", "factor_report", "top_quintile",
     "trial_dispersion", "transfer", "sequential_checkpoint", "family_report",
 }
 ORIGIN_EVENTS = {"pending", "scored", "decision_unavailable", "invalid"}
@@ -38,6 +42,33 @@ def _text(value: object, field: str) -> str:
     if not isinstance(value, str) or not value or len(value) > 200:
         raise ValueError(f"{field} is invalid")
     return value
+
+
+def _date(value: object, field: str) -> date:
+    try:
+        result = value if isinstance(value, date) and not isinstance(value, datetime) \
+            else date.fromisoformat(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} is invalid") from exc
+    return result
+
+
+def _payload_time(value: object, field: str) -> datetime:
+    try:
+        result = value if isinstance(value, datetime) else datetime.fromisoformat(
+            value.replace("Z", "+00:00"))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError(f"{field} is invalid") from exc
+    return _aware(_timestamp(result, field))
+
+
+def _self_hash(payload: dict, field: str) -> str:
+    if not isinstance(payload, dict):
+        raise ValueError("P16 artifact payload is invalid")
+    digest = _digest(payload.get(field), field.replace("_", " "))
+    if digest != canonical_sha256({key: value for key, value in payload.items() if key != field}):
+        raise ValueError(f"{field.replace('_', ' ')} differs")
+    return digest
 
 
 def init_schema(con) -> None:
@@ -92,7 +123,7 @@ def _artifact_row(row: tuple) -> dict:
     }
 
 
-def record_artifact(
+def _record_artifact(
     con, *, registration_sha256: str, artifact_kind: str, artifact_key: str, market_date: date,
     information_cutoff_at: datetime, recorded_at: datetime, source_sha256: str,
     payload: dict,
@@ -136,7 +167,7 @@ def record_artifact(
     return artifact_id
 
 
-def artifacts_as_of(
+def _artifacts_as_of(
     con, *, generated_at: datetime, registration_sha256: str | None = None,
     artifact_kind: str | None = None,
     artifact_key: str | None = None, through_market_date: date | None = None,
@@ -166,6 +197,147 @@ def artifacts_as_of(
         values,
     ).fetchall()
     return [_artifact_row(row) for row in rows]
+
+
+def _artifact_by_id(con, artifact_sha256: str, *, visible_at: datetime | None = None) -> dict:
+    digest = _digest(artifact_sha256, "artifact digest")
+    row = con.execute(
+        "SELECT * FROM p16_evaluation_artifacts WHERE artifact_sha256=?", [digest],
+    ).fetchone()
+    if row is None:
+        raise ValueError("P16 artifact dependency is absent")
+    result = _artifact_row(row)
+    if visible_at is not None:
+        cutoff = _timestamp(visible_at, "artifact visibility cutoff")
+        if result["recorded_at"].replace(tzinfo=None) > cutoff \
+                or result["information_cutoff_at"].replace(tzinfo=None) > cutoff:
+            raise ValueError("P16 artifact dependency is not visible")
+    return result
+
+
+def record_evaluation_input(
+    con, *, registration_sha256: str, payload: dict, recorded_at: datetime,
+) -> str:
+    """Retain one validated P15 evaluation input snapshot."""
+    _self_hash(payload, "input_snapshot_sha256")
+    market_date = _date(payload.get("market_date"), "evaluation market date")
+    cutoff = _payload_time(payload.get("report_cutoff"), "evaluation report cutoff")
+    source = payload.get("source")
+    required = {"run_id", "bundle_sha256", "universe_sha256", "context_sha256",
+                "source_refs_sha256", "request_sha256", "input_sha256",
+                "output_sha256", "trace_sha256"}
+    if (payload.get("schema_version") != 1 or payload.get("policy_id") != CHAMPION
+            or payload.get("status") not in {"available", "pending"}
+            or not isinstance(source, dict) or set(source) != required
+            or type(source["run_id"]) is not int or source["run_id"] < 1
+            or any(not _digest(source[key], f"evaluation {key}") for key in required - {"run_id"})
+            or _digest(payload.get("p15_registration_sha256"), "P15 registration digest") is None):
+        raise ValueError("P16 evaluation input is invalid")
+    return _record_artifact(
+        con, registration_sha256=registration_sha256, artifact_kind="evaluation_input",
+        artifact_key=CHAMPION, market_date=market_date, information_cutoff_at=cutoff,
+        recorded_at=recorded_at, source_sha256=canonical_sha256({
+            "p15_registration_sha256": payload["p15_registration_sha256"], "source": source,
+        }), payload=payload,
+    )
+
+
+def record_exposure_snapshot(
+    con, *, registration_sha256: str, payload: dict, recorded_at: datetime,
+) -> str:
+    """Retain one decision-time exposure snapshot before its forward entry."""
+    _self_hash(payload, "snapshot_sha256")
+    market_date = _date(payload.get("market_date"), "exposure market date")
+    cutoff = _payload_time(payload.get("information_cutoff_at"), "exposure cutoff")
+    candidates = payload.get("candidates")
+    tickers = [row.get("ticker") for row in candidates] if isinstance(candidates, list) else []
+    if (payload.get("schema_version") != 2 or payload.get("policy_id") != "p16-eval-v2"
+            or payload.get("exposure_names") != list(EXPOSURES) or not candidates
+            or len(tickers) != len(set(tickers)) or any(not isinstance(item, str) or not item
+                                                        for item in tickers)):
+        raise ValueError("P16 exposure snapshot is invalid")
+    bars = _digest(payload.get("source_bars_sha256"), "exposure bar digest")
+    sectors = _digest(payload.get("sector_snapshot_sha256"), "exposure sector digest")
+    next_open = datetime.combine(
+        nyse.next_session(market_date), datetime.min.time(), ZoneInfo("America/New_York"),
+    ).replace(hour=9, minute=30)
+    if _aware(_timestamp(recorded_at, "recorded at")) >= next_open.astimezone(timezone.utc):
+        raise ValueError("P16 exposure snapshot was not retained before forward entry")
+    return _record_artifact(
+        con, registration_sha256=registration_sha256, artifact_kind="exposure_snapshot",
+        artifact_key="p16-eval-v2", market_date=market_date,
+        information_cutoff_at=cutoff, recorded_at=recorded_at,
+        source_sha256=canonical_sha256([bars, sectors]), payload=payload,
+    )
+
+
+def record_policy_scores(
+    con, *, registration_sha256: str, payload: dict, recorded_at: datetime,
+) -> str:
+    """Retain one complete, self-hashed policy score vector."""
+    _self_hash(payload, "score_snapshot_sha256")
+    policy_id = _text(payload.get("policy_id"), "score policy ID")
+    market_date = _date(payload.get("market_date"), "score market date")
+    cutoff = _payload_time(payload.get("information_cutoff_at"), "score cutoff")
+    scores = payload.get("scores")
+    if not isinstance(scores, dict) or not scores or any(
+            not isinstance(key, str) or not key for key in scores):
+        raise ValueError("P16 policy score snapshot is invalid")
+    return _record_artifact(
+        con, registration_sha256=registration_sha256, artifact_kind="policy_scores",
+        artifact_key=policy_id, market_date=market_date, information_cutoff_at=cutoff,
+        recorded_at=recorded_at, source_sha256=payload["score_snapshot_sha256"],
+        payload=payload,
+    )
+
+
+def record_factor_report(
+    con, *, registration_sha256: str, payload: dict,
+    origin_artifact_sha256: str, exposure_artifact_sha256: str,
+    score_artifact_sha256s: list[str], recorded_at: datetime,
+) -> str:
+    """Retain a terminal factor report bound to exact immutable inputs."""
+    _self_hash(payload, "factor_report_sha256")
+    if payload.get("status") not in {"available", "insufficient"}:
+        raise ValueError("only terminal P16 factor reports may be retained")
+    market_date = _date(payload.get("market_date"), "factor market date")
+    cutoff = _payload_time(payload.get("report_cutoff"), "factor report cutoff")
+    origin = _artifact_by_id(con, origin_artifact_sha256, visible_at=cutoff)
+    exposure = _artifact_by_id(con, exposure_artifact_sha256, visible_at=cutoff)
+    if (origin["artifact_kind"] != "evaluation_input"
+            or exposure["artifact_kind"] != "exposure_snapshot"
+            or origin["registration_sha256"] != registration_sha256
+            or exposure["registration_sha256"] != registration_sha256
+            or origin["market_date"] != market_date or exposure["market_date"] != market_date
+            or payload.get("input_snapshot_sha256")
+            != origin["payload"].get("input_snapshot_sha256")
+            or payload.get("exposure_snapshot_sha256")
+            != exposure["payload"].get("snapshot_sha256")):
+        raise ValueError("P16 factor report dependencies differ")
+    if not isinstance(score_artifact_sha256s, list) \
+            or score_artifact_sha256s != sorted(set(score_artifact_sha256s)):
+        raise ValueError("P16 factor score dependencies are invalid")
+    scores = [_artifact_by_id(con, item, visible_at=cutoff)
+              for item in score_artifact_sha256s]
+    if any(row["artifact_kind"] != "policy_scores"
+           or row["registration_sha256"] != registration_sha256
+           or row["market_date"] != market_date for row in scores):
+        raise ValueError("P16 factor score dependencies differ")
+    expected_scores = {row["artifact_key"]: row["payload"].get("score_snapshot_sha256")
+                       for row in scores}
+    reported_scores = payload.get("score_snapshot_sha256")
+    if (not isinstance(reported_scores, dict)
+            or {key: value for key, value in reported_scores.items()
+                if key not in {CHAMPION, RULE}} != expected_scores):
+        raise ValueError("P16 factor score dependencies differ")
+    dependencies = [origin, exposure, *scores]
+    return _record_artifact(
+        con, registration_sha256=registration_sha256, artifact_kind="factor_report",
+        artifact_key="p16-factor-v1", market_date=market_date,
+        information_cutoff_at=cutoff, recorded_at=recorded_at,
+        source_sha256=canonical_sha256([row["row_sha256"] for row in dependencies]),
+        payload=payload,
+    )
 
 
 def _session_at(epoch: date, index: int) -> date:
