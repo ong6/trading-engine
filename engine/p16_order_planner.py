@@ -18,11 +18,32 @@ def _finite_mapping(values: dict[str, float], names: list[str], field: str) -> n
     return result
 
 
+def plan_mandatory_exit_orders(
+    current_quantities: dict[str, float], exit_reasons: dict[str, str],
+) -> dict:
+    """Build deterministic full-position exits without discretionary inputs."""
+    if not set(exit_reasons) <= set(current_quantities):
+        raise ValueError("mandatory exit is outside current holdings")
+    orders = []
+    for ticker in sorted(exit_reasons):
+        quantity = current_quantities[ticker]
+        reason = exit_reasons[ticker]
+        if (ticker == "SPY" or reason not in {"stop", "time_exit"}
+                or not isinstance(quantity, (int, float))
+                or not math.isfinite(float(quantity)) or quantity <= 0):
+            raise ValueError("invalid mandatory exit")
+        orders.append({
+            "ticker": ticker, "side": "sell", "qty": float(quantity),
+            "order_role": reason, "target_weight": 0.0,
+        })
+    return {"status": "planned", "orders": orders}
+
+
 def plan_whole_share_orders(
     *, tickers: list[str], target_weights, current_quantities: dict[str, float],
     operational_prices: dict[str, float], cash: float, equity: float,
     beta, sectors, alpha, entry_atr: dict[str, float],
-    mandatory_exits: set[str] | None = None,
+    mandatory_exits: set[str] | dict[str, str] | None = None,
 ) -> dict:
     """Round down targets, fund sells first, and fail closed on post-rounding drift."""
     if (tickers != sorted(set(tickers)) or "SPY" in tickers or equity <= 0 or cash < 0
@@ -44,7 +65,9 @@ def plan_whole_share_orders(
     if (np.any(prices <= 0) or np.any(atr <= 0) or np.any(current < 0)
             or not np.all(np.isfinite(current))):
         raise ValueError("invalid prices or current quantities")
-    exits = mandatory_exits or set()
+    exit_reasons = ({ticker: "mandatory_exit" for ticker in mandatory_exits}
+                    if isinstance(mandatory_exits, set) else mandatory_exits or {})
+    exits = set(exit_reasons)
     if not exits <= set(tickers):
         raise ValueError("mandatory exit is outside the risk universe")
     desired = np.floor(target * equity / prices)
@@ -82,7 +105,7 @@ def plan_whole_share_orders(
     if invalid:
         mandatory_orders = [
             {"ticker": tickers[index], "side": "sell", "qty": float(current[index]),
-             "order_role": "mandatory_exit", "target_weight": 0.0}
+             "order_role": exit_reasons[tickers[index]], "target_weight": 0.0}
             for index in range(len(tickers)) if tickers[index] in exits and current[index] > 0
         ]
         return {
@@ -97,7 +120,7 @@ def plan_whole_share_orders(
         change = projected[index] - current[index]
         if abs(change) < 1e-12:
             continue
-        role = ("mandatory_exit" if name in exits else "spy_financing"
+        role = (exit_reasons[name] if name in exits else "spy_financing"
                 if name == "SPY" else "rebalance")
         order = {
             "ticker": name, "side": "buy" if change > 0 else "sell",

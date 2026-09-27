@@ -33,6 +33,7 @@ def _queue(con, instance, *, limit=101.5, qty=10):
             "order_role": "rebalance", "target_weight": 0.1, "entry_atr": 2.0,
         }]},
         limit_prices={"AAA": limit}, source_sha256=SOURCE, created_at=NOW,
+        entry_gates={"AAA": "eligible"},
     )
 
 
@@ -209,7 +210,7 @@ def test_drawdown_halt_rejects_discretionary_stock_buy(con):
     )
     _queue(con, instance)
 
-    result = p16_books.process_window(
+    result = p16_books.process_through(
         con, book_instance_id=instance, market_date=SESSIONS[30], observed_at=NOW,
     )
 

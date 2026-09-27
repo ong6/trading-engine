@@ -59,7 +59,7 @@ def _one_trace(con: duckdb.DuckDBPyConnection, market_date: date) -> dict:
     return dict(zip(columns, values[0], strict=True))
 
 
-def _frozen_candidates(trace: dict) -> tuple[list[dict], str, str]:
+def _frozen_candidates(trace: dict) -> tuple[list[dict], str, str, str | None]:
     try:
         universe = json.loads(trace["input_payload"])["universe"]
         candidates = universe["candidates"]
@@ -75,7 +75,8 @@ def _frozen_candidates(trace: dict) -> tuple[list[dict], str, str]:
     if len(tickers) != len(candidates) or any(not item for item in tickers) \
             or len(set(tickers)) != len(tickers):
         raise EvaluationInputError("P15 frozen candidate set is invalid")
-    return candidates, universe_sha, canonical_sha256(universe)
+    regime = universe.get("market", {}).get("regime")
+    return candidates, universe_sha, canonical_sha256(universe), regime
 
 
 def _decisions(con: duckdb.DuckDBPyConnection, trace_id: int) -> dict[str, dict]:
@@ -102,7 +103,7 @@ def _labels(
         "SELECT decision_id,label_basis,entry_date,exit_date,missing_bar_status,labeled_at,"
         "label_sha256,price_prefix_sha256,round_trip_cost_bps,net_excess_return "
         "FROM agent_evaluation_labels_v2 WHERE horizon_sessions=5 "
-        f"AND decision_id IN ({placeholders}) AND labeled_at<=? ORDER BY decision_id,id",
+        f"AND decision_id IN ({placeholders}) AND labeled_at<? ORDER BY decision_id,id",
         [*decision_ids, cutoff],
     ).fetchall()
     result: dict[int, dict] = {}
@@ -136,7 +137,7 @@ def load_origin(
     if (trace["source_kind"] != "p15_scoring_run" or trace["terminal_status"] != "completed"
             or trace["information_cutoff_at"] > cutoff or trace["completed_at"] > cutoff):
         raise EvaluationInputError("P15 scoring trace is unavailable at report cutoff")
-    candidates, bundle_sha, universe_sha = _frozen_candidates(trace)
+    candidates, bundle_sha, universe_sha, market_regime = _frozen_candidates(trace)
     decisions = _decisions(con, int(trace["id"]))
     if set(decisions) != {item["ticker"] for item in candidates}:
         raise EvaluationInputError("P15 decision set differs from frozen candidates")
@@ -164,13 +165,10 @@ def load_origin(
     if sorted(ranks) != list(range(1, len(candidates) + 1)):
         raise EvaluationInputError("baseline score is not equivalent to negative rank")
     labels = _labels(con, [item["id"] for item in decisions.values()], cutoff)
-    rows, decision_rows, unresolved, held_only = [], [], [], 0
+    rows, decision_rows, held_decision_rows, unresolved, held_only = [], [], [], [], 0
     for candidate in candidates:
         ticker, stratum = candidate["ticker"], candidate.get("stratum")
-        if stratum == "held_only":
-            held_only += 1
-            continue
-        if stratum not in {"mover", "trend"}:
+        if stratum not in {"mover", "trend", "held_only"}:
             raise EvaluationInputError("P15 candidate stratum is invalid")
         decision = decisions[ticker]
         payload = decision["payload"]
@@ -184,14 +182,22 @@ def load_origin(
                 raise EvaluationInputError("available P15 score has unavailable decision")
         elif champion is not None or decision["decision"] != "unavailable":
             raise EvaluationInputError("unavailable P15 score is populated")
-        decision_rows.append({
+        decision_row = {
             "ticker": ticker, "stratum": stratum,
             "champion_score": champion, "champion_score_available": available,
             "rule_score": -_rank(payload["baseline_rank"]),
             "baseline_rank": payload["baseline_rank"],
             "baseline_score": payload["baseline_score"],
             "decision_sha256": decision["decision_sha256"],
-        })
+            "tradeable": candidate.get("tradeable"),
+            "entry_gate_reason": candidate.get("reason"),
+            "close": candidate.get("close"), "atr_14": candidate.get("atr_14"),
+        }
+        if stratum == "held_only":
+            held_only += 1
+            held_decision_rows.append(decision_row)
+            continue
+        decision_rows.append(decision_row)
         label = labels.get(decision["id"])
         if label is None:
             unresolved.append(ticker)
@@ -222,9 +228,11 @@ def load_origin(
                    "output_sha256": trace["output_sha256"], "trace_sha256": trace["trace_sha256"]},
         "p15_registration_sha256": p15_evaluation.registration_sha256(),
         "scoring_completed_at": _iso(trace["completed_at"]),
+        "market_regime": market_regime,
         "frozen_candidate_count": len(candidates), "held_only_excluded_count": held_only,
         "evaluation_candidate_count": len(candidates) - held_only,
-        "decision_rows": decision_rows, "terminal_h5_count": len(rows),
+        "decision_rows": decision_rows, "held_decision_rows": held_decision_rows,
+        "terminal_h5_count": len(rows),
         "unresolved_h5_tickers": unresolved, "rows": rows,
     }
     return {**body, "input_snapshot_sha256": canonical_sha256(body)}

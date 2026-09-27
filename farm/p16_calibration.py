@@ -23,7 +23,7 @@ def calibrate_lambda(cases: list[dict], grid=None) -> dict:
     curve = []
     for risk_aversion in values:
         tracking_errors = {book: [] for book in books}
-        failures, timings = [], []
+        failures, timings, case_rows = [], [], []
         for case_index, case in enumerate(cases):
             arguments = {key: value for key, value in case.items() if key != "book_id"}
             started = time.perf_counter()
@@ -48,10 +48,24 @@ def calibrate_lambda(cases: list[dict], grid=None) -> dict:
                         "case_index": case_index, "book_id": case["book_id"],
                         "reason": result["status"],
                     })
+                case_rows.append({
+                    "case_index": case_index, "book_id": case["book_id"],
+                    "status": result["status"], "tracking_error": None,
+                    "reason": next(row["reason"] for row in failures
+                                   if row["case_index"] == case_index),
+                    "solve_seconds": elapsed,
+                })
             else:
                 tracking_errors[case["book_id"]].append(result["tracking_error"])
+                case_rows.append({
+                    "case_index": case_index, "book_id": case["book_id"],
+                    "status": result["status"],
+                    "tracking_error": float(result["tracking_error"]),
+                    "reason": None, "solve_seconds": elapsed,
+                })
         row = {
             "risk_aversion": float(risk_aversion), "solve_timings": timings,
+            "cases": case_rows,
             "solve_seconds_total": sum(item["solve_seconds"] for item in timings),
         }
         if failures or any(not tracking_errors[book] for book in books):

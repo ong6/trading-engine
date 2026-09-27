@@ -70,6 +70,10 @@ def record_p16_calibration(con, registration, recorded_at, *, cost=0.0005):
     from server import p16_book_store
 
     selected = float(DEFAULT_LAMBDA_GRID[7])
+    dates = [
+        (recorded_at.date() - timedelta(days=1)).isoformat(),
+        recorded_at.date().isoformat(),
+    ]
     curve = []
     for value in DEFAULT_LAMBDA_GRID:
         risk_aversion = float(value)
@@ -85,20 +89,23 @@ def record_p16_calibration(con, registration, recorded_at, *, cost=0.0005):
             "solve_timings": [
                 {"case_index": 0, "book_id": "p16_construct_ai", "solve_seconds": 0.01},
                 {"case_index": 1, "book_id": "p16_construct_rule", "solve_seconds": 0.01},
+                {"case_index": 2, "book_id": "p16_construct_ai", "solve_seconds": 0.01},
+                {"case_index": 3, "book_id": "p16_construct_rule", "solve_seconds": 0.01},
             ],
-            "solve_seconds_total": 0.02,
+            "solve_seconds_total": 0.04,
         })
     body = {
         "schema_version": 1, "status": "calibrated", "selected_lambda": selected,
         "selected_at_grid_endpoint": False, "grid_bounds": [0.1, 1000.0],
         "curve": curve, "books": [
             {"book_id": "p16_construct_ai", "status": "calibrated",
-             "snapshot_count": 1, "median_tracking_error": 0.05},
+             "snapshot_count": 2, "median_tracking_error": 0.05},
             {"book_id": "p16_construct_rule", "status": "calibrated",
-             "snapshot_count": 1, "median_tracking_error": 0.05},
+             "snapshot_count": 2, "median_tracking_error": 0.05},
         ],
-        "snapshot_dates": [recorded_at.date().isoformat()],
-        "risk_snapshot_sha256s": ["b" * 64], "score_snapshot_sha256s": ["c" * 64],
+        "snapshot_dates": dates,
+        "risk_snapshot_sha256s": ["b" * 64, "d" * 64],
+        "score_snapshot_sha256s": ["c" * 64, "e" * 64],
         "cost_per_turnover": cost, "ic_source": "registered_assumption",
         "assumed_ic": 0.03, "execution_authority": "none",
     }

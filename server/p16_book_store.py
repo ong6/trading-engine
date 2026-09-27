@@ -111,10 +111,19 @@ def init_schema(con) -> None:
         risk_snapshot_sha256 VARCHAR NOT NULL, score_sha256 VARCHAR NOT NULL,
         ic_source_sha256 VARCHAR NOT NULL, risk_aversion DOUBLE NOT NULL,
         cost_per_turnover DOUBLE NOT NULL, solver_status VARCHAR NOT NULL,
-        residuals_json VARCHAR NOT NULL, sector_coverage DOUBLE NOT NULL,
-        sector_status VARCHAR NOT NULL, continuous_json VARCHAR NOT NULL,
+        residuals_json VARCHAR NOT NULL, sector_coverage DOUBLE,
+        sector_status VARCHAR, continuous_json VARCHAR,
         banded_json VARCHAR, rounded_json VARCHAR, target_sha256 VARCHAR NOT NULL UNIQUE,
         recorded_at TIMESTAMP NOT NULL, PRIMARY KEY(book_instance_id,signal_date))""")
+    con.execute(
+        "ALTER TABLE p16_construct_targets ALTER COLUMN sector_coverage DROP NOT NULL",
+    )
+    con.execute(
+        "ALTER TABLE p16_construct_targets ALTER COLUMN sector_status DROP NOT NULL",
+    )
+    con.execute(
+        "ALTER TABLE p16_construct_targets ALTER COLUMN continuous_json DROP NOT NULL",
+    )
 
 
 def record_calibration(
@@ -147,7 +156,8 @@ def record_calibration(
                        for row in curve)
             or not isinstance(cost, (int, float)) or isinstance(cost, bool)
             or not math.isfinite(float(cost)) or cost < 0
-            or not isinstance(dates, list) or not dates or dates != sorted(set(dates))
+            or not isinstance(dates, list) or len(dates) < 2
+            or dates != sorted(set(dates))
             or not isinstance(risk_ids, list) or len(risk_ids) != len(dates)
             or not isinstance(score_ids, list) or len(score_ids) != len(dates)
             or any(re.fullmatch(r"[0-9a-f]{64}", value or "") is None
@@ -544,9 +554,13 @@ def record_target(
     ic_source = _digest(ic_source_sha256, "target IC source digest")
     recorded = _timestamp(recorded_at, "target recording time")
     status = solver_result.get("status")
-    if status not in {"converged", "zero_alpha_core", "not_converged"}:
+    successful = status in {"converged", "zero_alpha_core"}
+    if status not in {
+        "converged", "zero_alpha_core", "not_converged", "core_collecting",
+        "input_unavailable",
+    }:
         raise P16BookError("P16 target solver status is invalid")
-    continuous_json = json.dumps(
+    continuous_json = None if continuous_weights is None else json.dumps(
         continuous_weights, sort_keys=True, separators=(",", ":"), allow_nan=False,
     )
     banded_json = None if banded_weights is None else json.dumps(
@@ -572,13 +586,20 @@ def record_target(
         "continuous_weights": continuous_weights, "banded_weights": banded_weights,
         "rounded_plan": rounded_plan,
     }
-    if (not isinstance(body["sector_coverage"], (int, float))
-            or body["sector_status"] not in {"available", "sector_unavailable"}):
+    if successful and (
+        not isinstance(body["sector_coverage"], (int, float))
+        or body["sector_status"] not in {"available", "sector_unavailable"}
+        or continuous_weights is None or banded_weights is None
+    ):
         raise P16BookError("P16 target sector diagnostics are invalid")
+    if not successful and (banded_weights is not None or rounded_plan is None):
+        raise P16BookError("P16 failed target artifact is invalid")
     target_sha = canonical_sha256(body)
+    coverage = body["sector_coverage"]
     expected = (
         risk, score, ic_source, float(risk_aversion), float(cost_per_turnover), status,
-        residuals_json, float(body["sector_coverage"]), body["sector_status"],
+        residuals_json, None if coverage is None else float(coverage),
+        body["sector_status"],
         continuous_json, banded_json, rounded_json, target_sha,
     )
     prior = con.execute(

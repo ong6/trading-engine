@@ -1,6 +1,7 @@
 """Inert simulator lifecycle for versioned P16 construction books."""
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import date, datetime
 
 from engine.lib import db
@@ -13,18 +14,22 @@ from sim import nyse, p15_fills, p16_book_mechanics
 def queue_plan(
     con, *, book_instance_id: str, signal_date: date, plan: dict,
     limit_prices: dict[str, float], source_sha256: str, created_at: datetime,
+    entry_gates: dict[str, str] | None = None, transactional: bool = True,
 ) -> int:
     """Retain a precomputed whole-share plan; this function never activates a book."""
     if plan.get("status") not in {"planned", "rounded_plan_infeasible"}:
         raise p16_book_store.P16BookError("P16 order plan status is invalid")
     created = 0
+    gates = entry_gates or {}
     expected_session = nyse.next_session(signal_date)
-    with db.transaction(con):
+    with db.transaction(con) if transactional else nullcontext():
         for order in plan.get("orders", []):
             ticker, side = order["ticker"], order["side"]
             limit_px = limit_prices.get(ticker) if side == "buy" and ticker != "SPY" else None
             if side == "buy" and ticker != "SPY" and limit_px is None:
                 raise p16_book_store.P16BookError("P16 stock buy lacks its limit")
+            if side == "buy" and ticker != "SPY" and gates.get(ticker) != "eligible":
+                raise p16_book_store.P16BookError("P16 stock buy lacks entry-gate authority")
             _, inserted = p16_book_store.add_intent(
                 con, book_instance_id=book_instance_id, signal_date=signal_date,
                 ticker=ticker, side=side, order_role=order["order_role"],
@@ -97,6 +102,49 @@ def label_limit_counterfactuals(
     return inserted
 
 
+def mandatory_exits(
+    con, *, book_instance_id: str, market_date: date, information_cutoff_at: datetime,
+    held_tickers: set[str] | None = None,
+) -> dict[str, str]:
+    """Derive the registered ATR-stop and ten-session exits from retained rules."""
+    cutoff = p16_book_store._timestamp(information_cutoff_at, "exit cutoff")
+    if held_tickers is None:
+        tickers = [row[0] for row in con.execute(
+            "SELECT ticker FROM sim_positions WHERE portfolio_id=? "
+            "AND ticker!='SPY' AND qty>0 ORDER BY ticker", [book_instance_id],
+        ).fetchall()]
+    else:
+        tickers = sorted(held_tickers)
+    exits = {}
+    for ticker in tickers:
+        rules = con.execute(
+            "SELECT entry_date,stop_px FROM p16_position_rules "
+            "WHERE book_instance_id=? AND ticker=? AND status='open' ORDER BY entry_date",
+            [book_instance_id, ticker],
+        ).fetchall()
+        if not rules:
+            raise p16_book_store.P16BookError("P16 open position rule is absent")
+        close = con.execute(
+            f"SELECT close FROM prices WHERE ticker=? AND date=? AND fetched_at IS NOT NULL "
+            f"AND fetched_at<=? AND {REAL_BAR_SQL}", [ticker, market_date, cutoff],
+        ).fetchone()
+        stop_due = any(
+            close is not None and float(close[0]) <= float(stop_px)
+            / p16_book_mechanics.split_factor(con, ticker, entry_date, market_date)
+            for entry_date, stop_px in rules
+        )
+        time_due = any(int(con.execute(
+            f"SELECT COUNT(DISTINCT date) FROM prices WHERE ticker='SPY' "
+            f"AND date>=? AND date<=? AND fetched_at IS NOT NULL AND fetched_at<=? "
+            f"AND {REAL_BAR_SQL}", [entry_date, market_date, cutoff],
+        ).fetchone()[0]) >= 10 for entry_date, _stop_px in rules)
+        if stop_due:
+            exits[ticker] = "stop"
+        elif time_due:
+            exits[ticker] = "time_exit"
+    return exits
+
+
 def process_window(
     con, *, book_instance_id: str, market_date: date, observed_at: datetime,
 ) -> dict:
@@ -109,6 +157,14 @@ def process_window(
         return {"status": "inactive", "filled": 0, "rejected": 0, "pending": 0}
     counts = {"filled": 0, "rejected": 0, "pending": 0}
     with db.transaction(con):
+        latest_date = con.execute(
+            "SELECT MAX(market_date) FROM p16_book_state WHERE book_instance_id=?",
+            [book_instance_id],
+        ).fetchone()[0]
+        if latest_date is not None and market_date > nyse.next_session(latest_date):
+            raise p16_book_store.P16BookError("P16 book window skipped a market session")
+        if latest_date is not None and market_date < latest_date:
+            raise p16_book_store.P16BookError("P16 book window moved backward")
         previous = con.execute(
             "SELECT state_sha256,peak_equity,entry_halted FROM p16_book_state "
             "WHERE book_instance_id=? AND market_date<? ORDER BY market_date DESC LIMIT 1",
@@ -181,3 +237,34 @@ def process_window(
         )
     return {"status": "completed", **counts, "counterfactual_labels": labels,
             "state_sha256": state_sha, "mark": mark}
+
+
+def process_through(
+    con, *, book_instance_id: str, market_date: date, observed_at: datetime,
+) -> dict:
+    """Process every missing exchange session in order through ``market_date``."""
+    latest = con.execute(
+        "SELECT MAX(market_date) FROM p16_book_state WHERE book_instance_id=?",
+        [book_instance_id],
+    ).fetchone()[0]
+    sessions = [market_date] if latest is None or latest == market_date else []
+    if latest is not None and market_date < latest:
+        raise p16_book_store.P16BookError("P16 book window moved backward")
+    cursor = latest
+    while cursor is not None and cursor < market_date:
+        cursor = nyse.next_session(cursor)
+        sessions.append(cursor)
+    results = [
+        process_window(
+            con, book_instance_id=book_instance_id, market_date=session,
+            observed_at=observed_at,
+        )
+        for session in sessions
+    ]
+    return {
+        "status": "completed" if results else "already_complete",
+        "sessions": [session.isoformat() for session in sessions],
+        "filled": sum(row["filled"] for row in results),
+        "rejected": sum(row["rejected"] for row in results),
+        "counterfactual_labels": sum(row["counterfactual_labels"] for row in results),
+    }
