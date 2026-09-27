@@ -170,6 +170,33 @@ def _record_artifact(
     return artifact_id
 
 
+def record_transfer(
+    con, *, registration_sha256: str, market_date: date,
+    information_cutoff_at: datetime, recorded_at: datetime, payload: dict,
+) -> str:
+    """Retain one all-book transfer-coefficient production artifact."""
+    init_schema(con)
+    books = payload.get("books") if isinstance(payload, dict) else None
+    expected = {
+        "p15_ai_ranked", "p15_rule_control", "p15_hybrid_veto",
+        "p16_construct_ai", "p16_construct_rule",
+    }
+    if (payload.get("schema_version") != 1 or not isinstance(books, list)
+            or {row.get("book_id") for row in books} != expected
+            or len(books) != len(expected)):
+        raise ValueError("P16 transfer artifact is incomplete")
+    return _record_artifact(
+        con, registration_sha256=registration_sha256, artifact_kind="transfer",
+        artifact_key="all-construction-books", market_date=market_date,
+        information_cutoff_at=information_cutoff_at, recorded_at=recorded_at,
+        source_sha256=canonical_sha256({
+            "market_date": market_date.isoformat(),
+            "score_sha256": payload.get("score_sha256"),
+            "risk_sha256": payload.get("risk_sha256"),
+        }), payload=payload,
+    )
+
+
 def _artifacts_as_of(
     con, *, generated_at: datetime, registration_sha256: str | None = None,
     artifact_kind: str | None = None,
