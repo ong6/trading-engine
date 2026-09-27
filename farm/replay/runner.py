@@ -236,7 +236,7 @@ def run_session(store: ReplaySessionStore, session: date) -> dict:
                 with db.transaction(con):
                     rewrite_private_prices(
                         con, store.reconstructed_bars, store.actions,
-                        as_of=clocks["CLOSE"],
+                        as_of=logical_at, phase=phase,
                         knowledge_policy=store.split_knowledge_policy,
                     )
                     if phase == "OPEN":

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from pathlib import Path
 
 import duckdb
@@ -511,9 +511,10 @@ def test_session_loader_hides_next_bar_and_future_split_and_uses_available_clock
         ex_date="2024-01-04", new_shares_per_old=2,
     )
     rebuilt = reconstruct_unadjusted_bars(raw, [action])
-    assert rewrite_private_prices(
+    result = rewrite_private_prices(
         con, rebuilt, [action], as_of=datetime(2024, 1, 3, 21, 15, tzinfo=timezone.utc)
-    ) == 1
+    )
+    assert result["visible_rows"] == result["changed_rows"] == 1
     assert con.execute(
         "SELECT ticker,date,CAST(fetched_at AS VARCHAR) FROM prices"
     ).fetchone() == ("SPY", checkpoint.replace(day=3), "2024-01-03 21:15:00")
@@ -546,3 +547,57 @@ def test_open_split_materialization_rebuilds_a_held_position_on_correct_scale():
     assert con.execute(
         "SELECT qty,avg_cost FROM sim_positions WHERE portfolio_id=? AND ticker='AAA'", [book]
     ).fetchone() == (2.0, 50.0)
+
+
+def test_phase_price_loader_exposes_open_then_close_and_rewrites_only_split_security():
+    con = duckdb.connect(":memory:")
+    checkpoint = date(2024, 1, 2)
+    session = date(2024, 1, 3)
+    bootstrap_books(
+        con, checkpoint=checkpoint,
+        initialized_at=datetime(2026, 9, 27, tzinfo=timezone.utc),
+    )
+    action = _action(
+        action_id="aaa-split", security_id="aaa", ticker="AAA",
+        ex_date=session, new_shares_per_old=2,
+    )
+    raw = []
+    for security_id, ticker in (("aaa", "AAA"), ("bbb", "BBB")):
+        for day, close in ((checkpoint, 50), (session, 51)):
+            raw.append({
+                "security_id": security_id, "ticker": ticker, "session": day,
+                "series": "source_back_adjusted_v1",
+                "available_at": datetime.combine(
+                    day, time(21, 15), timezone.utc
+                ).isoformat(),
+                "open": close - 1, "high": close + 1, "low": close - 2,
+                "close": close, "volume": 1_000,
+            })
+    rebuilt = reconstruct_unadjusted_bars(raw, [action])
+    preopen = datetime(2024, 1, 3, 14, 5, tzinfo=timezone.utc)
+    before = rewrite_private_prices(
+        con, rebuilt, [action], as_of=preopen, phase="PREOPEN"
+    )
+    assert before["rewritten_security_ids"] == []
+    assert con.execute("SELECT MAX(date) FROM prices").fetchone() == (checkpoint,)
+
+    opened = rewrite_private_prices(
+        con, rebuilt, [action], as_of=datetime(2024, 1, 3, 14, 30, tzinfo=timezone.utc),
+        phase="OPEN",
+    )
+    assert opened["rewritten_security_ids"] == ["aaa"]
+    assert con.execute(
+        "SELECT open,high,low,close FROM prices WHERE ticker='AAA' AND date=?", [session]
+    ).fetchone() == (50.0, None, None, None)
+    assert con.execute(
+        "SELECT COUNT(*) FROM prices WHERE ticker='BBB' AND date=?", [checkpoint]
+    ).fetchone() == (1,)
+
+    closed = rewrite_private_prices(
+        con, rebuilt, [action], as_of=datetime(2024, 1, 3, 21, 15, tzinfo=timezone.utc),
+        phase="CLOSE",
+    )
+    assert closed["rewritten_security_ids"] == []
+    assert con.execute(
+        "SELECT open,high,low,close FROM prices WHERE ticker='AAA' AND date=?", [session]
+    ).fetchone() == (50.0, 52.0, 49.0, 51.0)
