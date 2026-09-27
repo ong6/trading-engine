@@ -1,13 +1,22 @@
 """W4 historical-source collectors stay fixture-only until checkpoint acceptance."""
-from datetime import datetime, timezone
+import json
+from datetime import date, datetime, timezone
 
 import pytest
 
 from farm.replay.sources import (
+    FetchTask,
     SourceError,
+    cc_news_paths_url,
     collect_edgar,
+    collect_shards,
     edgar_acceptance_at,
+    gdelt_manifest_url,
+    gdelt_shard_urls,
     normalize_source_record,
+    rss_url,
+    wayback_cdx_url,
+    wayback_memento_url,
 )
 
 NOW = datetime(2026, 9, 27, tzinfo=timezone.utc)
@@ -116,3 +125,82 @@ def test_configured_edgar_normalizes_exact_accession_capture():
     assert seen == [{"User-Agent": "Research contact@example.com"}]
     assert result["status"] == "completed"
     assert result["records"][0]["status"] == "capture_confirmed"
+
+
+def test_registered_archive_url_builders_are_exact():
+    assert gdelt_manifest_url() == "https://data.gdeltproject.org/gdeltv2/lastupdate.txt"
+    assert gdelt_manifest_url(historical=True).endswith("/masterfilelist.txt")
+    assert gdelt_shard_urls("20240102153000") == (
+        "https://data.gdeltproject.org/gdeltv2/20240102153000.export.CSV.zip",
+        "https://data.gdeltproject.org/gdeltv2/20240102153000.gkg.csv.zip",
+    )
+    assert cc_news_paths_url(2024, 1).endswith("/CC-NEWS/2024/01/warc.paths.gz")
+    assert "output=json" in wayback_cdx_url(
+        "https://example.test/news", start=date(2024, 1, 1), end=date(2024, 2, 1)
+    )
+    assert wayback_memento_url("20240102153000", "https://example.test/a").endswith(
+        "id_/https://example.test/a"
+    )
+    assert "s=AAPL" in rss_url("yahoo", "aapl")
+    assert "after%3A2024-01-01" in rss_url(
+        "google", "aapl", start=date(2024, 1, 1), end=date(2024, 2, 1)
+    )
+
+
+def test_fetch_loop_retries_stores_resumes_and_quarantines_fixture_rows(tmp_path):
+    root = (tmp_path / "research").resolve()
+    root.mkdir()
+    live = (tmp_path / "live.duckdb").resolve()
+    live.touch()
+    body = json.dumps([
+        {"source_id": "ok", "headline": "Fixture", "dateadded": "20240102153045",
+         "event_at": "2024-01-02T15:00:00Z", "precision": "second",
+         "confidence": "archive", "source_timezone": "UTC"},
+        {"source_id": "bad", "headline": "Bad"},
+    ]).encode()
+    responses = [
+        {"status": 429, "headers": {"Retry-After": "7"}, "body": b""},
+        {"status": 503, "headers": {}, "body": b""},
+        {"status": 200, "headers": {}, "body": body},
+    ]
+    calls, pauses = [], []
+
+    def transport(url, headers, byte_range):
+        calls.append((url, dict(headers), byte_range))
+        return responses.pop(0)
+
+    task = FetchTask(
+        "gdelt_events", "20240102153000", gdelt_shard_urls("20240102153000")[0],
+        "done",
+    )
+    arguments = dict(
+        catalog_path=root / "catalog.duckdb", research_root=root, live_db_path=live,
+        transport=transport, parse_rows=lambda _source, payload: json.loads(payload),
+        user_agent="Trading research contact@example.test", now=lambda: NOW,
+        pause=pauses.append,
+    )
+    first = collect_shards([task], **arguments)
+    second = collect_shards([task], **arguments)
+    assert first["status"] == second["status"] == "completed"
+    assert len(first["records"]) == 1 and len(first["quarantined"]) == 1
+    assert first["records"][0]["event_at"] == "2024-01-02T15:00:00Z"
+    assert len(first["receipts"]) == 1 and second["receipts"] == []
+    assert len(calls) == 3 and all(call[1]["User-Agent"] for call in calls)
+    assert pauses == [7, 30, 1.0]
+    assert not list(root.rglob("*.partial"))
+
+
+def test_fetch_loop_stops_before_advancing_an_oversize_shard(tmp_path):
+    root = (tmp_path / "research").resolve()
+    root.mkdir()
+    live = (tmp_path / "live.duckdb").resolve()
+    live.touch()
+    task = FetchTask("cc_news", "shard", "https://data.commoncrawl.org/a", "next", (0, 3))
+    result = collect_shards(
+        [task], catalog_path=root / "catalog.duckdb", research_root=root,
+        live_db_path=live,
+        transport=lambda *_args: {"status": 206, "headers": {}, "body": b"four"},
+        parse_rows=lambda _source, _body: [], user_agent="Fixture contact",
+        now=lambda: NOW, pause=lambda _seconds: None, max_bytes=3,
+    )
+    assert result["status"] == "stopped_limit" and result["receipts"] == []
