@@ -509,7 +509,7 @@ lands.
 
 | Workstreams | Folder on the host |
 |---|---|
-| W1, W5 (and a check of R7) | `~/.tae/out/p16-design-eval/` |
+| W1, W5 (and a check of R7) | `~/.tae/out/p16-design-eval/`: **conditionally accepted 2026-09-27** after 3 rounds (spec v3: statistics 8.9, buildability 7.8). W1/W5 must meet the **2 mandatory build conditions** in `ORCHESTRATOR-ACCEPTANCE.md` in that folder (solver convergence under the extended stress test; the limit-attempts table mapping). Note: `baseline_rank` is ascending, so the rule score is −`baseline_rank`. `r7-registration.md` is the R7 text |
 | W4a, W4b | `~/.tae/out/p16-design-replay/`: **conditionally accepted 2026-09-27** after 3 rounds (spec v3: statistics 7.3, buildability 8.3). W4 must meet the **4 mandatory build conditions** in `ORCHESTRATOR-ACCEPTANCE.md` in that folder (notes filter, lockbox tag, split knowledge clock, price series per consumer), each with tests, and the orchestrator reviews the W4 checkpoint before any W4 producer runs |
 | W3, W6, W8 (full Stage 2 draft) | `~/.tae/out/p16-design-filings-stage2/`: **accepted 2026-09-27** (independent review round 2: spec 8.2/10, Stage 2 doc 8.2/10). Build notes are in `ORCHESTRATOR-ACCEPTANCE.md` in that folder |
 
