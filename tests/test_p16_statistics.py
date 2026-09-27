@@ -18,9 +18,11 @@ from farm.p16_statistics import (
 )
 from sim import nyse
 
+EPOCH = date(2025, 1, 2)
+
 
 def _dates(count):
-    result, day = [], date(2025, 1, 2)
+    result, day = [], EPOCH
     for _ in range(count):
         result.append(day.isoformat())
         for _ in range(5):
@@ -34,14 +36,14 @@ def _dispersion(returns, *, status="dispersion_unavailable", count=1, variance=N
             "trial_sharpe_variance": variance, "candidate_trial_id": "candidate",
             "candidate_return_sha256": canonical_sha256(values),
             "observation_dates": _dates(len(values)), "horizon": 5,
-            "cost_basis": "h5-v1"}
+            "cost_basis": "h5-v1", "epoch_session": EPOCH.isoformat()}
 
 
 def _dsr(returns, inventory, dispersion):
     return deflated_sharpe(
         returns, trial_inventory=inventory, dispersion=dispersion,
         candidate_trial_id="candidate", observation_dates=_dates(len(returns)),
-        horizon=5, cost_basis="h5-v1")
+        epoch_session=EPOCH, horizon=5, cost_basis="h5-v1")
 
 
 def _factor_fixture():
@@ -124,7 +126,7 @@ def test_factor_coverage_boundary_is_exactly_eighty_percent():
 
 def test_symmetric_sharpe_has_known_probability_and_pearson_kurtosis():
     inventory = {"status": "complete", "selection_trial_count": 1,
-                 "register_sha256": "a" * 64}
+                 "selection_trial_ids": ["candidate"], "register_sha256": "a" * 64}
     returns = [-1, 1] * 30
     unavailable = _dispersion(returns)
     result = _dsr(returns, inventory, unavailable)
@@ -132,6 +134,8 @@ def test_symmetric_sharpe_has_known_probability_and_pearson_kurtosis():
     assert result["sharpe"] == 0 and result["sr0"] == 0 and result["skew"] == 0
     assert result["pearson_kurtosis"] == 1 and result["probability"] == 0.5
     inventory["selection_trial_count"] = 10
+    inventory["selection_trial_ids"] = ["candidate", *[f"trial-{index}" for index in range(9)]]
+    inventory["selection_trial_ids"].sort()
     dispersion = _dispersion(returns, status="available", count=2, variance=0.02)
     deflated = _dsr(returns, inventory, dispersion)
     assert deflated["probability"] < 0.5 and deflated["sr0"] > 0
@@ -140,7 +144,10 @@ def test_symmetric_sharpe_has_known_probability_and_pearson_kurtosis():
 
 def test_dsr_never_invents_trial_dispersion_or_deletes_bad_returns():
     one = {"status": "complete", "selection_trial_count": 1, "register_sha256": "a" * 64}
-    many = one | {"selection_trial_count": 10}
+    one["selection_trial_ids"] = ["candidate"]
+    many = one | {"selection_trial_count": 10,
+                  "selection_trial_ids": sorted(
+                      ["candidate", *[f"trial-{index}" for index in range(9)]])}
     assert _dsr([1, 2, 3], one, _dispersion([1, 2, 3]))["status"] == "insufficient"
     returns = [-1, 1] * 30
     assert _dsr(returns, many, _dispersion(returns))["status"] == "dispersion_unavailable"
@@ -155,6 +162,7 @@ def test_asymmetric_sharpe_matches_hand_computed_four_moments():
     returns = [-1, 0, 0, 0, 1, 2] * 10
     result = _dsr(returns,
                    {"status": "complete", "selection_trial_count": 1,
+                    "selection_trial_ids": ["candidate"],
                     "register_sha256": "a" * 64}, _dispersion(returns))
     assert result["sharpe"] == pytest.approx(0.35059473279937714)
     assert result["skew"] == pytest.approx(0.4861359120657514)
@@ -204,16 +212,36 @@ def test_comparable_trial_variance_requires_common_dates_horizon_and_cost():
         {"trial_id": "wrong", "observation_dates": dates[:-1] + ["2026-12-01"],
          "horizon": 5, "cost_basis": "h5-v1", "returns": [-1, 1, -1, 1, 0]},
     ]
-    result = comparable_trial_variance(rows, candidate_trial_id="a")
+    result = comparable_trial_variance(rows, candidate_trial_id="a", epoch_session=EPOCH)
     assert result["status"] == "available" and result["compatible_trial_count"] == 2
     assert result["compatibility_coverage"] == pytest.approx(2 / 3)
     assert result["excluded"] == {"wrong": "incompatible_dates_horizon_or_cost"}
     with pytest.raises(ValueError, match="identities"):
-        comparable_trial_variance(rows + [rows[0]], candidate_trial_id="a")
+        comparable_trial_variance(
+            rows + [rows[0]], candidate_trial_id="a", epoch_session=EPOCH)
+
+
+def test_comparable_dates_bind_offset_zero_but_allow_predictable_gaps():
+    dates = _dates(3)
+    sparse = [dates[0], dates[2]]
+    rows = [
+        {"trial_id": "a", "observation_dates": sparse, "horizon": 5,
+         "cost_basis": "h5-v1", "returns": [-1, 1]},
+        {"trial_id": "b", "observation_dates": sparse, "horizon": 5,
+         "cost_basis": "h5-v1", "returns": [-2, 1]},
+    ]
+    assert comparable_trial_variance(
+        rows, candidate_trial_id="a", epoch_session=EPOCH)["status"] == "available"
+    shifted = nyse.next_session(EPOCH)
+    with pytest.raises(ValueError, match="offset-0"):
+        comparable_trial_variance(
+            [row | {"observation_dates": [shifted.isoformat()]} for row in rows],
+            candidate_trial_id="a", epoch_session=EPOCH)
 
 
 def test_dsr_minimum_is_fixed_at_sixty_and_inventory_is_bound():
     inventory = {"status": "complete", "selection_trial_count": 2,
+                 "selection_trial_ids": ["candidate", "other"],
                  "register_sha256": "a" * 64}
     returns = [-1, 1] * 29 + [1]
     dispersion = _dispersion(returns, status="available", count=2, variance=0.02)
@@ -227,6 +255,7 @@ def test_dsr_minimum_is_fixed_at_sixty_and_inventory_is_bound():
 
 def test_dsr_rejects_dispersion_from_a_different_candidate_stream():
     inventory = {"status": "complete", "selection_trial_count": 2,
+                 "selection_trial_ids": ["candidate", "other"],
                  "register_sha256": "a" * 64}
     dispersion = _dispersion([-1, 1] * 30, status="available", count=2, variance=0.02)
     with pytest.raises(ValueError, match="differs"):
@@ -239,4 +268,7 @@ def test_dsr_rejects_dispersion_from_a_different_candidate_stream():
         deflated_sharpe(
             [-1, 1] * 30, trial_inventory=inventory, dispersion=dispersion,
             candidate_trial_id="candidate", observation_dates=daily,
-            horizon=5, cost_basis="h5-v1")
+            epoch_session=EPOCH, horizon=5, cost_basis="h5-v1")
+    with pytest.raises(ValueError, match="canonical trial inventory"):
+        _dsr([-1, 1] * 30, inventory | {
+            "selection_trial_ids": ["other", "third"]}, dispersion)

@@ -143,6 +143,9 @@ def test_mean_neutral_ic_uses_equal_sessions_and_twenty_session_floor():
     assert result["mean_neutral_ic"] == np.mean(np.arange(1, 21) / 100)
     assert result["first_valid_date"] == sessions[0].isoformat()
     assert result["last_valid_date"] == sessions[-1].isoformat()
+    assert result["aggregate_sha256"] == canonical_sha256({
+        key: value for key, value in result.items() if key != "aggregate_sha256"
+    })
     reports[-1]["comparisons"] = {}
     reports[-1]["factor_report_sha256"] = canonical_sha256({
         key: value for key, value in reports[-1].items() if key != "factor_report_sha256"
@@ -169,3 +172,11 @@ def test_mean_neutral_ic_excludes_reports_created_after_cutoff():
         report_cutoff=datetime(2026, 10, 1, tzinfo=timezone.utc),
     )
     assert result["status"] == "insufficient" and result["valid_session_count"] == 0
+
+
+def test_mean_neutral_ic_uses_new_york_cutoff_date():
+    result = mean_neutral_ic(
+        [], CHAMPION, activation_date=date(2026, 9, 28),
+        report_cutoff=datetime(2026, 9, 28, 0, 30, tzinfo=timezone.utc),
+    )
+    assert result["scheduled_session_count"] == 0

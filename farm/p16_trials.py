@@ -291,6 +291,7 @@ def project(records: list[dict], *, limit: int) -> dict:
         "stale" if not current else "complete" if complete else "incomplete"
     return {"status": status, "inventory_complete": status == "complete",
             "selection_trial_count": len(attempted_ids),
+            "selection_trial_ids": sorted(attempted_ids),
             "registered_trial_count": len(registrations),
             "unresolved_identity_count": unresolved,
             "identity_coverage": 1 - unresolved / len(attempted_ids) if attempted_ids else 1.0,

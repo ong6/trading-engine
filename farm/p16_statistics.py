@@ -6,7 +6,7 @@ Bailey--Lopez de Prado approximation, not an always-valid probability guarantee.
 from __future__ import annotations
 
 import math
-from datetime import date
+from datetime import date, datetime
 from statistics import NormalDist
 
 import numpy as np
@@ -138,25 +138,32 @@ def top_quintile_return(rows: list[dict]) -> dict:
     return result
 
 
-def _nonoverlap_dates(values: object) -> list[str]:
+def _nonoverlap_dates(values: object, *, epoch_session: date) -> list[str]:
     if not isinstance(values, list) or not values:
         raise ValueError("candidate comparison dates are invalid")
     try:
         parsed = [date.fromisoformat(value) for value in values]
     except (TypeError, ValueError) as exc:
         raise ValueError("candidate comparison dates are invalid") from exc
-    if values != [day.isoformat() for day in parsed] or len(set(parsed)) != len(parsed):
+    if (values != [day.isoformat() for day in parsed] or len(set(parsed)) != len(parsed)
+            or not isinstance(epoch_session, date) or isinstance(epoch_session, datetime)
+            or not nyse.is_session(epoch_session)):
         raise ValueError("candidate comparison dates are invalid")
-    for previous, current in zip(parsed, parsed[1:], strict=False):
-        expected = previous
-        for _ in range(5):
-            expected = nyse.next_session(expected)
-        if current != expected:
-            raise ValueError("candidate dates are not the registered offset-0 series")
+    indices, current, index = {}, epoch_session, 0
+    through = parsed[-1]
+    while current <= through:
+        indices[current] = index
+        current, index = nyse.next_session(current), index + 1
+    offsets = [indices.get(day) for day in parsed]
+    if (any(value is None or value % 5 for value in offsets)
+            or offsets != sorted(set(offsets))):
+        raise ValueError("candidate dates are not the registered offset-0 series")
     return values
 
 
-def comparable_trial_variance(rows: list[dict], *, candidate_trial_id: str) -> dict:
+def comparable_trial_variance(
+    rows: list[dict], *, candidate_trial_id: str, epoch_session: date,
+) -> dict:
     """Estimate cross-trial Sharpe variance only on one exact h5/date/cost basis."""
     trial_ids = [row.get("trial_id") for row in rows]
     if any(not isinstance(item, str) or not item for item in trial_ids) or len(set(trial_ids)) != len(trial_ids):
@@ -165,7 +172,7 @@ def comparable_trial_variance(rows: list[dict], *, candidate_trial_id: str) -> d
     if len(matches) != 1:
         raise ValueError("candidate trial is missing or duplicated")
     candidate = matches[0]
-    dates = _nonoverlap_dates(candidate.get("observation_dates"))
+    dates = _nonoverlap_dates(candidate.get("observation_dates"), epoch_session=epoch_session)
     basis = (dates, candidate.get("horizon"), candidate.get("cost_basis"))
     if basis[1] != 5 or not isinstance(basis[2], str) or not basis[2]:
         raise ValueError("candidate comparison basis is invalid")
@@ -194,27 +201,32 @@ def comparable_trial_variance(rows: list[dict], *, candidate_trial_id: str) -> d
             "compatible_trial_ids": included, "excluded": excluded,
             "candidate_trial_id": candidate_trial_id,
             "candidate_return_sha256": canonical_sha256(candidate_returns.tolist()),
-            "observation_dates": dates, "horizon": basis[1], "cost_basis": basis[2]}
+            "observation_dates": dates, "epoch_session": epoch_session.isoformat(),
+            "horizon": basis[1], "cost_basis": basis[2]}
 
 
 def deflated_sharpe(returns, *, trial_inventory: dict, dispersion: dict,
                     candidate_trial_id: str, observation_dates: list[str],
-                    horizon: int, cost_basis: str) -> dict:
+                    epoch_session: date, horizon: int, cost_basis: str) -> dict:
     """Apply fixed-T DSR using all-plan N and compatible cross-trial dispersion."""
     series = _vector(returns)
     if not np.all(np.isfinite(series)):
         raise ValueError("nonfinite DSR return; do not silently remove periods")
-    dates = _nonoverlap_dates(observation_dates)
+    dates = _nonoverlap_dates(observation_dates, epoch_session=epoch_session)
     if (len(dates) != len(series) or dispersion.get("candidate_trial_id") != candidate_trial_id
             or dispersion.get("candidate_return_sha256") != canonical_sha256(series.tolist())
             or dispersion.get("observation_dates") != dates
+            or dispersion.get("epoch_session") != epoch_session.isoformat()
             or dispersion.get("horizon") != horizon or horizon != 5
             or dispersion.get("cost_basis") != cost_basis or not cost_basis):
         raise ValueError("DSR candidate return stream differs from dispersion")
     trials = trial_inventory.get("selection_trial_count")
+    trial_ids = trial_inventory.get("selection_trial_ids")
     digest = trial_inventory.get("register_sha256")
     if (type(trials) is not int or trials < 1 or not isinstance(digest, str)
-            or len(digest) != 64):
+            or len(digest) != 64 or not isinstance(trial_ids, list)
+            or trial_ids != sorted(set(trial_ids)) or len(trial_ids) != trials
+            or candidate_trial_id not in trial_ids):
         raise ValueError("canonical trial inventory is invalid")
     variance = dispersion.get("trial_sharpe_variance")
     expected_max_sharpe(trials, 0.0 if variance is None else variance)
@@ -223,7 +235,8 @@ def deflated_sharpe(returns, *, trial_inventory: dict, dispersion: dict,
               "trial_sharpe_variance": variance, "register_sha256": digest,
               "candidate_trial_id": candidate_trial_id,
               "candidate_return_sha256": canonical_sha256(series.tolist()),
-              "observation_dates": dates, "horizon": horizon, "cost_basis": cost_basis,
+              "observation_dates": dates, "epoch_session": epoch_session.isoformat(),
+              "horizon": horizon, "cost_basis": cost_basis,
               "probability": None, "sharpe": None, "sr0": None,
               "skew": None, "pearson_kurtosis": None,
               "method": "bailey_lopez_de_prado_approximation",
