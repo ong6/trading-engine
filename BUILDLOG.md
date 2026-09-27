@@ -1178,4 +1178,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm +178; server, tools, and other product layers unchanged; budget ok.
 - **Next:** add replay evaluation/reporting and the reduced, inference-unconfigured text lab.
 
+## 2026-09-27 — P16 W4: register replay evaluation and reporting
+
+- **Why:** approved W4 requires one registered notes endpoint, count-only reporting, and explicit
+  inert authority before any historical evidence can be produced.
+- **What:** bind the four replay policies, reduced text policy, report paths, code identities, and
+  no-production state. Evaluate only paired factor-neutral h5 IC sessions with the registered
+  five-session/10,000-draw bootstrap and render coverage, unavailable, book, price, and lockbox state.
+- **Evidence:** `.venv/bin/python -m pytest -q tests/test_p16_replay_evaluate.py tests/test_p16_replay_probes.py tests/test_p16_replay_runner.py`
+  passes 13 tests; Ruff passes the touched modules.
+- **Metrics:** farm +162; server, tools, and other product layers unchanged; budget ok.
+- **Next:** build the reduced text-lab corpus, ridge, and unconfigured report path.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
