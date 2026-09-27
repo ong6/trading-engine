@@ -141,8 +141,8 @@ def mean_neutral_ic(
         if nyse.is_session(day):
             scheduled.append(day)
         day += timedelta(days=1)
-    eligible = [row for row in reports if activation_date <= date.fromisoformat(
-        row["market_date"]) <= report_cutoff]
+    eligible = sorted((row for row in reports if activation_date <= date.fromisoformat(
+        row["market_date"]) <= report_cutoff), key=lambda row: row["market_date"])
     dates = [row["market_date"] for row in eligible]
     if len(dates) != len(set(dates)) or not set(map(date.fromisoformat, dates)) <= set(scheduled):
         raise ValueError("factor reports do not match the session grid")
