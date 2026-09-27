@@ -17,6 +17,9 @@ TABLES = {
 NUMERIC_SCORES = ("p_outperform_5", "expected_excess_bp_5", "expected_excess_bp_10")
 ACTIONS = {"ignore", "watch", "buy_candidate", "exit"}
 RUN_MODES = {"prospective", "dry_run", "development", "lockbox"}
+ENSEMBLE_COMPONENT_POLICIES = (
+    "c-model-gpt-5.5-max", "c-model-gpt-5.6-terra-max",
+)
 
 
 def _utc(value: datetime) -> datetime:
@@ -109,6 +112,7 @@ def start_run(
     information_cutoff_at: datetime, started_at: datetime, tickers: list[str],
     source_identity: dict, treatment_id: str,
     model_contract_sha256: str | None, attempt_manifest: list[dict],
+    dependency_policy_ids: list[str],
 ) -> dict:
     cutoff, started = _utc(information_cutoff_at), _utc(started_at)
     if (
@@ -117,6 +121,7 @@ def start_run(
         or any(not isinstance(ticker, str) or not ticker for ticker in tickers)
         or not isinstance(source_identity, dict) or not source_identity
         or run_mode not in RUN_MODES or not isinstance(attempt_manifest, list)
+        or not isinstance(dependency_policy_ids, list)
     ):
         raise ValueError("invalid P16 challenger run inputs")
     if model_contract_sha256 is not None:
@@ -138,6 +143,12 @@ def start_run(
             or (model_contract_sha256 is None and manifest)
             or (model_contract_sha256 is not None and not manifest)):
         raise ValueError("invalid P16 challenger attempt manifest")
+    dependencies = sorted(dependency_policy_ids)
+    if (dependencies != sorted(set(dependencies))
+            or (policy_id == "c-ensemble"
+                and dependencies != sorted(ENSEMBLE_COMPONENT_POLICIES))
+            or (policy_id != "c-ensemble" and dependencies)):
+        raise ValueError("invalid P16 challenger dependency policy set")
     registration = _hash(registration_sha256, "registration identity")
     trial = p16_trial_store.registration_as_of(
         con, trial_id=_hash(trial_id, "trial identity"), generated_at=started,
@@ -164,6 +175,7 @@ def start_run(
         "treatment_id": _text(treatment_id, "treatment ID"),
         "model_contract_sha256": model_contract_sha256,
         "attempt_manifest": manifest,
+        "dependency_policy_ids": dependencies,
         "run_mode": run_mode,
     }
     result = _put(
@@ -343,6 +355,9 @@ def finish_run(
            != run["data"]["source_identity_sha256"]
            for item, source in zip(dependency_rows, dependency_runs, strict=True)):
         raise ValueError("P16 challenger output dependency differs")
+    dependency_policies = sorted(source["key"]["policy_id"] for source in dependency_runs)
+    if dependency_policies != run["data"].get("dependency_policy_ids", []):
+        raise ValueError("P16 challenger output dependency policy set differs")
     unavailable = sum(row["scoring_status"] == "unavailable" for row in rows)
     if run["data"]["model_contract_sha256"] is not None and not receipts \
             and (unavailable != len(rows) or not reason):
