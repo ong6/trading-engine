@@ -9,7 +9,7 @@ import numpy as np
 from farm.replay.registration import PROBE_EQUIVALENCE_DELTA
 
 
-def _log_comb(n: int, k: int) -> float:
+def log_comb(n: int, k: int) -> float:
     return math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1)
 
 
@@ -23,7 +23,7 @@ def _distribution(total: int, probability: float) -> np.ndarray:
         result = np.zeros(total + 1)
         result[-1] = 1
         return result
-    logs = np.array([_log_comb(total, int(value)) for value in values])
+    logs = np.array([log_comb(total, int(value)) for value in values])
     return np.exp(
         logs + values * math.log(probability) + (total - values) * math.log1p(-probability)
     )
@@ -42,7 +42,7 @@ def pooled_power(
         raise ValueError("invalid_probe_power_inputs")
     total = sum(month_sizes)
     values = np.arange(total + 1)
-    combinations = np.array([_log_comb(total, int(value)) for value in values])
+    combinations = np.array([log_comb(total, int(value)) for value in values])
     historical_cdf = _distribution(total, historical_p).cumsum()
     answer = 0.0
     for correct, weight in enumerate(_distribution(baseline_n, baseline_p)):

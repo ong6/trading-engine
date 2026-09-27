@@ -5,9 +5,10 @@ import math
 import random
 from collections import Counter
 from datetime import date
-from typing import Callable, Mapping, Sequence
+from typing import Mapping, Sequence
 
 from engine.lib.provenance import canonical_sha256
+from farm.replay.probe_power import log_comb
 from farm.replay.registration import (
     PROBE_BASELINE_MINIMUM,
     PROBE_CATEGORIES,
@@ -164,7 +165,9 @@ def build_bank(
                 raise ProbeError("probe_fact_set_changed")
             row = by_id[fact_id]
             order = list(range(4))
-            random.Random(int(canonical_sha256([plan["seed"], fact_id]), 16)).shuffle(order)
+            random.Random(
+                int(canonical_sha256([plan["seed"], month, fact_id]), 16)
+            ).shuffle(order)
             probe_id = canonical_sha256([month, plan["seed"], fact_id])[:24]
             prompts.append({
                 "id": probe_id,
@@ -190,20 +193,11 @@ def build_bank(
     }
 
 
-def dispatch_after_preflight(plan: Mapping, dispatch: Callable[[], object]) -> object:
-    validate_coverage_plan(plan)
-    return dispatch()
-
-
-def _log_comb(n: int, k: int) -> float:
-    return math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1)
-
-
 def _binomial_cdf(k: int, n: int, probability: float) -> float:
     if k >= n or probability == 0:
         return 1.0
     logs = [
-        _log_comb(n, value)
+        log_comb(n, value)
         + value * math.log(probability)
         + (n - value) * math.log1p(-probability)
         for value in range(k + 1)
@@ -217,10 +211,10 @@ def fisher_upper(correct: int, total: int, null_correct: int, null_total: int) -
     successes, combined = correct + null_correct, total + null_total
     low = max(correct, successes - null_total)
     high = min(total, successes)
-    denominator = _log_comb(combined, total)
+    denominator = log_comb(combined, total)
     logs = [
-        _log_comb(successes, value)
-        + _log_comb(combined - successes, total - value)
+        log_comb(successes, value)
+        + log_comb(combined - successes, total - value)
         - denominator
         for value in range(low, high + 1)
     ]

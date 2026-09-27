@@ -86,3 +86,43 @@ def test_missing_registration_is_optional_only_when_requested(tmp_path):
     assert p16_registration.load(path, required=False) is None
     with pytest.raises(ValueError, match="absent"):
         p16_registration.load(path)
+
+
+def test_inert_w4_staging_does_not_claim_challenger_registration(tmp_path):
+    path = tmp_path / "registration.json"
+    historical = {
+        "registration_id": "p16-w4-historical-labs-v1",
+        "status": "registered_inactive",
+        "real_data_producer_allowed": False,
+    }
+    historical["registration_sha256"] = canonical_sha256(historical)
+    value = {
+        "schema_version": 1,
+        "registration_id": "p16-staging-v1",
+        "status": "registered_inactive",
+        "historical_labs": historical,
+    }
+    value["registration_sha256"] = canonical_sha256(value)
+    _write(path, value)
+
+    assert p16_registration.load(path, required=False) is None
+    with pytest.raises(ValueError, match="challenger registration is absent"):
+        p16_registration.load(path)
+
+
+def test_committed_w4_registration_is_inert_while_w2_epoch_is_absent():
+    value = json.loads(p16_registration.REGISTRATION_PATH.read_text())
+    historical = value["historical_labs"]
+
+    assert p16_registration.load(required=False) is None
+    assert historical["status"] == "registered_inactive"
+    assert historical["real_data_producer_allowed"] is False
+    assert historical["replay_grids"]["GPT-5.6-Sol"]["development"]
+    assert historical["replay_grids"]["GPT-5.6-Sol"]["lockbox"]
+    assert historical["notes"] == {
+        "filter_spec_sha256": "a6261d68aaf152b24524c02b9b9ed7650ec3d970bb38a070e5435a510f3b8efd",
+        "lesson_corpus_sha256": "df038a79116ccb6faebb0ee63435b1afde54945968f7371b7ca1a6f45c64433c",
+        "maximum_lessons": 12,
+        "postmortem_schema": "schemas/postmortem-v1.json",
+        "prompt": "prompts/notes-v1.txt",
+    }

@@ -13,6 +13,22 @@ PROBE_CATEGORIES = ("earnings_outcome", "headline")
 PROBE_MONTH_MINIMUM = 300
 PROBE_BASELINE_MINIMUM = 350
 PROBE_EQUIVALENCE_DELTA = 0.08
+MODEL_CUTOFFS = {
+    "GPT-5.6-Sol": "2026-02-16",
+    "GPT-6-Astra": "2026-04-30",
+}
+FUTURE_SPLIT_QUARANTINE = {
+    "GPT-5.6-Sol": {
+        "window_start": "2026-04-17",
+        "quarantined_rows": 59,
+        "excluded_securities": 57,
+    },
+    "GPT-6-Astra": {
+        "window_start": "2026-06-29",
+        "quarantined_rows": 20,
+        "excluded_securities": 20,
+    },
+}
 REPLAY_POLICY_IDS = (
     "replay-champion-sol-v1",
     "replay-notes-sol-v1",
@@ -134,7 +150,14 @@ def mandatory_acceptance_contract() -> dict:
     }
 
 
-def w4_registration(code_sha256: dict[str, str]) -> dict:
+def w4_registration(
+    code_sha256: dict[str, str],
+    *,
+    plan_sha256: str,
+    notes_filter_spec_sha256: str,
+    lesson_corpus_sha256: str,
+    activation_at: datetime,
+) -> dict:
     """Build the inert W4 registration body before any real-data producer run."""
     required = {"collectors", "probes", "replay", "textlab", "reports"}
     if set(code_sha256) != required or any(
@@ -142,12 +165,35 @@ def w4_registration(code_sha256: dict[str, str]) -> dict:
         for value in code_sha256.values()
     ):
         raise ValueError("w4_code_identity_incomplete")
+    for value in (plan_sha256, notes_filter_spec_sha256, lesson_corpus_sha256):
+        if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
+            raise ValueError("w4_registration_digest_invalid")
+    grids = {
+        model: admitted_grid(cutoff, activation_at)
+        for model, cutoff in MODEL_CUTOFFS.items()
+    }
     body = {
         "schema_version": 1,
         "registration_id": "p16-w4-historical-labs-v1",
         "status": "registered_inactive",
         "replay_policies": list(REPLAY_POLICY_IDS),
         "textlab_policy": TEXTLAB_POLICY_ID,
+        "mandatory_acceptance_contract": mandatory_acceptance_contract(),
+        "notes": {
+            "filter_spec_sha256": notes_filter_spec_sha256,
+            "lesson_corpus_sha256": lesson_corpus_sha256,
+            "maximum_lessons": 12,
+            "prompt": "prompts/notes-v1.txt",
+            "postmortem_schema": "schemas/postmortem-v1.json",
+        },
+        "plan_sha256": plan_sha256,
+        "model_cutoffs": dict(MODEL_CUTOFFS),
+        "replay_grids": grids,
+        "development_lockbox_split": "floor(2*T/3)_exchange_sessions_v1",
+        "future_split_quarantine": {
+            "security_key": "ticker_proxy_no_stable_security_table",
+            "windows": FUTURE_SPLIT_QUARANTINE,
+        },
         "primary_endpoint": {
             "id": "notes_minus_no_notes_factor_neutral_h5_ic",
             "alternative": "greater_than_zero",

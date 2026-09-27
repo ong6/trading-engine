@@ -5,16 +5,19 @@ from pathlib import Path
 from typing import Mapping
 
 from engine.lib.resources import write_text_atomic
-from farm.replay.registration import REPLAY_REPORT_PATH
 
 
 def render_replay_report(snapshot: Mapping) -> str:
     endpoint = snapshot.get("primary_endpoint", {"status": "unavailable"})
     coverage = snapshot.get("coverage", {})
+    lockbox_tag = snapshot.get("lockbox_tag", "unavailable")
+    result_status = snapshot.get("status", "unavailable")
+    if lockbox_tag != "confirmatory":
+        result_status = "exploratory"
     lines = [
         "# P16 historical replay lab",
         "",
-        f"Status: **{snapshot.get('status', 'unavailable')}**",
+        f"Status: **{result_status}**",
         "",
         "Research-only evidence; it cannot promote a policy or authorize orders.",
         "",
@@ -36,14 +39,12 @@ def render_replay_report(snapshot: Mapping) -> str:
         "",
         f"- Book status: {snapshot.get('book_status', 'unavailable')}",
         f"- Raw-price spot check: {snapshot.get('raw_price_status', 'unavailable')}",
-        f"- Lockbox tag: {snapshot.get('lockbox_tag', 'unavailable')}",
+        f"- Lockbox tag: {lockbox_tag}",
     ]
     return "\n".join(lines) + "\n"
 
 
 def write_replay_report(path: Path, snapshot: Mapping) -> Path:
-    if path.as_posix() != REPLAY_REPORT_PATH and path.name != "replay.md":
-        raise ValueError("unexpected_replay_report_path")
     path.parent.mkdir(parents=True, exist_ok=True)
     write_text_atomic(path, render_replay_report(snapshot))
     return path

@@ -6,11 +6,11 @@ from farm.replay.probes import (
     ProbeError,
     build_bank,
     coverage_preflight,
-    dispatch_after_preflight,
     fisher_upper,
     pooled_admission,
     score_month,
     score_responses,
+    validate_coverage_plan,
 )
 
 
@@ -43,15 +43,9 @@ def test_preflight_uses_total_minimum_and_allows_empty_category():
 
 def test_insufficient_coverage_prevents_dispatch():
     plan = coverage_preflight(_facts(299), ["2024-01"], ["receipt"])
-    called = []
     assert plan["status"] == "coverage_insufficient"
-    try:
-        dispatch_after_preflight(plan, lambda: called.append(True))
-    except ProbeError as exc:
-        assert "not_ready" in str(exc)
-    else:
-        raise AssertionError("insufficient plan dispatched")
-    assert called == []
+    with pytest.raises(ProbeError, match="not_ready"):
+        validate_coverage_plan(plan)
 
 
 def test_bank_is_deterministic_and_hides_answers_from_prompts():
@@ -63,6 +57,19 @@ def test_bank_is_deterministic_and_hides_answers_from_prompts():
     assert len(first["prompts"]) == 300
     assert set(first["prompts"][0]) == {"id", "date", "question", "choices"}
     assert "correct" not in first["prompts"][0]
+
+
+def test_option_shuffle_seed_includes_the_month():
+    january = _facts(300, "2024-01", ("headline", "earnings_outcome"))
+    february = [{**row, "event_date": row["event_date"].replace("2024-01", "2024-02")}
+                for row in january]
+    january_plan = coverage_preflight(january, ["2024-01"], ["receipt"])
+    february_plan = coverage_preflight(february, ["2024-02"], ["receipt"])
+    january_bank = build_bank(january, "2024-01", ["receipt"], january_plan)
+    february_bank = build_bank(february, "2024-02", ["receipt"], february_plan)
+    assert [row["choices"] for row in january_bank["prompts"]] != [
+        row["choices"] for row in february_bank["prompts"]
+    ]
 
 
 def test_duplicate_event_clusters_do_not_inflate_coverage():
@@ -105,7 +112,7 @@ def test_pooled_gate_requires_measured_baseline_of_registered_size():
     result = pooled_admission(
         [month], {"status": "valid", "correct": 90, "n": 350}
     )
-    assert result["status"] in {"pass", "inconclusive"}
+    assert result["status"] == "pass"
 
 
 def test_real_month_score_chain_is_the_only_pooled_admission_input():
@@ -155,4 +162,5 @@ def test_exact_fisher_tail_and_power_gate_use_frozen_sizes():
     contaminated = pooled_power([300, 300, 300], 350, 0.25, 0.35)
     assert 0 <= contaminated < null <= 1
     result = power_preflight([300, 300, 300], 350, scenarios=(0.25,))
-    assert result["status"] in {"ready", "power_insufficient"}
+    assert result["status"] == "ready"
+    assert result["rows"][0]["contaminated_pass_upper"] < 0.05

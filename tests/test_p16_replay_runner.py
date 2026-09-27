@@ -5,6 +5,8 @@ from datetime import date, datetime, timezone
 import duckdb
 import pytest
 
+from engine.lib import db
+from farm.replay.asof import reconstruct_unadjusted_bars
 from farm.replay.notes import freeze_filter_spec
 from farm.replay.runner import (
     ANCHOR_ID,
@@ -200,3 +202,69 @@ def test_run_session_filters_notes_and_exposes_them_only_to_later_sessions(tmp_p
     run_session(store, second)
     assert seen[0] == (first, [], "confirmatory")
     assert seen[1][0] == second and seen[1][1][0]["source_session"] == first.isoformat()
+
+
+def test_multi_session_crash_resume_matches_uninterrupted_books(tmp_path):
+    root = (tmp_path / "research").resolve()
+    root.mkdir()
+    live = (tmp_path / "live.duckdb").resolve()
+    live.touch()
+    checkpoint = SESSIONS[28]
+    sessions = SESSIONS[29:39]
+    bars = reconstruct_unadjusted_bars(
+        [
+            {
+                "security_id": "spy", "ticker": "SPY", "session": session,
+                "series": "source_back_adjusted_v1",
+                "available_at": session_phases(session)["close_visible"].isoformat(),
+                "open": 100, "high": 101, "low": 99, "close": 100,
+                "volume": 1_000_000,
+            }
+            for session in [checkpoint, *sessions]
+        ],
+        [],
+    )
+
+    def store(name, execute):
+        return ReplaySessionStore(
+            path=root / f"{name}.duckdb", research_root=root, live_db_path=live,
+            cohort_id="fixture", policy_id="control", checkpoint=checkpoint,
+            initialized_at=datetime(2026, 9, 27, tzinfo=timezone.utc),
+            execute_phase=execute, reconstructed_bars=bars,
+        )
+
+    def completed(_phase, _session, _logical_at, _context):
+        return [{"status": "completed"}]
+
+    uninterrupted = store("uninterrupted", completed)
+    for session in sessions:
+        run_session(uninterrupted, session)
+
+    failed_once = False
+
+    def crashing(phase, session, logical_at, context):
+        nonlocal failed_once
+        if session == sessions[4] and phase == "CLOSE" and not failed_once:
+            failed_once = True
+            raise RuntimeError("fixture crash")
+        return completed(phase, session, logical_at, context)
+
+    resumed = store("resumed", crashing)
+    for session in sessions:
+        try:
+            run_session(resumed, session)
+        except RuntimeError as exc:
+            assert str(exc) == "fixture crash"
+            run_session(resumed, session)
+
+    snapshots = []
+    for item in (uninterrupted, resumed):
+        with db.connect(item.path, read_only=True, wait_s=0) as con:
+            snapshots.append({
+                "books": book_snapshot(con),
+                "fills": con.execute("SELECT COUNT(*) FROM sim_fills").fetchone()[0],
+                "orders": con.execute("SELECT COUNT(*) FROM sim_orders").fetchone()[0],
+                "clocks": con.execute("SELECT session,phase FROM replay_clock ORDER BY session,phase_index").fetchall(),
+            })
+    assert snapshots[0] == snapshots[1]
+    assert len(snapshots[0]["clocks"]) == 10 * 5

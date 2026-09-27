@@ -325,8 +325,10 @@ def test_quarantined_held_and_pending_splits_are_counted_per_window():
     assert quarantined_exposure_counts(
         [bad], iter(exposures), registered_windows=("w1", "w2")
     ) == [
-        {"window_id": "w1", "held": 1, "pending": 1, "affected_actions": 1},
-        {"window_id": "w2", "held": 0, "pending": 0, "affected_actions": 0},
+        {"window_id": "w1", "held": 1, "pending": 1, "affected_actions": 1,
+         "excluded_securities": 1},
+        {"window_id": "w2", "held": 0, "pending": 0, "affected_actions": 0,
+         "excluded_securities": 0},
     ]
 
 
@@ -361,6 +363,28 @@ def test_fixed_lag_sensitivity_counts_ex_date_exposures_as_quarantined():
         [applied], exposures, registered_windows=("w1",),
         knowledge_policy=SPLIT_KNOWLEDGE_SENSITIVITY,
     )[0]["held"] == 1
+
+
+def test_label_round_trip_cost_has_a_known_answer():
+    bars = reconstruct_unadjusted_bars(
+        [
+            {"security_id": "fixture", "session": "2024-01-02",
+             "series": "source_back_adjusted_v1", "available_at": "2024-01-02T21:15:00Z",
+             "open": 100, "high": 100, "low": 100, "close": 100, "volume": 10},
+            {"security_id": "fixture", "session": "2024-01-03",
+             "series": "source_back_adjusted_v1", "available_at": "2024-01-03T21:15:00Z",
+             "open": 100, "high": 100, "low": 100, "close": 100, "volume": 10},
+        ],
+        [],
+    )
+    result = label_split_normalized_return(
+        security_id="fixture", entry_point=label_price_point(bars[0], "open"),
+        exit_point=label_price_point(bars[1], "close"),
+        entry_at=datetime(2024, 1, 2, 14, 30, tzinfo=timezone.utc),
+        exit_at=datetime(2024, 1, 3, 21, tzinfo=timezone.utc),
+        visible_at=datetime(2024, 1, 3, 21, 15, tzinfo=timezone.utc), actions=[],
+    )
+    assert result == pytest.approx(0.999 / 1.001 - 1)
 
 
 def test_p15_adapter_blocks_quarantined_exposure_before_price_inputs():

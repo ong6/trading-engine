@@ -443,7 +443,9 @@ def quarantined_exposure_counts(
     windows = tuple(registered_windows)
     if not windows or windows != tuple(dict.fromkeys(windows)) or any(not item for item in windows):
         raise PriceSeriesError("invalid_registered_windows")
-    counts = defaultdict(lambda: {"held": 0, "pending": 0, "action_ids": set()})
+    counts = defaultdict(
+        lambda: {"held": 0, "pending": 0, "action_ids": set(), "security_ids": set()}
+    )
     for window in windows:
         counts[window]
     for action in _unique_actions(actions):
@@ -473,12 +475,14 @@ def quarantined_exposure_counts(
             row = counts[window_id]
             row[state] += 1
             row["action_ids"].add(action.get("action_id"))
+            row["security_ids"].add(action.get("security_id"))
     return [
         {
             "window_id": window_id,
             "held": row["held"],
             "pending": row["pending"],
             "affected_actions": len(row["action_ids"]),
+            "excluded_securities": len(row["security_ids"]),
         }
         for window_id, row in sorted(counts.items())
     ]

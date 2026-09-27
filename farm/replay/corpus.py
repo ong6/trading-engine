@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
 import tempfile
@@ -44,7 +43,7 @@ def put_content_object(root: Path, *, source: str, payload: bytes, suffix: str) 
             os.link(temporary, destination)
         except FileExistsError:
             if destination.read_bytes() != payload:
-                raise ReplayStoreError("content_object_hash_conflict")
+                raise ReplayStoreError("content_object_hash_conflict") from None
         os.unlink(temporary)
         directory = os.open(destination.parent, os.O_RDONLY)
         try:

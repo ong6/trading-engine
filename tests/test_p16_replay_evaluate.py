@@ -1,6 +1,8 @@
 """W4 replay endpoint, registration, and count-only report tests."""
 from datetime import datetime, timezone
 
+import pytest
+
 from farm.replay.evaluate import paired_notes_endpoint
 from farm.replay.registration import admitted_grid, w4_registration
 from farm.replay.report import render_replay_report, write_replay_report
@@ -28,16 +30,57 @@ def test_paired_endpoint_uses_common_sessions_and_registered_bootstrap():
     assert result["eligible_sessions"] == 10
     assert result["excluded_sessions"] == ["2024-01-12"]
     assert result["block_sessions"] == 5 and result["resamples"] == 10_000
+    assert result["zero_skill_unavailable_sensitivity"] == {
+        "unavailable_sessions": 0, "estimate": 0.1
+    }
+
+
+def test_paired_endpoint_rejects_duplicate_sessions_and_counts_unavailable_as_zero():
+    row = {
+        "session": "2024-01-02", "common_names": 20,
+        "notes_factor_neutral_h5_ic": 0.2, "control_factor_neutral_h5_ic": 0.1,
+    }
+    with pytest.raises(ValueError, match="duplicate"):
+        paired_notes_endpoint([row, row])
+    result = paired_notes_endpoint([
+        row,
+        {"session": "2024-01-03", "response_status": "unavailable"},
+    ], resamples=100)
+    assert result["zero_skill_unavailable_sensitivity"] == {
+        "unavailable_sessions": 1, "estimate": 0.05
+    }
 
 
 def test_registration_is_inert_and_binds_all_w4_code_groups():
     hashes = {name: (str(index) * 64) for index, name in enumerate(
         ("collectors", "probes", "replay", "textlab", "reports"), start=1
     )}
-    registration = w4_registration(hashes)
+    registration = w4_registration(
+        hashes,
+        plan_sha256="a" * 64,
+        notes_filter_spec_sha256="b" * 64,
+        lesson_corpus_sha256="c" * 64,
+        activation_at=datetime(2026, 9, 29, 4, tzinfo=timezone.utc),
+    )
     assert registration["status"] == "registered_inactive"
     assert registration["real_data_producer_allowed"] is False
     assert registration["primary_endpoint"]["bootstrap_resamples"] == 10_000
+    assert registration["mandatory_acceptance_contract"]["schema_version"] == 1
+    assert registration["notes"]["maximum_lessons"] == 12
+    assert registration["model_cutoffs"] == {
+        "GPT-5.6-Sol": "2026-02-16", "GPT-6-Astra": "2026-04-30"
+    }
+    assert registration["replay_grids"]["GPT-5.6-Sol"]["lockbox"]
+    assert registration["future_split_quarantine"]["windows"] == {
+        "GPT-5.6-Sol": {
+            "window_start": "2026-04-17", "quarantined_rows": 59,
+            "excluded_securities": 57,
+        },
+        "GPT-6-Astra": {
+            "window_start": "2026-06-29", "quarantined_rows": 20,
+            "excluded_securities": 20,
+        },
+    }
     assert len(registration["registration_sha256"]) == 64
 
 
@@ -51,12 +94,17 @@ def test_report_contains_counts_not_raw_text(tmp_path):
         "lockbox_tag": "not_started",
     }
     rendered = render_replay_report(snapshot)
+    assert "Status: **exploratory**" in rendered
     assert "Candidate sessions: 12" in rendered
     assert "Unavailable chunks: 3" in rendered
     assert "article body" not in rendered
     target = tmp_path / "replay.md"
     assert write_replay_report(target, snapshot) == target
     assert target.read_text() == rendered
+
+    assert "Status: **complete**" in render_replay_report(
+        {**snapshot, "status": "complete", "lockbox_tag": "confirmatory"}
+    )
 
 
 def test_post_cutoff_grid_uses_c_plus_60_decision_clock_and_fixed_two_thirds():

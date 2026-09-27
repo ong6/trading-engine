@@ -23,7 +23,8 @@ LESSON_CORPUS_REGISTRATION = {
 DATE_WORDS = frozenset(
     "january february april june july august september october november december "
     "monday tuesday wednesday thursday friday saturday sunday jan feb mar apr jun "
-    "jul aug sep sept oct nov dec mon tue tues thu thurs fri today tomorrow yesterday"
+    "jul aug sep sept oct nov dec mon tue tues thu thurs fri today tomorrow yesterday "
+    "thanksgiving christmas juneteenth easter memorial independence presidents"
     .split()
 )
 NUMBER_WORDS = frozenset(
@@ -31,11 +32,13 @@ NUMBER_WORDS = frozenset(
     "fifteen sixteen seventeen eighteen nineteen twenty thirty forty fifty sixty seventy "
     "eighty ninety hundred thousand million billion trillion third fourth fifth sixth "
     "seventh eighth ninth tenth eleventh twelfth thirteenth fourteenth fifteenth sixteenth "
-    "seventeenth eighteenth nineteenth twentieth thirtieth"
+    "seventeenth eighteenth nineteenth twentieth thirtieth dozens hundreds thousands "
+    "millions billions trillions"
     .split()
 )
 CONTEXTUAL_NUMBER_WORDS = frozenset({"one", "first", "second"})
 AMBIGUOUS_DATE_WORDS = frozenset({"may", "march", "second", "sun", "sat", "wed"})
+CALENDAR_NOUNS = frozenset({"earnings", "release", "results", "holiday", "meeting"})
 DATE_CONTEXT = frozenset(
     {"on", "in", "until", "since", "before", "after", "during", "by", "from", "through", "next", "last", "every"}
 )
@@ -143,7 +146,13 @@ def validate_notes(text: str, *, filter_spec: NotesFilterSpec) -> str:
         lower = word.casefold()
         if lower in AMBIGUOUS_DATE_WORDS and _date_like(words, index):
             raise NotesValidationError("notes_date_or_number_word")
-        if lower in {"may", "march", "sun", "sat", "wed"} and word[:1].isupper():
+        if (
+            lower in {"march", "sun", "sat", "wed"} and word[:1].isupper()
+            or lower == "may" and word == "May" and (
+                (folded[index - 1] if index else "") in DATE_CONTEXT
+                or (folded[index + 1] if index + 1 < len(folded) else "") in CALENDAR_NOUNS
+            )
+        ):
             raise NotesValidationError("notes_date_or_number_word")
         if lower in CONTEXTUAL_NUMBER_WORDS:
             before = folded[index - 1] if index else ""
