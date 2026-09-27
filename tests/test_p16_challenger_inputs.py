@@ -230,3 +230,29 @@ def test_common_metadata_envelope_is_cutoff_bounded_and_self_hashed():
     assert enriched["candidates"][0]["company_name"] == "Acme Corporation"
     assert enriched["candidates"][0]["sector"] == "technology"
     assert enriched["metadata_envelope_sha256"] == envelope["metadata_envelope_sha256"]
+
+
+def test_one_common_metadata_envelope_can_enrich_each_retained_chunk():
+    original = _payload()
+    envelope_body = {
+        "schema_version": 1, "market_date": original["market_date"],
+        "available_at": original["information_cutoff_at"],
+        "entries": [
+            {"ticker": "ACME", "company_name": "Acme", "aliases": ["ACME", "Acme"],
+             "sector": "technology", "name_source": None, "sector_source": None},
+            {"ticker": "OTHER", "company_name": "Other", "aliases": ["OTHER", "Other"],
+             "sector": "industrial", "name_source": None, "sector_source": None},
+        ],
+        "name_basis": "latest_universe_snapshot_on_or_before_market_date",
+        "sector_basis": "latest_fundamentals_fetched_by_information_cutoff",
+    }
+    envelope = {
+        **envelope_body,
+        "metadata_envelope_sha256": canonical_sha256(envelope_body),
+    }
+
+    chunk = enrich(
+        original, envelope, decision_at=original["information_cutoff_at"])
+
+    assert [row["ticker"] for row in chunk["candidates"]] == ["ACME"]
+    assert chunk["metadata_envelope_sha256"] == envelope["metadata_envelope_sha256"]
