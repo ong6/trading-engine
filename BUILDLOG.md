@@ -1005,4 +1005,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine 15,782; farm 14,880; server 57,925; tools 7,996; sim 7,921; budget ok.
 - **Next:** build W2's inert eight-policy challenger lab from the retained P15 origin bundle.
 
+## 2026-09-27 — P16 Phase A: repair the staged P15 scoring unit
+
+- **Why:** the approved P16 Phase A reissue admits the reproduced host failure: systemd 241
+  rejects `Type=oneshot` together with `Restart=on-failure` before P15 has produced evidence.
+- **What:** use `Type=exec` for P15 scoring while retaining its bounded transient-failure retry;
+  confirm pre-open and events do not carry the invalid restart pattern; and make the host parser
+  verify every P15 and P16 service/timer contract together. Runtime evidence tables remain empty.
+- **Evidence:** `.venv/bin/pytest -q tests/test_service_units.py` reaches `[100%]`, and
+  `systemd-analyze --user verify` accepts all eight P15/P16 unit files.
+- **Metrics:** server, tools, and product LOC unchanged; budget ok.
+- **Next:** reissue inactive P15 registration revision 3 against this corrected source identity.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

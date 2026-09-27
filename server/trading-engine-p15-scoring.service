@@ -6,7 +6,7 @@ StartLimitIntervalSec=30min
 StartLimitBurst=3
 
 [Service]
-Type=oneshot
+Type=exec
 WorkingDirectory=%h/trading-engine
 ExecStart=%h/trading-engine/.venv/bin/python -m server.p15_scoring_runner --run
 ExecStartPost=%h/trading-engine/.venv/bin/python -m server.agent_evaluation_reporting
