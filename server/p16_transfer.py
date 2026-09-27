@@ -1,19 +1,22 @@
 """Production of active-return transfer coefficients for every P15/P16 book."""
 from __future__ import annotations
 
-import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
 import numpy as np
 
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
+from engine.p15_evaluation import spearman
+from engine.p16_features import session_dates
+from farm import p16_eval_inputs, p16_risk
 from farm.p16_statistics import (
     implied_active_weights,
     transfer_coefficient,
+    validate_transfer_rows,
     weight_pearson_tc,
 )
-from sim import nyse, portfolio
+from sim import nyse
 
 BOOK_POLICIES = {
     "p15_ai_ranked": "champion",
@@ -30,55 +33,179 @@ def _cutoff(value: datetime) -> datetime:
     return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
-def _scores(con, signal_date: date, cutoff: datetime) -> tuple[dict[str, dict], str]:
-    if not table_exists(con, "agent_evaluation_traces") \
-            or not table_exists(con, "agent_evaluation_decisions"):
-        return {}, canonical_sha256([])
-    rows = con.execute(
-        "SELECT d.ticker,d.decision_payload FROM agent_evaluation_decisions d "
-        "JOIN agent_evaluation_traces t ON t.id=d.trace_id "
-        "WHERE t.policy_id='p15-scoring-v1' AND t.market_date=? "
-        "AND t.terminal_status='completed' AND t.completed_at<=? ORDER BY d.ticker",
-        [signal_date, cutoff],
-    ).fetchall()
-    values = {}
-    for ticker, raw in rows:
-        try:
-            payload = json.loads(raw)
-            champion = float(payload["expected_excess_bp_5"])
-            rule = -float(payload["baseline_rank"])
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-            continue
-        if np.isfinite(champion) and np.isfinite(rule):
-            values[ticker] = {"champion": champion, "rule": rule}
-    return values, canonical_sha256([
-        {"ticker": ticker, **values[ticker]} for ticker in sorted(values)
-    ])
+def _score_snapshot(con, signal_date: date, cutoff: datetime) -> dict:
+    origin = p16_eval_inputs.load_origin(
+        con, market_date=signal_date, report_cutoff=cutoff.replace(tzinfo=timezone.utc),
+    )
+    values = {
+        row["ticker"]: {"champion": float(row["champion_score"]),
+                        "rule": float(row["rule_score"])}
+        for row in origin["decision_rows"] if row["champion_score_available"] is True
+    }
+    scoring_cutoff = datetime.fromisoformat(
+        origin["scoring_information_cutoff_at"].replace("Z", "+00:00"),
+    ).astimezone(timezone.utc).replace(tzinfo=None)
+    return {
+        "scores": values, "score_sha256": canonical_sha256([
+            {"ticker": ticker, **values[ticker]} for ticker in sorted(values)
+        ]),
+        "input_snapshot_sha256": origin["input_snapshot_sha256"],
+        "scoring_cutoff": scoring_cutoff,
+    }
 
 
-def _active_sigma(con, ticker: str, signal_date: date, cutoff: datetime) -> float | None:
-    sessions, cursor = [], signal_date
-    while len(sessions) < 61:
-        if nyse.is_session(cursor):
-            sessions.append(cursor)
-        cursor -= timedelta(days=1)
-    sessions.reverse()
+def _active_risk(con, tickers: list[str], signal_date: date, cutoff: datetime) -> dict | None:
+    sessions = session_dates(signal_date, 121)
+    names = [*tickers, "SPY"]
     placeholders = ",".join("?" for _ in sessions)
+    name_marks = ",".join("?" for _ in names)
     rows = con.execute(
-        f"SELECT ticker,date,close FROM prices WHERE ticker IN (?,?) "
+        f"SELECT ticker,date,close,fetched_at FROM prices WHERE ticker IN ({name_marks}) "
         f"AND date IN ({placeholders}) AND fetched_at IS NOT NULL AND fetched_at<=? "
         "AND close>0 AND volume>0 ORDER BY ticker,date",
-        [ticker, "SPY", *sessions, cutoff],
+        [*names, *sessions, cutoff],
     ).fetchall()
-    by_ticker: dict[str, dict[date, float]] = {ticker: {}, "SPY": {}}
-    for name, market_date, close in rows:
-        by_ticker[name][market_date] = float(close)
-    if any(set(by_ticker[name]) != set(sessions) for name in by_ticker):
+    history: dict[str, dict[date, float]] = {ticker: {} for ticker in names}
+    for ticker, market_date, close, _fetched_at in rows:
+        history[ticker][market_date] = float(close)
+    if any(set(history[ticker]) != set(sessions) for ticker in names):
         return None
-    stock = np.asarray([by_ticker[ticker][session] for session in sessions])
-    spy = np.asarray([by_ticker["SPY"][session] for session in sessions])
-    active = stock[1:] / stock[:-1] - spy[1:] / spy[:-1]
-    return float(np.std(active, ddof=1)) if np.all(np.isfinite(active)) else None
+    closes = np.column_stack([
+        np.asarray([history[ticker][session] for session in sessions]) for ticker in names
+    ])
+    returns = closes[1:] / closes[:-1] - 1
+    active = returns[:, :-1] - returns[:, -1, None]
+    if not np.all(np.isfinite(active)):
+        return None
+    estimate = p16_risk.ledoit_wolf(active)
+    return {
+        "sigma": np.std(active[-60:], axis=0, ddof=1),
+        "covariance": estimate["covariance"],
+        "risk_sha256": canonical_sha256({
+            "sessions": [value.isoformat() for value in sessions],
+            "tickers": tickers, "closes": closes.tolist(),
+            "scoring_cutoff": cutoff.isoformat(),
+        }),
+    }
+
+
+def _trailing_ics(con, signal_date: date, cutoff: datetime) -> dict:
+    """Derive both policies' ICs from exactly 60 consecutive mature P15 origins."""
+    if not table_exists(con, "agent_evaluation_traces"):
+        return {"status": "unavailable", "reason": "mature_ic_origins_absent",
+                "values": {}, "source_sha256": canonical_sha256([])}
+    candidates = [row[0] for row in con.execute(
+        "SELECT DISTINCT market_date FROM agent_evaluation_traces "
+        "WHERE policy_id='p15-scoring-v1' AND terminal_status='completed' "
+        "AND market_date<? AND completed_at<=? ORDER BY market_date DESC LIMIT 20",
+        [signal_date, cutoff],
+    ).fetchall()]
+    latest, latest_origin = None, None
+    aware_cutoff = cutoff.replace(tzinfo=timezone.utc)
+    for market_date in candidates:
+        try:
+            origin = p16_eval_inputs.load_origin(
+                con, market_date=market_date, report_cutoff=aware_cutoff,
+            )
+        except p16_eval_inputs.EvaluationInputError:
+            continue
+        if origin.get("status") == "available":
+            latest, latest_origin = market_date, origin
+            break
+    if latest is None:
+        return {"status": "unavailable", "reason": "fewer_than_60_mature_origins",
+                "values": {}, "source_sha256": canonical_sha256([])}
+    origins, source = [], []
+    for market_date in session_dates(latest, 60):
+        try:
+            origin = latest_origin if market_date == latest else p16_eval_inputs.load_origin(
+                con, market_date=market_date, report_cutoff=aware_cutoff,
+            )
+        except p16_eval_inputs.EvaluationInputError:
+            origin = None
+        if origin is None or origin.get("status") != "available":
+            return {"status": "unavailable", "reason": "nonconsecutive_mature_ic_origins",
+                    "values": {}, "source_sha256": canonical_sha256(source)}
+        usable = [row for row in origin["rows"] if row["champion_score_available"] is True]
+        champion = spearman([float(row["champion_score"]) for row in usable],
+                            [float(row["net_excess_return"]) for row in usable])
+        rule = spearman([float(row["rule_score"]) for row in usable],
+                        [float(row["net_excess_return"]) for row in usable])
+        if len(usable) < 20 or champion is None or rule is None:
+            return {"status": "unavailable", "reason": "mature_origin_ic_unavailable",
+                    "values": {}, "source_sha256": canonical_sha256(source)}
+        origins.append((float(champion), float(rule)))
+        source.append({
+            "market_date": market_date.isoformat(),
+            "input_snapshot_sha256": origin["input_snapshot_sha256"],
+            "label_sha256s": sorted(row["label_sha256"] for row in usable),
+            "champion_ic": float(champion), "rule_ic": float(rule),
+        })
+    return {
+        "status": "available", "reason": None,
+        "values": {
+            "champion": max(0.0, float(np.mean([row[0] for row in origins]))),
+            "rule": max(0.0, float(np.mean([row[1] for row in origins]))),
+        },
+        "origin_dates": [row["market_date"] for row in source],
+        "source_sha256": canonical_sha256(source),
+    }
+
+
+def _split_factor(con, ticker: str, after: date, through: date) -> float:
+    if not table_exists(con, "split_adjustments"):
+        return 1.0
+    return float(np.prod([float(row[0]) for row in con.execute(
+        "SELECT ratio FROM split_adjustments WHERE ticker=? AND outcome='applied' "
+        "AND ex_date>? AND ex_date<=? ORDER BY ex_date", [ticker, after, through],
+    ).fetchall()]))
+
+
+def _state_as_of(con, instance: str, holding_date: date) -> dict | None:
+    portfolio_row = con.execute(
+        "SELECT initial_cash FROM portfolios WHERE id=?", [instance],
+    ).fetchone()
+    if portfolio_row is None:
+        return None
+    if table_exists(con, "sim_settlements") and con.execute(
+        "SELECT 1 FROM sim_settlements WHERE portfolio_id=? AND effective<=? LIMIT 1",
+        [instance, holding_date],
+    ).fetchone() is not None:
+        return None
+    fills = con.execute(
+        "SELECT order_id,ticker,side,qty,fill_date,fill_px FROM sim_fills "
+        "WHERE portfolio_id=? AND fill_date<=? ORDER BY fill_date,order_id",
+        [instance, holding_date],
+    ).fetchall()
+    cash = float(portfolio_row[0])
+    quantities: dict[str, float] = {}
+    for order_id, ticker, side, quantity, fill_date, fill_px in fills:
+        del order_id
+        signed = float(quantity) * _split_factor(con, ticker, fill_date, holding_date)
+        quantities[ticker] = quantities.get(ticker, 0.0) + (signed if side == "buy" else -signed)
+        cash += (-1 if side == "buy" else 1) * float(quantity) * float(fill_px)
+    dividends = []
+    if table_exists(con, "sim_dividends"):
+        dividends = con.execute(
+            "SELECT ticker,ex_date,amount FROM sim_dividends "
+            "WHERE portfolio_id=? AND ex_date<=? ORDER BY ex_date,ticker",
+            [instance, holding_date],
+        ).fetchall()
+        cash += sum(float(row[2]) for row in dividends)
+    if cash < -1e-8 or any(quantity < -1e-8 for quantity in quantities.values()):
+        return None
+    positions = {ticker: quantity for ticker, quantity in quantities.items()
+                 if quantity > 1e-12}
+    body = {
+        "book_instance_id": instance, "holding_date": holding_date.isoformat(),
+        "initial_cash": float(portfolio_row[0]), "fills": [
+            [int(row[0]), row[1], row[2], float(row[3]), row[4].isoformat(), float(row[5])]
+            for row in fills
+        ],
+        "dividends": [[row[0], row[1].isoformat(), float(row[2])] for row in dividends],
+        "positions": positions, "cash": cash,
+    }
+    return {**body, "state_sha256": canonical_sha256(body)}
 
 
 def _instance(con, book_id: str, registration_sha256: str) -> str | None:
@@ -96,16 +223,19 @@ def _instance(con, book_id: str, registration_sha256: str) -> str | None:
 
 def produce(
     con, *, registration_sha256: str, signal_date: date, holding_date: date,
-    information_cutoff_at: datetime, trailing_ic: dict[str, float],
+    information_cutoff_at: datetime,
 ) -> dict:
     """Compute five book rows from one score/risk vintage and next-open holdings."""
+    if holding_date != nyse.next_session(signal_date):
+        raise ValueError("transfer holding date is not the next session")
     cutoff = _cutoff(information_cutoff_at)
-    scores, score_sha = _scores(con, signal_date, cutoff)
+    score_snapshot = _score_snapshot(con, signal_date, cutoff)
+    scores, score_sha = score_snapshot["scores"], score_snapshot["score_sha256"]
     tickers = sorted(scores)
-    sigma = {ticker: _active_sigma(con, ticker, signal_date, cutoff) for ticker in tickers}
-    risk_sha = canonical_sha256([
-        {"ticker": ticker, "active_return_sd60": sigma[ticker]} for ticker in tickers
-    ])
+    risk = _active_risk(con, tickers, signal_date, score_snapshot["scoring_cutoff"])
+    sigma = None if risk is None else dict(zip(tickers, risk["sigma"], strict=True))
+    risk_sha = canonical_sha256([]) if risk is None else risk["risk_sha256"]
+    trailing = _trailing_ics(con, signal_date, cutoff)
     rows = []
     for book_id, policy in BOOK_POLICIES.items():
         instance = _instance(con, book_id, registration_sha256)
@@ -113,6 +243,7 @@ def produce(
             "book_id": book_id, "book_instance_id": instance,
             "signal_date": signal_date.isoformat(), "holding_date": holding_date.isoformat(),
             "score_sha256": score_sha, "risk_sha256": risk_sha,
+            "ic_source_sha256": trailing["source_sha256"],
             "sigma_basis": "stock_minus_spy_daily_return_sd60_ddof1",
             "primary_instruments": "stocks_only_spy_and_cash_excluded",
         }
@@ -120,14 +251,13 @@ def produce(
             rows.append({**row, "status": "unavailable", "reason": "book_absent",
                          "tc_diagonal": None})
             continue
-        portfolio_row = con.execute(
-            "SELECT cash FROM portfolios WHERE id=?", [instance],
-        ).fetchone()
-        if portfolio_row is None or len(tickers) < 2:
+        state = _state_as_of(con, instance, holding_date)
+        if state is None or len(tickers) < 2:
             rows.append({**row, "status": "unavailable", "reason": "book_or_scores_unavailable",
                          "tc_diagonal": None})
             continue
-        positions = portfolio.get_positions(con, instance)
+        positions = state["positions"]
+        row["holding_state_sha256"] = state["state_sha256"]
         holding_marks = {}
         for ticker in positions:
             mark = con.execute(
@@ -142,9 +272,9 @@ def produce(
             rows.append({**row, "status": "unavailable", "reason": "next_open_mark_unavailable",
                          "tc_diagonal": None})
             continue
-        equity = float(portfolio_row[0]) + sum(
-            float(position["qty"]) * holding_marks[ticker]
-            for ticker, position in positions.items()
+        equity = float(state["cash"]) + sum(
+            float(quantity) * holding_marks[ticker]
+            for ticker, quantity in positions.items()
         )
         if equity <= 0:
             rows.append({**row, "status": "unavailable", "reason": "book_equity_invalid",
@@ -152,17 +282,17 @@ def produce(
             continue
         weights, missing_held = [], 0.0
         for ticker in tickers:
-            position = positions.get(ticker)
-            weights.append(0.0 if position is None else
-                           float(position["qty"]) * holding_marks[ticker] / equity)
-        for ticker, position in positions.items():
+            quantity = positions.get(ticker)
+            weights.append(0.0 if quantity is None else
+                           float(quantity) * holding_marks[ticker] / equity)
+        for ticker, quantity in positions.items():
             if ticker not in {"SPY", *tickers}:
-                missing_held += float(position["qty"]) * holding_marks[ticker] / equity
-        if any(sigma[ticker] is None for ticker in tickers):
+                missing_held += float(quantity) * holding_marks[ticker] / equity
+        if sigma is None:
             rows.append({**row, "status": "unavailable", "reason": "active_risk_unavailable",
                          "tc_diagonal": None})
             continue
-        ic = trailing_ic.get(policy)
+        ic = trailing["values"].get(policy)
         positive_ic = isinstance(ic, (int, float)) and np.isfinite(ic) and ic > 0
         score_vector = [scores[ticker][policy] for ticker in tickers]
         sigma_vector = [sigma[ticker] for ticker in tickers]
@@ -172,8 +302,8 @@ def produce(
         )
         spy_position = positions.get("SPY")
         spy_weight = (0.0 if spy_position is None else
-                      float(spy_position["qty"]) * holding_marks["SPY"] / equity)
-        cash_weight = float(portfolio_row[0]) / equity
+                      float(spy_position) * holding_marks["SPY"] / equity)
+        cash_weight = float(state["cash"]) / equity
         implied = implied_active_weights(score_vector, sigma_vector, positive_ic=positive_ic)
         diagnostic = weight_pearson_tc(
             [*implied, 0.0], [*weights, spy_weight - 1.0, cash_weight],
@@ -183,12 +313,43 @@ def produce(
             "tc_weight_pearson": None if missing_held > 1e-15 else diagnostic,
             "stock_weight": float(sum(weights)), "spy_weight": spy_weight,
             "cash_weight": cash_weight, "trailing_ic": ic,
+            "ex_ante_tracking_error": float(np.sqrt(
+                max(0.0, 252 * np.asarray(weights) @ risk["covariance"]
+                    @ np.asarray(weights)),
+            )),
         })
     payload = {
         "schema_version": 1, "signal_date": signal_date.isoformat(),
         "holding_date": holding_date.isoformat(),
         "information_cutoff_at": cutoff.replace(tzinfo=timezone.utc).isoformat(),
         "score_sha256": score_sha, "risk_sha256": risk_sha,
+        "score_input_sha256": score_snapshot["input_snapshot_sha256"],
+        "ic_status": trailing["status"], "ic_reason": trailing["reason"],
+        "ic_source_sha256": trailing["source_sha256"],
+        "ic_origin_dates": trailing.get("origin_dates", []),
         "books": rows, "execution_authority": "none",
     }
     return {**payload, "transfer_sha256": canonical_sha256(payload)}
+
+
+def validate_payload(payload: dict) -> dict:
+    """Verify a production TC artifact before persistence or report use."""
+    if not isinstance(payload, dict) or payload.get("transfer_sha256") != canonical_sha256({
+            key: value for key, value in payload.items() if key != "transfer_sha256"}):
+        raise ValueError("P16 transfer hash differs")
+    try:
+        cutoff = datetime.fromisoformat(payload["information_cutoff_at"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("P16 transfer cutoff is invalid") from exc
+    if (payload.get("schema_version") != 1 or cutoff.tzinfo is None
+            or payload.get("execution_authority") != "none"
+            or any(not isinstance(payload.get(field), str)
+                   or len(payload[field]) != 64 for field in (
+                       "score_sha256", "risk_sha256", "score_input_sha256",
+                       "ic_source_sha256"))
+            or payload.get("ic_status") not in {"available", "unavailable"}
+            or (payload.get("ic_status") == "available"
+                and len(payload.get("ic_origin_dates", [])) != 60)):
+        raise ValueError("P16 transfer artifact provenance differs")
+    validate_transfer_rows(payload.get("books"), list(BOOK_POLICIES))
+    return payload

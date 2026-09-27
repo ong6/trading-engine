@@ -12,7 +12,7 @@ from engine.lib.util import table_exists
 from engine.p16_features import EXPOSURES
 from farm import p16_sequential
 from farm.p16_factors import CHAMPION, RULE
-from server import p16_trial_store
+from server import p16_transfer, p16_trial_store
 from sim import nyse
 
 ARTIFACT_KINDS = {
@@ -176,15 +176,11 @@ def record_transfer(
 ) -> str:
     """Retain one all-book transfer-coefficient production artifact."""
     init_schema(con)
-    books = payload.get("books") if isinstance(payload, dict) else None
-    expected = {
-        "p15_ai_ranked", "p15_rule_control", "p15_hybrid_veto",
-        "p16_construct_ai", "p16_construct_rule",
-    }
-    if (payload.get("schema_version") != 1 or not isinstance(books, list)
-            or {row.get("book_id") for row in books} != expected
-            or len(books) != len(expected)):
-        raise ValueError("P16 transfer artifact is incomplete")
+    p16_transfer.validate_payload(payload)
+    if (payload["signal_date"] != market_date.isoformat()
+            or _payload_time(payload["information_cutoff_at"], "transfer cutoff")
+            != _aware(_timestamp(information_cutoff_at, "information cutoff"))):
+        raise ValueError("P16 transfer artifact key differs")
     return _record_artifact(
         con, registration_sha256=registration_sha256, artifact_kind="transfer",
         artifact_key="all-construction-books", market_date=market_date,
@@ -193,6 +189,12 @@ def record_transfer(
             "market_date": market_date.isoformat(),
             "score_sha256": payload.get("score_sha256"),
             "risk_sha256": payload.get("risk_sha256"),
+            "ic_source_sha256": payload.get("ic_source_sha256"),
+            "holding_state_sha256s": sorted(
+                row.get("holding_state_sha256") for row in payload["books"]
+                if row.get("holding_state_sha256") is not None
+            ),
+            "transfer_sha256": payload["transfer_sha256"],
         }), payload=payload,
     )
 

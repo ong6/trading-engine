@@ -94,3 +94,15 @@ def test_intent_and_attempt_exact_retries_are_idempotent_but_drift_is_rejected()
         p16_book_store.record_limit_attempt(
             con, **(attempt | {"counterfactual_fill_px": 10.02}),
         )
+    label = dict(
+        intent_id=intent_id, attempt_date=date(2026, 9, 28), horizon_sessions=5,
+        entry_px=10.01, exit_date=date(2026, 10, 2), exit_close=10.5,
+        net_return=0.0479, spy_net_return=0.01, net_excess_return=0.0379,
+        price_prefix_sha256="c" * 64, labeled_at=NOW,
+    )
+    assert p16_book_store.record_limit_label(con, **label) is True
+    assert p16_book_store.record_limit_label(con, **label) is False
+    with pytest.raises(p16_book_store.P16BookError, match="replay differs"):
+        p16_book_store.record_limit_label(
+            con, **(label | {"net_excess_return": 0.02}),
+        )

@@ -239,6 +239,118 @@ def record_limit_attempt(
     return True
 
 
+def record_limit_label(
+    con, *, intent_id: str, attempt_date: date, horizon_sessions: int,
+    entry_px: float, exit_date: date, exit_close: float, net_return: float,
+    spy_net_return: float, net_excess_return: float,
+    price_prefix_sha256: str, labeled_at: datetime,
+) -> bool:
+    """Append one terminal horizon label; exact retries are idempotent."""
+    prefix = _digest(price_prefix_sha256, "limit-label price prefix digest")
+    recorded = _timestamp(labeled_at, "limit-label time")
+    if horizon_sessions != 5 or attempt_date > exit_date or entry_px <= 0 or exit_close <= 0:
+        raise P16BookError("P16 limit-label fields are invalid")
+    identity = {
+        "intent_id": intent_id, "attempt_date": attempt_date.isoformat(),
+        "horizon_sessions": horizon_sessions, "entry_px": float(entry_px),
+        "exit_date": exit_date.isoformat(), "exit_close": float(exit_close),
+        "net_return": float(net_return), "spy_net_return": float(spy_net_return),
+        "net_excess_return": float(net_excess_return),
+        "price_prefix_sha256": prefix,
+    }
+    digest = canonical_sha256(identity)
+    expected = (
+        attempt_date, horizon_sessions, float(entry_px), exit_date, float(exit_close),
+        float(net_return), float(spy_net_return), float(net_excess_return), prefix,
+        recorded, digest,
+    )
+    prior = con.execute(
+        "SELECT attempt_date,horizon_sessions,entry_px,exit_date,exit_close,net_return,"
+        "spy_net_return,net_excess_return,price_prefix_sha256,labeled_at,label_sha256 "
+        "FROM p16_limit_labels WHERE intent_id=?", [intent_id],
+    ).fetchone()
+    if prior is not None:
+        if prior != expected:
+            raise P16BookError("P16 limit-label replay differs")
+        return False
+    attempt = con.execute(
+        "SELECT counterfactual_fill_px,outcome FROM p16_limit_attempts "
+        "WHERE intent_id=? AND attempt_date=?", [intent_id, attempt_date],
+    ).fetchone()
+    if (attempt is None or attempt[0] is None
+            or attempt[1] not in {
+                "limit_not_reached", "cancelled_would_fill",
+                "cancelled_limit_not_reached",
+            }
+            or float(attempt[0]) != float(entry_px)):
+        raise P16BookError("P16 limit-label attempt evidence differs")
+    con.execute(
+        "INSERT INTO p16_limit_labels VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        [intent_id, *expected],
+    )
+    return True
+
+
+def validate_limit_labels(con) -> None:
+    """Recompute retained limit labels from their point-in-time attempt and bars."""
+    from engine.lib.db import REAL_BAR_SQL
+    from server import agent_evaluation
+
+    if not table_exists(con, "p16_limit_labels"):
+        return
+    rows = con.execute(
+        "SELECT l.intent_id,l.attempt_date,l.horizon_sessions,l.entry_px,l.exit_date,"
+        "l.exit_close,l.net_return,l.spy_net_return,l.net_excess_return,"
+        "l.price_prefix_sha256,l.labeled_at,l.label_sha256,i.ticker,"
+        "a.counterfactual_fill_px,a.outcome FROM p16_limit_labels l "
+        "LEFT JOIN p16_order_intents i ON i.intent_id=l.intent_id "
+        "LEFT JOIN p16_limit_attempts a ON a.intent_id=l.intent_id "
+        "AND a.attempt_date=l.attempt_date ORDER BY l.intent_id",
+    ).fetchall()
+    for values in rows:
+        (intent_id, attempt_date, horizon, entry_px, exit_date, exit_close,
+         net_return, spy_net, net_excess, prefix, labeled_at, digest, ticker,
+         counterfactual, attempt_outcome) = values
+        identity = {
+            "intent_id": intent_id, "attempt_date": attempt_date.isoformat(),
+            "horizon_sessions": int(horizon), "entry_px": entry_px,
+            "exit_date": exit_date.isoformat(), "exit_close": exit_close,
+            "net_return": net_return, "spy_net_return": spy_net,
+            "net_excess_return": net_excess, "price_prefix_sha256": prefix,
+        }
+        if (ticker is None or horizon != 5 or counterfactual is None
+                or float(counterfactual) != float(entry_px)
+                or attempt_outcome not in {
+                    "limit_not_reached", "cancelled_would_fill",
+                    "cancelled_limit_not_reached",
+                }
+                or canonical_sha256(identity) != digest):
+            raise P16BookError("P16 limit-label evidence differs")
+        sessions = [row[0] for row in con.execute(
+            f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>=? "
+            f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
+            "ORDER BY date LIMIT 5", [attempt_date, labeled_at],
+        ).fetchall()]
+        outcome = agent_evaluation._label_outcome(
+            con, ticker, sessions, labeled_at.replace(tzinfo=timezone.utc),
+        ) if len(sessions) == 5 else None
+        expected_net = None if outcome is None else (
+            float(outcome["exit_close"]) * 0.999 / float(entry_px) - 1
+        )
+        expected = None if outcome is None else {
+            "intent_id": intent_id, "attempt_date": attempt_date.isoformat(),
+            "horizon_sessions": 5, "entry_px": entry_px,
+            "exit_date": outcome["exit_date"].isoformat(),
+            "exit_close": outcome["exit_close"], "net_return": expected_net,
+            "spy_net_return": outcome["spy_net_return"],
+            "net_excess_return": expected_net - outcome["spy_net_return"],
+            "price_prefix_sha256": outcome["price_prefix_sha256"],
+        }
+        if (outcome is None or outcome["entry_date"] != attempt_date
+                or canonical_sha256(expected) != digest):
+            raise P16BookError("P16 limit-label source evidence differs")
+
+
 def claim_window(
     con, *, book_instance_id: str, market_date: date,
     information_cutoff_at: datetime, risk_sha256: str, score_sha256: str,
@@ -427,6 +539,7 @@ def status_projection(con, *, registration_sha256: str | None = None) -> dict:
     }
     if not table_exists(con, "p16_book_contracts"):
         return base
+    validate_limit_labels(con)
     clauses, values = [], []
     if registration_sha256 is not None:
         clauses.append("c.registration_sha256=?")
