@@ -133,7 +133,7 @@ def enrich(original: dict, envelope: dict, *, decision_at: str) -> dict:
     mapped = {row.get("ticker"): row for row in entries} if isinstance(entries, list) else {}
     candidates = original.get("candidates")
     tickers = [row.get("ticker") for row in candidates] if isinstance(candidates, list) else []
-    if len(mapped) != len(entries or []) or set(mapped) != set(tickers):
+    if len(mapped) != len(entries or []) or not set(tickers) <= set(mapped):
         raise ValueError("challenger metadata envelope is incomplete")
     payload = copy.deepcopy(original)
     payload["metadata_envelope_sha256"] = expected
