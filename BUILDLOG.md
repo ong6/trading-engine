@@ -1166,4 +1166,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm +292; server, tools, and other product layers unchanged; budget ok.
 - **Next:** add the isolated P15 book bootstrap, chronological replay phases, and retry tests.
 
+## 2026-09-27 — P16 W4: run isolated replay books
+
+- **Why:** approved W4 requires the pinned P15 book lifecycle, chronological clocks, early-close
+  semantics, retry safety, isolation, and an independent raw-price spot check.
+- **What:** bootstrap the exact three books behind a zero-value private anchor, run open fills and
+  completed book windows at logical clocks, preserve exact retries, use the exchange early close,
+  and quarantine reconstructed bars that disagree with the registered raw-price source.
+- **Evidence:** `.venv/bin/python -m pytest -q tests/test_p16_replay_runner.py tests/test_p16_replay_asof.py`
+  passes 27 tests, including nine fills, marked P&L, retry identity, and anchor isolation.
+- **Metrics:** farm +178; server, tools, and other product layers unchanged; budget ok.
+- **Next:** add replay evaluation/reporting and the reduced, inference-unconfigured text lab.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
