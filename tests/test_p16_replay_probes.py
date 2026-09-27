@@ -9,6 +9,7 @@ from farm.replay.probes import (
     dispatch_after_preflight,
     fisher_upper,
     pooled_admission,
+    score_month,
     score_responses,
 )
 
@@ -97,12 +98,55 @@ def test_response_failures_are_untestable_and_valid_bank_is_scored():
 
 
 def test_pooled_gate_requires_measured_baseline_of_registered_size():
-    month = {"status": "valid", "correct": 60, "n": 300}
-    assert pooled_admission([month], {"correct": 90, "n": 349}) == {
+    month = {"status": "inconclusive", "correct": 60, "n": 300}
+    assert pooled_admission([month], {"status": "valid", "correct": 90, "n": 349}) == {
         "status": "baseline_unverified"
     }
-    result = pooled_admission([month], {"correct": 90, "n": 350})
+    result = pooled_admission(
+        [month], {"status": "valid", "correct": 90, "n": 350}
+    )
     assert result["status"] in {"pass", "inconclusive"}
+
+
+def test_real_month_score_chain_is_the_only_pooled_admission_input():
+    baseline_facts = _facts(350, "2024-02", ("headline", "earnings_outcome"))
+    baseline_plan = coverage_preflight(
+        baseline_facts, ["2024-02"], ["receipt"], minimum_per_month=350
+    )
+    baseline_bank = build_bank(
+        baseline_facts, "2024-02", ["receipt"], baseline_plan
+    )
+    baseline = score_responses(
+        baseline_bank,
+        [{"id": row["id"], "choice": (row["correct"] + 1) % 4}
+         for row in baseline_bank["key"]],
+    )
+    facts = _facts(300, "2024-01", ("headline", "earnings_outcome"))
+    plan = coverage_preflight(facts, ["2024-01"], ["receipt"])
+    bank = build_bank(facts, "2024-01", ["receipt"], plan)
+    responses = [
+        {"id": row["id"], "choice": (row["correct"] + 1) % 4}
+        for row in bank["key"]
+    ]
+    month = score_month(
+        bank, responses, baseline, planned_months=1,
+        positive_control_passed=True, identity_matches=True,
+    )
+    assert month["status"] == "inconclusive"
+    assert pooled_admission([month], baseline)["status"] == "pass"
+
+    failed = score_month(
+        bank,
+        [{"id": row["id"], "choice": row["correct"]} for row in bank["key"]],
+        baseline,
+        planned_months=1,
+        positive_control_passed=True,
+        identity_matches=True,
+    )
+    assert failed["status"] == "fail"
+    assert pooled_admission([failed], baseline) == {
+        "status": "fail", "month": "2024-01"
+    }
 
 
 def test_exact_fisher_tail_and_power_gate_use_frozen_sizes():
