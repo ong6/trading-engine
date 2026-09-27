@@ -980,4 +980,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
   tools 7,996/8,850; sim 7,921/8,400; budget ok.
 - **Next:** build W3 from the accepted filing design, while W1/W5 wait for evaluation r3.
 
+## 2026-09-27 — P16 W3: build the filing reader
+
+- **Why:** approved P16 W3 and the accepted filings design admit a fixture-backed, shadow-only
+  EDGAR reader that remains inert without the configured SEC contact.
+- **What:** add bounded shared retrieval, exact filing parsing and deterministic counterparts,
+  append-only discovery/bundle/decision state, a provenance-bound model boundary, and host-wide
+  scoring concurrency. Add point-in-time open/5-minute labels and primary, paired, sliced,
+  latency-complete IC reporting; no filing decision has order authority.
+- **Evidence:** `.venv/bin/python -m pytest -q && TZ=UTC .venv/bin/python -m pytest -q` → both
+  reach `[100%]` with 3,619 tests collected; runtime readiness is `unconfigured` with zero calls.
+- **Metrics:** engine 15,576/16,050; server 57,050/57,050; farm 13,610/15,550;
+  tools 7,996/8,850; sim 7,921/8,400; budget ok.
+- **Next:** build W1 evaluation science v2 from the conditionally accepted r3 design.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
