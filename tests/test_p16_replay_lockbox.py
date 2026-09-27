@@ -164,6 +164,7 @@ def test_registration_must_bind_digest_trial_set_status_and_time(tmp_path):
 
 def test_marker_is_visible_before_dispatch_and_failure_prevents_call(tmp_path):
     ledger = _ledger(tmp_path)
+    assert ledger.dispatch_completed("replay-lockbox-v1", "cohort-sol-v1") is False
     selected = _arms()
     begin = dict(
         experiment_id="replay-lockbox-v1",
@@ -184,6 +185,7 @@ def test_marker_is_visible_before_dispatch_and_failure_prevents_call(tmp_path):
         return marker_sha256
 
     marker = dispatch_lockbox(ledger, dispatch=dispatch, begin=begin)
+    assert ledger.dispatch_completed("replay-lockbox-v1", "cohort-sol-v1") is True
     assert observed[0]["trial_set_sha256"] == trial_set_sha256(selected, SESSIONS)
     assert marker == observed[0]["marker_sha256"]
     with pytest.raises(LockboxIntegrityError, match="already_dispatched"):
@@ -218,10 +220,12 @@ def test_failed_dispatch_is_recorded_and_retryable_once(tmp_path):
 
     with pytest.raises(RuntimeError, match="provider unavailable"):
         dispatch_lockbox(ledger, dispatch=fail, begin=begin)
+    assert ledger.dispatch_completed("replay-lockbox-v1", "cohort-sol-v1") is False
     marker = dispatch_lockbox(
         ledger, dispatch=lambda marker_sha256: calls.append(marker_sha256), begin=begin
     )
     assert marker is None
+    assert ledger.dispatch_completed("replay-lockbox-v1", "cohort-sol-v1") is True
     assert len(calls) == 2
     with ledger._connect() as con:
         assert [row[0] for row in con.execute(

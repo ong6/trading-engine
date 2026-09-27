@@ -1,7 +1,7 @@
 """Narrow, inert boundary for feeding registered replay prices to P15 helpers."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Iterable, Mapping, Sequence
 
 from engine.daily_opportunities import p15_universe
@@ -12,8 +12,17 @@ from farm.replay.asof import (
 )
 from farm.replay.corpus import deduplicate_visible_headlines, facts_as_of
 from farm.replay.registration import SPLIT_KNOWLEDGE_PRIMARY
-from server import p15_scoring_runner
+from server import p15_preopen, p15_scoring_runner
 from sim import p15_books, p15_fills
+
+PREOPEN_MODEL_BOOKS = p15_preopen.BOOK_IDS
+
+
+def universe(con, market_date, *, held_tickers, information_cutoff_at):
+    return p15_universe(
+        con, market_date, held_tickers=held_tickers,
+        information_cutoff_at=information_cutoff_at,
+    )
 
 
 def prepare_p15_price_inputs(
@@ -113,7 +122,10 @@ def request_input(
 def validate_output(
     output: object, candidates: list[dict], allowed: dict[str, set[str]]
 ) -> dict[str, dict]:
-    return p15_scoring_runner._validate_output(output, candidates, allowed)
+    try:
+        return p15_scoring_runner._validate_output(output, candidates, allowed)
+    except p15_scoring_runner.ScoringError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def aggregate(candidates: list[dict], samples: list[dict[str, dict]]) -> list[dict]:
@@ -122,6 +134,25 @@ def aggregate(candidates: list[dict], samples: list[dict[str, dict]]) -> list[di
 
 def unavailable(candidates: list[dict], reason: str) -> list[dict]:
     return p15_scoring_runner._unavailable(candidates, reason)
+
+
+def validate_scoring_identity(result) -> None:
+    try:
+        p15_scoring_runner._validate_identity(result)
+    except p15_scoring_runner.ScoringError as exc:
+        raise ValueError(str(exc)) from exc
+
+
+def preopen_pending(con, session: date) -> list[dict]:
+    return p15_preopen._pending(con, session)
+
+
+def validate_preopen_output(output: object, allowed: dict[int, set[str]]) -> list[dict]:
+    return p15_preopen._validate(output, allowed)
+
+
+def validate_preopen_identity(result, payload: dict) -> None:
+    p15_preopen._validate_identity(result, payload)
 
 
 def pinned_dependencies() -> dict:

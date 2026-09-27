@@ -5,15 +5,35 @@ from pathlib import Path
 from typing import Mapping
 
 from engine.lib.resources import write_text_atomic
+from farm.replay.lockbox import LockboxLedger, evaluation_tag
 
 
-def render_replay_report(snapshot: Mapping) -> str:
+def _ledger_tag(ledger: LockboxLedger | None, query: Mapping | None) -> str:
+    if ledger is None or query is None:
+        return "post_lockbox_exploratory"
+    return evaluation_tag(ledger, **dict(query)).tag
+
+
+def render_replay_report(
+    snapshot: Mapping,
+    *,
+    lockbox_ledger: LockboxLedger | None = None,
+    lockbox_query: Mapping | None = None,
+) -> str:
     endpoint = snapshot.get("primary_endpoint", {"status": "unavailable"})
     coverage = snapshot.get("coverage", {})
-    lockbox_tag = snapshot.get("lockbox_tag", "unavailable")
-    result_status = snapshot.get("status", "unavailable")
-    if lockbox_tag != "confirmatory":
-        result_status = "exploratory"
+    lockbox_tag = _ledger_tag(lockbox_ledger, lockbox_query)
+    mechanically_complete = (
+        int(coverage.get("candidate_sessions", 0)) > 0
+        and int(coverage.get("unavailable_chunks", 0)) == 0
+        and snapshot.get("book_status") == "completed"
+        and snapshot.get("raw_price_status") == "pass"
+    )
+    result_status = (
+        "complete" if mechanically_complete and lockbox_tag == "confirmatory"
+        else "exploratory" if lockbox_tag != "confirmatory"
+        else "incomplete"
+    )
     lines = [
         "# P16 historical replay lab",
         "",
@@ -44,7 +64,7 @@ def render_replay_report(snapshot: Mapping) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_replay_report(path: Path, snapshot: Mapping) -> Path:
+def write_replay_report(path: Path, snapshot: Mapping, **kwargs) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    write_text_atomic(path, render_replay_report(snapshot))
+    write_text_atomic(path, render_replay_report(snapshot, **kwargs))
     return path

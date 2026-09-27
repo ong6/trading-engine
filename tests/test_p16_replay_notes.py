@@ -159,11 +159,33 @@ def test_pipeline_hides_future_and_immature_labels_and_future_notes():
         lessons=[{"rule": "Seek independent support.", "uncertainty": "Signals can conflict."}],
         filter_spec=FILTER,
     )
+    assert visible_mature_labels(con, session=session, cutoff=cutoff) == []
     assert visible_notes(con, session=session, cutoff=cutoff)[0]["revision_sha256"] == revision
     con.execute(
         "UPDATE replay_notes SET effective_at='2024-01-11T03:00:00.000000Z'"
     )
     assert visible_notes(con, session=session, cutoff=cutoff) == []
+
+
+def test_postmortem_must_copy_the_visible_h5_label_exactly():
+    con = duckdb.connect(":memory:")
+    init_notes_schema(con)
+    con.execute(
+        "INSERT INTO replay_labels VALUES (?,?,?,?,?,?,?)",
+        ("past", date(2024, 1, 2), "h5", "2024-01-10T20:15:00Z", "terminal", 10, -5),
+    )
+    with pytest.raises(NotesValidationError, match="postmortem_label_mismatch"):
+        record_notes_output(
+            con, session=date(2024, 1, 11),
+            written_at=datetime(2024, 1, 12, 2, tzinfo=timezone.utc),
+            postmortems=[{
+                "decision_id": "past", "expected_excess_bp": 10,
+                "realized_excess_bp": -4, "error_type": "noise",
+                "explanation": "The thesis lacked support.",
+                "lesson": "Seek independent support.", "evidence_ids": [],
+            }],
+            lessons=[], filter_spec=FILTER,
+        )
 
 
 def test_notes_revision_has_twelve_lesson_cap():
