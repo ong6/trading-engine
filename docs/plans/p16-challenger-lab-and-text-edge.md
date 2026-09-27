@@ -98,6 +98,10 @@ versions. Values marked *(builder sets)* are chosen once from engineering constr
   - Mixing variance *(builder sets from the P15 pre-activation dry-run dispersion, recorded before
     any P16 label matures)*.
   - α = 0.05, always valid.
+  - Lifetime allocation: `p16-challengers-f1` receives α = 0.04, so its fixed eight-member
+    e-Bonferroni boundary is 8 / 0.04 = 200. The remaining α = 0.01 is reserved for exactly one
+    future family containing `c-notes` and any later challenger; it receives a separate
+    registration. Total lifetime FWER is at most 0.05.
 - **Trial register and deflation.** Every policy version ever evaluated, in any plan, is one row.
   - Challenger ranking reports the deflated Sharpe ratio (Bailey & López de Prado 2014) of each
     challenger's long-top-quintile net excess series, using the register's trial count.
@@ -112,6 +116,22 @@ versions. Values marked *(builder sets)* are chosen once from engineering constr
   bundle, with the same output schema as `p15-scoring-v1`. Each changes only what its row says.
 - **Budget.** At most 8 live challengers. Each is a new registered policy version and a trial
   register row. Failures become explicit `unavailable` rows.
+- **Frozen family.** `family_id = p16-challengers-f1`, `M = 8`, with members in this order:
+  `c-blind`, `c-memory`, `c-model-gpt-5.5-max`, `c-model-gpt-5.6-terra-max`,
+  `c-ensemble`, `c-price-only`, `c-text-only`, `c-prompt-v2`. GPT-6-Astra is excluded because
+  its company queue cannot satisfy the before-next-open deadline.
+- **Shared metadata envelope.** Every family member receives the exact retained
+  `p15-universe-v1` bundle plus the same cutoff-bounded company-name, alias, and sector envelope.
+  The earnings `no_upcoming_date` correction is deferred to a separately registered universe-v2
+  cohort so it cannot change only one side of this comparison.
+- **Ensemble.** Mean all three numeric fields over the champion and the two `c-model-*` members.
+  All three components are required; otherwise the row is `unavailable`. Choose action by
+  deterministic majority, breaking ties with the component whose `expected_excess_bp_5` is
+  nearest the fieldwise mean, and copy both text fields from the champion.
+- **Epoch and prior.** The literal epoch is the first NYSE session after P16 activation and is
+  written only after the staged timer passes its copied-store dry-run. The prior is the exact
+  `mixing_from_pre_activation([], [])` fallback because fewer than 20 eligible pre-activation
+  origins exist; the registration records that reason.
 
 | ID | Changes only | Hypothesis |
 |---|---|---|
@@ -504,7 +524,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 |---|---|---|
 | W0 Baseline, P15 remediation (R1–R16), P15 activation | **scheduled: dry-run on the 2026-09-28 session, activation per registration revision 3 on 2026-09-29**. Remaining: host/UTC suites, fresh copied-store dry-run, recovery bundle, book activation, AUTOSTART commit/install, and first-cycle checks through 2026-10-01. Lead: `p16-sol-lead` (GPT-5.6-Sol) | 2026-09-26 |
 | W1 Evaluation science v2 | complete; accepted core, durable evidence, family report, and existing-status-surface projection are verified; nonessential adapter/census refinements are deferred at checkpoint | 2026-09-27 |
-| W2 Challenger lab | not started | |
+| W2 Challenger lab | in progress; family/alpha/input/ensemble/prior choices frozen, literal epoch waits for timer-backed copied-store dry-run | |
 | W3 Filing reader | components complete, inert; `unconfigured` and activation blocked on baseline/conditional-fetch/scan-orchestrator review fixes | 2026-09-27 |
 | W4 Historical labs (text lab, replay lab) | not started | |
 | W5 Portfolio construction v2 | not started | |

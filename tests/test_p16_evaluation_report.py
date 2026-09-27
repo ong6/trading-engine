@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import pytest
 
 from engine.lib.provenance import canonical_sha256
-from farm import p16_evaluation_report as reports
+from farm import p16_evaluation_report as reports, p16_sequential
 
 NOW = datetime(2027, 1, 4, 21, tzinfo=timezone.utc)
 FAMILY = [f"c{index}" for index in range(4)]
@@ -53,12 +53,12 @@ def _inventory(**updates) -> dict:
 def _build(*, rows=None, inventory=None, transfer=None):
     return reports.build_report(
         registration_sha256="b" * 64, family_id="p16-family-v1",
-        alpha_allocation_id="p16-family-v1-alpha-0.05", family_ids=FAMILY,
+        alpha_allocation_id=p16_sequential.ALPHA_ALLOCATION_ID, family_ids=FAMILY,
         registered_book_ids=list(reports.INITIAL_BOOK_IDS), report_at=NOW.isoformat(),
         origin_endpoint=100,
         comparison_rows=rows or [_comparison(index, current, maximum)
                                  for index, (current, maximum) in enumerate(
-                                     ((45, 80), (45, 45), (1, 1), (1, 1)))],
+                                     ((55, 120), (55, 55), (1, 1), (1, 1)))],
         champion_control={"comparison_id": "champion-v-rule", "status": "available"},
         trial_inventory=inventory or _inventory(),
         transfer_rows=transfer or [{"book_id": item, "status": "unavailable"}
