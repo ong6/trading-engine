@@ -7,7 +7,7 @@ import duckdb
 import pytest
 
 from engine.lib.provenance import canonical_sha256
-from farm import p16_trials
+from farm import p16_sequential, p16_trials
 from server import p16_store, p16_trial_store
 
 NOW = datetime(2026, 9, 27, 16, tzinfo=timezone.utc)
@@ -304,6 +304,54 @@ def test_tampered_trial_registration_cannot_authorize_origin(con):
     con.execute(f"UPDATE {p16_trial_store.TABLE} SET payload='{{}}' WHERE trial_id=?", [TRIAL])
     with pytest.raises(ValueError, match="trial record differs"):
         _record_decision(con, 0, EPOCH)
+
+
+def test_sequential_checkpoint_is_derived_and_chained(con):
+    for index, day in enumerate((date(2026, 9, 21), date(2026, 9, 22))):
+        _record_scored(con, index, day)
+    mixture = p16_sequential.mixing_from_pre_activation([], [])
+    first = p16_store.checkpoint_sequential(
+        con, registration_sha256=REGISTRATION, family_id="p16-family-v1",
+        comparison_id="c-blind-v1", trial_id=TRIAL, control_trial_id=CONTROL,
+        epoch_session=EPOCH, through_session_index=1, mixture=mixture, recorded_at=NOW)
+    assert p16_store.checkpoint_sequential(
+        con, registration_sha256=REGISTRATION, family_id="p16-family-v1",
+        comparison_id="c-blind-v1", trial_id=TRIAL, control_trial_id=CONTROL,
+        epoch_session=EPOCH, through_session_index=1, mixture=mixture,
+        recorded_at=NOW + timedelta(seconds=1)) == first
+    payload = p16_store._artifact_by_id(con, first)["payload"]
+    assert payload["previous_checkpoint_sha256"] is None
+    assert payload["sequential"]["primary"]["consumed_session_indices"] == [0]
+    assert payload["execution_authority"] == "none"
+
+
+def test_family_report_store_validates_dependencies_and_chain(con):
+    _record_scored(con, 0, EPOCH)
+    checkpoint = p16_store.checkpoint_sequential(
+        con, registration_sha256=REGISTRATION, family_id="p16-family-v1",
+        comparison_id="c-blind-v1", trial_id=TRIAL, control_trial_id=CONTROL,
+        epoch_session=EPOCH, through_session_index=0,
+        mixture=p16_sequential.mixing_from_pre_activation([], []), recorded_at=NOW)
+    body = {
+        "evaluation_policy_id": "p16-eval-v2", "registration_sha256": REGISTRATION,
+        "family_id": "p16-family-v1", "report_at": NOW.isoformat(),
+        "dependency_artifact_sha256s": [checkpoint], "previous_report_sha256": None,
+        "execution_authority": "none",
+    }
+    payload = {**body, "report_sha256": canonical_sha256(body)}
+    report_id = p16_store.record_family_report(
+        con, registration_sha256=REGISTRATION, payload=payload,
+        dependency_artifact_sha256s=[checkpoint], recorded_at=NOW)
+    assert p16_store.record_family_report(
+        con, registration_sha256=REGISTRATION, payload=payload,
+        dependency_artifact_sha256s=[checkpoint],
+        recorded_at=NOW + timedelta(seconds=1)) == report_id
+    assert p16_store.family_report_as_of(
+        con, generated_at=NOW, expected_report_sha256=report_id)[
+            "payload"] == payload
+    con.execute("DELETE FROM p16_evaluation_artifacts WHERE artifact_sha256=?", [checkpoint])
+    with pytest.raises(ValueError, match="dependency is absent"):
+        p16_store.family_report_as_of(con, generated_at=NOW)
 
 
 def test_artifact_time_and_payload_validation(con):
