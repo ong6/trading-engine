@@ -98,6 +98,48 @@ def resolve_acceptance(
     }
 
 
+def index_acceptance(raw: bytes, *, accession: str) -> str:
+    """Extract the sole Accepted field from a retained filing-index response."""
+    if not isinstance(raw, bytes) or not 0 < len(raw) <= MAX_BYTES:
+        raise ValueError("filing index must be complete bounded bytes")
+    if not isinstance(accession, str) or not re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", accession):
+        raise ValueError("invalid accession")
+    text = visible_text(raw)
+    if accession not in text:
+        raise ValueError("filing index accession differs")
+    values = re.findall(
+        r"(?i)(?:^|\n)\s*Accepted\s*:?\s*"
+        r"([0-9]{4}-[0-9]{2}-[0-9]{2}\s+[0-9]{2}:[0-9]{2}:[0-9]{2})(?=\s|$)",
+        text,
+    )
+    if len(values) != 1:
+        raise ValueError("missing or ambiguous index acceptance")
+    return " ".join(values[0].split())
+
+
+def submission_acceptance(raw: bytes, *, cik: str | int, accession: str) -> str:
+    """Extract acceptance from a complete SGML receipt after binding its identity."""
+    if not isinstance(raw, bytes) or not 0 < len(raw) <= MAX_BYTES:
+        raise ValueError("submission must be complete bytes within the receipt limit")
+    if not re.search(rb"(?im)^<SEC-DOCUMENT>", raw) or not re.search(rb"(?i)</SEC-DOCUMENT>\s*$", raw):
+        raise ValueError("incomplete submission envelope")
+    issuer = cik_id(cik)
+    if not isinstance(accession, str) or not re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", accession):
+        raise ValueError("invalid accession")
+    header = re.split(rb"(?im)^<DOCUMENT>", raw, maxsplit=1)[0]
+    numbers = [value.strip() for value in re.findall(
+        rb"(?im)^\s*ACCESSION NUMBER:\s*([^\r\n]+)", header,
+    )]
+    issuers = re.findall(rb"(?im)^\s*CENTRAL INDEX KEY:\s*([0-9]+)", header)
+    if numbers != [accession.encode()] or not issuers or any(
+            cik_id(value.decode()) != issuer for value in issuers):
+        raise ValueError("submission header identity differs")
+    acceptances = re.findall(rb"(?im)^<ACCEPTANCE-DATETIME>([0-9]{14})\s*$", header)
+    if len(acceptances) != 1:
+        raise ValueError("missing or ambiguous acceptance header")
+    return acceptances[0].decode()
+
+
 def cik_id(value: str | int) -> str:
     if not re.fullmatch(r"[0-9]{1,10}", str(value)) or int(value) == 0:
         raise ValueError("invalid CIK")
@@ -406,18 +448,11 @@ def normalize_submission(
     issuer = cik_id(cik)
     if not isinstance(accession, str) or not re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", accession):
         raise ValueError("invalid accession")
-    header = re.split(rb"(?im)^<DOCUMENT>", raw, maxsplit=1)[0]
-    numbers = [value.strip() for value in re.findall(rb"(?im)^\s*ACCESSION NUMBER:\s*([^\r\n]+)", header)]
-    issuers = re.findall(rb"(?im)^\s*CENTRAL INDEX KEY:\s*([0-9]+)", header)
-    if numbers != [accession.encode()] or not issuers or any(cik_id(value.decode()) != issuer for value in issuers):
-        raise ValueError("submission header identity differs")
-    acceptances = re.findall(rb"(?im)^<ACCEPTANCE-DATETIME>([0-9]{14})\s*$", header)
-    if len(acceptances) != 1:
-        raise ValueError("missing or ambiguous acceptance header")
+    sgml_acceptance = submission_acceptance(raw, cik=issuer, accession=accession)
     received = timestamp(received_at)
     acceptance = resolve_acceptance(
         json_value=json_acceptance,
-        sgml_value=acceptances[0].decode(),
+        sgml_value=sgml_acceptance,
         index_value=index_acceptance,
         reference_received_at=received,
     )
