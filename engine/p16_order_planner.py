@@ -21,7 +21,8 @@ def _finite_mapping(values: dict[str, float], names: list[str], field: str) -> n
 def plan_whole_share_orders(
     *, tickers: list[str], target_weights, current_quantities: dict[str, float],
     operational_prices: dict[str, float], cash: float, equity: float,
-    beta, sectors, alpha, mandatory_exits: set[str] | None = None,
+    beta, sectors, alpha, entry_atr: dict[str, float],
+    mandatory_exits: set[str] | None = None,
 ) -> dict:
     """Round down targets, fund sells first, and fail closed on post-rounding drift."""
     if (tickers != sorted(set(tickers)) or "SPY" in tickers or equity <= 0 or cash < 0
@@ -38,8 +39,10 @@ def plan_whole_share_orders(
             or np.any(target < 0) or abs(target.sum() - 1) > 1e-8):
         raise ValueError("invalid continuous target")
     prices = _finite_mapping(operational_prices, names, "operational prices")
+    atr = _finite_mapping(entry_atr, tickers, "entry ATR")
     current = np.asarray([current_quantities.get(name, 0.0) for name in names], dtype=float)
-    if np.any(prices <= 0) or np.any(current < 0) or not np.all(np.isfinite(current)):
+    if (np.any(prices <= 0) or np.any(atr <= 0) or np.any(current < 0)
+            or not np.all(np.isfinite(current))):
         raise ValueError("invalid prices or current quantities")
     exits = mandatory_exits or set()
     if not exits <= set(tickers):
@@ -96,11 +99,14 @@ def plan_whole_share_orders(
             continue
         role = ("mandatory_exit" if name in exits else "spy_financing"
                 if name == "SPY" else "rebalance")
-        orders.append({
+        order = {
             "ticker": name, "side": "buy" if change > 0 else "sell",
             "qty": float(abs(change)), "order_role": role,
             "target_weight": float(target[index]),
-        })
+        }
+        if change > 0 and name != "SPY":
+            order["entry_atr"] = float(atr[index])
+        orders.append(order)
     orders.sort(key=lambda row: (row["side"] != "sell", row["ticker"]))
     return {
         "status": "planned", "orders": orders,

@@ -161,8 +161,7 @@ def test_adaptive_projection_full_144_case_noncore_stress(seed, cost, risk_avers
     common = rng.normal(0, 0.012, (120, 1))
     active = rng.normal(0, 0.012, (120, names))
     covariance = 5 * p16_risk.ledoit_wolf(common * (beta - 1) + active)["covariance"]
-    previous_stock = np.zeros(names)
-    previous_stock[0] = previous_stock[1] = 0.05
+    previous_stock = np.full(names, 0.1 / names)
     previous = np.r_[previous_stock, 0.9]
     alpha = (2 * risk_aversion * covariance @ previous_stock
              + rng.uniform(-0.00025, 0.00025, names))

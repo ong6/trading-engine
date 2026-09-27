@@ -138,3 +138,50 @@ def test_inactive_book_never_processes_or_marks(con):
     assert p16_books.process_window(
         con, book_instance_id=instance, market_date=SESSIONS[30], observed_at=NOW,
     ) == {"status": "inactive", "filled": 0, "rejected": 0, "pending": 0}
+
+
+def test_drawdown_halt_rejects_discretionary_stock_buy(con):
+    insert_bars(con, "AAA", SESSIONS[:31], open_=100, close=100, high=101, low=99)
+    instance = _book(con)
+    p16_book_store.append_state(
+        con, book_instance_id=instance, market_date=SESSIONS[28], peak_equity=10_000,
+        entry_halted=True, equity=7_900, cash=10_000, spy_mark=None, stock_marks={},
+        position_state_sha256="c" * 64, previous_state_sha256=None, recorded_at=NOW,
+    )
+    _queue(con, instance)
+
+    result = p16_books.process_window(
+        con, book_instance_id=instance, market_date=SESSIONS[30], observed_at=NOW,
+    )
+
+    assert result["filled"] == 0 and result["rejected"] == 1
+    assert con.execute(
+        "SELECT outcome,reject_reason FROM p16_limit_attempts"
+    ).fetchone() == ("rejected", "drawdown_halt")
+
+
+def test_partial_rebalance_sell_keeps_open_position_rule(con):
+    insert_bars(con, "AAA", SESSIONS[:32], open_=100, close=100, high=101, low=99)
+    instance = _book(con)
+    _queue(con, instance, qty=10)
+    p16_books.process_window(
+        con, book_instance_id=instance, market_date=SESSIONS[30], observed_at=NOW,
+    )
+    p16_book_store.add_intent(
+        con, book_instance_id=instance, signal_date=SESSIONS[30], ticker="AAA",
+        side="sell", order_role="rebalance", target_weight=0.05, rounded_qty=5,
+        source_sha256=SOURCE, limit_px=None, expected_session=SESSIONS[31], created_at=NOW,
+    )
+
+    result = p16_books.process_window(
+        con, book_instance_id=instance, market_date=SESSIONS[31], observed_at=NOW,
+    )
+
+    assert result["filled"] == 1
+    assert con.execute(
+        "SELECT qty FROM sim_positions WHERE portfolio_id=? AND ticker='AAA'", [instance],
+    ).fetchone()[0] == pytest.approx(5)
+    assert con.execute(
+        "SELECT status FROM p16_position_rules WHERE book_instance_id=? AND ticker='AAA'",
+        [instance],
+    ).fetchone() == ("open",)

@@ -58,6 +58,11 @@ def process_window(
         return {"status": "inactive", "filled": 0, "rejected": 0, "pending": 0}
     counts = {"filled": 0, "rejected": 0, "pending": 0}
     with db.transaction(con):
+        previous = con.execute(
+            "SELECT state_sha256,peak_equity,entry_halted FROM p16_book_state "
+            "WHERE book_instance_id=? AND market_date<? ORDER BY market_date DESC LIMIT 1",
+            [book_instance_id, market_date],
+        ).fetchone()
         for row in _pending_rows(con, book_instance_id, market_date):
             (intent_id, ticker, side, quantity, signal_date, role, limit_px, _entry_atr,
              expected_session, source_sha256) = row
@@ -65,11 +70,17 @@ def process_window(
             quantity = float(quantity) * factor
             adjusted_limit = None if limit_px is None else float(limit_px) / factor
             stale = role == "rebalance" and market_date > expected_session
+            halted = (side == "buy" and ticker != "SPY" and role == "rebalance"
+                      and bool(previous and previous[2]))
             quarantined = side == "buy" and ticker != "SPY" \
                 and quarantine_reason(con, ticker) is not None
             if stale:
                 result = p15_fills.LimitFillResult(
                     status="rejected", reject_reason="stale_signal",
+                )
+            elif halted:
+                result = p15_fills.LimitFillResult(
+                    status="rejected", reject_reason="drawdown_halt",
                 )
             elif quarantined:
                 result = p15_fills.LimitFillResult(
@@ -103,11 +114,6 @@ def process_window(
             )
             counts[status] += 1
         mark = p16_book_mechanics.mark_exact(con, book_instance_id, market_date)
-        previous = con.execute(
-            "SELECT state_sha256,peak_equity,entry_halted FROM p16_book_state "
-            "WHERE book_instance_id=? AND market_date<? ORDER BY market_date DESC LIMIT 1",
-            [book_instance_id, market_date],
-        ).fetchone()
         peak = max(mark["equity"], mark["equity"] if previous is None else previous[1])
         halted = bool(previous and previous[2]) or mark["equity"] / peak - 1 <= -0.20
         state_sha = p16_book_store.append_state(
