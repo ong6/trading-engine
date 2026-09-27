@@ -450,6 +450,51 @@ safety and operations), run on 2026-09-26. File references are as of that commit
 | The model identity is an unversioned catalogue alias; show that prominently in every report | W7 |
 | `tools/sec_edgar_capture.py` (~132) parses the submissions-JSON `acceptanceDateTime` (`...Z`) as UTC. Reviewers report that its wall clock is often US Eastern. Verify, and if so read `ACCEPTANCE-DATETIME` from the filing index or header as America/New_York, as a versioned P15 follow-up (see the filings design folder, `repo-followups.md`) | W3 |
 
+## W11: end-to-end synthetic proving ground (owner request, 2026-09-27)
+
+Once W9's fixes land, test the whole AI decision pipeline on **mock data with known answers**,
+then run evaluation loops on the agent.
+
+- **Synthetic world:**
+  - Fictional tickers and companies, so the model can't have memorised them.
+  - Hundreds of sessions of prices, headlines, and 8-K-style filings generated from a registered
+    seed.
+  - **Planted signals** with known IC, in difficulty tiers:
+    - *easy*: an explicit guidance raise or cut;
+    - *medium*: numbers in a filing that need arithmetic;
+    - *hard*: interactions and sector context.
+  - Pure-noise features alongside the signals.
+  - **Traps**: facts timestamped after the decision (look-ahead bait), look-alike famous names,
+    stale quotes, halted tickers.
+- **Controls first**, deterministic stub models:
+  - an *oracle* must recover the planted IC within tolerance;
+  - *random* must show no effect;
+  - *inverted* must flip the sign.
+
+  This proves the full W1 statistics and reporting path measures what it claims before any
+  real model is judged.
+- **Real-agent runs:** the P15 champion and the W2 challengers score the synthetic world through
+  the real code paths (scoring, books, labels, W1 evaluation, reports) in an isolated store.
+  Report:
+  - recovered IC by tier;
+  - calibration;
+  - the trap hit-rate (any look-ahead use is a defect in the plumbing or the prompt);
+  - an error taxonomy.
+- **Fault injection:** missing data, halted tickers, model outage, late runs. The expected
+  behaviour is explicit `unavailable` rows and no orders.
+- **Evaluation loops:**
+  - The orchestrator reviews each run, chooses prompt or policy changes, re-runs, and compares.
+  - Every variant is a trial-register row, even in the sandbox.
+  - At most 3 rounds per question.
+  - Improvements that pass become *proposals* for new registered versions. They never change a
+    live registration.
+- **Isolation:**
+  - a separate DuckDB file and no timers;
+  - results labelled `synthetic`, never pooled with real evidence;
+  - no promotion authority.
+- **Design input:** `~/.tae/out/p16-design-proving-ground/` (written by a parallel design
+  session). The lead builds from it after W9; the orchestrator reviews the design and each run.
+
 ## Not in scope
 
 - Order authority for any challenger, filing decision, or construction book beyond its isolated
@@ -537,6 +582,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W8 Stage 2 design | not started | |
 | W9 Cleanup, docs, refine gate, activation | not started | |
 | W10 Final refine pass | not started | |
+| W11 Synthetic proving ground and evaluation loops | design in progress (`p16-design-proving-ground`) | |
 
 Owner inputs needed: optional `research-text` dependency decision requested 2026-09-26; W4a remains corpus-only until approved. An optional alternate reviewer model was requested after fresh review jobs produced no output; reviews remain pending. SEC contact and free API keys retain their stated defaults.
 
