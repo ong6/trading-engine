@@ -129,10 +129,14 @@ def _redirect_valid(source: dict, target: dict, resolution: object,
 def reconciliation_valid(value: dict, records: list[dict]) -> bool:
     if (not isinstance(value, dict)
             or set(value) != {"scope", "covered_plans", "deterministic_baseline_trial_ids",
-                       "sources", "entries", "trial_redirects", "register_sha256"}
+                       "sources", "entries", "trial_redirects", "register_sha256",
+                       "sealed_row_sha256s"}
             or value["scope"] != "all_plans_and_deterministic_baselines_through_p16"
             or not isinstance(value["covered_plans"], list)
             or not set(value["covered_plans"]) <= PLANS
+            or value["sealed_row_sha256s"] != sorted(
+                row["row_sha256"] for row in records
+                if row["record_kind"] != "inventory_reconciliation")
             or value["register_sha256"] != register_digest(records)):
         return False
     registration_rows = {row["trial_id"]: row for row in records
@@ -177,19 +181,27 @@ def reconciliation_valid(value: dict, records: list[dict]) -> bool:
            != item["row_count"] for item in sources) or entry_aliases != aliases:
         return False
     baselines, redirects = value["deterministic_baseline_trial_ids"], value["trial_redirects"]
+    redirects_valid = all(isinstance(resolution, dict) and source in registrations
+               and resolution.get("canonical_trial_id") in registrations
+               and source != resolution["canonical_trial_id"]
+               and resolution["canonical_trial_id"] not in redirects
+               and registrations[source]["trial_kind"]
+               == registrations[resolution["canonical_trial_id"]]["trial_kind"]
+               and _redirect_valid(registration_rows[source], registration_rows[
+                   resolution["canonical_trial_id"]], resolution, events)
+               for source, resolution in redirects.items())
+    canonical_attempted = {
+        redirects[trial_id]["canonical_trial_id"] if trial_id in redirects else trial_id
+        for trial_id in attempted
+    }
     if (not isinstance(baselines, list)
-            or len(baselines) != len(set(baselines)) or not set(baselines) <= attempted):
+            or len(baselines) != len(set(baselines))
+            or not set(baselines) <= canonical_attempted):
         return False
     if any(registrations[trial_id]["trial_kind"] != "deterministic_baseline"
            for trial_id in baselines):
         return False
-    return all(isinstance(resolution, dict) and source in registrations
-               and resolution.get("canonical_trial_id") in registrations
-               and source != resolution["canonical_trial_id"]
-               and resolution["canonical_trial_id"] not in redirects
-               and _redirect_valid(registration_rows[source], registration_rows[
-                   resolution["canonical_trial_id"]], resolution, events)
-               for source, resolution in redirects.items())
+    return redirects_valid
 
 
 def project(records: list[dict], *, limit: int) -> dict:
@@ -227,21 +239,27 @@ def project(records: list[dict], *, limit: int) -> dict:
     reconciliations = [row for row in records
                        if row["record_kind"] == "inventory_reconciliation"]
     latest_row = reconciliations[-1] if reconciliations else None
-    sealed_records = [] if latest_row is None else [
-        row for row in records if row["record_kind"] == "inventory_reconciliation"
-        or row["recorded_at"] <= latest_row["recorded_at"]]
+    sealed_ids = set() if latest_row is None else set(
+        latest_row["payload"].get("sealed_row_sha256s", []))
+    sealed_records = [row for row in records if row["row_sha256"] in sealed_ids]
     valid = latest_row is not None and reconciliation_valid(latest_row["payload"], sealed_records)
     latest = latest_row["payload"] if valid else None
     redirects = {} if latest is None else {
         key: value["canonical_trial_id"] for key, value in latest["trial_redirects"].items()}
-    current = valid and latest["register_sha256"] == register_digest(records)
+    current = valid and sealed_ids == {
+        row["row_sha256"] for row in records
+        if row["record_kind"] != "inventory_reconciliation"}
+    grouped_events = {trial_id: [] for trial_id in registrations}
+    for trial_id, trial_events in events.items():
+        grouped_events[redirects.get(trial_id, trial_id)].extend(trial_events)
     versions, attempted_ids, unresolved = [], set(), 0
     for trial_id, row in sorted(registrations.items()):
-        trial_events = events[trial_id]
+        own_events = events[trial_id]
+        trial_events = grouped_events[trial_id] if trial_id not in redirects else own_events
         attempts = [item for item in trial_events if item["record_kind"] in ATTEMPTS]
-        if attempts:
+        if any(item["record_kind"] in ATTEMPTS for item in own_events):
             attempted_ids.add(redirects.get(trial_id, trial_id))
-            unresolved += not _verified(row, trial_events) and trial_id not in redirects
+            unresolved += not _verified(row, own_events) and trial_id not in redirects
         retired = [item for item in trial_events if item["record_kind"] == "retired"]
         latest_attempt = max(attempts, key=lambda item: (item["event_at"], item["record_sha256"])) \
             if attempts else None
@@ -261,9 +279,10 @@ def project(records: list[dict], *, limit: int) -> dict:
     missing_plans = sorted(PLANS - (set() if latest is None else set(latest["covered_plans"])))
     unmapped = sorted({trial_id for trial_id, rows in events.items()
                        if any(row["record_kind"] in ATTEMPTS for row in rows)} - mapped)
-    expected_baselines = {redirects.get(trial_id, trial_id) for trial_id, row in registrations.items()
+    expected_baselines = {trial_id for trial_id, row in registrations.items()
                           if row["payload"]["trial_kind"] == "deterministic_baseline"
-                          and any(event["record_kind"] in ATTEMPTS for event in events[trial_id])}
+                          and any(event["record_kind"] in ATTEMPTS
+                                  for event in grouped_events[trial_id])}
     missing_baselines = sorted(expected_baselines - (
         set() if latest is None else set(latest["deterministic_baseline_trial_ids"])))
     complete = current and not missing_plans and not unmapped and not unresolved \
