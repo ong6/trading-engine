@@ -49,6 +49,17 @@ def test_material_sections_exact_exhibit_and_byte_lineage():
         assert canonical_sha256(lineage) == span["evidence_id"]
 
 
+def test_acceptance_values_are_extracted_from_identity_bound_source_bytes():
+    assert filings.submission_acceptance(
+        RAW, cik="123", accession=ACCESSION,
+    ) == "20260925163000"
+    index = (f"<html><body><div>Accession Number: {ACCESSION}</div>"
+             "<div>Accepted</div><div>2026-09-25 16:30:00</div></body></html>").encode()
+    assert filings.index_acceptance(index, accession=ACCESSION) == "2026-09-25 16:30:00"
+    with pytest.raises(ValueError, match="accession differs"):
+        filings.index_acceptance(index, accession="0000099999-26-000002")
+
+
 @pytest.mark.parametrize(
     ("json_value", "sgml_value", "index_value", "expected", "crosscheck"),
     [
