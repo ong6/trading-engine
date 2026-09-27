@@ -19,6 +19,7 @@ def test_project_reports_not_initialized_without_family_evidence(monkeypatch):
     assert p16_reporting.project(object(), generated_at=NOW) == {
         "schema_version": 1, "status": "not_initialized",
         "evaluation_policy_id": "p16-eval-v2", "family_report": None,
+        "origin_grid": None, "promotion_candidate_ids": [],
         "promotion_authority": "owner_review_required", "execution_authority": "none",
     }
 
@@ -61,3 +62,38 @@ def test_markdown_rejects_projection_family_mismatch():
     }
     with pytest.raises(ValueError, match="status differs"):
         p16_reporting.markdown(projection)
+
+
+def test_missed_origin_is_publicly_incomplete_and_blocks_promotion(monkeypatch):
+    family = _build()
+    body = {
+        "schema_version": 1, "registration_sha256": "b" * 64,
+        "family_id": "p16-challengers-f1", "epoch_session": "2026-10-01",
+        "report_at": NOW.isoformat(), "expected_through_session_index": 5,
+        "status": "blocked_missing_origin_decision",
+        "first_permanently_missing_session_index": 5,
+        "first_permanently_missing_origin": "2026-10-08",
+        "comparisons": [], "execution_authority": "none",
+    }
+    grid = {**body, "grid_report_sha256": p16_reporting.canonical_sha256(body)}
+    monkeypatch.setattr(p16_reporting.p16_registration, "load", lambda *_args, **_kwargs: {
+        "registration_sha256": "b" * 64,
+        "evaluation": {"family_id": "p16-challengers-f1", "epoch_session": "2026-10-01"},
+    })
+    monkeypatch.setattr(p16_reporting.p16_registration, "family_members", lambda _value: [{
+        "comparison_id": "c0", "trial_id": "1" * 64, "control_trial_id": "f" * 64,
+    }])
+    monkeypatch.setattr(p16_reporting.p16_preentry, "grid_report",
+                        lambda *_args, **_kwargs: grid)
+    monkeypatch.setattr(p16_reporting.p16_store, "family_report_as_of",
+                        lambda con, *, generated_at: {"payload": family})
+
+    result = p16_reporting.project(object(), generated_at=NOW)
+    text = p16_reporting.markdown(result)
+
+    assert result["status"] == "incomplete"
+    assert result["origin_grid"] == grid
+    assert result["promotion_candidate_ids"] == []
+    assert "Status: **incomplete**" in text
+    assert "origin index 5 (2026-10-08)" in text
+    assert "were not backfilled into this slot" in text

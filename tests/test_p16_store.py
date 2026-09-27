@@ -236,15 +236,26 @@ def test_sequential_event_retry_keeps_first_seen_time(con):
     assert row["recorded_at"] == recorded
 
 
-def test_sequential_prefix_rejects_missing_retained_decisions_and_tampering(con):
+def test_sequential_prefix_projects_missing_decision_without_repacking(con):
     _record_scored(con, 0, date(2026, 9, 21))
     _record_decision(con, 2, date(2026, 9, 23))
-    with pytest.raises(ValueError, match="missing a retained decision"):
-        p16_store.sequential_prefix(
-            con, registration_sha256=REGISTRATION, family_id="p16-family-v1",
-            comparison_id="c-blind-v1", trial_id=TRIAL, control_trial_id=CONTROL,
-            epoch_session=EPOCH, origin_endpoint=2, report_at=NOW,
-        )
+    rows = p16_store.sequential_prefix(
+        con, registration_sha256=REGISTRATION, family_id="p16-family-v1",
+        comparison_id="c-blind-v1", trial_id=TRIAL, control_trial_id=CONTROL,
+        epoch_session=EPOCH, origin_endpoint=2, report_at=NOW,
+    )
+    assert [row["session_index"] for row in rows] == [0, 1, 2]
+    assert rows[1]["status"] == "missing_session_record"
+    assert rows[1]["reason"] == "missing_preentry_decision"
+    assert rows[1]["derived_not_persisted"] is True
+    assert rows[2]["status"] == "pending"
+    state = p16_sequential.by_session_offset(
+        rows, mixture=p16_sequential.mixing_from_pre_activation([], []),
+        epoch_session=EPOCH, report_at=NOW.isoformat(),
+    )
+    assert state["robustness"][0]["blocked_at"] == {
+        "session_index": 1, "reason": "missing_session_record",
+    }
     con.execute("UPDATE p16_sequential_origin_events SET delta_ic=0.9 "
                 "WHERE session_index=0 AND event_kind='outcome'")
     with pytest.raises(ValueError, match="stored P16 sequential origin event differs"):
