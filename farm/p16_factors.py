@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
@@ -140,7 +141,7 @@ def mean_neutral_ic(
             for row in reports):
         raise ValueError("factor report identity differs")
     cutoff = _instant(report_cutoff.isoformat())
-    cutoff_date = cutoff.date()
+    cutoff_date = cutoff.astimezone(ZoneInfo("America/New_York")).date()
     scheduled, day = [], activation_date
     while day <= cutoff_date:
         if nyse.is_session(day):
@@ -160,7 +161,7 @@ def mean_neutral_ic(
             values.append(float(adjusted["challenger_ic"]))
             valid_dates.append(row["market_date"])
     status = "available" if len(values) >= 20 else "insufficient"
-    return {
+    body = {
         "status": status, "policy_id": policy_id, "valid_session_count": len(values),
         "scheduled_session_count": len(scheduled),
         "missing_share": 1 - len(values) / len(scheduled) if scheduled else 1.0,
@@ -170,3 +171,4 @@ def mean_neutral_ic(
         "activation_date": activation_date.isoformat(), "report_cutoff": cutoff.isoformat(),
         "source_report_sha256": [row.get("factor_report_sha256") for row in eligible],
     }
+    return {**body, "aggregate_sha256": canonical_sha256(body)}

@@ -127,6 +127,7 @@ def project(con, *, generated_at: datetime, limit: int = 100) -> dict:
         raise ValueError("invalid trial projection limit")
     if not table_exists(con, TABLE):
         return {"status": "not_initialized", "inventory_complete": False,
-                "selection_trial_count": 0, "registered_trial_count": 0,
+                "selection_trial_count": 0, "selection_trial_ids": [],
+                "registered_trial_count": 0,
                 "execution_authority": "none"}
     return p16_trials.project(_records(con, cutoff), limit=limit)
