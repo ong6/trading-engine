@@ -1,6 +1,7 @@
 """Split-aware, explicitly named price projections for historical replay."""
 from __future__ import annotations
 
+import json
 import math
 from collections import defaultdict
 from dataclasses import dataclass
@@ -8,7 +9,10 @@ from datetime import date, datetime, time, timezone
 from typing import Iterable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
+import pandas as pd
+
 from engine import p15_event_sources
+from engine.lib import db
 from farm.replay.registration import (
     INDEPENDENT_UNADJUSTED_PRICE_SOURCE,
     PRICE_SERIES_BY_CONSUMER,
@@ -267,38 +271,210 @@ def asof_split_adjusted_bars(
     return visible
 
 
+def _price_frame(rows: Sequence[Mapping]) -> pd.DataFrame:
+    return pd.DataFrame.from_records(
+        [
+            {
+                "ticker": str(row.get("ticker") or row.get("security_id")),
+                "date": _date(row.get("session"), "bar_session"),
+                "open": float(row["open"]),
+                "high": None if row.get("high") is None else float(row["high"]),
+                "low": None if row.get("low") is None else float(row["low"]),
+                "close": None if row.get("close") is None else float(row["close"]),
+                "volume": None if row.get("volume") is None else int(row["volume"]),
+                "source": "historical_backfill",
+                "fetched_at": _instant(row.get("visible_at"), "bar_visible_at").replace(
+                    tzinfo=None
+                ),
+            }
+            for row in rows
+        ],
+        columns=(
+            "ticker", "date", "open", "high", "low", "close", "volume", "source",
+            "fetched_at",
+        ),
+    )
+
+
+def _phase_visible_bars(
+    reconstructed_bars: Sequence[Mapping],
+    actions: Sequence[Mapping],
+    *,
+    as_of: datetime,
+    phase: str,
+    knowledge_policy: str,
+) -> list[dict]:
+    """Project the archive into the fields available at one replay phase."""
+    cutoff = _instant(as_of, "as_of")
+    phase = phase.upper()
+    if phase not in {"PREOPEN", "OPEN", "CLOSE", "SCORE", "POSTMORTEM"}:
+        raise PriceSeriesError("invalid_price_phase")
+    full = asof_split_adjusted_bars(
+        reconstructed_bars, actions, as_of=cutoff, knowledge_policy=knowledge_policy
+    )
+    visible = {
+        (row.get("security_id"), _date(row.get("session"), "bar_session")): {
+            **row,
+            "visible_at": row["available_at"],
+        }
+        for row in full
+    }
+    if phase != "OPEN":
+        return list(visible.values())
+
+    current_session = cutoff.astimezone(_NY).date()
+    actions_by_security = _actions_by_security(actions)
+    for source in reconstructed_bars:
+        session = _date(source.get("session"), "bar_session")
+        if session != current_session:
+            continue
+        security_id = source.get("security_id")
+        security_actions = actions_by_security.get(security_id, ())
+        _validate_reconstructed_bar(source, security_actions)
+        factor = 1.0
+        action_ids = []
+        for action in security_actions:
+            if session >= _date(action.get("ex_date"), "split_ex_date"):
+                continue
+            if split_known_at(action, knowledge_policy) > cutoff:
+                continue
+            status = split_outcome(action)
+            if status == "quarantined":
+                raise SplitQuarantineError(f"quarantined_split:{action.get('action_id')}")
+            if status == "trusted":
+                factor *= _ratio(action)
+                action_ids.append(action.get("action_id"))
+        visible[(security_id, session)] = {
+            **source,
+            "open": float(source["open"]) / factor,
+            "high": None,
+            "low": None,
+            "close": None,
+            # P15's frozen fill model uses realised daily volume as explicitly
+            # labelled execution-model hindsight; policy code sees no SQL tools.
+            "volume": None if source.get("volume") is None else float(source["volume"]) * factor,
+            "series": "asof_split_adjusted_v1",
+            "as_of": cutoff.isoformat().replace("+00:00", "Z"),
+            "asof_split_factor": factor,
+            "asof_action_ids": sorted(action_ids),
+            "visible_at": cutoff,
+        }
+    return list(visible.values())
+
+
+def _known_split_ids(
+    actions: Sequence[Mapping], cutoff: datetime, knowledge_policy: str
+) -> dict[object, tuple[str, ...]]:
+    known: dict[object, list[str]] = defaultdict(list)
+    for action in _unique_actions(actions):
+        if (
+            split_outcome(action) == "trusted"
+            and split_known_at(action, knowledge_policy) <= cutoff
+        ):
+            known[action.get("security_id")].append(str(action.get("action_id")))
+    return {key: tuple(sorted(values)) for key, values in known.items()}
+
+
 def rewrite_private_prices(
     con,
     reconstructed_bars: Sequence[Mapping],
     actions: Sequence[Mapping],
     *,
     as_of: datetime,
+    phase: str = "CLOSE",
     knowledge_policy: str = SPLIT_KNOWLEDGE_PRIMARY,
-) -> int:
-    """Replace the private compatibility table with exactly one as-of prefix."""
-    visible = asof_split_adjusted_bars(
-        reconstructed_bars, actions, as_of=as_of, knowledge_policy=knowledge_policy
+) -> dict:
+    """Incrementally materialize one phase's visible prices.
+
+    Ordinary phase advances insert or enrich only newly visible sessions.  A
+    newly known split changes the historical scale, so only that security's
+    prefix is deleted and bulk reinserted.
+    """
+    cutoff = _instant(as_of, "as_of")
+    visible = _phase_visible_bars(
+        reconstructed_bars, actions, as_of=cutoff, phase=phase,
+        knowledge_policy=knowledge_policy,
     )
-    con.execute("DELETE FROM prices")
-    rows = []
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS replay_price_scale_state (
+            security_id VARCHAR PRIMARY KEY,
+            ticker VARCHAR NOT NULL,
+            known_action_ids VARCHAR NOT NULL)"""
+    )
+    by_security: dict[str, list[dict]] = defaultdict(list)
     for row in visible:
-        available = _instant(row.get("available_at"), "bar_available_at")
-        rows.append(
-            (
-                str(row.get("ticker") or row.get("security_id")),
-                _date(row.get("session"), "bar_session"),
-                float(row["open"]),
-                float(row["high"]),
-                float(row["low"]),
-                float(row["close"]),
-                None if row.get("volume") is None else int(row["volume"]),
-                "historical_backfill",
-                available,
+        by_security[str(row.get("security_id"))].append(row)
+    current = {
+        row[0]: (row[1], tuple(json.loads(row[2])))
+        for row in con.execute(
+            "SELECT security_id,ticker,known_action_ids FROM replay_price_scale_state"
+        ).fetchall()
+    }
+    known = _known_split_ids(actions, cutoff, knowledge_policy)
+    rewrite_ids = {
+        security_id
+        for security_id, rows in by_security.items()
+        if security_id in current
+        and current[security_id][1] != known.get(security_id, ())
+    }
+    rewrite_tickers = sorted({
+        str(by_security[security_id][0].get("ticker") or security_id)
+        for security_id in rewrite_ids
+    })
+    if rewrite_tickers:
+        ticker_frame = pd.DataFrame({"ticker": rewrite_tickers})
+        with db.registered_frame(con, "_replay_rewrite_tickers", ticker_frame):
+            con.execute(
+                "DELETE FROM prices USING _replay_rewrite_tickers r "
+                "WHERE prices.ticker=r.ticker"
             )
-        )
-    if rows:
-        con.executemany("INSERT INTO prices VALUES (?,?,?,?,?,?,?,?,?)", rows)
-    return len(rows)
+
+    frame = _price_frame(visible)
+    changed = 0
+    if not frame.empty:
+        with db.registered_frame(con, "_replay_price_batch", frame):
+            changed = int(con.execute(
+                "SELECT COUNT(*) FROM _replay_price_batch b LEFT JOIN prices p "
+                "ON p.ticker=b.ticker AND p.date=b.date WHERE p.ticker IS NULL "
+                "OR p.open IS DISTINCT FROM b.open OR p.high IS DISTINCT FROM b.high "
+                "OR p.low IS DISTINCT FROM b.low OR p.close IS DISTINCT FROM b.close "
+                "OR p.volume IS DISTINCT FROM b.volume OR p.source IS DISTINCT FROM b.source "
+                "OR p.fetched_at IS DISTINCT FROM b.fetched_at"
+            ).fetchone()[0])
+            con.execute(
+                "INSERT OR REPLACE INTO prices "
+                "SELECT ticker,date,open,high,low,close,volume,source,fetched_at "
+                "FROM _replay_price_batch b WHERE NOT EXISTS ("
+                "SELECT 1 FROM prices p WHERE p.ticker=b.ticker AND p.date=b.date "
+                "AND p.open IS NOT DISTINCT FROM b.open "
+                "AND p.high IS NOT DISTINCT FROM b.high "
+                "AND p.low IS NOT DISTINCT FROM b.low "
+                "AND p.close IS NOT DISTINCT FROM b.close "
+                "AND p.volume IS NOT DISTINCT FROM b.volume "
+                "AND p.source IS NOT DISTINCT FROM b.source "
+                "AND p.fetched_at IS NOT DISTINCT FROM b.fetched_at)"
+            )
+
+    state_rows = []
+    for security_id, rows in sorted(by_security.items()):
+        ticker = str(rows[0].get("ticker") or security_id)
+        state_rows.append({
+            "security_id": security_id,
+            "ticker": ticker,
+            "known_action_ids": json.dumps(known.get(security_id, ()), separators=(",", ":")),
+        })
+    if state_rows:
+        state_frame = pd.DataFrame.from_records(state_rows)
+        with db.registered_frame(con, "_replay_price_state_batch", state_frame):
+            con.execute(
+                "INSERT OR REPLACE INTO replay_price_scale_state "
+                "SELECT security_id,ticker,known_action_ids FROM _replay_price_state_batch"
+            )
+    return {
+        "visible_rows": len(visible),
+        "changed_rows": changed,
+        "rewritten_security_ids": sorted(rewrite_ids),
+    }
 
 
 def rewrite_known_split_adjustments(
@@ -330,9 +506,17 @@ def rewrite_known_split_adjustments(
                 cutoff,
             )
         )
-    con.execute("DELETE FROM split_adjustments")
     if rows:
-        con.executemany("INSERT INTO split_adjustments VALUES (?,?,?,?,?,?,?,?)", rows)
+        frame = pd.DataFrame.from_records(rows, columns=(
+            "ticker", "ex_date", "ratio", "outcome", "observed_price_ratio",
+            "break_date", "rows_restated", "applied_at",
+        ))
+        with db.registered_frame(con, "_replay_split_batch", frame):
+            con.execute(
+                "INSERT OR REPLACE INTO split_adjustments "
+                "SELECT ticker,ex_date,ratio,outcome,observed_price_ratio,break_date,"
+                "rows_restated,applied_at FROM _replay_split_batch"
+            )
     return len(rows)
 
 
