@@ -44,6 +44,10 @@ def _scan(con, *, at=NOW, securities=None):
         activation_at=NOW - timedelta(hours=1), started_at=at,
         universe={"0000320193": {"entered_at": (NOW - timedelta(hours=1)).isoformat(),
                                  "securities": securities or ["AAPL"],
+                                 "security_tickers": {
+                                     item: item for item in (securities or ["AAPL"])
+                                 },
+                                 "selection_sha256": "e" * 64,
                                  "primary_security_id": (securities or ["AAPL"])[0]}},
         map_sha256=MAP_SHA256,
     )

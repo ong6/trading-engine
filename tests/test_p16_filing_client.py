@@ -65,7 +65,8 @@ def _factory(responses):
 
     def factory(_host, _port, timeout):
         timeouts.append(timeout)
-        return _Connection(_Response(responses.pop(0)), calls)
+        response = responses.pop(0)
+        return _Connection(response if isinstance(response, _Response) else _Response(response), calls)
 
     return factory, calls, timeouts
 
@@ -135,17 +136,51 @@ def test_request_is_tool_free_and_prompt_injection_remains_input_data():
 
 def test_generate_uses_bounded_timeout_and_retains_base_transport_identity():
     output = {"schema_version": 1, "assessments": [_assessment()]}
+    model_response = _model_response(output)
     factory, calls, timeouts = _factory([
-        _health(), _models(), _model_response(output), _health(), _models(),
+        _health(), _models(), model_response, _health(), _models(),
     ])
     payload = _input()
     result = client.generate_json(payload, connection_factory=factory)
     request = json.loads(next(call[2] for call in calls if call[1] == base.PROXY_RESPONSES_PATH))
     assert result.output == output
     assert result.request_sha256 == canonical_sha256(request)
+    assert result.raw_response_sha256 == hashlib.sha256(
+        json.dumps(model_response, separators=(",", ":")).encode()
+    ).hexdigest()
     assert request == client.request_payload(payload)
     assert timeouts[:2] == [5.0, 5.0] and 0 < timeouts[2] <= 120.0
     assert timeouts[3:] == [5.0, 5.0]
+
+
+def test_semantic_rejection_retains_response_provenance():
+    assessment = _assessment()
+    assessment["ticker"] = "MSFT"
+    model_response = _model_response({"schema_version": 1, "assessments": [assessment]})
+    factory, calls, _timeouts = _factory([
+        _health(), _models(), model_response, _health(), _models(),
+    ])
+    payload = _input()
+    with pytest.raises(base.ModelOutputError, match="assessment") as caught:
+        client.generate_json(payload, connection_factory=factory)
+    request = json.loads(next(call[2] for call in calls if call[1] == base.PROXY_RESPONSES_PATH))
+    assert caught.value.response_id == "filing-response-1"
+    assert caught.value.request_sha256 == canonical_sha256(request)
+    raw_sha = hashlib.sha256(
+        json.dumps(model_response, separators=(",", ":")).encode()
+    ).hexdigest()
+    assert caught.value.response_sha256 == raw_sha
+    assert caught.value.raw_response_sha256 == raw_sha
+    assert caught.value.usage == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+
+
+def test_http_rejection_retains_raw_response_provenance():
+    rejected = _Response({"error": "rejected"})
+    rejected.status = 500
+    factory, _calls, _timeouts = _factory([_health(), _models(), rejected])
+    with pytest.raises(base.ConnectorError, match="HTTP 500") as caught:
+        client.generate_json(_input(), connection_factory=factory)
+    assert caught.value.raw_response_sha256 == hashlib.sha256(rejected.raw).hexdigest()
 
 
 def test_input_rejects_oversized_or_future_evidence_and_post_decision_fields():
