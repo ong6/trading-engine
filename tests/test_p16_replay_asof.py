@@ -263,6 +263,34 @@ def test_labels_use_horizon_split_normalization_for_asset_and_spy():
         )
 
 
+def test_label_close_accepts_the_actual_early_close():
+    bars = reconstruct_unadjusted_bars(
+        [
+            {
+                "security_id": "fixture", "session": "2024-11-27",
+                "series": "source_back_adjusted_v1", "available_at": "2024-11-27T21:15:00Z",
+                "open": 100, "high": 101, "low": 99, "close": 100, "volume": 10,
+            },
+            {
+                "security_id": "fixture", "session": "2024-11-29",
+                "series": "source_back_adjusted_v1", "available_at": "2024-11-29T18:15:00Z",
+                "open": 100, "high": 101, "low": 99, "close": 100, "volume": 10,
+            },
+        ],
+        [],
+    )
+    value = label_split_normalized_return(
+        security_id="fixture",
+        entry_point=label_price_point(bars[0], "open"),
+        exit_point=label_price_point(bars[1], "close"),
+        entry_at=datetime(2024, 11, 27, 14, 30, tzinfo=timezone.utc),
+        exit_at=datetime(2024, 11, 29, 18, tzinfo=timezone.utc),
+        visible_at=datetime(2024, 11, 29, 18, 15, tzinfo=timezone.utc),
+        actions=[], entry_cost_bps=0, exit_cost_bps=0,
+    )
+    assert value == pytest.approx(0)
+
+
 def test_quarantined_held_and_pending_splits_are_counted_per_window():
     bad = _action(outcome="superseded_by_refetch")
     exposures = [

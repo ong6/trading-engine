@@ -8,6 +8,7 @@ from datetime import date, datetime, time, timezone
 from typing import Iterable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
+from engine import p15_event_sources
 from farm.replay.registration import (
     INDEPENDENT_UNADJUSTED_PRICE_SOURCE,
     PRICE_SERIES_BY_CONSUMER,
@@ -360,7 +361,13 @@ def label_split_normalized_return(
         if not isinstance(point, LabelPricePoint):
             raise PriceSeriesError(f"wrong_{name}_label_price_series")
         local = at.astimezone(_NY)
-        expected_field = "open" if local.time() == time(9, 30) else "close" if local.time() == time(16) else None
+        expected_field = (
+            "open"
+            if local.time() == time(9, 30)
+            else "close"
+            if local.time() == p15_event_sources.session_close(point.session)
+            else None
+        )
         if point.security_id != security_id or point.session != local.date():
             raise PriceSeriesError(f"wrong_{name}_label_security")
         if expected_field is None or point.price_field != expected_field:
