@@ -322,8 +322,18 @@ def score_month(
 
 
 def pooled_admission(months: Sequence[Mapping], measured_null: Mapping) -> dict:
-    if not months or any(row.get("status") != "valid" for row in months):
+    if measured_null.get("status") != "valid":
+        return {"status": "baseline_unverified"}
+    if not months:
         return {"status": "untestable"}
+    for row in months:
+        status = row.get("status")
+        if status == "fail":
+            return {"status": "fail", "month": row.get("month")}
+        if status in {"untestable", "baseline_unverified"}:
+            return {"status": status, "month": row.get("month")}
+        if status != "inconclusive":
+            return {"status": "untestable", "month": row.get("month")}
     null_n, null_correct = measured_null.get("n"), measured_null.get("correct")
     if not isinstance(null_n, int) or null_n < PROBE_BASELINE_MINIMUM or not (
         isinstance(null_correct, int) and 0 <= null_correct <= null_n
