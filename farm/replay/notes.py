@@ -272,7 +272,10 @@ def visible_mature_labels(con, *, session: date, cutoff: datetime) -> list[dict]
     rows = con.execute(
         "SELECT decision_id,decision_session,horizon,visible_at,status,"
         "expected_excess_bp,realized_excess_bp FROM replay_labels "
-        "WHERE decision_session<? AND horizon='h5' ORDER BY decision_session,decision_id",
+        "WHERE decision_session<? AND horizon='h5' "
+        "AND NOT EXISTS (SELECT 1 FROM replay_postmortems p "
+        "WHERE p.decision_id=replay_labels.decision_id) "
+        "ORDER BY decision_session,decision_id",
         [session],
     ).fetchall()
     result = []
@@ -320,6 +323,10 @@ def record_notes_output(
     """Validate and append one post-mortem batch and optional weekly notes revision."""
     init_notes_schema(con)
     written = _iso(written_at, "notes_written_at")
+    eligible = {
+        row["decision_id"]: row
+        for row in visible_mature_labels(con, session=session, cutoff=written_at)
+    }
     for row in postmortems:
         required = {
             "decision_id", "expected_excess_bp", "realized_excess_bp", "error_type",
@@ -327,6 +334,12 @@ def record_notes_output(
         }
         if set(row) != required or row["error_type"] not in ERROR_TYPES:
             raise NotesValidationError("invalid_postmortem_schema")
+        label = eligible.get(row["decision_id"])
+        if label is None or (
+            row["expected_excess_bp"] != label["expected_excess_bp"]
+            or row["realized_excess_bp"] != label["realized_excess_bp"]
+        ):
+            raise NotesValidationError("postmortem_label_mismatch")
         validate_notes(row["explanation"], filter_spec=filter_spec)
         validate_notes(row["lesson"], filter_spec=filter_spec)
         payload = json.dumps(row, sort_keys=True, separators=(",", ":"))
@@ -334,11 +347,11 @@ def record_notes_output(
             "SELECT decision_session,written_at,payload_json FROM replay_postmortems "
             "WHERE decision_id=?", [row["decision_id"]],
         ).fetchone()
-        expected = (session, written, payload)
+        expected = (date.fromisoformat(label["decision_session"]), written, payload)
         if prior is None:
             con.execute(
                 "INSERT INTO replay_postmortems VALUES (?,?,?,?)",
-                [row["decision_id"], session, written, payload],
+                [row["decision_id"], *expected],
             )
         elif prior != expected:
             raise NotesValidationError("postmortem_append_conflict")

@@ -169,6 +169,18 @@ class LockboxLedger:
             ).fetchone()
         return None if row is None else {**json.loads(row[1]), "marker_sha256": row[0]}
 
+    def dispatch_completed(self, experiment_id: str, cohort_id: str) -> bool:
+        """Return whether the initiating dispatch completed for the first marker."""
+        with self._connect() as con:
+            row = con.execute(
+                "SELECT m.marker_sha256 FROM w4_lockbox_markers m "
+                "JOIN w4_lockbox_events e USING(marker_sha256) "
+                "WHERE m.experiment_id=? AND m.cohort_id=? "
+                "AND e.event_kind='dispatched' LIMIT 1",
+                [experiment_id, cohort_id],
+            ).fetchone()
+        return row is not None
+
 
 def _session_owners(con, sessions: Sequence[str]) -> dict[str, str]:
     requested = set(sessions)

@@ -1,5 +1,4 @@
 """Real pinned-P15 integration for isolated W4 replay books."""
-import json
 from datetime import date, datetime, timezone
 
 import duckdb
@@ -17,6 +16,7 @@ from farm.replay.runner import (
     run_session,
     session_phases,
 )
+from server import agent_evaluation
 from sim import p15_books
 from tests.conftest import SESSIONS, insert_bars
 
@@ -35,24 +35,30 @@ def _seed_decision(con, market_date):
         "p_outperform_5": 0.7,
         "expected_excess_bp_5": 100,
         "evidence_ids": ["a" * 64],
+        "horizon_sessions": 5,
+        "confidence": 0.7,
     }
-    con.execute(
-        "CREATE TABLE IF NOT EXISTS agent_evaluation_traces "
-        "(id BIGINT PRIMARY KEY,policy_id VARCHAR,market_date DATE,"
-        "terminal_status VARCHAR,completed_at TIMESTAMP)"
-    )
-    con.execute(
-        "CREATE TABLE IF NOT EXISTS agent_evaluation_decisions "
-        "(id BIGINT PRIMARY KEY,trace_id BIGINT,ticker VARCHAR,decision_payload VARCHAR)"
-    )
-    con.execute(
-        "INSERT INTO agent_evaluation_traces VALUES (1,'p15-scoring-v1',?,'completed',?)",
-        [market_date, datetime.combine(market_date, datetime.min.time())],
-    )
-    con.execute(
-        "INSERT INTO agent_evaluation_decisions VALUES (1,1,'AAA',?)",
-        [json.dumps(decision)],
-    )
+    observed_at = datetime.combine(market_date, datetime.min.time(), timezone.utc)
+    agent_evaluation.record_trace(con, {
+        "window_id": f"test-p16:{market_date.isoformat()}",
+        "policy_id": "p15-scoring-v1", "cadence": "nightly",
+        "prompt_role": "test", "market_date": market_date,
+        "observed_at": observed_at, "completed_at": observed_at,
+        "information_cutoff_at": observed_at,
+        "source_kind": "test", "source_identifier": "test-p16",
+        "source_refs": [{"kind": "test", "sha256": "a" * 64}],
+        "input_payload": {"test": True}, "output_payload": {"test": True},
+        "request_sha256": "b" * 64, "response_id": "test-p16-response",
+        "model": "test", "model_version": "test",
+        "instructions_sha256": "c" * 64, "toolset_sha256": "d" * 64,
+        "model_catalog_entry_sha256": "e" * 64,
+        "proxy_source_sha256": "f" * 64, "traecli_runtime": "test",
+        "upstream_model_family": "test", "upstream_request_id": "test-p16",
+        "latency_ms": 0.0,
+        "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        "terminal_status": "completed", "execution_authority": "none",
+        "decisions": [decision],
+    })
 
 
 def test_session_phases_use_actual_early_close_and_next_calendar_score():
@@ -196,11 +202,10 @@ def test_run_session_filters_notes_and_exposes_them_only_to_later_sessions(tmp_p
         notes_filter_spec=freeze_filter_spec(
             tickers=("AAA",), company_names=(), aliases=()
         ),
-        evaluation_tag="confirmatory",
     )
     run_session(store, first)
     run_session(store, second)
-    assert seen[0] == (first, [], "confirmatory")
+    assert seen[0] == (first, [], "post_lockbox_exploratory")
     assert seen[1][0] == second and seen[1][1][0]["source_session"] == first.isoformat()
 
 

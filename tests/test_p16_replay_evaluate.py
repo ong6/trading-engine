@@ -1,8 +1,10 @@
 """W4 replay endpoint, registration, and count-only report tests."""
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
+from farm.replay import report as replay_report
 from farm.replay.evaluate import paired_notes_endpoint
 from farm.replay.registration import admitted_grid, w4_registration
 from farm.replay.report import render_replay_report, write_replay_report
@@ -102,9 +104,30 @@ def test_report_contains_counts_not_raw_text(tmp_path):
     assert write_replay_report(target, snapshot) == target
     assert target.read_text() == rendered
 
-    assert "Status: **complete**" in render_replay_report(
-        {**snapshot, "status": "complete", "lockbox_tag": "confirmatory"}
+    assert "Status: **exploratory**" in render_replay_report(snapshot)
+
+
+def test_report_derives_confirmatory_complete_status_from_ledger(monkeypatch):
+    seen = []
+
+    def classify(ledger, **query):
+        seen.append((ledger, query))
+        return SimpleNamespace(tag="confirmatory")
+
+    monkeypatch.setattr(replay_report, "evaluation_tag", classify)
+    ledger = object()
+    rendered = render_replay_report(
+        {
+            "status": "caller-value-is-ignored",
+            "lockbox_tag": "caller-value-is-ignored",
+            "coverage": {"candidate_sessions": 1, "unavailable_chunks": 0},
+            "book_status": "completed", "raw_price_status": "pass",
+        },
+        lockbox_ledger=ledger, lockbox_query={"trial_id": "registered"},
     )
+    assert seen == [(ledger, {"trial_id": "registered"})]
+    assert "Status: **complete**" in rendered
+    assert "Lockbox tag: confirmatory" in rendered
 
 
 def test_post_cutoff_grid_uses_c_plus_60_decision_clock_and_fixed_two_thirds():
