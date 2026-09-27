@@ -6,6 +6,7 @@ Bailey--Lopez de Prado approximation, not an always-valid probability guarantee.
 from __future__ import annotations
 
 import math
+import re
 from datetime import date, datetime
 from statistics import NormalDist
 
@@ -328,6 +329,51 @@ def transfer_coefficient(scores, active_volatility, stock_active_weights, *,
         return result
     result.update(status="available", tc_diagonal=value, reason=None)
     return result
+
+
+def validate_transfer_rows(rows: list[dict], registered_book_ids: list[str]) -> list[dict]:
+    """Validate report-facing TC rows, including their shared point-in-time identities."""
+    if not isinstance(rows, list) or not isinstance(registered_book_ids, list):
+        raise ValueError("P16 transfer report is invalid")
+    mapped = {row.get("book_id"): row for row in rows if isinstance(row, dict)}
+    if len(mapped) != len(rows) or set(mapped) != set(registered_book_ids):
+        raise ValueError("P16 transfer report is incomplete")
+    common = set()
+    for row in rows:
+        try:
+            signal = date.fromisoformat(row["signal_date"])
+            holding = date.fromisoformat(row["holding_date"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("P16 transfer dates are invalid") from exc
+        digests = (row.get("score_sha256"), row.get("risk_sha256"),
+                   row.get("ic_source_sha256"))
+        if (holding != nyse.next_session(signal)
+                or any(not isinstance(value, str)
+                       or re.fullmatch(r"[0-9a-f]{64}", value) is None for value in digests)
+                or row.get("sigma_basis") != "stock_minus_spy_daily_return_sd60_ddof1"
+                or row.get("primary_instruments")
+                != "stocks_only_spy_and_cash_excluded"):
+            raise ValueError("P16 transfer row provenance differs")
+        common.add((signal, holding, *digests))
+        status, value = row.get("status"), row.get("tc_diagonal")
+        if status == "available":
+            numbers = [value, row.get("trailing_ic"), row.get("stock_weight"),
+                       row.get("spy_weight"), row.get("cash_weight"),
+                       row.get("ex_ante_tracking_error")]
+            if (any(isinstance(item, bool) or not isinstance(item, (int, float))
+                    or not math.isfinite(float(item)) for item in numbers)
+                    or not -1 <= float(value) <= 1 or float(row["trailing_ic"]) <= 0
+                    or float(row["ex_ante_tracking_error"]) < 0
+                    or not isinstance(row.get("holding_state_sha256"), str)
+                    or re.fullmatch(r"[0-9a-f]{64}", row["holding_state_sha256"]) is None
+                    or row.get("reason") is not None):
+                raise ValueError("P16 available transfer row is invalid")
+        elif (status != "unavailable" or value is not None
+              or not isinstance(row.get("reason"), str) or not row["reason"]):
+            raise ValueError("P16 unavailable transfer row is invalid")
+    if len(common) != 1:
+        raise ValueError("P16 transfer rows do not share one source vintage")
+    return rows
 
 
 def risk_transfer(alpha, active, covariance) -> float | None:

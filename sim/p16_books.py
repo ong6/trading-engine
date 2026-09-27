@@ -5,6 +5,7 @@ from datetime import date, datetime
 
 from engine.lib import db
 from engine.lib.data_quality import quarantine_reason
+from engine.lib.db import REAL_BAR_SQL
 from server import p16_book_store
 from sim import nyse, p15_fills, p16_book_mechanics
 
@@ -44,6 +45,56 @@ def _pending_rows(con, book_instance_id: str, fill_date: date) -> list[tuple]:
         "ORDER BY signal_date,CASE WHEN side='sell' THEN 0 ELSE 1 END,ticker,intent_id",
         [book_instance_id, fill_date],
     ).fetchall()
+
+
+def label_limit_counterfactuals(
+    con, *, book_instance_id: str, labeled_at: datetime,
+) -> int:
+    """Append mature h5 outcomes for this book's missed limit attempts."""
+    from server import agent_evaluation
+
+    cutoff = p16_book_store._timestamp(labeled_at, "limit-label time")
+    latest = con.execute(
+        f"SELECT MAX(date) FROM prices WHERE ticker='SPY' "
+        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL}", [cutoff],
+    ).fetchone()[0]
+    if latest is None:
+        return 0
+    rows = con.execute(
+        "SELECT i.intent_id,i.ticker,a.attempt_date,a.counterfactual_fill_px "
+        "FROM p16_order_intents i JOIN p16_limit_attempts a "
+        "ON a.intent_id=i.intent_id LEFT JOIN p16_limit_labels l "
+        "ON l.intent_id=i.intent_id WHERE i.book_instance_id=? "
+        "AND a.outcome IN "
+        "('limit_not_reached','cancelled_would_fill','cancelled_limit_not_reached') "
+        "AND a.counterfactual_fill_px IS NOT NULL AND l.intent_id IS NULL "
+        "ORDER BY i.intent_id", [book_instance_id],
+    ).fetchall()
+    inserted = 0
+    for intent_id, ticker, attempt_date, entry_px in rows:
+        sessions = [row[0] for row in con.execute(
+            f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>=? AND date<=? "
+            f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
+            "ORDER BY date LIMIT 5", [attempt_date, latest, cutoff],
+        ).fetchall()]
+        if len(sessions) < 5:
+            continue
+        outcome = agent_evaluation._label_outcome_when_ready(
+            con, ticker, sessions, labeled_at,
+        )
+        if outcome is None or outcome["entry_date"] != attempt_date:
+            continue
+        spy_net = outcome["spy_net_return"]
+        net_return = float(outcome["exit_close"]) * 0.999 / float(entry_px) - 1
+        inserted += int(p16_book_store.record_limit_label(
+            con, intent_id=intent_id, attempt_date=attempt_date,
+            horizon_sessions=5, entry_px=float(entry_px),
+            exit_date=outcome["exit_date"], exit_close=outcome["exit_close"],
+            net_return=net_return, spy_net_return=spy_net,
+            net_excess_return=net_return - spy_net,
+            price_prefix_sha256=outcome["price_prefix_sha256"], labeled_at=labeled_at,
+        ))
+    return inserted
 
 
 def process_window(
@@ -125,4 +176,8 @@ def process_window(
             previous_state_sha256=None if previous is None else previous[0],
             recorded_at=observed_at,
         )
-    return {"status": "completed", **counts, "state_sha256": state_sha, "mark": mark}
+        labels = label_limit_counterfactuals(
+            con, book_instance_id=book_instance_id, labeled_at=observed_at,
+        )
+    return {"status": "completed", **counts, "counterfactual_labels": labels,
+            "state_sha256": state_sha, "mark": mark}

@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 import pytest
 
 from engine.lib.provenance import canonical_sha256
-from farm import p16_evaluation_report as reports, p16_sequential
+from farm import p16_evaluation_report as reports
+from farm import p16_sequential
 
 NOW = datetime(2027, 1, 4, 21, tzinfo=timezone.utc)
 FAMILY = [f"c{index}" for index in range(4)]
@@ -52,6 +53,18 @@ def _inventory(**updates) -> dict:
     return value
 
 
+def _transfer_rows():
+    return [{
+        "book_id": item, "book_instance_id": None, "status": "unavailable",
+        "reason": "book_absent", "tc_diagonal": None,
+        "signal_date": "2027-01-04", "holding_date": "2027-01-05",
+        "score_sha256": "1" * 64, "risk_sha256": "2" * 64,
+        "ic_source_sha256": "3" * 64,
+        "sigma_basis": "stock_minus_spy_daily_return_sd60_ddof1",
+        "primary_instruments": "stocks_only_spy_and_cash_excluded",
+    } for item in reports.INITIAL_BOOK_IDS]
+
+
 def _build(*, rows=None, inventory=None, transfer=None):
     return reports.build_report(
         registration_sha256="b" * 64, family_id="p16-family-v1",
@@ -63,8 +76,7 @@ def _build(*, rows=None, inventory=None, transfer=None):
                                      ((55, 120), (55, 55), (1, 1), (1, 1)))],
         champion_control={"comparison_id": "champion-v-rule", "status": "available"},
         trial_inventory=inventory or _inventory(),
-        transfer_rows=transfer or [{"book_id": item, "status": "unavailable"}
-                                   for item in reports.INITIAL_BOOK_IDS],
+        transfer_rows=transfer or _transfer_rows(),
         sector_coverage=[{"market_date": "2027-01-04", "coverage": 1.0}],
         solver_failures=[], dependency_artifact_sha256s=DEPENDENCIES,
     )
@@ -76,8 +88,7 @@ def test_report_preserves_family_and_separates_two_multiplicity_rules():
     assert report["descriptive_ebh_comparison_ids"] == ["c0", "c1"]
     assert [row["comparison_id"] for row in report["comparisons"]] == FAMILY
     assert report["common_report"]["family_size"] == 4
-    assert report["transfer"] == [
-        {"book_id": item, "status": "unavailable"} for item in reports.INITIAL_BOOK_IDS]
+    assert report["transfer"] == _transfer_rows()
     assert reports.validate_report(report) is report
 
 
@@ -99,8 +110,7 @@ def test_report_rejects_cutoff_identity_and_missing_transfer_slot():
     with pytest.raises(ValueError, match="identity differs"):
         _build(rows=rows)
     with pytest.raises(ValueError, match="transfer report is incomplete"):
-        _build(transfer=[{"book_id": item, "status": "unavailable"}
-                         for item in reports.INITIAL_BOOK_IDS[:-1]])
+        _build(transfer=_transfer_rows()[:-1])
 
 
 def test_report_hash_and_allocation_tampering_fail_closed():

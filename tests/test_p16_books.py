@@ -87,6 +87,48 @@ def test_limit_miss_records_attempt_and_terminal_order_without_fill(con):
     assert con.execute("SELECT COUNT(*) FROM p16_book_fills").fetchone() == (0,)
 
 
+def test_limit_miss_label_waits_for_h5_and_replays_without_duplicate(con):
+    dates = SESSIONS[30:35]
+    insert_bars(con, "AAA", dates, open_=102, close=[102, 103, 104, 105, 106],
+                high=[103, 104, 105, 106, 107], low=[101, 102, 103, 104, 105])
+    insert_bars(con, "SPY", dates, open_=100, close=[100, 100, 101, 101, 102],
+                high=103, low=99)
+    con.execute(
+        "UPDATE prices SET fetched_at=? WHERE date=?",
+        [NOW.replace(tzinfo=None), dates[0]],
+    )
+    instance = _book(con)
+    _queue(con, instance, limit=101.5)
+    first = p16_books.process_window(
+        con, book_instance_id=instance, market_date=dates[0], observed_at=NOW,
+    )
+    assert first["counterfactual_labels"] == 0
+
+    con.execute("UPDATE prices SET fetched_at=?", [NOW.replace(tzinfo=None)])
+    assert p16_books.label_limit_counterfactuals(
+        con, book_instance_id=instance, labeled_at=NOW,
+    ) == 1
+    assert p16_books.label_limit_counterfactuals(
+        con, book_instance_id=instance, labeled_at=NOW,
+    ) == 0
+    row = con.execute(
+        "SELECT attempt_date,horizon_sessions,entry_px,exit_date,net_excess_return "
+        "FROM p16_limit_labels",
+    ).fetchone()
+    counterfactual = con.execute(
+        "SELECT counterfactual_fill_px FROM p16_limit_attempts",
+    ).fetchone()[0]
+    assert row[:2] == (dates[0], 5)
+    assert row[2] == pytest.approx(counterfactual)
+    assert row[3] == dates[-1]
+    spy_net = 102 * 0.999 / (100 * 1.001) - 1
+    assert row[4] == pytest.approx((106 * 0.999 / counterfactual - 1) - spy_net)
+    p16_book_store.validate_limit_labels(con)
+    con.execute("UPDATE p16_limit_labels SET net_return=net_return+0.01")
+    with pytest.raises(p16_book_store.P16BookError, match="evidence differs"):
+        p16_book_store.validate_limit_labels(con)
+
+
 def test_split_adjusts_quantity_and_limit_before_the_next_open(con):
     insert_bars(con, "AAA", SESSIONS[:30], open_=100, close=100, high=101, low=99)
     insert_bars(con, "AAA", [SESSIONS[30]], open_=50, close=50, high=51, low=49)

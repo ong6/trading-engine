@@ -5,7 +5,7 @@ import re
 from datetime import datetime, timezone
 
 from engine.lib.provenance import canonical_sha256
-from farm import p16_sequential
+from farm import p16_sequential, p16_statistics
 
 EVALUATION_POLICY_ID = "p16-eval-v2"
 REPORT_SCHEMA_VERSION = 1
@@ -143,10 +143,8 @@ def build_report(
                 common, row["comparison_id"]),
             descriptive_ebh_selected=common["descriptive_ebh_selected"][index],
         )
-    transfer = {row.get("book_id"): row for row in transfer_rows}
-    if (len(transfer) != len(transfer_rows) or set(transfer) != set(registered_book_ids)
-            or not all(isinstance(row, dict) for row in transfer_rows)):
-        raise ValueError("P16 transfer report is incomplete")
+    p16_statistics.validate_transfer_rows(transfer_rows, registered_book_ids)
+    transfer = {row["book_id"]: row for row in transfer_rows}
     if champion_control.get("comparison_id") in set(family_ids):
         raise ValueError("champion control cannot enter the challenger family")
     body = {
@@ -183,6 +181,9 @@ def validate_report(report: dict) -> dict:
             or report.get("execution_authority") != "none"
             or report.get("promotion_authority") != "owner_review_required"):
         raise ValueError("P16 family report contract differs")
+    p16_statistics.validate_transfer_rows(
+        report.get("transfer"), report.get("registered_book_ids"),
+    )
     common, family_ids = report.get("common_report"), report.get("family_ids")
     rows = report.get("comparisons")
     if (not isinstance(common, dict) or not isinstance(family_ids, list)
