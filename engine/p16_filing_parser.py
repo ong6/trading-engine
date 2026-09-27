@@ -145,7 +145,8 @@ class _VisibleText(HTMLParser):
 
     def handle_data(self, data):
         if not self.stack or not self.stack[-1][1]:
-            self.parts.append(data)
+            inside_row = any(parent == "tr" for parent, _ in self.stack)
+            self.parts.append(re.sub(r"\s+", " ", data) if inside_row else data)
 
 
 def visible_text(body: bytes, *, encoding: str = "utf-8") -> str:
@@ -200,7 +201,7 @@ def _excerpt(doc: dict, start: int, end: int, budget: int, source_hash: str) -> 
 
 def normalize_submission(
     raw: bytes, *, cik: str | int, accession: str, received_at: str | datetime,
-    primary_filename: str | None = None, metadata_items: tuple[str, ...] = (),
+    primary_filename: str | None = None, metadata_items: tuple[str, ...] | None = None,
     index_labels: dict[str, str] | None = None,
     json_acceptance: str | None = None,
     index_acceptance: str | None = None,
@@ -237,7 +238,12 @@ def normalize_submission(
     primaries = [doc for doc in documents if doc["type"] in {"8-K", "8-K/A"}]
     if primary_filename is not None:
         primaries = [doc for doc in primaries if doc["filename"] == safe_filename(primary_filename)]
-    exhibits = [doc for doc in documents if doc["type"] == "EX-99.1"]
+    typed_exhibits = [doc for doc in documents if doc["type"] == "EX-99.1"]
+    labelled_exhibits = [
+        doc for doc in documents
+        if re.search(r"(?<![0-9])99\.1(?![0-9])", (index_labels or {}).get(doc["filename"], ""))
+    ]
+    exhibits = typed_exhibits or labelled_exhibits
     if len(primaries) != 1 or len(exhibits) > 1:
         raise ValueError("missing or ambiguous primary/exhibit 99.1")
     exhibit_status = "ex99_1" if exhibits else "absent"
@@ -260,8 +266,11 @@ def normalize_submission(
         doc.update(text=visible_text(body, encoding=encoding) if supported else "")
         doc["normalized_sha256"] = hashlib.sha256(doc["text"].encode()).hexdigest()
     headings = list(re.finditer(r"(?im)^\s*item\s+(\d\.\d{2})\s*(?!\d)", primary["text"]))
-    body_items, declared = {match[1] for match in headings}, set(metadata_items)
-    items = sorted((body_items | declared) & EVENTS.keys())
+    body_items = {match[1] for match in headings}
+    metadata_observed = metadata_items is not None
+    declared = set(metadata_items or ())
+    items = sorted(body_items & EVENTS.keys())
+    missing_declared_items = sorted((declared & EVENTS.keys()) - body_items)
     spans, omitted, remaining = [], [], 8_000
     for index, match in enumerate(headings):
         if match[1] not in EVENTS:
@@ -280,7 +289,7 @@ def normalize_submission(
             omitted.append({"filename": exhibits[0]["filename"], "start": span["end"], "end": len(exhibits[0]["text"])})
         if span["text"]:
             spans.append(span)
-    status = "ready" if items and primary_readable else "extraction_unavailable"
+    status = "ready" if items and primary_readable and not missing_declared_items else "extraction_unavailable"
     if unsupported or exhibits and not exhibits[0]["text"]:
         status = "unsupported_format" if unsupported else "extraction_unavailable"
     identity = {"cik": issuer, "accession": accession, "accepted_at": acceptance["accepted_at"],
@@ -301,20 +310,34 @@ def normalize_submission(
                                     for doc in documents],
             "allowed_event_kinds": [EVENTS[item] for item in EVENTS if item in items],
             "primary_event_kind": next((EVENTS[item] for item in PRECEDENCE if item in items), None),
-            "item_disagreement": bool(declared and declared != body_items),
+            "item_disagreement": metadata_observed and declared != body_items,
             "body_items": sorted(body_items), "metadata_items": sorted(declared),
+            "missing_declared_items": missing_declared_items,
             "omitted_spans": omitted, "truncated": bool(omitted)}
 
 
-def map_cik_scope(cik, *, rows: list[dict], universe: set[str], cutoff_at, aliases: dict[str, str] | None = None) -> dict:
-    """Rows are an as-known security-master snapshot, each with CIK/ticker/security_id/available_at."""
+def map_cik_scope(
+    cik,
+    *,
+    rows: list[dict],
+    snapshot_id: str,
+    universe: set[str],
+    cutoff_at,
+    aliases: dict[str, str] | None = None,
+) -> dict:
+    """Resolve one explicitly chosen, complete security-map snapshot as of cutoff."""
     cutoff, issuer, aliases = timestamp(cutoff_at), cik_id(cik), aliases or {}
-    known = [row for row in rows if cik_id(row["cik"]) == issuer
-             and timestamp(row["available_at"]) <= cutoff]
-    if not known:
-        return {"status": "unmapped", "cik": issuer, "securities": []}
-    latest = max(timestamp(row["available_at"]) for row in known)
-    current = [row for row in rows if timestamp(row["available_at"]) == latest]
+    if not isinstance(snapshot_id, str) or not snapshot_id:
+        raise ValueError("map snapshot identity is required")
+    current = [row for row in rows if row.get("snapshot_id") == snapshot_id]
+    if not current:
+        return {"status": "snapshot_unavailable", "cik": issuer, "securities": []}
+    receipt_times = {timestamp(row["available_at"]) for row in current}
+    if len(receipt_times) != 1:
+        raise ValueError("map snapshot has inconsistent receipt times")
+    available_at = receipt_times.pop()
+    if available_at > cutoff:
+        return {"status": "snapshot_unavailable", "cik": issuer, "securities": []}
     selected = {}
     for row in current:
         ticker = aliases.get(row["ticker"], row["ticker"])
@@ -326,7 +349,8 @@ def map_cik_scope(cik, *, rows: list[dict], universe: set[str], cutoff_at, alias
             selected[ticker] = {"ticker": ticker, "security_id": row["security_id"]}
     status = "outside_universe" if any(cik_id(row["cik"]) == issuer for row in current) else "unmapped"
     return {"status": "mapped" if selected else status, "cik": issuer,
-            "map_available_at": latest.isoformat(), "securities": [selected[key] for key in sorted(selected)]}
+            "map_snapshot_id": snapshot_id, "map_available_at": available_at.isoformat(),
+            "securities": [selected[key] for key in sorted(selected)]}
 
 
 def session_volume_fraction(observed_at, *, opens_at, closes_at) -> float:
