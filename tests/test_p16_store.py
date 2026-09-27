@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 import duckdb
 import pytest
 
+from engine.lib.provenance import canonical_sha256
 from farm import p16_trials
 from server import p16_store
 from server import p16_trial_store
@@ -33,6 +34,34 @@ TRIAL = _trial_id("c-blind", "v1", "policy")
 CONTROL = _trial_id("p15-scoring", "v1", "deterministic_baseline")
 
 
+def _evaluation_payload(**updates):
+    body = {
+        "schema_version": 1, "policy_id": "p15-scoring-v1", "status": "available",
+        "market_date": DAY.isoformat(), "report_cutoff": NOW.isoformat(),
+        "scoring_information_cutoff_at": (NOW - timedelta(days=2)).isoformat(),
+        "source": {"run_id": 1, **{key: DIGEST for key in (
+            "bundle_sha256", "universe_sha256", "context_sha256", "source_refs_sha256",
+            "request_sha256", "input_sha256", "output_sha256", "trace_sha256")}},
+        "p15_registration_sha256": REGISTRATION, "rows": [],
+    }
+    body.update(updates)
+    return {**body, "input_snapshot_sha256": canonical_sha256(body)}
+
+
+def _exposure_payload(**updates):
+    body = {
+        "schema_version": 2, "policy_id": "p16-eval-v2", "market_date": DAY.isoformat(),
+        "information_cutoff_at": (NOW - timedelta(days=2)).isoformat(),
+        "price_basis": "split_adjusted_price_v1",
+        "corporate_action_state": "retained_at_information_cutoff",
+        "exposure_names": list(p16_store.EXPOSURES), "source_bars_sha256": DIGEST,
+        "sector_snapshot_sha256": "e" * 64,
+        "candidates": [{"ticker": "AAA", "status": "available"}],
+    }
+    body.update(updates)
+    return {**body, "snapshot_sha256": canonical_sha256(body)}
+
+
 @pytest.fixture
 def con():
     connection = duckdb.connect(":memory:")
@@ -53,45 +82,71 @@ def con():
 
 
 def test_artifacts_are_immutable_idempotent_and_as_of(con):
-    first = p16_store.record_artifact(
-        con, registration_sha256=REGISTRATION, artifact_kind="origin",
-        artifact_key="p15-scoring-v1", market_date=DAY,
-        information_cutoff_at=NOW - timedelta(hours=2), recorded_at=NOW,
-        source_sha256=DIGEST, payload={"status": "available", "rows": [1, 2]},
-    )
-    assert p16_store.record_artifact(
-        con, registration_sha256=REGISTRATION, artifact_kind="origin",
-        artifact_key="p15-scoring-v1", market_date=DAY,
-        information_cutoff_at=NOW - timedelta(hours=2), recorded_at=NOW,
-        source_sha256=DIGEST, payload={"status": "available", "rows": [1, 2]},
-    ) == first
-    assert p16_store.artifacts_as_of(
+    payload = _evaluation_payload()
+    first = p16_store.record_evaluation_input(
+        con, registration_sha256=REGISTRATION, payload=payload, recorded_at=NOW)
+    assert p16_store.record_evaluation_input(
+        con, registration_sha256=REGISTRATION, payload=payload,
+        recorded_at=NOW + timedelta(seconds=1)) == first
+    assert p16_store._artifacts_as_of(
         con, generated_at=NOW - timedelta(seconds=1)) == []
-    visible = p16_store.artifacts_as_of(
-        con, generated_at=NOW, registration_sha256=REGISTRATION, artifact_kind="origin",
+    visible = p16_store._artifacts_as_of(
+        con, generated_at=NOW, registration_sha256=REGISTRATION,
+        artifact_kind="evaluation_input",
         artifact_key="p15-scoring-v1", through_market_date=DAY,
     )
     assert visible[0]["artifact_sha256"] == first
-    assert visible[0]["payload"] == {"rows": [1, 2], "status": "available"}
+    assert visible[0]["payload"] == payload
+    changed = _evaluation_payload(rows=[{"ticker": "AAA"}])
     with pytest.raises(ValueError, match="replayed differently"):
-        p16_store.record_artifact(
-            con, registration_sha256=REGISTRATION, artifact_kind="origin",
-            artifact_key="p15-scoring-v1", market_date=DAY,
-            information_cutoff_at=NOW - timedelta(hours=2), recorded_at=NOW,
-            source_sha256=DIGEST, payload={"status": "changed"},
-        )
+        p16_store.record_evaluation_input(
+            con, registration_sha256=REGISTRATION, payload=changed, recorded_at=NOW)
 
 
 def test_artifact_tampering_is_detected(con):
-    p16_store.record_artifact(
-        con, registration_sha256=REGISTRATION, artifact_kind="factor_report",
-        artifact_key="origin-1", market_date=DAY,
-        information_cutoff_at=NOW, recorded_at=NOW, source_sha256=DIGEST,
-        payload={"status": "available"},
-    )
+    p16_store.record_evaluation_input(
+        con, registration_sha256=REGISTRATION, payload=_evaluation_payload(), recorded_at=NOW)
     con.execute("UPDATE p16_evaluation_artifacts SET payload_json='{}'")
     with pytest.raises(ValueError, match="identity differs"):
-        p16_store.artifacts_as_of(con, generated_at=NOW)
+        p16_store._artifacts_as_of(con, generated_at=NOW)
+
+
+def test_typed_exposure_score_and_factor_dependencies(con):
+    origin_payload, exposure_payload = _evaluation_payload(), _exposure_payload()
+    origin = p16_store.record_evaluation_input(
+        con, registration_sha256=REGISTRATION, payload=origin_payload, recorded_at=NOW)
+    exposure = p16_store.record_exposure_snapshot(
+        con, registration_sha256=REGISTRATION, payload=exposure_payload,
+        recorded_at=NOW - timedelta(hours=1))
+    scores_body = {"policy_id": "challenger", "market_date": DAY.isoformat(),
+                   "information_cutoff_at": (NOW - timedelta(days=2)).isoformat(),
+                   "scores": {"AAA": 1.0}}
+    scores = {**scores_body, "score_snapshot_sha256": canonical_sha256(scores_body)}
+    score_id = p16_store.record_policy_scores(
+        con, registration_sha256=REGISTRATION, payload=scores,
+        recorded_at=NOW - timedelta(minutes=30))
+    factor_body = {
+        "status": "available", "reason": None, "market_date": DAY.isoformat(),
+        "report_cutoff": NOW.isoformat(),
+        "input_snapshot_sha256": origin_payload["input_snapshot_sha256"],
+        "exposure_snapshot_sha256": exposure_payload["snapshot_sha256"],
+        "score_snapshot_sha256": {
+            "p15-scoring-v1": DIGEST, "p15_rule_control": DIGEST,
+            "challenger": scores["score_snapshot_sha256"],
+        }, "comparisons": {},
+    }
+    factor = {**factor_body, "factor_report_sha256": canonical_sha256(factor_body)}
+    stored = p16_store.record_factor_report(
+        con, registration_sha256=REGISTRATION, payload=factor,
+        origin_artifact_sha256=origin, exposure_artifact_sha256=exposure,
+        score_artifact_sha256s=[score_id], recorded_at=NOW)
+    assert p16_store._artifact_by_id(con, stored)["payload"] == factor
+    factor["factor_report_sha256"] = "f" * 64
+    with pytest.raises(ValueError, match="factor report sha256 differs"):
+        p16_store.record_factor_report(
+            con, registration_sha256=REGISTRATION, payload=factor,
+            origin_artifact_sha256=origin, exposure_artifact_sha256=exposure,
+            score_artifact_sha256s=[score_id], recorded_at=NOW)
 
 
 def _origin(index: int, market_date: date, **updates):
@@ -243,17 +298,13 @@ def test_tampered_trial_registration_cannot_authorize_origin(con):
 
 
 def test_artifact_time_and_payload_validation(con):
+    payload = _evaluation_payload()
     with pytest.raises(ValueError, match="before its cutoff"):
-        p16_store.record_artifact(
-            con, registration_sha256=REGISTRATION, artifact_kind="origin",
-            artifact_key="one", market_date=DAY,
-            information_cutoff_at=NOW, recorded_at=NOW - timedelta(seconds=1),
-            source_sha256=DIGEST, payload={},
-        )
+        p16_store.record_evaluation_input(
+            con, registration_sha256=REGISTRATION, payload=payload,
+            recorded_at=NOW - timedelta(seconds=1))
     with pytest.raises(ValueError, match="timezone-aware"):
-        p16_store.record_artifact(
-            con, registration_sha256=REGISTRATION, artifact_kind="origin",
-            artifact_key="one", market_date=DAY,
-            information_cutoff_at=NOW.replace(tzinfo=None), recorded_at=NOW,
-            source_sha256=DIGEST, payload={},
-        )
+        p16_store.record_evaluation_input(
+            con, registration_sha256=REGISTRATION,
+            payload=_evaluation_payload(report_cutoff=NOW.replace(tzinfo=None).isoformat()),
+            recorded_at=NOW)
