@@ -9,12 +9,13 @@ from datetime import date, datetime, timezone
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
 from farm import p16_sequential
+from server import p16_trial_store
 
 ARTIFACT_KINDS = {
     "origin", "exposure", "policy_scores", "factor_report", "top_quintile",
     "trial_dispersion", "transfer", "sequential_checkpoint", "family_report",
 }
-ORIGIN_STATUSES = {"scored", "decision_unavailable"}
+ORIGIN_EVENTS = {"pending", "scored", "decision_unavailable", "invalid"}
 
 
 def _timestamp(value: datetime, field: str) -> datetime:
@@ -40,6 +41,7 @@ def _text(value: object, field: str) -> str:
 
 
 def init_schema(con) -> None:
+    p16_trial_store.init_schema(con)
     con.execute("""CREATE TABLE IF NOT EXISTS p16_evaluation_artifacts (
         artifact_sha256 VARCHAR PRIMARY KEY, registration_sha256 VARCHAR NOT NULL,
         artifact_kind VARCHAR NOT NULL,
@@ -49,17 +51,17 @@ def init_schema(con) -> None:
         payload_sha256 VARCHAR NOT NULL, row_sha256 VARCHAR NOT NULL,
         UNIQUE(registration_sha256,artifact_kind,artifact_key,market_date,information_cutoff_at)
     )""")
-    con.execute("""CREATE TABLE IF NOT EXISTS p16_sequential_origins (
+    con.execute("""CREATE TABLE IF NOT EXISTS p16_sequential_origin_events (
         registration_sha256 VARCHAR NOT NULL, family_id VARCHAR NOT NULL,
         comparison_id VARCHAR NOT NULL, trial_id VARCHAR NOT NULL,
+        control_trial_id VARCHAR NOT NULL,
         epoch_session DATE NOT NULL, session_index INTEGER NOT NULL,
-        market_date DATE NOT NULL, status VARCHAR NOT NULL, reason VARCHAR,
+        market_date DATE NOT NULL, event_kind VARCHAR NOT NULL, reason VARCHAR,
         decided_at TIMESTAMP NOT NULL, forward_entry_at TIMESTAMP NOT NULL,
         labels_available_at TIMESTAMP, delta_ic DOUBLE, input_sha256 VARCHAR,
         source_sha256 VARCHAR NOT NULL, recorded_at TIMESTAMP NOT NULL,
-        row_sha256 VARCHAR NOT NULL,
-        PRIMARY KEY(registration_sha256,comparison_id,session_index),
-        UNIQUE(registration_sha256,comparison_id,market_date)
+        event_sha256 VARCHAR PRIMARY KEY, row_sha256 VARCHAR NOT NULL UNIQUE,
+        UNIQUE(registration_sha256,comparison_id,session_index,event_kind)
     )""")
 
 
@@ -176,45 +178,54 @@ def _session_at(epoch: date, index: int) -> date:
     return current
 
 
+def _trial_visible(con, trial_id: str, at: datetime) -> bool:
+    return p16_trial_store.registration_as_of(
+        con, trial_id=trial_id, generated_at=_aware(at)) is not None
+
+
 def _origin_body(
     *, registration_sha256: str, family_id: str, comparison_id: str, trial_id: str,
-    epoch_session: date, session_index: int, market_date: date, status: str,
-    reason: str | None, decided_at: datetime, forward_entry_at: datetime,
+    control_trial_id: str, epoch_session: date, session_index: int, market_date: date,
+    status: str, reason: str | None, decided_at: datetime, forward_entry_at: datetime,
     labels_available_at: datetime | None, delta_ic: float | None,
     input_sha256: str | None, source_sha256: str,
 ) -> dict:
     if (type(session_index) is not int or session_index < 0
             or not isinstance(market_date, date) or isinstance(market_date, datetime)
-            or status not in ORIGIN_STATUSES):
-        raise ValueError("P16 sequential origin is invalid")
-    comparison = _text(comparison_id, "comparison ID")
+            or status not in ORIGIN_EVENTS):
+        raise ValueError("P16 sequential origin event is invalid")
     registration = _digest(registration_sha256, "registration digest")
     family = _text(family_id, "family ID")
+    comparison = _text(comparison_id, "comparison ID")
     trial = _digest(trial_id, "trial ID")
+    control = _digest(control_trial_id, "control trial ID")
     source = _digest(source_sha256, "sequential source digest")
-    if market_date != _session_at(epoch_session, session_index):
-        raise ValueError("P16 sequential origin is off the registered session grid")
+    if trial == control or market_date != _session_at(epoch_session, session_index):
+        raise ValueError("P16 sequential origin is off its registered identity or session grid")
     decided = _timestamp(decided_at, "decided at")
     entry = _timestamp(forward_entry_at, "forward entry at")
     if decided >= entry:
         raise ValueError("P16 sequential decision is not pre-entry")
     available = None if labels_available_at is None else _timestamp(
         labels_available_at, "labels available at")
+    digest = None
     if status == "scored":
-        if (available is None or isinstance(delta_ic, bool)
+        if (available is None or available < entry or isinstance(delta_ic, bool)
                 or not isinstance(delta_ic, (int, float)) or not math.isfinite(delta_ic)
                 or not -2 <= float(delta_ic) <= 2 or reason is not None):
             raise ValueError("P16 scored sequential origin is invalid")
         digest = _digest(input_sha256, "sequential input digest")
     elif status == "decision_unavailable":
         if reason not in p16_sequential.SKIP_REASONS or delta_ic is not None \
-                or labels_available_at is not None or input_sha256 is not None:
+                or available is not None or input_sha256 is not None:
             raise ValueError("P16 skipped sequential origin is invalid")
-        digest = None
+    elif (not isinstance(reason, str) or not reason or delta_ic is not None
+          or input_sha256 is not None or (status == "pending" and available is not None)):
+        raise ValueError("P16 blocked sequential origin is invalid")
     return {
         "registration_sha256": registration, "family_id": family,
-        "comparison_id": comparison, "trial_id": trial, "epoch_session": epoch_session,
-        "session_index": session_index,
+        "comparison_id": comparison, "trial_id": trial, "control_trial_id": control,
+        "epoch_session": epoch_session, "session_index": session_index,
         "market_date": market_date, "status": status, "reason": reason,
         "decided_at": decided, "forward_entry_at": entry,
         "labels_available_at": available, "delta_ic": None if delta_ic is None else float(delta_ic),
@@ -222,91 +233,133 @@ def _origin_body(
     }
 
 
-def record_sequential_origin(con, *, recorded_at: datetime, **values) -> str:
-    """Append one origin in the immutable registered exchange-session grid."""
-    body = _origin_body(**values)
-    recorded = _timestamp(recorded_at, "recorded at")
-    known = [body["decided_at"]]
-    if body["status"] == "scored":
-        known.append(body["labels_available_at"])
-    if recorded < max(known):
-        raise ValueError("P16 sequential origin was recorded before known inputs")
-    logical = {
-        **body,
-        "epoch_session": body["epoch_session"].isoformat(),
+def _logical_origin(body: dict) -> dict:
+    return {
+        **body, "epoch_session": body["epoch_session"].isoformat(),
         "market_date": body["market_date"].isoformat(),
-        "decided_at": body["decided_at"].isoformat(),
-        "forward_entry_at": body["forward_entry_at"].isoformat(),
+        "decided_at": _aware(body["decided_at"]).isoformat(),
+        "forward_entry_at": _aware(body["forward_entry_at"]).isoformat(),
         "labels_available_at": None if body["labels_available_at"] is None
-        else body["labels_available_at"].isoformat(),
+        else _aware(body["labels_available_at"]).isoformat(),
     }
-    row_sha = canonical_sha256({**logical, "recorded_at": recorded.isoformat()})
-    row = (*body.values(), recorded, row_sha)
-    existing = con.execute(
-        "SELECT * FROM p16_sequential_origins WHERE registration_sha256=? "
-        "AND comparison_id=? AND session_index=?",
-        [body["registration_sha256"], body["comparison_id"], body["session_index"]],
-    ).fetchone()
-    if existing is not None:
-        if _sequential_row(existing)["row_sha256"] != row_sha:
-            raise ValueError("P16 sequential origin was replayed differently")
-        return row_sha
-    con.execute("INSERT INTO p16_sequential_origins VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
-    return row_sha
 
 
 def _sequential_row(row: tuple) -> dict:
-    (registration, family, comparison, trial, epoch, index, market_date, status,
-     reason, decided, entry, available, delta, input_sha, source_sha, recorded, row_sha) = row
+    (registration, family, comparison, trial, control, epoch, index, market_date,
+     status, reason, decided, entry, available, delta, input_sha, source_sha,
+     recorded, event_sha, row_sha) = row
     body = _origin_body(
         registration_sha256=registration, family_id=family, comparison_id=comparison,
-        trial_id=trial, epoch_session=epoch, session_index=index, market_date=market_date,
-        status=status, reason=reason, decided_at=_aware(decided),
-        forward_entry_at=_aware(entry),
+        trial_id=trial, control_trial_id=control, epoch_session=epoch,
+        session_index=index, market_date=market_date, status=status, reason=reason,
+        decided_at=_aware(decided), forward_entry_at=_aware(entry),
         labels_available_at=None if available is None else _aware(available),
         delta_ic=delta, input_sha256=input_sha, source_sha256=source_sha,
     )
-    logical = {
-        **body, "epoch_session": epoch.isoformat(), "market_date": market_date.isoformat(),
-        "decided_at": decided.isoformat(), "forward_entry_at": entry.isoformat(),
-        "labels_available_at": None if available is None else available.isoformat(),
-    }
-    expected = canonical_sha256({**logical, "recorded_at": recorded.isoformat()})
-    if expected != row_sha:
-        raise ValueError("stored P16 sequential origin differs")
+    logical = _logical_origin(body)
+    expected_event = canonical_sha256(logical)
+    expected_row = canonical_sha256({
+        "event_sha256": expected_event, "recorded_at": recorded.isoformat(),
+    })
+    if event_sha != expected_event or row_sha != expected_row:
+        raise ValueError("stored P16 sequential origin event differs")
     return {
         **logical, "decided_at": _aware(decided).isoformat(),
         "forward_entry_at": _aware(entry).isoformat(),
         "labels_available_at": None if available is None else _aware(available).isoformat(),
-        "recorded_at": _aware(recorded), "row_sha256": row_sha,
+        "recorded_at": _aware(recorded), "event_sha256": event_sha,
+        "row_sha256": row_sha,
     }
+
+
+def record_sequential_origin(con, *, recorded_at: datetime, **values) -> str:
+    """Append a pre-entry decision or its later terminal outcome event."""
+    body = _origin_body(**values)
+    recorded = _timestamp(recorded_at, "recorded at")
+    if not _trial_visible(con, body["trial_id"], recorded) \
+            or not _trial_visible(con, body["control_trial_id"], recorded):
+        raise ValueError("P16 sequential trial identity is not registered")
+    if recorded < body["decided_at"] or (
+            body["status"] in {"pending", "decision_unavailable"}
+            and recorded >= body["forward_entry_at"]) or (
+            body["status"] == "scored" and recorded < body["labels_available_at"]):
+        raise ValueError("P16 sequential event time is invalid")
+    prior_rows = con.execute(
+        "SELECT * FROM p16_sequential_origin_events WHERE registration_sha256=? "
+        "AND comparison_id=? AND session_index=? ORDER BY recorded_at,event_kind",
+        [body["registration_sha256"], body["comparison_id"], body["session_index"]],
+    ).fetchall()
+    prior = [_sequential_row(row) for row in prior_rows]
+    same = [row for row in prior if row["status"] == body["status"]]
+    logical = _logical_origin(body)
+    event_sha = canonical_sha256(logical)
+    row_sha = canonical_sha256({
+        "event_sha256": event_sha, "recorded_at": recorded.isoformat(),
+    })
+    if same:
+        if len(same) != 1 or same[0]["event_sha256"] != event_sha:
+            raise ValueError("P16 sequential origin event was replayed differently")
+        return same[0]["event_sha256"]
+    decisions = [row for row in prior if row["status"] in {"pending", "decision_unavailable"}]
+    terminals = [row for row in prior if row["status"] in {"scored", "invalid"}]
+    if body["status"] in {"pending", "decision_unavailable"}:
+        if decisions or terminals:
+            raise ValueError("P16 sequential decision is duplicated")
+    else:
+        if len(decisions) != 1 or decisions[0]["status"] != "pending" or terminals:
+            raise ValueError("P16 sequential terminal event has no unique pending decision")
+        for field in ("family_id", "trial_id", "control_trial_id", "epoch_session",
+                      "market_date", "decided_at", "forward_entry_at"):
+            if decisions[0][field] != logical[field]:
+                raise ValueError("P16 sequential terminal event changed its decision identity")
+    row = (
+        body["registration_sha256"], body["family_id"], body["comparison_id"],
+        body["trial_id"], body["control_trial_id"], body["epoch_session"],
+        body["session_index"], body["market_date"], body["status"], body["reason"],
+        body["decided_at"], body["forward_entry_at"], body["labels_available_at"],
+        body["delta_ic"], body["input_sha256"], body["source_sha256"], recorded,
+        event_sha, row_sha,
+    )
+    con.execute("INSERT INTO p16_sequential_origin_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
+    return event_sha
 
 
 def sequential_prefix(
     con, *, registration_sha256: str, family_id: str, comparison_id: str,
-    trial_id: str, epoch_session: date, origin_endpoint: int, report_at: datetime,
+    trial_id: str, control_trial_id: str, epoch_session: date,
+    origin_endpoint: int, report_at: datetime,
 ) -> list[dict]:
-    """Load exactly indices 0..origin_endpoint visible by the report instant."""
-    comparison = _text(comparison_id, "comparison ID")
+    """Project exact decision rows 0..endpoint, matured only by report_at."""
     registration = _digest(registration_sha256, "registration digest")
     family = _text(family_id, "family ID")
+    comparison = _text(comparison_id, "comparison ID")
     trial = _digest(trial_id, "trial ID")
+    control = _digest(control_trial_id, "control trial ID")
     if type(origin_endpoint) is not int or origin_endpoint < -1:
         raise ValueError("origin endpoint is invalid")
     cutoff = _timestamp(report_at, "report at")
-    if not table_exists(con, "p16_sequential_origins"):
+    if not table_exists(con, "p16_sequential_origin_events"):
         rows = []
     else:
         rows = con.execute(
-            "SELECT * FROM p16_sequential_origins WHERE registration_sha256=? "
-            "AND family_id=? AND comparison_id=? AND trial_id=? AND epoch_session=? "
-            "AND session_index<=? AND recorded_at<=? ORDER BY session_index",
-            [registration, family, comparison, trial, epoch_session, origin_endpoint, cutoff],
+            "SELECT * FROM p16_sequential_origin_events WHERE registration_sha256=? "
+            "AND family_id=? AND comparison_id=? AND trial_id=? AND control_trial_id=? "
+            "AND epoch_session=? AND session_index<=? AND recorded_at<=? "
+            "ORDER BY session_index,recorded_at,event_kind",
+            [registration, family, comparison, trial, control, epoch_session,
+             origin_endpoint, cutoff],
         ).fetchall()
-    retained = {row["session_index"]: row for row in map(_sequential_row, rows)}
-    return [retained.get(index, {
-        "registration_sha256": registration, "family_id": family,
-        "comparison_id": comparison, "trial_id": trial,
-        "session_index": index, "market_date": _session_at(epoch_session, index).isoformat(),
-        "status": "pending", "reason": "origin_not_recorded",
-    }) for index in range(origin_endpoint + 1)]
+    events: dict[int, list[dict]] = {}
+    for row in map(_sequential_row, rows):
+        events.setdefault(row["session_index"], []).append(row)
+    if sorted(events) != list(range(origin_endpoint + 1)):
+        raise ValueError("P16 sequential prefix is missing a retained decision")
+    result = []
+    for index in range(origin_endpoint + 1):
+        decisions = [row for row in events[index]
+                     if row["status"] in {"pending", "decision_unavailable"}]
+        terminals = [row for row in events[index] if row["status"] in {"scored", "invalid"}]
+        if len(decisions) != 1 or len(terminals) > 1:
+            raise ValueError("P16 sequential origin event history is invalid")
+        result.append(terminals[0] if terminals else decisions[0])
+    return result

@@ -35,6 +35,20 @@ def _records(con, cutoff: datetime | None = None) -> list[dict]:
     return [p16_trials.decode(row) for row in rows]
 
 
+def registration_as_of(con, *, trial_id: str, generated_at: datetime) -> dict | None:
+    """Return a validated registration visible at the requested instant."""
+    if not p16_trials.sha256_valid(trial_id):
+        raise ValueError("trial ID is invalid")
+    if not table_exists(con, TABLE):
+        return None
+    cutoff = p16_trials.timestamp(generated_at)
+    row = con.execute(
+        f"SELECT * FROM {TABLE} WHERE record_kind='registration' "
+        "AND trial_id=? AND recorded_at<=?", [trial_id, cutoff],
+    ).fetchone()
+    return None if row is None else p16_trials.decode(row)
+
+
 def register(con, *, policy_id: str, policy_version: str, plan_id: str,
              registration_identity: dict, evidence_class: str, parent_trial_ids: list[str],
              registered_at: datetime, recorded_at: datetime,
