@@ -12,6 +12,16 @@ from engine.lib.provenance import canonical_sha256
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _TOKEN = re.compile(r"[^\W_]+", re.UNICODE)
+MIN_LESSON_COUNT = 100
+MAX_LESSON_REJECTION_RATE = Decimal("0.10")
+LESSON_CORPUS_REGISTRATION = {
+    "corpus_sha256": "df038a79116ccb6faebb0ee63435b1afde54945968f7371b7ca1a6f45c64433c",
+    "count": 120,
+    "frozen_at": "2026-09-27T15:42:25Z",
+    "bound_registered_at": "2026-09-27T15:42:52Z",
+    "frozen_commit": "65a6dd2d7dfaca4b1434394c896bb6face522fcf",
+    "authorship_evidence_sha256": "aeca4ca95ad7fb872a07f852452df153394f4805b62839aa8e420e891afe6fd9",
+}
 
 DATE_WORDS = frozenset(
     "january february april june july august september october november december "
@@ -33,7 +43,7 @@ DATE_CONTEXT = frozenset(
     {"on", "in", "until", "since", "before", "after", "during", "by", "from", "through", "next", "last", "every"}
 )
 UNIT_WORDS = frozenset(
-    "day days week weeks month months year years session sessions hour hours minute minutes "
+    "day days week weeks month months quarter quarters year years session sessions hour hours minute minutes "
     "percent percentage point points basis dollar dollars cent cents euro euros yen pounds"
     .split()
 )
@@ -111,6 +121,11 @@ def _date_like(words: list[str], index: int) -> bool:
 
 def _sentence_start(text: str, index: int) -> bool:
     prefix = text[:index].rstrip()
+    while prefix and (
+        unicodedata.category(prefix[-1]) in {"Ps", "Pi", "Pe", "Pf"}
+        or prefix[-1] in "'\"—–-"
+    ):
+        prefix = prefix[:-1].rstrip()
     return not prefix or prefix[-1] in ".!?"
 
 
@@ -127,10 +142,17 @@ def validate_notes(text: str, *, filter_spec: NotesFilterSpec) -> str:
         lower = word.casefold()
         if lower in AMBIGUOUS_DATE_WORDS and _date_like(words, index):
             raise NotesValidationError("notes_date_or_number_word")
+        if lower in {"may", "march", "sun", "sat", "wed"} and word[:1].isupper():
+            raise NotesValidationError("notes_date_or_number_word")
         if lower in CONTEXTUAL_NUMBER_WORDS:
             before = folded[index - 1] if index else ""
+            before_two = folded[index - 2] if index > 1 else ""
             after = folded[index + 1] if index + 1 < len(folded) else ""
-            if before in DATE_WORDS | AMBIGUOUS_DATE_WORDS | UNIT_WORDS or after in DATE_WORDS | AMBIGUOUS_DATE_WORDS | UNIT_WORDS:
+            if (
+                before in DATE_WORDS | AMBIGUOUS_DATE_WORDS | UNIT_WORDS
+                or after in DATE_WORDS | AMBIGUOUS_DATE_WORDS | UNIT_WORDS
+                or (before == "the" and before_two in DATE_CONTEXT)
+            ):
                 raise NotesValidationError("notes_date_or_number_word")
 
     for ticker in filter_spec.tickers:
@@ -164,28 +186,27 @@ def validate_lesson_corpus(
     lessons: Sequence[str],
     *,
     filter_spec: NotesFilterSpec,
-    expected_sha256: str,
-    expected_count: int,
-    corpus_frozen_at: datetime,
-    bound_registered_at: datetime,
-    authorship_evidence_sha256: str,
-    min_count: int = 100,
-    max_rejection_rate: Decimal = Decimal("0.10"),
+    authorship_attestation: str,
 ) -> CorpusValidation:
-    """Verify the independently frozen corpus before enforcing its rejection bound."""
-    if expected_count < min_count or len(lessons) != expected_count:
+    """Verify the one registered independent corpus under its fixed safety bound."""
+    expected_count = LESSON_CORPUS_REGISTRATION["count"]
+    if expected_count < MIN_LESSON_COUNT or len(lessons) != expected_count:
         raise NotesValidationError("lesson_corpus_too_small_or_count_mismatch")
     actual_sha256 = canonical_sha256({"lessons": list(lessons)})
-    if not _SHA256.fullmatch(expected_sha256) or actual_sha256 != expected_sha256:
+    if actual_sha256 != LESSON_CORPUS_REGISTRATION["corpus_sha256"]:
         raise NotesValidationError("lesson_corpus_digest_mismatch")
-    if corpus_frozen_at.tzinfo is None or bound_registered_at.tzinfo is None:
-        raise NotesValidationError("lesson_corpus_naive_clock")
+    corpus_frozen_at = datetime.fromisoformat(
+        LESSON_CORPUS_REGISTRATION["frozen_at"].replace("Z", "+00:00")
+    )
+    bound_registered_at = datetime.fromisoformat(
+        LESSON_CORPUS_REGISTRATION["bound_registered_at"].replace("Z", "+00:00")
+    )
     if corpus_frozen_at >= bound_registered_at:
         raise NotesValidationError("lesson_corpus_not_frozen_before_bound")
-    if not _SHA256.fullmatch(authorship_evidence_sha256):
+    import hashlib
+    authorship_evidence_sha256 = hashlib.sha256(authorship_attestation.encode()).hexdigest()
+    if authorship_evidence_sha256 != LESSON_CORPUS_REGISTRATION["authorship_evidence_sha256"]:
         raise NotesValidationError("lesson_corpus_authorship_unbound")
-    if not Decimal("0") <= max_rejection_rate <= Decimal("1"):
-        raise NotesValidationError("invalid_lesson_rejection_bound")
 
     rejected = 0
     for lesson in lessons:
@@ -193,15 +214,23 @@ def validate_lesson_corpus(
             validate_notes(lesson, filter_spec=filter_spec)
         except NotesValidationError:
             rejected += 1
-    rate = Decimal(rejected) / Decimal(expected_count)
-    if rate > max_rejection_rate:
+    rate = lesson_rejection_rate(rejected, expected_count)
+    if rate > MAX_LESSON_REJECTION_RATE:
         raise NotesValidationError("notes_design_rejected")
     return CorpusValidation(
         count=expected_count,
         rejected=rejected,
         rejection_rate=rate,
-        maximum_rejection_rate=max_rejection_rate,
+        maximum_rejection_rate=MAX_LESSON_REJECTION_RATE,
         corpus_sha256=actual_sha256,
         filter_spec_sha256=filter_spec.spec_sha256,
         authorship_evidence_sha256=authorship_evidence_sha256,
     )
+
+
+def lesson_rejection_rate(rejected: int, count: int) -> Decimal:
+    if type(rejected) is not int or type(count) is not int or not 0 <= rejected <= count:
+        raise NotesValidationError("invalid_lesson_rejection_count")
+    if count < MIN_LESSON_COUNT:
+        raise NotesValidationError("lesson_corpus_too_small_or_count_mismatch")
+    return Decimal(rejected) / Decimal(count)

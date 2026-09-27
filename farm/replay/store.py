@@ -10,6 +10,7 @@ from typing import Iterator, Mapping, Sequence
 
 import duckdb
 
+from engine.lib import db as engine_db
 from engine.lib.provenance import canonical_sha256
 from engine.lib.settings import REPO_ROOT
 
@@ -104,7 +105,7 @@ def open_store(
     )
     if not read_only:
         target.parent.mkdir(parents=True, exist_ok=True)
-    con = duckdb.connect(str(target), read_only=read_only)
+    con = engine_db.connect(target, read_only=read_only)
     try:
         if not read_only:
             _init_schema(con, kind)
@@ -175,7 +176,10 @@ def seal_records(
         record = load_record(con, record_type, key)
         if record is None:
             raise ReplayStoreError("seal_member_missing")
-        members.append({"record_key": key, "payload_sha256": record["payload_sha256"]})
+        members.append({
+            "record_key": key, "payload_sha256": record["payload_sha256"],
+            "recorded_at": record["recorded_at"],
+        })
     payload = {"record_type": record_type, "members": members}
     seal_sha256 = canonical_sha256(payload)
     encoded_keys = json.dumps(list(keys), separators=(",", ":"))
@@ -214,7 +218,10 @@ def verify_seal(con, seal_sha256: str) -> dict:
         record = load_record(con, record_type, key)
         if record is None:
             raise ReplayStoreError("sealed_record_missing")
-        actual_members.append({"record_key": key, "payload_sha256": record["payload_sha256"]})
+        actual_members.append({
+            "record_key": key, "payload_sha256": record["payload_sha256"],
+            "recorded_at": record["recorded_at"],
+        })
     payload = {"record_type": record_type, "members": actual_members}
     if actual_members != recorded_members or canonical_sha256(payload) != seal_sha256:
         raise ReplayStoreError("seal_verification_failed")

@@ -2,6 +2,8 @@
 
 SPLIT_KNOWLEDGE_PRIMARY = "registered_ex_date_open_v1"
 SPLIT_KNOWLEDGE_SENSITIVITY = "exact_receipt_first_seen_v1"
+SPLIT_OBSERVATION_REGISTRATION_KEY = "exact_receipt_first_seen_v1"
+EARLIEST_EXACT_SPLIT_OBSERVATION_AT = "2026-07-29T00:00:00Z"
 INDEPENDENT_UNADJUSTED_PRICE_SOURCE = "alpha_vantage_time_series_daily_raw_v1"
 
 TRUSTED_SPLIT_OUTCOMES = frozenset({"applied", "noop_restated"})
@@ -42,7 +44,9 @@ def mandatory_acceptance_contract() -> dict:
         },
         "held_split_quarantine_estimate": {
             "unit": "held_or_pending_action_exposures_per_registered_window",
-            "status": "required_before_archive_admission",
+            "method": "potential_exposure_intersection_then_actual_replay_counts_v1",
+            "zero_count_windows_required": True,
+            "status": "blocked_until_frozen_archive_preflight",
         },
         "price_series_by_consumer": dict(PRICE_SERIES_BY_CONSUMER),
         "independent_unadjusted_price_validation": {
