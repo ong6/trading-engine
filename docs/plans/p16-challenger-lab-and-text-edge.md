@@ -511,7 +511,7 @@ lands.
 |---|---|
 | W1, W5 (and a check of R7) | `~/.tae/out/p16-design-eval/` |
 | W4a, W4b | `~/.tae/out/p16-design-replay/` |
-| W3, W6, W8 (full Stage 2 draft) | `~/.tae/out/p16-design-filings-stage2/` |
+| W3, W6, W8 (full Stage 2 draft) | `~/.tae/out/p16-design-filings-stage2/`: **accepted 2026-09-27** (independent review round 2: spec 8.2/10, Stage 2 doc 8.2/10). Build notes are in `ORCHESTRATOR-ACCEPTANCE.md` in that folder |
 
 **Parallel sessions.** A row marked *claimed* belongs to the named session. Never work a claimed
 row. Parallel sessions each use their own git worktree and push to `main` after rebasing. Only
