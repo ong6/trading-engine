@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Drift metrics: one dated JSON snapshot of code size, commit shape, ledger hygiene, and
-research progress, plus a check of the frozen-layer budget in ``docs/scope-budget.json``.
+research progress, plus a check of the hygiene budget in ``docs/scope-budget.json``.
 
 Runs from committed artifacts and Git only (no DuckDB, no network), so it works on any clone.
 ``python -m tools.metrics_snapshot`` publishes ``data/reports/metrics/<date>.json`` and
-regenerates the sibling ``README.md`` table. ``--check-budget`` exits nonzero when a frozen
-layer is over its ceiling. See ``docs/metrics.md`` for what each number means.
+regenerates the sibling ``README.md`` table. ``--check-budget`` exits nonzero when a hygiene
+budget (BUILDLOG entry size) is breached; code size is reported, not capped. See ``docs/metrics.md`` for what each number means.
 """
 
 from __future__ import annotations
@@ -214,9 +214,9 @@ def load_budget(path: Path = BUDGET_PATH) -> dict[str, Any]:
 
 def budget_check(sizes: dict[str, int], hygiene: dict[str, Any],
                  budget: dict[str, Any]) -> dict[str, Any]:
-    """Compare frozen-layer sizes and ledger format against the committed ceilings."""
+    """Compare ledger format (and any optional per-layer ceilings) against the committed budget."""
     over: list[str] = []
-    for layer, ceiling in budget["loc_ceiling"].items():
+    for layer, ceiling in budget.get("loc_ceiling", {}).items():
         if sizes.get(layer, 0) > ceiling:
             over.append(f"{layer}: {sizes[layer]} > {ceiling}")
     entry = budget["buildlog_entry"]
@@ -311,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--date", type=date.fromisoformat, default=None)
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     parser.add_argument("--check-budget", action="store_true",
-                        help="exit 1 when a frozen layer exceeds docs/scope-budget.json")
+                        help="exit 1 when a hygiene budget in docs/scope-budget.json is breached")
     parser.add_argument("--dry-run", action="store_true", help="print JSON, publish nothing")
     args = parser.parse_args(argv)
 

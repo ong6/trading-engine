@@ -19,8 +19,8 @@ deterministic research queue, and dates inside it label historical measurements.
   Newest entry wins.
 - [`scope.md`](scope.md) — in scope now, approved plans, frozen "not yet" areas with their
   unfreeze triggers, and the "proposed, not approved" parking list.
-- [`scope-budget.json`](scope-budget.json) — LOC ceilings per frozen layer and the BUILDLOG
-  entry budget, enforced by `tests/test_operating_contract.py`.
+- [`scope-budget.json`](scope-budget.json) — hygiene budgets (BUILDLOG entry size, commit size,
+  doc-test freeze), enforced by `tests/test_operating_contract.py`. No per-layer LOC ceilings.
 - [`metrics.md`](metrics.md) — what the drift snapshot measures and how to read it; the
   generated table is [`../data/reports/metrics/README.md`](../data/reports/metrics/README.md).
 - [`plans/README.md`](plans/README.md) — the single plan status table (status and one-line
