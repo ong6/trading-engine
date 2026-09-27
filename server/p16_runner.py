@@ -117,19 +117,39 @@ def _snapshot(
         history[ticker][session][0] * history[ticker][session][1]
         for session in sessions[-60:]
     ])) for ticker in tickers]
-    costs = [execution.cost_components(
-        "baseline_v1", side="buy", qty=1_000 / history[ticker][sessions[-1]][0],
-        open_px=history[ticker][sessions[-1]][0], median_dollar_volume=median,
-    )["total_bps"] / 10_000 for ticker, median in zip(tickers, medians, strict=True)]
+    cost_rows = []
+    for ticker, median in zip(tickers, medians, strict=True):
+        reference_px = history[ticker][sessions[-1]][0]
+        for side in ("buy", "sell"):
+            components = execution.cost_components(
+                "baseline_v1", side=side, qty=1_000 / reference_px,
+                open_px=reference_px, median_dollar_volume=median,
+            )
+            cost_rows.append({
+                "market_date": market_date.isoformat(), "ticker": ticker,
+                "role": "stock", "side": side, "reference_notional": 1_000.0,
+                "qty": 1_000 / reference_px, "open_px": reference_px,
+                "median_dollar_volume": median, "execution_profile": "baseline_v1",
+                **components,
+            })
     spy_median = float(np.median([
         history["SPY"][session][0] * history["SPY"][session][1]
         for session in sessions[-60:]
     ]))
-    costs.append(execution.cost_components(
-        "baseline_v1", side="buy", qty=10_000 / history["SPY"][sessions[-1]][0],
-        open_px=history["SPY"][sessions[-1]][0], median_dollar_volume=spy_median,
-    )["total_bps"] / 10_000)
-    cost = max(costs)
+    spy_reference_px = history["SPY"][sessions[-1]][0]
+    for side in ("buy", "sell"):
+        components = execution.cost_components(
+            "baseline_v1", side=side, qty=10_000 / spy_reference_px,
+            open_px=spy_reference_px, median_dollar_volume=spy_median,
+        )
+        cost_rows.append({
+            "market_date": market_date.isoformat(), "ticker": "SPY",
+            "role": "core_financing", "side": side,
+            "reference_notional": 10_000.0, "qty": 10_000 / spy_reference_px,
+            "open_px": spy_reference_px, "median_dollar_volume": spy_median,
+            "execution_profile": "baseline_v1", **components,
+        })
+    cost = max(row["total_bps"] for row in cost_rows) / 10_000
     risk_sha = canonical_sha256({
         "market_date": market_date.isoformat(), "tickers": tickers,
         "sessions": [value.isoformat() for value in sessions],
@@ -137,11 +157,31 @@ def _snapshot(
         "beta": risk["champion"]["beta"].tolist(), "sectors": sectors,
     })
     score_sha = canonical_sha256({"champion": champion, "rule": rule, "tickers": tickers})
+    manifest_body = {
+        "market_date": market_date.isoformat(),
+        "scoring_information_cutoff_at": cutoff.astimezone(timezone.utc).isoformat(),
+        "sessions": [value.isoformat() for value in sessions],
+        "tickers": tickers, "sectors": sectors,
+        "scores": {"champion": champion, "rule": rule},
+        "solver_inputs": {
+            policy: {
+                "alpha_h5": values["alpha_h5"].tolist(),
+                "covariance_h5": values["covariance_h5"].tolist(),
+                "beta": values["beta"].tolist(),
+            } for policy, values in risk.items()
+        },
+        "risk_snapshot_sha256": risk_sha, "score_snapshot_sha256": score_sha,
+        "previous_weights": [*([0.0] * len(tickers)), 1.0],
+        "previous_weight_source": "initial_all_spy", "cost_rows": cost_rows,
+    }
     return {
         "market_date": market_date, "tickers": tickers, "sectors": sectors,
         "risk": risk, "risk_sha256": risk_sha, "score_sha256": score_sha,
-        "cost_per_turnover": cost, "stock_returns": stock_returns,
-        "spy_returns": spy_returns,
+        "cost_per_turnover": cost, "cost_rows": cost_rows,
+        "stock_returns": stock_returns, "spy_returns": spy_returns,
+        "calibration_manifest": {
+            **manifest_body, "snapshot_sha256": canonical_sha256(manifest_body),
+        },
     }
 
 
@@ -538,15 +578,7 @@ def calibrate(con, *, market_date: date, generated_at: datetime) -> dict:
                 for book_id in p16_book_store.LOGICAL_BOOK_IDS
             ],
         }
-    if len(snapshots) < 2:
-        return {
-            "status": "calibration_unavailable",
-            "reason": "fewer_than_two_calibration_snapshots",
-            "selected_lambda": None, "books": [
-                {"book_id": book_id, "status": "core_collecting"}
-                for book_id in p16_book_store.LOGICAL_BOOK_IDS
-            ],
-        }
+    frozen_cost = max(row["cost_per_turnover"] for row in snapshots)
     cases = []
     for snapshot in snapshots:
         for book_id, policy in zip(
@@ -558,8 +590,12 @@ def calibrate(con, *, market_date: date, generated_at: datetime) -> dict:
                 "covariance": values["covariance_h5"], "beta": values["beta"],
                 "sectors": snapshot["sectors"],
                 "previous": np.r_[np.zeros(len(snapshot["tickers"])), 1.0],
-                "cost": snapshot["cost_per_turnover"], "band": 0.005,
+                "cost": frozen_cost, "band": 0.005,
                 "horizon_sessions": 5,
+                "snapshot_sha256": snapshot["calibration_manifest"]["snapshot_sha256"],
+                "snapshot_date": snapshot["market_date"].isoformat(),
+                "risk_snapshot_sha256": snapshot["risk_sha256"],
+                "score_snapshot_sha256": snapshot["score_sha256"],
             })
     result = p16_calibration.calibrate_lambda(cases)
     books = []
@@ -567,7 +603,10 @@ def calibrate(con, *, market_date: date, generated_at: datetime) -> dict:
         for book_id in p16_book_store.LOGICAL_BOOK_IDS:
             solves = []
             for case in (row for row in cases if row["book_id"] == book_id):
-                solve_args = {key: value for key, value in case.items() if key != "book_id"}
+                solve_args = {
+                    key: value for key, value in case.items()
+                    if key not in p16_calibration.CASE_METADATA
+                }
                 solves.append(p16_optimizer.solve(
                     **solve_args, risk_aversion=result["selected_lambda"],
                 ))
@@ -579,15 +618,18 @@ def calibrate(con, *, market_date: date, generated_at: datetime) -> dict:
                 ])),
             })
     else:
-        books = [{"book_id": case["book_id"], "status": "core_collecting"}
-                 for case in cases]
+        books = [{"book_id": book_id, "status": "core_collecting"}
+                 for book_id in p16_book_store.LOGICAL_BOOK_IDS]
     body = {
         "schema_version": 1, **result, "books": books,
         "snapshot_dates": [row["market_date"].isoformat() for row in snapshots],
         "risk_snapshot_sha256s": [row["risk_sha256"] for row in snapshots],
         "score_snapshot_sha256s": [row["score_sha256"] for row in snapshots],
-        "cost_per_turnover": max(row["cost_per_turnover"] for row in snapshots),
+        "snapshots": [row["calibration_manifest"] for row in snapshots],
+        "cost_per_turnover": frozen_cost,
         "ic_source": "registered_assumption", "assumed_ic": p16_risk.CALIBRATION_IC,
+        "observed_ic_count": 0,
+        "solver_failure_policy": "drop_lambda_on_any_case_failure",
         "execution_authority": "none",
     }
     return {**body, "calibration_sha256": canonical_sha256(body)}

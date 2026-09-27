@@ -1066,4 +1066,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +444, tools unchanged, product +136 (engine +23, farm +26, sim +87); budget ok.
 - **Next:** bind complete calibration cases and execution-cost evidence, then rerun the frozen reviews.
 
+## 2026-09-27 — P16 W5: validate calibration derivation
+
+- **Why:** approved W5 requires lambda and turnover cost to come from retained preactivation
+  inputs rather than caller-supplied scalars.
+- **What:** retain canonical snapshot solver inputs, every book/snapshot/lambda result and timing,
+  and both-side stock/core cost components. Recompute the curve, selected lambda, summaries, and
+  maximum cost before contracts can be initialized; reject mutated evidence.
+- **Evidence:** the focused W5 suite reaches `[100%]` with 189 passing tests, including adversarial
+  calibration mutations.
+- **Metrics:** server +241, tools unchanged, product +9 (farm +9); budget ok.
+- **Next:** obtain fresh independent correctness, leakage, and authority reviews.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -76,6 +76,7 @@ def test_calibration_uses_every_retained_snapshot_for_each_book(con, monkeypatch
             "risk_sha256": str(index + 1) * 64,
             "score_sha256": str(index + 3) * 64,
             "cost_per_turnover": 0.001 + index * 0.001,
+            "calibration_manifest": {"snapshot_sha256": str(index + 5) * 64},
         }
 
     def calibrate(cases):
