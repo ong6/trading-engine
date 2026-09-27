@@ -510,7 +510,7 @@ lands.
 | Workstreams | Folder on the host |
 |---|---|
 | W1, W5 (and a check of R7) | `~/.tae/out/p16-design-eval/` |
-| W4a, W4b | `~/.tae/out/p16-design-replay/` |
+| W4a, W4b | `~/.tae/out/p16-design-replay/`: **conditionally accepted 2026-09-27** after 3 rounds (spec v3: statistics 7.3, buildability 8.3). W4 must meet the **4 mandatory build conditions** in `ORCHESTRATOR-ACCEPTANCE.md` in that folder (notes filter, lockbox tag, split knowledge clock, price series per consumer), each with tests, and the orchestrator reviews the W4 checkpoint before any W4 producer runs |
 | W3, W6, W8 (full Stage 2 draft) | `~/.tae/out/p16-design-filings-stage2/`: **accepted 2026-09-27** (independent review round 2: spec 8.2/10, Stage 2 doc 8.2/10). Build notes are in `ORCHESTRATOR-ACCEPTANCE.md` in that folder |
 
 **Parallel sessions.** A row marked *claimed* belongs to the named session. Never work a claimed
