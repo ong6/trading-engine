@@ -129,12 +129,14 @@ def test_mean_neutral_ic_uses_equal_sessions_and_twenty_session_floor():
         }}
         reports.append({**body, "factor_report_sha256": canonical_sha256(body)})
     result = mean_neutral_ic(
-        reports, "challenger", activation_date=date(2026, 9, 1),
+        list(reversed(reports)), "challenger", activation_date=date(2026, 9, 1),
         report_cutoff=sessions[-1],
     )
     assert result["status"] == "available"
     assert result["valid_session_count"] == 20
     assert result["mean_neutral_ic"] == np.mean(np.arange(1, 21) / 100)
+    assert result["first_valid_date"] == sessions[0].isoformat()
+    assert result["last_valid_date"] == sessions[-1].isoformat()
     reports[-1]["comparisons"] = {}
     reports[-1]["factor_report_sha256"] = canonical_sha256({
         key: value for key, value in reports[-1].items() if key != "factor_report_sha256"
