@@ -8,8 +8,10 @@ import pytest
 
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
+from engine.p16_features import exposure_snapshot, session_dates
 from farm.agent_evaluation_analysis import contamination_diagnostics, expected_windows
 from farm.p16_eval_inputs import load_origin
+from farm.p16_factors import evaluate_origin
 from server import (
     agent_evaluation,
     agent_evaluation_reporting,
@@ -167,14 +169,25 @@ def _p15_trace_with_label(con):
 
 
 def test_p16_input_adapter_accepts_canonical_validated_p15_origin(con):
+    history = session_dates(date(2026, 9, 1), 253)
+    closes = [100 + index / 10 for index in range(len(history))]
+    for ticker, multiplier in (("AAA", 1.5), ("SPY", 1.0)):
+        values = [value * multiplier for value in closes]
+        insert_bars(con, ticker, history, open_=values, close=values,
+                    high=[value + 1 for value in values],
+                    low=[value - 1 for value in values])
     _p15_trace_with_label(con)
 
-    result = load_origin(con, market_date=date(2026, 9, 1), report_cutoff=NOW)
+    origin = load_origin(con, market_date=date(2026, 9, 1), report_cutoff=NOW)
+    factors = exposure_snapshot(
+        con, ["AAA"], date(2026, 9, 1), information_cutoff_at=NOW,
+    )
+    result = evaluate_origin(origin, factors)
 
-    assert result["status"] == "available"
-    assert result["terminal_h5_count"] == 1
-    assert result["rows"][0]["ticker"] == "AAA"
-    assert result["rows"][0]["rule_score"] == -1
+    assert origin["status"] == "available" and origin["terminal_h5_count"] == 1
+    assert origin["rows"][0]["rule_score"] == -1
+    assert result["status"] == "insufficient"
+    assert result["reason"] == "exposure_coverage_or_sample"
 
 
 def test_report_scores_and_pairs_only_identical_outcome_prefixes(con):
