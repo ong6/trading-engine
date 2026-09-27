@@ -514,7 +514,9 @@ def evaluation_tag(
             [experiment_id, cohort_id],
         ).fetchone()
         if marker_row is None:
-            raise LockboxIntegrityError("lockbox_marker_missing")
+            return EvaluationClassification(
+                "post_lockbox_exploratory", "lockbox_marker_missing", ""
+            )
         marker_sha256, encoded = marker_row
         marker, all_events = _validate_marker_children(con, marker_sha256, encoded)
         evaluated = _iso(evaluated_at, "evaluated_at")

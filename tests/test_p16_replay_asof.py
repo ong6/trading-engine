@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from farm.replay.asof import (
-    ExactSplitObservations,
     LabelPricePoint,
     PriceSeriesError,
     SplitQuarantineError,
@@ -22,7 +21,6 @@ from farm.replay.asof import (
     reconstruct_unadjusted_bars,
     record_actions_fetch_log,
     split_known_at,
-    split_observation_identity,
     split_outcome,
 )
 from farm.replay.p15_adapter import prepare_p15_price_inputs
@@ -70,22 +68,16 @@ def _observations(tmp_path, action, observed_at):
         return load_exact_split_observations(con, registration)
 
 
-def test_split_knowledge_is_registered_convention_with_receipt_sensitivity(tmp_path):
+def test_split_knowledge_uses_registered_primary_and_fixed_lag_sensitivity():
     action = _action()
     assert split_known_at(action, SPLIT_KNOWLEDGE_PRIMARY) == datetime(
         2020, 8, 31, 13, 30, tzinfo=timezone.utc
     )
     assert action["retrieved_at_real"].startswith("2026-")
     assert action["known_at_replay"].startswith("2020-")
-    with pytest.raises(SplitQuarantineError, match="first_seen_unavailable"):
-        split_known_at(action, SPLIT_KNOWLEDGE_SENSITIVITY)
-    observations = _observations(tmp_path, action, "2026-07-29T12:00:00Z")
-    assert split_known_at(action, SPLIT_KNOWLEDGE_SENSITIVITY, observations) == datetime(
-        2026, 7, 29, 12, tzinfo=timezone.utc
+    assert split_known_at(action, SPLIT_KNOWLEDGE_SENSITIVITY) == datetime(
+        2020, 9, 1, 13, 30, tzinfo=timezone.utc
     )
-    forged = _action(first_seen_at="2020-01-01T00:00:00Z", observation_sha256="f" * 64)
-    with pytest.raises(SplitQuarantineError, match="first_seen_unavailable"):
-        split_known_at(forged, SPLIT_KNOWLEDGE_SENSITIVITY)
 
 
 def test_reconstruction_is_independent_of_late_real_retrieval_clock():
@@ -119,18 +111,22 @@ def test_feature_scale_changes_only_after_split_is_effective_and_known():
     assert after["volume"] == pytest.approx(187_630_000)
 
 
-def test_receipt_sensitivity_never_applies_before_new_york_ex_date_open(tmp_path):
+def test_fixed_lag_sensitivity_applies_one_session_after_ex_date():
     fixture = _fixture()
     action = _action()
-    observations = _observations(tmp_path, action, "2026-07-29T12:00:00Z")
     rebuilt = reconstruct_unadjusted_bars(fixture["bars"], [action])
     before = asof_split_adjusted_bars(
         rebuilt, [action], as_of=datetime(2020, 8, 31, 1, tzinfo=timezone.utc),
         knowledge_policy=SPLIT_KNOWLEDGE_SENSITIVITY,
-        observations=observations,
     )[0]
     assert before["close"] == pytest.approx(499.23)
     assert before["asof_action_ids"] == []
+    after = asof_split_adjusted_bars(
+        rebuilt, [action], as_of=datetime(2020, 9, 1, 20, 15, tzinfo=timezone.utc),
+        knowledge_policy=SPLIT_KNOWLEDGE_SENSITIVITY,
+    )[0]
+    assert after["close"] == pytest.approx(124.8075)
+    assert after["asof_action_ids"] == [action["action_id"]]
 
 
 @pytest.mark.parametrize("outcome", ("applied", "noop_restated"))
@@ -281,7 +277,7 @@ def test_feature_and_label_consumers_require_exact_reconstruction_actions():
         )
 
 
-def test_receipt_sensitivity_counts_missing_or_late_knowledge_as_quarantine():
+def test_fixed_lag_sensitivity_counts_ex_date_exposures_as_quarantined():
     applied = _action()
     exposures = [{
         "window_id": "w1", "security_id": applied["security_id"],
@@ -309,17 +305,7 @@ def test_p15_adapter_blocks_quarantined_exposure_before_price_inputs():
         )
 
 
-def test_split_observations_and_label_points_reject_forgery_and_mutation(tmp_path):
-    action = _action()
-    with pytest.raises(SplitQuarantineError, match="unverified_split_observations"):
-        ExactSplitObservations("a" * 64, "b" * 64, (), "c" * 64)
-    observations = _observations(tmp_path, action, "2026-07-29T12:00:00Z")
-    object.__setattr__(observations, "entries", (
-        (split_observation_identity(action), datetime(1900, 1, 1, tzinfo=timezone.utc), "a" * 64),
-    ))
-    with pytest.raises(SplitQuarantineError, match="observations_tampered"):
-        split_known_at(action, SPLIT_KNOWLEDGE_SENSITIVITY, observations)
-
+def test_label_points_reject_forgery_and_mutation():
     with pytest.raises(PriceSeriesError, match="unverified_label_price_point"):
         LabelPricePoint(
             "fixture", datetime(2020, 1, 2).date(),
@@ -389,9 +375,9 @@ def test_every_price_consumer_has_one_registered_series():
     contract = mandatory_acceptance_contract()
     assert contract["split_knowledge"] == {
         "primary": "registered_ex_date_open_v1",
-        "sensitivity": "exact_receipt_first_seen_v1",
+        "sensitivity": "registered_one_session_after_ex_date_v1",
         "primary_is_measured_history": False,
-        "sensitivity_requires_exact_action_receipt": True,
+        "sensitivity_lag_sessions": 1,
     }
     assert contract["held_split_quarantine_estimate"] == {
         "unit": "held_or_pending_action_exposures_per_registered_window",

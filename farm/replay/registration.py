@@ -1,8 +1,8 @@
 """Frozen W4 implementation-gate values; no producer authority lives here."""
 
 SPLIT_KNOWLEDGE_PRIMARY = "registered_ex_date_open_v1"
-SPLIT_KNOWLEDGE_SENSITIVITY = "exact_receipt_first_seen_v1"
-SPLIT_OBSERVATION_REGISTRATION_KEY = "exact_receipt_first_seen_v1"
+SPLIT_KNOWLEDGE_SENSITIVITY = "registered_one_session_after_ex_date_v1"
+SPLIT_OBSERVATION_REGISTRATION_KEY = SPLIT_KNOWLEDGE_SENSITIVITY
 EARLIEST_EXACT_SPLIT_OBSERVATION_AT = "2026-07-29T00:00:00Z"
 INDEPENDENT_UNADJUSTED_PRICE_SOURCE = "alpha_vantage_time_series_daily_raw_v1"
 
@@ -35,7 +35,7 @@ def mandatory_acceptance_contract() -> dict:
             "primary": SPLIT_KNOWLEDGE_PRIMARY,
             "sensitivity": SPLIT_KNOWLEDGE_SENSITIVITY,
             "primary_is_measured_history": False,
-            "sensitivity_requires_exact_action_receipt": True,
+            "sensitivity_lag_sessions": 1,
         },
         "split_outcomes": {
             "trusted": sorted(TRUSTED_SPLIT_OUTCOMES),

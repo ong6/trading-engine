@@ -136,7 +136,7 @@ def validate_notes(text: str, *, filter_spec: NotesFilterSpec) -> str:
         raise NotesValidationError("notes_price_or_date_number")
 
     folded = [word.casefold() for word in words]
-    if set(folded) & (DATE_WORDS | NUMBER_WORDS | UNIT_WORDS):
+    if set(folded) & (DATE_WORDS | NUMBER_WORDS):
         raise NotesValidationError("notes_date_or_number_word")
     for index, word in enumerate(words):
         lower = word.casefold()
@@ -146,12 +146,10 @@ def validate_notes(text: str, *, filter_spec: NotesFilterSpec) -> str:
             raise NotesValidationError("notes_date_or_number_word")
         if lower in CONTEXTUAL_NUMBER_WORDS:
             before = folded[index - 1] if index else ""
-            before_two = folded[index - 2] if index > 1 else ""
             after = folded[index + 1] if index + 1 < len(folded) else ""
             if (
                 before in DATE_WORDS | AMBIGUOUS_DATE_WORDS | UNIT_WORDS
                 or after in DATE_WORDS | AMBIGUOUS_DATE_WORDS | UNIT_WORDS
-                or (before == "the" and before_two in DATE_CONTEXT)
             ):
                 raise NotesValidationError("notes_date_or_number_word")
 

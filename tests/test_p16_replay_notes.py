@@ -35,6 +35,11 @@ FILTER = freeze_filter_spec(
         "The second signal conflicts.",
         "Second, seek contrary evidence.",
         "Results may improve.",
+        "Rely on the first draft.",
+        "After the first signal, wait.",
+        "In the first pass, review assumptions.",
+        "Use a per-share basis.",
+        "Prefer ranges to point forecasts.",
     ),
 )
 def test_notes_filter_accepts_plain_prose_and_sentence_initial_ticker(text):
@@ -109,8 +114,8 @@ def test_opening_punctuation_preserves_sentence_initial_one_letter_exception(tex
     (
         "The first quarter was noisy.",
         "May earnings were weak.",
-        "Review on the first.",
-        "Review on the second.",
+        "Review on May second.",
+        "Wait one session.",
     ),
 )
 def test_calendar_and_period_anchors_are_rejected(text):
