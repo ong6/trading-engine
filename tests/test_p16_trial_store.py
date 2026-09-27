@@ -34,6 +34,7 @@ def _reconciliation(con, trial_ids, *, digest=None):
             {"run": source}), "trial_id": trial_id, "disposition": "alias", "reason": None})
     current = trials.project(con, generated_at=NOW + timedelta(days=30))
     plans = [f"P{number}" for number in range(5, 17)]
+    records = trials._records(con, NOW + timedelta(days=30))
     return {"scope": "all_plans_and_deterministic_baselines_through_p16",
             "covered_plans": plans,
             "deterministic_baseline_trial_ids": trial_ids,
@@ -42,7 +43,8 @@ def _reconciliation(con, trial_ids, *, digest=None):
                          "snapshot_sha256": p16_trials.canonical_sha256({"plan": plan})}
                         for plan in plans],
             "entries": [{**entry, "source": "plan-P16"} for entry in entries],
-            "trial_redirects": {}, "register_sha256": digest or current["register_sha256"]}
+            "trial_redirects": {}, "register_sha256": digest or current["register_sha256"],
+            "sealed_row_sha256s": sorted(row["row_sha256"] for row in records)}
 
 
 def test_attempts_aliases_retirement_and_replay_count_once(con):
@@ -145,8 +147,7 @@ def test_provisional_redirect_deduplicates_without_deleting_history(con):
                     registration_identity=IDENTITY | {"prompt": "unresolved:prompt"})
     new = _register(con, "v2")
     _event(con, old, source="old")
-    _event(con, new, source="new")
-    reconciliation = _reconciliation(con, [old, new])
+    reconciliation = _reconciliation(con, [old])
     reconciliation["deterministic_baseline_trial_ids"] = [new]
     reconciliation["trial_redirects"] = {old: {
         "canonical_trial_id": new, "evidence_sha256": "b" * 64,
@@ -157,10 +158,16 @@ def test_provisional_redirect_deduplicates_without_deleting_history(con):
     assert result["unresolved_identity_count"] == 0 and len(result["versions"]) == 2
     assert next(row for row in result["versions"] if row["trial_id"] == old)[
         "reconciled_to"] == new
-    _event(con, old, "retired", "retirement", recorded_at=NOW + timedelta(minutes=1))
-    stale = trials.project(con, generated_at=NOW + timedelta(minutes=1))
+    canonical = next(row for row in result["versions"] if row["trial_id"] == new)
+    assert canonical["status"] == "evaluated"
+    assert canonical["first_evaluated_at"] == NOW.replace(tzinfo=None).isoformat()
+    assert canonical["alias_count"] == 1
+    _event(con, old, "retired", "retirement", recorded_at=NOW)
+    stale = trials.project(con, generated_at=NOW)
     assert stale["status"] == "stale" and stale["selection_trial_count"] == 1
     assert stale["unresolved_identity_count"] == 0
+    canonical = next(row for row in stale["versions"] if row["trial_id"] == new)
+    assert canonical["status"] == "retired" and canonical["alias_count"] == 1
 
 
 def test_reconciliation_cannot_merge_distinct_evaluated_recipes(con):
