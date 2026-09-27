@@ -67,6 +67,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 |---|---|---|
 | 2026-09-26 | Replace maintain-only framing with build-toward-verdict guidance; add the system blueprint; keep P16 proposed until P15 W8 | AGENTS, blueprint, P16, feedback |
 | 2026-09-25 | P15 approved: score every candidate, add deterministic comparator books, add a pre-open check and event-driven shadow triggers, and code the gates. It may run as one long session with sub-agents | [P15](plans/p15-profitability-evidence-loop.md), feedback |
+| 2026-09-27 | Add a synthetic end-to-end proving ground with evaluation loops (P16 W11) once the main issues are fixed | P16 |
 | 2026-09-27 | Technical decisions in orchestrated runs belong to the orchestrating agent (Claude Opus); the owner keeps product decisions. Per-layer size limits removed | `AGENTS.md`, feedback |
 | 2026-09-26 | P16 approved with ceilings. P15 activation is held and moves into P16 W0 after the review fixes (R1–R16). The `improve-work` refine loop gates each registration and ends the run | P16, feedback |
 | 2026-09-26 | Data: use every free source first, scraping included; paid data waits (owner). Raw scraped text stays on the host, outside the public repo | P16 |
