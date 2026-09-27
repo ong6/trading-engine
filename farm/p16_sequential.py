@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+import re
+from datetime import date, datetime
 from statistics import NormalDist
 
 import numpy as np
 
 from engine.lib.provenance import canonical_sha256
+from sim import nyse
 
 ALPHA = 0.05
 FALLBACK_SD = 0.15
@@ -24,7 +26,11 @@ REQUIRED_PROMOTION_CHECKS = {
 
 
 def _time(value) -> datetime:
-    parsed = value if isinstance(value, datetime) else datetime.fromisoformat(value.replace("Z", "+00:00"))
+    try:
+        parsed = value if isinstance(value, datetime) else datetime.fromisoformat(
+            value.replace("Z", "+00:00"))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError("sequential timestamp is invalid") from exc
     if parsed.utcoffset() is None:
         raise ValueError("sequential timestamp requires an explicit timezone")
     return parsed
@@ -64,7 +70,9 @@ def _mixture(mixture: dict) -> tuple[np.ndarray, np.ndarray]:
     if (lambdas.ndim != 1 or lambdas.shape != weights.shape or not len(lambdas)
             or not np.all(np.isfinite(lambdas)) or np.any(lambdas <= 0)
             or np.any(lambdas >= 0.5) or not np.all(np.isfinite(weights))
-            or np.any(weights <= 0) or not np.isclose(weights.sum(), 1, atol=1e-12)):
+            or np.any(weights <= 0) or not np.isclose(weights.sum(), 1, atol=1e-12)
+            or mixture.get("calibration_sha256") != canonical_sha256({
+                key: value for key, value in mixture.items() if key != "calibration_sha256"})):
         raise ValueError("invalid frozen bounded mixture")
     return lambdas, weights
 
@@ -99,11 +107,31 @@ def mixture_test(differences, *, mixture: dict) -> dict:
     }
 
 
-def by_session_offset(records: list[dict], *, mixture: dict, epoch: int = 0) -> dict:
+def _market_day(value: object) -> date:
+    if isinstance(value, datetime) or not isinstance(value, (date, str)):
+        raise ValueError("sequential market date is invalid")
+    try:
+        return value if isinstance(value, date) else date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError("sequential market date is invalid") from exc
+
+
+def by_session_offset(
+    records: list[dict], *, mixture: dict, epoch_session: date, report_at: str,
+) -> dict:
     """Consume a complete exchange-session grid without repacking skips or gaps."""
+    report_time = _time(report_at)
     indices = [row.get("session_index") for row in records]
-    if (type(epoch) is not int or any(type(index) is not int for index in indices)
-            or indices != list(range(epoch, epoch + len(indices)))):
+    if (not isinstance(epoch_session, date) or isinstance(epoch_session, datetime)
+            or not nyse.is_session(epoch_session)
+            or any(type(index) is not int for index in indices)
+            or indices != list(range(len(indices)))):
+        raise ValueError("complete ordered exchange-session grid from epoch required")
+    expected, current = [], epoch_session
+    for _ in records:
+        expected.append(current)
+        current = nyse.next_session(current)
+    if [_market_day(row.get("market_date")) for row in records] != expected:
         raise ValueError("complete ordered exchange-session grid from epoch required")
     results = []
     for offset in range(OFFSETS):
@@ -120,7 +148,9 @@ def by_session_offset(records: list[dict], *, mixture: dict, epoch: int = 0) -> 
                 blocked = {"session_index": index, "reason": status or "missing_status"}
                 break
             digest = row.get("input_sha256")
-            if not isinstance(digest, str) or len(digest) != 64:
+            if (not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+                    or _time(row.get("decided_at")) >= _time(row.get("forward_entry_at"))
+                    or _time(row.get("labels_available_at")) > report_time):
                 raise ValueError("scored origin input identity is invalid")
             values.append(row["delta_ic"])
             consumed.append(index)
@@ -134,7 +164,8 @@ def by_session_offset(records: list[dict], *, mixture: dict, epoch: int = 0) -> 
             first_crossing_session_index=None if crossing is None else consumed[crossing],
         )
         results.append(result)
-    return {"primary": results[0], "robustness": results[1:],
+    return {"epoch_session": epoch_session.isoformat(), "report_at": report_time.isoformat(),
+            "primary": results[0], "robustness": results[1:],
             "robustness_is_gating": False, "execution_authority": "none"}
 
 
@@ -165,6 +196,7 @@ def common_report_e_test(
     alpha_allocation_id: str, level: float = ALPHA,
 ) -> dict:
     """Compute lifetime e-Bonferroni and descriptive current e-BH at one cutoff."""
+    report_time = _time(report_at)
     if level != ALPHA or not alpha_allocation_id:
         raise ValueError("registered family alpha allocation must be 0.05")
     if len(family_ids) != len(set(family_ids)):
@@ -173,7 +205,7 @@ def common_report_e_test(
     if len(mapped) != len(rows) or set(mapped) != set(family_ids):
         raise ValueError("incomplete or duplicate registered family")
     ordered = [mapped[item] for item in family_ids]
-    if any(row.get("report_at") != report_at for row in ordered):
+    if any(_time(row.get("report_at")) != report_time for row in ordered):
         raise ValueError("e-values must share the common report time")
     if any(row.get("origin_endpoint") != origin_endpoint for row in ordered):
         raise ValueError("e-values must share the common origin endpoint")
@@ -204,7 +236,7 @@ def common_report_e_test(
     return {
         **lifetime, "promotion_basis": "lifetime_e_bonferroni", "level": level,
         "alpha_allocation_id": alpha_allocation_id, "family_size": len(family_ids),
-        "comparison_ids": family_ids, "report_at": report_at,
+        "comparison_ids": family_ids, "report_at": report_time.isoformat(),
         "origin_endpoint": origin_endpoint, "eligibility_checks": checks,
         "eligibility_mask": gate, "current_log_e": current.tolist(),
         "max_log_e": maximum.tolist(),

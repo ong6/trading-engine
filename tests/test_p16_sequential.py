@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import numpy as np
 import pytest
@@ -11,8 +11,11 @@ from farm.p16_sequential import (
     mixing_from_pre_activation,
     mixture_test,
 )
+from sim import nyse
 
 NOW = datetime(2026, 9, 27, tzinfo=timezone.utc)
+REPORT = datetime(2027, 1, 1, tzinfo=timezone.utc)
+EPOCH = date(2026, 9, 1)
 
 
 def _mixture(count=0):
@@ -21,8 +24,21 @@ def _mixture(count=0):
 
 
 def _rows(count=31):
-    return [{"session_index": index, "status": "scored", "delta_ic": 0.5,
-             "input_sha256": f"{index:064x}"} for index in range(count)]
+    rows, day = [], EPOCH
+    for index in range(count):
+        decided = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
+        rows.append({"session_index": index, "market_date": day.isoformat(),
+                     "status": "scored", "delta_ic": 0.5,
+                     "input_sha256": f"{index:064x}", "decided_at": decided.isoformat(),
+                     "forward_entry_at": (decided + timedelta(days=1)).isoformat(),
+                     "labels_available_at": (decided + timedelta(days=7)).isoformat()})
+        day = nyse.next_session(day)
+    return rows
+
+
+def _offset(rows):
+    return by_session_offset(
+        rows, mixture=_mixture(), epoch_session=EPOCH, report_at=REPORT.isoformat())
 
 
 def _family_row(comparison_id, current, maximum, **changes):
@@ -68,31 +84,47 @@ def test_wrong_direction_cannot_pass_and_crossings_are_retained():
 
 def test_fixed_grid_skips_do_not_repack_primary_offset():
     rows = _rows()
-    rows[5] = {"session_index": 5, "status": "decision_unavailable",
-               "reason": "fewer_than_20_candidates", "decided_at": NOW.isoformat(),
-               "forward_entry_at": (NOW + timedelta(days=1)).isoformat()}
+    rows[5].update(status="decision_unavailable", reason="fewer_than_20_candidates",
+                   decided_at=NOW.isoformat(),
+                   forward_entry_at=(NOW + timedelta(days=1)).isoformat())
     rows[10]["status"] = "pending_label"
-    report = by_session_offset(rows, mixture=_mixture())
+    report = _offset(rows)
     assert report["primary"]["consumed_session_indices"] == [0]
     assert report["primary"]["skipped_decision_indices"] == [5]
     assert report["primary"]["blocked_at"] == {"session_index": 10, "reason": "pending_label"}
     rows[10]["status"] = "scored"
-    assert by_session_offset(rows, mixture=_mixture())["primary"][
+    assert _offset(rows)["primary"][
         "consumed_session_indices"] == [0, 10, 15, 20, 25, 30]
 
 
 def test_grid_rejects_missing_rows_and_uncertified_skips():
     with pytest.raises(ValueError, match="complete ordered"):
-        by_session_offset(_rows()[:5] + _rows()[6:], mixture=_mixture())
+        _offset(_rows()[:5] + _rows()[6:])
     rows = _rows(6)
-    rows[5] = {"session_index": 5, "status": "decision_unavailable", "reason": "late_label",
-               "decided_at": NOW.isoformat(), "forward_entry_at": (NOW + timedelta(days=1)).isoformat()}
+    rows[5].update(status="decision_unavailable", reason="late_label",
+                   decided_at=NOW.isoformat(),
+                   forward_entry_at=(NOW + timedelta(days=1)).isoformat())
     with pytest.raises(ValueError, match="registered pre-outcome"):
-        by_session_offset(rows, mixture=_mixture())
+        _offset(rows)
     rows[5]["reason"] = "constant_scores"
     rows[5]["decided_at"] = rows[5]["forward_entry_at"]
     with pytest.raises(ValueError, match="registered pre-outcome"):
-        by_session_offset(rows, mixture=_mixture())
+        _offset(rows)
+
+
+def test_grid_binds_market_calendar_cutoff_and_input_identity():
+    rows = _rows(6)
+    rows[5]["market_date"] = "2026-09-12"
+    with pytest.raises(ValueError, match="exchange-session"):
+        _offset(rows)
+    rows = _rows(6)
+    rows[5]["labels_available_at"] = (REPORT + timedelta(seconds=1)).isoformat()
+    with pytest.raises(ValueError, match="input identity"):
+        _offset(rows)
+    rows = _rows(6)
+    rows[5]["input_sha256"] = "z" * 64
+    with pytest.raises(ValueError, match="input identity"):
+        _offset(rows)
 
 
 def test_common_report_separates_current_ebh_from_lifetime_bonferroni():
@@ -128,7 +160,11 @@ def test_common_report_rejects_wrong_level_time_family_and_maximum():
         common_report_e_test([row], ["c0"], NOW.isoformat(), origin_endpoint=100,
                              alpha_allocation_id="future-family", level=0.1)
     with pytest.raises(ValueError, match="common report time"):
-        common_report_e_test([row], ["c0"], "later", origin_endpoint=100,
+        common_report_e_test([row | {"report_at": (NOW + timedelta(days=1)).isoformat()}],
+                             ["c0"], NOW.isoformat(), origin_endpoint=100,
+                             alpha_allocation_id="p16-family-v1-alpha-0.05")
+    with pytest.raises(ValueError, match="timestamp"):
+        common_report_e_test([row], ["c0"], "not-a-time", origin_endpoint=100,
                              alpha_allocation_id="p16-family-v1-alpha-0.05")
     with pytest.raises(ValueError, match="registered family"):
         common_report_e_test([row], ["c0", "missing"], NOW.isoformat(), origin_endpoint=100,
@@ -152,3 +188,7 @@ def test_invalid_bounds_and_mixture_are_rejected():
         mixture_test([2.01], mixture=mixture)
     with pytest.raises(ValueError, match="mixture"):
         mixture_test([0], mixture={"lambdas": [0.5], "weights": [1]})
+    mixture = _mixture()
+    mixture["lambdas"][0] /= 2
+    with pytest.raises(ValueError, match="mixture"):
+        mixture_test([0], mixture=mixture)
