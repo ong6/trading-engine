@@ -1,0 +1,145 @@
+from datetime import date, timedelta
+
+import numpy as np
+import pytest
+
+from engine.lib.provenance import canonical_sha256
+from engine.p16_features import EXPOSURES
+from farm.p16_factors import CHAMPION, evaluate_origin, mean_neutral_ic
+from sim import nyse
+
+
+def _fixtures(count=25):
+    rows, exposures = [], []
+    for index in range(count):
+        ticker = f"T{index:02d}"
+        base = float(index // 2)
+        residual = (-1 if index % 2 == 0 else 1) * (base + 1)
+        outcome = 3 * base + residual
+        rows.append({"ticker": ticker, "net_excess_return": outcome,
+                     "champion_score": outcome if index != 0 else None,
+                     "rule_score": -float(index)})
+        exposures.append({"ticker": ticker, "status": "available",
+                          "missing_exposures": [], "sector": "technology",
+                          "exposures": dict.fromkeys(EXPOSURES, base)})
+    origin = {
+        "status": "available", "market_date": "2026-09-22",
+        "scoring_information_cutoff_at": "2026-09-22T20:00:00Z",
+        "input_snapshot_sha256": "a" * 64,
+        "source": {"trace_sha256": "b" * 64, "universe_sha256": "c" * 64},
+        "rows": rows,
+    }
+    origin["input_snapshot_sha256"] = canonical_sha256({
+        key: value for key, value in origin.items() if key != "input_snapshot_sha256"
+    })
+    body = {"market_date": origin["market_date"],
+            "information_cutoff_at": origin["scoring_information_cutoff_at"],
+            "exposure_names": list(EXPOSURES), "candidates": exposures}
+    body["information_cutoff_at"] = "2026-09-22T20:00:00+00:00"
+    snapshot = {**body, "snapshot_sha256": canonical_sha256(body)}
+    return origin, snapshot
+
+
+def test_factor_fit_keeps_unscored_names_and_uses_one_common_pair_mask():
+    origin, exposures = _fixtures()
+    challenger = {f"T{index:02d}": float(index) if index >= 5 else None
+                  for index in range(25)}
+    challenger_identity = {
+        "policy_id": "challenger", "market_date": origin["market_date"],
+        "information_cutoff_at": origin["scoring_information_cutoff_at"],
+        "scores": challenger,
+    }
+
+    result = evaluate_origin(origin, exposures, challenger_scores={
+        "challenger": {"scores": challenger,
+                       "score_snapshot_sha256": canonical_sha256(challenger_identity)},
+    })
+
+    assert result["factor_fit"]["fit_count"] == 25
+    assert result["comparisons"][CHAMPION]["full_sample_raw"]["pair_count"] == 24
+    comparison = result["comparisons"]["challenger"]
+    assert comparison["factor_common_raw"]["pair_count"] == 20
+    assert comparison["factor_neutral"]["pair_count"] == 20
+    assert result["factor_report_sha256"] == canonical_sha256({
+        key: value for key, value in result.items() if key != "factor_report_sha256"
+    })
+
+
+def test_missing_exposure_is_counted_without_changing_full_sample_raw_ic():
+    origin, exposures = _fixtures()
+    exposures["candidates"][0].update(
+        status="unavailable", missing_exposures=["momentum_12_1"],
+        exposures=dict.fromkeys(EXPOSURES),
+    )
+    exposures["snapshot_sha256"] = canonical_sha256({
+        key: value for key, value in exposures.items() if key != "snapshot_sha256"
+    })
+
+    result = evaluate_origin(origin, exposures)
+
+    comparison = result["comparisons"][CHAMPION]
+    assert result["exposure_exclusions"] == {"T00": ["momentum_12_1"]}
+    assert comparison["full_sample_raw"]["pair_count"] == 24
+    assert comparison["factor_common_raw"]["pair_count"] == 24
+
+
+def test_pending_origin_cannot_reach_factor_fit():
+    origin = {
+        "status": "pending", "market_date": "2026-09-22",
+        "unresolved_h5_tickers": ["AAA"],
+    }
+    origin["input_snapshot_sha256"] = canonical_sha256(origin)
+    result = evaluate_origin(origin, {})
+    assert result["status"] == "pending"
+    assert "factor_fit" not in result
+
+    origin["input_snapshot_sha256"] = "f" * 64
+    with pytest.raises(ValueError, match="origin identity"):
+        evaluate_origin(origin, {})
+
+
+def test_challenger_score_snapshot_is_bound_to_values_and_cutoff():
+    origin, exposures = _fixtures()
+    scores = {row["ticker"]: row["champion_score"] for row in origin["rows"]}
+    identity = {"policy_id": "challenger", "market_date": origin["market_date"],
+                "information_cutoff_at": origin["scoring_information_cutoff_at"],
+                "scores": scores}
+    digest = canonical_sha256(identity)
+    scores["T24"] = -99.0
+
+    with pytest.raises(ValueError, match="snapshot is incomplete"):
+        evaluate_origin(origin, exposures, challenger_scores={
+            "challenger": {"scores": scores,
+                           "score_snapshot_sha256": digest},
+        })
+
+
+def test_mean_neutral_ic_uses_equal_sessions_and_twenty_session_floor():
+    reports = []
+    day, sessions = date(2026, 9, 1), []
+    while len(sessions) < 20:
+        if nyse.is_session(day):
+            sessions.append(day)
+        day += timedelta(days=1)
+    for index, session in enumerate(sessions, 1):
+        body = {"market_date": session.isoformat(), "comparisons": {
+            "challenger": {"factor_neutral": {
+                "status": "scored", "challenger_ic": index / 100,
+            }},
+        }}
+        reports.append({**body, "factor_report_sha256": canonical_sha256(body)})
+    result = mean_neutral_ic(
+        reports, "challenger", activation_date=date(2026, 9, 1),
+        report_cutoff=sessions[-1],
+    )
+    assert result["status"] == "available"
+    assert result["valid_session_count"] == 20
+    assert result["mean_neutral_ic"] == np.mean(np.arange(1, 21) / 100)
+    reports[-1]["comparisons"] = {}
+    reports[-1]["factor_report_sha256"] = canonical_sha256({
+        key: value for key, value in reports[-1].items() if key != "factor_report_sha256"
+    })
+    assert mean_neutral_ic(
+        reports, "challenger", activation_date=date(2026, 9, 1),
+        report_cutoff=sessions[-1],
+    )["status"] == "insufficient"
