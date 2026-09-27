@@ -72,7 +72,7 @@ def _insert_origin(con, *, bad_score=False):
         "INSERT INTO p15_scoring_runs VALUES "
         "(7,'p15-scoring-v1','2026-09-22','completed',?,?,?,"
         "'2026-09-22 20:00:00','2026-09-22 20:10:00')",
-        [universe["bundle_sha256"], "4" * 64, "3" * 64],
+        [canonical_sha256(universe), "4" * 64, "3" * 64],
     )
     for index, (ticker, _stratum, _rank, _score, status, champion) in enumerate(
         definitions, 1,
@@ -110,6 +110,7 @@ def test_origin_uses_frozen_terminal_h5_inputs_and_negative_rank(con):
     )
 
     assert validation_calls == [NOW]
+    assert result["status"] == "pending"
     assert result["frozen_candidate_count"] == 4
     assert result["held_only_excluded_count"] == 1
     assert result["evaluation_candidate_count"] == 3
@@ -123,9 +124,12 @@ def test_origin_uses_frozen_terminal_h5_inputs_and_negative_rank(con):
     assert result["rows"][1]["fallback_label"] is True
     assert result["rows"][1]["missing_bar_status"] == "missing_entry_last_available_close"
     assert result["source"] == {
-        "run_id": 7, "universe_sha256": json.loads(connection.execute(
+        "run_id": 7, "bundle_sha256": json.loads(connection.execute(
             "SELECT input_payload FROM agent_evaluation_traces"
         ).fetchone()[0])["universe"]["bundle_sha256"],
+        "universe_sha256": connection.execute(
+            "SELECT universe_sha256 FROM p15_scoring_runs"
+        ).fetchone()[0],
         "context_sha256": "4" * 64, "input_sha256": "1" * 64,
         "source_refs_sha256": canonical_sha256([{
             "kind": "p15_universe", "sha256": json.loads(connection.execute(
@@ -176,6 +180,21 @@ def test_origin_rejects_scoring_completed_after_report_cutoff(con):
     )
 
     with pytest.raises(p16_eval_inputs.EvaluationInputError, match="unavailable"):
+        p16_eval_inputs.load_origin(
+            connection, market_date=date(2026, 9, 22), report_cutoff=NOW,
+        )
+
+
+def test_origin_rejects_duplicate_decisions_even_without_schema_constraint(con):
+    connection, _calls = con
+    _insert_origin(connection)
+    connection.execute(
+        "INSERT INTO agent_evaluation_decisions SELECT 20,trace_id,ticker,decision,"
+        "assessment_sha256,decision_payload,decision_sha256 "
+        "FROM agent_evaluation_decisions WHERE ticker='AAA'"
+    )
+
+    with pytest.raises(p16_eval_inputs.EvaluationInputError, match="duplicate tickers"):
         p16_eval_inputs.load_origin(
             connection, market_date=date(2026, 9, 22), report_cutoff=NOW,
         )
