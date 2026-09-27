@@ -90,18 +90,41 @@ def plan_whole_share_orders(
     projected[-1] += extra_spy
     purchases[-1] += extra_spy
     projected_cash -= extra_spy * prices[-1]
-    weights = projected * prices / equity
-    cash_weight = projected_cash / equity
     constraints = Constraints(stock_beta, sectors)
-    stock_sector_violation = constraints.violation(np.r_[weights[:-1], 1 - weights[:-1].sum()])
-    actual_beta = float(stock_beta @ weights[:-1] + weights[-1])
-    invalid = (
-        weights[:-1].max(initial=0) > 0.1 + 1e-10
-        or weights[:-1].sum() > (0.3 + 1e-10 if constraints.sector_status == "sector_unavailable"
-                                else 1 + 1e-10)
-        or stock_sector_violation > 1e-10 or actual_beta < 0.8 - 1e-10
-        or actual_beta > 1.1 + 1e-10 or cash_weight < -1e-12
-    )
+    def projection() -> tuple[np.ndarray, float, float, bool]:
+        weights = projected * prices / equity
+        cash_weight = projected_cash / equity
+        violation = constraints.violation(
+            np.r_[weights[:-1], 1 - weights[:-1].sum()],
+        )
+        actual_beta = float(stock_beta @ weights[:-1] + weights[-1])
+        invalid = (
+            weights[:-1].max(initial=0) > 0.1 + 1e-10
+            or weights[:-1].sum() > (
+                0.3 + 1e-10 if constraints.sector_status == "sector_unavailable"
+                else 1 + 1e-10
+            )
+            or violation > 1e-10 or actual_beta < 0.8 - 1e-10
+            or actual_beta > 1.1 + 1e-10 or cash_weight < -1e-12
+        )
+        return weights, cash_weight, actual_beta, invalid
+
+    weights, cash_weight, actual_beta, invalid = projection()
+    # Whole-share rounding can strand cash and lower beta. Drop the lowest-alpha
+    # discretionary stock buys, funding whole SPY shares after each removal.
+    for index in sorted(
+        range(len(tickers)), key=lambda item: (alpha_values[item], tickers[item]),
+    ):
+        if not invalid or purchases[index] <= 0:
+            break
+        projected_cash += purchases[index] * prices[index]
+        projected[index] -= purchases[index]
+        purchases[index] = 0
+        extra_spy = math.floor(projected_cash / prices[-1])
+        projected[-1] += extra_spy
+        purchases[-1] += extra_spy
+        projected_cash -= extra_spy * prices[-1]
+        weights, cash_weight, actual_beta, invalid = projection()
     if invalid:
         mandatory_orders = [
             {"ticker": tickers[index], "side": "sell", "qty": float(current[index]),

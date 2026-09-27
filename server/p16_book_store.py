@@ -4,18 +4,21 @@ from __future__ import annotations
 import json
 import math
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
+from sim import nyse
 from sim.schema import init_sim_schema
 
 LOGICAL_BOOK_IDS = ("p16_construct_ai", "p16_construct_rule")
 INITIAL_CAPITAL = 10_000.0
 MECHANICS_VERSION = "p16-construct-v1"
 _VALIDATED_CALIBRATIONS: set[tuple[str, str, str]] = set()
+_NEW_YORK = ZoneInfo("America/New_York")
 
 
 class P16BookError(ValueError):
@@ -45,6 +48,7 @@ def _same_number(left: object, right: object) -> bool:
 
 def _validate_calibration_body(body: dict, recorded_at: datetime) -> tuple[float, float, int]:
     """Recompute the retained cohort, cost maximum, curve, and lambda selection."""
+    from engine.p16_features import session_dates
     from farm import p16_calibration, p16_risk
     from sim import execution
 
@@ -81,6 +85,7 @@ def _validate_calibration_body(body: dict, recorded_at: datetime) -> tuple[float
                 snapshot["scoring_information_cutoff_at"].replace("Z", "+00:00"),
             )
             sessions = [date.fromisoformat(value) for value in snapshot["sessions"]]
+            expected_sessions = session_dates(market_date, 121)
         except (KeyError, TypeError, ValueError) as exc:
             raise P16BookError("P16 calibration snapshot is invalid") from exc
         tickers = snapshot.get("tickers")
@@ -91,8 +96,8 @@ def _validate_calibration_body(body: dict, recorded_at: datetime) -> tuple[float
         if (scoring_cutoff.tzinfo is None or scoring_cutoff.utcoffset() is None
                 or scoring_cutoff.astimezone(timezone.utc).replace(tzinfo=None) > recorded_at
                 or scoring_cutoff.astimezone(timezone.utc).date() < market_date
-                or len(sessions) != 121 or sessions != sorted(set(sessions))
-                or sessions[-1] != market_date or not isinstance(tickers, list)
+                or sessions != expected_sessions
+                or not isinstance(tickers, list)
                 or tickers != sorted(set(tickers)) or not tickers or "SPY" in tickers
                 or not isinstance(sectors, list) or len(sectors) != len(tickers)
                 or not isinstance(scores, dict) or not isinstance(inputs, dict)
@@ -401,6 +406,13 @@ def record_calibration(
         if prior != expected:
             raise P16BookError("P16 calibration replay differs")
         return digest
+    frozen = con.execute(
+        "SELECT COUNT(*) FROM p16_book_contracts c JOIN portfolios p "
+        "ON p.id=c.portfolio_id WHERE c.registration_sha256=? "
+        "AND (c.activation_date IS NOT NULL OR p.active)", [registration],
+    ).fetchone()[0]
+    if frozen:
+        raise P16BookError("P16 calibration registration is already activated")
     con.execute(
         "INSERT INTO p16_calibrations VALUES (?,?,?,?,?,?,?)", [digest, *expected],
     )
@@ -427,13 +439,16 @@ def initialize_contracts(
         con, registration_sha256=registration, payload=payload,
         recorded_at=calibration_row[4].replace(tzinfo=timezone.utc),
     )
-    if activation_date is not None and any(
-        datetime.fromisoformat(
-            snapshot["scoring_information_cutoff_at"].replace("Z", "+00:00"),
-        ).astimezone(timezone.utc).date() >= activation_date
-        for snapshot in payload["snapshots"]
-    ):
-        raise P16BookError("P16 calibration is not preactivation")
+    if activation_date is not None:
+        if (calibration_row[4].date() >= activation_date
+                or recorded.date() > activation_date
+                or any(
+                    datetime.fromisoformat(
+                        snapshot["scoring_information_cutoff_at"].replace("Z", "+00:00"),
+                    ).astimezone(timezone.utc).date() >= activation_date
+                    for snapshot in payload["snapshots"]
+                )):
+            raise P16BookError("P16 calibration is not preactivation")
     risk_aversion, cost_per_turnover = calibration_row[1], calibration_row[2]
     instances = []
     for logical in LOGICAL_BOOK_IDS:
@@ -493,6 +508,13 @@ def add_intent(
         raise P16BookError("P16 intent fields are invalid")
     source = _digest(source_sha256, "intent source digest")
     created = _timestamp(created_at, "intent creation time")
+    if expected_session != nyse.next_session(signal_date):
+        raise P16BookError("P16 intent expected session is invalid")
+    session_open = datetime.combine(
+        expected_session, time(9, 30), tzinfo=_NEW_YORK,
+    ).astimezone(timezone.utc).replace(tzinfo=None)
+    if created >= session_open:
+        raise P16BookError("P16 intent was created after its next-session open")
     if entry_atr is not None and entry_atr <= 0:
         raise P16BookError("P16 entry ATR is invalid")
     logical = {
@@ -679,6 +701,11 @@ def claim_window(
     previous = None if previous_state_sha256 is None else _digest(
         previous_state_sha256, "previous state digest",
     )
+    session_open = datetime.combine(
+        market_date, time(9, 30), tzinfo=_NEW_YORK,
+    ).astimezone(timezone.utc).replace(tzinfo=None)
+    if cutoff > started or started >= session_open:
+        raise P16BookError("P16 window was not claimed before its session open")
     body = {
         "book_instance_id": book_instance_id, "market_date": market_date.isoformat(),
         "information_cutoff_at": cutoff.isoformat(), "risk_sha256": risk,
@@ -696,6 +723,13 @@ def claim_window(
         if prior[:5] != expected or prior[6] != digest:
             raise P16BookError("P16 completed or running window input differs")
         return prior[5]
+    earlier_running = con.execute(
+        "SELECT market_date FROM p16_book_windows WHERE book_instance_id=? "
+        "AND market_date<? AND status='running' ORDER BY market_date LIMIT 1",
+        [book_instance_id, market_date],
+    ).fetchone()
+    if earlier_running is not None:
+        raise P16BookError("earlier P16 book window remains running")
     con.execute(
         "INSERT INTO p16_book_windows VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         [book_instance_id, market_date, cutoff, risk, score, previous, target,

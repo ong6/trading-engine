@@ -106,7 +106,7 @@ def test_calibration_uses_every_retained_snapshot_for_each_book(con, monkeypatch
 
 def test_construct_targets_composes_gates_solver_planner_store_and_queue(con, monkeypatch):
     signal_date = date(2024, 7, 15)
-    cutoff = datetime(2026, 9, 27, 16, tzinfo=timezone.utc)
+    cutoff = datetime(2024, 7, 15, 20, tzinfo=timezone.utc)
     calibration = record_p16_calibration(con, REGISTRATION, cutoff)
     instances = p16_book_store.initialize_contracts(
         con, registration_sha256=REGISTRATION, activation_date=None,
@@ -175,7 +175,7 @@ def test_construct_targets_composes_gates_solver_planner_store_and_queue(con, mo
 def test_construct_targets_queues_stop_exits_while_ic_is_collecting(con, monkeypatch):
     signal_date = date(2024, 7, 15)
     entry_date = date(2024, 7, 12)
-    cutoff = datetime(2026, 9, 27, 16, tzinfo=timezone.utc)
+    cutoff = datetime(2024, 7, 15, 20, tzinfo=timezone.utc)
     calibration = record_p16_calibration(con, REGISTRATION, cutoff)
     instances = p16_book_store.initialize_contracts(
         con, registration_sha256=REGISTRATION, activation_date=None,

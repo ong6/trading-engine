@@ -157,40 +157,100 @@ def _trailing_ics(con, signal_date: date, cutoff: datetime) -> dict:
     }
 
 
-def _split_factor(con, ticker: str, after: date, through: date) -> float:
+def _split_factor(
+    con, ticker: str, after: date, through: date, cutoff: datetime | None = None,
+) -> float:
     if not table_exists(con, "split_adjustments"):
         return 1.0
+    availability = "" if cutoff is None else "AND applied_at IS NOT NULL AND applied_at<=?"
+    params = [ticker, after, through] if cutoff is None else [ticker, after, through, cutoff]
     return float(np.prod([float(row[0]) for row in con.execute(
         "SELECT ratio FROM split_adjustments WHERE ticker=? AND outcome='applied' "
-        "AND ex_date>? AND ex_date<=? ORDER BY ex_date", [ticker, after, through],
+        f"AND ex_date>? AND ex_date<=? {availability} ORDER BY ex_date", params,
     ).fetchall()]))
 
 
-def _state_as_of(con, instance: str, holding_date: date) -> dict | None:
+def _state_as_of(
+    con, instance: str, holding_date: date,
+    information_cutoff_at: datetime | None = None,
+) -> dict | None:
     portfolio_row = con.execute(
         "SELECT initial_cash FROM portfolios WHERE id=?", [instance],
     ).fetchone()
     if portfolio_row is None:
         return None
+    cutoff = None if information_cutoff_at is None else _cutoff(information_cutoff_at)
     if table_exists(con, "sim_settlements") and con.execute(
         "SELECT 1 FROM sim_settlements WHERE portfolio_id=? AND effective<=? LIMIT 1",
         [instance, holding_date],
     ).fetchone() is not None:
         return None
-    fills = con.execute(
-        "SELECT order_id,ticker,side,qty,fill_date,fill_px FROM sim_fills "
-        "WHERE portfolio_id=? AND fill_date<=? ORDER BY fill_date,order_id",
-        [instance, holding_date],
-    ).fetchall()
+    p16_instance = table_exists(con, "p16_book_contracts") and con.execute(
+        "SELECT 1 FROM p16_book_contracts WHERE book_instance_id=?", [instance],
+    ).fetchone() is not None
+    if cutoff is None:
+        fills = con.execute(
+            "SELECT order_id,ticker,side,qty,fill_date,fill_px FROM sim_fills "
+            "WHERE portfolio_id=? AND fill_date<=? ORDER BY fill_date,order_id",
+            [instance, holding_date],
+        ).fetchall()
+        retained_state = None
+    elif p16_instance:
+        retained_state = con.execute(
+            "SELECT s.cash,s.position_state_sha256 FROM p16_book_state s "
+            "JOIN p16_book_windows w ON w.book_instance_id=s.book_instance_id "
+            "AND w.market_date=s.market_date WHERE s.book_instance_id=? "
+            "AND s.market_date=? AND s.recorded_at<=? AND w.status='completed' "
+            "AND w.completed_at<=?", [instance, holding_date, cutoff, cutoff],
+        ).fetchone()
+        if retained_state is None:
+            return None
+        fills = con.execute(
+            "SELECT f.order_id,f.ticker,f.side,f.qty,f.fill_date,f.fill_px "
+            "FROM p16_book_fills f JOIN p16_book_windows w "
+            "ON w.book_instance_id=f.book_instance_id AND w.market_date=f.fill_date "
+            "WHERE f.book_instance_id=? AND f.fill_date<=? AND w.status='completed' "
+            "AND w.completed_at<=? ORDER BY f.fill_date,f.order_id",
+            [instance, holding_date, cutoff],
+        ).fetchall()
+    else:
+        if not table_exists(con, "p15_book_windows") or not table_exists(
+            con, "p15_book_fills",
+        ):
+            return None
+        retained_state = con.execute(
+            "SELECT cash,n_positions FROM p15_book_windows WHERE portfolio_id=? "
+            "AND market_date=? AND completed_at<=?", [instance, holding_date, cutoff],
+        ).fetchone()
+        if retained_state is None:
+            return None
+        fills = con.execute(
+            "SELECT f.order_id,f.ticker,f.side,f.qty,f.fill_date,f.fill_px "
+            "FROM p15_book_fills f JOIN p15_book_windows w "
+            "ON w.portfolio_id=f.portfolio_id AND w.market_date=f.fill_date "
+            "WHERE f.portfolio_id=? AND f.fill_date<=? AND w.completed_at<=? "
+            "ORDER BY f.fill_date,f.order_id", [instance, holding_date, cutoff],
+        ).fetchall()
     cash = float(portfolio_row[0])
     quantities: dict[str, float] = {}
+    average_costs: dict[str, float] = {}
     for order_id, ticker, side, quantity, fill_date, fill_px in fills:
         del order_id
-        signed = float(quantity) * _split_factor(con, ticker, fill_date, holding_date)
-        quantities[ticker] = quantities.get(ticker, 0.0) + (signed if side == "buy" else -signed)
+        factor = _split_factor(con, ticker, fill_date, holding_date, cutoff)
+        adjusted = float(quantity) * factor
+        prior_quantity = quantities.get(ticker, 0.0)
+        if side == "buy":
+            total = prior_quantity + adjusted
+            average_costs[ticker] = (
+                prior_quantity * average_costs.get(ticker, 0.0)
+                + adjusted * float(fill_px) / factor
+            ) / total
+            quantities[ticker] = total
+        else:
+            quantities[ticker] = prior_quantity - adjusted
         cash += (-1 if side == "buy" else 1) * float(quantity) * float(fill_px)
     dividends = []
-    if table_exists(con, "sim_dividends"):
+    if cutoff is None and table_exists(con, "sim_dividends"):
         dividends = con.execute(
             "SELECT ticker,ex_date,amount FROM sim_dividends "
             "WHERE portfolio_id=? AND ex_date<=? ORDER BY ex_date,ticker",
@@ -201,6 +261,23 @@ def _state_as_of(con, instance: str, holding_date: date) -> dict | None:
         return None
     positions = {ticker: quantity for ticker, quantity in quantities.items()
                  if quantity > 1e-12}
+    if cutoff is not None:
+        # Completed book state is the cutoff-bound cash authority. The generic
+        # dividend ledger has no availability timestamp and cannot be replayed
+        # safely into a historical transfer artifact.
+        cash = float(retained_state[0])
+        if p16_instance:
+            position_state = canonical_sha256({
+                "cash": cash,
+                "positions": {
+                    ticker: {"qty": quantity, "avg_cost": average_costs[ticker]}
+                    for ticker, quantity in sorted(positions.items())
+                },
+            })
+            if position_state != retained_state[1]:
+                return None
+        elif len(positions) != int(retained_state[1]):
+            return None
     body = {
         "book_instance_id": instance, "holding_date": holding_date.isoformat(),
         "initial_cash": float(portfolio_row[0]), "fills": [
@@ -256,7 +333,7 @@ def produce(
             rows.append({**row, "status": "unavailable", "reason": "book_absent",
                          "tc_diagonal": None})
             continue
-        state = _state_as_of(con, instance, holding_date)
+        state = _state_as_of(con, instance, holding_date, cutoff.replace(tzinfo=timezone.utc))
         if state is None or len(tickers) < 2:
             rows.append({**row, "status": "unavailable", "reason": "book_or_scores_unavailable",
                          "tc_diagonal": None})

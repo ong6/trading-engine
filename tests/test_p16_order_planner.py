@@ -68,6 +68,24 @@ def test_mandatory_exits_survive_infeasible_discretionary_plan():
     }]
 
 
+def test_rounding_repair_drops_low_alpha_buys_and_adds_spy():
+    result = plan_whole_share_orders(
+        tickers=["AAA", "BBB", "CCC"], target_weights=[0.1, 0.1, 0.1, 0.7],
+        current_quantities={},
+        operational_prices={"AAA": 100, "BBB": 100, "CCC": 100, "SPY": 3_000},
+        cash=10_000, equity=10_000, beta=[0.5, 0.5, 0.5],
+        sectors=["a", "b", "c"], alpha=[3, 2, 1],
+        entry_atr={"AAA": 1, "BBB": 1, "CCC": 1},
+    )
+
+    assert result["status"] == "planned"
+    assert result["projected_quantities"] == {
+        "AAA": 10.0, "BBB": 0.0, "CCC": 0.0, "SPY": 3.0,
+    }
+    assert result["portfolio_beta"] == pytest.approx(0.95)
+    assert result["projected_cash"] == pytest.approx(0)
+
+
 def test_planner_requires_sorted_unique_universe_and_complete_prices():
     with pytest.raises(ValueError, match="universe"):
         plan_whole_share_orders(
