@@ -9,7 +9,9 @@ from zoneinfo import ZoneInfo
 
 from engine import p15_event_sources
 from engine.lib import db
+from farm.replay.asof import rewrite_known_split_adjustments, rewrite_private_prices
 from farm.replay.clock import PHASES, completed_phases, init_clock_schema, record_phase_checkpoint
+from farm.replay.registration import SPLIT_KNOWLEDGE_PRIMARY
 from farm.replay.store import open_store
 from server import p15_scoring_store
 from sim import nyse, p15_books
@@ -45,6 +47,9 @@ class ReplaySessionStore:
     execute_phase: PhaseExecutor = _completed
     apply_phase: PhaseApplier | None = None
     run_books: bool = True
+    reconstructed_bars: Sequence[Mapping] = ()
+    actions: Sequence[Mapping] = ()
+    split_knowledge_policy: str = SPLIT_KNOWLEDGE_PRIMARY
 
 
 def session_phases(session: date) -> dict[str, datetime]:
@@ -201,6 +206,21 @@ def run_session(store: ReplaySessionStore, session: date) -> dict:
             )
             if len(current) != PHASES.index(phase):
                 raise ReplayRunnerError("replay_clock_changed_during_phase")
+            if store.reconstructed_bars:
+                with db.transaction(con):
+                    rewrite_private_prices(
+                        con, store.reconstructed_bars, store.actions,
+                        as_of=clocks["CLOSE"],
+                        knowledge_policy=store.split_knowledge_policy,
+                    )
+                    if phase == "OPEN":
+                        rewrite_known_split_adjustments(
+                            con, store.actions, known_at=logical_at,
+                            knowledge_policy=store.split_knowledge_policy,
+                        )
+                        p15_books._rebuild_p15_state(con)
+            elif store.run_books:
+                raise ReplayRunnerError("replay_price_archive_missing")
             if store.apply_phase is not None:
                 store.apply_phase(con, phase, session, logical_at, terminal_rows)
             if store.run_books and phase == "OPEN":

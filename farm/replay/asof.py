@@ -266,6 +266,75 @@ def asof_split_adjusted_bars(
     return visible
 
 
+def rewrite_private_prices(
+    con,
+    reconstructed_bars: Sequence[Mapping],
+    actions: Sequence[Mapping],
+    *,
+    as_of: datetime,
+    knowledge_policy: str = SPLIT_KNOWLEDGE_PRIMARY,
+) -> int:
+    """Replace the private compatibility table with exactly one as-of prefix."""
+    visible = asof_split_adjusted_bars(
+        reconstructed_bars, actions, as_of=as_of, knowledge_policy=knowledge_policy
+    )
+    con.execute("DELETE FROM prices")
+    rows = []
+    for row in visible:
+        available = _instant(row.get("available_at"), "bar_available_at")
+        rows.append(
+            (
+                str(row.get("ticker") or row.get("security_id")),
+                _date(row.get("session"), "bar_session"),
+                float(row["open"]),
+                float(row["high"]),
+                float(row["low"]),
+                float(row["close"]),
+                None if row.get("volume") is None else int(row["volume"]),
+                "historical_backfill",
+                available,
+            )
+        )
+    if rows:
+        con.executemany("INSERT INTO prices VALUES (?,?,?,?,?,?,?,?,?)", rows)
+    return len(rows)
+
+
+def rewrite_known_split_adjustments(
+    con,
+    actions: Sequence[Mapping],
+    *,
+    known_at: datetime,
+    knowledge_policy: str = SPLIT_KNOWLEDGE_PRIMARY,
+) -> int:
+    """Expose only trusted split decisions known by this replay open."""
+    cutoff = _instant(known_at, "split_cutoff")
+    rows = []
+    for action in _unique_actions(actions):
+        status = split_outcome(action)
+        if status == "quarantined" or split_known_at(action, knowledge_policy) > cutoff:
+            continue
+        ticker = str(action.get("ticker", ""))
+        if not ticker:
+            raise SplitQuarantineError("split_ticker_missing")
+        rows.append(
+            (
+                ticker,
+                _date(action.get("ex_date"), "split_ex_date"),
+                _ratio(action),
+                action.get("outcome"),
+                None,
+                None,
+                0,
+                cutoff,
+            )
+        )
+    con.execute("DELETE FROM split_adjustments")
+    if rows:
+        con.executemany("INSERT INTO split_adjustments VALUES (?,?,?,?,?,?,?,?)", rows)
+    return len(rows)
+
+
 def label_split_normalized_return(
     *,
     security_id: str,
