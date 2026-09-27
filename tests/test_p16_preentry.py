@@ -101,13 +101,13 @@ def _exposure(origin: dict) -> dict:
     return {**body, "snapshot_sha256": canonical_sha256(body)}
 
 
-def _scores(con, family, count: int = 20) -> list[str]:
+def _scores(con, family, count: int = 20, *, cutoff: datetime | None = None) -> list[str]:
     result = []
     for member_index, member in enumerate(family[0]):
         scores = {f"T{index:02d}": float(index + member_index) for index in range(count)}
         body = {
             "policy_id": member["comparison_id"], "market_date": EPOCH.isoformat(),
-            "information_cutoff_at": (NOW - timedelta(minutes=30)).isoformat(),
+            "information_cutoff_at": (cutoff or NOW - timedelta(minutes=30)).isoformat(),
             "scores": scores,
         }
         payload = {**body, "score_snapshot_sha256": canonical_sha256(body)}
@@ -195,3 +195,24 @@ def test_missed_session_report_is_permanently_blocked_and_not_backfilled(con, fa
             epoch_session=EPOCH, members=family[0], market_date=EPOCH,
             score_artifact_sha256s=[], recorded_at=after_forward_open,
         )
+
+
+def test_preentry_rejects_score_snapshot_from_a_different_cutoff(
+    con, family, monkeypatch,
+):
+    origin = _origin()
+    monkeypatch.setattr(p16_eval_inputs, "load_origin", lambda *_args, **_kwargs: origin)
+    monkeypatch.setattr(p16_preentry.p16_features, "exposure_snapshot",
+                        lambda *_args, **_kwargs: _exposure(origin))
+
+    with pytest.raises(p16_preentry.PreentryError, match="score artifact differs"):
+        p16_preentry.record_preentry(
+            con, registration_sha256=REGISTRATION, family_id="p16-family-v1",
+            epoch_session=EPOCH, members=family[0], market_date=EPOCH,
+            score_artifact_sha256s=_scores(
+                con, family, cutoff=NOW - timedelta(minutes=31)),
+            recorded_at=NOW,
+        )
+    assert con.execute(
+        "SELECT COUNT(*) FROM p16_sequential_origin_events"
+    ).fetchone() == (0,)
