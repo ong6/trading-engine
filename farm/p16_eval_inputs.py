@@ -164,7 +164,7 @@ def load_origin(
     if sorted(ranks) != list(range(1, len(candidates) + 1)):
         raise EvaluationInputError("baseline score is not equivalent to negative rank")
     labels = _labels(con, [item["id"] for item in decisions.values()], cutoff)
-    rows, unresolved, held_only = [], [], 0
+    rows, decision_rows, unresolved, held_only = [], [], [], 0
     for candidate in candidates:
         ticker, stratum = candidate["ticker"], candidate.get("stratum")
         if stratum == "held_only":
@@ -173,10 +173,6 @@ def load_origin(
         if stratum not in {"mover", "trend"}:
             raise EvaluationInputError("P15 candidate stratum is invalid")
         decision = decisions[ticker]
-        label = labels.get(decision["id"])
-        if label is None:
-            unresolved.append(ticker)
-            continue
         payload = decision["payload"]
         available = payload.get("scoring_status") == "available"
         if payload.get("scoring_status") not in {"available", "unavailable"}:
@@ -188,6 +184,18 @@ def load_origin(
                 raise EvaluationInputError("available P15 score has unavailable decision")
         elif champion is not None or decision["decision"] != "unavailable":
             raise EvaluationInputError("unavailable P15 score is populated")
+        decision_rows.append({
+            "ticker": ticker, "stratum": stratum,
+            "champion_score": champion, "champion_score_available": available,
+            "rule_score": -_rank(payload["baseline_rank"]),
+            "baseline_rank": payload["baseline_rank"],
+            "baseline_score": payload["baseline_score"],
+            "decision_sha256": decision["decision_sha256"],
+        })
+        label = labels.get(decision["id"])
+        if label is None:
+            unresolved.append(ticker)
+            continue
         rows.append({
             "ticker": ticker, "stratum": stratum,
             "champion_score": champion, "champion_score_available": available,
@@ -216,6 +224,7 @@ def load_origin(
         "scoring_completed_at": _iso(trace["completed_at"]),
         "frozen_candidate_count": len(candidates), "held_only_excluded_count": held_only,
         "evaluation_candidate_count": len(candidates) - held_only,
-        "terminal_h5_count": len(rows), "unresolved_h5_tickers": unresolved, "rows": rows,
+        "decision_rows": decision_rows, "terminal_h5_count": len(rows),
+        "unresolved_h5_tickers": unresolved, "rows": rows,
     }
     return {**body, "input_snapshot_sha256": canonical_sha256(body)}
