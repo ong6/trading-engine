@@ -1190,4 +1190,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm +162; server, tools, and other product layers unchanged; budget ok.
 - **Next:** build the reduced text-lab corpus, ridge, and unconfigured report path.
 
+## 2026-09-27 — P16 W4: build the reduced text lab
+
+- **Why:** approved W4 requires the reduced text-lab variant while the research-text dependency
+  remains unapproved; a later checkpoint may never stand in for a missing historical checkpoint.
+- **What:** inventory 2015–2025 8-K item 2.02 accessions before labels, map acceptance to the first
+  strictly later NYSE open, select the fixed 25% issuer sample and four checkpoint blocks, fit
+  train-only ridge inputs, and render the explicit inference-unconfigured report.
+- **Evidence:** `.venv/bin/python -m pytest -q tests/test_p16_textlab.py tests/test_p16_replay_sources.py tests/test_p16_replay_evaluate.py`
+  passes 14 tests; Ruff passes the touched modules.
+- **Metrics:** farm +208; server, tools, and other product layers unchanged; budget ok.
+- **Next:** complete the W4 fixture suite and final host/UTC checkpoint proof.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
