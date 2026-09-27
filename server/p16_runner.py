@@ -32,6 +32,20 @@ def _latest_origin(con) -> date | None:
         return None
 
 
+def _calibration_dates(con, through: date, cutoff: datetime) -> list[date]:
+    """Use every retained completed preactivation origin through the requested date."""
+    try:
+        rows = con.execute(
+            "SELECT DISTINCT market_date FROM agent_evaluation_traces "
+            "WHERE policy_id='p15-scoring-v1' AND terminal_status='completed' "
+            "AND market_date<=? AND completed_at<=? ORDER BY market_date",
+            [through, cutoff.replace(tzinfo=None)],
+        ).fetchall()
+    except duckdb.Error:
+        return [through]
+    return [row[0] for row in rows] or [through]
+
+
 def _sector_rows(con, tickers: list[str], market_date: date, cutoff: datetime) -> list[str]:
     placeholders = ",".join("?" for _ in tickers)
     rows = con.execute(
@@ -121,15 +135,17 @@ def _snapshot(con, origin: dict, cutoff: datetime) -> dict:
 
 
 def calibrate(con, *, market_date: date, generated_at: datetime) -> dict:
-    """Calibrate from one retained real snapshot or explain why it is unavailable."""
+    """Calibrate across all retained real snapshots or explain why unavailable."""
+    snapshots = []
     try:
-        origin = p16_eval_inputs.load_origin(
-            con, market_date=market_date, report_cutoff=generated_at,
-        )
-        scoring_cutoff = datetime.fromisoformat(
-            origin["scoring_information_cutoff_at"].replace("Z", "+00:00"),
-        )
-        snapshot = _snapshot(con, origin, scoring_cutoff)
+        for origin_date in _calibration_dates(con, market_date, generated_at):
+            origin = p16_eval_inputs.load_origin(
+                con, market_date=origin_date, report_cutoff=generated_at,
+            )
+            scoring_cutoff = datetime.fromisoformat(
+                origin["scoring_information_cutoff_at"].replace("Z", "+00:00"),
+            )
+            snapshots.append(_snapshot(con, origin, scoring_cutoff))
     except (ValueError, p16_eval_inputs.EvaluationInputError, duckdb.Error) as exc:
         return {
             "status": "calibration_unavailable", "reason": str(exc),
@@ -139,42 +155,49 @@ def calibrate(con, *, market_date: date, generated_at: datetime) -> dict:
             ],
         }
     cases = []
-    for book_id, policy in zip(
-        p16_book_store.LOGICAL_BOOK_IDS, ("champion", "rule"), strict=True,
-    ):
-        values = snapshot["risk"][policy]
-        cases.append({
-            "book_id": book_id, "alpha": values["alpha_h5"],
-            "covariance": values["covariance_h5"], "beta": values["beta"],
-            "sectors": snapshot["sectors"],
-            "previous": np.r_[np.zeros(len(snapshot["tickers"])), 1.0],
-            "cost": snapshot["cost_per_turnover"], "band": 0.005,
-            "horizon_sessions": 5,
-        })
+    for snapshot in snapshots:
+        for book_id, policy in zip(
+            p16_book_store.LOGICAL_BOOK_IDS, ("champion", "rule"), strict=True,
+        ):
+            values = snapshot["risk"][policy]
+            cases.append({
+                "book_id": book_id, "alpha": values["alpha_h5"],
+                "covariance": values["covariance_h5"], "beta": values["beta"],
+                "sectors": snapshot["sectors"],
+                "previous": np.r_[np.zeros(len(snapshot["tickers"])), 1.0],
+                "cost": snapshot["cost_per_turnover"], "band": 0.005,
+                "horizon_sessions": 5,
+            })
     result = p16_calibration.calibrate_lambda(cases)
     books = []
     if result["selected_lambda"] is not None:
-        for case in cases:
-            solve_args = {key: value for key, value in case.items() if key != "book_id"}
-            solved = p16_optimizer.solve(
-                **solve_args, risk_aversion=result["selected_lambda"],
-            )
+        for book_id in p16_book_store.LOGICAL_BOOK_IDS:
+            solves = []
+            for case in (row for row in cases if row["book_id"] == book_id):
+                solve_args = {key: value for key, value in case.items() if key != "book_id"}
+                solves.append(p16_optimizer.solve(
+                    **solve_args, risk_aversion=result["selected_lambda"],
+                ))
             books.append({
-                "book_id": case["book_id"], "status": solved["status"],
-                "tracking_error": solved["tracking_error"],
-                "sector_status": solved["sector_status"],
-                "sector_coverage": solved["sector_coverage"],
-                "weights": solved["weights"].tolist(),
+                "book_id": book_id, "status": "calibrated",
+                "snapshot_count": len(solves),
+                "median_tracking_error": float(np.median([
+                    row["tracking_error"] for row in solves
+                ])),
             })
     else:
         books = [{"book_id": case["book_id"], "status": "core_collecting"}
                  for case in cases]
-    return {
-        **result, "books": books, "risk_sha256": snapshot["risk_sha256"],
-        "score_sha256": snapshot["score_sha256"],
-        "cost_per_turnover": snapshot["cost_per_turnover"],
+    body = {
+        "schema_version": 1, **result, "books": books,
+        "snapshot_dates": [row["market_date"].isoformat() for row in snapshots],
+        "risk_snapshot_sha256s": [row["risk_sha256"] for row in snapshots],
+        "score_snapshot_sha256s": [row["score_sha256"] for row in snapshots],
+        "cost_per_turnover": max(row["cost_per_turnover"] for row in snapshots),
         "ic_source": "registered_assumption", "assumed_ic": p16_risk.CALIBRATION_IC,
+        "execution_authority": "none",
     }
+    return {**body, "calibration_sha256": canonical_sha256(body)}
 
 
 def dry_run(

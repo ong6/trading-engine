@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 import duckdb
+import numpy as np
 
 from engine.lib import db
 from server import p16_runner
@@ -39,6 +40,62 @@ def test_calibration_risk_snapshot_uses_retained_scoring_cutoff(con, monkeypatch
     )
     assert result["status"] == "calibration_unavailable"
     assert result["reason"] == "checked"
+
+
+def test_calibration_uses_every_retained_snapshot_for_each_book(con, monkeypatch):
+    dates = [date(2026, 9, 24), date(2026, 9, 25)]
+    cutoffs = {
+        dates[0]: "2026-09-24T20:00:00Z",
+        dates[1]: "2026-09-25T20:00:00Z",
+    }
+    monkeypatch.setattr(p16_runner, "_calibration_dates", lambda *_args: dates)
+    monkeypatch.setattr(
+        p16_runner.p16_eval_inputs, "load_origin",
+        lambda _con, *, market_date, report_cutoff: {
+            "market_date": market_date.isoformat(),
+            "scoring_information_cutoff_at": cutoffs[market_date],
+        },
+    )
+
+    def snapshot(_con, origin, cutoff):
+        index = dates.index(date.fromisoformat(origin["market_date"]))
+        assert cutoff.isoformat() == cutoffs[dates[index]].replace("Z", "+00:00")
+        values = {
+            "alpha_h5": np.array([0.001, 0.002]),
+            "covariance_h5": np.eye(2) * 0.001,
+            "beta": np.ones(2),
+        }
+        return {
+            "market_date": dates[index], "tickers": ["AAA", "BBB"],
+            "sectors": ["a", "b"], "risk": {"champion": values, "rule": values},
+            "risk_sha256": str(index + 1) * 64,
+            "score_sha256": str(index + 3) * 64,
+            "cost_per_turnover": 0.001 + index * 0.001,
+        }
+
+    def calibrate(cases):
+        assert len(cases) == 4
+        assert [row["book_id"] for row in cases] == [
+            "p16_construct_ai", "p16_construct_rule",
+            "p16_construct_ai", "p16_construct_rule",
+        ]
+        return {
+            "status": "target_unattainable_on_grid", "selected_lambda": None,
+            "selected_at_grid_endpoint": None, "grid_bounds": [0.1, 1000.0],
+            "curve": [],
+        }
+
+    monkeypatch.setattr(p16_runner, "_snapshot", snapshot)
+    monkeypatch.setattr(p16_runner.p16_calibration, "calibrate_lambda", calibrate)
+
+    result = p16_runner.calibrate(
+        con, market_date=dates[-1],
+        generated_at=datetime(2026, 9, 26, 12, tzinfo=timezone.utc),
+    )
+
+    assert result["snapshot_dates"] == [item.isoformat() for item in dates]
+    assert result["risk_snapshot_sha256s"] == ["1" * 64, "2" * 64]
+    assert result["cost_per_turnover"] == 0.002
 
 
 def test_copied_store_dry_run_leaves_source_unchanged(tmp_path):

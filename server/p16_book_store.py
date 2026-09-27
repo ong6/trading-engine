@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from datetime import date, datetime, timezone
 
@@ -38,10 +39,16 @@ def versioned_book_id(logical_book_id: str, registration_sha256: str) -> str:
 
 def init_schema(con) -> None:
     init_sim_schema(con)
+    con.execute("""CREATE TABLE IF NOT EXISTS p16_calibrations (
+        calibration_sha256 VARCHAR PRIMARY KEY, registration_sha256 VARCHAR NOT NULL,
+        selected_lambda DOUBLE NOT NULL, cost_per_turnover DOUBLE NOT NULL,
+        snapshot_count INTEGER NOT NULL, payload_json VARCHAR NOT NULL,
+        recorded_at TIMESTAMP NOT NULL)""")
     con.execute("""CREATE TABLE IF NOT EXISTS p16_book_contracts (
         book_instance_id VARCHAR PRIMARY KEY, logical_portfolio_id VARCHAR NOT NULL,
         registration_sha256 VARCHAR NOT NULL, portfolio_id VARCHAR NOT NULL UNIQUE,
-        mechanics_version VARCHAR NOT NULL, activation_date DATE,
+        mechanics_version VARCHAR NOT NULL, calibration_sha256 VARCHAR NOT NULL,
+        activation_date DATE,
         initial_capital DOUBLE NOT NULL, risk_aversion DOUBLE NOT NULL,
         cost_per_turnover DOUBLE NOT NULL, no_trade_band DOUBLE NOT NULL,
         config_json VARCHAR NOT NULL, contract_sha256 VARCHAR NOT NULL UNIQUE,
@@ -110,24 +117,87 @@ def init_schema(con) -> None:
         recorded_at TIMESTAMP NOT NULL, PRIMARY KEY(book_instance_id,signal_date))""")
 
 
-def initialize_contracts(
-    con, *, registration_sha256: str, activation_date: date | None,
-    risk_aversion: float, cost_per_turnover: float, created_at: datetime,
-) -> list[str]:
-    """Create or verify inactive, versioned book contracts without runtime evidence."""
+def record_calibration(
+    con, *, registration_sha256: str, payload: dict, recorded_at: datetime,
+) -> str:
+    """Retain one complete successful preactivation calibration artifact."""
+    from farm.p16_calibration import DEFAULT_LAMBDA_GRID
+
     init_schema(con)
     registration = _digest(registration_sha256, "registration digest")
+    recorded = _timestamp(recorded_at, "calibration recording time")
+    if not isinstance(payload, dict):
+        raise P16BookError("P16 calibration artifact is invalid")
+    digest = _digest(payload.get("calibration_sha256"), "calibration digest")
+    body = {key: value for key, value in payload.items() if key != "calibration_sha256"}
+    curve = body.get("curve")
+    dates = body.get("snapshot_dates")
+    risk_ids = body.get("risk_snapshot_sha256s")
+    score_ids = body.get("score_snapshot_sha256s")
+    selected = body.get("selected_lambda")
+    cost = body.get("cost_per_turnover")
+    expected_grid = [float(value) for value in DEFAULT_LAMBDA_GRID]
+    observed_grid = [row.get("risk_aversion") for row in curve] \
+        if isinstance(curve, list) else []
+    if (digest != canonical_sha256(body) or body.get("schema_version") != 1
+            or body.get("status") != "calibrated"
+            or body.get("execution_authority") != "none"
+            or observed_grid != expected_grid or selected not in expected_grid
+            or not any(row.get("eligible") is True and row.get("risk_aversion") == selected
+                       for row in curve)
+            or not isinstance(cost, (int, float)) or isinstance(cost, bool)
+            or not math.isfinite(float(cost)) or cost < 0
+            or not isinstance(dates, list) or not dates or dates != sorted(set(dates))
+            or not isinstance(risk_ids, list) or len(risk_ids) != len(dates)
+            or not isinstance(score_ids, list) or len(score_ids) != len(dates)
+            or any(re.fullmatch(r"[0-9a-f]{64}", value or "") is None
+                   for value in [*risk_ids, *score_ids])):
+        raise P16BookError("P16 calibration artifact is invalid")
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    expected = (registration, float(selected), float(cost), len(dates), encoded, recorded)
+    prior = con.execute(
+        "SELECT registration_sha256,selected_lambda,cost_per_turnover,snapshot_count,"
+        "payload_json,recorded_at FROM p16_calibrations WHERE calibration_sha256=?",
+        [digest],
+    ).fetchone()
+    if prior is not None:
+        if prior != expected:
+            raise P16BookError("P16 calibration replay differs")
+        return digest
+    con.execute(
+        "INSERT INTO p16_calibrations VALUES (?,?,?,?,?,?,?)", [digest, *expected],
+    )
+    return digest
+
+
+def initialize_contracts(
+    con, *, registration_sha256: str, activation_date: date | None,
+    calibration_sha256: str, created_at: datetime,
+) -> list[str]:
+    """Create inactive versioned books only from retained successful calibration."""
+    init_schema(con)
+    registration = _digest(registration_sha256, "registration digest")
+    calibration = _digest(calibration_sha256, "calibration digest")
     recorded = _timestamp(created_at, "contract creation time")
-    if (not isinstance(risk_aversion, (int, float)) or risk_aversion <= 0
-            or not isinstance(cost_per_turnover, (int, float))
-            or cost_per_turnover < 0):
-        raise P16BookError("construction calibration is invalid")
+    calibration_row = con.execute(
+        "SELECT registration_sha256,selected_lambda,cost_per_turnover,payload_json,recorded_at "
+        "FROM p16_calibrations WHERE calibration_sha256=?", [calibration],
+    ).fetchone()
+    if calibration_row is None or calibration_row[0] != registration:
+        raise P16BookError("successful retained construction calibration is absent")
+    payload = json.loads(calibration_row[3])
+    record_calibration(
+        con, registration_sha256=registration, payload=payload,
+        recorded_at=calibration_row[4].replace(tzinfo=timezone.utc),
+    )
+    risk_aversion, cost_per_turnover = calibration_row[1], calibration_row[2]
     instances = []
     for logical in LOGICAL_BOOK_IDS:
         instance = versioned_book_id(logical, registration)
         config = {
             "mechanics_version": MECHANICS_VERSION, "logical_portfolio_id": logical,
             "registration_sha256": registration, "initial_capital": INITIAL_CAPITAL,
+            "calibration_sha256": calibration,
             "risk_aversion": float(risk_aversion),
             "cost_per_turnover": float(cost_per_turnover), "no_trade_band": 0.005,
             "execution_profile": "baseline_v1", "entry_order_type": "limit_on_open",
@@ -138,13 +208,13 @@ def initialize_contracts(
         encoded = json.dumps(config, sort_keys=True, separators=(",", ":"))
         contract_sha = canonical_sha256(config)
         expected = (
-            instance, logical, registration, instance, MECHANICS_VERSION,
+            instance, logical, registration, instance, MECHANICS_VERSION, calibration,
             activation_date, INITIAL_CAPITAL, float(risk_aversion),
             float(cost_per_turnover), 0.005, encoded, contract_sha,
         )
         prior = con.execute(
             "SELECT book_instance_id,logical_portfolio_id,registration_sha256,portfolio_id,"
-            "mechanics_version,activation_date,initial_capital,risk_aversion,"
+            "mechanics_version,calibration_sha256,activation_date,initial_capital,risk_aversion,"
             "cost_per_turnover,no_trade_band,config_json,contract_sha256 "
             "FROM p16_book_contracts WHERE book_instance_id=?", [instance],
         ).fetchone()
@@ -160,7 +230,7 @@ def initialize_contracts(
                  INITIAL_CAPITAL, "baseline_v1"],
             )
             con.execute(
-                "INSERT INTO p16_book_contracts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO p16_book_contracts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 [*expected, recorded],
             )
         instances.append(instance)
