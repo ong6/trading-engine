@@ -347,3 +347,70 @@ def append_state(
          spy_mark, marks_json, position, previous, state_sha, recorded],
     )
     return state_sha
+
+
+def record_target(
+    con, *, book_instance_id: str, signal_date: date, risk_snapshot_sha256: str,
+    score_sha256: str, ic_source_sha256: str, risk_aversion: float,
+    cost_per_turnover: float, solver_result: dict, continuous_weights,
+    banded_weights, rounded_plan: dict | None, recorded_at: datetime,
+) -> str:
+    """Append one construction target, retaining numerical diagnostics and failures."""
+    risk = _digest(risk_snapshot_sha256, "target risk digest")
+    score = _digest(score_sha256, "target score digest")
+    ic_source = _digest(ic_source_sha256, "target IC source digest")
+    recorded = _timestamp(recorded_at, "target recording time")
+    status = solver_result.get("status")
+    if status not in {"converged", "zero_alpha_core", "not_converged"}:
+        raise P16BookError("P16 target solver status is invalid")
+    continuous_json = json.dumps(
+        continuous_weights, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    )
+    banded_json = None if banded_weights is None else json.dumps(
+        banded_weights, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    )
+    rounded_json = None if rounded_plan is None else json.dumps(
+        rounded_plan, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    )
+    diagnostics = {
+        key: value for key, value in solver_result.items()
+        if key not in {"weights"} and isinstance(value, (str, int, float, bool, type(None), list))
+    }
+    residuals_json = json.dumps(
+        diagnostics, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    )
+    body = {
+        "book_instance_id": book_instance_id, "signal_date": signal_date.isoformat(),
+        "risk_snapshot_sha256": risk, "score_sha256": score,
+        "ic_source_sha256": ic_source, "risk_aversion": float(risk_aversion),
+        "cost_per_turnover": float(cost_per_turnover), "solver_status": status,
+        "residuals": diagnostics, "sector_coverage": solver_result.get("sector_coverage"),
+        "sector_status": solver_result.get("sector_status"),
+        "continuous_weights": continuous_weights, "banded_weights": banded_weights,
+        "rounded_plan": rounded_plan,
+    }
+    if (not isinstance(body["sector_coverage"], (int, float))
+            or body["sector_status"] not in {"available", "sector_unavailable"}):
+        raise P16BookError("P16 target sector diagnostics are invalid")
+    target_sha = canonical_sha256(body)
+    expected = (
+        risk, score, ic_source, float(risk_aversion), float(cost_per_turnover), status,
+        residuals_json, float(body["sector_coverage"]), body["sector_status"],
+        continuous_json, banded_json, rounded_json, target_sha,
+    )
+    prior = con.execute(
+        "SELECT risk_snapshot_sha256,score_sha256,ic_source_sha256,risk_aversion,"
+        "cost_per_turnover,solver_status,residuals_json,sector_coverage,sector_status,"
+        "continuous_json,banded_json,rounded_json,target_sha256 "
+        "FROM p16_construct_targets WHERE book_instance_id=? AND signal_date=?",
+        [book_instance_id, signal_date],
+    ).fetchone()
+    if prior is not None:
+        if prior != expected:
+            raise P16BookError("P16 target replay differs")
+        return target_sha
+    con.execute(
+        "INSERT INTO p16_construct_targets VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        [book_instance_id, signal_date, *expected, recorded],
+    )
+    return target_sha
