@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
@@ -21,9 +20,10 @@ from server import agent_model_client, p16_filing_client, p16_filing_store
 POLICY_ID = "p16-filings-v1"
 MAX_MODEL_CALLS = 2
 ET = ZoneInfo("America/New_York")
+MODEL_LOCK = DEFAULT_DB.parent / ".p16-filing-model.lock"
 class FilingRunError(ValueError):
     """A W3 input, identity, or persisted state is unusable."""
-def _utc(value) -> datetime:
+def _utc(value, *, database_value: bool = False) -> datetime:
     if isinstance(value, datetime):
         parsed = value
     else:
@@ -31,6 +31,8 @@ def _utc(value) -> datetime:
             parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except (TypeError, ValueError, AttributeError) as exc:
             raise FilingRunError("filing runner timestamp is invalid") from exc
+    if parsed.utcoffset() is None and not database_value:
+        raise FilingRunError("filing runner timestamp requires a timezone")
     if parsed.utcoffset() is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
@@ -64,12 +66,12 @@ def _p15_snapshot(con, cutoff: datetime) -> dict | None:
             not isinstance(item, dict) or not isinstance(item.get("ticker"), str)
             for item in candidates):
         raise FilingRunError("retained P15 universe is invalid")
-    return {"run_id": int(row[0]), "market_date": row[1].isoformat(),
-            "universe_sha256": row[3], "completed_at": _utc(row[4]).isoformat(),
+    return {"run_id": int(row[0]), "market_date": row[1].isoformat(), "universe_sha256": row[3],
+            "completed_at": _utc(row[4], database_value=True).isoformat(),
             "tickers": sorted({item["ticker"] for item in candidates})}
 def frozen_scope(
     con, *, market_date: date, scan_started_at: datetime, map_sha256: str,
-    security_rows: list[dict], aliases: dict[str, str] | None = None,
+    aliases: dict[str, str] | None = None,
 ) -> dict:
     """Freeze latest cutoff-bounded P15/template names into CIK/security scope."""
     cutoff = _utc(scan_started_at)
@@ -83,9 +85,7 @@ def frozen_scope(
     if not tickers:
         return {"status": "universe_unavailable", "universe": {}, "p15": p15,
                 "screen": screen}
-    if (not isinstance(map_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", map_sha256) is None
-            or not isinstance(security_rows, list)
-            or any(not isinstance(row, dict) for row in security_rows)):
+    if not isinstance(map_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", map_sha256) is None:
         raise FilingRunError("filing security map identity is invalid")
     receipt = con.execute(
         "SELECT endpoint,received_at,content_type,response_body,response_size_bytes "
@@ -98,20 +98,29 @@ def frozen_scope(
     body = bytes(receipt[3])
     if hashlib.sha256(body).hexdigest() != map_sha256:
         raise FilingRunError("retained filing security map identity differs")
+    received = _utc(receipt[1], database_value=True)
     map_snapshot = p16_filing_sources.parse_ticker_map(p16_filing_sources.SecResponse(
-        200, receipt[2], {}, body, _utc(receipt[1]), _utc(receipt[1]),
-        receipt[0], int(receipt[4]), True,
-    ))
+        200, receipt[2], {}, body, received, received, receipt[0], int(receipt[4]), True))
     if p16_filing_sources.ticker_map_status(map_snapshot, at=cutoff) != "ready":
         return {"status": "map_stale", "universe": {}, "p15": p15, "screen": screen}
-    for row in security_rows:
-        cik = p16_filing_parser.cik_id(row.get("cik"))
-        if (row.get("snapshot_id") == map_sha256
-                and row.get("ticker") not in map_snapshot["cik_tickers"].get(cik, ())):
-            raise FilingRunError("filing security rows differ from retained map")
     aliases = aliases or {}
-    ciks = sorted({p16_filing_parser.cik_id(row.get("cik")) for row in security_rows
-                   if row.get("snapshot_id") == map_sha256})
+    if not isinstance(aliases, dict) or any(not isinstance(key, str) or not isinstance(value, str)
+                                            for key, value in aliases.items()):
+        raise FilingRunError("cutoff-bounded filing security master is unavailable")
+    canonical_tickers = {aliases.get(ticker, ticker) for values in
+                         map_snapshot["cik_tickers"].values() for ticker in values}
+    try:
+        liquidity = p16_screen_inputs.security_liquidity_as_known(
+            con, canonical_tickers, market_date=market_date, information_cutoff_at=cutoff)
+    except ValueError as exc:
+        raise FilingRunError(str(exc)) from exc
+    if not set(aliases.values()) <= set(liquidity):
+        raise FilingRunError("cutoff-bounded filing security master is unavailable")
+    security_rows = [{"cik": cik, "ticker": ticker, "security_id": aliases.get(ticker, ticker),
+                      "snapshot_id": map_sha256, "available_at": map_snapshot["received_at"]}
+                     for cik, values in map_snapshot["cik_tickers"].items()
+                     for ticker in values if aliases.get(ticker, ticker) in liquidity]
+    ciks = sorted(map_snapshot["cik_tickers"])
     universe = {}
     for cik in ciks:
         mapped = p16_filing_parser.map_cik_scope(
@@ -121,17 +130,12 @@ def frozen_scope(
         if mapped["status"] != "mapped":
             continue
         selected = mapped["securities"]
-        volumes = {}
-        for security in selected:
-            matches = [row for row in security_rows
-                       if row.get("snapshot_id") == map_sha256
-                       and row.get("security_id") == security["security_id"]]
-            values = [row.get("median_dollar_volume_60d") for row in matches]
-            if (len(values) != 1 or isinstance(values[0], bool)
-                    or not isinstance(values[0], (int, float)) or not math.isfinite(values[0])
-                    or values[0] < 0):
-                raise FilingRunError("primary security liquidity is unavailable")
-            volumes[security["security_id"]] = float(values[0])
+        if any(item["security_id"] not in liquidity for item in selected):
+            raise FilingRunError("primary security liquidity is unavailable")
+        volumes = {item["security_id"]: liquidity[item["security_id"]]["median_dollar_volume_60d"]
+                   for item in selected}
+        liquidity_lineage = {item["security_id"]: liquidity[item["security_id"]]["price_rows_sha256"]
+                             for item in selected}
         primary = min(volumes, key=lambda security_id: (-volumes[security_id], security_id))
         entered_at = cutoff
         if table_exists(con, "p16_filing_scans"):
@@ -147,17 +151,13 @@ def frozen_scope(
             "securities": sorted(volumes),
             "security_tickers": {item["security_id"]: item["ticker"] for item in selected},
             "primary_security_id": primary,
-            "selection_sha256": canonical_sha256([
-                row for row in security_rows if row.get("snapshot_id") == map_sha256
-                and p16_filing_parser.cik_id(row.get("cik")) == cik
-            ]),
+            "selection_sha256": canonical_sha256({"map_sha256": map_sha256, "market_date": market_date.isoformat(),
+                                                   "cutoff_at": cutoff.isoformat(), "aliases": aliases, "liquidity": liquidity_lineage}),
         }
-    return {
-        "status": "ready" if universe else "map_unavailable", "universe": universe,
-        "map_sha256": map_sha256, "p15": p15, "screen": screen,
-        "scope_sha256": canonical_sha256({"universe": universe, "map_sha256": map_sha256,
-                                          "p15": p15, "screen": screen}),
-    }
+    return {"status": "ready" if universe else "map_unavailable", "universe": universe,
+            "map_sha256": map_sha256, "p15": p15, "screen": screen,
+            "scope_sha256": canonical_sha256({"universe": universe, "map_sha256": map_sha256,
+                                               "p15": p15, "screen": screen})}
 def _work(con, work_id: str) -> dict:
     cursor = con.execute(
         "SELECT work_id,policy_id,accession,security_id,session_date,input_json,status "
@@ -182,7 +182,7 @@ def build_input(con, work: dict, *, cutoff_at: datetime) -> dict:
     spans = normalized.get("spans")
     if not ticker or not isinstance(spans, list) or not spans:
         raise FilingRunError("filing model evidence is unavailable")
-    published, available, ingested = (_utc(row[key]).isoformat()
+    published, available, ingested = (_utc(row[key], database_value=True).isoformat()
                                       for key in ("accepted_at", "available_at", "ingested_at"))
     evidence = [{**{key: span[key] for key in (
         "evidence_id", "text", "source_sha256", "filename", "parser_version",
@@ -221,23 +221,17 @@ def _validate_identity(result, request: dict) -> None:
     if not isinstance(result, p16_filing_client.FilingConnectorResult):
         raise FilingRunError("filing model result is invalid")
     expected = p16_filing_client.identity()
-    observed = {
-        "model": result.model, "model_version": result.model_version,
-        "upstream_model_family": result.upstream_model_family,
-        "model_catalog_entry_sha256": result.model_catalog_entry_sha256,
-        "proxy_version": result.proxy_version,
-        "proxy_source_sha256": result.proxy_source_sha256,
-        "traecli_runtime": result.traecli_runtime,
-    }
-    required = {
-        "model": expected["model"],
-        "model_version": expected["model_version"],
-        "upstream_model_family": expected["upstream_model_family"],
-        "model_catalog_entry_sha256": expected["model_catalog_entry_sha256"],
-        "proxy_version": expected["required_proxy_version"],
-        "proxy_source_sha256": expected["required_proxy_source_sha256"],
-        "traecli_runtime": expected["required_traecli_runtime"],
-    }
+    observed = {"model": result.model, "model_version": result.model_version,
+                "upstream_model_family": result.upstream_model_family,
+                "model_catalog_entry_sha256": result.model_catalog_entry_sha256,
+                "proxy_version": result.proxy_version, "proxy_source_sha256": result.proxy_source_sha256,
+                "traecli_runtime": result.traecli_runtime}
+    required = {"model": expected["model"], "model_version": expected["model_version"],
+                "upstream_model_family": expected["upstream_model_family"],
+                "model_catalog_entry_sha256": expected["model_catalog_entry_sha256"],
+                "proxy_version": expected["required_proxy_version"],
+                "proxy_source_sha256": expected["required_proxy_source_sha256"],
+                "traecli_runtime": expected["required_traecli_runtime"]}
     if observed != required or result.request_sha256 != canonical_sha256(request):
         raise FilingRunError("filing model identity differs")
 def _retryable(exc: Exception) -> bool:
@@ -247,8 +241,7 @@ def _response_payload(result) -> dict:
     return asdict(result)
 def _error_payload(error: agent_model_client.ConnectorError) -> dict | None:
     payload = {"error": str(error), "response_id": getattr(error, "response_id", None),
-               "request_sha256": getattr(error, "request_sha256", None),
-               "response_sha256": getattr(error, "response_sha256", None),
+               "request_sha256": getattr(error, "request_sha256", None), "response_sha256": getattr(error, "response_sha256", None),
                "usage": getattr(error, "usage", None),
                "raw_response_sha256": getattr(error, "raw_response_sha256", None)}
     return payload if any(value is not None for key, value in payload.items() if key != "error") else None
@@ -258,7 +251,7 @@ def _append_work(con, work, *, status: str, at: datetime, reason: str) -> str:
         security_id=work["security_id"], session_date=work["session_date"], status=status,
         event_at=at, not_before=at, input_payload=json.loads(work["input_json"]), reason=reason,
     )
-def _recover_started(con, *, now: datetime) -> list[str]:
+def _recover_started(con, *, now: datetime, session_date: date) -> list[str]:
     cursor = con.execute(
         "SELECT work_id FROM p16_filing_work_events WHERE work_kind='score' "
         "QUALIFY sequence=MAX(sequence) OVER (PARTITION BY work_id) AND status='started'",
@@ -269,7 +262,17 @@ def _recover_started(con, *, now: datetime) -> list[str]:
         attempt = con.execute(
             "SELECT attempt_sha256,attempt_number FROM p16_filing_score_attempts "
             "WHERE work_id=? ORDER BY attempt_number DESC LIMIT 1", [work_id]).fetchone()
-        if attempt is not None and attempt[1] == 1:
+        if work["session_date"] != session_date:
+            if attempt is not None:
+                p16_filing_store.record_decision(con, attempt_sha256=attempt[0],
+                    status="unavailable", decided_at=now, response_payload=None,
+                    reason="transport:orphaned_prior_session")
+            else:
+                with db.transaction(con):
+                    _append_work(con, work, status="unavailable", at=now,
+                                 reason="preflight:orphaned_prior_session")
+            unavailable.append(work_id)
+        elif attempt is not None and attempt[1] == 1:
             with db.transaction(con):
                 _append_work(con, work, status="retry", at=now, reason="transport_lost")
         elif attempt is not None:
@@ -288,7 +291,7 @@ def _score_pending_locked(database, *, now, session_date, generate, clock) -> di
     con = db.connect(database)
     prepared = []
     try:
-        unavailable = _recover_started(con, now=now)
+        unavailable = _recover_started(con, now=now, session_date=session_date)
         with db.transaction(con):
             capacity = p16_filing_store.claim_score_capacity(
                 con, session_date=session_date, now=now, batch_size=MAX_MODEL_CALLS,
@@ -384,7 +387,6 @@ def score_pending(
     now = _utc(observed_at or clock())
     exchange_date = session_date or now.astimezone(ET).date()
     database = Path(database)
-    lock_path = database.with_suffix(database.suffix + ".p16-filing-model.lock")
-    with resources.advisory_file_lock(lock_path):
+    with resources.advisory_file_lock(MODEL_LOCK):
         return _score_pending_locked(
             database, now=now, session_date=exchange_date, generate=generate, clock=clock)
