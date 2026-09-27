@@ -1,7 +1,8 @@
 {
   "schema_version": 1,
   "registration_id": "p15-profitability-evidence-loop-v1",
-  "registered_at": "2026-09-26T22:19:31Z",
+  "registered_at": "2026-09-27T12:37:45Z",
+  "activated_at": "2026-09-29T00:00:00-04:00",
   "activation_session": "2026-09-29",
   "status": "registered_inactive",
   "authority": {
@@ -117,73 +118,55 @@
     "sec_acceptance_after_previous_cik_scan": true
   },
   "evaluation": {
-    "primary_statistic": "nonoverlapping_offset0_daily_spearman_model_minus_baseline",
+    "primary_statistic": "paired_daily_spearman_champion_minus_rule",
     "minimum_pairs_per_session": 20,
-    "looks_scored_sessions": [60, 90, 120],
-    "one_sided_alpha_per_look": 0.016666666666666666,
-    "primary_standard_error": {
-      "estimator": "student_t",
-      "sampling": "nonoverlapping_offset0",
-      "stride_sessions": 5,
+    "score_and_label_basis": {
+      "champion_score": "registered champion score on the common P15-eligible candidate set",
+      "rule_score": "-agent_evaluation_decisions.decision_payload.baseline_rank",
+      "label": "registered h5 net excess with the same next-open/fifth-close and cost version for both scores",
+      "mean_champion_ic": "arithmetic mean of raw Spearman(champion_score,label) on exactly the retained origins used by the look"
+    },
+    "primary_sampling": {
+      "calendar": "NYSE_exchange_sessions",
+      "origin_epoch_rule": "first NYSE signal session whose registered scoring cutoff is strictly after activated_at; persist its literal session as index 0 even if predictably skipped",
+      "origin_epoch": "2026-09-29",
+      "stride": 5,
       "offset": 0,
-      "variance_normalization": "n_minus_1",
-      "sample_sizes_by_look": {
-        "60": 12,
-        "90": 18,
-        "120": 24
-      },
-      "zero_variance": "no_interval",
-      "constant_outcome": "neutral_zero_without_offset_shift",
-      "unresolved_eligible_origin": "look_not_persisted"
+      "nominal_look_labels": [60, 90, 120],
+      "retained_observations_at_looks": [12, 18, 24],
+      "skip_decided_before_forward_outcome": ["fewer_than_20_candidates", "constant_scores"],
+      "constant_scores_definition": "either champion score or rule score is constant on the common eligible candidate set",
+      "skip_effect": "stay_on_original_offset0_grid_and_delay_until_target_retained_count",
+      "unresolved_or_outcome_dependent_missing": "block_prefix_no_replacement",
+      "other_offsets": "diagnostic_only"
     },
-    "diagnostic_standard_error": {
-      "estimator": "hansen_hodrick",
-      "kernel": "uniform",
-      "lag": 4,
-      "autocovariance_normalization": "n",
-      "fallback_estimator": "newey_west",
-      "fallback_kernel": "bartlett",
-      "fallback_lag": 8,
-      "nonpositive_after_fallback": "no_interval"
+    "primary_interval": {
+      "standard_error": "sample_sd_ddof1_divided_by_sqrt_retained_n",
+      "one_sided_alpha_per_look": 0.016666666666666666,
+      "degrees_of_freedom": [11, 17, 23],
+      "critical_values": [2.431291192871, 2.315573401153, 2.263728355255],
+      "zero_variance": "no_interval_no_pass_and_kill_at_completed_final_look"
     },
-    "diagnostic_finite_sample_correction": {
-      "null_model": "equal_weight_gaussian_ma4",
-      "hh_formula": "n/(n-1)/(1-53/(5*n)+24/n^2+32/n^3)",
-      "bartlett_fallback_formula": "n/(n-1)/(37/45-457/(45*n)+2272/(75*n^2)+128/(3*n^3))"
+    "primary_pass": "lower_bound_gt_0_and_mean_champion_IC_on_same_retained_origins_gt_0",
+    "primary_kill": "upper_bound_lt_0_at_any_look_or_no_pass_at_final_24_observation_look",
+    "look_persistence": "immutable_first_evaluation_of_registered_retained_origin_prefix",
+    "lag4_hansen_hodrick": "diagnostic_only_with_nonpositive_Bartlett_lag8_fallback",
+    "retained_lag1_autocorrelation": {
+      "formula": "sum((d[1:]-mean_d)*(d[:-1]-mean_d))/sum((d-mean_d)^2)",
+      "zero_denominator": "unavailable",
+      "role": "diagnostic_only_never_changes_pass_or_kill",
+      "ar1_rho_0_5_seeded_any_crossing": 0.06253
     },
-    "primary_critical_values": {
-      "distribution": "student_t",
-      "degrees_of_freedom_by_look": {
-        "60": 11,
-        "90": 17,
-        "120": 23
-      },
-      "tail": "one_sided",
-      "values_by_scored_sessions": {
-        "60": 2.431291192871,
-        "90": 2.315573401153,
-        "120": 2.263728355255
-      }
-    },
+    "null_contract": "retained_offset0_d_are_iid_Gaussian_with_nonpositive_mean; eligibility_is_decided_before_and_independent_of_forward_return_innovations",
+    "family_error_argument": "three_fixed_sample_count_looks_each_at_0.05/3; Bonferroni_at_most_0.05",
+    "outside_guarantee": "persistent_AR_dependence_heterogeneous_selected_distributions_or_outcome_dependent_skips",
     "primary_simulation_validation": {
       "bit_generator": "PCG64",
-      "seed": 20260926,
       "draws": 10000,
-      "null_model": "equal_weight_gaussian_ma4",
-      "innovation_sd": 0.1,
-      "planted_delta_ic": 0.03,
-      "maximum_null_false_pass_rate": 0.05,
-      "minimum_planted_pass_rate": 0.8,
-      "null_pass_count": 347,
-      "planted_pass_count": 8638,
       "iid_null_seed": 20260927,
-      "iid_null_pass_count": 320,
-      "guarantee_scope": "iid_gaussian_or_equal_weight_gaussian_ma4",
-      "limitation": "persistent_ar_dependence_outside_guarantee"
+      "iid_null_pass_count": 353,
+      "maximum_iid_null_false_pass_rate": 0.05
     },
-    "pass": "nonoverlap_lower_bound_gt_0_and_mean_model_ic_gt_0",
-    "kill": "upper_bound_lt_0_at_any_look_or_no_pass_at_120",
-    "look_persistence": "append_only_hash_chained_db_and_external_registration_bound",
     "missing_label_grace_sessions": 3,
     "book_newey_west_lag": 4,
     "book_minimum_calendar_days": 90,
@@ -205,7 +188,7 @@
     "price_fetch_availability": "after_collection_completion"
   },
   "code_identity": {
-    "source_commit": "adb99fde45d62338e131d2c481bafec3836321b3",
+    "source_commit": "912a7e7b75b1160359a378fe9276c997e6c070cb",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/actions.py": "a6c2ec46d198df2318498ec7d55e1b7cfeca4c8afaccd8a5c208618e4ea8b850",
@@ -227,7 +210,7 @@
       "engine/lib/settings.py": "88c830214847130473e08be7a4ecb188645f6ed2d379626839b456e91bf2a17e",
       "engine/lib/util.py": "d64081f1f467432577fb90ca8d8674b80f095ca32b7e6da7b7f8bcebdab5c82b",
       "engine/market_date.py": "a1c1b0e4aa4efd994074f72458bd857a6728d73b7a5f9c22e9bcfa8f0266c667",
-      "engine/p15_evaluation.py": "914cce2475c2650a9db6658a9c8b94677a79ffb9130f889528300bdfce08755d",
+      "engine/p15_evaluation.py": "20d71e4b1ff6f269557ca0f98310a98b9d13a77a60c17057fe02970760c6e704",
       "engine/p15_event_sources.py": "62fcef7c389685e729ac785541236b0adfd770595f893d33e0c0c320dab55388",
       "engine/queue_runner.py": "f9e07dde5205be53c7586253b05532de2b8657ed82a144d88393f2387f9ac281",
       "engine/run_daily.sh": "5bf456f947c550fc9eb419519deb75156034a02c75d4e678b67af8ca0bae7911",
@@ -262,7 +245,7 @@
       "farm/walkforward/runner.py": "f2b861dea8e5b2b9ae94e20a598ecfd3a96cf77eb98cb5a4439a450aba475d57",
       "server/__init__.py": "c462735edca08a01b1bda392e672430ed441aca796251c6adcaf6b5e648ea4b5",
       "server/agent-cadence-registration.json": "cf66040d889662f7ad740f79ce83e2c87528853bafe4f31a0634c7195b5c4b59",
-      "server/agent_evaluation.py": "568fb8d22385af7190ea872e2c1422ed3bdc7f64af91a7e5c183465b0bab23ae",
+      "server/agent_evaluation.py": "bad55ae7573814e82a829bf69de1b24c34054da11004ac6693e9cda409767564",
       "server/agent_evaluation_reporting.py": "775a9ce5b93b86eb79022dbcb91a4a2d1324a217f1324c86eed7c64afa23cbea",
       "server/agent_model_client.py": "3c4fbdfd48aa6e1c32a8fbe7fba18f8c7470aef01a684f7ab2d9d8cadf1394f8",
       "server/daily_opportunity_execution.py": "8f599df3f6ba71770d72ce23010f43d6d40695092de0e30e4a9986987dcc7798",
@@ -336,12 +319,12 @@
       "tools/__init__.py": "1f23b3f78a32b5567d64752ddc564b1182bdfe50616b87bca6a3a603b597d927",
       "tools/agent_trial_register.py": "08cb4553ef83b49297f0222e063bf1da506e2b6e8d185f5a430739dc659125f6",
       "tools/backup_database.py": "68a12a3815ec479f025182bc9589a02dd46d1d80795bbe95de9eac4910a7f3fd",
-      "tools/p15_evidence_validation.py": "9e6dda6bf2e7e247bc9e852a209212dcfad33c47b413af4d65b288e05f82a07a",
+      "tools/p15_evidence_validation.py": "08819b0f44307812f0e6860d99aa94880565c0c429ea8ff8dc2b740bf4aa2d71",
       "tools/release_manifest.py": "87ec536a9587c782af396261f30b401e723234786e002531a69fbdfed65cd649",
       "tools/sec_edgar_capture.py": "b6f46658930844cf4deed830e8e3a9412e9a19232663aced8a01472c42f0024f"
     }
   },
-  "registration_revision": 2,
-  "revision_reason": "P16 W0 review findings R1-R16 and R7b",
-  "registration_sha256": "66d27666ef5290a25a38fc375aeae722df8faa5416e4c68ae79ff8fccac7b212"
+  "registration_revision": 3,
+  "revision_reason": "P16 W1 fixed-grid retained-origin R7 v3",
+  "registration_sha256": "6e7fd2764426bc53fc0795d72aec2a52579ede3fb19212f30d8ab45f16341081"
 }

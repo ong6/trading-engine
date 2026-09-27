@@ -243,9 +243,10 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 2
-    assert registration["revision_reason"] == "P16 W0 review findings R1-R16 and R7b"
+    assert registration["registration_revision"] == 3
+    assert registration["revision_reason"] == "P16 W1 fixed-grid retained-origin R7 v3"
     assert registration["status"] == "registered_inactive"
+    assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
     assert recorded == canonical_sha256(registration)
 
 
@@ -362,55 +363,88 @@ def test_p15_registered_constants_match_runtime():
         "sec_acceptance_after_previous_cik_scan": True,
     }
     assert registration["evaluation"] == {
-        "primary_statistic": "nonoverlapping_offset0_daily_spearman_model_minus_baseline",
+        "primary_statistic": "paired_daily_spearman_champion_minus_rule",
         "minimum_pairs_per_session": 20,
-        "looks_scored_sessions": list(p15_evaluation.LOOKS),
-        "one_sided_alpha_per_look": p15_evaluation.ALPHA,
-        "primary_standard_error": {
-            "estimator": "student_t", "sampling": "nonoverlapping_offset0",
-            "stride_sessions": p15_evaluation.PRIMARY_STRIDE,
-            "offset": p15_evaluation.PRIMARY_OFFSET,
-            "variance_normalization": "n_minus_1",
-            "sample_sizes_by_look": {"60": 12, "90": 18, "120": 24},
-            "zero_variance": "no_interval",
-            "constant_outcome": "neutral_zero_without_offset_shift",
-            "unresolved_eligible_origin": "look_not_persisted",
-        },
-        "diagnostic_standard_error": {
-            "estimator": "hansen_hodrick", "kernel": "uniform",
-            "lag": p15_evaluation.PRIMARY_HH_LAG,
-            "autocovariance_normalization": "n",
-            "fallback_estimator": "newey_west", "fallback_kernel": "bartlett",
-            "fallback_lag": p15_evaluation.PRIMARY_FALLBACK_LAG,
-            "nonpositive_after_fallback": "no_interval",
-        },
-        "diagnostic_finite_sample_correction": {
-            "null_model": "equal_weight_gaussian_ma4",
-            "hh_formula": "n/(n-1)/(1-53/(5*n)+24/n^2+32/n^3)",
-            "bartlett_fallback_formula": (
-                "n/(n-1)/(37/45-457/(45*n)+2272/(75*n^2)+128/(3*n^3))"
+        "score_and_label_basis": {
+            "champion_score": (
+                "registered champion score on the common P15-eligible candidate set"
+            ),
+            "rule_score": "-agent_evaluation_decisions.decision_payload.baseline_rank",
+            "label": (
+                "registered h5 net excess with the same next-open/fifth-close and cost "
+                "version for both scores"
+            ),
+            "mean_champion_ic": (
+                "arithmetic mean of raw Spearman(champion_score,label) on exactly the "
+                "retained origins used by the look"
             ),
         },
-        "primary_critical_values": {
-            "distribution": "student_t",
-            "degrees_of_freedom_by_look": {"60": 11, "90": 17, "120": 23},
-            "tail": "one_sided", "values_by_scored_sessions": {
-                str(key): value for key, value in p15_evaluation.PRIMARY_T_CRITICAL.items()
-            },
+        "primary_sampling": {
+            "calendar": "NYSE_exchange_sessions",
+            "origin_epoch_rule": (
+                "first NYSE signal session whose registered scoring cutoff is strictly after "
+                "activated_at; persist its literal session as index 0 even if predictably skipped"
+            ),
+            "origin_epoch": p15_evaluation.ORIGIN_EPOCH.isoformat(),
+            "stride": p15_evaluation.PRIMARY_STRIDE,
+            "offset": p15_evaluation.PRIMARY_OFFSET,
+            "nominal_look_labels": list(p15_evaluation.LOOKS),
+            "retained_observations_at_looks": [12, 18, 24],
+            "skip_decided_before_forward_outcome": [
+                "fewer_than_20_candidates", "constant_scores"
+            ],
+            "constant_scores_definition": (
+                "either champion score or rule score is constant on the common eligible "
+                "candidate set"
+            ),
+            "skip_effect": (
+                "stay_on_original_offset0_grid_and_delay_until_target_retained_count"
+            ),
+            "unresolved_or_outcome_dependent_missing": "block_prefix_no_replacement",
+            "other_offsets": "diagnostic_only",
         },
+        "primary_interval": {
+            "standard_error": "sample_sd_ddof1_divided_by_sqrt_retained_n",
+            "one_sided_alpha_per_look": p15_evaluation.ALPHA,
+            "degrees_of_freedom": [11, 17, 23],
+            "critical_values": [
+                p15_evaluation.PRIMARY_T_CRITICAL[look] for look in p15_evaluation.LOOKS
+            ],
+            "zero_variance": "no_interval_no_pass_and_kill_at_completed_final_look",
+        },
+        "primary_pass": (
+            "lower_bound_gt_0_and_mean_champion_IC_on_same_retained_origins_gt_0"
+        ),
+        "primary_kill": (
+            "upper_bound_lt_0_at_any_look_or_no_pass_at_final_24_observation_look"
+        ),
+        "look_persistence": (
+            "immutable_first_evaluation_of_registered_retained_origin_prefix"
+        ),
+        "lag4_hansen_hodrick": (
+            "diagnostic_only_with_nonpositive_Bartlett_lag8_fallback"
+        ),
+        "retained_lag1_autocorrelation": {
+            "formula": "sum((d[1:]-mean_d)*(d[:-1]-mean_d))/sum((d-mean_d)^2)",
+            "zero_denominator": "unavailable",
+            "role": "diagnostic_only_never_changes_pass_or_kill",
+            "ar1_rho_0_5_seeded_any_crossing": 0.06253,
+        },
+        "null_contract": (
+            "retained_offset0_d_are_iid_Gaussian_with_nonpositive_mean; eligibility_is_"
+            "decided_before_and_independent_of_forward_return_innovations"
+        ),
+        "family_error_argument": (
+            "three_fixed_sample_count_looks_each_at_0.05/3; Bonferroni_at_most_0.05"
+        ),
+        "outside_guarantee": (
+            "persistent_AR_dependence_heterogeneous_selected_distributions_or_"
+            "outcome_dependent_skips"
+        ),
         "primary_simulation_validation": {
-            "bit_generator": "PCG64", "seed": 20260926, "draws": 10000,
-            "null_model": "equal_weight_gaussian_ma4", "innovation_sd": 0.1,
-            "planted_delta_ic": 0.03, "maximum_null_false_pass_rate": 0.05,
-            "minimum_planted_pass_rate": 0.8, "null_pass_count": 347,
-            "planted_pass_count": 8638, "iid_null_seed": 20260927,
-            "iid_null_pass_count": 320,
-            "guarantee_scope": "iid_gaussian_or_equal_weight_gaussian_ma4",
-            "limitation": "persistent_ar_dependence_outside_guarantee",
+            "bit_generator": "PCG64", "draws": 10000, "iid_null_seed": 20260927,
+            "iid_null_pass_count": 353, "maximum_iid_null_false_pass_rate": 0.05,
         },
-        "pass": "nonoverlap_lower_bound_gt_0_and_mean_model_ic_gt_0",
-        "kill": "upper_bound_lt_0_at_any_look_or_no_pass_at_120",
-        "look_persistence": "append_only_hash_chained_db_and_external_registration_bound",
         "missing_label_grace_sessions": p15_evaluation.MISSING_LABEL_GRACE_SESSIONS,
         "book_newey_west_lag": p15_evaluation.NW_LAG,
         "book_minimum_calendar_days": 90, "book_minimum_closed_trades_each": 30,
