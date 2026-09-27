@@ -56,27 +56,30 @@ def registration(
 
 
 def encoded_record(kind: str, trial_id: str | None, event_at: datetime,
-                   recorded_at: datetime, payload: dict, source_sha: str | None) -> tuple:
+                   recorded_at: datetime, payload: dict, source_sha: str | None,
+                   append_sequence: int) -> tuple:
     event, recorded = timestamp(event_at), timestamp(recorded_at)
-    if kind not in KINDS or event > recorded or not isinstance(payload, dict):
+    if (kind not in KINDS or event > recorded or not isinstance(payload, dict)
+            or type(append_sequence) is not int or append_sequence < 1):
         raise ValueError("trial record is invalid")
     logical = {"record_kind": kind, "trial_id": trial_id, "event_at": event.isoformat(),
                "source_sha256": source_sha, "payload": payload}
     record_sha = canonical_sha256(logical)
     row_sha = canonical_sha256({"record_sha256": record_sha,
-                                "recorded_at": recorded.isoformat()})
+                                "recorded_at": recorded.isoformat(),
+                                "append_sequence": append_sequence})
     return record_sha, kind, trial_id, event, recorded, source_sha, json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), allow_nan=False), row_sha
+        payload, sort_keys=True, separators=(",", ":"), allow_nan=False), append_sequence, row_sha
 
 
 def decode(row: tuple) -> dict:
-    record_sha, kind, trial_id, event, recorded, source_sha, raw, row_sha = row
+    record_sha, kind, trial_id, event, recorded, source_sha, raw, sequence, row_sha = row
     try:
         payload = json.loads(raw)
     except (TypeError, json.JSONDecodeError) as exc:
         raise ValueError("trial record differs") from exc
     expected = encoded_record(kind, trial_id, event.replace(tzinfo=timezone.utc),
-                              recorded.replace(tzinfo=timezone.utc), payload, source_sha)
+                              recorded.replace(tzinfo=timezone.utc), payload, source_sha, sequence)
     if tuple(row) != expected:
         raise ValueError("trial record differs")
     if kind not in {"registration", "inventory_reconciliation"} and (
@@ -85,7 +88,8 @@ def decode(row: tuple) -> dict:
         raise ValueError("trial event source differs")
     return {"record_sha256": record_sha, "record_kind": kind, "trial_id": trial_id,
             "event_at": event.isoformat(), "recorded_at": recorded.isoformat(),
-            "source_sha256": source_sha, "payload": payload, "row_sha256": row_sha}
+            "source_sha256": source_sha, "payload": payload,
+            "append_sequence": sequence, "row_sha256": row_sha}
 
 
 def register_digest(records: list[dict]) -> str:
@@ -130,14 +134,25 @@ def reconciliation_valid(value: dict, records: list[dict]) -> bool:
     if (not isinstance(value, dict)
             or set(value) != {"scope", "covered_plans", "deterministic_baseline_trial_ids",
                        "sources", "entries", "trial_redirects", "register_sha256",
-                       "sealed_row_sha256s"}
+                       "sealed_through_sequence", "sealed_row_sha256s"}
             or value["scope"] != "all_plans_and_deterministic_baselines_through_p16"
             or not isinstance(value["covered_plans"], list)
             or not set(value["covered_plans"]) <= PLANS
+            or type(value["sealed_through_sequence"]) is not int
+            or value["sealed_through_sequence"] < 0
             or value["sealed_row_sha256s"] != sorted(
                 row["row_sha256"] for row in records
                 if row["record_kind"] != "inventory_reconciliation")
             or value["register_sha256"] != register_digest(records)):
+        return False
+    sequences = [row.get("append_sequence") for row in records]
+    non_reconciliation = [row for row in records
+                          if row["record_kind"] != "inventory_reconciliation"]
+    if (any(type(item) is not int or item < 1 for item in sequences)
+            or len(sequences) != len(set(sequences))
+            or any(item > value["sealed_through_sequence"] for item in sequences)
+            or value["sealed_through_sequence"] != max(sequences, default=0)
+            or (not non_reconciliation and value["sealed_through_sequence"] != 0)):
         return False
     registration_rows = {row["trial_id"]: row for row in records
                          if row["record_kind"] == "registration"}
@@ -238,17 +253,19 @@ def project(records: list[dict], *, limit: int) -> dict:
         raise ValueError("trial event predates registration")
     reconciliations = [row for row in records
                        if row["record_kind"] == "inventory_reconciliation"]
-    latest_row = reconciliations[-1] if reconciliations else None
-    sealed_ids = set() if latest_row is None else set(
-        latest_row["payload"].get("sealed_row_sha256s", []))
-    sealed_records = [row for row in records if row["row_sha256"] in sealed_ids]
-    valid = latest_row is not None and reconciliation_valid(latest_row["payload"], sealed_records)
+    latest_row = max(reconciliations, key=lambda row: row["append_sequence"]) \
+        if reconciliations else None
+    bound = 0 if latest_row is None else latest_row["payload"].get(
+        "sealed_through_sequence", -1)
+    sealed_records = [row for row in records if row["append_sequence"] <= bound]
+    valid = (latest_row is not None and latest_row["append_sequence"] > bound
+             and reconciliation_valid(latest_row["payload"], sealed_records))
     latest = latest_row["payload"] if valid else None
     redirects = {} if latest is None else {
         key: value["canonical_trial_id"] for key, value in latest["trial_redirects"].items()}
-    current = valid and sealed_ids == {
-        row["row_sha256"] for row in records
-        if row["record_kind"] != "inventory_reconciliation"}
+    current = valid and not any(
+        row["record_kind"] != "inventory_reconciliation"
+        and row["append_sequence"] > bound for row in records)
     grouped_events = {trial_id: [] for trial_id in registrations}
     for trial_id, trial_events in events.items():
         grouped_events[redirects.get(trial_id, trial_id)].extend(trial_events)
@@ -261,7 +278,8 @@ def project(records: list[dict], *, limit: int) -> dict:
             attempted_ids.add(redirects.get(trial_id, trial_id))
             unresolved += not _verified(row, own_events) and trial_id not in redirects
         retired = [item for item in trial_events if item["record_kind"] == "retired"]
-        latest_attempt = max(attempts, key=lambda item: (item["event_at"], item["record_sha256"])) \
+        latest_attempt = max(attempts, key=lambda item: (
+            item["event_at"], item["append_sequence"])) \
             if attempts else None
         item = {"trial_id": trial_id, **row["payload"],
                 "first_evaluated_at": min((item["event_at"] for item in attempts), default=None),
@@ -274,11 +292,11 @@ def project(records: list[dict], *, limit: int) -> dict:
         item["reconciled_to"] = redirects.get(trial_id)
         item["alias_count"] = len(item["alias_references"])
         versions.append(item)
-    mapped = set() if latest is None else {entry["trial_id"] for entry in latest["entries"]
-                                          if entry["disposition"] == "alias"}
+    mapped = set() if latest is None else {
+        redirects.get(entry["trial_id"], entry["trial_id"])
+        for entry in latest["entries"] if entry["disposition"] == "alias"}
     missing_plans = sorted(PLANS - (set() if latest is None else set(latest["covered_plans"])))
-    unmapped = sorted({trial_id for trial_id, rows in events.items()
-                       if any(row["record_kind"] in ATTEMPTS for row in rows)} - mapped)
+    unmapped = sorted(attempted_ids - mapped)
     expected_baselines = {trial_id for trial_id, row in registrations.items()
                           if row["payload"]["trial_kind"] == "deterministic_baseline"
                           and any(event["record_kind"] in ATTEMPTS
@@ -297,6 +315,7 @@ def project(records: list[dict], *, limit: int) -> dict:
             "identity_coverage": 1 - unresolved / len(attempted_ids) if attempted_ids else 1.0,
             "register_sha256": register_digest(records),
             "reconciliation_sha256": None if latest_row is None else latest_row["record_sha256"],
+            "sealed_through_sequence": None if latest_row is None else bound,
             "covered_plans": [] if latest is None else latest["covered_plans"],
             "missing_plans": missing_plans, "unmapped_trial_ids": unmapped,
             "missing_deterministic_baseline_trial_ids": missing_baselines,

@@ -44,6 +44,8 @@ def _reconciliation(con, trial_ids, *, digest=None):
                         for plan in plans],
             "entries": [{**entry, "source": "plan-P16"} for entry in entries],
             "trial_redirects": {}, "register_sha256": digest or current["register_sha256"],
+            "sealed_through_sequence": max(
+                (row["append_sequence"] for row in records), default=0),
             "sealed_row_sha256s": sorted(row["row_sha256"] for row in records)}
 
 
@@ -158,27 +160,34 @@ def test_provisional_redirect_deduplicates_without_deleting_history(con):
                     registration_identity=IDENTITY | {"prompt": "unresolved:prompt"})
     new = _register(con, "v2")
     _event(con, old, source="old")
+    _event(con, new, "failed", source="new")
     reconciliation = _reconciliation(con, [old])
     reconciliation["deterministic_baseline_trial_ids"] = [new]
     reconciliation["trial_redirects"] = {old: {
         "canonical_trial_id": new, "evidence_sha256": "b" * 64,
         "reason": "historical placeholder resolved from the frozen registration"}}
-    trials.record_reconciliation(con, recorded_at=NOW, reconciliation=reconciliation)
+    reconciliation_sha = trials.record_reconciliation(
+        con, recorded_at=NOW, reconciliation=reconciliation)
     result = trials.project(con, generated_at=NOW)
+    sealed = trials.project_sealed(
+        con, reconciliation_sha256=reconciliation_sha)
     assert result["selection_trial_count"] == 1
     assert result["unresolved_identity_count"] == 0 and len(result["versions"]) == 2
     assert next(row for row in result["versions"] if row["trial_id"] == old)[
         "reconciled_to"] == new
     canonical = next(row for row in result["versions"] if row["trial_id"] == new)
-    assert canonical["status"] == "evaluated"
+    assert canonical["status"] == "failed"
     assert canonical["first_evaluated_at"] == NOW.replace(tzinfo=None).isoformat()
     assert canonical["alias_count"] == 1
+    assert result["unmapped_trial_ids"] == []
     _event(con, old, "retired", "retirement", recorded_at=NOW)
     stale = trials.project(con, generated_at=NOW)
     assert stale["status"] == "stale" and stale["selection_trial_count"] == 1
     assert stale["unresolved_identity_count"] == 0
     canonical = next(row for row in stale["versions"] if row["trial_id"] == new)
     assert canonical["status"] == "retired" and canonical["alias_count"] == 1
+    assert trials.project_sealed(
+        con, reconciliation_sha256=reconciliation_sha) == sealed
 
 
 def test_reconciliation_cannot_merge_distinct_evaluated_recipes(con):
@@ -210,9 +219,32 @@ def test_future_ingest_truncation_and_tampering_do_not_change_old_projection(con
 def test_register_digest_binds_ingest_time():
     first = p16_trials.decode(p16_trials.encoded_record(
         "evaluated", "a" * 64, NOW, NOW, {"source_ref": {"run": "same"}},
-        p16_trials.canonical_sha256({"run": "same"})))
+        p16_trials.canonical_sha256({"run": "same"}), 1))
     second = p16_trials.decode(p16_trials.encoded_record(
         "evaluated", "a" * 64, NOW, NOW + timedelta(seconds=1),
-        {"source_ref": {"run": "same"}}, p16_trials.canonical_sha256({"run": "same"})))
+        {"source_ref": {"run": "same"}}, p16_trials.canonical_sha256({"run": "same"}), 1))
     assert first["record_sha256"] == second["record_sha256"]
     assert p16_trials.register_digest([first]) != p16_trials.register_digest([second])
+
+
+def test_reconciliation_requires_an_exact_append_prefix(con):
+    trial_id = _register(con)
+    _event(con, trial_id)
+    reconciliation = _reconciliation(con, [trial_id])
+    reconciliation["sealed_row_sha256s"] = reconciliation["sealed_row_sha256s"][1:]
+    with pytest.raises(ValueError, match="reconciliation is invalid"):
+        trials.record_reconciliation(con, recorded_at=NOW, reconciliation=reconciliation)
+    reconciliation = _reconciliation(con, [trial_id])
+    reconciliation["sealed_through_sequence"] -= 1
+    with pytest.raises(ValueError, match="reconciliation is invalid"):
+        trials.record_reconciliation(con, recorded_at=NOW, reconciliation=reconciliation)
+
+
+def test_append_sequence_is_stable_on_replay_and_tamper_evident(con):
+    trial_id = _register(con)
+    before = trials._records(con)
+    assert _register(con) == trial_id
+    assert trials._records(con) == before
+    con.execute(f"UPDATE {trials.TABLE} SET append_sequence=10 WHERE trial_id=?", [trial_id])
+    with pytest.raises(ValueError, match="trial record differs"):
+        trials.project(con, generated_at=NOW)
