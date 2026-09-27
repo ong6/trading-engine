@@ -486,7 +486,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 
 | Workstream | Status | Evidence (BUILDLOG date) |
 |---|---|---|
-| W0 Baseline, P15 remediation (R1–R16), P15 activation | **remediation done (R1–R16, registration revision 2); P15 activation pending for `p16-sol-lead` (GPT-5.6-Sol)** | 2026-09-26 |
+| W0 Baseline, P15 remediation (R1–R16), P15 activation | **scheduled: dry-run on the 2026-09-28 session, activation per registration revision 2 on 2026-09-29**. Remaining: host/UTC suites, fresh copied-store dry-run, recovery bundle, book activation, AUTOSTART commit/install, and first-cycle checks through 2026-10-01. Lead: `p16-sol-lead` (GPT-5.6-Sol) | 2026-09-26 |
 | W1 Evaluation science v2 | restarting in the live checkout from salvaged branches | 2026-09-26 |
 | W2 Challenger lab | not started | |
 | W3 Filing reader | not started | |
