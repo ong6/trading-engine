@@ -1,11 +1,16 @@
 """Chronological W4 replay orchestration over one isolated policy store."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from pathlib import Path
+from typing import Callable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from engine import p15_event_sources
 from engine.lib import db
+from farm.replay.clock import PHASES, completed_phases, init_clock_schema, record_phase_checkpoint
+from farm.replay.store import open_store
 from server import p15_scoring_store
 from sim import nyse, p15_books
 from sim.schema import init_sim_schema
@@ -16,6 +21,30 @@ ANCHOR_ID = "p16_replay_checkpoint"
 
 class ReplayRunnerError(ValueError):
     """Replay chronology or private book state differs from its contract."""
+
+
+PhaseExecutor = Callable[[str, date, datetime], Sequence[Mapping]]
+PhaseApplier = Callable[[object, str, date, datetime, Sequence[Mapping]], None]
+
+
+def _completed(_phase: str, _session: date, _logical_at: datetime) -> Sequence[Mapping]:
+    return ({"status": "completed"},)
+
+
+@dataclass(frozen=True)
+class ReplaySessionStore:
+    """Everything needed to open one explicit private replay policy store."""
+
+    path: Path
+    research_root: Path
+    live_db_path: Path
+    cohort_id: str
+    policy_id: str
+    checkpoint: date
+    initialized_at: datetime
+    execute_phase: PhaseExecutor = _completed
+    apply_phase: PhaseApplier | None = None
+    run_books: bool = True
 
 
 def session_phases(session: date) -> dict[str, datetime]:
@@ -31,6 +60,17 @@ def session_phases(session: date) -> dict[str, datetime]:
         "close_visible": (local_close + timedelta(minutes=15)).astimezone(timezone.utc),
         "score": score,
         "postmortem": score,
+    }
+
+
+def _phase_clocks(session: date) -> dict[str, datetime]:
+    clocks = session_phases(session)
+    return {
+        "PREOPEN": clocks["preopen"],
+        "OPEN": clocks["open"],
+        "CLOSE": clocks["close_visible"],
+        "SCORE": clocks["score"],
+        "POSTMORTEM": clocks["score"] + timedelta(microseconds=1),
     }
 
 
@@ -123,3 +163,69 @@ def book_snapshot(con) -> dict:
             "positions": [tuple(row) for row in positions],
         }
     return books
+
+
+def run_session(store: ReplaySessionStore, session: date) -> dict:
+    """Run one complete session, resuming only after its durable last phase.
+
+    The caller supplies paths and pure/provider callbacks, never a connection.  Each
+    callback runs while the DuckDB writer is closed; only its deterministic result is
+    applied after the runner reopens the explicit ``kind='replay'`` store.
+    """
+    if not isinstance(store, ReplaySessionStore):
+        raise ReplayRunnerError("explicit_replay_store_required")
+    if not nyse.is_session(session) or session <= store.checkpoint:
+        raise ReplayRunnerError("invalid_replay_session")
+    clocks = _phase_clocks(session)
+    with open_store(
+        store.path, research_root=store.research_root,
+        live_db_path=store.live_db_path, kind="replay",
+    ) as con:
+        bootstrap_books(con, checkpoint=store.checkpoint, initialized_at=store.initialized_at)
+        init_clock_schema(con)
+        done = completed_phases(
+            con, cohort_id=store.cohort_id, policy_id=store.policy_id, session=session,
+        )
+    results: dict[str, list[dict]] = {}
+    for phase in PHASES[len(done):]:
+        logical_at = clocks[phase]
+        terminal_rows = [dict(row) for row in store.execute_phase(phase, session, logical_at)]
+        if not terminal_rows:
+            terminal_rows = [{"status": "not_applicable"}]
+        with open_store(
+            store.path, research_root=store.research_root,
+            live_db_path=store.live_db_path, kind="replay",
+        ) as con:
+            current = completed_phases(
+                con, cohort_id=store.cohort_id, policy_id=store.policy_id, session=session,
+            )
+            if len(current) != PHASES.index(phase):
+                raise ReplayRunnerError("replay_clock_changed_during_phase")
+            if store.apply_phase is not None:
+                store.apply_phase(con, phase, session, logical_at, terminal_rows)
+            if store.run_books and phase == "OPEN":
+                p15_books.process_pending(con, session)
+            if store.run_books and phase == "SCORE":
+                outcome = p15_books.run_window(con, session, observed_at=logical_at)
+                if outcome.get("status") != "completed":
+                    raise ReplayRunnerError("p15_book_window_incomplete")
+            record_phase_checkpoint(
+                con, cohort_id=store.cohort_id, policy_id=store.policy_id,
+                session=session, phase=phase, logical_at=logical_at,
+                terminal_rows=terminal_rows, expected_rows=len(terminal_rows),
+                recorded_at=logical_at,
+            )
+        results[phase] = terminal_rows
+    with open_store(
+        store.path, research_root=store.research_root,
+        live_db_path=store.live_db_path, kind="replay", read_only=True,
+    ) as con:
+        complete = completed_phases(
+            con, cohort_id=store.cohort_id, policy_id=store.policy_id, session=session,
+        )
+    return {
+        "status": "completed" if complete == PHASES else "partial",
+        "session": session.isoformat(),
+        "completed_phases": list(complete),
+        "executed": results,
+    }
