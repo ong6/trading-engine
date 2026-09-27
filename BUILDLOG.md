@@ -1154,4 +1154,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm +182; server, tools, and other product layers unchanged; budget ok.
 - **Next:** add the no-call probe coverage preflight and frozen-bank contracts.
 
+## 2026-09-27 — P16 W4: freeze contamination probe coverage
+
+- **Why:** accepted W4 requires a no-call coverage preflight with a numeric total minimum and no
+  per-category floor before any contamination probe dispatch.
+- **What:** freeze receipt-backed event clusters and exact fact IDs at 300 per historical month,
+  require 350 for the later unseen baseline, build deterministic private answer keys, reject
+  incomplete responses as untestable, and retain the registered 0.08 pooled equivalence margin.
+- **Evidence:** `.venv/bin/python -m pytest -q tests/test_p16_replay_probes.py tests/test_p16_replay_sources.py tests/test_p16_replay_corpus.py`
+  passes 19 tests; Ruff passes the touched modules.
+- **Metrics:** farm +292; server, tools, and other product layers unchanged; budget ok.
+- **Next:** add the isolated P15 book bootstrap, chronological replay phases, and retry tests.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
