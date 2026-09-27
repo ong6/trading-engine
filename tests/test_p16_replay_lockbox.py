@@ -382,6 +382,8 @@ def test_ledger_rejects_relative_checkout_live_and_symlink_paths(tmp_path):
         LockboxLedger(replay_path, research_root=root, live_db_path=live)
 
 
-def test_missing_marker_fails_closed(tmp_path):
-    with pytest.raises(LockboxIntegrityError, match="marker_missing"):
-        _tag(_ledger(tmp_path), _arms()[0])
+def test_missing_marker_is_exploratory(tmp_path):
+    result = _tag(_ledger(tmp_path), _arms()[0])
+    assert result.tag == "post_lockbox_exploratory"
+    assert result.reason == "lockbox_marker_missing"
+    assert result.marker_sha256 == ""

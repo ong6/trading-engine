@@ -19,6 +19,7 @@ from farm.replay.registration import (
     TRUSTED_SPLIT_OUTCOMES,
 )
 from farm.replay.store import append_exact, load_record, seal_records, verify_seal
+from sim import nyse
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _NY = ZoneInfo("America/New_York")
@@ -132,6 +133,14 @@ def _unique_actions(actions: Sequence[Mapping]) -> tuple[Mapping, ...]:
 def _split_effective_at(action: Mapping) -> datetime:
     return datetime.combine(
         _date(action.get("ex_date"), "split_ex_date"), time(9, 30), _NY
+    ).astimezone(timezone.utc)
+
+
+def _split_fixed_lag_at(action: Mapping) -> datetime:
+    return datetime.combine(
+        nyse.next_session(_date(action.get("ex_date"), "split_ex_date")),
+        time(9, 30),
+        _NY,
     ).astimezone(timezone.utc)
 
 
@@ -273,10 +282,7 @@ def split_known_at(
     if policy == SPLIT_KNOWLEDGE_PRIMARY:
         return _split_effective_at(action)
     if policy == SPLIT_KNOWLEDGE_SENSITIVITY:
-        record = None if observations is None else observations.get(split_observation_identity(action))
-        if record is None:
-            raise SplitQuarantineError("exact_action_first_seen_unavailable")
-        return record[0]
+        return _split_fixed_lag_at(action)
     raise PriceSeriesError("unknown_split_knowledge_policy")
 
 
