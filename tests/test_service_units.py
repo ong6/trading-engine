@@ -1,6 +1,7 @@
 """Versioned user-service contracts for the local paper UI and API."""
 
 import json
+import subprocess
 from pathlib import Path
 
 from tools import install_automation
@@ -157,6 +158,7 @@ def test_p15_scoring_unit_is_registered_but_not_autostarted():
     service = _unit("server/trading-engine-p15-scoring.service")
     timer = _unit("server/trading-engine-p15-scoring.timer")
     _assert_common_service_hardening(service)
+    assert "Type=exec" in service
     assert "server.p15_scoring_runner --run" in service
     assert "ExecStartPost=%h/trading-engine/.venv/bin/python " \
            "-m server.agent_evaluation_reporting" in service
@@ -203,6 +205,26 @@ def test_p16_challenger_unit_is_registered_but_not_autostarted():
     assert "Tue..Sat *-*-* 03:00:00 UTC" in timer and "Persistent=true" in timer
     assert "trading-engine-p16-challengers.timer" \
         not in install_automation.AUTOSTART_UNITS
+
+
+def test_p15_and_p16_units_pass_host_systemd_verification():
+    units = [
+        REPO_ROOT / "server" / f"trading-engine-{name}.{kind}"
+        for name in (
+            "p15-scoring",
+            "p15-preopen",
+            "p15-events",
+            "p16-challengers",
+        )
+        for kind in ("service", "timer")
+    ]
+    result = subprocess.run(
+        ["systemd-analyze", "--user", "verify", *map(str, units)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_league_ui_does_not_present_operational_rank_as_research_evidence():
