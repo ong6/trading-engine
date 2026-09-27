@@ -170,6 +170,7 @@ def process_window(
             "WHERE book_instance_id=? AND market_date<? ORDER BY market_date DESC LIMIT 1",
             [book_instance_id, market_date],
         ).fetchone()
+        outcomes = []
         for row in _pending_rows(con, book_instance_id, market_date):
             (intent_id, ticker, side, quantity, signal_date, role, limit_px, _entry_atr,
              expected_session, source_sha256) = row
@@ -202,6 +203,16 @@ def process_window(
                 result = p16_book_mechanics.attempt_fill(
                     con, ticker, side, quantity, signal_date, market_date, "baseline_v1",
                 )
+            outcomes.append((row, quantity, adjusted_limit, result))
+        pending = sum(result.status == "pending" for *_rest, result in outcomes)
+        if pending:
+            return {
+                "status": "pending", "filled": 0, "rejected": 0,
+                "pending": pending, "counterfactual_labels": 0,
+            }
+        for row, quantity, adjusted_limit, result in outcomes:
+            (intent_id, _ticker, _side, _original_quantity, _signal_date, _role,
+             _limit_px, _entry_atr, _expected_session, source_sha256) = row
             if adjusted_limit is not None:
                 outcome = (result.reject_reason if result.reject_reason == "limit_not_reached"
                            else result.status)
@@ -211,9 +222,6 @@ def process_window(
                     counterfactual_fill_px=result.counterfactual_fill_px,
                     outcome=outcome, reject_reason=result.reject_reason,
                 )
-            if result.status == "pending":
-                counts["pending"] += 1
-                continue
             status = p16_book_mechanics.record_sim_fill(
                 con, intent_id=intent_id, fill_date=market_date,
                 result=result, source_sha256=source_sha256,
@@ -256,24 +264,42 @@ def process_through(
         "SELECT MAX(market_date) FROM p16_book_state WHERE book_instance_id=?",
         [book_instance_id],
     ).fetchone()[0]
-    sessions = [market_date] if latest is None or latest == market_date else []
+    running = con.execute(
+        "SELECT MIN(market_date) FROM p16_book_windows WHERE book_instance_id=? "
+        "AND status='running' AND market_date<=?", [book_instance_id, market_date],
+    ).fetchone()[0]
     if latest is not None and market_date < latest:
         raise p16_book_store.P16BookError("P16 book window moved backward")
-    cursor = latest
-    while cursor is not None and cursor < market_date:
-        cursor = nyse.next_session(cursor)
+    if latest is None:
+        cursor = running or market_date
+    elif latest == market_date:
+        cursor = market_date
+    else:
+        cursor = nyse.next_session(latest)
+        if running is not None and running < cursor:
+            cursor = running
+    sessions = []
+    while cursor <= market_date:
         sessions.append(cursor)
-    results = [
-        process_window(
+        cursor = nyse.next_session(cursor)
+    results = []
+    processed_sessions = []
+    for session in sessions:
+        result = process_window(
             con, book_instance_id=book_instance_id, market_date=session,
             observed_at=observed_at,
         )
-        for session in sessions
-    ]
+        results.append(result)
+        processed_sessions.append(session)
+        if result["status"] == "pending":
+            break
     return {
-        "status": "completed" if results else "already_complete",
-        "sessions": [session.isoformat() for session in sessions],
+        "status": ("already_complete" if not results else "pending"
+                   if results[-1]["status"] == "pending" else "completed"),
+        "sessions": [session.isoformat() for session in processed_sessions],
         "filled": sum(row["filled"] for row in results),
         "rejected": sum(row["rejected"] for row in results),
-        "counterfactual_labels": sum(row["counterfactual_labels"] for row in results),
+        "counterfactual_labels": sum(
+            row.get("counterfactual_labels", 0) for row in results
+        ),
     }
