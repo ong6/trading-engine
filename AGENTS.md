@@ -16,6 +16,16 @@ stops. The running producers and the calendar-bound deterministic records (E1, s
 never disturbed by either kind of session. Model credit cost is not a reason to stop or to cut
 corners (owner, 2026-09-25).
 
+## Decisions: technical vs product
+
+When the owner runs this repo through an orchestrating agent (Claude Opus directing Trae or
+other sessions), **the orchestrator owns technical decisions**: design, placement, registered
+values, statistical tests, acceptance, and process fixes. It records them in the plan, in
+`docs/feedback.md`, or in an `ORCHESTRATOR-*.md` input. A session blocked on a technical question
+writes `blocked` with the question for the orchestrator and does not wait for the owner. The
+owner decides product questions: what to build, spending and data purchases, broker accounts,
+real capital and loss limits, and public presentation.
+
 ## Read order
 
 1. `AGENTS.md` (this file).

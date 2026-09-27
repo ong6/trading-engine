@@ -454,3 +454,21 @@ limit, just remove it"). P16 had reached `server/` 57,050/57,050, which blocked 
 3. Plan "Budget" sections that list ceilings are historical; they no longer bind.
 
 **Ceiling changes.** All per-layer ceilings removed.
+
+## 2026-09-27 — The orchestrator owns technical decisions
+
+**Verdict.** The owner delegated all technical decisions in orchestrated runs to the orchestrating
+agent (Claude Opus 5.5), keeping product-level decisions, and asked that sessions not get caught
+in loops.
+
+**Rule changes.**
+
+1. The orchestrator decides and records technical questions: design, placement, registered values,
+   statistical tests, acceptance, and process fixes. It may revise them as evidence changes.
+   → `AGENTS.md` "Decisions: technical vs product".
+2. A session blocked on a technical question writes `blocked` with the question for the
+   orchestrator; it never waits on the owner for a technical call.
+3. Owner-only: what to build, spending and data purchases, broker accounts, real capital and loss
+   limits, and public presentation.
+
+**Ceiling changes.** None.
