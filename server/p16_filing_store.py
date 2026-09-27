@@ -1,8 +1,10 @@
 """Append-only W3 filing discovery, bundle, work, and decision state."""
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+from contextlib import nullcontext
 from datetime import date, datetime, timedelta, timezone
 from typing import Callable
 
@@ -18,7 +20,6 @@ EXHIBIT_STATES = {"ex99_1", "ex99_sole", "absent"}
 WORK_STATES = {"queued", "started", "retry", "complete", "unavailable"}
 TERMINAL_WORK = {"complete", "unavailable"}
 
-
 def _time(value: datetime | str, field: str) -> datetime:
     try:
         parsed = value if isinstance(value, datetime) else datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -28,20 +29,36 @@ def _time(value: datetime | str, field: str) -> datetime:
         raise ValueError(f"{field} requires an explicit timezone")
     return parsed.astimezone(timezone.utc).replace(tzinfo=None)
 
-
 def _aware(value: datetime) -> datetime:
     return value.replace(tzinfo=timezone.utc)
 
-
 def _json(value) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
-
 
 def _sha(value: str, field: str) -> str:
     if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
         raise ValueError(f"{field} is invalid")
     return value
-
+def _verified_receipt(con, receipt_sha256: str) -> dict:
+    cursor = con.execute(
+        "SELECT schema_version,source,dataset,endpoint,request_payload,request_sha256,"
+        "requested_at,received_at,http_status,content_type,response_size_bytes,response_sha256,"
+        "response_body,license_class,receipt_sha256 FROM source_response_receipts "
+        "WHERE receipt_sha256=?", [receipt_sha256])
+    row = cursor.fetchone()
+    if row is None:
+        raise ValueError("filing receipt is unavailable")
+    item = dict(zip((column[0] for column in cursor.description), row, strict=True))
+    body = bytes(item.pop("response_body"))
+    request_payload, stored_sha = item.pop("request_payload"), item.pop("receipt_sha256")
+    identity = {**item, "requested_at": item["requested_at"].isoformat(),
+                "received_at": item["received_at"].isoformat()}
+    if (hashlib.sha256(request_payload.encode()).hexdigest() != item["request_sha256"]
+            or len(body) != item["response_size_bytes"]
+            or hashlib.sha256(body).hexdigest() != item["response_sha256"]
+            or canonical_sha256(identity) != stored_sha or stored_sha != receipt_sha256):
+        raise ValueError("filing receipt identity differs")
+    return item
 
 def init_schema(con) -> None:
     bitemporal_facts.init_schema(con)
@@ -116,7 +133,6 @@ def init_schema(con) -> None:
         payload_json VARCHAR NOT NULL, payload_sha256 VARCHAR NOT NULL,
         UNIQUE(decision_sha256,horizon,entry_basis))""")
 
-
 def start_scan(con, *, policy_id: str, session_date: date, activation_at: datetime,
                started_at: datetime, universe: dict, map_sha256: str) -> str:
     if not policy_id or not isinstance(session_date, date) or not isinstance(universe, dict):
@@ -131,6 +147,11 @@ def start_scan(con, *, policy_id: str, session_date: date, activation_at: dateti
                 or any(not isinstance(item, str) or not item for item in scope["securities"])
                 or len(scope["securities"]) != len(set(scope["securities"]))):
             raise ValueError("invalid filing scan universe")
+        tickers = scope.get("security_tickers")
+        if (not isinstance(tickers, dict) or set(tickers) != set(scope["securities"])
+                or any(not isinstance(item, str) or not item for item in tickers.values())):
+            raise ValueError("invalid filing security tickers")
+        _sha(scope.get("selection_sha256"), "filing selection")
         if scope.get("primary_security_id") not in scope["securities"]:
             raise ValueError("invalid primary filing security")
         _time(scope.get("entered_at"), "cik_entered_at")
@@ -148,7 +169,6 @@ def start_scan(con, *, policy_id: str, session_date: date, activation_at: dateti
                 [scan_id, policy_id, session_date, activation, started, _json(universe),
                  universe_sha, map_sha256, row_sha])
     return scan_id
-
 
 def append_dispatch_event(con, event: dict) -> str:
     required = {"request_id", "scan_id", "consumer", "request_kind", "attempt",
@@ -176,7 +196,6 @@ def append_dispatch_event(con, event: dict) -> str:
     ])
     return event_sha
 
-
 def dispatch_state(con, *, scan_id: str, next_session_at: datetime | None = None) -> dict:
     scan = con.execute("SELECT started_at FROM p16_filing_scans WHERE scan_id=?", [scan_id]).fetchone()
     if scan is None:
@@ -192,13 +211,11 @@ def dispatch_state(con, *, scan_id: str, next_session_at: datetime | None = None
             "pause_until": None if not pauses else _aware(max(pauses)),
             "blocked": any(row[4] is True for row in rows), "next_session_at": next_session_at}
 
-
 def _scan(con, scan_id: str):
     row = con.execute("SELECT * FROM p16_filing_scans WHERE scan_id=?", [scan_id]).fetchone()
     if row is None:
         raise ValueError("filing scan is unavailable")
     return row
-
 
 def append_work_event(con, *, policy_id: str, work_kind: str, accession: str,
                       security_id: str = "", session_date: date, status: str,
@@ -258,7 +275,6 @@ def append_work_event(con, *, policy_id: str, work_kind: str, accession: str,
         sequence, status, event_time, ready, encoded, input_sha, reason,
     ])
     return work_id
-
 
 def commit_cik_success(
     con, *, scan_id: str, cik: str, response: p16_filing_sources.SecResponse,
@@ -376,8 +392,6 @@ def commit_cik_success(
                 queued += 1
     return {"response_id": response_id, "replayed": False, "queued": queued,
             "discovery_count": len(discoveries)}
-
-
 def record_acceptance(
     con, *, policy_id: str, accession: str, resolved_at: datetime,
     sgml_receipt_sha256: str | None = None, index_receipt_sha256: str | None = None,
@@ -442,8 +456,6 @@ def record_acceptance(
         identity["input_sha256"],
     ])
     return {**result, "resolution_sha256": resolution_sha, "replayed": False}
-
-
 def record_bundle(
     con, *, policy_id: str, accession: str, components: list[dict],
     normalized_payload: dict, status: str, exhibit_status: str,
@@ -575,8 +587,6 @@ def record_bundle(
             fact_sha, canonical_sha256({**identity, "revision": revision, "fact_sha256": fact_sha}),
         ])
     return bundle_sha
-
-
 def queue_score_work(con, *, policy_id: str, accession: str, security_ids: list[str],
                      session_date: date, queued_at: datetime) -> list[str]:
     if not security_ids or len(security_ids) != len(set(security_ids)) or any(not item for item in security_ids):
@@ -605,8 +615,109 @@ def queue_score_work(con, *, policy_id: str, accession: str, security_ids: list[
         event_at=_aware(queued), not_before=_aware(queued),
         input_payload={"bundle_sha256": bundle[0], "security_id": security_id},
     ) for security_id in sorted(security_ids)]
-
-
+def verified_score_bundle(con, *, bundle_sha256: str, policy_id: str, accession: str) -> dict:
+    """Load a scoreable bundle only after rechecking its immutable identity and evidence."""
+    cursor = con.execute(
+        "SELECT b.*,a.cik,s.universe_json,s.universe_sha256 AS scan_universe_sha256,"
+        "s.row_sha256 AS scan_row_sha256,s.session_date AS scan_session_date,"
+        "s.activation_at AS scan_activation_at,s.started_at AS scan_started_at,"
+        "s.map_sha256 AS scan_map_sha256 FROM p16_filing_bundles b JOIN p16_filing_accessions a "
+        "ON a.policy_id=b.policy_id AND a.accession=b.accession JOIN p16_filing_cik_responses r "
+        "ON r.response_id=a.first_response_id JOIN p16_filing_scans s ON s.scan_id=r.scan_id "
+        "WHERE b.bundle_sha256=? AND b.policy_id=? AND b.accession=? "
+        "AND b.eligibility_status='eligible'", [bundle_sha256, policy_id, accession],
+    )
+    row = cursor.fetchone()
+    if row is None:
+        raise ValueError("eligible filing bundle is unavailable")
+    item = dict(zip((column[0] for column in cursor.description), row, strict=True))
+    try:
+        components = json.loads(item["components_json"])
+        normalized = json.loads(item["normalized_json"])
+        universe = json.loads(item["universe_json"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("filing bundle encoding is invalid") from exc
+    acur = con.execute(
+        "SELECT * FROM p16_filing_accessions WHERE policy_id=? AND accession=?",
+        [policy_id, accession])
+    arow = acur.fetchone()
+    anames = [column[0] for column in acur.description]
+    rcur = con.execute("SELECT * FROM p16_filing_cik_responses WHERE response_id=?",
+                       [None if arow is None else arow[3]])
+    rrow = rcur.fetchone()
+    rnames = [column[0] for column in rcur.description]
+    if arow is None or rrow is None:
+        raise ValueError("filing accession lineage is unavailable")
+    accession_row = dict(zip(anames, arow, strict=True))
+    response_row = dict(zip(rnames, rrow, strict=True))
+    securities, metadata = (json.loads(accession_row[key])
+                             for key in ("securities_json", "metadata_json"))
+    response_identity = {key: response_row[key] for key in (
+        "response_id", "policy_id", "scan_id", "cik", "accessions_sha256",
+        "previous_response_id", "receipt_sha256", "reused_response_id",
+        "source_body_sha256", "source_status")}
+    response_identity.update(received_at=response_row["received_at"].isoformat(),
+                             ingested_at=response_row["ingested_at"].isoformat())
+    accession_identity = {key: accession_row[key] for key in (
+        "policy_id", "accession", "cik", "first_response_id", "previous_response_id",
+        "previous_accessions_sha256", "primary_security_id", "metadata_sha256",
+        "discovery_status")}
+    accession_identity.update(discovered_at=accession_row["discovered_at"].isoformat(),
+                              activation_at=accession_row["activation_at"].isoformat(),
+                              cik_entered_at=accession_row["cik_entered_at"].isoformat(),
+                              securities=securities)
+    raw_receipt = _verified_receipt(con, response_row["receipt_sha256"])
+    response_id = canonical_sha256({key: response_identity[key] for key in (
+        "scan_id", "cik", "received_at", "accessions_sha256", "source_body_sha256")})
+    if (canonical_sha256(json.loads(response_row["accessions_json"]))
+            != response_row["accessions_sha256"] or response_id != response_row["response_id"]
+            or canonical_sha256(response_identity) != response_row["row_sha256"]
+            or canonical_sha256(metadata) != accession_row["metadata_sha256"]
+            or canonical_sha256(accession_identity) != accession_row["row_sha256"]
+            or normalized.get("cik") != accession_row["cik"]
+            or raw_receipt["response_sha256"] != response_row["source_body_sha256"]):
+        raise ValueError("filing accession lineage differs")
+    scan_identity = {
+        "policy_id": item["policy_id"], "session_date": item["scan_session_date"].isoformat(),
+        "activation_at": item["scan_activation_at"].isoformat(),
+        "started_at": item["scan_started_at"].isoformat(),
+        "universe_sha256": item["scan_universe_sha256"],
+        "map_sha256": item["scan_map_sha256"],
+    }
+    if (canonical_sha256(universe) != item["scan_universe_sha256"]
+            or canonical_sha256({**scan_identity, "universe": universe})
+            != item["scan_row_sha256"]):
+        raise ValueError("filing scan identity differs")
+    identity = {
+        "policy_id": item["policy_id"], "accession": item["accession"],
+        "normalized_sha256": item["normalized_sha256"], "components_sha256": item["components_sha256"],
+        "accepted_at": item["accepted_at"].isoformat(), "available_at": item["available_at"].isoformat(),
+        "ingested_at": item["ingested_at"].isoformat(), "byte_count": item["byte_count"],
+        "source_version": SOURCE_VERSION, "parser_version": p16_filing_parser.PARSER_VERSION,
+        "status": item["status"], "eligibility_status": item["eligibility_status"],
+        "exhibit_status": item["exhibit_status"],
+    }
+    if (canonical_sha256(components) != item["components_sha256"]
+            or canonical_sha256(normalized) != item["normalized_sha256"]
+            or canonical_sha256(identity) != item["bundle_sha256"]
+            or canonical_sha256({**identity, "revision": item["revision"],
+                                 "fact_sha256": item["fact_sha256"]}) != item["row_sha256"]):
+        raise ValueError("filing bundle identity differs")
+    receipts = set()
+    for component in components:
+        receipt = _verified_receipt(con, component.get("receipt_sha256"))
+        receipts.add(receipt["response_sha256"])
+    documents = {(doc.get("filename"), doc.get("normalized_sha256"))
+                 for doc in normalized.get("documents", ()) if isinstance(doc, dict)}
+    for span in normalized.get("spans", ()):
+        lineage = {key: span.get(key) for key in (
+            "source_sha256", "filename", "parser_version", "normalized_sha256", "start", "end"
+        )}
+        if (not isinstance(span, dict) or span.get("source_sha256") not in receipts
+                or (span.get("filename"), span.get("normalized_sha256")) not in documents
+                or span.get("evidence_id") != canonical_sha256(lineage)):
+            raise ValueError("filing evidence identity differs")
+    return {**item, "components": components, "normalized": normalized, "universe": universe}
 def queue_document_work(
     con, *, policy_id: str, accession: str, session_date: date,
     queued_at: datetime, index_receipt_sha256: str, selected_exhibit: str | None,
@@ -627,8 +738,6 @@ def queue_document_work(
         input_payload={"index_receipt_sha256": index_receipt_sha256,
                        "selected_exhibit": selected_exhibit},
     )
-
-
 def pending_work(con, *, work_kind: str, now: datetime, session_date: date | None = None) -> list[dict]:
     params = [work_kind, _time(now, "now")]
     where = "work_kind=? AND not_before<=?"
@@ -645,10 +754,12 @@ def pending_work(con, *, work_kind: str, now: datetime, session_date: date | Non
     names = [item[0] for item in cursor.description]
     return [{**dict(zip(names, row, strict=True)), "input": json.loads(row[9])}
             for row in cursor.fetchall()]
-
-
-def claim_score_capacity(con, *, session_date: date, now: datetime, limit: int = 60) -> dict:
-    if type(limit) is not int or not 1 <= limit <= 60:
+def claim_score_capacity(
+    con, *, session_date: date, now: datetime, limit: int = 60, batch_size: int = 60,
+    in_transaction: bool = False,
+) -> dict:
+    if (type(limit) is not int or not 1 <= limit <= 60 or type(batch_size) is not int
+            or not 1 <= batch_size <= 60 or not isinstance(in_transaction, bool)):
         raise ValueError("invalid filing score capacity")
     rows = pending_work(con, work_kind="score", now=now, session_date=session_date)
     started_ids = {row[0] for row in con.execute(
@@ -657,11 +768,13 @@ def claim_score_capacity(con, *, session_date: date, now: datetime, limit: int =
     ).fetchall()}
     remaining = max(0, limit - len(started_ids))
     claimed, unavailable = [], []
-    with db.transaction(con):
+    with nullcontext() if in_transaction else db.transaction(con):
         for row in rows:
             admitted = row["work_id"] in started_ids or remaining > 0
-            status, reason = (("started", None) if admitted
-                              else ("unavailable", "capacity_unavailable"))
+            if admitted and len(claimed) >= batch_size:
+                continue
+            status, reason = (("started", None) if admitted else
+                              ("unavailable", "capacity_unavailable"))
             append_work_event(
                 con, policy_id=row["policy_id"], work_kind="score", accession=row["accession"],
                 security_id=row["security_id"], session_date=session_date, status=status,
@@ -672,8 +785,6 @@ def claim_score_capacity(con, *, session_date: date, now: datetime, limit: int =
                 started_ids.add(row["work_id"])
                 remaining -= 1
     return {"claimed": claimed, "capacity_unavailable": unavailable}
-
-
 def record_score_attempt(con, *, work_id: str, started_at: datetime,
                          request_payload: dict, runtime_identity: dict) -> str:
     work = con.execute(
@@ -718,11 +829,11 @@ def record_score_attempt(con, *, work_id: str, started_at: datetime,
         _json(runtime_identity), runtime_sha,
     ])
     return attempt_sha
-
-
 def record_decision(con, *, attempt_sha256: str, status: str, decided_at: datetime,
                     response_payload: dict | None, reason: str | None = None) -> str:
-    if status not in {"scored", "unavailable"} or (status == "scored") != isinstance(response_payload, dict):
+    if (status not in {"scored", "unavailable"}
+            or (status == "scored" and not isinstance(response_payload, dict))
+            or (response_payload is not None and not isinstance(response_payload, dict))):
         raise ValueError("invalid filing decision")
     attempt = con.execute(
         "SELECT work_id,attempt_number,started_at,runtime_sha256 FROM p16_filing_score_attempts "
@@ -786,7 +897,6 @@ def record_decision(con, *, attempt_sha256: str, status: str, decided_at: dateti
         )
     return decision_sha
 
-
 def record_label(con, *, decision_sha256: str, horizon: int, entry_basis: str,
                  labelled_at: datetime, payload: dict) -> str:
     decision = con.execute(
@@ -819,7 +929,6 @@ def record_label(con, *, decision_sha256: str, horizon: int, entry_basis: str,
         label_sha, decision_sha256, horizon, entry_basis, labelled, _json(payload), payload_sha,
     ])
     return label_sha
-
 
 def exhibit_retry_status(con, *, policy_id: str, accession: str, observed_at: datetime) -> str:
     row = con.execute(

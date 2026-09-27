@@ -7,7 +7,7 @@ import math
 import re
 import threading
 import time
-from dataclasses import replace
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -74,11 +74,13 @@ UZS VED VES VND VUV WST XAF XAG XAU XBA XBB XBC XBD XCD XDR XOF XPD XPF XPT XSU 
 XUA XXX YER ZAR ZMW ZWG
 """.split())
 
-
+@dataclass(frozen=True, slots=True)
+class FilingConnectorResult(base.ConnectorResult):
+    """Model result extended with the exact successful proxy response bytes hash."""
+    raw_response_sha256: str
 def _validator_sha256() -> str:
     source = inspect.getsource(validate_input) + inspect.getsource(validate_output)
     return hashlib.sha256(source.encode()).hexdigest()
-
 
 def identity() -> dict:
     """Return the static, registration-ready W3 model boundary identity."""
@@ -104,14 +106,12 @@ def identity() -> dict:
         "execution_authority": "none",
     }
 
-
 def request_payload(input_payload: dict) -> dict:
     """Build the exact bounded request sent to the local proxy."""
     validate_input(input_payload)
     request = base._request_payload(input_payload, PROMPT)
     request["max_output_tokens"] = MAX_OUTPUT_TOKENS
     return request
-
 
 def _utc(value, field: str) -> datetime:
     try:
@@ -122,7 +122,6 @@ def _utc(value, field: str) -> datetime:
         raise base.ConnectorError(f"filing {field} requires a timezone")
     return parsed.astimezone(timezone.utc)
 
-
 def _keys(value):
     if isinstance(value, dict):
         for key, item in value.items():
@@ -132,12 +131,10 @@ def _keys(value):
         for item in value:
             yield from _keys(item)
 
-
 def _string_list(value, *, allow_empty: bool = False) -> bool:
     return (isinstance(value, list) and (allow_empty or bool(value))
             and all(isinstance(item, str) and bool(item) for item in value)
             and len(value) == len(set(value)))
-
 
 def validate_input(value: object) -> dict:
     """Validate the exact W3 envelope before any transport call."""
@@ -222,14 +219,12 @@ def validate_input(value: object) -> dict:
         raise base.ConnectorError("filing input contains post-decision data")
     return value
 
-
 def _number(value, low: float, high: float) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         raise base.ModelOutputError("filing numeric output is invalid")
     if not low <= value <= high:
         raise base.ModelOutputError("filing numeric output is outside bounds")
     return float(value)
-
 
 def validate_output(output: object, input_payload: dict) -> dict:
     """Reject any assessment outside the exact W3 schema and evidence boundary."""
@@ -286,36 +281,63 @@ def validate_output(output: object, input_payload: dict) -> dict:
                   "tone": tone}
     return {"schema_version": 1, "assessments": [normalized]}
 
-
+class _CapturedResponse:
+    def __init__(self, response, hashes: list[str]):
+        self.response, self.hashes = response, hashes
+    def __getattr__(self, name):
+        return getattr(self.response, name)
+    def read(self, size):
+        raw = self.response.read(size)
+        self.hashes.append(hashlib.sha256(raw).hexdigest())
+        return raw
 class _DeadlineConnection:
-    def __init__(self, connection, remaining: float):
+    def __init__(self, connection, remaining: float, hashes: list[str] | None = None):
         self.connection = connection
+        self.hashes = [] if hashes is None else hashes
+        self.capture = False
         self.timer = threading.Timer(remaining, connection.close)
         self.timer.daemon = True
         self.timer.start()
-
     def __getattr__(self, name):
         return getattr(self.connection, name)
-
+    def request(self, method, path, **kwargs):
+        self.capture = path == base.PROXY_RESPONSES_PATH
+        return self.connection.request(method, path, **kwargs)
+    def getresponse(self):
+        response = self.connection.getresponse()
+        return _CapturedResponse(response, self.hashes) if self.capture else response
     def close(self):
         self.timer.cancel()
         self.connection.close()
-
-
-def generate_json(input_payload: dict, *, connection_factory=base._connection) -> base.ConnectorResult:
+def generate_json(input_payload: dict, *, connection_factory=base._connection) -> FilingConnectorResult:
     """Generate one filing assessment with a 120-second connection ceiling."""
     deadline = time.monotonic() + GENERATION_TIMEOUT_SECONDS
-
+    response_hashes: list[str] = []
     def bounded_factory(host: str, port: int, timeout: float):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise base.ConnectorError("filing generation deadline exceeded")
         connection = connection_factory(host, port, min(timeout, remaining))
-        return _DeadlineConnection(connection, remaining)
-
-    result = base._generate_json(
-        input_payload, payload_builder=request_payload, connection_factory=bounded_factory,
-    )
+        return _DeadlineConnection(connection, remaining, response_hashes)
+    try:
+        result = base._generate_json(
+            input_payload, payload_builder=request_payload, connection_factory=bounded_factory,
+        )
+    except base.ConnectorError as exc:
+        exc.raw_response_sha256 = response_hashes[-1] if response_hashes else None
+        raise
     if time.monotonic() > deadline:
         raise base.ConnectorError("filing generation deadline exceeded")
-    return replace(result, output=validate_output(result.output, input_payload))
+    if len(response_hashes) != 1:
+        raise base.ConnectorError("filing response provenance is unavailable")
+    try:
+        output = validate_output(result.output, input_payload)
+    except base.ModelOutputError as exc:
+        exc.response_id, exc.request_sha256 = result.response_id, result.request_sha256
+        exc.response_sha256 = exc.raw_response_sha256 = response_hashes[0]
+        exc.usage = result.usage
+        raise
+    return FilingConnectorResult(
+        **{field: getattr(result, field) for field in result.__dataclass_fields__ if field != "output"},
+        output=output, raw_response_sha256=response_hashes[0],
+    )
