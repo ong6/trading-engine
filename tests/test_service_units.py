@@ -189,6 +189,22 @@ def test_p15_event_unit_is_intraday_shadow_and_not_autostarted():
     assert "trading-engine-p15-events.timer" not in install_automation.AUTOSTART_UNITS
 
 
+def test_p16_challenger_unit_is_registered_but_not_autostarted():
+    service = _unit("server/trading-engine-p16-challengers.service")
+    timer = _unit("server/trading-engine-p16-challengers.timer")
+    _assert_common_service_hardening(service)
+    assert "Type=exec" in service
+    assert "server.p16_challenger_runner --run" in service
+    assert "After=network-online.target trae-proxy.service " \
+           "trading-engine-p15-scoring.service" in service
+    assert "TimeoutStartSec=9h" in service
+    assert "Restart=on-failure" in service and "RestartSec=5min" in service
+    assert "StartLimitIntervalSec=30min" in service and "StartLimitBurst=3" in service
+    assert "Tue..Sat *-*-* 03:00:00 UTC" in timer and "Persistent=true" in timer
+    assert "trading-engine-p16-challengers.timer" \
+        not in install_automation.AUTOSTART_UNITS
+
+
 def test_league_ui_does_not_present_operational_rank_as_research_evidence():
     league = _unit("ui/app/league/page.js")
     standings = _unit("ui/app/components/LeagueStandings.js")

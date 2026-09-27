@@ -1,0 +1,21 @@
+[Unit]
+Description=Trading engine P16 pre-entry challenger family
+After=network-online.target trae-proxy.service trading-engine-p15-scoring.service
+Wants=network-online.target trae-proxy.service
+StartLimitIntervalSec=30min
+StartLimitBurst=3
+
+[Service]
+Type=exec
+WorkingDirectory=%h/trading-engine
+ExecStart=%h/trading-engine/.venv/bin/python -m server.p16_challenger_runner --run
+Environment=PYTHONUNBUFFERED=1
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=9h
+PrivateTmp=true
+ProtectSystem=full
+ProtectControlGroups=true
+UMask=0077
+Restart=on-failure
+RestartSec=5min

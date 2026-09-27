@@ -1,0 +1,10 @@
+[Unit]
+Description=Run P16 challengers after the P15 nightly scoring job
+
+[Timer]
+OnCalendar=Tue..Sat *-*-* 03:00:00 UTC
+Persistent=true
+Unit=trading-engine-p16-challengers.service
+
+[Install]
+WantedBy=timers.target
