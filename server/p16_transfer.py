@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 
 import numpy as np
 
+from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
 from engine.p15_evaluation import spearman
@@ -62,7 +63,7 @@ def _active_risk(con, tickers: list[str], signal_date: date, cutoff: datetime) -
     rows = con.execute(
         f"SELECT ticker,date,close,fetched_at FROM prices WHERE ticker IN ({name_marks}) "
         f"AND date IN ({placeholders}) AND fetched_at IS NOT NULL AND fetched_at<=? "
-        "AND close>0 AND volume>0 ORDER BY ticker,date",
+        f"AND close>0 AND {REAL_BAR_SQL} ORDER BY ticker,date",
         [*names, *sessions, cutoff],
     ).fetchall()
     history: dict[str, dict[date, float]] = {ticker: {} for ticker in names}
@@ -261,8 +262,8 @@ def produce(
         holding_marks = {}
         for ticker in positions:
             mark = con.execute(
-                "SELECT open FROM prices WHERE ticker=? AND date=? AND open>0 AND volume>0 "
-                "AND fetched_at IS NOT NULL AND fetched_at<=?",
+                f"SELECT open FROM prices WHERE ticker=? AND date=? AND open>0 "
+                f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL}",
                 [ticker, holding_date, cutoff],
             ).fetchone()
             if mark is None:

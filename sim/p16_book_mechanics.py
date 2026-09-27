@@ -62,13 +62,21 @@ def record_sim_fill(
                 and (existing_quantity is None or existing_quantity[0] <= 0)
                 and entry_atr is None):
             raise P16BookError("P16 new stock entry lacks its ATR rule")
-        applied = apply_fill(con, {
-            "portfolio_id": book, "ticker": ticker, "side": side,
-            "qty": float(quantity), "fill_px": result.fill_px,
-        })
-        if applied <= 0:
+        if side == "buy" and quantity * float(result.fill_px) > portfolio.get_cash(
+                con, book) + 1e-9:
             status = "rejected"
-            reason = "insufficient_cash" if side == "buy" else "no_position_to_sell"
+            reason = "insufficient_cash"
+        elif side == "sell" and (
+                existing_quantity is None or float(existing_quantity[0]) + 1e-12 < quantity):
+            status = "rejected"
+            reason = "no_position_to_sell"
+        else:
+            applied = apply_fill(con, {
+                "portfolio_id": book, "ticker": ticker, "side": side,
+                "qty": float(quantity), "fill_px": result.fill_px,
+            })
+            if not math.isclose(applied, quantity, rel_tol=1e-12, abs_tol=1e-12):
+                raise P16BookError("P16 fill was not applied at its full quantity")
     con.execute(
         "INSERT INTO sim_orders VALUES (?,?,?,?,?,?,?,?)",
         [order_id, book, ticker, side, float(quantity), signal_date,

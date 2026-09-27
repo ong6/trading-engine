@@ -5,6 +5,8 @@ import math
 from datetime import date, datetime
 from pathlib import Path
 
+import duckdb
+
 from engine.lib.provenance import canonical_sha256
 from farm import p16_evaluation_report
 
@@ -19,10 +21,18 @@ def project(
 ) -> dict:
     """Project the latest visible, validated P16 family report."""
     registration = p16_registration.load(registration_path, required=False)
-    construction = p16_book_store.status_projection(
-        con, registration_sha256=None if registration is None
-        else registration["registration_sha256"],
-    )
+    try:
+        construction = p16_book_store.status_projection(
+            con, registration_sha256=None if registration is None
+            else registration["registration_sha256"],
+        )
+    except (duckdb.Error, p16_book_store.P16BookError, ValueError):
+        construction = {
+            "schema_version": 1, "status": "unavailable",
+            "mechanics_version": p16_book_store.MECHANICS_VERSION,
+            "book_ids": list(p16_book_store.LOGICAL_BOOK_IDS), "books": [],
+            "reason": "construction_validation_failed", "execution_authority": "none",
+        }
     origin_grid = None
     if registration is not None:
         origin_grid = p16_preentry.grid_report(
