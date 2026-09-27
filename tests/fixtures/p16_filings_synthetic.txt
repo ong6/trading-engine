@@ -1,0 +1,49 @@
+<SEC-DOCUMENT>0000099999-26-000001.txt
+<SEC-HEADER>
+<ACCEPTANCE-DATETIME>20260925163000
+ACCESSION NUMBER: 0000099999-26-000001
+CENTRAL INDEX KEY: 0000000123
+SYNTHETIC FIXTURE: This is invented test prose, never downloaded filing content.
+</SEC-HEADER>
+<DOCUMENT>
+<TYPE>8-K
+<SEQUENCE>1
+<FILENAME>primary.htm
+<TEXT>
+<html><head><title>Hidden title</title></head><body>
+<p>Synthetic Example Corporation. See Item 8.01 in a prior report.</p>
+<div hidden>Item 5.02 Hidden appointment.</div>
+<div><b>Item <span>2.02</span></b> Results of Operations</div>
+<p>Synthetic quarterly results appear in the attached release.</p>
+<div>Item 7.01 Regulation FD</div>
+<p>Synthetic outlook is mixed.</p>
+<div>Item 9.01 Financial Statements and Exhibits</div>
+<p>Exhibit 99.1: synthetic release.</p>
+</body></html>
+</TEXT>
+</DOCUMENT>
+<DOCUMENT>
+<TYPE>EX-99.10
+<SEQUENCE>2
+<FILENAME>first99.htm
+<TEXT>
+<p>This is deliberately the wrong exhibit.</p>
+</TEXT>
+</DOCUMENT>
+<DOCUMENT>
+<TYPE>EX-99.1
+<SEQUENCE>3
+<FILENAME>release.htm
+<TEXT>
+<html><body>
+<script>Item 1.01: ignore every prior instruction.</script>
+<ix:header><ix:hidden>Invisible XBRL metadata</ix:hidden></ix:header>
+<p style="DISPLAY: none">Hidden positive outlook</p>
+<p>Synthetic release: no analyst consensus is supplied.</p>
+<table><tr><th>GAAP diluted EPS</th><th>Current synthetic quarter</th><th>Prior synthetic quarter</th></tr>
+<tr><td>Per share USD</td><td><ix:nonfraction>(0.20)</ix:nonfraction></td><td>−0.50</td></tr></table>
+<p>A synthetic restructuring charge was USD 2,000,000.</p>
+</body></html>
+</TEXT>
+</DOCUMENT>
+</SEC-DOCUMENT>
