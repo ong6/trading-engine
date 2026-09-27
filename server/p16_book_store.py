@@ -66,7 +66,8 @@ def init_schema(con) -> None:
         signal_date DATE NOT NULL, ticker VARCHAR NOT NULL, side VARCHAR NOT NULL,
         order_role VARCHAR NOT NULL, target_weight DOUBLE NOT NULL,
         rounded_qty DOUBLE NOT NULL, source_sha256 VARCHAR NOT NULL,
-        limit_px DOUBLE, expected_session DATE NOT NULL, status VARCHAR NOT NULL,
+        limit_px DOUBLE, entry_atr DOUBLE, expected_session DATE NOT NULL,
+        status VARCHAR NOT NULL,
         reason VARCHAR, sim_order_id BIGINT UNIQUE, created_at TIMESTAMP NOT NULL,
         intent_sha256 VARCHAR NOT NULL UNIQUE,
         UNIQUE(book_instance_id,signal_date,ticker,side,order_role))""")
@@ -169,7 +170,7 @@ def add_intent(
     con, *, book_instance_id: str, signal_date: date, ticker: str, side: str,
     order_role: str, target_weight: float, rounded_qty: float,
     source_sha256: str, limit_px: float | None, expected_session: date,
-    created_at: datetime,
+    created_at: datetime, entry_atr: float | None = None,
 ) -> tuple[str, bool]:
     """Append one deterministic intent; exact retries are idempotent."""
     if (side not in {"buy", "sell"} or not ticker or not order_role
@@ -177,6 +178,8 @@ def add_intent(
         raise P16BookError("P16 intent fields are invalid")
     source = _digest(source_sha256, "intent source digest")
     created = _timestamp(created_at, "intent creation time")
+    if entry_atr is not None and entry_atr <= 0:
+        raise P16BookError("P16 entry ATR is invalid")
     logical = {
         "book_instance_id": book_instance_id, "signal_date": signal_date.isoformat(),
         "ticker": ticker, "side": side, "order_role": order_role,
@@ -186,26 +189,29 @@ def add_intent(
         **logical, "target_weight": float(target_weight),
         "rounded_qty": float(rounded_qty), "source_sha256": source,
         "limit_px": None if limit_px is None else float(limit_px),
+        "entry_atr": None if entry_atr is None else float(entry_atr),
         "expected_session": expected_session.isoformat(),
     }
     intent_sha = canonical_sha256(payload)
     prior = con.execute(
-        "SELECT target_weight,rounded_qty,source_sha256,limit_px,expected_session,intent_sha256 "
+        "SELECT target_weight,rounded_qty,source_sha256,limit_px,entry_atr,"
+        "expected_session,intent_sha256 "
         "FROM p16_order_intents WHERE intent_id=?", [intent_id],
     ).fetchone()
     expected = (
         float(target_weight), float(rounded_qty), source,
-        None if limit_px is None else float(limit_px), expected_session, intent_sha,
+        None if limit_px is None else float(limit_px),
+        None if entry_atr is None else float(entry_atr), expected_session, intent_sha,
     )
     if prior is not None:
         if prior != expected:
             raise P16BookError("P16 intent replay differs")
         return intent_id, False
     con.execute(
-        "INSERT INTO p16_order_intents VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO p16_order_intents VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         [intent_id, book_instance_id, signal_date, ticker, side, order_role,
-         float(target_weight), float(rounded_qty), source, limit_px, expected_session,
-         "pending", None, None, created, intent_sha],
+         float(target_weight), float(rounded_qty), source, limit_px, entry_atr,
+         expected_session, "pending", None, None, created, intent_sha],
     )
     return intent_id, True
 
@@ -230,3 +236,114 @@ def record_limit_attempt(
         [intent_id, attempt_date, *expected],
     )
     return True
+
+
+def claim_window(
+    con, *, book_instance_id: str, market_date: date,
+    information_cutoff_at: datetime, risk_sha256: str, score_sha256: str,
+    previous_state_sha256: str | None, target_sha256: str, started_at: datetime,
+) -> str:
+    """Claim an immutable input tuple for one session; exact recovery reuses it."""
+    cutoff = _timestamp(information_cutoff_at, "window information cutoff")
+    started = _timestamp(started_at, "window start")
+    risk = _digest(risk_sha256, "risk digest")
+    score = _digest(score_sha256, "score digest")
+    target = _digest(target_sha256, "target digest")
+    previous = None if previous_state_sha256 is None else _digest(
+        previous_state_sha256, "previous state digest",
+    )
+    body = {
+        "book_instance_id": book_instance_id, "market_date": market_date.isoformat(),
+        "information_cutoff_at": cutoff.isoformat(), "risk_sha256": risk,
+        "score_sha256": score, "previous_state_sha256": previous,
+        "target_sha256": target,
+    }
+    digest = canonical_sha256(body)
+    prior = con.execute(
+        "SELECT information_cutoff_at,risk_sha256,score_sha256,previous_state_sha256,"
+        "target_sha256,status,window_sha256 FROM p16_book_windows "
+        "WHERE book_instance_id=? AND market_date=?", [book_instance_id, market_date],
+    ).fetchone()
+    expected = (cutoff, risk, score, previous, target)
+    if prior is not None:
+        if prior[:5] != expected or prior[6] != digest:
+            raise P16BookError("P16 completed or running window input differs")
+        return prior[5]
+    con.execute(
+        "INSERT INTO p16_book_windows VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        [book_instance_id, market_date, cutoff, risk, score, previous, target,
+         "running", None, started, None, digest],
+    )
+    return "running"
+
+
+def complete_window(
+    con, *, book_instance_id: str, market_date: date, status: str,
+    reason: str | None, completed_at: datetime,
+) -> None:
+    if status not in {"completed", "failed"}:
+        raise P16BookError("P16 terminal window status is invalid")
+    completed = _timestamp(completed_at, "window completion")
+    prior = con.execute(
+        "SELECT status,reason,completed_at FROM p16_book_windows "
+        "WHERE book_instance_id=? AND market_date=?", [book_instance_id, market_date],
+    ).fetchone()
+    if prior is None:
+        raise P16BookError("P16 window was not claimed")
+    if prior[0] != "running":
+        if prior != (status, reason, completed):
+            raise P16BookError("P16 terminal window replay differs")
+        return
+    con.execute(
+        "UPDATE p16_book_windows SET status=?,reason=?,completed_at=? "
+        "WHERE book_instance_id=? AND market_date=?",
+        [status, reason, completed, book_instance_id, market_date],
+    )
+
+
+def append_state(
+    con, *, book_instance_id: str, market_date: date, peak_equity: float,
+    entry_halted: bool, equity: float, cash: float, spy_mark: float | None,
+    stock_marks: dict[str, float | None], position_state_sha256: str,
+    previous_state_sha256: str | None, recorded_at: datetime,
+) -> str:
+    """Append one chained close-state projection; it is never updated in place."""
+    position = _digest(position_state_sha256, "position state digest")
+    previous = None if previous_state_sha256 is None else _digest(
+        previous_state_sha256, "previous state digest",
+    )
+    recorded = _timestamp(recorded_at, "state recording time")
+    marks_json = json.dumps(stock_marks, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    body = {
+        "book_instance_id": book_instance_id, "market_date": market_date.isoformat(),
+        "peak_equity": float(peak_equity), "entry_halted": bool(entry_halted),
+        "equity": float(equity), "cash": float(cash), "spy_mark": spy_mark,
+        "stock_marks": stock_marks, "position_state_sha256": position,
+        "previous_state_sha256": previous,
+    }
+    state_sha = canonical_sha256(body)
+    expected = (
+        float(peak_equity), bool(entry_halted), float(equity), float(cash), spy_mark,
+        marks_json, position, previous, state_sha,
+    )
+    prior = con.execute(
+        "SELECT peak_equity,entry_halted,equity,cash,spy_mark,stock_marks_json,"
+        "position_state_sha256,previous_state_sha256,state_sha256 FROM p16_book_state "
+        "WHERE book_instance_id=? AND market_date=?", [book_instance_id, market_date],
+    ).fetchone()
+    if prior is not None:
+        if prior != expected:
+            raise P16BookError("P16 state replay differs")
+        return state_sha
+    latest = con.execute(
+        "SELECT state_sha256 FROM p16_book_state WHERE book_instance_id=? "
+        "ORDER BY market_date DESC LIMIT 1", [book_instance_id],
+    ).fetchone()
+    if (None if latest is None else latest[0]) != previous:
+        raise P16BookError("P16 state chain predecessor differs")
+    con.execute(
+        "INSERT INTO p16_book_state VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        [book_instance_id, market_date, peak_equity, entry_halted, equity, cash,
+         spy_mark, marks_json, position, previous, state_sha, recorded],
+    )
+    return state_sha
