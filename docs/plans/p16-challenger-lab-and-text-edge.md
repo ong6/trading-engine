@@ -319,6 +319,12 @@ integrity; authority and safety).
 - **W2: Challenger lab.** A generic challenger runner that shares the P15 bundle, the registration,
   and the eight challengers. It runs from its own timer after the P15 nightly scoring, with the
   advisory lock. Include a dry-run.
+  - Before any W2 evidence, freeze `family_id`, the exact member list `M`, the epoch, and the prior
+    mixture in the W2 registration. `M` fixes the e-Bonferroni threshold.
+  - A daily pre-entry job must call `load_origin` → exposure snapshot → `evaluate_origin` →
+    `record_origin_decision` for every family member before the next open. Set the epoch only after
+    this job is timer-backed and has passed a dry-run. A missed-session test must show the resulting
+    report state; gaps are never silently backfilled onto the fixed grid.
 - **W3: Filing reader**, with a fixture-based suite and live activation only if the SEC contact is
   set.
 - **W4: Historical labs.**
@@ -328,7 +334,9 @@ integrity; authority and safety).
     engine and isolated store, the mistake notes, the development and lockbox runs for the
     champion and at least `c-notes`, `c-blind`, and one `c-model-*`, and
     `data/reports/research/replay.md`.
-- **W5: Portfolio construction v2**: the optimizer, the two shadow books, and a dry-run.
+- **W5: Portfolio construction v2**: the optimizer, the two shadow books, and a dry-run. Add the
+  transfer-coefficient producer for P15 and P16 books, using active-return standard deviation for
+  sigma and excluding SPY. When known-sector coverage is below 80%, cap all stocks at 30% combined.
 - **W6: Execution realism**: capture, calibration report, fill model v5 registration.
 - **W7: Operator digest.** A weekly generated `data/reports/weekly/<YYYY-MM-DD>.md`, one page,
   covering:
@@ -356,6 +364,17 @@ integrity; authority and safety).
   - Update `system-blueprint.md` (layers table), `product.md`, `how-it-works.md`, and `scope.md`.
   - Run the refine gate on the P16 registration and each new module before the registration
     commit.
+  - Remove the extra, unregistered champion factor-neutral mean-IC promotion check from the P16
+    sequential/report path; do not add it to the registration.
+  - Validate that every report row's factor-neutral policy is its challenger and that the champion
+    factor-neutral policy is `p15-scoring-v1`.
+  - Before sequential evaluation consumes a stored factor report, recompute it from its stored
+    inputs and require an exact match.
+  - Isolate the P16 status projection so its validation errors cannot make P15 status return 503.
+  - Wire the primary kill status through a P16 adapter only; do not edit P15 registered files.
+  - Fix the seven pre-existing non-UTC tests at `tests/test_p15_evaluation.py` lines
+    489/545/637/665/744/767/794 when the fix is outside P15's registration closure; otherwise
+    document why they remain. Every checkpoint also runs the full suite under `TZ=Asia/Singapore`.
   - Commit the registration by itself, activate on a date at least one dry-run day away, and
     verify the first live cycle of each new producer.
 - **W10: Final refine pass.** After activation, run the refine loop on each written deliverable:
@@ -419,7 +438,7 @@ safety and operations), run on 2026-09-26. File references are as of that commit
 
 ## Done when
 
-- The full suite passes, both under the host's timezone and with `TZ=UTC`, and
+- The full suite passes under the host's timezone, `TZ=UTC`, and `TZ=Asia/Singapore`, and
   `tools.metrics_snapshot --check-budget` is ok.
 - `server/p16-registration.json` is committed before the activation commit.
 - Within 3 sessions of activation, `GET /agent/evaluation/status` → `p16` shows:
