@@ -160,6 +160,9 @@ def test_generic_exhibit_requires_explicit_press_release_label():
     indexed = normalize(unidentified, index_labels={"release.htm": "Press Release"})
     assert indexed["exhibit_status"] == "ex99_sole"
 
+    typed_by_index = normalize(unidentified, index_labels={"release.htm": "EX-99.1"})
+    assert typed_by_index["exhibit_status"] == "ex99_1"
+
 
 def test_exact_exhibit_wins_over_ex99_2_press_release():
     extra = RAW.replace(
@@ -196,6 +199,14 @@ def test_metadata_does_not_invent_readable_sections():
     record = normalize(raw, metadata_items=("2.02",))
     assert record["item_disagreement"]
     assert record["status"] == "extraction_unavailable"
+    assert record["items"] == []
+    assert record["missing_declared_items"] == ["2.02"]
+    missing = normalize(metadata_items=("1.01",))
+    assert missing["status"] == "extraction_unavailable"
+    assert missing["missing_declared_items"] == ["1.01"]
+    assert "material_agreement" not in missing["allowed_event_kinds"]
+    assert normalize()["item_disagreement"] is False
+    assert normalize(metadata_items=())["item_disagreement"] is True
     pdf = normalize(RAW.replace(b"release.htm", b"release.pdf"))
     assert pdf["status"] == "unsupported_format"
     assert pdf["exhibit_status"] == "ex99_1"
@@ -204,8 +215,8 @@ def test_metadata_does_not_invent_readable_sections():
 def test_truncation_omits_a_complete_table_row():
     filler = b"<p>" + b"x" * 31_750 + b"</p>\n"
     partial_row = (
-        b"<tr><td>EARLY-CELL</td><td><p>" + b"y" * 500
-        + b"</p></td><td>LATE-CELL</td></tr>\n"
+        b"<tr>\n<td>EARLY-CELL</td>\n<td><p>" + b"y" * 500
+        + b"</p></td>\n<td>LATE-CELL</td>\n</tr>\n"
     )
     raw = RAW.replace(b"<table>", filler + b"<table>" + partial_row)
     record = normalize(raw)
@@ -223,19 +234,21 @@ def test_truncation_omits_a_complete_table_row():
 
 def test_scope_preserves_share_classes_and_ignores_newer_unrelated_rows():
     rows = [
-        {"cik": "123", "ticker": ticker, "security_id": security, "available_at": RECEIVED}
+        {"cik": "123", "ticker": ticker, "security_id": security,
+         "snapshot_id": "map-a", "available_at": RECEIVED}
         for ticker, security in [("SYN.A", "class-a"), ("SYN.B", "class-b")]
     ]
     rows.append(
         {"cik": "456", "ticker": "OTHER", "security_id": "other",
+         "snapshot_id": "map-b",
          "available_at": "2026-09-25T20:32:00Z"}
     )
     options = {"rows": rows, "universe": {"SYN-A", "SYN.B"},
-               "cutoff_at": "2026-09-25T20:33:00Z"}
+               "snapshot_id": "map-a", "cutoff_at": "2026-09-25T20:33:00Z"}
     mapped = filings.map_cik_scope("123", aliases={"SYN.A": "SYN-A"}, **options)
     assert [row["security_id"] for row in mapped["securities"]] == ["class-a", "class-b"]
 
-    rows.append({"cik": "456", "ticker": "SYN.B", "security_id": "conflict",
+    rows.append({"cik": "456", "ticker": "SYN.B", "security_id": "conflict", "snapshot_id": "map-a",
                  "available_at": RECEIVED})
     assert filings.map_cik_scope("123", **options)["status"] == "ambiguous"
 
@@ -243,10 +256,13 @@ def test_scope_preserves_share_classes_and_ignores_newer_unrelated_rows():
 def test_scope_does_not_backfill_removed_classes():
     rows = [
         {"cik": "123", "ticker": "OLD", "security_id": "old",
-         "available_at": "2026-09-24T20:31:00Z"},
-        {"cik": "123", "ticker": "NEW", "security_id": "new", "available_at": RECEIVED},
+         "snapshot_id": "map-old", "available_at": "2026-09-24T20:31:00Z"},
+        {"cik": "123", "ticker": "NEW", "security_id": "new",
+         "snapshot_id": "map-new", "available_at": RECEIVED},
     ]
-    scope = filings.map_cik_scope("123", rows=rows, universe={"OLD"}, cutoff_at=RECEIVED)
+    scope = filings.map_cik_scope(
+        "123", rows=rows, snapshot_id="map-new", universe={"OLD"}, cutoff_at=RECEIVED,
+    )
     assert scope["status"] == "outside_universe"
     assert scope["securities"] == []
 
