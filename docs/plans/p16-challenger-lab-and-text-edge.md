@@ -575,7 +575,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W1 Evaluation science v2 | complete; accepted core, durable evidence, family report, and existing-status-surface projection are verified; nonessential adapter/census refinements are deferred at checkpoint | 2026-09-27 |
 | W2 Challenger lab | staged; implementation and inert timer complete, while the first P15 origin gates the timer-backed rehearsal, literal epoch, final family registration, and independent activation | |
 | W3 Filing reader | components complete, inert; `unconfigured` and activation blocked on baseline/conditional-fetch/scan-orchestrator review fixes | 2026-09-27 |
-| W4 Historical labs (text lab, replay lab) | not started | |
+| W4 Historical labs (text lab, replay lab) | blocked after inert guard groundwork: 1,949 of v3's 2,000 production-Python lines are used; sealed use-time authority and the remaining producer/report surface do not fit the remaining 51 lines. No producer has run | 2026-09-27 |
 | W5 Portfolio construction v2 | not started | |
 | W6 Execution realism | not started | |
 | W7 Operator digest | not started | |
@@ -584,7 +584,10 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W10 Final refine pass | not started | |
 | W11 Synthetic proving ground and evaluation loops | design in progress (`p16-design-proving-ground`) | |
 
-Owner inputs needed: optional `research-text` dependency decision requested 2026-09-26; W4a remains corpus-only until approved. An optional alternate reviewer model was requested after fresh review jobs produced no output; reviews remain pending. SEC contact and free API keys retain their stated defaults.
+Technical input needed: W4 needs an orchestrator decision to raise its production-Python
+allocation to at least about 3,300 lines or explicitly re-stage the v3 checkpoint scope. Owner
+input remains optional for the `research-text` dependency requested 2026-09-26, so W4a stays
+corpus-only until approved. SEC contact and free API keys retain their stated defaults.
 
 **Design inputs (parallel GPT-6-Astra design sessions, started 2026-09-27).** Three sessions write
 specs, test vectors, and numpy reference drafts on the host, outside the repo. Before building a

@@ -1,18 +1,18 @@
 """W4 notes-filter acceptance and frozen-corpus tests."""
 from __future__ import annotations
 
-import hashlib
 import json
-from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
-from engine.lib.provenance import canonical_sha256
 from farm.replay.notes import (
+    MAX_LESSON_REJECTION_RATE,
+    MIN_LESSON_COUNT,
     NotesValidationError,
     freeze_filter_spec,
+    lesson_rejection_rate,
     validate_lesson_corpus,
     validate_notes,
 )
@@ -24,10 +24,6 @@ FILTER = freeze_filter_spec(
     company_names=("Acme Holdings",),
     aliases=("Acme Group", "May"),
 )
-FROZEN = datetime(2026, 9, 27, 15, 12, tzinfo=timezone.utc)
-REGISTERED = datetime(2026, 9, 27, 15, 20, tzinfo=timezone.utc)
-
-
 @pytest.mark.parametrize(
     "text",
     (
@@ -64,62 +60,59 @@ def test_notes_filter_rejects_identity_date_and_value_anchors(text):
 
 def test_independently_authored_corpus_is_frozen_before_bound_and_passes():
     fixture = json.loads(FIXTURE.read_text())
-    attestation_sha = hashlib.sha256(
-        fixture["authorship_attestation"].encode()
-    ).hexdigest()
-    assert attestation_sha == fixture["authorship_evidence_sha256"]
+    assert fixture["schema_version"] == 2
     result = validate_lesson_corpus(
         fixture["lessons"],
         filter_spec=FILTER,
-        expected_sha256=fixture["corpus_sha256"],
-        expected_count=120,
-        corpus_frozen_at=datetime.fromisoformat(fixture["frozen_at"]),
-        bound_registered_at=datetime.fromisoformat(fixture["bound_registered_at"]),
-        authorship_evidence_sha256=fixture["authorship_evidence_sha256"],
+        authorship_attestation=fixture["authorship_brief"],
     )
     assert result.count == 120
     assert result.rejected <= 12
     assert result.rejection_rate <= Decimal("0.10")
 
 
-def _validate_boundary(lessons, maximum=Decimal("0.10")):
-    return validate_lesson_corpus(
-        lessons,
-        filter_spec=FILTER,
-        expected_sha256=canonical_sha256({"lessons": lessons}),
-        expected_count=len(lessons),
-        corpus_frozen_at=FROZEN,
-        bound_registered_at=REGISTERED,
-        authorship_evidence_sha256="a" * 64,
-        max_rejection_rate=maximum,
-    )
+def test_registered_corpus_cannot_relax_count_digest_authorship_or_bound():
+    fixture = json.loads(FIXTURE.read_text())
+    common = dict(filter_spec=FILTER, authorship_attestation=fixture["authorship_brief"])
+    assert MIN_LESSON_COUNT == 100
+    assert MAX_LESSON_REJECTION_RATE == Decimal("0.10")
+    with pytest.raises(NotesValidationError, match="count_mismatch"):
+        validate_lesson_corpus(fixture["lessons"][:-1], **common)
+    with pytest.raises(NotesValidationError, match="digest_mismatch"):
+        validate_lesson_corpus([*fixture["lessons"][:-1], "Changed principle."], **common)
+    with pytest.raises(NotesValidationError, match="authorship_unbound"):
+        validate_lesson_corpus(fixture["lessons"], filter_spec=FILTER, authorship_attestation="fake")
 
 
 def test_exact_ten_percent_rejection_passes_and_eleven_percent_fails():
-    ten_rejected = ["General principle."] * 90 + ["Wait one day."] * 10
-    assert _validate_boundary(ten_rejected).rejected == 10
-    eleven_rejected = ["General principle."] * 89 + ["Wait one day."] * 11
-    with pytest.raises(NotesValidationError, match="notes_design_rejected"):
-        _validate_boundary(eleven_rejected)
+    assert lesson_rejection_rate(10, 100) == MAX_LESSON_REJECTION_RATE
+    assert lesson_rejection_rate(11, 100) > MAX_LESSON_REJECTION_RATE
+    with pytest.raises(NotesValidationError, match="too_small"):
+        lesson_rejection_rate(0, 99)
 
 
-def test_corpus_count_digest_and_freeze_order_are_fail_closed():
-    lessons = ["General principle."] * 100
-    digest = canonical_sha256({"lessons": lessons})
-    common = dict(
-        filter_spec=FILTER,
-        expected_sha256=digest,
-        expected_count=100,
-        corpus_frozen_at=FROZEN,
-        bound_registered_at=REGISTERED,
-        authorship_evidence_sha256="a" * 64,
-    )
-    with pytest.raises(NotesValidationError, match="count_mismatch"):
-        validate_lesson_corpus(lessons[:-1], **common)
-    with pytest.raises(NotesValidationError, match="digest_mismatch"):
-        validate_lesson_corpus([*lessons[:-1], "Changed principle."], **common)
-    with pytest.raises(NotesValidationError, match="not_frozen_before_bound"):
-        validate_lesson_corpus(
-            lessons,
-            **{**common, "corpus_frozen_at": REGISTERED},
-        )
+@pytest.mark.parametrize(
+    "text",
+    (
+        "“A single headline rarely changes the thesis.”",
+        "(A single headline rarely changes the thesis.)",
+        "He said “Risk changed.” A single headline rarely changes the thesis.",
+        "— A single headline rarely changes the thesis.",
+    ),
+)
+def test_opening_punctuation_preserves_sentence_initial_one_letter_exception(text):
+    assert validate_notes(text, filter_spec=FILTER) == text
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        "The first quarter was noisy.",
+        "May earnings were weak.",
+        "Review on the first.",
+        "Review on the second.",
+    ),
+)
+def test_calendar_and_period_anchors_are_rejected(text):
+    with pytest.raises(NotesValidationError, match="date_or_number"):
+        validate_notes(text, filter_spec=FILTER)

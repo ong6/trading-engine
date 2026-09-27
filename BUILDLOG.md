@@ -1040,4 +1040,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** product code unchanged; budget ok.
 - **Next:** bind this frozen commit and fixed rejection bound, then rerun the W4 guard review.
 
+## 2026-09-27 — P16 W4: enforce the inert replay guard boundaries
+
+- **Why:** approved P16 W4 and its four mandatory acceptance conditions admit the replay
+  evidence, price-series, notes-filter, and lockbox guard implementation before any producer run.
+- **What:** bind the independent lesson corpus to the fixed rejection rule; make lockbox trial
+  sets, ownership, dispatch, and event history durable and deletion-detecting; seal action-fetch
+  timestamps and exact receipts; bind feature/label prices to split action sets; and reject held
+  or pending quarantined splits at the P15 replay adapter boundary. The code remains inert.
+- **Evidence:** `.venv/bin/python -m pytest -q tests/test_p16_replay_{notes,lockbox,asof,store,corpus}.py`
+  reaches `[100%]` with 73 passing tests.
+- **Metrics:** farm 16,849; other product layers unchanged; budget ok.
+- **Next:** obtain an orchestrator decision on W4's 2,000-line cap and sealed-authority boundary;
+  1,949 lines are used and the estimated remaining mandatory implementation is 1,300–1,930.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
