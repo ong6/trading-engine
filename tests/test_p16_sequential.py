@@ -178,6 +178,18 @@ def test_common_report_rejects_wrong_level_time_family_and_maximum():
                              alpha_allocation_id="p16-family-v1-alpha-0.05")
 
 
+def test_candidate_revalidates_family_allocation_identity():
+    report = common_report_e_test(
+        [_family_row("c0", 100, 100)], ["c0"], NOW.isoformat(), origin_endpoint=100,
+        alpha_allocation_id="p16-family-v1-alpha-0.05")
+    report["alpha_allocation_sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="allocation differs"):
+        candidate_for_promotion(report, "c0")
+    report["alpha_allocation_id"] = "another-family"
+    with pytest.raises(ValueError, match="registered lifetime"):
+        candidate_for_promotion(report, "c0")
+
+
 def test_bounded_null_simulation_counts_any_crossing():
     rng, mixture = np.random.default_rng(162026), _mixture()
     shocks = rng.choice([-2.0, 2.0], size=(1000, 200))

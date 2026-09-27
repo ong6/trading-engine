@@ -234,9 +234,12 @@ def common_report_e_test(
         raise ValueError("invalid current or running-maximum e-value")
     lifetime = _multiple(maximum, gate, method="lifetime_e_bonferroni")
     descriptive = _multiple(current, gate, method="current_e_bh")
+    allocation = {"alpha_allocation_id": alpha_allocation_id, "level": level,
+                  "comparison_ids": family_ids}
     return {
         **lifetime, "promotion_basis": "lifetime_e_bonferroni", "level": level,
         "alpha_allocation_id": alpha_allocation_id, "family_size": len(family_ids),
+        "alpha_allocation_sha256": canonical_sha256(allocation),
         "comparison_ids": family_ids, "report_at": report_time.isoformat(),
         "origin_endpoint": origin_endpoint, "eligibility_checks": checks,
         "eligibility_mask": gate, "current_log_e": current.tolist(),
@@ -249,7 +252,8 @@ def common_report_e_test(
 def candidate_for_promotion(common_report: dict, comparison_id: str) -> bool:
     """Recompute the registered lifetime boundary; never trust stored selection."""
     if (common_report.get("promotion_basis") != "lifetime_e_bonferroni"
-            or common_report.get("level") != ALPHA):
+            or common_report.get("level") != ALPHA
+            or common_report.get("alpha_allocation_id") != ALPHA_ALLOCATION_ID):
         raise ValueError("promotion requires the registered lifetime e-Bonferroni report")
     ids = common_report.get("comparison_ids")
     if not isinstance(ids, list) or ids.count(comparison_id) != 1:
@@ -257,6 +261,10 @@ def candidate_for_promotion(common_report: dict, comparison_id: str) -> bool:
     index, size = ids.index(comparison_id), len(ids)
     if common_report.get("family_size") != size:
         raise ValueError("family size differs")
+    allocation = {"alpha_allocation_id": ALPHA_ALLOCATION_ID, "level": ALPHA,
+                  "comparison_ids": ids}
+    if common_report.get("alpha_allocation_sha256") != canonical_sha256(allocation):
+        raise ValueError("family alpha allocation differs")
     checks, masks, maxima = (common_report.get("eligibility_checks", []),
                              common_report.get("eligibility_mask", []),
                              common_report.get("max_log_e", []))
