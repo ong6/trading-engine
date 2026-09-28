@@ -137,5 +137,11 @@ def test_committed_w4_registration_is_inert_while_w2_epoch_is_absent():
         "profile_id": "p16-fill-v5-candidate",
         "requires_direct_paper_auction_evidence": True,
     }
-    assert len(execution["training_sessions"]) == 60
-    assert len(execution["validation_sessions"]) == 20
+    assert execution["session_split"] == {
+        "rule": "first_80_exchange_sessions_after_w9_activation",
+        "training_start_index": 0, "training_count": 60,
+        "validation_start_index": 60, "validation_count": 20,
+        "literal_dates_written_at_w9_activation": True,
+    }
+    assert execution["w9_activation_session"] is None
+    assert "sessions" not in execution

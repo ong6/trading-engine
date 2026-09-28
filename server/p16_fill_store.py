@@ -8,6 +8,7 @@ from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo
 
 from engine import p16_fill_capture
+from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
 from sim import nyse
@@ -80,13 +81,13 @@ def candidate_snapshot_as_of(con, session_date: date, *, selected_at: datetime) 
 
 
 def targeted_orders(con, session_date: date, *, known_at: datetime) -> list[dict]:
-    """Snapshot every P15 intent targeting this open, including non-fill states."""
+    """Snapshot immutable intent inputs; mutable outcomes are joined after capture."""
     cutoff = _timestamp(known_at, "order cutoff")
     if not table_exists(con, "p15_order_intents"):
         return []
     cursor = con.execute(
         "SELECT id,decision_id,portfolio_id,ticker,side,qty,signal_date,order_role,"
-        "priority,signal_close,entry_atr,limit_px,status,reason,sim_order_id,created_at "
+        "priority,signal_close,entry_atr,limit_px,created_at "
         "FROM p15_order_intents WHERE created_at<=? ORDER BY id", [cutoff],
     )
     fields = [item[0] for item in cursor.description]
@@ -100,6 +101,57 @@ def targeted_orders(con, session_date: date, *, known_at: datetime) -> list[dict
             for key, value in row.items()
         })
     return rows
+
+
+def order_outcomes(con, session_date: date) -> list[dict]:
+    """Join mutable order outcomes to a frozen manifest without changing its identity."""
+    if not table_exists(con, "p16_fill_manifests"):
+        return []
+    retained = con.execute(
+        "SELECT orders_json FROM p16_fill_manifests WHERE session_date=?", [session_date],
+    ).fetchone()
+    if retained is None or not table_exists(con, "p15_order_intents"):
+        return []
+    ids = [row["id"] for row in json.loads(retained[0])]
+    if not ids:
+        return []
+    cursor = con.execute(
+        "SELECT id,status,reason,sim_order_id FROM p15_order_intents "
+        f"WHERE id IN ({','.join('?' for _ in ids)}) ORDER BY id", ids,
+    )
+    fields = [item[0] for item in cursor.description]
+    return [dict(zip(fields, values, strict=True)) for values in cursor.fetchall()]
+
+
+def liquidity_as_of(
+    con, security_id: str, session_date: date, *, information_cutoff_at: datetime,
+) -> dict:
+    """Compute 60-session median dollar volume using only rows known by selection."""
+    cutoff = _timestamp(information_cutoff_at, "liquidity cutoff")
+    if cutoff > p16_fill_capture.selection_cutoff(session_date).replace(tzinfo=None):
+        raise ValueError("fill liquidity cutoff is after selection")
+    if not table_exists(con, "prices"):
+        return {"status": "unavailable", "reason": "liquidity_history_unavailable",
+                "valid_sessions": 0, "median_dollar_volume_60d": None}
+    rows = con.execute(
+        "SELECT date,close,volume,source,fetched_at FROM prices WHERE ticker=? AND date<? "
+        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {db.REAL_BAR_SQL} "
+        "ORDER BY date DESC LIMIT 60", [security_id, session_date, cutoff],
+    ).fetchall()
+    evidence = [{"date": row[0].isoformat(), "close": row[1], "volume": row[2],
+                 "source": row[3], "fetched_at": row[4].replace(
+                     tzinfo=timezone.utc).isoformat()} for row in rows]
+    values = [float(row[1]) * int(row[2]) for row in rows]
+    if len(values) < 20 or any(not math.isfinite(value) or value <= 0 for value in values):
+        return {"status": "unavailable", "reason": "liquidity_history_insufficient",
+                "valid_sessions": len(values), "median_dollar_volume_60d": None,
+                "price_rows_sha256": canonical_sha256(evidence)}
+    values.sort()
+    middle = len(values) // 2
+    median = values[middle] if len(values) % 2 else (values[middle - 1] + values[middle]) / 2
+    return {"status": "available", "valid_sessions": len(values),
+            "median_dollar_volume_60d": median,
+            "price_rows_sha256": canonical_sha256(evidence)}
 
 
 def build_manifest(con, session_date: date) -> dict:
@@ -201,6 +253,10 @@ def record_measurement(
             key: value for key, value in measurement.items()
             if key != "measurement_sha256"}):
         raise ValueError("fill measurement identity differs")
+    if (measurement.get("session_date") != session_date.isoformat()
+            or measurement.get("security_id") != security_id
+            or measurement.get("source") != source):
+        raise ValueError("fill measurement row identity differs")
     if _SHA.fullmatch(bar_set_sha256 or "") is None:
         raise ValueError("fill bar-set identity is invalid")
     mdv = None if median_dollar_volume is None else float(median_dollar_volume)
@@ -221,3 +277,63 @@ def record_measurement(
         _timestamp(measured_at, "measurement time"), encoded,
     ])
     return digest
+
+
+def observations_for_session(
+    con, session_date: date, *, primary_source: str,
+) -> list[dict]:
+    """Project one row per sampled name; the first valid source capture wins."""
+    retained = con.execute(
+        "SELECT sample_json FROM p16_fill_manifests WHERE session_date=?", [session_date],
+    ).fetchone()
+    if retained is None:
+        return []
+    sample = json.loads(retained[0])
+    cursor = con.execute(
+        "SELECT security_id,source,liquidity_tier,median_dollar_volume,measured_at,payload_json "
+        "FROM p16_fill_measurements WHERE session_date=? "
+        "ORDER BY measured_at,measurement_sha256", [session_date],
+    )
+    grouped: dict[str, dict[str, list[tuple]]] = {}
+    for security_id, source, tier, mdv, measured_at, payload in cursor.fetchall():
+        grouped.setdefault(security_id, {}).setdefault(source, []).append(
+            (tier, mdv, measured_at, json.loads(payload)))
+    observations = []
+    for security_id in sample["selected_security_ids"]:
+        sources = grouped.get(security_id, {})
+        chosen = {}
+        for source, rows in sources.items():
+            chosen[source] = next(
+                (row for row in rows if row[3].get("bar_status") == "complete"), rows[0])
+        primary = chosen.get(primary_source)
+        missing = []
+        if primary is None:
+            missing.append("primary_measurement_unavailable")
+            payload, tier, mdv = {}, "unknown", None
+        else:
+            tier, mdv, _, payload = primary
+            if payload.get("bar_status") != "complete":
+                missing.append(f"bar_{payload.get('bar_status', 'unavailable')}")
+            if payload.get("quote_target_bp") is None:
+                statuses = payload.get("quote_statuses") or ["unavailable"]
+                missing.extend(f"quote_{status}" for status in statuses)
+        secondary = next((row for source, row in chosen.items()
+                          if source != primary_source and row[3].get("first_open") is not None), None)
+        first_open = payload.get("first_open")
+        cross_gap = None if first_open is None or secondary is None else \
+            10_000 * (first_open / secondary[3]["first_open"] - 1)
+        if cross_gap is None:
+            missing.append("cross_source_open_unavailable")
+        if tier == "unknown":
+            missing.append("liquidity_unknown")
+        observations.append({
+            "sample_id": sample["sample_id"], "session_date": session_date.isoformat(),
+            "security_id": security_id, "source": primary_source,
+            "liquidity_tier": tier, "median_dollar_volume": mdv,
+            "quote_target_bp": payload.get("quote_target_bp"),
+            "half_range_proxy_bp": payload.get("half_range_proxy_bp"),
+            "hlc3_gap_bp": payload.get("hlc3_gap_bp"),
+            "cross_source_open_gap_bp": cross_gap,
+            "missing_reasons": sorted(set(missing)),
+        })
+    return observations

@@ -19,8 +19,13 @@ def _registration():
         current = nyse.next_session(current)
     body = {
         "registration_id": "p16-fills-v1", "sessions": sessions,
-        "training_sessions": sessions[:60], "validation_sessions": sessions[60:],
         "calendar_sha256": canonical_sha256(sessions),
+        "session_split": {
+            "rule": "first_80_exchange_sessions_after_w9_activation",
+            "training_start_index": 0, "training_count": 60,
+            "validation_start_index": 60, "validation_count": 20,
+            "literal_dates_written_at_w9_activation": True,
+        },
     }
     return {**body, "registration_sha256": canonical_sha256(body)}
 
@@ -35,8 +40,8 @@ def _observations(registration, *, validation_quote_shift=0.0):
                     "session_date": session, "security_id": f"{tier}-{security}-{index}",
                     "sample_id": "p16-fills-v1:sample:1", "liquidity_tier": tier,
                     "quote_target_bp": v4[tier] + (validation_quote_shift if index >= 60 else 0),
-                    "vwap_gap_bp": 5.0, "half_range_proxy_bp": v4[tier],
-                    "hlc3_gap_bp": 5.0, "cross_source_open_gap_bp": 1.0,
+                    "half_range_proxy_bp": v4[tier], "hlc3_gap_bp": 5.0,
+                    "cross_source_open_gap_bp": 1.0,
                     "missing_reasons": [],
                 })
     return rows
@@ -52,6 +57,10 @@ def test_full_fixture_calibration_passes_but_cannot_activate_v5():
     assert report["execution_basis_verified"] is False
     assert report["v5_activation_eligible"] is False
     assert all(row["status"] == "independent_targets_supported" for row in report["tiers"])
+    assert all(row["adverse"]["status"] == "not_registered" for row in report["tiers"])
+    proxy = report["tiers"][0]["proxy_stability"]
+    assert proxy["adverse_stress_bp"] == {"buy": 5.0, "sell": 5.0}
+    assert proxy["adverse_stress_validation"]["buy"]["pinball_loss_bp"] == 0.0
     assert "does not activate fill model v5" in p16_fill_calibration.markdown(report)
     with pytest.raises(ValueError, match="not activation-eligible"):
         p16_fill_profile.validate_auction_artifact(report)
@@ -71,20 +80,39 @@ def test_validation_rows_are_not_refit_into_frozen_training_estimate():
     assert report["status"] == "independent_validation_failed"
 
 
-def test_missing_independent_targets_stays_collecting_not_zero():
+def test_overall_status_judges_only_tiers_with_registered_coverage():
     registration = _registration()
-    observations = _observations(registration)
-    for row in observations:
-        row["vwap_gap_bp"] = None
-        row["missing_reasons"] = ["verified_vwap_unavailable"]
+    observations = [row for row in _observations(registration)
+                    if row["liquidity_tier"] == "gte_50m"]
     report = p16_fill_calibration.build_report(
         registration, observations, generated_at="2027-01-28T17:05:00+00:00")
 
-    assert report["status"] == "collecting"
-    assert all(row["adverse_by_side"]["buy"]["estimate_bp"] is None
+    assert report["status"] == "independent_targets_supported"
+    assert [row["status"] for row in report["tiers"]].count(
+        "independent_targets_supported") == 1
+
+
+def test_missing_quote_target_is_insufficient_after_collection_window():
+    registration = _registration()
+    observations = _observations(registration)
+    for row in observations:
+        row["quote_target_bp"] = None
+        row["missing_reasons"] = ["quote_capture_failed"]
+    report = p16_fill_calibration.build_report(
+        registration, observations, generated_at="2027-01-28T17:05:00+00:00")
+
+    assert report["status"] == "insufficient_data"
+    assert all(row["adverse"]["status"] == "not_registered" for row in report["tiers"])
+    assert all(row["missing_reasons"] == {"quote_capture_failed": 160}
                for row in report["tiers"])
-    assert all(row["missing_reasons"] == {"verified_vwap_unavailable": 160}
-               for row in report["tiers"])
+
+
+def test_adverse_quantile_contract_uses_pinball_loss_and_median_bias():
+    errors = p16_fill_calibration.quantile_errors([0.0, 2.0, 8.0, 10.0], 8.0, 5.0)
+
+    assert errors["pinball_loss_bp"] == pytest.approx(1.25)
+    assert errors["comparator_pinball_loss_bp"] == pytest.approx(2.0)
+    assert errors["median_bias_bp"] == pytest.approx(3.0)
 
 
 def test_future_v5_formula_uses_only_validated_auction_slippage():

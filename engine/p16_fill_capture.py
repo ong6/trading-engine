@@ -106,7 +106,7 @@ def normalize_bars(session_date: date, source_payload: dict) -> dict:
             or source_payload["currency"] != "USD"):
         raise ValueError("fill bar source contract differs")
     expected = expected_bar_starts(session_date)
-    normalized, seen = [], set()
+    normalized, seen, quality_reasons = [], set(), []
     for raw in source_payload["bars"]:
         if not isinstance(raw, dict):
             raise ValueError("fill bar is invalid")
@@ -129,11 +129,16 @@ def normalize_bars(session_date: date, source_payload: dict) -> dict:
                 raise ValueError("first-bar VWAP kind is not independently verified")
         elif vwap_kind is not None:
             raise ValueError("first-bar VWAP kind exists without a value")
+        slot = started.astimezone(_NEW_YORK).strftime("%H%M")
+        if volume == 0:
+            quality_reasons.append(f"zero_volume_{slot}")
+        if raw.get("halted") is True:
+            quality_reasons.append(f"halted_{slot}")
         normalized.append({
             "start_at": started.isoformat(), "open": o, "high": high,
             "low": low, "close": close, "volume": volume,
             "vwap_value": vwap, "vwap_kind": vwap_kind,
-            "volume_scope": raw.get("volume_scope"),
+            "volume_scope": raw.get("volume_scope"), "halted": raw.get("halted") is True,
         })
     normalized.sort(key=lambda row: row["start_at"])
     missing = [item.isoformat() for item in expected if item not in seen]
@@ -149,7 +154,7 @@ def normalize_bars(session_date: date, source_payload: dict) -> dict:
                 10_000 * (first["vwap_value"] / first["open"] - 1),
             "hlc3_gap_bp": 10_000 * (first_hlc3 / first["open"] - 1),
         }
-    if not missing:
+    if not missing and not quality_reasons:
         hlc3 = [(row["high"] + row["low"] + row["close"]) / 3
                 for row in normalized]
         weights = [row["volume"] for row in normalized]
@@ -162,8 +167,12 @@ def normalize_bars(session_date: date, source_payload: dict) -> dict:
                 sum(weights),
         })
     body = {
-        "status": "complete" if not missing else "missing_slots",
-        "missing_starts": missing, "bars": normalized, "metrics": metrics,
+        "status": "complete" if not missing and not quality_reasons else
+            "quality_unavailable" if quality_reasons else "missing_slots",
+        "missing_starts": missing, "missing_reasons": [
+            *(f"missing_bar_{datetime.fromisoformat(item).astimezone(_NEW_YORK):%H%M}"
+              for item in missing), *quality_reasons],
+        "bars": normalized, "metrics": metrics,
         **{key: source_payload[key] for key in required - {"bars"}},
     }
     return {**body, "bar_set_sha256": canonical_sha256(body)}
@@ -207,10 +216,18 @@ def normalize_quote(session_date: date, window_index: int, quote: dict) -> dict:
 
 
 def measure_symbol_day(
-    *, bar_set: dict, quote_rows: list[dict], operational_open: float | None = None,
+    *, session_date: date, security_id: str, source: str, bar_set: dict,
+    quote_rows: list[dict], operational_open: float | None = None,
     simulated_fill: float | None = None, side: str | None = None,
+    secondary_open: float | None = None,
 ) -> dict:
     """Compose separate bar, quote, operational-open and simulator comparisons."""
+    if (not isinstance(session_date, date)
+            or not isinstance(security_id, str) or not security_id.strip()
+            or not isinstance(source, str) or not source.strip()):
+        raise ValueError("fill measurement identity is invalid")
+    if bar_set.get("source") != source:
+        raise ValueError("fill measurement source differs")
     if bar_set.get("bar_set_sha256") != canonical_sha256({
             key: value for key, value in bar_set.items() if key != "bar_set_sha256"}):
         raise ValueError("fill bar set identity differs")
@@ -233,7 +250,13 @@ def measure_symbol_day(
         sign = 1 if side == "buy" else -1
         sim_gap = sign * 10_000 * (
             _number(simulated_fill, "simulated fill") / metrics["reported_vwap"] - 1)
+    cross_source_gap = None
+    if first_open is not None and secondary_open is not None:
+        cross_source_gap = 10_000 * (
+            first_open / _number(secondary_open, "secondary source open") - 1)
     body = {
+        "session_date": session_date.isoformat(), "security_id": security_id,
+        "source": source,
         "bar_status": bar_set["status"], "quote_target_bp": quote_target,
         "quote_statuses": [row.get("status") for row in quote_rows],
         "first_open": first_open,
@@ -242,6 +265,7 @@ def measure_symbol_day(
         "half_range_proxy_bp": None if metrics is None else
             metrics.get("half_range_proxy_bp"),
         "open_source_gap_bp": open_gap, "sim_vs_vwap_bp": sim_gap,
+        "cross_source_open_gap_bp": cross_source_gap,
         "execution_basis_verified": False, "v5_activation_eligible": False,
     }
     return {**body, "measurement_sha256": canonical_sha256(body)}

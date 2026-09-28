@@ -382,6 +382,9 @@ integrity; authority and safety).
 - **W9: Cleanup, docs, activation.**
   - Activation is staged per component: W2 activates independently after its timer-backed
     rehearsal and final family registration; W9 activates the remaining eligible P16 components.
+  - Before enabling W6 capture, run a 09:46 ET delayed-data dry-run with at least one opening-bar
+    miss; prove the 10:00/12:00 retries recover 09:30, keep the first valid capture, and count any
+    still-missing selected names without replacement.
   - Retire the doc-pinning tests (`tests/test_docs*.py`), carried over from the closed P1, and
     split `docs/how-it-works.md` into an ops runbook and an architecture reference.
   - Delete P16-obsoleted code before activation.
@@ -590,7 +593,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W3 Filing reader | components complete, inert; `unconfigured` and activation blocked on baseline/conditional-fetch/scan-orchestrator review fixes | 2026-09-27 |
 | W4 Historical labs (text lab, replay lab) | complete and accepted for code; real-data producers remain inert until W9 records the price-archive listing date and the owner supplies the SEC contact. Accepted limits are registered for W9 reporting; the post-cutoff grid remains planned pending probe admission | 2026-09-28 |
 | W5 Portfolio construction v2 | complete; orchestrator accepted the inert construction path and its bounded recovery deviation; W9 owns the three pre-activation guards and the recovery-window exit follow-up | 2026-09-27 |
-| W6 Execution realism | implementation checkpoint complete and inert; orchestrator review scored 6.8/10, so binding round-2 revisions remain after W8. `baseline_v1` is unchanged | 2026-09-28 |
+| W6 Execution realism | round-2 checkpoint complete and inert, pending orchestrator acceptance: the fixture path now runs selection through written reports, all review blockers are covered, and `baseline_v1` is unchanged | 2026-09-28 |
 | W7 Operator digest | complete: Sunday post-walk-forward composer produces the compact weekly gate/book/challenger/activity/health view with explicit unavailable states and the unversioned-catalogue-alias warning | 2026-09-28 |
 | W8 Stage 2 design | complete: accepted design filed with binding review notes; P17 is indexed as proposed and grants no broker, credential, account or capital authority | 2026-09-28 |
 | W9 Cleanup, docs, refine gate, activation | not started | |

@@ -28,16 +28,14 @@ def _execution_realism_valid(value: object) -> bool:
     if digest != canonical_sha256({
             key: item for key, item in value.items() if key != "registration_sha256"}):
         return False
-    sessions = value.get("sessions")
-    try:
-        dates = [date.fromisoformat(item) for item in sessions]
-    except (TypeError, ValueError):
-        return False
     paths = {
         "capture": REPO_ROOT / "engine" / "p16_fill_capture.py",
         "calibration": REPO_ROOT / "farm" / "p16_fill_calibration.py",
+        "runner": REPO_ROOT / "farm" / "p16_fill_runner.py",
         "store": REPO_ROOT / "server" / "p16_fill_store.py",
+        "quote_capture": REPO_ROOT / "server" / "p16_quote_capture.py",
         "tradingview_5m": REPO_ROOT / "server" / "p16_tradingview_intraday.py",
+        "yfinance_5m": REPO_ROOT / "server" / "p16_yfinance_intraday.py",
         "future_profile_guard": REPO_ROOT / "sim" / "p16_fill_profile.py",
     }
     code = value.get("code_sha256")
@@ -49,13 +47,17 @@ def _execution_realism_valid(value: object) -> bool:
         and value.get("sample", {}).get("sample_id") == p16_fill_capture.SAMPLE_ID
         and value.get("calibration", {}).get("adverse_quantile")
         == p16_fill_calibration.ADVERSE_QUANTILE
-        and isinstance(sessions, list) and len(sessions) == 80
-        and value.get("training_sessions") == sessions[:60]
-        and value.get("validation_sessions") == sessions[60:]
-        and value.get("calendar_sha256") == canonical_sha256(sessions)
-        and all(nyse.is_session(item) for item in dates)
-        and all(nyse.next_session(left) == right
-                for left, right in zip(dates, dates[1:], strict=False))
+        and value.get("calibration", {}).get("targets", {}).get("adverse")
+        == {"status": "not_registered", "reason": "no_admitted_vwap_or_trades_source"}
+        and value.get("session_split") == {
+            "rule": "first_80_exchange_sessions_after_w9_activation",
+            "training_start_index": 0, "training_count": 60,
+            "validation_start_index": 60, "validation_count": 20,
+            "literal_dates_written_at_w9_activation": True,
+        }
+        and value.get("w9_activation_session") is None
+        and all(key not in value for key in (
+            "sessions", "training_sessions", "validation_sessions", "calendar_sha256"))
         and value.get("v5_candidate", {}).get("activatable_from_w6") is False
         and value.get("v5_candidate", {}).get("default_profile_unchanged") == "baseline_v1"
         and code == {key: hashlib.sha256(path.read_bytes()).hexdigest()
