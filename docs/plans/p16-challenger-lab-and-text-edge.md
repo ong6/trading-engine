@@ -590,7 +590,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W3 Filing reader | components complete, inert; `unconfigured` and activation blocked on baseline/conditional-fetch/scan-orchestrator review fixes | 2026-09-27 |
 | W4 Historical labs (text lab, replay lab) | complete and accepted for code; real-data producers remain inert until W9 records the price-archive listing date and the owner supplies the SEC contact. Accepted limits are registered for W9 reporting; the post-cutoff grid remains planned pending probe admission | 2026-09-28 |
 | W5 Portfolio construction v2 | complete; orchestrator accepted the inert construction path and its bounded recovery deviation; W9 owns the three pre-activation guards and the recovery-window exit follow-up | 2026-09-27 |
-| W6 Execution realism | not started | |
+| W6 Execution realism | complete and inert: fixed 80-session sampling/capture contract, exact five-minute TradingView adapter, append-only measurement store, held-out calibration/report path, and future-v5 activation guard are fixture-proven. `baseline_v1` is unchanged; real collection waits for W9 | 2026-09-28 |
 | W7 Operator digest | not started | |
 | W8 Stage 2 design | not started | |
 | W9 Cleanup, docs, refine gate, activation | not started | |
