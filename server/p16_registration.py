@@ -1,13 +1,15 @@
 """Validation and accessors for the frozen P16 registration."""
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import date
 from pathlib import Path
 
+from engine import p16_fill_capture
 from engine.lib.provenance import canonical_sha256
 from engine.lib.settings import REPO_ROOT
-from farm import p16_sequential
+from farm import p16_fill_calibration, p16_sequential
 from sim import nyse
 
 REGISTRATION_PATH = REPO_ROOT / "server" / "p16-registration.json"
@@ -17,6 +19,62 @@ MEMBER_IDS = (
     "c-model-gpt-5.6-terra-max", "c-ensemble", "c-price-only",
     "c-text-only", "c-prompt-v2",
 )
+
+
+def _execution_realism_valid(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    digest = value.get("registration_sha256")
+    if digest != canonical_sha256({
+            key: item for key, item in value.items() if key != "registration_sha256"}):
+        return False
+    sessions = value.get("sessions")
+    try:
+        dates = [date.fromisoformat(item) for item in sessions]
+    except (TypeError, ValueError):
+        return False
+    paths = {
+        "capture": REPO_ROOT / "engine" / "p16_fill_capture.py",
+        "calibration": REPO_ROOT / "farm" / "p16_fill_calibration.py",
+        "store": REPO_ROOT / "server" / "p16_fill_store.py",
+        "tradingview_5m": REPO_ROOT / "server" / "p16_tradingview_intraday.py",
+        "future_profile_guard": REPO_ROOT / "sim" / "p16_fill_profile.py",
+    }
+    code = value.get("code_sha256")
+    return bool(
+        value.get("registration_id") == p16_fill_capture.POLICY_ID
+        and value.get("status") == "registered_inactive"
+        and value.get("authority") == "research_measurement_only"
+        and value.get("real_data_producer_allowed") is False
+        and value.get("sample", {}).get("sample_id") == p16_fill_capture.SAMPLE_ID
+        and value.get("calibration", {}).get("adverse_quantile")
+        == p16_fill_calibration.ADVERSE_QUANTILE
+        and isinstance(sessions, list) and len(sessions) == 80
+        and value.get("training_sessions") == sessions[:60]
+        and value.get("validation_sessions") == sessions[60:]
+        and value.get("calendar_sha256") == canonical_sha256(sessions)
+        and all(nyse.is_session(item) for item in dates)
+        and all(nyse.next_session(left) == right
+                for left, right in zip(dates, dates[1:], strict=False))
+        and value.get("v5_candidate", {}).get("activatable_from_w6") is False
+        and value.get("v5_candidate", {}).get("default_profile_unchanged") == "baseline_v1"
+        and code == {key: hashlib.sha256(path.read_bytes()).hexdigest()
+                     for key, path in paths.items()}
+    )
+
+
+def load_execution_realism(path: Path = REGISTRATION_PATH) -> dict:
+    """Load the separately inert W6 section while the challenger epoch is pending."""
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("P16 registration is invalid") from exc
+    if (not isinstance(value, dict)
+            or value.get("registration_sha256") != canonical_sha256({
+                key: item for key, item in value.items() if key != "registration_sha256"})
+            or not _execution_realism_valid(value.get("execution_realism"))):
+        raise ValueError("P16 execution-realism registration differs")
+    return value["execution_realism"]
 
 
 def load(path: Path = REGISTRATION_PATH, *, required: bool = True) -> dict | None:
@@ -48,6 +106,8 @@ def load(path: Path = REGISTRATION_PATH, *, required: bool = True) -> dict | Non
                 key: item for key, item in historical.items()
                 if key != "registration_sha256"
             })
+            and (value.get("execution_realism") is None
+                 or _execution_realism_valid(value.get("execution_realism")))
         )
         if not valid_historical:
             raise ValueError("P16 registration contract differs")

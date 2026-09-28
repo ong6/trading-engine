@@ -97,6 +97,7 @@ Each row has the default that applies until the owner decides.
 
 | Decision | Unblocks | Default until decided |
 |---|---|---|
+| **Fill model v5 basis**: keep W6 as non-activating continuous-opening measurement, or authorize a separately registered continuous-session cohort before Stage 2 paper-auction evidence exists | Any pre-Stage-2 use of v5 coefficients | Measurement and report only; `baseline_v1` remains the default and direct paper-auction evidence is required for an auction v5 |
 | **`research-text` dependency group** (`torch`, `transformers` in a separate virtual environment) | P16's time-locked historical text lab | P16 W4 stops after building the corpus |
 | **SEC EDGAR contact**: set `TRADING_ENGINE_SEC_USER_AGENT` to a monitored email | P15 8-K event triggers (the capture is built; anonymous requests get HTTP 403) | P15 runs its other trigger sources; the 8-K source reports `unconfigured` |
 | **Simulator short side** | Using the ~half of candidates that are losers | Long-only. P15 filters candidates to upside and trend names |

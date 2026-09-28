@@ -236,6 +236,7 @@ def measure_symbol_day(
     body = {
         "bar_status": bar_set["status"], "quote_target_bp": quote_target,
         "quote_statuses": [row.get("status") for row in quote_rows],
+        "first_open": first_open,
         "vwap_gap_bp": None if metrics is None else metrics.get("vwap_gap_bp"),
         "hlc3_gap_bp": None if metrics is None else metrics.get("hlc3_gap_bp"),
         "half_range_proxy_bp": None if metrics is None else
