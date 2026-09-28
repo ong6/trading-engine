@@ -23,6 +23,8 @@ paper promotion, broker connection, or live capital.
   contamination-probe status. Empty or immature cohorts remain explicit and never imply promotion.
 - [`agent-eval/`](agent-eval/) contains the human-readable P15 gate report generated from the same
   validated projection as the JSON scorecard.
+- [`weekly/`](weekly/) contains the compact Sunday operator digest composed after walk-forward from
+  the existing P15/P16 evidence and producer-health projections. It grants no execution authority.
 
 ## Historical and implementation evidence
 

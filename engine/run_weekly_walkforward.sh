@@ -53,6 +53,10 @@ body() {
   stage drain
   "${PY}" -m engine.queue_runner --run --jobs 8
 
+  # Compose the read-only one-page operator view from the evidence now on disk.
+  stage operator_digest
+  "${PY}" -m farm.p16_operator_digest
+
   # Commit the regenerated reports. Best-effort: the results JSON and the
   # markdown are already on disk, and the next nightly's sync stages data/
   # wholesale, so a failure here costs a day of visibility, not evidence.
