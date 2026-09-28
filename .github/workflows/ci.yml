@@ -11,6 +11,12 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: [UTC, Asia/Singapore]
+    env:
+      TZ: ${{ matrix.tz }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -30,7 +36,7 @@ jobs:
       - run: .venv/bin/python -m compileall -q engine sim server tests farm tools
       - run: find engine -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
       - run: bash -n server/run_server.sh ui/run_ui.sh
-      - run: .venv/bin/python -m pytest -q -W error
+      - run: .venv/bin/python -m pytest -q -W error -n auto
   ui-build:
     runs-on: ubuntu-latest
     defaults:

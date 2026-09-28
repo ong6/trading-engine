@@ -80,7 +80,11 @@ while reading code is not a defect until it has a reproduction.
    last snapshot. Query `GET /meta` if the API is up.
 2. If a scheduled producer failed, fix that (it is a demonstrated defect). Otherwise apply the
    admission test to whatever you intended to do.
-3. Do the one admitted thing. Run the tests it touches, then the full suite.
+3. Do the one admitted thing. Run the tests it touches, then the full suite once, in parallel:
+   `.venv/bin/python -m pytest -q -W error -n auto` (about 2.5 minutes on 16+ cores; `-n 0`
+   to debug serially). Do not rerun the full suite per commit or per timezone locally: CI runs
+   it under `TZ=UTC` and `TZ=Asia/Singapore` on every push, so check CI after pushing and fix
+   a red run before moving on.
 4. Publish the snapshot: `python -m tools.metrics_snapshot --check-budget`.
 5. Append a v2 BUILDLOG entry (format below). Commit. Stop.
 

@@ -8,7 +8,7 @@ reused. Issues and pull requests are welcome; expect slow replies.
 - **Humans: read `docs/architecture-reference.md` first**, then `docs/how-it-works.md` (the operations runbook). The honesty rules are not negotiable:
   never invent a price, point-in-time tables are append-only, no same-bar fills,
   every strategy is pre-registered with a kill criterion before evidence accrues.
-- **Tests:** `.venv/bin/python -m pytest -q -W error` must pass. Tests use in-memory DuckDB only and
+- **Tests:** `.venv/bin/python -m pytest -q -W error -n auto` must pass (CI also runs it under UTC and Asia/Singapore). Tests use in-memory DuckDB only and
   never touch a live store or the network. Run `npm test` from `ui/` for the dependency-free UI
   response-contract tests.
 - **Lint:** `.venv/bin/ruff check .` must pass. The API and operator-tool layers additionally

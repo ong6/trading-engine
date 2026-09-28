@@ -13,7 +13,11 @@ requires-python = ">=3.12"
 dynamic = ["dependencies"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.12"]
+dev = [
+    "pytest>=8",
+    "pytest-xdist>=3.6",
+    "ruff>=0.12",
+]
 
 [tool.setuptools.dynamic]
 dependencies = { file = ["engine/requirements.txt"] }
@@ -28,6 +32,7 @@ farm = ["experiments/*.json", "experiments/*.yaml"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+# Parallel by default: pytest -n auto (pytest-xdist). Use -n 0 to debug serially.
 
 [tool.ruff]
 line-length = 100
