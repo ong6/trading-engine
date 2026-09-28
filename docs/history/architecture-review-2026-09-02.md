@@ -1,7 +1,9 @@
 # Architecture & open-source readiness review — 2026-09-02
 
 > **Historical snapshot.** This records the repository as reviewed on 2026-09-02.
-> Use [`README.md`](../README.md) and [`how-it-works.md`](../how-it-works.md) for current state.
+> Use [`README.md`](../README.md),
+> [`architecture-reference.md`](../architecture-reference.md), and
+> [`how-it-works.md`](../how-it-works.md) for current state and operations.
 >
 > **Resolution addendum, 2026-09-11.** The highest-priority findings below are preserved as the
 > original review, not current claims. `engine` is now an installable package with canonical

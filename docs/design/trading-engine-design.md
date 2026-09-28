@@ -4,8 +4,10 @@
 **Status: original specification finalized 2026-07-16; implementation is now active.**
 This document preserves the governing design decisions and historical build plan for the
 implemented `trading-engine`. Statements below about future scaffolding or milestones describe
-the document's 2026-07-16 planning state; use [`../how-it-works.md`](../how-it-works.md) for
-current operations and [`../README.md`](../README.md) for current evidence status.
+the document's 2026-07-16 planning state; use
+[`../architecture-reference.md`](../architecture-reference.md) for current architecture,
+[`../how-it-works.md`](../how-it-works.md) for operations, and [`../README.md`](../README.md) for
+current evidence status.
 
 > **Related research (2026-07-15):** _Retail algo trading — viability & direction_
 > (`personal-data-store/research/trading-engine/retail-algo-trading-direction.md`, retained

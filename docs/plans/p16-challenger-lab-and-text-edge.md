@@ -603,7 +603,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W6 Execution realism | complete and accepted, inert: every selected name retains its best-attempt measurement and as-of liquidity tier even when bars fail, so valid quote targets and honest tier coverage survive; `baseline_v1` is unchanged | 2026-09-28 |
 | W7 Operator digest | complete: Sunday post-walk-forward composer produces the compact weekly gate/book/challenger/activity/health view with explicit unavailable states and the unversioned-catalogue-alias warning | 2026-09-28 |
 | W8 Stage 2 design | complete: accepted design filed with binding review notes; P17 is indexed as proposed and grants no broker, credential, account or capital authority | 2026-09-28 |
-| W9 Cleanup, docs, refine gate, activation | in progress: W9a timezone, W1, W5, inert W3 fixes, and the accepted P5–P16 canonical census (103 rows; N=139) are complete. Documentation cleanup is next. Production connection portability and the scheduled P15 direct SEC caller remain frozen inside the P15 registration closure | 2026-09-28 |
+| W9 Cleanup, docs, refine gate, activation | W9a complete: timezone, W1, W5, inert W3 fixes, the accepted P5–P16 canonical census (103 rows; N=139), prose-test retirement, the operations/architecture split, and P16 state documentation are complete. W9b retains registration, rehearsals, and activation. Production connection portability and the scheduled P15 direct SEC caller remain frozen inside the P15 registration closure | 2026-09-28 |
 | W10 Final refine pass | not started | |
 | W11 Synthetic proving ground and evaluation loops | design in progress (`p16-design-proving-ground`) | |
 

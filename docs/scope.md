@@ -33,6 +33,9 @@ Completed plans' outputs (P5, P6, P10, P11, P12, P13, P14) stay in scope for ope
 evidence but authorize no further feature growth.
 P13 TradingView capture runs for research operation; Alpaca remains gated. The P14 archive runs for
 resumable current-liquid-universe daily history, isolated from operational prices and execution.
+P16 W1–W8 and W9a are built but inactive: evaluation v2, challenger and filing paths, historical
+labs, construction books, fill measurement, and the weekly digest have no authority until their
+W9b registration, rehearsal, and activation gates. The Stage 2 output is design only.
 
 ## Not yet — frozen until its trigger fires
 
@@ -42,7 +45,6 @@ resumable current-liquid-universe daily history, isolated from operational price
 | Broker-paper adapters and paper-authority state machine (`server/broker_*`) | ~15k lines built, inert; IBKR selected as eventual primary | A later, separately approved IBKR-paper plan after P7 review | No growth, credentials, gateway, or connection |
 | Independent risk supervisor and fault drills | Built, inert | P7 may reuse/extend only for its internal simulator safety gates | No broker or live authority |
 | Release manifest, worktree audit, backup, install-automation hardening | Working; six P15 unit files are staged in source, installed copies are reconciled by the lead at activation, and all three timers stay disabled and outside autostart until then | A demonstrated recovery failure; P15 may activate only through its approved W8 sequence | No unrelated growth; no new invariants |
-| Documentation-pinning tests (`tests/test_docs*.py`) | ~150 assertions on prose | Never | Frozen at current count |
 | New league books | See the metrics snapshot | A charter whose gate cleared in the backlog table | None |
 | Parameter sweeps and grids | `OPEN_RECURRING_GRIDS` empty | P6 permits one pre-registered fixed-instrument experiment, not a grid | No sweep or nearby variant |
 | Stock-selection or fundamentals research | Gated | 756 qualifying dates / 156 snapshots, or an audited point-in-time dataset (P3) | None |
@@ -63,7 +65,12 @@ solely for an admitted provider whose automated non-display terms were explicitl
 Agents append one line here instead of building. The owner promotes a line to a plan or
 deletes it.
 
-- 2026-09-18 · Split `docs/how-it-works.md` (2,247 lines) into ops runbook vs architecture
-  reference. Blocked by the doc-pinning tests; moved into P16 W9 with P1's closure.
+None.
+
+## Completed from this ledger
+
+- 2026-09-28 · Retired the prose-pinning `tests/test_docs*.py` suite and split
+  `docs/how-it-works.md` into the operations runbook plus `docs/architecture-reference.md` under
+  P16 W9.
 - 2026-09-18 · Move dated audits under `docs/history/`. Done 2026-09-24 on owner request
   (`feedback.md`); doc tests' path constants followed the move.

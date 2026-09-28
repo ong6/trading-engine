@@ -25,8 +25,9 @@ Generated public data may be pushed only when the current branch has a configure
 
 **Agents start at [`AGENTS.md`](AGENTS.md)** — the operating contract (build toward a verdict,
 admission test, budgets). Humans: **[`docs/README.md`](docs/README.md)** — the documentation index
-and current strategy/evidence status. The operating guide is
-[`docs/how-it-works.md`](docs/how-it-works.md); plan status is in
+and current strategy/evidence status. The operating runbook is
+[`docs/how-it-works.md`](docs/how-it-works.md), the detailed system reference is
+[`docs/architecture-reference.md`](docs/architecture-reference.md), and plan status is in
 [`docs/plans/README.md`](docs/plans/README.md).
 
 - Design specs (the law): [`docs/design/`](docs/design/) — engine design (§12 wins on
@@ -153,4 +154,6 @@ itself make older research artifacts current.
 Never fabricate a price. Point-in-time tables are append-only. Every strategy/experiment is
 pre-registered with a kill criterion before evidence accrues. Orders fill next-open, never
 same-bar. One DuckDB writer at a time — heavy work goes through the job queue. Prove by
-running, never by code inspection. Full rules: [`docs/how-it-works.md`](docs/how-it-works.md).
+running, never by code inspection. Operational response:
+[`docs/how-it-works.md`](docs/how-it-works.md). Architecture and authority boundaries:
+[`docs/architecture-reference.md`](docs/architecture-reference.md).

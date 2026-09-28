@@ -1373,4 +1373,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +188, tools unchanged, product +18 (farm); budget ok.
 - **Next:** run the full host, UTC, and Asia/Singapore suites before documentation cleanup.
 
+## 2026-09-28 — P16 W9a: separate operations from architecture
+
+- **Why:** approved P16 W9 carries the closed P1 documentation cleanup and requires current P16
+  state in the blueprint, product, scope, and operator guide.
+- **What:** replace 81 prose-pinning tests with five structural/runtime-constant checks; reduce
+  `how-it-works.md` to a 224-line operations runbook and move system detail to the architecture
+  reference. Record every built P16 layer as inert and leave registration/activation to W9b.
+- **Evidence:** full host, `TZ=UTC`, and `TZ=Asia/Singapore` suites each pass 4,076 tests; the
+  focused documentation/operating-contract suite passes 17 tests.
+- **Metrics:** server, tools, and product unchanged; budget ok.
+- **Next:** W9b registration, rehearsal, and activation after the scheduled P15 sequence.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
