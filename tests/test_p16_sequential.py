@@ -145,15 +145,15 @@ def test_common_report_separates_current_ebh_from_lifetime_bonferroni():
     assert not candidate_for_promotion(report, "c1")
 
 
-def test_negative_champion_ic_and_incomplete_inventory_never_promote():
+def test_champion_ic_is_not_an_unregistered_gate_but_inventory_is():
     rows = [_family_row("negative", 100, 100, mean_champion_ic=-0.01),
             _family_row("incomplete", 100, 100, inventory_complete=False)]
     report = common_report_e_test(
         rows, ["negative", "incomplete"], NOW.isoformat(), origin_endpoint=100,
         alpha_allocation_id=ALPHA_ALLOCATION_ID,
     )
-    assert report["selected"] == [False, False]
-    assert not candidate_for_promotion(report, "negative")
+    assert report["selected"] == [True, False]
+    assert candidate_for_promotion(report, "negative")
     assert not candidate_for_promotion(report, "incomplete")
 
 

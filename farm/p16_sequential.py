@@ -24,7 +24,7 @@ NULL = "conditional_mean_paired_ic_difference_nonpositive"
 SKIP_REASONS = {"fewer_than_20_candidates", "constant_scores"}
 REQUIRED_PROMOTION_CHECKS = {
     "prospective_evidence", "identity_complete", "inventory_complete", "prefix_complete",
-    "dsr_probability_at_least_0_95", "mean_neutral_ic_positive", "mean_champion_ic_positive",
+    "dsr_probability_at_least_0_95", "mean_neutral_ic_positive",
 }
 
 
@@ -214,8 +214,7 @@ def common_report_e_test(
         raise ValueError("e-values must share the common origin endpoint")
     checks = []
     for row in ordered:
-        dsr, neutral, champion = (row.get("dsr_probability"), row.get("mean_neutral_ic"),
-                                  row.get("mean_champion_ic"))
+        dsr, neutral = row.get("dsr_probability"), row.get("mean_neutral_ic")
         checks.append({
             "prospective_evidence": row.get("evidence_class") == "prospective",
             "identity_complete": row.get("identity_complete") is True,
@@ -225,8 +224,6 @@ def common_report_e_test(
                                                      and 0.95 <= dsr <= 1),
             "mean_neutral_ic_positive": bool(neutral is not None and math.isfinite(neutral)
                                                 and neutral > 0),
-            "mean_champion_ic_positive": bool(champion is not None and math.isfinite(champion)
-                                                 and champion > 0),
         })
     gate = [all(check.values()) for check in checks]
     current = np.asarray([row.get("log_e") for row in ordered], float)

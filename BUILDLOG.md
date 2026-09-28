@@ -1327,4 +1327,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server, tools, and product unchanged; budget ok.
 - **Next:** apply the W1 evaluation review fixes and required census/kill adapter wiring.
 
+## 2026-09-28 — P16 W9a: close W1 review findings
+
+- **Why:** approved P16 W9 lists five W1 review corrections before activation.
+- **What:** remove the unregistered champion-IC gate, bind factor aggregates to their challenger
+  and champion policies, and recompute stored factor reports from retained inputs before use.
+  Route status through a P16-only adapter that contains P16 failures and carries primary kills.
+- **Evidence:** `.venv/bin/pytest -q tests/test_p16_sequential.py tests/test_p16_evaluation_report.py tests/test_p16_store.py tests/test_p16_status_adapter.py tests/test_agent_routes.py` passes 61 tests.
+- **Metrics:** server +101, tools unchanged, product +6 (farm +6); budget ok.
+- **Next:** populate the canonical register from the historical P5–P16 census.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

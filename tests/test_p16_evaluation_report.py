@@ -113,6 +113,23 @@ def test_report_rejects_cutoff_identity_and_missing_transfer_slot():
         _build(transfer=_transfer_rows()[:-1])
 
 
+def test_report_requires_challenger_and_champion_factor_policies():
+    rows = [_comparison(index, 1, 1) for index in range(4)]
+    rows[0]["factor_neutral"] = _aggregate("another-challenger", 0.01)
+    with pytest.raises(ValueError, match="aggregate policy differs"):
+        _build(rows=rows)
+
+    report = _build()
+    report["comparisons"][0]["champion_factor_neutral"] = _aggregate(
+        "another-champion", 0.02,
+    )
+    report["report_sha256"] = canonical_sha256({
+        key: value for key, value in report.items() if key != "report_sha256"
+    })
+    with pytest.raises(ValueError, match="aggregate policy differs"):
+        reports.validate_report(report)
+
+
 def test_report_hash_and_allocation_tampering_fail_closed():
     report = _build()
     report["common_report"]["alpha_allocation_sha256"] = "0" * 64

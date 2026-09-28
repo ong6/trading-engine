@@ -5,7 +5,7 @@ import re
 from datetime import datetime, timezone
 
 from engine.lib.provenance import canonical_sha256
-from farm import p16_sequential, p16_statistics
+from farm import p16_factors, p16_sequential, p16_statistics
 
 EVALUATION_POLICY_ID = "p16-eval-v2"
 REPORT_SCHEMA_VERSION = 1
@@ -31,12 +31,14 @@ def _digest(value: object, field: str) -> str:
     return value
 
 
-def _aggregate(value: object, report_at: datetime) -> dict:
+def _aggregate(value: object, report_at: datetime, policy_id: str) -> dict:
     if not isinstance(value, dict) or value.get("aggregate_sha256") != canonical_sha256({
             key: item for key, item in value.items() if key != "aggregate_sha256"}):
         raise ValueError("P16 factor aggregate identity differs")
     if _time(value.get("report_cutoff")) != report_at:
         raise ValueError("P16 factor aggregate cutoff differs")
+    if value.get("policy_id") != policy_id:
+        raise ValueError("P16 factor aggregate policy differs")
     return value
 
 
@@ -99,8 +101,10 @@ def build_report(
         dsr = row.get("deflated_sharpe")
         if not isinstance(dsr, dict) or dsr.get("candidate_trial_id") != trial_id:
             raise ValueError("P16 deflated Sharpe identity differs")
-        neutral = _aggregate(row.get("factor_neutral"), report_time)
-        champion = _aggregate(row.get("champion_factor_neutral"), report_time)
+        neutral = _aggregate(row.get("factor_neutral"), report_time, comparison_id)
+        champion = _aggregate(
+            row.get("champion_factor_neutral"), report_time, p16_factors.CHAMPION,
+        )
         evidence_class = registration_row.get("evidence_class")
         identity_complete = bool(registration_row.get("identity_verified") is True
                                  and registration_row.get("status") != "retired")
@@ -191,7 +195,12 @@ def validate_report(report: dict) -> dict:
             or [row.get("comparison_id") for row in rows] != family_ids):
         raise ValueError("P16 family report rows differ")
     promoted, descriptive = [], []
+    report_time = _time(report.get("report_at"))
     for index, row in enumerate(rows):
+        _aggregate(row.get("factor_neutral"), report_time, row["comparison_id"])
+        _aggregate(
+            row.get("champion_factor_neutral"), report_time, p16_factors.CHAMPION,
+        )
         expected = p16_sequential.candidate_for_promotion(common, row["comparison_id"])
         if (row.get("candidate_for_promotion") is not expected
                 or row.get("eligibility_checks") != common["eligibility_checks"][index]

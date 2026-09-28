@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
 from engine.p16_features import EXPOSURES
-from farm import p16_sequential
+from farm import p16_factors, p16_sequential
 from farm.p16_factors import CHAMPION, RULE
 from server import p16_transfer, p16_trial_store
 from sim import nyse
@@ -576,6 +576,51 @@ def record_origin_outcome(
             or factor["artifact_kind"] != "factor_report"
             or factor["market_date"] != market_date):
         raise ValueError("P16 sequential outcome source differs")
+    artifacts = [row for row in _artifacts_as_of(
+        con, generated_at=_aware(factor["information_cutoff_at"]),
+        registration_sha256=registration_sha256, through_market_date=market_date,
+    ) if row["market_date"] == market_date]
+    payload = factor["payload"]
+
+    def exact_input(kind: str, field: str, expected: object) -> dict:
+        matches = [row for row in artifacts if row["artifact_kind"] == kind
+                   and row["payload"].get(field) == expected]
+        if len(matches) != 1:
+            raise ValueError("P16 factor report inputs differ")
+        return matches[0]
+
+    origin = exact_input(
+        "evaluation_input", "input_snapshot_sha256",
+        payload.get("input_snapshot_sha256"),
+    )
+    exposure = exact_input(
+        "exposure_snapshot", "snapshot_sha256",
+        payload.get("exposure_snapshot_sha256"),
+    )
+    source_scores = payload.get("score_snapshot_sha256")
+    if not isinstance(source_scores, dict):
+        raise ValueError("P16 factor report inputs differ")
+    score_rows = []
+    challenger_scores = {}
+    for policy_id, score_sha256 in source_scores.items():
+        if policy_id in {CHAMPION, RULE}:
+            continue
+        score = exact_input("policy_scores", "score_snapshot_sha256", score_sha256)
+        if score["artifact_key"] != policy_id:
+            raise ValueError("P16 factor report inputs differ")
+        score_rows.append(score)
+        challenger_scores[policy_id] = score["payload"]
+    dependencies = [origin, exposure, *sorted(
+        score_rows, key=lambda row: row["artifact_sha256"],
+    )]
+    if factor["source_sha256"] != canonical_sha256(
+            [row["row_sha256"] for row in dependencies]):
+        raise ValueError("P16 factor report inputs differ")
+    recomputed = p16_factors.evaluate_origin(
+        origin["payload"], exposure["payload"], challenger_scores=challenger_scores,
+    )
+    if recomputed != payload:
+        raise ValueError("P16 factor report recomputation differs")
     comparison = factor["payload"].get("comparisons", {}).get(comparison_id, {})
     raw = comparison.get("full_sample_raw", {})
     if status == "scored" and raw.get("status") == "scored":

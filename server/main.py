@@ -53,7 +53,7 @@ from . import (
     meta_projection,
     order_read_models,
     p7_trial_status,
-    p16_reporting,
+    p16_status_adapter,
     paper_read_models,
     position_read_models,
     ticket_contract,
@@ -515,12 +515,14 @@ def agent_evaluation_status():
         try:
             generated_at = datetime.now(timezone.utc)
             agent_evaluation.validate_p15_evidence(con, generated_at)
-            return {**agent_evaluation.status(con), "schema_version": 3,
-                    **p15_evaluation.project(con, generated_at=generated_at),
-                    "p16": p16_reporting.project(con, generated_at=generated_at),
-                    "trial_count_register": agent_trial_register.project(con, generated_at)}
+            p15 = p16_status_adapter.with_primary_kill(
+                p15_evaluation.project(con, generated_at=generated_at),
+            )
+            result = {**agent_evaluation.status(con), "schema_version": 3, **p15,
+                      "trial_count_register": agent_trial_register.project(con, generated_at)}
         except (OSError, ValueError, agent_evaluation.EvaluationError) as exc:
             raise HTTPException(503, "agent evaluation status unavailable") from exc
+        return {**result, "p16": p16_status_adapter.project(con, generated_at=generated_at)}
 
 
 @app.post("/agent/proposals/shadow", dependencies=JSON_MUTATION_DEPENDENCY)
