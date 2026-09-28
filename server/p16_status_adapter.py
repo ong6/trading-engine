@@ -36,7 +36,7 @@ def project(con, *, generated_at: datetime) -> dict:
     """Contain P16 validation/storage failures behind an unavailable projection."""
     try:
         return p16_reporting.project(con, generated_at=generated_at)
-    except (duckdb.Error, OSError, ValueError):
+    except (duckdb.Error, OSError, ValueError, KeyError, TypeError):
         return {
             "schema_version": 1, "status": "unavailable",
             "evaluation_policy_id": p16_reporting.EVALUATION_POLICY_ID,
