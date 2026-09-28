@@ -23,7 +23,16 @@ ACCESSION = "0000320193-26-000001"
 MAP_BODY = b"map.json"
 MAP_SHA = hashlib.sha256(MAP_BODY).hexdigest()
 READY = {"environ": {"TRADING_ENGINE_SEC_USER_AGENT": "research test@example.com"},
-         "legacy_sec_enabled": False}
+         }
+
+
+@pytest.fixture(autouse=True)
+def _shared_dispatch_inventory(monkeypatch):
+    inventory = tuple(
+        {**item, "activation": "inert"} if item["consumer"] == "p15-events" else item
+        for item in runner.DEFAULT_SEC_CALLER_INVENTORY
+    )
+    monkeypatch.setattr(runner, "SEC_CALLER_INVENTORY", inventory)
 
 
 def _receipt(con, name, at, *, dataset="filing_document", body=None):
@@ -167,16 +176,20 @@ def _result(payload, *, drift=False):
     )
 
 
-def test_readiness_is_inert_without_contact_or_shared_dispatch():
-    assert runner.readiness(environ={}, legacy_sec_enabled=False)["status"] == "unconfigured"
+def test_readiness_is_derived_from_sec_caller_inventory(monkeypatch):
+    assert runner.readiness(environ={})["status"] == "unconfigured"
     configured = {"TRADING_ENGINE_SEC_USER_AGENT": "research test@example.com"}
-    assert runner.readiness(environ=configured, legacy_sec_enabled=True)["status"] == (
-        "shared_dispatch_required"
-    )
-    assert runner.readiness(environ=configured, legacy_sec_enabled=False)["status"] == "ready"
+    assert runner.readiness(environ=configured)["status"] == "ready"
+    monkeypatch.setattr(runner, "SEC_CALLER_INVENTORY", runner.DEFAULT_SEC_CALLER_INVENTORY)
+    blocked = runner.readiness(environ=configured)
+    assert blocked["status"] == "shared_dispatch_required"
+    assert blocked["conflicting_callers"] == ["p15-events"]
+    assert {item["path"] for item in runner.sec_caller_inventory()} == {
+        "tools/sec_edgar_capture.py", "engine/p16_filing_sources.py", "farm/replay/sources.py",
+    }
 
 
-def test_frozen_scope_uses_cutoff_snapshots_and_sixty_session_primary(con):
+def test_frozen_scope_uses_only_p15_and_template_liquidity(con, monkeypatch):
     p15_scoring_store.init_schema(con)
     bitemporal_facts.init_schema(con)
     body = {"market_date": NOW.date().isoformat(),
@@ -191,11 +204,22 @@ def test_frozen_scope_uses_cutoff_snapshots_and_sixty_session_primary(con):
         con, run["run_id"], trace_sha256="e" * 64,
         completed_at=NOW - timedelta(minutes=1),
     )
-    map_body = json.dumps({str(index): {"cik_str": 320193, "ticker": ticker}
-                           for index, ticker in enumerate(("GOOG", "GOOGL"))}).encode()
+    map_body = json.dumps({
+        "0": {"cik_str": 320193, "ticker": "GOOG"},
+        "1": {"cik_str": 320193, "ticker": "GOOGL"},
+        "2": {"cik_str": 789019, "ticker": "UNRELATED"},
+    }).encode()
     map_sha = hashlib.sha256(map_body).hexdigest()
     _receipt(con, "map.json", NOW - timedelta(minutes=3), dataset="ticker_map", body=map_body)
     _scope_history(con, {"GOOG": 10, "GOOGL": 20})
+    liquidity_calls = []
+    original_liquidity = runner.p16_screen_inputs.security_liquidity_as_known
+
+    def liquidity(connection, tickers, **kwargs):
+        liquidity_calls.append(set(tickers))
+        return original_liquidity(connection, tickers, **kwargs)
+
+    monkeypatch.setattr(runner.p16_screen_inputs, "security_liquidity_as_known", liquidity)
     result = runner.frozen_scope(
         con, market_date=NOW.date(), scan_started_at=NOW, map_sha256=map_sha,
     )
@@ -203,6 +227,7 @@ def test_frozen_scope_uses_cutoff_snapshots_and_sixty_session_primary(con):
     assert result["universe"]["0000320193"]["primary_security_id"] == "GOOGL"
     assert result["p15"]["run_id"] == run["run_id"]
     assert result["screen"]["status"] == "unavailable"
+    assert liquidity_calls[0] == {"GOOG", "GOOGL"}
 
     store.init_schema(con)
     store.start_scan(
@@ -315,6 +340,65 @@ def test_score_pending_is_inert_until_sec_readiness_is_satisfied(tmp_path):
 
     assert runner.score_pending(database, generate=generate)["status"] == "unconfigured"
     assert called is False
+
+
+def test_scan_orchestrator_closes_db_for_network_and_reuses_unchanged_receipt(
+        tmp_path, monkeypatch):
+    database = tmp_path / "market.duckdb"
+    con = db.connect(database)
+    p15_scoring_store.init_schema(con)
+    bitemporal_facts.init_schema(con)
+    body = {"market_date": NOW.date().isoformat(), "candidates": [{"ticker": "AAPL"}]}
+    universe = {**body, "bundle_sha256": canonical_sha256(body)}
+    run = p15_scoring_store.create_run(
+        con, market_date=NOW.date(), universe=universe, context={},
+        information_cutoff_at=NOW - timedelta(minutes=2),
+        started_at=NOW - timedelta(minutes=2), news_receipts=[],
+    )
+    p15_scoring_store.complete_run(
+        con, run["run_id"], trace_sha256="e" * 64,
+        completed_at=NOW - timedelta(minutes=1),
+    )
+    map_body = json.dumps({"0": {"cik_str": 320193, "ticker": "AAPL"}}).encode()
+    map_sha = hashlib.sha256(map_body).hexdigest()
+    _receipt(con, "map.json", NOW - timedelta(minutes=3), dataset="ticker_map", body=map_body)
+    _scope_history(con, {"AAPL": 10})
+    con.close()
+
+    current = NOW
+    submissions = {"cik": 320193, "filings": {"recent": {
+        "accessionNumber": [ACCESSION], "acceptanceDateTime": ["untrusted"],
+        "filingDate": ["2026-09-27"], "form": ["8-K"], "items": ["2.02"],
+        "primaryDocument": ["filing.htm"], "reportDate": ["2026-06-30"],
+    }}}
+    raw = json.dumps(submissions).encode()
+
+    def fetch(url, user_agent):
+        assert user_agent == READY["environ"]["TRADING_ENGINE_SEC_USER_AGENT"]
+        probe = db.connect(database, wait_s=0)
+        probe.close()
+        return runner.p16_filing_sources.SecResponse(
+            200, "application/json", {}, raw, current, current, url, len(raw), True,
+        )
+
+    for offset in (0, 1):
+        current = NOW + timedelta(minutes=offset)
+        result = runner.scan_submissions(
+            database, market_date=NOW.date(), activation_at=NOW - timedelta(hours=1),
+            map_sha256=map_sha, observed_at=current, fetch=fetch,
+            clock=lambda value=current: value,
+            scan_lock_path=tmp_path / "scan.lock",
+            dispatch_lock_path=tmp_path / "dispatch.lock", **READY,
+        )
+        assert result["status"] == "completed" and result["sec_requests"] == 1
+    con = db.connect(database, read_only=True)
+    assert con.execute(
+        "SELECT COUNT(*) FROM source_response_receipts WHERE dataset='submissions'"
+    ).fetchone() == (1,)
+    assert con.execute(
+        "SELECT source_status FROM p16_filing_cik_responses ORDER BY received_at"
+    ).fetchall() == [("fresh_200",), ("unchanged_200",)]
+    con.close()
 
 
 def test_runner_lock_limits_two_concurrent_invocations_to_two_calls(tmp_path):
@@ -501,6 +585,25 @@ def test_orphaned_prior_session_attempt_is_recovered(tmp_path):
     assert con.execute("SELECT reason FROM p16_filing_decisions").fetchone() == (
         "transport:orphaned_prior_session",
     )
+    con.close()
+
+
+def test_prior_session_queued_work_is_swept_in_fifo_order(tmp_path):
+    database = tmp_path / "market.duckdb"
+    _database(database)
+    prior = NOW.date() - timedelta(days=1)
+    con = db.connect(database)
+    con.execute("UPDATE p16_filing_work_events SET session_date=?", [prior])
+    con.close()
+    result = runner.score_pending(
+        database, observed_at=NOW + timedelta(minutes=3), session_date=NOW.date(),
+        generate=_result, clock=lambda: NOW + timedelta(minutes=4), **READY,
+    )
+    assert result["scored"] == 1 and result["model_calls"] == 1
+    con = db.connect(database, read_only=True)
+    assert con.execute(
+        "SELECT DISTINCT session_date FROM p16_filing_work_events"
+    ).fetchall() == [(prior,)]
     con.close()
 
 

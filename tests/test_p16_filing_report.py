@@ -145,6 +145,24 @@ def test_next_bar_requires_exact_common_slot_and_never_shifts(tmp_path):
         )
 
 
+@pytest.mark.parametrize("security_id", ["AAPL", "SPY"])
+def test_next_bar_requires_compatible_entry_and_exit_basis_per_leg(security_id):
+    day = date(2026, 9, 28)
+    decision, target = _at(day, 13, 32), _at(day, 13, 35)
+    daily = [_daily("AAPL", day, 99, 110), _daily("SPY", day, 199, 202)]
+    intraday = [_intraday("AAPL", target, 100), _intraday("SPY", target, 200)]
+    index = 0 if security_id == "AAPL" else 1
+    changed = {key: value for key, value in daily[index].items() if key != "row_sha256"}
+    changed.update(price_basis="raw", corporate_action_status="none")
+    daily[index] = {**changed, "row_sha256": canonical_sha256(changed)}
+    value = report.make_label(
+        decided_at=decision, labelled_at=_at(day, 23), security_id="AAPL", horizon=1,
+        entry_basis="next_bar", daily_rows=daily, intraday_rows=intraday,
+    )
+    assert value["status"] == "unavailable"
+    assert value["reason"] == "incompatible_price_basis"
+
+
 def test_missing_exit_waits_then_uses_last_common_real_close(tmp_path):
     decision = datetime(2026, 9, 25, 20, tzinfo=timezone.utc)
     days = _session_days(date(2026, 9, 28), 5)

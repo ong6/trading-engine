@@ -255,9 +255,16 @@ def make_label(
         return {**base, "status": "unavailable", "reason": "missing_exit_reference"}
     exit_day, asset_exit, spy_exit = available_pairs[-1]
     used_rows = [row for pair in available_pairs for row in pair[1:]]
-    if any(row["source"] != entry_rows[0]["source"] or
-           row["price_basis"] != entry_rows[0]["price_basis"]
-           for row in [*entry_rows, *used_rows]):
+    if entry_basis == "next_bar" and any(
+            entry_rows[leg][field] != entry_rows[0][field]
+            for leg in (0, 1) for field in ("source", "price_basis")):
+        return {**base, "status": "unavailable", "reason": "incompatible_price_basis"}
+    if any(
+            row[field] != entry_rows[leg][field]
+            for _day_value, asset_row, spy_row in available_pairs
+            for leg, row in enumerate((asset_row, spy_row))
+            for field in ("source", "price_basis")
+    ):
         return {**base, "status": "unavailable", "reason": "incompatible_price_basis"}
     asset_entry, spy_entry = float(entry_rows[0]["open"]), float(entry_rows[1]["open"])
     asset_return = float(asset_exit["close"]) / asset_entry - 1

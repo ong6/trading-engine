@@ -1349,4 +1349,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged; product +27 (sim); budget ok.
 - **Next:** close the inert W3 activation blockers.
 
+## 2026-09-28 — P16 W9a: close W3 activation blockers
+
+- **Why:** approved P16 W9 requires eight filing-reader guards before any activation decision.
+- **What:** add the bounded submissions scan and explicit SEC-caller inventory; derive readiness
+  from that inventory so the frozen scheduled P15 direct caller keeps W3 inert. Close database
+  handles around transport, sweep old queued scores FIFO, restrict liquidity work to P15/template
+  names, and check next-bar price basis independently on both legs. Existing first-fetch baseline,
+  unchanged-response receipt reuse, and host dispatch locking remain covered behaviorally.
+- **Evidence:** `.venv/bin/pytest -o addopts= -q tests/test_p16_filing_sources.py tests/test_p16_filing_store.py tests/test_p16_filing_runner.py tests/test_p16_filing_report.py tests/test_p16_operator_digest.py tests/test_p15_registration.py tests/test_operating_contract.py` passes 100 tests.
+- **Metrics:** server +124, tools unchanged, product +4 (farm +4); budget ok.
+- **Next:** retire documentation-pinning tests and split the operations and architecture guides.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
