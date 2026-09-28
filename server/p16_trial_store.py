@@ -1,13 +1,29 @@
 """Append-only persistence adapter for the canonical P16 trial register."""
 from __future__ import annotations
 
-from datetime import datetime
+import hashlib
+import json
+import re
+from collections import defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
 
 from engine.lib.provenance import canonical_sha256
+from engine.lib.settings import REPO_ROOT
 from engine.lib.util import table_exists
 from farm import p16_trials
 
 TABLE = "p16_trial_register_v4"
+CENSUS_PATH = REPO_ROOT / "docs" / "p16-trial-census.json"
+CENSUS_RECORDED_AT = datetime(2026, 9, 28, 7, 12, 29, tzinfo=timezone.utc)
+CENSUS_FIELDS = {
+    "policy_id", "policy_version", "plan_id", "family", "hypothesis", "trial_kind",
+    "evidence_class", "registration_identity", "identity_status", "parent_trial_ids",
+    "registered_at", "first_evaluated_at", "retired_at", "status", "evaluation_window",
+    "outcome", "n_contribution", "alias_references", "source", "confidence",
+    "reconciliation_note",
+}
+CENSUS_STATUSES = {"registered", "evaluation_started", "evaluated", "retired", "abandoned"}
 
 
 def init_schema(con) -> None:
@@ -73,13 +89,14 @@ def registration_as_of(con, *, trial_id: str, generated_at: datetime) -> dict | 
 def register(con, *, policy_id: str, policy_version: str, plan_id: str,
              registration_identity: dict, evidence_class: str, parent_trial_ids: list[str],
              registered_at: datetime, recorded_at: datetime,
-             identity_status: str = "verified", trial_kind: str = "policy") -> str:
+             identity_status: str = "verified", trial_kind: str = "policy",
+             n_contribution: int = 1) -> str:
     trial_id, payload = p16_trials.registration(
         policy_id=policy_id, policy_version=policy_version, plan_id=plan_id,
         registration_identity=registration_identity, evidence_class=evidence_class,
         trial_kind=trial_kind,
         parent_trial_ids=parent_trial_ids, registered_at=registered_at,
-        identity_status=identity_status)
+        identity_status=identity_status, n_contribution=n_contribution)
     recorded = p16_trials.timestamp(recorded_at)
     existing = con.execute(f"SELECT * FROM {TABLE} WHERE record_kind='registration' "
                            "AND trial_id=?", [trial_id]).fetchone()
@@ -182,3 +199,168 @@ def project(con, *, generated_at: datetime, limit: int = 100) -> dict:
                 "registered_trial_count": 0,
                 "execution_authority": "none"}
     return p16_trials.project(_records(con, cutoff), limit=limit)
+
+
+def _census_time(value: object) -> datetime | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("trial census timestamp is invalid")
+    match = re.match(r"\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?Z?)?", value)
+    if match is None:
+        raise ValueError("trial census timestamp is invalid")
+    parsed = datetime.fromisoformat(match.group(0).replace("Z", "+00:00"))
+    return (parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else
+            parsed.astimezone(timezone.utc))
+
+
+def _census_rows(path: Path) -> tuple[list[dict], str]:
+    raw = path.read_bytes()
+    try:
+        rows = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("trial census is invalid") from exc
+    if (not isinstance(rows, list) or not rows
+            or any(not isinstance(row, dict) or not CENSUS_FIELDS <= set(row)
+                   or not set(row) <= CENSUS_FIELDS | {"cell_count"}
+                   or row["plan_id"] not in p16_trials.PLANS
+                   or row["status"] not in CENSUS_STATUSES
+                   or row["identity_status"] not in {"verified", "provisional"}
+                   or set(row["registration_identity"]) != p16_trials.IDENTITY_FIELDS
+                   or type(row["n_contribution"]) is not int or row["n_contribution"] < 0
+                   or not isinstance(row["parent_trial_ids"], list)
+                   or not isinstance(row["alias_references"], list)
+                   for row in rows)):
+        raise ValueError("trial census is invalid")
+    return rows, hashlib.sha256(raw).hexdigest()
+
+
+def _existing_census(con, snapshot_sha256: str) -> dict | None:
+    for row in reversed(_records(con)):
+        if row["record_kind"] != "inventory_reconciliation":
+            continue
+        sources = [item for item in row["payload"].get("sources", [])
+                   if str(item.get("source", "")).startswith("census:")]
+        if sources and all(item.get("snapshot_sha256") == snapshot_sha256 for item in sources):
+            return project_sealed(con, reconciliation_sha256=row["record_sha256"])
+    return None
+
+
+def load_census(con, *, path: Path = CENSUS_PATH) -> dict:
+    """Load the accepted historical census and seal its exact trial contribution."""
+    init_schema(con)
+    rows, snapshot_sha = _census_rows(Path(path))
+    existing = _existing_census(con, snapshot_sha)
+    if existing is not None:
+        return existing
+
+    prepared, by_policy = [], defaultdict(list)
+    for row in rows:
+        registered = (_census_time(row["registered_at"])
+                      or _census_time(row["first_evaluated_at"])
+                      or _census_time(row["retired_at"]) or CENSUS_RECORDED_AT)
+        trial_id, _payload = p16_trials.registration(
+            policy_id=row["policy_id"], policy_version=row["policy_version"],
+            plan_id=row["plan_id"], registration_identity=row["registration_identity"],
+            evidence_class=row["evidence_class"], trial_kind=row["trial_kind"],
+            parent_trial_ids=[], registered_at=registered,
+            identity_status=row["identity_status"], n_contribution=row["n_contribution"],
+        )
+        item = {"source": row, "registered_at": registered, "trial_id": trial_id}
+        prepared.append(item)
+        by_policy[row["policy_id"]].append(item)
+    if len({item["trial_id"] for item in prepared}) != len(rows):
+        raise ValueError("trial census identity is duplicated")
+
+    def resolve_parent(reference: str, child: dict) -> str | None:
+        candidates = [item for item in by_policy.get(reference, ()) if item is not child]
+        if len(candidates) == 1:
+            return candidates[0]["trial_id"]
+        active = [item for item in candidates if item["source"]["retired_at"] is None]
+        if len(active) == 1:
+            return active[0]["trial_id"]
+        for policy_id, options in by_policy.items():
+            prefix = f"{policy_id} "
+            if reference.startswith(prefix):
+                version = reference.removeprefix(prefix)
+                matches = [item for item in options
+                           if item["source"]["policy_version"].startswith(version)]
+                if len(matches) == 1:
+                    return matches[0]["trial_id"]
+        return None
+
+    for item in prepared:
+        item["parent_trial_ids"] = sorted(filter(None, (
+            resolve_parent(reference, item)
+            for reference in item["source"]["parent_trial_ids"]
+        )))
+    pending, loaded = list(prepared), set()
+    while pending:
+        ready = [item for item in pending if set(item["parent_trial_ids"]) <= loaded]
+        if not ready:
+            raise ValueError("trial census parent graph is invalid")
+        for item in sorted(ready, key=lambda value: (
+                value["registered_at"], value["source"]["policy_id"],
+                value["source"]["policy_version"])):
+            row = item["source"]
+            register(
+                con, policy_id=row["policy_id"], policy_version=row["policy_version"],
+                plan_id=row["plan_id"], registration_identity=row["registration_identity"],
+                evidence_class=row["evidence_class"], trial_kind=row["trial_kind"],
+                parent_trial_ids=item["parent_trial_ids"], registered_at=item["registered_at"],
+                recorded_at=CENSUS_RECORDED_AT, identity_status=row["identity_status"],
+                n_contribution=row["n_contribution"],
+            )
+            source_ref = {"census": row}
+            record_event(
+                con, item["trial_id"], "alias", event_at=item["registered_at"],
+                recorded_at=CENSUS_RECORDED_AT, source_ref=source_ref,
+            )
+            row_sha = canonical_sha256(row)
+            first = _census_time(row["first_evaluated_at"]) or item["registered_at"]
+            first = max(first, item["registered_at"])
+            if row["status"] in {"evaluation_started", "evaluated", "abandoned", "retired"}:
+                kind = "evaluated" if row["status"] == "retired" else row["status"]
+                record_event(
+                    con, item["trial_id"], kind, event_at=first,
+                    recorded_at=CENSUS_RECORDED_AT,
+                    source_ref={"census_row_sha256": row_sha, "lifecycle": kind,
+                                "outcome": row["outcome"]},
+                )
+            if row["status"] == "retired":
+                retired = max(_census_time(row["retired_at"]) or first, first)
+                record_event(
+                    con, item["trial_id"], "retired", event_at=retired,
+                    recorded_at=CENSUS_RECORDED_AT,
+                    source_ref={"census_row_sha256": row_sha, "lifecycle": "retired"},
+                )
+            pending.remove(item)
+            loaded.add(item["trial_id"])
+
+    records = _records(con, CENSUS_RECORDED_AT)
+    entries = [{"source": f"census:{item['source']['plan_id']}",
+                "source_key_sha256": canonical_sha256({"census": item["source"]}),
+                "trial_id": item["trial_id"], "disposition": "alias",
+                "reason": None} for item in prepared]
+    attempted_baselines = sorted(
+        item["trial_id"] for item in prepared
+        if item["source"]["trial_kind"] == "deterministic_baseline"
+        and item["source"]["status"] != "registered"
+    )
+    reconciliation = {
+        "scope": "all_plans_and_deterministic_baselines_through_p16",
+        "covered_plans": sorted(p16_trials.PLANS),
+        "deterministic_baseline_trial_ids": attempted_baselines,
+        "sources": [{"source": f"census:{plan_id}", "plan_id": plan_id,
+                     "row_count": sum(row["plan_id"] == plan_id for row in rows),
+                     "snapshot_sha256": snapshot_sha}
+                    for plan_id in sorted(p16_trials.PLANS)],
+        "entries": entries, "trial_redirects": {},
+        "register_sha256": p16_trials.register_digest(records),
+        "sealed_through_sequence": max(row["append_sequence"] for row in records),
+        "sealed_row_sha256s": sorted(row["row_sha256"] for row in records),
+    }
+    reconciliation_sha = record_reconciliation(
+        con, recorded_at=CENSUS_RECORDED_AT, reconciliation=reconciliation,
+    )
+    return project_sealed(con, reconciliation_sha256=reconciliation_sha)

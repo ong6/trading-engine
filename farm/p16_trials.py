@@ -14,7 +14,7 @@ IDENTITY_FIELDS = {"model", "prompt", "tools", "features", "memory_update_rule",
                    "aggregation", "scoring", "portfolio_rule", "label_basis"}
 EVIDENCE_CLASSES = {"prospective", "development", "lockbox", "contaminated"}
 TRIAL_KINDS = {"policy", "deterministic_baseline"}
-PLANS = {f"P{number}" for number in range(5, 17)}
+PLANS = {"pre-plan", *(f"P{number}" for number in range(5, 17))}
 
 
 def sha256_valid(value: object) -> bool:
@@ -30,7 +30,7 @@ def timestamp(value: datetime) -> datetime:
 def registration(
     *, policy_id: str, policy_version: str, plan_id: str, registration_identity: dict,
     evidence_class: str, trial_kind: str, parent_trial_ids: list[str], registered_at: datetime,
-    identity_status: str,
+    identity_status: str, n_contribution: int = 1,
 ) -> tuple[str, dict]:
     if (not all(isinstance(value, str) and value for value in (policy_id, policy_version, plan_id))
             or set(registration_identity) != IDENTITY_FIELDS
@@ -38,6 +38,7 @@ def registration(
             or plan_id not in PLANS or evidence_class not in EVIDENCE_CLASSES
             or trial_kind not in TRIAL_KINDS
             or identity_status not in {"verified", "provisional"}
+            or type(n_contribution) is not int or n_contribution < 0
             or not isinstance(parent_trial_ids, list)
             or any(not sha256_valid(item) for item in parent_trial_ids)
             or parent_trial_ids != sorted(set(parent_trial_ids))):
@@ -52,7 +53,8 @@ def registration(
                       "registration_identity": registration_identity,
                       "evidence_class": evidence_class, "trial_kind": trial_kind,
                       "parent_trial_ids": parent_trial_ids,
-                      "identity_status": identity_status}
+                      "identity_status": identity_status,
+                      "n_contribution": n_contribution}
 
 
 def encoded_record(kind: str, trial_id: str | None, event_at: datetime,
@@ -231,6 +233,7 @@ def project(records: list[dict], *, limit: int) -> dict:
                 **{key: payload[key] for key in ("policy_id", "policy_version", "plan_id",
                    "registration_identity", "evidence_class", "parent_trial_ids",
                    "trial_kind", "identity_status")},
+                n_contribution=payload.get("n_contribution", 1),
                 registered_at=datetime.fromisoformat(payload["registered_at"]).replace(
                     tzinfo=timezone.utc))
         except (KeyError, TypeError, ValueError) as exc:
@@ -307,9 +310,18 @@ def project(records: list[dict], *, limit: int) -> dict:
         and bool(expected_baselines) and not missing_baselines
     status = "not_initialized" if not registrations else "unreconciled" if latest is None else \
         "stale" if not current else "complete" if complete else "incomplete"
+    selection_trial_ids = sorted(
+        contribution_id
+        for trial_id in attempted_ids
+        for contribution_id in (
+            [trial_id] if registrations[trial_id]["payload"]["n_contribution"] == 1 else
+            [canonical_sha256({"trial_id": trial_id, "contribution": index})
+             for index in range(registrations[trial_id]["payload"]["n_contribution"])]
+        )
+    )
     return {"status": status, "inventory_complete": status == "complete",
-            "selection_trial_count": len(attempted_ids),
-            "selection_trial_ids": sorted(attempted_ids),
+            "selection_trial_count": len(selection_trial_ids),
+            "selection_trial_ids": selection_trial_ids,
             "registered_trial_count": len(registrations),
             "unresolved_identity_count": unresolved,
             "identity_coverage": 1 - unresolved / len(attempted_ids) if attempted_ids else 1.0,

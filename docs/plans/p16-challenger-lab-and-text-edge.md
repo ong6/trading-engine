@@ -595,7 +595,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | Workstream | Status | Evidence (BUILDLOG date) |
 |---|---|---|
 | W0 Baseline, P15 remediation (R1–R16), P15 activation | **scheduled: dry-run on the 2026-09-28 session, activation per registration revision 3 on 2026-09-29**. Remaining: host/UTC suites, fresh copied-store dry-run, recovery bundle, book activation, AUTOSTART commit/install, and first-cycle checks through 2026-10-01. Lead: `p16-sol-lead` (GPT-5.6-Sol) | 2026-09-26 |
-| W1 Evaluation science v2 | complete; accepted core, durable evidence, family report, and existing-status-surface projection are verified; nonessential adapter/census refinements are deferred at checkpoint | 2026-09-27 |
+| W1 Evaluation science v2 | complete; accepted core, durable evidence, family report, and existing-status-surface projection are verified. W9a adds the isolated status adapter and loads the accepted 103-row P5–P16 census with exact trial contribution N=139 | 2026-09-28 |
 | W2 Challenger lab | staged; implementation and inert timer complete, while the first P15 origin gates the timer-backed rehearsal, literal epoch, final family registration, and independent activation | |
 | W3 Filing reader | complete and inert; W9a verified first-fetch baselines, unchanged-response receipt reuse, the host-wide dispatch lock, short scan callbacks, prior-session queue sweeping, per-leg next-bar basis checks, and P15/template-only liquidity. The scan orchestrator derives its gate from the SEC caller inventory and remains blocked while frozen P15 uses direct transport | 2026-09-28 |
 | W4 Historical labs (text lab, replay lab) | complete and accepted for code; real-data producers remain inert until W9 records the price-archive listing date and the owner supplies the SEC contact. Accepted limits are registered for W9 reporting; the post-cutoff grid remains planned pending probe admission | 2026-09-28 |
@@ -603,7 +603,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W6 Execution realism | complete and accepted, inert: every selected name retains its best-attempt measurement and as-of liquidity tier even when bars fail, so valid quote targets and honest tier coverage survive; `baseline_v1` is unchanged | 2026-09-28 |
 | W7 Operator digest | complete: Sunday post-walk-forward composer produces the compact weekly gate/book/challenger/activity/health view with explicit unavailable states and the unversioned-catalogue-alias warning | 2026-09-28 |
 | W8 Stage 2 design | complete: accepted design filed with binding review notes; P17 is indexed as proposed and grants no broker, credential, account or capital authority | 2026-09-28 |
-| W9 Cleanup, docs, refine gate, activation | in progress: W9a timezone, W1, W5, and inert W3 fixes are complete. The P5–P16 canonical census awaits the orchestrator's accepted inventory; documentation cleanup is next. Production connection portability and the scheduled P15 direct SEC caller remain frozen inside the P15 registration closure | 2026-09-28 |
+| W9 Cleanup, docs, refine gate, activation | in progress: W9a timezone, W1, W5, inert W3 fixes, and the accepted P5–P16 canonical census (103 rows; N=139) are complete. Documentation cleanup is next. Production connection portability and the scheduled P15 direct SEC caller remain frozen inside the P15 registration closure | 2026-09-28 |
 | W10 Final refine pass | not started | |
 | W11 Synthetic proving ground and evaluation loops | design in progress (`p16-design-proving-ground`) | |
 

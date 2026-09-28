@@ -154,6 +154,7 @@ def _model_contracts(registration: dict) -> dict[str, dict]:
 
 def _ensure_trials(con, registration: dict) -> None:
     p16_challenger_store.init_schema(con)
+    p16_trial_store.load_census(con)
     for row in sorted(_trial_specs(registration), key=lambda item: len(item["parent_trial_ids"])):
         actual = p16_trial_store.register(
             con, policy_id=row["policy_id"], policy_version=row["policy_version"],
