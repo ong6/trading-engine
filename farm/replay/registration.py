@@ -83,7 +83,7 @@ def admitted_grid(
         cursor += timedelta(days=1)
     split = (2 * len(sessions)) // 3
     return {
-        "status": "admitted" if sessions else "empty_window",
+        "status": "planned" if sessions else "empty_window",
         "cutoff": cutoff_day.isoformat(),
         "c_plus_60_floor": floor.isoformat(),
         "activation": activation_utc.isoformat(),
