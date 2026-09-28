@@ -1263,4 +1263,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
   budget ok.
 - **Next:** build the weekly W7 operator digest on the existing status surfaces.
 
+## 2026-09-28 — P16 W7: generate the weekly operator digest
+
+- **Why:** approved P16 W7 requires one compact Sunday report over the existing evidence and
+  health surfaces, including a prominent warning about the unversioned model catalogue alias.
+- **What:** compose P15 gates/books/events, the deflated P16 leaderboard, filing/fill activity,
+  producer health, and owner-needed items after walk-forward. Missing inert sources stay explicit.
+- **Evidence:** `.venv/bin/python -m farm.p16_operator_digest --generated-at 2026-09-28T02:40:00+00:00`
+  reports `status: complete` and writes the first 51-line weekly digest.
+- **Metrics:** server/tools unchanged; product +299 (engine +4, farm +295); budget ok.
+- **Next:** file the accepted Stage 2 design and its proposed P17 execution plan.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
