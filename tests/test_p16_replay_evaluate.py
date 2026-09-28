@@ -133,6 +133,7 @@ def test_report_derives_confirmatory_complete_status_from_ledger(monkeypatch):
 def test_post_cutoff_grid_uses_c_plus_60_decision_clock_and_fixed_two_thirds():
     activation = datetime(2024, 3, 20, 1, 59, tzinfo=timezone.utc)
     grid = admitted_grid("2024-01-01", activation)
+    assert grid["status"] == "planned"
     assert grid["c_plus_60_floor"] == "2024-03-01"
     assert grid["sessions"][0] == "2024-03-01"
     assert grid["sessions"][-1] == "2024-03-18"

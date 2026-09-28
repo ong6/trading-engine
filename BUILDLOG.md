@@ -1226,4 +1226,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** W4 production Python is 3,642/5,000; budget ok.
 - **Next:** orchestrator review of checkpoint W4; no W4 producer may run before acceptance.
 
+## 2026-09-28 — P16 W4: complete the runnable replay checkpoint
+
+- **Why:** the approved W4 plan and binding round-3 decision require phase-clock prices, in-tree
+  execution, working real-format collectors, a real-path fixture, and a planned pre-probe grid.
+- **What:** materialize prices incrementally at each phase clock and rewrite only split securities;
+  run SCORE, PREOPEN, labels, postmortems, and lockbox/report derivation through in-tree paths.
+  Stream and parse GDELT, CC-NEWS WARC, Wayback CDX, and RSS formats with durable resume ordering;
+  prove the path with the deterministic 10-session fixture and keep the grid planned.
+- **Evidence:** `TZ=UTC .venv/bin/python -m pytest -q` reaches `[100%]` with no failures.
+- **Metrics:** server +0; tools +0; product +1,391 (all farm); budget ok.
+- **Next:** orchestrator acceptance of checkpoint W4; no W4 producer may run before acceptance.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
