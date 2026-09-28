@@ -9,6 +9,7 @@ import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Mapping, Sequence
+from urllib.parse import urlsplit
 
 from engine.lib.provenance import canonical_sha256
 from farm.replay.store import ReplayStoreError, append_exact, load_record
@@ -142,6 +143,14 @@ def facts_as_of(rows: Sequence[Mapping], cutoff: datetime) -> list[dict]:
     return [selected[key][1] for key in sorted(selected)]
 
 
+def _normal_url(value: object) -> str:
+    parts = urlsplit(str(value or "").strip())
+    if not parts.netloc:
+        return ""
+    host = parts.netloc.casefold().removeprefix("www.")
+    return f"{host}{parts.path.rstrip('/')}" + (f"?{parts.query}" if parts.query else "")
+
+
 def deduplicate_visible_headlines(rows: Sequence[Mapping], cutoff: datetime) -> list[dict]:
     cutoff = _instant(cutoff)
     visible = [row for row in rows if _instant(row["available_at_replay"]) <= cutoff]
@@ -150,6 +159,9 @@ def deduplicate_visible_headlines(rows: Sequence[Mapping], cutoff: datetime) -> 
     for source in visible:
         headline = " ".join(unicodedata.normalize("NFKC", str(source["headline"])).casefold().split())
         key = (str(source.get("language", "und")), headline)
+        if not headline:  # GDELT rows carry no headline: dedupe by URL, else keep
+            url = _normal_url(source.get("source_url"))
+            key = ("url", url) if url else ("id", str(source["source"]), str(source["source_id"]))
         event_at = _instant(source["event_at"])
         anchor = anchors.get(key)
         if anchor is None or event_at - anchor > timedelta(hours=48):
