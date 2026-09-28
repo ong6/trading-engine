@@ -72,6 +72,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-09-28 | This repo is the public infrastructure; new strategies, prompts, registrations, results and findings go to a private alpha repo. P15 and P16 as built stay public as a demo | AGENTS, feedback |
 | 2026-09-26 | Replace maintain-only framing with build-toward-verdict guidance; add the system blueprint; keep P16 proposed until P15 W8 | AGENTS, blueprint, P16, feedback |
 | 2026-09-25 | P15 approved: score every candidate, add deterministic comparator books, add a pre-open check and event-driven shadow triggers, and code the gates. It may run as one long session with sub-agents | [P15](plans/p15-profitability-evidence-loop.md), feedback |
 | 2026-09-27 | Add a synthetic end-to-end proving ground with evaluation loops (P16 W11) once the main issues are fixed | P16 |

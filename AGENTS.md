@@ -117,6 +117,18 @@ as a dated entry with the rule it changes, and the rule is applied in the same s
 (this file, `docs/scope.md`, or the budget). A verdict that is only remembered in
 conversation is lost at the next compaction.
 
+## Public engine, private alpha (from 2026-09-28)
+
+This repo is the **public infrastructure**: data pipeline, simulator, fill models, evaluation
+statistics, replay and text labs, optimizer, runners, schemas and toy example strategies, so
+anyone can run it and look for their own edge. P15 and the P16 work built up to 2026-09-28 stay
+here as a public demo; none of it is a proven edge.
+
+**New strategies, prompts, parameter sets, registrations, trial-census updates, research
+findings and results reports go to the owner's private alpha repo**, never here.
+Reusable infrastructure a strategy needs still lands here, kept generic. If unsure whether a
+change is infrastructure or alpha, treat it as alpha and ask the orchestrator.
+
 ## Absolute rules (unchanged)
 
 The repo is public: no employer, devbox, or internal-tool identifiers in files or commit messages, and commit dates are never rewritten. Never fabricate a price or bar. Point-in-time tables are append-only. Orders fill next-open,
