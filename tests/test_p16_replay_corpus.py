@@ -145,3 +145,22 @@ def test_naive_availability_is_rejected():
             [{"fact_id": "f", "revision": 1, "available_at_replay": "2024-01-01"}],
             NOW,
         )
+
+
+def test_empty_gdelt_headlines_dedupe_by_url_not_into_one_row():
+    def row(source_id, url):
+        return {
+            "source": "gdelt_events", "source_id": source_id, "headline": "",
+            "source_url": url, "available_at_replay": "2024-01-01T01:00:00Z",
+            "event_at": "2024-01-01T00:00:00Z",
+        }
+
+    rows = [
+        row("a", "https://www.example.test/story/"),
+        row("b", "http://example.test/story"),
+        row("c", "https://example.test/other"),
+        row("d", None),
+        row("e", None),
+    ]
+    kept = deduplicate_visible_headlines(rows, datetime(2024, 1, 2, tzinfo=timezone.utc))
+    assert [item["source_id"] for item in kept] == ["a", "c", "d", "e"]

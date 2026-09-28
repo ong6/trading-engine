@@ -12,10 +12,12 @@ import pytest
 from farm.replay.sources import (
     FetchTask,
     SourceError,
+    cc_news_fetch_tasks,
     cc_news_paths_url,
     collect_edgar,
     collect_shards,
     edgar_acceptance_at,
+    gdelt_fetch_tasks,
     gdelt_manifest_url,
     gdelt_shard_urls,
     normalize_source_record,
@@ -27,6 +29,7 @@ from farm.replay.sources import (
     parse_wayback_memento,
     rss_url,
     urllib_stream,
+    wayback_cdx_task,
     wayback_cdx_url,
     wayback_memento_tasks,
     wayback_memento_url,
@@ -203,10 +206,10 @@ def test_gdelt_manifest_md5_and_real_tsv_zip_parsers():
     assert gkg["organizations"] == "Example Corp"
 
 
-def _warc_member(record_id: str, title: str) -> bytes:
+def _warc_member(record_id: str, title: str, published: str = "2024-01-02T12:00:00Z") -> bytes:
     html = (
         '<html><head><meta property="article:published_time" '
-        'content="2024-01-02T12:00:00Z"><title>' + title
+        f'content="{published}"><title>' + title
         + "</title></head><body>Exact archived body.</body></html>"
     ).encode()
     http = b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n" + html
@@ -424,3 +427,176 @@ def test_collector_uses_real_warc_parser_and_file_level_cursor(tmp_path):
         user_agent="Fixture contact", now=lambda: NOW, pause=lambda _seconds: None,
     )
     assert skipped["records"] == []
+
+
+def _store_paths(tmp_path):
+    root = (tmp_path / "research").resolve()
+    root.mkdir()
+    live = (tmp_path / "live.duckdb").resolve()
+    live.touch()
+    return dict(catalog_path=root / "catalog.duckdb", research_root=root, live_db_path=live,
+                user_agent="Fixture contact", now=lambda: NOW, pause=lambda _seconds: None)
+
+
+def _gkg_line(source_id, organizations="Example Corp"):
+    fields = [""] * 27
+    fields[0], fields[1], fields[4], fields[14] = (
+        source_id, "20240102154500", f"https://example.test/{source_id}", organizations
+    )
+    return "\t".join(fields)
+
+
+def test_gkg_quote_and_huge_fields_parse_and_bad_rows_quarantine_one_at_a_time():
+    quoted = _gkg_line("quoted").split("\t")
+    quoted[8] = '"ECON_GROWTH;TAX_FNCACT'
+    huge = _gkg_line("huge").split("\t")
+    huge[8] = "X" * 200_000
+    lines = ["\t".join(quoted), "short\trow", "\t".join(huge), _gkg_line("last")]
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("fixture.gkg.csv", "\n".join(lines) + "\n")
+    quarantined = []
+    rows = parse_gdelt_zip("gdelt_gkg", output.getvalue(), quarantined=quarantined)
+    assert [row["source_id"] for row in rows] == ["quoted", "huge", "last"]
+    assert rows[0]["themes"] == '"ECON_GROWTH;TAX_FNCACT' and len(rows[1]["themes"]) == 200_000
+    assert quarantined == [{"row": 2, "reason": "invalid_gdelt_gdelt_gkg_column_count"}]
+
+
+def test_collector_quarantines_a_shard_whose_parser_explodes_and_continues(tmp_path):
+    good = io.BytesIO()
+    with zipfile.ZipFile(good, "w") as archive:
+        archive.writestr("ok.gkg.csv", _gkg_line("ok") + "\nbad\n")
+    payloads = {"https://data.gdeltproject.org/bad.zip": b"not a zip",
+                "https://data.gdeltproject.org/good.zip": good.getvalue()}
+    tasks = [FetchTask("gdelt_gkg", name, f"https://data.gdeltproject.org/{name}.zip", "done")
+             for name in ("bad", "good")]
+    result = collect_shards(
+        tasks, transport=lambda url, *_args: {"status": 200, "headers": {}, "body": payloads[url]},
+        **_store_paths(tmp_path),
+    )
+    assert result["status"] == "completed"
+    assert [row["source_id"] for row in result["records"]] == ["ok"]
+    assert [(item["shard_id"], item["row"]) for item in result["quarantined"]] == [
+        ("bad", None), ("good", 2)
+    ]
+    (tmp_path / "second").mkdir()
+
+    def explode(*_args):
+        raise RuntimeError("boom")
+
+    exploding = collect_shards(
+        [FetchTask("gdelt_gkg", "boom", "https://data.gdeltproject.org/boom.zip", "done")],
+        transport=lambda *_args: {"status": 200, "headers": {}, "body": b"x"},
+        parse_rows=explode, **_store_paths(tmp_path / "second"),
+    )
+    assert exploding["status"] == "completed"
+    assert exploding["quarantined"][0]["reason"] == "boom"
+
+
+def test_wayback_cdx_real_paged_and_empty_shapes():
+    page = [["timestamp", "original", "digest"],
+            ["20240102120500", "https://example.test/story", "ABC"],
+            [], ["com,example)/story 20240102120500"]]
+    parsed = parse_wayback_cdx(json.dumps(page).encode())
+    assert parsed["resume_key"] == "com,example)/story 20240102120500"
+    assert len(parsed["records"]) == 1
+    assert parse_wayback_cdx(b"[]") == {"records": [], "resume_key": None}
+    last = parse_wayback_cdx(json.dumps(page[:2]).encode())
+    assert last["resume_key"] is None and len(last["records"]) == 1
+
+
+def test_wayback_cdx_pages_flow_through_collector_with_resume_key(tmp_path):
+    first = wayback_cdx_task("https://example.test/story", start=date(2024, 1, 1),
+                             end=date(2024, 1, 31), limit=1)
+    html = b"<html><head><title>Archived</title></head><body>Body</body></html>"
+    calls = []
+
+    def transport(url, _headers, _range):
+        calls.append(url)
+        if "resumeKey=KEY" in url:
+            body = [["timestamp", "original", "digest"],
+                    ["20240103120500", "https://example.test/story", "DEF"]]
+        elif "/cdx/" in url:
+            body = [["timestamp", "original", "digest"],
+                    ["20240102120500", "https://example.test/story", "ABC"], [], ["KEY"]]
+        else:
+            return {"status": 200, "headers": {}, "body": html}
+        return {"status": 200, "headers": {}, "body": json.dumps(body).encode()}
+
+    paths = _store_paths(tmp_path)
+    result = collect_shards([first], transport=transport, **paths)
+    assert result["status"] == "completed"
+    assert sorted(row["source_id"].split("/web/")[1][:14] for row in result["records"]) == [
+        "20240102120500", "20240103120500"
+    ]
+    assert sum("/cdx/" in url for url in calls) == 2 and len(calls) == 4
+    calls.clear()
+    assert collect_shards([first], transport=transport, **paths)["records"] == []
+    assert calls == []
+
+
+def test_gdelt_planner_filters_window_and_collector_verifies_md5(tmp_path):
+    good = _zip_tsv(_gkg_line("ok").split("\t"))
+    digest = hashlib.md5(good).hexdigest()
+    base = "http://data.gdeltproject.org/gdeltv2"
+    manifest = "\n".join([
+        f"{len(good)} {digest} {base}/20240102000000.gkg.csv.zip",
+        f"150383 {'a' * 32} {base}/20240102000000.export.CSV.zip",
+        f"150383 {'b' * 32} {base}/20240102000000.mentions.CSV.zip",
+        f"150383 {'c' * 32} {base}/20240102000000.translation.gkg.csv.zip",
+        f"150383 {'d' * 32} {base}/20240103000000.gkg.csv.zip",
+        "garbage line",
+    ])
+    tasks = gdelt_fetch_tasks(manifest, start=datetime(2024, 1, 2, tzinfo=timezone.utc),
+                              end=datetime(2024, 1, 3, tzinfo=timezone.utc))
+    assert [(task.source, task.shard_id, task.expected_size) for task in tasks] == [
+        ("gdelt_events", "20240102000000", 150383),
+        ("gdelt_gkg", "20240102000000", len(good)),
+    ]
+    assert tasks[1].expected_md5 == digest and tasks[1].byte_range is None
+    result = collect_shards(
+        tasks, transport=lambda *_args: {"status": 200, "headers": {}, "body": good},
+        **_store_paths(tmp_path),
+    )
+    assert [row["source_id"] for row in result["records"]] == ["ok"]
+    assert result["quarantined"] == [{
+        "source": "gdelt_events", "shard_id": "20240102000000", "row": None,
+        "reason": "fetch_md5_or_size_mismatch",
+    }]
+    assert len(result["receipts"]) == 1
+
+
+def test_cc_news_planner_lists_whole_files_for_one_month():
+    paths = gzip.compress(b"\n".join([
+        b"crawl-data/CC-NEWS/2024/01/CC-NEWS-20240101000000-00001.warc.gz",
+        b"crawl-data/CC-NEWS/2024/01/CC-NEWS-20240101000000-00000.warc.gz",
+        b"crawl-data/CC-NEWS/2024/02/CC-NEWS-20240201000000-00000.warc.gz",
+    ]))
+    tasks = cc_news_fetch_tasks(paths, year=2024, month=1)
+    assert [task.shard_id for task in tasks] == [
+        "CC-NEWS-20240101000000-00000.warc.gz", "CC-NEWS-20240101000000-00001.warc.gz"
+    ]
+    assert tasks[0].url == (
+        "https://data.commoncrawl.org/crawl-data/CC-NEWS/2024/01/"
+        "CC-NEWS-20240101000000-00000.warc.gz"
+    )
+    assert all(task.byte_range is None and task.source == "cc_news" for task in tasks)
+
+
+def test_cc_news_naive_page_date_falls_back_to_warc_date():
+    rows = parse_cc_news_warc(_warc_member("naive", "Naive", published="2024-01-02T11:00:00"))
+    assert rows[0]["published_at"] == "2024-01-02T11:00:00"
+    record = normalize_source_record("cc_news", rows[0], retrieved_at_real=NOW)
+    warc_date = datetime(2024, 1, 2, 12, 5, tzinfo=timezone.utc)
+    assert record["available_at_replay"] == record["event_at"] == warc_date
+    assert record["published_at"] is None and record["status"] == "capture_confirmed"
+
+
+def test_normalized_records_get_security_ids_only_with_a_name_table():
+    row = {"source_id": "gkg-1", "gkg_date": "20240102154500", "headline": "",
+           "organizations": "apple inc,12;tesla motors,40"}
+    table = [{"security_id": "S-AAPL", "ticker": "AAPL", "name": "Apple Inc.", "aliases": ()}]
+    plain = normalize_source_record("gdelt_gkg", row, retrieved_at_real=NOW)
+    mapped = normalize_source_record("gdelt_gkg", row, retrieved_at_real=NOW, name_table=table)
+    assert "security_ids" not in plain and mapped["security_ids"] == ["S-AAPL"]
+    assert mapped["evidence_id"] == plain["evidence_id"]

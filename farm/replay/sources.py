@@ -8,17 +8,18 @@ import io
 import json
 import math
 import os
+import re
 import tempfile
 import threading
 import urllib.error
 import urllib.request
 import zipfile
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
+from typing import Callable, Iterator, Mapping, Sequence
 from urllib.parse import quote, urlencode, urlsplit
 from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
@@ -31,7 +32,8 @@ from farm.replay.corpus import (
     put_content_object,
     record_task_attempt,
 )
-from farm.replay.store import append_exact, checked_store_path, open_store
+from farm.replay.entities import build_name_index, match_securities
+from farm.replay.store import append_exact, checked_store_path, load_record, open_store
 from sim import nyse
 
 UTC = timezone.utc
@@ -54,6 +56,8 @@ DEFAULT_MAX_SECONDS = 30 * 60
 DEFAULT_MAX_BYTES = 2 * 1024**3
 DEFAULT_TIMEOUT_SECONDS = 30.0
 STREAM_CHUNK_BYTES = 64 * 1024
+GDELT_FIELD_SIZE_LIMIT = 2**31 - 1
+_GDELT_FILE = re.compile(r"(\d{14})\.(export\.CSV|gkg\.csv)\.zip")
 _HOST_LOCKS: dict[str, threading.Lock] = {}
 
 
@@ -71,6 +75,7 @@ class FetchTask:
     expected_md5: str | None = None
     parser: str | None = None
     parser_options: Mapping[str, str] | None = None
+    expected_size: int | None = None
 
 
 def _instant(value: object, field: str) -> datetime:
@@ -139,8 +144,23 @@ def _captured(row: Mapping, *, captured_at: datetime, identity_field: str) -> di
     }
 
 
+def _archive_available(row: Mapping, result: dict, captured: datetime) -> datetime:
+    """Page dates without a zone (or unparseable) fall back to the archive capture clock."""
+    published = None
+    if row.get("published_at"):
+        try:
+            published = _instant(row["published_at"], "published_at")
+        except SourceError:
+            published = None
+    if published is None:
+        if result["event_at"] == row.get("published_at"):
+            result["event_at"] = None
+        result["published_at"] = None
+    return max(captured, published or captured)
+
+
 def normalize_source_record(
-    source: str, row: Mapping, *, retrieved_at_real: datetime
+    source: str, row: Mapping, *, retrieved_at_real: datetime, name_table=None
 ) -> dict:
     """Apply a source-specific historical availability rule to one exact payload."""
     retrieved = _instant(retrieved_at_real, "retrieved_at_real")
@@ -176,19 +196,13 @@ def normalize_source_record(
         rule = "edgar_acceptance_v1"
     elif source == "cc_news":
         captured = _instant(row.get("warc_date"), "warc_date")
-        published = _instant(row["published_at"], "published_at") if row.get(
-            "published_at"
-        ) else captured
-        available = max(captured, published)
+        available = _archive_available(row, result, captured)
         result.update(_captured(row, captured_at=captured, identity_field="warc_record_id"))
         result["status"] = "capture_confirmed"
         rule = "cc_news_warc_v1"
     elif source == "wayback":
         captured = _instant(row.get("capture_at"), "capture_at")
-        published = _instant(row["published_at"], "published_at") if row.get(
-            "published_at"
-        ) else captured
-        available = max(captured, published)
+        available = _archive_available(row, result, captured)
         result.update(_captured(row, captured_at=captured, identity_field="memento_uri"))
         result["status"] = "capture_confirmed"
         rule = "wayback_memento_v1"
@@ -224,6 +238,10 @@ def normalize_source_record(
         "availability_rule": rule, "headline": result["headline"],
         "body_sha256": result.get("body_sha256"),
     })
+    if name_table is not None:
+        result["security_ids"] = list(match_securities(
+            {**result, "organizations": row.get("organizations")}, name_table
+        ))
     return result
 
 
@@ -338,10 +356,75 @@ def _payload_bytes(payload: bytes | Path) -> bytes:
     return payload if isinstance(payload, bytes) else payload.read_bytes()
 
 
+def gdelt_fetch_tasks(
+    manifest: bytes | str, *, start: datetime, end: datetime,
+    sources: Sequence[str] = ("gdelt_events", "gdelt_gkg"),
+) -> list[FetchTask]:
+    """Plan GDELT export/GKG shard fetches in [start, end) from masterfilelist.txt."""
+    start, end = _instant(start, "gdelt_window"), _instant(end, "gdelt_window")
+    text = manifest.decode("utf-8", errors="replace") if isinstance(manifest, bytes) else manifest
+    kinds = {"export.CSV": "gdelt_events", "gkg.csv": "gdelt_gkg"}
+    tasks = []
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) != 3 or not parts[0].isdigit() or not re.fullmatch(r"[0-9a-fA-F]{32}", parts[1]):
+            continue
+        match = _GDELT_FILE.fullmatch(parts[2].rsplit("/", 1)[-1])
+        if match is None or kinds[match[2]] not in sources:
+            continue
+        if not start <= _compact_utc(match[1], "gdelt_shard") < end:
+            continue
+        tasks.append(FetchTask(
+            source=kinds[match[2]], shard_id=match[1], url=parts[2], cursor_after=parts[1].lower(),
+            expected_md5=parts[1].lower(), parser=kinds[match[2]], expected_size=int(parts[0]),
+        ))
+    return sorted(tasks, key=lambda task: (task.shard_id, task.source))
+
+
+def cc_news_fetch_tasks(paths_gz: bytes, *, year: int, month: int) -> list[FetchTask]:
+    """Plan whole-file CC-NEWS WARC fetches for one month from warc.paths.gz."""
+    prefix = cc_news_paths_url(year, month).rsplit("/", 1)[0].split("data.commoncrawl.org/", 1)[1]
+    try:
+        lines = gzip.decompress(paths_gz).decode("utf-8").split()
+    except (OSError, EOFError, UnicodeDecodeError) as exc:
+        raise SourceError("invalid_cc_news_paths") from exc
+    return [
+        FetchTask(
+            source="cc_news", shard_id=path.rsplit("/", 1)[-1],
+            url=f"https://data.commoncrawl.org/{path}",
+            cursor_after=path.rsplit("/", 1)[-1], parser="cc_news",
+        )
+        for path in sorted(set(lines))
+        if path.startswith(prefix + "/") and path.endswith(".warc.gz")
+    ]
+
+
+def _gdelt_row(source: str, fields: list[str]) -> dict:
+    if source == "gdelt_events":
+        event_day = datetime.strptime(fields[1], "%Y%m%d").replace(tzinfo=UTC)
+        return {
+            "source_id": fields[0], "headline": "",
+            "dateadded": fields[59], "event_at": event_day.isoformat(),
+            "published_at": None, "precision": "day",
+            "confidence": "archive_metadata", "source_timezone": "UTC",
+            "source_url": fields[60], "event_code": fields[26],
+            "organizations": ";".join(name for name in (fields[6], fields[16]) if name),
+        }
+    updated = _compact_utc(fields[1], "gdelt_gkg_date")
+    return {
+        "source_id": fields[0], "headline": "", "gkg_date": fields[1],
+        "event_at": updated.isoformat(), "published_at": None,
+        "precision": "second", "confidence": "archive_metadata",
+        "source_timezone": "UTC", "source_url": fields[4],
+        "organizations": fields[14], "themes": fields[8],
+    }
+
+
 def parse_gdelt_zip(
-    source: str, payload: bytes | Path, *, expected_md5: str | None = None
+    source: str, payload: bytes | Path, *, expected_md5: str | None = None,
+    quarantined: list | None = None,
 ) -> list[dict]:
-    """Unpack and map the fixed-width GDELT Events 2.0 or GKG 2.1 TSV."""
+    """Unpack and map the fixed-width GDELT Events 2.0 or GKG 2.1 TSV; bad rows are quarantined."""
     if expected_md5 is not None:
         digest = hashlib.md5()
         if isinstance(payload, bytes):
@@ -356,6 +439,8 @@ def parse_gdelt_zip(
         raise SourceError("invalid_gdelt_source")
     width = 61 if source == "gdelt_events" else 27
     rows = []
+    quarantined = [] if quarantined is None else quarantined
+    csv.field_size_limit(max(csv.field_size_limit(), GDELT_FIELD_SIZE_LIMIT))
     try:
         archive_source = io.BytesIO(payload) if isinstance(payload, bytes) else payload
         with zipfile.ZipFile(archive_source) as archive:
@@ -365,29 +450,27 @@ def parse_gdelt_zip(
             with archive.open(members[0]) as handle:
                 reader = csv.reader(
                     io.TextIOWrapper(handle, encoding="utf-8", errors="replace", newline=""),
-                    delimiter="\t",
+                    delimiter="\t", quoting=csv.QUOTE_NONE,
                 )
-                for fields in reader:
+                while True:
+                    try:
+                        fields = next(reader)
+                    except StopIteration:
+                        break
+                    except csv.Error as exc:
+                        quarantined.append({"row": reader.line_num, "reason": f"invalid_gdelt_csv:{exc}"})
+                        continue
+                    if not fields:
+                        continue
                     if len(fields) != width:
-                        raise SourceError(f"invalid_gdelt_{source}_column_count")
-                    if source == "gdelt_events":
-                        event_day = datetime.strptime(fields[1], "%Y%m%d").replace(tzinfo=UTC)
-                        rows.append({
-                            "source_id": fields[0], "headline": "",
-                            "dateadded": fields[59], "event_at": event_day.isoformat(),
-                            "published_at": None, "precision": "day",
-                            "confidence": "archive_metadata", "source_timezone": "UTC",
-                            "source_url": fields[60], "event_code": fields[26],
+                        quarantined.append({
+                            "row": reader.line_num, "reason": f"invalid_gdelt_{source}_column_count",
                         })
-                    else:
-                        updated = _compact_utc(fields[1], "gdelt_gkg_date")
-                        rows.append({
-                            "source_id": fields[0], "headline": "", "gkg_date": fields[1],
-                            "event_at": updated.isoformat(), "published_at": None,
-                            "precision": "second", "confidence": "archive_metadata",
-                            "source_timezone": "UTC", "source_url": fields[4],
-                            "organizations": fields[14], "themes": fields[8],
-                        })
+                        continue
+                    try:
+                        rows.append(_gdelt_row(source, fields))
+                    except (SourceError, ValueError) as exc:
+                        quarantined.append({"row": reader.line_num, "reason": str(exc)})
     except (zipfile.BadZipFile, UnicodeError) as exc:
         raise SourceError("invalid_gdelt_zip") from exc
     return rows
@@ -464,9 +547,12 @@ def _header_block(handle) -> tuple[str, dict[str, str]] | None:
 
 
 def parse_cc_news_warc(payload: bytes | Path) -> list[dict]:
+    return list(iter_cc_news_warc(payload))
+
+
+def iter_cc_news_warc(payload: bytes | Path) -> Iterator[dict]:
     """Stream response records from a whole gzip WARC using only stdlib readers."""
     raw_handle = io.BytesIO(payload) if isinstance(payload, bytes) else payload.open("rb")
-    rows = []
     try:
         with raw_handle, gzip.GzipFile(fileobj=raw_handle, mode="rb") as handle:
             while True:
@@ -496,7 +582,7 @@ def parse_cc_news_warc(payload: bytes | Path) -> list[dict]:
                 record_id = headers.get("warc-record-id")
                 if not record_id:
                     raise SourceError("warc_record_id_missing")
-                rows.append({
+                yield {
                     "source_id": record_id, "warc_record_id": record_id,
                     "warc_date": headers.get("warc-date"),
                     "archive_payload_digest": headers.get("warc-payload-digest")
@@ -505,14 +591,13 @@ def parse_cc_news_warc(payload: bytes | Path) -> list[dict]:
                     "body": text, "published_at": published, "event_at": published,
                     "precision": "second", "confidence": "archive_capture",
                     "source_timezone": "UTC", "source_url": headers.get("warc-target-uri"),
-                })
+                }
     except (OSError, EOFError) as exc:
         raise SourceError("invalid_cc_news_gzip") from exc
-    return rows
 
 
 def parse_wayback_cdx(payload: bytes) -> dict:
-    """Parse a CDX JSON page and its optional resume key."""
+    """Parse a CDX page: ``[header, rows..., [], [resumeKey]]``; ``[]`` is an empty result."""
     try:
         decoded = json.loads(payload)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -523,13 +608,17 @@ def parse_wayback_cdx(payload: bytes) -> dict:
         resume_key = decoded.get("resumeKey")
     else:
         rows = decoded
-    if not isinstance(rows, list) or not rows:
+    if rows == []:
+        return {"records": [], "resume_key": resume_key}
+    if not isinstance(rows, list):
         raise SourceError("invalid_wayback_cdx_shape")
     header = rows[0]
     if not isinstance(header, list) or not {"timestamp", "original", "digest"} <= set(header):
         raise SourceError("invalid_wayback_cdx_header")
     records = []
     for values in rows[1:]:
+        if values == []:
+            continue
         if isinstance(values, list) and len(values) == 1:
             resume_key = values[0]
             continue
@@ -561,6 +650,22 @@ def parse_wayback_memento(
         "precision": "second", "confidence": "archive_capture",
         "source_timezone": "UTC", "source_url": original_url,
     }
+
+
+def wayback_cdx_task(
+    target_url: str, *, start: date, end: date, limit: int = 1_000,
+    resume_key: str | None = None,
+) -> FetchTask:
+    """One CDX page task; parsing it queues its mementos and the next page."""
+    return FetchTask(
+        source="wayback", shard_id=f"cdx:{target_url}:{start}:{end}:{resume_key or ''}",
+        url=wayback_cdx_url(target_url, start=start, end=end, limit=limit, resume_key=resume_key),
+        cursor_after="page", parser="wayback_cdx",
+        parser_options={
+            "target_url": target_url, "start": start.isoformat(), "end": end.isoformat(),
+            "limit": str(limit),
+        },
+    )
 
 
 def wayback_memento_tasks(cdx_page: Mapping) -> list[FetchTask]:
@@ -743,12 +848,28 @@ def urllib_stream(
             path.unlink()
 
 
-def _default_rows(task: FetchTask, payload: bytes | Path) -> Sequence[Mapping]:
+def _default_rows(
+    task: FetchTask, payload: bytes | Path, quarantined: list | None = None,
+    follow: list | None = None,
+):
     parser = task.parser or task.source
     if parser in {"gdelt_events", "gdelt_gkg"}:
-        return parse_gdelt_zip(parser, payload, expected_md5=task.expected_md5)
+        return parse_gdelt_zip(parser, payload, quarantined=quarantined)
     if parser == "cc_news":
-        return parse_cc_news_warc(payload)
+        return iter_cc_news_warc(payload)
+    if parser == "wayback_cdx" and task.parser_options is not None:
+        page = parse_wayback_cdx(_payload_bytes(payload))
+        options = task.parser_options
+        next_tasks = wayback_memento_tasks(page)
+        if page["resume_key"]:
+            next_tasks.append(wayback_cdx_task(
+                options["target_url"], start=date.fromisoformat(options["start"]),
+                end=date.fromisoformat(options["end"]), limit=int(options["limit"]),
+                resume_key=str(page["resume_key"]),
+            ))
+        if follow is not None:
+            follow.extend(next_tasks)
+        return []
     if parser in {"pr_newswire", "google_news_rss", "yahoo_rss", "issuer_ir"}:
         return parse_rss(parser, _payload_bytes(payload))
     if parser == "wayback_memento" and task.parser_options is not None:
@@ -768,6 +889,28 @@ def _jsonable(value):
     return value
 
 
+def _file_md5(payload: bytes | Path) -> str:
+    digest = hashlib.md5()
+    if isinstance(payload, bytes):
+        digest.update(payload)
+    else:
+        with payload.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(STREAM_CHUNK_BYTES), b""):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _stored_followups(con, task_key: str, attempts: int) -> list[FetchTask]:
+    for attempt in range(attempts, 0, -1):
+        row = load_record(con, "task_followups", f"{task_key}:{attempt}")
+        if row is not None:
+            return [
+                FetchTask(**{**item, "byte_range": tuple(item["byte_range"]) if item["byte_range"] else None})
+                for item in row["payload"]["tasks"]
+            ]
+    return []
+
+
 def collect_shards(
     tasks: Sequence[FetchTask],
     *,
@@ -784,6 +927,7 @@ def collect_shards(
     max_bytes: int = DEFAULT_MAX_BYTES,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     environ: Mapping[str, str] | None = None,
+    name_table=None,
 ) -> dict:
     """Fetch bounded shards serially, checkpointing only durable valid receipts."""
     if not user_agent.strip() or max_seconds <= 0 or max_bytes <= 0:
@@ -795,10 +939,13 @@ def collect_shards(
     started = now()
     receipts, records, quarantined = [], [], []
     raw_bytes = 0
+    name_index = None if name_table is None else build_name_index(name_table)
+    pending, seen = list(tasks), set()
     with open_store(
         catalog_path, research_root=research_root, live_db_path=live_db_path, kind="catalog"
     ) as con:
-        for task in tasks:
+        while pending:
+            task = pending.pop(0)
             if task.source not in SOURCE_LIMITS:
                 raise SourceError("source_not_registered")
             if task.source == "cc_news" and task.byte_range is not None:
@@ -810,11 +957,15 @@ def collect_shards(
                     "raw_bytes": raw_bytes,
                 }
             task_key = f"{task.source}:{task.shard_id}"
+            if task_key in seen:
+                continue
+            seen.add(task_key)
             prior_attempts = int(con.execute(
                 "SELECT COUNT(*) FROM w4_evidence_records WHERE record_type='ingestion_attempt' "
                 "AND record_key LIKE ?", [f"{task_key}:%"],
             ).fetchone()[0])
             if latest_completed_cursor(con, task_key, prior_attempts) == task.cursor_after:
+                pending.extend(_stored_followups(con, task_key, prior_attempts))
                 continue
             if (now() - started).total_seconds() >= max_seconds or raw_bytes >= max_bytes:
                 return {
@@ -887,6 +1038,24 @@ def collect_shards(
                     "status": "stopped_limit", "receipts": receipts, "records": records,
                     "quarantined": quarantined, "raw_bytes": raw_bytes,
                 }
+            fetched = partial if partial is not None else body
+            if (
+                task.expected_size is not None and response_bytes != task.expected_size
+            ) or (task.expected_md5 is not None and _file_md5(fetched) != task.expected_md5.lower()):
+                if partial is not None and partial.exists():
+                    partial.unlink()
+                quarantined.append({
+                    "source": task.source, "shard_id": task.shard_id,
+                    "row": None, "reason": "fetch_md5_or_size_mismatch",
+                })
+                with db.transaction(con):
+                    record_task_attempt(
+                        con, task_key=task_key, attempt=attempt, status="failed",
+                        cursor_before=cursor_before, cursor_after=None,
+                        receipt_sha256=None, recorded_at=now(),
+                    )
+                pause(float(SOURCE_LIMITS[task.source]["minimum_interval_seconds"]))
+                continue
             receipt = (
                 _install_partial(
                     research_root, task.source, partial, str(response["sha256"]),
@@ -899,15 +1068,25 @@ def collect_shards(
             )
             receipts.append(receipt)
             payload = Path(receipt["path"]) if partial is not None else body
+            normalized, row_quarantine, follow = [], [], []
             try:
                 parsed_rows = (
                     parse_rows(task.source, payload) if parse_rows is not None
-                    else _default_rows(task, payload)
+                    else _default_rows(task, payload, row_quarantine, follow)
                 )
-            except (SourceError, KeyError, TypeError, ValueError) as exc:
+                retrieved_at = now()
+                for index, row in enumerate(parsed_rows):
+                    try:
+                        normalized.append(normalize_source_record(
+                            task.source, row, retrieved_at_real=retrieved_at,
+                            name_table=name_index,
+                        ))
+                    except (SourceError, KeyError, TypeError, ValueError) as exc:
+                        row_quarantine.append({"row": index, "reason": str(exc)})
+            except Exception as exc:  # one bad shard must not stop the run
                 quarantined.append({
                     "source": task.source, "shard_id": task.shard_id,
-                    "row": None, "reason": str(exc),
+                    "row": None, "reason": str(exc) or type(exc).__name__,
                 })
                 with db.transaction(con):
                     record_task_attempt(
@@ -917,18 +1096,9 @@ def collect_shards(
                     )
                 pause(float(SOURCE_LIMITS[task.source]["minimum_interval_seconds"]))
                 continue
-            normalized = []
-            retrieved_at = now()
-            for index, row in enumerate(parsed_rows):
-                try:
-                    normalized.append(normalize_source_record(
-                        task.source, row, retrieved_at_real=retrieved_at
-                    ))
-                except (SourceError, KeyError, TypeError, ValueError) as exc:
-                    quarantined.append({
-                        "source": task.source, "shard_id": task.shard_id,
-                        "row": index, "reason": str(exc),
-                    })
+            quarantined.extend(
+                {"source": task.source, "shard_id": task.shard_id, **item} for item in row_quarantine
+            )
             recorded_at = now()
             with db.transaction(con):
                 for index, record in enumerate(normalized):
@@ -937,12 +1107,19 @@ def collect_shards(
                         record_key=f"{task_key}:{index}:{record['source_id']}",
                         payload=_jsonable(record), recorded_at=recorded_at,
                     )
+                if follow:
+                    append_exact(
+                        con, record_type="task_followups", record_key=f"{task_key}:{attempt}",
+                        payload={"tasks": [_jsonable(asdict(item)) for item in follow]},
+                        recorded_at=recorded_at,
+                    )
                 record_task_attempt(
                     con, task_key=task_key, attempt=attempt, status="completed",
                     cursor_before=cursor_before, cursor_after=task.cursor_after,
                     receipt_sha256=receipt["sha256"], recorded_at=recorded_at,
                 )
             records.extend(normalized)
+            pending.extend(follow)
             pause(float(SOURCE_LIMITS[task.source]["minimum_interval_seconds"]))
     return {
         "status": "completed", "receipts": receipts, "records": records,
