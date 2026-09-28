@@ -532,7 +532,7 @@ def test_agent_evaluation_status_delegates_and_closes_connection(monkeypatch):
     monkeypatch.setattr(main.p15_evaluation, "project", lambda *_args, **_kwargs: {
         "p15": extra["p15"], "p8_evaluation": extra["p8_evaluation"],
     })
-    monkeypatch.setattr(main.p16_reporting, "project",
+    monkeypatch.setattr(main.p16_status_adapter, "project",
                         lambda *_args, **_kwargs: extra["p16"])
     monkeypatch.setattr(main.agent_trial_register, "project",
                         lambda *_args, **_kwargs: extra["trial_count_register"])
@@ -560,3 +560,28 @@ def test_agent_evaluation_status_fails_closed_and_closes_connection(monkeypatch)
     with pytest.raises(HTTPException) as error:
         main.agent_evaluation_status()
     assert error.value.status_code == 503 and con.closed is True
+
+
+def test_agent_evaluation_status_contains_p16_projection_failure(monkeypatch):
+    class Connection:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(main, "read_con", Connection)
+    monkeypatch.setattr(main.agent_evaluation, "validate_p15_evidence", lambda *_args: None)
+    monkeypatch.setattr(main.agent_evaluation, "status", lambda *_args: {"status": "capturing"})
+    monkeypatch.setattr(main.p15_evaluation, "project", lambda *_args, **_kwargs: {
+        "p15": {"status": "collecting", "primary": {"status": "collecting"}},
+        "p8_evaluation": {},
+    })
+    monkeypatch.setattr(main.agent_trial_register, "project", lambda *_args: {})
+    monkeypatch.setattr(
+        main.p16_status_adapter.p16_reporting,
+        "project",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("bad P16 report")),
+    )
+
+    result = main.agent_evaluation_status()
+
+    assert result["p15"]["status"] == "collecting"
+    assert result["p16"]["status"] == "unavailable"

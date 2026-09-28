@@ -1,13 +1,14 @@
 """Append-only P16 evaluation-store tests."""
 from __future__ import annotations
 
+import copy
 from datetime import date, datetime, timedelta, timezone
 
 import duckdb
 import pytest
 
 from engine.lib.provenance import canonical_sha256
-from farm import p16_sequential, p16_trials
+from farm import p16_factors, p16_sequential, p16_trials
 from server import p16_store, p16_trial_store
 
 NOW = datetime(2026, 9, 27, 16, tzinfo=timezone.utc)
@@ -164,11 +165,13 @@ def _origin(index: int, market_date: date, **updates):
     return value
 
 
-def _score_artifact(con, value: dict) -> str:
+def _score_artifact(con, value: dict, *, descending: bool = False) -> str:
+    tickers = [f"T{index:02}" for index in range(20)]
     body = {"policy_id": value["comparison_id"],
             "market_date": value["market_date"].isoformat(),
             "information_cutoff_at": value["decided_at"].isoformat(),
-            "scores": {"AAA": 1.0}}
+            "scores": {ticker: float(-index if descending else index)
+                       for index, ticker in enumerate(tickers)}}
     payload = {**body, "score_snapshot_sha256": canonical_sha256(body)}
     return p16_store.record_policy_scores(
         con, registration_sha256=value["registration_sha256"], payload=payload,
@@ -176,9 +179,9 @@ def _score_artifact(con, value: dict) -> str:
 
 
 def _record_decision(con, index: int, market_date: date, *, status="eligible",
-                     reason=None, recorded_at=None, **updates):
+                     reason=None, recorded_at=None, descending=False, **updates):
     value = _origin(index, market_date, **updates)
-    source = _score_artifact(con, value)
+    source = _score_artifact(con, value, descending=descending)
     recorded = recorded_at or value["decided_at"] + timedelta(minutes=1)
     return p16_store.record_origin_decision(
         con, **value, status=status, reason=reason, source_artifact_sha256=source,
@@ -186,20 +189,53 @@ def _record_decision(con, index: int, market_date: date, *, status="eligible",
 
 
 def _factor_artifact(con, value: dict, delta_ic: float) -> str:
-    payload = {"status": "available", "market_date": value["market_date"].isoformat(),
-               "comparisons": {value["comparison_id"]: {"full_sample_raw": {
-                   "status": "scored", "reason": None, "delta_ic": delta_ic}}}}
-    return p16_store._record_artifact(
-        con, registration_sha256=value["registration_sha256"],
-        artifact_kind="factor_report", artifact_key="p16-factor-v1",
-        market_date=value["market_date"], information_cutoff_at=NOW,
-        recorded_at=NOW, source_sha256=DIGEST, payload=payload)
+    tickers = [f"T{index:02}" for index in range(20)]
+    ascending = delta_ic >= 0
+    cutoff = value["decided_at"]
+    origin_rows = [{
+        "ticker": ticker, "net_excess_return": index / 100,
+        "champion_score": float(-index if ascending else index), "rule_score": 0.0,
+    } for index, ticker in enumerate(tickers)]
+    origin_payload = _evaluation_payload(
+        market_date=value["market_date"].isoformat(), report_cutoff=NOW.isoformat(),
+        scoring_information_cutoff_at=cutoff.isoformat(), rows=origin_rows,
+    )
+    exposure_payload = _exposure_payload(
+        market_date=value["market_date"].isoformat(),
+        information_cutoff_at=cutoff.isoformat(),
+        candidates=[{
+            "ticker": ticker, "status": "available", "missing_exposures": [],
+            "sector": "unknown", "exposures": {name: 0.0 for name in p16_store.EXPOSURES},
+        } for ticker in tickers],
+    )
+    origin = p16_store.record_evaluation_input(
+        con, registration_sha256=value["registration_sha256"], payload=origin_payload,
+        recorded_at=NOW,
+    )
+    exposure = p16_store.record_exposure_snapshot(
+        con, registration_sha256=value["registration_sha256"], payload=exposure_payload,
+        recorded_at=cutoff,
+    )
+    score = next(row for row in p16_store._artifacts_as_of(
+        con, generated_at=NOW, registration_sha256=value["registration_sha256"],
+        artifact_kind="policy_scores", artifact_key=value["comparison_id"],
+        through_market_date=value["market_date"],
+    ) if row["market_date"] == value["market_date"])
+    payload = p16_factors.evaluate_origin(
+        origin_payload, exposure_payload,
+        challenger_scores={value["comparison_id"]: score["payload"]},
+    )
+    return p16_store.record_factor_report(
+        con, registration_sha256=value["registration_sha256"], payload=payload,
+        origin_artifact_sha256=origin, exposure_artifact_sha256=exposure,
+        score_artifact_sha256s=[score["artifact_sha256"]], recorded_at=NOW,
+    )
 
 
 def _record_scored(con, index: int, market_date: date, **updates):
     delta = updates.pop("delta_ic", 0.2)
     value = _origin(index, market_date, **updates)
-    _record_decision(con, index, market_date, **updates)
+    _record_decision(con, index, market_date, descending=delta < 0, **updates)
     factor = _factor_artifact(con, value, delta)
     return p16_store.record_origin_outcome(
         con, **value, status="scored", labels_available_at=NOW,
@@ -217,9 +253,32 @@ def test_sequential_prefix_is_exact_and_immutable(con):
         origin_endpoint=2, report_at=NOW,
     )
     assert [row["session_index"] for row in rows] == [0, 1, 2]
-    assert all(row["delta_ic"] == 0.2 for row in rows)
+    assert all(row["delta_ic"] == 2.0 for row in rows)
     with pytest.raises(ValueError, match="replayed differently"):
         _record_scored(con, 1, days[1], delta_ic=-0.4)
+
+
+def test_sequential_outcome_recomputes_the_stored_factor_report(con):
+    value = _origin(0, EPOCH)
+    _record_decision(con, 0, EPOCH)
+    valid = p16_store._artifact_by_id(con, _factor_artifact(con, value, 0.2))
+    payload = copy.deepcopy(valid["payload"])
+    payload["comparisons"][value["comparison_id"]]["full_sample_raw"]["delta_ic"] = 1.5
+    payload["factor_report_sha256"] = canonical_sha256({
+        key: item for key, item in payload.items() if key != "factor_report_sha256"
+    })
+    tampered = p16_store._record_artifact(
+        con, registration_sha256=value["registration_sha256"],
+        artifact_kind="factor_report", artifact_key="tampered-factor",
+        market_date=value["market_date"], information_cutoff_at=NOW,
+        recorded_at=NOW, source_sha256=valid["source_sha256"], payload=payload,
+    )
+
+    with pytest.raises(ValueError, match="recomputation differs"):
+        p16_store.record_origin_outcome(
+            con, **value, status="scored", labels_available_at=NOW,
+            factor_report_sha256=tampered, recorded_at=NOW,
+        )
 
 
 def test_sequential_event_retry_keeps_first_seen_time(con):
@@ -318,7 +377,7 @@ def test_registration_and_trial_identity_isolate_sequential_series(con):
         epoch_session=EPOCH,
         origin_endpoint=0, report_at=NOW,
     )
-    assert rows[0]["delta_ic"] == -0.1
+    assert rows[0]["delta_ic"] == -2.0
 
 
 def test_tampered_trial_registration_cannot_authorize_origin(con):
