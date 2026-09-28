@@ -63,8 +63,17 @@ def test_registration_is_inert_and_binds_all_w4_code_groups():
         notes_filter_spec_sha256="b" * 64,
         lesson_corpus_sha256="c" * 64,
         activation_at=datetime(2026, 9, 29, 4, tzinfo=timezone.utc),
+        price_archive_listing_date="2026-09-01",
     )
     assert registration["status"] == "registered_inactive"
+    assert registration["price_archive_listing_date"] == "2026-09-01"
+    with pytest.raises(ValueError, match="invalid_price_archive_listing_date"):
+        w4_registration(
+            hashes, plan_sha256="a" * 64, notes_filter_spec_sha256="b" * 64,
+            lesson_corpus_sha256="c" * 64,
+            activation_at=datetime(2026, 9, 29, 4, tzinfo=timezone.utc),
+            price_archive_listing_date="September",
+        )
     assert registration["real_data_producer_allowed"] is False
     assert registration["primary_endpoint"]["bootstrap_resamples"] == 10_000
     assert registration["mandatory_acceptance_contract"]["schema_version"] == 1
@@ -99,6 +108,8 @@ def test_report_contains_counts_not_raw_text(tmp_path):
     assert "Status: **exploratory**" in rendered
     assert "Candidate sessions: 12" in rendered
     assert "Unavailable chunks: 3" in rendered
+    assert "Price archive listed as of unknown: securities delisted before then may be " \
+        "missing (survivorship)" in rendered
     assert "article body" not in rendered
     target = tmp_path / "replay.md"
     assert write_replay_report(target, snapshot) == target

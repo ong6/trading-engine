@@ -349,3 +349,9 @@ def test_phase_override_is_test_only_and_default_runs_in_tree_executors(tmp_path
     ))
     assert run_session(store, session)["status"] == "completed"
     assert calls == ["execute_preopen", "produce_labels", "execute_score", "apply_score"]
+
+
+def test_phase_override_refused_outside_pytest(tmp_path, monkeypatch):
+    monkeypatch.delenv("PYTEST_CURRENT_TEST")
+    with pytest.raises(ValueError, match="test_only_execute_phase"):
+        ReplaySessionStore(**_store_kwargs(tmp_path, _test_execute_phase=lambda *_args: []))

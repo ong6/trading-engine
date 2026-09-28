@@ -157,6 +157,7 @@ def w4_registration(
     notes_filter_spec_sha256: str,
     lesson_corpus_sha256: str,
     activation_at: datetime,
+    price_archive_listing_date: str,
 ) -> dict:
     """Build the inert W4 registration body before any real-data producer run."""
     required = {"collectors", "probes", "replay", "textlab", "reports"}
@@ -168,6 +169,10 @@ def w4_registration(
     for value in (plan_sha256, notes_filter_spec_sha256, lesson_corpus_sha256):
         if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
             raise ValueError("w4_registration_digest_invalid")
+    try:
+        listing_date = date.fromisoformat(price_archive_listing_date).isoformat()
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid_price_archive_listing_date") from exc
     grids = {
         model: admitted_grid(cutoff, activation_at)
         for model, cutoff in MODEL_CUTOFFS.items()
@@ -187,6 +192,8 @@ def w4_registration(
             "postmortem_schema": "schemas/postmortem-v1.json",
         },
         "plan_sha256": plan_sha256,
+        # Ticker list capture date: names delisted earlier may be absent (survivorship).
+        "price_archive_listing_date": listing_date,
         "model_cutoffs": dict(MODEL_CUTOFFS),
         "replay_grids": grids,
         "development_lockbox_split": "floor(2*T/3)_exchange_sessions_v1",
