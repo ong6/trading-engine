@@ -9,8 +9,8 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 from engine import p16_fill_capture
-from server import p16_fill_store, p16_quote_capture
 from farm import p16_fill_calibration
+from server import p16_fill_store, p16_quote_capture
 
 _NEW_YORK = ZoneInfo("America/New_York")
 BarFetch = Callable[[str, date, datetime], dict]
@@ -41,11 +41,32 @@ def _receipt(payload: dict) -> str:
         _jsonable(payload), sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
 
 
+def _failed_bar_set(
+    session_date: date, source: str, source_version: str,
+) -> dict:
+    body = {
+        "source": source, "source_version": source_version,
+        "venue": None, "provider": None, "currency": "USD",
+        "adjustment": None, "resolution": "5m", "regular_session": True,
+        "status": "capture_failed",
+        "missing_starts": [value.isoformat()
+                           for value in p16_fill_capture.expected_bar_starts(session_date)],
+        "missing_reasons": ["bar_capture_failed"], "bars": [], "metrics": None,
+    }
+    return {**body, "bar_set_sha256": _receipt(body)}
+
+
+def _bar_quality(payload: dict) -> tuple[bool, bool, int]:
+    return (payload.get("status") == "complete", payload.get("metrics") is not None,
+            len(payload.get("bars") or []))
+
+
 def _capture_bars(
     con, session_date: date, security_id: str, source: str, source_version: str,
     fetch: BarFetch, attempts: list[datetime],
-) -> dict | None:
-    """Persist each attempt and return the first valid complete set only."""
+) -> dict:
+    """Persist every attempt and return the first complete or best incomplete set."""
+    best = _failed_bar_set(session_date, source, source_version)
     for attempted_at in attempts:
         try:
             captured = fetch(security_id, session_date, attempted_at)
@@ -56,8 +77,7 @@ def _capture_bars(
             receipt = captured.get("receipt_sha256") or _receipt(raw)
             reason = None if payload["status"] == "complete" else payload["status"]
         except (OSError, RuntimeError, ValueError, TypeError):
-            payload = {"source": source, "source_version": source_version,
-                       "status": "capture_failed", "capture_kind": "bars"}
+            payload = _failed_bar_set(session_date, source, source_version)
             receipt = hashlib.sha256(
                 f"{session_date}|{security_id}|{source}|{attempted_at.isoformat()}|failed"
                 .encode()).hexdigest()
@@ -68,7 +88,9 @@ def _capture_bars(
             payload=payload, reason=reason)
         if payload["status"] == "complete":
             return payload
-    return None
+        if _bar_quality(payload) > _bar_quality(best):
+            best = payload
+    return best
 
 
 def run_capture(
@@ -105,8 +127,7 @@ def run_capture(
             payload = _capture_bars(
                 con, session_date, security_id, source, source_version, fetch,
                 attempts or capture_attempts(session_date))
-            if payload is not None:
-                captured.setdefault(security_id, {})[source] = payload
+            captured.setdefault(security_id, {})[source] = payload
     for security_id, sources in captured.items():
         for source, bar_set in sources.items():
             secondary = next((item["metrics"]["first_open"]

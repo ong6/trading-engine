@@ -405,6 +405,13 @@ integrity; authority and safety).
   - Guard W5 `process_through` so it recovers only sessions whose construction deadline has passed.
   - Derive the W5 recovery cutoff from the price-fetch schedule, or skip recovery cleanly when that
     day's close has not been fetched, instead of silently missing stops.
+  - When W6 writes its 80 literal activation sessions, accept the `sessions` field in the loader
+    and restore the 80-session exchange-calendar contiguity check.
+  - Pass W6 bar-capture `attempts` per scheduled capture time (09:46, 10:00, and 12:00), rather
+    than as one undifferentiated schedule value.
+  - Compute W6's cross-source opening gap in one place.
+  - Exercise a parsed noon W6 response in the delayed-data rehearsal, not only a `BAR_COUNT`
+    marker.
   - Before W5 activation, freeze the cohort minimum and construction registration binding in the W9
     registration.
   - Before any W4 producer runs, require the owner's SEC contact and record the price archive's
@@ -593,7 +600,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W3 Filing reader | components complete, inert; `unconfigured` and activation blocked on baseline/conditional-fetch/scan-orchestrator review fixes | 2026-09-27 |
 | W4 Historical labs (text lab, replay lab) | complete and accepted for code; real-data producers remain inert until W9 records the price-archive listing date and the owner supplies the SEC contact. Accepted limits are registered for W9 reporting; the post-cutoff grid remains planned pending probe admission | 2026-09-28 |
 | W5 Portfolio construction v2 | complete; orchestrator accepted the inert construction path and its bounded recovery deviation; W9 owns the three pre-activation guards and the recovery-window exit follow-up | 2026-09-27 |
-| W6 Execution realism | round-2 checkpoint complete and inert, pending orchestrator acceptance: the fixture path now runs selection through written reports, all review blockers are covered, and `baseline_v1` is unchanged | 2026-09-28 |
+| W6 Execution realism | complete and accepted, inert: every selected name retains its best-attempt measurement and as-of liquidity tier even when bars fail, so valid quote targets and honest tier coverage survive; `baseline_v1` is unchanged | 2026-09-28 |
 | W7 Operator digest | complete: Sunday post-walk-forward composer produces the compact weekly gate/book/challenger/activity/health view with explicit unavailable states and the unversioned-catalogue-alias warning | 2026-09-28 |
 | W8 Stage 2 design | complete: accepted design filed with binding review notes; P17 is indexed as proposed and grants no broker, credential, account or capital authority | 2026-09-28 |
 | W9 Cleanup, docs, refine gate, activation | not started | |
