@@ -27,6 +27,7 @@ each plan's YAML `status` must match its row.
 | [P14](p14-tradingview-history-archive.md) | TradingView historical archive | done | Resumable current-liquid-universe daily bars with exact transcripts and research-only authority |
 | [P15](p15-profitability-evidence-loop.md) | Profitability evidence loop | approved | W0–W7 built; activation on hold until P16 W0 fixes review findings R1–R16 and issues the registration again |
 | [P16](p16-challenger-lab-and-text-edge.md) | Challenger lab, text edge, evaluation science | active | W0 remediation in its claimed session; lead building W1 while P15 activation remains held |
+| [P17](p17-personal-host-ibkr-paper-execution.md) | Personal-host IBKR paper execution and reconciliation | proposed | Stage 2 design only; requires a Stage 1 pass and owner approval before any implementation or account action |
 
 Recommended order: follow [`../product.md`](../product.md) ("Focus now"). P15 comes first, then P7
 activation; P8/P9 keep running untouched; P2 remains admitted; P3 waits for the owner's
