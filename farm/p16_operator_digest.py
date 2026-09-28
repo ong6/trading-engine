@@ -45,10 +45,7 @@ def _load_evaluation(path: Path) -> dict:
 
 def filing_activity(con, *, environ: dict[str, str] | None = None) -> dict:
     """Summarize W3 activity without initializing or changing its store."""
-    ready = p16_filing_runner.readiness(
-        environ=os.environ if environ is None else environ,
-        legacy_sec_enabled=False,
-    )
+    ready = p16_filing_runner.readiness(environ=os.environ if environ is None else environ)
     if not table_exists(con, "p16_filing_scans"):
         return {**ready, "scan_count": 0, "accession_count": 0,
                 "scored_count": 0, "unavailable_count": 0,

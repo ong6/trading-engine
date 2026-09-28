@@ -6,7 +6,7 @@ import json
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -16,11 +16,21 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.settings import DEFAULT_DB
 from engine.lib.util import table_exists
 from server import agent_model_client, p16_filing_client, p16_filing_store
+from sim import nyse
 
 POLICY_ID = p16_filing_client.POLICY_ID
 MAX_MODEL_CALLS = 2
 ET = ZoneInfo("America/New_York")
 MODEL_LOCK = DEFAULT_DB.parent / ".p16-filing-model.lock"
+DEFAULT_SEC_CALLER_INVENTORY = (
+    {"consumer": "p15-events", "path": "tools/sec_edgar_capture.py",
+     "transport": "direct", "activation": "scheduled"},
+    {"consumer": "p16-filings", "path": "engine/p16_filing_sources.py",
+     "transport": "host_dispatch", "activation": "inert"},
+    {"consumer": "p16-textlab", "path": "farm/replay/sources.py",
+     "transport": "direct", "activation": "inert"},
+)
+SEC_CALLER_INVENTORY = DEFAULT_SEC_CALLER_INVENTORY
 class FilingRunError(ValueError):
     """A W3 input, identity, or persisted state is unusable."""
 def _utc(value, *, database_value: bool = False) -> datetime:
@@ -36,12 +46,20 @@ def _utc(value, *, database_value: bool = False) -> datetime:
     if parsed.utcoffset() is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
-def readiness(*, environ=None, legacy_sec_enabled: bool) -> dict:
-    """Keep W3 inactive until contact and aggregate-dispatch ownership are safe."""
+def sec_caller_inventory() -> list[dict]:
+    """Return the explicit repository SEC-network inventory used by the gate."""
+    return [dict(item) for item in SEC_CALLER_INVENTORY]
+def readiness(*, environ=None) -> dict:
+    """Derive the inert W3 gate from contact and the active SEC caller inventory."""
     if p16_filing_sources.configured_user_agent(environ) is None:
         return {"status": "unconfigured", "sec_requests": 0, "model_calls": 0}
-    if legacy_sec_enabled:
-        return {"status": "shared_dispatch_required", "sec_requests": 0, "model_calls": 0}
+    conflicts = sorted(
+        item["consumer"] for item in SEC_CALLER_INVENTORY
+        if item["activation"] == "scheduled" and item["transport"] != "host_dispatch"
+    )
+    if conflicts:
+        return {"status": "shared_dispatch_required", "sec_requests": 0, "model_calls": 0,
+                "conflicting_callers": conflicts}
     return {"status": "ready", "sec_requests": 0, "model_calls": 0}
 def _p15_snapshot(con, cutoff: datetime) -> dict | None:
     if not table_exists(con, "p15_scoring_runs"):
@@ -109,14 +127,14 @@ def frozen_scope(
     if not isinstance(aliases, dict) or any(not isinstance(key, str) or not isinstance(value, str)
                                             for key, value in aliases.items()):
         raise FilingRunError("cutoff-bounded filing security master is unavailable")
-    canonical_tickers = {aliases.get(ticker, ticker) for values in
-                         map_snapshot["cik_tickers"].values() for ticker in values}
+    canonical_tickers = {aliases.get(ticker, ticker) for ticker in tickers}
     try:
         liquidity = p16_screen_inputs.security_liquidity_as_known(
             con, canonical_tickers, market_date=market_date, information_cutoff_at=cutoff)
     except ValueError as exc:
         raise FilingRunError(str(exc)) from exc
-    if not set(aliases.values()) <= set(liquidity):
+    required_aliases = {aliases[ticker] for ticker in tickers if ticker in aliases}
+    if not required_aliases <= set(liquidity):
         raise FilingRunError("cutoff-bounded filing security master is unavailable")
     security_rows = [{"cik": cik, "ticker": ticker, "security_id": aliases.get(ticker, ticker),
                       "snapshot_id": map_sha256, "available_at": map_snapshot["received_at"]}
@@ -287,15 +305,28 @@ def _recover_started(con, *, now: datetime, session_date: date) -> list[str]:
                 )
             unavailable.append(work_id)
     return unavailable
+def _claim_score_sweep(con, *, now: datetime, batch_size: int) -> dict:
+    """Claim the oldest due score rows across sessions without bypassing per-session caps."""
+    pending = p16_filing_store.pending_work(con, work_kind="score", now=now)
+    sessions = list(dict.fromkeys(row["session_date"] for row in pending))
+    claimed, unavailable = [], []
+    for queued_session in sessions:
+        if len(claimed) >= batch_size:
+            break
+        capacity = p16_filing_store.claim_score_capacity(
+            con, session_date=queued_session, now=now,
+            batch_size=batch_size - len(claimed), in_transaction=True,
+        )
+        claimed.extend(capacity["claimed"])
+        unavailable.extend(capacity["capacity_unavailable"])
+    return {"claimed": claimed, "capacity_unavailable": unavailable}
 def _score_pending_locked(database, *, now, session_date, generate, clock) -> dict:
     con = db.connect(database)
     prepared = []
     try:
         unavailable = _recover_started(con, now=now, session_date=session_date)
         with db.transaction(con):
-            capacity = p16_filing_store.claim_score_capacity(
-                con, session_date=session_date, now=now, batch_size=MAX_MODEL_CALLS,
-                in_transaction=True)
+            capacity = _claim_score_sweep(con, now=now, batch_size=MAX_MODEL_CALLS)
             unavailable.extend(capacity["capacity_unavailable"])
             for work_id in capacity["claimed"]:
                 work = _work(con, work_id)
@@ -377,11 +408,11 @@ def _score_pending_locked(database, *, now, session_date, generate, clock) -> di
             "retried": len(retried), "unavailable": len(unavailable), "model_calls": len(prepared)}
 def score_pending(
     database: Path = DEFAULT_DB, *, observed_at: datetime | None = None,
-    session_date: date | None = None, environ=None, legacy_sec_enabled: bool = True,
+    session_date: date | None = None, environ=None,
     generate=p16_filing_client.generate_json, clock=lambda: datetime.now(timezone.utc),
 ) -> dict:
     """Serialize W3 calls globally, release DuckDB during inference, and append outcomes."""
-    ready = readiness(environ=environ, legacy_sec_enabled=legacy_sec_enabled)
+    ready = readiness(environ=environ)
     if ready["status"] != "ready":
         return ready
     now = _utc(observed_at or clock())
@@ -390,3 +421,96 @@ def score_pending(
     with resources.advisory_file_lock(MODEL_LOCK):
         return _score_pending_locked(
             database, now=now, session_date=exchange_date, generate=generate, clock=clock)
+
+
+def scan_submissions(
+    database: Path = DEFAULT_DB, *, market_date: date, activation_at: datetime,
+    map_sha256: str, observed_at: datetime | None = None, aliases: dict[str, str] | None = None,
+    environ=None, fetch=p16_filing_sources._http_fetch,
+    clock=lambda: datetime.now(timezone.utc), sleep=None, scan_lock_path: Path | None = None,
+    dispatch_lock_path: Path | None = None,
+) -> dict:
+    """Run one inert, bounded submissions scan with no DB connection held during I/O."""
+    ready = readiness(environ=environ)
+    if ready["status"] != "ready":
+        return ready
+    started = _utc(observed_at or clock())
+    database = Path(database)
+    scan_lock = (database.with_suffix(".p16-filing-scan.lock")
+                 if scan_lock_path is None else scan_lock_path)
+    dispatch_lock = (p16_filing_sources.DISPATCH_LOCK
+                     if dispatch_lock_path is None else dispatch_lock_path)
+    with p16_filing_sources.scan_lease(scan_lock):
+        con = db.connect(database)
+        try:
+            p16_filing_store.init_schema(con)
+            scope = frozen_scope(
+                con, market_date=market_date, scan_started_at=started,
+                map_sha256=map_sha256, aliases=aliases,
+            )
+            if scope["status"] != "ready":
+                return {**ready, "status": scope["status"], "scan_count": 0}
+            scan_id = p16_filing_store.start_scan(
+                con, policy_id=POLICY_ID, session_date=market_date,
+                activation_at=activation_at, started_at=started,
+                universe=scope["universe"], map_sha256=map_sha256,
+            )
+            ciks = sorted(scope["universe"])
+        finally:
+            con.close()
+
+        next_scan = datetime.combine(nyse.next_session(market_date), time(7), ET).astimezone(
+            timezone.utc
+        )
+
+        def load_state():
+            connection = db.connect(database, read_only=True)
+            try:
+                return p16_filing_store.dispatch_state(
+                    connection, scan_id=scan_id, next_session_at=next_scan,
+                )
+            finally:
+                connection.close()
+
+        def append_event(event):
+            connection = db.connect(database)
+            try:
+                p16_filing_store.append_dispatch_event(connection, event)
+            finally:
+                connection.close()
+
+        queued = requests = 0
+        failures: list[dict] = []
+        for cik in ciks:
+            request = p16_filing_sources.SecRequest(
+                canonical_sha256({"scan_id": scan_id, "cik": cik, "attempt": 1}),
+                scan_id, "p16-filings", "submissions",
+                p16_filing_sources.submissions_url(cik), 1, started, started,
+            )
+            try:
+                response = p16_filing_sources.dispatch(
+                    request, load_state=load_state, append_event=append_event,
+                    fetch=fetch, clock=clock,
+                    **({} if sleep is None else {"sleep": sleep}),
+                    lock_path=dispatch_lock, environ=environ,
+                )
+                requests += 1
+                connection = db.connect(database)
+                try:
+                    result = p16_filing_store.commit_cik_success(
+                        connection, scan_id=scan_id, cik=cik, response=response,
+                        request_payload={"request_id": request.request_id,
+                                         "scan_id": scan_id, "cik": cik},
+                        ingested_at=_utc(clock()),
+                    )
+                    queued += result["queued"]
+                finally:
+                    connection.close()
+            except p16_filing_sources.SecUnavailable as exc:
+                failures.append({"cik": cik, "reason": exc.reason})
+                if exc.reason in {"dispatcher_blocked", "dispatcher_paused", "scan_request_cap",
+                                  "scan_wall_cap"}:
+                    break
+        return {"status": "completed" if not failures else "partial", "scan_id": scan_id,
+                "cik_count": len(ciks), "sec_requests": requests, "queued": queued,
+                "failures": failures, "model_calls": 0}
