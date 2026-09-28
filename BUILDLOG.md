@@ -1337,4 +1337,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +101, tools unchanged, product +6 (farm +6); budget ok.
 - **Next:** populate the canonical register from the historical P5–P16 census.
 
+## 2026-09-28 — P16 W9a: close W5 recovery guards
+
+- **Why:** approved P16 W9 requires three pre-activation corrections to ordered construction-book
+  recovery.
+- **What:** wait until a missed window's NYSE-open construction deadline; use the first completed
+  P15 EOD fetch batch as the recovery cutoff and wait when a held close missed it. Queue any stop
+  or time exit directly in the modeled recovery window instead of deferring it again.
+- **Evidence:** `.venv/bin/pytest -q tests/test_p16_runner.py tests/test_p16_books.py` passes 39
+  tests, including one behavioral test for each required guard.
+- **Metrics:** server/tools unchanged; product +27 (sim); budget ok.
+- **Next:** close the inert W3 activation blockers.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -10,6 +10,7 @@ from engine.lib import db
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
+from engine.p16_order_planner import plan_mandatory_exit_orders
 from server import p16_book_store
 from sim import fills, nyse, p15_fills, p16_book_mechanics
 
@@ -424,30 +425,46 @@ def process_window(
 
 def _queue_recovery_window(
     con, *, book_instance_id: str, signal_date: date, observed_at: datetime,
-) -> date:
+) -> date | None:
     """Claim a mandatory-only modeled session after an earlier window delayed the book."""
     market_date = nyse.next_session(signal_date)
-    modeled_cutoff = datetime.combine(signal_date, time(23, 59), tzinfo=timezone.utc)
+    if not table_exists(con, "p15_price_fetch_batches"):
+        return None
+    cutoff_row = con.execute(
+        "SELECT MIN(attempted_at) FROM p15_price_fetch_batches "
+        "WHERE market_date=? AND source='yfinance' AND failed_count=0 "
+        "AND requested_count=present_count+missing_count",
+        [signal_date],
+    ).fetchone()
+    modeled_cutoff = None if cutoff_row is None else cutoff_row[0]
+    observed = p16_book_store._timestamp(observed_at, "recovery observation time")
+    if modeled_cutoff is None or modeled_cutoff > observed:
+        return None
     current = p16_book_mechanics.current_position_state(con, book_instance_id)
     held = {
         ticker for ticker, position in current["positions"].items()
         if ticker != "SPY" and float(position["qty"]) > 0
     }
+    if held:
+        placeholders = ",".join("?" for _ticker in held)
+        available = con.execute(
+            f"SELECT COUNT(DISTINCT ticker) FROM prices WHERE ticker IN ({placeholders}) "
+            f"AND date=? AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL}",
+            [*sorted(held), signal_date, modeled_cutoff],
+        ).fetchone()[0]
+        if available != len(held):
+            return None
+    cutoff = modeled_cutoff.replace(tzinfo=timezone.utc)
     exits = mandatory_exits(
         con, book_instance_id=book_instance_id, market_date=signal_date,
-        information_cutoff_at=modeled_cutoff, held_tickers=held,
+        information_cutoff_at=cutoff, held_tickers=held,
     )
-    deferred = {}
-    for ticker, reason in exits.items():
-        entry_ids = [row[0] for row in con.execute(
-            "SELECT entry_intent_id FROM p16_position_rules WHERE book_instance_id=? "
-            "AND ticker=? AND status='open' ORDER BY entry_date,entry_intent_id",
-            [book_instance_id, ticker],
-        ).fetchall()]
-        if not entry_ids:
-            raise p16_book_store.P16BookError("P16 recovery exit rule is absent")
-        deferred[ticker] = {"reason": reason, "entry_intent_ids": entry_ids}
-    plan = {"status": "planned", "orders": [], "deferred_mandatory_exits": deferred}
+    quantities = {
+        ticker: float(position["qty"])
+        for ticker, position in current["positions"].items()
+        if float(position["qty"]) > 0
+    }
+    plan = plan_mandatory_exit_orders(quantities, exits)
     previous = con.execute(
         "SELECT state_sha256 FROM p16_book_state WHERE book_instance_id=? "
         "AND market_date=?", [book_instance_id, signal_date],
@@ -476,9 +493,14 @@ def _queue_recovery_window(
         )
         p16_book_store.claim_recovery_window(
             con, book_instance_id=book_instance_id, signal_date=signal_date,
-            information_cutoff_at=modeled_cutoff, risk_sha256=recovery_sha,
+            information_cutoff_at=cutoff, risk_sha256=recovery_sha,
             score_sha256=recovery_sha, previous_state_sha256=previous[0],
             target_sha256=target_sha, recovered_at=observed_at,
+        )
+        queue_plan(
+            con, book_instance_id=book_instance_id, signal_date=signal_date,
+            plan=plan, limit_prices={}, source_sha256=target_sha,
+            created_at=cutoff, transactional=False,
         )
     return market_date
 
@@ -495,6 +517,7 @@ def process_through(
         raise p16_book_store.P16BookError("P16 book window moved backward")
     results = []
     processed_sessions = []
+    observed = p16_book_store._timestamp(observed_at, "recovery observation time")
     while True:
         latest = con.execute(
             "SELECT MAX(market_date) FROM p16_book_state WHERE book_instance_id=?",
@@ -506,10 +529,14 @@ def process_through(
         ).fetchone()[0]
         if (latest is not None and latest < market_date
                 and (running is None or running > nyse.next_session(latest))):
+            if observed < _session_open_utc(nyse.next_session(latest)):
+                break
             running = _queue_recovery_window(
                 con, book_instance_id=book_instance_id, signal_date=latest,
                 observed_at=observed_at,
             )
+            if running is None:
+                break
         elif running is None:
             break
         result = process_window(
