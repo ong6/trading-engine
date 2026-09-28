@@ -37,8 +37,9 @@ deterministic research queue, and dates inside it label historical measurements.
   [P12 agent research product](plans/p12-agent-research-product.md),
   [P13 market-data source hardening](plans/p13-market-data-source-hardening.md),
   [P14 TradingView historical archive](plans/p14-tradingview-history-archive.md),
-  [P15 profitability evidence loop](plans/p15-profitability-evidence-loop.md), and
-  [P16 challenger lab and text edge](plans/p16-challenger-lab-and-text-edge.md).
+  [P15 profitability evidence loop](plans/p15-profitability-evidence-loop.md),
+  [P16 challenger lab and text edge](plans/p16-challenger-lab-and-text-edge.md), and
+  [P17 personal-host IBKR paper execution](plans/p17-personal-host-ibkr-paper-execution.md).
 
 ## Current operating documents
 
@@ -64,6 +65,8 @@ deterministic research queue, and dates inside it label historical measurements.
 - [`design/paper-authority-state-machine.md`](design/paper-authority-state-machine.md) —
   capital-disabled design for future short-lived paper authority, atomic consumption,
   revocation, and fail-closed recovery; no writer or runtime authority exists.
+- [`design/stage2-broker-paper.md`](design/stage2-broker-paper.md) — proposed personal-host IBKR
+  paper-execution design; it authorizes no account action, broker connection, credential, or capital.
 
 ## Current strategy and evidence status
 
