@@ -101,5 +101,6 @@ def test_pyproject_declares_only_active_package_trees():
     assert (REPO_ROOT / "farm" / "experiments" / "__init__.py").is_file()
     assert project["project"]["optional-dependencies"]["dev"] == [
         "pytest>=8",
+        "pytest-xdist>=3.6",
         "ruff>=0.12",
     ]
