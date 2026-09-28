@@ -277,6 +277,16 @@ def test_walkforward_enqueue_failure_breadcrumb(fake_repo):
     assert argv == ["-m farm.walkforward.grid --enqueue"]
 
 
+def test_walkforward_digest_failure_is_nonfatal_and_still_syncs(fake_repo):
+    rc, out, argv = run_driver(
+        fake_repo, "run_weekly_walkforward.sh", fail_match="farm.p16_operator_digest"
+    )
+    assert rc == 0
+    assert "operator_digest failed (non-fatal)" in out
+    assert "-m farm.p16_operator_digest" in argv
+    assert argv[-1] == "-m engine.sync"
+
+
 def test_verify_is_fail_soft(fake_repo):
     rc, out, _ = run_driver(fake_repo, "run_weekly_verify.sh", fail_match="verify_prices")
     assert rc == 0 and "WARN: verification exited non-zero" in out
