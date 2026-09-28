@@ -19,6 +19,9 @@ jobs:
       TZ: ${{ matrix.tz }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # registration tests read git history for the last registered change
+      - run: ln -sfn "$GITHUB_WORKSPACE" "$HOME/trading-engine"  # service units use %h/trading-engine
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
