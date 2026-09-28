@@ -10,12 +10,14 @@ from engine.lib.provenance import canonical_sha256
 from farm.replay.asof import reconstruct_unadjusted_bars
 from farm.replay.executor import (
     apply_score,
+    censored_label_counts,
     execute_preopen,
     execute_score,
     init_executor_schema,
     produce_labels,
 )
-from farm.replay.notes import init_notes_schema
+from farm.replay.notes import init_notes_schema, visible_mature_labels
+from farm.replay.registration import SPLIT_KNOWLEDGE_PRIMARY, SPLIT_KNOWLEDGE_SENSITIVITY
 from farm.replay.runner import session_phases
 from server import agent_model_client
 
@@ -138,13 +140,11 @@ def test_preopen_provider_result_after_registered_window_keeps_intent():
     assert result["decisions"][0]["decision"] == "keep"
 
 
-def test_label_producer_uses_split_normalized_asset_and_spy_returns():
+def _label_fixture(*, split_session, policy, drop_asset_exit=False):
     con = duckdb.connect(":memory:")
     init_executor_schema(con)
     init_notes_schema(con)
-    signal, entry, split_session, exit_session = (
-        date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 8), date(2024, 1, 9)
-    )
+    signal, entry, exit_session = date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 9)
     con.execute(
         "INSERT INTO replay_decisions VALUES (?,?,?,?,?,?,?)",
         ("decision", 1, signal, "AAA", "aaa", 25.0, "{}"),
@@ -159,6 +159,8 @@ def test_label_producer_uses_split_normalized_asset_and_spy_returns():
         ("AAA", "aaa", 50.0, 50.0), ("SPY", "spy", 100.0, 100.0)
     ):
         for session, price in ((entry, entry_price), (exit_session, exit_price)):
+            if drop_asset_exit and ticker == "AAA" and session == exit_session:
+                continue
             source.append({
                 "security_id": security_id, "ticker": ticker, "session": session,
                 "series": "source_back_adjusted_v1",
@@ -169,10 +171,39 @@ def test_label_producer_uses_split_normalized_asset_and_spy_returns():
     assert produce_labels(
         con, session=exit_session,
         visible_at=session_phases(exit_session)["close_visible"],
-        reconstructed_bars=bars, actions=[action],
+        reconstructed_bars=bars, actions=[action], knowledge_policy=policy,
     ) == 1
-    horizon, status, excess = con.execute(
+    return con, con.execute(
         "SELECT horizon,status,realized_excess_bp FROM replay_labels"
     ).fetchone()
-    assert (horizon, status) == ("h5", "terminal")
-    assert excess == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("policy", [SPLIT_KNOWLEDGE_PRIMARY, SPLIT_KNOWLEDGE_SENSITIVITY])
+def test_label_producer_uses_split_normalized_asset_and_spy_returns(policy):
+    _con, row = _label_fixture(split_session=date(2024, 1, 8), policy=policy)
+    assert row[:2] == ("h5", "terminal")
+    assert row[2] == pytest.approx(0.0)
+
+
+def test_label_split_on_exit_session_follows_store_knowledge_policy():
+    split_session = date(2024, 1, 9)
+    _con, primary = _label_fixture(split_session=split_session, policy=SPLIT_KNOWLEDGE_PRIMARY)
+    assert primary[:2] == ("h5", "terminal")
+    assert primary[2] == pytest.approx(0.0)
+    con, sensitivity = _label_fixture(
+        split_session=split_session, policy=SPLIT_KNOWLEDGE_SENSITIVITY
+    )
+    assert sensitivity == ("h5", "censored:late_split_knowledge", None)
+    assert censored_label_counts(con) == {"late_split_knowledge": 1}
+
+
+def test_label_with_missing_bar_is_censored_and_hidden_from_notes():
+    con, row = _label_fixture(
+        split_session=date(2024, 1, 8), policy=SPLIT_KNOWLEDGE_PRIMARY, drop_asset_exit=True,
+    )
+    assert row == ("h5", "censored:missing_asset_bar", None)
+    assert censored_label_counts(con) == {"missing_asset_bar": 1}
+    assert visible_mature_labels(
+        con, session=date(2024, 1, 11),
+        cutoff=datetime(2024, 1, 11, 23, tzinfo=timezone.utc),
+    ) == []

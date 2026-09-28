@@ -13,6 +13,7 @@ import pytest
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from farm.replay.asof import raw_price_spot_check, reconstruct_unadjusted_bars
+from farm.replay.entities import news_rows_by_ticker
 from farm.replay.lockbox import (
     ConfirmatoryArm,
     LockboxLedger,
@@ -43,11 +44,17 @@ SESSIONS = tuple(
     )
 )
 NOW = datetime(2026, 9, 27, 22, tzinfo=UTC)
+NAME_TABLE = (
+    {"security_id": "halt", "ticker": "HALT", "name": "Haltco Industries Inc"},
+    {"security_id": "split-security", "ticker": "SPLT", "name": "Splitco Corp"},
+    {"security_id": "aaa", "ticker": "AAA", "name": "Triple Alpha Holdings"},
+)
 
 
 def _gdelt_zip() -> bytes:
     fields = [""] * 61
     fields[0], fields[1], fields[26] = "gdelt-halt", "20241118", "010"
+    fields[6] = "HALTCO INDUSTRIES"
     fields[59], fields[60] = "20241118140000", "https://example.test/halt"
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -76,8 +83,8 @@ def _warc_member(record_id: str, captured_at: str, headline: str) -> bytes:
 def _collect(root, live):
     gdelt = _gdelt_zip()
     warc = (
-        _warc_member("early", "2024-11-18T15:00:00Z", "Split story available")
-        + _warc_member("late", "2024-11-19T03:00:00Z", "Future story hidden")
+        _warc_member("early", "2024-11-18T15:00:00Z", "Splitco Corp split story available")
+        + _warc_member("late", "2024-11-19T03:00:00Z", "Splitco Corp future story hidden")
     )
     event_url = gdelt_shard_urls("20241118140000")[0]
     cc_url = "https://data.commoncrawl.org/crawl-data/CC-NEWS/fixture.warc.gz"
@@ -95,21 +102,19 @@ def _collect(root, live):
             "status": 200, "headers": {}, "body": payloads[url]
         },
         user_agent="W4 fixture contact", now=lambda: NOW, pause=lambda _seconds: None,
+        name_table=NAME_TABLE,
     )
     assert result["status"] == "completed" and len(result["records"]) == 3
+    # Tickers come from the entity mapper, not the fixture.
     return [
-        {
-            **row,
-            "ticker": "HALT" if row["source"] == "gdelt_events" else "SPLT",
-            "language": "en",
-        }
-        for row in result["records"]
+        {**row, "language": "en"}
+        for row in news_rows_by_ticker(result["records"], NAME_TABLE)
     ]
 
 
 def _history_sessions() -> list[date]:
     result = []
-    current = date(2024, 1, 2)
+    current = date(2023, 1, 3)
     while current <= SESSIONS[-1]:
         if nyse.is_session(current):
             result.append(current)
@@ -128,13 +133,19 @@ def _prices_and_split():
     source = []
     for ticker, security_id, base in (
         ("SPY", "spy", 80.0), ("AAA", "aaa", 40.0),
-        ("HALT", "halt", 20.0), ("SPLT", "split-security", 50.0),
+        ("HALT", "halt", 20.0), ("SPLT", "split-security", 10.0),
+        ("LATE", "late", 2.0), ("GONE", "gone", 2.0),
     ):
         for index, session in enumerate(sessions):
             if ticker == "HALT" and session == SESSIONS[1]:
                 continue
+            # Sub-$3 names never trade; they prove point-in-time membership only.
+            if (ticker == "LATE" and session < SESSIONS[4]) or (
+                ticker == "GONE" and session > SESSIONS[1]
+            ):
+                continue
             price = (
-                50.0 if ticker == "SPLT"
+                base if ticker in {"LATE", "GONE"}
                 else base + min(index, checkpoint_index) * 0.1
             )
             source.append({
@@ -223,31 +234,9 @@ def _initialize_store(path, root, live):
         bootstrap_books(con, checkpoint=CHECKPOINT, initialized_at=NOW)
         db.init_mining_schema(con)
         con.executemany(
-            "INSERT INTO universe "
-            "(ticker,yf_ticker,name,exchange,etf,member,added,active,liquid,backfill_done) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
-            [
-                (ticker, ticker, ticker, "NYSE", ticker == "SPY", "fixture", date(2024, 1, 2),
-                 True, True, True)
-                for ticker in ("SPY", "AAA", "HALT", "SPLT")
-            ],
-        )
-        con.executemany(
             "INSERT INTO earnings_fetch_log VALUES (?,?,'empty',0,'fixture',?)",
             [(ticker, CHECKPOINT, datetime(2024, 11, 15, 21))
              for ticker in ("AAA", "HALT", "SPLT")],
-        )
-        con.executemany(
-            "INSERT INTO screen_results "
-            "(run_date,ticker,close,rs_rank,template_score,passes_template,dist_50d,"
-            "dist_200d,off_52w_low,off_52w_high,base_tight,vol_dryup,new_today) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            [
-                (CHECKPOINT, ticker, close, rank, 5, True, 0.1, 0.2, 0.5, -0.1,
-                 True, False, True)
-                for ticker, close, rank in (("HALT", 41.9, 99), ("SPLT", 100.0, 98),
-                                            ("AAA", 61.9, 90))
-            ],
         )
         init_notes_schema(con)
         con.execute(
@@ -310,7 +299,7 @@ def _run_fixture(root):
         postmortem_generate=postmortem, notes_filter_spec=freeze_filter_spec(
             tickers=("AAA", "HALT", "SPLT"), company_names=(), aliases=()
         ),
-        lockbox=lockbox,
+        lockbox=lockbox, securities={"SPY": {"etf": True}},
     )
     runs = [run_session(store, session) for session in SESSIONS]
 
@@ -349,6 +338,14 @@ def _run_fixture(root):
                 "WHERE o.ticker='HALT' ORDER BY attempt_date"
             ).fetchall(),
             "positions": positions,
+            "screens": con.execute(
+                "SELECT run_date,COUNT(*),MAX(rs_rank) FROM screen_results "
+                "GROUP BY run_date ORDER BY run_date"
+            ).fetchall(),
+            "members": con.execute(
+                "SELECT snapshot_date,ticker,active FROM universe_snapshot "
+                "WHERE ticker IN ('LATE','GONE') ORDER BY snapshot_date,ticker"
+            ).fetchall(),
             "pre_split_equity": pre_split, "at_split_equity": at_split,
         }
     with db.connect(root / "catalog.duckdb", read_only=True, wait_s=0) as con:
@@ -378,6 +375,8 @@ def _run_fixture(root):
         "notes": [[str(value) for value in row] for row in snapshot["notes"]],
         "halt_attempts": snapshot["halt_attempts"],
         "positions": snapshot["positions"],
+        "screens": [[str(value) for value in row] for row in snapshot["screens"]],
+        "members": [[str(value) for value in row] for row in snapshot["members"]],
         "postmortem_batches": len(postmortem_inputs), "report": report,
         "first_context_ids": [row["source_id"] for row in first_context["candidates"][0][
             "headlines"
@@ -399,6 +398,16 @@ def test_fixture_http_to_real_parsers_executor_notes_and_report_is_deterministic
     assert [row for row in first["clock"] if row[:2] == ["2024-11-29", "CLOSE"]][0][2] \
         == "2024-11-29T18:15:00Z"
     assert first["archive_records"] == 3
+    # The builder, not the fixture, screens each session from as-of prices.
+    assert [row[0] for row in snapshot["screens"]] == list(SESSIONS)
+    assert all(count >= 3 for _day, count, _rank in snapshot["screens"])
+    assert {row["ticker"] for row in first_context["candidates"]} >= {"HALT", "SPLT"}
+    assert all(row["rs_rank"] is not None for row in first_context["candidates"])
+    members = {(day, ticker): active for day, ticker, active in snapshot["members"]}
+    assert ("LATE" not in {ticker for day, ticker in members if day < SESSIONS[4]})
+    assert members[(SESSIONS[4], "LATE")] is True
+    assert members[(SESSIONS[0], "GONE")] is True
+    assert members[(SESSIONS[-1], "GONE")] is False
     visible_ids = {
         row["source_id"]
         for candidate in first_context["candidates"] for row in candidate["headlines"]

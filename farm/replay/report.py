@@ -60,7 +60,16 @@ def render_replay_report(
         f"- Book status: {snapshot.get('book_status', 'unavailable')}",
         f"- Raw-price spot check: {snapshot.get('raw_price_status', 'unavailable')}",
         f"- Lockbox tag: {lockbox_tag}",
+        "",
+        "## Censored labels",
+        "",
     ]
+    censored = snapshot.get("censored_labels", {})
+    lines.extend(
+        f"- {reason}: {int(count)}" for reason, count in sorted(censored.items())
+    )
+    if not censored:
+        lines.append("- None")
     return "\n".join(lines) + "\n"
 
 
