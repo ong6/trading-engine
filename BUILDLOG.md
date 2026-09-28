@@ -1238,4 +1238,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +0; tools +0; product +1,391 (all farm); budget ok.
 - **Next:** orchestrator acceptance of checkpoint W4; no W4 producer may run before acceptance.
 
+## 2026-09-28 — P16 W4: record orchestrator acceptance
+
+- **Why:** the orchestrator accepted W4 for code and assigned its remaining activation and report
+  conditions to W9.
+- **What:** mark W4 complete and inert. W9 must gate producers on the owner's SEC contact and the
+  registered price-archive listing date, and report survivor bias, conservative entity mapping,
+  and CC-NEWS sidebar mis-mapping risk. A `sources.py` split remains optional cleanup.
+- **Evidence:** `TZ=UTC .venv/bin/python -m pytest -q` reached `[100%]` with no failures in the
+  accepted W4 checkpoint.
+- **Metrics:** unchanged.
+- **Next:** build W6 execution-realism measurement and its non-activating calibration report.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

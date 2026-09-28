@@ -404,6 +404,11 @@ integrity; authority and safety).
     day's close has not been fetched, instead of silently missing stops.
   - Before W5 activation, freeze the cohort minimum and construction registration binding in the W9
     registration.
+  - Before any W4 producer runs, require the owner's SEC contact and record the price archive's
+    listing date in the registration. The W4 reports must state the accepted survivorship,
+    conservative entity-mapping, and CC-NEWS sidebar limits.
+  - Treat splitting `farm/replay/sources.py` as cleanup only; its current size is not an activation
+    blocker.
   - Fix the seven pre-existing non-UTC tests at `tests/test_p15_evaluation.py` lines
     489/545/637/665/744/767/794 when the fix is outside P15's registration closure; otherwise
     document why they remain. Every checkpoint also runs the full suite under `TZ=Asia/Singapore`.
@@ -583,7 +588,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W1 Evaluation science v2 | complete; accepted core, durable evidence, family report, and existing-status-surface projection are verified; nonessential adapter/census refinements are deferred at checkpoint | 2026-09-27 |
 | W2 Challenger lab | staged; implementation and inert timer complete, while the first P15 origin gates the timer-backed rehearsal, literal epoch, final family registration, and independent activation | |
 | W3 Filing reader | components complete, inert; `unconfigured` and activation blocked on baseline/conditional-fetch/scan-orchestrator review fixes | 2026-09-27 |
-| W4 Historical labs (text lab, replay lab) | round-3 implementation checkpoint complete, awaiting orchestrator acceptance: phase-clock price materialization, in-tree executors and labels, ledger-derived lockbox/report state, real-format streaming collectors, and the deterministic 10-session split/early-close/halt fixture are tested and inert. The post-cutoff grid remains planned pending probe admission; no producer has run | 2026-09-27 |
+| W4 Historical labs (text lab, replay lab) | complete and accepted for code; real-data producers remain inert until W9 records the price-archive listing date and the owner supplies the SEC contact. Accepted limits are registered for W9 reporting; the post-cutoff grid remains planned pending probe admission | 2026-09-28 |
 | W5 Portfolio construction v2 | complete; orchestrator accepted the inert construction path and its bounded recovery deviation; W9 owns the three pre-activation guards and the recovery-window exit follow-up | 2026-09-27 |
 | W6 Execution realism | not started | |
 | W7 Operator digest | not started | |
