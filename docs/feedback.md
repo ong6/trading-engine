@@ -472,3 +472,19 @@ in loops.
    limits, and public presentation.
 
 **Ceiling changes.** None.
+
+## 2026-09-28 — Public infrastructure, private alpha
+
+**Verdict.** The owner decided this repo is the public infrastructure that anyone can run to find
+their own edge. There is no proven alpha yet, so P15 and the P16 work built so far stay here as a
+demo. From now on, strategy-specific work goes to a private repo.
+
+**Rule changes.**
+
+1. New strategies, prompts, parameter sets, registrations, trial-census updates, research
+   findings and results reports go to the owner's private alpha repo, never here.
+   → `AGENTS.md` "Public engine, private alpha".
+2. Reusable infrastructure a strategy needs still lands here, kept generic. When in doubt, treat
+   a change as alpha.
+
+**Ceiling changes.** None.
