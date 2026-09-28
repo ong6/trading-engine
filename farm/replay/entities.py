@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from typing import Mapping, Sequence
 
 _TOKEN = re.compile(r"[^\W_]+")
@@ -18,10 +19,14 @@ _EXCHANGE = re.compile(
 _MIN_NAME_CHARS = 3
 
 
+# (security_id, valid_from inclusive, valid_to exclusive); a missing bound is open.
+Entry = tuple[str, date | None, date | None]
+
+
 @dataclass(frozen=True)
 class NameIndex:
-    names: Mapping[str, frozenset[str]]
-    tickers: Mapping[str, frozenset[str]]
+    names: Mapping[str, tuple[Entry, ...]]
+    tickers: Mapping[str, tuple[Entry, ...]]
     max_tokens: int
 
 
@@ -39,45 +44,65 @@ def normalize_name(text: object) -> str:
     return " ".join(tokens)
 
 
+def _day(value: object) -> date | None:
+    """UTC calendar date of a date, datetime or ISO string; None when absent."""
+    if value is None or value == "":
+        return None
+    if not isinstance(value, (date, datetime)):
+        value = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if isinstance(value, datetime):
+        return (value if value.tzinfo is None else value.astimezone(timezone.utc)).date()
+    return value
+
+
 def build_name_index(rows: Sequence[Mapping] | NameIndex) -> NameIndex:
     if isinstance(rows, NameIndex):
         return rows
-    names: dict[str, set[str]] = {}
-    tickers: dict[str, set[str]] = {}
+    names: dict[str, set[Entry]] = {}
+    tickers: dict[str, set[Entry]] = {}
     for row in rows:
-        security_id = str(row["security_id"])
+        entry = (str(row["security_id"]), _day(row.get("valid_from")), _day(row.get("valid_to")))
         for alias in (row.get("name"), *(row.get("aliases") or ())):
             key = normalize_name(alias)
             if len(key) >= _MIN_NAME_CHARS:
-                names.setdefault(key, set()).add(security_id)
+                names.setdefault(key, set()).add(entry)
         ticker = str(row.get("ticker") or "").strip().upper()
         if ticker:
-            tickers.setdefault(ticker, set()).add(security_id)
+            tickers.setdefault(ticker, set()).add(entry)
     return NameIndex(
-        names={key: frozenset(ids) for key, ids in names.items()},
-        tickers={key: frozenset(ids) for key, ids in tickers.items()},
+        names={key: tuple(sorted(entries, key=str)) for key, entries in names.items()},
+        tickers={key: tuple(sorted(entries, key=str)) for key, entries in tickers.items()},
         max_tokens=max((key.count(" ") + 1 for key in names), default=0),
     )
 
 
 def match_securities(record: Mapping, name_table: Sequence[Mapping] | NameIndex) -> tuple[str, ...]:
-    """Security ids named by a record's text, GKG organizations, cashtags or exchange tags."""
+    """Security ids named by a record's text, GKG organizations, cashtags or exchange tags.
+
+    Only names valid on the record's availability date count.  One-word names
+    ("Target", "Apple") are too ambiguous for free text and match only through
+    organizations, cashtags or exchange tags.
+    """
     index = build_name_index(name_table)
+    on = _day(record.get("available_at_replay"))
     found: set[str] = set()
+
+    def add(entries: Sequence[Entry]) -> None:
+        found.update(
+            security_id for security_id, start, end in entries
+            if on is None or ((start is None or start <= on) and (end is None or on < end))
+        )
+
     text = " ".join(str(record.get(field) or "") for field in ("headline", "body"))
-    raw = _tokens(text)
-    folded = [token.casefold() for token in raw]
+    folded = [token.casefold() for token in _tokens(text)]
     for start in range(len(folded)):
-        for width in range(1, min(index.max_tokens, len(folded) - start) + 1):
-            ids = index.names.get(" ".join(folded[start:start + width]))
-            # A one-word name must look like a proper noun in the source ("Apple", not "apple").
-            if ids and (width > 1 or not raw[start].islower()):
-                found.update(ids)
+        for width in range(2, min(index.max_tokens, len(folded) - start) + 1):
+            add(index.names.get(" ".join(folded[start:start + width]), ()))
     for organization in str(record.get("organizations") or "").split(";"):
-        found.update(index.names.get(normalize_name(re.sub(r",\d+$", "", organization)), ()))
+        add(index.names.get(normalize_name(re.sub(r",\d+$", "", organization)), ()))
     for pattern in (_CASHTAG, _EXCHANGE):
         for ticker in pattern.findall(unicodedata.normalize("NFKC", text)):
-            found.update(index.tickers.get(ticker, ()))
+            add(index.tickers.get(ticker, ()))
     return tuple(sorted(found))
 
 

@@ -1,7 +1,7 @@
 """In-tree P15 replay executor and label-producer tests."""
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import duckdb
 import pytest
@@ -140,7 +140,7 @@ def test_preopen_provider_result_after_registered_window_keeps_intent():
     assert result["decisions"][0]["decision"] == "keep"
 
 
-def _label_fixture(*, split_session, policy, drop_asset_exit=False):
+def _label_fixture(*, split_session, policy, drop_asset_exit=False, late_asset_exit=False):
     con = duckdb.connect(":memory:")
     init_executor_schema(con)
     init_notes_schema(con)
@@ -161,10 +161,13 @@ def _label_fixture(*, split_session, policy, drop_asset_exit=False):
         for session, price in ((entry, entry_price), (exit_session, exit_price)):
             if drop_asset_exit and ticker == "AAA" and session == exit_session:
                 continue
+            available = session_phases(session)["close_visible"]
+            if late_asset_exit and ticker == "AAA" and session == exit_session:
+                available += timedelta(days=1)
             source.append({
                 "security_id": security_id, "ticker": ticker, "session": session,
                 "series": "source_back_adjusted_v1",
-                "available_at": session_phases(session)["close_visible"].isoformat(),
+                "available_at": available.isoformat(),
                 "open": price, "high": price, "low": price, "close": price, "volume": 10,
             })
     bars = reconstruct_unadjusted_bars(source, [action])
@@ -207,3 +210,11 @@ def test_label_with_missing_bar_is_censored_and_hidden_from_notes():
         con, session=date(2024, 1, 11),
         cutoff=datetime(2024, 1, 11, 23, tzinfo=timezone.utc),
     ) == []
+
+
+def test_label_with_bar_published_after_close_is_censored_late_bar():
+    con, row = _label_fixture(
+        split_session=date(2024, 1, 8), policy=SPLIT_KNOWLEDGE_PRIMARY, late_asset_exit=True,
+    )
+    assert row == ("h5", "censored:late_bar", None)
+    assert censored_label_counts(con) == {"late_bar": 1}

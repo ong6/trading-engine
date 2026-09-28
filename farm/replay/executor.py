@@ -11,7 +11,10 @@ from typing import Callable, Mapping, Sequence
 from engine.lib.provenance import canonical_sha256
 from farm.replay import p15_adapter
 from farm.replay.asof import (
+    PriceIndex,
+    PriceSeriesError,
     SplitQuarantineError,
+    build_price_index,
     label_price_point,
     label_split_normalized_return,
 )
@@ -370,18 +373,22 @@ def produce_labels(
     reconstructed_bars: Sequence[Mapping],
     actions: Sequence[Mapping],
     knowledge_policy: str,
+    price_index: PriceIndex | None = None,
 ) -> int:
     """Append labels visible at this close; unlabelable ones are recorded as censored."""
     init_executor_schema(con)
-    bars = {
-        (str(row.get("security_id")), row.get("session") if isinstance(row.get("session"), date)
-         else date.fromisoformat(str(row.get("session")))): row
-        for row in reconstructed_bars
-    }
-    ticker_security = {
-        str(row.get("ticker")): str(row.get("security_id")) for row in reconstructed_bars
-    }
-    spy_id = ticker_security.get("SPY")
+    index = price_index or build_price_index(reconstructed_bars, actions)
+
+    def bar(security: str, day: date) -> Mapping | None:
+        return next(
+            (row for row in index.by_session.get(day, ())
+             if str(row.get("security_id")) == security), None,
+        )
+
+    spy_id = next((
+        security for security, rows in index.by_security.items()
+        if any(str(row.get("ticker")) == "SPY" for _at, row in rows)
+    ), None)
     if spy_id is None:
         return 0
     inserted = 0
@@ -399,10 +406,8 @@ def produce_labels(
                 [decision_id, f"h{horizon}"],
             ).fetchone() is not None:
                 continue
-            asset_entry, asset_exit = bars.get((security_id, entry_session)), bars.get(
-                (security_id, session)
-            )
-            spy_entry, spy_exit = bars.get((spy_id, entry_session)), bars.get((spy_id, session))
+            asset_entry, asset_exit = bar(security_id, entry_session), bar(security_id, session)
+            spy_entry, spy_exit = bar(spy_id, entry_session), bar(spy_id, session)
             status, excess = "terminal", None
             if None in (asset_entry, asset_exit):
                 status = CENSORED_PREFIX + "missing_asset_bar"
@@ -428,6 +433,11 @@ def produce_labels(
                     excess = (asset_return - spy_return) * 10_000
                 except SplitQuarantineError as exc:
                     status = CENSORED_PREFIX + str(exc).split(":", 1)[0]
+                except PriceSeriesError as exc:
+                    # A bar published after this close cannot label it yet.
+                    if not str(exc).startswith("unavailable_"):
+                        raise
+                    status = CENSORED_PREFIX + "late_bar"
             con.execute(
                 "INSERT INTO replay_labels VALUES (?,?,?,?,?,?,?)",
                 [decision_id, decision_session, f"h{horizon}",

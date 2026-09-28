@@ -13,7 +13,6 @@ import pytest
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from farm.replay.asof import raw_price_spot_check, reconstruct_unadjusted_bars
-from farm.replay.entities import news_rows_by_ticker
 from farm.replay.lockbox import (
     ConfirmatoryArm,
     LockboxLedger,
@@ -46,7 +45,7 @@ SESSIONS = tuple(
 NOW = datetime(2026, 9, 27, 22, tzinfo=UTC)
 NAME_TABLE = (
     {"security_id": "halt", "ticker": "HALT", "name": "Haltco Industries Inc"},
-    {"security_id": "split-security", "ticker": "SPLT", "name": "Splitco Corp"},
+    {"security_id": "split-security", "ticker": "SPLT", "name": "Splitco Motor Works Corp"},
     {"security_id": "aaa", "ticker": "AAA", "name": "Triple Alpha Holdings"},
 )
 
@@ -83,8 +82,8 @@ def _warc_member(record_id: str, captured_at: str, headline: str) -> bytes:
 def _collect(root, live):
     gdelt = _gdelt_zip()
     warc = (
-        _warc_member("early", "2024-11-18T15:00:00Z", "Splitco Corp split story available")
-        + _warc_member("late", "2024-11-19T03:00:00Z", "Splitco Corp future story hidden")
+        _warc_member("early", "2024-11-18T15:00:00Z", "Splitco Motor Works split story available")
+        + _warc_member("late", "2024-11-19T03:00:00Z", "Splitco Motor Works future story hidden")
     )
     event_url = gdelt_shard_urls("20241118140000")[0]
     cc_url = "https://data.commoncrawl.org/crawl-data/CC-NEWS/fixture.warc.gz"
@@ -105,11 +104,9 @@ def _collect(root, live):
         name_table=NAME_TABLE,
     )
     assert result["status"] == "completed" and len(result["records"]) == 3
-    # Tickers come from the entity mapper, not the fixture.
-    return [
-        {**row, "language": "en"}
-        for row in news_rows_by_ticker(result["records"], NAME_TABLE)
-    ]
+    # Rows carry no ticker; the runner maps them through the store's name table.
+    assert not any(row.get("ticker") for row in result["records"])
+    return [{**row, "language": "en"} for row in result["records"]]
 
 
 def _history_sessions() -> list[date]:
@@ -293,7 +290,7 @@ def _run_fixture(root):
         path=replay_path, research_root=root, live_db_path=live,
         cohort_id="fixture-cohort", policy_id="replay-notes-sol-v1",
         checkpoint=CHECKPOINT, initialized_at=NOW,
-        reconstructed_bars=bars, actions=[split], news_rows=news_rows,
+        reconstructed_bars=bars, actions=[split], news_rows=news_rows, name_table=NAME_TABLE,
         score_generate=lambda payload: _model_result(payload, "p15_scoring"),
         preopen_generate=lambda payload: _model_result(payload, "p15_preopen"),
         postmortem_generate=postmortem, notes_filter_spec=freeze_filter_spec(
@@ -363,6 +360,7 @@ def _run_fixture(root):
             },
             "primary_endpoint": {"status": "fixture_only", "eligible_sessions": 0},
             "book_status": runs[-1]["status"], "raw_price_status": spot_check["status"],
+            "price_archive_listing_date": "2026-09-27",
         },
         lockbox_ledger=lockbox.ledger, lockbox_query=lockbox_query,
     ).read_text()
@@ -430,4 +428,5 @@ def test_fixture_http_to_real_parsers_executor_notes_and_report_is_deterministic
     assert snapshot["at_split_equity"] == pytest.approx(snapshot["pre_split_equity"])
     assert "Status: **complete**" in first["report"]
     assert "Lockbox tag: confirmatory" in first["report"]
+    assert "Price archive listed as of 2026-09-27: securities delisted" in first["report"]
     assert "Archived evidence body" not in first["report"]

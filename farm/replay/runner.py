@@ -1,6 +1,7 @@
 """Chronological W4 replay orchestration over one isolated policy store."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from functools import cached_property
@@ -10,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from engine import p15_event_sources
 from engine.lib import db
+from farm.replay import entities
 from farm.replay.asof import (
     build_price_index,
     rewrite_known_split_adjustments,
@@ -88,6 +90,8 @@ class ReplaySessionStore:
     split_knowledge_policy: str = SPLIT_KNOWLEDGE_PRIMARY
     notes_filter_spec: NotesFilterSpec | None = None
     news_rows: Sequence[Mapping] = ()
+    # As-of name table; news rows without a ticker are mapped through it.
+    name_table: Sequence[Mapping] = ()
     fact_rows: Sequence[Mapping] = ()
     score_generate: Callable[[dict], agent_model_client.ConnectorResult] = (
         agent_model_client.generate_p15_scoring_json
@@ -103,10 +107,21 @@ class ReplaySessionStore:
     # application.  Production callers never set it.
     _test_execute_phase: PhaseExecutor | None = None
 
+    def __post_init__(self) -> None:
+        if self._test_execute_phase is not None and "PYTEST_CURRENT_TEST" not in os.environ:
+            raise ValueError("test_only_execute_phase")
+
     @cached_property
     def price_index(self):
         """Bars validated and indexed once per store object, reused by every phase."""
         return build_price_index(self.reconstructed_bars, self.actions)
+
+    @cached_property
+    def ticker_news_rows(self) -> list[Mapping]:
+        """News rows keyed by ticker; untickered rows go through the entity mapper."""
+        tickered = [row for row in self.news_rows if row.get("ticker")]
+        untickered = [row for row in self.news_rows if not row.get("ticker")]
+        return tickered + entities.news_rows_by_ticker(untickered, self.name_table)
 
 
 def session_phases(session: date) -> dict[str, datetime]:
@@ -251,12 +266,12 @@ def _prepare_default_phase(con, store: ReplaySessionStore, phase: str, session: 
     if phase == "SCORE":
         return prepare_score(
             con, cohort_id=store.cohort_id, policy_id=store.policy_id,
-            session=session, cutoff=logical_at, news_rows=store.news_rows,
+            session=session, cutoff=logical_at, news_rows=store.ticker_news_rows,
             fact_rows=store.fact_rows, sample_count=store.sample_count,
         )
     if phase == "PREOPEN":
         return prepare_preopen(
-            con, session=session, cutoff=logical_at, news_rows=store.news_rows,
+            con, session=session, cutoff=logical_at, news_rows=store.ticker_news_rows,
             fact_rows=store.fact_rows,
         )
     if phase == "POSTMORTEM" and store.postmortem_generate is not None:
@@ -369,7 +384,7 @@ def _run_session(store: ReplaySessionStore, session: date) -> dict:
                 terminal_rows[0]["labels_written"] = produce_labels(
                     con, session=session, visible_at=logical_at,
                     reconstructed_bars=store.reconstructed_bars, actions=store.actions,
-                    knowledge_policy=store.split_knowledge_policy,
+                    knowledge_policy=store.split_knowledge_policy, price_index=store.price_index,
                 )
             if store._test_execute_phase is None and phase == "SCORE":
                 terminal_rows[0]["decisions_written"] = apply_score(
