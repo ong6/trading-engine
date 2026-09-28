@@ -1293,4 +1293,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; docs +713; budget ok.
 - **Next:** apply the binding W6 round-2 review while the pre-11:30 UTC window remains open.
 
+## 2026-09-28 — P16 W6: complete round-2 capture pipeline
+
+- **Why:** the orchestrator's W6 review rejected the partial pipeline and made the end-to-end
+  fixture, identity, retry, immutable-intent, quote-only, and split-rule corrections binding.
+- **What:** add inert quote and Yahoo adapters, three-attempt capture, as-of liquidity, first-valid
+  observation projection, failure-inclusive coverage, and atomic reports. Use quote-only fitting,
+  diagnostic pinball scoring, a W9-derived 60/20 split, and keep `baseline_v1` unchanged.
+- **Evidence:** `.venv/bin/python -m pytest -o addopts= -q -W error tests/test_p16_fill_capture.py tests/test_p16_fill_calibration.py tests/test_p16_fill_runner.py tests/test_p16_tradingview_intraday.py tests/test_p16_registration.py` passes 24 tests.
+- **Metrics:** daily snapshot server +656, tools unchanged, product +2,931; budget ok.
+- **Next:** orchestrator review of the W6 round-2 checkpoint; W9 owns activation dates and the
+  documented delayed-data dry-run.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

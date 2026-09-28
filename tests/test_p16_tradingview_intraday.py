@@ -42,6 +42,11 @@ def test_commands_request_five_minute_regular_split_adjusted_series():
     assert '"session":"regular"' in rows[2][1][-1]
 
 
+def test_noon_retry_history_still_reaches_the_open():
+    # 30 five-minute slots have elapsed by noon; the request must cover beyond 09:30.
+    assert source.BAR_COUNT >= 40
+
+
 def test_parse_returns_exact_first_three_start_stamped_bars():
     parsed = source.parse("NASDAQ:AAA", date(2026, 10, 5), _transcript())
     assert parsed["resolution"] == "5"

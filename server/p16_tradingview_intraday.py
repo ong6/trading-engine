@@ -14,7 +14,8 @@ from . import tradingview_source as tv
 
 SOURCE_VERSION = "p16-tradingview-chart-5m-v1"
 RESOLUTION = "5"
-BAR_COUNT = 12
+# Noon retries still need the 09:30 opening bars in the returned history.
+BAR_COUNT = 40
 _NEW_YORK = ZoneInfo("America/New_York")
 
 

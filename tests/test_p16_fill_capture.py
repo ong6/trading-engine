@@ -67,6 +67,7 @@ def test_bar_and_quote_measurements_keep_proxy_vwap_and_open_distinct():
     quotes = [p16_fill_capture.normalize_quote(DAY, index, _quote(index))
               for index in (0, 1)]
     measured = p16_fill_capture.measure_symbol_day(
+        session_date=DAY, security_id="AAA", source="fixture",
         bar_set=bar_set, quote_rows=quotes, operational_open=99.5,
         simulated_fill=100.5, side="buy",
     )
@@ -85,12 +86,41 @@ def test_missing_slot_and_unverified_side_timestamps_are_visible():
     bar_set = p16_fill_capture.normalize_bars(DAY, _bars(missing=True, with_vwap=False))
     quotes = [p16_fill_capture.normalize_quote(
         DAY, index, _quote(index, native_times=False)) for index in (0, 1)]
-    measured = p16_fill_capture.measure_symbol_day(bar_set=bar_set, quote_rows=quotes)
+    measured = p16_fill_capture.measure_symbol_day(
+        session_date=DAY, security_id="AAA", source="fixture",
+        bar_set=bar_set, quote_rows=quotes)
 
     assert bar_set["status"] == "missing_slots"
     assert bar_set["metrics"].get("half_range_proxy_bp") is None
     assert measured["quote_target_bp"] is None
     assert measured["quote_statuses"] == ["quote_target_unverified"] * 2
+
+
+def test_zero_volume_and_halted_bars_record_explicit_reasons():
+    payload = _bars()
+    payload["bars"][0]["volume"] = 0
+    payload["bars"][1]["halted"] = True
+    bar_set = p16_fill_capture.normalize_bars(DAY, payload)
+
+    assert bar_set["status"] == "quality_unavailable"
+    assert bar_set["missing_reasons"] == ["zero_volume_0930", "halted_0935"]
+    assert bar_set["metrics"].get("half_range_proxy_bp") is None
+
+
+def test_measurement_identity_distinguishes_names_and_all_missing_days():
+    empty = _bars(missing=True, with_vwap=False)
+    empty["bars"] = []
+    bar_set = p16_fill_capture.normalize_bars(DAY, empty)
+    first = p16_fill_capture.measure_symbol_day(
+        session_date=DAY, security_id="AAA", source="fixture",
+        bar_set=bar_set, quote_rows=[])
+    second = p16_fill_capture.measure_symbol_day(
+        session_date=DAY, security_id="BBB", source="fixture",
+        bar_set=bar_set, quote_rows=[])
+
+    assert first["measurement_sha256"] != second["measurement_sha256"]
+    assert first["first_open"] is None
+    assert first["session_date"] == DAY.isoformat()
 
 
 def test_manifest_and_measurement_run_end_to_end_on_fixture_store(tmp_path):
@@ -123,6 +153,10 @@ def test_manifest_and_measurement_run_end_to_end_on_fixture_store(tmp_path):
     assert "ORDERED" in manifest["targets"] and "SPY" in manifest["targets"]
     assert p16_fill_store.record_manifest(con, manifest) == manifest["manifest_sha256"]
     assert p16_fill_store.record_manifest(con, manifest) == manifest["manifest_sha256"]
+    con.execute("UPDATE p15_order_intents SET status='filled',reason='after_open',sim_order_id=7")
+    assert p16_fill_store.build_manifest(con, DAY) == manifest
+    assert p16_fill_store.order_outcomes(con, DAY) == [{
+        "id": 1, "status": "filled", "reason": "after_open", "sim_order_id": 7}]
 
     bar_set = p16_fill_capture.normalize_bars(DAY, _bars())
     receipt = "b" * 64
@@ -133,7 +167,9 @@ def test_manifest_and_measurement_run_end_to_end_on_fixture_store(tmp_path):
     assert len(capture_sha) == 64
     quotes = [p16_fill_capture.normalize_quote(DAY, index, _quote(index))
               for index in (0, 1)]
-    measured = p16_fill_capture.measure_symbol_day(bar_set=bar_set, quote_rows=quotes)
+    measured = p16_fill_capture.measure_symbol_day(
+        session_date=DAY, security_id="T00", source="fixture",
+        bar_set=bar_set, quote_rows=quotes)
     assert p16_fill_store.record_measurement(
         con, session_date=DAY, security_id="T00", source="fixture",
         median_dollar_volume=60_000_000, bar_set_sha256=bar_set["bar_set_sha256"],
@@ -142,6 +178,34 @@ def test_manifest_and_measurement_run_end_to_end_on_fixture_store(tmp_path):
     assert con.execute("SELECT COUNT(*) FROM p16_fill_manifests").fetchone() == (1,)
     assert con.execute("SELECT liquidity_tier FROM p16_fill_measurements").fetchone() == (
         "gte_50m",)
+    con.close()
+
+
+def test_liquidity_uses_up_to_60_prior_rows_known_by_selection(tmp_path):
+    con = db.connect(tmp_path / "liquidity.duckdb")
+    db.init_schema(con)
+    day = DAY - timedelta(days=35)
+    inserted = 0
+    while inserted < 20:
+        if p16_fill_capture.nyse.is_session(day):
+            con.execute("INSERT INTO prices VALUES (?,?,?,?,?,?,?,?,?)", [
+                "AAA", day, 99.0, 101.0, 98.0, 100.0, 1000, "fixture",
+                _at(9, 19).astimezone(timezone.utc).replace(tzinfo=None)])
+            inserted += 1
+        day += timedelta(days=1)
+    late_day = DAY - timedelta(days=1)
+    con.execute("INSERT INTO prices VALUES (?,?,?,?,?,?,?,?,?)", [
+        "AAA", late_day, 199.0, 201.0, 198.0, 200.0, 1000, "fixture",
+        _at(9, 21).astimezone(timezone.utc).replace(tzinfo=None)])
+
+    result = p16_fill_store.liquidity_as_of(
+        con, "AAA", DAY, information_cutoff_at=_at(9, 20))
+    assert result["status"] == "available"
+    assert result["valid_sessions"] == 20
+    assert result["median_dollar_volume_60d"] == 100_000
+    with pytest.raises(ValueError, match="after selection"):
+        p16_fill_store.liquidity_as_of(
+            con, "AAA", DAY, information_cutoff_at=_at(9, 21))
     con.close()
 
 
