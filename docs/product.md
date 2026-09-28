@@ -30,7 +30,7 @@ accounting, halts, and kill switches. That split is the product, not a temporary
 5. **Inside the drawdown envelope**: a policy that can lose most of the book fails regardless of
    its recent run.
 
-## Where it stands (2026-09-26)
+## Where it stands (2026-09-28)
 
 The appliance is mature: nightly data, screen, league, three frozen forward records, weekly
 walk-forward, recovery bundles, TradingView research data, and a live nightly AI agent with a
@@ -43,6 +43,13 @@ equal-mechanics comparator books, cancel-only pre-open check, shadow event trigg
 trial register, status projection, and generated report are present. All three P15 books and all
 three P15 timers remain inactive until the W8 registration and recovery-gated activation. No P15
 performance claim exists before that prospective evidence accrues.
+
+[P16](plans/p16-challenger-lab-and-text-edge.md) W1–W8 are built and remain inert: evaluation v2,
+the challenger and filing paths, historical text/replay labs, deterministic portfolio
+construction, opening-fill measurement, the weekly digest, and the Stage 2 design. The canonical
+P5–P16 census contains 103 registrations with conservative weighted trial contribution N=139.
+None of this activates a P16 policy or changes `baseline_v1`; W9b owns registration, rehearsals,
+and any activation after the P15 sequence.
 
 ## Stages
 
@@ -115,11 +122,10 @@ Each row has the default that applies until the owner decides.
 1. **Keep the evidence clean.** Scheduled producers green, no missed agent windows, no identity
    drift, no uncommitted work on the host (the nightly `git pull` fails on a dirty tree).
    A broken producer beats every item below.
-2. **[P16](plans/p16-challenger-lab-and-text-edge.md), starting with W0: fix, re-register, and
-   activate [P15](plans/p15-profitability-evidence-loop.md).** P15 is built, but its activation
-   is held for the review fixes R1–R16. Then P16 continues: challenger lab, filing reader,
-   historical text and replay labs, optimizer books, fill calibration, weekly digest, and a
-   Stage 2 design. It ends with the refine loop.
+2. **[P16](plans/p16-challenger-lab-and-text-edge.md), completing W0/W9b.** W1–W8 and W9a are
+   built and inert. Finish the registered P15 dry-run/activation sequence, then P16 registration,
+   rehearsals, and only the components whose gates permit activation. W11's synthetic proving
+   ground follows the main activation blockers.
 3. **Activate P7.** Backup-gated tri-arm schema and initializer, the recorded SGD/USD opening
    observation, then the tri-arm orchestrator and its status panel. It tests whether the AI
    allocates better than the rule at low turnover, which the research verdicts favour.

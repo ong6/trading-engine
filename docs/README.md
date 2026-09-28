@@ -45,8 +45,10 @@ deterministic research queue, and dates inside it label historical measurements.
 
 - [`product-agent-research-platform.md`](product-agent-research-platform.md) — P12 requirements (reference; `product.md` is canonical) for the
   requirements for point-in-time data, agent decisions, execution, evaluation, and external gates.
-- [`how-it-works.md`](how-it-works.md) — architecture, schedules, paper league, agent services,
-  UI/API, and operations.
+- [`how-it-works.md`](how-it-works.md) — concise operations runbook: schedules, health checks,
+  recovery, services, and gated activation procedure.
+- [`architecture-reference.md`](architecture-reference.md) — detailed component, data-flow,
+  paper-league, agent-service, UI/API, and authority-boundary reference.
 - [`settlement-runbook.md`](settlement-runbook.md) — manual adjudication of dead or
   untradeable positions.
 - [`../BUILDLOG.md`](../BUILDLOG.md) — v2 implementation log since 2026-09-18; earlier entries

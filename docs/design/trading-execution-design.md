@@ -8,7 +8,8 @@ current scope**) and the private sibling-store research note
 
 This file preserves the original design and deferred-live-execution boundary. Statements below
 that describe implementation as future work are historical; use
-[`../how-it-works.md`](../how-it-works.md) for the current operating system and
+[`../architecture-reference.md`](../architecture-reference.md) for the current system and
+[`../how-it-works.md`](../how-it-works.md) for operations, and
 [`../history/live-readiness-goal.md`](../history/live-readiness-goal.md) for the evidence and
 execution-safety gates.
 

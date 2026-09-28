@@ -83,16 +83,16 @@ flowchart LR
    with contamination probes and a lockbox).
 6. Every comparison is paired, net of trading cost, and counts the trials behind it.
 
-## Layers: now, P15, P16, later
+## Layers: deployed, staged, built-inert, later
 
-| Layer | Exists (2026-09-25) | P15 adds | P16 proposes | Later |
+| Layer | Deployed (2026-09-28) | P15 staged, inactive | P16 built, inactive | Later |
 |---|---|---|---|---|
-| Data | EOD store, screens, earnings, headlines (titles), TradingView research data, P14 archive | RSS and 8-K event facts; intraday mover scan | Full 8-K earnings-release text; historical EDGAR corpus; historical news archive (Alpaca/Benzinga or GDELT) | P3 point-in-time vendor data (owner spend) |
-| Signals | P8 nightly pick; P9 shadow observers; P7 allocator (inactive) | Scoring every candidate; deterministic baseline; pre-open cancel; event triggers | Challenger lab: blinded, memory, tournament, ensemble, ablations; filing reader | Promoted challengers get book authority |
-| Evaluation | Ledger, 1/5/10/20 labels, contamination probes | Paired IC test with looks; book comparison; coded P8 gate | Factor-neutral IC; always-valid sequential tests; deflated Sharpe over the trial register; time-locked text lab; post-cutoff replay lab with lockbox | Stage gates computed from live fills |
-| Portfolio | Fixed-fraction sizing, 3 names | ATR sizing, SPY core, limit-on-open, 8 names | Optimizer from scores to weights (Grinold alpha, risk model, turnover cost) | Beta hedge if shorting is approved |
-| Execution | Next-open simulator, fill model v4 | Limit-on-open path | Slippage calibration from intraday data; fill model v5 for future cohorts | IBKR paper on personal hardware, then live |
-| Ops | Timers, recovery, metrics | P15 status and report | Weekly operator digest | Remote alerts from personal hardware |
+| Data | EOD store, screens, earnings, headline titles, TradingView research data, P14 archive | RSS and 8-K event facts; intraday mover scan | Acceptance-timestamped filing capture and gated historical EDGAR/news corpus paths | P3 point-in-time vendor data (owner spend) |
+| Signals | P8 nightly pick; P9 shadow observers; P7 allocator (inactive) | Candidate scoring, deterministic baseline, pre-open cancel, event triggers | Challenger lab (blinded, memory, tournament, ensemble, ablations) and filing reader | Promoted challengers get book authority |
+| Evaluation | Ledger, 1/5/10/20 labels, contamination probes | Paired IC test with looks; book comparison; coded P8 gate | Factor-neutral IC, always-valid sequential tests, deflated Sharpe over the N=139 trial census, time-locked text lab, and post-cutoff replay lockbox | Stage gates computed from live fills |
+| Portfolio | Fixed-fraction sizing, 3 names | ATR sizing, SPY core, limit-on-open, 8 names | Score-to-weight optimizer, recovery, and shadow diagnostics | Beta hedge if shorting is approved |
+| Execution | Next-open simulator, fill model v4 | Limit-on-open path | Best-attempt opening measurement and slippage calibration; `baseline_v1` remains active | IBKR paper on personal hardware, then live |
+| Ops | Timers, recovery, metrics | P15 status and report | Isolated P16 status adapter and weekly operator digest | Remote alerts from personal hardware |
 
 ## Evaluation science (how "does it work?" gets answered)
 
@@ -126,22 +126,22 @@ verdict first.
 
 ## Idea register
 
-Triage of every idea raised so far. "Next" items are in P16; "later" items need a verdict or an
-owner decision first.
+Triage of every idea raised so far. P16 items are built but inert; "later" items need a verdict or
+an owner decision first.
 
 | Idea | Status | Reason |
 |---|---|---|
 | Score every candidate; paired IC vs rule | P15 | Breadth and statistical power |
 | Comparator books, limit-on-open, pre-open cancel, event triggers | P15 | Comparator and latency |
-| Factor-neutral IC, sequential tests, deflated Sharpe | Next (P16) | Separates judgement from factor exposure; honest selection |
-| Challenger lab (blinded, memory, tournament, ensemble, ablations) | Next (P16) | Many hypotheses per night on identical inputs, at no marginal constraint |
-| Filing and earnings-release reader | Next (P16) | Timestamped text is the LLM's natural input |
-| Time-locked historical text lab | Next (P16) | The only contamination-controlled historical LLM test available |
-| Post-cutoff replay with mistake notes | Next (P16) | Months of out-of-sample paper trading in days; tests whether agents learn from their own post-mortems |
-| Portfolio optimizer from scores | Next (P16, shadow) | Converts IC into returns efficiently (transfer coefficient) |
-| Fill calibration from intraday data | Next (P16) | The simulator must be right before Stage 2 |
-| Weekly operator digest | Next (P16) | The owner should see state in one page |
-| Stage 2 design (portability, IBKR paper, reconciliation, loss limits) | Next (P16, docs only) | No broker code on this host |
+| Factor-neutral IC, sequential tests, deflated Sharpe | Built (P16, inert) | Separates judgement from factor exposure; honest selection |
+| Challenger lab (blinded, memory, tournament, ensemble, ablations) | Built (P16, inert) | Many hypotheses per night on identical inputs, at no marginal constraint |
+| Filing and earnings-release reader | Built (P16, inert) | Timestamped text is the LLM's natural input |
+| Time-locked historical text lab | Built (P16, gated) | The only contamination-controlled historical LLM test available |
+| Post-cutoff replay with mistake notes | Built (P16, gated) | Months of out-of-sample paper trading in days; tests whether agents learn from their own post-mortems |
+| Portfolio optimizer from scores | Built (P16, inactive) | Converts IC into returns efficiently (transfer coefficient) |
+| Fill calibration from intraday data | Built (P16, measurement only) | The simulator must be right before Stage 2 |
+| Weekly operator digest | Built (P16, inactive) | The owner should see state in one page |
+| Stage 2 design (portability, IBKR paper, reconciliation, loss limits) | Complete (P16, docs only) | No broker code on this host |
 | Long-short or beta-hedged books | Later | Needs the shorting decision; would monetize IC far better than long-only |
 | Promote a challenger to book authority | Later | Needs a sequential-test pass and owner approval |
 | Event-trigger order authority | Later | Needs its own gate after P15 evidence |
