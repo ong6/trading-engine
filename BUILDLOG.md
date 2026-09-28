@@ -1274,4 +1274,23 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged; product +299 (engine +4, farm +295); budget ok.
 - **Next:** file the accepted Stage 2 design and its proposed P17 execution plan.
 
+## 2026-09-28 — P16 W7: keep digest generation non-fatal
+
+- **Why:** orchestrator review found that `set -e` let a digest error prevent the weekly report sync.
+- **What:** make only the digest invocation best-effort and prove sync still runs after its failure.
+- **Evidence:** `.venv/bin/python -m pytest -q tests/test_drivers.py::test_walkforward_digest_failure_is_nonfatal_and_still_syncs tests/test_p16_operator_digest.py` passes 5 tests.
+- **Metrics:** product unchanged; tests +10; server and tools unchanged; budget ok.
+- **Next:** complete W8's accepted Stage 2 design filing.
+
+## 2026-09-28 — P16 W8: file the Stage 2 paper design
+
+- **Why:** approved P16 W8 requires the accepted personal-host design and a separately proposed
+  execution plan, without broker code, accounts, credentials, connections or capital.
+- **What:** file the accepted design and proposed P17; incorporate cash-account, commission/budget,
+  Gateway/phone, late-cancel exposure, paper-reporting, Singapore-hours, and risk-mark notes.
+- **Evidence:** `.venv/bin/python -m pytest -q tests/test_operating_contract.py tests/test_docs_research_evidence.py`
+  reaches `[100%]`; full host and UTC suites also reach `[100%]`.
+- **Metrics:** server/tools/product unchanged; docs +713; budget ok.
+- **Next:** apply the binding W6 round-2 review while the pre-11:30 UTC window remains open.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

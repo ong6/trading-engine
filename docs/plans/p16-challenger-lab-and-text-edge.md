@@ -592,7 +592,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 | W5 Portfolio construction v2 | complete; orchestrator accepted the inert construction path and its bounded recovery deviation; W9 owns the three pre-activation guards and the recovery-window exit follow-up | 2026-09-27 |
 | W6 Execution realism | implementation checkpoint complete and inert; orchestrator review scored 6.8/10, so binding round-2 revisions remain after W8. `baseline_v1` is unchanged | 2026-09-28 |
 | W7 Operator digest | complete: Sunday post-walk-forward composer produces the compact weekly gate/book/challenger/activity/health view with explicit unavailable states and the unversioned-catalogue-alias warning | 2026-09-28 |
-| W8 Stage 2 design | not started | |
+| W8 Stage 2 design | complete: accepted design filed with binding review notes; P17 is indexed as proposed and grants no broker, credential, account or capital authority | 2026-09-28 |
 | W9 Cleanup, docs, refine gate, activation | not started | |
 | W10 Final refine pass | not started | |
 | W11 Synthetic proving ground and evaluation loops | design in progress (`p16-design-proving-ground`) | |
