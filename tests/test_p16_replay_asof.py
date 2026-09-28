@@ -601,3 +601,76 @@ def test_phase_price_loader_exposes_open_then_close_and_rewrites_only_split_secu
     assert con.execute(
         "SELECT open,high,low,close FROM prices WHERE ticker='AAA' AND date=?", [session]
     ).fetchone() == (50.0, 52.0, 49.0, 51.0)
+
+
+def test_phase_materialization_scales_with_new_rows_not_archive_size():
+    """3,000 tickers x 60 sessions: each phase writes only newly visible rows."""
+    from time import perf_counter
+
+    from farm.replay.asof import build_price_index
+    from farm.replay.runner import session_phases
+    from sim import nyse
+
+    sessions, current = [], date(2024, 1, 2)
+    while len(sessions) < 60:
+        if nyse.is_session(current):
+            sessions.append(current)
+        current = current.fromordinal(current.toordinal() + 1)
+    tickers = [f"T{index:04d}" for index in range(3_000)]
+    split = _action(
+        action_id="t0007-split", security_id="t0007", ticker="T0007",
+        ex_date=sessions[50], new_shares_per_old=2,
+    )
+    visible = {session: session_phases(session)["close_visible"].isoformat() for session in sessions}
+    raw = [
+        {
+            "security_id": ticker.lower(), "ticker": ticker, "session": session,
+            "series": "source_back_adjusted_v1", "available_at": visible[session],
+            "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.0, "volume": 1_000,
+        }
+        for session in sessions for ticker in tickers
+    ]
+    rebuilt = reconstruct_unadjusted_bars(raw, [split])
+    started = perf_counter()
+    index = build_price_index(rebuilt, [split])
+    timings = {"index": perf_counter() - started}
+    con = duckdb.connect(":memory:")
+    db.init_schema(con)
+
+    started = perf_counter()
+    initial = rewrite_private_prices(
+        con, rebuilt, [split], as_of=session_phases(sessions[39])["close_visible"],
+        index=index,
+    )
+    timings["initial_load"] = perf_counter() - started
+    assert initial["appended_rows"] == initial["changed_rows"] == 40 * 3_000
+
+    phase_seconds = []
+    for session in sessions[40:]:
+        clocks = session_phases(session)
+        for phase, at in (
+            ("PREOPEN", clocks["preopen"]), ("OPEN", clocks["open"]),
+            ("CLOSE", clocks["close_visible"]), ("SCORE", clocks["score"]),
+        ):
+            started = perf_counter()
+            result = rewrite_private_prices(
+                con, rebuilt, [split], as_of=at, phase=phase, index=index
+            )
+            phase_seconds.append(perf_counter() - started)
+            rewritten = 50 if result["rewritten_security_ids"] else 0
+            expected = {"PREOPEN": 0, "OPEN": 3_000, "CLOSE": 3_000, "SCORE": 0}[phase]
+            assert result["appended_rows"] == (3_000 if phase == "CLOSE" else 0)
+            assert result["changed_rows"] == expected + rewritten
+            if result["rewritten_security_ids"]:
+                assert (session, phase) == (sessions[50], "OPEN")
+                assert result["rewritten_security_ids"] == ["t0007"]
+    timings["mean_phase"] = sum(phase_seconds) / len(phase_seconds)
+    timings["max_phase"] = max(phase_seconds)
+    print(f"price materialization timings (s): {timings}")
+    assert con.execute("SELECT COUNT(*) FROM prices").fetchone()[0] == 60 * 3_000
+    assert con.execute(
+        "SELECT close FROM prices WHERE ticker='T0007' AND date=?", [sessions[49]]
+    ).fetchone() == (10.0,)
+    assert con.execute(
+        "SELECT close FROM prices WHERE ticker='T0008' AND date=?", [sessions[49]]
+    ).fetchone() == (10.0,)

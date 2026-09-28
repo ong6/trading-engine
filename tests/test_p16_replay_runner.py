@@ -159,7 +159,7 @@ def test_run_session_owns_store_runs_exact_phase_order_and_resumes(tmp_path):
         policy_id="fixture-policy",
         checkpoint=checkpoint,
         initialized_at=datetime(2026, 9, 27, tzinfo=timezone.utc),
-        execute_phase=execute,
+        _test_execute_phase=execute,
         run_books=False,
     )
     first = run_session(store, session)
@@ -198,7 +198,7 @@ def test_run_session_filters_notes_and_exposes_them_only_to_later_sessions(tmp_p
         path=root / "replay.duckdb", research_root=root, live_db_path=live,
         cohort_id="fixture", policy_id="c-notes", checkpoint=SESSIONS[28],
         initialized_at=datetime(2026, 9, 27, tzinfo=timezone.utc),
-        execute_phase=execute, run_books=False,
+        _test_execute_phase=execute, run_books=False,
         notes_filter_spec=freeze_filter_spec(
             tickers=("AAA",), company_names=(), aliases=()
         ),
@@ -235,7 +235,7 @@ def test_multi_session_crash_resume_matches_uninterrupted_books(tmp_path):
             path=root / f"{name}.duckdb", research_root=root, live_db_path=live,
             cohort_id="fixture", policy_id="control", checkpoint=checkpoint,
             initialized_at=datetime(2026, 9, 27, tzinfo=timezone.utc),
-            execute_phase=execute, reconstructed_bars=bars,
+            _test_execute_phase=execute, reconstructed_bars=bars,
         )
 
     def completed(_phase, _session, _logical_at, _context):
@@ -273,3 +273,79 @@ def test_multi_session_crash_resume_matches_uninterrupted_books(tmp_path):
             })
     assert snapshots[0] == snapshots[1]
     assert len(snapshots[0]["clocks"]) == 10 * 5
+
+
+def _store_kwargs(tmp_path, **changes):
+    root = (tmp_path / "research").resolve()
+    root.mkdir(exist_ok=True)
+    live = (tmp_path / "live.duckdb").resolve()
+    live.touch()
+    return {
+        "path": root / "replay.duckdb", "research_root": root, "live_db_path": live,
+        "cohort_id": "fixture", "policy_id": "control", "checkpoint": SESSIONS[28],
+        "initialized_at": datetime(2026, 9, 27, tzinfo=timezone.utc), **changes,
+    }
+
+
+def test_lockbox_tag_uses_the_logical_clock_so_reruns_match(tmp_path, monkeypatch):
+    from datetime import timedelta
+    from types import SimpleNamespace
+
+    from farm.replay import runner
+
+    seen = []
+    monkeypatch.setattr(
+        runner, "evaluation_tag",
+        lambda _ledger, **kwargs: seen.append(kwargs["evaluated_at"])
+        or SimpleNamespace(tag="confirmatory"),
+    )
+    committed = datetime(2026, 9, 27, 21, tzinfo=timezone.utc)
+    store = ReplaySessionStore(**_store_kwargs(tmp_path, lockbox=runner.ReplayLockboxRun(
+        ledger=None, begin={"experiment_id": "e", "cohort_id": "c", "committed_at": committed},
+        trial_id="t", execution_id="x", registration_sha256="1" * 64,
+        sessions=(SESSIONS[29],),
+    )))
+    logical = session_phases(SESSIONS[29])["score"]
+    assert runner._lockbox_tag(store, logical) == runner._lockbox_tag(store, logical)
+    assert seen == [committed, committed]
+    later = committed + timedelta(days=1)
+    runner._lockbox_tag(store, later)
+    assert seen[-1] == later
+
+
+def test_phase_override_is_test_only_and_default_runs_in_tree_executors(tmp_path, monkeypatch):
+    from farm.replay import runner
+
+    with pytest.raises(TypeError):
+        ReplaySessionStore(**_store_kwargs(tmp_path, execute_phase=lambda *_args: []))
+    calls = []
+    for name in ("execute_score", "execute_preopen", "produce_labels", "apply_score"):
+        original = getattr(runner, name)
+        monkeypatch.setattr(
+            runner, name,
+            lambda *args, _name=name, _original=original, **kwargs: calls.append(_name)
+            or _original(*args, **kwargs),
+        )
+    session = SESSIONS[29]
+    bars = reconstruct_unadjusted_bars(
+        [
+            {
+                "security_id": "spy", "ticker": "SPY", "session": day,
+                "series": "source_back_adjusted_v1",
+                "available_at": session_phases(day)["close_visible"].isoformat(),
+                "open": 100, "high": 101, "low": 99, "close": 100, "volume": 1_000_000,
+            }
+            for day in SESSIONS[:30]
+        ],
+        [],
+    )
+
+    def no_model(_payload):
+        raise AssertionError("no candidate should reach the provider")
+
+    store = ReplaySessionStore(**_store_kwargs(
+        tmp_path, reconstructed_bars=bars, run_books=False,
+        score_generate=no_model, preopen_generate=no_model,
+    ))
+    assert run_session(store, session)["status"] == "completed"
+    assert calls == ["execute_preopen", "produce_labels", "execute_score", "apply_score"]

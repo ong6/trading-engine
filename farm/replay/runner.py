@@ -1,15 +1,20 @@
 """Chronological W4 replay orchestration over one isolated policy store."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
+from functools import cached_property
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from engine import p15_event_sources
 from engine.lib import db
-from farm.replay.asof import rewrite_known_split_adjustments, rewrite_private_prices
+from farm.replay.asof import (
+    build_price_index,
+    rewrite_known_split_adjustments,
+    rewrite_private_prices,
+)
 from farm.replay.clock import PHASES, completed_phases, init_clock_schema, record_phase_checkpoint
 from farm.replay.executor import (
     apply_preopen,
@@ -31,6 +36,7 @@ from farm.replay.notes import (
 )
 from farm.replay.registration import SPLIT_KNOWLEDGE_PRIMARY
 from farm.replay.store import open_store
+from farm.replay.universe import build_session_universe
 from server import agent_model_client, p15_scoring_store
 from sim import nyse, p15_books
 from sim.schema import init_sim_schema
@@ -75,7 +81,6 @@ class ReplaySessionStore:
     policy_id: str
     checkpoint: date
     initialized_at: datetime
-    execute_phase: PhaseExecutor | None = None
     apply_phase: PhaseApplier | None = None
     run_books: bool = True
     reconstructed_bars: Sequence[Mapping] = ()
@@ -93,6 +98,15 @@ class ReplaySessionStore:
     postmortem_generate: PostmortemGenerator | None = None
     sample_count: int = 3
     lockbox: ReplayLockboxRun | None = None
+    securities: Mapping[str, Mapping] = field(default_factory=dict)
+    # Test seam only: replaces the in-tree executors, labels and SCORE/PREOPEN
+    # application.  Production callers never set it.
+    _test_execute_phase: PhaseExecutor | None = None
+
+    @cached_property
+    def price_index(self):
+        """Bars validated and indexed once per store object, reused by every phase."""
+        return build_price_index(self.reconstructed_bars, self.actions)
 
 
 def session_phases(session: date) -> dict[str, datetime]:
@@ -214,7 +228,7 @@ def book_snapshot(con) -> dict:
     return books
 
 
-def _lockbox_tag(store: ReplaySessionStore) -> str:
+def _lockbox_tag(store: ReplaySessionStore, logical_at: datetime) -> str:
     if store.lockbox is None:
         return "post_lockbox_exploratory"
     lockbox = store.lockbox
@@ -226,7 +240,9 @@ def _lockbox_tag(store: ReplaySessionStore) -> str:
         execution_id=lockbox.execution_id,
         registration_sha256=lockbox.registration_sha256,
         sessions=lockbox.sessions,
-        evaluated_at=datetime.now(timezone.utc),
+        # The logical clock keeps reruns reproducible; the ledger refuses an
+        # evaluation before its own commit, so clamp to the marker time.
+        evaluated_at=max(logical_at, lockbox.begin["committed_at"]),
     ).tag
 
 
@@ -304,7 +320,11 @@ def _run_session(store: ReplaySessionStore, session: date) -> dict:
                         con, store.reconstructed_bars, store.actions,
                         as_of=logical_at, phase=phase,
                         knowledge_policy=store.split_knowledge_policy,
+                        index=store.price_index,
                     )
+                    if phase == "SCORE":
+                        # Production screens after the close and before scoring.
+                        build_session_universe(con, session, securities=store.securities)
                     if phase == "OPEN":
                         rewrite_known_split_adjustments(
                             con, store.actions, known_at=logical_at,
@@ -313,7 +333,7 @@ def _run_session(store: ReplaySessionStore, session: date) -> dict:
                         p15_books._rebuild_p15_state(con)
             elif store.run_books:
                 raise ReplayRunnerError("replay_price_archive_missing")
-        tag = _lockbox_tag(store)
+        tag = _lockbox_tag(store, logical_at)
         with open_store(
             store.path, research_root=store.research_root,
             live_db_path=store.live_db_path, kind="replay", read_only=True,
@@ -323,12 +343,12 @@ def _run_session(store: ReplaySessionStore, session: date) -> dict:
                 "notes": visible_notes(con, session=session, cutoff=logical_at),
                 "evaluation_tag": tag,
             }
-            plan = None if store.execute_phase is not None else _prepare_default_phase(
+            plan = None if store._test_execute_phase is not None else _prepare_default_phase(
                 con, store, phase, session, logical_at, phase_context
             )
         executed = (
-            store.execute_phase(phase, session, logical_at, phase_context)
-            if store.execute_phase is not None
+            store._test_execute_phase(phase, session, logical_at, phase_context)
+            if store._test_execute_phase is not None
             else _execute_default_phase(store, phase, plan)
         )
         terminal_rows = [{**dict(row), "evaluation_tag": tag} for row in executed]
@@ -343,14 +363,15 @@ def _run_session(store: ReplaySessionStore, session: date) -> dict:
             )
             if len(current) != PHASES.index(phase):
                 raise ReplayRunnerError("replay_clock_changed_during_phase")
-            if store.execute_phase is None and phase == "PREOPEN":
+            if store._test_execute_phase is None and phase == "PREOPEN":
                 apply_preopen(con, terminal_rows[0], session=session, logical_at=logical_at)
-            if store.execute_phase is None and phase == "CLOSE":
+            if store._test_execute_phase is None and phase == "CLOSE":
                 terminal_rows[0]["labels_written"] = produce_labels(
                     con, session=session, visible_at=logical_at,
                     reconstructed_bars=store.reconstructed_bars, actions=store.actions,
+                    knowledge_policy=store.split_knowledge_policy,
                 )
-            if store.execute_phase is None and phase == "SCORE":
+            if store._test_execute_phase is None and phase == "SCORE":
                 terminal_rows[0]["decisions_written"] = apply_score(
                     con, terminal_rows[0], cohort_id=store.cohort_id,
                     policy_id=store.policy_id, session=session, logical_at=logical_at,
@@ -387,7 +408,7 @@ def _run_session(store: ReplaySessionStore, session: date) -> dict:
         )
     return {
         "status": "completed" if complete == PHASES else "partial",
-        "session": session.isoformat(), "evaluation_tag": _lockbox_tag(store),
+        "session": session.isoformat(), "evaluation_tag": _lockbox_tag(store, clocks["POSTMORTEM"]),
         "completed_phases": list(complete), "executed": results,
     }
 
