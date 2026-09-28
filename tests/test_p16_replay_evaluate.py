@@ -105,6 +105,10 @@ def test_report_contains_counts_not_raw_text(tmp_path):
     assert target.read_text() == rendered
 
     assert "Status: **exploratory**" in render_replay_report(snapshot)
+    assert "## Censored labels\n\n- None" in rendered
+    snapshot["censored_labels"] = {"missing_asset_bar": 2, "late_split_knowledge": 1}
+    rendered = render_replay_report(snapshot)
+    assert "- late_split_knowledge: 1\n- missing_asset_bar: 2" in rendered
 
 
 def test_report_derives_confirmatory_complete_status_from_ledger(monkeypatch):

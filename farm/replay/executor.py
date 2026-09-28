@@ -10,13 +10,18 @@ from typing import Callable, Mapping, Sequence
 
 from engine.lib.provenance import canonical_sha256
 from farm.replay import p15_adapter
-from farm.replay.asof import label_price_point, label_split_normalized_return
+from farm.replay.asof import (
+    SplitQuarantineError,
+    label_price_point,
+    label_split_normalized_return,
+)
 from farm.replay.store import append_exact
 from server import agent_evaluation, agent_model_client
 from sim import nyse, p15_books
 
 SCORE_CHUNK_SIZE = 10
 LABEL_HORIZONS = (1, 5, 10, 20)
+CENSORED_PREFIX = "censored:"
 
 
 def init_executor_schema(con) -> None:
@@ -364,8 +369,9 @@ def produce_labels(
     visible_at: datetime,
     reconstructed_bars: Sequence[Mapping],
     actions: Sequence[Mapping],
+    knowledge_policy: str,
 ) -> int:
-    """Append labels that become visible at this close using raw split-normalized returns."""
+    """Append labels visible at this close; unlabelable ones are recorded as censored."""
     init_executor_schema(con)
     bars = {
         (str(row.get("security_id")), row.get("session") if isinstance(row.get("session"), date)
@@ -397,28 +403,48 @@ def produce_labels(
                 (security_id, session)
             )
             spy_entry, spy_exit = bars.get((spy_id, entry_session)), bars.get((spy_id, session))
-            if None in (asset_entry, asset_exit, spy_entry, spy_exit):
-                continue
-            entry_at = _phase_time(entry_session, "open")
-            exit_at = _phase_time(session, "close")
-            asset_return = label_split_normalized_return(
-                security_id=security_id, entry_point=label_price_point(asset_entry, "open"),
-                exit_point=label_price_point(asset_exit, "close"), entry_at=entry_at,
-                exit_at=exit_at, visible_at=visible_at, actions=actions,
-            )
-            spy_return = label_split_normalized_return(
-                security_id=spy_id, entry_point=label_price_point(spy_entry, "open"),
-                exit_point=label_price_point(spy_exit, "close"), entry_at=entry_at,
-                exit_at=exit_at, visible_at=visible_at, actions=actions,
-            )
+            status, excess = "terminal", None
+            if None in (asset_entry, asset_exit):
+                status = CENSORED_PREFIX + "missing_asset_bar"
+            elif None in (spy_entry, spy_exit):
+                status = CENSORED_PREFIX + "missing_spy_bar"
+            else:
+                entry_at = _phase_time(entry_session, "open")
+                exit_at = _phase_time(session, "close")
+                try:
+                    asset_return = label_split_normalized_return(
+                        security_id=security_id,
+                        entry_point=label_price_point(asset_entry, "open"),
+                        exit_point=label_price_point(asset_exit, "close"), entry_at=entry_at,
+                        exit_at=exit_at, visible_at=visible_at, actions=actions,
+                        knowledge_policy=knowledge_policy,
+                    )
+                    spy_return = label_split_normalized_return(
+                        security_id=spy_id, entry_point=label_price_point(spy_entry, "open"),
+                        exit_point=label_price_point(spy_exit, "close"), entry_at=entry_at,
+                        exit_at=exit_at, visible_at=visible_at, actions=actions,
+                        knowledge_policy=knowledge_policy,
+                    )
+                    excess = (asset_return - spy_return) * 10_000
+                except SplitQuarantineError as exc:
+                    status = CENSORED_PREFIX + str(exc).split(":", 1)[0]
             con.execute(
                 "INSERT INTO replay_labels VALUES (?,?,?,?,?,?,?)",
                 [decision_id, decision_session, f"h{horizon}",
                  visible_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
-                 "terminal", expected, (asset_return - spy_return) * 10_000],
+                 status, expected, excess],
             )
             inserted += 1
     return inserted
+
+
+def censored_label_counts(con) -> dict[str, int]:
+    """Count censored labels by reason for the report's exclusion table."""
+    rows = con.execute(
+        "SELECT status,count(*) FROM replay_labels WHERE starts_with(status,?) "
+        "GROUP BY status ORDER BY status", [CENSORED_PREFIX],
+    ).fetchall()
+    return {status[len(CENSORED_PREFIX):]: int(count) for status, count in rows}
 
 
 def _phase_time(session: date, field: str) -> datetime:
