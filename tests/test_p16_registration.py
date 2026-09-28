@@ -126,3 +126,16 @@ def test_committed_w4_registration_is_inert_while_w2_epoch_is_absent():
         "postmortem_schema": "schemas/postmortem-v1.json",
         "prompt": "prompts/notes-v1.txt",
     }
+    execution = p16_registration.load_execution_realism()
+    assert execution["status"] == "registered_inactive"
+    assert execution["real_data_producer_allowed"] is False
+    assert execution["v5_candidate"] == {
+        "activatable_from_w6": False,
+        "default_profile_unchanged": "baseline_v1",
+        "execution_basis_verified": False,
+        "future_cohorts_only": True,
+        "profile_id": "p16-fill-v5-candidate",
+        "requires_direct_paper_auction_evidence": True,
+    }
+    assert len(execution["training_sessions"]) == 60
+    assert len(execution["validation_sessions"]) == 20
