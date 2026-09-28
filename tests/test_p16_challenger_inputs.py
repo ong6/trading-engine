@@ -2,12 +2,16 @@ import json
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 
-import pytest
 import duckdb
+import pytest
 
 from engine.lib.provenance import canonical_sha256
 from engine.p16_challenger_inputs import (
-    ablate, blind, enrich, memory_examples, metadata_envelope,
+    ablate,
+    blind,
+    enrich,
+    memory_examples,
+    metadata_envelope,
 )
 
 

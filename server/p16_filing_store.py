@@ -331,8 +331,7 @@ def commit_cik_success(
         if existing:
             if existing != (response_id, accession_sha, source_body_sha, ingested, source_status):
                 raise ValueError("CIK response replay differs")
-            result = {"response_id": existing[0], "replayed": True, "queued": 0}
-            return result
+            return {"response_id": existing[0], "replayed": True, "queued": 0}
         prior_accessions = [] if prior is None else json.loads(prior[1])
         known = {row[0] for row in con.execute(
             "SELECT accession FROM p16_filing_accessions WHERE policy_id=?", [policy_id]).fetchall()}
