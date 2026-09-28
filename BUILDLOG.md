@@ -1250,4 +1250,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** build W6 execution-realism measurement and its non-activating calibration report.
 
+## 2026-09-28 — P16 W6: register inert fill calibration
+
+- **Why:** approved P16 W6 and the accepted Stage 2 design require opening-fill measurement,
+  chronological calibration, and a future-only v5 registration without changing P15.
+- **What:** add fixed pre-open sampling and order denominators, exact three-bar and quote capture,
+  append-only observations, separate held-out quote/VWAP checks, and a non-activating v5 guard.
+  Register 60 training plus 20 validation sessions; keep `baseline_v1` unchanged.
+- **Evidence:** `.venv/bin/python -m pytest -q` and `TZ=UTC .venv/bin/python -m pytest -q`
+  both reach `[100%]`; the 16 focused W6/registration tests pass.
+- **Metrics:** server +429, tools unchanged, product +497 (engine +247, farm +217, sim +33);
+  budget ok.
+- **Next:** build the weekly W7 operator digest on the existing status surfaces.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
