@@ -1385,4 +1385,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server, tools, and product unchanged; budget ok.
 - **Next:** W9b registration, rehearsal, and activation after the scheduled P15 sequence.
 
+## 2026-09-28 — P16 Phase A: pass the P15 pre-activation rehearsal
+
+- **Why:** approved P16 W0 schedules the fresh recovery and copied-store P15 rehearsal one full
+  dry-run day before the registration-revision-3 activation session.
+- **What:** create and independently verify an external 84-table recovery bundle; run the exact
+  scoring/book flow on an isolated copy at the registered pre-open cutoff. Keep all live P15
+  books and timers inactive, with zero runtime evidence.
+- **Evidence:** `.venv/bin/python -c '...p15_scoring_runner.dry_run(now=2026-09-28T11:00Z)...'`
+  completed 60 candidates, 18 calls, zero unavailable outcomes, and nine copy-only intents.
+- **Metrics:** server, tools, and product unchanged; budget ok.
+- **Next:** activate P15 revision 3 on 2026-09-29 before its first timer, then verify cycle one.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
