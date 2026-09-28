@@ -147,11 +147,11 @@
     "unavailable_decision_count": 0
   },
   "data_provenance": {
-    "fact_count": 154705,
+    "fact_count": 304722,
     "historical_membership_authority": false,
     "pit_import_batch_count": 0,
     "pit_import_row_count": 0,
-    "receipt_count": 650,
+    "receipt_count": 1149,
     "sec_current_mapping_fact_count": 0,
     "sec_filing_fact_count": 0
   },
@@ -177,7 +177,7 @@
     "turnover_notional": 938.54298800416,
     "turnover_over_initial_cash": 0.093854298800416
   },
-  "generated_at": "2026-09-26T16:33:09.625122+00:00",
+  "generated_at": "2026-09-28T14:00:28.427876+00:00",
   "horizons": [
     1,
     5,
@@ -308,7 +308,7 @@
       "unavailable_count": 0,
       "window_count": 0
     },
-    "generated_at": "2026-09-26T16:33:09.625122+00:00",
+    "generated_at": "2026-09-28T14:00:28.427876+00:00",
     "observer_pairing": {
       "four_hour_opportunity_review_v5": 0,
       "hourly_market_watch_v5": 0
@@ -344,12 +344,13 @@
     "primary": {
       "book_look_dates": [],
       "candidate_count": 0,
-      "earliest_next_look_date": "2026-12-29",
+      "earliest_next_look_date": "2026-12-23",
       "immature_session_count": 0,
       "insufficient_session_count": 0,
       "looks": [],
       "missing_mature_label_count": 0,
       "next_look": 60,
+      "origin_epoch": "2026-09-29",
       "scored_session_count": 0,
       "status": "not_initialized"
     },
@@ -362,7 +363,7 @@
     "cohort_start": "2026-09-23",
     "completed_round_trip_count": 0,
     "completed_session_count": 3,
-    "elapsed_calendar_days": 3,
+    "elapsed_calendar_days": 5,
     "lower_bound_is_gate": false,
     "lower_confidence_bound": null,
     "mean_net_round_trip_return": null,
