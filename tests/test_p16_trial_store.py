@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -33,7 +34,7 @@ def _reconciliation(con, trial_ids, *, digest=None):
         entries.append({"source": "plans", "source_key_sha256": p16_trials.canonical_sha256(
             {"run": source}), "trial_id": trial_id, "disposition": "alias", "reason": None})
     current = trials.project(con, generated_at=NOW + timedelta(days=30))
-    plans = [f"P{number}" for number in range(5, 17)]
+    plans = sorted(p16_trials.PLANS)
     records = trials._records(con, NOW + timedelta(days=30))
     return {"scope": "all_plans_and_deterministic_baselines_through_p16",
             "covered_plans": plans,
@@ -248,3 +249,19 @@ def test_append_sequence_is_stable_on_replay_and_tamper_evident(con):
     con.execute(f"UPDATE {trials.TABLE} SET append_sequence=10 WHERE trial_id=?", [trial_id])
     with pytest.raises(ValueError, match="trial record differs"):
         trials.project(con, generated_at=NOW)
+
+
+def test_accepted_census_loads_every_row_and_exact_trial_contribution(con):
+    rows = json.loads(trials.CENSUS_PATH.read_text())
+    result = trials.load_census(con)
+    registrations = [row for row in trials._records(con)
+                     if row["record_kind"] == "registration"]
+
+    assert len(rows) == result["registered_trial_count"] == len(registrations) == 103
+    assert result["selection_trial_count"] == sum(row["n_contribution"] for row in rows) == 139
+    assert len(result["selection_trial_ids"]) == 139
+    assert p16_trials.PLANS == {"pre-plan", *(f"P{number}" for number in range(5, 17))}
+    assert sum(row["payload"]["identity_status"] == "provisional"
+               for row in registrations) == sum(
+                   row["identity_status"] == "provisional" for row in rows)
+    assert trials.load_census(con)["register_sha256"] == result["register_sha256"]

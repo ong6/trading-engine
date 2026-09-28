@@ -1361,4 +1361,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +124, tools unchanged, product +4 (farm +4); budget ok.
 - **Next:** retire documentation-pinning tests and split the operations and architecture guides.
 
+## 2026-09-28 — P16 W9a: load the accepted trial census
+
+- **Why:** approved P16 W9 requires the canonical register to count every accepted P5–P16 trial;
+  the orchestrator supplied the binding historical census and identity decisions.
+- **What:** commit the 103-row census source, admit its `pre-plan` rows, preserve provisional
+  identities, and load stable weighted contributions into the canonical register. Reconciliation
+  now reports exact conservative selection-trial N=139 without inventing missing parents.
+- **Evidence:** `.venv/bin/pytest -o addopts= -q tests/test_p16_trial_store.py tests/test_p16_challenger_runner.py`
+  passes 24 tests, including source-row count, contribution sum, identities, and replay stability.
+- **Metrics:** server +188, tools unchanged, product +18 (farm); budget ok.
+- **Next:** run the full host, UTC, and Asia/Singapore suites before documentation cleanup.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
