@@ -1305,4 +1305,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Next:** orchestrator review of the W6 round-2 checkpoint; W9 owns activation dates and the
   documented delayed-data dry-run.
 
+## 2026-09-28 — P16 W6: retain failed-bar measurements
+
+- **Why:** the orchestrator accepted W6 on condition that every selected name keeps one
+  best-attempt measurement even when its bars fail or remain incomplete.
+- **What:** retain the best incomplete bar attempt, persist a measured failure when every attempt
+  fails, and keep valid quote targets plus the cutoff-bounded liquidity tier in the observation.
+  Mark W6 accepted and record the four round-2 activation follow-ups under W9.
+- **Evidence:** `.venv/bin/python -m pytest -q tests/test_p16_fill_runner.py` passes the fixture
+  where BBB has valid quotes, failed bars, a retained quote target, and tier `gte_50m`.
+- **Metrics:** server +0; tools +0; product +21 (farm); budget ok.
+- **Next:** classify and fix the repository-wide Asia/Singapore failures outside P15's closure.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

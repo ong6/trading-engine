@@ -84,8 +84,6 @@ def test_fixture_run_selects_captures_observes_failures_and_writes_reports(tmp_p
         return _bars("secondary", "secondary-v1", offset=0.01)
 
     def quote(security_id, index, observed_at):
-        if security_id == "BBB":
-            raise RuntimeError("fixture unavailable")
         return {"received_at": observed_at, "bid": 99.9, "ask": 100.1,
                 "bid_at": observed_at - timedelta(seconds=1),
                 "ask_at": observed_at - timedelta(seconds=1), "venue": "FIXTURE",
@@ -104,7 +102,14 @@ def test_fixture_run_selects_captures_observes_failures_and_writes_reports(tmp_p
     rows = {row["security_id"]: row for row in result["observations"]}
     assert rows["AAA"]["quote_target_bp"] is not None
     assert rows["AAA"]["cross_source_open_gap_bp"] is not None
-    assert "primary_measurement_unavailable" in rows["BBB"]["missing_reasons"]
+    assert rows["BBB"]["quote_target_bp"] is not None
+    assert rows["BBB"]["liquidity_tier"] == "gte_50m"
+    assert "bar_capture_failed" in rows["BBB"]["missing_reasons"]
+    assert "primary_measurement_unavailable" not in rows["BBB"]["missing_reasons"]
+    assert con.execute(
+        "SELECT COUNT(DISTINCT security_id) FROM p16_fill_measurements "
+        "WHERE security_id IN ('AAA','BBB')"
+    ).fetchone() == (2,)
     assert result["report"]["status"] == "collecting"
     assert all((tmp_path / "reports" / name).exists() for name in
                ("fill-calibration.json", "fill-calibration.md"))
