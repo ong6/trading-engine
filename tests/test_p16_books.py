@@ -1,12 +1,13 @@
 """P16-only simulator parity, atomicity, and retry checks."""
 from __future__ import annotations
 
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 
 import pytest
 
 from engine.lib import db
-from server import p16_book_store
+from engine.lib.provenance import canonical_sha256
+from server import p15_price_fetch_attempts, p16_book_store
 from sim import p16_book_mechanics, p16_books
 from tests.conftest import SESSIONS, insert_bars, record_p16_calibration
 
@@ -17,11 +18,29 @@ def _observed(session):
     return datetime.combine(session, time(16), tzinfo=timezone.utc)
 
 
+def _price_fetch_cutoff(session):
+    return datetime.combine(session, time(22, 45), tzinfo=timezone.utc)
+
+
 REGISTRATION = "a" * 64
 SOURCE = "b" * 64
 
 
 def _book(con):
+    p15_price_fetch_attempts.init_schema(con)
+    rows = []
+    for index, session in enumerate(SESSIONS, start=1):
+        attempted = _price_fetch_cutoff(session)
+        identity = {
+            "market_date": session.isoformat(), "attempted_at": attempted.isoformat(),
+            "source": "yfinance", "requested_count": 0, "failed_count": 0,
+            "present_count": 0, "missing_count": 0, "missing_tickers": [],
+        }
+        rows.append([
+            index, session, attempted.replace(tzinfo=None), "yfinance", 0, 0, 0, 0,
+            canonical_sha256(identity),
+        ])
+    con.executemany("INSERT INTO p15_price_fetch_batches VALUES (?,?,?,?,?,?,?,?,?)", rows)
     con.execute(
         "UPDATE prices SET fetched_at=COALESCE(fetched_at, ?) WHERE date<=?",
         [_observed(SESSIONS[30]).replace(tzinfo=None), SESSIONS[30]],
@@ -295,7 +314,7 @@ def test_missing_next_open_rejects_after_three_session_observation_grace(con):
     assert recovered["sessions"] == [SESSIONS[34].isoformat()]
 
 
-def test_ordered_recovery_retains_mandatory_exit_for_the_next_future_open(con):
+def test_ordered_recovery_queues_detected_exit_in_the_recovery_window(con):
     insert_bars(
         con, "AAA", SESSIONS[:33], open_=100,
         close=[100] * 31 + [90, 90], high=101, low=89,
@@ -320,10 +339,14 @@ def test_ordered_recovery_retains_mandatory_exit_for_the_next_future_open(con):
     assert recovered["sessions"] == [
         SESSIONS[31].isoformat(), SESSIONS[32].isoformat(),
     ]
-    assert recovered["filled"] == 0
+    assert recovered["filled"] == 1
     assert con.execute(
         "SELECT side,fill_date FROM p16_book_fills ORDER BY fill_date",
-    ).fetchall() == [("buy", SESSIONS[30])]
+    ).fetchall() == [("buy", SESSIONS[30]), ("sell", SESSIONS[32])]
+    assert con.execute(
+        "SELECT signal_date,expected_session,order_role,status FROM p16_order_intents "
+        "WHERE side='sell'",
+    ).fetchone() == (SESSIONS[31], SESSIONS[32], "stop", "filled")
     assert con.execute(
         "SELECT market_date,reason FROM p16_book_windows ORDER BY market_date",
     ).fetchall() == [
@@ -334,15 +357,59 @@ def test_ordered_recovery_retains_mandatory_exit_for_the_next_future_open(con):
     assert p16_books.deferred_mandatory_exits(
         con, book_instance_id=instance, held_tickers={"AAA"},
         signal_date=SESSIONS[32], information_cutoff_at=_observed(SESSIONS[32]),
-    ) == {"AAA": "stop"}
-    # A replay at an earlier cutoff must not see exits a later recovery recorded.
-    assert p16_books.deferred_mandatory_exits(
-        con, book_instance_id=instance, held_tickers={"AAA"},
-        signal_date=SESSIONS[31], information_cutoff_at=_observed(SESSIONS[31]),
     ) == {}
     assert con.execute(
         "SELECT COALESCE(SUM(qty),0) FROM sim_positions WHERE portfolio_id=?", [instance],
-    ).fetchone() == (10,)
+    ).fetchone() == (0,)
+
+
+def test_recovery_waits_until_the_missing_windows_construction_deadline(con):
+    insert_bars(con, "AAA", SESSIONS[:32], open_=100, close=100, high=101, low=99)
+    instance = _book(con)
+    _queue(con, instance)
+    assert p16_books.process_window(
+        con, book_instance_id=instance, market_date=SESSIONS[30],
+        observed_at=_observed(SESSIONS[30]),
+    )["status"] == "completed"
+
+    before_open = datetime.combine(SESSIONS[31], time(13), tzinfo=timezone.utc)
+    result = p16_books.process_through(
+        con, book_instance_id=instance, market_date=SESSIONS[31],
+        observed_at=before_open,
+    )
+
+    assert result["status"] == "already_complete" and result["sessions"] == []
+    assert con.execute(
+        "SELECT COUNT(*) FROM p16_book_windows WHERE market_date=?", [SESSIONS[31]],
+    ).fetchone() == (0,)
+    assert con.execute(
+        "SELECT COUNT(*) FROM p16_construct_targets WHERE signal_date=?", [SESSIONS[30]],
+    ).fetchone() == (0,)
+
+
+def test_recovery_waits_when_held_close_missed_the_price_fetch_cutoff(con):
+    insert_bars(con, "AAA", SESSIONS[:32], open_=100, close=100, high=101, low=99)
+    instance = _book(con)
+    _queue(con, instance)
+    assert p16_books.process_window(
+        con, book_instance_id=instance, market_date=SESSIONS[30],
+        observed_at=_observed(SESSIONS[30]),
+    )["filled"] == 1
+    con.execute(
+        "UPDATE prices SET fetched_at=? WHERE ticker='AAA' AND date=?",
+        [(_price_fetch_cutoff(SESSIONS[30]).replace(tzinfo=None)
+          + timedelta(minutes=1)), SESSIONS[30]],
+    )
+
+    result = p16_books.process_through(
+        con, book_instance_id=instance, market_date=SESSIONS[31],
+        observed_at=_observed(SESSIONS[31]),
+    )
+
+    assert result["status"] == "already_complete" and result["sessions"] == []
+    assert con.execute(
+        "SELECT COUNT(*) FROM p16_book_windows WHERE market_date=?", [SESSIONS[31]],
+    ).fetchone() == (0,)
 
 
 def test_recovery_precedes_and_invalidates_a_stale_later_claim(con):
