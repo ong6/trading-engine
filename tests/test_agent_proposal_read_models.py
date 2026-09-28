@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import duckdb
 import pytest
@@ -20,6 +20,7 @@ from tests.agent_test_helpers import (
 )
 
 NOW = datetime(2026, 9, 13, 12, 0)
+NOW_UTC = NOW.replace(tzinfo=timezone.utc)
 
 
 def _insert_projection_row(
@@ -75,7 +76,7 @@ def test_projection_has_exact_bounded_public_shape(con):
     fixed_etf_market(con)
     complete_dual_momentum_history(con)
     bounded = context(con)
-    result = agent_proposals.submit(con, proposal_body(bounded), now=NOW)
+    result = agent_proposals.submit(con, proposal_body(bounded), now=NOW_UTC)
     con.execute("ALTER TABLE agent_proposals ADD COLUMN internal_secret VARCHAR")
     con.execute("UPDATE agent_proposals SET internal_secret = 'not public'")
 
@@ -187,7 +188,7 @@ def test_projection_rejects_validation_evidence_copied_to_another_context(con):
     fixed_etf_market(con)
     complete_dual_momentum_history(con)
     bounded = context(con)
-    agent_proposals.submit(con, proposal_body(bounded), now=NOW)
+    agent_proposals.submit(con, proposal_body(bounded), now=NOW_UTC)
     con.execute(
         "UPDATE agent_proposals SET validated_context_sha256 = ?",
         ["f" * 64],

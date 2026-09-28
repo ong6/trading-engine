@@ -30,6 +30,19 @@ HOLIDAYS = {date(2024, 6, 19), date(2024, 7, 4)}
 _P16_CALIBRATION_PAYLOADS = {}
 
 
+@pytest.fixture(autouse=True)
+def utc_duckdb_connections(monkeypatch):
+    """Mirror the host's explicit UTC storage contract under any test process TZ."""
+    original = duckdb.connect
+
+    def connect(*args, **kwargs):
+        connection = original(*args, **kwargs)
+        connection.execute("SET TimeZone='UTC'")
+        return connection
+
+    monkeypatch.setattr(duckdb, "connect", connect)
+
+
 def sessions(start=date(2024, 6, 3), end=date(2024, 7, 31)) -> list[date]:
     out, d = [], start
     while d <= end:
@@ -200,7 +213,7 @@ def record_p16_calibration(con, registration, recorded_at, *, cost=0.0005):
 
 
 @pytest.fixture
-def con():
+def con(utc_duckdb_connections):
     """In-memory DuckDB with the prices table + the sim schema."""
     c = duckdb.connect()
     c.execute(PRICES_DDL)

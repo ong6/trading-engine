@@ -1317,4 +1317,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +0; tools +0; product +21 (farm); budget ok.
 - **Next:** classify and fix the repository-wide Asia/Singapore failures outside P15's closure.
 
+## 2026-09-28 — P16 W9a: make test timezones explicit
+
+- **Why:** approved P16 W9 requires the full suite to run under Asia/Singapore without relying on
+  the process timezone being UTC.
+- **What:** configure every test-created DuckDB connection for UTC storage and make proposal-read
+  model validation pass an aware UTC instant. Production connection setup stays frozen with P15.
+- **Evidence:** `TZ=Asia/Singapore .venv/bin/pytest -q` reaches `[100%]` with no failures.
+- **Metrics:** server, tools, and product unchanged; budget ok.
+- **Next:** apply the W1 evaluation review fixes and required census/kill adapter wiring.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
