@@ -1,6 +1,8 @@
 """P16 status failures and primary-kill projection stay outside frozen P15 code."""
 from datetime import datetime, timezone
 
+import pytest
+
 from server import p16_status_adapter
 
 NOW = datetime(2026, 9, 28, tzinfo=timezone.utc)
@@ -22,11 +24,12 @@ def test_primary_kill_ends_ineligible_comparisons_without_mutating_input():
     assert original["p15"]["books"]["comparisons"][0]["status"] == "collecting"
 
 
-def test_p16_projection_failure_returns_unavailable_without_raising(monkeypatch):
+@pytest.mark.parametrize("error", [ValueError("bad P16 report"), KeyError("rows"), TypeError("None")])
+def test_p16_projection_failure_returns_unavailable_without_raising(monkeypatch, error):
     monkeypatch.setattr(
         p16_status_adapter.p16_reporting,
         "project",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("bad P16 report")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(error),
     )
 
     result = p16_status_adapter.project(object(), generated_at=NOW)
