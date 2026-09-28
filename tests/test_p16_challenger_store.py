@@ -5,7 +5,8 @@ import pytest
 
 from engine.lib.provenance import canonical_sha256
 from farm import p16_trials
-from server import p16_challenger_store as store, p16_trial_store
+from server import p16_challenger_store as store
+from server import p16_trial_store
 
 NOW = datetime(2026, 9, 29, 2, 45, tzinfo=timezone.utc)
 REGISTRATION = "a" * 64
