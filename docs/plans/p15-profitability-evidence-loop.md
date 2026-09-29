@@ -440,7 +440,7 @@ only** (owner, 2026-09-25). Every other AGENTS.md rule still applies.
 | W5 Event triggers | done | 2026-09-26 |
 | W6 Gates and reporting | done | 2026-09-26 |
 | W7 Cleanup and docs | done | 2026-09-26 |
-| W8 Activation | on hold → P16 W0 | 2026-09-26 (registration and copied-store rehearsal; review found R1–R16) |
+| W8 Activation | revision 3 deployed; first-cycle verification pending | 2026-09-29 (books and timers active; checks continue through 2026-10-01) |
 
 ## Risks
 
