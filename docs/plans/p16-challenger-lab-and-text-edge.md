@@ -575,9 +575,9 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 - **Use the context window.** Load this plan, the blueprint, P15, `product.md`, `AGENTS.md`, and
   the P15 evaluation and scoring modules at the start of each workstream, rather than rediscovering
   them through search.
-- **Refine loop.** Use the `improve-work` skill: in the store at `.claude/skills/improve-work/`,
+- **Refine loop.** Use the `refine` skill: in the store at `.claude/skills/refine/`,
   and publicly at
-  [ong6/skillpack `skills/improve-work`](https://github.com/ong6/skillpack/tree/main/skills/improve-work).
+  [ong6/skillpack `skills/refine`](https://github.com/ong6/skillpack/tree/main/skills/refine).
   If the skill is not installed, follow that file.
   - Fresh reviewer sub-agents with no inherited context score the artifact against a rubric they
     choose in round 1, then freeze it.
