@@ -161,8 +161,8 @@ does not satisfy the paid historical-universe gate.
 The P12 foundation is complete. Hourly and four-hour agents are shadow-only; the nightly P8 agent
 can request one typed simulator trade, but deterministic code validates the symbol, confidence,
 size, risk, next-open execution, and exits. P15 W0-W7 add pairable v5 observers, candidate-wide
-scoring, three inactive comparator books, cancel-only pre-open review, shadow events, and coded
-gates. Every accepted call remains locked, idempotent, append-only, and fully attributed.
+scoring, three comparator books, cancel-only pre-open review, shadow events, and coded gates; W8
+activated them on 2026-09-29. Every accepted call remains locked, idempotent, append-only, and fully attributed.
 
 Current counts and policy versions come from `GET /agent/evaluation/status`,
 `data/reports/agent-evaluation.json`, and `data/reports/agent-eval/p15.md`, never this prose. The v5

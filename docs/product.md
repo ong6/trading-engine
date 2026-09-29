@@ -30,32 +30,34 @@ accounting, halts, and kill switches. That split is the product, not a temporary
 5. **Inside the drawdown envelope**: a policy that can lose most of the book fails regardless of
    its recent run.
 
-## Where it stands (2026-09-28)
+## Where it stands (2026-09-29)
 
 The appliance is mature: nightly data, screen, league, three frozen forward records, weekly
 walk-forward, recovery bundles, TradingView research data, and a live nightly AI agent with a
 locked simulator trade tool (P8/P9) whose decisions land in one evaluation ledger (P11/P12).
 **No policy has yet beaten its frozen control prospectively.**
 
-[P15](plans/p15-profitability-evidence-loop.md) W0-W7 are built and independently reviewed. The
-v5 hourly/four-hour observers retain pairable evidence; the candidate-wide scoring policy, three
-equal-mechanics comparator books, cancel-only pre-open check, shadow event triggers, coded gates,
-trial register, status projection, and generated report are present. All three P15 books and all
-three P15 timers remain inactive until the W8 registration and recovery-gated activation. No P15
-performance claim exists before that prospective evidence accrues.
+[P15](plans/p15-profitability-evidence-loop.md) went live on 2026-09-29 under registration
+revision 3, after a verified 90-table recovery bundle: candidate-wide scoring, the three
+equal-mechanics comparator books (25 active books in all), the cancel-only pre-open check,
+shadow event triggers, and coded gates. First-cycle checks run through 2026-10-01; the plan
+table records P15 as `active` once they are green. No P15 performance claim exists before its
+registered looks.
 
-[P16](plans/p16-challenger-lab-and-text-edge.md) W1–W8 are built and remain inert: evaluation v2,
-the challenger and filing paths, historical text/replay labs, deterministic portfolio
-construction, opening-fill measurement, the weekly digest, and the Stage 2 design. The canonical
-P5–P16 census contains 103 registrations with conservative weighted trial contribution N=139.
-None of this activates a P16 policy or changes `baseline_v1`; W9b owns registration, rehearsals,
-and any activation after the P15 sequence.
+[P16](plans/p16-challenger-lab-and-text-edge.md) W1–W8 and W9a are built and remain inert:
+evaluation v2, the challenger and filing paths, historical text/replay labs, deterministic
+portfolio construction, opening-fill measurement, the weekly digest, and the Stage 2 design. The
+public P5–P16 census holds 103 registrations with conservative weighted trial contribution
+N=139. W9b owns registration, rehearsals, and any activation.
+
+Since 2026-09-28, new strategy research runs in a private repository against this engine under
+the same census and pre-registration rules; its results are not published here.
 
 ## Stages
 
 | Stage | Goal | Exit | Earliest |
 |---|---|---|---|
-| 0 · Collect | P15 live; P7 activated; P8/P9 keep running | P15 scoring, books, and triggers live with coded gates | ~2026-11 |
+| 0 · Collect | P15 live (since 2026-09-29); P7 activated; P8/P9 keep running | P15 scoring, books, and triggers live with coded gates | ~2026-11 |
 | 1 · Judge | Pre-registered verdicts on each AI policy | Each policy passes or is killed by its own gate | P15 scoring first look ~2027-01; P8 ~2027-02; E1 2027-05-10; sector momentum 2027-09-04; P7 ≥12 months after activation |
 | 2 · Broker-paper | Same engine on the owner's own hardware against an IBKR paper account | 1–3 months of broker-paper fills reconciled to the simulator, slippage calibrated, zero unattributed orders | After a Stage 1 pass |
 | 3 · Small live capital | Autonomous live trading, capped and staged | Live results track paper within tolerance at each capital step | After Stage 2 |
@@ -73,13 +75,13 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 | Date | Decision | Where |
 |---|---|---|
 | 2026-09-28 | This repo is the public infrastructure; new strategies, prompts, registrations, results and findings go to a private alpha repo. P15 and P16 as built stay public as a demo | AGENTS, feedback |
-| 2026-09-26 | Replace maintain-only framing with build-toward-verdict guidance; add the system blueprint; keep P16 proposed until P15 W8 | AGENTS, blueprint, P16, feedback |
-| 2026-09-25 | P15 approved: score every candidate, add deterministic comparator books, add a pre-open check and event-driven shadow triggers, and code the gates. It may run as one long session with sub-agents | [P15](plans/p15-profitability-evidence-loop.md), feedback |
 | 2026-09-27 | Add a synthetic end-to-end proving ground with evaluation loops (P16 W11) once the main issues are fixed | P16 |
 | 2026-09-27 | Technical decisions in orchestrated runs belong to the orchestrating agent (Claude Opus); the owner keeps product decisions. Per-layer size limits removed | `AGENTS.md`, feedback |
+| 2026-09-26 | Replace maintain-only framing with build-toward-verdict guidance; add the system blueprint; keep P16 proposed until P15 W8 | AGENTS, blueprint, P16, feedback |
 | 2026-09-26 | P16 approved with ceilings. P15 activation is held and moves into P16 W0 after the review fixes (R1–R16). The `improve-work` refine loop gates each registration and ends the run | P16, feedback |
 | 2026-09-26 | Data: use every free source first, scraping included; paid data waits (owner). Raw scraped text stays on the host, outside the public repo | P16 |
 | 2026-09-26 | Instructions refreshed: build toward a verdict inside plans; lint is not a defect; P1 closed | feedback |
+| 2026-09-25 | P15 approved: score every candidate, add deterministic comparator books, add a pre-open check and event-driven shadow triggers, and code the gates. It may run as one long session with sub-agents | [P15](plans/p15-profitability-evidence-loop.md), feedback |
 | 2026-09-25 | Model token cost is excluded from the profitability definition; trading and data costs still count | This page |
 | 2026-09-25 | This page is the central product and decision document (was `direction.md`) | This page |
 | 2026-09-25 | TradingView active for research data under owner-held non-display rights; never prices fills or grants execution authority. Alpaca stays dormant | P13, P14 |
@@ -123,16 +125,26 @@ Each row has the default that applies until the owner decides.
 1. **Keep the evidence clean.** Scheduled producers green, no missed agent windows, no identity
    drift, no uncommitted work on the host (the nightly `git pull` fails on a dirty tree).
    A broken producer beats every item below.
-2. **[P16](plans/p16-challenger-lab-and-text-edge.md), completing W0/W9b.** W1–W8 and W9a are
-   built and inert. Finish the registered P15 dry-run/activation sequence, then P16 registration,
-   rehearsals, and only the components whose gates permit activation. W11's synthetic proving
-   ground follows the main activation blockers.
-3. **Activate P7.** Backup-gated tri-arm schema and initializer, the recorded SGD/USD opening
+2. **P15 first cycle.** Verify the first live pre-open, event, and scoring cycles (2026-09-29 to
+   10-01) and move P15 to `active` only when they are green. Never tune a registered value to
+   get there.
+3. **[P16](plans/p16-challenger-lab-and-text-edge.md) W9b.** Register and rehearse, then activate
+   only the components whose gates permit it: the challenger lab and weekly digest first, the
+   filing reader once the SEC contact is set. W10's refine pass follows.
+4. **P16 W11 as the power test.** Plant a known edge and pure noise in the synthetic proving
+   ground, and record how long each gate takes to detect the edge and how often it passes the
+   noise. Every "earliest verdict" date on this page should come from that measurement.
+5. **Activate P7.** Backup-gated tri-arm schema and initializer, the recorded SGD/USD opening
    observation, then the tri-arm orchestrator and its status panel. It tests whether the AI
    allocates better than the rule at low turnover, which the research verdicts favour.
-4. **P2 league collapse.** Retire books that answer no open question to cut nightly noise.
-5. **First-fill lifecycle rehearsal.** Rehearse backup and restore across the whole order → fill →
+6. **P2 league collapse.** Retire books that answer no open question to cut nightly noise.
+7. **First-fill lifecycle rehearsal.** Rehearse backup and restore across the whole order → fill →
    exit path using the P8 FSLY position.
+
+**Build only what the next verdict needs.** The engine already has more built-but-inert
+capability than evidence. A new layer, endpoint, or ledger needs a plan and a verdict that asks
+for it (the 2026-09-18 failure mode). How a candidate moves from idea to authority is the
+[research funnel](system-blueprint.md#research-funnel-screen-wide-confirm-narrow).
 
 ## Expansion candidates (after Stage 1, each needs its own plan)
 
