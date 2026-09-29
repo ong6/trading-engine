@@ -1,8 +1,9 @@
 [Unit]
-Description=Continue the bounded TradingView history archive every four hours
+Description=Continue the bounded TradingView history archive outside weekday market hours
 
 [Timer]
-OnCalendar=*-*-* 03,07,11,15,19,23:40:00 UTC
+OnCalendar=Mon..Fri *-*-* 03,07,11,21,23:40:00 UTC
+OnCalendar=Sat,Sun *-*-* 03,07,11,15,19,23:40:00 UTC
 Persistent=true
 RandomizedDelaySec=10min
 Unit=trading-engine-tradingview-history.service

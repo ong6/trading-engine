@@ -4,6 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 
+from engine import queue_runner
 from tools import install_automation
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -148,7 +149,17 @@ def test_tradingview_archive_timer_is_bounded_and_queue_owned():
     runner = _unit("server/run_tradingview_history_archive.sh")
     _assert_common_service_hardening(service)
     assert "TimeoutStartSec=4h" in service and "Nice=19" in service
-    assert "03,07,11,15,19,23:40:00 UTC" in timer and "Persistent=true" in timer
+    assert "Mon..Fri *-*-* 03,07,11,21,23:40:00 UTC" in timer
+    assert "Sat,Sun *-*-* 03,07,11,15,19,23:40:00 UTC" in timer
+    assert "Persistent=true" in timer
+    assert "Mon..Fri *-*-* 03,07,11,15,19,23:40:00 UTC" not in timer
+    assert (
+        f"Environment=TRADING_ENGINE_LOCK_WAIT_S={queue_runner.BATCH_REACQUIRE_WAIT_S:g}"
+        in service
+    )
+    log = "append:%h/trading-engine/logs/tradingview-history.log"
+    assert f"StandardOutput={log}" in service
+    assert f"StandardError={log}" in service
     assert "--enqueue tradingview_history" in runner
     assert "--run --run-kind tradingview_history" in runner
     assert '"max_chunks":50' in runner and "official_quote_source" not in runner
