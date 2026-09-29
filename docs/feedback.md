@@ -488,3 +488,22 @@ demo. From now on, strategy-specific work goes to a private repo.
    a change as alpha.
 
 **Ceiling changes.** None.
+
+## 2026-09-29 — Private off-host backups of the store
+
+**Verdict.** The owner approved copying the store and the research files off this host into a
+private repository they own, so a lost or replaced host loses nothing that cannot be rebuilt.
+
+**Rule changes.**
+
+1. A daily backup may push the DuckDB store (as incremental Parquet segments), the recovery
+   bundle's evidence files, and small research files to the owner's private data repository.
+   Every run restores the export and checks every table's checksum before it pushes.
+   → `scope.md` "Never on this host".
+2. The backup takes a consistent copy with `tools.backup_database create`, or under the same
+   producer locks when that tool refuses. It never holds the live store open and never disturbs
+   a producer.
+3. Nothing else changes: no broker connection, credentials, or real capital on this host, and
+   raw data still never goes to this public repository.
+
+**Ceiling changes.** None.
