@@ -1422,4 +1422,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged (docs only).
 - **Next:** P15 first-cycle checks through 2026-10-01, then P16 W9b.
 
+## 2026-09-29 — Record the owner's private off-host backup decision
+
+- **Why:** owner decision (`feedback.md`, 2026-09-29): the store and research files may leave
+  the host for a private backup repository.
+- **What:** recorded the decision and its rules in `feedback.md`, the "Never on this host" rule
+  in `scope.md`, and the decisions table in `product.md`. The backup runs from a separate private
+  repository and uses only the existing `tools.backup_database` command; no engine code changed.
+- **Evidence:** a fresh clone of the backup on a second machine restored all 90 tables with every
+  checksum matching the live copy.
+- **Metrics:** unchanged (docs only).
+- **Next:** P15 first-cycle checks through 2026-10-01, then P16 W9b.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

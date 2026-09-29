@@ -57,8 +57,9 @@ W9b registration, rehearsal, and activation gates. The Stage 2 output is design 
 
 ## Never on this host
 
-Broker connections, broker credentials, real capital, anything that leaves the box other than
-public data pushes to the configured upstream. P13 may load owner-only research-data credentials
+Broker connections, broker credentials, real capital, and anything that leaves the box
+other than public data pushes to the configured upstream and the owner's private daily backup
+of the store and research files (owner, 2026-09-29; `feedback.md`). P13 may load owner-only research-data credentials
 solely for an admitted provider whose automated non-display terms were explicitly accepted.
 
 ## Proposed, not approved

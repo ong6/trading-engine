@@ -74,6 +74,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-09-29 | Daily private off-host backup of the store and research files, restore-checked on every run | feedback, `scope.md` |
 | 2026-09-28 | This repo is the public infrastructure; new strategies, prompts, registrations, results and findings go to a private alpha repo. P15 and P16 as built stay public as a demo | AGENTS, feedback |
 | 2026-09-27 | Add a synthetic end-to-end proving ground with evaluation loops (P16 W11) once the main issues are fixed | P16 |
 | 2026-09-27 | Technical decisions in orchestrated runs belong to the orchestrating agent (Claude Opus); the owner keeps product decisions. Per-layer size limits removed | `AGENTS.md`, feedback |
