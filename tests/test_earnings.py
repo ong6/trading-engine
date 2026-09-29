@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import duckdb
 import pytest
@@ -32,7 +32,7 @@ def _run(monkeypatch, con, tmp_path, pairs, responses):
 def test_default_universe_is_active_equities_from_fundamentals_and_latest_screen(
     earnings_con,
 ):
-    today = date.today()
+    today = datetime.now(UTC).date()
     earnings_con.executemany(
         """
         INSERT INTO universe (ticker, yf_ticker, active, liquid, etf)
@@ -124,7 +124,7 @@ def test_explicit_universe_preserves_order_mapping_and_unrestricted_override(
 
 
 def test_fetch_log_validates_and_preserves_attempts(earnings_con):
-    today = date.today()
+    today = datetime.now(UTC).date()
     rows = [{"ticker": "AAA", "status": "failed", "n_dates": 0}]
     assert db.insert_earnings_fetch_log(earnings_con, rows, as_of=today) == 1
     assert db.insert_earnings_fetch_log(earnings_con, rows, as_of=today) == 1
@@ -179,11 +179,11 @@ def test_resume_skips_ok_and_empty_but_retries_failed(monkeypatch, earnings_con,
         ("CCC", "failed", 0),
         ("CCC", "ok", 2),
     ]
-    assert earnings._already_done(earnings_con, date.today()) == {"AAA", "BBB", "CCC"}
+    assert earnings._already_done(earnings_con, datetime.now(UTC).date()) == {"AAA", "BBB", "CCC"}
 
 
 def test_legacy_calendar_row_remains_resume_evidence(earnings_con):
-    today = date.today()
+    today = datetime.now(UTC).date()
     earnings_con.execute(
         "INSERT INTO earnings_calendar "
         "(ticker, earnings_date, as_of, is_estimate) VALUES ('OLD', ?, ?, FALSE)",

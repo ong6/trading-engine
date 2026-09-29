@@ -1,7 +1,7 @@
 """Fundamentals pulls preserve honest, restart-safe per-ticker outcomes."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, datetime
 
 import duckdb
 import pytest
@@ -28,7 +28,7 @@ def _run(monkeypatch, con, tmp_path, pairs, responses):
 
 
 def test_fetch_log_validates_and_preserves_failed_attempts(fundamentals_con):
-    today = date.today()
+    today = datetime.now(UTC).date()
     rows = [{"ticker": "AAA", "status": "failed", "n_fields": 0}]
     assert db.insert_fundamentals_fetch_log(fundamentals_con, rows, as_of=today) == 1
     assert db.insert_fundamentals_fetch_log(fundamentals_con, rows, as_of=today) == 1
@@ -85,11 +85,11 @@ def test_resume_skips_committed_snapshot_but_retries_failed(
         ("BBB", "failed", 0),
         ("BBB", "ok", 2),
     ]
-    assert fundamentals._already_done(fundamentals_con, date.today()) == {"AAA", "BBB"}
+    assert fundamentals._already_done(fundamentals_con, datetime.now(UTC).date()) == {"AAA", "BBB"}
 
 
 def test_orphaned_ok_log_does_not_hide_missing_snapshot(fundamentals_con):
-    today = date.today()
+    today = datetime.now(UTC).date()
     db.insert_fundamentals_fetch_log(
         fundamentals_con,
         [{"ticker": "ORPHAN", "status": "ok", "n_fields": 1}],
