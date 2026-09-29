@@ -1397,4 +1397,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server, tools, and product unchanged; budget ok.
 - **Next:** activate P15 revision 3 on 2026-09-29 before its first timer, then verify cycle one.
 
+## 2026-09-29 — P16 W0: activate P15 revision 3
+
+- **Why:** approved P16 W0 and P15 W8 schedule the separately registered activation after one
+  full dry-run day and before the first September 29 P15 window.
+- **What:** verify a fresh external recovery bundle; atomically activate the three empty P15
+  books at the common 2026-09-28 checkpoint; and add only their three timers to autostart.
+  Install and enable the matching units while the P16 challenger timer remains inert.
+- **Evidence:** `GET /agent/evaluation/status` returns HTTP 200 with all three P15 books active;
+  installed-unit verification and the timer list show all three timers enabled and waiting.
+- **Metrics:** server and product unchanged; tools +3; budget ok.
+- **Next:** verify the first pre-open, event, and scoring cycles through 2026-10-01.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
