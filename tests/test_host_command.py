@@ -96,7 +96,8 @@ def test_bounded_command_times_out_and_reaps_child(tmp_path):
             f"open({str(pid_path)!r}, 'w').write(str(os.getpid())); "
             "time.sleep(10)"
         ),
-        timeout=0.05,
+        # Long enough for the child to start and write its pid on a loaded CI runner.
+        timeout=1.0,
     )
 
     assert result is None
