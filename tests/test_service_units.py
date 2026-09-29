@@ -154,7 +154,7 @@ def test_tradingview_archive_timer_is_bounded_and_queue_owned():
     assert '"max_chunks":50' in runner and "official_quote_source" not in runner
 
 
-def test_p15_scoring_unit_is_registered_but_not_autostarted():
+def test_p15_scoring_unit_is_registered_and_autostarted():
     service = _unit("server/trading-engine-p15-scoring.service")
     timer = _unit("server/trading-engine-p15-scoring.timer")
     runner = _unit("server/run_p15_scoring.sh")
@@ -169,20 +169,20 @@ def test_p15_scoring_unit_is_registered_but_not_autostarted():
     assert "Restart=on-failure" in service and "RestartSec=5min" in service
     assert "StartLimitIntervalSec=30min" in service and "StartLimitBurst=3" in service
     assert "02:30:00 UTC" in timer and "Persistent=true" in timer
-    assert "trading-engine-p15-scoring.timer" not in install_automation.AUTOSTART_UNITS
+    assert "trading-engine-p15-scoring.timer" in install_automation.AUTOSTART_UNITS
 
 
-def test_p15_preopen_unit_is_registered_but_not_autostarted():
+def test_p15_preopen_unit_is_registered_and_autostarted():
     service = _unit("server/trading-engine-p15-preopen.service")
     timer = _unit("server/trading-engine-p15-preopen.timer")
     _assert_common_service_hardening(service)
     assert "server.p15_preopen --run" in service
     assert "TimeoutStartSec=20min" in service
     assert "09:05:00 America/New_York" in timer and "Persistent=false" in timer
-    assert "trading-engine-p15-preopen.timer" not in install_automation.AUTOSTART_UNITS
+    assert "trading-engine-p15-preopen.timer" in install_automation.AUTOSTART_UNITS
 
 
-def test_p15_event_unit_is_intraday_shadow_and_not_autostarted():
+def test_p15_event_unit_is_intraday_shadow_and_autostarted():
     service = _unit("server/trading-engine-p15-events.service")
     timer = _unit("server/trading-engine-p15-events.timer")
     _assert_common_service_hardening(service)
@@ -191,7 +191,7 @@ def test_p15_event_unit_is_intraday_shadow_and_not_autostarted():
     assert "09:35,50:00 America/New_York" in timer
     assert "10..15:05,20,35,50 America/New_York" in timer
     assert "Persistent=false" in timer
-    assert "trading-engine-p15-events.timer" not in install_automation.AUTOSTART_UNITS
+    assert "trading-engine-p15-events.timer" in install_automation.AUTOSTART_UNITS
 
 
 def test_p16_challenger_unit_is_registered_but_not_autostarted():
