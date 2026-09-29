@@ -653,7 +653,7 @@ prints one JSON result line, and has only local-simulator authority or none.
 | `trading-engine-daily-opportunity.timer` | 02:00 UTC Tue–Sat | `server.daily_opportunity_runner` (P8 standouts, assessments, locked simulator trade tool), then `server.agent_evaluation_reporting` (P11 report) | local simulator only |
 | `trading-engine-hourly-opportunity.timer` | Mon–Fri 10:15–16:15 America/New_York, hourly | `server/run_hourly_opportunity.sh hourly_market_watch_v5` (P15 shadow; P13 TradingView cross-check) | none |
 | `trading-engine-four-hour-opportunity.timer` | Mon–Fri 10:30 and 13:30 America/New_York | `server/run_hourly_opportunity.sh four_hour_opportunity_review_v5` (P15 shadow; P13 TradingView cross-check) | none |
-| `trading-engine-tradingview-history.timer` | 03:40, 07:40, 11:40, 15:40, 19:40, 23:40 UTC daily | `server/run_tradingview_history_archive.sh` (P14 bounded archive slice) | none (research facts only) |
+| `trading-engine-tradingview-history.timer` | Weekdays 03:40, 07:40, 11:40, 21:40, 23:40 UTC; weekends every four hours from 03:40 | `server/run_tradingview_history_archive.sh` (P14 bounded archive slice) | none (research facts only) |
 | `trading-engine-p15-scoring.timer` | 02:30 UTC Tue-Sat | three-sample candidate scoring, then refreshed JSON/P15 Markdown evaluation reports | local simulator only |
 | `trading-engine-p15-preopen.timer` | 09:05 America/New_York weekdays | cancel-only reassessment of pending AI/hybrid entry intents | cancel only; cannot add, resize, reprice, or fill |
 | `trading-engine-p15-events.timer` | 09:35/09:50 and 10:05-15:50 at :05/:20/:35/:50 America/New_York | retained RSS, optional SEC 8-K, and intraday-mover shadow decisions | none |

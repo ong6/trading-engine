@@ -8,9 +8,12 @@ Type=oneshot
 WorkingDirectory=%h/trading-engine
 ExecStart=%h/trading-engine/server/run_tradingview_history_archive.sh
 Environment=PYTHONUNBUFFERED=1
+Environment=TRADING_ENGINE_LOCK_WAIT_S=900
 Nice=19
 IOSchedulingClass=idle
 TimeoutStartSec=4h
+StandardOutput=append:%h/trading-engine/logs/tradingview-history.log
+StandardError=append:%h/trading-engine/logs/tradingview-history.log
 PrivateTmp=true
 ProtectSystem=full
 ProtectControlGroups=true

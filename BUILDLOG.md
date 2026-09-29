@@ -1434,4 +1434,22 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged (docs only).
 - **Next:** P15 first-cycle checks through 2026-10-01, then P16 W9b.
 
+## 2026-09-29 — Keep TradingView archive work clear of P15
+
+- **Why:** jobs 618 and 619 failed inside the 15:50 and 19:50 UTC P15 event windows; their
+  retained attempts report DuckDB conflicting-writer locks, and an isolated real child exited 1
+  after 55.5 seconds with the production 60-second default. Nightly job 623 and the 23:48 timer
+  job 624 both completed off-window. The fundamentals alert is a false alarm: scheduled Friday
+  job 573 stored 4,097 names, while manually stopped Saturday retry 575 also caused the September
+  26 postflight failure and will clear after the October 2 scheduled run. The only queue failure
+  classification is for closed sweeps, so job 575 remains unchanged.
+- **What:** move weekday archive slices to 03:40, 07:40, 11:40, 21:40 and 23:40 UTC while retaining
+  six four-hourly weekend slices. Give the timer child the parent's 900-second bounded reconnect
+  window and append its stdout and stderr to `logs/tradingview-history.log`.
+- **Evidence:** `.venv/bin/python -m pytest -q tests/test_queue_runner.py tests/test_service_units.py tests/test_install_automation.py`
+  passes at 100%; the installed-unit audit and `systemd-analyze verify` both pass.
+- **Metrics:** server, tools, and product unchanged; tests +34; budget ok.
+- **Next:** verify the remaining 03:40, 07:40 and 11:40 UTC archive slices, then continue the P15
+  first-cycle checks through October 1.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

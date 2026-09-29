@@ -5,6 +5,7 @@ store/ is never opened.
 """
 from __future__ import annotations
 
+import subprocess
 import sys
 import time
 from datetime import date
@@ -308,6 +309,28 @@ def test_connection_narrowed_signals_child_completes_and_reacquires(tmp_path):
         "SELECT COUNT(*) FROM information_schema.tables "
         "WHERE table_name = 'macro_signals'"
     ).fetchone() == (1,)
+    con.close()
+
+
+def test_connection_narrowed_child_reports_lock_exhaustion(tmp_path, monkeypatch):
+    """Exercise the real child entry while another process owns DuckDB."""
+    dbp = tmp_path / "q.duckdb"
+    con = db.connect(dbp)
+    qr.ensure_schema(con)
+    qr.cmd_enqueue(con, "tradingview_history", "{}", 130, None)
+    monkeypatch.setenv("TRADING_ENGINE_LOCK_WAIT_S", "0")
+
+    result = subprocess.run(
+        qr._child_cmd(1, str(dbp), tmp_path / "meta.json"),
+        cwd=qr.REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "Could not set lock on file" in result.stderr
+    assert "Conflicting lock is held" in result.stderr
     con.close()
 
 
