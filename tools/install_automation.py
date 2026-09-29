@@ -91,6 +91,9 @@ AUTOSTART_UNITS = frozenset(
         "trading-engine-hourly-opportunity.timer",
         "trading-engine-four-hour-opportunity.timer",
         "trading-engine-tradingview-history.timer",
+        "trading-engine-p15-scoring.timer",
+        "trading-engine-p15-preopen.timer",
+        "trading-engine-p15-events.timer",
         "trading-engine-api.service",
         "trading-engine-ui.service",
     }
