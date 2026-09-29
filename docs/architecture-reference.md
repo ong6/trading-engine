@@ -303,8 +303,8 @@ flags any held name with a >40% one-session move and no corporate-actions row.
 
 ## The league
 
-The live store currently has **22 active paper portfolios** plus three initialized, inactive P15
-comparators. All are long-only with persisted initial capital and execution profiles. 18 are historically
+The live store currently has **25 active paper portfolios**, including the three P15
+comparator books activated on 2026-09-29. All are long-only with persisted initial capital and execution profiles. 18 are historically
 replayable rules. Three are intentionally excluded from historical walk-forward:
 `discretionary` needs human tickets, `pead_ear` lacks historical point-in-time earnings
 dates, and `macro_composite` lacks a historical point-in-time macro reconstruction. They
@@ -641,9 +641,8 @@ with the standings response. The page visibly discloses either kind of truncatio
 
 ## Agent services (P8, P9, P11, P13, P14, P15)
 
-Six user-systemd timers currently run the AI agent and research-data capture alongside cron.
-Six P15 service/timer units are staged in source. Installed copies may lag until the lead's
-activation pass; the three P15 timers remain disabled and inactive until then.
+Six user-systemd timers run the AI agent and research-data capture alongside cron, and the
+three P15 timers (scoring, pre-open, and events) have run since activation on 2026-09-29.
 Unit files live in `server/*.service` / `server/*.timer`; each service runs one bounded command,
 prints one JSON result line, and has only local-simulator authority or none.
 
@@ -655,14 +654,14 @@ prints one JSON result line, and has only local-simulator authority or none.
 | `trading-engine-hourly-opportunity.timer` | Mon–Fri 10:15–16:15 America/New_York, hourly | `server/run_hourly_opportunity.sh hourly_market_watch_v5` (P15 shadow; P13 TradingView cross-check) | none |
 | `trading-engine-four-hour-opportunity.timer` | Mon–Fri 10:30 and 13:30 America/New_York | `server/run_hourly_opportunity.sh four_hour_opportunity_review_v5` (P15 shadow; P13 TradingView cross-check) | none |
 | `trading-engine-tradingview-history.timer` | 03:40, 07:40, 11:40, 15:40, 19:40, 23:40 UTC daily | `server/run_tradingview_history_archive.sh` (P14 bounded archive slice) | none (research facts only) |
-| `trading-engine-p15-scoring.timer` *(staged)* | 02:30 UTC Tue-Sat | three-sample candidate scoring, then refreshed JSON/P15 Markdown evaluation reports | local simulator only; gated by P15 activation |
-| `trading-engine-p15-preopen.timer` *(staged)* | 09:05 America/New_York weekdays | cancel-only reassessment of pending AI/hybrid entry intents | cancel only; cannot add, resize, reprice, or fill |
-| `trading-engine-p15-events.timer` *(staged)* | 09:35/09:50 and 10:05-15:50 at :05/:20/:35/:50 America/New_York | retained RSS, optional SEC 8-K, and intraday-mover shadow decisions | none |
+| `trading-engine-p15-scoring.timer` | 02:30 UTC Tue-Sat | three-sample candidate scoring, then refreshed JSON/P15 Markdown evaluation reports | local simulator only |
+| `trading-engine-p15-preopen.timer` | 09:05 America/New_York weekdays | cancel-only reassessment of pending AI/hybrid entry intents | cancel only; cannot add, resize, reprice, or fill |
+| `trading-engine-p15-events.timer` | 09:35/09:50 and 10:05-15:50 at :05/:20/:35/:50 America/New_York | retained RSS, optional SEC 8-K, and intraday-mover shadow decisions | none |
 
 The two UTC agent timers, the daily timer, and the TradingView archive timer are
 `Persistent=true` (a missed run fires after the host wakes); the intraday timers are
-`Persistent=false`, so a missed window is not replayed. The staged P15 scoring timer is persistent;
-the staged pre-open and event timers are non-persistent.
+`Persistent=false`, so a missed window is not replayed. The P15 scoring timer is persistent;
+the P15 pre-open and event timers are non-persistent.
 
 **Market-data sources (P13/P14).** The hourly wrapper preflights the optional
 `~/.config/trading-engine/market-data.env` and runs the v5 observer through

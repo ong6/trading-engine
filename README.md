@@ -3,9 +3,9 @@
 A paper-only trading research engine with an AI agent in the decision loop, running unattended on
 one always-on Linux host. No broker, no real money, and no credentials.
 
-- **Research engine.** Real market data in DuckDB, a nightly Minervini screen, **22 active paper
-  portfolios** plus three inactive P15 comparators, including 18 historically replayable rules,
-  a conservative next-open fill simulator, a weekly walk-forward, and three frozen forward
+- **Research engine.** Real market data in DuckDB, a nightly Minervini screen, **25 active paper
+  portfolios** (including the three P15 books and 18 historically replayable rules), a
+  conservative next-open fill simulator, a weekly walk-forward, and three frozen forward
   records. No policy has yet demonstrated a prospective gate pass against its frozen control.
 - **Nightly AI agent.** A model reviews the day's standouts and may act only through a locked
   simulator trade tool: deterministic code owns data admission, sizing, risk, fills, and halts.
@@ -13,11 +13,14 @@ one always-on Linux host. No broker, no real money, and no credentials.
 - **Evaluation ledger.** Every agent decision is recorded with its information cutoff, exact
   model/prompt/input identities, and later market outcomes, so each AI policy can be judged
   prospectively against its paired control.
-- **P15 evidence loop.** Candidate-wide scoring, equal-mechanics comparator books, a cancel-only
-  pre-open check, shadow event triggers, and coded profitability gates are built and reviewed but
-  remain inactive until the W8 activation checkpoint.
+- **P15 evidence loop (live since 2026-09-29).** Candidate-wide scoring, equal-mechanics
+  comparator books, a cancel-only pre-open check, shadow event triggers, and coded
+  profitability gates. First-cycle checks run through 2026-10-01.
 - **North star:** [`docs/product.md`](docs/product.md) — an engine that runs on its own and
   makes money net of trading and data cost, with AI choosing and deterministic code in control.
+- **Public engine, private strategies.** This repo is the open infrastructure plus the P15/P16
+  demo policies. New strategies, prompts, and research results are kept in a separate private
+  repository; see [`AGENTS.md`](AGENTS.md).
 
 Generated public data may be pushed only when the current branch has a configured upstream. The
 `source_control` object in `GET /meta` is authoritative for the current tracking state;
@@ -120,9 +123,9 @@ cat data/reports/agent-eval/p15.md                          # generated P15 evid
 .venv/bin/python -m tools.verify_friday_postflight  # inspect Friday; publishing is opt-in
 ```
 
-The API, production UI, and six existing timers are enabled user units bound to local operation.
-Three P15 timers are registered in source but remain uninstalled and disabled until W8; the
-operating guide's agent-services table lists every schedule. The data timer retains normalized price and corporate-action
+The API, production UI, six agent and data timers, and the three P15 timers (installed at
+activation on 2026-09-29) are enabled user units bound to local operation; the operating guide's
+agent-services table lists every schedule. The data timer retains normalized price and corporate-action
 observations, exact bounded future Yahoo and independent Nasdaq response bodies, and source
 observations derived from those exact bytes without a model;
 the shadow timer invokes a static worker through the local Trae proxy and remains gated by an explicit

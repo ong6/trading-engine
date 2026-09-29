@@ -1409,4 +1409,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server and product unchanged; tools +3; budget ok.
 - **Next:** verify the first pre-open, event, and scoring cycles through 2026-10-01.
 
+## 2026-09-29 — Docs: record live P15 state and the research funnel
+
+- **Why:** doc defect: README, `product.md`, `scope.md`, the blueprint, and the architecture
+  reference still described P15 as inactive after its 2026-09-29 activation.
+- **What:** corrected the P15 state and active-book count in five docs and the timer table;
+  refreshed "Where it stands" and "Focus now"; added the screen/confirm/book research funnel
+  to the blueprint; listed the P15 timers as running components; and parked the private
+  strategy plug-in boundary under "Proposed, not approved".
+- **Evidence:** `SELECT count(*) FILTER (WHERE active) FROM portfolios` returns 25; the
+  documentation-integrity and operating-contract tests pass.
+- **Metrics:** unchanged (docs only).
+- **Next:** P15 first-cycle checks through 2026-10-01, then P16 W9b.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

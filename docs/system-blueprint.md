@@ -83,16 +83,16 @@ flowchart LR
    with contamination probes and a lockbox).
 6. Every comparison is paired, net of trading cost, and counts the trials behind it.
 
-## Layers: deployed, staged, built-inert, later
+## Layers: deployed, built-inert, later
 
-| Layer | Deployed (2026-09-28) | P15 staged, inactive | P16 built, inactive | Later |
-|---|---|---|---|---|
-| Data | EOD store, screens, earnings, headline titles, TradingView research data, P14 archive | RSS and 8-K event facts; intraday mover scan | Acceptance-timestamped filing capture and gated historical EDGAR/news corpus paths | P3 point-in-time vendor data (owner spend) |
-| Signals | P8 nightly pick; P9 shadow observers; P7 allocator (inactive) | Candidate scoring, deterministic baseline, pre-open cancel, event triggers | Challenger lab (blinded, memory, tournament, ensemble, ablations) and filing reader | Promoted challengers get book authority |
-| Evaluation | Ledger, 1/5/10/20 labels, contamination probes | Paired IC test with looks; book comparison; coded P8 gate | Factor-neutral IC, always-valid sequential tests, deflated Sharpe over the N=139 trial census, time-locked text lab, and post-cutoff replay lockbox | Stage gates computed from live fills |
-| Portfolio | Fixed-fraction sizing, 3 names | ATR sizing, SPY core, limit-on-open, 8 names | Score-to-weight optimizer, recovery, and shadow diagnostics | Beta hedge if shorting is approved |
-| Execution | Next-open simulator, fill model v4 | Limit-on-open path | Best-attempt opening measurement and slippage calibration; `baseline_v1` remains active | IBKR paper on personal hardware, then live |
-| Ops | Timers, recovery, metrics | P15 status and report | Isolated P16 status adapter and weekly operator digest | Remote alerts from personal hardware |
+| Layer | Deployed (2026-09-29) | P16 built, inactive | Later |
+|---|---|---|---|
+| Data | EOD store, screens, earnings, headline titles, TradingView research data, P14 archive; P15 RSS and 8-K event facts (8-K awaits the SEC contact) and intraday mover scan | Acceptance-timestamped filing capture and gated historical EDGAR/news corpus paths | P3 point-in-time vendor data (owner spend) |
+| Signals | P8 nightly pick; P9 shadow observers; P15 candidate scoring, deterministic baseline, pre-open cancel, and shadow event triggers; P7 allocator (inactive) | Challenger lab (blinded, memory, tournament, ensemble, ablations) and filing reader | Promoted challengers get book authority; separately held strategies through a plug-in boundary |
+| Evaluation | Ledger, 1/5/10/20 labels, contamination probes; P15 paired IC test with looks, book comparison, coded P8 gate | Factor-neutral IC, always-valid sequential tests, deflated Sharpe over the N=139 trial census, time-locked text lab, and post-cutoff replay lockbox | Stage gates computed from live fills |
+| Portfolio | P8 fixed-fraction sizing, 3 names; P15 ATR sizing, SPY core, 8 names | Score-to-weight optimizer, recovery, and shadow diagnostics | Beta hedge if shorting is approved |
+| Execution | Next-open simulator, fill model v4; P15 limit-on-open path | Best-attempt opening measurement and slippage calibration; `baseline_v1` remains active | IBKR paper on personal hardware, then live |
+| Ops | Timers, recovery, metrics; P15 status and report | Isolated P16 status adapter and weekly operator digest | Remote alerts from personal hardware |
 
 ## Evaluation science (how "does it work?" gets answered)
 
@@ -110,11 +110,28 @@ flowchart LR
   blinding is a control (Glasserman & Lin, arXiv:2309.17322). Time-locked models (ChronoGPT and
   ChronoBERT, arXiv:2502.21206; weights at huggingface.co/manelalab) allow historical text tests.
 
+## Research funnel: screen wide, confirm narrow
+
+Many ideas are tried and few earn authority. Each stage differs in cost and in what it can prove.
+
+| Stage | Evidence | Outcome | Can it promote? |
+|---|---|---|---|
+| **Screen** | A registered historical study: price history, or for an LLM policy only events after its model's training cutoff. Every variant counts in the trial census | Pass (the study's own bar and one-shot holdout), admit (beats the expected best of N noise trials and every control, short of the full bar), or kill | Only to confirmation |
+| **Confirm** | The frozen candidate run only on data dated after its freeze, in monthly epochs, with one decision at a registered horizon inside a Bonferroni family of at most eight live candidates | Pass or kill | To a simulator book |
+| **Book** | A simulator book here with its paired control (P15-style), then the stages in [`product.md`](product.md) | Stage 1 verdict | To broker-paper, then capital, each with owner approval |
+
+Two principles decide what gets admitted. A signal that ranks stocks is not an edge until a
+construction monetizes it after cost at the owner's capital size. And more variants on the same
+survivor-biased history mainly raise the trial count, so a new screen needs a new information
+source, a new monetization structure, or better data. Confirmation needs no live runner for
+event strategies: a frozen pipeline run in batch on months that did not exist at its freeze is
+prospective evidence, provided the model identity is unchanged.
+
 ## Path to money
 
 | Step | Gate | Owner decision needed |
 |---|---|---|
-| Collect (P15, P16) | Registered tests reach their looks | P16 approval and ceilings |
+| Collect (P15, P16) | Registered tests reach their looks | None (P16 approved 2026-09-26) |
 | Judge | A policy passes its primary test and book comparison, inside the drawdown envelope | None |
 | Broker-paper | 1–3 months of IBKR paper fills reconcile to the simulator | Personal host, model provider, IBKR account, execution-layer plan |
 | Small live | Live tracks paper within tolerance at each capital step | Loss limits, capital steps |
@@ -131,8 +148,8 @@ an owner decision first.
 
 | Idea | Status | Reason |
 |---|---|---|
-| Score every candidate; paired IC vs rule | P15 | Breadth and statistical power |
-| Comparator books, limit-on-open, pre-open cancel, event triggers | P15 | Comparator and latency |
+| Score every candidate; paired IC vs rule | Live (P15) | Breadth and statistical power |
+| Comparator books, limit-on-open, pre-open cancel, event triggers | Live (P15) | Comparator and latency |
 | Factor-neutral IC, sequential tests, deflated Sharpe | Built (P16, inert) | Separates judgement from factor exposure; honest selection |
 | Challenger lab (blinded, memory, tournament, ensemble, ablations) | Built (P16, inert) | Many hypotheses per night on identical inputs, at no marginal constraint |
 | Filing and earnings-release reader | Built (P16, inert) | Timestamped text is the LLM's natural input |
@@ -144,6 +161,7 @@ an owner decision first.
 | Stage 2 design (portability, IBKR paper, reconciliation, loss limits) | Complete (P16, docs only) | No broker code on this host |
 | Long-short or beta-hedged books | Later | Needs the shorting decision; would monetize IC far better than long-only |
 | Promote a challenger to book authority | Later | Needs a sequential-test pass and owner approval |
+| Plug-in boundary for separately held strategies | Proposed (`scope.md`) | Runs a confirmed private strategy as a simulator book here without publishing it; built only when one is confirmed |
 | Event-trigger order authority | Later | Needs its own gate after P15 evidence |
 | Intraday execution authority | Parked | Needs quote/trade data and queue modelling |
 | Model fine-tuning on own labels | Parked | Tiny, overlapping labels; high overfit risk; revisit after a year of data |
