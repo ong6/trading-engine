@@ -1,7 +1,7 @@
 ---
 plan: P15
 title: Profitability evidence loop
-status: approved
+status: active
 opened: 2026-09-25
 owner_decision: approved 2026-09-25 (feedback.md); open inputs listed under "Owner inputs"
 ---
@@ -440,7 +440,7 @@ only** (owner, 2026-09-25). Every other AGENTS.md rule still applies.
 | W5 Event triggers | done | 2026-09-26 |
 | W6 Gates and reporting | done | 2026-09-26 |
 | W7 Cleanup and docs | done | 2026-09-26 |
-| W8 Activation | revision 3 deployed; revision 4 label-validator fix ready for deployment; first-cycle verification pending | 2026-09-30 (books and timers remain active; checks continue through 2026-10-01) |
+| W8 Activation | active; revision 4 deployed and its validator-only identity verified; the first scoring cycle completed and refreshed the report with pre-open and event cycles green | 2026-09-30 |
 
 ## Risks
 

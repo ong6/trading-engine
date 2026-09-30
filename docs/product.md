@@ -30,19 +30,18 @@ accounting, halts, and kill switches. That split is the product, not a temporary
 5. **Inside the drawdown envelope**: a policy that can lose most of the book fails regardless of
    its recent run.
 
-## Where it stands (2026-09-29)
+## Where it stands (2026-09-30)
 
 The appliance is mature: nightly data, screen, league, three frozen forward records, weekly
 walk-forward, recovery bundles, TradingView research data, and a live nightly AI agent with a
 locked simulator trade tool (P8/P9) whose decisions land in one evaluation ledger (P11/P12).
 **No policy has yet beaten its frozen control prospectively.**
 
-[P15](plans/p15-profitability-evidence-loop.md) went live on 2026-09-29 under registration
-revision 3, after a verified 90-table recovery bundle: candidate-wide scoring, the three
-equal-mechanics comparator books (25 active books in all), the cancel-only pre-open check,
-shadow event triggers, and coded gates. First-cycle checks run through 2026-10-01; the plan
-table records P15 as `active` once they are green. No P15 performance claim exists before its
-registered looks.
+[P15](plans/p15-profitability-evidence-loop.md) went live on 2026-09-29 after a verified 90-table
+recovery bundle. Registration revision 4, issued only for the label validator, is active. Its
+first scoring cycle completed 60 candidates and 18 samples, the report refreshed, and the
+pre-open and event cycles remained green, so P15 is `active` and collecting. The earliest first
+look is 2026-12-31. No P15 performance claim exists before its registered looks.
 
 [P16](plans/p16-challenger-lab-and-text-edge.md) W1–W8 and W9a are built and remain inert:
 evaluation v2, the challenger and filing paths, historical text/replay labs, deterministic
@@ -58,7 +57,7 @@ the same census and pre-registration rules; its results are not published here.
 | Stage | Goal | Exit | Earliest |
 |---|---|---|---|
 | 0 · Collect | P15 live (since 2026-09-29); P7 activated; P8/P9 keep running | P15 scoring, books, and triggers live with coded gates | ~2026-11 |
-| 1 · Judge | Pre-registered verdicts on each AI policy | Each policy passes or is killed by its own gate | P15 scoring first look ~2027-01; P8 ~2027-02; E1 2027-05-10; sector momentum 2027-09-04; P7 ≥12 months after activation |
+| 1 · Judge | Pre-registered verdicts on each AI policy | Each policy passes or is killed by its own gate | P15 scoring first look 2026-12-31; P8 ~2027-02; E1 2027-05-10; sector momentum 2027-09-04; P7 ≥12 months after activation |
 | 2 · Broker-paper | Same engine on the owner's own hardware against an IBKR paper account | 1–3 months of broker-paper fills reconciled to the simulator, slippage calibrated, zero unattributed orders | After a Stage 1 pass |
 | 3 · Small live capital | Autonomous live trading, capped and staged | Live results track paper within tolerance at each capital step | After Stage 2 |
 | 4 · Scale | More capital, more policies | Each addition repeats Stages 0–3 | Open |
@@ -126,9 +125,9 @@ Each row has the default that applies until the owner decides.
 1. **Keep the evidence clean.** Scheduled producers green, no missed agent windows, no identity
    drift, no uncommitted work on the host (the nightly `git pull` fails on a dirty tree).
    A broken producer beats every item below.
-2. **P15 first cycle.** Verify the first live pre-open, event, and scoring cycles (2026-09-29 to
-   10-01) and move P15 to `active` only when they are green. Never tune a registered value to
-   get there.
+2. **P15 evidence collection.** P15 is active after its first scoring, pre-open, event, report,
+   and status checks passed. Keep the remaining first-cycle windows through 2026-10-01 green;
+   never tune a registered value.
 3. **[P16](plans/p16-challenger-lab-and-text-edge.md) W9b.** Register and rehearse, then activate
    only the components whose gates permit it: the challenger lab and weekly digest first, the
    filing reader once the SEC contact is set. W10's refine pass follows.
