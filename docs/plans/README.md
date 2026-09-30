@@ -25,8 +25,8 @@ each plan's YAML `status` must match its row.
 | [P12](p12-agent-research-product.md) | Agent research product | done | Full data, execution, and evaluation programme delivered 2026-09-23; data/news spend external |
 | [P13](p13-market-data-source-hardening.md) | Market-data source hardening | done | TradingView realtime/history active under owner-asserted rights; Alpaca dormant |
 | [P14](p14-tradingview-history-archive.md) | TradingView historical archive | done | Resumable current-liquid-universe daily bars with exact transcripts and research-only authority |
-| [P15](p15-profitability-evidence-loop.md) | Profitability evidence loop | approved | Revision 3 deployed on 2026-09-29; first-cycle checks remain before the active transition |
-| [P16](p16-challenger-lab-and-text-edge.md) | Challenger lab, text edge, evaluation science | active | W0 revision-3 activation deployed; first-cycle checks and W9b registration remain |
+| [P15](p15-profitability-evidence-loop.md) | Profitability evidence loop | active | Revision 4 active; first scoring, pre-open, event, report, and status checks are green |
+| [P16](p16-challenger-lab-and-text-edge.md) | Challenger lab, text edge, evaluation science | active | W0 P15 revision-4 activation complete; W9b registration remains |
 | [P17](p17-personal-host-ibkr-paper-execution.md) | Personal-host IBKR paper execution and reconciliation | proposed | Stage 2 design only; requires a Stage 1 pass and owner approval before any implementation or account action |
 
 Recommended order: follow [`../product.md`](../product.md) ("Focus now"). P15 comes first, then P7

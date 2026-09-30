@@ -1476,4 +1476,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server, tools, and product unchanged.
 - **Next:** rerun CI for the deployed P15 registration revision 4.
 
+## 2026-09-30 — Mark P15 active after the first scoring cycle
+
+- **Why:** P15 W8 permits the active transition after a scoring cycle refreshes the report while
+  the pre-open and event cycles remain green; revision 4 landed as the validator-only fix.
+- **What:** verified revision 4 against the checkout and the completed 18-sample scoring run;
+  refreshed the report and status; and marked P15 active in the plan and product records.
+- **Evidence:** `.venv/bin/python -m server.agent_evaluation_reporting` exited 0 with
+  `status: complete` and `trace_count: 51`; the refreshed P15 report is collecting.
+- **Metrics:** server, tools, and product unchanged; budget ok.
+- **Next:** P16 W9b registration and rehearsals.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
