@@ -86,7 +86,277 @@
     "runtime_contract_migration": "2026-09-18 isolated agent-paper lifecycle after interruption-safe transaction cleanup and before the first signal: attributed agent orders survive same-date reruns and the no-op agent book uses the ordinary simulator lifecycle; XS strategy, signal, execution economics, and statistical rules are unchanged",
     "runtime_contract_sha256": "f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac",
     "runtime_contract_version": 21,
-    "signal_boundary": null,
+    "signal_boundary": {
+      "control_signal_noop": false,
+      "initial_orders_sha256": "fcbf2d5a202ec53425bbda0ed5b3a50053a5b6610069c111f4a75c7ad543c52e",
+      "protocol_contract": {
+        "candidate_config_sha256": "fb5a0f0e3472f14ed9b0a5d5bac05a081ec0284f200db91663b11d5d47ab9214",
+        "control_config_sha256": "692d49494298d2e840c98ab78cb8e4a4829516b6049d7d24253eb3e28fe1318e",
+        "criterion_sha256": "834510b6773419be2bfcc5a5b20e1b9aa10026c2d2003c7e740d8bf6af94bb6d",
+        "execution_profile_sha256": "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db",
+        "fill_model": "v4",
+        "runtime_contract_sha256": "f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac"
+      },
+      "signal_input_hashes": {
+        "candidate_signal_rows_sha256": "1cde4cb14258948f00ee378bb1edc80fba2959489617c2013b58813b6e78cbde",
+        "candidate_universe_sha256": "8d5630612e459a1784f5a77c6039a743314a2d103d93fef4199a322618a82fdd",
+        "control_target_rows_sha256": "2cf847e3c01ceffd2d7db372d89f9e6cfb63dfd6d11da73268bc33a70a496a8c",
+        "screen_results_sha256": "54701a79289e914e4ba7cd1368383bc5c680a4aef88237ee41af2aad31d719ce",
+        "universe_snapshot_sha256": "3041436ecd82e0457f679bc6898ff12addc078f2ef33295dc4d6e4dd24fa9c7a"
+      },
+      "signal_ledger_sha256": "333a176ba703dce8969f6ba9ca6e442aed06c4b77d5fa5d1d4cf1c0bd8a9969b",
+      "signal_state": {
+        "ew_benchmark": {
+          "cash": 2366.7959694310775,
+          "equity": 41847.250416854265,
+          "n_positions": 47,
+          "positions": [
+            [
+              "ABCL",
+              70.85225002497579,
+              11.266875
+            ],
+            [
+              "ACHV",
+              102.44128362612074,
+              7.845659923553467
+            ],
+            [
+              "ACRS",
+              134.4435987124057,
+              5.2003800573348995
+            ],
+            [
+              "AMLX",
+              24.100260677129953,
+              33.5402366809845
+            ],
+            [
+              "ANRO",
+              22.989931410323344,
+              27.054
+            ],
+            [
+              "AXGN",
+              16.024110022637363,
+              50.71595938873291
+            ],
+            [
+              "AYA",
+              29.132657436622154,
+              26.603099235534668
+            ],
+            [
+              "BVS",
+              59.588558284569004,
+              13.717379579544067
+            ],
+            [
+              "BWET",
+              1.9518712696066436,
+              264.2958438873291
+            ],
+            [
+              "CADL",
+              62.23288575708534,
+              12.955860305786134
+            ],
+            [
+              "CDNA",
+              16.231965434961694,
+              47.31243450164795
+            ],
+            [
+              "CLMT",
+              16.355998498699332,
+              43.59529377746582
+            ],
+            [
+              "CORT",
+              7.175860686392857,
+              114.03391816711425
+            ],
+            [
+              "CRWL",
+              9.721516876238704,
+              82.01369847106933
+            ],
+            [
+              "DELL",
+              1.7836972444337131,
+              398.077672668457
+            ],
+            [
+              "DK",
+              11.492558839468755,
+              65.9258606109619
+            ],
+            [
+              "DLLL",
+              32.32845003124268,
+              25.0375
+            ],
+            [
+              "DNTH",
+              7.295174086773875,
+              105.74563938903808
+            ],
+            [
+              "DRTS",
+              57.645911952111206,
+              11.553059732437134
+            ],
+            [
+              "ELVN",
+              14.230979391657067,
+              54.93227347183228
+            ],
+            [
+              "ETON",
+              13.457707086937196,
+              46.6130404586792
+            ],
+            [
+              "FET",
+              9.922944805906626,
+              82.2842427520752
+            ],
+            [
+              "IMMX",
+              57.974612497079654,
+              13.887719655990601
+            ],
+            [
+              "INBX",
+              6.4197617793582795,
+              125.167473361969
+            ],
+            [
+              "IOVA",
+              99.55737946848355,
+              8.08807992362976
+            ],
+            [
+              "LABU",
+              2.7450433821163713,
+              291.34103778076167
+            ],
+            [
+              "LITE",
+              0.8891772587014782,
+              901.941018005371
+            ],
+            [
+              "MAN",
+              12.921108625815922,
+              63.04442576408387
+            ],
+            [
+              "MEI",
+              44.617872642763416,
+              17.865659923553466
+            ],
+            [
+              "MNPR",
+              7.266897128879254,
+              110.37531408309937
+            ],
+            [
+              "MRNA",
+              5.7958088861195804,
+              140.09996672058105
+            ],
+            [
+              "MRVI",
+              106.4638497470672,
+              6.613199904441833
+            ],
+            [
+              "MU",
+              0.8483971654411493,
+              940.4194604492186
+            ],
+            [
+              "NESR",
+              23.166726964206433,
+              26.616590152740475
+            ],
+            [
+              "OMER",
+              43.288119117705115,
+              18.697319847106932
+            ],
+            [
+              "PBF",
+              10.791367088725174,
+              69.1891227493286
+            ],
+            [
+              "PLSE",
+              16.161012681530654,
+              36.072
+            ],
+            [
+              "PRAX",
+              2.321963534677183,
+              350.34999999999997
+            ],
+            [
+              "PSNL",
+              48.47340670852735,
+              17.155694159507753
+            ],
+            [
+              "QMCO",
+              33.431311155106556,
+              23.927759159088136
+            ],
+            [
+              "RNG",
+              11.683191119854827,
+              70.0800121383667
+            ],
+            [
+              "RVMD",
+              4.159334533553633,
+              184.61442266845702
+            ],
+            [
+              "SILC",
+              18.893932921441642,
+              42.084
+            ],
+            [
+              "SLS",
+              41.56813085685334,
+              13.033020458221433
+            ],
+            [
+              "TVTX",
+              12.271934412093009,
+              54.87481969451905
+            ],
+            [
+              "TWST",
+              5.851681998943423,
+              81.67659622192382
+            ],
+            [
+              "TXG",
+              13.02456025486285,
+              46.466418167114256
+            ]
+          ]
+        },
+        "xs_momentum_12_1": {
+          "cash": 39000.0,
+          "equity": 39000.0,
+          "n_positions": 0,
+          "positions": []
+        }
+      },
+      "signal_state_sha256": "6b448bee4f0e86598795686c0ffba9d9cd47a0160d37e9cbc1838e94c56b37a8"
+    },
     "signal_date": "2026-09-30",
     "superseded_runtime_contract_sha256": "8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e"
   },
@@ -96,7 +366,7 @@
     "observation_start": "2026-10-01",
     "paired_complete_months": 0,
     "shared_sessions": 0,
-    "signal_boundary_frozen": false,
+    "signal_boundary_frozen": true,
     "signal_date": "2026-09-30"
   },
   "paper_only": true,
