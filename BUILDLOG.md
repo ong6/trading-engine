@@ -1465,4 +1465,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +7, tools +7, product unchanged; budget ok.
 - **Next:** deploy registration revision 4 after the P15 window, refresh the report, and verify CI.
 
+## 2026-09-30 — Clear newly published dependency advisories
+
+- **Why:** CI run 36770464908 failed its two blocking audits after new advisories marked
+  urllib3 2.7.0 and Next.js 16.3.4 vulnerable; the P15 deployment requires green CI.
+- **What:** update only the Python lock to urllib3 2.8.0 and the UI manifest and lock to
+  Next.js 16.3.8. No engine, strategy, registration, or evidence code changed.
+- **Evidence:** the exact CI pip and npm audits report no known vulnerabilities; all 54 UI tests
+  and the production UI build pass.
+- **Metrics:** server, tools, and product unchanged.
+- **Next:** rerun CI for the deployed P15 registration revision 4.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
