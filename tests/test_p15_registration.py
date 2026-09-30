@@ -244,9 +244,11 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 3
+    assert registration["registration_revision"] == 4
     assert registration["revision_reason"] == (
-        "P16 W1 R7 v3; scoring unit was invalid and no evidence exists"
+        "label validator: availability proven by the append-only label's price-prefix hash; "
+        "bars re-fetched after labelling no longer fail evidence; revised source bars are "
+        "counted, not fatal; no scoring, book, gate or label change"
     )
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
