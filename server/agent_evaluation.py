@@ -850,7 +850,7 @@ def _complete_schema(con: duckdb.DuckDBPyConnection, names: tuple[str, ...], lab
 
 def validate_p15_evidence(
     con: duckdb.DuckDBPyConnection, generated_at: datetime | None = None,
-) -> None:
+) -> dict:
     """Fail closed if stored P15 scoring or label identities no longer replay."""
     generated_at = generated_at or datetime.now(timezone.utc)
     p15_evidence_validation.enforce_bounds(con, EvaluationError)
@@ -875,15 +875,14 @@ def validate_p15_evidence(
     if not scoring_schema:
         if preopen_schema or book_schema or event_schema:
             raise EvaluationError("P15 scoring schema is missing")
-        return
+        return {"labels_source_revised": 0, "labels_source_revised_ids": []}
     if preopen_schema and not book_schema:
         raise EvaluationError("P15 pre-open book schema is missing")
     from server import p15_price_fetch_attempts
     p15_price_fetch_attempts.validate(con, EvaluationError)
     p15_evidence_validation.validate_links(con, EvaluationError)
-    p15_evidence_validation.validate_common_labels(
+    label_source_status = p15_evidence_validation.validate_common_labels(
         con, generated_at, EvaluationError, _label_outcome,
-        _label_outcome_when_ready,
     )
     cursor = con.execute(
         "SELECT * FROM agent_evaluation_traces WHERE policy_id='p15-scoring-v1' ORDER BY id"
@@ -1180,6 +1179,7 @@ def validate_p15_evidence(
         p15_evidence_validation.validate_events(
             con, EvaluationError, _label_outcome_when_ready,
         )
+    return label_source_status
 
 
 def status(con: duckdb.DuckDBPyConnection) -> dict:
@@ -1192,7 +1192,11 @@ def status(con: duckdb.DuckDBPyConnection) -> dict:
                 "trace_count": 0, "decision_count": 0, "label_count": 0,
                 "execution_link_count": 0,
                 "horizons": list(HORIZONS), "policies": [],
-                "performance_claim": "none"}
+                "performance_claim": "none", "labels_source_revised": 0,
+                "labels_source_revised_ids": []}
+    label_source_status = p15_evidence_validation.validate_common_labels(
+        con, datetime.now(timezone.utc), EvaluationError, _label_outcome,
+    )
     policies = []
     for policy_id, cadence, traces, decisions, labels in con.execute(
         "SELECT t.policy_id, t.cadence, COUNT(DISTINCT t.id), COUNT(DISTINCT d.id), "
@@ -1214,4 +1218,4 @@ def status(con: duckdb.DuckDBPyConnection) -> dict:
             "trace_count": int(totals[0]), "decision_count": int(totals[1]),
             "label_count": int(totals[2]), "execution_link_count": int(totals[3]),
             "horizons": list(HORIZONS),
-            "policies": policies, "performance_claim": "none"}
+            "policies": policies, "performance_claim": "none", **label_source_status}

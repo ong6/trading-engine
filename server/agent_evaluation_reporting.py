@@ -301,7 +301,7 @@ def build_report(
     con: duckdb.DuckDBPyConnection, *, generated_at: datetime,
     contamination_path: Path | None = None, registration_path: Path = DEFAULT_REGISTRATION,
 ) -> dict:
-    validate_p15_evidence(con, generated_at)
+    label_source_status = validate_p15_evidence(con, generated_at)
     if not table_exists(con, "agent_evaluation_traces"):
         rows = []
     else:
@@ -367,6 +367,7 @@ def build_report(
         "schema_version": SCHEMA_VERSION,
         "generated_at": generated_at.astimezone(timezone.utc).isoformat(),
         "evidence_class": "prospective_forward_only", "promotion_authority": "none",
+        **label_source_status,
         "horizons": list(HORIZONS), "policies": policies, "cohorts": cohorts,
         "legacy_policy_ids": legacy,
         "pairs": paired_metrics(common_rows, POLICIES, window_scope="first"),
@@ -398,7 +399,9 @@ def p15_markdown(report: dict) -> str:
     lines = ["# P15 profitability evidence", "", f"Generated: {p15['generated_at']}", "",
              f"Status: **{p15['status']}**", "",
              "This is prospective evidence only. Any pass requires owner review; no broker or "
-             "real-capital authority is granted.", "", "## Primary rank test", "",
+             "real-capital authority is granted.", "",
+             f"Source-revised labels: {report['labels_source_revised']} "
+             f"(ids: {report['labels_source_revised_ids']})", "", "## Primary rank test", "",
              f"- Scored sessions: {primary['scored_session_count']}",
              f"- Insufficient sessions: {primary['insufficient_session_count']}",
              f"- Missing mature labels: {primary['missing_mature_label_count']}",

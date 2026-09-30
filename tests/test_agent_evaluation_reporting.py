@@ -22,6 +22,7 @@ from server import (
     p15_scoring_store,
 )
 from tests.conftest import insert_bars
+from tools import p15_evidence_validation
 
 NOW = datetime(2026, 9, 30, 12, tzinfo=timezone.utc)
 
@@ -91,6 +92,94 @@ def _label(con, policy: str, asset_return: float, prefix: str = "9" * 64) -> Non
                            "net_excess_return": asset_return - 0.01}),
          20.0, asset_return, asset_return - 0.01, None],
     )
+
+
+def _schema2_common_label(
+    con, *, labeled_at: datetime = datetime(2026, 9, 29, 2, 1, tzinfo=timezone.utc),
+) -> int:
+    db.init_schema(con)
+    agent_evaluation.init_schema(con)
+    trace = _trace("nightly_opportunity_tool_v1", "buy", 0.7)
+    trace["decisions"][0]["ticker"] = "FAST"
+    result = agent_evaluation.record_trace(con, trace)
+    sessions = [date(2026, 9, 28)]
+    insert_bars(con, "SPY", sessions, open_=100, close=101, high=102, low=99)
+    insert_bars(con, "FAST", sessions, open_=50, close=51, high=52, low=49)
+    con.execute(
+        "UPDATE prices SET fetched_at=?",
+        [(labeled_at - timedelta(hours=1)).replace(tzinfo=None)],
+    )
+    outcome = agent_evaluation._label_outcome(con, "FAST", sessions, labeled_at)
+    decision_id = con.execute(
+        "SELECT id FROM agent_evaluation_decisions WHERE trace_id=?", [result["trace_id"]]
+    ).fetchone()[0]
+    assert agent_evaluation._insert_v2_label(
+        con, decision_id, 1, outcome, labeled_at,
+    )
+    return int(con.execute(
+        "SELECT id FROM agent_evaluation_labels_v2 WHERE decision_id=?", [decision_id]
+    ).fetchone()[0])
+
+
+def _validate_common(con, generated_at: datetime = NOW) -> dict:
+    return p15_evidence_validation.validate_common_labels(
+        con, generated_at, agent_evaluation.EvaluationError,
+        agent_evaluation._label_outcome,
+    )
+
+
+def test_common_label_refetch_with_identical_values_remains_verified(con):
+    _schema2_common_label(con)
+    con.execute("UPDATE prices SET fetched_at=?", [NOW.replace(tzinfo=None)])
+
+    assert _validate_common(con) == {
+        "labels_source_revised": 0, "labels_source_revised_ids": [],
+    }
+
+
+def test_common_label_changed_refetch_is_reported_but_valid(con):
+    label_id = _schema2_common_label(con)
+    con.execute(
+        "UPDATE prices SET close=52,fetched_at=? WHERE ticker='FAST'",
+        [NOW.replace(tzinfo=None)],
+    )
+
+    expected = {
+        "labels_source_revised": 1,
+        "labels_source_revised_ids": [label_id],
+    }
+    assert _validate_common(con) == expected
+    report = agent_evaluation_reporting.build_report(con, generated_at=NOW)
+    assert {key: report[key] for key in expected} == expected
+    assert {key: agent_evaluation.status(con)[key] for key in expected} == expected
+    assert f"Source-revised labels: 1 (ids: [{label_id}])" in (
+        agent_evaluation_reporting.p15_markdown(report)
+    )
+
+
+def test_common_label_tampered_body_still_fails(con):
+    _schema2_common_label(con)
+    con.execute("UPDATE agent_evaluation_labels_v2 SET net_return=-9")
+
+    with pytest.raises(agent_evaluation.EvaluationError, match="common-entry label evidence"):
+        _validate_common(con)
+
+
+def test_common_label_before_exit_close_still_fails(con):
+    _schema2_common_label(
+        con, labeled_at=datetime(2026, 9, 28, 18, tzinfo=timezone.utc),
+    )
+
+    with pytest.raises(agent_evaluation.EvaluationError, match="common-entry label evidence"):
+        _validate_common(con)
+
+
+def test_common_label_session_calendar_mismatch_still_fails(con):
+    _schema2_common_label(con)
+    con.execute("DELETE FROM prices WHERE ticker='SPY'")
+
+    with pytest.raises(agent_evaluation.EvaluationError, match="common-entry label evidence"):
+        _validate_common(con)
 
 
 def test_public_report_hashes_runtime_identity_but_retains_private_literal(con):

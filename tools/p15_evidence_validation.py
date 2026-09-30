@@ -71,13 +71,14 @@ def validate_links(con: duckdb.DuckDBPyConnection, error_type) -> None:
 
 
 def validate_common_labels(
-    con, generated_at: datetime, error_type, label_outcome, ready_outcome,
-) -> None:
+    con, generated_at: datetime, error_type, label_outcome,
+) -> dict:
+    source_revised_ids = []
     if not con.execute(
         "SELECT COUNT(*) FROM information_schema.tables "
         "WHERE table_name='agent_evaluation_labels_v2'"
     ).fetchone()[0]:
-        return
+        return {"labels_source_revised": 0, "labels_source_revised_ids": []}
     rows = con.execute(
         "SELECT l.*,d.ticker FROM agent_evaluation_labels_v2 l "
         "JOIN agent_evaluation_decisions d ON d.id=l.decision_id "
@@ -106,14 +107,20 @@ def validate_common_labels(
         if row["schema_version"] >= 2:
             sessions = [item[0] for item in con.execute(
                 f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>=? "
-                f"AND fetched_at<=? AND {REAL_BAR_SQL} ORDER BY date LIMIT ?",
-                [row["entry_date"], row["labeled_at"], row["horizon_sessions"]],
+                f"AND {REAL_BAR_SQL} ORDER BY date LIMIT ?",
+                [row["entry_date"], row["horizon_sessions"]],
             ).fetchall()]
-            if len(sessions) != row["horizon_sessions"] or ready_outcome(
-                con, row["ticker"], sessions,
-                row["labeled_at"].replace(tzinfo=timezone.utc),
-            ) is None:
+            if (len(sessions) != row["horizon_sessions"]
+                    or sessions[-1] != row["exit_date"]):
                 raise error_type("common-entry label evidence differs")
+            current = label_outcome(con, row["ticker"], sessions, generated_at)
+            if (current is None
+                    or current["price_prefix_sha256"] != row["price_prefix_sha256"]):
+                source_revised_ids.append(int(row["id"]))
+    return {
+        "labels_source_revised": len(source_revised_ids),
+        "labels_source_revised_ids": source_revised_ids,
+    }
 
 
 def validate_preopen(con: duckdb.DuckDBPyConnection, generated_at: datetime, error_type) -> None:
