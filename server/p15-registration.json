@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "registration_id": "p15-profitability-evidence-loop-v1",
-  "registered_at": "2026-09-27T15:17:55Z",
+  "registered_at": "2026-09-30T20:06:43Z",
   "activated_at": "2026-09-29T00:00:00-04:00",
   "activation_session": "2026-09-29",
   "status": "registered_inactive",
@@ -188,7 +188,7 @@
     "price_fetch_availability": "after_collection_completion"
   },
   "code_identity": {
-    "source_commit": "6cc10654b3e7bb1789d2761cff8d1e285ac706c0",
+    "source_commit": "6471c2f5b444dc47928f8b5539f1af24d2804858",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/actions.py": "a6c2ec46d198df2318498ec7d55e1b7cfeca4c8afaccd8a5c208618e4ea8b850",
@@ -245,8 +245,8 @@
       "farm/walkforward/runner.py": "f2b861dea8e5b2b9ae94e20a598ecfd3a96cf77eb98cb5a4439a450aba475d57",
       "server/__init__.py": "c462735edca08a01b1bda392e672430ed441aca796251c6adcaf6b5e648ea4b5",
       "server/agent-cadence-registration.json": "cf66040d889662f7ad740f79ce83e2c87528853bafe4f31a0634c7195b5c4b59",
-      "server/agent_evaluation.py": "bad55ae7573814e82a829bf69de1b24c34054da11004ac6693e9cda409767564",
-      "server/agent_evaluation_reporting.py": "775a9ce5b93b86eb79022dbcb91a4a2d1324a217f1324c86eed7c64afa23cbea",
+      "server/agent_evaluation.py": "0315d4dbd5df8d360c7ac64e3fc7d708b82285b540bd222821de94c094159fba",
+      "server/agent_evaluation_reporting.py": "08c770440ea11bcbbae1c8a4a9b903f8a475a6d3623843940db44eceb803135c",
       "server/agent_model_client.py": "3c4fbdfd48aa6e1c32a8fbe7fba18f8c7470aef01a684f7ab2d9d8cadf1394f8",
       "server/daily_opportunity_execution.py": "8f599df3f6ba71770d72ce23010f43d6d40695092de0e30e4a9986987dcc7798",
       "server/daily_opportunity_news.py": "cfefc2b70cfaf9f50a03c387577a81fcd0a1fff3f3021c061f609e14ed6bcf10",
@@ -320,12 +320,12 @@
       "tools/__init__.py": "1f23b3f78a32b5567d64752ddc564b1182bdfe50616b87bca6a3a603b597d927",
       "tools/agent_trial_register.py": "08cb4553ef83b49297f0222e063bf1da506e2b6e8d185f5a430739dc659125f6",
       "tools/backup_database.py": "68a12a3815ec479f025182bc9589a02dd46d1d80795bbe95de9eac4910a7f3fd",
-      "tools/p15_evidence_validation.py": "08819b0f44307812f0e6860d99aa94880565c0c429ea8ff8dc2b740bf4aa2d71",
+      "tools/p15_evidence_validation.py": "1b85479a4ff483f5709f60081a49427613bfa699934ca6b55593205b45a18cf6",
       "tools/release_manifest.py": "c127a129afceb4e7ffa4facc0c26014209afc50329710d96e3073efae3f016d9",
       "tools/sec_edgar_capture.py": "b6f46658930844cf4deed830e8e3a9412e9a19232663aced8a01472c42f0024f"
     }
   },
-  "registration_revision": 3,
-  "revision_reason": "P16 W1 R7 v3; scoring unit was invalid and no evidence exists",
-  "registration_sha256": "4211f9ac0ba95ff3d6839979760536ae9891f817074fe107e71049b184a99634"
+  "registration_revision": 4,
+  "revision_reason": "label validator: availability proven by the append-only label's price-prefix hash; bars re-fetched after labelling no longer fail evidence; revised source bars are counted, not fatal; no scoring, book, gate or label change",
+  "registration_sha256": "2387b35a35497367e030cffa25671e605feae06494ed1f64c11cc8b707dd8f2f"
 }

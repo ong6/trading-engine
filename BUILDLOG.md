@@ -1452,4 +1452,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Next:** verify the remaining 03:40, 07:40 and 11:40 UTC archive slices, then continue the P15
   first-cycle checks through October 1.
 
+## 2026-09-30 — Keep common-entry labels valid after bar refreshes
+
+- **Why:** the September 30 report refresh reproduced `common-entry label evidence differs`
+  after the nightly price upsert replaced the bars' `fetched_at` timestamps.
+- **What:** prove schema-2 label availability from the retained label body and price-prefix hash;
+  validate its session calendar against current SPY dates; and count current source revisions
+  without changing the recorded label, scoring, books, gates, or evidence statistics.
+  Issue registration revision 4 and expose the revision count and label ids in status and reports.
+- **Evidence:** read-only copied-store validation passes all 22 common-entry labels and reports
+  `labels_source_revised=16`; the full 4,084-test suite and whole-repository Ruff check pass.
+- **Metrics:** server +7, tools +7, product unchanged; budget ok.
+- **Next:** deploy registration revision 4 after the P15 window, refresh the report, and verify CI.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
