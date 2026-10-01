@@ -31,6 +31,7 @@ def _tiingo_zip() -> bytes:
 REUSE,NASDAQ,Stock,USD,2012-01-03,2014-05-06
 REUSE,NASDAQ,Stock,USD,2020-02-03,
 -P-ODD,NYSE,Stock,USD,2018-01-02,2019-03-04
+NAT,NYSE NAT,Stock,USD,2021-01-04,
 ETF1,NYSE,ETF,USD,2015-01-02,
 FOREIGN,LSE,Stock,USD,2010-01-04,
 CADSTK,NASDAQ,Stock,CAD,2010-01-04,
@@ -58,8 +59,9 @@ def test_tiingo_parser_keeps_us_stock_intervals_and_odd_tickers():
         ("REUSE", date(2012, 1, 3), date(2014, 5, 6)),
         ("REUSE", date(2020, 2, 3), None),
         ("-P-ODD", date(2018, 1, 2), date(2019, 3, 4)),
+        ("NAT", date(2021, 1, 4), None),
     ]
-    assert {row["exchange"] for row in rows} == {"NASDAQ", "NYSE"}
+    assert {row["exchange"] for row in rows} == {"NASDAQ", "NYSE", "NYSE NAT"}
 
 
 def test_tiingo_reload_is_idempotent():
@@ -71,9 +73,9 @@ def test_tiingo_reload_is_idempotent():
     finally:
         con.close()
 
-    assert (first["row_count"], first["inserted"], first["replayed"]) == (3, 3, False)
-    assert (second["row_count"], second["inserted"], second["replayed"]) == (3, 0, True)
-    assert count == 3
+    assert (first["row_count"], first["inserted"], first["replayed"]) == (4, 4, False)
+    assert (second["row_count"], second["inserted"], second["replayed"]) == (4, 0, True)
+    assert count == 4
 
 
 def test_massive_recorded_fixture_parses_and_loads_idempotently():
@@ -229,11 +231,11 @@ def test_audit_reports_exact_ticker_survivor_gap(tmp_path: Path):
     con = duckdb.connect(str(store_copy))
     try:
         con.execute("CREATE TABLE prices(ticker VARCHAR, date DATE)")
-        con.execute("CREATE TABLE universe(ticker VARCHAR, exchange VARCHAR)")
+        con.execute("CREATE TABLE universe(ticker VARCHAR, exchange VARCHAR, etf BOOLEAN)")
         con.execute(
             "INSERT INTO prices VALUES ('REUSE','2012-02-01'),('ONLY','2012-02-01')"
         )
-        con.execute("INSERT INTO universe VALUES ('REUSE','Q'),('ONLY','N')")
+        con.execute("INSERT INTO universe VALUES ('REUSE','Q',FALSE),('ONLY','N',FALSE)")
     finally:
         con.close()
 

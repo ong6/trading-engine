@@ -1528,4 +1528,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server, tools, and product unchanged; budget ok.
 - **Next:** P16 W9b registration and rehearsals.
 
+## 2026-10-01 — Establish P3 free-source survivor audit
+
+- **Why:** approved P3 Phase 0 implements the owner's free-source decision while paid vendor
+  purchase remains blocked.
+- **What:** capture and idempotently load Tiingo's public US stock intervals into an isolated
+  database; add a fixture-tested, resumable Massive grouped-daily fetcher that remains unrun;
+  and publish the 2010–2026 exact-ticker survivor-gap audit from a consistent store copy.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto` passes all 4,105 collected tests;
+  whole-repository Ruff and the metrics budget check pass.
+- **Metrics:** since 2026-09-30, server +14, tools +664, product +265; budget ok.
+- **Next:** owner supplies a Massive free key, then SEC contact identity; paid vendor spend remains
+  blocked.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
