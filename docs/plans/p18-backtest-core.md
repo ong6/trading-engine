@@ -67,8 +67,10 @@ standard are the only new documentation files.
 2. **Point-in-time data (`data.py`).** Add an immutable data declaration and view over normalized
    bars and optional auction/intraday/funding data. Column-level availability gates expose opens
    at open, later fields only at their timestamp or declared source lag, and enforce a hard maximum
-   date in every query. Provide frame construction for tests/synthetic data and a read-only DuckDB
-   adapter for an explicitly supplied store copy.
+   date in every query. Accept an optional independent secondary price source with the same bar
+   schema and its own declaration; secondary gaps stay gaps and are never filled from the primary.
+   Provide frame construction for tests/synthetic data and a read-only DuckDB adapter for an
+   explicitly supplied store copy.
 3. **Universe and survivorship (`universe.py`).** Resolve listing intervals and point-in-time
    trailing liquidity. Handle delist exits at the last available close, otherwise apply the
    configured delisting return (default −30%) and count it. A current-listings-only or missing
@@ -100,17 +102,23 @@ standard are the only new documentation files.
    jobs and results canonically, derive all random streams from explicit seeds, and serialize
    floats/keys consistently so serial and parallel outputs are byte-identical.
 9. **Report (`report.py`).** Atomically write Markdown and JSON with fixed sections for data,
-   costs, benchmark, variants, folds, optional holdout, generated caveats, and one plain-English
-   line per variant. Generate caveats for open-as-indication, survivor bias, every unverified cost
-   profile, and fewer than 100 trades. Include run identity, runtime, worker count, delisting
-   fallback count, and absolute-net/excess checks.
+   costs, benchmark, independent-price cross-check, variants, folds, optional holdout, generated
+   caveats, and one plain-English line per variant. The cross-check reports trade-day coverage;
+   signed `primary / secondary - 1` mean, median, p5, p95, and share beyond 0.5% for every fill
+   field used; the per-trade result recomputed entirely on covered secondary prices; and uncovered
+   trade count. It never fills secondary gaps from primary data. Generate caveats for
+   open-as-indication, survivor bias, every unverified cost profile, and fewer than 100 trades.
+   Include run identity, runtime, worker count, delisting fallback count, and absolute-net/excess
+   checks.
 10. **Synthetic proving ground (`synthetic.py`).** Generate a seeded price-only market with
     liquidity tiers, fat-tailed daily/overnight returns, delistings including zeros, a known
     tier-specific gap-down fade, cross-sectional momentum, and pure noise. Keep normal-suite
     fixtures small. Prove at least 45/50 one-sided `t >= 2` detections and a pooled edge estimate
     within two standard errors of truth; prove null size at alpha 0.05 over 200 seeds lies inside
     the exact 99% binomial band; and prove the look-ahead, survivorship, cost, and benchmark
-    canaries. Any optional larger run is marked `slow`.
+    canaries. A synthetic secondary source has a planted biased open and proves the cross-check's
+    sign, distribution, recomputed trade result, and uncovered count. Any optional larger run is
+    marked `slow`.
 11. **Worked example (`examples/`).** Add a generic textbook SPY 200-session trend rule against
     gross SPY buy-and-hold. Exercise it end to end on synthetic data in the normal suite. Its CLI
     requires an explicit read-only database path (a `tools.backup_database create` copy for real
@@ -137,8 +145,9 @@ owner-feedback entry, and `docs/backtest-standard.md` are committed and pushed o
 
 Checkpoint `p18-core` is complete when items 1–7 and focused `tests/test_study_*.py` tests pass,
 including exact hand calculations for every fee term, point-in-time/holdout failures, fold and
-calendar-day statistics, benchmark cost asymmetry, delisting handling, hashes, and census schema.
-Then the full suite and whole-repository Ruff pass and the branch is pushed.
+calendar-day statistics, benchmark cost asymmetry, delisting handling, hashes, census schema, and
+secondary-source isolation with a planted biased open. Then the full suite and whole-repository
+Ruff pass and the branch is pushed.
 
 Final completion requires items 8–11 and all of:
 
@@ -159,7 +168,7 @@ P15 registration manifest's file list must be empty.
 
 - Up to 9 logical commits including this planning checkpoint, each below 1,500 inserted non-data
   lines.
-- Up to 4,800 new lines under `farm/study/`, 4,000 under `tests/test_study_*.py`, and 800 across
+- Up to 3,000 new lines under `farm/study/`, 2,500 under `tests/test_study_*.py`, and 800 across
   the two P18 documentation files. These are a P18 review budget recorded under its own key in
   `docs/scope-budget.json`, not restored repository-wide layer ceilings.
 - Three sessions/checkpoints: plan; core items 1–7; runner/report/synthetic/example items 8–11.
@@ -191,6 +200,7 @@ shared file outside P18's entry.
 | Sparse strategies get attractive DSR from active-day sampling | Calendar-session fixture includes all zeros and asserts its DSR input length and value. |
 | A benchmark accidentally pays the strategy's costs | Identity canary requires excess exactly equal to negative strategy cost; allocation mode is a distinct labelled path. |
 | Parallel workers change ordering, random streams, or floats | Canonical jobs, per-job seeds, single-thread BLAS, and byte comparison against one worker. |
+| A secondary source silently becomes a fallback or hides trade-day gaps | Keep sources independently declared and keyed; report coverage and uncovered trades, and recompute only the covered secondary subset. |
 | Synthetic thresholds are brittle or tuned after observation | Generator parameters and seed ranges land before results; failures are reported, not tuned inside the same checkpoint. |
 | Store-backed example touches live state | Explicit path, read-only connection, live-default-path refusal, and copy-only runbook; tests use temporary synthetic stores. |
 
