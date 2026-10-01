@@ -89,17 +89,28 @@ class ExitRule:
     kind: str
     sessions: int | None = None
     fill: FillPoint | None = None
+    predicate: Callable[[Any, Any], bool] | None = None
+    decision_time: str | None = None
 
     def __post_init__(self) -> None:
         if self.kind == "same_session_close":
-            if self.sessions is not None or self.fill is not None:
+            if any(value is not None for value in (
+                    self.sessions, self.fill, self.predicate, self.decision_time)):
                 raise ValueError("same_session_close takes no arguments")
         elif self.kind == "after_n_sessions":
-            if not isinstance(self.sessions, int) or self.sessions < 1 or self.fill is None:
+            if (not isinstance(self.sessions, int) or self.sessions < 1 or self.fill is None
+                    or self.predicate is not None or self.decision_time is not None):
                 raise ValueError("after_n_sessions needs n >= 1 and a fill point")
         elif self.kind == "at_time":
-            if self.sessions is not None or self.fill is None or self.fill.kind != "bar_close":
+            if (self.sessions is not None or self.fill is None or self.fill.kind != "bar_close"
+                    or self.predicate is not None or self.decision_time is not None):
                 raise ValueError("at_time needs an intraday bar close")
+        elif self.kind == "first_condition":
+            if (not isinstance(self.sessions, int) or self.sessions < 1 or self.fill is None
+                    or self.predicate is None or self.decision_time is None):
+                raise ValueError("first_condition needs a predicate, max_sessions and fallback")
+            _pure_function(self.predicate)
+            validate_decision_time(self.decision_time)
         else:
             raise ValueError(f"unknown exit rule {self.kind!r}")
 
@@ -114,6 +125,15 @@ class ExitRule:
     @classmethod
     def at_time(cls, at: str) -> ExitRule:
         return cls("at_time", fill=FillPoint.bar_close(at))
+
+    @classmethod
+    def first_condition(cls, predicate: Callable[[Any, Any], bool], max_sessions: int, *,
+                        at: str = "close", fallback: str = "close") -> ExitRule:
+        decision = {"open": "at_open", "close": "at_close"}.get(at, at)
+        fill = (FillPoint.open_auction() if fallback == "open" else
+                FillPoint.close_auction() if fallback == "close" else
+                FillPoint.bar_close(fallback))
+        return cls("first_condition", max_sessions, fill, predicate, decision)
 
 
 @dataclass(frozen=True)
@@ -139,13 +159,31 @@ class EventStrategy:
     max_concurrent_slots: int
     slot_notional: float
     parameters: Mapping[str, Any] = field(default_factory=dict)
+    max_new_per_session: int | None = None
+    order_sort_key: tuple[str, ...] = ("ticker", "side")
+    open_as_indication: bool = False
+    close_as_indication: bool = False
 
     def __post_init__(self) -> None:
         validate_decision_time(self.decision_time)
         _pure_function(self.order_function)
         if self.max_concurrent_slots < 1 or self.slot_notional <= 0:
             raise ValueError("event capital needs positive slots and slot notional")
+        if self.max_new_per_session is None:
+            object.__setattr__(self, "max_new_per_session", self.max_concurrent_slots)
+        if self.max_new_per_session < 1:
+            raise ValueError("max_new_per_session must be positive")
+        keys = tuple(self.order_sort_key)
+        allowed = {"ticker", "side", "notional", "entry"}
+        if (not keys or "ticker" not in {key.lstrip("-") for key in keys}
+                or any(key.lstrip("-") not in allowed for key in keys)):
+            raise ValueError("order_sort_key must be declared fields including ticker")
+        object.__setattr__(self, "order_sort_key", keys)
         object.__setattr__(self, "parameters", _parameters(self.parameters))
+
+    @property
+    def max_concurrent(self) -> int:
+        return self.max_concurrent_slots
 
     def orders(self, view: Any, session: date) -> list[Order]:
         result = self.order_function(view, session)
@@ -162,6 +200,9 @@ class PortfolioStrategy:
     rebalance_schedule: str | tuple[date, ...]
     fill: FillPoint
     parameters: Mapping[str, Any] = field(default_factory=dict)
+    initial_capital: float = 100_000.0
+    open_as_indication: bool = False
+    close_as_indication: bool = False
 
     def __post_init__(self) -> None:
         validate_decision_time(self.decision_time)
@@ -170,6 +211,8 @@ class PortfolioStrategy:
                 if isinstance(self.rebalance_schedule, str)
                 else all(isinstance(day, date) for day in self.rebalance_schedule)):
             raise ValueError("invalid rebalance schedule")
+        if not math.isfinite(self.initial_capital) or self.initial_capital <= 0:
+            raise ValueError("initial_capital must be positive and finite")
         object.__setattr__(self, "parameters", _parameters(self.parameters))
 
     def target_weights(self, view: Any, rebalance_session: date) -> dict[str, float]:
