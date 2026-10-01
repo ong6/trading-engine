@@ -507,3 +507,19 @@ private repository they own, so a lost or replaced host loses nothing that canno
    raw data still never goes to this public repository.
 
 **Ceiling changes.** None.
+
+## 2026-10-01 — Approve the P18 shared backtest core
+
+**Verdict.** The owner approved P18: one public, reusable evaluator for event and portfolio
+studies, with point-in-time views, exact named costs, gross benchmarks, calendar-session DSR,
+sealed holdouts, deterministic process-pool execution, fixed reports, and price-only synthetic
+known-answer tests. Technical decisions and checkpoint acceptance remain with the orchestrator.
+
+**Rule changes.** P18 is approved under `docs/plans/p18-backtest-core.md`. Work is confined to
+`farm/study/**`, `tests/test_study_*.py`, and P18's claimed documentation entries. It does not
+modify running producers, P15-hashed files, P7/P8/P16 paths, services, or live data, and it writes
+no study-specific strategies, censuses, findings, or results to this public repository.
+
+**Ceiling changes.** Add the P18 review budget under its own `docs/scope-budget.json` key: at most
+4,800 new farm lines, 4,000 test lines, 800 documentation lines, and 9 logical commits. The
+repository-wide per-layer LOC ceilings remain removed; the 1,500-insertion per-commit cap remains.
