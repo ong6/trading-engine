@@ -174,8 +174,11 @@ def test_p15_scoring_unit_is_registered_and_autostarted():
     assert "ExecStart=%h/trading-engine/server/run_p15_scoring.sh" in service
     assert "ExecStartPost=" not in service
     assert runner.index("server.p15_scoring_runner --run") < runner.index(
-        "exec .venv/bin/python -m server.agent_evaluation_reporting"
+        ".venv/bin/python -m server.agent_evaluation_reporting"
+    ) < runner.index(
+        'market_date="$(.venv/bin/python -m engine.market_date)"'
     )
+    assert 'exec .venv/bin/python -m sim.league --date "${market_date}" --skip-if-done' in runner
     assert "TimeoutStartSec=9h" in service
     assert "Restart=on-failure" in service and "RestartSec=5min" in service
     assert "StartLimitIntervalSec=30min" in service and "StartLimitBurst=3" in service
