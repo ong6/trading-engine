@@ -56,8 +56,10 @@ def audit(free_database: Path, store_copy: Path) -> dict:
         )
         con.execute(
             """CREATE TEMP VIEW store_year AS
-            SELECT DISTINCT CAST(EXTRACT(year FROM date) AS INTEGER) AS year, ticker
-            FROM live_copy.prices WHERE date BETWEEN DATE '2010-01-01' AND DATE '2026-12-31'"""
+            SELECT DISTINCT CAST(EXTRACT(year FROM p.date) AS INTEGER) AS year, p.ticker
+            FROM live_copy.prices p JOIN live_copy.universe u USING(ticker)
+            WHERE COALESCE(u.etf, FALSE)=FALSE
+              AND p.date BETWEEN DATE '2010-01-01' AND DATE '2026-12-31'"""
         )
         master_exchange = con.execute(
             """SELECT m.year, m.exchange, COUNT(*) AS master,
@@ -109,7 +111,9 @@ def audit(free_database: Path, store_copy: Path) -> dict:
         ).fetchone()
         reused = con.execute(
             """SELECT COUNT(*) FROM (
-              SELECT ticker FROM latest_master GROUP BY ticker HAVING COUNT(*)>1)"""
+              SELECT ticker FROM (
+                SELECT DISTINCT ticker,start_date,end_date FROM latest_master)
+              GROUP BY ticker HAVING COUNT(*)>1)"""
         ).fetchone()[0]
         exchanges = con.execute(
             """SELECT audit_exchange, COUNT(*), COUNT(DISTINCT ticker)
