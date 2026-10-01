@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 
 import duckdb
 
@@ -174,6 +174,168 @@ def validate_book_links(con: duckdb.DuckDBPyConnection, error_type) -> None:
         raise error_type("P15 book evidence has orphan rows")
 
 
+_FACT_COLUMNS = (
+    "schema_version,entity_id,security_id,fact_type,event_at,published_at,available_at,"
+    "ingested_at,revision,normalized_payload,normalized_sha256,source,source_version,"
+    "receipt_sha256,previous_fact_sha256,fact_sha256"
+)
+
+
+def _fact_rows(cursor) -> list[dict]:
+    columns = [item[0] for item in cursor.description]
+    return [dict(zip(columns, values, strict=True)) for values in cursor.fetchall()]
+
+
+def _fact_identity_matches(row: dict) -> bool:
+    identity = {key: row[key] for key in (
+        "schema_version", "entity_id", "security_id", "fact_type", "revision",
+        "normalized_sha256", "source", "source_version", "receipt_sha256",
+        "previous_fact_sha256",
+    )}
+    identity.update(
+        event_at=row["event_at"].isoformat(),
+        published_at=(
+            None if row["published_at"] is None else row["published_at"].isoformat()
+        ),
+        available_at=row["available_at"].isoformat(),
+        ingested_at=row["ingested_at"].isoformat(),
+    )
+    return (
+        canonical_sha256(json.loads(row["normalized_payload"]))
+        == row["normalized_sha256"]
+        and canonical_sha256(identity) == row["fact_sha256"]
+    )
+
+
+def _entry_fact_candidates(con, security_id: str, entry_at, labeled_at) -> list[dict]:
+    return _fact_rows(con.execute(
+        f"SELECT {_FACT_COLUMNS} FROM bitemporal_facts WHERE security_id=? "
+        "AND fact_type='intraday.ohlcv.5m' AND event_at=? "
+        "AND available_at<=? AND ingested_at<=? "
+        "QUALIFY revision=MAX(revision) OVER "
+        "(PARTITION BY entity_id,fact_type,event_at) ORDER BY entity_id",
+        [security_id, entry_at, labeled_at, labeled_at],
+    ))
+
+
+def _first_entry_fact(con, security_id: str, entry_at, entity_id: str | None = None):
+    entity_clause = "" if entity_id is None else "AND entity_id=? "
+    parameters = [security_id, entry_at, *([] if entity_id is None else [entity_id])]
+    rows = _fact_rows(con.execute(
+        f"SELECT {_FACT_COLUMNS} FROM bitemporal_facts WHERE security_id=? "
+        f"AND fact_type='intraday.ohlcv.5m' AND event_at=? {entity_clause}"
+        "ORDER BY ingested_at,available_at,revision LIMIT 1",
+        parameters,
+    ))
+    return None if not rows else rows[0]
+
+
+def _event_label_body(row: dict) -> dict:
+    body = {key: row[key] for key in (
+        "decision_id", "horizon_sessions", "label_basis", "entry_px", "exit_close",
+        "asset_return", "spy_return", "net_return", "net_excess_return",
+        "missing_bar_status", "price_prefix_sha256",
+    )}
+    body.update(entry_at=row["entry_at"].isoformat(), exit_date=row["exit_date"].isoformat())
+    return body
+
+
+def _next_bar_expected(
+    con, row: dict, ticker: str, decision_at, label_outcome, generated_at: datetime,
+):
+    cutoff = generated_at.astimezone(timezone.utc).replace(tzinfo=None)
+    sessions = [item[0] for item in con.execute(
+        f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>=? "
+        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
+        "ORDER BY date LIMIT ?",
+        [decision_at.date(), cutoff, row["horizon_sessions"]],
+    ).fetchall()]
+    outcome = label_outcome(con, ticker, sessions, generated_at) \
+        if len(sessions) == row["horizon_sessions"] else None
+    if outcome is None:
+        return None, []
+    assets = _entry_fact_candidates(con, ticker, row["entry_at"], row["labeled_at"])
+    spies = _entry_fact_candidates(con, "SPY", row["entry_at"], row["labeled_at"])
+    matches = [
+        (asset, spy) for asset in assets for spy in spies
+        if canonical_sha256({
+            "daily": outcome["price_prefix_sha256"],
+            "entry_facts": [asset["fact_sha256"], spy["fact_sha256"]],
+        }) == row["price_prefix_sha256"]
+    ]
+    if len(matches) != 1:
+        return None, matches
+    asset_fact, spy_fact = matches[0]
+    if not all(_fact_identity_matches(item) for item in matches[0]):
+        return None, matches
+    asset, spy = json.loads(asset_fact["normalized_payload"]), json.loads(
+        spy_fact["normalized_payload"]
+    )
+    spy_exit = con.execute(
+        f"SELECT close FROM prices WHERE ticker='SPY' AND date=? "
+        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL}",
+        [outcome["exit_date"], cutoff],
+    ).fetchone()
+    if spy_exit is None:
+        return None, matches
+    entry_px = float(asset["open"])
+    spy_return = float(spy_exit[0]) / float(spy["open"]) - 1
+    net_return = float(outcome["exit_close"]) * 0.999 / (entry_px * 1.001) - 1
+    spy_net = (1 + spy_return) * 0.999 / 1.001 - 1
+    expected = {
+        "decision_id": row["decision_id"],
+        "horizon_sessions": row["horizon_sessions"],
+        "label_basis": row["label_basis"],
+        "entry_at": row["entry_at"].isoformat(),
+        "exit_date": outcome["exit_date"].isoformat(),
+        "entry_px": entry_px,
+        "exit_close": outcome["exit_close"],
+        "asset_return": float(outcome["exit_close"]) / entry_px - 1,
+        "spy_return": spy_return,
+        "net_return": net_return,
+        "net_excess_return": net_return - spy_net,
+        "missing_bar_status": outcome["missing_bar_status"],
+        "price_prefix_sha256": row["price_prefix_sha256"],
+    }
+    return expected, matches
+
+
+def _validate_next_bar_label(
+    con, row: dict, ticker: str, decision_at, label_outcome, generated_at, error_type,
+) -> bool:
+    if row["entry_at"] + timedelta(minutes=5) > row["labeled_at"]:
+        raise error_type("P15 event label evidence differs")
+    first = {
+        security_id: _first_entry_fact(con, security_id, row["entry_at"])
+        for security_id in (ticker, "SPY")
+    }
+    if any(item is None or not _fact_identity_matches(item) for item in first.values()):
+        raise error_type("P15 event label evidence differs")
+    if any(
+        item["available_at"] > row["labeled_at"] or item["ingested_at"] > row["labeled_at"]
+        for item in first.values()
+    ):
+        raise error_type("P15 event label evidence differs")
+    expected, matches = _next_bar_expected(
+        con, row, ticker, decision_at, label_outcome, generated_at,
+    )
+    if any(not _fact_identity_matches(fact) for pair in matches for fact in pair):
+        raise error_type("P15 event label evidence differs")
+    if expected is None:
+        return True
+    for fact in matches[0]:
+        first_used = _first_entry_fact(
+            con, fact["security_id"], fact["event_at"], fact["entity_id"],
+        )
+        if (first_used is None or not _fact_identity_matches(first_used)
+                or first_used["available_at"] > row["labeled_at"]
+                or first_used["ingested_at"] > row["labeled_at"]):
+            raise error_type("P15 event label evidence differs")
+    if canonical_sha256(expected) != row["label_sha256"]:
+        raise error_type("P15 event label evidence differs")
+    return False
+
+
 def _event_label_expected(con, row: dict, label_outcome, event_runner):
     ticker, decision_at = con.execute(
         "SELECT ticker,decision_at FROM p15_event_decisions WHERE id=?", [row["decision_id"]]
@@ -260,7 +422,9 @@ def _event_label_expected(con, row: dict, label_outcome, event_runner):
             "price_prefix_sha256": outcome["price_prefix_sha256"]}
 
 
-def validate_events(con: duckdb.DuckDBPyConnection, error_type, label_outcome) -> None:
+def validate_events(
+    con: duckdb.DuckDBPyConnection, error_type, label_outcome, generated_at: datetime,
+) -> dict:
     from farm import p15_event_runner
 
     orphans = con.execute(
@@ -328,17 +492,37 @@ def validate_events(con: duckdb.DuckDBPyConnection, error_type, label_outcome) -
                 or hashlib.sha256(bytes(receipt[12])).hexdigest() != receipt[11]
                 or canonical_sha256(receipt_identity) != receipt[14]):
             raise error_type("P15 event source receipt differs")
+    return validate_event_labels(
+        con, error_type, label_outcome, generated_at,
+    )
+
+
+def validate_event_labels(
+    con: duckdb.DuckDBPyConnection, error_type, label_outcome, generated_at: datetime,
+) -> dict:
+    from farm import p15_event_runner
+
+    unverifiable_ids = []
     labels = con.execute("SELECT * FROM p15_event_labels ORDER BY id")
     columns = [item[0] for item in labels.description]
     for values in labels.fetchall():
         row = dict(zip(columns, values, strict=True))
-        body = {key: row[key] for key in (
-            "decision_id", "horizon_sessions", "label_basis", "entry_px", "exit_close",
-            "asset_return", "spy_return", "net_return", "net_excess_return",
-            "missing_bar_status", "price_prefix_sha256",
-        )}
-        body.update(entry_at=row["entry_at"].isoformat(), exit_date=row["exit_date"].isoformat())
-        expected = _event_label_expected(con, row, label_outcome, p15_event_runner)
-        if canonical_sha256(body) != row["label_sha256"] or expected is None \
-                or canonical_sha256(expected) != row["label_sha256"]:
+        if canonical_sha256(_event_label_body(row)) != row["label_sha256"]:
             raise error_type("P15 event label evidence differs")
+        ticker, decision_at = con.execute(
+            "SELECT ticker,decision_at FROM p15_event_decisions WHERE id=?",
+            [row["decision_id"]],
+        ).fetchone()
+        if row["label_basis"] == "next_bar" and row["missing_bar_status"] == "complete":
+            if _validate_next_bar_label(
+                con, row, ticker, decision_at, label_outcome, generated_at, error_type,
+            ):
+                unverifiable_ids.append(int(row["id"]))
+            continue
+        expected = _event_label_expected(con, row, label_outcome, p15_event_runner)
+        if expected is None or canonical_sha256(expected) != row["label_sha256"]:
+            raise error_type("P15 event label evidence differs")
+    return {
+        "labels_source_unverifiable": len(unverifiable_ids),
+        "labels_source_unverifiable_ids": unverifiable_ids,
+    }

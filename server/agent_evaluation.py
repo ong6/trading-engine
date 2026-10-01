@@ -875,7 +875,10 @@ def validate_p15_evidence(
     if not scoring_schema:
         if preopen_schema or book_schema or event_schema:
             raise EvaluationError("P15 scoring schema is missing")
-        return {"labels_source_revised": 0, "labels_source_revised_ids": []}
+        return {
+            "labels_source_revised": 0, "labels_source_revised_ids": [],
+            "labels_source_unverifiable": 0, "labels_source_unverifiable_ids": [],
+        }
     if preopen_schema and not book_schema:
         raise EvaluationError("P15 pre-open book schema is missing")
     from server import p15_price_fetch_attempts
@@ -1178,8 +1181,13 @@ def validate_p15_evidence(
                     or canonical_sha256(expected) != values[11]):
                 raise EvaluationError("P15 limit label evidence differs")
     if event_schema:
-        p15_evidence_validation.validate_events(
-            con, EvaluationError, _label_outcome_when_ready,
+        label_source_status.update(p15_evidence_validation.validate_events(
+            con, EvaluationError, _label_outcome_when_ready, generated_at,
+        ))
+    else:
+        label_source_status.update(
+            labels_source_unverifiable=0,
+            labels_source_unverifiable_ids=[],
         )
     return label_source_status
 

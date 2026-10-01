@@ -401,7 +401,10 @@ def p15_markdown(report: dict) -> str:
              "This is prospective evidence only. Any pass requires owner review; no broker or "
              "real-capital authority is granted.", "",
              f"Source-revised labels: {report['labels_source_revised']} "
-             f"(ids: {report['labels_source_revised_ids']})", "", "## Primary rank test", "",
+             f"(ids: {report['labels_source_revised_ids']})",
+             f"Source-unverifiable labels: {report['labels_source_unverifiable']} "
+             f"(ids: {report['labels_source_unverifiable_ids']})", "",
+             "## Primary rank test", "",
              f"- Scored sessions: {primary['scored_session_count']}",
              f"- Insufficient sessions: {primary['insufficient_session_count']}",
              f"- Missing mature labels: {primary['missing_mature_label_count']}",

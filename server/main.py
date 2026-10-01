@@ -514,11 +514,12 @@ def agent_evaluation_status():
     with _connection(read_con) as con:
         try:
             generated_at = datetime.now(timezone.utc)
-            agent_evaluation.validate_p15_evidence(con, generated_at)
+            evidence_status = agent_evaluation.validate_p15_evidence(con, generated_at) or {}
             p15 = p16_status_adapter.with_primary_kill(
                 p15_evaluation.project(con, generated_at=generated_at),
             )
-            result = {**agent_evaluation.status(con), "schema_version": 3, **p15,
+            result = {**agent_evaluation.status(con), **evidence_status,
+                      "schema_version": 3, **p15,
                       "trial_count_register": agent_trial_register.project(con, generated_at)}
         except (OSError, ValueError, agent_evaluation.EvaluationError) as exc:
             raise HTTPException(503, "agent evaluation status unavailable") from exc

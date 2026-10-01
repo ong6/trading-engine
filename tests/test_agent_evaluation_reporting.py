@@ -152,10 +152,12 @@ def test_common_label_changed_refetch_is_reported_but_valid(con):
     assert _validate_common(con) == expected
     report = agent_evaluation_reporting.build_report(con, generated_at=NOW)
     assert {key: report[key] for key in expected} == expected
+    assert report["labels_source_unverifiable"] == 0
+    assert report["labels_source_unverifiable_ids"] == []
     assert {key: agent_evaluation.status(con)[key] for key in expected} == expected
-    assert f"Source-revised labels: 1 (ids: [{label_id}])" in (
-        agent_evaluation_reporting.p15_markdown(report)
-    )
+    markdown = agent_evaluation_reporting.p15_markdown(report)
+    assert f"Source-revised labels: 1 (ids: [{label_id}])" in markdown
+    assert "Source-unverifiable labels: 0 (ids: [])" in markdown
 
 
 def test_common_label_tampered_body_still_fails(con):
