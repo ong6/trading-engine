@@ -1,6 +1,6 @@
 {
   "_comment": "Hygiene budgets enforced by tests/test_operating_contract.py and tools.metrics_snapshot --check-budget: BUILDLOG entry size, commit size, and the doc-test freeze. Per-layer LOC ceilings were removed by the owner on 2026-09-27 (docs/feedback.md); code size is still reported for visibility.",
-  "set_on": "2026-09-27",
+  "set_on": "2026-10-01",
   "buildlog_entry": {
     "max_lines": 25,
     "max_sha256": 1
@@ -8,6 +8,9 @@
   "commit": {
     "max_insertions_non_data": 1500,
     "note": "Reported by metrics_snapshot; a larger change needs an approved plan in docs/plans/."
+  },
+  "plan_code_ceiling": {
+    "p3_phase0_free_sources": 1200
   },
   "doc_test_ceiling": 86,
   "p18": {

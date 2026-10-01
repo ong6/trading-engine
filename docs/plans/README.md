@@ -13,7 +13,7 @@ each plan's YAML `status` must match its row.
 |---|---|---|---|
 | [P1](p1-appliance-mode.md) | Appliance mode | done | Closed 2026-09-26: maintain-only premise superseded; doc-pinning test retirement moved to P16 W9 |
 | [P2](p2-league-collapse.md) | League collapse | approved | Retire the frozen eleven-book legacy set; newer separately authorized books are outside that set |
-| [P3](p3-point-in-time-data.md) | Point-in-time data | approved | Sharadar recommended, Norgate fallback; **blocked** until the owner sets a spend ceiling |
+| [P3](p3-point-in-time-data.md) | Point-in-time data | approved | Phase 0 free sources unblocked; paid Sharadar/Norgate purchase remains spend-blocked |
 | [P4](p4-broker-decision.md) | Broker decision | done | Decided 2026-09-20: IBKR eventually (Moomoo fallback) on personal hardware, via a later execution plan |
 | [P5](p5-agent-paper-decisions.md) | Agent paper decisions | done | Completed 2026-09-18: a constrained agent controls one isolated simulator-only book |
 | [P6](p6-alpha-experiment.md) | Alpha experiment | done | Completed 2026-09-18: one frozen credit-confirmed SPY/BIL experiment |

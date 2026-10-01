@@ -508,6 +508,21 @@ private repository they own, so a lost or replaced host loses nothing that canno
 
 **Ceiling changes.** None.
 
+## 2026-10-01 — Use free survivor sources before any data purchase
+
+**Verdict.** The owner declined data spend for now and unblocked a Phase 0 of P3 using free
+sources: Tiingo's public ticker archive for historical listing intervals, a ready-but-unrun
+Massive Stocks Basic grouped-daily fetcher, and SEC Form 25 after the pending contact identity.
+The paid Sharadar/Norgate phase remains approved but purchase-blocked.
+
+**Rule changes.** P3 Phase 0 may build only the isolated free-source tables, raw cache, fixture
+tests, and 2026-10-01 coverage audit named in its plan. It never mutates operational `prices`, a
+forward record, or execution authority. Massive stays unrun until the owner creates its free key;
+SEC work stays unbuilt until the owner supplies the contact identity.
+
+**Ceiling changes.** `docs/scope-budget.json` records a 1,200-line P3 Phase 0 code-and-test
+ceiling. This plan-specific budget does not restore the removed per-layer LOC ceilings.
+
 ## 2026-10-01 — Approve the P18 shared backtest core
 
 **Verdict.** The owner approved P18: one public, reusable evaluator for event and portfolio

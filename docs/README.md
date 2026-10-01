@@ -90,6 +90,9 @@ deterministic research queue, and dates inside it label historical measurements.
 - `GET /research/readiness` and the dashboard readiness cards — live, read-only admission
   gates for stock-selection, fundamentals, and intraday research. They require both elapsed
   time and per-date breadth and never imply profitability or activate a strategy.
+- [`pit-free-audit-2026-10-01.md`](pit-free-audit-2026-10-01.md) — P3 Phase 0 snapshot of the
+  free Tiingo security master against a consistent operational-store copy, including annual
+  exact-ticker survivor gaps and the remaining free-source limits.
 - The dated “Live decision checkpoint” in
   [`strategy-research-backlog.md`](strategy-research-backlog.md) records the latest reconciled
   counts and the next permitted action. The endpoints and generated reports supersede that
