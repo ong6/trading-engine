@@ -1513,4 +1513,19 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +12, tools +184, product unchanged; budget ok.
 - **Next:** P16 W9b registration and rehearsals.
 
+## 2026-10-01 — Refresh league evidence after P15 book windows
+
+- **Why:** after the October 1 scoring run finalized the September 30 P15 book windows, `/meta`
+  reproduced `nightly_evidence: invalid` because `league.csv` still held the nightly's earlier
+  equity values.
+- **What:** make scoring re-render both league files through the nightly's existing idempotent
+  renderer after evaluation reporting, with any failure failing the service. Add a regression for
+  stale post-render P15 equity, restored validation, and byte-identical repeat output; issue
+  registration revision 7. Queue jobs 618/619 remain unchanged because no supported path
+  supersedes failed rows.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_nightly_reports.py -k
+  'p15_equity_update_requires_league_rerender'` passes.
+- **Metrics:** server, tools, and product unchanged; budget ok.
+- **Next:** P16 W9b registration and rehearsals.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
