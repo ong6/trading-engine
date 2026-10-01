@@ -335,6 +335,19 @@ def _acceptance(row: dict[str, str], filing_date: date) -> datetime | None:
     return accepted
 
 
+def insider_row_available(
+    filing_date: date, accepted_at: datetime | None, as_of: datetime,
+) -> bool:
+    """Apply exact acceptance when present, else wait past the filing date."""
+    if as_of.utcoffset() is None:
+        raise FreeSourceError("insider as-of timestamp must be timezone-aware")
+    if accepted_at is not None:
+        if accepted_at.utcoffset() is None:
+            raise FreeSourceError("insider acceptance timestamp must be timezone-aware")
+        return as_of.astimezone(timezone.utc) >= accepted_at.astimezone(timezone.utc)
+    return as_of.astimezone(EASTERN).date() > filing_date
+
+
 def parse_insider_zip(body: bytes) -> dict[str, list[dict]]:
     tables = _zip_tables(body)
     submissions = []

@@ -379,22 +379,42 @@ def audit(free_database: Path, store_copy: Path) -> dict:
             transaction_date,code,shares,price_per_share,acquired_disposed,
             shares_owned_after,direct_indirect
             FROM free_store.free_insider_nonderiv_trans""")
-        insider_rows = con.execute("""SELECT EXTRACT(year FROM s.filing_date)::INTEGER AS year,
-            COUNT(DISTINCT s.accession) AS submissions,
-            COUNT(*) FILTER (WHERE t.code='P') AS purchases,
-            COUNT(*) FILTER (WHERE t.code='S') AS sales,
-            COUNT(DISTINCT s.accession) FILTER (WHERE s.issuer_trading_symbol IS NOT NULL
-              AND EXISTS(SELECT 1 FROM live_copy.prices p
-                WHERE p.ticker=s.issuer_trading_symbol
-                  AND EXTRACT(year FROM p.date)=EXTRACT(year FROM s.filing_date))) AS store_matches,
-            COUNT(DISTINCT s.accession) FILTER (WHERE s.issuer_trading_symbol IS NOT NULL
+        con.execute("""CREATE TEMP VIEW store_ticker_year AS
+            SELECT ticker,EXTRACT(year FROM date)::INTEGER AS year
+            FROM live_copy.prices GROUP BY ticker,year""")
+        insider_rows = con.execute("""WITH submission_year AS (
+            SELECT EXTRACT(year FROM s.filing_date)::INTEGER AS year,
+              COUNT(*) AS submissions,
+              COUNT(*) FILTER (WHERE s.issuer_trading_symbol IS NOT NULL
+                AND EXISTS(SELECT 1 FROM store_ticker_year p
+                  WHERE p.ticker=s.issuer_trading_symbol
+                    AND p.year=EXTRACT(year FROM s.filing_date))) AS store_matches,
+              COUNT(*) FILTER (WHERE s.issuer_trading_symbol IS NOT NULL
               AND EXISTS(SELECT 1 FROM latest_master m
                 WHERE m.ticker=s.issuer_trading_symbol AND m.start_date<=s.filing_date
                   AND (m.end_date IS NULL OR m.end_date>=s.filing_date))) AS master_matches
-            FROM submissions s LEFT JOIN transactions t USING(accession)
-            GROUP BY year ORDER BY year""").fetchall()
+            FROM submissions s GROUP BY year), transaction_year AS (
+            SELECT EXTRACT(year FROM s.filing_date)::INTEGER AS year,
+              COUNT(*) FILTER (WHERE t.code='P') AS purchases,
+              COUNT(*) FILTER (WHERE t.code='S') AS sales,
+              COUNT(*) FILTER (WHERE t.code='P' AND s.issuer_trading_symbol IS NOT NULL
+                AND EXISTS(SELECT 1 FROM store_ticker_year p
+                  WHERE p.ticker=s.issuer_trading_symbol
+                    AND p.year=EXTRACT(year FROM s.filing_date))) AS purchase_store_matches,
+              COUNT(*) FILTER (WHERE t.code='P' AND s.issuer_trading_symbol IS NOT NULL
+                AND EXISTS(SELECT 1 FROM latest_master m
+                  WHERE m.ticker=s.issuer_trading_symbol AND m.start_date<=s.filing_date
+                    AND (m.end_date IS NULL OR m.end_date>=s.filing_date))) AS purchase_master_matches
+            FROM submissions s JOIN transactions t USING(accession) GROUP BY year)
+            SELECT s.year,s.submissions,COALESCE(t.purchases,0),COALESCE(t.sales,0),
+              s.store_matches,s.master_matches,COALESCE(t.purchase_store_matches,0),
+              COALESCE(t.purchase_master_matches,0)
+            FROM submission_year s LEFT JOIN transaction_year t USING(year)
+            ORDER BY s.year""").fetchall()
         quality = con.execute("""SELECT
             (SELECT COUNT(*) FROM submissions WHERE document_type LIKE '%/A') AS amendments,
+            (SELECT COUNT(*) FROM free_store.free_delisting_notices
+             WHERE form LIKE '%/A') AS notice_amendments,
             (SELECT COUNT(*)-COUNT(DISTINCT accession)
              FROM free_store.free_insider_submissions) AS duplicate_accessions,
             (SELECT COUNT(*) FROM transactions
@@ -402,8 +422,14 @@ def audit(free_database: Path, store_copy: Path) -> dict:
             (SELECT COUNT(*) FROM submissions WHERE issuer_trading_symbol IS NULL) AS missing_symbols,
             (SELECT COUNT(*) FROM submissions WHERE issuer_trading_symbol IS NOT NULL
              AND NOT regexp_matches(issuer_trading_symbol,'^[A-Z][A-Z0-9.-]*$')) AS odd_symbols,
+            (SELECT COUNT(*) FROM submissions WHERE issuer_name IS NULL) AS missing_issuer_names,
             (SELECT COUNT(*) FROM free_store.free_delisting_notice_details
              WHERE security_class IS NULL) AS missing_security_classes""").fetchone()
+        inventory = con.execute("""SELECT
+            (SELECT COUNT(*) FROM free_store.free_delisting_notices),
+            (SELECT COUNT(*) FROM free_store.free_delisting_notice_details),
+            (SELECT COUNT(DISTINCT source_sha256) FROM free_store.free_insider_submissions),
+            (SELECT COUNT(*) FROM free_store.free_company_tickers)""").fetchone()
     finally:
         con.close()
     notices = [{"year": row[0], "form25": row[1], "form25_nse": row[2], "total": row[3],
@@ -414,11 +440,18 @@ def audit(free_database: Path, store_copy: Path) -> dict:
                     for year, counts in sorted(overlap.items())]
     insiders = [{"year": row[0], "submissions": row[1], "purchases": row[2], "sales": row[3],
                  "store_matches": row[4], "store_share": row[4] / row[1] if row[1] else None,
-                 "master_matches": row[5], "master_share": row[5] / row[1] if row[1] else None}
+                 "master_matches": row[5], "master_share": row[5] / row[1] if row[1] else None,
+                 "purchase_store_matches": row[6],
+                 "purchase_store_share": row[6] / row[2] if row[2] else None,
+                 "purchase_master_matches": row[7],
+                 "purchase_master_share": row[7] / row[2] if row[2] else None}
                 for row in insider_rows]
-    return {"notices": notices, "tiingo_end_overlap": overlap_rows, "insiders": insiders,
-            "quality": dict(zip(("amendments", "duplicate_accessions", "zero_or_missing_prices",
-                                  "missing_symbols", "odd_symbols", "missing_security_classes"),
+    return {"inventory": dict(zip(("notices", "notice_details", "insider_quarters",
+                                    "company_tickers"), inventory, strict=True)),
+            "notices": notices, "tiingo_end_overlap": overlap_rows, "insiders": insiders,
+            "quality": dict(zip(("amendments", "notice_amendments", "duplicate_accessions",
+                                  "zero_or_missing_prices", "missing_symbols", "odd_symbols",
+                                  "missing_issuer_names", "missing_security_classes"),
                                  quality, strict=True))}
 
 
@@ -427,6 +460,7 @@ def _percent(value: float | None) -> str:
 
 
 def render_audit(result: dict) -> str:
+    inventory = result["inventory"]
     lines = [
         "# P3 Phase 0 free SEC audit — 2026-10-01", "",
         "## Method", "",
@@ -436,6 +470,11 @@ def render_audit(result: dict) -> str:
         "to the latest insider-observed ticker for its CIK on or before filing; the current SEC",
         "ticker file is only a 2026-10-01 observation. Tiingo overlap means the mapped ticker has",
         "an interval end within ten sessions on the copied store calendar.", "",
+        f"The capture covers 123 Form indexes, {inventory['notices']:,} unique notice accessions,",
+        f"{inventory['notice_details']:,} primary XML details, {inventory['insider_quarters']} contiguous",
+        "insider quarters from 2006Q1 through the official page's latest link (2026Q2), and",
+        f"{inventory['company_tickers']:,} current company-ticker rows. SEC had not published a",
+        "2026Q3 insider ZIP on the audit date.", "",
         "Insider facts become available at EDGAR acceptance when the quarterly source supplies it.",
         "The published quarterly files are filing-date-granular otherwise, so consumers must not",
         "use those rows until after that filing date. Transaction date is never availability.", "",
@@ -450,18 +489,24 @@ def render_audit(result: dict) -> str:
               "|---:|---:|---:|---:|"]
     lines.extend(f"| {r['year']} | {r['mapped']:,} | {r['within_10_sessions']:,} | "
                  f"{_percent(r['share'])} |" for r in result["tiingo_end_overlap"])
-    lines += ["", "## Insider coverage", "",
-              "| Year | Submissions | Purchases (`P`) | Sales (`S`) | Store ticker share | Tiingo master share |",
-              "|---:|---:|---:|---:|---:|---:|"]
+    lines += ["", "The low pre-2015 overlap and its step-up from 2015 calibrate the Tiingo",
+              "archive's sparse early interval ends. The 2026 overlap is not a delisting-rate",
+              "estimate because the Tiingo archive boundary right-censors current intervals.", "",
+              "## Insider coverage", "",
+              "| Year | Submissions | Purchases (`P`) | Sales (`S`) | Submission store share | Submission Tiingo share | Purchase store share | Purchase Tiingo share |",
+              "|---:|---:|---:|---:|---:|---:|---:|---:|"]
     lines.extend(f"| {r['year']} | {r['submissions']:,} | {r['purchases']:,} | {r['sales']:,} | "
-                 f"{_percent(r['store_share'])} | {_percent(r['master_share'])} |"
+                 f"{_percent(r['store_share'])} | {_percent(r['master_share'])} | "
+                 f"{_percent(r['purchase_store_share'])} | {_percent(r['purchase_master_share'])} |"
                  for r in result["insiders"])
     q = result["quality"]
     lines += ["", "## Data-quality notes", "",
-              f"- Insider amendment submissions: {q['amendments']:,}.",
-              f"- Duplicate accession rows across quarterly archives: {q['duplicate_accessions']:,}.",
+              f"- Amendments retained: {q['notice_amendments']:,} Form 25-family notices and "
+              f"{q['amendments']:,} insider submissions.",
+              f"- Duplicate insider accession rows across quarterly archives: {q['duplicate_accessions']:,}.",
               f"- Non-derivative transactions with zero or missing price: {q['zero_or_missing_prices']:,}.",
               f"- Submissions with missing symbols: {q['missing_symbols']:,}; with non-standard symbols: {q['odd_symbols']:,}.",
+              f"- Submissions with a missing issuer name: {q['missing_issuer_names']:,}.",
               f"- Form 25-NSE details with an empty security class: {q['missing_security_classes']:,}.",
               "- Amendments are retained as distinct accessions. Exact symbols are not rewritten; class,",
               "  preferred, warrant, slash, and punctuation conventions therefore remain visible rather",

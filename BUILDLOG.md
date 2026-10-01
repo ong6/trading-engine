@@ -1577,4 +1577,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm/product +1,865 and tests +610 for P18; server and tools unchanged; budget ok.
 - **Next:** nothing admitted.
 
+## 2026-10-01 — Complete P3 free SEC history
+
+- **Why:** approved P3 Phase 0 part 2 after the owner supplied the private SEC contact identity.
+- **What:** add fixture-tested, paced, resumable Form 25, insider-transaction, and current CIK-to-
+  ticker capture into the isolated free-source store; retain raw responses outside Git; and
+  publish the annual SEC/Tiingo/store coverage audit from a disposable consistent store copy.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto` reaches 100% with no failures;
+  whole-repository Ruff and the metrics budget check also pass.
+- **Metrics:** server +0, tools +558, product +495; budget ok.
+- **Next:** nothing admitted; Massive remains key-blocked and paid P3 remains spend-blocked.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
