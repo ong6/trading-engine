@@ -1499,4 +1499,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +2; tools and product unchanged; budget ok.
 - **Next:** P16 W9b registration and rehearsals.
 
+## 2026-10-01 — Recover event-label sources across later revisions
+
+- **Why:** after the book fix, reporting reproduced `P15 event label evidence differs`; the
+  original daily-row cutoff was empty after refresh even though the revision-26 IOVA/SPY facts
+  visible at labeling exactly reproduced the stored source prefix.
+- **What:** validate the exact intraday revisions visible at label time, their first availability,
+  five-minute close, fact identities, label body, and source prefix. Count intact timely labels
+  whose exact sources cannot be recovered, keep look-ahead fail-closed, and issue revision 6.
+  No labeler, written row, scoring, book, or gate changed.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_p15_event_runner.py -k
+  'event_label_validation'` passes all four source-revision, look-ahead, and tamper regressions.
+- **Metrics:** server +12, tools +184, product unchanged; budget ok.
+- **Next:** P16 W9b registration and rehearsals.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
