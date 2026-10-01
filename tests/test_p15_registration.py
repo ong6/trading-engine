@@ -244,10 +244,11 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 5
+    assert registration["registration_revision"] == 6
     assert registration["revision_reason"] == (
-        "book runtime validator maps the intent status 'filled' to the simulator order status "
-        "'p15_filled'; no scoring, book, gate, label or written-row change"
+        "event label validator recovers the intraday fact revisions visible at labeling time, "
+        "keeps true look-ahead fail-closed, and counts intact timely labels with unrecoverable "
+        "source identity; no labeler, scoring, book, gate or written-row change"
     )
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()

@@ -472,6 +472,7 @@ safety and operations), run on 2026-09-26. File references are as of that commit
 | The laptop lint commit `61b6a26` touched P8 v1 files; prove it preserves behaviour by replaying the last P8 run bundle (identical output) and running the P8 tests | W0 |
 | The model identity is an unversioned catalogue alias; show that prominently in every report | W7 |
 | `tools/sec_edgar_capture.py` (~132) parses the submissions-JSON `acceptanceDateTime` (`...Z`) as UTC. Reviewers report that its wall clock is often US Eastern. Verify, and if so read `ACCEPTANCE-DATETIME` from the filing index or header as America/New_York, as a versioned P15 follow-up (see the filings design folder, `repo-followups.md`) | W3 |
+| Intraday capture repeatedly re-ingests stable 5-minute bars as new revisions: IOVA's 2026-09-29 13:40 UTC bar reached 60 revisions, and 2,730 IOVA facts for that session were written on 2026-09-30. Deduplicate unchanged bars while preserving first-capture identity; revision 6 only fixes validation | W3 |
 
 ## W11: end-to-end synthetic proving ground (owner request, 2026-09-27)
 
@@ -594,7 +595,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 
 | Workstream | Status | Evidence (BUILDLOG date) |
 |---|---|---|
-| W0 Baseline, P15 remediation (R1–R16), P15 activation | **complete; P15 registration revision 5 is issued for the book runtime validator status mapping after the first filled intents exposed the validator-only defect**. A fresh 90-table recovery bundle verified; all three books activated at the common 2026-09-28 checkpoint; and the three installed timers are enabled and systemd-verified. Lead: `p16-sol-lead` (GPT-5.6-Sol) | 2026-10-01 |
+| W0 Baseline, P15 remediation (R1–R16), P15 activation | **complete; P15 registration revision 6 is issued for validator-only event-label source recovery after later intraday revisions exposed replay drift**. A fresh 90-table recovery bundle verified; all three books activated at the common 2026-09-28 checkpoint; and the three installed timers are enabled and systemd-verified. Lead: `p16-sol-lead` (GPT-5.6-Sol) | 2026-10-01 |
 | W1 Evaluation science v2 | complete; accepted core, durable evidence, family report, and existing-status-surface projection are verified. W9a adds the isolated status adapter and loads the accepted 103-row P5–P16 census with exact trial contribution N=139 | 2026-09-28 |
 | W2 Challenger lab | staged; implementation and inert timer complete, while the first P15 origin gates the timer-backed rehearsal, literal epoch, final family registration, and independent activation | |
 | W3 Filing reader | complete and inert; W9a verified first-fetch baselines, unchanged-response receipt reuse, the host-wide dispatch lock, short scan callbacks, prior-session queue sweeping, per-leg next-bar basis checks, and P15/template-only liquidity. The scan orchestrator derives its gate from the SEC caller inventory and remains blocked while frozen P15 uses direct transport | 2026-09-28 |

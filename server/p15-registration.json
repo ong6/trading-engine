@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "registration_id": "p15-profitability-evidence-loop-v1",
-  "registered_at": "2026-10-01T02:50:09Z",
+  "registered_at": "2026-10-01T03:08:28Z",
   "activated_at": "2026-09-29T00:00:00-04:00",
   "activation_session": "2026-09-29",
   "status": "registered_inactive",
@@ -188,7 +188,7 @@
     "price_fetch_availability": "after_collection_completion"
   },
   "code_identity": {
-    "source_commit": "0c5abb1c798b441bb8dc3c4049c3464594317358",
+    "source_commit": "b77dbc80543e93f1230deffe9e48e41359215125",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/actions.py": "a6c2ec46d198df2318498ec7d55e1b7cfeca4c8afaccd8a5c208618e4ea8b850",
@@ -245,8 +245,8 @@
       "farm/walkforward/runner.py": "f2b861dea8e5b2b9ae94e20a598ecfd3a96cf77eb98cb5a4439a450aba475d57",
       "server/__init__.py": "c462735edca08a01b1bda392e672430ed441aca796251c6adcaf6b5e648ea4b5",
       "server/agent-cadence-registration.json": "cf66040d889662f7ad740f79ce83e2c87528853bafe4f31a0634c7195b5c4b59",
-      "server/agent_evaluation.py": "196c7e2095e0081b4da5dd5644fae6f92f8b5b2c243eca39794f484ef68b7add",
-      "server/agent_evaluation_reporting.py": "08c770440ea11bcbbae1c8a4a9b903f8a475a6d3623843940db44eceb803135c",
+      "server/agent_evaluation.py": "ffd74f91a20265f313ea1937bb8b5c73a0e51010c2f148d605853c8c658c05cc",
+      "server/agent_evaluation_reporting.py": "9bbc9b8429b101ad713a05426a12789f1438b8c0607a3b64950e41b5bd0ac5bb",
       "server/agent_model_client.py": "3c4fbdfd48aa6e1c32a8fbe7fba18f8c7470aef01a684f7ab2d9d8cadf1394f8",
       "server/daily_opportunity_execution.py": "8f599df3f6ba71770d72ce23010f43d6d40695092de0e30e4a9986987dcc7798",
       "server/daily_opportunity_news.py": "cfefc2b70cfaf9f50a03c387577a81fcd0a1fff3f3021c061f609e14ed6bcf10",
@@ -320,12 +320,12 @@
       "tools/__init__.py": "1f23b3f78a32b5567d64752ddc564b1182bdfe50616b87bca6a3a603b597d927",
       "tools/agent_trial_register.py": "08cb4553ef83b49297f0222e063bf1da506e2b6e8d185f5a430739dc659125f6",
       "tools/backup_database.py": "68a12a3815ec479f025182bc9589a02dd46d1d80795bbe95de9eac4910a7f3fd",
-      "tools/p15_evidence_validation.py": "1b85479a4ff483f5709f60081a49427613bfa699934ca6b55593205b45a18cf6",
+      "tools/p15_evidence_validation.py": "2c0fcaee02e2e643dcea851642ee62816072c8c9f66ed43f59c3855d54404aa0",
       "tools/release_manifest.py": "c127a129afceb4e7ffa4facc0c26014209afc50329710d96e3073efae3f016d9",
       "tools/sec_edgar_capture.py": "b6f46658930844cf4deed830e8e3a9412e9a19232663aced8a01472c42f0024f"
     }
   },
-  "registration_revision": 5,
-  "revision_reason": "book runtime validator maps the intent status 'filled' to the simulator order status 'p15_filled'; no scoring, book, gate, label or written-row change",
-  "registration_sha256": "098d56aac47cdb48799929ff7649b1bdc8d4b0368630f7f9013705b4a1ba6feb"
+  "registration_revision": 6,
+  "revision_reason": "event label validator recovers the intraday fact revisions visible at labeling time, keeps true look-ahead fail-closed, and counts intact timely labels with unrecoverable source identity; no labeler, scoring, book, gate or written-row change",
+  "registration_sha256": "a02551454e2cb6ed6266e75dedb1f9f87a30d807b89ac5ca0ccec579e153afe6"
 }
