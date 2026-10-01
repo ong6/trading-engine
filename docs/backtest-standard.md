@@ -11,7 +11,8 @@ evidence or grant simulator or broker authority.
 Before the first run, freeze:
 
 - the data source and snapshot hash, each field's availability rule, market calendar, listing
-  history coverage, survivor status, and any declared publication lag;
+  history coverage, survivor status, and any declared publication lag; when supplied, the
+  independent secondary price source has its own declaration and snapshot hash;
 - the strategy kind, pure decision function source, canonical parameters, decision time, fill
   point, exit or rebalance rule, notional/capital basis, universe, and liquidity rule;
 - one primary named cost profile and at least one distinct harsher sensitivity;
@@ -39,7 +40,7 @@ study's identity check.
 | Benchmark rule | The benchmark covers the identical sessions. Primary excess is strategy net minus benchmark gross; absolute net above zero is a separate required check. Cost-bearing comparison exists only as labelled `allocation` mode. | `farm.study.benchmark` |
 | Shared statistics | Trade mean, entry-session-clustered SE and one-sided t; full calendar-session returns including inactive zeros; annualised Sharpe; DSR with required census N; folds, recency, stationary-bootstrap CI, drawdown, worst month, exposure, turnover and capacity. | `farm.study.stats` |
 | Development and holdout | At least six yearly post-burn-in folds. Development cannot load holdout rows. The holdout marker is created atomically once, before access, and cannot be reused. | `farm.study.protocol` |
-| Fill realism | Declared fill follows the information time, never uses an unavailable bar, and handles missing/delisted names explicitly. For small or illiquid names, compare sampled fills with an independent price source and report the method and disagreement; report notional/MDV60 and notional/auction-volume capacity. | `farm.study.data`, `farm.study.run`, capacity report fields |
+| Fill realism | Declared fill follows the information time, never uses an unavailable bar, and handles missing/delisted names explicitly. For small or illiquid names, compare sampled fills with an independently declared price source; report trade-day coverage, signed fill-field differences, a secondary-price trade result and uncovered trades. Report notional/MDV60 and notional/auction-volume capacity. | `farm.study.data`, `farm.study.run`, cross-check and capacity report fields |
 | Proven evaluator | Unit tests cover exact formulas and failure paths; refactors have an identity check; seeded known-answer tests cover power, size, look-ahead, survivorship, costs and benchmark arithmetic. | `tests/test_study_*.py`, `farm.study.synthetic` |
 | Stated runtime | Report wall time, worker count, job count, platform-neutral CPU count, and whether serial/parallel bytes match. | `farm.study.run`, report identity section |
 
@@ -72,12 +73,15 @@ Every Markdown and JSON report has these sections in this order:
 1. data declaration: source, snapshot, point-in-time status, lags, and survivor status;
 2. primary cost and every sensitivity, including hashes and verification flags;
 3. benchmark kind, ticker/universe if applicable, gross or `allocation` mode;
-4. per-variant results with absolute-net and excess checks;
-5. all development folds and the last-three-fold recency view;
-6. holdout, only if the one-shot marker was opened;
-7. generated caveats, including open indication, survivor bias, unverified costs, and fewer than
+4. independent-price cross-check: trade-day coverage; signed `primary / secondary - 1` mean,
+   median, p5, p95 and share beyond 0.5% for each fill field; result recomputed only from covered
+   secondary prices; and uncovered trade count, with no primary-price fallback;
+5. per-variant results with absolute-net and excess checks;
+6. all development folds and the last-three-fold recency view;
+7. holdout, only if the one-shot marker was opened;
+8. generated caveats, including open indication, survivor bias, unverified costs, and fewer than
    100 trades;
-8. one plain-English conclusion per variant, plus runtime and run identity.
+9. one plain-English conclusion per variant, plus runtime and run identity.
 
 Missing evidence is `unavailable` or `insufficient`, never zero. JSON is the canonical machine
 artifact; Markdown renders the same values. Both are written atomically and deterministically.

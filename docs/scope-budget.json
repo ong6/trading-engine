@@ -11,8 +11,8 @@
   },
   "doc_test_ceiling": 86,
   "p18": {
-    "max_new_farm_lines": 4800,
-    "max_new_test_lines": 4000,
+    "max_new_farm_lines": 3000,
+    "max_new_test_lines": 2500,
     "max_new_doc_lines": 800,
     "max_logical_commits": 9,
     "note": "Owner-approved P18 review budget; repository-wide per-layer LOC ceilings remain removed."
