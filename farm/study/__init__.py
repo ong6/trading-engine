@@ -3,10 +3,11 @@
 from .benchmark import Benchmark
 from .costs import CostSelection, StudyCostProfile
 from .data import Bar, DataDeclaration, LookAheadError, MarketData, PointInTimeView, PriceSource
+from .protocol import RunIdentity, Windows
 from .spec import EventStrategy, ExitRule, FillPoint, Order, PortfolioStrategy
+from .stats import TradeObservation
 from .universe import ListingInterval, Universe
-
-CORE_VERSION = "p18-study-v1"
+from .version import CORE_VERSION
 
 __all__ = [
     "CORE_VERSION",
@@ -24,6 +25,9 @@ __all__ = [
     "PointInTimeView",
     "PortfolioStrategy",
     "PriceSource",
+    "RunIdentity",
     "StudyCostProfile",
+    "TradeObservation",
     "Universe",
+    "Windows",
 ]
