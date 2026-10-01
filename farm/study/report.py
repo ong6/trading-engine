@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
@@ -111,14 +112,16 @@ def build_report(*, identity: RunIdentity | str, data: MarketData, costs: CostSe
                  cross_check_trades: Iterable[CrossCheckTrade] = (),
                  hard_max_date: date, holdout: Mapping | None = None,
                  open_as_indication: bool = False, runtime_seconds: float,
-                 worker_count: int, delisting_fallback_count: int = 0) -> dict:
+                 worker_count: int, job_count: int, serial_parallel_identical: bool | None,
+                 cpu_count: int | None = None, delisting_fallback_count: int = 0) -> dict:
     variant_rows = [dict(row) for row in variants]
     required = {"variant", "net_return", "benchmark_return", "excess_return",
                 "absolute_net_positive", "trades", "one_sided_t"}
     if not variant_rows or any(not required <= row.keys() for row in variant_rows):
         raise ValueError("every report variant needs the fixed result fields")
-    if not math.isfinite(runtime_seconds) or runtime_seconds < 0 or worker_count < 1:
-        raise ValueError("runtime and worker count must be valid")
+    if (not math.isfinite(runtime_seconds) or runtime_seconds < 0 or worker_count < 1
+            or job_count < 1):
+        raise ValueError("runtime, worker count, and job count must be valid")
     selected = [resolve(name) for name in (costs.primary, *costs.sensitivities)]
     caveats = []
     if open_as_indication:
@@ -129,10 +132,12 @@ def build_report(*, identity: RunIdentity | str, data: MarketData, costs: CostSe
                    for profile in selected if not profile.verified_against_fills)
     caveats.extend(f"Fewer than 100 trades: {row['variant']} ({row['trades']})."
                    for row in variant_rows if row["trades"] < 100)
-    return {
+    report = {
         "schema_version": 1,
         "run_identity": identity.sha256 if isinstance(identity, RunIdentity) else identity,
         "runtime_seconds": runtime_seconds, "worker_count": worker_count,
+        "job_count": job_count, "cpu_count": cpu_count or (os.cpu_count() or 1),
+        "serial_parallel_identical": serial_parallel_identical,
         "delisting_fallback_count": delisting_fallback_count,
         "data": {"primary": _declaration(data.primary.declaration),
                  "secondary": (_declaration(data.secondary.declaration)
@@ -149,6 +154,8 @@ def build_report(*, identity: RunIdentity | str, data: MarketData, costs: CostSe
         "caveats": caveats,
         "variant_interpretations": [_variant_line(row) for row in variant_rows],
     }
+    report["recency_folds"] = report["folds"][-3:]
+    return report
 
 
 def _fmt(value: object) -> str:
@@ -164,8 +171,10 @@ def _fmt(value: object) -> str:
 def markdown(report: Mapping) -> str:
     primary, secondary = report["data"]["primary"], report["data"]["secondary"]
     lines = ["# Study report", "", f"Run identity: `{report['run_identity']}`  ",
-             f"Runtime: {_fmt(report['runtime_seconds'])} seconds with "
-             f"{report['worker_count']} worker(s).", "", "## Data declaration", "",
+             f"Runtime: {_fmt(report['runtime_seconds'])} seconds; {report['job_count']} jobs; "
+             f"{report['worker_count']} worker(s) of {report['cpu_count']} CPUs; serial/parallel "
+             f"identity: {_fmt(report['serial_parallel_identical'])}.", "",
+             "## Data declaration", "",
              f"Primary: `{primary['source']}`; point-in-time: {_fmt(primary['point_in_time'])}; "
              f"survivor status: `{primary['survivor_status']}`; snapshot "
              f"`{primary['snapshot_sha256']}`.",
@@ -198,7 +207,10 @@ def markdown(report: Mapping) -> str:
                      f"{_fmt(row['absolute_net_positive'])} | {row['trades']} | "
                      f"{_fmt(row['one_sided_t'])} |")
     lines += ["", "## Folds", "", "```json",
-              json.dumps(report["folds"], indent=2, sort_keys=True, allow_nan=False), "```"]
+              json.dumps(report["folds"], indent=2, sort_keys=True, allow_nan=False), "```",
+              "", "Last-three-fold recency:", "", "```json",
+              json.dumps(report["recency_folds"], indent=2, sort_keys=True, allow_nan=False),
+              "```"]
     if report["holdout"] is not None:
         lines += ["", "## Holdout", "", "```json",
                   json.dumps(report["holdout"], indent=2, sort_keys=True, allow_nan=False), "```"]
