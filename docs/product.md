@@ -73,6 +73,9 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-10-01 | SEC EDGAR contact set on the host (private environment file, scoped to the P15 event service), enabling P15's registered `sec_edgar_8k` source; other SEC consumers stay inactive until their own plans activate them | P15, this page |
+| 2026-10-01 | No data purchase for now: P3 proceeds with a free-source phase 0 (Tiingo listing intervals, Massive free daily bars once the key exists, SEC Form 25) | P3, feedback |
+| 2026-10-01 | P18 shared backtest core approved | P18, feedback |
 | 2026-09-29 | Daily private off-host backup of the store and research files, restore-checked on every run | feedback, `scope.md` |
 | 2026-09-28 | This repo is the public infrastructure; new strategies, prompts, registrations, results and findings go to a private alpha repo. P15 and P16 as built stay public as a demo | AGENTS, feedback |
 | 2026-09-27 | Add a synthetic end-to-end proving ground with evaluation loops (P16 W11) once the main issues are fixed | P16 |
@@ -109,10 +112,10 @@ Each row has the default that applies until the owner decides.
 |---|---|---|
 | **Fill model v5 basis**: keep W6 as non-activating continuous-opening measurement, or authorize a separately registered continuous-session cohort before Stage 2 paper-auction evidence exists | Any pre-Stage-2 use of v5 coefficients | Measurement and report only; `baseline_v1` remains the default and direct paper-auction evidence is required for an auction v5 |
 | **`research-text` dependency group** (`torch`, `transformers` in a separate virtual environment) | P16's time-locked historical text lab | P16 W4 stops after building the corpus |
-| **SEC EDGAR contact**: set `TRADING_ENGINE_SEC_USER_AGENT` to a monitored email | P15 8-K event triggers (the capture is built; anonymous requests get HTTP 403) | P15 runs its other trigger sources; the 8-K source reports `unconfigured` |
 | **Simulator short side** | Using the ~half of candidates that are losers | Long-only. P15 filters candidates to upside and trend names |
 | **P8 v1 order authority** once P15 books are live | A single AI book to watch | P8 v1 keeps running unchanged as its own cohort |
-| **P3 data budget**: initial and recurring ceiling for Sharadar (or Norgate) | Survivor-free point-in-time universe and fundamentals; historical stock-selection research | No purchase; forward evidence only |
+| **P3 data budget**: initial and recurring ceiling for Sharadar (or Norgate) | Survivor-free point-in-time universe and fundamentals before 2024-10; historical stock-selection research | No purchase (decided 2026-10-01); free-source phase 0 only |
+| **Massive free key** (individual-use Stocks Basic) | Two years of survivor-free daily bars for every US stock (P3 phase 0 fetcher is built) | Fetcher stays unrun |
 | **Commit metadata rewrite** for 2026-09-18 to 09-23 author and trailer lines that break the public-hygiene rule | Clean public history | Not rewritten (needs a force-push; dates would be kept) |
 | **Free API keys** (Alpaca, including the Benzinga news archive; Finnhub; Alpha Vantage) | Extra historical news for the P16 replay lab; a second realtime cross-check | Free bulk archives and scraping only (GDELT, CC-NEWS, EDGAR, wire and IR pages, Wayback) |
 | **Personal execution host** | Stage 2 | None |
