@@ -10,7 +10,7 @@ from types import MappingProxyType
 from typing import Iterable, Mapping
 from zoneinfo import ZoneInfo
 
-import duckdb
+from engine.lib import db
 
 from .spec import parse_clock, validate_decision_time
 
@@ -116,7 +116,7 @@ class PriceSource:
             clauses.append(f"ticker IN ({','.join('?' for _ in names)})")
             params.extend(names)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-        con = duckdb.connect(str(Path(path)), read_only=True)
+        con = db.connect(Path(path), read_only=True, wait_s=0)
         try:
             rows = con.execute(
                 "SELECT ticker, date, open, high, low, close, volume FROM prices"
