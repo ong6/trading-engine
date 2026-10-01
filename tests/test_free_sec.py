@@ -38,7 +38,10 @@ FORM_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
 </edgarSubmission>"""
 
 
-def _insider_zip(*, accession: str = ACCESSION, accepted: str = "20260105123000") -> bytes:
+def _insider_zip(
+    *, accession: str = ACCESSION, accepted: str = "20260105123000",
+    relationship: str = "Director,Officer",
+) -> bytes:
     submission = (
         "ACCESSION_NUMBER\tFILING_DATE\tPERIOD_OF_REPORT\tISSUERCIK\tISSUERNAME\t"
         "ISSUERTRADINGSYMBOL\tDOCUMENT_TYPE\tACCEPTANCE_DATETIME\n"
@@ -46,7 +49,7 @@ def _insider_zip(*, accession: str = ACCESSION, accepted: str = "20260105123000"
     )
     owner = (
         "ACCESSION_NUMBER\tRPTOWNERCIK\tRPTOWNER_RELATIONSHIP\tRPTOWNER_TITLE\n"
-        f"{accession}\t9000\tDirector,Officer\tChief Executive Officer\n"
+        f"{accession}\t9000\t{relationship}\tChief Executive Officer\n"
     )
     transaction = (
         "ACCESSION_NUMBER\tTRANS_DATE\tTRANS_CODE\tTRANS_SHARES\t"
@@ -73,6 +76,9 @@ def test_form_index_and_primary_xml_parsers_keep_amendments_and_fields():
         "exchange": "Nasdaq Stock Market LLC",
         "security_class": "Common Stock, $0.01 par value", "symbol": "ACME",
     }
+    assert free_sec.parse_form25_xml(
+        FORM_XML.replace(b"Common Stock, $0.01 par value", b"")
+    )["security_class"] is None
 
 
 def test_insider_zip_parses_official_columns_and_availability_rule():
@@ -87,6 +93,11 @@ def test_insider_zip_parses_official_columns_and_availability_rule():
     assert transaction["price_per_share"] == 0
     assert owner["is_director"] is True
 
+    legacy = free_sec.parse_insider_zip(
+        _insider_zip(relationship="Director,Officer,TenPercentOwnerOther")
+    )["owners"][0]
+    assert legacy["is_ten_percent_owner"] is True and legacy["is_other"] is True
+
     no_clock = free_sec.parse_insider_zip(_insider_zip(accepted=""))["submissions"][0]
     assert no_clock["accepted_at"] is None
     assert no_clock["available_on"] == no_clock["filing_date"]
@@ -98,6 +109,7 @@ def test_sec_loads_are_idempotent_and_build_ticker_history():
     try:
         first_index = free_sec.load_form_index(con, _form_index())
         second_index = free_sec.load_form_index(con, _form_index())
+        assert free_sec.load_form_index(con, b"Form Type Company Name\n")["rows"] == 0
         first_detail = free_sec.load_form25_detail(con, ACCESSION, FORM_XML)
         second_detail = free_sec.load_form25_detail(con, ACCESSION, FORM_XML)
         first_zip = free_sec.load_insider_zip(con, _insider_zip())
@@ -154,7 +166,7 @@ class _Session:
         return _Response(self.bodies[url])
 
 
-def test_sec_client_paces_requests_and_resumes_by_url_and_hash(tmp_path: Path):
+def test_sec_client_paces_parallel_requests_and_resumes_by_url_and_hash(tmp_path: Path):
     urls = ["https://www.sec.gov/a", "https://www.sec.gov/b"]
     clock, bodies = _Clock(), {urls[0]: b"first", urls[1]: b"second"}
     session = _Session(bodies, clock)
@@ -162,7 +174,7 @@ def test_sec_client_paces_requests_and_resumes_by_url_and_hash(tmp_path: Path):
         "Fixture Contact fixture@example.com", tmp_path, session=session,
         now=lambda: ALLOWED, monotonic=clock.monotonic, sleep=clock.sleep,
     )
-    assert [client.get(url).body for url in urls] == [b"first", b"second"]
+    assert [response.body for response in client.get_many(urls)] == [b"first", b"second"]
     assert session.started == [0.0, 0.2]
     assert clock.sleeps == [0.2]
     assert all(headers["Accept-Encoding"] == "gzip, deflate" for headers in session.headers)

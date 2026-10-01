@@ -27,6 +27,7 @@ from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
 
 import duckdb
+import pandas as pd
 
 from engine.free_sources import FreeSourceError
 from engine.lib import db
@@ -66,15 +67,19 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         source_sha256 VARCHAR NOT NULL)""")
     con.execute("""CREATE TABLE IF NOT EXISTS free_delisting_notice_details (
         accession VARCHAR PRIMARY KEY, exchange VARCHAR NOT NULL,
-        security_class VARCHAR NOT NULL, symbol VARCHAR,
+        security_class VARCHAR, symbol VARCHAR,
         source_sha256 VARCHAR NOT NULL)""")
+    con.execute(
+        "ALTER TABLE free_delisting_notice_details ALTER COLUMN security_class DROP NOT NULL"
+    )
     con.execute("""CREATE TABLE IF NOT EXISTS free_insider_submissions (
         accession VARCHAR NOT NULL, filing_date DATE NOT NULL,
-        period_of_report DATE, issuer_cik BIGINT NOT NULL, issuer_name VARCHAR NOT NULL,
+        period_of_report DATE, issuer_cik BIGINT NOT NULL, issuer_name VARCHAR,
         issuer_trading_symbol VARCHAR, document_type VARCHAR,
         accepted_at TIMESTAMPTZ, available_on DATE NOT NULL,
         source_sha256 VARCHAR NOT NULL, source_row BIGINT NOT NULL,
         PRIMARY KEY(source_sha256, source_row))""")
+    con.execute("ALTER TABLE free_insider_submissions ALTER COLUMN issuer_name DROP NOT NULL")
     con.execute("""CREATE TABLE IF NOT EXISTS free_insider_owners (
         accession VARCHAR NOT NULL, owner_cik BIGINT,
         is_director BOOLEAN, is_officer BOOLEAN, officer_title VARCHAR,
@@ -174,11 +179,12 @@ def load_form_index(con: duckdb.DuckDBPyConnection, body: bytes) -> dict:
     init_schema(con)
     before = con.execute("SELECT COUNT(*) FROM free_delisting_notices").fetchone()[0]
     with db.transaction(con):
-        con.executemany(
-            "INSERT OR IGNORE INTO free_delisting_notices VALUES (?,?,?,?,?,?)",
-            [[r["cik"], r["company"], r["form"], r["filed_date"], r["accession"], source_sha]
-             for r in rows],
-        )
+        if rows:
+            con.executemany(
+                "INSERT OR IGNORE INTO free_delisting_notices VALUES (?,?,?,?,?,?)",
+                [[r["cik"], r["company"], r["form"], r["filed_date"], r["accession"], source_sha]
+                 for r in rows],
+            )
     after = con.execute("SELECT COUNT(*) FROM free_delisting_notices").fetchone()[0]
     return {"rows": len(rows), "inserted": after - before, "source_sha256": source_sha}
 
@@ -222,7 +228,7 @@ def parse_form25_xml(body: bytes) -> dict:
         "exchange": exchange,
         "security_class": first(
             "descriptionclasssecurity", "securityclasstitle", "titleofclass",
-            "titleofsecurity", "securitydescription"
+            "titleofsecurity", "securitydescription", optional=True,
         ),
         "symbol": first("tickersymbol", "tradingsymbol", "issuersymbol", optional=True),
     }
@@ -286,10 +292,10 @@ def _tsv(raw: bytes, required: frozenset[str], table: str) -> list[tuple[int, di
 
 
 def _relationships(value: str | None) -> set[str]:
-    text = "" if value is None else value.strip()
-    relationships = {part.strip() for part in text.split(",") if part.strip()}
-    allowed = {"Director", "Officer", "TenPercentOwner", "Other"}
-    if not relationships <= allowed:
+    text = "" if value is None else value.strip().replace(",", "")
+    ordered = ("Director", "Officer", "TenPercentOwner", "Other")
+    relationships = {name for name in ordered if name in text}
+    if "".join(name for name in ordered if name in relationships) != text:
         raise FreeSourceError("invalid reporting-owner relationship")
     return relationships
 
@@ -340,7 +346,7 @@ def parse_insider_zip(body: bytes) -> dict[str, list[dict]]:
             "filing_date": filing,
             "period_of_report": _date(row["PERIOD_OF_REPORT"], "period of report", optional=True),
             "issuer_cik": _cik(row["ISSUERCIK"], "issuer CIK"),
-            "issuer_name": _text(row["ISSUERNAME"], "issuer name"),
+            "issuer_name": _text(row["ISSUERNAME"], "issuer name", optional=True),
             "issuer_trading_symbol": symbol.upper() if symbol else None,
             "document_type": _text(row.get("DOCUMENT_TYPE"), "document type", optional=True),
             "accepted_at": _acceptance(row, filing), "available_on": filing,
@@ -383,8 +389,6 @@ def parse_insider_zip(body: bytes) -> dict[str, list[dict]]:
 
 
 def load_insider_zip(con: duckdb.DuckDBPyConnection, body: bytes) -> dict:
-    parsed, source_sha = parse_insider_zip(body), hashlib.sha256(body).hexdigest()
-    init_schema(con)
     specs = (
         ("submissions", "free_insider_submissions", (
             "accession", "filing_date", "period_of_report", "issuer_cik", "issuer_name",
@@ -396,18 +400,38 @@ def load_insider_zip(con: duckdb.DuckDBPyConnection, body: bytes) -> dict:
             "accession", "transaction_date", "code", "shares", "price_per_share",
             "acquired_disposed", "shares_owned_after", "direct_indirect")),
     )
+    source_sha = hashlib.sha256(body).hexdigest()
+    init_schema(con)
+    existing = {
+        key: con.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE source_sha256=?", [source_sha]
+        ).fetchone()[0]
+        for key, table, _fields in specs
+    }
+    if all(existing.values()):
+        return {"source_sha256": source_sha, **{
+            name: value for key, count in existing.items()
+            for name, value in ((key, count), (f"{key}_inserted", 0))
+        }}
+    if any(existing.values()):
+        raise FreeSourceError("stored insider archive is incomplete")
+    parsed = parse_insider_zip(body)
     result = {"source_sha256": source_sha}
     with db.transaction(con):
         for key, table, fields in specs:
             before = con.execute(
                 f"SELECT COUNT(*) FROM {table} WHERE source_sha256=?", [source_sha]
             ).fetchone()[0]
-            placeholders = ",".join("?" for _ in range(len(fields) + 2))
-            con.executemany(
-                f"INSERT OR IGNORE INTO {table} VALUES ({placeholders})",
-                [[*(row[field] for field in fields), source_sha, row["source_row"]]
-                 for row in parsed[key]],
-            )
+            if before not in {0, len(parsed[key])}:
+                raise FreeSourceError(f"stored {key} are an incomplete insider batch")
+            if before == 0 and parsed[key]:
+                columns = (*fields, "source_sha256", "source_row")
+                frame = pd.DataFrame.from_records(
+                    [(*(str(value) if isinstance(value := row[field], Decimal) else value
+                        for field in fields), source_sha, row["source_row"])
+                     for row in parsed[key]], columns=columns,
+                )
+                con.append(table, frame)
             after = con.execute(
                 f"SELECT COUNT(*) FROM {table} WHERE source_sha256=?", [source_sha]
             ).fetchone()[0]

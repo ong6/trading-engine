@@ -10,9 +10,11 @@ import os
 import re
 import stat
 import tempfile
+import threading
 import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -123,9 +125,17 @@ class SecClient:
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
     ):
-        self.contact, self.data_dir = contact, data_dir
-        self.session, self.now, self.monotonic, self.sleep = session, now, monotonic, sleep
+        self.contact, self.data_dir, self.session = contact, data_dir, session
+        self.now, self.monotonic, self.sleep = now, monotonic, sleep
         self.last_started: float | None = None
+        self._rate_lock, self._local = threading.Lock(), threading.local()
+
+    def _session(self) -> requests.Session:
+        if self.session is not None:
+            return self.session
+        if not hasattr(self._local, "session"):
+            self._local.session = requests.Session()
+        return self._local.session
 
     def _directory(self, url: str) -> Path:
         return self.data_dir / "sec" / "http" / hashlib.sha256(url.encode()).hexdigest()
@@ -173,34 +183,39 @@ class SecClient:
         cached = self._cached(url)
         if cached is not None:
             return cached
-        current = self.now()
-        if not _network_permitted(current):
-            raise free_sources.FreeSourceError("SEC batch reached a configured no-call window")
-        if self.last_started is not None:
-            remaining = REQUEST_INTERVAL_SECONDS - (self.monotonic() - self.last_started)
-            if remaining > 0:
-                self.sleep(remaining)
-        if not _network_permitted(self.now()):
-            raise free_sources.FreeSourceError("SEC batch reached a configured no-call window")
-        self.last_started = self.monotonic()
-        client, owned = self.session or requests.Session(), self.session is None
-        try:
-            response = client.get(
-                url, timeout=HTTP_TIMEOUT_SECONDS, allow_redirects=True,
-                headers={"User-Agent": self.contact, "Accept-Encoding": "gzip, deflate"},
-            )
-            status, body, fetched_at = int(response.status_code), bytes(response.content), self.now()
-        except (requests.RequestException, TypeError, ValueError) as exc:
-            raise free_sources.FreeSourceError("SEC request failed") from exc
-        finally:
-            if owned:
-                client.close()
-        if len(body) > MAX_HTTP_BYTES:
-            raise free_sources.FreeSourceError("SEC response exceeds the cache limit")
-        self._retain(url, body, status, fetched_at)
-        if status != 200 or not body:
-            raise free_sources.FreeSourceError(f"SEC request returned HTTP {status}")
-        return CachedResponse(body, fetched_at, False)
+        for attempt in range(3):
+            with self._rate_lock:
+                if not _network_permitted(self.now()):
+                    raise free_sources.FreeSourceError("SEC batch reached a configured no-call window")
+                if self.last_started is not None:
+                    remaining = REQUEST_INTERVAL_SECONDS - (self.monotonic() - self.last_started)
+                    if remaining > 0:
+                        self.sleep(remaining)
+                if not _network_permitted(self.now()):
+                    raise free_sources.FreeSourceError("SEC batch reached a configured no-call window")
+                self.last_started = self.monotonic()
+            try:
+                response = self._session().get(
+                    url, timeout=HTTP_TIMEOUT_SECONDS, allow_redirects=True,
+                    headers={"User-Agent": self.contact, "Accept-Encoding": "gzip, deflate"},
+                )
+                status = int(response.status_code)
+                body, fetched_at = bytes(response.content), self.now()
+            except (requests.RequestException, TypeError, ValueError) as exc:
+                raise free_sources.FreeSourceError("SEC request failed") from exc
+            if len(body) > MAX_HTTP_BYTES:
+                raise free_sources.FreeSourceError("SEC response exceeds the cache limit")
+            self._retain(url, body, status, fetched_at)
+            if status == 200 and body:
+                return CachedResponse(body, fetched_at, False)
+            if status not in {429, 500, 502, 503, 504} or attempt == 2:
+                break
+            self.sleep(attempt + 1.0)
+        raise free_sources.FreeSourceError(f"SEC request returned HTTP {status}")
+
+    def get_many(self, urls: list[str]) -> list[CachedResponse]:
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            return list(executor.map(self.get, urls))
 
 
 def _connect(database: Path) -> duckdb.DuckDBPyConnection:
@@ -228,19 +243,18 @@ def capture_form25(
             WHERE n.filed_date>=DATE '2010-01-01' AND n.form LIKE '25-NSE%'
               AND d.accession IS NULL ORDER BY n.filed_date,n.accession"""
         ).fetchall()
+        detail_inserted = detail_resumed = 0
+        for offset in range(0, len(details), 100):
+            chunk = details[offset:offset + 100]
+            urls = [ARCHIVE_URL.format(cik=cik, accession=accession.replace("-", ""))
+                    for cik, accession in chunk]
+            responses = client.get_many(urls)
+            for (_cik, accession), response in zip(chunk, responses, strict=True):
+                result = free_sec.load_form25_detail(con, accession, response.body)
+                detail_inserted += result["inserted"]
+                detail_resumed += int(response.resumed)
     finally:
         con.close()
-    detail_inserted = detail_resumed = 0
-    for cik, accession in details:
-        url = ARCHIVE_URL.format(cik=cik, accession=accession.replace("-", ""))
-        response = client.get(url)
-        con = _connect(database)
-        try:
-            result = free_sec.load_form25_detail(con, accession, response.body)
-        finally:
-            con.close()
-        detail_inserted += result["inserted"]
-        detail_resumed += int(response.resumed)
     return {
         "quarters": len(requested), "notice_rows": index_rows,
         "notices_inserted": index_inserted, "index_resumed": resumed,
@@ -387,7 +401,9 @@ def audit(free_database: Path, store_copy: Path) -> dict:
              WHERE price_per_share IS NULL OR price_per_share=0) AS zero_or_missing_prices,
             (SELECT COUNT(*) FROM submissions WHERE issuer_trading_symbol IS NULL) AS missing_symbols,
             (SELECT COUNT(*) FROM submissions WHERE issuer_trading_symbol IS NOT NULL
-             AND NOT regexp_matches(issuer_trading_symbol,'^[A-Z][A-Z0-9.-]*$')) AS odd_symbols""").fetchone()
+             AND NOT regexp_matches(issuer_trading_symbol,'^[A-Z][A-Z0-9.-]*$')) AS odd_symbols,
+            (SELECT COUNT(*) FROM free_store.free_delisting_notice_details
+             WHERE security_class IS NULL) AS missing_security_classes""").fetchone()
     finally:
         con.close()
     notices = [{"year": row[0], "form25": row[1], "form25_nse": row[2], "total": row[3],
@@ -402,7 +418,8 @@ def audit(free_database: Path, store_copy: Path) -> dict:
                 for row in insider_rows]
     return {"notices": notices, "tiingo_end_overlap": overlap_rows, "insiders": insiders,
             "quality": dict(zip(("amendments", "duplicate_accessions", "zero_or_missing_prices",
-                                  "missing_symbols", "odd_symbols"), quality, strict=True))}
+                                  "missing_symbols", "odd_symbols", "missing_security_classes"),
+                                 quality, strict=True))}
 
 
 def _percent(value: float | None) -> str:
@@ -445,6 +462,7 @@ def render_audit(result: dict) -> str:
               f"- Duplicate accession rows across quarterly archives: {q['duplicate_accessions']:,}.",
               f"- Non-derivative transactions with zero or missing price: {q['zero_or_missing_prices']:,}.",
               f"- Submissions with missing symbols: {q['missing_symbols']:,}; with non-standard symbols: {q['odd_symbols']:,}.",
+              f"- Form 25-NSE details with an empty security class: {q['missing_security_classes']:,}.",
               "- Amendments are retained as distinct accessions. Exact symbols are not rewritten; class,",
               "  preferred, warrant, slash, and punctuation conventions therefore remain visible rather",
               "  than being guessed into a match.", ""]
