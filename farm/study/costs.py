@@ -5,6 +5,7 @@ import math
 from dataclasses import asdict, dataclass
 
 from engine.lib.provenance import canonical_sha256
+from sim import execution
 from sim.execution import ExecutionProfile
 
 
@@ -27,6 +28,8 @@ class StudyCostProfile:
 
     @property
     def payload(self) -> dict:
+        if self.family == "sim_execution":
+            return self.execution.as_dict()
         return {"execution": self.execution.as_dict(), "family": self.family,
                 "commission": self.commission,
                 "pass_through_per_share": self.pass_through_per_share,
@@ -59,10 +62,12 @@ BINANCE_PERP_BASE_V1 = StudyCostProfile(
     _base("binance_perp_base_v1", "Binance perpetual base schedule, unverified"),
     "crypto", "none", sec_rate=0, taf_per_share=0, taker_rate=0.0005,
     funding_from_data=True)
+BASELINE_V1 = StudyCostProfile(
+    execution.BASELINE, "sim_execution", "delegated", verified_against_fills=False)
 
 PROFILES = {profile.id: profile for profile in (
-    IBKR_TIERED_AUCTION_V1, IBKR_FIXED_V1, BINANCE_SPOT_BASE_V1,
-    BINANCE_PERP_BASE_V1)}
+    BASELINE_V1, IBKR_TIERED_AUCTION_V1, IBKR_FIXED_V1,
+    BINANCE_SPOT_BASE_V1, BINANCE_PERP_BASE_V1)}
 
 
 @dataclass(frozen=True)
@@ -106,6 +111,15 @@ def calculate(profile: str | StudyCostProfile, *, side: str, notional: float,
         raise ValueError("funding is accepted only by a funding-enabled profile")
     value = float(notional)
     shares = value / fill_price
+    if selected.family == "sim_execution":
+        components = execution.cost_components(
+            selected.execution, side=side, qty=shares, open_px=fill_price,
+            median_dollar_volume=mdv60)
+        delegated = value * components["total_bps"] / 10_000
+        return CostBreakdown(
+            selected.id, value, shares, components["commission_dollars"],
+            0.0, 0.0, 0.0, 0.0, 0.0,
+            value * components["market_bps"] / 10_000, 0.0, delegated)
     commission = pass_through = auction = taker = slippage = 0.0
     if selected.commission == "tiered":
         commission = min(max(0.35, 0.0035 * shares), 0.01 * value)
