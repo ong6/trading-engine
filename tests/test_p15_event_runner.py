@@ -11,8 +11,9 @@ from engine import bitemporal_facts, p15_event_sources
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from farm import p15_event_runner
-from server import agent_model_client
+from server import agent_evaluation, agent_model_client
 from tests.conftest import SESSIONS, insert_bars
+from tools import p15_evidence_validation
 
 
 def _setup(con):
@@ -467,6 +468,113 @@ def test_event_labels_use_next_common_bar_and_next_session_open(con):
     assert rows[0][3] == 101.0 and rows[0][4] == SESSIONS[30]
     assert rows[1][2] == datetime(2024, 7, 18, 13, 30)
     assert rows[1][3] == 106.0 and rows[1][4] == SESSIONS[31]
+
+
+def _next_bar_label_for_validation(con, *, availability_delay_minutes: int = 1):
+    observed, _fact_sha = _setup(con)
+    p15_event_runner.score_pending(
+        con, session_date=observed.date(), observed_at=observed,
+        source_summary={}, generate=_result,
+        clock=lambda: observed + timedelta(minutes=1),
+    )
+    decision_at = observed + timedelta(minutes=1)
+    entry_at = decision_at + timedelta(minutes=4)
+    labeled_at = datetime(2024, 7, 18, 21, tzinfo=timezone.utc)
+    insert_bars(
+        con, "AAA", [SESSIONS[30]], open_=100, close=105, high=106, low=99,
+    )
+    insert_bars(
+        con, "SPY", [SESSIONS[30]], open_=100, close=101, high=102, low=99,
+    )
+    con.execute("UPDATE prices SET fetched_at=?", [labeled_at.replace(tzinfo=None)])
+    available_at = entry_at + timedelta(minutes=availability_delay_minutes)
+    receipt = bitemporal_facts.record_receipt(
+        con, source="yfinance", dataset="intraday_quote",
+        endpoint="https://example.test/bars", request={},
+        requested_at=available_at - timedelta(seconds=1), received_at=available_at,
+        http_status=200, content_type="application/json", body=b"first",
+        license_class="research",
+    )
+    for ticker, opening in (("AAA", 101.0), ("SPY", 100.5)):
+        bitemporal_facts.record_fact(
+            con, entity_id=ticker, security_id=ticker,
+            fact_type="intraday.ohlcv.5m", event_at=entry_at, published_at=None,
+            available_at=available_at, ingested_at=available_at,
+            payload={"open": opening, "high": opening + 1, "low": opening - 1,
+                     "close": opening, "volume": 10_000}, source="yfinance",
+            source_version="test", receipt_sha256=receipt["receipt_sha256"],
+        )
+    assert p15_event_runner.label_mature(con, labeled_at=labeled_at) == 1
+    con.execute("DELETE FROM p15_event_labels WHERE label_basis='next_session_open'")
+    return labeled_at, entry_at
+
+
+def _validate_event_labels(con, generated_at: datetime):
+    return p15_evidence_validation.validate_event_labels(
+        con, agent_evaluation.EvaluationError,
+        agent_evaluation._label_outcome_when_ready, generated_at,
+    )
+
+
+def test_event_label_validation_uses_revision_visible_at_label_time(con):
+    labeled_at, entry_at = _next_bar_label_for_validation(con)
+    late_at = labeled_at + timedelta(hours=1)
+    receipt = bitemporal_facts.record_receipt(
+        con, source="yfinance", dataset="intraday_quote",
+        endpoint="https://example.test/bars", request={"revision": 2},
+        requested_at=late_at - timedelta(seconds=1), received_at=late_at,
+        http_status=200, content_type="application/json", body=b"later",
+        license_class="research",
+    )
+    for ticker, opening in (("AAA", 102.0), ("SPY", 101.5)):
+        bitemporal_facts.record_fact(
+            con, entity_id=ticker, security_id=ticker,
+            fact_type="intraday.ohlcv.5m", event_at=entry_at, published_at=None,
+            available_at=late_at, ingested_at=late_at,
+            payload={"open": opening, "high": opening + 1, "low": opening - 1,
+                     "close": opening, "volume": 10_000}, source="yfinance",
+            source_version="test", receipt_sha256=receipt["receipt_sha256"],
+        )
+    con.execute(
+        "UPDATE prices SET fetched_at=?", [(late_at + timedelta(hours=1)).replace(tzinfo=None)],
+    )
+
+    assert _validate_event_labels(con, late_at + timedelta(hours=2)) == {
+        "labels_source_unverifiable": 0, "labels_source_unverifiable_ids": [],
+    }
+
+
+def test_event_label_validation_rejects_bar_first_available_after_label(con):
+    _labeled_at, entry_at = _next_bar_label_for_validation(
+        con, availability_delay_minutes=10,
+    )
+    con.execute(
+        "UPDATE p15_event_labels SET labeled_at=?",
+        [(entry_at + timedelta(minutes=6)).replace(tzinfo=None)],
+    )
+
+    with pytest.raises(agent_evaluation.EvaluationError, match="event label evidence differs"):
+        _validate_event_labels(con, datetime(2024, 7, 19, tzinfo=timezone.utc))
+
+
+def test_event_label_validation_rejects_tampered_body(con):
+    labeled_at, _entry_at = _next_bar_label_for_validation(con)
+    con.execute("UPDATE p15_event_labels SET net_return=-9")
+
+    with pytest.raises(agent_evaluation.EvaluationError, match="event label evidence differs"):
+        _validate_event_labels(con, labeled_at + timedelta(hours=1))
+
+
+def test_event_label_validation_counts_unrecoverable_source(con):
+    labeled_at, _entry_at = _next_bar_label_for_validation(con)
+    con.execute(
+        "UPDATE prices SET high=high+1,fetched_at=? WHERE ticker='AAA'",
+        [(labeled_at + timedelta(hours=1)).replace(tzinfo=None)],
+    )
+
+    assert _validate_event_labels(con, labeled_at + timedelta(hours=2)) == {
+        "labels_source_unverifiable": 1, "labels_source_unverifiable_ids": [1],
+    }
 
 
 def test_missing_next_session_entry_waits_for_late_bar_arrival(con):
