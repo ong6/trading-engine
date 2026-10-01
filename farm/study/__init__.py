@@ -2,10 +2,19 @@
 
 from .benchmark import Benchmark
 from .costs import CostSelection, StudyCostProfile
-from .data import Bar, DataDeclaration, LookAheadError, MarketData, PointInTimeView, PriceSource
+from .data import (
+    Bar,
+    DataDeclaration,
+    DerivedInput,
+    LookAheadError,
+    MarketData,
+    PointInTimeView,
+    PriceSource,
+)
 from .protocol import RunIdentity, Windows
 from .report import CrossCheckTrade
-from .run import RunBatch, StudyJob
+from .run import RunBatch, StudyJob, run_simulate_jobs
+from .simulate import PortfolioLedger, TradeLedger, simulate_events, simulate_portfolio
 from .spec import EventStrategy, ExitRule, FillPoint, Order, PortfolioStrategy
 from .stats import TradeObservation
 from .universe import ListingInterval, Universe
@@ -18,6 +27,7 @@ __all__ = [
     "CostSelection",
     "CrossCheckTrade",
     "DataDeclaration",
+    "DerivedInput",
     "EventStrategy",
     "ExitRule",
     "FillPoint",
@@ -27,6 +37,7 @@ __all__ = [
     "Order",
     "PointInTimeView",
     "PortfolioStrategy",
+    "PortfolioLedger",
     "PriceSource",
     "RunIdentity",
     "RunBatch",
@@ -35,4 +46,8 @@ __all__ = [
     "TradeObservation",
     "Universe",
     "Windows",
+    "TradeLedger",
+    "run_simulate_jobs",
+    "simulate_events",
+    "simulate_portfolio",
 ]

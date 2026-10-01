@@ -67,7 +67,8 @@ def build_jobs(variants: Mapping[str, Mapping], folds: Iterable[object], *,
 
 def _execute(item: tuple[Callable[[StudyJob], Mapping], StudyJob]) -> dict:
     evaluator, job = item
-    payload = dict(evaluator(job))
+    evaluated = evaluator(job)
+    payload = evaluated.as_dict() if hasattr(evaluated, "as_dict") else dict(evaluated)
     result = {"variant": job.variant, "fold": job.fold, "seed": job.seed,
               "result": payload}
     return json.loads(json.dumps(result, sort_keys=True, separators=(",", ":"),
@@ -92,3 +93,11 @@ def run_jobs(variants: Mapping[str, Mapping], folds: Iterable[object],
         with ProcessPoolExecutor(max_workers=workers, mp_context=context) as pool:
             results = tuple(pool.map(_execute, inputs))
     return RunBatch(results, workers)
+
+
+def run_simulate_jobs(variants: Mapping[str, Mapping], folds: Iterable[object],
+                      simulator: Callable[[StudyJob], object], *, master_seed: int,
+                      max_workers: int | None = None) -> RunBatch:
+    """Schedule native ledger-producing jobs through the deterministic runner."""
+    return run_jobs(variants, folds, simulator, master_seed=master_seed,
+                    max_workers=max_workers)

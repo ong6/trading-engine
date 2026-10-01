@@ -44,12 +44,14 @@ class Windows:
 
     def development_view(self, data: MarketData, fold_index: int, session: date,
                          decision_time: str, *, open_as_indication: bool = False,
+                         close_as_indication: bool = False,
                          source: str = "primary") -> PointInTimeView:
         fold = next((item for item in self.dev_folds if item.index == fold_index), None)
         if fold is None:
             raise ValueError(f"unknown development fold {fold_index}")
         return data.view(session, decision_time, fold.validate_end,
-                         open_as_indication=open_as_indication, source=source)
+                         open_as_indication=open_as_indication,
+                         close_as_indication=close_as_indication, source=source)
 
     def assert_development_rows(self, sessions: Iterable[date]) -> None:
         if any(day > self.development_max_date for day in sessions):
@@ -91,11 +93,17 @@ def _spec_config(strategy: EventStrategy | PortfolioStrategy) -> dict:
               "parameters": dict(strategy.parameters)}
     if isinstance(strategy, EventStrategy):
         return common | {"kind": "event", "max_concurrent_slots": strategy.max_concurrent_slots,
-                         "slot_notional": strategy.slot_notional}
+                         "slot_notional": strategy.slot_notional,
+                         "max_new_per_session": strategy.max_new_per_session,
+                         "order_sort_key": strategy.order_sort_key,
+                         "open_as_indication": strategy.open_as_indication,
+                         "close_as_indication": strategy.close_as_indication}
     schedule = (strategy.rebalance_schedule if isinstance(strategy.rebalance_schedule, str)
                 else [day.isoformat() for day in strategy.rebalance_schedule])
     return common | {"kind": "portfolio", "rebalance_schedule": schedule,
-                     "fill": asdict(strategy.fill)}
+                     "fill": asdict(strategy.fill), "initial_capital": strategy.initial_capital,
+                     "open_as_indication": strategy.open_as_indication,
+                     "close_as_indication": strategy.close_as_indication}
 
 
 def run_identity(strategy: EventStrategy | PortfolioStrategy, costs: CostSelection,

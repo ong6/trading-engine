@@ -28,7 +28,7 @@ each plan's YAML `status` must match its row.
 | [P15](p15-profitability-evidence-loop.md) | Profitability evidence loop | active | Revision 4 active; first scoring, pre-open, event, report, and status checks are green |
 | [P16](p16-challenger-lab-and-text-edge.md) | Challenger lab, text edge, evaluation science | active | W0 P15 revision-4 activation complete; W9b registration remains |
 | [P17](p17-personal-host-ibkr-paper-execution.md) | Personal-host IBKR paper execution and reconciliation | proposed | Stage 2 design only; requires a Stage 1 pass and owner approval before any implementation or account action |
-| [P18](p18-backtest-core.md) | Shared backtest core | done | Completed: deterministic evaluator, reports, price cross-check, proving ground, and runnable textbook example |
+| [P18](p18-backtest-core.md) | Shared backtest core | done | Completed: native event/portfolio simulation, deterministic reports, proving ground, and example |
 
 Recommended order: follow [`../product.md`](../product.md) ("Focus now"). P15 comes first, then P7
 activation; P8/P9 keep running untouched; P2 remains admitted; P3 waits for the owner's

@@ -40,6 +40,7 @@ class Universe:
         self.listings = listings
         self.delisting_return = delisting_return
         self._by_ticker = {item.ticker: item for item in listings or ()}
+        self._source_tickers = frozenset(bar.ticker for bar in source.bars)
         if listings is not None and len(self._by_ticker) != len(listings):
             raise ValueError("one listing interval per ticker is required")
 
@@ -50,7 +51,11 @@ class Universe:
 
     def is_listed(self, ticker: str, session: date) -> bool:
         interval = self._by_ticker.get(ticker)
-        return interval.contains(session) if interval else self.listings is None
+        return (interval.contains(session) if interval else
+                self.listings is None and ticker in self._source_tickers)
+
+    def listing_interval(self, ticker: str) -> ListingInterval | None:
+        return self._by_ticker.get(ticker)
 
     @staticmethod
     def mdv60(view: PointInTimeView, ticker: str, session: date) -> float | None:
