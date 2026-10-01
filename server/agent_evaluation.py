@@ -1136,8 +1136,10 @@ def validate_p15_evidence(
         mismatch += con.execute(
             "SELECT COUNT(*) FROM p15_order_intents i LEFT JOIN sim_orders o ON o.id=i.sim_order_id "
             "WHERE i.sim_order_id IS NOT NULL AND (o.id IS NULL OR "
-            "(i.portfolio_id,i.ticker,i.side,i.qty,i.signal_date,i.status) IS DISTINCT FROM "
-            "(o.portfolio_id,o.ticker,o.side,o.qty,o.signal_date,o.status))"
+            "(i.portfolio_id,i.ticker,i.side,i.qty,i.signal_date,"
+            "CASE WHEN i.status='filled' THEN ? ELSE i.status END) IS DISTINCT FROM "
+            "(o.portfolio_id,o.ticker,o.side,o.qty,o.signal_date,o.status))",
+            [p15_books.SIM_FILLED_STATUS],
         ).fetchone()[0]
         if mismatch:
             raise EvaluationError("P15 book runtime evidence differs")

@@ -21,6 +21,7 @@ from server import (
     p15_scoring_runner,
     p15_scoring_store,
 )
+from sim import p15_books
 from tests.conftest import insert_bars
 from tools import p15_evidence_validation
 
@@ -180,6 +181,38 @@ def test_common_label_session_calendar_mismatch_still_fails(con):
 
     with pytest.raises(agent_evaluation.EvaluationError, match="common-entry label evidence"):
         _validate_common(con)
+
+
+def _book_runtime_status_pair(con, *, intent_status: str, order_status: str) -> None:
+    agent_evaluation.init_schema(con)
+    p15_books.initialize_books(con, date(2026, 9, 24), initialized_at=NOW)
+    con.execute(
+        "INSERT INTO p15_order_intents VALUES "
+        "(1,NULL,?,'AAA','buy',2,DATE '2026-09-29','entry',1,100,1,99,?,NULL,7,?)",
+        [p15_books.BOOK_IDS[0], intent_status, NOW],
+    )
+    con.execute(
+        "INSERT INTO sim_orders VALUES "
+        "(7,?,'AAA','buy',2,DATE '2026-09-29',?,NULL)",
+        [p15_books.BOOK_IDS[0], order_status],
+    )
+
+
+def test_book_runtime_accepts_filled_intent_with_p15_filled_order(con):
+    _book_runtime_status_pair(
+        con, intent_status="filled", order_status=p15_books.SIM_FILLED_STATUS,
+    )
+
+    agent_evaluation.validate_p15_evidence(con, generated_at=NOW)
+
+
+def test_book_runtime_rejects_genuinely_different_status(con):
+    _book_runtime_status_pair(
+        con, intent_status="rejected", order_status=p15_books.SIM_FILLED_STATUS,
+    )
+
+    with pytest.raises(agent_evaluation.EvaluationError, match="book runtime evidence differs"):
+        agent_evaluation.validate_p15_evidence(con, generated_at=NOW)
 
 
 def test_public_report_hashes_runtime_identity_but_retains_private_literal(con):
