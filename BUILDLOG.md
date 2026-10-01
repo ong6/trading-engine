@@ -1540,4 +1540,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server, tools, product, and tests unchanged; budget ok.
 - **Next:** after orchestrator `go`, implement P18 items 1–7 and stop at checkpoint `p18-core`.
 
+## 2026-10-01 — Build the shared study core
+
+- **Why:** active P18 items 1–7 after the orchestrator accepted `p18-plan` and directed `go`.
+- **What:** add declarative event/portfolio specs, hard-bounded point-in-time primary and
+  independent-secondary data, listing/liquidity/delisting handling, the four exact hashed cost
+  profiles, gross benchmarks, calendar-session statistics, sealed holdouts, run identity, and the
+  study-owned census schema. Tighten the P18 budget and leave all existing runtime paths unchanged.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto` passes at 100%; 25 focused study
+  tests and whole-repository Ruff also pass.
+- **Metrics:** farm/product +1,123; tests +441; server and tools unchanged; budget ok.
+- **Next:** after orchestrator `go`, implement P18 items 8–11.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
