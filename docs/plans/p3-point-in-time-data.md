@@ -50,6 +50,46 @@ sources cannot recover pre-2024-10 prices for delisted names or delisting return
 reviewable commits below the repository's 1,500-line limit. No dependency, service, timer,
 endpoint, operational migration, or tracked raw-data file is added.
 
+## Phase 0 part 2: free SEC history (orchestrator checkpoint 2026-10-01)
+
+The SEC contact identity is now present in the owner-only environment file, so the pending
+Phase 0 SEC work is active. Read every 1996Q1--2026Q3 EDGAR `form.idx`, retain Form 25 and
+25-NSE notices including amendments, and fetch the primary XML for 25-NSE filings from 2010.
+Load the SEC Insider Transactions Data Sets from 2006Q1--2026Q3 and the current SEC company
+ticker map into the same isolated Phase 0 database. The resulting tables and the
+`free_cik_ticker_history` view are generic point-in-time research infrastructure.
+
+**Scope.** Add only `engine/free_sec.py`, `tools/free_sec.py`, and
+`tests/test_free_sec.py`. Raw HTTP bodies are cached outside Git by URL and content hash;
+requests carry the private contact at runtime, request gzip, run at no more than five per second,
+obey the registered UTC and New York no-call windows, and resume from verified cache entries.
+Insider availability is the EDGAR acceptance time when the quarterly dataset supplies one;
+otherwise it is filing-date-granular and must not be used before the next session. Transaction
+date is never availability. Publish `docs/sec-free-audit-2026-10-01.md` from the isolated database
+and a temporary `tools.backup_database create` copy of the operational store.
+
+**Not in scope.** No operational `prices` or universe mutation, live service or timer, strategy,
+replay, readiness gate, paid source, Massive request, or new dependency. The current ticker map
+is a dated observation, not historical-membership authority. Raw SEC data and the isolated
+database remain untracked on the host.
+
+**Done when.** Recorded fixtures prove index, Form 25 XML, and insider ZIP parsing; idempotent
+reloads; pacing; interrupted-batch resume; missing-contact refusal; and the filing-date/
+acceptance-time availability rule. All requested quarters and current tickers are cached and
+loaded, the audit contains the requested annual mapping and quality counts, focused and full
+tests pass, whole-repository Ruff and the metrics budget pass, and `p3/sec-sources` is pushed.
+
+**Budget.** Part 2 may add up to 1,800 code-and-test lines in its three claimed files, in logical
+commits below the repository's 1,500-insertion limit. Data and the audit document do not count
+toward this code-and-test allowance.
+
+### How to run this Phase 0 part
+
+Build and prove the offline parsers and resumable capture first. Fetch only in a permitted window,
+stopping cleanly at a boundary. Then audit against a consistent disposable store copy, run the
+required repository gates once, publish the metrics snapshot and BUILDLOG entry, and push only the
+lane branch.
+
 ## Goal
 
 The store holds an independently acquired US equity dataset with delisted names, historical
