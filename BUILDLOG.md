@@ -1528,4 +1528,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server, tools, and product unchanged; budget ok.
 - **Next:** P16 W9b registration and rehearsals.
 
+## 2026-10-01 — Approve the shared backtest core plan
+
+- **Why:** the owner's 2026-10-01 approval admitted P18 and fixed its design and three
+  checkpoints.
+- **What:** add the approved P18 plan with the reuse map, scope, acceptance gates, risks, and
+  budget; publish the common backtest standard; and record the plan, budget, and decision in the
+  repository indexes. No runtime, strategy, service, registration, or live data changed.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto` passes at 100%; whole-repository
+  Ruff also passes.
+- **Metrics:** server, tools, product, and tests unchanged; budget ok.
+- **Next:** after orchestrator `go`, implement P18 items 1–7 and stop at checkpoint `p18-core`.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

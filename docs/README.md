@@ -38,8 +38,9 @@ deterministic research queue, and dates inside it label historical measurements.
   [P13 market-data source hardening](plans/p13-market-data-source-hardening.md),
   [P14 TradingView historical archive](plans/p14-tradingview-history-archive.md),
   [P15 profitability evidence loop](plans/p15-profitability-evidence-loop.md),
-  [P16 challenger lab and text edge](plans/p16-challenger-lab-and-text-edge.md), and
-  [P17 personal-host IBKR paper execution](plans/p17-personal-host-ibkr-paper-execution.md).
+  [P16 challenger lab and text edge](plans/p16-challenger-lab-and-text-edge.md),
+  [P17 personal-host IBKR paper execution](plans/p17-personal-host-ibkr-paper-execution.md), and
+  [P18 shared backtest core](plans/p18-backtest-core.md).
 
 ## Current operating documents
 
@@ -58,6 +59,8 @@ deterministic research queue, and dates inside it label historical measurements.
 
 ## Design and specification
 
+- [`backtest-standard.md`](backtest-standard.md) — common point-in-time, cost, benchmark,
+  statistics, holdout, proof, and reporting requirements for historical studies.
 - [`design/prompt-review.md`](design/prompt-review.md) — review of the live model prompts and
   requirements for P15/P16 scoring, challenger, pre-open, and filing-reader prompts.
 - [`design/trading-engine-design.md`](design/trading-engine-design.md) — governing engine
