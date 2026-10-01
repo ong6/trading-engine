@@ -1487,4 +1487,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server, tools, and product unchanged; budget ok.
 - **Next:** P16 W9b registration and rehearsals.
 
+## 2026-10-01 — Map filled P15 intents to simulator order status
+
+- **Why:** scoring run 2 completed, but its report reproduced `P15 book runtime evidence differs`:
+  all nine mismatches were intent status `filled` against simulator status `p15_filled`.
+- **What:** map only filled intent status to the simulator's registered filled status during the
+  runtime cross-check; retain every other field and status comparison unchanged. Add passing and
+  rejecting regression fixtures, and issue registration revision 5 without changing written rows.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_agent_evaluation_reporting.py
+  -k 'book_runtime'` passes both status-mapping regression tests.
+- **Metrics:** server +2; tools and product unchanged; budget ok.
+- **Next:** P16 W9b registration and rehearsals.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
