@@ -1,7 +1,7 @@
 ---
 plan: P18
 title: Shared backtest core
-status: approved
+status: active
 opened: 2026-10-01
 owner_decision: approved by the owner 2026-10-01
 ---
