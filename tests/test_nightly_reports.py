@@ -6,6 +6,7 @@ from datetime import date
 import pytest
 
 from server import nightly_monitor, nightly_reports
+from sim import league
 from tests.nightly_test_helpers import nightly_fixture
 
 
@@ -103,6 +104,53 @@ def test_league_csv_validation_streams_every_batch_and_rejects_last_row(con, tmp
     csv_path.write_text(csv_path.read_text().rsplit(",", 1)[0] + ",999\n")
     with pytest.raises(ValueError, match="league CSV does not match stored equity"):
         nightly_reports._validate_league_csv(con, tmp_path)
+
+
+def test_p15_equity_update_requires_league_rerender(con, tmp_path):
+    meta, driver = nightly_fixture(con, tmp_path)
+    latest = date(2026, 9, 4)
+    con.execute(
+        "INSERT INTO portfolios "
+        "(id,name,strategy,config,created,active,cash,initial_cash,execution_profile) "
+        "VALUES ('p15_ai_ranked','P15 AI Ranked','p15','{}',?,TRUE,10000,10000,"
+        "'baseline_v1')",
+        [latest],
+    )
+    con.execute(
+        "INSERT INTO sim_equity VALUES ('p15_ai_ranked',?,10000,10000,0)",
+        [latest],
+    )
+    league.write_reports(con, latest, tmp_path)
+    assert nightly_monitor.evidence_status(
+        meta, driver, con, latest, data_dir=tmp_path
+    )["status"] == "current"
+
+    con.execute(
+        "UPDATE sim_equity SET equity = 9948.30 "
+        "WHERE portfolio_id = 'p15_ai_ranked' AND date = ?",
+        [latest],
+    )
+    assert nightly_monitor.evidence_status(
+        meta, driver, con, latest, data_dir=tmp_path
+    ) == {"status": "invalid", "reason": "evidence-invalid"}
+
+    assert league.step(
+        con, latest, tmp_path, rerun=False, verbose=False, skip_if_done=True
+    ) == 0
+    assert nightly_monitor.evidence_status(
+        meta, driver, con, latest, data_dir=tmp_path
+    )["status"] == "current"
+    rendered = {
+        name: (tmp_path / "reports" / name).read_bytes()
+        for name in ("league.md", "league.csv")
+    }
+    assert league.step(
+        con, latest, tmp_path, rerun=False, verbose=False, skip_if_done=True
+    ) == 0
+    assert {
+        name: (tmp_path / "reports" / name).read_bytes()
+        for name in ("league.md", "league.csv")
+    } == rendered
 
 
 @pytest.mark.parametrize(
