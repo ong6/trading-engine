@@ -93,6 +93,9 @@ deterministic research queue, and dates inside it label historical measurements.
 - [`pit-free-audit-2026-10-01.md`](pit-free-audit-2026-10-01.md) — P3 Phase 0 snapshot of the
   free Tiingo security master against a consistent operational-store copy, including annual
   exact-ticker survivor gaps and the remaining free-source limits.
+- [`sec-free-audit-2026-10-01.md`](sec-free-audit-2026-10-01.md) — P3 Phase 0 Form 25 and insider
+  coverage against the Tiingo master and a consistent operational-store copy, with explicit
+  filing-date availability and symbol-quality limits.
 - The dated “Live decision checkpoint” in
   [`strategy-research-backlog.md`](strategy-research-backlog.md) records the latest reconciled
   counts and the next permitted action. The endpoints and generated reports supersede that

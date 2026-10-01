@@ -50,7 +50,7 @@ sources cannot recover pre-2024-10 prices for delisted names or delisting return
 reviewable commits below the repository's 1,500-line limit. No dependency, service, timer,
 endpoint, operational migration, or tracked raw-data file is added.
 
-## Phase 0 part 2: free SEC history (orchestrator checkpoint 2026-10-01)
+## Phase 0 part 2: free SEC history — complete 2026-10-01
 
 The SEC contact identity is now present in the owner-only environment file, so the pending
 Phase 0 SEC work is active. Read every 1996Q1--2026Q3 EDGAR `form.idx`, retain Form 25 and
@@ -89,6 +89,11 @@ Build and prove the offline parsers and resumable capture first. Fetch only in a
 stopping cleanly at a boundary. Then audit against a consistent disposable store copy, run the
 required repository gates once, publish the metrics snapshot and BUILDLOG entry, and push only the
 lane branch.
+
+**Outcome.** All 123 Form indexes through 2026Q3 and every required 2010+ 25-NSE primary XML
+were retained and loaded. The official insider page supplied 82 contiguous ZIPs through 2026Q2;
+2026Q3 was not yet published. The current company-ticker snapshot and the coverage audit are
+complete; Phase 0 remains isolated research data and the paid-vendor phase remains spend-blocked.
 
 ## Goal
 

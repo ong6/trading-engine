@@ -102,6 +102,19 @@ def test_insider_zip_parses_official_columns_and_availability_rule():
     assert no_clock["accepted_at"] is None
     assert no_clock["available_on"] == no_clock["filing_date"]
     assert no_clock["available_on"] != transaction["transaction_date"]
+    assert not free_sec.insider_row_available(
+        no_clock["filing_date"], None, datetime(2026, 1, 5, 23, tzinfo=timezone.utc)
+    )
+    assert free_sec.insider_row_available(
+        no_clock["filing_date"], None, datetime(2026, 1, 6, 5, tzinfo=timezone.utc)
+    )
+    assert not free_sec.insider_row_available(
+        submission["filing_date"], submission["accepted_at"],
+        datetime(2026, 1, 5, 17, 29, 59, tzinfo=timezone.utc),
+    )
+    assert free_sec.insider_row_available(
+        submission["filing_date"], submission["accepted_at"], submission["accepted_at"]
+    )
 
 
 def test_sec_loads_are_idempotent_and_build_ticker_history():
@@ -254,4 +267,5 @@ def test_audit_counts_mapping_overlap_and_quality(tmp_path: Path):
     assert result["tiingo_end_overlap"][0]["within_10_sessions"] == 1
     assert result["insiders"][0]["purchases"] == 1
     assert result["insiders"][0]["store_share"] == 1.0
+    assert result["insiders"][0]["purchase_store_share"] == 1.0
     assert result["quality"]["zero_or_missing_prices"] == 1
