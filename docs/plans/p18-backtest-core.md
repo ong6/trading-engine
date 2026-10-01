@@ -1,7 +1,7 @@
 ---
 plan: P18
 title: Shared backtest core
-status: active
+status: done
 opened: 2026-10-01
 owner_decision: approved by the owner 2026-10-01
 ---
@@ -79,8 +79,9 @@ standard are the only new documentation files.
    payload SHA-256 and `verified_against_fills=False`: `ibkr_tiered_auction_v1`,
    `ibkr_fixed_v1`, `binance_spot_base_v1`, and `binance_perp_base_v1`. Shares are fractional,
    costs apply per side, sell-only SEC/TAF terms stay separate, crypto liquidity tiers are exact,
-   and perp funding is a supplied data series. Every run validates one primary and at least one
-   distinct harsher sensitivity.
+   and perp funding is a supplied data series. Also register the simulator's existing
+   `baseline_v1` by delegating to `sim.execution.cost_components` and retaining its existing
+   canonical hash. Every run validates one primary and at least one distinct harsher sensitivity.
 5. **Benchmark (`benchmark.py`).** Implement gross equal-weight-eligible-universe, single-ticker,
    and zero-return cash comparators on the exact study window. Compute the primary excess as
    strategy net minus benchmark gross and always retain the absolute-net-positive check. Permit a

@@ -90,7 +90,7 @@ def compare(strategy_net: np.ndarray, benchmark_gross: np.ndarray, benchmark: Be
         if costs.shape != comparator.shape or np.any(costs < 0) or not np.all(np.isfinite(costs)):
             raise ValueError("allocation mode needs aligned non-negative comparator costs")
         comparator = comparator - costs
-    strategy_total = math.prod(1 + strategy) - 1
-    benchmark_total = math.prod(1 + comparator) - 1
+    strategy_total = float(math.prod(1 + strategy) - 1)
+    benchmark_total = float(math.prod(1 + comparator) - 1)
     return Comparison(benchmark.mode, strategy_total, benchmark_total,
-                      strategy_total - benchmark_total, strategy_total > 0)
+                      strategy_total - benchmark_total, bool(strategy_total > 0))

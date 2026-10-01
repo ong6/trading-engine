@@ -1552,4 +1552,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm/product +1,123; tests +441; server and tools unchanged; budget ok.
 - **Next:** after orchestrator `go`, implement P18 items 8–11.
 
+## 2026-10-01 — Complete the shared study evaluator
+
+- **Why:** active P18 items 8–11 after the orchestrator accepted `p18-core` and directed `go`.
+- **What:** add deterministic process-pool execution, fixed atomic reports with independent-price
+  recomputation, a seeded price-only proving ground, and the runnable SPY 200-session trend
+  example. Register `baseline_v1` by direct delegation without changing its established identity.
+- **Evidence:** 45 focused tests and the full parallel suite pass; power is 48/50, null size is
+  7/200 inside the exact 99% band [3, 19], all canaries pass, serial/parallel bytes match, and
+  whole-repository Ruff passes.
+- **Metrics:** farm/product +1,865 and tests +610 for P18; server and tools unchanged; budget ok.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

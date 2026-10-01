@@ -50,13 +50,17 @@ def test_report_has_fixed_sections_caveats_and_biased_secondary_cross_check(tmp_
                    "trades": 2, "one_sided_t": 2.1}],
         folds=[{"fold": 1, "mean": 0.01, "one_sided_t": 2.0}],
         cross_check_trades=trades, hard_max_date=d2, open_as_indication=True,
-        runtime_seconds=0.5, worker_count=2)
+        runtime_seconds=0.5, worker_count=2, job_count=4,
+        serial_parallel_identical=True, cpu_count=8)
     check = report["independent_price_cross_check"]
     assert check["trade_day_coverage"] == pytest.approx(0.5)
     assert check["uncovered_trades"] == 1
     assert check["per_trade"][1]["secondary_result"] is None
     assert check["fill_field_distributions"]["open"]["mean"] == pytest.approx(100 / 101 - 1)
     assert check["per_trade"][0]["secondary_result"] == pytest.approx(102 / 101 - 1)
+    assert report["recency_folds"] == report["folds"]
+    assert (report["job_count"], report["cpu_count"],
+            report["serial_parallel_identical"]) == (4, 8, True)
     markdown_path, json_path = write_report(tmp_path / "report", report)
     text = markdown_path.read_text()
     for section in ("Data declaration", "Costs", "Benchmark",
