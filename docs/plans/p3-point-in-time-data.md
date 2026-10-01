@@ -20,6 +20,36 @@ owner_decision: set a spend ceiling and confirm purchase
 with Norgate as fallback. The next owner input is a maximum initial and recurring spend; purchase,
 credentials, ingestion, and licence acceptance remain out of scope until then.
 
+## Phase 0: free sources (owner decision 2026-10-01)
+
+The owner has declined data spend for now. The paid-vendor phase remains approved but blocked;
+this bounded free-source phase is unblocked and runs without changing that recommendation.
+
+**Scope.** Download Tiingo's public supported-ticker archive, retain each exact ZIP by content
+hash outside Git, and load its USD `Stock` rows on US exchanges into the isolated
+`free_security_master` table. Build, but do not run, a Massive Stocks Basic grouped-daily fetcher
+for the fixed 2024-10-01 through 2026-09-30 window. It reads an owner-only key file, waits at
+least 13 seconds between calls, retains one exact response per date, resumes from those responses,
+and loads `free_daily_bars`. Both sources default to `store/pit/free-sources.duckdb` and
+`store/pit/free-sources/`, with explicit path overrides. Audit the master against a consistent
+copy of the operational store and publish `docs/pit-free-audit-2026-10-01.md`. SEC Form 25 is the
+next free source after the owner supplies the required contact identity.
+
+**Not in scope.** No purchase, paid-vendor ingestion, SEC capture, Massive live request before the
+owner creates the free key, readiness endpoint, strategy or replay work, operational `prices`
+mutation, or change to a forward record. Free-source data remains host-only and isolated from all
+operational and execution authority.
+
+**Done when.** The Tiingo master is loaded and audited for 2010-2026 coverage, delistings,
+ticker reuse, and exact-ticker survivor gaps; recorded-fixture tests prove parsing, idempotent
+reload, key refusal, pacing, and date-level resume; the full suite and whole-repository Ruff pass;
+the branch is pushed with Massive reported `ready-unrun`. The audit explicitly records that free
+sources cannot recover pre-2024-10 prices for delisted names or delisting returns.
+
+**Budget.** Up to 1,200 new code-and-test lines across P3's claimed `free_*` files, split into
+reviewable commits below the repository's 1,500-line limit. No dependency, service, timer,
+endpoint, operational migration, or tracked raw-data file is added.
+
 ## Goal
 
 The store holds an independently acquired US equity dataset with delisted names, historical
