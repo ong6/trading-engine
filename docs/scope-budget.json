@@ -10,7 +10,8 @@
     "note": "Reported by metrics_snapshot; a larger change needs an approved plan in docs/plans/."
   },
   "plan_code_ceiling": {
-    "p3_phase0_free_sources": 1200
+    "p3_phase0_free_sources": 1200,
+    "p3_phase0_sec": 1800
   },
   "doc_test_ceiling": 86,
   "p18": {
