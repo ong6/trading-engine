@@ -7,6 +7,22 @@ from farm.study.benchmark import Benchmark, compare, gross_returns
 from farm.study.costs import PROFILES, CostSelection, calculate
 from farm.study.data import Bar, MarketData, PriceSource
 from farm.study.universe import ListingInterval, Universe
+from sim import execution
+
+
+@pytest.mark.parametrize("side", ["buy", "sell"])
+@pytest.mark.parametrize("mdv60", [None, 4_999_999, 5_000_000, 19_999_999,
+                                    20_000_000, 49_999_999, 50_000_000])
+def test_baseline_delegates_each_mdv_tier_to_sim_execution(side, mdv60):
+    notional, fill_price = 12_345.0, 123.45
+    expected = execution.cost_components(
+        "baseline_v1", side=side, qty=notional / fill_price, open_px=fill_price,
+        median_dollar_volume=mdv60)
+    observed = calculate(
+        "baseline_v1", side=side, notional=notional, fill_price=fill_price, mdv60=mdv60)
+    assert observed.total == pytest.approx(notional * expected["total_bps"] / 10_000)
+    assert observed.slippage == pytest.approx(notional * expected["market_bps"] / 10_000)
+    assert observed.commission == pytest.approx(expected["commission_dollars"])
 
 
 def test_ibkr_tiered_terms_are_exact_per_side():
@@ -52,6 +68,7 @@ def test_binance_tiers_taker_and_supplied_funding_are_exact():
 
 def test_profile_hashes_and_harsher_run_validation_are_stable():
     expected = {
+        "baseline_v1": "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db",
         "ibkr_tiered_auction_v1": "be60ad69ae19cc9f1e2bcd5a1c91ee312c4a690260f1678e8def45991e72337e",
         "ibkr_fixed_v1": "27847c6ff385795ee127240a8aa3546d2142ecdfa92b2e8f5431edc92097d831",
         "binance_spot_base_v1": "3b4e6ec022fc2dac7aec95e31b061e55f0bfb44029acac752791c2922180455f",
