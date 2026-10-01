@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "registration_id": "p15-profitability-evidence-loop-v1",
-  "registered_at": "2026-09-30T20:06:43Z",
+  "registered_at": "2026-10-01T02:50:09Z",
   "activated_at": "2026-09-29T00:00:00-04:00",
   "activation_session": "2026-09-29",
   "status": "registered_inactive",
@@ -188,7 +188,7 @@
     "price_fetch_availability": "after_collection_completion"
   },
   "code_identity": {
-    "source_commit": "6471c2f5b444dc47928f8b5539f1af24d2804858",
+    "source_commit": "0c5abb1c798b441bb8dc3c4049c3464594317358",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/actions.py": "a6c2ec46d198df2318498ec7d55e1b7cfeca4c8afaccd8a5c208618e4ea8b850",
@@ -245,7 +245,7 @@
       "farm/walkforward/runner.py": "f2b861dea8e5b2b9ae94e20a598ecfd3a96cf77eb98cb5a4439a450aba475d57",
       "server/__init__.py": "c462735edca08a01b1bda392e672430ed441aca796251c6adcaf6b5e648ea4b5",
       "server/agent-cadence-registration.json": "cf66040d889662f7ad740f79ce83e2c87528853bafe4f31a0634c7195b5c4b59",
-      "server/agent_evaluation.py": "0315d4dbd5df8d360c7ac64e3fc7d708b82285b540bd222821de94c094159fba",
+      "server/agent_evaluation.py": "196c7e2095e0081b4da5dd5644fae6f92f8b5b2c243eca39794f484ef68b7add",
       "server/agent_evaluation_reporting.py": "08c770440ea11bcbbae1c8a4a9b903f8a475a6d3623843940db44eceb803135c",
       "server/agent_model_client.py": "3c4fbdfd48aa6e1c32a8fbe7fba18f8c7470aef01a684f7ab2d9d8cadf1394f8",
       "server/daily_opportunity_execution.py": "8f599df3f6ba71770d72ce23010f43d6d40695092de0e30e4a9986987dcc7798",
@@ -325,7 +325,7 @@
       "tools/sec_edgar_capture.py": "b6f46658930844cf4deed830e8e3a9412e9a19232663aced8a01472c42f0024f"
     }
   },
-  "registration_revision": 4,
-  "revision_reason": "label validator: availability proven by the append-only label's price-prefix hash; bars re-fetched after labelling no longer fail evidence; revised source bars are counted, not fatal; no scoring, book, gate or label change",
-  "registration_sha256": "2387b35a35497367e030cffa25671e605feae06494ed1f64c11cc8b707dd8f2f"
+  "registration_revision": 5,
+  "revision_reason": "book runtime validator maps the intent status 'filled' to the simulator order status 'p15_filled'; no scoring, book, gate, label or written-row change",
+  "registration_sha256": "098d56aac47cdb48799929ff7649b1bdc8d4b0368630f7f9013705b4a1ba6feb"
 }
