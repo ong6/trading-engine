@@ -518,6 +518,23 @@ def _validate_event_labels(con, generated_at: datetime):
 
 def test_event_label_validation_uses_revision_visible_at_label_time(con):
     labeled_at, entry_at = _next_bar_label_for_validation(con)
+    dedupe_at = labeled_at + timedelta(minutes=30)
+    dedupe = bitemporal_facts.record_intraday_quote_batch(
+        con, source="yfinance", endpoint="https://example.test/bars", request={"dedupe": True},
+        requested_at=dedupe_at - timedelta(seconds=1), received_at=dedupe_at,
+        content_type="application/json", body=b"unchanged", interval="5m",
+        source_version="test", license_class="research", quotes=[
+            {"ticker": ticker, "event_at": entry_at, "open": opening,
+             "high": opening + 1, "low": opening - 1, "close": opening,
+             "volume": 10_000}
+            for ticker, opening in (("AAA", 101.0), ("SPY", 100.5))
+        ],
+    )
+    assert dedupe["fact_count"] == 0
+    assert _validate_event_labels(con, dedupe_at) == {
+        "labels_source_revised": 0, "labels_source_revised_ids": [],
+        "labels_source_unverifiable": 0, "labels_source_unverifiable_ids": [],
+    }
     late_at = labeled_at + timedelta(hours=1)
     receipt = bitemporal_facts.record_receipt(
         con, source="yfinance", dataset="intraday_quote",

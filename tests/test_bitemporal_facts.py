@@ -51,7 +51,7 @@ def test_receipt_and_fact_are_replay_stable_and_revision_preserving(con):
     assert con.execute("SELECT COUNT(*) FROM bitemporal_facts").fetchone() == (2,)
 
 
-def test_same_value_from_later_receipt_preserves_a_new_observation(con):
+def test_same_value_from_later_receipt_preserves_first_availability_only(con):
     first_receipt = _receipt(con)
     first = bitemporal_facts.record_fact(
         con, entity_id="SPY", security_id="US-SPY", fact_type="quote.close",
@@ -75,12 +75,14 @@ def test_same_value_from_later_receipt_preserves_a_new_observation(con):
         source="test", source_version="v1",
         receipt_sha256=later_receipt["receipt_sha256"],
     )
-    assert first["revision"] == 1 and second["revision"] == 2
-    assert second["replayed"] is False
+    assert first["revision"] == second["revision"] == 1
+    assert second["replayed"] is True
+    assert con.execute("SELECT COUNT(*) FROM source_response_receipts").fetchone() == (2,)
+    assert con.execute("SELECT COUNT(*) FROM bitemporal_facts").fetchone() == (1,)
     known_before = bitemporal_facts.facts_as_known(con, NOW + timedelta(seconds=2))
     known_after = bitemporal_facts.facts_as_known(con, NOW + timedelta(minutes=2))
     assert len(known_before) == 1 and known_before[0]["revision"] == 1
-    assert len(known_after) == 1 and known_after[0]["revision"] == 2
+    assert len(known_after) == 1 and known_after[0]["fact_sha256"] == first["fact_sha256"]
 
 
 def test_security_master_event_is_typed_and_receipt_linked(con):
@@ -144,6 +146,96 @@ def test_intraday_batch_retains_raw_receipt_and_event_availability_times(con):
             ingested_at=NOW + timedelta(seconds=1), payload={"value": 100},
             source="test", source_version="v1", receipt_sha256=receipt["receipt_sha256"],
         )
+
+
+def test_repeated_intraday_response_retains_receipt_without_fact_revisions(con):
+    bitemporal_facts.init_schema(con)
+    quotes = [
+        {"ticker": ticker, "event_at": NOW - timedelta(minutes=5),
+         "open": 99.0, "high": 101.0, "low": 98.0, "close": 100.0,
+         "volume": 10_000}
+        for ticker in ("AAA", "SPY")
+    ]
+    first = bitemporal_facts.record_intraday_quote_batch(
+        con, source="test", endpoint="https://example.test/quotes",
+        request={"symbols": ["AAA", "SPY"]}, requested_at=NOW,
+        received_at=NOW + timedelta(seconds=1), content_type="application/json",
+        body=b'{"bars":"same"}', quotes=quotes, interval="5m", source_version="v1",
+        license_class="public-test",
+    )
+    repeated = bitemporal_facts.record_intraday_quote_batch(
+        con, source="test", endpoint="https://example.test/quotes",
+        request={"symbols": ["AAA", "SPY"]}, requested_at=NOW + timedelta(minutes=1),
+        received_at=NOW + timedelta(minutes=1, seconds=1),
+        content_type="application/json", body=b'{"bars":"same"}', quotes=quotes,
+        interval="5m", source_version="v1", license_class="public-test",
+    )
+
+    assert first["fact_count"] == 2 and repeated["fact_count"] == 0
+    assert repeated["fact_sha256s"] == first["fact_sha256s"]
+    assert con.execute("SELECT COUNT(*) FROM source_response_receipts").fetchone() == (2,)
+    assert con.execute("SELECT COUNT(*) FROM bitemporal_facts").fetchone() == (2,)
+
+
+def test_intraday_batch_allocates_once_and_only_revises_changed_bars(con):
+    bitemporal_facts.init_schema(con)
+
+    class TrackingConnection:
+        def __init__(self, connection):
+            self.connection = connection
+            self.executed = []
+            self.bulk = []
+
+        def execute(self, statement, parameters=None):
+            self.executed.append(statement)
+            return (self.connection.execute(statement) if parameters is None
+                    else self.connection.execute(statement, parameters))
+
+        def executemany(self, statement, parameters):
+            self.bulk.append(statement)
+            return self.connection.executemany(statement, parameters)
+
+    tracked = TrackingConnection(con)
+    first_quotes = [
+        {"ticker": "AAA", "event_at": NOW - timedelta(minutes=minutes),
+         "open": 99.0, "high": 101.0, "low": 98.0, "close": 100.0,
+         "volume": 10_000}
+        for minutes in (10, 5)
+    ]
+    first = bitemporal_facts.record_intraday_quote_batch(
+        tracked, source="test", endpoint="https://example.test/quotes",
+        request={"symbol": "AAA"}, requested_at=NOW,
+        received_at=NOW + timedelta(seconds=1), content_type="application/json",
+        body=b'{"batch":1}', quotes=first_quotes, interval="5m", source_version="v1",
+        license_class="public-test",
+    )
+    second_quotes = [
+        first_quotes[0],
+        {**first_quotes[1], "high": 102.0, "close": 101.0},
+        {**first_quotes[1], "event_at": NOW},
+    ]
+    second = bitemporal_facts.record_intraday_quote_batch(
+        tracked, source="test", endpoint="https://example.test/quotes",
+        request={"symbol": "AAA"}, requested_at=NOW + timedelta(minutes=1),
+        received_at=NOW + timedelta(minutes=1, seconds=1),
+        content_type="application/json", body=b'{"batch":2}', quotes=second_quotes,
+        interval="5m", source_version="v1", license_class="public-test",
+    )
+
+    assert first["fact_count"] == second["fact_count"] == 2
+    assert con.execute(
+        "SELECT id,event_at,revision FROM bitemporal_facts ORDER BY id"
+    ).fetchall() == [
+        (1, (NOW - timedelta(minutes=10)).replace(tzinfo=None), 1),
+        (2, (NOW - timedelta(minutes=5)).replace(tzinfo=None), 1),
+        (3, (NOW - timedelta(minutes=5)).replace(tzinfo=None), 2),
+        (4, NOW.replace(tzinfo=None), 1),
+    ]
+    assert sum(
+        "MAX(id)" in statement and "FROM bitemporal_facts" in statement
+        for statement in tracked.executed
+    ) == 2
+    assert len(tracked.bulk) == 2
 
 
 def test_intraday_batch_rolls_back_receipt_when_a_fact_is_invalid(con):
