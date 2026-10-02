@@ -104,6 +104,10 @@ def record_fact(
     available_at: datetime, ingested_at: datetime, payload: dict, source: str,
     source_version: str, receipt_sha256: str,
 ) -> dict:
+    entity_id = _text(entity_id, "entity_id")
+    fact_type = _text(fact_type, "fact_type")
+    source = _text(source, "source")
+    source_version = _text(source_version, "source_version")
     event, available, ingested = (
         _utc(event_at, "event_at"), _utc(available_at, "available_at"),
         _utc(ingested_at, "ingested_at"),
@@ -120,24 +124,21 @@ def record_fact(
     normalized = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
     normalized_sha = canonical_sha256(payload)
     latest = con.execute(
-        "SELECT revision,normalized_sha256,fact_sha256,available_at,ingested_at,source,"
-        "source_version,receipt_sha256,security_id,published_at FROM bitemporal_facts "
+        "SELECT revision,normalized_sha256,fact_sha256 FROM bitemporal_facts "
         "WHERE entity_id=? AND fact_type=? AND event_at=? ORDER BY revision DESC LIMIT 1",
         [entity_id, fact_type, event],
     ).fetchone()
-    replay_identity = (normalized_sha, available, ingested, source, source_version,
-                       receipt_sha256, security_id, published)
-    if latest is not None and (latest[1], *latest[3:]) == replay_identity:
+    if latest is not None and latest[1] == normalized_sha:
         return {"fact_sha256": latest[2], "revision": int(latest[0]), "replayed": True}
     revision = 1 if latest is None else int(latest[0]) + 1
     previous = None if latest is None else latest[2]
     identity = {
-        "schema_version": SCHEMA_VERSION, "entity_id": _text(entity_id, "entity_id"),
-        "security_id": security_id, "fact_type": _text(fact_type, "fact_type"),
+        "schema_version": SCHEMA_VERSION, "entity_id": entity_id,
+        "security_id": security_id, "fact_type": fact_type,
         "event_at": event.isoformat(), "published_at": None if published is None else published.isoformat(),
         "available_at": available.isoformat(), "ingested_at": ingested.isoformat(),
         "revision": revision, "normalized_sha256": normalized_sha,
-        "source": _text(source, "source"), "source_version": _text(source_version, "source_version"),
+        "source": source, "source_version": source_version,
         "receipt_sha256": receipt_sha256, "previous_fact_sha256": previous,
     }
     fact_sha = canonical_sha256(identity)
@@ -159,8 +160,11 @@ def record_intraday_quote_batch(
 ) -> dict:
     """Atomically retain one raw response and normalized quote facts."""
     interval = _text(interval, "interval", 16)
+    source = _text(source, "source")
+    source_version = _text(source_version, "source_version")
     ingested = received_at if ingested_at is None else ingested_at
-    seen = set()
+    fact_type = f"intraday.ohlcv.{interval}"
+    seen, prepared = set(), []
     for quote in quotes:
         if not isinstance(quote, dict) or set(quote) != {
             "ticker", "event_at", "open", "high", "low", "close", "volume"
@@ -170,6 +174,21 @@ def record_intraday_quote_batch(
         if not isinstance(ticker, str) or (ticker, event_at) in seen:
             raise FactError("intraday quote identity is invalid or duplicated")
         seen.add((ticker, event_at))
+        entity_id = _text(ticker, "entity_id")
+        event, available, ingested_time = (
+            _utc(event_at, "event_at"), _utc(received_at, "available_at"),
+            _utc(ingested, "ingested_at"),
+        )
+        if event > available:
+            raise FactError("fact event/publication/availability times are inconsistent")
+        if available > ingested_time:
+            raise FactError("fact availability is after ingestion")
+        payload = {key: quote[key] for key in ("open", "high", "low", "close", "volume")}
+        prepared.append((
+            entity_id, event, available, ingested_time,
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False),
+            canonical_sha256(payload),
+        ))
     with engine_db.transaction(con):
         receipt = record_receipt(
             con, source=source, dataset="intraday_quote", endpoint=endpoint,
@@ -177,18 +196,57 @@ def record_intraday_quote_batch(
             http_status=200, content_type=content_type, body=body,
             license_class=license_class,
         )
-        facts = []
-        for quote in quotes:
-            facts.append(record_fact(
-                con, entity_id=quote["ticker"], security_id=quote["ticker"],
-                fact_type=f"intraday.ohlcv.{interval}", event_at=quote["event_at"],
-                published_at=None,
-                available_at=received_at, ingested_at=ingested,
-                payload={key: quote[key] for key in ("open", "high", "low", "close", "volume")},
-                source=source, source_version=source_version,
-                receipt_sha256=receipt["receipt_sha256"],
-            ))
-    return {"receipt_sha256": receipt["receipt_sha256"], "fact_count": len(facts),
+        latest_by_key = {}
+        if prepared:
+            entities = sorted({item[0] for item in prepared})
+            placeholders = ",".join("?" for _ in entities)
+            latest_by_key = {
+                (row[0], row[1]): row[2:]
+                for row in con.execute(
+                    "SELECT entity_id,event_at,revision,normalized_sha256,fact_sha256 "
+                    "FROM bitemporal_facts WHERE fact_type=? "
+                    f"AND entity_id IN ({placeholders}) AND event_at>=? AND event_at<=? "
+                    "QUALIFY revision=MAX(revision) OVER "
+                    "(PARTITION BY entity_id,fact_type,event_at)",
+                    [fact_type, *entities, min(item[1] for item in prepared),
+                     max(item[1] for item in prepared)],
+                ).fetchall()
+            }
+        facts, inserts = [], []
+        for entity_id, event, available, ingested_time, normalized, normalized_sha in prepared:
+            latest = latest_by_key.get((entity_id, event))
+            if latest is not None and latest[1] == normalized_sha:
+                facts.append({"fact_sha256": latest[2], "revision": int(latest[0]),
+                              "replayed": True})
+                continue
+            revision = 1 if latest is None else int(latest[0]) + 1
+            previous = None if latest is None else latest[2]
+            identity = {
+                "schema_version": SCHEMA_VERSION, "entity_id": entity_id,
+                "security_id": entity_id, "fact_type": fact_type,
+                "event_at": event.isoformat(), "published_at": None,
+                "available_at": available.isoformat(), "ingested_at": ingested_time.isoformat(),
+                "revision": revision, "normalized_sha256": normalized_sha,
+                "source": source, "source_version": source_version,
+                "receipt_sha256": receipt["receipt_sha256"],
+                "previous_fact_sha256": previous,
+            }
+            fact_sha = canonical_sha256(identity)
+            facts.append({"fact_sha256": fact_sha, "revision": revision, "replayed": False})
+            inserts.append([
+                SCHEMA_VERSION, entity_id, entity_id, fact_type, event, None, available,
+                ingested_time, revision, normalized, normalized_sha, source, source_version,
+                receipt["receipt_sha256"], previous, fact_sha,
+            ])
+        if inserts:
+            first_id = int(con.execute(
+                "SELECT COALESCE(MAX(id),0)+1 FROM bitemporal_facts"
+            ).fetchone()[0])
+            con.executemany(
+                "INSERT INTO bitemporal_facts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                [[first_id + index, *row] for index, row in enumerate(inserts)],
+            )
+    return {"receipt_sha256": receipt["receipt_sha256"], "fact_count": len(inserts),
             "fact_sha256s": [item["fact_sha256"] for item in facts],
             "replayed": receipt["replayed"] and all(item["replayed"] for item in facts)}
 
