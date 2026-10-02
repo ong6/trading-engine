@@ -80,6 +80,7 @@ RECOVERY_SOURCE_FILES = (
     "engine/lib/provenance.py",
     "engine/lib/resources.py",
     "engine/lib/settings.py",
+    "engine/lib/snapshots.py",
     "engine/lib/util.py",
     "server/__init__.py",
     "server/driver_log.py",

@@ -58,6 +58,15 @@ lock is held; otherwise it is `interrupted`. A held lock past the driver's grace
 `stale-running`. Old or absent starts become `overdue` after the next slot and grace. These are
 read-only diagnoses: they do not restart a process or alter a queue.
 
+Every driver stage writes start, end, duration, and exit status to its normal log and appends the
+same record to `logs/stage-timings.jsonl`. Timing publication is fail-soft. Summarize the latest
+20 runs per driver, or one named driver, with:
+
+```bash
+.venv/bin/python -m tools.stage_timings --runs 20
+.venv/bin/python -m tools.stage_timings --runs 20 --driver run_daily
+```
+
 ## Nightly and queue checks
 
 The nightly is the only weekday orchestrator. Its fatal path collects EOD data, resolves the
@@ -84,6 +93,28 @@ One DuckDB writer is allowed at a time. Heavy work belongs in the queue. Up to e
 read-only workers may run jobs explicitly marked `parallel_safe`; a budget expiry stops starting
 new work and never kills an in-flight job. Do not launch a second nightly or queue drain around a
 held producer lock.
+
+## Read-only database snapshots
+
+Completed producers publish an immutable consistent copy under `store/snapshots/` as
+`market-<UTC stamp>.duckdb`. `market-latest.duckdb` is an atomically replaced relative symlink;
+the matching JSON manifest records source data commit, publication time, file SHA-256, size, and
+table row counts. Without a sibling `.wal`, publication records the source invariants through a
+read-only attachment, file-copies and fsyncs while holding the producer locks, releases those
+locks, then verifies the copy against the recorded invariants before publication. A present WAL
+uses DuckDB's consistent `COPY FROM DATABASE` path instead. The newest two generations are
+retained, and a snapshot error never changes the producer's result.
+
+P15 event runs pass `--min-age-minutes 120`, so a valid latest snapshot newer than two hours is
+logged as skipped with exit 0. Nightly, P15 scoring, and TradingView history remain unthrottled;
+pre-open does not publish a snapshot.
+
+When the primary database is writer-locked, read-only API requests may use the latest valid
+snapshot. Snapshot responses carry `X-Data-Source: snapshot` and `X-Snapshot-As-Of`; corrupt or
+unreadable primary databases do not trigger fallback. Evidence validation, including
+`GET /agent/evaluation/status`, may use a snapshot only when its `as_of` is later than the live
+database's last write. If no qualifying snapshot exists, the endpoint keeps its normal 503
+behaviour. Research processes may open `store/snapshots/market-latest.duckdb` read-only.
 
 If the nightly failed:
 
@@ -187,6 +218,10 @@ Create a bundle only at an explicit path outside the checkout:
 Keep the failed store separately. Restore only through the standard verified recovery command;
 never copy selected DuckDB tables, regenerate point-in-time observations, or overwrite the public
 `data/` outputs by hand.
+
+While holding the normal producer locks, `backup_database create` uses the latest valid snapshot
+when that snapshot is newer than the live database's last write. Otherwise it takes its own
+consistent copy of the live database. Verification and restore semantics are unchanged.
 
 ## P15 activation sequence
 

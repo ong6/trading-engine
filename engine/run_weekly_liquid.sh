@@ -43,6 +43,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/driver.sh"
 export TRADING_ENGINE_LOCK_WAIT_S="${TRADING_ENGINE_LOCK_WAIT_S:-1800}"
 
 body() {
+  stage refresh-liquid
   "${PY}" -m engine.collect --refresh-liquid
 }
 

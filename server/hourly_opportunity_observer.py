@@ -49,19 +49,20 @@ def _capture_quotes(
     tickers: list[tuple[str, str]], *, database: Path, observed_at: datetime,
     fetch=intraday_source._fetch,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    connection: duckdb.DuckDBPyConnection | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Retain exact responses before admitting bounded quotes to a prompt."""
     quotes, failures = [], []
-    for ticker, provider_ticker in tickers[:MAX_QUOTES]:
-        try:
-            request = intraday_source.request_identity(provider_ticker)
-            endpoint = intraday_source.endpoint_url(provider_ticker)
-            response = fetch(provider_ticker, observed_at)
+    write_con = connection or db.connect(database, wait_s=60)
+    try:
+        for ticker, provider_ticker in tickers[:MAX_QUOTES]:
             try:
-                bars = intraday_source.parse(ticker, provider_ticker, response)
-            except intraday_source.IntradaySourceError as exc:
-                write_con = db.connect(database, wait_s=0)
+                request = intraday_source.request_identity(provider_ticker)
+                endpoint = intraday_source.endpoint_url(provider_ticker)
+                response = fetch(provider_ticker, observed_at)
                 try:
+                    bars = intraday_source.parse(ticker, provider_ticker, response)
+                except intraday_source.IntradaySourceError as exc:
                     bitemporal_facts.init_schema(write_con)
                     receipt = bitemporal_facts.record_receipt(
                         write_con, source="yfinance", dataset="intraday_quote",
@@ -70,13 +71,9 @@ def _capture_quotes(
                         content_type=response.content_type or "application/octet-stream",
                         body=response.body, license_class="provider-terms-research",
                     )
-                finally:
-                    write_con.close()
-                failures.append({"ticker": ticker, "reason": str(exc)[:200],
-                                 "receipt_sha256": receipt["receipt_sha256"]})
-                continue
-            write_con = db.connect(database, wait_s=0)
-            try:
+                    failures.append({"ticker": ticker, "reason": str(exc)[:200],
+                                     "receipt_sha256": receipt["receipt_sha256"]})
+                    continue
                 bitemporal_facts.init_schema(write_con)
                 retained = bitemporal_facts.record_intraday_quote_batch(
                     write_con, source="yfinance", endpoint=endpoint,
@@ -88,30 +85,31 @@ def _capture_quotes(
                     license_class="provider-terms-research",
                     ingested_at=clock(),
                 )
-            finally:
-                write_con.close()
-            bars = sorted(bars, key=lambda item: item["event_at"])
-            if len(bars) < 2:
-                failures.append({
-                    "ticker": ticker,
-                    "reason": "intraday response has fewer than two usable bars",
+                bars = sorted(bars, key=lambda item: item["event_at"])
+                if len(bars) < 2:
+                    failures.append({
+                        "ticker": ticker,
+                        "reason": "intraday response has fewer than two usable bars",
+                        "receipt_sha256": retained["receipt_sha256"],
+                    })
+                    continue
+                last, prior = bars[-1], bars[-2]
+                body = {
+                    "ticker": ticker, "observed_at": response.received_at.isoformat(),
+                    "event_at": last["event_at"].isoformat(), "last": last["close"],
+                    "change_5m": last["close"] / prior["close"] - 1,
+                    "last_volume": last["volume"],
                     "receipt_sha256": retained["receipt_sha256"],
-                })
-                continue
-            last, prior = bars[-1], bars[-2]
-            body = {
-                "ticker": ticker, "observed_at": response.received_at.isoformat(),
-                "event_at": last["event_at"].isoformat(), "last": last["close"],
-                "change_5m": last["close"] / prior["close"] - 1,
-                "last_volume": last["volume"],
-                "receipt_sha256": retained["receipt_sha256"],
-            }
-            quotes.append({**body, "evidence_id": canonical_sha256(body)})
-        except (
-            intraday_source.IntradaySourceError, bitemporal_facts.FactError,
-            db.DBBusyError, duckdb.Error, OSError, ValueError,
-        ) as exc:
-            failures.append({"ticker": ticker, "reason": str(exc)[:200]})
+                }
+                quotes.append({**body, "evidence_id": canonical_sha256(body)})
+            except (
+                intraday_source.IntradaySourceError, bitemporal_facts.FactError,
+                db.DBBusyError, duckdb.Error, OSError, ValueError,
+            ) as exc:
+                failures.append({"ticker": ticker, "reason": str(exc)[:200]})
+    finally:
+        if connection is None:
+            write_con.close()
     return quotes, failures
 
 
@@ -119,6 +117,7 @@ def _capture_cross_checks(
     tickers: list[str], *, database: Path, observed_at: datetime,
     provider_symbols: dict[str, str] | None = None,
     capture=official_quote_source.capture_tradingview_many,
+    connection: duckdb.DuckDBPyConnection | None = None,
 ) -> tuple[list[dict], list[dict], dict]:
     status = official_quote_source.market_data_sources.source_status(
         official_quote_source.market_data_sources.TRADINGVIEW
@@ -128,7 +127,12 @@ def _capture_cross_checks(
     try:
         requested = [provider_symbols.get(ticker, ticker) if provider_symbols else ticker
                      for ticker in tickers[:MAX_QUOTES]]
-        return capture(requested, database=database, observed_at=observed_at), [], status
+        return capture(
+            requested,
+            database=database,
+            observed_at=observed_at,
+            connection=connection,
+        ), [], status
     except (official_quote_source.OfficialSourceError,
             official_quote_source.market_data_sources.MarketDataError,
             bitemporal_facts.FactError, db.DBBusyError, duckdb.Error, OSError) as exc:
@@ -159,8 +163,9 @@ def _unavailable_assessment(candidate: dict, failures: list[dict], market_date: 
     }
 
 
-def _observe(
-    variant_id: str, *, database: Path = DEFAULT_DB, now: datetime | None = None,
+def _observe_connected(
+    variant_id: str, *, connection: duckdb.DuckDBPyConnection,
+    database: Path = DEFAULT_DB, now: datetime | None = None,
     generate=agent_model_client.generate_opportunity_json, fetch_news=daily_opportunity_news._fetch,
     fetch_quote=intraday_source._fetch, capture_cross_checks=_capture_cross_checks,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
@@ -175,19 +180,15 @@ def _observe(
     existing = target.read_text().splitlines() if target.exists() else []
     prior = next((json.loads(line) for line in existing if json.loads(line).get("window") == window), None)
     if prior is not None:
-        write_con = db.connect(database, wait_s=0)
-        try:
-            with db.transaction(write_con):
-                agent_evaluation.init_schema(write_con)
-                trace = agent_evaluation.replay_artifact_trace(
-                    prior, source_identifier=f"{target.name}:{window}"
-                )
-                agent_evaluation.record_trace(write_con, trace)
-                agent_evaluation.label_mature(
-                    write_con, labeled_at=clock()
-                )
-        finally:
-            write_con.close()
+        with db.transaction(connection):
+            agent_evaluation.init_schema(connection)
+            trace = agent_evaluation.replay_artifact_trace(
+                prior, source_identifier=f"{target.name}:{window}"
+            )
+            agent_evaluation.record_trace(connection, trace)
+            agent_evaluation.label_mature(
+                connection, labeled_at=clock()
+            )
         return {"status": "completed", "variant_id": variant_id,
                 "quote_count": len(prior["quotes"]),
                 "required_quote_count": prior.get("required_quote_count", len(prior["quotes"])),
@@ -197,33 +198,31 @@ def _observe(
                 "assessment_count": len(prior["assessments"]),
                 "execution_authority": "none", "replayed": True,
                 "artifact_sha256": hashlib.sha256(target.read_bytes()).hexdigest()}
-    con = db.connect(database, read_only=True, wait_s=0)
-    try:
-        market_date = db.latest_operational_market_date(con)
-        if market_date is None:
-            raise ValueError("no breadth-qualified market date")
-        from engine.daily_opportunities import detect
+    market_date = db.latest_operational_market_date(connection)
+    if market_date is None:
+        raise ValueError("no breadth-qualified market date")
+    from engine.daily_opportunities import detect
 
-        bundle = detect(con, market_date, limit=variant["candidate_limit"])
-        tickers = [item["ticker"] for item in bundle["candidates"]]
-        provider_tickers = dict(con.execute(
-            "SELECT ticker,COALESCE(NULLIF(yf_ticker,''),ticker) FROM universe "
-            f"WHERE ticker IN ({','.join(['?'] * len(tickers))})", tickers,
-        ).fetchall()) if tickers else {}
-        exchanges = dict(con.execute(
-            "SELECT ticker,exchange FROM universe "
-            f"WHERE ticker IN ({','.join(['?'] * len(tickers))})", tickers,
-        ).fetchall()) if tickers else {}
-    finally:
-        con.close()
+    bundle = detect(connection, market_date, limit=variant["candidate_limit"])
+    tickers = [item["ticker"] for item in bundle["candidates"]]
+    provider_tickers = dict(connection.execute(
+        "SELECT ticker,COALESCE(NULLIF(yf_ticker,''),ticker) FROM universe "
+        f"WHERE ticker IN ({','.join(['?'] * len(tickers))})", tickers,
+    ).fetchall()) if tickers else {}
+    exchanges = dict(connection.execute(
+        "SELECT ticker,exchange FROM universe "
+        f"WHERE ticker IN ({','.join(['?'] * len(tickers))})", tickers,
+    ).fetchall()) if tickers else {}
     quotes, quote_failures = _capture_quotes(
         [(ticker, provider_tickers.get(ticker, ticker)) for ticker in tickers],
         database=database, observed_at=observed, fetch=fetch_quote, clock=clock,
+        connection=connection,
     )
     tradingview_symbols = {ticker: _tradingview_symbol(ticker, exchanges.get(ticker))
                            for ticker in tickers}
     cross_checks, cross_check_failures, cross_check_status = capture_cross_checks(
         tickers, database=database, observed_at=observed, provider_symbols=tradingview_symbols,
+        connection=connection,
     )
     if not quotes:
         return {"status": "skipped", "variant_id": variant_id,
@@ -322,22 +321,18 @@ def _observe(
     artifact["observation_sha256"] = canonical_sha256(artifact)
     with target.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(artifact, sort_keys=True, separators=(",", ":")) + "\n")
-    write_con = db.connect(database, wait_s=0)
-    try:
-        with db.transaction(write_con):
-            agent_evaluation.init_schema(write_con)
-            agent_evaluation.record_trace(
-                write_con,
-                agent_evaluation.artifact_trace(
-                    artifact, source_identifier=f"{target.name}:{window}",
-                    latency_ms=latency_ms,
-                ),
-            )
-            agent_evaluation.label_mature(
-                write_con, labeled_at=clock()
-            )
-    finally:
-        write_con.close()
+    with db.transaction(connection):
+        agent_evaluation.init_schema(connection)
+        agent_evaluation.record_trace(
+            connection,
+            agent_evaluation.artifact_trace(
+                artifact, source_identifier=f"{target.name}:{window}",
+                latency_ms=latency_ms,
+            ),
+        )
+        agent_evaluation.label_mature(
+            connection, labeled_at=clock()
+        )
     return {"status": "completed", "variant_id": variant_id,
             "quote_count": len(quotes), "required_quote_count": len(tickers),
             "unavailable_count": unavailable_count,
@@ -346,6 +341,29 @@ def _observe(
             "assessment_count": len(assessments),
             "execution_authority": "none", "replayed": False,
             "artifact_sha256": hashlib.sha256(target.read_bytes()).hexdigest()}
+
+
+def _observe(
+    variant_id: str, *, database: Path = DEFAULT_DB, now: datetime | None = None,
+    generate=agent_model_client.generate_opportunity_json, fetch_news=daily_opportunity_news._fetch,
+    fetch_quote=intraday_source._fetch, capture_cross_checks=_capture_cross_checks,
+    clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+) -> dict:
+    connection = db.connect(database, wait_s=60)
+    try:
+        return _observe_connected(
+            variant_id,
+            connection=connection,
+            database=database,
+            now=now,
+            generate=generate,
+            fetch_news=fetch_news,
+            fetch_quote=fetch_quote,
+            capture_cross_checks=capture_cross_checks,
+            clock=clock,
+        )
+    finally:
+        connection.close()
 
 
 def observe(

@@ -162,7 +162,7 @@ def test_walkforward_closes_scratch_connection_before_failure_cleanup(monkeypatc
     )
 
     def build_scratch(*_args, **_kwargs):
-        scratch.mkdir()
+        scratch.mkdir(exist_ok=True)
         return scratch / "replay.duckdb"
 
     monkeypatch.setattr(runner, "build_scratch", build_scratch)

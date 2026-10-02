@@ -1066,6 +1066,37 @@ def test_report_validates_p15_evidence_before_persisting_a_look(tmp_path, monkey
     assert events == ["publish", "validate", "persist", "publish", "report"]
 
 
+def test_report_returns_distinct_status_only_for_evidence_validation_failure(
+    tmp_path, monkeypatch
+):
+    database = tmp_path / "market.duckdb"
+    output = tmp_path / "report.json"
+    p15_output = tmp_path / "p15.md"
+    monkeypatch.setattr(
+        agent_evaluation_reporting.p15_evaluation,
+        "registration_sha256",
+        lambda: "a" * 64,
+    )
+    monkeypatch.setattr(
+        agent_evaluation_reporting.p15_evaluation,
+        "publish_pending_look_anchors",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        agent_evaluation_reporting,
+        "validate_p15_evidence",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            agent_evaluation.EvaluationError("tampered evidence")
+        ),
+    )
+
+    assert agent_evaluation_reporting.main([
+        "--database", str(database), "--output", str(output),
+        "--p15-output", str(p15_output),
+    ]) == agent_evaluation_reporting.VALIDATION_EXIT_STATUS
+    assert not output.exists() and not p15_output.exists()
+
+
 def test_report_uses_shared_w6_projection(con, monkeypatch):
     agent_evaluation.init_schema(con)
     projection = {
