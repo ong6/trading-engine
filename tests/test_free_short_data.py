@@ -74,12 +74,13 @@ def test_sec_ftd_parser_supports_archive_trailer_and_missing_price():
         "fails.txt",
         "SETTLEMENT DATE|CUSIP|SYMBOL|QUANTITY (FAILS)|DESCRIPTION|PRICE\n"
         "20260901|SYNTH0001|TEST|25|Synthetic Corporation|1.25\n"
-        "20260916|SYNTH0002|GONE|40|Synthetic | Delisted|.\n"
+        "20260916|SYNTH0002|GONE\x00\x00|40|Synthetic | Delisted|.\n"
         "Trailer record count 2\nTrailer total quantity of shares 65\n",
     )
     rows = free_short_data.parse_sec_ftd(body)
     assert [row["publication_date"] for row in rows] == [date(2026, 9, 30), date(2026, 10, 15)]
     assert rows[0]["quantity"] == 25
+    assert rows[1]["symbol"] == "GONE"
     assert rows[1]["issuer_name"] == "Synthetic | Delisted"
     assert rows[1]["price"] is None
 
@@ -210,6 +211,7 @@ def test_cached_client_resumes_from_sha_verified_raw(tmp_path):
     assert session.calls == 1
     assert second.resumed is True
     assert second.body == b"synthetic response"
+    assert tool._resumed_rows(con, "GET:https://example.test/data:null") == 0
     con.close()
 
 
