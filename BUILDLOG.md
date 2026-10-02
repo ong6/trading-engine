@@ -1638,21 +1638,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 ## 2026-10-02 — Make engine infrastructure observable and contention-tolerant
 
 - **Why:** the owner's P15 revision 9 infrastructure directive and the orchestrator's independent
-  audit admitted timing, resource caps, synchronization recovery, snapshots, and contention work.
-- **What:** record per-stage timings; apply optional DuckDB resources; retry one non-fast-forward
-  sync; atomically retain read-only snapshots for API and backup fallback; cache expensive status
+  audit admitted timing, synchronization recovery, snapshots, and contention work.
+- **What:** record per-stage timings; retry one non-fast-forward sync; atomically retain read-only
+  snapshots for API and backup fallback; cache expensive status
   projections; reuse observer connections; overlap nightly verification/farm work; and isolate
   evidence-validation exit 75 after league rendering. Registration remains revision 8 here so the
   orchestrator can issue revision 9 once over the merged four-lane tree.
-- **Caps:**
-
-| Workload | Threads | Memory |
-|---|---:|---:|
-| Nightly/queue and TradingView history | 16 | 24GB |
-| API | 4 | 4GB |
-| Hourly/four-hour/P8/P15 services | 8 | 8GB |
-| Eight replay workers plus API | inherited | 40,096MB total, below 48GB |
-
 - **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4` reaches 100%: 4,120 pass and 86
   stop only at frozen runtime/registration identity checks intentionally awaiting the merged
   revision 9 registration; the 514 focused tests, whole-repository Ruff, and budget check pass.
@@ -1703,5 +1694,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** product +261 and tests +330; snapshot reconciliation also records server -2 and
   tools +69 from the preceding revision; budget ok.
 - **Next:** the orchestrator folds the three changed registered modules into P15 revision 9.
+
+## 2026-10-02 — Issue P15 registration revision 9
+
+- **Why:** the orchestrator approved one infrastructure-only registration after the four lanes
+  merged, and removal of the unmeasured DuckDB caps restored the XS runtime contract.
+- **What:** issue revision 9 over the merged timing, sync, snapshot, reporting, cache, observer,
+  verify/farm, intraday, queue/scratch, price, earnings, and TradingView work. Rebind the complete
+  P15 dependency closure without changing scoring, books, gates, labels, registered values, or
+  written rows; update the P15 W8 and P16 W0 progress records.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4` passes at 100%; whole-repository
+  Ruff passes and the metrics budget is `ok`.
+- **Metrics:** server and tools unchanged; product -55 lines; budget ok.
+- **Next:** deploy revision 9 and resume P16 W9b.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->

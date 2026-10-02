@@ -41,6 +41,7 @@ REGISTERED_PATHS = {
     "engine/lib/provenance.py",
     "engine/lib/resources.py",
     "engine/lib/settings.py",
+    "engine/lib/snapshots.py",
     "engine/lib/util.py",
     "engine/market_date.py",
     "engine/p15_evaluation.py",
@@ -154,6 +155,7 @@ REGISTERED_PATHS = {
     "tools/agent_trial_register.py",
     "tools/backup_database.py",
     "tools/p15_evidence_validation.py",
+    "tools/publish_snapshot.py",
     "tools/release_manifest.py",
     "tools/sec_edgar_capture.py",
 }
@@ -244,11 +246,15 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 8
+    assert registration["registration_revision"] == 9
     assert registration["revision_reason"] == (
-        "validation-time label, limit and maturity checks use date-only sessions and "
-        "price-prefix hashes instead of current-state fetched_at; no scoring, book, gate, "
-        "label-writing or written-row change"
+        "infrastructure only: per-stage timing; nightly sync autostash and single rebase retry; "
+        "read-only snapshots with throttled publication and lock-only API fallback; fail-soft "
+        "evidence reporting after league rendering; cached evaluation and readiness projections; "
+        "single-connection observers; concurrent verify/farm; intraday unchanged-payload dedupe "
+        "with batch writes; rolling queue pool and walk-forward scratch hygiene; paced parallel "
+        "price verification, bounded nightly earnings and multi-session TradingView requests. No "
+        "scoring, book, gate, label or written-row semantics change."
     )
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
