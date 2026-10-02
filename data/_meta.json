@@ -1,10 +1,10 @@
 {
-  "last_run": "2026-09-30T22:32:23.810924+00:00",
+  "last_run": "2026-10-01T22:32:24.398800+00:00",
   "mode": "incremental",
-  "universe_size": 12711,
-  "active_count": 11881,
+  "universe_size": 12723,
+  "active_count": 11892,
   "liquid_count": 4094,
-  "prices_rows": 20916828,
+  "prices_rows": 20920897,
   "tickers_with_data": 12609,
   "stale_tickers": {
     "count": 23,
@@ -42,17 +42,17 @@
   "regime": "risk-on",
   "actions_incremental": {
     "mode": "incremental",
-    "universe": 155,
+    "universe": 220,
     "universe_source": "active-held \u222a active-pending \u222a core-ETFs \u222a screen-top-N",
-    "pulled_this_run": 155,
-    "with_actions": 102,
-    "no_actions": 53,
+    "pulled_this_run": 220,
+    "with_actions": 140,
+    "no_actions": 80,
     "failed_tickers": 0,
-    "rows_written_this_run": 8152,
+    "rows_written_this_run": 9677,
     "total_splits": 8707,
-    "total_dividends": 401085,
-    "last_run": "2026-09-30T22:33:48.839493+00:00",
-    "store_gb": 5.56
+    "total_dividends": 401099,
+    "last_run": "2026-10-01T22:35:46.765818+00:00",
+    "store_gb": 6.16
   },
   "disk_warning": null,
   "actions_reconcile": {
@@ -60,12 +60,12 @@
     "rows_restated": 0,
     "outcomes": {},
     "warnings": 0,
-    "last_run": "2026-09-30T22:33:50.121697+00:00",
-    "store_gb": 5.56
+    "last_run": "2026-10-01T22:35:48.474008+00:00",
+    "store_gb": 6.16
   },
   "price_verify": {
-    "last_run": "2026-09-29T22:41:46.150067+00:00",
-    "as_of": "2026-09-29",
+    "last_run": "2026-09-30T22:41:20.709272+00:00",
+    "as_of": "2026-09-30",
     "source": "api.nasdaq.com/api/quote/{ticker}/historical",
     "role": "verify-only; this source never writes a price row",
     "sessions_requested": 5,
@@ -78,15 +78,21 @@
       "low",
       "close"
     ],
-    "names_selected": 164,
+    "names_selected": 165,
     "names_checked": 163,
     "names_agreeing": 163,
     "names_disagreeing": 0,
-    "names_not_checked": 1,
+    "names_not_checked": 2,
     "not_checked_reasons": {
-      "symbol_not_found": 1
+      "symbol_not_found": 2
     },
     "not_checked_names": [
+      {
+        "ticker": "DBRG",
+        "why": "held",
+        "reason": "symbol_not_found",
+        "detail": "rCode 400: [{'code': 1001, 'errorMessage': 'Symbol not exists.'}]"
+      },
       {
         "ticker": "GBTG",
         "why": "held",
@@ -97,12 +103,12 @@
     "bars_compared": 652,
     "field_comparisons": 2608,
     "worst": {
-      "ticker": "ACHV",
-      "date": "2026-09-25",
+      "ticker": "LYG",
+      "date": "2026-09-24",
       "field": "high",
-      "store": 7.96,
-      "source": 7.955,
-      "diff_bp": 6.28
+      "store": 5.7,
+      "source": 5.695,
+      "diff_bp": 8.77
     },
     "worst_is_disagreement": false,
     "disagreements": [],
@@ -116,24 +122,24 @@
     "volume_median_abs_diff_pct_latest_session": null,
     "volume_median_abs_diff_pct_prior_sessions": 0.01,
     "volume_bars_compared": 652,
-    "provisional_note": "on 2026-09-29 (newest stored session) open/high/low are measured but never flagged; the close IS checked on every name",
+    "provisional_note": "on 2026-09-30 (newest stored session) open/high/low are measured but never flagged; the close IS checked on every name",
     "provisional_ohl_median_bp": null,
     "provisional_ohl_max_bp": null,
     "provisional_ohl_over_tolerance": 0,
     "provisional_comparisons": 0,
     "store_missing_sessions": {},
     "n_names_store_missing_sessions": 0,
-    "secs": 483.3
+    "secs": 436.7
   },
   "intraday": {
-    "last_run": "2026-09-29T22:45:08.995565+00:00",
-    "tickers_requested": 853,
-    "tickers_with_data": 853,
-    "new_rows_1m": 300024,
-    "new_rows_5m": 86415,
+    "last_run": "2026-09-30T22:43:39.925846+00:00",
+    "tickers_requested": 845,
+    "tickers_with_data": 845,
+    "new_rows_1m": 311287,
+    "new_rows_5m": 97847,
     "failed_tickers": 0,
     "failed_batches": 0,
-    "store_gb": 5.08
+    "store_gb": 5.56
   },
   "signals_incremental": {
     "mode": "incremental",
@@ -141,18 +147,18 @@
     "sources": {
       "squeezemetrics": {
         "status": "ok",
-        "rows_fetched": 7752,
+        "rows_fetched": 7754,
         "rows_inserted": 2,
         "series": [
           "dix",
           "gex"
         ],
-        "secs": 31.2
+        "secs": 2.0
       },
       "vix": {
         "status": "ok",
-        "rows_fetched": 13564,
-        "rows_inserted": 1,
+        "rows_fetched": 13566,
+        "rows_inserted": 2,
         "series": [
           "vix",
           "vix3m"
@@ -162,14 +168,14 @@
       "fred": {
         "status": "ok",
         "rows_fetched": 100,
-        "rows_inserted": 2,
+        "rows_inserted": 3,
         "series": [
           "hy_oas",
           "icsa",
           "nfci",
           "t10y2y"
         ],
-        "secs": 2.5
+        "secs": 2.8
       },
       "putcall": {
         "status": "ok",
@@ -179,7 +185,7 @@
           "pc_equity",
           "pc_total"
         ],
-        "secs": 6.6
+        "secs": 6.9
       },
       "aaii": {
         "status": "ok",
@@ -189,7 +195,7 @@
           "aaii_bear",
           "aaii_bull"
         ],
-        "secs": 4.7
+        "secs": 1.5
       },
       "finra_margin": {
         "status": "ok",
@@ -199,7 +205,7 @@
           "free_credit",
           "margin_debt"
         ],
-        "secs": 0.9
+        "secs": 1.0
       },
       "short_interest": {
         "status": "ok",
@@ -208,7 +214,7 @@
         "series": [
           "short_interest_dtc"
         ],
-        "secs": 10.7
+        "secs": 12.0
       },
       "cot": {
         "status": "ok",
@@ -217,7 +223,7 @@
         "series": [
           "cot_es_lev_net"
         ],
-        "secs": 1.0
+        "secs": 0.9
       },
       "breadth": {
         "status": "ok",
@@ -231,53 +237,53 @@
         "secs": 0.5
       }
     },
-    "rows_inserted": 10,
+    "rows_inserted": 12,
     "warnings": [],
     "series_totals": {
       "aaii_bear": 2043,
       "aaii_bull": 2043,
-      "breadth_nh_nl": 3705,
-      "breadth_pct_200": 3705,
+      "breadth_nh_nl": 3706,
+      "breadth_pct_200": 3706,
       "cot_es_lev_net": 1059,
-      "dix": 3876,
+      "dix": 3877,
       "free_credit": 199,
-      "gex": 3876,
-      "hy_oas": 829,
+      "gex": 3877,
+      "hy_oas": 830,
       "icsa": 3116,
       "margin_debt": 356,
-      "nfci": 2907,
-      "pc_equity": 4191,
-      "pc_total": 4191,
+      "nfci": 2908,
+      "pc_equity": 4192,
+      "pc_total": 4192,
       "short_interest_dtc": 75,
-      "t10y2y": 12579,
-      "vix": 9282,
-      "vix3m": 4282,
-      "zweig_ratio": 3705
+      "t10y2y": 12580,
+      "vix": 9283,
+      "vix3m": 4283,
+      "zweig_ratio": 3706
     },
-    "last_run": "2026-09-29T22:46:08.647605+00:00",
-    "store_gb": 5.08
+    "last_run": "2026-09-30T22:44:09.268460+00:00",
+    "store_gb": 5.56
   },
   "earnings": {
-    "last_run": "2026-09-29T23:18:16.907443+00:00",
-    "as_of": "2026-09-29",
-    "universe": 2849,
+    "last_run": "2026-09-30T23:12:20.035759+00:00",
+    "as_of": "2026-09-30",
+    "universe": 2848,
     "universe_source": "fundamentals-coverage \u222a screen-passers",
-    "pulled_this_run": 2849,
-    "with_upcoming_date": 2793,
+    "pulled_this_run": 2848,
+    "with_upcoming_date": 2792,
     "no_upcoming_date": 56,
     "failed_tickers": 0,
-    "rows_inserted_this_run": 2793,
-    "rows_for_as_of": 2793,
-    "store_gb": 5.08
+    "rows_inserted_this_run": 2792,
+    "rows_for_as_of": 2792,
+    "store_gb": 5.56
   },
-  "screen_date": "2026-09-30",
-  "last_screen": "2026-09-30T22:32:28.525603+00:00",
-  "passing_count": 421,
-  "new_today_count": 25,
+  "screen_date": "2026-10-01",
+  "last_screen": "2026-10-01T22:32:29.543008+00:00",
+  "passing_count": 430,
+  "new_today_count": 57,
   "screened": 3859,
   "skipped_stale": 0,
-  "skipped_phantom": 0,
-  "skipped_short": 197,
+  "skipped_phantom": 1,
+  "skipped_short": 196,
   "universe_policy": "all",
   "excluded_leveraged": 0,
   "screen_metadata_source": "fresh-run",
@@ -391,18 +397,18 @@
     "target_symbols": 4063,
     "limitation": "current-liquid-universe snapshot; survivor-biased and retrieval-time-only; not historical membership or promotion-quality stock-selection evidence",
     "attempts": {
-      "complete": 1436,
-      "empty": 225,
+      "complete": 1704,
+      "empty": 257,
       "failed": 14
     },
     "unresolved_failed_windows": 1,
-    "fact_count": 523920,
-    "symbols_with_facts": 1436,
-    "symbols_checkpointed": 1661,
-    "symbols_unstarted": 2402,
+    "fact_count": 623288,
+    "symbols_with_facts": 1704,
+    "symbols_checkpointed": 1961,
+    "symbols_unstarted": 2102,
     "checkpoint_start": "2023-07-05",
     "checkpoint_end": "2023-07-05",
-    "target_through": "2026-09-29",
+    "target_through": "2026-09-30",
     "symbols_caught_up": 0,
     "symbols_pending": 4063,
     "fact_start": "2022-01-03",
@@ -414,7 +420,7 @@
     "completed_this_run": 47,
     "empty_this_run": 3,
     "failed_this_run": 0,
-    "through": "2026-09-29",
-    "last_run": "2026-09-30T21:49:10.205618+00:00"
+    "through": "2026-09-30",
+    "last_run": "2026-10-01T21:53:40.076506+00:00"
   }
 }

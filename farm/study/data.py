@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from types import MappingProxyType
-from typing import Iterable, Mapping
+from typing import Any, Iterable, Mapping
 from zoneinfo import ZoneInfo
 
 from engine.lib import db
@@ -19,6 +19,57 @@ DAILY_FIELDS = frozenset({"high", "low", "close", "volume", "auction_volume"})
 
 class LookAheadError(ValueError):
     """Raised when a view asks for information outside its decision boundary."""
+
+
+@dataclass(frozen=True)
+class DerivedInput:
+    """Study-owned records gated by their per-row availability timestamp."""
+
+    name: str
+    frame: Any = field(repr=False)
+    available_at_column: str = "available_at"
+    declaration: Mapping[str, Any] = field(default_factory=dict)
+    records: tuple[Mapping[str, Any], ...] = field(init=False, repr=False)
+    keyed_by_ticker: bool = field(init=False)
+
+    def __post_init__(self) -> None:
+        if not self.name or not self.available_at_column:
+            raise ValueError("derived input needs a name and availability column")
+        raw = (self.frame.to_dict("records") if hasattr(self.frame, "to_dict")
+               else list(self.frame))
+        rows, seen, keyed = [], set(), None
+        for item in raw:
+            row = dict(item)
+            session, available = row.get("session"), row.get(self.available_at_column)
+            has_ticker = "ticker" in row
+            if (not isinstance(session, date) or isinstance(session, datetime)
+                    or not isinstance(available, datetime) or available.tzinfo is None):
+                raise ValueError("derived rows need a session date and aware availability timestamp")
+            if keyed is None:
+                keyed = has_ticker
+            if keyed != has_ticker or (has_ticker and not row["ticker"]):
+                raise ValueError("derived rows must use one session or ticker/session schema")
+            key = (row.get("ticker"), session)
+            if key in seen:
+                raise ValueError("duplicate derived input key")
+            seen.add(key)
+            rows.append(MappingProxyType(row))
+        try:
+            declaration = json.loads(json.dumps(
+                dict(self.declaration), sort_keys=True, separators=(",", ":"), allow_nan=False))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("derived declaration must contain canonical JSON values") from exc
+        object.__setattr__(self, "declaration", MappingProxyType(declaration))
+        object.__setattr__(self, "records", tuple(sorted(
+            rows, key=lambda row: (row["session"], str(row.get("ticker", ""))))))
+        object.__setattr__(self, "keyed_by_ticker", bool(keyed))
+
+    def get(self, session: date, ticker: str | None = None) -> Mapping[str, Any] | None:
+        if self.keyed_by_ticker and not ticker:
+            raise ValueError(f"derived input {self.name!r} is keyed by ticker")
+        key = ticker if self.keyed_by_ticker else None
+        return next((row for row in self.records
+                     if row["session"] == session and row.get("ticker") == key), None)
 
 
 @dataclass(frozen=True)
@@ -157,6 +208,8 @@ class PointInTimeView:
     decision_time: str
     hard_max_date: date
     open_as_indication: bool = False
+    close_as_indication: bool = False
+    derived_inputs: tuple[DerivedInput, ...] = ()
 
     def __post_init__(self) -> None:
         if self.session > self.hard_max_date:
@@ -167,10 +220,13 @@ class PointInTimeView:
     def decision_at(self) -> datetime:
         return _decision_moment(self.session, self.decision_time, self.source.declaration)
 
-    def value(self, ticker: str, field: str, session: date | None = None) -> float | None:
+    def value(self, ticker: str, field: str, session: date | None = None) -> Any:
         target = session or self.session
         if target > self.hard_max_date or target > self.session:
             raise LookAheadError(f"{ticker} {target} is beyond the view boundary")
+        if "." in field:
+            name, column = field.split(".", 1)
+            return self.derived(name, column, session=target, ticker=ticker)
         bar = self.source.get(ticker, target)
         if bar is None:
             raise KeyError((ticker, target))
@@ -209,6 +265,26 @@ class PointInTimeView:
         return [{"session": day, **{field: self.value(ticker, field, day) for field in fields}}
                 for day in sessions if self.source.get(ticker, day) is not None]
 
+    def derived(self, name: str, field: str, *, session: date | None = None,
+                ticker: str | None = None) -> Any:
+        target = session or self.session
+        if target > self.hard_max_date or target > self.session:
+            raise LookAheadError(f"derived input {name} {target} is beyond the view boundary")
+        selected = next((item for item in self.derived_inputs if item.name == name), None)
+        if selected is None:
+            raise KeyError(name)
+        row = selected.get(target, ticker)
+        if row is None:
+            raise KeyError((name, ticker, target))
+        if row[selected.available_at_column] > self.decision_at:
+            raise LookAheadError(f"derived input {name} for {target} is not known at decision time")
+        if field in {"session", "ticker", selected.available_at_column}:
+            raise KeyError(field)
+        try:
+            return row[field]
+        except KeyError as exc:
+            raise KeyError((name, field)) from exc
+
 
 @dataclass(frozen=True)
 class FillPricePair:
@@ -217,16 +293,22 @@ class FillPricePair:
 
 
 class MarketData:
-    def __init__(self, primary: PriceSource, secondary: PriceSource | None = None):
+    def __init__(self, primary: PriceSource, secondary: PriceSource | None = None,
+                 derived_inputs: Iterable[DerivedInput] = ()):
         self.primary = primary
         self.secondary = secondary
+        self.derived_inputs = tuple(derived_inputs)
+        if len({item.name for item in self.derived_inputs}) != len(self.derived_inputs):
+            raise ValueError("derived input names must be unique")
 
     def view(self, session: date, decision_time: str, hard_max_date: date, *,
-             open_as_indication: bool = False, source: str = "primary") -> PointInTimeView:
+             open_as_indication: bool = False, close_as_indication: bool = False,
+             source: str = "primary") -> PointInTimeView:
         selected = self.primary if source == "primary" else self.secondary
         if selected is None or source not in {"primary", "secondary"}:
             raise ValueError(f"unavailable price source {source!r}")
-        return PointInTimeView(selected, session, decision_time, hard_max_date, open_as_indication)
+        return PointInTimeView(selected, session, decision_time, hard_max_date,
+                               open_as_indication, close_as_indication, self.derived_inputs)
 
     @staticmethod
     def _fill_value(source: PriceSource, ticker: str, session: date, field: str) -> float | None:
