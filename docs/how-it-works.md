@@ -116,8 +116,15 @@ workers run, so its 24GB cap is not additive to the replay batch.
 Completed producers publish an immutable consistent copy under `store/snapshots/` as
 `market-<UTC stamp>.duckdb`. `market-latest.duckdb` is an atomically replaced relative symlink;
 the matching JSON manifest records source data commit, publication time, file SHA-256, size, and
-table row counts. Publication uses the producer locks, fsyncs before rename, retains the newest
-two generations, and is fail-soft: a snapshot error never changes the producer's result.
+table row counts. Without a sibling `.wal`, publication records the source invariants through a
+read-only attachment, file-copies and fsyncs while holding the producer locks, releases those
+locks, then verifies the copy against the recorded invariants before publication. A present WAL
+uses DuckDB's consistent `COPY FROM DATABASE` path instead. The newest two generations are
+retained, and a snapshot error never changes the producer's result.
+
+P15 event runs pass `--min-age-minutes 120`, so a valid latest snapshot newer than two hours is
+logged as skipped with exit 0. Nightly, P15 scoring, and TradingView history remain unthrottled;
+pre-open does not publish a snapshot.
 
 When the primary database is writer-locked, read-only API requests may use the latest valid
 snapshot. Snapshot responses carry `X-Data-Source: snapshot` and `X-Snapshot-As-Of`; corrupt or

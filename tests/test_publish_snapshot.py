@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -66,21 +67,137 @@ def test_publish_is_atomic_retains_two_and_records_manifest(tmp_path):
     con.close()
 
 
+def test_publish_uses_file_copy_fast_path_without_wal(tmp_path, monkeypatch):
+    root, source = _repo(tmp_path)
+    copied = []
+    events = []
+    original_copyfile = publish_snapshot.shutil.copyfile
+    original_invariants = publish_snapshot._database_invariants
+    original_window = backup_database._exclusive_backup_window
+
+    @contextmanager
+    def window(*args, **kwargs):
+        events.append("lock-enter")
+        with original_window(*args, **kwargs):
+            yield
+        events.append("lock-exit")
+
+    def copyfile(source_path, destination_path):
+        events.append("file-copy")
+        copied.append((source_path, destination_path))
+        return original_copyfile(source_path, destination_path)
+
+    def invariants(path, alias):
+        events.append(alias)
+        return original_invariants(path, alias)
+
+    monkeypatch.setattr(backup_database, "_exclusive_backup_window", window)
+    monkeypatch.setattr(publish_snapshot.shutil, "copyfile", copyfile)
+    monkeypatch.setattr(publish_snapshot, "_database_invariants", invariants)
+    monkeypatch.setattr(
+        backup_database,
+        "_copy_database",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("COPY fallback used")),
+    )
+
+    manifest = publish_snapshot.publish_snapshot(root, source, now=NOW)
+
+    assert len(copied) == 1
+    assert manifest["row_counts"]["main.prices"] == 1
+    assert events == [
+        "lock-enter",
+        "snapshot_source",
+        "file-copy",
+        "lock-exit",
+        "snapshot_copy",
+    ]
+
+
+def test_publish_falls_back_to_duckdb_copy_when_wal_exists(tmp_path, monkeypatch):
+    root, source = _repo(tmp_path)
+    source.with_name(f"{source.name}.wal").touch()
+    calls = []
+
+    def copy_database(source_path, destination_path):
+        calls.append((source_path, destination_path))
+        publish_snapshot.shutil.copyfile(source_path, destination_path)
+        return {"row_counts": {"main.prices": 1}}
+
+    monkeypatch.setattr(backup_database, "_copy_database", copy_database)
+    monkeypatch.setattr(
+        publish_snapshot,
+        "_copy_file_durable",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("fast path used")),
+    )
+    monkeypatch.setattr(
+        publish_snapshot,
+        "_database_invariants",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("fast verification used")),
+    )
+
+    manifest = publish_snapshot.publish_snapshot(root, source, now=NOW)
+
+    assert len(calls) == 1
+    assert manifest["row_counts"] == {"main.prices": 1}
+
+
+def test_fast_path_invariant_mismatch_discards_copy(tmp_path, monkeypatch):
+    root, source = _repo(tmp_path)
+    original_invariants = publish_snapshot._database_invariants
+
+    def mismatched(path, alias):
+        result = original_invariants(path, alias)
+        if alias == "snapshot_copy":
+            result = {**result, "table_count": result["table_count"] + 1}
+        return result
+
+    monkeypatch.setattr(publish_snapshot, "_database_invariants", mismatched)
+
+    with pytest.raises(publish_snapshot.SnapshotError, match="invariants do not match"):
+        publish_snapshot.publish_snapshot(root, source, now=NOW)
+
+    directory = source.parent / "snapshots"
+    assert not (directory / snapshots.LATEST_NAME).exists()
+    assert list(directory.iterdir()) == []
+
+
 def test_failed_publication_preserves_previous_latest(tmp_path, monkeypatch):
     root, source = _repo(tmp_path)
     first = publish_snapshot.publish_snapshot(root, source, now=NOW)
     latest = source.parent / "snapshots" / snapshots.LATEST_NAME
 
     monkeypatch.setattr(
-        backup_database,
-        "_copy_database",
-        lambda *_args: (_ for _ in ()).throw(backup_database.BackupError("copy failed")),
+        publish_snapshot,
+        "_copy_file_durable",
+        lambda *_args: (_ for _ in ()).throw(OSError("copy failed")),
     )
     with pytest.raises(publish_snapshot.SnapshotError, match="copy failed"):
         publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=1))
 
     assert os.readlink(latest) == first["snapshot"]
     assert len([path for path in latest.parent.glob("market-*.duckdb") if not path.is_symlink()]) == 1
+
+
+def test_min_age_skip_is_successful_and_logged(tmp_path, monkeypatch, capsys):
+    root, source = _repo(tmp_path)
+    first = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    monkeypatch.setattr(
+        publish_snapshot,
+        "_unique_destination",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("copy was not skipped")),
+    )
+
+    status = publish_snapshot.main([
+        "--repo-root", str(root),
+        "--source", str(source),
+        "--min-age-minutes", "120",
+    ])
+
+    output = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert output["status"] == "skipped"
+    assert output["snapshot"] == first["snapshot"]
+    assert "minimum age is 120 minutes" in output["reason"]
 
 
 def test_latest_snapshot_requires_publication_after_database_write(tmp_path):

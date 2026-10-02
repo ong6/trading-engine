@@ -1659,4 +1659,19 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +240, tools +384, product +289; budget ok.
 - **Next:** orchestrator merges all four infrastructure lanes and issues registration revision 9.
 
+## 2026-10-02 — Bound snapshot writer-lock time
+
+- **Why:** the orchestrator measured 116 seconds of producer-lock hold time for each 5.9GB
+  DuckDB snapshot and required a raw-copy fast path plus bounded event publication cadence.
+- **What:** when no WAL exists, capture source invariants under producer locks, raw-copy and fsync,
+  then release the locks before verifying the copy; retain DuckDB COPY as the WAL-safe fallback.
+  Add successful minimum-age skips, remove pre-open publication, and limit event publication to
+  once per 120 minutes. Nightly, P15 scoring, and TradingView remain unthrottled.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 tests/test_publish_snapshot.py
+  tests/test_backup_database.py tests/test_service_units.py tests/test_drivers.py` passes; the live
+  read-only 6,654,537,728-byte store copied, fsynced, and verified in 51.213 seconds with equal
+  invariants, and the temporary copy was removed.
+- **Metrics:** server and product unchanged; tools +74; budget ok.
+- **Next:** orchestrator merges the four infrastructure lanes and issues registration revision 9.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
