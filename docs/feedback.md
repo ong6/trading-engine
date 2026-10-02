@@ -582,3 +582,18 @@ mutate operational prices, execution inputs, forward evidence, or private strate
 
 **Ceiling changes.** Add a 1,200-line code-and-test allowance for the three minute-lane files and
 the shared limiter integration. Repository-wide per-layer limits remain removed.
+
+## 2026-10-02 — Capture the free shorting-stress stack
+
+**Verdict.** The owner requested the free FINRA consolidated short-interest history, SEC
+fails-to-deliver files, and daily Reg SHO threshold lists from Nasdaq, NYSE, Cboe, and FINRA OTC.
+The orchestrator fixed isolated storage, source-specific publication clocks, symbol-and-date
+mapping, collision flags, network windows, pacing, resume, and the coverage audit.
+
+**Rule changes.** P3 Phase 0 adds one host-only short-data database and content-addressed raw cache.
+Every row retains measurement, official publication, and ingestion clocks; the as-of macro cannot
+expose a row before publication. CUSIPs remain private. This source never mutates operational
+prices or the distinct existing daily short-sale-volume implementation.
+
+**Ceiling changes.** Add a 1,500-line code-and-test allowance for the three short-data files.
+Repository-wide per-layer limits remain removed.

@@ -58,6 +58,16 @@ def test_finra_current_and_legacy_parsing_uses_official_lag():
     assert legacy[0]["publication_date"] == date(2014, 11, 25)
     assert legacy[0]["market_class"] == "u"
 
+    standardized = free_short_data.parse_finra_short_interest(
+        b"issueName|issueSymbolIdentifier|marketCategoryCode|currentShortShareNumber|"
+        b"previousShortShareNumber|percentageChangefromPreviousShort|changePercent|"
+        b"averageShortShareNumber|daysToCoverNumber\n"
+        b"Synthetic Middle|MIDX|u|40|30|10|33.33|8|5.00\n",
+        settlement_date=date(2019, 6, 14),
+    )
+    assert standardized[0]["current_short"] == 40
+    assert standardized[0]["days_to_cover"] == 5
+
 
 def test_sec_ftd_parser_supports_archive_trailer_and_missing_price():
     body = _zip(
@@ -118,8 +128,26 @@ def test_asof_macro_never_exposes_a_row_before_publication():
         )
         assert first["inserted"] == 1
         assert second["inserted"] == 0
+        ftd_body = _zip(
+            "fails.txt",
+            "SETTLEMENT DATE|CUSIP|SYMBOL|QUANTITY (FAILS)|DESCRIPTION|PRICE\n"
+            "20260901|SYNTH0001|TEST|25|Synthetic Corporation|1.25\n",
+        )
+        free_short_data.load_rows(
+            con, "sec_fails_to_deliver", ftd_body,
+            free_short_data.parse_sec_ftd(ftd_body), ingested_at=INGESTED,
+        )
+        threshold_body = b"Symbol|CompanyName\nTEST|Synthetic Corporation\n20261002030418\n"
+        free_short_data.load_rows(
+            con, "regsho_threshold", threshold_body,
+            free_short_data.parse_regsho_text(
+                threshold_body, venue="Cboe", trade_date=date(2026, 10, 1)
+            ), ingested_at=INGESTED,
+        )
         assert con.execute("SELECT COUNT(*) FROM short_data_asof(DATE '2026-09-23')").fetchone()[0] == 0
         assert con.execute("SELECT COUNT(*) FROM short_data_asof(DATE '2026-09-24')").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM short_data_asof(DATE '2026-09-30')").fetchone()[0] == 2
+        assert con.execute("SELECT COUNT(*) FROM short_data_asof(DATE '2026-10-02')").fetchone()[0] == 3
     finally:
         con.close()
 

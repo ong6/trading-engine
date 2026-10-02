@@ -95,6 +95,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-10-02 | Capture free FINRA short interest, SEC fails-to-deliver, and four-venue Reg SHO threshold histories with publication-date gating and isolated storage | P3; feedback |
 | 2026-10-02 | Capture the free Massive rolling two-year minute history for the frozen small-stock tier, with one shared key limiter and isolated storage | P3; feedback |
 | 2026-10-02 | The free Massive key is available and the isolated two-year grouped-daily capture is running resumably; paid point-in-time data remains deferred | P3; site data |
 | 2026-10-02 | Failures are investigated on demand by an agent. There is no push alerting | This page; site operations |
