@@ -203,6 +203,17 @@ fill/exit/delisting fixtures, replay equivalence and serial/parallel byte identi
 Final proof detected 48/50 planted edges; null size was 7/200 inside [3, 19], all six canaries
 passed, the hand replay matched field for field, and serial/parallel simulate JSON was identical.
 
+## Follow-up 2: generic simulator seams
+
+The approved 2026-10-02 follow-up closes five discrepancies found by a native-spec consumer:
+event exits can register entry-notional cost approximation; conditional exits can opt into a
+validated entry-session check; equal-weight benchmarks can use point-in-time eligible sets; order
+priority and canonical signal metadata determine allocation after already-held rejection; and
+timestamped cash dividends flow through event, portfolio, and benchmark returns at a declared
+withholding rate. Defaults retain market-value exit costs, next-session condition checks, the
+unfiltered benchmark, already-held rejection, and zero withholding. The new choices are identity
+bound, and reports disclose entry-notional approximation and gross/net dividend cash.
+
 ## Risks
 
 | Risk | Detection / rollback |

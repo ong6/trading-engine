@@ -97,13 +97,17 @@ def _spec_config(strategy: EventStrategy | PortfolioStrategy) -> dict:
                          "max_new_per_session": strategy.max_new_per_session,
                          "order_sort_key": strategy.order_sort_key,
                          "open_as_indication": strategy.open_as_indication,
-                         "close_as_indication": strategy.close_as_indication}
+                         "close_as_indication": strategy.close_as_indication,
+                         "exit_cost_basis": strategy.exit_cost_basis,
+                         "already_held": strategy.already_held,
+                         "dividend_withholding": strategy.dividend_withholding}
     schedule = (strategy.rebalance_schedule if isinstance(strategy.rebalance_schedule, str)
                 else [day.isoformat() for day in strategy.rebalance_schedule])
     return common | {"kind": "portfolio", "rebalance_schedule": schedule,
                      "fill": asdict(strategy.fill), "initial_capital": strategy.initial_capital,
                      "open_as_indication": strategy.open_as_indication,
-                     "close_as_indication": strategy.close_as_indication}
+                     "close_as_indication": strategy.close_as_indication,
+                     "dividend_withholding": strategy.dividend_withholding}
 
 
 def run_identity(strategy: EventStrategy | PortfolioStrategy, costs: CostSelection,

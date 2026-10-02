@@ -9,7 +9,7 @@ from typing import Any, Iterable, Mapping
 
 import numpy as np
 
-from .benchmark import Benchmark, gross_returns
+from .benchmark import Benchmark, dividend_per_share, eligible_names, gross_returns
 from .costs import CostSelection, calculate, resolve
 from .data import MarketData, PriceSource
 from .spec import EventStrategy, FillPoint, Order, PortfolioStrategy, parse_clock
@@ -54,12 +54,23 @@ def _mdv60(source: PriceSource, ticker: str, session: date) -> float | None:
 
 def _ordered(orders: list[Order], keys: tuple[str, ...]) -> list[Order]:
     result = sorted(orders, key=lambda order: (
-        order.ticker, order.side, order.notional, order.entry.field, order.exit.kind))
+        order.ticker, order.side, order.notional, order.entry.field, order.exit.kind,
+        order.priority or 0.0, tuple((order.signal or {}).items())))
     for declared in reversed(keys):
         key, reverse = declared.lstrip("-"), declared.startswith("-")
-        result.sort(key=lambda order: (order.entry.field if key == "entry"
-                                       else getattr(order, key)), reverse=reverse)
+        result.sort(key=lambda order, name=key: _order_value(order, name), reverse=reverse)
     return result
+
+
+def _order_value(order: Order, key: str) -> Any:
+    if key == "entry":
+        return order.entry.field
+    if key == "signal":
+        return tuple((order.signal or {}).items())
+    if key.startswith("signal."):
+        return (order.signal or {}).get(key.split(".", 1)[1], 0.0)
+    value = getattr(order, key)
+    return 0.0 if value is None else value
 
 
 def _valid_entry_time(strategy: EventStrategy | PortfolioStrategy, fill: FillPoint,
@@ -129,9 +140,13 @@ class Trade:
     absolute_net_positive: bool
     exit_reason: str
     flags: tuple[str, ...] = ()
+    priority: float | None = None
+    signal: Mapping[str, float] | None = None
+    gross_dividend_cash: float = 0.0
+    dividend_cash: float = 0.0
 
     def as_dict(self) -> dict:
-        return {"entry_session": self.entry_session.isoformat(),
+        result = {"entry_session": self.entry_session.isoformat(),
                 "exit_session": self.exit_session.isoformat(), "ticker": self.ticker,
                 "side": self.side, "entry_field": self.entry_field,
                 "exit_field": self.exit_field, "entry_price": self.entry_price,
@@ -145,6 +160,14 @@ class Trade:
                 "benchmark_return": self.benchmark_return, "excess_return": self.excess_return,
                 "absolute_net_positive": self.absolute_net_positive,
                 "exit_reason": self.exit_reason, "flags": list(self.flags)}
+        if self.priority is not None:
+            result["priority"] = self.priority
+        if self.signal is not None:
+            result["signal"] = dict(self.signal)
+        if self.gross_dividend_cash or self.dividend_cash:
+            result.update(gross_dividend_cash=self.gross_dividend_cash,
+                          dividend_cash=self.dividend_cash)
+        return result
 
 
 @dataclass(frozen=True)
@@ -158,6 +181,8 @@ class TradeLedger:
     rejected_orders: tuple[OrderOutcome, ...]
     unfilled_orders: tuple[OrderOutcome, ...]
     open_positions: tuple[OpenPosition, ...] = ()
+    exit_cost_basis: str = "market_value"
+    dividend_withholding: float = 0.0
 
     @property
     def rejected_counts(self) -> dict[str, int]:
@@ -190,7 +215,7 @@ class TradeLedger:
         return calendar_day_series(self.sessions, pnl, capital=self.capital)
 
     def as_dict(self) -> dict:
-        return {"schema_version": 1, "kind": "event", "primary_cost": self.primary_cost,
+        result = {"schema_version": 1, "kind": "event", "primary_cost": self.primary_cost,
                 "capital": self.capital,
                 "open_as_indication": self.open_as_indication,
                 "close_as_indication": self.close_as_indication,
@@ -203,15 +228,25 @@ class TradeLedger:
                 "open_positions": [{"ticker": row.ticker, "side": row.side,
                                     "entry_session": row.entry_session.isoformat()}
                                    for row in self.open_positions]}
+        if self.exit_cost_basis != "market_value":
+            result["exit_cost_basis"] = self.exit_cost_basis
+        if self.dividend_withholding or any(row.dividend_cash for row in self.trades):
+            result["dividend_withholding"] = self.dividend_withholding
+        return result
 
 
 def _benchmark_return(benchmark: Benchmark, data: MarketData, universe: Universe,
-                      days: tuple[date, ...], entry: date, exit_: date,
-                      entry_field: str, exit_field: str) -> float:
+                      decision_view: Any, exit_view: Any, entry: date, exit_: date,
+                      entry_field: str, exit_field: str, withholding: float) -> float:
     if benchmark.kind == "cash":
         return 0.0
-    names = ([benchmark.ticker] if benchmark.kind == "ticker" else sorted(
-        {bar.ticker for bar in data.primary.bars if universe.is_listed(bar.ticker, entry)}))
+    if benchmark.kind == "ticker":
+        names = [benchmark.ticker]
+    elif benchmark.kind == "ew_eligible" and benchmark.eligible is not None:
+        names = eligible_names(benchmark, data, universe, decision_view, (entry, exit_))
+    else:
+        names = sorted({bar.ticker for bar in data.primary.bars
+                        if universe.is_listed(bar.ticker, entry)})
     values = []
     for ticker in names:
         start, end = _price(data.primary, ticker or "", entry, entry_field), _price(
@@ -223,7 +258,9 @@ def _benchmark_return(benchmark: Benchmark, data: MarketData, universe: Universe
             if outcome is None:
                 continue
             end = outcome.exit_price
-        values.append(end / start - 1)
+        dividend = dividend_per_share(data, ticker or "", entry, exit_, withholding,
+                                      view=exit_view)
+        values.append((end + dividend) / start - 1)
     if not values:
         raise ValueError("benchmark has no exact-window prices")
     return float(np.mean(values))
@@ -244,7 +281,8 @@ def _exit(strategy: EventStrategy, data: MarketData, universe: Universe,
             raise ValueError("first_condition at close requires close_as_indication=True")
         limit = min(entry_index + (rule.sessions or 0), len(days) - 1)
         target_index, fill, reason = limit, rule.fill, "first_condition_fallback"
-        for index in range(entry_index + 1, limit + 1):
+        first = entry_index if rule.first_check == "entry_session" else entry_index + 1
+        for index in range(first, limit + 1):
             view = data.view(days[index], rule.decision_time or "at_close", hard_max,
                              open_as_indication=strategy.open_as_indication,
                              close_as_indication=strategy.close_as_indication)
@@ -317,9 +355,6 @@ def simulate_events(strategy: EventStrategy, data: MarketData, universe: Univers
             if not math.isfinite(order.notional) or order.notional <= 0:
                 rejected.append(OrderOutcome(session, order.ticker, "non_positive_notional"))
                 continue
-            if accepted >= (strategy.max_new_per_session or 0):
-                rejected.append(OrderOutcome(session, order.ticker, "max_new_per_session"))
-                continue
             if not _valid_entry_time(strategy, order.entry, data):
                 rejected.append(OrderOutcome(session, order.ticker, "invalid_fill_timing"))
                 continue
@@ -327,9 +362,20 @@ def simulate_events(strategy: EventStrategy, data: MarketData, universe: Univers
             if entry_session is None:
                 unfilled.append(OrderOutcome(session, order.ticker, "entry_outside_window"))
                 continue
+            held = any(row.ticker == order.ticker
+                       and row.entry_session <= entry_session <= row.exit_session
+                       for row in trades) or any(
+                           row.ticker == order.ticker and row.entry_session <= entry_session
+                           for row in positions)
+            if strategy.already_held == "reject" and held:
+                rejected.append(OrderOutcome(session, order.ticker, "already_held"))
+                continue
             entry_price = _price(data.primary, order.ticker, entry_session, order.entry.field)
             if entry_price is None or entry_price <= 0:
                 unfilled.append(OrderOutcome(session, order.ticker, "missing_entry_bar"))
+                continue
+            if accepted >= (strategy.max_new_per_session or 0):
+                rejected.append(OrderOutcome(session, order.ticker, "max_new_per_session"))
                 continue
             active = sum(row.entry_session <= entry_session <= row.exit_session for row in trades)
             active += sum(row.entry_session <= entry_session for row in positions)
@@ -347,7 +393,15 @@ def simulate_events(strategy: EventStrategy, data: MarketData, universe: Univers
                 continue
             exit_session, exit_field, exit_price, exit_reason, flags = result
             direction = 1 if order.side == "long" else -1
-            gross = direction * (exit_price / entry_price - 1)
+            exit_decision = ({"open": "at_open", "close": "at_close"}[exit_field]
+                             if exit_field in {"open", "close"}
+                             else exit_field.split("@", 1)[1])
+            dividend_view = data.view(exit_session, exit_decision, hard_max,
+                                      open_as_indication=True, close_as_indication=True)
+            gross_dividend = direction * position.shares * dividend_per_share(
+                data, order.ticker, entry_session, exit_session, 0.0, view=dividend_view)
+            dividend = gross_dividend * (1 - strategy.dividend_withholding)
+            gross = direction * (exit_price / entry_price - 1) + dividend / order.notional
             mdv = _mdv60(data.primary, order.ticker, entry_session)
             profile_costs, profile_returns = {}, {}
             for profile in profiles:
@@ -355,7 +409,8 @@ def simulate_events(strategy: EventStrategy, data: MarketData, universe: Univers
                                          else ("sell", "buy"))
                 entry_cost = calculate(profile, side=entry_side, notional=order.notional,
                                        fill_price=entry_price, mdv60=mdv).total
-                exit_value = position.shares * exit_price
+                exit_value = (order.notional if strategy.exit_cost_basis == "entry_notional"
+                              else position.shares * exit_price)
                 exit_cost = (calculate(profile, side=exit_side, notional=exit_value,
                                        fill_price=exit_price, mdv60=mdv).total
                              if exit_value > 0 else 0.0)
@@ -370,21 +425,24 @@ def simulate_events(strategy: EventStrategy, data: MarketData, universe: Univers
                                           "funding": funding, "total": total}
                 profile_returns[profile] = gross - total / order.notional
             net = profile_returns[costs.primary]
-            bench = _benchmark_return(benchmark, data, universe, days, entry_session,
-                                      exit_session, order.entry.field, exit_field)
+            bench = _benchmark_return(benchmark, data, universe, view, dividend_view, entry_session,
+                                      exit_session, order.entry.field, exit_field,
+                                      strategy.dividend_withholding)
             entry_bar = data.primary.get(order.ticker, entry_session)
             trades.append(Trade(entry_session, exit_session, order.ticker, order.side,
                                 order.entry.field, exit_field, entry_price, exit_price,
                                 position.shares, order.notional, mdv,
                                 None if entry_bar is None else entry_bar.auction_volume,
                                 profile_costs, gross, net,
-                                profile_returns, bench, net - bench, net > 0, exit_reason, flags))
+                                profile_returns, bench, net - bench, net > 0, exit_reason, flags,
+                                order.priority, order.signal, gross_dividend, dividend))
             accepted += 1
     trades.sort(key=lambda row: (row.entry_session, row.ticker, row.side, row.exit_session))
     return TradeLedger(days, costs.primary,
                        strategy.max_concurrent_slots * strategy.slot_notional,
                        strategy.open_as_indication, strategy.close_as_indication,
-                       tuple(trades), tuple(rejected), tuple(unfilled), tuple(positions))
+                       tuple(trades), tuple(rejected), tuple(unfilled), tuple(positions),
+                       strategy.exit_cost_basis, strategy.dividend_withholding)
 
 
 @dataclass(frozen=True)
@@ -398,14 +456,20 @@ class PortfolioDay:
     costs_by_profile: Mapping[str, float]
     returns_by_profile: Mapping[str, float]
     flags: tuple[str, ...] = ()
+    dividend_cash: float = 0.0
+    gross_dividend_cash: float = 0.0
 
     def as_dict(self) -> dict:
-        return {"session": self.session.isoformat(), "net_return": self.net_return,
+        result = {"session": self.session.isoformat(), "net_return": self.net_return,
                 "benchmark_return": self.benchmark_return, "nav": self.nav,
                 "gross_exposure": self.gross_exposure, "turnover": self.turnover,
                 "costs_by_profile": dict(sorted(self.costs_by_profile.items())),
                 "returns_by_profile": dict(sorted(self.returns_by_profile.items())),
                 "flags": list(self.flags)}
+        if self.dividend_cash:
+            result.update(dividend_cash=self.dividend_cash,
+                          gross_dividend_cash=self.gross_dividend_cash)
+        return result
 
 
 @dataclass(frozen=True)
@@ -416,6 +480,7 @@ class PortfolioLedger:
     open_as_indication: bool
     close_as_indication: bool
     days: tuple[PortfolioDay, ...]
+    dividend_withholding: float = 0.0
 
     @property
     def returns(self) -> np.ndarray:
@@ -426,13 +491,16 @@ class PortfolioLedger:
         return sum("missing_bar" in row.flags for row in self.days)
 
     def as_dict(self) -> dict:
-        return {"schema_version": 1, "kind": "portfolio", "primary_cost": self.primary_cost,
+        result = {"schema_version": 1, "kind": "portfolio", "primary_cost": self.primary_cost,
                 "initial_capital": self.initial_capital,
                 "open_as_indication": self.open_as_indication,
                 "close_as_indication": self.close_as_indication,
                 "sessions": [day.isoformat() for day in self.sessions],
                 "days": [row.as_dict() for row in self.days],
                 "missing_bar_count": self.missing_bar_count}
+        if self.dividend_withholding or any(row.dividend_cash for row in self.days):
+            result["dividend_withholding"] = self.dividend_withholding
+        return result
 
 
 def _rebalance_day(strategy: PortfolioStrategy, days: tuple[date, ...], index: int) -> bool:
@@ -457,8 +525,10 @@ def simulate_portfolio(strategy: PortfolioStrategy, data: MarketData, universe: 
     cash, holdings, marks = strategy.initial_capital, {}, {}
     pending: dict[date, tuple[Mapping[str, float], FillPoint]] = {}
     rows, previous_nav = [], strategy.initial_capital
-    benchmark_values = np.concatenate(([0.0], gross_returns(
-        benchmark, data, list(days), universe=universe))) if len(days) > 1 else np.asarray([0.0])
+    benchmark_values = (np.concatenate(([0.0], gross_returns(
+        benchmark, data, list(days), universe=universe,
+        dividend_withholding=strategy.dividend_withholding)))
+        if len(days) > 1 else np.asarray([0.0]))
 
     def apply_target(target: Mapping[str, float], fill: FillPoint, session: date,
                      day_costs: dict[str, float], flags: list[str]) -> float:
@@ -489,6 +559,13 @@ def simulate_portfolio(strategy: PortfolioStrategy, data: MarketData, universe: 
     # apply_target updates cash for trades; deduct costs once per day outside it.
     for index, session in enumerate(days):
         flags, day_costs, turnover = [], {profile: 0.0 for profile in profiles}, 0.0
+        previous = days[index - 1] if index else session
+        dividend_view = data.view(session, "at_close", session)
+        gross_dividend_cash = sum(quantity * dividend_per_share(
+            data, name, previous, session, 0.0,
+            view=dividend_view) for name, quantity in holdings.items())
+        dividend_cash = gross_dividend_cash * (1 - strategy.dividend_withholding)
+        cash += dividend_cash
         if session in pending:
             target, fill = pending.pop(session)
             turnover += apply_target(target, fill, session, day_costs, flags)
@@ -531,7 +608,8 @@ def simulate_portfolio(strategy: PortfolioStrategy, data: MarketData, universe: 
                    / previous_nav for profile in profiles}
         rows.append(PortfolioDay(session, base_return, float(benchmark_values[index]), nav,
                                  gross_exposure, turnover, day_costs, returns,
-                                 tuple(sorted(set(flags)))))
+                                 tuple(sorted(set(flags))), dividend_cash, gross_dividend_cash))
         previous_nav = nav
     return PortfolioLedger(days, costs.primary, strategy.initial_capital,
-                           strategy.open_as_indication, strategy.close_as_indication, tuple(rows))
+                           strategy.open_as_indication, strategy.close_as_indication, tuple(rows),
+                           strategy.dividend_withholding)
