@@ -219,7 +219,7 @@ def test_p15_preopen_unit_is_registered_and_autostarted():
     timer = _unit("server/trading-engine-p15-preopen.timer")
     _assert_common_service_hardening(service)
     assert "server.p15_preopen --run" in service
-    assert "ExecStartPost=-%h/trading-engine/.venv/bin/python -m tools.publish_snapshot" in service
+    assert "ExecStartPost=" not in service
     assert "TimeoutStartSec=20min" in service
     assert "09:05:00 America/New_York" in timer and "Persistent=false" in timer
     assert "trading-engine-p15-preopen.timer" in install_automation.AUTOSTART_UNITS
@@ -230,7 +230,10 @@ def test_p15_event_unit_is_intraday_shadow_and_autostarted():
     timer = _unit("server/trading-engine-p15-events.timer")
     _assert_common_service_hardening(service)
     assert "farm.p15_event_runner --run" in service
-    assert "ExecStartPost=-%h/trading-engine/.venv/bin/python -m tools.publish_snapshot" in service
+    assert (
+        "ExecStartPost=-%h/trading-engine/.venv/bin/python -m tools.publish_snapshot "
+        "--min-age-minutes 120"
+    ) in service
     assert "TimeoutStartSec=14min" in service
     assert "09:35,50:00 America/New_York" in timer
     assert "10..15:05,20,35,50 America/New_York" in timer

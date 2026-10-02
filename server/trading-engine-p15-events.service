@@ -7,7 +7,7 @@ Wants=network-online.target trae-proxy.service
 Type=oneshot
 WorkingDirectory=%h/trading-engine
 ExecStart=%h/trading-engine/.venv/bin/python -m farm.p15_event_runner --run
-ExecStartPost=-%h/trading-engine/.venv/bin/python -m tools.publish_snapshot
+ExecStartPost=-%h/trading-engine/.venv/bin/python -m tools.publish_snapshot --min-age-minutes 120
 Environment=PYTHONUNBUFFERED=1
 Environment=TRADING_ENGINE_DUCKDB_THREADS=8
 Environment=TRADING_ENGINE_DUCKDB_MEMORY_LIMIT=8GB
