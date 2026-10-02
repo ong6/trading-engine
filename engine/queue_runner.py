@@ -47,6 +47,7 @@ import argparse
 import fcntl
 import json
 import os
+import shutil
 import sys
 import time
 from datetime import date, datetime, timezone
@@ -89,11 +90,11 @@ ROOT_FREE_MIN_GB = 10.0     # refuse archive jobs below this root free space
 # box for production 10-fold jobs — infeasible. 8 wide keeps sustained load
 # ~20-24 with the nightly's own stages on top, under LOAD_5MIN_MAX with margin.
 PARALLEL_JOBS_MAX = 8
-# Seconds between launching successive workers in a batch. See the stagger
-# comment in _run_parallel_batch: the RSS peak is front-loaded into
+# Seconds between launching successive workers in the pool. See the stagger
+# comment in _run_parallel_pool: the RSS peak is front-loaded into
 # build_scratch, so simultaneous starts stack every peak at the same instant.
 BATCH_STAGGER_S = 4.0
-# How long the drain waits to reacquire the write lock after a parallel batch.
+# How long the drain waits to reacquire the write lock after a parallel pool.
 # Must exceed the longest single writer stage a nightly can hold (collect,
 # ~4 min) or a batch that ends inside that window sinks the whole drain.
 BATCH_REACQUIRE_WAIT_S = 900.0
@@ -107,6 +108,10 @@ DRAIN_BUDGET_DEFAULT_S = 4 * 3600  # 4 hours
 # `timeout_s`). 4 h = the drain budget: generous, and no kind has ever
 # legitimately needed longer except a sweep grid.
 TIMEOUT_DEFAULT_S = 4 * 3600
+WF_SCRATCH_ROOT = REPO_ROOT / "scratch"
+WF_ACTIVE_LOCK = ".active.lock"
+WF_KEEP_MARKER = ".keep"
+WF_SHARED_RUN_ENV = "TRADING_ENGINE_WF_SHARED_RUN"
 
 
 # --------------------------------------------------------------------------- #
@@ -579,6 +584,87 @@ def _child_env(kind: str) -> dict[str, str]:
     return environment
 
 
+def _walkforward_open_paths(root: Path) -> set[Path]:
+    """Read Linux process descriptors once and retain targets below ``root``."""
+    prefix = str(root.resolve()) + os.sep
+    found: set[Path] = set()
+    proc = Path("/proc")
+    if not proc.exists():
+        return found
+    for process in proc.iterdir():
+        if not process.name.isdigit():
+            continue
+        try:
+            descriptors = list((process / "fd").iterdir())
+        except (FileNotFoundError, PermissionError):
+            continue
+        for descriptor in descriptors:
+            try:
+                target = os.readlink(descriptor)
+            except (FileNotFoundError, PermissionError, OSError):
+                continue
+            target = target.removesuffix(" (deleted)")
+            if target.startswith(prefix):
+                found.add(Path(target))
+    return found
+
+
+def _walkforward_directory_bytes(path: Path) -> int:
+    total = 0
+    for root, dirs, files in os.walk(path, followlinks=False):
+        dirs[:] = [name for name in dirs if not (Path(root) / name).is_symlink()]
+        for name in files:
+            try:
+                total += (Path(root) / name).lstat().st_size
+            except FileNotFoundError:
+                pass
+    return total
+
+
+def _walkforward_directory_is_held(
+    directory: Path, open_paths: set[Path]
+) -> bool:
+    prefix = str(directory) + os.sep
+    if any(str(path) == str(directory) or str(path).startswith(prefix)
+           for path in open_paths):
+        return True
+    try:
+        fd = os.open(directory / WF_ACTIVE_LOCK, os.O_CREAT | os.O_RDWR, 0o644)
+    except FileNotFoundError:
+        return True
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
+
+
+def _sweep_walkforward_orphans(root: Path = WF_SCRATCH_ROOT) -> dict[str, int]:
+    """Remove unheld ``wf__*`` directories before a queue drain starts."""
+    root = Path(root)
+    if not root.exists():
+        return {"removed": 0, "bytes": 0, "held": 0, "kept": 0}
+    open_paths = _walkforward_open_paths(root)
+    stats = {"removed": 0, "bytes": 0, "held": 0, "kept": 0}
+    for directory in sorted(root.glob("wf__*")):
+        if directory.is_symlink() or not directory.is_dir():
+            continue
+        if (directory / WF_KEEP_MARKER).exists():
+            stats["kept"] += 1
+            continue
+        if _walkforward_directory_is_held(directory, open_paths):
+            stats["held"] += 1
+            continue
+        stats["bytes"] += _walkforward_directory_bytes(directory)
+        shutil.rmtree(directory)
+        stats["removed"] += 1
+    return stats
+
+
 # Poll interval while waiting on a batch's children. Coarse on purpose: these
 # jobs run for minutes to hours, and the timeout is a ceiling, not a stopwatch.
 BATCH_POLL_S = 0.5
@@ -619,63 +705,160 @@ def _wait_batch(procs, *, poll_s: float = BATCH_POLL_S) -> dict:
     return results
 
 
-def _run_parallel_batch(batch, db_path, meta_path, con) -> tuple[dict, object]:
-    """Run `batch` [(jid, kind, timeout_s)] concurrently. Returns (results, new_con).
+def _run_parallel_pool(pool, db_path, meta_path, con, *, width: int,
+                       drain_deadline: float, _clock=time.monotonic,
+                       _sleep=time.sleep) -> tuple[dict, object, str | None]:
+    """Run ordered parallel-safe jobs in a rolling, resource-bounded pool.
 
-    Closes `con` for the duration (children need the file) and returns a fresh
-    write connection, so the caller MUST rebind its connection to the second
-    element. Each child is killed at its own `timeout_s` (row value, else the
-    kind's default) and recorded 'failed' with last_error 'timeout: …'.
+    ``pool`` contains queue rows ``(id, kind, params, mem_mb, timeout_s,
+    priority)`` in queue order. A freed slot takes the next row immediately;
+    priority therefore controls launch order without imposing a barrier between
+    tiers. The first non-parallel job remains a hard barrier in ``_drain``.
+
+    The writer is released for the whole pool, exactly as for the former batch
+    path. Child outcomes are retained in memory and recorded only after every
+    launched child exits, in the original job order rather than completion
+    order. The return reason is ``None`` when every row launched, otherwise
+    ``budget`` or ``resources``; unlaunched rows are restored to pending.
     """
     import subprocess
 
-    for jid, _k, _t in batch:
-        _set_state(con, jid, "running", progress="started (parallel)")
+    wf_run_id = f"{os.getpid()}-{time.time_ns()}"
+    shared_dirs: set[Path] = set()
+    for _jid, kind, params_json, _mem_mb, _timeout_s, _priority in pool:
+        if kind != "walkforward":
+            continue
+        params = _parse_params(params_json) if params_json else {}
+        scratch_root = Path(params.get("scratch_root") or WF_SCRATCH_ROOT)
+        shared_dirs.add(scratch_root / f"wf__shared__{wf_run_id}")
+
+    for jid, _kind, _params, _mem_mb, _timeout_s, _priority in pool:
+        _set_state(con, jid, "running", progress="waiting (parallel pool)")
     con.close()
 
-    procs = []
-    for i, (jid, kind, timeout_s) in enumerate(batch):
-        # STAGGER THE STARTS. A worker's RSS peak is not spread over its life —
-        # it lands in the first ~15 s, during `build_scratch`'s parquet export
-        # (measured 2026-08-20: 3,409 MB peak on a 10-fold sweep worker, ~1.2-1.5
-        # GB steady-state after). Launching a batch simultaneously therefore
-        # ALIGNS every worker's peak, which is the worst case rather than an
-        # unlucky one: 8 x 3.4 GB = 26.6 GB arriving at once leaves roughly
-        # 1.9 GB above the FREE_RAM_MIN_GB floor, and tripping that floor parks
-        # the rest of the drain until the next run.
-        #
-        # A few seconds between launches decorrelates the peaks almost entirely
-        # and costs nothing: these jobs run for minutes to hours.
-        if i:
-            time.sleep(BATCH_STAGGER_S)
-        limit = int(timeout_s) if timeout_s else default_timeout_s(kind)
-        pr = subprocess.Popen(
-            _child_cmd(jid, db_path, meta_path),
-            cwd=str(REPO_ROOT),
-            env=_child_env(kind),
-        )
-        procs.append((jid, kind, pr, time.monotonic() + limit))
+    results: dict[int, object] = {}
+    active = []
+    next_index = 0
+    active_mem_mb = 0
+    last_launch: float | None = None
+    stop_reason: str | None = None
+    try:
+        while active or (next_index < len(pool) and stop_reason is None):
+            now = _clock()
+            still = []
+            for row, process, deadline in active:
+                jid, kind, _params, mem_mb, _timeout_s, _priority = row
+                rc = process.poll()
+                if rc is not None:
+                    results[jid] = rc
+                    active_mem_mb -= mem_mb or 0
+                    print(f"[queue] job {jid} ({kind}) "
+                          f"{'done' if rc == 0 else f'FAILED rc={rc}'}")
+                    continue
+                if now >= deadline:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=KILL_GRACE_S)
+                    except Exception:  # noqa: BLE001 - subprocess.TimeoutExpired
+                        process.kill()
+                        process.wait()
+                    results[jid] = "timeout"
+                    active_mem_mb -= mem_mb or 0
+                    print(f"[queue] job {jid} ({kind}) TIMEOUT — "
+                          "killed at its timeout_s ceiling")
+                    continue
+                still.append((row, process, deadline))
+            active = still
 
-    results = _wait_batch(procs)
+            launched = False
+            while (stop_reason is None and next_index < len(pool)
+                   and len(active) < width):
+                now = _clock()
+                if now >= drain_deadline:
+                    stop_reason = "budget"
+                    break
+                load5 = rsc.load_5min()
+                free_gb = rsc.free_ram_gb()
+                if load5 > LOAD_5MIN_MAX or free_gb < FREE_RAM_MIN_GB:
+                    stop_reason = "resources"
+                    break
+                row = pool[next_index]
+                jid, kind, _params, mem_mb, timeout_s, _priority = row
+                declared = mem_mb or 0
+                if active_mem_mb + declared > ENGINE_RAM_BUDGET_MB:
+                    break
+                if (last_launch is not None
+                        and now < last_launch + BATCH_STAGGER_S):
+                    break
+
+                limit = int(timeout_s) if timeout_s else default_timeout_s(kind)
+                child_env = _child_env(kind)
+                if kind == "walkforward":
+                    child_env[WF_SHARED_RUN_ENV] = wf_run_id
+                process = subprocess.Popen(
+                    _child_cmd(jid, db_path, meta_path), cwd=str(REPO_ROOT),
+                    env=child_env,
+                )
+                active.append((row, process, now + limit))
+                active_mem_mb += declared
+                last_launch = now
+                next_index += 1
+                launched = True
+                print(f"[queue] started job {jid} ({kind}, priority {_priority}) "
+                      f"in rolling slot {len(active)}/{width}")
+
+            if active or (next_index < len(pool) and stop_reason is None):
+                wait_s = BATCH_POLL_S
+                if (BATCH_STAGGER_S > 0 and not launched and last_launch is not None
+                        and len(active) < width):
+                    wait_s = min(
+                        wait_s,
+                        max(0.0, last_launch + BATCH_STAGGER_S - _clock()),
+                    )
+                if wait_s > 0:
+                    _sleep(wait_s)
+    except BaseException:
+        for _row, process, _deadline in active:
+            if process.poll() is None:
+                process.terminate()
+        for _row, process, _deadline in active:
+            if process.poll() is None:
+                try:
+                    process.wait(timeout=KILL_GRACE_S)
+                except Exception:  # noqa: BLE001 - best-effort child teardown
+                    process.kill()
+                    process.wait()
+        raise
+
+    for directory in shared_dirs:
+        shutil.rmtree(directory, ignore_errors=True)
 
     # Reacquiring the writer can collide with a nightly that started while the
-    # batch ran (collect holds it for ~4 min), and losing the race would crash
-    # the drain and bounce every batched job back to 'pending'. Wait 15 min.
+    # pool ran (collect holds it for ~4 min). Preserve the established 15-minute
+    # wait and the one-writer discipline.
     new_con = (db.connect(db_path, wait_s=BATCH_REACQUIRE_WAIT_S) if db_path
                else db.connect(wait_s=BATCH_REACQUIRE_WAIT_S))
-    limits = {jid: t for jid, _k, t in batch}
-    kinds = {jid: k for jid, k, _t in batch}
-    for jid, rc in results.items():
+    for jid, kind, _params, _mem_mb, timeout_s, _priority in pool:
+        if jid not in results:
+            _set_state(new_con, jid, "pending",
+                       progress=f"deferred ({stop_reason})")
+            continue
+        rc = results[jid]
         if rc == 0:
             _set_state(new_con, jid, "done", progress="complete")
         elif rc == "timeout":
-            limit = int(limits[jid]) if limits[jid] else default_timeout_s(kinds[jid])
+            limit = int(timeout_s) if timeout_s else default_timeout_s(kind)
             _set_state(new_con, jid, "failed", progress="timeout",
                        last_error=f"timeout: killed after {limit}s")
         else:
             _set_state(new_con, jid, "failed",
                        last_error=f"parallel worker exited {rc}")
-    return results, new_con
+    ordered_results = {
+        jid: results[jid]
+        for jid, _kind, _params, _mem_mb, _timeout_s, _priority in pool
+        if jid in results
+    }
+    return ordered_results, new_con, stop_reason
 
 
 def _run_releasing_job(job, db_path, meta_path, con) -> tuple[object, object]:
@@ -755,8 +938,8 @@ def cmd_run(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
     # other drain can be alive. Until 2026-08-20 that was guaranteed by holding
     # the DuckDB write connection, since DuckDB permits exactly one writer.
     #
-    # BATCHING BROKE THAT INVARIANT. `_run_parallel_batch` RELEASES the writer
-    # for the batch's whole duration — which, now that the nightly drains with
+    # PARALLELISM BROKE THAT INVARIANT. `_run_parallel_pool` RELEASES the writer
+    # for the pool's whole duration — which, now that the nightly drains with
     # --jobs 4, is most of a drain's life. A second drain starting in that
     # window (the 22:30 nightly landing while a weekend sweep is still going)
     # would acquire the writer, see the first drain's live children as orphans,
@@ -786,6 +969,12 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
            run_kind: str | None = None, run_params: list[str] | None = None) -> int:
     """The drain proper. Called ONLY by cmd_run, which holds the drain lock —
     the precondition the orphan sweep below relies on."""
+    scratch = _sweep_walkforward_orphans()
+    if scratch["removed"] or scratch["held"]:
+        print(f"[queue] walk-forward scratch sweep removed {scratch['removed']} "
+              f"director{'y' if scratch['removed'] == 1 else 'ies'} "
+              f"({scratch['bytes']} bytes); kept {scratch['held']} held")
+
     # Reclaim jobs a killed drain left in 'running'. Safe ONLY because the drain
     # lock above proves no other drain is alive; the DuckDB writer no longer
     # proves it, since batches release it.
@@ -818,12 +1007,11 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
     drain_start = time.monotonic()
 
     # --- concurrency for `parallel_safe` kinds, IN PRIORITY ORDER -----------
-    # An earlier version drained every parallel_safe job in a pre-pass before
-    # the sequential loop. That inverted the queue's own priorities: a weekend
-    # sweep at priority 150 would overtake the nightly's own intraday/signals/
-    # earnings jobs at 100-110 and delay them by hours. Batches are therefore
-    # formed only from jobs that are ALREADY ADJACENT in priority order, so
-    # parallelism can reorder nothing — it only widens a run.
+    # A rolling pool consumes only a contiguous parallel-safe region of the
+    # already-sorted queue. It may overlap priority tiers once every earlier
+    # job has STARTED, but never launches a lower-priority job first and never
+    # crosses a store-writing job. This removes slowest-member batch barriers
+    # without reviving the old parallel pre-pass priority inversion.
     jobs = max(1, min(int(jobs), PARALLEL_JOBS_MAX))
     if jobs > 1:
         print(f"[queue] parallel width {jobs} for parallel_safe kinds "
@@ -854,7 +1042,7 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
                   f"leaving {remaining} job(s) pending and exiting 0 (resumable)")
             return 0
 
-        # --- batch a RUN of consecutive parallel_safe jobs ---------------
+        # --- roll through a RUN of consecutive parallel_safe jobs --------
         # Children open their own READ-ONLY connections, so the parent must let
         # go of the write lock for the batch. That is also why this matters
         # operationally: a sweep run in-process pins the single writer for its
@@ -862,28 +1050,45 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
         if jobs > 1 and JOB_TYPES.get(kind, {}).get("parallel_safe"):
             run = []
             j = idx
-            # Keep operationally distinct workloads in distinct batches. A
-            # short walk-forward tail must not remain marked running until an
-            # adjacent multi-hour sweep exits, and a targeted high-priority
-            # drain must not unexpectedly absorb a lower-priority tier.
+            # A sequential/store-writing row is the lock-discipline barrier.
+            # Otherwise the sorted queue itself supplies deterministic launch
+            # order across kinds and priority tiers.
             while (j < len(pending)
-                   and pending[j][1] == kind
-                   and pending[j][5] == priority
                    and JOB_TYPES.get(pending[j][1], {}).get("parallel_safe")):
                 run.append(pending[j])
                 j += 1
-            widest = max((r[3] or 0) for r in run) or 1
-            per_batch = max(1, min(jobs, ENGINE_RAM_BUDGET_MB // widest))
-            batch = [(r[0], r[1], r[4]) for r in run[:per_batch]]
-            if per_batch < jobs:
-                print(f"[queue] parallel width {jobs} -> {per_batch} "
-                      f"(RAM budget {ENGINE_RAM_BUDGET_MB} MB / {widest} MB "
-                      f"per worker)")
-            print(f"[queue] --- parallel batch {[b for b, _, _ in batch]} "
-                  f"({', '.join(sorted({k for _, k, _ in batch}))}, load {load5:.1f}, "
+            oversized = next((r for r in run
+                              if (r[3] or 0) > ENGINE_RAM_BUDGET_MB), None)
+            if oversized is not None:
+                ojid, okind, _oparams, omem, _otimeout, _opriority = oversized
+                msg = (f"declared memory {omem} MB > {ENGINE_RAM_BUDGET_MB} MB "
+                       "engine budget")
+                print(f"[queue] job {ojid} ({okind}) refused: {msg}")
+                _set_state(con, ojid, "failed", last_error=msg)
+                # Leave earlier queue rows ahead of the refused row eligible for
+                # this pool; the failed row itself is omitted from execution.
+                run = [r for r in run if r[0] != ojid]
+                if not run:
+                    idx = j
+                    continue
+            print(f"[queue] --- rolling pool {[r[0] for r in run]} "
+                  f"({', '.join(sorted({r[1] for r in run}))}, load {load5:.1f}, "
                   f"free RAM {free_gb:.1f} GiB) ---")
-            _res, con = _run_parallel_batch(batch, db_path, meta_path, con)
-            idx += len(batch)
+            _res, con, stopped = _run_parallel_pool(
+                run, db_path, meta_path, con, width=jobs,
+                drain_deadline=drain_start + budget_s,
+            )
+            idx = j
+            if stopped is not None:
+                remaining = con.execute(
+                    "SELECT COUNT(*) FROM jobs WHERE state = 'pending'"
+                ).fetchone()[0]
+                label = "drain budget exhausted" if stopped == "budget" else (
+                    "resource guard tripped"
+                )
+                print(f"[queue] {label} inside rolling pool — leaving "
+                      f"{remaining} pending job(s)")
+                return 0
             continue
 
         # Everything below runs the job IN-PROCESS on the write connection.

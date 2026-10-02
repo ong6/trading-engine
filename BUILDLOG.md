@@ -1674,4 +1674,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server and product unchanged; tools +74; budget ok.
 - **Next:** orchestrator merges the four infrastructure lanes and issues registration revision 9.
 
+## 2026-10-02 — Remove walk-forward queue and scratch bottlenecks
+
+- **Why:** the orchestrator reproduced same-priority batch barriers in the 3.07-hour Sunday
+  drain and 18 unheld killed-worker scratch directories consuming 14,652,368,972 bytes.
+- **What:** replace barriered batches with an eight-slot priority-ordered rolling pool that keeps
+  the writer and drain-budget boundaries. Share one read-only walk-forward input store per run,
+  retain private writable overlays, convert worker SIGTERM to cleanup, and sweep only unheld
+  orphan directories. Remove the 18 verified unheld production orphans.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_walkforward_scratch.py
+  tests/test_result_provenance.py tests/test_queue_runner.py` passes all 61 tests; two-book,
+  two-fold store-copy outputs match with scratch 871,477,215 → 445,247,500 bytes.
+- **Metrics:** server and tools unchanged; product +336 lines; budget ok.
+- **Next:** nothing admitted; P15 revision 9 must bind the two changed registered files.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
