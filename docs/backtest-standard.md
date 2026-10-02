@@ -146,3 +146,12 @@ deleted after use. Generated study reports and censuses stay with the study and 
 under `data/`.
 
 <!-- sources: BUILDLOG.md, docs/plans/p18-backtest-core.md, farm/study/bench.py, farm/study/data.py, farm/study/panel.py, farm/study/run.py, farm/study/simulate.py, tests/test_study_followup3.py, tests/test_study_simulate.py -->
+
+## Universe coverage (added 2026-10-02)
+
+Survivor status is not enough. A study must also report its **per-day coverage**: for each
+signal session, how many names in the intended universe have a current, valid bar in the
+data the strategy reads. When an operational store only refreshes part of the market (for
+example, a liquidity-screened nightly collector), a backtest on it silently trades only the
+names that happened to be refreshed, which can manufacture an edge. Measure coverage against an
+independent complete source, and treat a large gap as a data defect, not a universe choice.
