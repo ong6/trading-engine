@@ -262,7 +262,7 @@ def _benchmark_return(benchmark: Benchmark, data: MarketData, universe: Universe
 def _exit(strategy: EventStrategy, data: MarketData, universe: Universe,
           days: tuple[date, ...], position: OpenPosition, entry_index: int,
           hard_max: date, day_indexes: Mapping[date, int]
-          ) -> tuple[date, str, float, str, tuple[str, ...]] | None:
+          ) -> tuple[date, str, float, str, tuple[str, ...]] | str | None:
     rule, flags = position.order.exit, []
     if rule.kind == "same_session_close":
         target_index, fill, reason = entry_index, FillPoint.close_auction(), rule.kind
@@ -270,6 +270,9 @@ def _exit(strategy: EventStrategy, data: MarketData, universe: Universe,
         target_index, fill, reason = entry_index, rule.fill, rule.kind
     elif rule.kind == "after_n_sessions":
         target_index, fill, reason = entry_index + (rule.sessions or 0), rule.fill, rule.kind
+        if (_fill_day(days, target_index, fill) is None
+                and strategy.window_end == "unevaluable"):
+            return "unevaluable_window_end"
     else:
         if rule.decision_time == "at_close" and not strategy.close_as_indication:
             raise ValueError("first_condition at close requires close_as_indication=True")
@@ -289,6 +292,10 @@ def _exit(strategy: EventStrategy, data: MarketData, universe: Universe,
                         FillPoint.close_auction() if rule.decision_time == "at_close" else
                         FillPoint.bar_close(rule.decision_time or ""))
                 break
+        else:
+            if (entry_index + (rule.sessions or 0) >= len(days)
+                    and strategy.window_end == "unevaluable"):
+                return "unevaluable_window_end"
     if fill is None:
         raise AssertionError("validated exit rule has no fill")
     actual = _fill_day(days, target_index, fill)
@@ -378,6 +385,9 @@ def simulate_events(strategy: EventStrategy, data: MarketData, universe: Univers
                                     order.notional / entry_price, order.notional, order)
             result = _exit(strategy, data, universe, days, position, entry_index, hard_max,
                            day_indexes)
+            if isinstance(result, str):
+                unfilled.append(OrderOutcome(session, order.ticker, result))
+                continue
             if result is None:
                 positions.append(position)
                 unfilled.append(OrderOutcome(session, order.ticker, "missing_exit_bar"))
@@ -387,6 +397,13 @@ def simulate_events(strategy: EventStrategy, data: MarketData, universe: Univers
                 continue
             exit_session, exit_field, exit_price, exit_reason, flags = result
             exit_index = day_indexes.get(exit_session, bisect_right(days, exit_session) - 1)
+            if strategy.require_complete_path and any(
+                    data.primary.panel.coordinates(order.ticker, day) is None
+                    or (close := data.primary.value(order.ticker, day, "close")) is None
+                    or close < 0 for day in days[entry_index:exit_index + 1]):
+                unfilled.append(OrderOutcome(
+                    session, order.ticker, "unevaluable_incomplete_path"))
+                continue
             active_by_day[entry_index:exit_index + 1] += 1
             held_through[order.ticker] = max(held_through.get(order.ticker, -1), exit_index)
             direction = 1 if order.side == "long" else -1
