@@ -4,12 +4,12 @@
 > document drove the build loop through 2026-09-17 and produced the agent, broker-paper and
 > risk-supervisor layers now frozen in [`scope.md`](../scope.md). Its "Continuation assignment" is
 > superseded by [`AGENTS.md`](../../AGENTS.md). The owner decided
-> [P4](../plans/p4-broker-decision.md) on 2026-09-20 (IBKR eventually, on personal hardware, under
+> [The broker decision (P4)](../plans/p4-broker-decision.md) on 2026-09-20 (IBKR eventually, on personal hardware, under
 > a separate execution-layer plan); workstreams C, D and E still admit no work until such a plan is
 > approved. Apart from relative links, nothing below has been edited; read it for the gates a future execution plan would
 > inherit, and [`product.md`](../product.md) (then `direction.md`) for where the project is going now.
 
-Use this document as the handoff objective for the next Codex agent.
+Use this document as the handoff objective for the next coding agent.
 
 ## Objective
 
@@ -238,7 +238,7 @@ Required outcomes:
   states.
 - Run the agent under process supervision after terminal disconnection, with bounded retries,
   one lock-protected decision per window, health reporting, and a persistent paper kill switch.
-- Use the existing systemd-supervised Trae CLI proxy on loopback as the sole model transport for
+- Use the existing systemd-supervised model gateway on loopback as the sole model transport for
   this project. The connector is pinned to `http://127.0.0.1:8317/v1/responses` and the allowlisted
   `GPT-5.6-Sol:max` catalog entry; do not add a direct-provider or alternate-model fallback. The
   connector must expose no proxy credentials, offer no model tools, and fail closed when the proxy
@@ -490,7 +490,7 @@ remains blocked on the remaining trust and recovery gates. The read-only
 loaders in `server/agent_paper_evidence.py` now derive agent-only `PaperIntentBindings` and hybrid
 `HybridPaperIntentBindings` from complete retained shadow paths instead of accepting
 caller-selected fields or hashes. They recompute decision-window identities, verify frozen policy
-and Trae identities, retained context and request/response evidence, and bind the future simulator
+and model-gateway identities, retained context and request/response evidence, and bind the future simulator
 request to an accepted proposal or surviving hybrid effective order. They have no write, lease,
 activation, consumption, adapter, route, or scheduling surface. A separate read-only usage loader
 requires the complete trusted transcript head, re-verifies the full chain, rejects truncated or
@@ -546,7 +546,7 @@ Build and drill:
 - bounded notifications for submissions, fills, rejections, discrepancies, stale data, risk
   halts, and authorization changes.
 
-Real-money infrastructure belongs on a personal machine or personal VPS, not the current company
+Real-money infrastructure belongs on a personal machine or personal VPS, not the current shared
 host. Use least-privilege credentials, encrypted storage and backups, private authenticated
 access, off-machine audit retention, process supervision, and monitored UTC clock
 synchronization. Browser requests may create intents but must never directly invoke a broker.
@@ -643,7 +643,7 @@ Near-term implementation order:
    envelopes and
    bounded registered-universe total-return features with exact start/end price facts, dividend
    facts, corporate-action coverage, session counts, and recomputable hashes. It retains explicit
-   missing-provenance limitations and binds the allowlisted Trae connector identity. A separate
+   missing-provenance limitations and binds the allowlisted model connector identity. A separate
    append-only `agent_daily_price_observations` ledger now captures every normalized price row in
    the registered strategy lookback before a signal-date model call, retaining observation hashes,
    revision chains, adapter/library identity, and unchanged-versus-revised classifications without
@@ -694,7 +694,7 @@ Near-term implementation order:
    shadow observation on 2026-09-13; that control still grants only shadow-observation continuity
    and no paper-order authority. Hybrid execution and automatic scheduling remain blocked; manual
    hybrid shadow evaluation uses a separately registered frozen algorithm candidate and veto-only
-   role. The first real Trae-backed attempt returned no action and created no proposal or order;
+   role. The first real gateway-backed attempt returned no action and created no proposal or order;
    its cited lack of comparison history motivated the schema-v4 feature increment without changing
    or retrying that immutable decision window.
 3. **Completed 2026-09-13:** add separate paper registrations and evaluation harnesses for
@@ -709,7 +709,7 @@ Near-term implementation order:
    `spy_benchmark` attribution controls. New contexts, attempts, and proposals carry policy ID
    and registration hash. Existing rows remain immutable and are projected as
    `legacy_unregistered`; evaluation counts are partitioned by policy and never pooled.
-   Monthly cadence admission now occurs before context construction or Trae access, recording a
+   Monthly cadence admission now occurs before context construction or model-gateway access, recording a
    deterministic `cadence_no_action` on non-signal dates. Full return attribution and separate
    paper-book activation remain work under items 4 and 5, respectively.
 4. Add deterministic proposal recomputation, risk validation, attribution, and no-action handling
@@ -804,7 +804,7 @@ Near-term implementation order:
    does not satisfy the human-approval gate. The legacy top-level gate list remains the
    automatic-paper view. Both stage projections report `eligible = false` and
    `execution_authority = none` even if all current evidence prerequisites pass. The projection
-   reports live-registration drift, limited mutable data provenance, the unversioned Trae model
+   reports live-registration drift, limited mutable data provenance, the unversioned gateway model
    alias, lack of substantive decision evidence, absent isolated portfolios and return attribution,
    progress toward 60 completed sessions, recorded integrity-failure outcomes, persisted
    source-bound fault/restart adjudication, the unreleased worktree, and absence of a selected
@@ -849,8 +849,8 @@ Near-term implementation order:
    and concurrent change fail closed. It does not choose the independent trust source, select an
    approve observation, authenticate new bytes, consume approval, issue a lease, or grant
    authority. Schema v9 and context schema v10 bind the
-   exact selected Trae catalog entry, internal `gpt-5.6-sol__max` routing key, catalog component
-   marker, proxy v0.7, and Trae CLI `0.204.1` runtime. Generation requires identical pre/post
+   exact selected model catalog entry, private routing key, catalog component
+   marker, gateway version, and runner version. Generation requires identical pre/post
    transport attestations, and retained responses bind the same identities. This detects alias
    remapping but does not misrepresent mutable catalog metadata as an immutable provider model
    revision, so the stable-model gate remains blocked. The connector's exact proxy-version pin
@@ -909,7 +909,7 @@ Near-term implementation order:
    durable exact replay and rejection of conflicting authenticated-evidence identity reuse,
    rejection of valid but truncated or replaced approval-observation history against an
    independently trusted global count and head,
-   rejection of Trae alias, routing, catalog, proxy, or runtime drift across generation,
+   rejection of model alias, routing, catalog, gateway, or runtime drift across generation,
    rejection of a rehashed source/cache discrepancy packet after independently reloading retained
    evidence, rejection of forged, stale, or changed evidence before a record-only adjudication is
    appended, rejection of tampered independent raw responses or derived observation chains,
@@ -978,7 +978,7 @@ Near-term implementation order:
    stable-snapshot coordinator. Read-only retained-evidence loaders now derive exact
    `PaperIntentBindings` for agent-only attempts and `HybridPaperIntentBindings` for hybrid
    attempts. The hybrid loader verifies the frozen deterministic candidate and portfolio-state
-   hashes, veto-role Trae request/response or exact registered fallback path, terminal effective
+   hashes, veto-role model request/response or exact registered fallback path, terminal effective
    order set, and requested order membership; vetoed buys cannot load. A read-only usage loader
    now verifies one complete head-matched authority transcript, rejects valid but truncated
    prefixes and closed epochs, and derives `PaperLeaseUsage` plus the exact prior consumption,

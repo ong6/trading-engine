@@ -1,7 +1,8 @@
 # Strategy research backlog
 
-> **Scope: deterministic strategies only.** AI policies are judged by their own plan gates (P8,
-> P15, P16) and ordered by [`product.md`](product.md). "No evidence-authorized new strategy run"
+> **Scope: deterministic strategies only.** AI policies are judged by the daily opportunity agent
+> (P8), profitability evidence loop (P15), and challenger lab (P16) gates and ordered by
+> [`product.md`](product.md). "No evidence-authorized new strategy run"
 > below refers to deterministic strategies.
 
 This is the deterministic research queue, not a promise of profit. A strategy “works” only when

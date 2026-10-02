@@ -11,7 +11,7 @@ each plan's YAML `status` must match its row.
 
 | Plan | Title | Status | One-line outcome |
 |---|---|---|---|
-| [P1](p1-appliance-mode.md) | Appliance mode | done | Closed 2026-09-26: maintain-only premise superseded; doc-pinning test retirement moved to P16 W9 |
+| [P1](p1-appliance-mode.md) | Appliance mode | done | Closed 2026-09-26: maintain-only premise superseded; doc-pinning test retirement moved to challenger-lab cleanup and activation (P16 W9) |
 | [P2](p2-league-collapse.md) | League collapse | approved | Retire the frozen eleven-book legacy set; newer separately authorized books are outside that set |
 | [P3](p3-point-in-time-data.md) | Point-in-time data | approved | Phase 0 Tiingo and SEC audits complete; Massive ready-unrun and paid data spend-blocked |
 | [P4](p4-broker-decision.md) | Broker decision | done | Decided 2026-09-20: IBKR eventually (Moomoo fallback) on personal hardware, via a later execution plan |
@@ -25,9 +25,9 @@ each plan's YAML `status` must match its row.
 | [P12](p12-agent-research-product.md) | Agent research product | done | Full data, execution, and evaluation programme delivered 2026-09-23; data/news spend external |
 | [P13](p13-market-data-source-hardening.md) | Market-data source hardening | done | TradingView realtime/history active under owner-asserted rights; Alpaca dormant |
 | [P14](p14-tradingview-history-archive.md) | TradingView historical archive | done | Resumable current-liquid-universe daily bars with exact transcripts and research-only authority |
-| [P15](p15-profitability-evidence-loop.md) | Profitability evidence loop | active | Revision 4 active; first scoring, pre-open, event, report, and status checks are green |
+| [P15](p15-profitability-evidence-loop.md) | Profitability evidence loop | active | Revision 9 live; scoring, pre-open, event, report, and status collection continue |
 | [P16](p16-challenger-lab-and-text-edge.md) | Challenger lab, text edge, evaluation science | active | W0 P15 revision-4 activation complete; W9b registration remains |
-| [P17](p17-personal-host-ibkr-paper-execution.md) | Personal-host IBKR paper execution and reconciliation | proposed | Stage 2 design only; requires a Stage 1 pass and owner approval before any implementation or account action |
+| [P17](p17-personal-host-ibkr-paper-execution.md) | Personal-host IBKR paper execution and reconciliation | proposed | Future work, explicitly not now; requires a Stage 1 pass and owner approval before any implementation or account action |
 | [P18](p18-backtest-core.md) | Shared backtest core | done | Completed: native event/portfolio simulation, deterministic reports, proving ground, and example |
 
 Recommended order: follow [`../product.md`](../product.md) ("Focus now"). P15 comes first, then P7
@@ -53,3 +53,5 @@ owner_decision: <what the owner must decide, or "none">
 ## Budget          commits, lines, sessions
 ## Risks           what could go wrong and the rollback
 ```
+
+<!-- sources: docs/product.md, docs/plans/p1-appliance-mode.md, docs/plans/p15-profitability-evidence-loop.md, docs/plans/p16-challenger-lab-and-text-edge.md, docs/plans/p17-personal-host-ibkr-paper-execution.md, docs/plans/p18-backtest-core.md -->

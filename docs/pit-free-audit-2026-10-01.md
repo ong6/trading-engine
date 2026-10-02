@@ -1,4 +1,4 @@
-# P3 Phase 0 free-source audit — 2026-10-01
+# Point-in-time data (P3) Phase 0 free-source audit — 2026-10-01
 
 ## Scope and method
 
@@ -10,7 +10,7 @@ operational `prices` table nor a forward record was changed.
 The master admits USD rows whose Tiingo `assetType` is `Stock` and whose exchange is a named US
 venue. A listing covers a year when its interval overlaps any day in that calendar year. Store
 coverage means an exact ticker has at least one `prices` bar in that year. Matching is deliberately
-exact, and store rows currently marked `etf=TRUE` are excluded: no company identity is available
+exact, and store rows currently marked `etf=TRUE` are excluded: no issuer identity is available
 to resolve reused tickers or translate class/preferred symbol conventions. Matched and master-only
 counts use the interval's master exchange; store-only counts use the store's current exchange
 field. Counts are distinct tickers within each cell.
@@ -61,7 +61,7 @@ exchange subtotals can double-count a reused ticker whose intervals overlap on d
 
 Tiingo supplies an interval end but no active flag or delisting reason. These are therefore
 coverage-end/delisting proxies, not proof that an exchange delisted a security. `With any store
-bar` is an exact-ticker match anywhere in the operational history and can overstate company-level
+bar` is an exact-ticker match anywhere in the operational history and can overstate issuer-level
 coverage when a ticker was reused.
 
 | End year | Intervals | Distinct tickers | With any store bar |
@@ -95,14 +95,14 @@ coverage when a ticker was reused.
   delistings. The 2026 annual overlap is useful; the 2026 end count is not a delisting rate.
 - **Ticker reuse is material.** 697 tickers have more than one distinct interval. Exact-ticker
   matching can join different companies across time, so the survivor-gap counts are security-list
-  coverage diagnostics rather than stable-company-identity counts.
+  coverage diagnostics rather than stable-issuer-identity counts.
 - **The source's `Stock` label is broad.** 908 distinct admitted tickers contain the preferred-like
   marker `-P-`. Tiingo provides no common/preferred flag beyond `assetType`, and no delisting
   reason, so Phase 0 cannot cleanly separate common shares or calculate reason-specific returns.
 
 This source establishes that the existing store omits many names that were listed in earlier
 years, but it does not contain their prices or delisting returns. It also cannot distinguish a
-company change behind a reused ticker, and its `Stock` classification is only a proxy for common
+issuer change behind a reused ticker, and its `Stock` classification is only a proxy for common
 stock: odd preferred-like symbols remain visible in the counts rather than being silently treated
 as clean common shares.
 

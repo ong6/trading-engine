@@ -1,6 +1,7 @@
 # Stage 2: personal-host IBKR paper execution
 
-**Draft for `docs/design/stage2-broker-paper.md`; P16 W8, documents only.** This design is proposed.
+**Draft for `docs/design/stage2-broker-paper.md`; the challenger lab's Stage 2 design workstream
+(P16 W8), documents only.** This design is proposed.
 It authorizes no account creation, credentials, broker connection, installation, order, or capital
 on the current host. The separate execution plan in `execution-layer-plan.proposed.md` must be
 approved before implementation. Stage 2 follows a prospective Stage 1 policy pass, not a historical
@@ -14,8 +15,9 @@ state, and measure the difference from the simulator for one to three months. Pr
 original simulator cohort. The new broker-paper cohort has its own registration, account identity,
 execution contract, opening balance, model identity and reporting namespace.
 
-Before work starts, the owner must select personal hardware, an IBKR paper account, model identity
-acceptable for Stage 2, remote alert destination and an execution-layer plan. Record the instrument
+This is future work, explicitly not work for now. Before any later work starts, the owner must
+select personal hardware, an IBKR paper account, model identity acceptable for Stage 2, and an
+execution-layer plan. Record the instrument
 and tax review called for in `docs/product.md`: US dividend withholding and US-situs estate exposure
 can favor UCITS ETFs for allocation sleeves. **Verify before the instrument decision:** there is
 no comprehensive US–Singapore income-tax treaty reducing ordinary US dividend withholding, so a
@@ -28,7 +30,8 @@ of liability below/above one number. Verify domicile, treaty status and indirect
 with qualified tax advice. Stage 2 simulated paper orders create no real securities trades or
 investment-tax consequence, but any real account funding/subscription expense is separate. Freeze
 US-listed versus eligible UCITS instruments before the cohort. A substitution is a new policy/cohort;
-it is not a deployment detail. The S$10,000 envelope is a single owner capital envelope; the P15
+it is not a deployment detail. The S$10,000 envelope is a single owner capital envelope; the
+profitability evidence loop (P15)
 US$10,000 comparisons are counterfactual simulator books, not separately deployable allocations.
 
 Broker-paper success is operational and measurement evidence. IBKR paper fills are simulated by
@@ -56,8 +59,8 @@ it does not impose the immutable-revision requirement intended for real capital.
 | Model for broker-paper: observable personally owned identity; immutable provider revision now; no model | Extend the existing observable, drift-checked paper identity to broker-paper in the approved mandate; it enables operational evidence while retaining immutable provider revision as a Stage 3 prerequisite | Stage 2 model-enabled rehearsal | New broker-paper policy calls; no implicit permission for live capital |
 | Paper risk envelope: rehearse proposed −3% daily / −10% drawdown; tighter limits; retain simulator limits only | Rehearse −3% daily / −10% drawdown plus any stricter policy limits in one isolated paper sleeve; exercises intended halts without claiming the owner has approved live limits | Stage 2 activation | RiskPolicy values and halt tests; Stage 3 needs separate owner approval |
 | Exit response: cancel entries only/keep existing sells; cancel all; automatic flatten | Cancel entries only and keep existing risk-reducing sells; no automatic flatten until a reduce-only rehearsal passes. This avoids cancelling protection or creating a duplicate exit while holdings are uncertain | Stage 2 submission authority | Halt response, cancel/fill-race handling and recovery tests |
-| Alert destination: personal push/secure messenger; personal email; both | Personal push destination for incidents with email as a secondary digest; choose one urgent channel and test acknowledgement latency | Stage 2 unattended operation | Alert credentials, routing and owner response SLA |
-| Off-host watcher: separate personally controlled cloud/uptime service; another personal device; none | Independently powered personally controlled watcher with 180 s missed-heartbeat alert; can detect host/network loss. None is unsuitable for unattended operation | Stage 2 unattended operation | Outage detection and remote kill-switch rehearsal |
+| Failure response: push alerts; on-demand investigation; scheduled digest | On-demand agent investigation with retained local evidence and no push alerting (owner decision, 2026-10-02) | Stage 2 operations | No alert credentials, routing, or response SLA |
+| Off-host watcher: separate service; another personal device; none | None for now; any future watcher needs a separate owner decision and cannot create order authority | Stage 2 operations | Local fail-closed behavior and later outage rehearsal |
 | Budget ceilings: host; data; account/funding; alerts | Approve separate one-time and recurring ceilings before any purchase, subscription or account action | Before implementation/deployment | Spending and deployment approval |
 
 ## IBKR prerequisites and quirks (verify at implementation)
@@ -139,13 +142,14 @@ scripts before producing a portable release. Reuse existing installer/recovery m
 passes the rehearsal; do not build a second platform or copy the entire development home directory.
 
 **Hard personal-account rule:** the personal execution host uses only personally owned model
-accounts, API keys, proxies, routing configurations and billing. It must never call company model
-endpoints or use company credentials, accounts, session tokens, proxies or routing, even if a
+accounts, API keys, proxies, routing configurations and billing. It must never call
+organization-managed model endpoints or use organization-managed credentials, accounts, session
+tokens, proxies or routing, even if a
 copied research release currently works that way. Before first model call inventory the entire
 route chain (CLI, proxy, upstream and fallback), replace disallowed bindings with personal ones,
 and re-register the resulting identity. A route change cannot inherit the old policy's evidence
 unqualified; report deployment identity differences and run the required prospective comparison.
-Secret separation alone is insufficient if an endpoint still belongs to a company.
+Secret separation alone is insufficient if an endpoint still belongs to an organization.
 
 Config contains account alias, explicit permitted paper account ID reference, client ID, gateway
 endpoint, source selections, paths, schedules, registered policy IDs, risk envelope and alert
@@ -438,26 +442,23 @@ P16. The rehearsal must prove who can act, that the owner's two devices can reac
 watcher independently, and that an offline intervention becomes durable ledger evidence exactly
 once when the engine returns.
 
-## Remote alerts and operations
+## On-demand investigation and operations
 
-Use the existing report/health machinery with a durable local alert outbox and an owner-selected
-remote destination. Proposed heartbeat every 60 seconds, external missing-heartbeat alert after
-180 seconds, incident delivery target under 60 seconds while connected. Deduplicate by incident ID;
-retry delivery with backoff and retain sent/ack state so a restart does not erase a critical alert.
-The external watcher must run outside the personal execution host or it cannot detect power/network
-loss. No messaging service or notification has been installed/sent by this design session.
+There is no push alerting. The existing reports and health surfaces retain durable incident state,
+and an agent investigates failures on demand. A future personal-host design may keep a local
+heartbeat and fail-closed authority state, but it must not add a messaging destination or external
+notification dependency without a new owner decision.
 
-Alert on account/environment mismatch, unknown order, uncertainty, reconciliation break, risk halt,
-model drift, stale market data/FX, gateway disconnect, disk pressure, broken backup, overdue session
-and failed alert delivery. Include incident class, opaque account alias, last safe timestamp,
-current authority state and a short operator action; exclude secrets, raw filing text and internal
-runtime identity literals. A daily owner digest reports policy/control results, order attribution,
-paper/sim fill differences, risk headroom, reconciliation status and next review date.
+Investigate account/environment mismatch, unknown orders, uncertainty, reconciliation breaks,
+risk halts, model drift, stale market data/FX, gateway disconnect, disk pressure, broken backups,
+and overdue sessions from the retained local evidence. A daily owner digest may report
+policy/control results, order attribution, paper/simulator fill differences, risk headroom,
+reconciliation status, and the next review date.
 
 The runbook covers startup, reauthentication/2FA, broker maintenance periods, manual incident halt,
 backup restore, cancel/fill races, model drift, calendar anomalies, overnight exposure and host loss.
-Use the independent broker UI as the operator fallback when the host is unreachable. Alerts are
-not an order authorization channel; replayed or forged alert acknowledgements cannot resume trading.
+Use the independent broker UI as the operator fallback when the host is unreachable. A report or
+investigation is not an order authorization channel and cannot resume trading.
 The US open is 21:30 or 22:30 Singapore time as US daylight saving changes. Schedule Gateway
 restart and owner reauthentication outside the registered US session, and rehearse an overnight
 owner response window that covers both Singapore-time variants.

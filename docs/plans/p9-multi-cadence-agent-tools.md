@@ -1,10 +1,14 @@
 ---
-plan: P9
+plan: P9 # Multi-cadence agent tools
 title: Multi-cadence agent experiments and paper tool calls
 status: active
 opened: 2026-09-22
 owner_decision: approved 2026-09-22
 ---
+
+# Multi-cadence agent experiments and paper tool calls (P9)
+
+> **Related plan name:** daily opportunity agent (P8).
 
 ## Goal
 

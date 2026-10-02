@@ -1,5 +1,8 @@
 # Agent trading review - 2026-09-22
 
+> **Plan names used here:** autonomous paper trial (P7), daily opportunity agent (P8), and
+> multi-cadence agent tools (P9).
+
 ## Executive verdict
 
 The box now has a bounded agent research and simulator path. It runs one authoritative end-of-day

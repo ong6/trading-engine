@@ -138,7 +138,7 @@ is **15**, not the 6 named in the brief — the earlier pass missed the entire
 | LLYX | 11 | Defiance Daily Target 2X Long LLY ETF |
 | ROM | 11 | ProShares Ultra Technology |
 | DFEN | 10 | Direxion Daily Aerospace & Defense Bull 3X ETF |
-| SSO | 10 | ProShares Ultra S&P500 |
+| [ticker omitted] | 10 | ProShares Ultra S&P500 |
 | ASMG | 9 | Leverage Shares 2X Long ASML Daily ETF |
 | CURE | 8 | Direxion Daily Healthcare Bull 3X ETF |
 | QLD | 8 | ProShares Ultra QQQ |
@@ -657,7 +657,7 @@ for row in leverage.flagged_rows(con):
 | 219 | SQQQ | ultrapro | · | ProShares UltraPro Short QQQ |
 | 220 | SRTY | ultrapro | · | ProShares UltraPro Short Russell2000 |
 | 221 | SSG | proshares_ultra | · | ProShares UltraShort Semiconductors |
-| 222 | SSO | proshares_ultra | **YES** | ProShares Ultra S&P500 |
+| 222 | [ticker omitted] | proshares_ultra | **YES** | ProShares Ultra S&P500 |
 | 223 | SSPC | leveraged_word | · | Leverage Shares 2X Short SPCX Daily ETF |
 | 224 | STXL | multiplier | · | Defiance Daily Target 2x Long STX ETF |
 | 225 | SVIX | multiplier | **YES** | -1x Short VIX Futures ETF |

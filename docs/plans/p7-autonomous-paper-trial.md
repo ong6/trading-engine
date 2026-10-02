@@ -1,10 +1,14 @@
 ---
-plan: P7
+plan: P7 # Autonomous paper trial
 title: Autonomous three-mode paper trial
 status: active
 opened: 2026-09-20
 owner_decision: approved 2026-09-20
 ---
+
+# Autonomous three-mode paper trial (P7)
+
+> **Related plan name:** point-in-time data (P3).
 
 ## Goal
 
@@ -63,7 +67,7 @@ do not substitute for evidence that any arm has an edge.
   preregistered plan after this trial; it cannot be introduced mid-cohort.
 - AI-only model/role/prompt/toolset/catalog, exact proxy source, and upstream-reported model family
   are frozen for this capital-disabled paper trial. Every response must carry the same observable
-  identity; drift halts the arm. Trae currently exposes no immutable provider build, so a later
+  identity; drift halts the arm. The model gateway currently exposes no immutable provider build, so a later
   real-capital plan remains blocked until that stronger identity exists.
 - AI-only transport or malformed-output failure becomes cash/no action. Hybrid failure preserves
   the unmodified deterministic signal. Neither outcome is regenerated for that window.

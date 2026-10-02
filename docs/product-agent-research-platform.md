@@ -1,5 +1,10 @@
 # Product Requirements: Agent Research and Paper-Trading Platform
 
+> **Plan names used here:** point-in-time data (P3), autonomous paper trial (P7), daily opportunity
+> agent (P8), multi-cadence agent tools (P9), forward agent evaluation (P11), agent research product
+> (P12), market-data source hardening (P13), TradingView historical archive (P14), profitability
+> evidence loop (P15), and challenger lab (P16).
+
 ## Product outcome
 
 Build an always-on, capital-disabled research product that can compare deterministic algorithms,
@@ -160,7 +165,8 @@ does not satisfy the paid historical-universe gate.
 
 The P12 foundation is complete. Hourly and four-hour agents are shadow-only; the nightly P8 agent
 can request one typed simulator trade, but deterministic code validates the symbol, confidence,
-size, risk, next-open execution, and exits. P15 W0-W7 add pairable v5 observers, candidate-wide
+size, risk, next-open execution, and exits. The profitability evidence loop's baseline through
+documentation workstreams (P15 W0–W7) add pairable v5 observers, candidate-wide
 scoring, three comparator books, cancel-only pre-open review, shadow events, and coded gates; W8
 activated them on 2026-09-29. Every accepted call remains locked, idempotent, append-only, and fully attributed.
 

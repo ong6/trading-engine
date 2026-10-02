@@ -105,7 +105,7 @@ locks, then verifies the copy against the recorded invariants before publication
 uses DuckDB's consistent `COPY FROM DATABASE` path instead. The newest two generations are
 retained, and a snapshot error never changes the producer's result.
 
-P15 event runs pass `--min-age-minutes 120`, so a valid latest snapshot newer than two hours is
+Profitability evidence loop (P15) event runs pass `--min-age-minutes 120`, so a valid latest snapshot newer than two hours is
 logged as skipped with exit 0. Nightly, P15 scoring, and TradingView history remain unthrottled;
 pre-open does not publish a snapshot.
 
@@ -138,19 +138,21 @@ Current operational evidence is exposed by `GET /meta`, `GET /research/readiness
   `data/reports/experiments/e1-spy-monday-forward.md` are the three frozen forward records.
 - `data/reports/agent-eval/p15.md` is the P15 evaluation report; it does not activate or promote
   a policy.
-- the weekly P16 operator digest summarizes status but does not grant execution authority.
+- the weekly challenger-lab (P16) operator digest summarizes status but does not grant execution
+  authority.
 
 Discretionary ticket admission applies 11 ordered controls:
 `data_quarantine`, `stop_present`, `entry_anchored`, `notional_cap`, `sizing_1pct`,
 `playbook_named`, `rr_at_least_2`, `max_open_risk_4r`, `earnings_window`, `regime_gate`, and
 `circuit_breaker`. Never bypass a rejected gate through a direct database edit.
 
-## P16 state before activation
+## Challenger lab (P16) state before activation
 
 P16 is built but inert. Its current parts are:
 
 - evaluation v2: factor-neutral IC, always-valid sequential evaluation, deflated-Sharpe trial
-  accounting, isolated P16 status, and the accepted P5–P16 census (103 registrations, N=139);
+  accounting, isolated P16 status, and the accepted census spanning agent paper decisions through
+  the challenger lab (P5–P16);
 - the challenger lab and timer, with no execution authority;
 - the filing reader, which remains gated while any inventoried SEC caller bypasses the host-wide
   dispatcher; the frozen P15 scheduled caller currently keeps that gate closed;
@@ -161,7 +163,8 @@ P16 is built but inert. Its current parts are:
 - the weekly operator digest and the Stage 2 personal-host design.
 
 No P16 component is activated by installing automation, running a report, or loading the census.
-Registration, rehearsals, and activation belong to the later W9b sequence.
+Registration, rehearsals, and activation belong to the later registration and activation sequence
+(W9b).
 
 ## Agent timers and logs
 
@@ -176,7 +179,8 @@ journalctl --user -u trading-engine-p15-scoring.service \
   -u trading-engine-p15-events.service -n 50 --no-pager
 ```
 
-The P8 daily agent has local-simulator authority through its locked tool. P9 intraday observers,
+The daily opportunity agent (P8) has local-simulator authority through its locked tool. The
+multi-cadence agent tools (P9) intraday observers,
 the agent-only shadow, P15 event decisions, and every P16 producer are shadow or data-only unless
 their registration explicitly says otherwise. Disable a future timer run with
 `systemctl --user disable --now trading-engine-<name>.timer`; disabling never deletes or retries a
@@ -223,23 +227,17 @@ While holding the normal producer locks, `backup_database create` uses the lates
 when that snapshot is newer than the live database's last write. Otherwise it takes its own
 consistent copy of the live database. Verification and restore semantics are unchanged.
 
-## P15 activation sequence
+## P15 activation record and recovery boundary
 
-P15 stays inert until its registration names a future NYSE activation session. On the preceding
-full dry-run day, run the full suite in the host timezone and with `TZ=UTC`, publish the metrics
-snapshot and report, and verify `/agent/evaluation/status` says `p15: inactive`. Then:
+P15 activated on 2026-09-29. Registration revision 9 is live as of 2026-10-02 and binds
+infrastructure changes without changing scoring, books, gates, labels, registered values, or
+written evidence. The six source units and three timers are installed and enabled. The original
+activation steps remain in the plan record; they are not a procedure to activate a second cohort.
 
-1. Confirm the worktree is clean, no queue job or producer lock is active, and all non-P15 active
-   books share one completed `sim_equity` checkpoint.
-2. Create and verify a fresh external recovery bundle.
-3. Run `.venv/bin/python -m tools.install_automation` and verify the six staged P15 units match
-   source while all three P15 timers remain disabled and outside `AUTOSTART_UNITS`.
-4. Under the exclusive `.nightly.lock`, initialize the P15 schemas; recheck all three contracts,
-   zero runtime rows, and the common checkpoint; activate the books in one transaction.
-5. Only after activation succeeds, deploy the separate activation commit that adds the timers to
-   `AUTOSTART_UNITS`, apply the installer, and verify each unit.
-6. Verify the first scoring, pre-open, and event windows, schema-v2 status, and both reports within
-   three sessions before marking P15 active.
+For current operations, treat any change to a registered value as a new version and cohort. Before
+an admitted schema or recovery operation, confirm the worktree and producer locks, create and
+verify an external recovery bundle, and preserve the existing evidence. A normal deployment may
+verify the installed units against source, but it must not replay missed pre-open or event windows.
 
 Rollback disables the three timers first, reverts the activation commit, verifies the recovery
 bundle, preserves the current store separately, restores through the standard recovery procedure,
@@ -257,3 +255,5 @@ git status --short
 Commit only source and documentation owned by the session. Pipeline `data/` outputs are never
 stashed, reverted, or included in a build commit. Leave no source or documentation change
 uncommitted.
+
+<!-- sources: engine/run_daily.sh, engine/lib/driver.sh, server/trading-engine-p15-events.timer, server/trading-engine-p15-preopen.timer, server/trading-engine-p15-scoring.timer, server/p15-registration.json, server/p16-registration.json, tools/backup_database.py, tools/publish_snapshot.py -->

@@ -1,10 +1,15 @@
 ---
-plan: P4
+plan: P4 # Broker decision
 title: Decide whether a real broker is ever the goal
 status: done
 opened: 2026-09-18
 owner_decision: none
 ---
+
+# Decide whether a real broker is ever the goal (P4)
+
+> **Related plan names:** appliance mode (P1), agent paper decisions (P5), alpha experiment (P6),
+> and autonomous paper trial (P7).
 
 ## Decision — 2026-09-20
 

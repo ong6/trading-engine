@@ -1,10 +1,14 @@
 ---
-plan: P11
+plan: P11 # Forward agent evaluation
 title: Forward agent data and evaluation ledger
 status: done
 opened: 2026-09-23
 owner_decision: approved 2026-09-23
 ---
+
+# Forward agent data and evaluation ledger (P11)
+
+> **Related plan names:** daily opportunity agent (P8) and multi-cadence agent tools (P9).
 
 ## Goal
 

@@ -1,10 +1,15 @@
 ---
-plan: P12
+plan: P12 # Agent research product
 title: Agent research product programme
 status: done
 opened: 2026-09-23
 owner_decision: approved 2026-09-23
 ---
+
+# Agent research product programme (P12)
+
+> **Related plan names:** daily opportunity agent (P8), multi-cadence agent tools (P9), and forward
+> agent evaluation (P11).
 
 ## Goal
 

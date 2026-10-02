@@ -2,7 +2,8 @@
 
 Review of the live model prompts in `server/agent_model_client.py` and their callers. Live prompts
 are bound to frozen cohorts and are **not edited**. Each finding says what the next prompt version
-must do. P15's scoring prompt applies these rules from its first version; P16 W0 re-runs this review
+must do. The profitability evidence loop's scoring prompt (P15) applies these rules from its first
+version; challenger-lab remediation and activation (P16 W0) re-runs this review
 and ships `prompt-v2` for its challengers.
 
 | # | Where | Problem | Next version |

@@ -59,7 +59,7 @@ row is the load-bearing one and it is the cleanest.**
 
 `prices` holds only tickers listed TODAY. So the 937 names visible in 1996 are not a random
 12% sample of the 8,090 that existed — **they are precisely the 12% that survived thirty
-years.** Every company that was acquired, went bankrupt, or was delisted between then and
+years.** Every issuer that was acquired, went bankrupt, or was delisted between then and
 now is absent, and absence is not neutral: those are disproportionately the losers.
 
 Direct confirmation, by looking for names whose fate is not in dispute:
@@ -94,7 +94,7 @@ result entirely. Therefore:
    snapshot dates, 320,233 rows as of today) and is append-only. It is a genuine
    point-in-time universe accruing for free, and nothing can back-fill it: the 2026-08-20
    data-source audit confirmed Nasdaq publishes no dated historical symbol-directory
-   archive and SEC EDGAR's `company_tickers.json` is itself current-issuer-only (verified
+   archive and SEC EDGAR's current issuer-ticker JSON is itself current-issuer-only (verified
    by the absence of SIVB and FRC from it).
 4. **The live forward record is the only unbiased evidence in the building**, and it is 22
    sessions old with every book at |t| < 2. It cannot be hurried.

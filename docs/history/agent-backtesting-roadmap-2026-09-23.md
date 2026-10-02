@@ -1,5 +1,8 @@
 # Agent Backtesting Roadmap
 
+> **Plan names used here:** point-in-time data (P3), daily opportunity agent (P8), multi-cadence
+> agent tools (P9), forward agent evaluation (P11), and market-data source hardening (P13).
+
 ## Recommendation
 
 Credible agent backtesting needs point-in-time data, a horizon-appropriate execution model, and one

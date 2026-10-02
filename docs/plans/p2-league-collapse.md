@@ -1,10 +1,15 @@
 ---
-plan: P2
+plan: P2 # League collapse
 title: League collapse to ten books
 status: approved
 opened: 2026-09-18
 owner_decision: none
 ---
+
+# League collapse to ten books (P2)
+
+> **Related plan names:** autonomous paper trial (P7), daily opportunity agent (P8), and
+> profitability evidence loop (P15).
 
 ## Goal
 

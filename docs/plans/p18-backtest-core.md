@@ -1,10 +1,15 @@
 ---
-plan: P18
+plan: P18 # Shared backtest core
 title: Shared backtest core
 status: done
 opened: 2026-10-01
 owner_decision: approved by the owner 2026-10-01
 ---
+
+# Shared backtest core (P18)
+
+> **Related plan names:** autonomous paper trial (P7), daily opportunity agent (P8), profitability
+> evidence loop (P15), and challenger lab (P16).
 
 ## Goal
 
@@ -18,7 +23,8 @@ known-answer proofs. A study should no longer need its own evaluator.
 
 Separate evaluators have disagreed on benchmark costs, the time base for deflated Sharpe, and
 parallel execution. Those disagreements can reverse a research verdict. P18 standardises the
-measurement path before more studies use it, while P16 W11 remains the broader synthetic world
+measurement path before more studies use it, while the challenger lab's synthetic proving ground
+(P16 W11) remains the broader synthetic world
 for the agent pipeline. P18's synthetic market is price-only and reusable by that later work.
 
 ## Design invariants

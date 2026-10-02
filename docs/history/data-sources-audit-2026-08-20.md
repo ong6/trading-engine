@@ -61,7 +61,7 @@ or created for any of them.
 | Polygon | **Stocks Basic $0/mo — 5 API calls/minute, 2 years historical data, 100% market coverage** | Fetched `polygon.io/pricing` live, parsed embedded JSON in page |
 | Alpaca | Free tier: **200 API calls/min**, 7+ years historical (IEX-fed, 15-min-delayed real-time; EOD daily bars unaffected by the delay), requires a free paper-trading account signup (i.e. a key) | Fetched `alpaca.markets/data` live, parsed static HTML |
 | Tiingo | Pricing page is a JS-rendered Angular SPA — curl returned only the empty shell (19,978 bytes of framework boilerplate, no plan data). **Could not extract figures live.** Public knowledge (unverified this session): free tier ~500 requests/hour, 20,000/month, EOD included. | Not independently confirmed this session — flagging the gap rather than presenting stale numbers as fresh |
-| Finnhub | Pricing page content is client-rendered by JS; curl returned no plan text. **Could not extract figures live.** Public knowledge (unverified): free tier ~60 calls/min, but the historical-candle (OHLCV) endpoint specifically is gated to paid plans — quote/company-profile endpoints are free, bars are not. | Not independently confirmed this session |
+| Finnhub | Pricing page content is client-rendered by JS; curl returned no plan text. **Could not extract figures live.** Public knowledge (unverified): free tier ~60 calls/min, but the historical-candle (OHLCV) endpoint specifically is gated to paid plans — quote and issuer-profile endpoints are free, bars are not. | Not independently confirmed this session |
 | EODHD | Fetch hit the 15s timeout mid-download (194KB received, page is a heavy JS bundle); no plan figures extracted cleanly. Public knowledge (unverified): free tier ~20 API calls/day, US market only. | Not independently confirmed this session |
 
 ### ❓ GUESSED / INFERRED
@@ -86,8 +86,8 @@ be tested further under this box's no-credentials constraint.
   HTTP 200) mentions "archive" only in the context of press-release/alert archives
   (`archiveheadlines&cat_id=...`), never a symbol-directory archive. **Nasdaq only ever publishes
   today's file; there is no vendor-side historical snapshot to backfill from.**
-- **SEC EDGAR `company_tickers.json` is itself survivorship-biased** — it is a current-issuer
-  list, not a historical one. Fetched live (`curl www.sec.gov/files/company_tickers.json`, HTTP
+- **SEC EDGAR's current issuer-ticker JSON is itself survivorship-biased** — it is a current-issuer
+  list, not a historical one. Fetched live from the SEC's current issuer-ticker endpoint (HTTP
   200, 794,799 bytes, ~10,000+ current tickers). Spot-checked for `SIVB` (Silicon Valley Bank,
   seized/delisted 2023) and `FRC` (First Republic Bank, seized/delisted 2023): **neither appears
   in the file.** Confirms this endpoint cannot supply delisted names.
