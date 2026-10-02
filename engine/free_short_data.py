@@ -83,7 +83,11 @@ def finra_publication_date(settlement_date: date) -> date:
 
 
 def ftd_publication_date(settlement_date: date) -> date:
-    """Conservative SEC schedule: first half at month-end, second half on next-month day 15."""
+    """Conservative SEC schedule, including its pre-July-2009 quarterly archives."""
+    if settlement_date < date(2009, 7, 1):
+        quarter_end_month = 3 * ((settlement_date.month - 1) // 3 + 1)
+        return date(settlement_date.year, quarter_end_month,
+                    monthrange(settlement_date.year, quarter_end_month)[1])
     if settlement_date.day <= 15:
         return date(settlement_date.year, settlement_date.month,
                     monthrange(settlement_date.year, settlement_date.month)[1])
@@ -287,21 +291,20 @@ def parse_regsho_text(body: bytes, *, venue: str, trade_date: date) -> list[dict
     if footer is None:
         raise FreeSourceError("Reg SHO file lacks a creation timestamp")
     published = _date(footer.group(1), "Reg SHO publication date", "%Y%m%d")
-    reader = csv.DictReader(io.StringIO("\n".join(lines[:-1])), delimiter="|")
-    fields = set(reader.fieldnames or ())
-    symbol_field = "Symbol"
-    name_field = "CompanyName" if "CompanyName" in fields else "Security Name"
-    if symbol_field not in fields or name_field not in fields:
+    header = lines[0].split("|")
+    if not header or header[0] != "Symbol" or header[1] not in {"CompanyName", "Security Name"}:
         raise FreeSourceError("Reg SHO columns are invalid")
     rows = []
-    for source_row, raw in enumerate(reader, 2):
-        if None in raw or any(value is None for value in raw.values()):
+    for source_row, line in enumerate(lines[1:-1], 2):
+        fields = line.split("|")
+        if len(fields) < 2:
             raise FreeSourceError("Reg SHO row shape is invalid")
+        raw = dict(zip(header, fields, strict=False))
         rows.append({
             "source_row": source_row, "trade_date": trade_date,
             "publication_date": published, "venue": venue,
-            "symbol": _text(raw[symbol_field], "Reg SHO symbol").upper(),
-            "security_name": _text(raw[name_field], "Reg SHO security name"),
+            "symbol": _text(fields[0], "Reg SHO symbol").upper(),
+            "security_name": _text(fields[1], "Reg SHO security name"),
             "market_category": _text(raw.get("Market Category"), "market category", optional=True),
             "reg_sho_flag": _text(raw.get("Reg SHO Threshold Flag"), "Reg SHO flag",
                                   optional=True),
@@ -368,11 +371,8 @@ def load_rows(
     frame["source_row"] = [row["source_row"] for row in rows]
     with db.transaction(con):
         if not frame.empty:
-            con.register("_short_batch", frame)
-            try:
+            with db.registered_frame(con, "_short_batch", frame):
                 con.execute(f"INSERT OR IGNORE INTO {table} SELECT * FROM _short_batch")
-            finally:
-                con.unregister("_short_batch")
     after = con.execute(f"SELECT COUNT(*) FROM {table} WHERE source_sha256=?", [source_sha]).fetchone()[0]
     if after != len(rows):
         raise FreeSourceError(f"stored {dataset} batch differs from its source")
@@ -383,7 +383,7 @@ def map_tickers(short_database: Path, reference_database: Path) -> dict:
     """Map exact symbols on their observation dates using both read-only P3 references."""
     if not reference_database.is_file():
         raise FreeSourceError("free-source reference database is missing")
-    con = duckdb.connect(str(short_database))
+    con = db.connect(short_database, wait_s=0)
     try:
         init_schema(con)
         escaped = str(reference_database).replace("'", "''")
