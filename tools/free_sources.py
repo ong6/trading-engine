@@ -20,13 +20,13 @@ import requests
 from engine import free_sources
 from engine.lib import db
 from engine.lib.resources import write_text_atomic
+from sim import nyse
 
 TIINGO_URL = "https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip"
 MASSIVE_ENDPOINT = "https://api.massive.com/v2/aggs/grouped/locale/us/market/stocks/{date}"
 MASSIVE_KEY_PATH = Path.home() / ".config/trading-engine/massive.key"
-MASSIVE_WINDOW_START = date(2024, 10, 1)
-MASSIVE_WINDOW_END = date(2026, 9, 30)
 MASSIVE_INTERVAL_SECONDS = 13.0
+MASSIVE_DAILY_SESSION_CAP = 10
 HTTP_TIMEOUT_SECONDS = 60
 USER_AGENT = "trading-engine-free-source-research/1"
 UTC_NO_CALL_WINDOWS = (
@@ -35,12 +35,37 @@ UTC_NO_CALL_WINDOWS = (
     (day_time(21, 45), day_time(23, 30)),
 )
 NEW_YORK = ZoneInfo("America/New_York")
+NYSE_REGULAR_CLOSE = day_time(16, 0)
+
+
+def _aware_utc(value: datetime, field: str) -> datetime:
+    if not isinstance(value, datetime) or value.utcoffset() is None:
+        raise free_sources.FreeSourceError(f"{field} must be timezone-aware")
+    return value.astimezone(timezone.utc)
+
+
+def _two_years_ago(value: date) -> date:
+    try:
+        return value.replace(year=value.year - 2)
+    except ValueError:  # February 29 becomes February 28 in a non-leap year.
+        return value.replace(year=value.year - 2, day=28)
+
+
+def massive_window(now: datetime) -> tuple[date, date]:
+    """Return the free-tier start and most recent completed NYSE session."""
+    utc = _aware_utc(now, "Massive window timestamp")
+    earliest = _two_years_ago(utc.date()) + timedelta(days=1)
+    local = utc.astimezone(NEW_YORK)
+    latest = local.date()
+    if not nyse.is_session(latest) or local.time().replace(tzinfo=None) < NYSE_REGULAR_CLOSE:
+        latest -= timedelta(days=1)
+    while not nyse.is_session(latest):
+        latest -= timedelta(days=1)
+    return earliest, latest
 
 
 def _network_permitted(now: datetime) -> bool:
-    if not isinstance(now, datetime) or now.utcoffset() is None:
-        raise free_sources.FreeSourceError("network-window timestamp must be timezone-aware")
-    utc = now.astimezone(timezone.utc)
+    utc = _aware_utc(now, "network-window timestamp")
     current = utc.time().replace(tzinfo=None)
     if any(start <= current < end for start, end in UTC_NO_CALL_WINDOWS):
         return False
@@ -155,6 +180,20 @@ def capture_tiingo(
 
 
 def _massive_cache(data_dir: Path, session_date: date) -> tuple[bytes, datetime] | None:
+    receipt = _massive_cache_receipt(data_dir, session_date)
+    if receipt is None:
+        return None
+    raw_path, fetched_at, source_sha = receipt
+    body = raw_path.read_bytes()
+    if hashlib.sha256(body).hexdigest() != source_sha:
+        raise free_sources.FreeSourceError("Massive cached response hash is invalid")
+    free_sources.parse_massive_grouped_daily(body, session_date)
+    return body, fetched_at
+
+
+def _massive_cache_receipt(
+    data_dir: Path, session_date: date,
+) -> tuple[Path, datetime, str] | None:
     directory = data_dir / "massive" / session_date.isoformat()
     receipt_path = directory / "receipt.json"
     if not receipt_path.exists():
@@ -182,11 +221,7 @@ def _massive_cache(data_dir: Path, session_date: date) -> tuple[bytes, datetime]
     raw_path = directory / receipt["raw_file"]
     if raw_path.is_symlink() or not raw_path.is_file():
         raise free_sources.FreeSourceError("Massive cached response is missing or unsafe")
-    body = raw_path.read_bytes()
-    if hashlib.sha256(body).hexdigest() != source_sha:
-        raise free_sources.FreeSourceError("Massive cached response hash is invalid")
-    free_sources.parse_massive_grouped_daily(body, session_date)
-    return body, fetched_at
+    return raw_path, fetched_at, source_sha
 
 
 def _cache_massive(
@@ -228,13 +263,18 @@ def capture_massive_dates(
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
+    window: tuple[date, date] | None = None,
 ) -> list[dict]:
     requested = list(dates)
-    if (not requested or requested != sorted(set(requested))
-            or any(not isinstance(item, date) for item in requested)
-            or requested[0] < MASSIVE_WINDOW_START or requested[-1] > MASSIVE_WINDOW_END):
+    window = massive_window(now()) if window is None else window
+    window_start, window_end = window
+    if (not requested or len(set(requested)) != len(requested)
+            or any(not isinstance(item, date) or isinstance(item, datetime) for item in requested)
+            or any(item < window_start or item > window_end or not nyse.is_session(item)
+                   for item in requested)):
         raise free_sources.FreeSourceError(
-            "Massive dates must be unique, ordered, and inside 2024-10-01..2026-09-30"
+            "Massive dates must be unique NYSE sessions inside "
+            f"{window_start.isoformat()}..{window_end.isoformat()}"
         )
     client = session or requests.Session()
     results, last_started = [], None
@@ -267,9 +307,23 @@ def capture_massive_dates(
                 raise free_sources.FreeSourceError("Massive request failed") from exc
             fetched_at = now()
             body = _response_body(response, "Massive")
-            # Cache before validating, so a parser fix can reload without spending a call.
+            try:
+                parsed = free_sources.parse_massive_grouped_daily(body, session_date)
+            except free_sources.FreeSourceError:
+                # Retain an invalid non-empty response so a parser fix does not spend a call.
+                _cache_massive(data_dir, session_date, body, fetched_at)
+                raise
+            fetched_date = _aware_utc(fetched_at, "Massive fetched_at").date()
+            if not parsed and (fetched_date - session_date).days < 2:
+                results.append({
+                    "source": free_sources.MASSIVE_SOURCE,
+                    "date": session_date.isoformat(),
+                    "status": "not_yet_published",
+                    "row_count": 0,
+                    "resumed": False,
+                })
+                continue
             _cache_massive(data_dir, session_date, body, fetched_at)
-            free_sources.parse_massive_grouped_daily(body, session_date)
             results.append({
                 **_load_massive_response(database, session_date, body, fetched_at),
                 "resumed": False,
@@ -280,15 +334,66 @@ def capture_massive_dates(
     return results
 
 
-def _weekdays(start: date, end: date) -> list[date]:
+def _sessions(start: date, end: date, *, newest_first: bool = False) -> list[date]:
     if start > end:
         raise free_sources.FreeSourceError("Massive start date is after end date")
     result, current = [], start
     while current <= end:
-        if current.weekday() < 5:
+        if nyse.is_session(current):
             result.append(current)
         current += timedelta(days=1)
-    return result
+    return list(reversed(result)) if newest_first else result
+
+
+def _loaded_massive_dates(database: Path) -> set[date]:
+    if not database.exists():
+        return set()
+    con = db.connect(database, read_only=True)
+    try:
+        exists = con.execute(
+            "SELECT COUNT(*) FROM information_schema.tables "
+            "WHERE table_name='free_daily_bars'"
+        ).fetchone()[0]
+        if not exists:
+            return set()
+        return {row[0] for row in con.execute(
+            "SELECT DISTINCT date FROM free_daily_bars"
+        ).fetchall()}
+    finally:
+        con.close()
+
+
+def capture_massive_daily(
+    *, database: Path, data_dir: Path, api_key: str | None = None,
+    session: requests.Session | None = None,
+    now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    monotonic: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> dict:
+    """Load cached sessions and fetch at most ten missing completed sessions, newest first."""
+    window = massive_window(now())
+    loaded = _loaded_massive_dates(database)
+    work, missing_count = [], 0
+    for session_date in _sessions(*window, newest_first=True):
+        cached = _massive_cache_receipt(data_dir, session_date) is not None
+        if cached and session_date not in loaded:
+            work.append(session_date)
+        elif not cached and missing_count < MASSIVE_DAILY_SESSION_CAP:
+            work.append(session_date)
+            missing_count += 1
+    if not work:
+        return {"status": "up_to_date"}
+    key = _load_massive_key() if api_key is None else api_key
+    result = capture_massive_dates(
+        work, api_key=key, database=database, data_dir=data_dir, session=session,
+        now=now, monotonic=monotonic, sleep=sleep, window=window,
+    )
+    return {
+        "status": "complete",
+        "window": {"start": window[0].isoformat(), "end": window[1].isoformat()},
+        "fetched_sessions": missing_count,
+        "result": result,
+    }
 
 
 def _paths(parser: argparse.ArgumentParser) -> None:
@@ -301,24 +406,38 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     tiingo = commands.add_parser("tiingo", help="download and load the public ticker archive")
     _paths(tiingo)
-    massive = commands.add_parser("massive", help="capture the fixed free grouped-daily window")
+    massive = commands.add_parser("massive", help="capture the rolling free grouped-daily window")
     _paths(massive)
-    massive.add_argument("--start", type=date.fromisoformat, default=MASSIVE_WINDOW_START)
-    massive.add_argument("--end", type=date.fromisoformat, default=MASSIVE_WINDOW_END)
+    massive.add_argument("--start", type=date.fromisoformat)
+    massive.add_argument("--end", type=date.fromisoformat)
+    massive.add_argument(
+        "--daily", action="store_true",
+        help="fetch at most ten missing completed sessions, newest first",
+    )
     args = parser.parse_args(argv)
     try:
         if args.command == "tiingo":
             result: object = capture_tiingo(database=args.database, data_dir=args.data_dir)
+        elif args.daily:
+            if args.start is not None or args.end is not None:
+                raise free_sources.FreeSourceError("--daily cannot be combined with --start/--end")
+            result = capture_massive_daily(database=args.database, data_dir=args.data_dir)
         else:
+            window = massive_window(datetime.now(timezone.utc))
+            start = window[0] if args.start is None else args.start
+            end = window[1] if args.end is None else args.end
             key = _load_massive_key()
             result = capture_massive_dates(
-                _weekdays(args.start, args.end), api_key=key,
+                _sessions(start, end), api_key=key, window=window,
                 database=args.database, data_dir=args.data_dir,
             )
     except free_sources.FreeSourceError as exc:
         print(json.dumps({"status": "failed", "reason": str(exc)}, sort_keys=True))
         return 2
-    print(json.dumps({"status": "complete", "result": result}, sort_keys=True))
+    if args.command == "massive" and args.daily:
+        print(json.dumps(result, sort_keys=True))
+    else:
+        print(json.dumps({"status": "complete", "result": result}, sort_keys=True))
     return 0
 
 

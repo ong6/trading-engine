@@ -29,10 +29,10 @@ this bounded free-source phase is unblocked and runs without changing that recom
 
 **Scope.** Download Tiingo's public supported-ticker archive, retain each exact ZIP by content
 hash outside Git, and load its USD `Stock` rows on US exchanges into the isolated
-`free_security_master` table. The Massive Stocks Basic grouped-daily fetcher covers the actual free
-tier window, 2024-10-02 through 2026-09-30. It reads an owner-only key file, waits at least 13
-seconds between calls, retains one exact response per date, resumes from those responses, pauses in
-the registered quiet windows, and loads `free_daily_bars`. Both sources default to
+`free_security_master` table. The Massive Stocks Basic grouped-daily fetcher covers the rolling
+free-tier window. It reads an owner-only key file, waits at least 13 seconds between calls, retains
+one exact response per date, resumes from those responses, pauses in the registered quiet windows,
+and loads `free_daily_bars`. Both sources default to
 `store/pit/free-sources.duckdb` and
 `store/pit/free-sources/`, with explicit path overrides. Audit the master against a consistent
 copy of the operational store and publish `docs/pit-free-audit-2026-10-01.md`. The free SEC history
@@ -55,10 +55,19 @@ endpoint, operational migration, or tracked raw-data file is added.
 ## Phase 0 part 3: Massive grouped daily capture — active 2026-10-02
 
 The individual-use free key now exists in a private owner-only file. A resumable background capture
-is running across 2024-10-02 through 2026-09-30, the exact two-year history available from the free
-tier on 2026-10-02. Requests stop during the registered UTC and New York quiet windows and continue
-from retained date receipts. The first date loaded for the live proof, 2026-09-30, contained 12,613
-US securities; the historical daily responses include names that later delisted.
+is filling the free tier's two-year history. The rolling lower bound is the current UTC date minus
+two years plus one day, and the upper bound is the most recent completed NYSE session. Requests stop
+during the registered UTC and New York quiet windows and continue from retained date receipts. The
+first date loaded for the live proof, 2026-09-30, contained 12,613 US securities; the historical
+daily responses include names that later delisted.
+
+The `massive --daily` mode visits missing completed sessions newest first and fetches at most ten
+per run. Weekends and NYSE holidays are omitted by the engine calendar, cached dates are loaded
+without another request, and a zero-row response for the current or previous UTC date is reported
+as `not_yet_published` without being cached so the next run retries it. Consumers can read a bounded
+bar frame with `engine.free_sources.daily_panel`. `engine.free_sources.mdv60` computes each
+ticker's median dollar volume over the preceding 60 NYSE sessions, strictly before its as-of date;
+it uses VWAP times volume where VWAP exists and close times volume otherwise.
 
 Commit `74225e1` made the loader match real grouped responses. Individual malformed bars are
 quarantined in `free_daily_bars_rejected` rather than failing an otherwise usable date, subject to
