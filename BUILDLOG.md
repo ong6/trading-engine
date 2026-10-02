@@ -1708,4 +1708,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server and tools unchanged; product -55 lines; budget ok.
 - **Next:** deploy revision 9 and resume P16 W9b.
 
+## 2026-10-02 — Make shared study simulation columnar
+
+- **Why:** the orchestrator-approved P18 performance follow-up and two generic native-port
+  evaluation seams.
+- **What:** add the realistic benchmark and immutable ticker/session numpy panel; share it by
+  fork and replace whole-market MDV, history and allocation scans. Add opt-in unevaluable
+  window-end and complete-path rules while retaining default output bytes.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 --dist loadfile` passes at 100%;
+  295 captured pre-existing JSON outputs (53,391,323 bytes) also match byte for byte.
+- **Metrics:** server and tools unchanged; product +542 lines; P18 is 3,438/3,600 farm lines.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from bisect import bisect_right
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date
@@ -37,19 +38,12 @@ def _fill_day(days: tuple[date, ...], base_index: int, fill: FillPoint) -> date 
 
 
 def _price(source: PriceSource, ticker: str, session: date, field: str) -> float | None:
-    bar = source.get(ticker, session)
-    if bar is None:
-        return None
-    value = (bar.intraday_closes.get(field.split("@", 1)[1])
-             if field.startswith("bar_close@") else getattr(bar, field))
+    value = source.value(ticker, session, field)
     return None if value is None else float(value)
 
 
 def _mdv60(source: PriceSource, ticker: str, session: date) -> float | None:
-    values = [bar.close * bar.volume for bar in source.bars
-              if bar.ticker == ticker and bar.session < session
-              and bar.close is not None and bar.close > 0 and bar.volume is not None]
-    return float(np.median(values[-60:])) if values else None
+    return source.mdv60(ticker, session)
 
 
 def _ordered(orders: list[Order], keys: tuple[str, ...]) -> list[Order]:
@@ -245,8 +239,7 @@ def _benchmark_return(benchmark: Benchmark, data: MarketData, universe: Universe
     elif benchmark.kind == "ew_eligible" and benchmark.eligible is not None:
         names = eligible_names(benchmark, data, universe, decision_view, (entry, exit_))
     else:
-        names = sorted({bar.ticker for bar in data.primary.bars
-                        if universe.is_listed(bar.ticker, entry)})
+        names = [ticker for ticker in data.primary.tickers if universe.is_listed(ticker, entry)]
     values = []
     for ticker in names:
         start, end = _price(data.primary, ticker or "", entry, entry_field), _price(
@@ -268,7 +261,8 @@ def _benchmark_return(benchmark: Benchmark, data: MarketData, universe: Universe
 
 def _exit(strategy: EventStrategy, data: MarketData, universe: Universe,
           days: tuple[date, ...], position: OpenPosition, entry_index: int,
-          hard_max: date) -> tuple[date, str, float, str, tuple[str, ...]] | None:
+          hard_max: date, day_indexes: Mapping[date, int]
+          ) -> tuple[date, str, float, str, tuple[str, ...]] | str | None:
     rule, flags = position.order.exit, []
     if rule.kind == "same_session_close":
         target_index, fill, reason = entry_index, FillPoint.close_auction(), rule.kind
@@ -276,6 +270,9 @@ def _exit(strategy: EventStrategy, data: MarketData, universe: Universe,
         target_index, fill, reason = entry_index, rule.fill, rule.kind
     elif rule.kind == "after_n_sessions":
         target_index, fill, reason = entry_index + (rule.sessions or 0), rule.fill, rule.kind
+        if (_fill_day(days, target_index, fill) is None
+                and strategy.window_end == "unevaluable"):
+            return "unevaluable_window_end"
     else:
         if rule.decision_time == "at_close" and not strategy.close_as_indication:
             raise ValueError("first_condition at close requires close_as_indication=True")
@@ -295,6 +292,10 @@ def _exit(strategy: EventStrategy, data: MarketData, universe: Universe,
                         FillPoint.close_auction() if rule.decision_time == "at_close" else
                         FillPoint.bar_close(rule.decision_time or ""))
                 break
+        else:
+            if (entry_index + (rule.sessions or 0) >= len(days)
+                    and strategy.window_end == "unevaluable"):
+                return "unevaluable_window_end"
     if fill is None:
         raise AssertionError("validated exit rule has no fill")
     actual = _fill_day(days, target_index, fill)
@@ -309,7 +310,7 @@ def _exit(strategy: EventStrategy, data: MarketData, universe: Universe,
         return (delist.session, "close", delist.exit_price,
                 "delisting_fallback" if delist.used_fallback else "delisting",
                 ("delisting_return",) if delist.used_fallback else ())
-    field, start = fill.field, days.index(actual)
+    field, start = fill.field, day_indexes[actual]
     value = _price(data.primary, position.ticker, actual, field)
     if value is None:
         flags.append("missing_exit_bar")
@@ -340,6 +341,8 @@ def simulate_events(strategy: EventStrategy, data: MarketData, universe: Univers
     if secondary is not None:
         data = MarketData(data.primary, secondary, data.derived_inputs)
     days, trades, rejected, unfilled, positions = _sessions(data, window), [], [], [], []
+    day_indexes, active_by_day, held_through = ({day: index for index, day in enumerate(days)},
+                                                np.zeros(len(days), dtype=np.int32), {})
     hard_max = days[-1]
     profiles = (costs.primary, *costs.sensitivities)
     for decision_index, session in enumerate(days):
@@ -362,11 +365,8 @@ def simulate_events(strategy: EventStrategy, data: MarketData, universe: Univers
             if entry_session is None:
                 unfilled.append(OrderOutcome(session, order.ticker, "entry_outside_window"))
                 continue
-            held = any(row.ticker == order.ticker
-                       and row.entry_session <= entry_session <= row.exit_session
-                       for row in trades) or any(
-                           row.ticker == order.ticker and row.entry_session <= entry_session
-                           for row in positions)
+            entry_index = day_indexes[entry_session]
+            held = held_through.get(order.ticker, -1) >= entry_index
             if strategy.already_held == "reject" and held:
                 rejected.append(OrderOutcome(session, order.ticker, "already_held"))
                 continue
@@ -377,21 +377,35 @@ def simulate_events(strategy: EventStrategy, data: MarketData, universe: Univers
             if accepted >= (strategy.max_new_per_session or 0):
                 rejected.append(OrderOutcome(session, order.ticker, "max_new_per_session"))
                 continue
-            active = sum(row.entry_session <= entry_session <= row.exit_session for row in trades)
-            active += sum(row.entry_session <= entry_session for row in positions)
+            active = int(active_by_day[entry_index])
             if active >= strategy.max_concurrent:
                 rejected.append(OrderOutcome(session, order.ticker, "max_concurrent"))
                 continue
             position = OpenPosition(order.ticker, order.side, entry_session, entry_price,
                                     order.notional / entry_price, order.notional, order)
-            result = _exit(strategy, data, universe, days, position,
-                           days.index(entry_session), hard_max)
+            result = _exit(strategy, data, universe, days, position, entry_index, hard_max,
+                           day_indexes)
+            if isinstance(result, str):
+                unfilled.append(OrderOutcome(session, order.ticker, result))
+                continue
             if result is None:
                 positions.append(position)
                 unfilled.append(OrderOutcome(session, order.ticker, "missing_exit_bar"))
+                active_by_day[entry_index:] += 1
+                held_through[order.ticker] = len(days)
                 accepted += 1
                 continue
             exit_session, exit_field, exit_price, exit_reason, flags = result
+            exit_index = day_indexes.get(exit_session, bisect_right(days, exit_session) - 1)
+            if strategy.require_complete_path and any(
+                    data.primary.panel.coordinates(order.ticker, day) is None
+                    or (close := data.primary.value(order.ticker, day, "close")) is None
+                    or close < 0 for day in days[entry_index:exit_index + 1]):
+                unfilled.append(OrderOutcome(
+                    session, order.ticker, "unevaluable_incomplete_path"))
+                continue
+            active_by_day[entry_index:exit_index + 1] += 1
+            held_through[order.ticker] = max(held_through.get(order.ticker, -1), exit_index)
             direction = 1 if order.side == "long" else -1
             exit_decision = ({"open": "at_open", "close": "at_close"}[exit_field]
                              if exit_field in {"open", "close"}
@@ -418,8 +432,7 @@ def simulate_events(strategy: EventStrategy, data: MarketData, universe: Univers
                 if resolve(profile).funding_from_data:
                     held = [day for day in days if entry_session <= day <= exit_session]
                     funding = order.notional * direction * sum(
-                        (data.primary.get(order.ticker, day).funding or 0.0)
-                        for day in held if data.primary.get(order.ticker, day) is not None)
+                        data.primary.value(order.ticker, day, "funding") or 0.0 for day in held)
                 total = entry_cost + exit_cost + funding
                 profile_costs[profile] = {"entry": entry_cost, "exit": exit_cost,
                                           "funding": funding, "total": total}
@@ -428,11 +441,10 @@ def simulate_events(strategy: EventStrategy, data: MarketData, universe: Univers
             bench = _benchmark_return(benchmark, data, universe, view, dividend_view, entry_session,
                                       exit_session, order.entry.field, exit_field,
                                       strategy.dividend_withholding)
-            entry_bar = data.primary.get(order.ticker, entry_session)
             trades.append(Trade(entry_session, exit_session, order.ticker, order.side,
                                 order.entry.field, exit_field, entry_price, exit_price,
                                 position.shares, order.notional, mdv,
-                                None if entry_bar is None else entry_bar.auction_volume,
+                                data.primary.value(order.ticker, entry_session, "auction_volume"),
                                 profile_costs, gross, net,
                                 profile_returns, bench, net - bench, net > 0, exit_reason, flags,
                                 order.priority, order.signal, gross_dividend, dividend))

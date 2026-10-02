@@ -202,6 +202,8 @@ class EventStrategy:
     exit_cost_basis: str = "market_value"
     already_held: str = "reject"
     dividend_withholding: float = 0.0
+    window_end: str = "force_close"
+    require_complete_path: bool = False
 
     def __post_init__(self) -> None:
         validate_decision_time(self.decision_time)
@@ -224,6 +226,10 @@ class EventStrategy:
             raise ValueError("already_held must be reject or allow")
         if not 0 <= self.dividend_withholding <= 1:
             raise ValueError("dividend_withholding must be between zero and one")
+        if self.window_end not in {"force_close", "unevaluable"}:
+            raise ValueError("window_end must be force_close or unevaluable")
+        if type(self.require_complete_path) is not bool:
+            raise ValueError("require_complete_path must be boolean")
         object.__setattr__(self, "order_sort_key", keys)
         object.__setattr__(self, "parameters", _parameters(self.parameters))
 

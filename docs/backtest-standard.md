@@ -17,7 +17,8 @@ Before the first run, freeze:
   timestamp;
 - the strategy kind, pure decision function source, canonical parameters, decision time, fill
   point, exit or rebalance rule, notional/capital basis, order priority and signal fields,
-  already-held rule, dividend withholding, universe, and liquidity rule;
+  already-held rule, dividend withholding, `window_end` treatment, whether a complete held-price
+  path is required, universe, and liquidity rule;
 - one primary named cost profile and at least one distinct harsher sensitivity;
 - one benchmark and whether it is the normal gross comparator or the explicitly labelled
   cost-bearing `allocation` mode;
@@ -73,6 +74,12 @@ gross/net/benchmark/excess returns, exit reason, and flags. Entry-notional exit 
 reported registered approximation; market value remains the default. Portfolio ledgers record
 every calendar session's NAV, return, benchmark, gross exposure, turnover, dividend cash,
 per-profile costs and missing-data flags; flat sessions remain zero.
+
+Every event study declares `window_end="force_close"` or `"unevaluable"` and explicitly declares
+`require_complete_path`. Under `unevaluable`, a conditional fallback or fixed exit beyond the run
+window is excluded and counted, without reading beyond the window. With a required complete path,
+any missing or invalid held-session bar likewise excludes and counts the trade. The compatibility
+defaults are forced window-end handling and no complete-path requirement.
 
 A cash dividend belongs to a position held at the ex-date open and is credited through an exit on
 or after that open. Strategy and equal-weight benchmark returns use the same withholding rate;

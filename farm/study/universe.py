@@ -40,7 +40,7 @@ class Universe:
         self.listings = listings
         self.delisting_return = delisting_return
         self._by_ticker = {item.ticker: item for item in listings or ()}
-        self._source_tickers = frozenset(bar.ticker for bar in source.bars)
+        self._source_tickers = frozenset(source.tickers)
         if listings is not None and len(self._by_ticker) != len(listings):
             raise ValueError("one listing interval per ticker is required")
 
@@ -66,7 +66,7 @@ class Universe:
 
     def eligible(self, view: PointInTimeView, session: date, *, min_mdv60: float = 0,
                  min_price: float = 0) -> list[str]:
-        tickers = sorted({bar.ticker for bar in self.source.bars})
+        tickers = self.source.tickers
         result = []
         for ticker in tickers:
             if not self.is_listed(ticker, session):
@@ -84,12 +84,9 @@ class Universe:
         interval = self._by_ticker.get(ticker)
         if interval is None or interval.listed_through is None or interval.listed_through < held_on:
             return None
-        candidates = [bar for bar in self.source.bars if bar.ticker == ticker
-                      and held_on <= bar.session <= interval.listed_through
-                      and bar.close is not None and bar.close >= 0]
-        if candidates:
-            last = candidates[-1]
-            return DelistingExit(ticker, last.session, float(last.close), False, None)
+        last = self.source.panel.last_close(ticker, held_on, interval.listed_through)
+        if last is not None:
+            return DelistingExit(ticker, last[0], last[1], False, None)
         return DelistingExit(ticker, interval.listed_through,
                              entry_price * (1 + self.delisting_return), True,
                              self.delisting_return)

@@ -92,15 +92,21 @@ def _spec_config(strategy: EventStrategy | PortfolioStrategy) -> dict:
     common = {"name": strategy.name, "decision_time": strategy.decision_time,
               "parameters": dict(strategy.parameters)}
     if isinstance(strategy, EventStrategy):
-        return common | {"kind": "event", "max_concurrent_slots": strategy.max_concurrent_slots,
-                         "slot_notional": strategy.slot_notional,
-                         "max_new_per_session": strategy.max_new_per_session,
-                         "order_sort_key": strategy.order_sort_key,
-                         "open_as_indication": strategy.open_as_indication,
-                         "close_as_indication": strategy.close_as_indication,
-                         "exit_cost_basis": strategy.exit_cost_basis,
-                         "already_held": strategy.already_held,
-                         "dividend_withholding": strategy.dividend_withholding}
+        config = common | {
+            "kind": "event", "max_concurrent_slots": strategy.max_concurrent_slots,
+            "slot_notional": strategy.slot_notional,
+            "max_new_per_session": strategy.max_new_per_session,
+            "order_sort_key": strategy.order_sort_key,
+            "open_as_indication": strategy.open_as_indication,
+            "close_as_indication": strategy.close_as_indication,
+            "exit_cost_basis": strategy.exit_cost_basis,
+            "already_held": strategy.already_held,
+            "dividend_withholding": strategy.dividend_withholding}
+        if strategy.window_end != "force_close":
+            config["window_end"] = strategy.window_end
+        if strategy.require_complete_path:
+            config["require_complete_path"] = True
+        return config
     schedule = (strategy.rebalance_schedule if isinstance(strategy.rebalance_schedule, str)
                 else [day.isoformat() for day in strategy.rebalance_schedule])
     return common | {"kind": "portfolio", "rebalance_schedule": schedule,
