@@ -181,6 +181,26 @@ def test_existing_empty_inputs_report_zero_and_wait(con):
     assert families["intraday"]["qualifying_sessions"] == {"1m": 0, "5m": 0}
 
 
+def test_intraday_grouped_readiness_cache_tracks_count_and_latest_timestamp(
+    con, monkeypatch
+):
+    _init_inputs(con)
+    calls = []
+    intraday_readiness._reset_coverage_cache()
+    monkeypatch.setattr(
+        intraday_readiness,
+        "_coverage",
+        lambda *_args: calls.append(True) or intraday_readiness._empty_coverage(),
+    )
+
+    intraday_readiness.assess(con)
+    intraday_readiness.assess(con)
+    con.execute("INSERT INTO intraday_prices VALUES ('SPY', '2026-10-01 14:30:00', '5m')")
+    intraday_readiness.assess(con)
+
+    assert calls == [True, True]
+
+
 def test_legacy_fundamentals_shape_fails_closed(con):
     con.execute("CREATE TABLE fundamentals (ticker VARCHAR, as_of DATE)")
 

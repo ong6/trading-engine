@@ -7,7 +7,10 @@ Wants=network-online.target trae-proxy.service
 Type=oneshot
 WorkingDirectory=%h/trading-engine
 ExecStart=%h/trading-engine/.venv/bin/python -m server.p15_preopen --run
+ExecStartPost=-%h/trading-engine/.venv/bin/python -m tools.publish_snapshot
 Environment=PYTHONUNBUFFERED=1
+Environment=TRADING_ENGINE_DUCKDB_THREADS=8
+Environment=TRADING_ENGINE_DUCKDB_MEMORY_LIMIT=8GB
 Nice=19
 IOSchedulingClass=idle
 TimeoutStartSec=20min

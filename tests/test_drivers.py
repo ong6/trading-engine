@@ -10,6 +10,7 @@ warn-and-continue vs fatal semantics of each stage.
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import shutil
 import subprocess
@@ -116,6 +117,14 @@ def test_happy_path_markers_log_lock_exit(fake_repo, name):
         assert (fake_repo / "logs" / stage_file).exists()
     else:
         assert not list((fake_repo / "logs").glob(".last_stage*"))
+    timings = [json.loads(line) for line in (
+        fake_repo / "logs" / "stage-timings.jsonl"
+    ).read_text().splitlines()]
+    assert timings
+    assert all(item["driver"] == stem for item in timings)
+    assert all(item["seconds"] >= 0 and item["exit"] == 0 for item in timings)
+    assert all(item["started"].endswith("Z") and item["ended"].endswith("Z")
+               for item in timings)
 
 
 @pytest.mark.parametrize("name", DRIVERS)
@@ -145,6 +154,12 @@ def test_daily_fatal_stage_propagates_exit_and_breadcrumb(fake_repo):
     ], "no stage may run after a fatal one"
     log = next((fake_repo / "logs").glob("run-*.log")).read_text()
     assert log.rstrip().endswith(out.rstrip().splitlines()[-1])  # breadcrumb reaches the log
+    timings = [json.loads(line) for line in (
+        fake_repo / "logs" / "stage-timings.jsonl"
+    ).read_text().splitlines()]
+    assert timings[-1]["stage"] == "collect"
+    assert timings[-1]["exit"] == 3
+    assert "STAGE driver=run_daily" in out
 
 
 def test_daily_warn_stages_continue(fake_repo):
@@ -196,9 +211,19 @@ def test_daily_stage_order(fake_repo):
         "engine.verify_prices",
         "engine.queue_runner",
         "engine.queue_runner",
+        "tools.publish_snapshot",
     ]
     assert "-m engine.screen --date 2026-09-04 --skip-if-done" in argv
     assert "-m sim.league --date 2026-09-04 --init --skip-if-done" in argv
+    assert "--release-lock-fd 7" in argv[-4]
+
+
+def test_daily_farm_waits_only_for_verify_reader_release():
+    script = (REPO_ROOT / "engine/run_daily.sh").read_text()
+    assert "engine.verify_prices --sample 40 --sessions 5 --release-lock-fd 7 &" in script
+    assert script.index("--release-lock-fd 7 &") < script.index(
+        'flock -x 7\n    set +e'
+    ) < script.index('wait "${verify_pid}"')
 
 
 def test_daily_market_date_failure_is_fatal_before_screen(fake_repo):
@@ -292,10 +317,11 @@ def test_verify_is_fail_soft(fake_repo):
     assert rc == 0 and "WARN: verification exited non-zero" in out
 
 
-def test_liquid_is_fatal_without_stage(fake_repo):
+def test_liquid_is_fatal_with_stage_timing(fake_repo):
     rc, out, _ = run_driver(fake_repo, "run_weekly_liquid.sh", fail_match="engine.collect")
     assert rc == 3
-    assert "TODO: run_weekly_liquid failed" in out and "(exit 3)" in out and "stage=" not in out
+    assert "TODO: run_weekly_liquid failed" in out and "(exit 3)" in out
+    assert "stage=refresh-liquid" in out
 
 
 def test_appended_logs_vs_truncated_nightly(fake_repo):

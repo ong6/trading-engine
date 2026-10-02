@@ -258,6 +258,42 @@ def test_hourly_observer_retains_and_replays_exact_quote_evidence(monkeypatch, t
         con.close()
 
 
+@pytest.mark.parametrize(
+    "variant_id",
+    ["hourly_market_watch_v5", "four_hour_opportunity_review_v5"],
+)
+def test_observer_uses_one_waiting_database_connection_per_run(
+    monkeypatch, tmp_path, variant_id
+):
+    database = tmp_path / "market.duckdb"
+    _database(database)
+    monkeypatch.setattr(hourly_opportunity_observer, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(intraday_source, "source_version", lambda: "test-v1")
+    original_connect = hourly_opportunity_observer.db.connect
+    calls = []
+
+    def counted_connect(*args, **kwargs):
+        calls.append((args, kwargs))
+        return original_connect(*args, **kwargs)
+
+    monkeypatch.setattr(hourly_opportunity_observer.db, "connect", counted_connect)
+    result = hourly_opportunity_observer.observe(
+        variant_id,
+        database=database,
+        now=NOW,
+        generate=_connector,
+        fetch_news=_news_response,
+        fetch_quote=lambda provider_ticker, _now: _response(_body(symbol=provider_ticker)),
+        capture_cross_checks=lambda *_args, **_kwargs: (
+            [], [], {"status": "admitted", "source_id": "tradingview_unofficial"}
+        ),
+        clock=lambda: NOW + timedelta(seconds=1),
+    )
+
+    assert result["status"] == "completed"
+    assert len(calls) == 1 and calls[0][1]["wait_s"] == 60
+
+
 def test_admitted_cross_check_reaches_prompt_artifact_and_trace(monkeypatch, tmp_path):
     database = tmp_path / "market.duckdb"
     _database(database)
