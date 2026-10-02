@@ -267,8 +267,9 @@ def capture_massive_dates(
                 raise free_sources.FreeSourceError("Massive request failed") from exc
             fetched_at = now()
             body = _response_body(response, "Massive")
-            free_sources.parse_massive_grouped_daily(body, session_date)
+            # Cache before validating, so a parser fix can reload without spending a call.
             _cache_massive(data_dir, session_date, body, fetched_at)
+            free_sources.parse_massive_grouped_daily(body, session_date)
             results.append({
                 **_load_massive_response(database, session_date, body, fetched_at),
                 "resumed": False,

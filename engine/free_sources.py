@@ -31,7 +31,7 @@ MAX_ARCHIVE_BYTES = 64_000_000
 MAX_UNCOMPRESSED_BYTES = 128_000_000
 MAX_RESPONSE_BYTES = 32_000_000
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
-MASSIVE_TICKER = re.compile(r"^[A-Z0-9][A-Z0-9./^-]{0,31}$")
+MASSIVE_TICKER = re.compile(r"^[A-Z0-9][A-Za-z0-9./^-]{0,31}$")  # lowercase marks preferreds/warrants
 
 
 class FreeSourceError(ValueError):
@@ -71,9 +71,22 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         """CREATE TABLE IF NOT EXISTS free_daily_bars (
         date DATE NOT NULL, ticker VARCHAR NOT NULL,
         o DOUBLE NOT NULL, h DOUBLE NOT NULL, l DOUBLE NOT NULL, c DOUBLE NOT NULL,
-        volume BIGINT NOT NULL, vwap DOUBLE, source VARCHAR NOT NULL,
+        volume DOUBLE NOT NULL, vwap DOUBLE, source VARCHAR NOT NULL,
         fetched_at TIMESTAMP NOT NULL, source_sha256 VARCHAR NOT NULL,
         PRIMARY KEY(source_sha256, date, ticker))"""
+    )
+    # Fractional-share trading makes consolidated volume non-integer; widen older tables.
+    volume_type = con.execute(
+        "SELECT data_type FROM information_schema.columns "
+        "WHERE table_name='free_daily_bars' AND column_name='volume'"
+    ).fetchone()
+    if volume_type and volume_type[0] != "DOUBLE":
+        con.execute("ALTER TABLE free_daily_bars ALTER volume TYPE DOUBLE")
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS free_daily_bars_rejected (
+        date DATE NOT NULL, row_index BIGINT NOT NULL, ticker VARCHAR, reason VARCHAR NOT NULL,
+        raw_item VARCHAR NOT NULL, source VARCHAR NOT NULL, fetched_at TIMESTAMP NOT NULL,
+        source_sha256 VARCHAR NOT NULL, PRIMARY KEY(source_sha256, row_index))"""
     )
 
 
@@ -188,8 +201,25 @@ def _number(raw: object, field: str, *, positive: bool = True) -> float:
     return value
 
 
-def parse_massive_grouped_daily(body: bytes, session_date: date) -> list[dict]:
-    """Validate a recorded adjusted grouped-daily response without network access."""
+def _massive_reject(index: int, item: object, reason: str) -> dict:
+    ticker = item.get("T") if isinstance(item, dict) else None
+    return {"row_index": index, "ticker": ticker if isinstance(ticker, str) else None,
+            "reason": reason,
+            "raw_item": json.dumps(item, sort_keys=True, separators=(",", ":"))}
+
+
+MASSIVE_MAX_REJECTED_SHARE = 0.05
+
+
+def parse_massive_grouped_daily_with_rejects(
+    body: bytes, session_date: date,
+) -> tuple[list[dict], list[dict]]:
+    """Validate a recorded adjusted grouped-daily response without network access.
+
+    The envelope is all-or-nothing. Individual bars that fail validation are returned as
+    rejects with a reason instead of failing the date, because real consolidated data carries
+    a few malformed prints; more than MASSIVE_MAX_REJECTED_SHARE rejects fails the date.
+    """
     if not isinstance(body, bytes) or not 0 < len(body) <= MAX_RESPONSE_BYTES:
         raise FreeSourceError("Massive response size is invalid")
     try:
@@ -198,47 +228,74 @@ def parse_massive_grouped_daily(body: bytes, session_date: date) -> list[dict]:
         raise FreeSourceError("Massive response is not valid JSON") from exc
     results = payload.get("results") if isinstance(payload, dict) else None
     count = payload.get("resultsCount") if isinstance(payload, dict) else None
+    if isinstance(payload, dict) and payload.get("status") == "OK" and count == 0 \
+            and results is None:
+        results = []
     if (payload.get("status") != "OK" or payload.get("adjusted") is not True
             or isinstance(count, bool) or not isinstance(count, int) or count < 0
             or not isinstance(results, list) or count != len(results)):
         raise FreeSourceError("Massive response envelope is invalid")
-    parsed, seen = [], set()
-    for item in results:
+    parsed, rejected, seen = [], [], set()
+    for index, item in enumerate(results):
+        ticker = item.get("T") if isinstance(item, dict) else None
+
         if not isinstance(item, dict):
-            raise FreeSourceError("Massive bar shape is invalid")
-        ticker = item.get("T")
+            rejected.append(_massive_reject(index, item, "shape"))
+            continue
         timestamp = item.get("t")
-        if (not isinstance(ticker, str) or MASSIVE_TICKER.fullmatch(ticker) is None
-                or ticker in seen or isinstance(timestamp, bool)
-                or not isinstance(timestamp, int)):
-            raise FreeSourceError("Massive bar identity is invalid")
+        if not isinstance(ticker, str) or MASSIVE_TICKER.fullmatch(ticker) is None:
+            rejected.append(_massive_reject(index, item, "ticker_format"))
+            continue
+        if ticker in seen:
+            rejected.append(_massive_reject(index, item, "duplicate_ticker"))
+            continue
+        if isinstance(timestamp, bool) or not isinstance(timestamp, int):
+            rejected.append(_massive_reject(index, item, "timestamp"))
+            continue
         try:
             event_date = datetime.fromtimestamp(timestamp / 1000, timezone.utc).date()
-        except (OSError, OverflowError, ValueError) as exc:
-            raise FreeSourceError("Massive bar timestamp is invalid") from exc
+        except (OSError, OverflowError, ValueError):
+            rejected.append(_massive_reject(index, item, "timestamp"))
+            continue
         if event_date != session_date:
-            raise FreeSourceError("Massive bar date differs from the requested date")
-        o, high, low, close = (
-            _number(item.get("o"), "open"), _number(item.get("h"), "high"),
-            _number(item.get("l"), "low"), _number(item.get("c"), "close"),
-        )
-        volume_value = _number(item.get("v"), "volume", positive=False)
-        if not volume_value.is_integer() or low > min(o, high, close) or high < max(o, low, close):
-            raise FreeSourceError("Massive OHLCV relationship is invalid")
-        raw_vwap = item.get("vw")
-        vwap = None if raw_vwap is None else _number(raw_vwap, "vwap")
+            rejected.append(_massive_reject(index, item, "date_mismatch"))
+            continue
+        try:
+            o, high, low, close = (
+                _number(item.get("o"), "open"), _number(item.get("h"), "high"),
+                _number(item.get("l"), "low"), _number(item.get("c"), "close"),
+            )
+            volume_value = _number(item.get("v"), "volume", positive=False)
+            raw_vwap = item.get("vw")
+            vwap = None if raw_vwap is None else _number(raw_vwap, "vwap")
+        except FreeSourceError:
+            rejected.append(_massive_reject(index, item, "number"))
+            continue
+        if low > min(o, high, close) or high < max(o, low, close):
+            rejected.append(_massive_reject(index, item, "ohlc_relationship"))
+            continue
         parsed.append({
             "date": session_date, "ticker": ticker, "o": o, "h": high, "l": low,
-            "c": close, "volume": int(volume_value), "vwap": vwap,
+            "c": close, "volume": volume_value, "vwap": vwap,
         })
         seen.add(ticker)
-    return parsed
+    if results and len(rejected) > MASSIVE_MAX_REJECTED_SHARE * len(results):
+        raise FreeSourceError(
+            f"Massive rejected {len(rejected)} of {len(results)} bars, above the "
+            f"{MASSIVE_MAX_REJECTED_SHARE:.0%} limit"
+        )
+    return parsed, rejected
+
+
+def parse_massive_grouped_daily(body: bytes, session_date: date) -> list[dict]:
+    """Return the accepted bars of a recorded grouped-daily response."""
+    return parse_massive_grouped_daily_with_rejects(body, session_date)[0]
 
 
 def load_daily_bars(
     con: duckdb.DuckDBPyConnection, body: bytes, *, session_date: date, fetched_at: datetime,
 ) -> dict:
-    rows = parse_massive_grouped_daily(body, session_date)
+    rows, rejected = parse_massive_grouped_daily_with_rejects(body, session_date)
     source_sha = hashlib.sha256(body).hexdigest()
     fetched = _utc_naive(fetched_at, "fetched_at")
     init_schema(con)
@@ -254,6 +311,14 @@ def load_daily_bars(
                   row["volume"], row["vwap"], MASSIVE_SOURCE, fetched, source_sha]
                  for row in rows],
             )
+        if rejected:
+            con.executemany(
+                """INSERT OR IGNORE INTO free_daily_bars_rejected VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?)""",
+                [[session_date, item["row_index"], item["ticker"], item["reason"],
+                  item["raw_item"], MASSIVE_SOURCE, fetched, source_sha]
+                 for item in rejected],
+            )
     stored = int(con.execute(
         "SELECT COUNT(*) FROM free_daily_bars WHERE source_sha256=?", [source_sha]
     ).fetchone()[0])
@@ -262,4 +327,5 @@ def load_daily_bars(
     return {
         "source": MASSIVE_SOURCE, "source_sha256": source_sha, "date": session_date.isoformat(),
         "row_count": len(rows), "inserted": stored - before, "replayed": before == stored,
+        "rejected": len(rejected),
     }
