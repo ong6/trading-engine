@@ -568,3 +568,17 @@ retain the existing simulation bytes and identity.
 
 **Ceiling changes.** Raise only P18's farm ceiling from 3,000 to 3,600 lines because the benchmark
 and reusable panel cannot fit in the remaining 104 lines. The final P18 farm total is 3,438 lines.
+
+## 2026-10-02 — Capture free Massive minute history for the small-stock tier
+
+**Verdict.** The owner requested the free plan's rolling two years of minute aggregates for the
+USD 1--5M MDV60 tier, plus SPY, QQQ, and IWM, so backtests can measure opening prices, pre-market
+activity, and intraday paths. The orchestrator fixed the universe, storage, pacing, window, resume,
+and priority rules and requested a running background checkpoint before acceptance review.
+
+**Rule changes.** P3 Phase 0 adds one isolated, host-only minute database and content-addressed
+cache. Every Massive caller shares one process-safe 13-second limiter; the minute capture cannot
+mutate operational prices, execution inputs, forward evidence, or private strategy artifacts.
+
+**Ceiling changes.** Add a 1,200-line code-and-test allowance for the three minute-lane files and
+the shared limiter integration. Repository-wide per-layer limits remain removed.

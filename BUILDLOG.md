@@ -1720,4 +1720,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server and tools unchanged; product +542 lines; P18 is 3,438/3,600 farm lines.
 - **Next:** nothing admitted.
 
+## 2026-10-02 — Start the free Massive small-stock minute archive
+
+- **Why:** P3 Phase 0 part 4, directed by the owner and technically specified by the orchestrator.
+- **What:** freeze a 3,302-ticker universe from the completed grouped-daily MDV60 history; add
+  paginated minute parsing, NYSE session tags, content-addressed resume, isolated storage, and a
+  window-aware background runner. Make grouped-daily and minute requests share one process-safe
+  13-second key limiter, with fixture coverage for the existing daily job.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 --dist loadfile` passes at 100%;
+  whole-repository Ruff and the published metrics budget also pass.
+- **Metrics:** server unchanged; tools +361, product +344, tests +244 lines; budget ok.
+- **Next:** the orchestrator reviews checkpoint minute-1 while the resumable capture runs.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

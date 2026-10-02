@@ -55,10 +55,16 @@ benchmark, 16-worker simulation fell from 989.05 to 0.847 seconds (1,167.5×), w
 pre-existing JSON outputs (53,391,323 bytes) stayed byte-identical. Event studies must now declare
 both their window-end treatment and whether they require a complete held-price path.
 
-The free Massive key is present in a private owner-only file. The isolated grouped-daily capture is
-running resumably for 2024-10-02 through 2026-09-30, the free tier's exact two-year window as of
-2026-10-02. Its initial proof date loaded 12,613 US securities. This improves survivor coverage but
-does not provide pre-2024-10 bars or mutate operational prices.
+The free Massive key is present in a private owner-only file. The isolated grouped-daily archive
+holds 501 sessions from 2024-10-02 through 2026-10-01, and its daily service keeps the rolling
+window current. Its initial proof date loaded 12,613 US securities. This improves survivor coverage
+but does not provide pre-2024-10 bars or mutate operational prices.
+
+The free Massive minute capture is also prepared and running independently. Its frozen host-only
+manifest has 3,302 tickers: SPY, QQQ, IWM, and every Tiingo-admitted USD Stock that entered the
+USD 1--5M point-in-time MDV60 tier in the completed grouped-daily archive. Ten 50-session chunks
+per ticker produce a 33,020-request estimate; the capture is resumable, window-aware, and isolated
+from operational and execution prices.
 
 [The challenger lab, text edge, and evaluation science plan
 (P16)](plans/p16-challenger-lab-and-text-edge.md) has built its evaluation through broker-paper
@@ -89,6 +95,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-10-02 | Capture the free Massive rolling two-year minute history for the frozen small-stock tier, with one shared key limiter and isolated storage | P3; feedback |
 | 2026-10-02 | The free Massive key is available and the isolated two-year grouped-daily capture is running resumably; paid point-in-time data remains deferred | P3; site data |
 | 2026-10-02 | Failures are investigated on demand by an agent. There is no push alerting | This page; site operations |
 | 2026-10-02 | A broker paper account on personal hardware, described by the personal-host broker paper plan (P17), is future work and explicitly not work for now | P17; this page; site roadmap |
@@ -152,9 +159,9 @@ Each row has the default that applies until the owner decides.
    uncommitted work on the host. A broken producer beats every item below.
 2. **P15 evidence collection.** P15 is active after its scoring, pre-open, event, report, and
    status checks passed. Keep scheduled windows green and never tune a registered value.
-3. **Finish and audit the free survivor-data capture.** Let the resumable Massive job complete its
-   2024-10-02 through 2026-09-30 window, then audit the isolated daily bars. Paid pre-2024-10 data
-   remains blocked on a future spend decision.
+3. **Finish and audit the free survivor-data captures.** Audit the completed grouped-daily window
+   and let the resumable Massive minute service fill its frozen small-stock manifest. Paid
+   pre-2024-10 data remains blocked on a future spend decision.
 4. **P16 registration, rehearsal, and activation (W9b).** Register and rehearse, then activate
    only the components whose gates permit it: the challenger lab and weekly digest first, the
    filing reader only after its remaining dispatch and activation gates pass. The final refine
