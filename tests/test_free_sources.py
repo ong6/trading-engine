@@ -268,3 +268,72 @@ def test_network_blackouts_are_enforced(instant: datetime):
 
 def test_network_window_boundary_is_permitted():
     assert capture._network_permitted(datetime(2026, 10, 1, 7, 0, tzinfo=timezone.utc)) is True
+
+
+def _massive_body(bars: list[dict]) -> bytes:
+    return json.dumps({
+        "adjusted": True, "queryCount": len(bars), "request_id": "recorded-fixture",
+        "resultsCount": len(bars), "status": "OK", "results": bars,
+    }).encode()
+
+
+def _bar(ticker: str, **overrides) -> dict:
+    bar = {"T": ticker, "o": 10.0, "h": 11.0, "l": 9.5, "c": 10.5,
+           "t": 1790640000000, "v": 1000, "vw": 10.2}
+    bar.update(overrides)
+    return bar
+
+
+def test_massive_accepts_fractional_volume_and_quarantines_bad_bars():
+    bars = [_bar(f"OK{i}") for i in range(30)]
+    bars += [_bar("FRAC", v=1234.5), _bar("BADHL", h=9.0)]
+    body = _massive_body(bars)
+    con = duckdb.connect()
+    try:
+        result = free_sources.load_daily_bars(
+            con, body, session_date=MASSIVE_DATE, fetched_at=FETCHED_AT
+        )
+        frac = con.execute(
+            "SELECT volume FROM free_daily_bars WHERE ticker='FRAC'"
+        ).fetchone()[0]
+        rejected = con.execute(
+            "SELECT ticker, reason FROM free_daily_bars_rejected"
+        ).fetchall()
+    finally:
+        con.close()
+    assert (result["row_count"], result["rejected"]) == (31, 1)
+    assert frac == 1234.5
+    assert rejected == [("BADHL", "ohlc_relationship")]
+
+
+def test_massive_fails_date_when_too_many_bars_are_rejected():
+    bars = [_bar(f"OK{i}") for i in range(10)] + [_bar("BAD", l=12.0)]
+    with pytest.raises(free_sources.FreeSourceError, match="above the 5% limit"):
+        free_sources.parse_massive_grouped_daily(_massive_body(bars), MASSIVE_DATE)
+
+
+def test_massive_accepts_an_empty_holiday_response():
+    body = json.dumps({"adjusted": True, "queryCount": 0, "resultsCount": 0,
+                       "status": "OK", "request_id": "holiday"}).encode()
+    assert free_sources.parse_massive_grouped_daily(body, MASSIVE_DATE) == []
+
+
+def test_massive_schema_widens_integer_volume_tables():
+    con = duckdb.connect()
+    try:
+        con.execute(
+            """CREATE TABLE free_daily_bars (
+            date DATE NOT NULL, ticker VARCHAR NOT NULL,
+            o DOUBLE NOT NULL, h DOUBLE NOT NULL, l DOUBLE NOT NULL, c DOUBLE NOT NULL,
+            volume BIGINT NOT NULL, vwap DOUBLE, source VARCHAR NOT NULL,
+            fetched_at TIMESTAMP NOT NULL, source_sha256 VARCHAR NOT NULL,
+            PRIMARY KEY(source_sha256, date, ticker))"""
+        )
+        free_sources.init_schema(con)
+        kind = con.execute(
+            "SELECT data_type FROM information_schema.columns "
+            "WHERE table_name='free_daily_bars' AND column_name='volume'"
+        ).fetchone()[0]
+    finally:
+        con.close()
+    assert kind == "DOUBLE"
