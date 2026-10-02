@@ -66,7 +66,7 @@ def _decimal(raw: object, field: str, *, optional: bool = False) -> Decimal | No
 
 
 def _text(raw: object, field: str, *, optional: bool = False) -> str | None:
-    value = " ".join(str(raw or "").split())
+    value = " ".join(str(raw or "").replace("\x00", "").split())
     if optional and not value:
         return None
     if not value or len(value) > 4096 or not value.isprintable():
@@ -245,6 +245,8 @@ def parse_sec_ftd(body: bytes) -> list[dict]:
             raise FreeSourceError("SEC FTD columns are invalid")
         member_start = len(rows)
         for line in lines[1:trailer_at]:
+            if not line.strip():
+                continue
             source_row += 1
             fields = line.split("|")
             if len(fields) < 6:

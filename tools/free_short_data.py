@@ -236,6 +236,19 @@ def _bounded(items: Iterable, max_files: int | None) -> list:
     return values if max_files is None else values[:max_files]
 
 
+def _resumed_rows(con: duckdb.DuckDBPyConnection, request_key: str) -> int | None:
+    row = con.execute(
+        "SELECT row_count FROM short_source_receipts WHERE request_key=?", [request_key]
+    ).fetchone()
+    return int(row[0]) if row is not None else None
+
+
+def _record_resume(totals: dict, count: int) -> None:
+    totals["files"] += 1
+    totals["rows"] += count
+    totals["resumed"] += 1
+
+
 def capture_finra_short_interest(client: CachedClient, max_files: int | None = None) -> dict:
     static = _manifest(client, "finra_short_interest", FINRA_STATIC_INDEX, _json_list,
                        suffix=".json")
@@ -258,6 +271,9 @@ def capture_finra_short_interest(client: CachedClient, max_files: int | None = N
         key = f"GET:{url}:null"
         response = client.get("finra_short_interest", url,
                               suffix=Path(url).suffix, request_key=key)
+        if response.resumed and (count := _resumed_rows(client.con, key)) is not None:
+            _record_resume(totals, count)
+            continue
         rows = free_short_data.parse_finra_short_interest(response.body, settlement_date=measured)
         result = free_short_data.load_rows(
             client.con, "finra_short_interest", response.body, rows,
@@ -286,6 +302,9 @@ def capture_sec_ftd(client: CachedClient, max_files: int | None = None) -> dict:
     for url in _bounded(links, max_files):
         key = f"GET:{url}:null"
         response = client.get("sec_ftd", url, suffix=".zip", request_key=key)
+        if response.resumed and (count := _resumed_rows(client.con, key)) is not None:
+            _record_resume(totals, count)
+            continue
         rows = free_short_data.parse_sec_ftd(response.body)
         result = free_short_data.load_rows(
             client.con, "sec_fails_to_deliver", response.body, rows,
@@ -343,6 +362,9 @@ def capture_regsho(
             response = client.get(venue, url, suffix=".txt", request_key=key)
         except _NotFound:
             continue
+        if response.resumed and (count := _resumed_rows(client.con, key)) is not None:
+            _record_resume(totals, count)
+            continue
         rows = free_short_data.parse_regsho_text(
             response.body, venue={"nasdaq": "Nasdaq", "nyse": "NYSE", "cboe": "Cboe"}[venue],
             trade_date=measured,
@@ -372,6 +394,12 @@ def _capture_finra_otc_pages(
         key = f"POST:{FINRA_OTC_DATA}:{start}:{end}:{offset}"
         response = client.get("finra_otc", FINRA_OTC_DATA, method="POST", payload=payload,
                               suffix=".json", request_key=key)
+        if response.resumed and (count := _resumed_rows(client.con, key)) is not None:
+            _record_resume(totals, count)
+            if count < limit:
+                break
+            offset += limit
+            continue
         rows = free_short_data.parse_finra_otc_threshold(response.body)
         result = free_short_data.load_rows(
             client.con, "regsho_threshold", response.body, rows,
@@ -516,7 +544,7 @@ def main(argv: list[str] | None = None) -> int:
                 if args.command in {"ftd", "all"}:
                     result["ftd"] = capture_sec_ftd(client, args.max_files)
                 venues = ("nasdaq", "nyse", "cboe", "finra_otc") if args.command == "all" \
-                    else (args.command,)
+                    else (args.command.replace("-", "_"),)
                 for venue in venues:
                     if venue in {"nasdaq", "nyse", "cboe", "finra_otc"}:
                         result[venue] = capture_regsho(
