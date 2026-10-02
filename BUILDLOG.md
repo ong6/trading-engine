@@ -1732,4 +1732,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server unchanged; tools +361, product +344, tests +244 lines; budget ok.
 - **Next:** the orchestrator reviews checkpoint minute-1 while the resumable capture runs.
 
+## 2026-10-02 — Checkpoint the free shorting-stress archive
+
+- **Why:** P3 Phase 0 part 5, directed by the owner and technically specified by the orchestrator.
+- **What:** add isolated parsers, storage, publication-date gating, symbol/date mapping, collision
+  flags, content-addressed resume, pacing, and the coverage audit for FINRA short interest, SEC
+  FTD, and four Reg SHO venues. FINRA and SEC are complete; Nasdaq pauses at the network blackout.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 --dist loadfile` passes at 100%;
+  focused post-capture fixtures and whole-repository Ruff also pass.
+- **Metrics:** server unchanged; tools +576, product +434, tests +235 lines; budget ok.
+- **Next:** resume the three exchange threshold archives at 2026-10-02 23:30 UTC.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
