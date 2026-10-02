@@ -520,6 +520,8 @@ def test_agent_evaluation_status_delegates_and_closes_connection(monkeypatch):
             self.closed = True
 
     con = Connection()
+    main._reset_evaluation_cache()
+    monkeypatch.setattr(main, "_evaluation_generation_key", lambda _con: ("generation",))
     base = {"schema_version": 1, "status": "capturing"}
     validation = {
         "labels_source_unverifiable": 1,
@@ -557,6 +559,8 @@ def test_agent_evaluation_status_fails_closed_and_closes_connection(monkeypatch)
             self.closed = True
 
     con = Connection()
+    main._reset_evaluation_cache()
+    monkeypatch.setattr(main, "_evaluation_generation_key", lambda _con: ("generation",))
     monkeypatch.setattr(main, "read_con", lambda: con)
     monkeypatch.setattr(
         main.agent_evaluation, "validate_p15_evidence",
@@ -575,6 +579,8 @@ def test_agent_evaluation_status_contains_p16_projection_failure(monkeypatch):
         def close(self):
             pass
 
+    main._reset_evaluation_cache()
+    monkeypatch.setattr(main, "_evaluation_generation_key", lambda _con: ("generation",))
     monkeypatch.setattr(main, "read_con", Connection)
     monkeypatch.setattr(main.agent_evaluation, "validate_p15_evidence", lambda *_args: None)
     monkeypatch.setattr(main.agent_evaluation, "status", lambda *_args: {"status": "capturing"})
@@ -593,3 +599,53 @@ def test_agent_evaluation_status_contains_p16_projection_failure(monkeypatch):
 
     assert result["p15"]["status"] == "collecting"
     assert result["p16"]["status"] == "unavailable"
+
+
+def test_agent_evaluation_validation_and_projection_cache_by_generation(monkeypatch):
+    generation = [1]
+    calls = []
+    main._reset_evaluation_cache()
+    monkeypatch.setattr(
+        main, "_evaluation_generation_key", lambda _con: ("registration", generation[0])
+    )
+    monkeypatch.setattr(
+        main.agent_evaluation,
+        "validate_p15_evidence",
+        lambda *_args: calls.append("validate") or {"validated": True},
+    )
+    monkeypatch.setattr(
+        main.p15_evaluation,
+        "project",
+        lambda *_args, **_kwargs: calls.append("project") or {"p15": {"status": "ok"}},
+    )
+    monkeypatch.setattr(main.p16_status_adapter, "with_primary_kill", lambda value: value)
+
+    first = main._cached_p15_projection(object(), datetime.now(timezone.utc))
+    second = main._cached_p15_projection(object(), datetime.now(timezone.utc))
+    generation[0] = 2
+    third = main._cached_p15_projection(object(), datetime.now(timezone.utc))
+
+    assert first == second == third
+    assert calls == ["validate", "project", "validate", "project"]
+
+
+def test_agent_evaluation_generation_key_covers_count_and_max_id(con, monkeypatch):
+    con.execute("CREATE TABLE audit_with_id (id INTEGER, value VARCHAR)")
+    con.execute("INSERT INTO audit_with_id VALUES (2, 'a'), (7, 'b')")
+    con.execute("CREATE TABLE audit_without_id (value VARCHAR)")
+    con.execute("INSERT INTO audit_without_id VALUES ('a')")
+    monkeypatch.setattr(
+        main,
+        "P15_AUDITED_TABLES",
+        ("audit_with_id", "audit_without_id", "audit_missing"),
+    )
+    monkeypatch.setattr(main.p15_evaluation, "registration_sha256", lambda: "a" * 64)
+
+    assert main._evaluation_generation_key(con) == (
+        "a" * 64,
+        (
+            ("audit_with_id", 2, 7),
+            ("audit_without_id", 1, None),
+            ("audit_missing", 0, None),
+        ),
+    )

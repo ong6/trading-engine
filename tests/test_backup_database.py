@@ -15,7 +15,7 @@ import pytest
 
 from engine import p15_evaluation
 from engine.lib import db as engine_db
-from tools import backup_database
+from tools import backup_database, publish_snapshot
 
 
 def _source_database(path: Path) -> None:
@@ -184,6 +184,20 @@ def test_create_and_verify_transactional_bundle(tmp_path):
         ("SPY",),
     ]
     connection.close()
+
+
+def test_create_uses_fresh_latest_snapshot_instead_of_live_store(tmp_path):
+    root, source = _repo(tmp_path)
+    published = publish_snapshot.publish_snapshot(root, source)
+    destination = tmp_path / "outside" / "snapshot"
+
+    backup_database.create_backup(root, source, destination)
+
+    manifest = json.loads((destination / backup_database.MANIFEST_FILENAME).read_text())
+    assert manifest["source_database"] == {
+        "kind": "repository-relative",
+        "path": f"store/snapshots/{published['snapshot']}",
+    }
 
 
 def test_backup_restores_persisted_p15_look_with_external_anchor(tmp_path):

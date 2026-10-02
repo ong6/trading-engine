@@ -14,8 +14,10 @@ from __future__ import annotations
 import time
 from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime, timezone
+from threading import Lock
 from typing import Annotated, Any, Iterator, Literal, TypeAlias, TypeVar
 
 import duckdb
@@ -59,6 +61,7 @@ from . import (
     ticket_contract,
     tickets,
 )
+from . import db as server_db
 from . import research_readiness as readiness
 from .db import DBBusyError, read_con, write_con
 from .read_model_utils import (
@@ -80,6 +83,51 @@ HEALTH_STATUSES = frozenset({"ok", "busy", "unreadable"})
 AsgiReceive: TypeAlias = Callable[[], Awaitable[dict[str, Any]]]
 AsgiSend: TypeAlias = Callable[[dict[str, Any]], Awaitable[None]]
 AsgiApp: TypeAlias = Callable[[dict[str, Any], AsgiReceive, AsgiSend], Awaitable[None]]
+
+P15_AUDITED_TABLES = (
+    "prices",
+    "portfolios",
+    "sim_orders",
+    "sim_fills",
+    "sim_equity",
+    "bitemporal_facts",
+    "source_response_receipts",
+    "agent_evaluation_traces",
+    "agent_evaluation_decisions",
+    "agent_evaluation_labels_v2",
+    "agent_evaluation_execution_links",
+    "daily_opportunity_exit_rules",
+    "daily_opportunity_exit_events",
+    "p15_evaluation_origin_grid",
+    "p15_evaluation_looks",
+    "p15_evaluation_look_anchors",
+    "p15_price_fetch_batches",
+    "price_fetch_attempts",
+    "p15_open_label_fetch_receipts",
+    "p15_scoring_runs",
+    "p15_scoring_samples",
+    "p15_scoring_news_responses",
+    "p15_preopen_runs",
+    "p15_preopen_decisions",
+    "p15_preopen_news_responses",
+    "p15_execution_quality",
+    "p15_book_contracts",
+    "p15_book_state",
+    "p15_order_intents",
+    "p15_position_rules",
+    "p15_limit_attempts",
+    "p15_book_windows",
+    "p15_book_fills",
+    "p15_limit_labels",
+    "p15_event_source_state",
+    "p15_event_triggers",
+    "p15_event_windows",
+    "p15_event_calls",
+    "p15_event_decisions",
+    "p15_event_labels",
+)
+_EVALUATION_CACHE_LOCK = Lock()
+_EVALUATION_CACHE: tuple[tuple, tuple[dict, dict]] | None = None
 
 
 def _is_allowed_host_header(value: str) -> bool:
@@ -111,8 +159,33 @@ class ExactHostMiddleware:
         await self.app(scope, receive, send)
 
 
+class DataSourceHeaderMiddleware:
+    """Identify responses served from an immutable database snapshot."""
+
+    def __init__(self, app: AsgiApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict[str, Any], receive: AsgiReceive, send: AsgiSend) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        with server_db.response_data_source() as state:
+            async def send_with_source(message: dict[str, Any]) -> None:
+                if message["type"] == "http.response.start" and state["source"] == "snapshot":
+                    headers = list(message.get("headers", []))
+                    headers.append((b"x-data-source", b"snapshot"))
+                    headers.append(
+                        (b"x-snapshot-as-of", str(state["snapshot_as_of"]).encode("ascii"))
+                    )
+                    message = {**message, "headers": headers}
+                await send(message)
+
+            await self.app(scope, receive, send_with_source)
+
+
 app = FastAPI(title="trading-engine paper backend", version="0.1.0")
 app.add_middleware(ExactHostMiddleware)
+app.add_middleware(DataSourceHeaderMiddleware)
 
 
 @contextmanager
@@ -156,6 +229,51 @@ def _validated_ticket_id(value: int) -> int:
         return require_public_positive_integer(value)
     except ValueError as exc:
         raise HTTPException(422, "ticket identifier is invalid") from exc
+
+
+def _evaluation_generation_key(con: duckdb.DuckDBPyConnection) -> tuple:
+    """Fingerprint every table read by P15 evidence validation/projection."""
+    registration = p15_evaluation.registration_sha256()
+    columns = con.execute(
+        "SELECT table_name,column_name FROM information_schema.columns "
+        f"WHERE table_name IN ({','.join(['?'] * len(P15_AUDITED_TABLES))})",
+        list(P15_AUDITED_TABLES),
+    ).fetchall()
+    by_table: dict[str, set[str]] = {}
+    for table, column in columns:
+        by_table.setdefault(table, set()).add(column)
+    generations = []
+    for table in P15_AUDITED_TABLES:
+        if table not in by_table:
+            generations.append((table, 0, None))
+            continue
+        maximum = ",MAX(id)" if "id" in by_table[table] else ""
+        row = con.execute(f'SELECT COUNT(*){maximum} FROM "{table}"').fetchone()
+        generations.append((table, int(row[0]), row[1] if maximum else None))
+    return registration, tuple(generations)
+
+
+def _cached_p15_projection(
+    con: duckdb.DuckDBPyConnection, generated_at: datetime,
+) -> tuple[dict, dict]:
+    global _EVALUATION_CACHE
+    key = _evaluation_generation_key(con)
+    with _EVALUATION_CACHE_LOCK:
+        if _EVALUATION_CACHE is not None and _EVALUATION_CACHE[0] == key:
+            return deepcopy(_EVALUATION_CACHE[1])
+        evidence_status = agent_evaluation.validate_p15_evidence(con, generated_at) or {}
+        p15 = p16_status_adapter.with_primary_kill(
+            p15_evaluation.project(con, generated_at=generated_at),
+        )
+        value = evidence_status, p15
+        _EVALUATION_CACHE = key, deepcopy(value)
+        return value
+
+
+def _reset_evaluation_cache() -> None:
+    global _EVALUATION_CACHE
+    with _EVALUATION_CACHE_LOCK:
+        _EVALUATION_CACHE = None
 
 
 @app.exception_handler(DBBusyError)
@@ -511,19 +629,17 @@ def daily_opportunity_status():
 
 @app.get("/agent/evaluation/status")
 def agent_evaluation_status():
-    with _connection(read_con) as con:
-        try:
-            generated_at = datetime.now(timezone.utc)
-            evidence_status = agent_evaluation.validate_p15_evidence(con, generated_at) or {}
-            p15 = p16_status_adapter.with_primary_kill(
-                p15_evaluation.project(con, generated_at=generated_at),
-            )
-            result = {**agent_evaluation.status(con), **evidence_status,
-                      "schema_version": 3, **p15,
-                      "trial_count_register": agent_trial_register.project(con, generated_at)}
-        except (OSError, ValueError, agent_evaluation.EvaluationError) as exc:
-            raise HTTPException(503, "agent evaluation status unavailable") from exc
-        return {**result, "p16": p16_status_adapter.project(con, generated_at=generated_at)}
+    with server_db.require_fresh_evidence_snapshot():
+        with _connection(read_con) as con:
+            try:
+                generated_at = datetime.now(timezone.utc)
+                evidence_status, p15 = _cached_p15_projection(con, generated_at)
+                result = {**agent_evaluation.status(con), **evidence_status,
+                          "schema_version": 3, **p15,
+                          "trial_count_register": agent_trial_register.project(con, generated_at)}
+            except (OSError, ValueError, agent_evaluation.EvaluationError) as exc:
+                raise HTTPException(503, "agent evaluation status unavailable") from exc
+            return {**result, "p16": p16_status_adapter.project(con, generated_at=generated_at)}
 
 
 @app.post("/agent/proposals/shadow", dependencies=JSON_MUTATION_DEPENDENCY)
