@@ -52,6 +52,51 @@ delisting returns. The live capture below is a follow-up to that completed check
 reviewable commits below the repository's 1,500-line limit. No dependency, service, timer,
 endpoint, operational migration, or tracked raw-data file is added.
 
+## Phase 0 part 4: SEC nightly bulk fundamentals — active 2026-10-02
+
+Use the official nightly `companyfacts.zip` and `submissions.zip`, plus every older submissions
+page named by the latter, to load core point-in-time fundamentals and 8-K item 2.02 earnings events
+from 2004 onward. Requests use one connection, the private runtime contact, five-per-second pacing,
+the existing quiet windows, resumable partial files, and content-addressed raw archives. The
+isolated, configurable default database is `store/pit/sec-bulk.duckdb` in the main checkout.
+
+`sec_facts` retains every selected source observation and accession. Revenue, net income, basic and
+diluted EPS, operating cash flow, assets, liabilities, equity, shares outstanding, dividends per
+share, R&D, and SG&A use the documented ordered tag fallbacks in the dated audit. A fact becomes
+available at its matching submission acceptance timestamp; without a match it waits until end of
+the filing date in America/New_York. The `sec_fundamentals_asof(as_of)` table macro chooses the
+latest known company/concept fact without replacing restatements. `sec_earnings_events` retains
+8-K and 8-K/A filings whose exact item list contains `2.02`, with timezone-aware acceptance.
+
+CIK/ticker observations are copied only from the existing read-only `free_cik_ticker_history`
+view. The audit reads the latest market snapshot read-only and reports facts, companies and events
+by year, ticker match rates, and the share of SEC earnings events within one calendar day of an
+existing engine earnings date. Raw archives and the database remain host-only.
+
+**Claimed files.** Only `engine/free_sec_bulk.py`, `tools/free_sec_bulk.py`,
+`tests/test_free_sec_bulk.py`, `docs/sec-bulk-audit-2026-10-02.md`, and this phase's P3, product,
+feedback, budget and BUILDLOG entries. No P15-registered file or XS forward-contract file changes.
+
+**Done when.** Recorded ZIP fixtures prove parsing, acceptance-time as-of behavior, retained
+restatements, item filtering, pacing, resumable download, and missing-contact refusal; live HEAD
+checks pass in an allowed window; all archives and pages are cached and loaded; the audit is
+filled; focused and full tests, whole-repository Ruff and the metrics budget pass; and only
+`p3/sec-bulk` is pushed.
+
+**Budget.** Up to 1,800 code-and-test lines in the three claimed modules, in logical commits below
+the repository's 1,500-insertion cap. The audit data and bounded plan entries do not count toward
+that allowance.
+
+### How to run this Phase 0 part
+
+Build and prove fixtures before any request. Start with HEAD checks in a permitted window, then
+load Submissions and every referenced page before Companyfacts so accession matches get their exact
+clock. Resume at later windows when necessary. Audit against read-only inputs, run the required
+repository gates once, publish metrics and BUILDLOG, and push the lane branch.
+
+**Checkpoint.** Offline implementation and its five fixture tests are complete. Live URL checks,
+downloads, counts, audit and final repository gates wait for the first permitted window.
+
 ## Phase 0 part 3: Massive grouped daily capture — active 2026-10-02
 
 The individual-use free key now exists in a private owner-only file. A resumable background capture

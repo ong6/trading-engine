@@ -568,3 +568,18 @@ retain the existing simulation bytes and identity.
 
 **Ceiling changes.** Raise only P18's farm ceiling from 3,000 to 3,600 lines because the benchmark
 and reusable panel cannot fit in the remaining 104 lines. The final P18 farm total is 3,438 lines.
+
+## 2026-10-02 — Add SEC nightly bulk fundamentals and earnings timestamps to P3
+
+**Verdict.** The owner requested more free historical data for backtests. The orchestrator approved
+SEC `companyfacts.zip` and `submissions.zip`, including referenced older submission pages, as a
+bounded P3 phase using the existing private SEC contact and isolated host-only storage.
+
+**Rule changes.** The new phase owns only `engine/free_sec_bulk.py`, `tools/free_sec_bulk.py`,
+`tests/test_free_sec_bulk.py`, its P3 documentation, and `store/pit/sec-bulk.duckdb`. Filing
+acceptance is the availability clock, with filing-date end of day only when no matching acceptance
+exists; restatements remain separate. It may read the existing CIK history and market snapshot but
+must not mutate them, operational prices, registered files, or forward contracts.
+
+**Ceiling changes.** Add a 1,800-line code-and-test allowance for P3 SEC bulk work, split into
+commits below the repository's 1,500-insertion limit.
