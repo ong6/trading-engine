@@ -21,6 +21,12 @@ batch API). Returns a list of one date (single/confirmed) or two (an estimate
 window); we store each date with is_estimate = (len != 1). Never fabricate a
 date: a name that returns no calendar / no date is counted, not stored.
 
+Nightly refreshes are bounded to names whose next known date is within 21 NYSE
+sessions, whose last successful response had no upcoming date, or whose last
+successful pull is more than seven calendar days old. Monday UTC is the weekly
+full pass, so every eligible name is refreshed at least weekly even when its
+known date is distant. Explicit ticker requests also remain full operator pulls.
+
 Guardrails: append-only (db.insert_earnings anti-joins on
 (ticker, earnings_date, as_of) — a re-run on the same day inserts nothing), polite
 per-name pulls (small sleep, one backoff retry then record a gap), honest
@@ -49,6 +55,9 @@ log = get_logger("earnings")
 PER_NAME_SLEEP = 0.4       # politeness pause between per-name .calendar requests
 RETRY_SLEEP = 15           # one backoff before recording a name as a gap
 FLUSH_EVERY = 25           # insert + checkpoint progress every N names (resumability)
+NEAR_EARNINGS_SESSIONS = 21
+STALE_AFTER_DAYS = 7
+FULL_PASS_ISO_WEEKDAY = 1  # Monday; refresh the whole universe after the weekend
 
 
 # --------------------------------------------------------------------------- #
@@ -139,6 +148,83 @@ def _already_done(con, as_of: date) -> set[str]:
     return {r[0] for r in rows}
 
 
+def _near_cutoff(as_of: date) -> date:
+    """Inclusive end date of the next 21 NYSE sessions, counting ``as_of``."""
+    import pandas_market_calendars as mcal
+
+    sessions = mcal.get_calendar("NYSE").valid_days(
+        start_date=as_of.isoformat(),
+        end_date=(as_of + pd.Timedelta(days=45)).isoformat(),
+    )
+    if len(sessions) < NEAR_EARNINGS_SESSIONS:
+        raise RuntimeError("could not resolve the next 21 NYSE sessions")
+    return sessions[NEAR_EARNINGS_SESSIONS - 1].date()
+
+
+def _select_due(
+    con, pairs: list[tuple[str, str]], as_of: date, *, full: bool,
+) -> tuple[list[tuple[str, str]], dict[str, int | str]]:
+    """Select the bounded nightly refresh while preserving a weekly full pass."""
+    if full or not pairs:
+        return pairs, {
+            "mode": "weekly-full" if full else "nightly-bounded",
+            "near_sessions": NEAR_EARNINGS_SESSIONS,
+            "stale_after_days": STALE_AFTER_DAYS,
+            "unknown": 0,
+            "near": 0,
+            "stale": 0,
+            "deferred": 0,
+        }
+
+    tickers = [ticker for ticker, _provider in pairs]
+    placeholders = ",".join(["?"] * len(tickers))
+    rows = con.execute(
+        f"""
+        WITH successful AS (
+            SELECT ticker, as_of FROM earnings_fetch_log
+            WHERE status IN ('ok', 'empty') AND ticker IN ({placeholders})
+            UNION ALL
+            SELECT ticker, as_of FROM earnings_calendar
+            WHERE ticker IN ({placeholders})
+        ), latest AS (
+            SELECT ticker, MAX(as_of) AS fetched_on
+            FROM successful GROUP BY ticker
+        )
+        SELECT l.ticker, l.fetched_on,
+               MIN(e.earnings_date) FILTER (WHERE e.earnings_date >= ?) AS next_date
+        FROM latest l
+        LEFT JOIN earnings_calendar e
+          ON e.ticker = l.ticker AND e.as_of = l.fetched_on
+        GROUP BY l.ticker, l.fetched_on
+        """,
+        [*tickers, *tickers, as_of],
+    ).fetchall()
+    latest = {ticker: (fetched_on, next_date) for ticker, fetched_on, next_date in rows}
+    cutoff = _near_cutoff(as_of)
+    stale_before = as_of - pd.Timedelta(days=STALE_AFTER_DAYS)
+    selected = []
+    counts = {"unknown": 0, "near": 0, "stale": 0, "deferred": 0}
+    for pair in pairs:
+        fetched_on, next_date = latest.get(pair[0], (None, None))
+        if fetched_on is None or next_date is None:
+            reason = "unknown"
+        elif fetched_on < stale_before:
+            reason = "stale"
+        elif as_of <= next_date <= cutoff:
+            reason = "near"
+        else:
+            counts["deferred"] += 1
+            continue
+        counts[reason] += 1
+        selected.append(pair)
+    return selected, {
+        "mode": "nightly-bounded",
+        "near_sessions": NEAR_EARNINGS_SESSIONS,
+        "stale_after_days": STALE_AFTER_DAYS,
+        **counts,
+    }
+
+
 # --------------------------------------------------------------------------- #
 # per-name fetch
 # --------------------------------------------------------------------------- #
@@ -197,10 +283,14 @@ def _prepare_run(con, params: dict, as_of: date):
     limit = params.get("limit")
     if limit:
         pairs = pairs[: int(limit)]
+    full = bool(params.get("full")) or bool(params.get("tickers"))
+    if not full:
+        full = as_of.isoweekday() == FULL_PASS_ISO_WEEKDAY
+    selected, selection = _select_due(con, pairs, as_of, full=full)
     done = _already_done(con, as_of)
-    pending = [(tk, yft) for tk, yft in pairs if tk not in done]
-    already_done = len(done & {tk for tk, _ in pairs})
-    return pairs, source, pending, already_done
+    pending = [(tk, yft) for tk, yft in selected if tk not in done]
+    already_done = len(done & {tk for tk, _ in selected})
+    return pairs, source, pending, already_done, selection
 
 
 def _write_checkpoint(con, calendar_rows: list[dict], fetch_rows: list[dict], as_of: date) -> int:
@@ -218,13 +308,16 @@ def _pull_pending(
     source: str,
     pending: list[tuple[str, str]],
     already_done: int,
+    selection: dict[str, int | str],
     as_of: date,
     checkpoint: Callable[[list[dict], list[dict]], int],
     count_rows: Callable[[], int],
     meta_path: str | Path,
 ) -> dict:
     """Network loop shared by persistent and connection-narrowed entry points."""
+    selected = len(pending) + already_done
     log.info(f"[earnings] as_of={as_of} universe={len(pairs)} source='{source}' "
+          f"selection={selection['mode']} selected={selected} "
           f"already_done_today={already_done} pending={len(pending)}")
 
     inserted = 0
@@ -275,6 +368,9 @@ def _pull_pending(
         "as_of": as_of.isoformat(),
         "universe": len(pairs),
         "universe_source": source,
+        "selection": selection,
+        "selected_for_refresh": selected,
+        "deferred_this_run": len(pairs) - selected,
         "pulled_this_run": len(pending),
         "with_upcoming_date": with_date,
         "no_upcoming_date": no_date,
@@ -309,12 +405,13 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
     params = params or {}
     db.init_mining_schema(con)
     as_of = datetime.now(timezone.utc).date()
-    pairs, source, pending, already_done = _prepare_run(con, params, as_of)
+    pairs, source, pending, already_done, selection = _prepare_run(con, params, as_of)
     return _pull_pending(
         pairs,
         source,
         pending,
         already_done,
+        selection,
         as_of,
         lambda calendar_rows, fetch_rows: _write_checkpoint(
             con, calendar_rows, fetch_rows, as_of
@@ -365,7 +462,11 @@ def run_connection_narrowed(
         finally:
             read_con.close()
 
-    return _pull_pending(*prepared, as_of, checkpoint, count_rows, meta_path)
+    pairs, source, pending, already_done, selection = prepared
+    return _pull_pending(
+        pairs, source, pending, already_done, selection, as_of,
+        checkpoint, count_rows, meta_path,
+    )
 
 
 # --------------------------------------------------------------------------- #

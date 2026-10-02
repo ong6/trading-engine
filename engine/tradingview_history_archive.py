@@ -25,6 +25,9 @@ COHORT = re.compile(r"^[a-z0-9][a-z0-9._-]{2,63}$")
 EXCHANGE_PREFIX = {"Q": "NASDAQ", "P": "AMEX", "N": "NYSE",
                    "A": "AMEX", "Z": "CBOE", "F": "OTC"}
 CHUNK_DAYS = 550
+INCREMENTAL_MIN_SESSIONS = 2
+INCREMENTAL_MAX_SESSIONS = 4
+INCREMENTAL_WINDOW_DAYS = 14
 MAX_CHUNKS_PER_RUN = 100
 DEFAULT_MAX_CHUNKS = 50
 DEFAULT_MAX_ATTEMPTS = 3
@@ -142,21 +145,34 @@ def _pending_chunks(
         raise ArchiveError("archive cohort is absent or through date precedes its start")
     rows = con.execute(
         "SELECT s.ordinal,s.ticker,s.provider_symbol,COALESCE(MAX(a.end_date) FILTER "
-        "(WHERE a.status IN ('complete','empty')),? - INTERVAL 1 DAY) AS completed_through "
+        "(WHERE a.status IN ('complete','empty')),? - INTERVAL 1 DAY) AS completed_through, "
+        "COUNT(a.id) FILTER (WHERE a.status IN ('complete','empty')) AS completed_attempts "
         "FROM tradingview_history_symbols s LEFT JOIN tradingview_history_attempts a "
         "ON a.cohort_id=s.cohort_id AND a.ticker=s.ticker "
         "WHERE s.cohort_id=? GROUP BY s.ordinal,s.ticker,s.provider_symbol "
         "ORDER BY s.ordinal", [cohort[0], cohort_id],
     ).fetchall()
+    sessions = [row[0] for row in con.execute(
+        "SELECT DISTINCT date FROM prices WHERE date <= ? ORDER BY date", [through]
+    ).fetchall()]
     rows.sort(key=lambda row: (row[3], row[0]))
     pending = []
-    for _ordinal, ticker, provider_symbol, completed_through in rows:
+    for _ordinal, ticker, provider_symbol, completed_through, completed_attempts in rows:
         if isinstance(completed_through, datetime):
             completed_through = completed_through.date()
         start = completed_through + timedelta(days=1)
         if start > through:
             continue
         end = min(start + timedelta(days=CHUNK_DAYS), through)
+        # A caught-up symbol used to spend one request on each newly completed
+        # session. Let 2-4 operational sessions accumulate and request them as
+        # one range instead. Long historical backfills retain the existing
+        # 550-day chunk so this only improves the incremental tail.
+        if completed_attempts and (through - start).days <= INCREMENTAL_WINDOW_DAYS:
+            remaining = [day for day in sessions if start <= day <= through]
+            if len(remaining) < INCREMENTAL_MIN_SESSIONS:
+                continue
+            end = remaining[min(len(remaining), INCREMENTAL_MAX_SESSIONS) - 1]
         failures = int(con.execute(
             "SELECT COUNT(*) FROM tradingview_history_attempts WHERE cohort_id=? "
             "AND ticker=? AND start_date=? AND end_date=? AND status='failed'",
