@@ -66,6 +66,12 @@ USD 1--5M point-in-time MDV60 tier in the completed grouped-daily archive. Ten 5
 per ticker produce a 33,020-request estimate; the capture is resumable, window-aware, and isolated
 from operational and execution prices.
 
+The free 2017 Kaggle price archive was also censused before any loader was built. Only 1 of 247
+sampled Tiingo-ended intervals matched both endpoints within ±5 sessions (0.405%, below the frozen
+30% gate), and just 10 of 8,507 populated archive tickers ended more than 30 sessions before the
+archive boundary. It is a current-at-cutoff, current-vintage-adjusted survivor snapshot; the
+recommendation is skip and zero rows were loaded.
+
 [The challenger lab, text edge, and evaluation science plan
 (P16)](plans/p16-challenger-lab-and-text-edge.md) has built its evaluation through broker-paper
 design workstreams (W1–W8) and the cleanup half of activation (W9a). They remain inert. The
