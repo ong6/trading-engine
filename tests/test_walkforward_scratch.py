@@ -8,9 +8,9 @@ import signal
 from datetime import date
 from pathlib import Path
 
+from engine import queue_runner as qr
 from engine.lib import db
 from farm.walkforward import runner
-from farm.walkforward import scratch as wf_scratch
 
 
 def test_orphan_sweep_never_removes_locked_or_open_directory(tmp_path):
@@ -22,8 +22,8 @@ def test_orphan_sweep_never_removes_locked_or_open_directory(tmp_path):
         (directory / "replay.duckdb").write_bytes(b"scratch")
 
     with (opened / "replay.duckdb").open("rb") as open_db:
-        with wf_scratch.hold_directory(locked):
-            stats = wf_scratch.sweep_orphans(tmp_path)
+        with runner._hold_scratch_directory(locked):
+            stats = qr._sweep_walkforward_orphans(tmp_path)
             assert open_db.read(1) == b"s"
             assert stats["removed"] == 1
             assert stats["held"] == 2
@@ -31,7 +31,7 @@ def test_orphan_sweep_never_removes_locked_or_open_directory(tmp_path):
             assert locked.exists()
             assert opened.exists()
 
-    stats = wf_scratch.sweep_orphans(tmp_path)
+    stats = qr._sweep_walkforward_orphans(tmp_path)
     assert stats["removed"] == 2
     assert not locked.exists()
     assert not opened.exists()
@@ -72,7 +72,7 @@ def _book(config_id="probe"):
 def test_sigterm_runs_walkforward_finally_cleanup(monkeypatch, tmp_path):
     context = multiprocessing.get_context("fork")
     building = context.Event()
-    monkeypatch.delenv(wf_scratch.SHARED_RUN_ENV, raising=False)
+    monkeypatch.delenv(runner.SHARED_RUN_ENV, raising=False)
     monkeypatch.setattr(runner, "_provenance", lambda _cfg: {})
     monkeypatch.setattr(runner, "data_snapshot", lambda _con: {})
     monkeypatch.setattr(runner, "data_floor", lambda *_args: date(2000, 1, 1))
@@ -158,7 +158,7 @@ def test_shared_overlay_fixture_grid_matches_private_results(
     old_root = tmp_path / "old"
     new_root = tmp_path / "new"
     old = []
-    monkeypatch.delenv(wf_scratch.SHARED_RUN_ENV, raising=False)
+    monkeypatch.delenv(runner.SHARED_RUN_ENV, raising=False)
     for config_id in ("fixture-a", "fixture-b"):
         old.append(runner.run_book(
             con, config_id, anchor=date(2026, 1, 3), n_folds=1,
@@ -166,7 +166,7 @@ def test_shared_overlay_fixture_grid_matches_private_results(
             write_result=False, verbose=False, threads=None, mem_mb=None,
         ))
 
-    monkeypatch.setenv(wf_scratch.SHARED_RUN_ENV, "fixture-grid")
+    monkeypatch.setenv(runner.SHARED_RUN_ENV, "fixture-grid")
     new = []
     for config_id in ("fixture-a", "fixture-b"):
         new.append(runner.run_book(
