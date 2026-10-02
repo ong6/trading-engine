@@ -94,23 +94,6 @@ read-only workers may run jobs explicitly marked `parallel_safe`; a budget expir
 new work and never kills an in-flight job. Do not launch a second nightly or queue drain around a
 held producer lock.
 
-DuckDB keeps its own defaults when the resource variables are unset. Scheduled workloads set the
-following explicit caps; operators may override them with `TRADING_ENGINE_DUCKDB_THREADS`,
-`TRADING_ENGINE_DUCKDB_MEMORY_LIMIT`, and `TRADING_ENGINE_DUCKDB_TEMP_DIR`:
-
-| Workload | Threads | Memory limit |
-|---|---:|---:|
-| Nightly and in-process queue work | 16 | 24GB |
-| TradingView history queue service | 16 | 24GB |
-| API | 4 | 4GB |
-| Hourly, four-hour, P8 daily-opportunity, and P15 services | 8 | 8GB |
-| Parallel replay worker | inherited | declared job cap, currently 4,500MB |
-
-The scheduled overlap ceiling remains below 48GB: a 24GB producer plus the 4GB API is 28GB;
-two 8GB intraday services plus the API are 20GB; and the largest window is eight 4,500MB replay
-workers plus the API, 40,096MB. The queue parent releases its database connection while those
-workers run, so its 24GB cap is not additive to the replay batch.
-
 ## Read-only database snapshots
 
 Completed producers publish an immutable consistent copy under `store/snapshots/` as

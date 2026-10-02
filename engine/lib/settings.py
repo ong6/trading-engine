@@ -17,12 +17,6 @@ Environment overrides (all optional; relative paths resolve against REPO_ROOT):
   TRADING_ENGINE_WATCHLIST    watchlist.md (default <NOTES_DIR>/watchlist.md)
   TRADING_ENGINE_LOCK_WAIT_S  seconds a locked DuckDB open keeps retrying
                               (default 60; read at call time by engine.lib.db)
-  TRADING_ENGINE_DUCKDB_THREADS
-                              optional positive DuckDB worker count
-  TRADING_ENGINE_DUCKDB_MEMORY_LIMIT
-                              optional DuckDB memory-limit string (for example 8GB)
-  TRADING_ENGINE_DUCKDB_TEMP_DIR
-                              optional DuckDB spill directory
 """
 from __future__ import annotations
 
@@ -58,36 +52,8 @@ WATCHLIST_PATH = _env_path("TRADING_ENGINE_WATCHLIST", NOTES_DIR / "watchlist.md
 
 LOCK_WAIT_ENV = "TRADING_ENGINE_LOCK_WAIT_S"
 LOCK_WAIT_DEFAULT_S = 60.0
-DUCKDB_THREADS_ENV = "TRADING_ENGINE_DUCKDB_THREADS"
-DUCKDB_MEMORY_LIMIT_ENV = "TRADING_ENGINE_DUCKDB_MEMORY_LIMIT"
-DUCKDB_TEMP_DIR_ENV = "TRADING_ENGINE_DUCKDB_TEMP_DIR"
 
 
 def lock_wait_s() -> float:
     """Default lock-retry window, read at call time so tests/drivers can set it late."""
     return float(os.environ.get(LOCK_WAIT_ENV, LOCK_WAIT_DEFAULT_S))
-
-
-def duckdb_resource_settings() -> tuple[int | None, str | None, str | None]:
-    """Return optional DuckDB settings, read at connection time.
-
-    Unset variables remain ``None`` so the connection factory issues no SET
-    statement and preserves DuckDB's own defaults exactly.
-    """
-    raw_threads = os.environ.get(DUCKDB_THREADS_ENV)
-    threads = None
-    if raw_threads is not None:
-        threads = int(raw_threads)
-        if threads <= 0:
-            raise ValueError(f"{DUCKDB_THREADS_ENV} must be a positive integer")
-    memory_limit = os.environ.get(DUCKDB_MEMORY_LIMIT_ENV)
-    if memory_limit is not None and not memory_limit.strip():
-        raise ValueError(f"{DUCKDB_MEMORY_LIMIT_ENV} must not be empty")
-    raw_temp_dir = os.environ.get(DUCKDB_TEMP_DIR_ENV)
-    temp_dir = None
-    if raw_temp_dir is not None:
-        if not raw_temp_dir.strip():
-            raise ValueError(f"{DUCKDB_TEMP_DIR_ENV} must not be empty")
-        path = Path(raw_temp_dir).expanduser()
-        temp_dir = str(path if path.is_absolute() else REPO_ROOT / path)
-    return threads, memory_limit, temp_dir

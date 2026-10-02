@@ -44,28 +44,6 @@ def test_api_service_is_loopback_only_and_restart_safe():
     _assert_common_service_hardening(unit)
 
 
-def test_duckdb_service_caps_match_scheduled_workloads():
-    expected = {
-        "api": (4, "4GB"),
-        "daily-opportunity": (8, "8GB"),
-        "hourly-opportunity": (8, "8GB"),
-        "four-hour-opportunity": (8, "8GB"),
-        "p15-scoring": (8, "8GB"),
-        "p15-preopen": (8, "8GB"),
-        "p15-events": (8, "8GB"),
-        "tradingview-history": (16, "24GB"),
-    }
-
-    for name, (threads, memory) in expected.items():
-        unit = _unit(f"server/trading-engine-{name}.service")
-        assert f"Environment=TRADING_ENGINE_DUCKDB_THREADS={threads}" in unit
-        assert f"Environment=TRADING_ENGINE_DUCKDB_MEMORY_LIMIT={memory}" in unit
-
-    nightly = _unit("engine/run_daily.sh")
-    assert 'TRADING_ENGINE_DUCKDB_THREADS:-16' in nightly
-    assert 'TRADING_ENGINE_DUCKDB_MEMORY_LIMIT:-24GB' in nightly
-
-
 def test_ui_service_is_production_loopback_and_depends_on_api():
     unit = _unit("ui/trading-engine-ui.service")
     package = json.loads(_unit("ui/package.json"))
