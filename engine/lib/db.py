@@ -183,7 +183,19 @@ def connect(path: str | Path | None = None, *,
     tries = max(1, math.ceil(wait_s / _LOCK_RETRY_S)) if wait_s > 0 else 1
     for attempt in range(1, tries + 1):
         try:
-            return duckdb.connect(str(path), read_only=read_only)
+            connection = duckdb.connect(str(path), read_only=read_only)
+            try:
+                threads, memory_limit, temp_dir = settings.duckdb_resource_settings()
+                if threads is not None:
+                    connection.execute("SET threads = ?", [threads])
+                if memory_limit is not None:
+                    connection.execute("SET memory_limit = ?", [memory_limit])
+                if temp_dir is not None:
+                    connection.execute("SET temp_directory = ?", [temp_dir])
+            except BaseException:
+                connection.close()
+                raise
+            return connection
         except Exception as exc:  # duckdb.IOException et al.
             if not is_lock_error(exc) or attempt >= tries:
                 raise

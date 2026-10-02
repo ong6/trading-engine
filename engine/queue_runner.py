@@ -69,6 +69,8 @@ from engine.lib.settings import REPO_ROOT, STORE_DIR
 LOAD_5MIN_MAX = 28.0
 FREE_RAM_MIN_GB = 8.0       # refuse to start below this much free RAM
 ENGINE_RAM_BUDGET_MB = 48000  # one in-process job or combined parallel batch
+QUEUE_DUCKDB_THREADS = "16"
+QUEUE_DUCKDB_MEMORY_LIMIT = "24GB"
 STORE_SOFT_GB = 60.0        # soft cap -> warn in _meta.json
 STORE_HARD_GB = 80.0        # hard cap -> refuse archive jobs
 ROOT_FREE_MIN_GB = 10.0     # refuse archive jobs below this root free space
@@ -569,6 +571,14 @@ def _child_cmd(jid: int, db_path, meta_path) -> list[str]:
     return cmd
 
 
+def _child_env(kind: str) -> dict[str, str]:
+    """Keep a parallel worker inside its already-declared memory budget."""
+    environment = os.environ.copy()
+    memory_mb = int(JOB_TYPES[kind]["mem_mb"])
+    environment["TRADING_ENGINE_DUCKDB_MEMORY_LIMIT"] = f"{memory_mb}MB"
+    return environment
+
+
 # Poll interval while waiting on a batch's children. Coarse on purpose: these
 # jobs run for minutes to hours, and the timeout is a ceiling, not a stopwatch.
 BATCH_POLL_S = 0.5
@@ -639,7 +649,11 @@ def _run_parallel_batch(batch, db_path, meta_path, con) -> tuple[dict, object]:
         if i:
             time.sleep(BATCH_STAGGER_S)
         limit = int(timeout_s) if timeout_s else default_timeout_s(kind)
-        pr = subprocess.Popen(_child_cmd(jid, db_path, meta_path), cwd=str(REPO_ROOT))
+        pr = subprocess.Popen(
+            _child_cmd(jid, db_path, meta_path),
+            cwd=str(REPO_ROOT),
+            env=_child_env(kind),
+        )
         procs.append((jid, kind, pr, time.monotonic() + limit))
 
     results = _wait_batch(procs)
@@ -941,6 +955,10 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
 
 # --------------------------------------------------------------------------- #
 def main() -> int:
+    os.environ.setdefault("TRADING_ENGINE_DUCKDB_THREADS", QUEUE_DUCKDB_THREADS)
+    os.environ.setdefault(
+        "TRADING_ENGINE_DUCKDB_MEMORY_LIMIT", QUEUE_DUCKDB_MEMORY_LIMIT
+    )
     ap = argparse.ArgumentParser(description="§12.7 job-queue runner.")
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--enqueue", metavar="TYPE", help="enqueue a job of this type")
