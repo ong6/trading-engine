@@ -3,6 +3,10 @@
 A paper-only trading research engine with an AI agent in the decision loop, running unattended on
 one always-on Linux host. No broker, no real money, and no credentials.
 
+**Status (2026-10-02):** the profitability evidence loop is live on registration revision 9; the
+shared backtest core is complete with byte-identical accelerated simulation; and the isolated free
+Massive grouped-daily capture is running over the available 2024-10-02 through 2026-09-30 window.
+
 - **Research engine.** Real market data in DuckDB, a nightly Minervini screen, **25 active paper
   portfolios** (including the three profitability evidence loop books (P15) and 18 historically
   replayable rules), a
@@ -164,4 +168,4 @@ running, never by code inspection. Operational response:
 [`docs/how-it-works.md`](docs/how-it-works.md). Architecture and authority boundaries:
 [`docs/architecture-reference.md`](docs/architecture-reference.md).
 
-<!-- sources: docs/plans/README.md, docs/product.md, engine/run_daily.sh, server/p15-registration.json, sim/fills.py, sim/league.py -->
+<!-- sources: BUILDLOG.md, docs/plans/README.md, docs/plans/p3-point-in-time-data.md, docs/plans/p18-backtest-core.md, docs/product.md, engine/free_sources.py, engine/run_daily.sh, server/p15-registration.json, sim/fills.py, sim/league.py, tools/free_sources.py -->

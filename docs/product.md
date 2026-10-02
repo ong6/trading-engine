@@ -45,7 +45,20 @@ product (P12).
 2026-09-29 after a verified 90-table recovery bundle. Registration revision 9 is live; it binds
 infrastructure and contention changes without changing scoring, books, gates, labels, registered
 values, or written evidence. P15 is `active` and collecting. No performance claim exists before
-its registered looks.
+its registered looks. The revision records per-stage timing, faster bounded collection, snapshot
+throttling, cached status projections, single-connection observers, fail-soft reporting, deduplicated
+intraday facts, and rolling queue and walk-forward scratch handling.
+
+[The shared backtest core (P18)](plans/p18-backtest-core.md) is done. It builds one immutable
+columnar price panel and shares it with forked workers. On the registered 3,000-stock × 3,800-session
+benchmark, 16-worker simulation fell from 989.05 to 0.847 seconds (1,167.5×), while all 295 captured
+pre-existing JSON outputs (53,391,323 bytes) stayed byte-identical. Event studies must now declare
+both their window-end treatment and whether they require a complete held-price path.
+
+The free Massive key is present in a private owner-only file. The isolated grouped-daily capture is
+running resumably for 2024-10-02 through 2026-09-30, the free tier's exact two-year window as of
+2026-10-02. Its initial proof date loaded 12,613 US securities. This improves survivor coverage but
+does not provide pre-2024-10 bars or mutate operational prices.
 
 [The challenger lab, text edge, and evaluation science plan
 (P16)](plans/p16-challenger-lab-and-text-edge.md) has built its evaluation through broker-paper
@@ -76,6 +89,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-10-02 | The free Massive key is available and the isolated two-year grouped-daily capture is running resumably; paid point-in-time data remains deferred | P3; site data |
 | 2026-10-02 | Failures are investigated on demand by an agent. There is no push alerting | This page; site operations |
 | 2026-10-02 | A broker paper account on personal hardware, described by the personal-host broker paper plan (P17), is future work and explicitly not work for now | P17; this page; site roadmap |
 | 2026-10-02 | A live paper book will run private research strategies in real time, paper only. Private research strategies stay in a separate private repository and reach this engine only through the shared backtest core and paper books | This page; site roadmap |
@@ -123,7 +137,6 @@ Each row has the default that applies until the owner decides.
 | **Simulator short side** | Using the ~half of candidates that are losers | Long-only. P15 filters candidates to upside and trend names |
 | **P8 v1 order authority** once P15 books are live | A single AI book to watch | P8 v1 keeps running unchanged as its own cohort |
 | **P3 data budget**: initial and recurring ceiling for Sharadar (or Norgate) | Survivor-free point-in-time universe and fundamentals before 2024-10; historical stock-selection research | No purchase (decided 2026-10-01); free-source phase 0 only |
-| **Massive free key** (individual-use Stocks Basic) | Two years of survivor-free daily bars for every US stock (P3 phase 0 fetcher is built) | Fetcher stays unrun |
 | **Commit metadata rewrite** for 2026-09-18 to 09-23 author and trailer lines that break the public-hygiene rule | Clean public history | Not rewritten (needs a force-push; dates would be kept) |
 | **Free API keys** (Alpaca, including the Benzinga news archive; Finnhub; Alpha Vantage) | Extra historical news for the P16 replay lab; a second realtime cross-check | Free bulk archives and scraping only (GDELT, CC-NEWS, EDGAR, wire and IR pages, Wayback) |
 | **Personal execution host** | Stage 2 | Future work, explicitly not now (decided 2026-10-02) |
@@ -133,23 +146,27 @@ Each row has the default that applies until the owner decides.
 
 ## Focus now (in order)
 
-1. **Keep the evidence clean.** Scheduled producers green, no missed agent windows, no identity
-   drift, no uncommitted work on the host (the nightly `git pull` fails on a dirty tree).
-   A broken producer beats every item below.
+1. **Keep the evidence clean and the revision 9 operating path green.** Use per-stage timings to
+   watch the bounded collection, shared snapshots, queue, observers, and status projections. Keep
+   scheduled producers green, miss no agent windows, allow no identity drift, and leave no
+   uncommitted work on the host. A broken producer beats every item below.
 2. **P15 evidence collection.** P15 is active after its scoring, pre-open, event, report, and
    status checks passed. Keep scheduled windows green and never tune a registered value.
-3. **P16 registration, rehearsal, and activation (W9b).** Register and rehearse, then activate
+3. **Finish and audit the free survivor-data capture.** Let the resumable Massive job complete its
+   2024-10-02 through 2026-09-30 window, then audit the isolated daily bars. Paid pre-2024-10 data
+   remains blocked on a future spend decision.
+4. **P16 registration, rehearsal, and activation (W9b).** Register and rehearse, then activate
    only the components whose gates permit it: the challenger lab and weekly digest first, the
    filing reader only after its remaining dispatch and activation gates pass. The final refine
    pass (W10) follows.
-4. **P16 synthetic proving ground (W11) as the power test.** Plant a known edge and pure noise in the synthetic proving
+5. **P16 synthetic proving ground (W11) as the power test.** Plant a known edge and pure noise in the synthetic proving
    ground, and record how long each gate takes to detect the edge and how often it passes the
    noise. Every "earliest verdict" date on this page should come from that measurement.
-5. **Activate P7.** Backup-gated tri-arm schema and initializer, the recorded SGD/USD opening
+6. **Activate P7.** Backup-gated tri-arm schema and initializer, the recorded SGD/USD opening
    observation, then the tri-arm orchestrator and its status panel. It tests whether the AI
    allocates better than the rule at low turnover, which the research verdicts favour.
-6. **League collapse (P2).** Retire books that answer no open question to cut nightly noise.
-7. **First-fill lifecycle rehearsal.** Rehearse backup and restore across the whole order → fill →
+7. **League collapse (P2).** Retire books that answer no open question to cut nightly noise.
+8. **First-fill lifecycle rehearsal.** Rehearse backup and restore across the whole order → fill →
    exit path using the P8 FSLY position.
 
 **Build only what the next verdict needs.** The engine already has more built-but-inert
@@ -177,4 +194,4 @@ Stop building toward live capital, and keep the engine as a research and portfol
 excess return at the capital the owner will deploy, or if work drifts back into governance for an
 edge that does not exist for two review cycles (the 2026-09-18 failure mode).
 
-<!-- sources: docs/plans/README.md, docs/plans/p15-profitability-evidence-loop.md, docs/plans/p16-challenger-lab-and-text-edge.md, docs/plans/p17-personal-host-ibkr-paper-execution.md, server/p15-registration.json, server/p16-registration.json -->
+<!-- sources: BUILDLOG.md, docs/plans/README.md, docs/plans/p3-point-in-time-data.md, docs/plans/p15-profitability-evidence-loop.md, docs/plans/p16-challenger-lab-and-text-edge.md, docs/plans/p17-personal-host-ibkr-paper-execution.md, docs/plans/p18-backtest-core.md, engine/free_sources.py, server/p15-registration.json, server/p16-registration.json, tools/free_sources.py -->

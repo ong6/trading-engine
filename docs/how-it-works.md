@@ -94,6 +94,39 @@ read-only workers may run jobs explicitly marked `parallel_safe`; a budget expir
 new work and never kills an in-flight job. Do not launch a second nightly or queue drain around a
 held producer lock.
 
+The queue uses a priority-ordered rolling pool: when a worker finishes, the next eligible job starts
+without waiting for the rest of the old batch, but no lower-priority job launches before an earlier
+one. A walk-forward drain builds one immutable read-only input store for the run; each worker keeps
+only its private writable overlay. Workers convert termination into normal cleanup, and the next
+drain removes only orphan scratch directories whose active lock is not held.
+
+## Revision 9 throughput and read-path checks
+
+The October 2 infrastructure revision changed scheduling and contention, not scoring or evidence
+semantics. These are the expected paths when investigating runtime:
+
+- `verify-prices` uses four workers, but a single global limiter still spaces all request starts by
+  0.4 seconds. It releases its database connection after materializing the input and runs its
+  network phase alongside the farm drain.
+- Nightly earnings pulls only names with an unknown next date, an event inside 21 NYSE sessions, or
+  a successful pull more than seven calendar days old. Monday UTC is the full eligible-universe
+  pass.
+- A caught-up TradingView archive symbol waits for two to four completed sessions and requests them
+  in one range. The per-request pause, request rate, 550-day historical chunk, and per-run chunk cap
+  are unchanged.
+- Intraday capture retains the exact response receipt, reuses an existing revision when the
+  normalized payload is unchanged, and inserts genuinely new or changed facts in one batch.
+- `GET /agent/evaluation/status` caches the expensive profitability validation and projection by
+  registration plus audited-table generations. Intraday readiness caches coverage by row count and
+  latest timestamp. A database change invalidates either result.
+- Hourly and four-hour observers open one connection for the full run, pass it through quote and
+  cross-check retention, and wait at most 60 seconds for the writer before reporting unavailable.
+
+Profitability scoring finishes, re-renders the league, and only then runs evidence reporting. An
+evidence-validation failure returns exit 75. The scoring service's
+`RestartPreventExitStatus=75` records that failure without restarting the unit; any other nonzero
+report failure remains a normal service failure.
+
 ## Read-only database snapshots
 
 Completed producers publish an immutable consistent copy under `store/snapshots/` as
@@ -256,4 +289,4 @@ Commit only source and documentation owned by the session. Pipeline `data/` outp
 stashed, reverted, or included in a build commit. Leave no source or documentation change
 uncommitted.
 
-<!-- sources: engine/run_daily.sh, engine/lib/driver.sh, server/trading-engine-p15-events.timer, server/trading-engine-p15-preopen.timer, server/trading-engine-p15-scoring.timer, server/p15-registration.json, server/p16-registration.json, tools/backup_database.py, tools/publish_snapshot.py -->
+<!-- sources: BUILDLOG.md, engine/bitemporal_facts.py, engine/earnings.py, engine/run_daily.sh, engine/lib/driver.sh, engine/queue_runner.py, engine/tradingview_history_archive.py, engine/verify_prices.py, farm/walkforward/runner.py, server/agent_evaluation_reporting.py, server/hourly_opportunity_observer.py, server/intraday_readiness.py, server/main.py, server/run_p15_scoring.sh, server/trading-engine-p15-events.timer, server/trading-engine-p15-preopen.timer, server/trading-engine-p15-scoring.service, server/trading-engine-p15-scoring.timer, server/p15-registration.json, server/p16-registration.json, tools/backup_database.py, tools/publish_snapshot.py, tools/stage_timings.py -->
