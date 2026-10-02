@@ -1635,6 +1635,79 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server -2, tools +68, product unchanged; budget ok.
 - **Next:** recover the October 2 reports and league evidence, then resume P16 W9b.
 
+## 2026-10-02 — Make engine infrastructure observable and contention-tolerant
+
+- **Why:** the owner's P15 revision 9 infrastructure directive and the orchestrator's independent
+  audit admitted timing, synchronization recovery, snapshots, and contention work.
+- **What:** record per-stage timings; retry one non-fast-forward sync; atomically retain read-only
+  snapshots for API and backup fallback; cache expensive status
+  projections; reuse observer connections; overlap nightly verification/farm work; and isolate
+  evidence-validation exit 75 after league rendering. Registration remains revision 8 here so the
+  orchestrator can issue revision 9 once over the merged four-lane tree.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4` reaches 100%: 4,120 pass and 86
+  stop only at frozen runtime/registration identity checks intentionally awaiting the merged
+  revision 9 registration; the 514 focused tests, whole-repository Ruff, and budget check pass.
+- **Metrics:** server +240, tools +384, product +289; budget ok.
+- **Next:** orchestrator merges all four infrastructure lanes and issues registration revision 9.
+
+## 2026-10-02 — Bound snapshot writer-lock time
+
+- **Why:** the orchestrator measured 116 seconds of producer-lock hold time for each 5.9GB
+  DuckDB snapshot and required a raw-copy fast path plus bounded event publication cadence.
+- **What:** when no WAL exists, capture source invariants under producer locks, raw-copy and fsync,
+  then release the locks before verifying the copy; retain DuckDB COPY as the WAL-safe fallback.
+  Add successful minimum-age skips, remove pre-open publication, and limit event publication to
+  once per 120 minutes. Nightly, P15 scoring, and TradingView remain unthrottled.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 tests/test_publish_snapshot.py
+  tests/test_backup_database.py tests/test_service_units.py tests/test_drivers.py` passes; the live
+  read-only 6,654,537,728-byte store copied, fsynced, and verified in 51.213 seconds with equal
+  invariants, and the temporary copy was removed.
+- **Metrics:** server and product unchanged; tools +74; budget ok.
+- **Next:** orchestrator merges the four infrastructure lanes and issues registration revision 9.
+
+## 2026-10-02 — Remove walk-forward queue and scratch bottlenecks
+
+- **Why:** the orchestrator reproduced same-priority batch barriers in the 3.07-hour Sunday
+  drain and 18 unheld killed-worker scratch directories consuming 14,652,368,972 bytes.
+- **What:** replace barriered batches with an eight-slot priority-ordered rolling pool that keeps
+  the writer and drain-budget boundaries. Share one read-only walk-forward input store per run,
+  retain private writable overlays, convert worker SIGTERM to cleanup, and sweep only unheld
+  orphan directories. Remove the 18 verified unheld production orphans.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_walkforward_scratch.py
+  tests/test_result_provenance.py tests/test_queue_runner.py` passes all 61 tests; two-book,
+  two-fold store-copy outputs match with scratch 871,477,215 → 445,247,500 bytes.
+- **Metrics:** server and tools unchanged; product +336 lines; budget ok.
+- **Next:** nothing admitted; P15 revision 9 must bind the two changed registered files.
+
+## 2026-10-02 — Bound nightly network collection
+
+- **Why:** the owner's October 2 engine-bottleneck audit measured serial price verification and
+  full-universe earnings refreshes dominating the 44.5-minute nightly.
+- **What:** pace four price-verifier workers through one global 0.4-second limiter; refresh only
+  unknown, near-term, or seven-day-stale earnings names outside the Monday full pass; and collect
+  two to four completed sessions per caught-up TradingView request without raising its rate or
+  chunk cap. Keep the measured 200-name EOD batches after larger/session-reuse probes regressed.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py::test_p15_registered_file_hashes_match_checkout` passes at 100%;
+  copy probes preserved every fact while verifier time fell 515.2→100.1 seconds and the bounded
+  earnings night selected 1,229/2,848 names.
+- **Metrics:** product +261 and tests +330; snapshot reconciliation also records server -2 and
+  tools +69 from the preceding revision; budget ok.
+- **Next:** the orchestrator folds the three changed registered modules into P15 revision 9.
+
+## 2026-10-02 — Issue P15 registration revision 9
+
+- **Why:** the orchestrator approved one infrastructure-only registration after the four lanes
+  merged, and removal of the unmeasured DuckDB caps restored the XS runtime contract.
+- **What:** issue revision 9 over the merged timing, sync, snapshot, reporting, cache, observer,
+  verify/farm, intraday, queue/scratch, price, earnings, and TradingView work. Rebind the complete
+  P15 dependency closure without changing scoring, books, gates, labels, registered values, or
+  written rows; update the P15 W8 and P16 W0 progress records.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4` passes at 100%; whole-repository
+  Ruff passes and the metrics budget is `ok`.
+- **Metrics:** server and tools unchanged; product -55 lines; budget ok.
+- **Next:** deploy revision 9 and resume P16 W9b.
+
 ## 2026-10-02 — Make shared study simulation columnar
 
 - **Why:** the orchestrator-approved P18 performance follow-up and two generic native-port

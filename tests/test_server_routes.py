@@ -2,20 +2,26 @@
 
 import asyncio
 import json
+import os
 import re
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path as FilePath
 
+import duckdb
 import pytest
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 from engine.lib.db import DBBusyError
 from server import (
+    db as server_db,
+)
+from server import (
     main,
     market_read_models,
     read_model_utils,
 )
+from tools import publish_snapshot
 
 REPO_ROOT = FilePath(__file__).resolve().parents[1]
 
@@ -70,6 +76,55 @@ async def _request_status(
     return next(
         message["status"] for message in messages if message["type"] == "http.response.start"
     )
+
+
+async def _request_messages(path: str) -> list[dict]:
+    messages = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        messages.append(message)
+
+    await main.app(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode(),
+            "query_string": b"",
+            "headers": [(b"host", b"127.0.0.1:8000")],
+            "client": ("test", 1),
+            "server": ("test", 80),
+            "root_path": "",
+        },
+        receive,
+        send,
+    )
+    return messages
+
+
+def _snapshot_source(path: FilePath) -> None:
+    con = duckdb.connect(str(path))
+    con.execute("CREATE TABLE prices (date DATE, ticker VARCHAR, volume BIGINT)")
+    con.execute("INSERT INTO prices VALUES ('2026-10-01', 'SPY', 1)")
+    con.execute("CREATE TABLE jobs (id INTEGER, state VARCHAR)")
+    con.execute(
+        "CREATE TABLE portfolios (id VARCHAR, name VARCHAR, strategy VARCHAR, "
+        "config VARCHAR, created DATE, active BOOLEAN, cash DOUBLE, initial_cash DOUBLE, "
+        "execution_profile VARCHAR)"
+    )
+    con.execute("CREATE TABLE sim_orders (id INTEGER)")
+    con.execute("CREATE TABLE sim_fills (id INTEGER)")
+    con.execute(
+        "CREATE TABLE sim_equity (portfolio_id VARCHAR, date DATE, equity DOUBLE, "
+        "cash DOUBLE, n_positions INTEGER)"
+    )
+    con.close()
 
 
 @pytest.mark.parametrize(
@@ -501,6 +556,43 @@ def test_health_503_when_database_is_unreadable(monkeypatch):
         "status": "unreadable",
         "db_readable": False,
     }
+
+
+def test_locked_get_uses_snapshot_header_but_stale_evidence_get_stays_503(
+    monkeypatch, tmp_path
+):
+    root = tmp_path / "repo"
+    source = root / "store" / "market.duckdb"
+    source.parent.mkdir(parents=True)
+    _snapshot_source(source)
+    publish_snapshot.publish_snapshot(root, source)
+    monkeypatch.setattr(server_db, "DEFAULT_DB", source)
+    writer = duckdb.connect(str(source))
+    try:
+        health_messages = asyncio.run(_request_messages("/health"))
+        health_start = next(
+            message for message in health_messages if message["type"] == "http.response.start"
+        )
+        headers = dict(health_start["headers"])
+        assert health_start["status"] == 200
+        assert headers[b"x-data-source"] == b"snapshot"
+        assert b"x-snapshot-as-of" in headers
+
+        writer.execute("INSERT INTO jobs VALUES (1, 'running')")
+        stale_at = datetime.fromisoformat(headers[b"x-snapshot-as-of"].decode()) + timedelta(
+            seconds=1
+        )
+        os.utime(source, ns=(int(stale_at.timestamp() * 1e9),) * 2)
+        evaluation_messages = asyncio.run(_request_messages("/agent/evaluation/status"))
+        evaluation_start = next(
+            message
+            for message in evaluation_messages
+            if message["type"] == "http.response.start"
+        )
+        assert evaluation_start["status"] == 503
+        assert b"x-data-source" not in dict(evaluation_start["headers"])
+    finally:
+        writer.close()
 
 
 @pytest.mark.parametrize("run_date", ["not-a-date", "20260909", "2026-W37-3"])

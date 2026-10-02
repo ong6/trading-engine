@@ -1,7 +1,7 @@
 """Resumable TradingView history archive and authority isolation."""
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -111,6 +111,45 @@ def test_run_checkpoints_success_and_resumes_next_window(tmp_path):
     assert second["fact_count"] == 2 and second["operational_price_mutation"] is False
     assert second["symbols_checkpointed"] == 1
     assert second["checkpoint_end"] == "2025-01-01"
+
+
+def test_incremental_tail_waits_for_two_sessions_and_caps_request_at_four(tmp_path):
+    path = tmp_path / "market.duckdb"
+    _database(path)
+    con = db.connect(path)
+    archive.ensure_cohort(
+        con, cohort_id="tail-v1", start=date(2026, 9, 1), selected_at=NOW,
+        symbols=["AAPL"],
+    )
+    archive._record_attempt(
+        con,
+        cohort_id="tail-v1",
+        chunk={"ticker": "AAPL", "provider_symbol": "NASDAQ:AAPL",
+               "start": date(2026, 9, 1), "end": date(2026, 9, 23)},
+        status="empty",
+        fact_count=0,
+        receipt_sha256=None,
+        error=None,
+        started_at=NOW,
+        completed_at=NOW + timedelta(seconds=1),
+    )
+    for day in (date(2026, 9, 24), date(2026, 9, 25), date(2026, 9, 28),
+                date(2026, 9, 29), date(2026, 9, 30)):
+        con.execute(
+            "INSERT INTO prices (ticker,date,close,volume) VALUES ('AAPL',?,100,1000)",
+            [day],
+        )
+
+    assert archive._pending_chunks(con, "tail-v1", date(2026, 9, 24), 1, 3) == []
+    chunks = archive._pending_chunks(con, "tail-v1", date(2026, 9, 30), 1, 3)
+    con.close()
+
+    assert chunks == [{
+        "ticker": "AAPL",
+        "provider_symbol": "NASDAQ:AAPL",
+        "start": date(2026, 9, 24),
+        "end": date(2026, 9, 29),
+    }]
 
 
 def test_failed_window_retries_then_all_failure_is_visible(tmp_path):

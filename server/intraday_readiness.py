@@ -1,8 +1,10 @@
 """Accumulated intraday-data research admission gate."""
 
+from copy import deepcopy
 from datetime import date
 from functools import lru_cache
 from math import ceil
+from threading import Lock
 
 import duckdb
 import pandas_market_calendars as mcal
@@ -59,6 +61,8 @@ PUBLIC_FIELDS = frozenset(
         "limitation",
     }
 )
+_COVERAGE_CACHE_LOCK = Lock()
+_COVERAGE_CACHE: tuple[tuple[int, object, int, float], dict] | None = None
 
 
 @lru_cache(maxsize=16)
@@ -168,6 +172,35 @@ def _coverage(
     return coverage
 
 
+def _cached_coverage(
+    con: duckdb.DuckDBPyConnection,
+    minimum_tickers: int,
+    minimum_coverage_fraction: int | float,
+) -> dict:
+    global _COVERAGE_CACHE
+    count_and_latest = con.execute(
+        "SELECT COUNT(*),MAX(ts) FROM intraday_prices"
+    ).fetchone()
+    key = (
+        int(count_and_latest[0]),
+        count_and_latest[1],
+        minimum_tickers,
+        float(minimum_coverage_fraction),
+    )
+    with _COVERAGE_CACHE_LOCK:
+        if _COVERAGE_CACHE is not None and _COVERAGE_CACHE[0] == key:
+            return deepcopy(_COVERAGE_CACHE[1])
+        coverage = _coverage(con, minimum_tickers, minimum_coverage_fraction)
+        _COVERAGE_CACHE = key, deepcopy(coverage)
+        return coverage
+
+
+def _reset_coverage_cache() -> None:
+    global _COVERAGE_CACHE
+    with _COVERAGE_CACHE_LOCK:
+        _COVERAGE_CACHE = None
+
+
 def _is_ready(inputs: dict, coverage: dict, minimum_sessions: int, minimum_span: int) -> bool:
     return inputs["input_status"] == "ready" and all(
         coverage["qualifying_sessions"][interval] >= minimum_sessions
@@ -195,7 +228,7 @@ def assess(con: duckdb.DuckDBPyConnection) -> dict:
     minimum_coverage_fraction = coverage_fraction(MIN_SESSION_COVERAGE_FRACTION)
     inputs = input_schema_status(con, REQUIRED_INPUTS)
     coverage = (
-        _coverage(con, minimum_tickers, minimum_coverage_fraction)
+        _cached_coverage(con, minimum_tickers, minimum_coverage_fraction)
         if inputs["input_status"] == "ready"
         else _empty_coverage()
     )

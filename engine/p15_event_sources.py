@@ -573,7 +573,7 @@ def scan_intraday(
             interval=intraday_source.INTERVAL, source_version=intraday_source.source_version(),
             license_class="provider-terms-research", ingested_at=ingested_at,
         )
-        retained += len(capture_result["quotes"])
+        retained += stored["fact_count"]
         ticker = capture_result["quotes"][0]["ticker"]
         prior_close, median_volume, atr = inputs[ticker]
         current = [item for item in capture_result["quotes"]

@@ -11,15 +11,15 @@ decides WHICH sessions each fold covers and where the equity curve is cut.
 Shape of one job (one book, all its folds):
 
     live store (READ ONLY)
-      └─ scratch/wf__<book>__p<pid>/replay.duckdb  built ONCE for the whole span
-           ├─ hist_screen over the span's sessions ONCE (books that read it)
-           └─ per fold: wipe sim tables → insert the LIVE portfolios row →
-              step every session train_start…validate_end → slice sim_equity at
-              split_date → stats(train), stats(validate)
+      └─ scratch/wf__shared__<run>/replay.duckdb  built ONCE, read-only
+           └─ scratch/wf__<book>__p<pid>/replay.duckdb  writable overlay
+                ├─ hist_screen over the span's sessions ONCE per book
+                └─ per fold: wipe sim tables → insert the LIVE portfolio →
+                   step sessions → slice equity → train/validate stats
 
-Building the scratch once per book instead of once per fold is the whole reason
-this is a per-book job rather than a per-fold job: the fold windows overlap by
-construction, so N folds share one price export and one screen pass.
+Queue workers share the immutable price/action/universe/fundamental base for a
+run. Each book keeps its own small writable simulation and screen overlay, so
+parallel results remain isolated while the large export is built only once.
 
 Entry points:
     CLI:   farm/walkforward/runner.py --config template_top5
@@ -29,11 +29,14 @@ Entry points:
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import math
 import os
 import shutil
+import signal
 import time
+from contextlib import ExitStack, contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -57,17 +60,121 @@ from farm.walkforward import protocol
 from farm.walkforward.controls import declaration as comparison_declaration
 from sim import calendar, execution, league
 from sim import portfolio as _pf
-from sim.schema import INITIAL_CASH
+from sim.schema import INITIAL_CASH, init_sim_schema
 
 log = get_logger("wf")
 
 SCRATCH_ROOT = REPO_ROOT / "scratch"
 WF_DIR = DATA_DIR / "reports" / "walkforward"
 RESULTS_DIR = WF_DIR / "results"
+ACTIVE_LOCK = ".active.lock"
+SHARED_RUN_ENV = "TRADING_ENGINE_WF_SHARED_RUN"
+
+_SHARED_TABLES = (
+    "prices", "universe", "fundamentals", "corporate_actions", "price_quarantine",
+)
 
 
 def _provenance(config: dict) -> dict:
     return research_provenance(config)
+
+
+def _exit_on_sigterm(signum, _frame) -> None:
+    """Make normal Python ``finally`` cleanup run for queue timeouts."""
+    raise SystemExit(128 + signum)
+
+
+def _install_sigterm_exit():
+    previous = signal.getsignal(signal.SIGTERM)
+    signal.signal(signal.SIGTERM, _exit_on_sigterm)
+    return previous
+
+
+@contextmanager
+def _hold_scratch_directory(path: Path, *, shared: bool = False):
+    """Hold a flock proving that ``path`` belongs to a live worker."""
+    path.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path / ACTIVE_LOCK, os.O_CREAT | os.O_RDWR, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+    try:
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+@contextmanager
+def _exclusive_file_lock(path: Path):
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def _reset_incomplete_shared(directory: Path) -> None:
+    for child in directory.iterdir():
+        if child.name in {ACTIVE_LOCK, ".build.lock"}:
+            continue
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink(missing_ok=True)
+
+
+@contextmanager
+def _shared_store(live_con, scratch_root: Path, start: date, end: date,
+                  verbose: bool):
+    run_id = os.environ.get(SHARED_RUN_ENV)
+    if not run_id:
+        yield None
+        return
+    if not run_id.replace("-", "").replace("_", "").isalnum():
+        raise ValueError(f"invalid {SHARED_RUN_ENV}")
+
+    directory = Path(scratch_root) / f"wf__shared__{run_id}"
+    expected = {"start": start.isoformat(), "end": end.isoformat()}
+    ready = directory / ".ready.json"
+    with _hold_scratch_directory(directory, shared=True):
+        with _exclusive_file_lock(directory / ".build.lock"):
+            if ready.exists():
+                actual = json.loads(ready.read_text())
+                if actual != expected:
+                    raise RuntimeError(
+                        f"shared walk-forward store span mismatch: {actual} != {expected}"
+                    )
+            else:
+                _reset_incomplete_shared(directory)
+                build_scratch(live_con, directory, start, end, verbose=verbose)
+                resources.write_text_atomic(
+                    ready, json.dumps(expected, sort_keys=True) + "\n"
+                )
+        yield directory / "replay.duckdb"
+
+
+def _open_overlay(shared_path: Path, scratch_dir: Path):
+    """Open a small writable DB whose immutable inputs are shared read-only."""
+    path = scratch_dir / "replay.duckdb"
+    path.unlink(missing_ok=True)
+    con = db.connect(path)
+    try:
+        db.init_schema(con)
+        db.init_queue_schema(con)
+        db.init_mining_schema(con)
+        db.init_actions_schema(con)
+        init_sim_schema(con)
+        quoted = str(shared_path).replace("'", "''")
+        con.execute(f"ATTACH '{quoted}' AS wf_shared (READ_ONLY)")
+        for table in _SHARED_TABLES:
+            con.execute(
+                f"CREATE TEMP VIEW {table} AS SELECT * FROM wf_shared.{table}"
+            )
+        return con
+    except BaseException:
+        con.close()
+        raise
 
 # Sim tables wiped between folds. `portfolios` is included on purpose: each fold
 # re-creates the book from the LIVE config (D-WF4) with a fresh reference
@@ -407,6 +514,8 @@ def run_book(live_con, config_id: str, *,
     folds = protocol.make_folds(anchor, train_months=train_months,
                                 validate_months=validate_months,
                                 step_months=step_months, n_folds=n_folds)
+    shared_span_start = min(f.train_start for f in folds)
+    shared_span_end = max(f.validate_end for f in folds)
 
     floor = data_floor(
         live_con, book["strategy"], tuple(book.get("required_tickers") or ()))
@@ -448,24 +557,33 @@ def run_book(live_con, config_id: str, *,
                             validate_months=validate_months,
                             step_months=step_months))
 
-    # The scratch dir is namespaced by PID, not by config_id alone. Every sweep
-    # injects `ew_benchmark` as its benchmark book, so two sweeps running
-    # concurrently as batch children both derived `scratch/wf__ew_benchmark/`
-    # and destroyed each other — one died on the replay.duckdb.wal lock, the
-    # other on a corporate_actions.parquet the first had just rmtree'd
-    # (measured 2026-08-20, jobs 209/210). Folds of ONE book still share ONE
-    # scratch store, which is the invariant that matters; processes never do.
+    # The writable overlay is namespaced by PID. Queue walk-forward workers
+    # attach one immutable run-level base read-only; direct and sweep callers
+    # without the queue's run token retain the standalone scratch path.
     scratch_dir = Path(scratch_root) / f"wf__{config_id}__p{os.getpid()}"
     shutil.rmtree(scratch_dir, ignore_errors=True)
     result: dict = {}
     con = None
+    cleanup = ExitStack()
+    previous_sigterm = _install_sigterm_exit()
     try:
+        cleanup.enter_context(_hold_scratch_directory(scratch_dir))
         t_scratch = time.time()
-        db_path = build_scratch(live_con, scratch_dir, span_start, span_end,
-                                verbose=verbose)
+        shared_path = cleanup.enter_context(
+            _shared_store(
+                live_con, Path(scratch_root), shared_span_start, shared_span_end,
+                verbose,
+            )
+        )
+        if shared_path is None:
+            db_path = build_scratch(live_con, scratch_dir, span_start, span_end,
+                                    verbose=verbose)
+            con = db.connect(db_path)
+        else:
+            db_path = scratch_dir / "replay.duckdb"
+            con = _open_overlay(shared_path, scratch_dir)
         scratch_s = time.time() - t_scratch
 
-        con = db.connect(db_path)
         if threads:
             con.execute(f"SET threads = {int(threads)}")
         if mem_mb:
@@ -551,8 +669,16 @@ def run_book(live_con, config_id: str, *,
             if con is not None:
                 con.close()
         finally:
-            if not keep_scratch:
-                shutil.rmtree(scratch_dir, ignore_errors=True)
+            try:
+                cleanup.close()
+            finally:
+                try:
+                    if keep_scratch:
+                        (scratch_dir / ".keep").touch(exist_ok=True)
+                    else:
+                        shutil.rmtree(scratch_dir, ignore_errors=True)
+                finally:
+                    signal.signal(signal.SIGTERM, previous_sigterm)
 
     s = result.get("summary", {})
     wr = s.get("validate_win_rate")

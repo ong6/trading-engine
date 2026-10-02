@@ -32,7 +32,7 @@ def _git(repo, *args):
 
 def _git_repo(tmp_path):
     repo = tmp_path / "repo"
-    repo.mkdir()
+    repo.mkdir(parents=True)
     (repo / "data").mkdir()
     (repo / "data" / "report.json").write_text('{"version": 1}\n')
     (repo / "README.md").write_text("initial\n")
@@ -42,6 +42,24 @@ def _git_repo(tmp_path):
     _git(repo, "add", ".")
     _git(repo, "commit", "-q", "-m", "initial")
     return repo
+
+
+def _repo_with_bare_remote(tmp_path):
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
+    subprocess.run(
+        ["git", "--git-dir", str(remote), "symbolic-ref", "HEAD", "refs/heads/main"],
+        check=True,
+    )
+    repo = _git_repo(tmp_path / "local-root")
+    _git(repo, "branch", "-M", "main")
+    _git(repo, "remote", "add", "origin", str(remote))
+    _git(repo, "push", "-q", "-u", "origin", "main")
+    peer = tmp_path / "peer"
+    subprocess.run(["git", "clone", "-q", str(remote), str(peer)], check=True)
+    _git(peer, "config", "user.name", "sync peer")
+    _git(peer, "config", "user.email", "peer@example.invalid")
+    return repo, remote, peer
 
 
 def test_upstream_returns_configured_tracking_ref(monkeypatch):
@@ -229,3 +247,40 @@ def test_sync_real_git_refuses_staged_operator_work_without_touching_data(monkey
     assert _git(repo, "rev-list", "--count", "HEAD") == "1"
     assert _git(repo, "diff", "--cached", "--binary") == before
     assert _git(repo, "diff", "--name-only") == "data/report.json"
+
+
+def test_sync_rebases_once_after_non_fast_forward_and_retries_push(monkeypatch, tmp_path):
+    repo, remote, peer = _repo_with_bare_remote(tmp_path)
+    (peer / "remote.txt").write_text("remote advance\n")
+    _git(peer, "add", "remote.txt")
+    _git(peer, "commit", "-q", "-m", "remote advance")
+    _git(peer, "push", "-q", "origin", "main")
+    (repo / "data" / "report.json").write_text('{"version": 2}\n')
+    (repo / "README.md").write_text("unstaged operator edit\n")
+    monkeypatch.setattr(sync, "REPO_ROOT", repo)
+    monkeypatch.setattr(sync, "META_PATH", repo / "data" / "missing-meta.json")
+    monkeypatch.setattr("sys.argv", ["sync.py"])
+
+    assert sync.main() == 0
+    assert _git(repo, "diff", "--name-only") == "README.md"
+    assert _git(repo, "rev-list", "--count", "HEAD") == "3"
+    assert _git(repo, "rev-parse", "HEAD") == _git(remote, "rev-parse", "main")
+    assert _git(repo, "show", "HEAD:data/report.json") == '{"version": 2}'
+
+
+def test_sync_conflict_aborts_rebase_and_keeps_local_commit(monkeypatch, tmp_path):
+    repo, _remote, peer = _repo_with_bare_remote(tmp_path)
+    (peer / "data" / "report.json").write_text('{"version": "remote"}\n')
+    _git(peer, "add", "data/report.json")
+    _git(peer, "commit", "-q", "-m", "remote data")
+    _git(peer, "push", "-q", "origin", "main")
+    (repo / "data" / "report.json").write_text('{"version": "local"}\n')
+    monkeypatch.setattr(sync, "REPO_ROOT", repo)
+    monkeypatch.setattr(sync, "META_PATH", repo / "data" / "missing-meta.json")
+    monkeypatch.setattr("sys.argv", ["sync.py"])
+
+    assert sync.main() == 1
+    assert not (repo / ".git" / "rebase-merge").exists()
+    assert not (repo / ".git" / "rebase-apply").exists()
+    assert _git(repo, "show", "HEAD:data/report.json") == '{"version": "local"}'
+    assert _git(repo, "status", "--porcelain") == ""

@@ -128,7 +128,9 @@ def test_daily_opportunity_publishes_canonical_evaluation_after_success():
     assert "ExecStart=%h/trading-engine/server/run_daily_opportunity.sh" in unit
     assert "ExecStartPost=" not in unit
     assert "python -m server.daily_opportunity_runner" in runner
-    assert "exec .venv/bin/python -m server.agent_evaluation_reporting" in runner
+    assert ".venv/bin/python -m server.agent_evaluation_reporting" in runner
+    assert "report_status" in runner and "restart suppressed" in runner
+    assert "RestartPreventExitStatus=75" in unit
     _assert_common_service_hardening(unit)
 
 
@@ -162,6 +164,7 @@ def test_tradingview_archive_timer_is_bounded_and_queue_owned():
     assert f"StandardError={log}" in service
     assert "--enqueue tradingview_history" in runner
     assert "--run --run-kind tradingview_history" in runner
+    assert "tools.publish_snapshot" in runner and "|| echo" in runner
     assert '"max_chunks":50' in runner and "official_quote_source" not in runner
 
 
@@ -174,11 +177,14 @@ def test_p15_scoring_unit_is_registered_and_autostarted():
     assert "ExecStart=%h/trading-engine/server/run_p15_scoring.sh" in service
     assert "ExecStartPost=" not in service
     assert runner.index("server.p15_scoring_runner --run") < runner.index(
-        ".venv/bin/python -m server.agent_evaluation_reporting"
-    ) < runner.index(
         'market_date="$(.venv/bin/python -m engine.market_date)"'
-    )
-    assert 'exec .venv/bin/python -m sim.league --date "${market_date}" --skip-if-done' in runner
+    ) < runner.index(
+        '.venv/bin/python -m sim.league --date "${market_date}" --skip-if-done'
+    ) < runner.index(
+        ".venv/bin/python -m server.agent_evaluation_reporting"
+    ) < runner.index("tools.publish_snapshot")
+    assert "RestartPreventExitStatus=75" in service
+    assert "report_status" in runner and "restart suppressed" in runner
     assert "TimeoutStartSec=9h" in service
     assert "Restart=on-failure" in service and "RestartSec=5min" in service
     assert "StartLimitIntervalSec=30min" in service and "StartLimitBurst=3" in service
@@ -191,6 +197,7 @@ def test_p15_preopen_unit_is_registered_and_autostarted():
     timer = _unit("server/trading-engine-p15-preopen.timer")
     _assert_common_service_hardening(service)
     assert "server.p15_preopen --run" in service
+    assert "ExecStartPost=" not in service
     assert "TimeoutStartSec=20min" in service
     assert "09:05:00 America/New_York" in timer and "Persistent=false" in timer
     assert "trading-engine-p15-preopen.timer" in install_automation.AUTOSTART_UNITS
@@ -201,6 +208,10 @@ def test_p15_event_unit_is_intraday_shadow_and_autostarted():
     timer = _unit("server/trading-engine-p15-events.timer")
     _assert_common_service_hardening(service)
     assert "farm.p15_event_runner --run" in service
+    assert (
+        "ExecStartPost=-%h/trading-engine/.venv/bin/python -m tools.publish_snapshot "
+        "--min-age-minutes 120"
+    ) in service
     assert "TimeoutStartSec=14min" in service
     assert "09:35,50:00 America/New_York" in timer
     assert "10..15:05,20,35,50 America/New_York" in timer

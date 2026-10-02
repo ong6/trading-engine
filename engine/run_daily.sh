@@ -34,8 +34,8 @@ body() {
       && [ "${remote_exists}" -eq 1 ] \
       && [ -n "${upstream_ref}" ] \
       && git rev-parse --verify --quiet "${upstream_ref}^{commit}" >/dev/null; then
-    git pull --rebase "${remote}" "${remote_branch}" \
-      || echo "WARN: git pull --rebase ${remote} ${remote_branch} failed; continuing with local state"
+    git pull --rebase --autostash "${remote}" "${remote_branch}" \
+      || echo "WARN: git pull --rebase --autostash ${remote} ${remote_branch} failed; continuing with local state"
   else
     echo "INFO: no usable upstream configured; skipping pull"
   fi
@@ -139,9 +139,10 @@ body() {
   # yfinance being down — collect is incremental and resumable, so an outage
   # costs a day, while a bad price costs fills.
   #
-  # Placement: AFTER league and sync, so it can never delay a trade or a commit,
-  # and BEFORE the farm subshell, which takes the DuckDB writer for hours (this
-  # stage needs a read-only handle and would otherwise wait behind it).
+  # Placement: AFTER league and sync, so it can never delay a trade or a commit.
+  # The verifier starts first, materializes its store slice, then releases fd 7;
+  # only then may the farm take DuckDB's writer lock. Its network work and the
+  # farm drain run concurrently without violating the one-writer discipline.
   #
   # Non-fatal by construction — the script itself always exits 0 (the retired news-analyst driver's
   # posture: a network failure or a source change logs a breadcrumb and leaves
@@ -150,17 +151,21 @@ body() {
   # key is written after sync, so it reaches git on the FOLLOWING night's commit
   # — acceptable for an observability stage; moving it earlier would put a
   # multi-minute network call in front of the league's own commit.
-  stage verify-prices
-  "${PY}" -m engine.verify_prices --sample 40 --sessions 5 \
-    || echo "WARN: price verify exited non-zero (exit $?) — it is designed to" \
-            "exit 0 on every failure path, so this means the script itself" \
-            "broke; no trading data is affected"
+  stage verify-and-farm
+  verify_release_lock="${REPO_ROOT}/logs/.verify-prices-reader.lock"
+  exec 7>"${verify_release_lock}"
+  flock -x 7
+  "${PY}" -m engine.verify_prices --sample 40 --sessions 5 --release-lock-fd 7 &
+  verify_pid=$!
+  exec 7>&-
 
   # --- Farm work: LOWEST priority (§12.7 — the nightly loop preempts the farm).
-  # Runs AFTER sync so data collection + the committed screen/league are already
-  # safe. A failure here is logged but must NOT fail the nightly: subshell pins
-  # its own exit to 0 so set -e / PIPESTATUS never see it.
+  # It waits only for the verifier's short read phase, then overlaps the network
+  # phase. A failure remains non-fatal and its own queue lock discipline is
+  # unchanged.
   (
+    exec 7>"${verify_release_lock}"
+    flock -x 7
     set +e
     echo "--- farm (post-sync, lowest priority §12.7): mining enqueue + drain ---"
     # The enqueue POLICY (intraday 100, signals 105 incremental, earnings 110,
@@ -193,6 +198,18 @@ body() {
     fi
     exit 0
   )
+
+  verify_status=0
+  wait "${verify_pid}" || verify_status=$?
+  if [ "${verify_status}" -ne 0 ]; then
+    echo "WARN: price verify exited non-zero (exit ${verify_status}) — it is designed to" \
+         "exit 0 on every failure path, so this means the script itself" \
+         "broke; no trading data is affected"
+  fi
+
+  stage snapshot
+  "${PY}" -m tools.publish_snapshot --held-lock .nightly.lock \
+    || echo "WARN: read-only snapshot publication failed; nightly outputs remain complete"
 
 }
 

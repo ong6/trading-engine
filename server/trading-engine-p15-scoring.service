@@ -18,4 +18,5 @@ ProtectSystem=full
 ProtectControlGroups=true
 UMask=0077
 Restart=on-failure
+RestartPreventExitStatus=75
 RestartSec=5min

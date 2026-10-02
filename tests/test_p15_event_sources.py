@@ -194,7 +194,7 @@ def test_text_triggers_deduplicate_rss_and_only_admit_8k(con, tmp_path):
     ).fetchall() == [("rss", "news.headline"), ("sec_8k", "sec.filing:8-K")]
 
 
-def test_text_triggers_ignore_refetched_unchanged_fact_revision(con):
+def test_text_triggers_ignore_refetched_unchanged_fact(con):
     _database(con)
     monday = datetime(2026, 9, 28, 13, 30, tzinfo=timezone.utc)
     p15_event_sources.initialize_event_evidence(con, now=monday)
@@ -217,7 +217,10 @@ def test_text_triggers_ignore_refetched_unchanged_fact_revision(con):
         ingested_at=tuesday - timedelta(minutes=1), payload={"title": "$AAA same"},
         source="local_rss", source_version="test", receipt_sha256=second_receipt,
     )
-    assert first["revision"] == 1 and second["revision"] == 2
+    assert first["revision"] == second["revision"] == 1
+    assert second["replayed"] is True
+    assert con.execute("SELECT COUNT(*) FROM source_response_receipts").fetchone() == (2,)
+    assert con.execute("SELECT COUNT(*) FROM bitemporal_facts").fetchone() == (1,)
 
     assert p15_event_sources.create_text_triggers(
         con, tuesday.date(), triggered_at=tuesday
