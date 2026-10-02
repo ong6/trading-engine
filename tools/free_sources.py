@@ -263,6 +263,7 @@ def capture_massive_dates(
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
+    rate_limit: Callable[[], object] | None = None,
     window: tuple[date, date] | None = None,
 ) -> list[dict]:
     requested = list(dates)
@@ -278,6 +279,8 @@ def capture_massive_dates(
         )
     client = session or requests.Session()
     results, last_started = [], None
+    if rate_limit is None and monotonic is time.monotonic and sleep is time.sleep:
+        rate_limit = free_sources.wait_for_massive_rate_limit
     try:
         for session_date in requested:
             cached = _massive_cache(data_dir, session_date)
@@ -294,6 +297,9 @@ def capture_massive_dates(
                 if remaining > 0:
                     sleep(remaining)
             _require_network_window(now())
+            if rate_limit is not None:
+                rate_limit()
+                _require_network_window(now())
             last_started = monotonic()
             try:
                 response = client.get(
@@ -369,6 +375,7 @@ def capture_massive_daily(
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
+    rate_limit: Callable[[], object] | None = None,
 ) -> dict:
     """Load cached sessions and fetch at most ten missing completed sessions, newest first."""
     window = massive_window(now())
@@ -386,7 +393,7 @@ def capture_massive_daily(
     key = _load_massive_key() if api_key is None else api_key
     result = capture_massive_dates(
         work, api_key=key, database=database, data_dir=data_dir, session=session,
-        now=now, monotonic=monotonic, sleep=sleep, window=window,
+        now=now, monotonic=monotonic, sleep=sleep, rate_limit=rate_limit, window=window,
     )
     return {
         "status": "complete",
