@@ -4,13 +4,14 @@ from __future__ import annotations
 import io
 import json
 import zipfile
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import duckdb
 import pytest
 
 from engine import free_sources
+from sim import nyse
 from tools import free_source_audit
 from tools import free_sources as capture
 
@@ -149,11 +150,13 @@ class _Response:
 
 
 class _Session:
-    def __init__(self, clock: _Clock, *, fail: bool = False):
+    def __init__(self, clock: _Clock, *, fail: bool = False, empty: bool = False):
         self.clock = clock
         self.fail = fail
+        self.empty = empty
         self.started: list[float] = []
         self.headers: list[dict] = []
+        self.requested: list[date] = []
 
     def get(self, url: str, **kwargs):
         if self.fail:
@@ -161,11 +164,18 @@ class _Session:
         self.started.append(self.clock.monotonic())
         self.headers.append(kwargs["headers"])
         requested = date.fromisoformat(url.rsplit("/", 1)[-1])
+        self.requested.append(requested)
+        if self.empty:
+            return _Response(_massive_body([]))
         return _Response(_massive_fixture(requested))
 
 
 def _allowed_now() -> datetime:
-    return datetime(2026, 9, 27, 12, 0, tzinfo=timezone.utc)  # Sunday, outside UTC windows.
+    return datetime(2026, 10, 2, 11, 0, tzinfo=timezone.utc)
+
+
+def _after_close_now() -> datetime:
+    return datetime(2026, 10, 2, 20, 30, tzinfo=timezone.utc)
 
 
 def test_massive_paces_requests_at_least_thirteen_seconds(tmp_path: Path):
@@ -212,13 +222,109 @@ def test_massive_resumes_from_date_cache_without_network(tmp_path: Path):
     assert len(receipts) == 1
 
 
-def test_massive_refuses_dates_before_registered_window(tmp_path: Path):
-    with pytest.raises(free_sources.FreeSourceError, match="2024-10-01"):
+def test_massive_refuses_dates_before_rolling_window(tmp_path: Path):
+    with pytest.raises(free_sources.FreeSourceError, match="2024-10-03"):
         capture.capture_massive_dates(
-            [date(2024, 9, 30)], api_key="fixture-secret",
+            [date(2024, 10, 2)], api_key="fixture-secret",
             database=tmp_path / "free.duckdb", data_dir=tmp_path / "raw",
             session=_Session(_Clock()), now=_allowed_now,
         )
+
+
+def test_massive_rolling_window_uses_utc_date_and_completed_new_york_session():
+    before_close = datetime(2026, 10, 2, 19, 59, tzinfo=timezone.utc)
+    at_close = datetime(2026, 10, 2, 20, 0, tzinfo=timezone.utc)
+
+    assert capture.massive_window(before_close) == (date(2024, 10, 3), date(2026, 10, 1))
+    assert capture.massive_window(at_close) == (date(2024, 10, 3), date(2026, 10, 2))
+    assert capture.massive_window(
+        datetime(2028, 2, 29, 22, 0, tzinfo=timezone.utc)
+    )[0] == date(2026, 3, 1)
+
+
+def test_massive_sessions_skip_weekends_and_nyse_holidays():
+    assert capture._sessions(date(2026, 7, 2), date(2026, 7, 6)) == [
+        date(2026, 7, 2),
+        date(2026, 7, 6),
+    ]
+    assert capture.massive_window(
+        datetime(2026, 7, 6, 15, 0, tzinfo=timezone.utc)
+    )[1] == date(2026, 7, 2)
+
+
+def test_massive_daily_fetches_newest_ten_missing_sessions(tmp_path: Path):
+    clock = _Clock()
+    session = _Session(clock)
+
+    result = capture.capture_massive_daily(
+        database=tmp_path / "free.duckdb", data_dir=tmp_path / "raw",
+        api_key="fixture-secret", session=session, now=_after_close_now,
+        monotonic=clock.monotonic, sleep=clock.sleep,
+    )
+
+    assert result["status"] == "complete"
+    assert result["fetched_sessions"] == 10
+    assert session.requested == [
+        date(2026, 10, 2), date(2026, 10, 1), date(2026, 9, 30),
+        date(2026, 9, 29), date(2026, 9, 28), date(2026, 9, 25),
+        date(2026, 9, 24), date(2026, 9, 23), date(2026, 9, 22),
+        date(2026, 9, 21),
+    ]
+
+
+def test_massive_daily_loads_cache_then_reports_up_to_date(
+    tmp_path: Path, monkeypatch,
+):
+    database, data_dir = tmp_path / "free.duckdb", tmp_path / "raw"
+    window = (date(2026, 9, 28), date(2026, 9, 30))
+    monkeypatch.setattr(capture, "massive_window", lambda _now: window)
+    for session_date in capture._sessions(*window):
+        capture._cache_massive(data_dir, session_date, _massive_fixture(session_date), FETCHED_AT)
+
+    first = capture.capture_massive_daily(
+        database=database, data_dir=data_dir, api_key="unused",
+        session=_Session(_Clock(), fail=True), now=_allowed_now,
+    )
+    second = capture.capture_massive_daily(
+        database=database, data_dir=data_dir,
+        session=_Session(_Clock(), fail=True), now=_allowed_now,
+    )
+
+    assert first["status"] == "complete"
+    assert first["fetched_sessions"] == 0
+    assert [item["resumed"] for item in first["result"]] == [True, True, True]
+    assert second == {"status": "up_to_date"}
+
+
+@pytest.mark.parametrize("session_date", [date(2026, 10, 1), date(2026, 10, 2)])
+def test_massive_recent_empty_session_is_not_cached_and_retries(
+    tmp_path: Path, session_date: date,
+):
+    clock = _Clock()
+    database, data_dir = tmp_path / "free.duckdb", tmp_path / "raw"
+
+    first = capture.capture_massive_dates(
+        [session_date], api_key="fixture-secret", database=database, data_dir=data_dir,
+        session=_Session(clock, empty=True), now=_after_close_now,
+        monotonic=clock.monotonic, sleep=clock.sleep,
+    )
+    retry_session = _Session(clock)
+    second = capture.capture_massive_dates(
+        [session_date], api_key="fixture-secret", database=database, data_dir=data_dir,
+        session=retry_session, now=_after_close_now,
+        monotonic=clock.monotonic, sleep=clock.sleep,
+    )
+
+    assert first == [{
+        "source": free_sources.MASSIVE_SOURCE,
+        "date": session_date.isoformat(),
+        "status": "not_yet_published",
+        "row_count": 0,
+        "resumed": False,
+    }]
+    assert retry_session.requested == [session_date]
+    assert second[0]["row_count"] == 2
+    assert (data_dir / "massive" / session_date.isoformat() / "receipt.json").exists()
 
 
 def test_audit_reports_exact_ticker_survivor_gap(tmp_path: Path):
@@ -337,3 +443,59 @@ def test_massive_schema_widens_integer_volume_tables():
     finally:
         con.close()
     assert kind == "DOUBLE"
+
+
+def test_daily_panel_returns_canonical_bars_in_date_ticker_order():
+    con = duckdb.connect()
+    try:
+        free_sources.load_daily_bars(
+            con, _massive_fixture(date(2026, 9, 30)),
+            session_date=date(2026, 9, 30), fetched_at=FETCHED_AT,
+        )
+        free_sources.load_daily_bars(
+            con, _massive_fixture(date(2026, 9, 29)),
+            session_date=date(2026, 9, 29), fetched_at=FETCHED_AT,
+        )
+        panel = free_sources.daily_panel(con, date(2026, 9, 30), date(2026, 9, 30))
+    finally:
+        con.close()
+
+    assert list(panel.columns) == ["date", "ticker", "o", "h", "l", "c", "volume", "vwap"]
+    panel["date"] = panel["date"].dt.date
+    assert panel[["date", "ticker"]].to_dict("records") == [
+        {"date": date(2026, 9, 30), "ticker": "AAPL"},
+        {"date": date(2026, 9, 30), "ticker": "OLD.X"},
+    ]
+
+
+def test_mdv60_uses_vwap_fallback_and_excludes_same_day_and_older_sessions():
+    as_of = date(2026, 10, 2)
+    sessions, candidate = [], as_of - timedelta(days=1)
+    while len(sessions) < 61:
+        if nyse.is_session(candidate):
+            sessions.append(candidate)
+        candidate -= timedelta(days=1)
+    rows = [
+        # Close fallback is used when VWAP is absent.
+        (sessions[0], "ABC", 2.0, None, 10.0),
+        # VWAP, not the deliberately different close, is used when present.
+        (sessions[59], "ABC", 100.0, 1.0, 10.0),
+        # The 61st prior session and same-day data are outside the point-in-time window.
+        (sessions[60], "ABC", 1000.0, 1000.0, 10.0),
+        (as_of, "ABC", 2000.0, 2000.0, 10.0),
+    ]
+    con = duckdb.connect()
+    try:
+        free_sources.init_schema(con)
+        con.executemany(
+            """INSERT INTO free_daily_bars VALUES
+            (?, ?, 1.0, 1.0, 1.0, ?, ?, ?, ?, ?, ?)""",
+            [[session_date, ticker, close, volume, vwap,
+              free_sources.MASSIVE_SOURCE, FETCHED_AT.replace(tzinfo=None), f"{index:064x}"]
+             for index, (session_date, ticker, close, vwap, volume) in enumerate(rows, 1)],
+        )
+        result = free_sources.mdv60(con, as_of)
+    finally:
+        con.close()
+
+    assert result.to_dict("records") == [{"ticker": "ABC", "mdv60": 15.0}]

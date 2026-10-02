@@ -17,6 +17,7 @@ import duckdb
 
 from engine.lib import db
 from engine.lib.settings import REPO_ROOT
+from sim import nyse
 
 TIINGO_SOURCE = "tiingo_supported_tickers"
 MASSIVE_SOURCE = "massive_grouped_daily"
@@ -329,3 +330,61 @@ def load_daily_bars(
         "row_count": len(rows), "inserted": stored - before, "replayed": before == stored,
         "rejected": len(rejected),
     }
+
+
+def _date_argument(value: date, field: str) -> date:
+    if not isinstance(value, date) or isinstance(value, datetime):
+        raise FreeSourceError(f"{field} must be a date")
+    return value
+
+
+def daily_panel(
+    con: duckdb.DuckDBPyConnection, start: date, end: date,
+):
+    """Return one canonical grouped-daily bar per date and ticker in ``[start, end]``."""
+    start = _date_argument(start, "start")
+    end = _date_argument(end, "end")
+    if start > end:
+        raise FreeSourceError("daily panel start is after end")
+    return con.execute(
+        """SELECT date, ticker, o, h, l, c, volume, vwap
+        FROM free_daily_bars
+        WHERE date BETWEEN ? AND ?
+        QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY date, ticker ORDER BY fetched_at DESC, source_sha256 DESC
+        ) = 1
+        ORDER BY date, ticker""",
+        [start, end],
+    ).df()
+
+
+def mdv60(con: duckdb.DuckDBPyConnection, as_of: date):
+    """Return trailing 60-NYSE-session median dollar volume strictly before ``as_of``.
+
+    Dollar volume uses consolidated VWAP times volume when VWAP is present, and close times
+    volume otherwise. Missing ticker sessions stay missing rather than pulling older bars into
+    the 60-session calendar window.
+    """
+    as_of = _date_argument(as_of, "as_of")
+    sessions: list[date] = []
+    candidate = as_of - date.resolution
+    while len(sessions) < 60:
+        if nyse.is_session(candidate):
+            sessions.append(candidate)
+        candidate -= date.resolution
+    window_start = sessions[-1]
+    return con.execute(
+        """WITH canonical AS (
+            SELECT date, ticker, c, volume, vwap
+            FROM free_daily_bars
+            WHERE date >= ? AND date < ?
+            QUALIFY ROW_NUMBER() OVER (
+                PARTITION BY date, ticker ORDER BY fetched_at DESC, source_sha256 DESC
+            ) = 1
+        )
+        SELECT ticker, MEDIAN(COALESCE(vwap, c) * volume) AS mdv60
+        FROM canonical
+        GROUP BY ticker
+        ORDER BY ticker""",
+        [window_start, as_of],
+    ).df()
