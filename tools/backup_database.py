@@ -24,6 +24,7 @@ import duckdb
 from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import write_text_atomic
 from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT
+from engine.lib.snapshots import latest_snapshot
 from server import nightly_monitor
 from server.driver_monitor import DRIVER_SCHEDULES
 from server.file_utils import MAX_OPERATIONAL_FILE_BYTES
@@ -174,10 +175,16 @@ def _open_lock_file(repo_root: Path, relative: str):
 
 
 @contextmanager
-def _exclusive_backup_window(repo_root: Path):
+def _exclusive_backup_window(
+    repo_root: Path, *, skip_locks: frozenset[str] = frozenset(),
+):
     """Prevent overlapping backups and cooperating scheduled writers."""
+    if not skip_locks.issubset(LOCK_FILES):
+        raise BackupError("unknown inherited producer lock")
     with ExitStack() as stack:
         for relative in LOCK_FILES:
+            if relative in skip_locks:
+                continue
             handle = stack.enter_context(_open_lock_file(repo_root, relative))
             try:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -1072,7 +1079,9 @@ def create_backup(
         try:
             temporary = _descriptor_path(temporary_fd)
             with _exclusive_backup_window(repo_root):
-                with _open_source_database(source) as (
+                latest = latest_snapshot(source, newer_than_database=True)
+                backup_source = latest.path if latest is not None else source
+                with _open_source_database(backup_source) as (
                     source_parent_fd,
                     source_fd,
                     source_initial,
@@ -1082,10 +1091,15 @@ def create_backup(
                     snapshot = _copy_database(source_read_path, database)
                     database.chmod(0o600)
                     _require_source_database_identity(
-                        source, source_parent_fd, source_fd, source_initial
+                        backup_source, source_parent_fd, source_fd, source_initial
                     )
                     body = _manifest_body(
-                        repo_root, data_dir, source, source_read_path, temporary, snapshot
+                        repo_root,
+                        data_dir,
+                        backup_source,
+                        source_read_path,
+                        temporary,
+                        snapshot,
                     )
                     manifest = {**body, "manifest_sha256": canonical_sha256(body)}
                     manifest_path = temporary / MANIFEST_FILENAME
@@ -1097,7 +1111,7 @@ def create_backup(
                     result = _verify_backup_at_descriptor(temporary_fd)
                     _sync_bundle(temporary, temporary_fd)
                     _require_source_database_identity(
-                        source, source_parent_fd, source_fd, source_initial
+                        backup_source, source_parent_fd, source_fd, source_initial
                     )
                     _require_destination_parent_identity(
                         destination.parent, parent_fd, published=False
@@ -1109,7 +1123,7 @@ def create_backup(
                     published = True
                     _sync_directory_fd(parent_fd, label="backup parent directory")
                     _require_source_database_identity(
-                        source, source_parent_fd, source_fd, source_initial
+                        backup_source, source_parent_fd, source_fd, source_initial
                     )
                     _require_destination_parent_identity(
                         destination.parent, parent_fd, published=True
