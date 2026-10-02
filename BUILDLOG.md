@@ -1602,4 +1602,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +0, tools +558, product +495; budget ok.
 - **Next:** nothing admitted; Massive remains key-blocked and paid P3 remains spend-blocked.
 
+## 2026-10-02 — Close five generic P18 simulator seams
+
+- **Why:** the orchestrator supplied five hand-computed mismatches covering exit-cost basis,
+  entry-session exits, eligible benchmarks, order allocation, and dividends; the pre-fix focused
+  reproduction stopped at the missing `Dividend` input.
+- **What:** add registered exit-cost and conditional-check choices, point-in-time eligible
+  benchmarks, canonical order priority/signals with held-name rejection, and timestamp-gated
+  dividends across event, portfolio, benchmark, identity, ledger, and report paths.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto` passes at 100%; 62 focused tests,
+  whole-repository Ruff, and all six proving-ground canaries pass.
+- **Metrics:** server and tools unchanged; product +252 and tests +205; P18 totals are 2,896/3,000
+  farm lines and 1,165/2,500 test lines; budget ok.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

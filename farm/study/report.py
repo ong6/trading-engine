@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import math
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Iterable, Mapping
@@ -129,6 +129,8 @@ def build_report(*, identity: RunIdentity | str, data: MarketData, costs: CostSe
         caveats.append("open_as_indication: official opens stand in for pre-market indications.")
     if close_as_indication or getattr(ledger, "close_as_indication", False):
         caveats.append("close_as_indication: official closes stand in for closing indications.")
+    if getattr(ledger, "exit_cost_basis", "market_value") == "entry_notional":
+        caveats.append("exit costs on entry notional (registered approximation)")
     if data.primary.declaration.survivor_status != "point_in_time":
         caveats.append(SURVIVOR_WARNING)
     caveats.extend(f"Unverified cost profile: {profile.id}."
@@ -158,7 +160,7 @@ def build_report(*, identity: RunIdentity | str, data: MarketData, costs: CostSe
                   "profiles": [{"id": profile.id, "sha256": profile.sha256,
                                 "verified_against_fills": profile.verified_against_fills}
                                for profile in selected]},
-        "benchmark": asdict(benchmark),
+        "benchmark": benchmark.as_dict(),
         "independent_price_cross_check": price_cross_check(
             data, selected_trades, hard_max_date=hard_max_date),
         "execution": execution,
@@ -167,6 +169,14 @@ def build_report(*, identity: RunIdentity | str, data: MarketData, costs: CostSe
         "caveats": caveats,
         "variant_interpretations": [_variant_line(row) for row in variant_rows],
     }
+    dividend_rows = tuple(getattr(ledger, "trades", getattr(ledger, "days", ())))
+    if getattr(ledger, "dividend_withholding", 0.0) or any(
+            getattr(row, "dividend_cash", 0.0) for row in dividend_rows):
+        report["dividends"] = {
+            "withholding_rate": getattr(ledger, "dividend_withholding", 0.0),
+            "gross_of_withholding_cash": sum(
+                getattr(row, "gross_dividend_cash", 0.0) for row in dividend_rows),
+            "net_cash": sum(getattr(row, "dividend_cash", 0.0) for row in dividend_rows)}
     report["recency_folds"] = report["folds"][-3:]
     return report
 
@@ -224,6 +234,12 @@ def markdown(report: Mapping) -> str:
                                              sort_keys=True) + ".", "", "## Variants", "",
               "| Variant | Net | Benchmark | Excess | Absolute net > 0 | Trades | One-sided t |",
               "|---|---:|---:|---:|:---:|---:|---:|"]
+    if "dividends" in report:
+        row = report["dividends"]
+        lines[lines.index("## Variants"):lines.index("## Variants")] = [
+            "Dividends: withholding " + _fmt(row["withholding_rate"]) +
+            "; gross-of-withholding cash " + _fmt(row["gross_of_withholding_cash"]) +
+            "; net cash " + _fmt(row["net_cash"]) + ".", ""]
     for row in report["variants"]:
         lines.append(f"| {row['variant']} | {_fmt(row['net_return'])} | "
                      f"{_fmt(row['benchmark_return'])} | {_fmt(row['excess_return'])} | "

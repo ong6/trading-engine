@@ -13,9 +13,11 @@ Before the first run, freeze:
 - the data source and snapshot hash, each field's availability rule, market calendar, listing
   history coverage, survivor status, and any declared publication lag; when supplied, the
   independent secondary price source has its own declaration and snapshot hash; study-private
-  derived inputs declare their schema and gate every row by an availability timestamp;
+  derived inputs and cash-dividend rows declare their schema and gate every row by an availability
+  timestamp;
 - the strategy kind, pure decision function source, canonical parameters, decision time, fill
-  point, exit or rebalance rule, notional/capital basis, universe, and liquidity rule;
+  point, exit or rebalance rule, notional/capital basis, order priority and signal fields,
+  already-held rule, dividend withholding, universe, and liquidity rule;
 - one primary named cost profile and at least one distinct harsher sensitivity;
 - one benchmark and whether it is the normal gross comparator or the explicitly labelled
   cost-bearing `allocation` mode;
@@ -38,11 +40,11 @@ study's identity check.
 | Declared data | Source, snapshot, point-in-time status, availability lags and calendar are explicit. A view cannot read beyond its decision timestamp or hard maximum date. | `farm.study.data` |
 | Survivor status | Listing intervals determine eligibility when supplied. A current-listings-only source prints `SURVIVOR-BIASED SOURCE`; delist exits and fallback-return uses are counted. | `farm.study.universe`, report data section |
 | Named costs | The primary and a harsher sensitivity are versioned and hashed. Fractional shares, per-side fees, funding and liquidity tiers are applied exactly. Unverified profiles are caveats. | `farm.study.costs` |
-| Benchmark rule | The benchmark covers the identical sessions. Primary excess is strategy net minus benchmark gross; absolute net above zero is a separate required check. Cost-bearing comparison exists only as labelled `allocation` mode. | `farm.study.benchmark` |
+| Benchmark rule | The benchmark covers the identical sessions. Primary excess is strategy net minus benchmark gross; absolute net above zero is a separate required check. An `ew_eligible` comparator resolves its declared input at the trade decision time. Cost-bearing comparison exists only as labelled `allocation` mode. | `farm.study.benchmark` |
 | Shared statistics | Trade mean, entry-session-clustered SE and one-sided t; full calendar-session returns including inactive zeros; annualised Sharpe; DSR with required census N; folds, recency, stationary-bootstrap CI, drawdown, worst month, exposure, turnover and capacity. | `farm.study.stats` |
 | Development and holdout | At least six yearly post-burn-in folds. Development cannot load holdout rows. The holdout marker is created atomically once, before access, and cannot be reused. | `farm.study.protocol` |
 | Fill realism | Declared fill follows the information time, never uses an unavailable bar, and handles missing/delisted names explicitly. For small or illiquid names, compare sampled fills with an independently declared price source; report trade-day coverage, signed fill-field differences, a secondary-price trade result and uncovered trades. Report notional/MDV60 and notional/auction-volume capacity. | `farm.study.data`, `farm.study.run`, cross-check and capacity report fields |
-| Native simulation | Event orders and portfolio target weights use the same point-in-time views, fill points, costs, benchmark windows and deterministic runner. Conditional exits evaluate a pure predicate after entry and use their declared maximum-session fallback. | `farm.study.simulate` |
+| Native simulation | Event orders and portfolio target weights use the same point-in-time views, fill points, costs, dividends, benchmark windows and deterministic runner. Conditional exits evaluate a pure predicate from the registered first-check session and use their declared maximum-session fallback. | `farm.study.simulate` |
 | Proven evaluator | Unit tests cover exact formulas and failure paths; refactors have an identity check; seeded known-answer tests cover power, size, look-ahead, survivorship, costs and benchmark arithmetic. | `tests/test_study_*.py`, `farm.study.synthetic` |
 | Stated runtime | Report wall time, worker count, job count, platform-neutral CPU count, and whether serial/parallel bytes match. | `farm.study.run`, report identity section |
 
@@ -66,9 +68,15 @@ membership row, or holdout row requested too early raises `LookAheadError`.
 A conditional exit that decides from its session's official close requires
 `close_as_indication=True`, and the report carries that exact caveat. Native event ledgers have a
 stable schema: entry/exit session and field, ticker, side, prices, fractional shares, notional,
-entry/exit/funding costs and net return by profile, primary gross/net/benchmark/excess returns,
-exit reason, and flags. Portfolio ledgers record every calendar session's NAV, return, benchmark,
-gross exposure, turnover, per-profile costs and missing-data flags; flat sessions remain zero.
+entry/exit/funding costs, dividend cash and net return by profile, primary
+gross/net/benchmark/excess returns, exit reason, and flags. Entry-notional exit costing is a
+reported registered approximation; market value remains the default. Portfolio ledgers record
+every calendar session's NAV, return, benchmark, gross exposure, turnover, dividend cash,
+per-profile costs and missing-data flags; flat sessions remain zero.
+
+A cash dividend belongs to a position held at the ex-date open and is credited through an exit on
+or after that open. Strategy and equal-weight benchmark returns use the same withholding rate;
+reports retain gross-of-withholding and net cash. An entry at the ex-date open does not qualify.
 
 If a held name delists, use its last available close when one exists. If no exit price exists,
 apply the predeclared delisting return (default −30%) and count it. Never delete the name from

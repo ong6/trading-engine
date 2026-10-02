@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -97,6 +98,28 @@ class DataDeclaration:
 
 
 @dataclass(frozen=True)
+class Dividend:
+    ticker: str
+    ex_date: date
+    cash_amount: float
+    available_at: datetime | None
+
+    def __post_init__(self) -> None:
+        if not self.ticker or not isinstance(self.ex_date, date):
+            raise ValueError("dividend needs a ticker and ex-date")
+        if not isinstance(self.available_at, datetime) or self.available_at.tzinfo is None:
+            raise ValueError("dividend needs an aware availability timestamp")
+        if (isinstance(self.cash_amount, bool) or not isinstance(self.cash_amount, (int, float))
+                or not math.isfinite(self.cash_amount) or self.cash_amount < 0):
+            raise ValueError("dividend cash amount must be non-negative")
+
+    def canonical(self) -> dict:
+        return {"ticker": self.ticker, "ex_date": self.ex_date.isoformat(),
+                "cash_amount": float(self.cash_amount),
+                "available_at": self.available_at.isoformat()}  # type: ignore[union-attr]
+
+
+@dataclass(frozen=True)
 class Bar:
     ticker: str
     session: date
@@ -131,25 +154,35 @@ class Bar:
 class PriceSource:
     """One declared, immutable set of normalized bars."""
 
-    def __init__(self, declaration: DataDeclaration, bars: Iterable[Bar]):
+    def __init__(self, declaration: DataDeclaration, bars: Iterable[Bar],
+                 dividends: Iterable[Dividend] = ()):
         ordered = tuple(sorted(bars, key=lambda bar: (bar.session, bar.ticker)))
         index = {(bar.ticker, bar.session): bar for bar in ordered}
         if len(index) != len(ordered):
             raise ValueError("duplicate ticker/session bar")
+        actions = tuple(sorted(dividends, key=lambda row: (row.ex_date, row.ticker)))
+        if len({(row.ticker, row.ex_date) for row in actions}) != len(actions):
+            raise ValueError("duplicate ticker/ex-date dividend")
         self.declaration = declaration
         self.bars = ordered
+        self.dividends = actions
         self._index = MappingProxyType(index)
 
     @classmethod
     def declared(cls, *, source: str, bars: Iterable[Bar], point_in_time: bool = True,
-                 survivor_status: str = "point_in_time", **kwargs) -> PriceSource:
-        material = tuple(bars)
-        payload = json.dumps([bar.canonical() for bar in sorted(
-            material, key=lambda bar: (bar.session, bar.ticker))],
+                 survivor_status: str = "point_in_time",
+                 dividends: Iterable[Dividend] = (), **kwargs) -> PriceSource:
+        material, actions = tuple(bars), tuple(dividends)
+        canonical_bars = [bar.canonical() for bar in sorted(
+            material, key=lambda bar: (bar.session, bar.ticker))]
+        snapshot = (canonical_bars if not actions else
+                    {"bars": canonical_bars, "dividends": [row.canonical() for row in sorted(
+                        actions, key=lambda row: (row.ex_date, row.ticker))]})
+        payload = json.dumps(snapshot,
             sort_keys=True, separators=(",", ":"), allow_nan=False)
         digest = hashlib.sha256(payload.encode()).hexdigest()
         declaration = DataDeclaration(source, digest, point_in_time, survivor_status, **kwargs)
-        return cls(declaration, material)
+        return cls(declaration, material, actions)
 
     @classmethod
     def from_duckdb(cls, path: str | Path, declaration: DataDeclaration, *,
@@ -284,6 +317,15 @@ class PointInTimeView:
             return row[field]
         except KeyError as exc:
             raise KeyError((name, field)) from exc
+
+    def dividend_rows(self, ticker: str, *, after: date, through: date) -> tuple[Dividend, ...]:
+        if through > self.hard_max_date or through > self.session:
+            raise LookAheadError(f"dividends through {through} are beyond the view boundary")
+        rows = tuple(row for row in self.source.dividends
+                     if row.ticker == ticker and after < row.ex_date <= through)
+        if any(row.available_at > self.decision_at for row in rows):  # type: ignore[operator]
+            raise LookAheadError(f"dividend for {ticker} is not known at decision time")
+        return rows
 
 
 @dataclass(frozen=True)
