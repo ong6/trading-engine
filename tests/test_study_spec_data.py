@@ -105,3 +105,16 @@ def test_duckdb_adapter_is_read_only_and_normalizes_rows(tmp_path):
     con = duckdb.connect(str(path), read_only=True)
     assert con.execute("SELECT COUNT(*) FROM prices").fetchone()[0] == 1
     con.close()
+
+
+def test_columnar_panel_is_dense_read_only_and_preserves_sparse_bars():
+    first, second = date(2024, 1, 2), date(2024, 1, 3)
+    source = _source(bars=[_bar(first, ticker="BBB"), _bar(second, ticker="AAA")])
+    panel = source.panel
+    assert panel.tickers == ("AAA", "BBB") and panel.sessions == (first, second)
+    assert panel.fields["close"].shape == (2, 2)
+    assert not panel.fields["close"].flags.writeable
+    assert source.get("BBB", first).close == 102
+    assert source.get("BBB", second) is None
+    with pytest.raises(ValueError):
+        panel.fields["close"][0, 1] = 0
