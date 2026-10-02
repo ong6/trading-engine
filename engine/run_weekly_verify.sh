@@ -34,6 +34,7 @@ DRIVER_LOG_PREFIX=verify-full
 source "$(dirname "${BASH_SOURCE[0]}")/lib/driver.sh"
 
 body() {
+  stage verify-prices
   # --sample large enough to reach the whole liquid universe; --max-names is the
   # hard ceiling and --max-secs the wall-clock stop. Both are deliberate: a run
   # that cannot finish must stop and SAY it checked fewer names, never silently
