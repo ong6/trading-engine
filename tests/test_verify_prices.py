@@ -1,6 +1,8 @@
 """Price verification releases its store snapshot before network work."""
 from __future__ import annotations
 
+import fcntl
+import os
 from datetime import date
 
 from engine import verify_prices
@@ -39,11 +41,19 @@ def test_connection_narrowed_releases_reader_before_fetch(monkeypatch, tmp_path)
     con.close()
 
     writer_opened: list[bool] = []
+    release_path = tmp_path / "reader-release.lock"
+    release_fd = os.open(release_path, os.O_CREAT | os.O_RDWR)
+    fcntl.flock(release_fd, fcntl.LOCK_EX)
 
     def fetch_while_writing(ticker, *, assetclass, start, end, session):
         assert (ticker, assetclass, end) == ("AAA", "stocks", date(2026, 9, 8))
         assert start < end
         assert session is not None
+        probe = os.open(release_path, os.O_RDWR)
+        try:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(probe)
         writer = db.connect(db_path, wait_s=0)
         try:
             writer.execute(
@@ -75,11 +85,18 @@ def test_connection_narrowed_releases_reader_before_fetch(monkeypatch, tmp_path)
         {"tickers": "AAA", "sessions": 1},
         db_path=db_path,
         meta_path=tmp_path / "meta.json",
+        release_lock_fd=release_fd,
     )
 
     assert writer_opened == [True]
     assert result["names_checked"] == 1
     assert result["names_agreeing"] == 1
+    try:
+        os.fstat(release_fd)
+    except OSError:
+        pass
+    else:
+        raise AssertionError("release lock descriptor remains open")
     check = db.connect(db_path, read_only=True)
     try:
         assert check.execute("SELECT COUNT(*) FROM universe").fetchone() == (2,)

@@ -440,7 +440,7 @@ only** (owner, 2026-09-25). Every other AGENTS.md rule still applies.
 | W5 Event triggers | done | 2026-09-26 |
 | W6 Gates and reporting | done | 2026-09-26 |
 | W7 Cleanup and docs | done | 2026-09-26 |
-| W8 Activation | active; revision 8 issued so validation-time label, limit, and maturity checks use date-only sessions and stored price-prefix hashes after price re-fetches; scoring, books, gates, label writing, and written rows are unchanged | 2026-10-02 |
+| W8 Activation | active; revision 8 is live. Revision 9 infrastructure is code-ready with timing, resource caps, sync recovery, snapshots/API fallback, and contention reductions; scoring, books, gates, labels, registered values, and written rows are unchanged. The orchestrator will issue revision 9 once after merging all four lanes | 2026-10-02 |
 
 ## Risks
 

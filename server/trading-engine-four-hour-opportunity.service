@@ -8,6 +8,8 @@ Type=oneshot
 WorkingDirectory=%h/trading-engine
 ExecStart=%h/trading-engine/server/run_hourly_opportunity.sh four_hour_opportunity_review_v5
 Environment=PYTHONUNBUFFERED=1
+Environment=TRADING_ENGINE_DUCKDB_THREADS=8
+Environment=TRADING_ENGINE_DUCKDB_MEMORY_LIMIT=8GB
 Nice=19
 IOSchedulingClass=idle
 TimeoutStartSec=10min

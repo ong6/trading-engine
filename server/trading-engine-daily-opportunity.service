@@ -10,6 +10,8 @@ Type=exec
 WorkingDirectory=%h/trading-engine
 ExecStart=%h/trading-engine/server/run_daily_opportunity.sh
 Environment=PYTHONUNBUFFERED=1
+Environment=TRADING_ENGINE_DUCKDB_THREADS=8
+Environment=TRADING_ENGINE_DUCKDB_MEMORY_LIMIT=8GB
 Nice=19
 IOSchedulingClass=idle
 TimeoutStartSec=10min
@@ -18,4 +20,5 @@ ProtectSystem=full
 ProtectControlGroups=true
 UMask=0077
 Restart=on-failure
+RestartPreventExitStatus=75
 RestartSec=5min

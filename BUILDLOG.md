@@ -1635,4 +1635,28 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server -2, tools +68, product unchanged; budget ok.
 - **Next:** recover the October 2 reports and league evidence, then resume P16 W9b.
 
+## 2026-10-02 — Make engine infrastructure observable and contention-tolerant
+
+- **Why:** the owner's P15 revision 9 infrastructure directive and the orchestrator's independent
+  audit admitted timing, resource caps, synchronization recovery, snapshots, and contention work.
+- **What:** record per-stage timings; apply optional DuckDB resources; retry one non-fast-forward
+  sync; atomically retain read-only snapshots for API and backup fallback; cache expensive status
+  projections; reuse observer connections; overlap nightly verification/farm work; and isolate
+  evidence-validation exit 75 after league rendering. Registration remains revision 8 here so the
+  orchestrator can issue revision 9 once over the merged four-lane tree.
+- **Caps:**
+
+| Workload | Threads | Memory |
+|---|---:|---:|
+| Nightly/queue and TradingView history | 16 | 24GB |
+| API | 4 | 4GB |
+| Hourly/four-hour/P8/P15 services | 8 | 8GB |
+| Eight replay workers plus API | inherited | 40,096MB total, below 48GB |
+
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4` reaches 100%: 4,120 pass and 86
+  stop only at frozen runtime/registration identity checks intentionally awaiting the merged
+  revision 9 registration; the 514 focused tests, whole-repository Ruff, and budget check pass.
+- **Metrics:** server +240, tools +384, product +289; budget ok.
+- **Next:** orchestrator merges all four infrastructure lanes and issues registration revision 9.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

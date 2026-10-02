@@ -6,3 +6,5 @@ params='{"cohort_id":"liquid-current-v1","start":"2022-01-01","max_chunks":50}'
   --priority 130 --params "${params}"
 .venv/bin/python -m engine.queue_runner --run --run-kind tradingview_history \
   --run-params "${params}"
+.venv/bin/python -m tools.publish_snapshot \
+  || echo "WARN: read-only snapshot publication failed; TradingView history remains complete"

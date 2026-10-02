@@ -27,12 +27,14 @@ from .agent_evaluation import (
     HORIZONS,
     POLICIES,
     POLICY_EVALUATION_STARTS,
+    EvaluationError,
     in_evaluation_cohort,
     init_schema,
     validate_p15_evidence,
 )
 
 SCHEMA_VERSION = 2
+VALIDATION_EXIT_STATUS = 75
 DEFAULT_OUTPUT = DATA_DIR / "reports" / "agent-evaluation.json"
 DEFAULT_P15_OUTPUT = DATA_DIR / "reports" / "agent-eval" / "p15.md"
 DEFAULT_CONTAMINATION = (REPO_ROOT / "data" / "reports" / "experiments"
@@ -453,20 +455,34 @@ def main(argv: list[str] | None = None) -> int:
         registered = p15_evaluation.registration_sha256()
         with db.transaction(con):
             p15_evaluation.publish_pending_look_anchors(con, registered)
-        with db.transaction(con):
-            validate_p15_evidence(con, generated_at)
-            p15_evaluation.primary(
-                con, generated_at, persist_looks=True,
-                registration_sha=registered,
-            )
+        try:
+            with db.transaction(con):
+                validate_p15_evidence(con, generated_at)
+                p15_evaluation.primary(
+                    con, generated_at, persist_looks=True,
+                    registration_sha=registered,
+                )
+        except EvaluationError as exc:
+            print(json.dumps({
+                "status": "evidence-validation-failed",
+                "reason": str(exc),
+            }, sort_keys=True))
+            return VALIDATION_EXIT_STATUS
         with db.transaction(con):
             p15_evaluation.publish_pending_look_anchors(con, registered)
     finally:
         con.close()
     con = db.connect(args.database, read_only=True, wait_s=0)
     try:
-        report = build_report(con, generated_at=generated_at,
-                              contamination_path=args.contamination)
+        try:
+            report = build_report(con, generated_at=generated_at,
+                                  contamination_path=args.contamination)
+        except EvaluationError as exc:
+            print(json.dumps({
+                "status": "evidence-validation-failed",
+                "reason": str(exc),
+            }, sort_keys=True))
+            return VALIDATION_EXIT_STATUS
     finally:
         con.close()
     resources.write_text_atomic(args.output, json.dumps(report, indent=2, sort_keys=True) + "\n")

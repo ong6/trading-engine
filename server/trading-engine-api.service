@@ -7,6 +7,8 @@ Type=simple
 WorkingDirectory=%h/trading-engine
 ExecStart=%h/trading-engine/.venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000
 Environment=PYTHONUNBUFFERED=1
+Environment=TRADING_ENGINE_DUCKDB_THREADS=4
+Environment=TRADING_ENGINE_DUCKDB_MEMORY_LIMIT=4GB
 Restart=on-failure
 RestartSec=5s
 PrivateTmp=true

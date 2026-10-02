@@ -62,7 +62,9 @@ HARD RULES
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
+import os
 import random
 import sys
 import time
@@ -711,6 +713,8 @@ def run_connection_narrowed(
     params: dict | None,
     db_path: str | Path = DEFAULT_DB,
     meta_path: str | Path = DEFAULT_META,
+    *,
+    release_lock_fd: int | None = None,
 ) -> dict:
     """Materialize the store slice, then release DuckDB before HTTP requests."""
     con = _connect_ro(db_path)
@@ -720,6 +724,9 @@ def run_connection_narrowed(
         nonlocal released
         con.close()
         released = True
+        if release_lock_fd is not None:
+            fcntl.flock(release_lock_fd, fcntl.LOCK_UN)
+            os.close(release_lock_fd)
 
     try:
         return run(
@@ -754,6 +761,7 @@ def main() -> int:
                          "basis points to prove the detector fires; implies "
                          "--no-meta")
     ap.add_argument("--no-meta", action="store_true", help="print only, write nothing")
+    ap.add_argument("--release-lock-fd", type=int, default=None, help=argparse.SUPPRESS)
     args = ap.parse_args()
     # Redirected to a log, stdout is block-buffered and a multi-minute run looks
     # like a hung one until it finishes (BUILDLOG 2026-08-20: the defect is the
@@ -774,6 +782,7 @@ def main() -> int:
              "tickers": args.tickers, "self_test_bp": args.self_test},
             db_path=args.db,
             meta_path=args.meta,
+            release_lock_fd=args.release_lock_fd,
         )
     except Exception as exc:
         log.error(f"TODO: price verify failed ({type(exc).__name__}: {exc}) — no "

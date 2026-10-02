@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable, Mapping
 from urllib.parse import urlencode
 
+import duckdb
 import requests
 
 from engine.lib import db
@@ -272,6 +273,7 @@ def capture_history(symbol: str, start: date, end: date, *, database: Path = DEF
 def capture_tradingview_realtime(
     provider_symbol: str, *, database: Path = DEFAULT_DB, observed_at: datetime | None = None,
     fetch: tradingview_source.Fetch = tradingview_source._fetch,
+    connection: duckdb.DuckDBPyConnection | None = None,
 ) -> dict:
     status = market_data_sources.source_status(market_data_sources.TRADINGVIEW)
     transcript = fetch(provider_symbol, mode="realtime")
@@ -280,7 +282,7 @@ def capture_tradingview_realtime(
         transcript.requested_at, transcript.received_at)
     request = {"provider_symbol": provider_symbol, "mode": "realtime",
                "protocol_version": tradingview_source.SOURCE_VERSION}
-    con = db.connect(database, wait_s=0)
+    con = connection or db.connect(database, wait_s=0)
     try:
         receipt = market_data_sources.retain_response(
             con, source_id=market_data_sources.TRADINGVIEW, dataset="realtime_snapshot",
@@ -293,16 +295,22 @@ def capture_tradingview_realtime(
             ("ticker", "event_at", "payload")}], fact_type="market.quote.realtime",
             source_version=tradingview_source.SOURCE_VERSION)
     finally:
-        con.close()
+        if connection is None:
+            con.close()
     return {**status, "status": "complete", "observation":
             market_data_sources.evidence(observation, receipt["receipt_sha256"], status)}
 
 
 def capture_tradingview_many(
     symbols: list[str], *, database: Path = DEFAULT_DB, observed_at: datetime | None = None,
+    connection: duckdb.DuckDBPyConnection | None = None,
 ) -> list[dict]:
     observations = [capture_tradingview_realtime(
-        symbol, database=database, observed_at=observed_at)["observation"]
+        symbol,
+        database=database,
+        observed_at=observed_at,
+        connection=connection,
+    )["observation"]
         for symbol in symbols[:5]]
     return [item for item in observations if item.get("fresh") is True]
 
