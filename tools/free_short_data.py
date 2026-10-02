@@ -53,6 +53,10 @@ SOURCE_STARTS = {"nasdaq": date(2005, 1, 7), "nyse": date(2005, 1, 3),
                  "cboe": date(2014, 8, 20)}
 
 
+class _NotFound(FreeSourceError):
+    pass
+
+
 @dataclass(frozen=True)
 class Response:
     body: bytes
@@ -119,6 +123,10 @@ class CachedClient:
             if fetched.utcoffset() is None:
                 fetched = fetched.replace(tzinfo=timezone.utc)
             return Response(body, stored[0], fetched, True, url)
+        if self.con.execute(
+            "SELECT 1 FROM short_source_misses WHERE request_key=?", [key]
+        ).fetchone():
+            raise _NotFound(f"previously missing source response: {url}")
         self.pacer.reserve()
         headers = {"User-Agent": self.sec_contact if source == "sec_ftd" else USER_AGENT}
         headers["Accept"] = "application/json" if payload is not None else "*/*"
@@ -129,6 +137,12 @@ class CachedClient:
             )
         except requests.RequestException as exc:
             raise FreeSourceError(f"{source} request failed") from exc
+        if response.status_code == 404:
+            with db.transaction(self.con):
+                self.con.execute("INSERT OR IGNORE INTO short_source_misses VALUES (?,?,?,?,?)", [
+                    key, source, url, datetime.now(timezone.utc), 404,
+                ])
+            raise _NotFound(f"{source} request returned HTTP 404: {url}")
         if response.status_code != 200:
             raise FreeSourceError(f"{source} request returned HTTP {response.status_code}: {url}")
         body = bytes(response.content)
@@ -325,7 +339,10 @@ def capture_regsho(
         template = {"nasdaq": NASDAQ_URL, "nyse": NYSE_URL, "cboe": CBOE_URL}[venue]
         url = template.format(stamp=stamp, date=measured.isoformat())
         key = f"GET:{url}:null"
-        response = client.get(venue, url, suffix=".txt", request_key=key)
+        try:
+            response = client.get(venue, url, suffix=".txt", request_key=key)
+        except _NotFound:
+            continue
         rows = free_short_data.parse_regsho_text(
             response.body, venue={"nasdaq": "Nasdaq", "nyse": "NYSE", "cboe": "Cboe"}[venue],
             trade_date=measured,
@@ -428,6 +445,11 @@ def render_audit(result: dict) -> str:
              "clocks. `short_data_asof(as_of)` excludes rows before publication. Exact symbols",
              "are matched on observation date against the read-only Tiingo listing intervals and",
              "SEC CIK/ticker history; ambiguous reference intervals are flagged, not guessed.", "",
+             "## Overall ranges", "", "| Source | First date | Last date | Rows |",
+             "|---|---|---|---:|"]
+    lines.extend(f"| {r['source']} | {r['start']} | {r['end']} | {r['rows']:,} |"
+                 for r in result["ranges"])
+    lines += ["",
              "## Coverage by source and year", "",
              "| Source | Year | Rows | Dates |", "|---|---:|---:|---:|"]
     lines.extend(f"| {r['source']} | {r['year']} | {r['rows']:,} | {r['dates']:,} |"
@@ -447,6 +469,9 @@ def render_audit(result: dict) -> str:
               f"FINRA coverage is {limitation['start']} through {limitation['end']}. The "
               f"{limitation['rows']:,} rows on {limitation['dates']:,} settlement dates before "
               "June 2021 are OTC-only; exchange-listed consolidated history is unavailable there.",
+              "FINRA publication is the seventh business day after settlement. SEC FTD uses the",
+              "SEC's stated availability schedule: month-end for first-half data and the 15th of",
+              "the next month for second-half data; the SEC cautions that posting can be later.",
               "SEC FTD is an aggregate outstanding settlement balance, not short interest and not",
               "a daily flow. Threshold membership is a venue list, not evidence of abusive shorting.",
               "CUSIPs remain only in the private raw cache and isolated local database.", ""]

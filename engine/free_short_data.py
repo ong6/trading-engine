@@ -109,10 +109,14 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     con.execute("""CREATE TABLE IF NOT EXISTS sec_fails_to_deliver (
         settlement_date DATE NOT NULL, publication_date DATE NOT NULL,
         ingested_at TIMESTAMPTZ NOT NULL, cusip VARCHAR NOT NULL,
-        symbol VARCHAR NOT NULL, issuer_name VARCHAR NOT NULL,
+        symbol VARCHAR, issuer_name VARCHAR NOT NULL,
         quantity BIGINT NOT NULL, price DECIMAL(20,6),
         source_sha256 VARCHAR NOT NULL, source_row BIGINT NOT NULL,
         PRIMARY KEY(source_sha256, source_row))""")
+    con.execute("ALTER TABLE sec_fails_to_deliver ALTER COLUMN symbol DROP NOT NULL")
+    con.execute("""CREATE TABLE IF NOT EXISTS short_source_misses (
+        request_key VARCHAR PRIMARY KEY, source VARCHAR NOT NULL, url VARCHAR NOT NULL,
+        checked_at TIMESTAMPTZ NOT NULL, http_status INTEGER NOT NULL)""")
     con.execute("""CREATE TABLE IF NOT EXISTS regsho_threshold (
         trade_date DATE NOT NULL, publication_date DATE NOT NULL,
         ingested_at TIMESTAMPTZ NOT NULL, venue VARCHAR NOT NULL,
@@ -229,31 +233,34 @@ def _safe_zip_members(body: bytes) -> list[tuple[str, bytes]]:
 
 def parse_sec_ftd(body: bytes) -> list[dict]:
     rows, source_row = [], 1
-    required = {"SETTLEMENT DATE", "CUSIP", "SYMBOL", "QUANTITY (FAILS)",
-                "DESCRIPTION", "PRICE"}
+    expected_header = ["SETTLEMENT DATE", "CUSIP", "SYMBOL", "QUANTITY (FAILS)",
+                       "DESCRIPTION", "PRICE"]
     for _, raw_member in _safe_zip_members(body):
         text = raw_member.decode("latin-1")
         lines = text.splitlines()
         trailer_at = next((index for index, line in enumerate(lines)
                            if line.startswith("Trailer record count ")), len(lines))
         trailer = lines[trailer_at:]
-        reader = csv.DictReader(io.StringIO("\n".join(lines[:trailer_at])), delimiter="|")
-        if not required <= set(reader.fieldnames or ()):
+        if not lines or lines[0].split("|") != expected_header:
             raise FreeSourceError("SEC FTD columns are invalid")
         member_start = len(rows)
-        for raw in reader:
+        for line in lines[1:trailer_at]:
             source_row += 1
-            if None in raw or any(value is None for value in raw.values()):
+            fields = line.split("|")
+            if len(fields) < 6:
                 raise FreeSourceError("SEC FTD row shape is invalid")
-            measured = _date(raw["SETTLEMENT DATE"], "FTD settlement date", "%Y%m%d")
+            measured_raw, cusip, symbol_raw, quantity = fields[:4]
+            issuer, price = " | ".join(fields[4:-1]), fields[-1]
+            measured = _date(measured_raw, "FTD settlement date", "%Y%m%d")
             rows.append({
                 "source_row": source_row, "settlement_date": measured,
                 "publication_date": ftd_publication_date(measured),
-                "cusip": _text(raw["CUSIP"], "FTD CUSIP"),
-                "symbol": _text(raw["SYMBOL"], "FTD symbol").upper(),
-                "issuer_name": _text(raw["DESCRIPTION"], "FTD issuer"),
-                "quantity": _integer(raw["QUANTITY (FAILS)"], "FTD quantity"),
-                "price": _decimal(raw["PRICE"], "FTD price", optional=True),
+                "cusip": _text(cusip, "FTD CUSIP"),
+                "symbol": (symbol.upper() if
+                           (symbol := _text(symbol_raw, "FTD symbol", optional=True)) else None),
+                "issuer_name": _text(issuer, "FTD issuer"),
+                "quantity": _integer(quantity, "FTD quantity"),
+                "price": _decimal(price, "FTD price", optional=True),
             })
         if trailer:
             try:
@@ -381,11 +388,17 @@ def map_tickers(short_database: Path, reference_database: Path) -> dict:
         con.execute(f"ATTACH '{escaped}' AS reference (READ_ONLY)")
         con.execute("""CREATE OR REPLACE TEMP VIEW _short_observations AS
             SELECT 'finra_short_interest' dataset,source_sha256,source_row,symbol,
-              settlement_date measurement_date FROM finra_short_interest
+              settlement_date measurement_date FROM finra_short_interest s WHERE NOT EXISTS (
+                SELECT 1 FROM short_ticker_map m WHERE m.dataset='finra_short_interest'
+                  AND m.source_sha256=s.source_sha256 AND m.source_row=s.source_row)
             UNION ALL SELECT 'sec_fails_to_deliver',source_sha256,source_row,symbol,
-              settlement_date FROM sec_fails_to_deliver
+              settlement_date FROM sec_fails_to_deliver s WHERE NOT EXISTS (
+                SELECT 1 FROM short_ticker_map m WHERE m.dataset='sec_fails_to_deliver'
+                  AND m.source_sha256=s.source_sha256 AND m.source_row=s.source_row)
             UNION ALL SELECT 'regsho_threshold',source_sha256,source_row,symbol,
-              trade_date FROM regsho_threshold""")
+              trade_date FROM regsho_threshold s WHERE NOT EXISTS (
+                SELECT 1 FROM short_ticker_map m WHERE m.dataset='regsho_threshold'
+                  AND m.source_sha256=s.source_sha256 AND m.source_row=s.source_row)""")
         con.execute("""CREATE OR REPLACE TEMP VIEW _latest_master AS SELECT *
             FROM reference.free_security_master WHERE source_sha256=(
               SELECT source_sha256 FROM reference.free_security_master
