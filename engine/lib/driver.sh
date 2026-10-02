@@ -44,6 +44,7 @@
 DRIVER_LOCK_MSG="${DRIVER_LOCK_MSG:-another ${DRIVER_NAME} is still running (lock held) — aborting}"
 DRIVER_LOG_APPEND="${DRIVER_LOG_APPEND:-1}"
 DRIVER_STAGE_FILE="${DRIVER_STAGE_FILE:-}"
+DRIVER_TIMINGS_FILE="${DRIVER_TIMINGS_FILE:-logs/stage-timings.jsonl}"
 
 # Resolve repo root from this file's location (path-independent).
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -64,11 +65,49 @@ LOG="${REPO_ROOT}/logs/${DRIVER_LOG_PREFIX}-$(date +%F).log"
 
 if [ -n "${DRIVER_STAGE_FILE}" ]; then
   STAGE_FILE="${REPO_ROOT}/${DRIVER_STAGE_FILE}"
-  stage() { echo "$1" > "${STAGE_FILE}"; }
   : > "${STAGE_FILE}"
-else
-  stage() { :; }
 fi
+
+STAGE_TIMINGS_PATH="${REPO_ROOT}/${DRIVER_TIMINGS_FILE}"
+DRIVER_RUN_ID="${DRIVER_NAME}-$(date -u +%Y%m%dT%H%M%S.%NZ)-$$"
+_DRIVER_STAGE_NAME=""
+_DRIVER_STAGE_STARTED=""
+_DRIVER_STAGE_STARTED_NS=""
+
+_finish_stage() {
+  local exit_code="${1:-0}" ended ended_ns elapsed whole nanos seconds
+  [ -n "${_DRIVER_STAGE_NAME}" ] || return 0
+  ended="$(date -u +%FT%T.%NZ 2>/dev/null || true)"
+  ended_ns="$(date -u +%s%N 2>/dev/null || true)"
+  if [[ ! "${ended_ns}" =~ ^[0-9]+$ ]]; then
+    ended_ns="${_DRIVER_STAGE_STARTED_NS}"
+  fi
+  elapsed=$((10#${ended_ns} - 10#${_DRIVER_STAGE_STARTED_NS}))
+  [ "${elapsed}" -ge 0 ] || elapsed=0
+  whole=$((elapsed / 1000000000))
+  nanos=$((elapsed % 1000000000))
+  printf -v seconds '%d.%09d' "${whole}" "${nanos}"
+  printf 'STAGE driver=%s run_id=%s stage=%s started=%s ended=%s seconds=%s exit=%s\n' \
+    "${DRIVER_NAME}" "${DRIVER_RUN_ID}" "${_DRIVER_STAGE_NAME}" \
+    "${_DRIVER_STAGE_STARTED}" "${ended}" "${seconds}" "${exit_code}"
+  (
+    flock -x 8
+    printf '{"driver":"%s","run_id":"%s","stage":"%s","started":"%s","ended":"%s","seconds":%s,"exit":%s}\n' \
+      "${DRIVER_NAME}" "${DRIVER_RUN_ID}" "${_DRIVER_STAGE_NAME}" \
+      "${_DRIVER_STAGE_STARTED}" "${ended}" "${seconds}" "${exit_code}" >&8
+  ) 8>>"${STAGE_TIMINGS_PATH}" 2>/dev/null || true
+  _DRIVER_STAGE_NAME=""
+}
+
+stage() {
+  _finish_stage 0
+  _DRIVER_STAGE_NAME="$1"
+  _DRIVER_STAGE_STARTED="$(date -u +%FT%T.%NZ)"
+  _DRIVER_STAGE_STARTED_NS="$(date -u +%s%N)"
+  if [ -n "${DRIVER_STAGE_FILE}" ]; then
+    echo "$1" > "${STAGE_FILE}"
+  fi
+}
 
 # driver_main <body-function>: tee the body into ${LOG}, then propagate the
 # first failing stage's exit code with a TODO breadcrumb (read PIPESTATUS
@@ -79,15 +118,21 @@ driver_main() {
   if [ "${DRIVER_LOG_APPEND}" = "1" ]; then
     {
       set -e
+      trap '_finish_stage "$?"' EXIT
       echo "=== ${DRIVER_NAME} $(date -u +%FT%TZ) ==="
       "${body}"
+      _finish_stage 0
+      trap - EXIT
       echo "=== done $(date -u +%FT%TZ) ==="
     } 2>&1 | tee -a "${LOG}"
   else
     {
       set -e
+      trap '_finish_stage "$?"' EXIT
       echo "=== ${DRIVER_NAME} $(date -u +%FT%TZ) ==="
       "${body}"
+      _finish_stage 0
+      trap - EXIT
       echo "=== done $(date -u +%FT%TZ) ==="
     } 2>&1 | tee "${LOG}"
   fi
