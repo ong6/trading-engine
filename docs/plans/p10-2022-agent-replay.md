@@ -1,10 +1,14 @@
 ---
-plan: P10
+plan: P10 # Contamination-aware 2022 agent replay
 title: Contamination-aware 2022 agent replay
 status: done
 opened: 2026-09-22
 owner_decision: approved 2026-09-22
 ---
+
+# Contamination-aware 2022 agent replay (P10)
+
+> **Related plan names:** daily opportunity agent (P8) and multi-cadence agent tools (P9).
 
 ## Goal
 

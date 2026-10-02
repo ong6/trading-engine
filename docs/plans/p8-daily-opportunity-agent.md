@@ -1,10 +1,14 @@
 ---
-plan: P8
+plan: P8 # Daily opportunity agent
 title: Daily market-opportunity agent
 status: active
 opened: 2026-09-22
 owner_decision: approved 2026-09-22
 ---
+
+# Daily market-opportunity agent (P8)
+
+> **Related plan name:** autonomous paper trial (P7).
 
 ## Goal
 

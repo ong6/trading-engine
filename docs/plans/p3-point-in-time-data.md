@@ -1,10 +1,12 @@
 ---
-plan: P3
+plan: P3 # Point-in-time data
 title: Survivorship-free point-in-time data
 status: approved
 opened: 2026-09-18
 owner_decision: set a spend ceiling and confirm purchase
 ---
+
+# Survivorship-free point-in-time data (P3)
 
 ## Vendor comparison — 2026-09-20
 
@@ -55,7 +57,7 @@ endpoint, operational migration, or tracked raw-data file is added.
 The SEC contact identity is now present in the owner-only environment file, so the pending
 Phase 0 SEC work is active. Read every 1996Q1--2026Q3 EDGAR `form.idx`, retain Form 25 and
 25-NSE notices including amendments, and fetch the primary XML for 25-NSE filings from 2010.
-Load the SEC Insider Transactions Data Sets from 2006Q1--2026Q3 and the current SEC company
+Load the SEC Insider Transactions Data Sets from 2006Q1--2026Q3 and the current SEC issuer
 ticker map into the same isolated Phase 0 database. The resulting tables and the
 `free_cik_ticker_history` view are generic point-in-time research infrastructure.
 
@@ -92,7 +94,7 @@ lane branch.
 
 **Outcome.** All 123 Form indexes through 2026Q3 and every required 2010+ 25-NSE primary XML
 were retained and loaded. The official insider page supplied 82 contiguous ZIPs through 2026Q2;
-2026Q3 was not yet published. The current company-ticker snapshot and the coverage audit are
+2026Q3 was not yet published. The current issuer-ticker snapshot and the coverage audit are
 complete; Phase 0 remains isolated research data and the paid-vendor phase remains spend-blocked.
 
 ## Goal

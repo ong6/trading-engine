@@ -1,4 +1,4 @@
-# P3 Phase 0 free SEC audit — 2026-10-01
+# Point-in-time data (P3) Phase 0 free SEC audit — 2026-10-01
 
 ## Method
 
@@ -12,7 +12,7 @@ an interval end within ten sessions on the copied store calendar.
 The capture covers 123 Form indexes, 21,394 unique notice accessions,
 13,675 primary XML details, 82 contiguous
 insider quarters from 2006Q1 through the official page's latest link (2026Q2), and
-10,431 current company-ticker rows. SEC had not published a
+10,431 current issuer-ticker rows. SEC had not published a
 2026Q3 insider ZIP on the audit date.
 
 Insider facts become available at EDGAR acceptance when the quarterly source supplies it.

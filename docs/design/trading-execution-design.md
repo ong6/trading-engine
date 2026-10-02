@@ -167,7 +167,7 @@ broker capability, rate limit, platform requirement, and account restriction aga
 official documentation before implementation. This appendix is not an authorization or current
 security design; [`../history/live-readiness-goal.md`](../history/live-readiness-goal.md) records the gates a future execution plan inherits.
 
-- **Host:** a personal machine only (small SG VPS ~US$6–12/mo or home mini PC) — never company
+- **Host:** a personal machine only (small SG VPS ~US$6–12/mo or home mini PC) — never an employer-managed
   hardware: broker credentials on corp infra = policy + inspection risk, corp egress
   filtering/TLS interception already observed (Stooq blocked, pip MITM'd), and the kill switch
   must not depend on corp VPN access. UI via personal Tailscale.

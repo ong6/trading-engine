@@ -1,14 +1,21 @@
 ---
-plan: P16
+plan: P16 # Challenger lab, text edge, and evaluation science
 title: Challenger lab, text edge, and evaluation science
 status: active
 opened: 2026-09-26
 owner_decision: approved 2026-09-26 (feedback.md), including P15 remediation and activation as W0; optional inputs listed under Prerequisites
 ---
 
+# Challenger lab, text edge, and evaluation science (P16)
+
+> **Related plan names:** appliance mode (P1), agent paper decisions (P5), autonomous paper trial
+> (P7), daily opportunity agent (P8), TradingView historical archive (P14), profitability evidence
+> loop (P15), and personal-host broker paper execution (P17).
+
 ## Goal
 
-Build the second layer of the [system blueprint](../system-blueprint.md) on top of P15. P15 answers
+Build the second layer of the [system blueprint](../system-blueprint.md) on top of the profitability
+evidence loop (P15). P15 answers
 "does one model policy beat one rule?". P16 turns the engine into a **research lab** that tests
 many well-defined hypotheses at once, on identical inputs, and judges them honestly. When this
 plan is done:
@@ -17,7 +24,7 @@ plan is done:
    Every challenger is monitored with always-valid sequential tests, and selection among
    challengers is deflated for the number of trials.
 2. **Challenger lab.** Up to eight registered shadow challengers score the P15 universe every
-   night beside the P15 champion. They cover company-name blinding, memory of the policy's own
+   night beside the P15 champion. They cover issuer-name blinding, memory of the policy's own
    matured outcomes, a model tournament, an ensemble, and input ablations.
 3. **Filing reader.** SEC 8-K earnings releases and other material filings are read within
    minutes of availability into structured, scored, labelled shadow decisions.
@@ -49,7 +56,7 @@ decision based on P16's reports.
   - Post-earnings drift is gone in large caps (Martineau, *Critical Finance Review* 2022).
   - Most LLM trading agents fail to beat buy-and-hold (StockBench arXiv:2510.02209; FINSABER
     arXiv:2505.07078).
-  - Company knowledge distracts models, and blinding helps (Glasserman & Lin, arXiv:2309.17322).
+  - Issuer knowledge distracts models, and blinding helps (Glasserman & Lin, arXiv:2309.17322).
 - A factor-neutral, trial-counted, sequential evaluation is what separates a real edge from
   momentum exposure or a lucky variant.
 - Time-locked models with published weights exist, and EDGAR filing history is free with
@@ -119,9 +126,9 @@ versions. Values marked *(builder sets)* are chosen once from engineering constr
 - **Frozen family.** `family_id = p16-challengers-f1`, `M = 8`, with members in this order:
   `c-blind`, `c-memory`, `c-model-gpt-5.5-max`, `c-model-gpt-5.6-terra-max`,
   `c-ensemble`, `c-price-only`, `c-text-only`, `c-prompt-v2`. GPT-6-Astra is excluded because
-  its company queue cannot satisfy the before-next-open deadline.
+  its issuer queue cannot satisfy the before-next-open deadline.
 - **Shared metadata envelope.** Every family member receives the exact retained
-  `p15-universe-v1` bundle plus the same cutoff-bounded company-name, alias, and sector envelope.
+  `p15-universe-v1` bundle plus the same cutoff-bounded issuer-name, alias, and sector envelope.
   The earnings `no_upcoming_date` correction is deferred to a separately registered universe-v2
   cohort so it cannot change only one side of this comparison.
 - **Ensemble.** Mean all three numeric fields over the champion and the two `c-model-*` members.
@@ -137,7 +144,7 @@ versions. Values marked *(builder sets)* are chosen once from engineering constr
 
 | ID | Changes only | Hypothesis |
 |---|---|---|
-| `c-blind` | Tickers, company names, and names in headlines are replaced by stable per-session anonymous IDs. Sector and all numeric features are kept | Company knowledge distracts, or memorisation inflates, the champion |
+| `c-blind` | Tickers, issuer names, and names in headlines are replaced by stable per-session anonymous IDs. Sector and all numeric features are kept | Issuer knowledge distracts, or memorisation inflates, the champion |
 | `c-memory` | Adds up to 20 of the champion's own past decisions whose h5 labels matured before the decision time, retrieved by the rule: same stratum, same sector, then nearest standout score. Each carries its thesis and realised outcome | Feedback from its own outcomes improves calibration |
 | `c-model-<id>` (up to 3) | A different model identity available through the bound proxy, same prompt. The identity is bound and fails closed like the champion's | The decision-maker should be chosen on evidence |
 | `c-ensemble` | No extra calls: the mean of the champion and all `c-model-*` scores | Averaging reduces noise |
@@ -223,7 +230,7 @@ promote one):**
     - **Priority 2, scraping** (respect `robots.txt`, rate-limit, identify the client):
       - press-release wires (GlobeNewswire, PR Newswire, Business Wire) via their archives and
         sitemaps;
-      - company investor-relations news pages;
+      - issuer investor-relations news pages;
       - Yahoo Finance and Google News RSS for recent months;
       - Wayback Machine CDX captures of ticker news pages.
 
@@ -231,9 +238,9 @@ promote one):**
       capture time (for example, a Wayback or Common Crawl capture). When only a publish time
       exists, add a registered 15-minute lag.
     - **Priority 3, free API tiers** (the owner creates keys; the builder asks early and
-      continues without them): the Alpaca news API (Benzinga archive), Finnhub company news, and
+      continues without them): the Alpaca news API (Benzinga archive), Finnhub issuer news, and
       Alpha Vantage news. Record each tier's history depth and terms in W4b's first commit.
-    - **Mapping:** ticker tags where the source has them; otherwise cashtag, exact company name,
+    - **Mapping:** ticker tags where the source has them; otherwise cashtag, exact issuer name,
       or CIK, as in P15. Unmapped items are kept.
     - **Deduplication:** by normalised headline within 48 hours. The earliest available copy
       wins, and every copy is retained.
@@ -442,7 +449,7 @@ safety and operations), run on 2026-09-26. File references are as of that commit
 | R5 | The nightly scoring input hard-codes `"event_facts": []` (`server/p15_scoring_runner.py` ~125; `tests/test_p15_scoring.py` ~172 pins it), though the registration lists admitted event facts as an input | Pass availability-bounded event facts; replace the pinning test with a leakage test |
 | R6 | Missed sessions fill at the wrong open. If a scoring run fails, the next `process_pending` (`sim/p15_books.py` ~627) fills older intents at a later open, and skips stops and time exits for the missed closes | Process book windows session by session from the last `p15_book_windows` row; expire entry intents older than one session as `stale_signal` |
 | R7 | The primary test's standard error is too small. Bartlett weights at lag 4 under-count a 5-session overlap, and normal critical values at n = 60 compound it; the real one-sided α per look may be about 4%, not 1.67%. The only test compares against the same formula (circular) | Use the uniform (Hansen–Hodrick) kernel at lag 4, falling back to Bartlett at lag 8 if the variance is not positive, with t critical values (df = n − 1). Add a hand-computed known-answer test and a simulation: under the null, false passes across the three looks ≤ 5%; a planted IC passes. Record the change in the re-issued registration |
-| R7b | **Supersedes R7's fix (added 2026-09-27, before activation).** Two independent 40k–100k-path simulations show that the R7 fix as written (uniform kernel at lag 4, t with df n − 1) still gives about 6.2% three-look false passes under Gaussian MA(4) and 7.4–7.5% under IID. The lag-4 variance has only about 7 effective degrees of freedom at n = 60 | **The lead re-issues the P15 registration before activation** with the primary test as a **non-overlapping offset-0 t-test**: every 5th scored session, df 11/17/23 at the 60/90/120 looks, one-sided α = 0.05/3 each (≈3.3–3.4% three-look size; power ≈86.5% vs 89.1% at a 0.03 gap). The lag-4 variance becomes a reported diagnostic. Skips decided before outcomes are seen (fewer than 20 candidates, or constant scores) are allowed. State that persistent AR-type dependence is outside the guarantee. Paste-ready text will be at `~/.tae/out/p16-design-eval/r7-registration.md` once that design session's round 2 lands |
+| R7b | **Supersedes R7's fix (added 2026-09-27, before activation).** Two independent 40k–100k-path simulations show that the R7 fix as written (uniform kernel at lag 4, t with df n − 1) still gives about 6.2% three-look false passes under Gaussian MA(4) and 7.4–7.5% under IID. The lag-4 variance has only about 7 effective degrees of freedom at n = 60 | **The lead re-issues the P15 registration before activation** with the primary test as a **non-overlapping offset-0 t-test**: every 5th scored session, df 11/17/23 at the 60/90/120 looks, one-sided α = 0.05/3 each (≈3.3–3.4% three-look size; power ≈86.5% vs 89.1% at a 0.03 gap). The lag-4 variance becomes a reported diagnostic. Skips decided before outcomes are seen (fewer than 20 candidates, or constant scores) are allowed. State that persistent AR-type dependence is outside the guarantee. Paste-ready text was retained in the external design handoff once round 2 landed |
 | R8 | A missing-bar label is written as soon as SPY reaches the horizon, even when the ticker's bar is merely late. It is then permanent (`server/agent_evaluation.py` ~440–470), and the missing-entry path stores a net excess of 0 against a net return of −20 bp | Label at the last close only after a later bar for that ticker exists or a fetch attempt for the date is recorded, with a 3-session grace period; make the fields consistent |
 | R9 | Nothing enforces the frozen registration. Thresholds are duplicated as literals (for example `sim/p15_books.py` ~330) | Add a test that checks every registered constant and every registered file hash against the code, so a post-activation edit fails CI |
 | R10 | The pre-open run has no session check (`server/p15_preopen.py` ~319); on holidays it can cancel orders a day early | Return `not_session` on non-sessions |
@@ -466,7 +473,7 @@ safety and operations), run on 2026-09-26. File references are as of that commit
 | The Brier comparisons use different samples, and the logistic lag counts dataset sessions; align the samples and use market sessions | W1 |
 | The P8 rule counts traces, not market sessions, and omits the metrics P8 lists | W1 |
 | Earnings: a snapshot with only past dates should be `no_upcoming_date` (allow), not `unavailable`; add an `as_of` staleness limit | W2 (as `p15-universe-v2`) |
-| Mover relative volume assumes a 390-minute day on early closes; company-name matching ignores case | W3 |
+| Mover relative volume assumes a 390-minute day on early closes; issuer-name matching ignores case | W3 |
 | The hybrid book fills a vetoed slot with the next-ranked name; record it explicitly in the registration | W0 (registration text only) |
 | `agent-cadence-registration.json` renamed the v4 observers to v5 instead of adding v5 alongside them; restore v4 as retired entries | W0 |
 | The laptop lint commit `61b6a26` touched P8 v1 files; prove it preserves behaviour by replaying the last P8 run bundle (identical output) and running the P8 tests | W0 |
@@ -516,7 +523,7 @@ then run evaluation loops on the agent.
   - a separate DuckDB file and no timers;
   - results labelled `synthetic`, never pooled with real evidence;
   - no promotion authority.
-- **Design input:** `~/.tae/out/p16-design-proving-ground/` (written by a parallel design
+- **Design input:** the external synthetic-proving-ground handoff (written by a parallel design
   session). The lead builds from it after W9; the orchestrator reviews the design and each run.
 
 ## Not in scope
@@ -576,9 +583,7 @@ prove by running, inert until activation, stop conditions, progress table). Addi
 - **Use the context window.** Load this plan, the blueprint, P15, `product.md`, `AGENTS.md`, and
   the P15 evaluation and scoring modules at the start of each workstream, rather than rediscovering
   them through search.
-- **Refine loop.** Use the `refine` skill: in the store at `.claude/skills/refine/`,
-  and publicly at
-  [ong6/skillpack `skills/refine`](https://github.com/ong6/skillpack/tree/main/skills/refine).
+- **Refine loop.** Use the `refine` skill from the installed skill store or its public package.
   If the skill is not installed, follow that file.
   - Fresh reviewer sub-agents with no inherited context score the artifact against a rubric they
     choose in round 1, then freeze it.
@@ -621,9 +626,9 @@ lands.
 
 | Workstreams | Folder on the host |
 |---|---|
-| W1, W5 (and a check of R7) | `~/.tae/out/p16-design-eval/`: **conditionally accepted 2026-09-27** after 3 rounds (spec v3: statistics 8.9, buildability 7.8). W1/W5 must meet the **2 mandatory build conditions** in `ORCHESTRATOR-ACCEPTANCE.md` in that folder (solver convergence under the extended stress test; the limit-attempts table mapping). Note: `baseline_rank` is ascending, so the rule score is −`baseline_rank`. `r7-registration.md` is the R7 text |
-| W4a, W4b | `~/.tae/out/p16-design-replay/`: **conditionally accepted 2026-09-27** after 3 rounds (spec v3: statistics 7.3, buildability 8.3). W4 must meet the **4 mandatory build conditions** in `ORCHESTRATOR-ACCEPTANCE.md` in that folder (notes filter, lockbox tag, split knowledge clock, price series per consumer), each with tests, and the orchestrator reviews the W4 checkpoint before any W4 producer runs |
-| W3, W6, W8 (full Stage 2 draft) | `~/.tae/out/p16-design-filings-stage2/`: **accepted 2026-09-27** (independent review round 2: spec 8.2/10, Stage 2 doc 8.2/10). Build notes are in `ORCHESTRATOR-ACCEPTANCE.md` in that folder |
+| W1, W5 (and a check of R7) | External evaluation handoff: **conditionally accepted 2026-09-27** after 3 rounds (spec v3: statistics 8.9, buildability 7.8). W1/W5 must meet the **2 mandatory build conditions** in its acceptance note (solver convergence under the extended stress test; the limit-attempts table mapping). Note: `baseline_rank` is ascending, so the rule score is −`baseline_rank` |
+| W4a, W4b | External replay handoff: **conditionally accepted 2026-09-27** after 3 rounds (spec v3: statistics 7.3, buildability 8.3). W4 must meet the **4 mandatory build conditions** in its acceptance note (notes filter, lockbox tag, split knowledge clock, price series per consumer), each with tests, and the orchestrator reviews the W4 checkpoint before any W4 producer runs |
+| W3, W6, W8 (full Stage 2 draft) | External filings and Stage 2 handoff: **accepted 2026-09-27** (independent review round 2: spec 8.2/10, Stage 2 doc 8.2/10). Build notes are retained with the handoff |
 
 **Parallel sessions.** A row marked *claimed* belongs to the named session. Never work a claimed
 row. Parallel sessions each use their own git worktree and push to `main` after rebasing. Only
@@ -635,7 +640,7 @@ the lead touches the live checkout, the systemd units, and activation.
 |---|---|
 | Many challengers create false discoveries | Trial register, deflated Sharpe, always-valid tests, factor-neutral IC; no automatic promotion |
 | `c-memory` leaks future outcomes | Only labels matured before the decision time; a dedicated leakage test and reviewer |
-| Blinding leaks identity through numbers or headlines | Blinding test: a probe asks the blinded model to name the company; record the hit rate |
+| Blinding leaks identity through numbers or headlines | Blinding test: a probe asks the blinded model to name the issuer; record the hit rate |
 | The historical corpus is survivor-biased or misdated | Availability = acceptance timestamp for history (the best available), stated; coverage report; research-only authority |
 | The time-locked models are too small to be useful | That is itself a result; the look-ahead control still measures contamination |
 | The optimizer overfits trailing IC | IC floored at 0, 60-session trailing, fixed λ and κ; compared against the rule-scored twin with the same optimizer |

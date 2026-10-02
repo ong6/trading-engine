@@ -27,13 +27,13 @@ don't need yet", then for follow-up plans.
 4. BUILDLOG entries: at most 25 lines, one hash. → `AGENTS.md`, budget, test.
 5. No new documentation-pinning tests. → `AGENTS.md`, `docs/scope.md`.
 6. `docs/history/live-readiness-goal.md` is reference, not the work queue; workstreams C, D, E are
-   frozen pending the P4 decision. → banner in that file, `docs/scope.md`.
+   frozen pending the broker decision (P4). → banner in that file, `docs/scope.md`.
 7. A drift metrics snapshot closes every session. → `tools/metrics_snapshot.py`,
    `docs/metrics.md`.
 8. Owner verdicts are written here and applied in the same session. → `AGENTS.md`.
 
-**Plans opened.** P1 appliance mode, P2 league collapse, P3 point-in-time data, P4 broker
-decision. All `proposed`; owner promotes.
+**Plans opened.** Appliance mode (P1), league collapse (P2), point-in-time data (P3), and broker
+decision (P4). All `proposed`; owner promotes.
 
 **Ceiling changes.** None yet. Record any raise here with the reason before editing the
 budget file.
@@ -41,7 +41,7 @@ budget file.
 ## 2026-09-18 — Repo made public; history scrubbed, dates untouched
 
 **Verdict.** Owner asked to publish the repo as a showcase for quant and trading-firm readers and
-to link it from junxiong.dev. Owner also suggested spreading commit dates across a year; declined,
+to link it from a personal site. Owner also suggested spreading commit dates across a year; declined,
 because the artifacts are all dated from 2026-07-15 and a false timeline would be both dishonest
 and trivially detectable. The real record (first commit 2026-07-16, nightly since 2026-07-17)
 stands.
@@ -67,9 +67,9 @@ existing strategy after observing its results.
 
 **Rule changes.**
 
-1. P5 is approved and active: implement one separately attributed, simulator-only agent paper
+1. Agent paper decisions (P5) is approved and active: implement one separately attributed, simulator-only agent paper
    decision path that fails to no action and has no broker submission surface.
-2. P6 is approved: add one theory-led, pre-registered deterministic alpha experiment with a
+2. The alpha experiment (P6) is approved: add one theory-led, pre-registered deterministic alpha experiment with a
    frozen control, costs, sample rule, and kill criterion. Existing forward records stay frozen.
 3. BUILD mode is permitted only inside P5 and P6 budgets; all unrelated frozen layers remain
    frozen.
@@ -127,7 +127,7 @@ for algorithm-only, AI-only, and algorithm-plus-AI designs with sound logging an
 
 **Rule changes.**
 
-1. P7 is approved and active for a simulator-only three-arm comparison. “Fully AI” delegates the
+1. The autonomous paper trial (P7) is approved and active for a simulator-only three-arm comparison. “Fully AI” delegates the
    paper policy choice, not data admission, sizing, risk, accounting, execution, or kill switches.
 2. Each counterfactual arm models the same frozen USD equivalent of S$10,000; this is one owner
    capital envelope, not three deployable allocations. The conversion must be independently
@@ -143,15 +143,15 @@ for algorithm-only, AI-only, and algorithm-plus-AI designs with sound logging an
 and `sim/` 7,000 lines. These are caps, not targets; P7 requires reuse of the existing evidence,
 attribution, simulator, scheduler, and fault-drill machinery.
 
-## 2026-09-20 — Use Trae under an observable paper-only identity
+## 2026-09-20 — Use the available model gateway under an observable paper-only identity
 
-**Verdict.** The owner directed the project to fix and exercise the working Trae model rather than
+**Verdict.** The owner directed the project to fix and exercise the working gateway-delivered model rather than
 leave the paper programme blocked on an unavailable provider field. A real tool-free inference
 succeeded, while raw upstream metadata exposed a model family and request ID but no immutable
 provider build.
 
-**Rule changes.** P7 paper operation may use Trae when every response is bound to the exact proxy
-source, CLI runtime, catalog/routing identity, prompt/toolset, upstream-reported model family, and
+**Rule changes.** P7 paper operation may use an LLM through a model gateway when every response is
+bound to the exact gateway source, runtime, routing identity, prompt/toolset, upstream-reported model family, and
 request identity. Any visible drift fails closed. This acceptance is simulator-only; a provider-
 issued immutable revision remains required before any later real-capital authorization.
 
@@ -164,7 +164,7 @@ changes the frozen monthly P7 comparison.
 
 **Rule changes.**
 
-1. P8 is approved and active for one simulator-only daily opportunity pipeline using admitted
+1. The daily opportunity agent (P8) is approved and active for one simulator-only daily opportunity pipeline using admitted
    point-in-time prices, volume, screens, earnings, corporate actions, macro context, and optional
    provenance-bound public headlines. Missing news is explicit and cannot be filled by the model.
 2. The model may classify a bounded deterministic candidate set as ignore, watch, hold, or swing
@@ -187,7 +187,7 @@ under `sim/`. Ceilings become server 49,500, engine 11,800, and sim 7,100 lines.
 test distinct prompts and scales, provide an actionable tool-call path, self-test the entire flow,
 and integrate an agent with an algorithmic candidate.
 
-**Rule changes.** P9 is approved and active. Hourly and four-hour variants are observation-only;
+**Rule changes.** The multi-cadence agent tools plan (P9) is approved and active. Hourly and four-hour variants are observation-only;
 one nightly policy may request a typed simulator trade through a locked, append-only, idempotent
 consumer. The model never selects size or risk limits. The algorithm-plus-agent arm is veto-only.
 All variants remain isolated from broker code and real capital, and their evidence cannot be pooled.
@@ -200,7 +200,7 @@ and 150 under `tools/`. Ceilings become server 50,400, engine 12,050, sim 7,250,
 **Verdict.** The owner requested a small 2022 model backtest using historical charts and, where
 available, point-in-time fundamentals and news, with explicit consideration of model training data.
 
-**Rule changes.** P10 is approved and active as a diagnostic only. Four dates and three assets are
+**Rule changes.** The contamination-aware 2022 replay (P10) is approved and active as a diagnostic only. Four dates and three assets are
 frozen before inference; future prices stay out of prompts and are revealed only after responses
 are saved. The price-only variant may run. Fundamentals and news variants must report unavailable
 because the local point-in-time archives begin in 2026; present data cannot be backfilled into 2022.
@@ -213,7 +213,7 @@ and cannot promote a strategy, paper book, broker connection, or real capital.
 point-in-time data, an under-specified execution flow, and inconsistent agent evaluations. The
 owner requested online research and immediate forward storage/logging improvements.
 
-**Rule changes.** P11 is approved and active. Add one append-only evaluation ledger that binds
+**Rule changes.** Forward agent evaluation (P11) is approved and active. Add one append-only evaluation ledger that binds
 information cutoff and availability time, exact model/prompt/tool/input/output identities, cadence,
 policy, latency, tokens, authority, source references, and maturity-gated market outcomes across
 daily, hourly, and four-hour agents. Existing raw source ledgers remain authoritative. Labels may
@@ -229,7 +229,7 @@ product intent in one product document. This expands the local roadmap to bitemp
 raw intraday provenance, deterministic exits, execution-quality attribution, paired agent scoring,
 contamination diagnostics, and vendor-neutral historical-data ingestion.
 
-**Rule changes.** P12 is approved and active for the product programme. Locally implementable work
+**Rule changes.** The agent research product (P12) is approved and active for the product programme. Locally implementable work
 may proceed in bounded stages. Paid data purchase remains blocked on a separate spend ceiling; IBKR
 or any broker connection remains blocked on a later execution plan. No new strategy or increased
 capital authority is implied.
@@ -284,7 +284,7 @@ pass. TradingView's current terms prohibit using its displayed market data for a
 price referencing, or algorithmic trading without a separate agreement, so repository availability
 does not authorize non-display ingestion.
 
-**Rule changes.** P13 is approved and active. Add a provider-neutral, exact-response market-data
+**Rule changes.** Market-data source hardening (P13) is approved and active. Add a provider-neutral, exact-response market-data
 boundary and one credential-gated official API adapter for realtime cross-checks and historical
 capture. TradingView is registered as blocked unless the owner obtains written non-display rights;
 its data cannot enter prompts, alerts, orders, risk, labels, or historical tests. New source data is
@@ -322,7 +322,8 @@ lines and 150 tools lines; engine, farm, sim, and existing source ceilings do no
 ## 2026-09-25 — Build a durable TradingView historical archive
 
 **Verdict.** The owner confirmed that the initial TradingView sample is not enough and directed the
-engine to retain historical data for future trading needs. P14 is approved and active for a
+engine to retain historical data for future trading needs. The TradingView historical archive
+(P14) is approved and active for a
 resumable daily-bar archive beginning with the current active/liquid universe.
 
 **Rule changes.** P14 may freeze a current-universe cohort, add per-symbol/date checkpoints and
@@ -334,7 +335,7 @@ gaps and cannot mutate operational prices, fills, orders, positions, or executio
 **Ceiling changes.** None. P14 may use up to 700 existing spare engine lines, 20 server Python lines,
 and 20 tools lines; farm and sim do not grow.
 
-## 2026-09-25 — Approve P15 and make product.md the central decision document
+## 2026-09-25 — Approve the profitability evidence loop (P15) and make product.md central
 
 **Verdict.** The owner reviewed the AI loop and asked for it to be made profitable from a trading
 perspective, with latency, AI evaluation, and trigger timing as the levers. Model credit cost is to
@@ -363,7 +364,7 @@ using sub-agents, with no cost limit.
 under `tools/`, 700 under `farm/`, and 500 under `sim/`. Ceilings become server 54,450, engine
 13,750, tools 8,450, farm 12,550, and sim 7,900. Code that P15 makes obsolete is deleted first.
 
-## 2026-09-26 — Refresh instructions that no longer fit the goal; add the blueprint and P16
+## 2026-09-26 — Refresh instructions that no longer fit the goal; add the challenger lab (P16)
 
 **Verdict.** The owner observed that agents get caught up in earlier instructions and asked for any
 legacy prompting or rules that do not fit the future goals to be fixed. The owner also asked for a
@@ -380,7 +381,8 @@ execution gates from the model.
    `system-blueprint.md`. Lint and complexity findings are not defects. `Next:` never admits work.
    Any approved plan with a "How to run this plan" section runs end to end.
 2. CI's C90 complexity check is advisory (`continue-on-error`). The other lint gates still block.
-3. P1 is closed; its doc-pinning test retirement and the `how-it-works.md` split move to P16 W9.
+3. P1 is closed; its doc-pinning test retirement and the `how-it-works.md` split move to the
+   challenger lab's cleanup, docs, and activation workstream (P16 W9).
 4. `metrics.md`, `scope.md`, and the backlog header drop the appliance framing and stale counts;
    the backlog is scoped to deterministic strategies.
 5. New `docs/system-blueprint.md` (target system, edge hypotheses, idea register) and
@@ -458,7 +460,7 @@ limit, just remove it"). P16 had reached `server/` 57,050/57,050, which blocked 
 ## 2026-09-27 — The orchestrator owns technical decisions
 
 **Verdict.** The owner delegated all technical decisions in orchestrated runs to the orchestrating
-agent (Claude Opus 5.5), keeping product-level decisions, and asked that sessions not get caught
+agent, keeping product-level decisions, and asked that sessions not get caught
 in loops.
 
 **Rule changes.**
@@ -523,7 +525,7 @@ SEC work stays unbuilt until the owner supplies the contact identity.
 **Ceiling changes.** `docs/scope-budget.json` records a 1,200-line P3 Phase 0 code-and-test
 ceiling. This plan-specific budget does not restore the removed per-layer LOC ceilings.
 
-## 2026-10-01 — Approve the P18 shared backtest core
+## 2026-10-01 — Approve the shared backtest core (P18)
 
 **Verdict.** The owner approved P18: one public, reusable evaluator for event and portfolio
 studies, with point-in-time views, exact named costs, gross benchmarks, calendar-session DSR,
@@ -538,3 +540,18 @@ no study-specific strategies, censuses, findings, or results to this public repo
 **Ceiling changes.** Add the P18 review budget under its own `docs/scope-budget.json` key: at most
 4,800 new farm lines, 4,000 test lines, 800 documentation lines, and 9 logical commits. The
 repository-wide per-layer LOC ceilings remain removed; the 1,500-insertion per-commit cap remains.
+
+## 2026-10-02 — Set paper operations and near-term execution direction
+
+**Verdict.** The owner chose on-demand investigation instead of push alerting, kept a broker paper
+account on personal hardware as future work rather than current work, and selected a live paper
+book as the next way to observe separately held research strategies in real time.
+
+**Rule changes.** Failures are investigated on demand by an agent; there is no push alerting. The
+personal-host broker paper plan (P17) remains proposed and is explicitly not work for now. A live
+paper book may be planned for private research strategies, paper only. Private research strategies
+run in a separate private repository and reach the engine only through the shared backtest core and
+paper books; no strategy content, registration, prompt, trial count, finding, or result enters this
+public repository.
+
+**Ceiling changes.** None.

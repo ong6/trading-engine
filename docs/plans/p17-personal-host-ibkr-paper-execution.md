@@ -1,10 +1,15 @@
 ---
-plan: P17
+plan: P17 # Personal-host IBKR paper execution
 title: Personal-host IBKR paper execution and reconciliation
 status: proposed
 opened: 2026-09-26
-owner_decision: select host, account opening/funding and type, commission plan, subscriptions, instruments, currency scope, broker-paper identity, paper risk/exit policy, alert destination and off-host watcher; approve mandate and budget ceilings after a Stage 1 pass
+owner_decision: future work, not now; after a Stage 1 pass, select host, account opening/funding and type, commission plan, subscriptions, instruments, currency scope, broker-paper identity and paper risk/exit policy; no push alerting
 ---
+
+# Personal-host IBKR paper execution and reconciliation (P17)
+
+> **Related plan names:** autonomous paper trial (P7), daily opportunity agent (P8), profitability
+> evidence loop (P15), and challenger lab (P16).
 
 ## Goal
 
@@ -16,7 +21,8 @@ authorizes no implementation, account action, broker connection, credential or c
 
 ## Why now
 
-P16 W8 prepares this design in advance so a Stage 1 pass need not trigger an improvised deployment.
+The challenger lab's Stage 2 design workstream (P16 W8) prepares this design in advance so a Stage
+1 pass need not trigger an improvised deployment.
 The current checkout has substantial inert broker-neutral lifecycle/risk evidence, but no IBKR
 transport, production authority coordinator or P15-compatible limit-on-open broker contract. P16
 itself authorizes none of those additions. The approved product direction is eventual IBKR on
@@ -110,7 +116,7 @@ Read `docs/design/stage2-broker-paper.md`.
 ## Not in scope
 
 - Broker work, credentials or services on the research host; implementation under P16 W8.
-- Company model accounts, keys, credentials, endpoints, session tokens, proxies, fallback routes
+- Organization-managed model accounts, keys, credentials, endpoints, session tokens, proxies, fallback routes
   or billing on the personal host. Only personal model accounts and complete personal routing
   chains are permitted; copying a working research configuration does not satisfy this rule.
 - Trading real capital, engine connectivity to live-account order endpoints, automatic capital

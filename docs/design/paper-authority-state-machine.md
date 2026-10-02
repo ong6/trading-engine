@@ -246,11 +246,11 @@ and tested. Production use requires internal loaders that derive those values fr
   verifier deliberately does not choose a trust source, select an approve observation, validate a
   new authenticator, issue a lease, or consume approval.
 - Agent-only loader: **implemented read-only** in `server/agent_paper_evidence.py`; it verifies the
-  recomputable decision-window identity, frozen policy and Trae identities, retained context,
+  recomputable decision-window identity, frozen policy and model-gateway identities, retained context,
   request and response sequence, normalized proposal, accepted terminal result, deterministic
   validation payload, and proposal audit row, then derives `PaperIntentBindings` and its hash.
 - Hybrid loader: **implemented read-only** in `server/agent_paper_evidence.py`; it verifies the
-  recomputable decision-window identity, frozen policy and veto-role Trae identities, deterministic
+  recomputable decision-window identity, frozen policy and veto-role model-gateway identities, deterministic
   candidate and portfolio-state hashes, exact model allow/veto or registered fallback path,
   terminal result, effective order set, and exact surviving-order membership, then derives
   `HybridPaperIntentBindings` and its hash. A vetoed buy cannot load.
@@ -318,7 +318,7 @@ create an activation or submission path.
 The writer is also blocked until all of the following are available:
 
 - a reviewed, recoverable release;
-- a provider-stable Trae model revision;
+- a provider-stable model revision;
 - a human trust source and signer policy;
 - isolated simulator books with full mode-separated return attribution;
 - the complete 60-session authority evidence gate;

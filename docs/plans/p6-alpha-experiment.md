@@ -1,10 +1,14 @@
 ---
-plan: P6
+plan: P6 # Alpha experiment
 title: One theory-led deterministic alpha experiment
 status: done
 opened: 2026-09-18
 owner_decision: approved 2026-09-18
 ---
+
+# One theory-led deterministic alpha experiment (P6)
+
+> **Related plan name:** agent paper decisions (P5).
 
 Completed: 2026-09-18 with `REJECT-V1`; the frozen rule was not tuned or promoted.
 

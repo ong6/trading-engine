@@ -24,8 +24,8 @@ and the external literature below) rule most things out. The design bets on the 
 |---|---|---|
 | **Breadth of small, text-informed bets** | The fundamental law, IR ≈ IC·√breadth (Grinold 1989), rewards scoring many names a little better, not one name a lot better. LLMs read text cheaply at scale, and credit cost is ignored | News-based LLM signals were real after model cutoffs but decayed from a Sharpe of 6.5 (2021Q4) to 1.2 (2024) before costs (Lopez-Lira & Tang, arXiv:2304.07619). Prior: small positive IC at best |
 | **Slow-to-price text in small and mid caps** | Drift persists longer where attention is thin; filings and releases carry acceptance timestamps | Post-earnings drift is gone in large caps since 2006 (Martineau 2022). Prior: weak, concentrated in less-covered names |
-| **Filtering a rule's entries (meta-labelling)** | A model that only vetoes or sizes a rule's picks can add value without inventing trades (López de Prado 2018; Joubert 2022) | Plausible; this is P15's hybrid book |
-| **Low-turnover allocation** | Judgement applied monthly, where costs do not eat it | P7's AI-only arm; the verdicts favour low turnover |
+| **Filtering a rule's entries (meta-labelling)** | A model that only vetoes or sizes a rule's picks can add value without inventing trades (López de Prado 2018; Joubert 2022) | Plausible; this is the profitability evidence loop's hybrid book (P15) |
+| **Low-turnover allocation** | Judgement applied monthly, where costs do not eat it | The autonomous paper trial's AI-only arm (P7); the verdicts favour low turnover |
 | **Risk and drawdown control** | Avoiding the −50% years matters more to a small book than adding 1 pp | The regime gate cut drawdown but cost return in risk-on windows (verdicts) |
 
 Not sources of edge here: speed (no colocation, EOD data), options premium selling, parameter
@@ -79,7 +79,8 @@ flowchart LR
    version and a new cohort.
 5. Prospective evidence alone promotes. Historical LLM results are diagnostics. Two kinds are
    clean enough to *kill* a policy, though never to promote one: time-locked models on history
-   before their cutoff, and frontier models replayed on history after theirs (P16 replay lab,
+   before their cutoff, and frontier models replayed on history after theirs (the challenger lab,
+   text edge, and evaluation science plan's replay lab (P16),
    with contamination probes and a lockbox).
 6. Every comparison is paired, net of trading cost, and counts the trials behind it.
 
@@ -87,12 +88,12 @@ flowchart LR
 
 | Layer | Deployed (2026-09-29) | P16 built, inactive | Later |
 |---|---|---|---|
-| Data | EOD store, screens, earnings, headline titles, TradingView research data, P14 archive; P15 RSS and 8-K event facts (8-K awaits the SEC contact) and intraday mover scan | Acceptance-timestamped filing capture and gated historical EDGAR/news corpus paths | P3 point-in-time vendor data (owner spend) |
-| Signals | P8 nightly pick; P9 shadow observers; P15 candidate scoring, deterministic baseline, pre-open cancel, and shadow event triggers; P7 allocator (inactive) | Challenger lab (blinded, memory, tournament, ensemble, ablations) and filing reader | Promoted challengers get book authority; separately held strategies through a plug-in boundary |
+| Data | EOD store, screens, earnings, headline titles, TradingView research data, the TradingView historical archive (P14); P15 RSS and 8-K event facts and intraday mover scan | Acceptance-timestamped filing capture and gated historical EDGAR/news corpus paths | Point-in-time data (P3; owner spend) |
+| Signals | Daily opportunity agent (P8) nightly pick; multi-cadence agent tools (P9) shadow observers; P15 candidate scoring, deterministic baseline, pre-open cancel, and shadow event triggers; P7 allocator (inactive) | Challenger lab (blinded, memory, tournament, ensemble, ablations) and filing reader | Promoted challengers get book authority; separately held strategies through a plug-in boundary |
 | Evaluation | Ledger, 1/5/10/20 labels, contamination probes; P15 paired IC test with looks, book comparison, coded P8 gate | Factor-neutral IC, always-valid sequential tests, deflated Sharpe over the N=139 trial census, time-locked text lab, and post-cutoff replay lockbox | Stage gates computed from live fills |
 | Portfolio | P8 fixed-fraction sizing, 3 names; P15 ATR sizing, SPY core, 8 names | Score-to-weight optimizer, recovery, and shadow diagnostics | Beta hedge if shorting is approved |
 | Execution | Next-open simulator, fill model v4; P15 limit-on-open path | Best-attempt opening measurement and slippage calibration; `baseline_v1` remains active | IBKR paper on personal hardware, then live |
-| Ops | Timers, recovery, metrics; P15 status and report | Isolated P16 status adapter and weekly operator digest | Remote alerts from personal hardware |
+| Ops | Timers, recovery, metrics; P15 status and report | Isolated P16 status adapter and weekly operator digest | Failures investigated on demand by an agent; no push alerting |
 
 ## Evaluation science (how "does it work?" gets answered)
 
@@ -106,7 +107,7 @@ flowchart LR
   challengers uses the deflated Sharpe ratio (Bailey & López de Prado 2014) or t > 3 hurdles
   (Harvey, Liu & Zhu 2016). Continuous monitoring uses always-valid sequential tests (mSPRT;
   Johari et al. 2022) so looking often does not inflate false positives.
-- **Contamination:** anything before a model's training cutoff is contaminated. Company-name
+- **Contamination:** anything before a model's training cutoff is contaminated. Issuer-name
   blinding is a control (Glasserman & Lin, arXiv:2309.17322). Time-locked models (ChronoGPT and
   ChronoBERT, arXiv:2502.21206; weights at huggingface.co/manelalab) allow historical text tests.
 
@@ -161,10 +162,12 @@ an owner decision first.
 | Stage 2 design (portability, IBKR paper, reconciliation, loss limits) | Complete (P16, docs only) | No broker code on this host |
 | Long-short or beta-hedged books | Later | Needs the shorting decision; would monetize IC far better than long-only |
 | Promote a challenger to book authority | Later | Needs a sequential-test pass and owner approval |
-| Plug-in boundary for separately held strategies | Proposed (`scope.md`) | Runs a confirmed private strategy as a simulator book here without publishing it; built only when one is confirmed |
+| Live paper book for separately held strategies | Near-term product direction; implementation still requires an admitted plan | Runs private research strategies in real time without publishing them; paper only, through the shared backtest core and paper books |
 | Event-trigger order authority | Later | Needs its own gate after P15 evidence |
 | Intraday execution authority | Parked | Needs quote/trade data and queue modelling |
 | Model fine-tuning on own labels | Parked | Tiny, overlapping labels; high overfit risk; revisit after a year of data |
 | Options, 0DTE, premium selling | Rejected | No after-cost edge (verdicts) |
 | Faster reselection of momentum books | Rejected | Loads on short-term reversal (verdicts) |
 | Parameter grids on accumulated archives | Rejected | Multiple testing without pre-registration |
+
+<!-- sources: docs/product.md, docs/plans/README.md, engine/bitemporal_facts.py, server/p15-registration.json, server/p16-registration.json, sim/fills.py -->

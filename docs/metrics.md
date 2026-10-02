@@ -19,7 +19,7 @@ however green the tests are.
 | Commit shape | Largest single commit (insertions) | Unreviewable drops are how 61k lines landed in one day | Under 1,500 |
 | Ledger | Mean and max lines of the last ten BUILDLOG entries; SHA-256 mentions | Entry length and hash spam measure narration over decision | Under 25 lines, at most one hash |
 | Ledger | Count and max size of format-v2 entries | Confirms the new format is being used | All new entries v2 |
-| Research | Sector momentum shared sessions, E1 observations, XS status, active book count, league staleness | Operational evidence counters; P15 verdict progress lives in its status/report | Sessions and observations rising; books change only through approved plans |
+| Research | Sector momentum shared sessions, Monday open-to-close experiment (E1) observations, cross-sectional momentum (XS) status, active book count, league staleness | Operational evidence counters; profitability evidence loop (P15) verdict progress lives in its status/report | Sessions and observations rising; books change only through approved plans |
 | Budget | Pass/fail against `scope-budget.json` | Hard stop for frozen layers | `ok` |
 
 ## Baseline, 2026-09-18
@@ -43,7 +43,7 @@ however green the tests are.
   Revert or get a plan approved. Growth inside an active plan is expected.
 - **Budget OVER** (BUILDLOG entry size) → shorten the entry; the test suite is red until it fits.
 - **Research counters unchanged for a week** → check the scheduler, not the strategy.
-- **Books count down** → P2 is running; expected.
+- **Books count down** → league collapse (P2) is running; expected.
 
 ## Not measured on purpose
 

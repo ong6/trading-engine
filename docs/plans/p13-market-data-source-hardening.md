@@ -1,10 +1,14 @@
 ---
-plan: P13
+plan: P13 # Market-data source hardening
 title: Market-data source hardening
 status: done
 opened: 2026-09-24
 owner_decision: approved 2026-09-24
 ---
+
+# Market-data source hardening (P13)
+
+> **Related plan name:** profitability evidence loop observer work (P15 W1).
 
 ## Goal
 

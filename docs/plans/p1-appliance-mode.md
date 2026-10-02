@@ -1,15 +1,18 @@
 ---
-plan: P1
+plan: P1 # Appliance mode
 title: Appliance mode
 status: done
 opened: 2026-09-18
 owner_decision: none
 ---
 
+# Appliance mode (P1)
+
 > **Closed 2026-09-26 (owner, `feedback.md`).** Its maintain-only premise no longer fits the
 > north star, and its "every build session costs tokens" rationale is void now that credit cost
 > is ignored. Its one live item, retiring the doc-pinning tests so `how-it-works.md` can be split,
-> moves to P16 W9. The text below is kept for provenance.
+> moves to the challenger lab's cleanup, docs, and activation workstream (P16 W9). The text below
+> is kept for provenance.
 
 ## Goal
 

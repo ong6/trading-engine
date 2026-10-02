@@ -1,10 +1,12 @@
 ---
-plan: P14
+plan: P14 # TradingView historical archive
 title: TradingView historical archive
 status: done
 opened: 2026-09-25
 owner_decision: approved 2026-09-25
 ---
+
+# TradingView historical archive (P14)
 
 ## Goal
 

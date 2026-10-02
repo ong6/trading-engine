@@ -1,10 +1,16 @@
 ---
-plan: P15
+plan: P15 # Profitability evidence loop
 title: Profitability evidence loop
 status: active
 opened: 2026-09-25
 owner_decision: approved 2026-09-25 (feedback.md); open inputs listed under "Owner inputs"
 ---
+
+# Profitability evidence loop (P15)
+
+> **Related plan names:** league collapse (P2), autonomous paper trial (P7), daily opportunity
+> agent (P8), multi-cadence agent tools (P9), contamination-aware replay (P10), and challenger lab
+> (P16).
 
 ## Goal
 
@@ -59,7 +65,7 @@ Evidence from the 2026-09-25 review (live `/meta` 13:37 UTC and a code trace):
 
 Run on **the host**, in the live checkout (`$HOME/trading-engine`), where the DuckDB file, the
 systemd user units, the model proxy, and the scraper output (`$HOME/news-scraper/data/news.jsonl`)
-exist. W0 checks `systemctl --user` and the live database. If either is missing (for example, in a
+exist. The baseline and safety workstream (W0) checks `systemctl --user` and the live database. If either is missing (for example, in a
 laptop clone), do W1–W7 against fixtures and dry-runs, then stop before W8 activation and say so.
 
 ## Owner inputs
@@ -242,7 +248,7 @@ book's ranking.
     intraday relative volume ≥ 2. Intraday relative volume is cumulative volume ÷ (20-day
     median volume × elapsed fraction of the session).
 - **Mapping:** deterministic, never by the model.
-  - Headlines map by cashtag (`$TSLA`) or an exact match on the universe company name only.
+  - Headlines map by cashtag (`$TSLA`) or an exact match on the universe issuer name only.
     Unmatched headlines are retained unmapped.
   - Filings map by CIK.
 - **Dedup:** at most one trigger per ticker per source per session.

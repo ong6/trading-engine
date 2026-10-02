@@ -4,7 +4,8 @@ A paper-only trading research engine with an AI agent in the decision loop, runn
 one always-on Linux host. No broker, no real money, and no credentials.
 
 - **Research engine.** Real market data in DuckDB, a nightly Minervini screen, **25 active paper
-  portfolios** (including the three P15 books and 18 historically replayable rules), a
+  portfolios** (including the three profitability evidence loop books (P15) and 18 historically
+  replayable rules), a
   conservative next-open fill simulator, a weekly walk-forward, and three frozen forward
   records. No policy has yet demonstrated a prospective gate pass against its frozen control.
 - **Nightly AI agent.** A model reviews the day's standouts and may act only through a locked
@@ -13,13 +14,14 @@ one always-on Linux host. No broker, no real money, and no credentials.
 - **Evaluation ledger.** Every agent decision is recorded with its information cutoff, exact
   model/prompt/input identities, and later market outcomes, so each AI policy can be judged
   prospectively against its paired control.
-- **P15 evidence loop (live since 2026-09-29).** Candidate-wide scoring, equal-mechanics
+- **Profitability evidence loop (P15; live since 2026-09-29).** Candidate-wide scoring, equal-mechanics
   comparator books, a cancel-only pre-open check, shadow event triggers, and coded
-  profitability gates. First-cycle checks run through 2026-10-01.
+  profitability gates. Registration revision 9 is live and evidence collection continues.
 - **North star:** [`docs/product.md`](docs/product.md) — an engine that runs on its own and
   makes money net of trading and data cost, with AI choosing and deterministic code in control.
-- **Public engine, private strategies.** This repo is the open infrastructure plus the P15/P16
-  demo policies. New strategies, prompts, and research results are kept in a separate private
+- **Public engine, private strategies.** This repo is the open infrastructure plus the
+  profitability evidence loop (P15) and challenger lab (P16) demo policies. New strategies,
+  prompts, and research results are kept in a separate private
   repository; see [`AGENTS.md`](AGENTS.md).
 
 Generated public data may be pushed only when the current branch has a configured upstream. The
@@ -49,7 +51,8 @@ and current strategy/evidence status. The operating runbook is
 - Build state + every decision and incident: [`BUILDLOG.md`](BUILDLOG.md) (entries before
   2026-09-18 and the 2026-09-19 C90 refactor series are in [`docs/history/`](docs/history/README.md)).
 - Latest completed nightly league standings: [`data/reports/league.md`](data/reports/league.md).
-- P15 profitability gate report: [`data/reports/agent-eval/p15.md`](data/reports/agent-eval/p15.md).
+- Profitability evidence loop (P15) gate report:
+  [`data/reports/agent-eval/p15.md`](data/reports/agent-eval/p15.md).
 - Historical replays of the 18 replayable rules: [`data/reports/backtests/`](data/reports/backtests/).
 - Deterministic Sunday walk-forward re-validation:
   [`data/reports/walkforward/`](data/reports/walkforward/) — run by
@@ -117,7 +120,7 @@ curl -fsS http://127.0.0.1:8000/agent/data/independent-price-evidence
 .venv/bin/python -m tools.review_agent_data_discrepancy list
 curl -fsS http://127.0.0.1:8000/agent/fault-drills
 curl -fsS http://127.0.0.1:8000/agent/shadow/control # operator-controlled shadow schedule
-curl -fsS http://127.0.0.1:8000/daily-opportunities/status # P8 decisions, alerts, and paper state
+curl -fsS http://127.0.0.1:8000/daily-opportunities/status # daily opportunity agent (P8)
 curl -fsS http://127.0.0.1:8000/agent/evaluation/status     # P8/P15 gates and trial register
 cat data/reports/agent-eval/p15.md                          # generated P15 evidence summary
 .venv/bin/python -m tools.verify_friday_postflight  # inspect Friday; publishing is opt-in
@@ -128,7 +131,7 @@ activation on 2026-09-29) are enabled user units bound to local operation; the o
 agent-services table lists every schedule. The data timer retains normalized price and corporate-action
 observations, exact bounded future Yahoo and independent Nasdaq response bodies, and source
 observations derived from those exact bytes without a model;
-the shadow timer invokes a static worker through the local Trae proxy and remains gated by an explicit
+the shadow timer invokes a static worker through an LLM model gateway and remains gated by an explicit
 operator control that installation leaves disabled; it has no order authority. User lingering is
 enabled, so these
 units survive terminal disconnection and restart after reboot. See the operating
@@ -160,3 +163,5 @@ same-bar. One DuckDB writer at a time — heavy work goes through the job queue.
 running, never by code inspection. Operational response:
 [`docs/how-it-works.md`](docs/how-it-works.md). Architecture and authority boundaries:
 [`docs/architecture-reference.md`](docs/architecture-reference.md).
+
+<!-- sources: docs/plans/README.md, docs/product.md, engine/run_daily.sh, server/p15-registration.json, sim/fills.py, sim/league.py -->

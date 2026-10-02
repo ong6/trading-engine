@@ -49,7 +49,7 @@ engine/               data layer + nightly driver
                         declared safe), resumable jobs, stale-job reclaim, bounded budget
   forward_review.py     frozen sector-momentum-vs-SPY paper monitor
   xs_forward_review.py  frozen prospective 12-1-momentum-vs-EW paper monitor
-  tradingview_history_archive.py  P14 resumable TradingView daily-bar archive (research facts only)
+  tradingview_history_archive.py  TradingView historical archive (P14; research facts only)
   run_daily.sh          the nightly driver (see pipeline below)
 sim/                  the paper league
   strategies/           one file per strategy + configs.py (the frozen pre-registrations)
@@ -65,7 +65,7 @@ server/               FastAPI backend (localhost:8000) — read endpoints + disc
   scheduler_monitor.py exact schedule and launch-readiness audit
   friday_postflight.py schedule-aware validation of the auxiliary Friday audit receipt
   meta_snapshot.py    fail-soft loader for the optional engine health snapshot
-  market_data_sources.py P13 source admission registry; tradingview_source.py exact-transcript client
+  market_data_sources.py Market-data source hardening (P13) registry; tradingview_source.py exact-transcript client
   market_health.py    market freshness + independent-price evidence projection
   liquidity_monitor.py scheduled liquidity-evidence reconciliation
   exposure_monitor.py stale active-position/order projection with exposure-scoped quote history
@@ -303,7 +303,8 @@ flags any held name with a >40% one-session move and no corporate-actions row.
 
 ## The league
 
-The live store currently has **25 active paper portfolios**, including the three P15
+The live store currently has **25 active paper portfolios**, including the three profitability
+evidence loop (P15)
 comparator books activated on 2026-09-29. All are long-only with persisted initial capital and execution profiles. 18 are historically
 replayable rules. Three are intentionally excluded from historical walk-forward:
 `discretionary` needs human tickets, `pead_ear` lacks historical point-in-time earnings
@@ -499,9 +500,11 @@ envelope, preventing an unreviewed backend field from silently becoming sizing i
 
 ## The agent paper path (shadow admission)
 
-The agent path is layered by authority. P5 records proposals without execution; P8 may place only
-validated local-simulator orders through its locked tool; P9 adds shadow cadences; P11 joins
-decisions to append-only outcomes; P12 exposes the bounded research product; and P15 adds
+The agent path is layered by authority. Agent paper decisions (P5) records proposals without
+execution; the daily opportunity agent (P8) may place only validated local-simulator orders through
+its locked tool; multi-cadence agent tools (P9) adds shadow cadences; forward agent evaluation
+(P11) joins decisions to append-only outcomes; the agent research product (P12) exposes the
+bounded research product; and P15 adds
 candidate-wide scoring plus inactive comparator books. Full versioned requirements and evidence
 boundaries remain in the corresponding [`plans/`](plans/README.md).
 
@@ -675,7 +678,7 @@ grants execution authority. Details: [`product-agent-research-platform.md`](prod
 
 **P15 flow.** The 02:30 scorer snapshots up to 40 positive movers and 20 distinct trend names,
 runs three retained samples per chunk, and feeds three identical-mechanics US$10,000 comparator
-books only after W8 activation. The 09:05 pre-open step can only cancel AI/hybrid entries before
+books only after the activation workstream (W8). The 09:05 pre-open step can only cancel AI/hybrid entries before
 09:25. Intraday event windows retain RSS headlines, configured SEC 8-K filings, and thresholded
 movers; their decisions are shadow-only and capped at 60 per session. Both next-bar and
 next-session-open labels are append-only. The W6 projection applies the registered 60/90/120 IC
@@ -683,7 +686,7 @@ looks, book comparison, P8 readiness, pre-open/event diagnostics, and bounded tr
 
 **Status.** `GET /daily-opportunities/status` (P8 runs, assessments, and simulator orders),
 `GET /agent/evaluation/status` (P11 coverage plus validated P8/P15 gates and trial counts), and
-`GET /paper-trial/status` (P7 activation blockers). The P11 report is also published to
+`GET /paper-trial/status` (autonomous paper trial (P7) activation blockers). The P11 report is also published to
 `data/reports/agent-evaluation.json`; P15 also publishes `data/reports/agent-eval/p15.md` after its
 scoring run. Before activation, the lead verifies or installs all six P15 units from source, keeps
 the three timers disabled and inactive, and confirms all three books are inactive.
@@ -705,9 +708,10 @@ never rewrites or retries a recorded decision.
 
 ## Operations
 
-Day-to-day checks, service management, recovery, and the still-gated P15 activation sequence are in the [`how-it-works.md`](how-it-works.md) operations runbook.
+Day-to-day checks, service management, recovery, and the P15 activation record are in the
+[`how-it-works.md`](how-it-works.md) operations runbook.
 
-## P16 extensions (built, inactive)
+## Challenger lab (P16) extensions (built, inactive)
 
 P16 extends the existing pipeline without changing its authority boundary. Evaluation v2 adds
 factor-neutral IC, always-valid sequential tests, exact report recomputation, deflated-Sharpe
