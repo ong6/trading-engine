@@ -169,9 +169,10 @@ P15 registration manifest's file list must be empty.
 
 - Up to 9 logical commits including this planning checkpoint, each below 1,500 inserted non-data
   lines.
-- Up to 3,000 new lines under `farm/study/`, 2,500 under `tests/test_study_*.py`, and 800 across
+- Up to 3,600 new lines under `farm/study/`, 2,500 under `tests/test_study_*.py`, and 800 across
   the two P18 documentation files. These are a P18 review budget recorded under its own key in
-  `docs/scope-budget.json`, not restored repository-wide layer ceilings.
+  `docs/scope-budget.json`, not restored repository-wide layer ceilings. The orchestrator raised
+  the farm allowance from 3,000 for Follow-up 3's benchmark and immutable shared panel.
 - Three sessions/checkpoints: plan; core items 1–7; runner/report/synthetic/example items 8–11.
   No dependency, data purchase, service, endpoint, migration, or live-state budget is granted.
 
@@ -213,6 +214,26 @@ timestamped cash dividends flow through event, portfolio, and benchmark returns 
 withholding rate. Defaults retain market-value exit costs, next-session condition checks, the
 unfiltered benchmark, already-held rejection, and zero withholding. The new choices are identity
 bound, and reports disclose entry-notional approximation and gross/net dividend cash.
+
+## Follow-up 3: performance
+
+The approved 2026-10-02 follow-up replaces repeated whole-market scans with one immutable dense
+numpy panel and O(1) ticker/session coordinates. Linux workers inherit that read-only panel by
+fork: this avoids copies and serialization without introducing memmap files or cleanup failure
+modes. Existing point-in-time errors, hard maximums, order precedence, fills, costs and ledger
+bytes remain unchanged.
+
+On the registered 600-ticker × 3,800-session benchmark, serial simulator wall fell from 1,557.73
+seconds under cProfile to 6.69 seconds (232.8×), and 16-worker wall fell from 124.14 to 0.558
+seconds (222.5×). On 3,000 × 3,800, the legacy serial run was stopped unfinished after at least
+55 minutes; optimized serial completed in 7.75 seconds after a 133.41-second panel build. Full
+16-worker wall fell from 989.05 to 0.847 seconds (1,167.5×), with the same output digest.
+
+At full scale, peak parent RSS fell from 7.21 to 1.67 GB, peak worker RSS from about 6.85 GB to
+0.82 GB, and nominal parent-plus-worker RSS from 116.83 to 14.76 GB. All 295 pre-existing captured
+JSON outputs (53,391,323 bytes), including the power/size runs and benchmark strategies, matched
+byte for byte. The later generic seam commit adds declared window-end and complete-path handling;
+compatibility defaults preserve those same bytes.
 
 ## Risks
 
