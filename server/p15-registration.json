@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "registration_id": "p15-profitability-evidence-loop-v1",
-  "registered_at": "2026-10-01T06:06:53Z",
+  "registered_at": "2026-10-02T04:24:43Z",
   "activated_at": "2026-09-29T00:00:00-04:00",
   "activation_session": "2026-09-29",
   "status": "registered_inactive",
@@ -188,7 +188,7 @@
     "price_fetch_availability": "after_collection_completion"
   },
   "code_identity": {
-    "source_commit": "d6b1d5fa57763514ad7e6c399439b582ef076e92",
+    "source_commit": "2badc805d5b437e95d5dd67e3468e91ff31b1e76",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/actions.py": "a6c2ec46d198df2318498ec7d55e1b7cfeca4c8afaccd8a5c208618e4ea8b850",
@@ -210,7 +210,7 @@
       "engine/lib/settings.py": "88c830214847130473e08be7a4ecb188645f6ed2d379626839b456e91bf2a17e",
       "engine/lib/util.py": "d64081f1f467432577fb90ca8d8674b80f095ca32b7e6da7b7f8bcebdab5c82b",
       "engine/market_date.py": "a1c1b0e4aa4efd994074f72458bd857a6728d73b7a5f9c22e9bcfa8f0266c667",
-      "engine/p15_evaluation.py": "20d71e4b1ff6f269557ca0f98310a98b9d13a77a60c17057fe02970760c6e704",
+      "engine/p15_evaluation.py": "1df7f884a811abcd0c81c766f1822b0d5298c8a7832bd1a7df9a386d3686ab21",
       "engine/p15_event_sources.py": "62fcef7c389685e729ac785541236b0adfd770595f893d33e0c0c320dab55388",
       "engine/queue_runner.py": "f9e07dde5205be53c7586253b05532de2b8657ed82a144d88393f2387f9ac281",
       "engine/run_daily.sh": "5bf456f947c550fc9eb419519deb75156034a02c75d4e678b67af8ca0bae7911",
@@ -245,7 +245,7 @@
       "farm/walkforward/runner.py": "f2b861dea8e5b2b9ae94e20a598ecfd3a96cf77eb98cb5a4439a450aba475d57",
       "server/__init__.py": "c462735edca08a01b1bda392e672430ed441aca796251c6adcaf6b5e648ea4b5",
       "server/agent-cadence-registration.json": "cf66040d889662f7ad740f79ce83e2c87528853bafe4f31a0634c7195b5c4b59",
-      "server/agent_evaluation.py": "ffd74f91a20265f313ea1937bb8b5c73a0e51010c2f148d605853c8c658c05cc",
+      "server/agent_evaluation.py": "6a1e8d4c107842c77d771445f6c836a812e8e295e7055397e592b013cf85a202",
       "server/agent_evaluation_reporting.py": "9bbc9b8429b101ad713a05426a12789f1438b8c0607a3b64950e41b5bd0ac5bb",
       "server/agent_model_client.py": "3c4fbdfd48aa6e1c32a8fbe7fba18f8c7470aef01a684f7ab2d9d8cadf1394f8",
       "server/daily_opportunity_execution.py": "8f599df3f6ba71770d72ce23010f43d6d40695092de0e30e4a9986987dcc7798",
@@ -265,7 +265,7 @@
       "server/official_quote_source.py": "6249c44243fa91e0c658ecc180853693c61ddcb7b7a9b6cb6f5869b8ea620de1",
       "server/p15_preopen.py": "d02aacdc3a70efff67584dac516874f96519767331f79ca5284d983c70543a45",
       "server/p15_incremental_collect.py": "59361f8a402da6080857d7ec122c46f718476d274a127c82daa876e3275e312f",
-      "server/p15_price_fetch_attempts.py": "20e4abc509c66e37867b3fc364625e1eb7df63840eac4e21f74b4ac82d82d1df",
+      "server/p15_price_fetch_attempts.py": "96dd0afcb8b400d7102086fba8d666a7fef664fd86ffbb81b90e2347ae9f3ae2",
       "server/p15_scoring_runner.py": "6e97bbc9b9e51c128a7f9e2705a0cc7d590237c1f7b7368507724193fe8a3644",
       "server/p15_scoring_store.py": "4660607b6bb5b18fdb6ee7585b8bdadab9dfa9af9417f0ae51833bc87a695bee",
       "server/run_p15_scoring.sh": "5b3ac9f140120f4223f80c2b94ab7d0aaeb08c0a5d0944fa690abe98c35beedb",
@@ -320,12 +320,12 @@
       "tools/__init__.py": "1f23b3f78a32b5567d64752ddc564b1182bdfe50616b87bca6a3a603b597d927",
       "tools/agent_trial_register.py": "08cb4553ef83b49297f0222e063bf1da506e2b6e8d185f5a430739dc659125f6",
       "tools/backup_database.py": "68a12a3815ec479f025182bc9589a02dd46d1d80795bbe95de9eac4910a7f3fd",
-      "tools/p15_evidence_validation.py": "2c0fcaee02e2e643dcea851642ee62816072c8c9f66ed43f59c3855d54404aa0",
+      "tools/p15_evidence_validation.py": "dda47574f198b0ef5e53109dcea26a1ed6409cba650ae01bf95791bf63ade305",
       "tools/release_manifest.py": "c127a129afceb4e7ffa4facc0c26014209afc50329710d96e3073efae3f016d9",
       "tools/sec_edgar_capture.py": "b6f46658930844cf4deed830e8e3a9412e9a19232663aced8a01472c42f0024f"
     }
   },
-  "registration_revision": 7,
-  "revision_reason": "scoring job re-renders the league report after P15 book windows so published league evidence matches stored equity; no scoring, book, gate, label or validator change",
-  "registration_sha256": "f2e5db41a4402eaa01b9cc3dc8e0e7e561bdcb08044f3e0b271061ad61a975a0"
+  "registration_revision": 8,
+  "revision_reason": "validation-time label, limit and maturity checks use date-only sessions and price-prefix hashes instead of current-state fetched_at; no scoring, book, gate, label-writing or written-row change",
+  "registration_sha256": "bfb6ce19919264913c77dca83778dfed0c33ef496463d908cfbd750e0826e079"
 }

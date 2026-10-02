@@ -1616,4 +1616,23 @@ the 42-entry 2026-09-19 C90 complexity series is in
   farm lines and 1,165/2,500 test lines; budget ok.
 - **Next:** nothing admitted.
 
+## 2026-10-02 — Validate P15 labels after nightly price re-fetches
+
+- **Why:** the October 2 P15 and P8 reports reproduced `P15 label maturity evidence differs`
+  after unchanged nightly price re-fetches replaced the current rows' fetch timestamps.
+- **What:** `server/agent_evaluation.py` replays P8/common, P15 scoring, limit, and event labels
+  from current values while stored-body hashes stay fatal. `tools/p15_evidence_validation.py`
+  centralizes date-bounded SPY sessions and stored price-prefix comparison for common,
+  next-session, next-bar, intraday, and missing-next-bar labels, reporting later values as revised
+  or unverifiable. `server/p15_price_fetch_attempts.py` validates immutable missing attempt and
+  receipt identities without mutable current-row absence. `engine/p15_evaluation.py` makes primary
+  and event missing-label maturity date-only. `server/agent_evaluation_reporting.py` has no direct
+  filter and inherits the result. Remaining filters are label-writing, fetch-obligation, or
+  real-time paths and stay unchanged. Issue revision 8; scoring, books, gates, label writing, and
+  written rows do not change.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --dist loadfile` passes at 100%;
+  the re-fetch fixture proves unchanged reporting, source-revision reporting, and fatal tampering.
+- **Metrics:** server -2, tools +68, product unchanged; budget ok.
+- **Next:** recover the October 2 reports and league evidence, then resume P16 W9b.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
