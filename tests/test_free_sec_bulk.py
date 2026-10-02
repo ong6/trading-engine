@@ -50,7 +50,7 @@ def _main_submissions() -> bytes:
                     "2026-03-10T17:00:00-04:00", "2026-03-11T17:00:00-04:00",
                 ],
                 "form": ["10-K", "10-K/A", "10-Q", "8-K/A", "8-K"],
-                "items": ["", "", "", "2.02,9.01", "12.02"],
+                "items": ["", "", "", "2.02,9.01", "5,7,12.02"],
             },
             "files": [{
                 "name": "CIK0000001000-submissions-001.json",
@@ -59,6 +59,16 @@ def _main_submissions() -> bytes:
         },
     }
     return json.dumps(payload).encode()
+
+
+def _empty_submissions() -> bytes:
+    return json.dumps({
+        "cik": "2000",
+        "filings": {"recent": {
+            "accessionNumber": [], "filingDate": [], "acceptanceDateTime": [],
+            "form": [], "items": [],
+        }, "files": []},
+    }).encode()
 
 
 def _old_submissions() -> bytes:
@@ -102,7 +112,9 @@ def _companyfacts() -> bytes:
 
 
 def test_recorded_zips_keep_restatements_and_enforce_point_in_time(tmp_path: Path):
-    submissions = _write(tmp_path / "submissions.zip", _zip({CIK_NAME: _main_submissions()}))
+    submissions = _write(tmp_path / "submissions.zip", _zip({
+        CIK_NAME: _main_submissions(), "CIK0000002000.json": _empty_submissions(),
+    }))
     facts = _write(tmp_path / "companyfacts.zip", _zip({CIK_NAME: _companyfacts()}))
     page = _write(tmp_path / "old.json", _old_submissions())
     con = duckdb.connect()
@@ -259,6 +271,7 @@ def test_bulk_client_paces_head_and_resumes_partial_with_one_session(tmp_path: P
     assert [started for _method, started, _headers in first_session.started] == [0.0, 0.2, 0.4]
     assert clock.sleeps == [0.2, 0.2]
     assert all(call[2]["User-Agent"].endswith("fixture@example.com") for call in first_session.started)
+    assert all(call[2]["Accept-Encoding"] == "identity" for call in first_session.started)
 
     second_session = _Session(gets=[_Response(
         b"def", status=206, headers={"Content-Range": "bytes 3-5/6"},

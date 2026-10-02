@@ -1732,4 +1732,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server unchanged; tools +400; product +595 lines; budget ok.
 - **Next:** verify both bulk URLs by HEAD and resume the live capture in the first permitted window.
 
+## 2026-10-02 — Resume SEC bulk through the quiet-window boundary
+
+- **Why:** P3 Phase 0 part 4 requires live archive compatibility and resumable capture in the
+  registered network window.
+- **What:** accept empty issuer histories and legacy SEC item text while keeping exact `2.02`
+  filtering; vectorize the 22.1 million-row Submissions load and require identity encoding for
+  byte-range resume. Cache and load every older page, then retain the Companyfacts partial at the
+  21:45 UTC boundary.
+- **Evidence:** a read-only query reports 987,283 Submissions members, all 5,387 older pages loaded,
+  18,788,867 unique accessions, 421,723 earnings events, and zero facts pending Companyfacts resume.
+- **Metrics:** server unchanged; tools +5; product +46 lines; budget ok.
+- **Next:** resume the remaining Companyfacts bytes at 23:30 UTC, load facts, audit, and run gates.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
