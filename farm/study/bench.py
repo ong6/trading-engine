@@ -240,6 +240,8 @@ def run_benchmark(
         profiler.dump_stats(profile)
     finished = time.perf_counter()
     payloads, worker_rss = zip(*evaluated, strict=True)
+    parent_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
+    peak_workers = [max(worker_rss)] if workers == 1 else list(worker_rss)
     result_bytes = (
         json.dumps(payloads, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
     ).encode()
@@ -254,11 +256,9 @@ def run_benchmark(
         "event_trades": sum(len(row["event"]["trades"]) for row in payloads),
         "portfolio_days": sum(len(row["portfolio"]["days"]) for row in payloads),
         "result_sha256": hashlib.sha256(result_bytes).hexdigest(),
-        "parent_peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024,
-        "worker_peak_rss_bytes": list(worker_rss),
-        "rss_sum_bytes": (
-            resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024 + sum(worker_rss)
-        ),
+        "parent_peak_rss_bytes": parent_rss,
+        "worker_peak_rss_bytes": peak_workers,
+        "rss_sum_bytes": parent_rss if workers == 1 else parent_rss + sum(worker_rss),
     }
     _CONTEXT = None
     return result

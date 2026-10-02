@@ -13,6 +13,7 @@ BLAS_ENV_VARS = (
     "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
     "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
 )
+_FORK_EVALUATOR: Callable[["StudyJob"], Mapping] | None = None
 
 
 def force_single_thread_blas() -> None:
@@ -75,6 +76,12 @@ def _execute(item: tuple[Callable[[StudyJob], Mapping], StudyJob]) -> dict:
                                  allow_nan=False))
 
 
+def _execute_forked(job: StudyJob) -> dict:
+    if _FORK_EVALUATOR is None:
+        raise RuntimeError("forked study worker has no inherited evaluator")
+    return _execute((_FORK_EVALUATOR, job))
+
+
 def run_jobs(variants: Mapping[str, Mapping], folds: Iterable[object],
              evaluator: Callable[[StudyJob], Mapping], *, master_seed: int,
              max_workers: int | None = None) -> RunBatch:
@@ -85,13 +92,19 @@ def run_jobs(variants: Mapping[str, Mapping], folds: Iterable[object],
     if type(workers) is not int or workers < 1:
         raise ValueError("max_workers must be a positive integer")
     force_single_thread_blas()
-    inputs = tuple((evaluator, job) for job in jobs)
     if workers == 1:
-        results = tuple(_execute(item) for item in inputs)
+        results = tuple(_execute((evaluator, job)) for job in jobs)
     else:
-        context = multiprocessing.get_context("spawn")
-        with ProcessPoolExecutor(max_workers=workers, mp_context=context) as pool:
-            results = tuple(pool.map(_execute, inputs))
+        global _FORK_EVALUATOR
+        # Linux fork shares the immutable panel through copy-on-write and avoids temporary
+        # memmap lifecycle/cleanup. Only tiny StudyJob values cross the process queues.
+        context = multiprocessing.get_context("fork")
+        _FORK_EVALUATOR = evaluator
+        try:
+            with ProcessPoolExecutor(max_workers=workers, mp_context=context) as pool:
+                results = tuple(pool.map(_execute_forked, jobs))
+        finally:
+            _FORK_EVALUATOR = None
     return RunBatch(results, workers)
 
 
