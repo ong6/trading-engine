@@ -29,6 +29,7 @@ Entry points:
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import math
 import os
@@ -56,7 +57,6 @@ from farm.backtest.replay import (
 )
 from farm.walkforward import monthly as wf_monthly
 from farm.walkforward import protocol
-from farm.walkforward import scratch as wf_scratch
 from farm.walkforward.controls import declaration as comparison_declaration
 from sim import calendar, execution, league
 from sim import portfolio as _pf
@@ -67,6 +67,8 @@ log = get_logger("wf")
 SCRATCH_ROOT = REPO_ROOT / "scratch"
 WF_DIR = DATA_DIR / "reports" / "walkforward"
 RESULTS_DIR = WF_DIR / "results"
+ACTIVE_LOCK = ".active.lock"
+SHARED_RUN_ENV = "TRADING_ENGINE_WF_SHARED_RUN"
 
 _SHARED_TABLES = (
     "prices", "universe", "fundamentals", "corporate_actions", "price_quarantine",
@@ -88,9 +90,33 @@ def _install_sigterm_exit():
     return previous
 
 
+@contextmanager
+def _hold_scratch_directory(path: Path, *, shared: bool = False):
+    """Hold a flock proving that ``path`` belongs to a live worker."""
+    path.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path / ACTIVE_LOCK, os.O_CREAT | os.O_RDWR, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+    try:
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+@contextmanager
+def _exclusive_file_lock(path: Path):
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
 def _reset_incomplete_shared(directory: Path) -> None:
     for child in directory.iterdir():
-        if child.name in {wf_scratch.ACTIVE_LOCK, ".build.lock"}:
+        if child.name in {ACTIVE_LOCK, ".build.lock"}:
             continue
         if child.is_dir() and not child.is_symlink():
             shutil.rmtree(child)
@@ -101,18 +127,18 @@ def _reset_incomplete_shared(directory: Path) -> None:
 @contextmanager
 def _shared_store(live_con, scratch_root: Path, start: date, end: date,
                   verbose: bool):
-    run_id = os.environ.get(wf_scratch.SHARED_RUN_ENV)
+    run_id = os.environ.get(SHARED_RUN_ENV)
     if not run_id:
         yield None
         return
     if not run_id.replace("-", "").replace("_", "").isalnum():
-        raise ValueError(f"invalid {wf_scratch.SHARED_RUN_ENV}")
+        raise ValueError(f"invalid {SHARED_RUN_ENV}")
 
     directory = Path(scratch_root) / f"wf__shared__{run_id}"
     expected = {"start": start.isoformat(), "end": end.isoformat()}
     ready = directory / ".ready.json"
-    with wf_scratch.hold_directory(directory, shared=True):
-        with wf_scratch.exclusive_file_lock(directory / ".build.lock"):
+    with _hold_scratch_directory(directory, shared=True):
+        with _exclusive_file_lock(directory / ".build.lock"):
             if ready.exists():
                 actual = json.loads(ready.read_text())
                 if actual != expected:
@@ -541,7 +567,7 @@ def run_book(live_con, config_id: str, *,
     cleanup = ExitStack()
     previous_sigterm = _install_sigterm_exit()
     try:
-        cleanup.enter_context(wf_scratch.hold_directory(scratch_dir))
+        cleanup.enter_context(_hold_scratch_directory(scratch_dir))
         t_scratch = time.time()
         shared_path = cleanup.enter_context(
             _shared_store(
@@ -648,7 +674,7 @@ def run_book(live_con, config_id: str, *,
             finally:
                 try:
                     if keep_scratch:
-                        wf_scratch.mark_kept(scratch_dir)
+                        (scratch_dir / ".keep").touch(exist_ok=True)
                     else:
                         shutil.rmtree(scratch_dir, ignore_errors=True)
                 finally:

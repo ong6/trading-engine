@@ -57,7 +57,6 @@ from engine.lib import db
 from engine.lib import resources as rsc
 from engine.lib.settings import META_PATH as DEFAULT_META
 from engine.lib.settings import REPO_ROOT, STORE_DIR
-from farm.walkforward import scratch as wf_scratch
 
 # §12.7 caps
 # 5-min load ceiling. Kept at 28 after measurement (2026-08-20): a width-8
@@ -107,6 +106,10 @@ DRAIN_BUDGET_DEFAULT_S = 4 * 3600  # 4 hours
 # `timeout_s`). 4 h = the drain budget: generous, and no kind has ever
 # legitimately needed longer except a sweep grid.
 TIMEOUT_DEFAULT_S = 4 * 3600
+WF_SCRATCH_ROOT = REPO_ROOT / "scratch"
+WF_ACTIVE_LOCK = ".active.lock"
+WF_KEEP_MARKER = ".keep"
+WF_SHARED_RUN_ENV = "TRADING_ENGINE_WF_SHARED_RUN"
 
 
 # --------------------------------------------------------------------------- #
@@ -571,6 +574,87 @@ def _child_cmd(jid: int, db_path, meta_path) -> list[str]:
     return cmd
 
 
+def _walkforward_open_paths(root: Path) -> set[Path]:
+    """Read Linux process descriptors once and retain targets below ``root``."""
+    prefix = str(root.resolve()) + os.sep
+    found: set[Path] = set()
+    proc = Path("/proc")
+    if not proc.exists():
+        return found
+    for process in proc.iterdir():
+        if not process.name.isdigit():
+            continue
+        try:
+            descriptors = list((process / "fd").iterdir())
+        except (FileNotFoundError, PermissionError):
+            continue
+        for descriptor in descriptors:
+            try:
+                target = os.readlink(descriptor)
+            except (FileNotFoundError, PermissionError, OSError):
+                continue
+            target = target.removesuffix(" (deleted)")
+            if target.startswith(prefix):
+                found.add(Path(target))
+    return found
+
+
+def _walkforward_directory_bytes(path: Path) -> int:
+    total = 0
+    for root, dirs, files in os.walk(path, followlinks=False):
+        dirs[:] = [name for name in dirs if not (Path(root) / name).is_symlink()]
+        for name in files:
+            try:
+                total += (Path(root) / name).lstat().st_size
+            except FileNotFoundError:
+                pass
+    return total
+
+
+def _walkforward_directory_is_held(
+    directory: Path, open_paths: set[Path]
+) -> bool:
+    prefix = str(directory) + os.sep
+    if any(str(path) == str(directory) or str(path).startswith(prefix)
+           for path in open_paths):
+        return True
+    try:
+        fd = os.open(directory / WF_ACTIVE_LOCK, os.O_CREAT | os.O_RDWR, 0o644)
+    except FileNotFoundError:
+        return True
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
+
+
+def _sweep_walkforward_orphans(root: Path = WF_SCRATCH_ROOT) -> dict[str, int]:
+    """Remove unheld ``wf__*`` directories before a queue drain starts."""
+    root = Path(root)
+    if not root.exists():
+        return {"removed": 0, "bytes": 0, "held": 0, "kept": 0}
+    open_paths = _walkforward_open_paths(root)
+    stats = {"removed": 0, "bytes": 0, "held": 0, "kept": 0}
+    for directory in sorted(root.glob("wf__*")):
+        if directory.is_symlink() or not directory.is_dir():
+            continue
+        if (directory / WF_KEEP_MARKER).exists():
+            stats["kept"] += 1
+            continue
+        if _walkforward_directory_is_held(directory, open_paths):
+            stats["held"] += 1
+            continue
+        stats["bytes"] += _walkforward_directory_bytes(directory)
+        shutil.rmtree(directory)
+        stats["removed"] += 1
+    return stats
+
+
 # Poll interval while waiting on a batch's children. Coarse on purpose: these
 # jobs run for minutes to hours, and the timeout is a ceiling, not a stopwatch.
 BATCH_POLL_S = 0.5
@@ -635,7 +719,7 @@ def _run_parallel_pool(pool, db_path, meta_path, con, *, width: int,
         if kind != "walkforward":
             continue
         params = _parse_params(params_json) if params_json else {}
-        scratch_root = Path(params.get("scratch_root") or wf_scratch.SCRATCH_ROOT)
+        scratch_root = Path(params.get("scratch_root") or WF_SCRATCH_ROOT)
         shared_dirs.add(scratch_root / f"wf__shared__{wf_run_id}")
 
     for jid, _kind, _params, _mem_mb, _timeout_s, _priority in pool:
@@ -701,7 +785,7 @@ def _run_parallel_pool(pool, db_path, meta_path, con, *, width: int,
                 child_env = None
                 if kind == "walkforward":
                     child_env = os.environ.copy()
-                    child_env[wf_scratch.SHARED_RUN_ENV] = wf_run_id
+                    child_env[WF_SHARED_RUN_ENV] = wf_run_id
                 process = subprocess.Popen(
                     _child_cmd(jid, db_path, meta_path), cwd=str(REPO_ROOT),
                     env=child_env,
@@ -876,7 +960,7 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
            run_kind: str | None = None, run_params: list[str] | None = None) -> int:
     """The drain proper. Called ONLY by cmd_run, which holds the drain lock —
     the precondition the orphan sweep below relies on."""
-    scratch = wf_scratch.sweep_orphans()
+    scratch = _sweep_walkforward_orphans()
     if scratch["removed"] or scratch["held"]:
         print(f"[queue] walk-forward scratch sweep removed {scratch['removed']} "
               f"director{'y' if scratch['removed'] == 1 else 'ies'} "
