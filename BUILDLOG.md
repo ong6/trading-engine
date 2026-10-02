@@ -1577,6 +1577,20 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** farm/product +1,865 and tests +610 for P18; server and tools unchanged; budget ok.
 - **Next:** nothing admitted.
 
+## 2026-10-01 — Add native P18 strategy simulation
+
+- **Why:** the approved P18 native-simulation follow-up admitted the missing shared evaluation
+  path, conditional exits, and study-private point-in-time inputs.
+- **What:** simulate event orders and portfolio targets into stable, costed ledgers; gate derived
+  inputs by availability; integrate simulation with deterministic jobs and reports; and route the
+  synthetic proving ground and textbook example through the native path.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto` passes at 100%; power is 48/50,
+  null size is 7/200 inside [3, 19], all six canaries and replay equivalence pass, and simulate
+  output is byte-identical across serial and parallel runs.
+- **Metrics:** farm/product +779 and tests +350 from the P18 baseline; server and tools unchanged;
+  P18 totals are 2,644/3,000 farm lines and 960/2,500 test lines; budget ok.
+- **Next:** nothing admitted.
+
 ## 2026-10-01 — Complete P3 free SEC history
 
 - **Why:** approved P3 Phase 0 part 2 after the owner supplied the private SEC contact identity.

@@ -192,6 +192,17 @@ shared file outside P18's entry.
    gates once, push, write `done` STATUS with the measured power/size/canary/identity results, and
    stop.
 
+## Follow-up: native simulation
+
+The approved 2026-10-01 follow-up adds `farm.study.simulate`: event orders now become validated
+fills and stable trade ledgers, while target weights become costed, daily marked portfolio
+ledgers. It also adds pure conditional exits, timestamp-gated study-private derived inputs,
+simulate-job serialization, report execution counts and the `close_as_indication` caveat. The
+registered synthetic power, size and canaries run through the native APIs, with hand-computed
+fill/exit/delisting fixtures, replay equivalence and serial/parallel byte identity.
+Final proof detected 48/50 planted edges; null size was 7/200 inside [3, 19], all six canaries
+passed, the hand replay matched field for field, and serial/parallel simulate JSON was identical.
+
 ## Risks
 
 | Risk | Detection / rollback |

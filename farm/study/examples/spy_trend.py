@@ -13,12 +13,14 @@ import numpy as np
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 
 from ..benchmark import Benchmark, compare
-from ..costs import CostSelection, calculate
+from ..costs import CostSelection
 from ..data import DataDeclaration, MarketData, PriceSource
 from ..protocol import run_identity
-from ..report import CrossCheckTrade, build_report, write_report
+from ..report import build_report, write_report
+from ..simulate import simulate_portfolio
 from ..spec import FillPoint, PortfolioStrategy
 from ..stats import calendar_statistics
+from ..universe import ListingInterval, Universe
 
 CAPITAL = 100_000.0
 
@@ -31,7 +33,8 @@ def trend_weights(view, session: date) -> dict[str, float]:
 
 SPY_200_DAY_TREND = PortfolioStrategy(
     "spy_200_day_trend", "at_close", trend_weights, "daily", FillPoint.next_open(),
-    {"window_sessions": 200, "invested_weight": 1.0})
+    {"window_sessions": 200, "invested_weight": 1.0}, CAPITAL,
+    close_as_indication=True)
 
 
 def _year_rows(dates: list[date], returns: np.ndarray) -> list[dict]:
@@ -54,44 +57,17 @@ def run_example(data: MarketData, output_dir: str | Path, *, costs: CostSelectio
     sessions = [day for day in data.primary.sessions if data.primary.get("SPY", day) is not None]
     if len(sessions) < 202:
         raise ValueError("SPY trend example needs at least 202 sessions")
-    daily_dates, net_returns, benchmark, exposure = [], [], [], []
-    total_costs = {name: 0.0 for name in (costs.primary, *costs.sensitivities)}
-    cross_checks, previous_target, trade_count = [], 0.0, 0
-    for index in range(199, len(sessions) - 2):
-        decision, entry_day, exit_day = sessions[index:index + 3]
-        view = data.view(decision, SPY_200_DAY_TREND.decision_time, sessions[-1])
-        target = SPY_200_DAY_TREND.target_weights(view, decision)["SPY"]
-        entry = data.primary.get("SPY", entry_day)
-        exit_ = data.primary.get("SPY", exit_day)
-        if entry is None or exit_ is None or not entry.open or not exit_.open:
-            raise ValueError("SPY example never invents a missing opening fill")
-        raw = target * (exit_.open / entry.open - 1)
-        benchmark.append(exit_.open / entry.open - 1)
-        turnover = abs(target - previous_target)
-        primary_cost = 0.0
-        if turnover:
-            trade_count += 1
-            side = "buy" if target > previous_target else "sell"
-            mdv60 = float(np.median([
-                bar.close * bar.volume for bar in data.primary.bars
-                if bar.ticker == "SPY" and bar.session < entry_day and bar.close and bar.volume][-60:]))
-            for profile in total_costs:
-                amount = calculate(
-                    profile, side=side, notional=CAPITAL * turnover,
-                    fill_price=entry.open, mdv60=mdv60).total
-                total_costs[profile] += amount
-                if profile == costs.primary:
-                    primary_cost = amount
-        net_returns.append(raw - primary_cost / CAPITAL)
-        daily_dates.append(exit_day)
-        exposure.append(target * CAPITAL)
-        if target:
-            cross_checks.append(CrossCheckTrade(
-                "SPY", "long", entry_day, "open", exit_day, "open"))
-        previous_target = target
+    universe = Universe(data.primary, (ListingInterval("SPY", sessions[0]),))
+    ledger = simulate_portfolio(
+        SPY_200_DAY_TREND, data, universe, sessions, costs, Benchmark("ticker", "SPY"))
+    daily_dates = list(ledger.sessions)
+    net = ledger.returns
+    benchmark_array = np.asarray([row.benchmark_return for row in ledger.days])
+    exposure = [row.gross_exposure for row in ledger.days]
+    total_costs = {profile: sum(row.costs_by_profile[profile] for row in ledger.days)
+                   for profile in (costs.primary, *costs.sensitivities)}
+    trade_count = sum(row.turnover > 0 for row in ledger.days)
     costs.require_harsher(total_costs)
-    net = np.asarray(net_returns)
-    benchmark_array = np.asarray(benchmark)
     comparison = compare(net, benchmark_array, Benchmark("ticker", "SPY"))
     stats = calendar_statistics(
         daily_dates, net, census_n=census_n, gross_exposure=exposure,
@@ -108,8 +84,8 @@ def run_example(data: MarketData, output_dir: str | Path, *, costs: CostSelectio
                    "excess_return": comparison.excess_return,
                    "absolute_net_positive": comparison.absolute_net_positive,
                    "trades": trade_count, "one_sided_t": stats["one_sided_t"]}],
-        folds=_year_rows(daily_dates, net), cross_check_trades=cross_checks,
-        hard_max_date=sessions[-1], runtime_seconds=time.perf_counter() - started,
+        folds=_year_rows(daily_dates, net), hard_max_date=sessions[-1], ledger=ledger,
+        close_as_indication=True, runtime_seconds=time.perf_counter() - started,
         worker_count=1, job_count=len(daily_dates), serial_parallel_identical=None)
     write_report(output_dir, report)
     return report

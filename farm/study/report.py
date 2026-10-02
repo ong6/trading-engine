@@ -111,7 +111,8 @@ def build_report(*, identity: RunIdentity | str, data: MarketData, costs: CostSe
                  benchmark: Benchmark, variants: Iterable[Mapping], folds: Iterable[Mapping],
                  cross_check_trades: Iterable[CrossCheckTrade] = (),
                  hard_max_date: date, holdout: Mapping | None = None,
-                 open_as_indication: bool = False, runtime_seconds: float,
+                 open_as_indication: bool = False, close_as_indication: bool = False,
+                 ledger: object | None = None, runtime_seconds: float,
                  worker_count: int, job_count: int, serial_parallel_identical: bool | None,
                  cpu_count: int | None = None, delisting_fallback_count: int = 0) -> dict:
     variant_rows = [dict(row) for row in variants]
@@ -124,14 +125,21 @@ def build_report(*, identity: RunIdentity | str, data: MarketData, costs: CostSe
         raise ValueError("runtime, worker count, and job count must be valid")
     selected = [resolve(name) for name in (costs.primary, *costs.sensitivities)]
     caveats = []
-    if open_as_indication:
+    if open_as_indication or getattr(ledger, "open_as_indication", False):
         caveats.append("open_as_indication: official opens stand in for pre-market indications.")
+    if close_as_indication or getattr(ledger, "close_as_indication", False):
+        caveats.append("close_as_indication: official closes stand in for closing indications.")
     if data.primary.declaration.survivor_status != "point_in_time":
         caveats.append(SURVIVOR_WARNING)
     caveats.extend(f"Unverified cost profile: {profile.id}."
                    for profile in selected if not profile.verified_against_fills)
     caveats.extend(f"Fewer than 100 trades: {row['variant']} ({row['trades']})."
                    for row in variant_rows if row["trades"] < 100)
+    ledger_trades = tuple(getattr(ledger, "cross_check_trades", ()))
+    selected_trades = tuple(cross_check_trades) or ledger_trades
+    execution = {"unfilled_orders": getattr(ledger, "unfilled_counts", {}),
+                 "rejected_orders": getattr(ledger, "rejected_counts", {}),
+                 "exit_reasons": getattr(ledger, "exit_reason_counts", {})}
     report = {
         "schema_version": 1,
         "run_identity": identity.sha256 if isinstance(identity, RunIdentity) else identity,
@@ -141,14 +149,19 @@ def build_report(*, identity: RunIdentity | str, data: MarketData, costs: CostSe
         "delisting_fallback_count": delisting_fallback_count,
         "data": {"primary": _declaration(data.primary.declaration),
                  "secondary": (_declaration(data.secondary.declaration)
-                               if data.secondary is not None else None)},
+                               if data.secondary is not None else None),
+                 "derived_inputs": [{"name": item.name,
+                                     "available_at_column": item.available_at_column,
+                                     "declaration": dict(item.declaration)}
+                                    for item in data.derived_inputs]},
         "costs": {"primary": costs.primary, "sensitivities": list(costs.sensitivities),
                   "profiles": [{"id": profile.id, "sha256": profile.sha256,
                                 "verified_against_fills": profile.verified_against_fills}
                                for profile in selected]},
         "benchmark": asdict(benchmark),
         "independent_price_cross_check": price_cross_check(
-            data, cross_check_trades, hard_max_date=hard_max_date),
+            data, selected_trades, hard_max_date=hard_max_date),
+        "execution": execution,
         "variants": variant_rows, "folds": [dict(row) for row in folds],
         "holdout": dict(holdout) if holdout is not None else None,
         "caveats": caveats,
@@ -180,6 +193,10 @@ def markdown(report: Mapping) -> str:
              f"`{primary['snapshot_sha256']}`.",
              (f"Secondary: `{secondary['source']}`; snapshot "
               f"`{secondary['snapshot_sha256']}`." if secondary else "Secondary: not supplied."),
+             ("Derived inputs: " + ", ".join(
+                 f"`{item['name']}` ({item['available_at_column']})"
+                 for item in report["data"]["derived_inputs"]) + "."
+              if report["data"]["derived_inputs"] else "Derived inputs: none."),
              "", "## Costs", "", f"Primary: `{report['costs']['primary']}`.  ",
              "Sensitivities: " + ", ".join(
                  f"`{value}`" for value in report["costs"]["sensitivities"]) + ".", "",
@@ -198,7 +215,13 @@ def markdown(report: Mapping) -> str:
                      f"{_fmt(row['median'])} | {_fmt(row['p5'])} | {_fmt(row['p95'])} | "
                      f"{_fmt(row['share_beyond_0_5pct'])} |")
     lines += ["", "Secondary-price per-trade results use only trades with both independent "
-              "entry and exit prices; uncovered trades remain missing.", "", "## Variants", "",
+              "entry and exit prices; uncovered trades remain missing.", "", "## Execution", "",
+              "Unfilled orders: " + json.dumps(report["execution"]["unfilled_orders"],
+                                                sort_keys=True) + ".  ",
+              "Rejected orders: " + json.dumps(report["execution"]["rejected_orders"],
+                                                sort_keys=True) + ".  ",
+              "Exit reasons: " + json.dumps(report["execution"]["exit_reasons"],
+                                             sort_keys=True) + ".", "", "## Variants", "",
               "| Variant | Net | Benchmark | Excess | Absolute net > 0 | Trades | One-sided t |",
               "|---|---:|---:|---:|:---:|---:|---:|"]
     for row in report["variants"]:
