@@ -13,7 +13,7 @@ each plan's YAML `status` must match its row.
 |---|---|---|---|
 | [P1](p1-appliance-mode.md) | Appliance mode | done | Closed 2026-09-26: maintain-only premise superseded; doc-pinning test retirement moved to challenger-lab cleanup and activation (P16 W9) |
 | [P2](p2-league-collapse.md) | League collapse | approved | Retire the frozen eleven-book legacy set; newer separately authorized books are outside that set |
-| [P3](p3-point-in-time-data.md) | Point-in-time data | approved | Phase 0 Tiingo and SEC audits complete; Massive ready-unrun and paid data spend-blocked |
+| [P3](p3-point-in-time-data.md) | Point-in-time data | approved | Free Tiingo/Form 25 audits complete, Massive capture active, and SEC bulk fundamentals at offline checkpoint; paid data spend-blocked |
 | [P4](p4-broker-decision.md) | Broker decision | done | Decided 2026-09-20: IBKR eventually (Moomoo fallback) on personal hardware, via a later execution plan |
 | [P5](p5-agent-paper-decisions.md) | Agent paper decisions | done | Completed 2026-09-18: a constrained agent controls one isolated simulator-only book |
 | [P6](p6-alpha-experiment.md) | Alpha experiment | done | Completed 2026-09-18: one frozen credit-confirmed SPY/BIL experiment |
@@ -31,8 +31,8 @@ each plan's YAML `status` must match its row.
 | [P18](p18-backtest-core.md) | Shared backtest core | done | Completed: native event/portfolio simulation, deterministic reports, proving ground, and example |
 
 Recommended order: follow [`../product.md`](../product.md) ("Focus now"). P15 comes first, then P7
-activation; P8/P9 keep running untouched; P2 remains admitted; P3 waits for the owner's
-data-vendor budget.
+activation; P8/P9 keep running untouched; P2 remains admitted; P3's bounded free captures run
+while paid data waits for the owner's data-vendor budget.
 
 ## Plan template
 

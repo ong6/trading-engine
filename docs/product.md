@@ -60,6 +60,10 @@ running resumably for 2024-10-02 through 2026-09-30, the free tier's exact two-y
 2026-10-02. Its initial proof date loaded 12,613 US securities. This improves survivor coverage but
 does not provide pre-2024-10 bars or mutate operational prices.
 
+P3's free SEC phase now also admits the nightly Companyfacts and Submissions bulk archives for
+point-in-time core fundamentals and acceptance-timestamped item 2.02 earnings events. Its offline
+fixture checkpoint is complete; the live archives remain pending the registered network window.
+
 [The challenger lab, text edge, and evaluation science plan
 (P16)](plans/p16-challenger-lab-and-text-edge.md) has built its evaluation through broker-paper
 design workstreams (W1–W8) and the cleanup half of activation (W9a). They remain inert. The
@@ -89,6 +93,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-10-02 | Use SEC's free nightly Companyfacts and Submissions archives for isolated point-in-time fundamentals and acceptance-timestamped earnings events | P3; feedback |
 | 2026-10-02 | The free Massive key is available and the isolated two-year grouped-daily capture is running resumably; paid point-in-time data remains deferred | P3; site data |
 | 2026-10-02 | Failures are investigated on demand by an agent. There is no push alerting | This page; site operations |
 | 2026-10-02 | A broker paper account on personal hardware, described by the personal-host broker paper plan (P17), is future work and explicitly not work for now | P17; this page; site roadmap |

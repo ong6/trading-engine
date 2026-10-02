@@ -11,7 +11,8 @@
   },
   "plan_code_ceiling": {
     "p3_phase0_free_sources": 1200,
-    "p3_phase0_sec": 1800
+    "p3_phase0_sec": 1800,
+    "p3_sec_bulk": 1800
   },
   "doc_test_ceiling": 86,
   "p18": {
