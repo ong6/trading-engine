@@ -3,6 +3,7 @@ plan: P18 # Shared backtest core
 title: Shared backtest core
 status: done
 opened: 2026-10-01
+completed: 2026-10-02
 owner_decision: approved by the owner 2026-10-01
 ---
 
@@ -256,3 +257,5 @@ compatibility defaults preserve those same bytes.
 
 Rollback is deletion of `farm/study/` and its P18 tests/docs before any consumer adopts it. No
 existing schema, runtime path, evidence, service, or registration is migrated by this plan.
+
+<!-- sources: BUILDLOG.md, farm/study/bench.py, farm/study/data.py, farm/study/panel.py, farm/study/run.py, farm/study/simulate.py, tests/test_study_followup3.py, tests/test_study_simulate.py -->

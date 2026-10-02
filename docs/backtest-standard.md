@@ -17,8 +17,9 @@ Before the first run, freeze:
   timestamp;
 - the strategy kind, pure decision function source, canonical parameters, decision time, fill
   point, exit or rebalance rule, notional/capital basis, order priority and signal fields,
-  already-held rule, dividend withholding, `window_end` treatment, whether a complete held-price
-  path is required, universe, and liquidity rule;
+  already-held rule, dividend withholding, `window_end` as `force_close` (the compatibility
+  default) or `unevaluable`, `require_complete_path` as true or false, universe, and liquidity
+  rule;
 - one primary named cost profile and at least one distinct harsher sensitivity;
 - one benchmark and whether it is the normal gross comparator or the explicitly labelled
   cost-bearing `allocation` mode;
@@ -90,6 +91,22 @@ apply the predeclared delisting return (default −30%) and count it. Never dele
 history, carry an invented quote, or substitute today's membership. A source without historical
 delisted names is still usable for diagnosis only when the survivor warning is prominent.
 
+## Shared-panel performance contract
+
+One immutable dense columnar price panel is built once per run. Forked workers inherit the panel's
+read-only pages and resolve ticker/session coordinates in constant time; they do not each rebuild or
+serialize the whole market. This is an implementation optimization, not a second evaluator.
+
+The registered 3,000-stock × 3,800-session benchmark measured 989.05 to 0.847 seconds at 16 workers
+(1,167.5×). The legacy serial run was still unfinished after more than 55 minutes; optimized serial
+simulation took 7.75 seconds after a separate 133.41-second panel build. On the reduced 600-stock
+benchmark, serial wall time fell 1,557.73 to 6.69 seconds (232.8×) and 16-worker wall time fell
+124.14 to 0.558 seconds (222.5×). Peak worker RSS fell from about 6.85 GB to 0.82 GB.
+
+Compatibility is an acceptance requirement: all 295 captured pre-existing JSON outputs
+(53,391,323 bytes) matched byte for byte. A future performance change must repeat the study's
+identity and byte-comparison proof; faster output with changed evidence is not equivalent.
+
 ## Required report shape
 
 Every Markdown and JSON report has these sections in this order:
@@ -127,3 +144,5 @@ serial/parallel byte comparison. A real-data example is run only against an expl
 copy created by `tools.backup_database create`, outside production windows, and that copy is
 deleted after use. Generated study reports and censuses stay with the study and are not committed
 under `data/`.
+
+<!-- sources: BUILDLOG.md, docs/plans/p18-backtest-core.md, farm/study/bench.py, farm/study/data.py, farm/study/panel.py, farm/study/run.py, farm/study/simulate.py, tests/test_study_followup3.py, tests/test_study_simulate.py -->

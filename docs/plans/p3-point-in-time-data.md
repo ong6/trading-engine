@@ -3,7 +3,7 @@ plan: P3 # Point-in-time data
 title: Survivorship-free point-in-time data
 status: approved
 opened: 2026-09-18
-owner_decision: set a spend ceiling and confirm purchase
+owner_decision: paid-vendor spend remains deferred; free grouped-daily capture is active
 ---
 
 # Survivorship-free point-in-time data (P3)
@@ -29,28 +29,43 @@ this bounded free-source phase is unblocked and runs without changing that recom
 
 **Scope.** Download Tiingo's public supported-ticker archive, retain each exact ZIP by content
 hash outside Git, and load its USD `Stock` rows on US exchanges into the isolated
-`free_security_master` table. Build, but do not run, a Massive Stocks Basic grouped-daily fetcher
-for the fixed 2024-10-01 through 2026-09-30 window. It reads an owner-only key file, waits at
-least 13 seconds between calls, retains one exact response per date, resumes from those responses,
-and loads `free_daily_bars`. Both sources default to `store/pit/free-sources.duckdb` and
+`free_security_master` table. The Massive Stocks Basic grouped-daily fetcher covers the actual free
+tier window, 2024-10-02 through 2026-09-30. It reads an owner-only key file, waits at least 13
+seconds between calls, retains one exact response per date, resumes from those responses, pauses in
+the registered quiet windows, and loads `free_daily_bars`. Both sources default to
+`store/pit/free-sources.duckdb` and
 `store/pit/free-sources/`, with explicit path overrides. Audit the master against a consistent
-copy of the operational store and publish `docs/pit-free-audit-2026-10-01.md`. SEC Form 25 is the
-next free source after the owner supplies the required contact identity.
+copy of the operational store and publish `docs/pit-free-audit-2026-10-01.md`. The free SEC history
+follow-up below is also complete.
 
-**Not in scope.** No purchase, paid-vendor ingestion, SEC capture, Massive live request before the
-owner creates the free key, readiness endpoint, strategy or replay work, operational `prices`
-mutation, or change to a forward record. Free-source data remains host-only and isolated from all
-operational and execution authority.
+**Not in scope.** No purchase, paid-vendor ingestion, readiness endpoint, strategy or replay work,
+operational `prices` mutation, or change to a forward record. Free-source data remains host-only and
+isolated from all operational and execution authority.
 
-**Done when.** The Tiingo master is loaded and audited for 2010-2026 coverage, delistings,
-ticker reuse, and exact-ticker survivor gaps; recorded-fixture tests prove parsing, idempotent
-reload, key refusal, pacing, and date-level resume; the full suite and whole-repository Ruff pass;
-the branch is pushed with Massive reported `ready-unrun`. The audit explicitly records that free
-sources cannot recover pre-2024-10 prices for delisted names or delisting returns.
+**Initial checkpoint.** The Tiingo master was loaded and audited for 2010-2026 coverage,
+delistings, ticker reuse, and exact-ticker survivor gaps; recorded-fixture tests proved parsing,
+idempotent reload, key refusal, pacing, and date-level resume; and Massive was reported ready but
+unrun. The audit records that free sources cannot recover pre-2024-10 prices for delisted names or
+delisting returns. The live capture below is a follow-up to that completed checkpoint.
 
 **Budget.** Up to 1,200 new code-and-test lines across P3's claimed `free_*` files, split into
 reviewable commits below the repository's 1,500-line limit. No dependency, service, timer,
 endpoint, operational migration, or tracked raw-data file is added.
+
+## Phase 0 part 3: Massive grouped daily capture — active 2026-10-02
+
+The individual-use free key now exists in a private owner-only file. A resumable background capture
+is running across 2024-10-02 through 2026-09-30, the exact two-year history available from the free
+tier on 2026-10-02. Requests stop during the registered UTC and New York quiet windows and continue
+from retained date receipts. The first date loaded for the live proof, 2026-09-30, contained 12,613
+US securities; the historical daily responses include names that later delisted.
+
+Commit `74225e1` made the loader match real grouped responses. Individual malformed bars are
+quarantined in `free_daily_bars_rejected` rather than failing an otherwise usable date, subject to
+the 5% rejection ceiling. `free_daily_bars.volume` accepts fractional-share volume, and the ticker
+validator accepts lowercase preferred-share and warrant suffixes. The response envelope remains
+fail-closed, raw responses remain private, and the isolated database still has no operational-price
+or execution authority.
 
 ## Phase 0 part 2: free SEC history — complete 2026-10-01
 
@@ -165,3 +180,5 @@ Licence terms may forbid committing derived files; keep `pit_` data out of Git l
 Vendor coverage may start later than 1996, which shrinks the usable folds; the audit will say
 so and the plan still completes. The temptation to "just try one strategy" on the new data
 in the same session is the main risk; the admission test forbids it.
+
+<!-- sources: BUILDLOG.md, docs/pit-free-audit-2026-10-01.md, engine/free_sources.py, tests/test_free_sources.py, tools/free_sources.py -->
