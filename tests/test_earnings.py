@@ -197,6 +197,56 @@ def test_legacy_calendar_row_remains_resume_evidence(earnings_con):
     assert earnings._already_done(earnings_con, today) == {"OLD"}
 
 
+def test_nightly_selection_keeps_unknown_near_and_stale_names(earnings_con):
+    as_of = date(2026, 9, 29)
+    pairs = [(name, name) for name in ("EMPTY", "FAR", "NEAR", "NEVER", "STALE")]
+    earnings_con.executemany(
+        "INSERT INTO earnings_fetch_log VALUES (?, ?, ?, ?, 'yfinance', now())",
+        [
+            ("EMPTY", as_of - timedelta(days=1), "empty", 0),
+            ("FAR", as_of - timedelta(days=1), "ok", 1),
+            ("NEAR", as_of - timedelta(days=1), "ok", 1),
+            ("STALE", as_of - timedelta(days=8), "ok", 1),
+        ],
+    )
+    earnings_con.executemany(
+        "INSERT INTO earnings_calendar "
+        "(ticker, earnings_date, as_of, is_estimate) VALUES (?, ?, ?, FALSE)",
+        [
+            ("FAR", date(2026, 12, 1), as_of - timedelta(days=1)),
+            ("NEAR", date(2026, 10, 1), as_of - timedelta(days=1)),
+            ("STALE", date(2026, 12, 1), as_of - timedelta(days=8)),
+        ],
+    )
+
+    selected, accounting = earnings._select_due(
+        earnings_con, pairs, as_of, full=False,
+    )
+
+    assert [ticker for ticker, _provider in selected] == [
+        "EMPTY", "NEAR", "NEVER", "STALE",
+    ]
+    assert accounting == {
+        "mode": "nightly-bounded",
+        "near_sessions": 21,
+        "stale_after_days": 7,
+        "unknown": 2,
+        "near": 1,
+        "stale": 1,
+        "deferred": 1,
+    }
+
+
+def test_monday_is_the_weekly_full_pass(monkeypatch, earnings_con):
+    pairs = [("AAA", "AAA"), ("BBB", "BBB")]
+    monkeypatch.setattr(earnings, "_select_universe", lambda _con, _params: (pairs, "test"))
+
+    prepared = earnings._prepare_run(earnings_con, {}, date(2026, 9, 28))
+
+    assert prepared[2] == pairs
+    assert prepared[4]["mode"] == "weekly-full"
+
+
 def test_calendar_and_fetch_log_checkpoint_roll_back_together(monkeypatch, earnings_con, tmp_path):
     def fail_log(*_args, **_kwargs):
         raise RuntimeError("injected fetch-log failure")
