@@ -1720,4 +1720,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server and tools unchanged; product +542 lines; P18 is 3,438/3,600 farm lines.
 - **Next:** nothing admitted.
 
+## 2026-10-02 — Build the offline SEC bulk checkpoint
+
+- **Why:** P3 Phase 0 part 4 admits the owner's requested free SEC nightly bulk fundamentals and
+  earnings timestamps under the orchestrator's bounded technical contract.
+- **What:** add isolated Companyfacts and Submissions parsers, an acceptance-time as-of macro,
+  retained restatements and item 2.02 events. Add a single-connection, paced, resumable archive
+  client and read-only CIK ticker attachment; live downloads remain unopened until 20:15 UTC.
+- **Evidence:** `.venv/bin/python -m pytest tests/test_free_sec_bulk.py -q -W error -n 0` passes
+  all 5 fixture tests; focused Ruff passes.
+- **Metrics:** server unchanged; tools +400; product +595 lines; budget ok.
+- **Next:** verify both bulk URLs by HEAD and resume the live capture in the first permitted window.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
