@@ -1688,4 +1688,20 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server and tools unchanged; product +336 lines; budget ok.
 - **Next:** nothing admitted; P15 revision 9 must bind the two changed registered files.
 
+## 2026-10-02 — Bound nightly network collection
+
+- **Why:** the owner's October 2 engine-bottleneck audit measured serial price verification and
+  full-universe earnings refreshes dominating the 44.5-minute nightly.
+- **What:** pace four price-verifier workers through one global 0.4-second limiter; refresh only
+  unknown, near-term, or seven-day-stale earnings names outside the Monday full pass; and collect
+  two to four completed sessions per caught-up TradingView request without raising its rate or
+  chunk cap. Keep the measured 200-name EOD batches after larger/session-reuse probes regressed.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py::test_p15_registered_file_hashes_match_checkout` passes at 100%;
+  copy probes preserved every fact while verifier time fell 515.2→100.1 seconds and the bounded
+  earnings night selected 1,229/2,848 names.
+- **Metrics:** product +261 and tests +330; snapshot reconciliation also records server -2 and
+  tools +69 from the preceding revision; budget ok.
+- **Next:** the orchestrator folds the three changed registered modules into P15 revision 9.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
