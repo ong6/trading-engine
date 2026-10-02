@@ -6,6 +6,18 @@ not assume its counts, process state, or recommendations supersede the current g
 central product document is the current decision ledger; the strategy backlog is only the
 deterministic research queue, and dates inside it label historical measurements.
 
+For the plain-language product guide, start with [`site/index.md`](site/index.md), then follow the
+ordered page contract in [`site/README.md`](site/README.md). Internal codes and research terms are
+decoded in [`glossary.md`](glossary.md).
+
+Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](site/data.md),
+[`Paper books and the league`](site/paper-books.md), [`AI agents`](site/ai-agents.md),
+[`How research earns a verdict`](site/research-process.md),
+[`The shared backtest core`](site/backtest-engine.md),
+[`Evidence and reliability`](site/evidence-and-reliability.md),
+[`Operations`](site/operations.md), [`Roadmap`](site/roadmap.md), and the site
+[`Glossary`](site/glossary.md).
+
 ## Operating contract (read first if you are an agent)
 
 - [`../AGENTS.md`](../AGENTS.md) — the contract: document precedence, session rules, admission
@@ -41,6 +53,8 @@ deterministic research queue, and dates inside it label historical measurements.
   [P16 challenger lab and text edge](plans/p16-challenger-lab-and-text-edge.md),
   [P17 personal-host IBKR paper execution](plans/p17-personal-host-ibkr-paper-execution.md), and
   [P18 shared backtest core](plans/p18-backtest-core.md).
+- [`glossary.md`](glossary.md) — plain names for P1–P18, the P15/P16 workstreams, and research
+  terms such as registration, holdout, census, DSR, and walk-forward.
 
 ## Current operating documents
 
@@ -209,3 +223,5 @@ paths. The UI, generated scratch trees, and `.venv` remain outside Python lint s
 the locked Python runtime and installed UI production dependencies; Dependabot proposes weekly
 `uv`, GitHub Actions, and npm updates as reviewable pull requests and never merges or deploys them
 automatically.
+
+<!-- sources: docs/plans/README.md, docs/product.md, docs/scope.md -->
