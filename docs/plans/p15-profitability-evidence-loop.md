@@ -440,7 +440,7 @@ only** (owner, 2026-09-25). Every other AGENTS.md rule still applies.
 | W5 Event triggers | done | 2026-09-26 |
 | W6 Gates and reporting | done | 2026-09-26 |
 | W7 Cleanup and docs | done | 2026-09-26 |
-| W8 Activation | active; revision 8 is live. Revision 9 infrastructure is code-ready with timing, resource caps, sync recovery, snapshots/API fallback, and contention reductions; scoring, books, gates, labels, registered values, and written rows are unchanged. The orchestrator will issue revision 9 once after merging all four lanes | 2026-10-02 |
+| W8 Activation | active; revision 9 is issued for timing, sync recovery, snapshots/API fallback, fail-soft reporting, cached projections, single-connection observers, concurrent verify/farm, deduped batch fact writes, rolling queue/scratch hygiene, and bounded parallel collection; scoring, books, gates, labels, registered values, and written rows are unchanged | 2026-10-02 |
 
 ## Risks
 
