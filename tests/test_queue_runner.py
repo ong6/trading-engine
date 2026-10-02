@@ -363,6 +363,8 @@ def sleepy_kind(monkeypatch):
         lambda jid, db_path, meta_path: [sys.executable, "-c", "import time; time.sleep(30)"])
     monkeypatch.setattr(qr, "BATCH_STAGGER_S", 0.0)
     monkeypatch.setattr(qr, "KILL_GRACE_S", 2.0)
+    monkeypatch.setattr(qr.rsc, "load_5min", lambda: 0.0)
+    monkeypatch.setattr(qr.rsc, "free_ram_gb", lambda: 100.0)
     return "sleepy"
 
 
@@ -372,10 +374,17 @@ def test_parallel_child_is_killed_at_timeout(tmp_path, sleepy_kind, monkeypatch)
     qr.ensure_schema(con)
     qr.cmd_enqueue(con, sleepy_kind, "{}", 100, None)           # kind default 1 s
     qr.cmd_enqueue(con, sleepy_kind, '{"n": 2}', 100, None, 2)  # explicit 2 s
-    batch = [(1, sleepy_kind, None), (2, sleepy_kind, 2)]
+    pool = [
+        (1, sleepy_kind, "{}", 10, None, 100),
+        (2, sleepy_kind, '{"n": 2}', 10, 2, 100),
+    ]
     t0 = time.monotonic()
-    results, con = qr._run_parallel_batch(batch, str(dbp), tmp_path / "meta.json", con)
+    results, con, stopped = qr._run_parallel_pool(
+        pool, str(dbp), tmp_path / "meta.json", con, width=2,
+        drain_deadline=t0 + 60,
+    )
     elapsed = time.monotonic() - t0
+    assert stopped is None
     assert results == {1: "timeout", 2: "timeout"}
     assert elapsed < 15, "a 30 s sleeper must not run to completion"
     rows = con.execute(
@@ -392,8 +401,12 @@ def test_parallel_child_finishing_in_time_is_done(tmp_path, sleepy_kind, monkeyp
     con = db.connect(dbp)
     qr.ensure_schema(con)
     qr.cmd_enqueue(con, sleepy_kind, "{}", 100, None, 60)
-    results, con = qr._run_parallel_batch(
-        [(1, sleepy_kind, 60)], str(dbp), tmp_path / "meta.json", con)
+    results, con, stopped = qr._run_parallel_pool(
+        [(1, sleepy_kind, "{}", 10, 60, 100)],
+        str(dbp), tmp_path / "meta.json", con, width=2,
+        drain_deadline=time.monotonic() + 60,
+    )
+    assert stopped is None
     assert results == {1: 0}
     assert con.execute("SELECT state FROM jobs WHERE id = 1").fetchone() == ("done",)
     con.close()
@@ -406,7 +419,133 @@ def test_wait_batch_records_nonzero_exit_as_rc():
     assert res == {9: 7}
 
 
-def test_drain_never_mixes_parallel_kinds_or_priority_tiers(qcon, monkeypatch, tmp_path):
+def _fake_pool_processes(monkeypatch, durations):
+    import subprocess
+
+    class Clock:
+        now = 0.0
+
+        def monotonic(self):
+            return self.now
+
+        def sleep(self, seconds):
+            self.now += seconds
+
+    clock = Clock()
+    starts = []
+
+    class Process:
+        def __init__(self, jid):
+            self.jid = jid
+            self.finished_at = clock.now + durations[jid]
+            self.returncode = None
+            starts.append((jid, clock.now))
+
+        def poll(self):
+            if self.returncode is None and clock.now >= self.finished_at:
+                self.returncode = 0
+            return self.returncode
+
+        def terminate(self):
+            self.returncode = -15
+
+        def kill(self):
+            self.returncode = -9
+
+        def wait(self, timeout=None):
+            if self.returncode is None:
+                clock.now = self.finished_at
+                self.returncode = 0
+            return self.returncode
+
+    monkeypatch.setattr(qr, "_child_cmd", lambda jid, *_args: [str(jid)])
+    monkeypatch.setattr(
+        subprocess, "Popen", lambda command, **_kwargs: Process(int(command[0]))
+    )
+    monkeypatch.setattr(qr, "BATCH_STAGGER_S", 0.0)
+    monkeypatch.setattr(qr, "BATCH_POLL_S", 0.1)
+    monkeypatch.setattr(qr.rsc, "load_5min", lambda: 0.0)
+    monkeypatch.setattr(qr.rsc, "free_ram_gb", lambda: 100.0)
+    return clock, starts
+
+
+def test_rolling_pool_refills_freed_slots_and_records_in_job_order(
+    tmp_path, monkeypatch
+):
+    clock, starts = _fake_pool_processes(
+        monkeypatch, {1: 10.0, 2: 1.0, 3: 1.0, 4: 1.0}
+    )
+    dbp = tmp_path / "q.duckdb"
+    con = db.connect(dbp)
+    qr.ensure_schema(con)
+    for jid, priority in enumerate((170, 170, 172, 176), start=1):
+        qr.cmd_enqueue(
+            con, "walkforward", f'{{"config_id":"book-{jid}"}}', priority, 10
+        )
+
+    state_order = []
+    set_state = qr._set_state
+
+    def record_state(connection, jid, state, **kwargs):
+        state_order.append((jid, state))
+        set_state(connection, jid, state, **kwargs)
+
+    monkeypatch.setattr(qr, "_set_state", record_state)
+    pool = con.execute(
+        "SELECT id, kind, params, mem_mb, timeout_s, priority FROM jobs "
+        "ORDER BY priority, created_at"
+    ).fetchall()
+    results, con, stopped = qr._run_parallel_pool(
+        pool, str(dbp), tmp_path / "meta.json", con, width=2,
+        drain_deadline=100.0, _clock=clock.monotonic, _sleep=clock.sleep,
+    )
+
+    assert stopped is None
+    assert [jid for jid, _started in starts] == [1, 2, 3, 4]
+    assert starts[2][1] < 10.0  # job 3 starts while slow job 1 still occupies slot 1
+    assert starts[3][1] < 10.0
+    assert list(results) == [1, 2, 3, 4]
+    assert state_order[-4:] == [(1, "done"), (2, "done"),
+                               (3, "done"), (4, "done")]
+    assert _rows(con, "id, state") == [
+        (1, "done"), (2, "done"), (3, "done"), (4, "done")
+    ]
+    con.close()
+
+
+def test_rolling_pool_stops_launching_at_drain_budget(tmp_path, monkeypatch):
+    clock, starts = _fake_pool_processes(
+        monkeypatch, {1: 1.0, 2: 1.0, 3: 1.0}
+    )
+    dbp = tmp_path / "q.duckdb"
+    con = db.connect(dbp)
+    qr.ensure_schema(con)
+    for jid, priority in enumerate((170, 172, 174), start=1):
+        qr.cmd_enqueue(
+            con, "walkforward", f'{{"config_id":"book-{jid}"}}', priority, 10
+        )
+    pool = con.execute(
+        "SELECT id, kind, params, mem_mb, timeout_s, priority FROM jobs "
+        "ORDER BY priority, created_at"
+    ).fetchall()
+
+    results, con, stopped = qr._run_parallel_pool(
+        pool, str(dbp), tmp_path / "meta.json", con, width=1,
+        drain_deadline=1.5, _clock=clock.monotonic, _sleep=clock.sleep,
+    )
+
+    assert stopped == "budget"
+    assert [jid for jid, _started in starts] == [1, 2]
+    assert results == {1: 0, 2: 0}
+    assert _rows(con, "id, state") == [
+        (1, "done"), (2, "done"), (3, "pending")
+    ]
+    con.close()
+
+
+def test_drain_rolling_pool_keeps_sorted_priority_order_until_writer_barrier(
+    qcon, monkeypatch, tmp_path
+):
     for kind, priority, params in (
         ("walkforward", 170, '{"config_id":"a"}'),
         ("walkforward", 170, '{"config_id":"b"}'),
@@ -415,36 +554,38 @@ def test_drain_never_mixes_parallel_kinds_or_priority_tiers(qcon, monkeypatch, t
         ("sweep", 900, '{"grid":"y"}'),
     ):
         qr.cmd_enqueue(qcon, kind, params, priority, None)
-    batches = []
+    pools = []
 
-    def record(batch, db_path, meta_path, con):
-        batches.append([(jid, kind) for jid, kind, _timeout in batch])
-        return {}, con
+    def record(pool, db_path, meta_path, con, *, width, drain_deadline):
+        pools.append([(row[0], row[1], row[5]) for row in pool])
+        return {}, con, None
 
-    monkeypatch.setattr(qr, "_run_parallel_batch", record)
+    monkeypatch.setattr(qr, "_run_parallel_pool", record)
     monkeypatch.setattr(qr.rsc, "load_5min", lambda: 0.0)
     monkeypatch.setattr(qr.rsc, "free_ram_gb", lambda: 100.0)
     assert qr._drain(qcon, tmp_path / "meta.json", jobs=8) == 0
-    assert batches == [
-        [(1, "walkforward"), (2, "walkforward")],
-        [(3, "walkforward")],
-        [(4, "sweep"), (5, "sweep")],
-    ]
+    assert pools == [[
+        (1, "walkforward", 170),
+        (2, "walkforward", 170),
+        (3, "walkforward", 176),
+        (4, "sweep", 900),
+        (5, "sweep", 900),
+    ]]
 
 
 def test_targeted_drain_runs_only_exact_authorized_params(qcon, monkeypatch, tmp_path):
     qr.cmd_enqueue(qcon, "sweep", '{"grid":"old"}', 900, None)
     qr.cmd_enqueue(qcon, "sweep", '{"grid":"open"}', 900, None)
     qr.cmd_enqueue(qcon, "walkforward", '{"config_id":"book"}', 170, None)
-    batches = []
+    pools = []
 
-    def record(batch, db_path, meta_path, con):
-        batches.append([jid for jid, _kind, _timeout in batch])
-        for jid, _kind, _timeout in batch:
+    def record(pool, db_path, meta_path, con, *, width, drain_deadline):
+        pools.append([row[0] for row in pool])
+        for jid, _kind, _params, _mem_mb, _timeout, _priority in pool:
             qr._set_state(con, jid, "done")
-        return {}, con
+        return {}, con, None
 
-    monkeypatch.setattr(qr, "_run_parallel_batch", record)
+    monkeypatch.setattr(qr, "_run_parallel_pool", record)
     monkeypatch.setattr(qr.rsc, "load_5min", lambda: 0.0)
     monkeypatch.setattr(qr.rsc, "free_ram_gb", lambda: 100.0)
     assert qr._drain(
@@ -454,7 +595,7 @@ def test_targeted_drain_runs_only_exact_authorized_params(qcon, monkeypatch, tmp
         run_kind="sweep",
         run_params=['{"grid": "open"}'],
     ) == 0
-    assert batches == [[2]]
+    assert pools == [[2]]
     assert _rows(qcon, "id, state") == [
         (1, "pending"), (2, "done"), (3, "pending")
     ]
