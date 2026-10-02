@@ -244,10 +244,11 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 7
+    assert registration["registration_revision"] == 8
     assert registration["revision_reason"] == (
-        "scoring job re-renders the league report after P15 book windows so published league "
-        "evidence matches stored equity; no scoring, book, gate, label or validator change"
+        "validation-time label, limit and maturity checks use date-only sessions and "
+        "price-prefix hashes instead of current-state fetched_at; no scoring, book, gate, "
+        "label-writing or written-row change"
     )
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
