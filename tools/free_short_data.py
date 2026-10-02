@@ -420,32 +420,39 @@ def audit(database: Path) -> dict:
     con = duckdb.connect(str(database), read_only=True)
     try:
         coverage = con.execute("""WITH facts AS (
-            SELECT 'FINRA short interest' source,settlement_date measured FROM finra_short_interest
+            SELECT 'FINRA short interest' source_name,settlement_date measured FROM finra_short_interest
             UNION ALL SELECT 'SEC FTD',settlement_date FROM sec_fails_to_deliver
             UNION ALL SELECT venue,trade_date FROM regsho_threshold)
-          SELECT source,EXTRACT(year FROM measured)::INTEGER year,COUNT(*) rows,
-            COUNT(DISTINCT measured) dates FROM facts GROUP BY source,year ORDER BY source,year""").fetchall()
+          SELECT source_name,EXTRACT(year FROM measured)::INTEGER AS year_number,
+            COUNT(*) AS row_count,COUNT(DISTINCT measured) AS date_count
+            FROM facts GROUP BY source_name,year_number
+            ORDER BY source_name,year_number""").fetchall()
         ranges = con.execute("""WITH facts AS (
-            SELECT 'FINRA short interest' source,settlement_date measured FROM finra_short_interest
+            SELECT 'FINRA short interest' source_name,settlement_date measured FROM finra_short_interest
             UNION ALL SELECT 'SEC FTD',settlement_date FROM sec_fails_to_deliver
             UNION ALL SELECT venue,trade_date FROM regsho_threshold)
-          SELECT source,MIN(measured),MAX(measured),COUNT(*) FROM facts GROUP BY source ORDER BY source""").fetchall()
-        matches = con.execute("""SELECT dataset,COUNT(*) total,COUNT(mapped_ticker) matched,
-            COUNT(*) FILTER(WHERE collision) collisions
+          SELECT source_name,MIN(measured),MAX(measured),COUNT(*) FROM facts
+            GROUP BY source_name ORDER BY source_name""").fetchall()
+        matches = con.execute("""SELECT dataset,COUNT(*) AS total_count,
+            COUNT(mapped_ticker) AS matched_count,
+            COUNT(*) FILTER(WHERE collision) AS collision_count
           FROM short_ticker_map GROUP BY dataset ORDER BY dataset""").fetchall()
         lags = con.execute("""WITH facts AS (
-            SELECT 'FINRA short interest' source,date_diff('day',settlement_date,publication_date) lag
+            SELECT 'FINRA short interest' source_name,
+              date_diff('day',settlement_date,publication_date) lag
               FROM finra_short_interest
             UNION ALL SELECT 'SEC FTD',date_diff('day',settlement_date,publication_date)
               FROM sec_fails_to_deliver
             UNION ALL SELECT venue,date_diff('day',trade_date,publication_date)
               FROM regsho_threshold)
-          SELECT source,MIN(lag),quantile_cont(lag,.5),quantile_cont(lag,.9),MAX(lag)
-          FROM facts GROUP BY source ORDER BY source""").fetchall()
+          SELECT source_name,MIN(lag),quantile_cont(lag,.5),quantile_cont(lag,.9),MAX(lag)
+          FROM facts GROUP BY source_name ORDER BY source_name""").fetchall()
         limitations = con.execute("""SELECT
             COUNT(*) FILTER(WHERE settlement_date<'2021-06-01') pre_2021_rows,
             COUNT(DISTINCT settlement_date) FILTER(WHERE settlement_date<'2021-06-01') pre_2021_dates,
-            MIN(settlement_date),MAX(settlement_date) FROM finra_short_interest""").fetchone()
+            MIN(settlement_date) FILTER(WHERE settlement_date<'2021-06-01'),
+            MAX(settlement_date) FILTER(WHERE settlement_date<'2021-06-01')
+            FROM finra_short_interest""").fetchone()
     finally:
         con.close()
     match_rows = [{"dataset": row[0], "total": row[1], "matched": row[2],
@@ -499,7 +506,9 @@ def render_audit(result: dict) -> str:
               "June 2021 are OTC-only; exchange-listed consolidated history is unavailable there.",
               "FINRA publication is the seventh business day after settlement. SEC FTD uses the",
               "SEC's stated availability schedule: month-end for first-half data and the 15th of",
-              "the next month for second-half data; the SEC cautions that posting can be later.",
+              "the next month for second-half data; pre-July-2009 rows wait until their source",
+              "quarter ends. The SEC cautions that posting can be later, so these are date-level",
+              "availability rules rather than intraday timestamps.",
               "SEC FTD is an aggregate outstanding settlement balance, not short interest and not",
               "a daily flow. Threshold membership is a venue list, not evidence of abusive shorting.",
               "CUSIPs remain only in the private raw cache and isolated local database.", ""]

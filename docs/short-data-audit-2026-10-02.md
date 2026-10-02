@@ -1,0 +1,107 @@
+# P3 shorting-stress data audit — 2026-10-02
+
+## Method
+
+All raw responses are held outside Git in a content-addressed owner-only cache.
+The isolated database records measurement, official publication, and ingestion
+clocks. `short_data_asof(as_of)` excludes rows before publication. Exact symbols
+are matched on observation date against the read-only Tiingo listing intervals and
+SEC CIK/ticker history; ambiguous reference intervals are flagged, not guessed.
+
+This is checkpoint `shorts-1`: FINRA short interest, SEC FTD, and FINRA OTC are
+complete. Nasdaq is resumable through 2005-07-01; NYSE and Cboe remain to be
+captured after the 21:45--23:30 UTC network blackout. The final audit replaces
+these partial exchange ranges after all three captures finish.
+
+## Overall ranges
+
+| Source | First date | Last date | Rows |
+|---|---|---|---:|
+| FINRA OTC | 2016-01-04 | 2026-10-01 | 61,236 |
+| FINRA short interest | 2014-11-14 | 2026-09-15 | 4,200,011 |
+| Nasdaq | 2005-01-07 | 2005-07-01 | 27,117 |
+| SEC FTD | 2004-03-22 | 2026-09-14 | 28,089,776 |
+
+## Coverage by source and year
+
+| Source | Year | Rows | Dates |
+|---|---:|---:|---:|
+| FINRA OTC | 2016 | 7,146 | 250 |
+| FINRA OTC | 2017 | 6,486 | 249 |
+| FINRA OTC | 2018 | 8,398 | 250 |
+| FINRA OTC | 2019 | 6,977 | 252 |
+| FINRA OTC | 2020 | 7,048 | 253 |
+| FINRA OTC | 2021 | 7,789 | 252 |
+| FINRA OTC | 2022 | 4,735 | 251 |
+| FINRA OTC | 2023 | 2,525 | 250 |
+| FINRA OTC | 2024 | 3,601 | 252 |
+| FINRA OTC | 2025 | 3,532 | 251 |
+| FINRA OTC | 2026 | 2,999 | 188 |
+| FINRA short interest | 2014 | 29,276 | 4 |
+| FINRA short interest | 2015 | 175,996 | 24 |
+| FINRA short interest | 2016 | 171,665 | 24 |
+| FINRA short interest | 2017 | 170,286 | 24 |
+| FINRA short interest | 2018 | 173,841 | 24 |
+| FINRA short interest | 2019 | 284,033 | 24 |
+| FINRA short interest | 2020 | 414,562 | 24 |
+| FINRA short interest | 2021 | 478,429 | 24 |
+| FINRA short interest | 2022 | 496,296 | 24 |
+| FINRA short interest | 2023 | 470,207 | 24 |
+| FINRA short interest | 2024 | 468,759 | 24 |
+| FINRA short interest | 2025 | 493,428 | 24 |
+| FINRA short interest | 2026 | 373,233 | 17 |
+| Nasdaq | 2005 | 27,117 | 122 |
+| SEC FTD | 2004 | 534,488 | 194 |
+| SEC FTD | 2005 | 622,182 | 250 |
+| SEC FTD | 2006 | 657,217 | 249 |
+| SEC FTD | 2007 | 734,274 | 250 |
+| SEC FTD | 2008 | 1,143,439 | 251 |
+| SEC FTD | 2009 | 1,625,584 | 250 |
+| SEC FTD | 2010 | 1,575,431 | 250 |
+| SEC FTD | 2011 | 1,536,824 | 250 |
+| SEC FTD | 2012 | 1,433,315 | 250 |
+| SEC FTD | 2013 | 1,396,893 | 250 |
+| SEC FTD | 2014 | 1,518,621 | 250 |
+| SEC FTD | 2015 | 1,547,612 | 250 |
+| SEC FTD | 2016 | 1,245,231 | 250 |
+| SEC FTD | 2017 | 1,121,046 | 250 |
+| SEC FTD | 2018 | 1,194,854 | 250 |
+| SEC FTD | 2019 | 1,050,602 | 250 |
+| SEC FTD | 2020 | 1,206,764 | 251 |
+| SEC FTD | 2021 | 1,460,785 | 250 |
+| SEC FTD | 2022 | 1,477,590 | 249 |
+| SEC FTD | 2023 | 1,400,306 | 249 |
+| SEC FTD | 2024 | 1,285,064 | 250 |
+| SEC FTD | 2025 | 1,326,583 | 249 |
+| SEC FTD | 2026 | 995,071 | 175 |
+
+## Ticker mapping
+
+| Dataset | Rows | Matched | Match rate | Collisions |
+|---|---:|---:|---:|---:|
+| finra_short_interest | 4,200,011 | 1,249,143 | 29.7% | 7,185 |
+| regsho_threshold | 88,353 | 7,335 | 8.3% | 12 |
+| sec_fails_to_deliver | 28,089,776 | 14,527,444 | 51.7% | 105,560 |
+
+## Publication lag distribution
+
+Calendar days from measurement/settlement through official publication.
+
+| Source | Min | Median | P90 | Max |
+|---|---:|---:|---:|---:|
+| FINRA OTC | 0 | 0.0 | 0.0 | 0 |
+| FINRA short interest | 9 | 11.0 | 12.0 | 13 |
+| Nasdaq | 0 | 0.0 | 1.0 | 4 |
+| SEC FTD | 0 | 23.0 | 32.0 | 91 |
+
+## Source limitations
+
+FINRA coverage is 2014-11-14 through 2021-05-28. The 1,615,228 rows on 158 settlement dates before June 2021 are OTC-only; exchange-listed consolidated history is unavailable there.
+FINRA publication is the seventh business day after settlement. SEC FTD uses the
+SEC's stated availability schedule: month-end for first-half data and the 15th of
+the next month for second-half data; pre-July-2009 rows wait until their source
+quarter ends. The SEC cautions that posting can be later, so these are date-level
+availability rules rather than intraday timestamps.
+SEC FTD is an aggregate outstanding settlement balance, not short interest and not
+a daily flow. Threshold membership is a venue list, not evidence of abusive shorting.
+CUSIPs remain only in the private raw cache and isolated local database.
