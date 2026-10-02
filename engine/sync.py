@@ -98,6 +98,40 @@ def _unstage_data() -> subprocess.CompletedProcess:
     return _git("reset", "--quiet", "--", "data/")
 
 
+def _non_fast_forward(result: subprocess.CompletedProcess) -> bool:
+    output = f"{result.stdout}\n{result.stderr}".lower()
+    return (
+        "non-fast-forward" in output
+        or "fetch first" in output
+        or "remote contains work that you do not have locally" in output
+    )
+
+
+def _retry_after_remote_advance(upstream: Upstream) -> bool:
+    """Fetch, rebase the generated-data commit, and retry one rejected push."""
+    fetched = _git("fetch", upstream.remote, upstream.branch)
+    if fetched.returncode != 0:
+        log.error(f"[sync] fetch after rejected push failed:\n{fetched.stderr.strip()}")
+        return False
+    rebased = _git("rebase", "--autostash", upstream.tracking_ref)
+    if rebased.returncode != 0:
+        aborted = _git("rebase", "--abort")
+        cleanup = "" if aborted.returncode == 0 else (
+            f"; rebase abort also failed: {aborted.stderr.strip()}"
+        )
+        log.error(
+            "[sync] rebase after rejected push conflicted; aborted and kept "
+            f"the local generated-data commit: {rebased.stderr.strip()}{cleanup}"
+        )
+        return False
+    retried = _git("push", upstream.remote, f"HEAD:refs/heads/{upstream.branch}")
+    if retried.returncode != 0:
+        log.error(f"[sync] push retry failed:\n{retried.stderr.strip()}")
+        return False
+    log.info(f"[sync] rebased and pushed to {upstream.remote}/{upstream.branch}")
+    return True
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Commit/push the day's screen outputs.")
     ap.add_argument(
@@ -186,6 +220,8 @@ def main() -> int:
     # remote.pushDefault must never redirect unattended data publication.
     push = _git("push", upstream.remote, f"HEAD:refs/heads/{upstream.branch}")
     if push.returncode != 0:
+        if _non_fast_forward(push):
+            return 0 if _retry_after_remote_advance(upstream) else 1
         log.error(f"[sync] push failed:\n{push.stderr.strip()}")
         return 1
     log.info(f"[sync] pushed to {upstream.remote}/{upstream.branch}")
