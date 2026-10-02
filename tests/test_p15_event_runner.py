@@ -512,7 +512,7 @@ def _next_bar_label_for_validation(con, *, availability_delay_minutes: int = 1):
 def _validate_event_labels(con, generated_at: datetime):
     return p15_evidence_validation.validate_event_labels(
         con, agent_evaluation.EvaluationError,
-        agent_evaluation._label_outcome_when_ready, generated_at,
+        agent_evaluation._current_label_outcome, generated_at,
     )
 
 
@@ -540,6 +540,7 @@ def test_event_label_validation_uses_revision_visible_at_label_time(con):
     )
 
     assert _validate_event_labels(con, late_at + timedelta(hours=2)) == {
+        "labels_source_revised": 0, "labels_source_revised_ids": [],
         "labels_source_unverifiable": 0, "labels_source_unverifiable_ids": [],
     }
 
@@ -573,6 +574,7 @@ def test_event_label_validation_counts_unrecoverable_source(con):
     )
 
     assert _validate_event_labels(con, labeled_at + timedelta(hours=2)) == {
+        "labels_source_revised": 0, "labels_source_revised_ids": [],
         "labels_source_unverifiable": 1, "labels_source_unverifiable_ids": [1],
     }
 

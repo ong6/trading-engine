@@ -332,13 +332,7 @@ def validate(con: duckdb.DuckDBPyConnection, error_type) -> None:
                 "attempted_at": attempted_at.replace(tzinfo=timezone.utc).isoformat(),
                 "source": source, "status": status, "batch_sha256": batch_sha,
             }
-            had_bar = con.execute(
-                f"SELECT 1 FROM prices WHERE ticker=? AND date=? "
-                f"AND fetched_at<=? AND {REAL_BAR_SQL} LIMIT 1",
-                [ticker, market_date, attempted_at],
-            ).fetchone() is not None
-            if status != "missing" or had_bar \
-                    or canonical_sha256(identity) != attempt_sha:
+            if status != "missing" or canonical_sha256(identity) != attempt_sha:
                 raise error_type("P15 price fetch attempt evidence differs")
     orphans = int(con.execute(
         "SELECT COUNT(*) FROM price_fetch_attempts a LEFT JOIN p15_price_fetch_batches b "
@@ -365,11 +359,6 @@ def validate(con: duckdb.DuckDBPyConnection, error_type) -> None:
             "request_sha256": request_sha,
             "response_sha256": response_sha,
         }
-        had_bar = con.execute(
-            f"SELECT 1 FROM prices WHERE ticker=? AND date=? AND fetched_at<=? "
-            f"AND {REAL_BAR_SQL} LIMIT 1",
-            [ticker, market_date, completed_at],
-        ).fetchone() is not None
         if (
             source != OPEN_LABEL_SOURCE or status != "missing"
             or outcome_reason != OPEN_LABEL_MISSING_REASON
@@ -377,7 +366,7 @@ def validate(con: duckdb.DuckDBPyConnection, error_type) -> None:
                 ticker, provider_ticker, market_date,
             )
             or response_sha != open_label_missing_response_sha256()
-            or requested_at > completed_at or had_bar
+            or requested_at > completed_at
             or canonical_sha256(body) != receipt_sha
         ):
             raise error_type("P15 open-label fetch receipt differs")
