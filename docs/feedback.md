@@ -538,3 +538,16 @@ no study-specific strategies, censuses, findings, or results to this public repo
 **Ceiling changes.** Add the P18 review budget under its own `docs/scope-budget.json` key: at most
 4,800 new farm lines, 4,000 test lines, 800 documentation lines, and 9 logical commits. The
 repository-wide per-layer LOC ceilings remain removed; the 1,500-insertion per-commit cap remains.
+
+## 2026-10-02 — Raise the P18 farm ceiling for the shared panel
+
+**Verdict.** The orchestrator approved P18's generic performance follow-up: profile a realistic
+synthetic market, replace repeated frame/bar scans with one immutable columnar panel shared by
+forked workers, and preserve existing outputs byte for byte.
+
+**Rule changes.** P18 also admits the two identity-bound event evaluation controls recorded in its
+standard: unevaluable window-end exits and an optional complete held-price path. Their defaults
+retain the existing simulation bytes and identity.
+
+**Ceiling changes.** Raise only P18's farm ceiling from 3,000 to 3,600 lines because the benchmark
+and reusable panel cannot fit in the remaining 104 lines. The final P18 farm total is 3,438 lines.
