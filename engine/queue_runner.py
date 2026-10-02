@@ -47,6 +47,7 @@ import argparse
 import fcntl
 import json
 import os
+import shutil
 import sys
 import time
 from datetime import date, datetime, timezone
@@ -56,6 +57,7 @@ from engine.lib import db
 from engine.lib import resources as rsc
 from engine.lib.settings import META_PATH as DEFAULT_META
 from engine.lib.settings import REPO_ROOT, STORE_DIR
+from farm.walkforward import scratch as wf_scratch
 
 # §12.7 caps
 # 5-min load ceiling. Kept at 28 after measurement (2026-08-20): a width-8
@@ -627,6 +629,15 @@ def _run_parallel_pool(pool, db_path, meta_path, con, *, width: int,
     """
     import subprocess
 
+    wf_run_id = f"{os.getpid()}-{time.time_ns()}"
+    shared_dirs: set[Path] = set()
+    for _jid, kind, params_json, _mem_mb, _timeout_s, _priority in pool:
+        if kind != "walkforward":
+            continue
+        params = _parse_params(params_json) if params_json else {}
+        scratch_root = Path(params.get("scratch_root") or wf_scratch.SCRATCH_ROOT)
+        shared_dirs.add(scratch_root / f"wf__shared__{wf_run_id}")
+
     for jid, _kind, _params, _mem_mb, _timeout_s, _priority in pool:
         _set_state(con, jid, "running", progress="waiting (parallel pool)")
     con.close()
@@ -687,8 +698,13 @@ def _run_parallel_pool(pool, db_path, meta_path, con, *, width: int,
                     break
 
                 limit = int(timeout_s) if timeout_s else default_timeout_s(kind)
+                child_env = None
+                if kind == "walkforward":
+                    child_env = os.environ.copy()
+                    child_env[wf_scratch.SHARED_RUN_ENV] = wf_run_id
                 process = subprocess.Popen(
-                    _child_cmd(jid, db_path, meta_path), cwd=str(REPO_ROOT)
+                    _child_cmd(jid, db_path, meta_path), cwd=str(REPO_ROOT),
+                    env=child_env,
                 )
                 active.append((row, process, now + limit))
                 active_mem_mb += declared
@@ -720,6 +736,9 @@ def _run_parallel_pool(pool, db_path, meta_path, con, *, width: int,
                     process.kill()
                     process.wait()
         raise
+
+    for directory in shared_dirs:
+        shutil.rmtree(directory, ignore_errors=True)
 
     # Reacquiring the writer can collide with a nightly that started while the
     # pool ran (collect holds it for ~4 min). Preserve the established 15-minute
@@ -857,6 +876,12 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
            run_kind: str | None = None, run_params: list[str] | None = None) -> int:
     """The drain proper. Called ONLY by cmd_run, which holds the drain lock —
     the precondition the orphan sweep below relies on."""
+    scratch = wf_scratch.sweep_orphans()
+    if scratch["removed"] or scratch["held"]:
+        print(f"[queue] walk-forward scratch sweep removed {scratch['removed']} "
+              f"director{'y' if scratch['removed'] == 1 else 'ies'} "
+              f"({scratch['bytes']} bytes); kept {scratch['held']} held")
+
     # Reclaim jobs a killed drain left in 'running'. Safe ONLY because the drain
     # lock above proves no other drain is alive; the DuckDB writer no longer
     # proves it, since batches release it.
