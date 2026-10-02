@@ -48,6 +48,28 @@ idempotent reload, key refusal, pacing, and date-level resume; and Massive was r
 unrun. The audit records that free sources cannot recover pre-2024-10 prices for delisted names or
 delisting returns. The live capture below is a follow-up to that completed checkpoint.
 
+## Phase 0 part 5: frozen Kaggle archive census — complete 2026-10-02
+
+The anonymous 2017 Kaggle ZIP was downloaded once in a permitted window and retained by content
+hash outside Git. `engine/free_frozen_archive.py` and its tool perform an offline structural census,
+retain per-ticker endpoints in a host-only JSON result, flag gap/price-discontinuity identity risk,
+check ten known splits, and compare a deterministic year-stratified sample against the Tiingo
+listing intervals and SEC Form 25 notices. No running producer, operational table, or forward
+record is touched.
+
+The frozen rule admitted a loader only if at least 30% of sampled ended intervals matched both
+endpoints within ±5 sessions. Only 1 of 247 (0.405%) did. Just 10 of 8,507 populated archive
+tickers ended more than 30 sessions before the 2017-11-10 archive boundary, while 8,025 end exactly
+on that boundary. The archive is a current-at-cutoff survivor snapshot, not a useful delisted-name
+backfill. It is also split/dividend-adjusted current-vintage data without an action ledger.
+
+**Outcome.** [`../frozen-archive-census-2026-10-02.md`](../frozen-archive-census-2026-10-02.md)
+records `skip`; the conditional interval-keyed loader did not activate, zero rows were loaded, and
+`frozen-archive.duckdb` was not created. The raw ZIP and full per-ticker census remain host-only.
+
+**Budget.** One logical commit under the repository's 1,500-insertion limit, confined to the three
+named `free_frozen_archive` files and P3 documentation.
+
 **Budget.** Up to 1,200 new code-and-test lines across P3's claimed `free_*` files, split into
 reviewable commits below the repository's 1,500-line limit. No dependency, service, timer,
 endpoint, operational migration, or tracked raw-data file is added.

@@ -1732,4 +1732,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server unchanged; tools +361, product +344, tests +244 lines; budget ok.
 - **Next:** the orchestrator reviews checkpoint minute-1 while the resumable capture runs.
 
+## 2026-10-02 — Reject the frozen Kaggle archive after census
+
+- **Why:** P3 Phase 0's orchestrator-directed frozen-archive census and conditional 30% ingest
+  gate.
+- **What:** retain the exact CC0 ZIP and full per-ticker census outside Git; add the offline
+  parser, deterministic Tiingo/Form 25 comparison, ticker-risk flags, split-basis checks, and
+  public census report. Coverage failed the gate, so no loader or database was created.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 --dist loadfile` passes at 100%;
+  whole-repository Ruff and the published metrics budget also pass.
+- **Metrics:** server unchanged; tools +49; product +554 lines; budget ok.
+- **Next:** nothing admitted; keep the archive out of research and continue existing P3 capture.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
