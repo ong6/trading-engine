@@ -67,9 +67,11 @@ import json
 import os
 import random
 import sys
+import threading
 import time
 import urllib.parse
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -98,6 +100,37 @@ HEADERS = {"User-Agent": UA, "accept": "application/json"}
 PER_NAME_SLEEP = 0.4     # matches engine/earnings.py — do not hammer a free endpoint
 RETRY_SLEEP = 3.0        # one short backoff, then the name is recorded as a gap
 HTTP_TIMEOUT = 20.0
+VERIFY_WORKERS = 4       # overlap network waits; one limiter still spaces every request
+
+
+class _GlobalRateLimiter:
+    """Reserve request starts at one process-wide minimum interval."""
+
+    def __init__(
+        self,
+        interval: float,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self.interval = max(0.0, interval)
+        self.clock = clock
+        self.sleep = sleep
+        self._lock = threading.Lock()
+        self._next_start = 0.0
+
+    def wait(self, deadline: float) -> bool:
+        """Wait for a request slot, or return false when it is past the budget."""
+        with self._lock:
+            now = self.clock()
+            slot = max(now, self._next_start)
+            if slot > deadline:
+                return False
+            self._next_start = slot + self.interval
+        delay = slot - now
+        if delay > 0:
+            self.sleep(delay)
+        return True
 
 # --------------------------------------------------------------------------- #
 # Pre-registered tolerance (decided BEFORE the first run, per house discipline)
@@ -477,7 +510,8 @@ def run(
     max_names = int(p.get("max_names", 250))
     max_secs = float(p.get("max_secs", 900))
     self_test_bp = float(p.get("self_test_bp", 0.0))
-    t0 = time.time()
+    t0 = time.monotonic()
+    deadline = t0 + max_secs
 
     as_of = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
     if as_of is None:
@@ -518,38 +552,49 @@ def run(
     if release_connection is not None:
         release_connection()
 
-    results: list[dict] = []
-    reasons: dict[str, int] = {}
-    parse_errors: list[str] = []
-    vol_diffs: list[tuple] = []
-    prov_diffs: list[tuple] = []
-    sess = requests.Session()
+    limiter = _GlobalRateLimiter(PER_NAME_SLEEP)
+    thread_state = threading.local()
+    http_sessions: list[requests.Session] = []
+    http_sessions_lock = threading.Lock()
 
-    def not_checked(ticker: str, why: str, reason: str, detail: str = "") -> None:
-        reasons[reason] = reasons.get(reason, 0) + 1
-        results.append({"ticker": ticker, "why": why, "status": "not_checked",
-                        "reason": reason, "detail": detail})
+    def worker_session() -> requests.Session:
+        sess = getattr(thread_state, "session", None)
+        if sess is None:
+            sess = requests.Session()
+            thread_state.session = sess
+            with http_sessions_lock:
+                http_sessions.append(sess)
+        return sess
 
-    for i, (ticker, why) in enumerate(names, 1):
-        if time.time() - t0 > max_secs:
-            not_checked(ticker, why, "time_budget", f"{max_secs:.0f}s budget spent")
-            continue
+    def not_checked(ticker: str, why: str, reason: str, detail: str = "") -> dict:
+        return {"ticker": ticker, "why": why, "status": "not_checked",
+                "reason": reason, "detail": detail}
+
+    def verify_one(item: tuple[int, tuple[str, str]]) -> tuple[int, dict, list[str], list[tuple], list[tuple]]:
+        i, (ticker, why) = item
+        if time.monotonic() > deadline:
+            return (i, not_checked(ticker, why, "time_budget",
+                                   f"{max_secs:.0f}s budget spent"), [], [], [])
         is_etf = etf_flag.get(ticker)
         if is_etf is None:
             # Not in the universe table -> asset class unknown. Never guess: a
             # guessed assetclass returns "Symbol not exists" and would look like
             # a source outage rather than our own gap.
-            not_checked(ticker, why, "unknown_assetclass", "no universe row")
-            continue
+            return (i, not_checked(ticker, why, "unknown_assetclass", "no universe row"),
+                    [], [], [])
         assetclass = "etf" if is_etf else "stocks"
 
         fetched = None
         last_err = ""
         gone = False
         for attempt in (1, 2):
+            if not limiter.wait(deadline):
+                return (i, not_checked(ticker, why, "time_budget",
+                                       f"{max_secs:.0f}s budget spent"), [], [], [])
             try:
                 fetched = fetch_nasdaq_history(
-                    ticker, assetclass=assetclass, start=start, end=as_of, session=sess)
+                    ticker, assetclass=assetclass, start=start, end=as_of,
+                    session=worker_session())
                 break
             except SymbolNotFound as exc:   # a settled fact, not a flaky call
                 last_err, gone = str(exc), True
@@ -558,29 +603,29 @@ def run(
                 last_err = str(exc)
                 if attempt == 1:
                     time.sleep(RETRY_SLEEP)
-        time.sleep(PER_NAME_SLEEP)
         if fetched is None:
-            not_checked(ticker, why,
-                        "symbol_not_found" if gone else "fetch_failed", last_err[:200])
-            continue
-        if fetched["parse_errors"]:
-            parse_errors.extend(fetched["parse_errors"][:5])
+            return (i, not_checked(ticker, why,
+                                   "symbol_not_found" if gone else "fetch_failed",
+                                   last_err[:200]), [], [], [])
+        item_parse_errors = fetched["parse_errors"][:5]
         # The API normalises class shares ('BRK.B' -> 'BRK/B'); anything else is
         # a symbol we did not ask for and must not be compared as if we had.
         got = str(fetched["symbol"]).replace("/", ".").replace("-", ".").upper()
         if got != ticker.replace("-", ".").upper():
-            not_checked(ticker, why, "symbol_mismatch", f"source returned {fetched['symbol']}")
-            continue
+            return (i, not_checked(ticker, why, "symbol_mismatch",
+                                   f"source returned {fetched['symbol']}"),
+                    item_parse_errors, [], [])
         if not fetched["bars"]:
-            not_checked(ticker, why, "no_source_rows",
-                        f"{fetched['rows']} rows, none parseable"
-                        if fetched["rows"] else "0 rows returned")
-            continue
+            return (i, not_checked(
+                ticker, why, "no_source_rows",
+                f"{fetched['rows']} rows, none parseable" if fetched["rows"]
+                else "0 rows returned"), item_parse_errors, [], [])
 
         store_bars = store.get(ticker) or {}
         if not store_bars:
-            not_checked(ticker, why, "no_store_rows", f"no stored bars since {start}")
-            continue
+            return (i, not_checked(ticker, why, "no_store_rows",
+                                   f"no stored bars since {start}"),
+                    item_parse_errors, [], [])
 
         # --- self-test only: corrupt ONE stored close so the detector has
         # something to find. Never runs in the nightly (--self-test refuses to
@@ -594,14 +639,47 @@ def run(
 
         verdict = compare_bars(ticker, store_bars, fetched["bars"], tol_bp, tol_abs, as_of)
         verdict["why"] = why
-        vol_diffs.extend(verdict.pop("volume_diffs_pct", []))
-        prov_diffs.extend(verdict.pop("prov", []))
+        item_vol_diffs = verdict.pop("volume_diffs_pct", [])
+        item_prov_diffs = verdict.pop("prov", [])
+        return i, verdict, item_parse_errors, item_vol_diffs, item_prov_diffs
+
+    completed: list[tuple[dict, list[str], list[tuple], list[tuple]] | None] = [
+        None for _ in names
+    ]
+    try:
+        with ThreadPoolExecutor(max_workers=VERIFY_WORKERS) as executor:
+            futures = {
+                executor.submit(verify_one, item): item[0]
+                for item in enumerate(names, 1)
+            }
+            for future in as_completed(futures):
+                i, verdict, item_errors, item_vol, item_prov = future.result()
+                completed[i - 1] = (verdict, item_errors, item_vol, item_prov)
+                ticker, why = names[i - 1]
+                log.info(
+                    f"[verify] {i}/{len(names)} {ticker:<6} {why:<7} {verdict['status']}"
+                    + (f"  worst {verdict['worst']['diff_bp']:.2f}bp"
+                       if verdict.get("worst") else "")
+                )
+    finally:
+        for sess in http_sessions:
+            sess.close()
+
+    results: list[dict] = []
+    reasons: dict[str, int] = {}
+    parse_errors: list[str] = []
+    vol_diffs: list[tuple] = []
+    prov_diffs: list[tuple] = []
+    for item in completed:
+        if item is None:  # pragma: no cover - executor only omits on an exception
+            continue
+        verdict, item_errors, item_vol, item_prov = item
+        results.append(verdict)
+        parse_errors.extend(item_errors)
+        vol_diffs.extend(item_vol)
+        prov_diffs.extend(item_prov)
         if verdict["status"] == "not_checked":
             reasons[verdict["reason"]] = reasons.get(verdict["reason"], 0) + 1
-        results.append(verdict)
-        log.info(f"[verify] {i}/{len(names)} {ticker:<6} {why:<7} {verdict['status']}"
-              + (f"  worst {verdict['worst']['diff_bp']:.2f}bp"
-                 if verdict.get("worst") else ""))
 
     agreeing = [r for r in results if r["status"] == "agrees"]
     disagreeing = [r for r in results if r["status"] == "disagrees"]
@@ -689,7 +767,7 @@ def run(
         "provisional_comparisons": len(prov_diffs),
         "store_missing_sessions": {k: v for k, v in list(store_missing.items())[:10]},
         "n_names_store_missing_sessions": len(store_missing),
-        "secs": round(time.time() - t0, 1),
+        "secs": round(time.monotonic() - t0, 1),
     }
     if self_test_bp:
         accounting["self_test_bp"] = self_test_bp

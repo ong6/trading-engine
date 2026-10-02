@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import fcntl
 import os
+import threading
+import time
 from datetime import date
+from itertools import pairwise
 
 from engine import verify_prices
 from engine.lib import db
@@ -102,3 +105,60 @@ def test_connection_narrowed_releases_reader_before_fetch(monkeypatch, tmp_path)
         assert check.execute("SELECT COUNT(*) FROM universe").fetchone() == (2,)
     finally:
         check.close()
+
+
+def test_workers_overlap_waits_but_share_one_request_rate(monkeypatch, tmp_path):
+    db_path = tmp_path / "market.duckdb"
+    con = db.connect(db_path)
+    db.init_schema(con)
+    tickers = [f"T{i}" for i in range(6)]
+    for ticker in tickers:
+        con.execute(
+            "INSERT INTO universe (ticker, yf_ticker, etf, active, liquid) "
+            "VALUES (?, ?, FALSE, TRUE, TRUE)",
+            [ticker, ticker],
+        )
+        con.execute(
+            "INSERT INTO prices "
+            "(ticker, date, open, high, low, close, volume, source, fetched_at) "
+            "VALUES (?, '2026-09-08', 10, 11, 9, 10.5, 1000, 'yfinance', now())",
+            [ticker],
+        )
+    con.close()
+
+    starts: list[float] = []
+    active = 0
+    max_active = 0
+    lock = threading.Lock()
+
+    def fetch(ticker, *, assetclass, start, end, session):
+        nonlocal active, max_active
+        with lock:
+            starts.append(time.monotonic())
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.05)
+        with lock:
+            active -= 1
+        return {
+            "symbol": ticker,
+            "bars": {date(2026, 9, 8): {
+                "open": 10.0, "high": 11.0, "low": 9.0,
+                "close": 10.5, "volume": 1000,
+            }},
+            "parse_errors": [],
+            "rows": 1,
+        }
+
+    monkeypatch.setattr(verify_prices, "fetch_nasdaq_history", fetch)
+    monkeypatch.setattr(verify_prices, "PER_NAME_SLEEP", 0.02)
+    result = verify_prices.run_connection_narrowed(
+        {"tickers": tickers, "sessions": 1},
+        db_path=db_path,
+        meta_path=tmp_path / "meta.json",
+    )
+
+    assert result["names_agreeing"] == len(tickers)
+    assert max_active > 1
+    ordered = sorted(starts)
+    assert all(later - earlier >= 0.015 for earlier, later in pairwise(ordered))
