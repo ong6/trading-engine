@@ -70,8 +70,6 @@ from engine.lib.settings import REPO_ROOT, STORE_DIR
 LOAD_5MIN_MAX = 28.0
 FREE_RAM_MIN_GB = 8.0       # refuse to start below this much free RAM
 ENGINE_RAM_BUDGET_MB = 48000  # one in-process job or combined parallel batch
-QUEUE_DUCKDB_THREADS = "16"
-QUEUE_DUCKDB_MEMORY_LIMIT = "24GB"
 STORE_SOFT_GB = 60.0        # soft cap -> warn in _meta.json
 STORE_HARD_GB = 80.0        # hard cap -> refuse archive jobs
 ROOT_FREE_MIN_GB = 10.0     # refuse archive jobs below this root free space
@@ -576,12 +574,9 @@ def _child_cmd(jid: int, db_path, meta_path) -> list[str]:
     return cmd
 
 
-def _child_env(kind: str) -> dict[str, str]:
-    """Keep a parallel worker inside its already-declared memory budget."""
-    environment = os.environ.copy()
-    memory_mb = int(JOB_TYPES[kind]["mem_mb"])
-    environment["TRADING_ENGINE_DUCKDB_MEMORY_LIMIT"] = f"{memory_mb}MB"
-    return environment
+def _child_env() -> dict[str, str]:
+    """Return an isolated child environment for per-run variables."""
+    return os.environ.copy()
 
 
 def _walkforward_open_paths(root: Path) -> set[Path]:
@@ -792,7 +787,7 @@ def _run_parallel_pool(pool, db_path, meta_path, con, *, width: int,
                     break
 
                 limit = int(timeout_s) if timeout_s else default_timeout_s(kind)
-                child_env = _child_env(kind)
+                child_env = _child_env()
                 if kind == "walkforward":
                     child_env[WF_SHARED_RUN_ENV] = wf_run_id
                 process = subprocess.Popen(
@@ -1160,10 +1155,6 @@ def _drain(con, meta_path: str | Path, *, db_path=None, jobs: int = 1,
 
 # --------------------------------------------------------------------------- #
 def main() -> int:
-    os.environ.setdefault("TRADING_ENGINE_DUCKDB_THREADS", QUEUE_DUCKDB_THREADS)
-    os.environ.setdefault(
-        "TRADING_ENGINE_DUCKDB_MEMORY_LIMIT", QUEUE_DUCKDB_MEMORY_LIMIT
-    )
     ap = argparse.ArgumentParser(description="§12.7 job-queue runner.")
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--enqueue", metavar="TYPE", help="enqueue a job of this type")

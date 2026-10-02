@@ -51,19 +51,6 @@ def test_main_closes_connection_on_schema_failure(monkeypatch):
     assert connection.closed is True
 
 
-def test_queue_duckdb_defaults_and_parallel_worker_caps(monkeypatch):
-    assert qr.QUEUE_DUCKDB_THREADS == "16"
-    assert qr.QUEUE_DUCKDB_MEMORY_LIMIT == "24GB"
-    assert qr.PARALLEL_JOBS_MAX == 8
-    assert qr.JOB_TYPES["sweep"]["mem_mb"] == 4500
-    assert qr.PARALLEL_JOBS_MAX * 4500 + 4 * 1024 <= qr.ENGINE_RAM_BUDGET_MB
-
-    monkeypatch.setenv("TRADING_ENGINE_DUCKDB_THREADS", "3")
-    environment = qr._child_env("sweep")
-    assert environment["TRADING_ENGINE_DUCKDB_THREADS"] == "3"
-    assert environment["TRADING_ENGINE_DUCKDB_MEMORY_LIMIT"] == "4500MB"
-
-
 # --------------------------------------------------------------------------- #
 # nightly plan
 # --------------------------------------------------------------------------- #

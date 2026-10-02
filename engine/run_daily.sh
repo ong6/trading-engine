@@ -14,9 +14,6 @@ DRIVER_LOG_APPEND=0   # the nightly log is truncated per day, not appended
 DRIVER_STAGE_FILE=logs/.last_stage
 source "$(dirname "${BASH_SOURCE[0]}")/lib/driver.sh"
 
-export TRADING_ENGINE_DUCKDB_THREADS="${TRADING_ENGINE_DUCKDB_THREADS:-16}"
-export TRADING_ENGINE_DUCKDB_MEMORY_LIMIT="${TRADING_ENGINE_DUCKDB_MEMORY_LIMIT:-24GB}"
-
 body() {
   # Pull only from a configured upstream whose local tracking ref resolves.
   # Pin the remote and branch explicitly so pull.rebase/pushRemote defaults
