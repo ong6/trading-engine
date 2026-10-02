@@ -83,6 +83,7 @@ def test_sec_ftd_parser_supports_archive_trailer_and_missing_price():
     assert rows[1]["symbol"] == "GONE"
     assert rows[1]["issuer_name"] == "Synthetic | Delisted"
     assert rows[1]["price"] is None
+    assert free_short_data.ftd_publication_date(date(2008, 4, 3)) == date(2008, 6, 30)
 
 
 @pytest.mark.parametrize(
@@ -91,7 +92,7 @@ def test_sec_ftd_parser_supports_archive_trailer_and_missing_price():
         ("Nasdaq", "Symbol|Security Name|Market Category|Reg SHO Threshold Flag|Rule 3210|Filler",
          "TEST|Synthetic Corporation|Q|Y|N|", date(2026, 10, 1)),
         ("NYSE", "Symbol|Security Name|Market Category|Reg SHO Threshold Flag|Filler|Filler",
-         "TEST|Synthetic Corporation|NYSE|Y||", date(2026, 10, 1)),
+         "TEST|Synthetic Corporation|NYSE|Y||||", date(2026, 10, 1)),
         ("Cboe", "Symbol|CompanyName", "TEST|Synthetic Corporation", date(2026, 10, 2)),
     ],
 )
