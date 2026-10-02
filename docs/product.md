@@ -62,7 +62,9 @@ does not provide pre-2024-10 bars or mutate operational prices.
 
 P3's free SEC phase now also admits the nightly Companyfacts and Submissions bulk archives for
 point-in-time core fundamentals and acceptance-timestamped item 2.02 earnings events. Its offline
-fixture checkpoint is complete; the live archives remain pending the registered network window.
+fixture checkpoint and live URL checks are complete. The Submissions archive and all referenced
+older pages are cached and loaded; Companyfacts stopped at the quiet-window boundary with a
+verified resumable partial and awaits the next registered window.
 
 [The challenger lab, text edge, and evaluation science plan
 (P16)](plans/p16-challenger-lab-and-text-edge.md) has built its evaluation through broker-paper

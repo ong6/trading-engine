@@ -94,8 +94,12 @@ load Submissions and every referenced page before Companyfacts so accession matc
 clock. Resume at later windows when necessary. Audit against read-only inputs, run the required
 repository gates once, publish metrics and BUILDLOG, and push the lane branch.
 
-**Checkpoint.** Offline implementation and its five fixture tests are complete. Live URL checks,
-downloads, counts, audit and final repository gates wait for the first permitted window.
+**Checkpoint.** Offline implementation and its five fixture tests are complete. Both live HEAD
+checks passed. The 1.57 GB Submissions ZIP, all 987,283 members, and all 5,387 referenced older
+pages are cached and loaded; the isolated index holds 18,788,867 accessions and 421,723 exact item
+2.02 events. The 1.41 GB Companyfacts ZIP reached 1,379,926,016 bytes before the 21:45 UTC boundary
+and will resume from that exact byte in the next permitted window. Facts, audit and final gates
+remain pending.
 
 ## Phase 0 part 3: Massive grouped daily capture — active 2026-10-02
 

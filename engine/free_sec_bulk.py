@@ -11,6 +11,7 @@ from datetime import date, datetime
 from pathlib import Path, PurePosixPath
 
 import duckdb
+import pandas as pd
 
 from engine.free_sources import FreeSourceError
 from engine.lib import db
@@ -273,7 +274,10 @@ def _parallel_rows(payload: dict) -> list[dict]:
             items = ()
         elif isinstance(items_raw, str):
             items = tuple(part.strip() for part in items_raw.split(",") if part.strip())
-            if any(re.fullmatch(r"[0-9]{1,2}\.[0-9]{2}", item) is None for item in items):
+            # Historical SEC rows include coarse sections (``5,7``) and a small
+            # number of malformed legacy strings. Keep the source text, but only
+            # an exact ``2.02`` token can qualify as an earnings event.
+            if len(items_raw) > 4096 or not items_raw.isprintable():
                 raise FreeSourceError("Submissions items are invalid")
         else:
             raise FreeSourceError("Submissions items are invalid")
@@ -367,26 +371,49 @@ def _insert_submission_rows(
     *, source_sha256: str, source_file: str,
 ) -> tuple[int, int, int]:
     rows = list(rows)
-    before_index = con.execute("SELECT COUNT(*) FROM sec_submission_index").fetchone()[0]
-    before_events = con.execute("SELECT COUNT(*) FROM sec_earnings_events").fetchone()[0]
-    con.executemany(
-        "INSERT OR IGNORE INTO sec_submission_index VALUES (?,?,?,?,?,?,?,?)",
-        [[row["accession"], cik, row["filed"], row["accepted_at"], row["form"],
-          ",".join(row["items"]), source_sha256, source_file] for row in rows],
-    )
     events = [row for row in rows if row["form"] in {"8-K", "8-K/A"}
               and "2.02" in row["items"] and row["filed"] >= date(2004, 1, 1)]
     complete = [row for row in events if row["accepted_at"] is not None]
-    con.executemany(
-        "INSERT OR IGNORE INTO sec_earnings_events VALUES (?,?,?,?,?,?,?,?)",
-        [[row["accession"], cik, row["accepted_at"], row["filed"], row["form"],
-          ",".join(row["items"]), source_sha256, source_file] for row in complete],
-    )
-    return (
-        con.execute("SELECT COUNT(*) FROM sec_submission_index").fetchone()[0] - before_index,
-        con.execute("SELECT COUNT(*) FROM sec_earnings_events").fetchone()[0] - before_events,
-        len(events) - len(complete),
-    )
+    submissions = [[row["accession"], cik, row["filed"], row["accepted_at"], row["form"],
+                    ",".join(row["items"]), source_sha256, source_file] for row in rows]
+    event_values = [[row["accession"], cik, row["accepted_at"], row["filed"], row["form"],
+                     ",".join(row["items"]), source_sha256, source_file] for row in complete]
+    _flush_submissions(con, submissions, event_values)
+    return len(rows), len(complete), len(events) - len(complete)
+
+
+def _flush_submissions(
+    con: duckdb.DuckDBPyConnection, submissions: list[list], events: list[list],
+) -> None:
+    if submissions:
+        frame = pd.DataFrame(submissions, columns=(
+            "accession", "cik", "filed", "accepted_at", "form", "items",
+            "source_sha256", "source_file",
+        ))
+        with db.registered_frame(con, "_sec_submission_batch", frame):
+            con.execute("INSERT OR IGNORE INTO sec_submission_index SELECT * FROM _sec_submission_batch")
+        submissions.clear()
+    if events:
+        frame = pd.DataFrame(events, columns=(
+            "accession", "cik", "acceptance_datetime", "filed", "form", "items",
+            "source_sha256", "source_file",
+        ))
+        with db.registered_frame(con, "_sec_event_batch", frame):
+            con.execute("INSERT OR IGNORE INTO sec_earnings_events SELECT * FROM _sec_event_batch")
+        events.clear()
+
+
+def _flush_facts(con: duckdb.DuckDBPyConnection, facts: list[list]) -> None:
+    if not facts:
+        return
+    frame = pd.DataFrame(facts, columns=(
+        "fact_key", "cik", "concept", "tag_priority", "taxonomy", "tag", "unit", "value",
+        "period_start", "period_end", "fy", "fp", "form", "filed", "accn", "frame",
+        "source_sha256", "source_file",
+    ))
+    with db.registered_frame(con, "_sec_fact_batch", frame):
+        con.execute("INSERT OR IGNORE INTO sec_facts SELECT * FROM _sec_fact_batch")
+    facts.clear()
 
 
 def load_submissions_zip(
@@ -399,7 +426,11 @@ def load_submissions_zip(
     ).fetchone()
     if loaded:
         return {"members": loaded[0], "filings": loaded[1], "inserted": 0, "resumed": True}
-    filings = inserted = events = missing_acceptance = page_count = 0
+    before_index = con.execute("SELECT COUNT(*) FROM sec_submission_index").fetchone()[0]
+    before_events = con.execute("SELECT COUNT(*) FROM sec_earnings_events").fetchone()[0]
+    filings = missing_acceptance = page_count = 0
+    submission_batch: list[list] = []
+    event_batch: list[list] = []
     try:
         with zipfile.ZipFile(path) as archive:
             members = _members(archive, CIK_FILE)
@@ -408,14 +439,23 @@ def load_submissions_zip(
                 cik, rows, pages = parse_submissions_document(
                     archive.read(member), expected_cik=int(match.group("cik"))
                 )
-                additions = _insert_submission_rows(
-                    con, cik, rows, source_sha256=source_sha256,
-                    source_file=PurePosixPath(member.filename).name,
-                )
+                source_file = PurePosixPath(member.filename).name
+                submission_batch.extend([
+                    row["accession"], cik, row["filed"], row["accepted_at"], row["form"],
+                    ",".join(row["items"]), source_sha256, source_file,
+                ] for row in rows)
+                qualifying = [
+                    row for row in rows if row["form"] in {"8-K", "8-K/A"}
+                    and "2.02" in row["items"] and row["filed"] >= date(2004, 1, 1)
+                ]
+                event_batch.extend([
+                    row["accession"], cik, row["accepted_at"], row["filed"], row["form"],
+                    ",".join(row["items"]), source_sha256, source_file,
+                ] for row in qualifying if row["accepted_at"] is not None)
                 filings += len(rows)
-                inserted += additions[0]
-                events += additions[1]
-                missing_acceptance += additions[2]
+                missing_acceptance += sum(row["accepted_at"] is None for row in qualifying)
+                if len(submission_batch) >= 50_000:
+                    _flush_submissions(con, submission_batch, event_batch)
                 if pages:
                     con.executemany(
                         "INSERT OR IGNORE INTO sec_submission_pages VALUES (?,?,?,?,NULL,NULL)",
@@ -423,12 +463,15 @@ def load_submissions_zip(
                          for page in pages],
                     )
                     page_count += len(pages)
+            _flush_submissions(con, submission_batch, event_batch)
     except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
         raise FreeSourceError("Submissions ZIP is unreadable") from exc
     con.execute(
         "INSERT INTO sec_archive_loads VALUES (?, 'submissions', ?, now(), ?, ?)",
         [source_sha256, path.name, len(members), filings],
     )
+    inserted = con.execute("SELECT COUNT(*) FROM sec_submission_index").fetchone()[0] - before_index
+    events = con.execute("SELECT COUNT(*) FROM sec_earnings_events").fetchone()[0] - before_events
     return {"members": len(members), "filings": filings, "inserted": inserted,
             "events_inserted": events, "events_missing_acceptance": missing_acceptance,
             "page_references": page_count, "resumed": False}
@@ -484,6 +527,7 @@ def load_companyfacts_zip(
         return {"members": loaded[0], "facts": loaded[1], "inserted": 0, "resumed": True}
     before = con.execute("SELECT COUNT(*) FROM sec_facts").fetchone()[0]
     facts = 0
+    fact_batch: list[list] = []
     try:
         with zipfile.ZipFile(path) as archive:
             members = _members(archive, CIK_FILE)
@@ -494,14 +538,16 @@ def load_companyfacts_zip(
                     archive.read(member), expected_cik=int(match.group("cik"))
                 )
                 facts += len(rows)
-                con.executemany(
-                    "INSERT OR IGNORE INTO sec_facts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    [[_fact_key(row), row["cik"], row["concept"], row["tag_priority"],
-                      row["taxonomy"], row["tag"], row["unit"], row["value"],
-                      row["period_start"], row["period_end"], row["fy"], row["fp"],
-                      row["form"], row["filed"], row["accn"], row["frame"],
-                      source_sha256, name] for row in rows],
-                )
+                fact_batch.extend([
+                    _fact_key(row), row["cik"], row["concept"], row["tag_priority"],
+                    row["taxonomy"], row["tag"], row["unit"], row["value"],
+                    row["period_start"], row["period_end"], row["fy"], row["fp"],
+                    row["form"], row["filed"], row["accn"], row["frame"],
+                    source_sha256, name,
+                ] for row in rows)
+                if len(fact_batch) >= 50_000:
+                    _flush_facts(con, fact_batch)
+            _flush_facts(con, fact_batch)
     except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
         raise FreeSourceError("Companyfacts ZIP is unreadable") from exc
     inserted = con.execute("SELECT COUNT(*) FROM sec_facts").fetchone()[0] - before

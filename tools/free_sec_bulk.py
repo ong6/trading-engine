@@ -119,7 +119,9 @@ class BulkClient:
     def _headers(self) -> dict[str, str]:
         return {
             "User-Agent": self.contact,
-            "Accept-Encoding": "gzip, deflate",
+            # Byte ranges and Content-Length must describe the cached bytes, not
+            # an automatically decoded transfer representation.
+            "Accept-Encoding": "identity",
             "Connection": "keep-alive",
         }
 
@@ -207,6 +209,9 @@ class BulkClient:
         if status not in ({206} if offset else {200}):
             response.close()
             raise free_sources.FreeSourceError(f"SEC bulk download returned HTTP {status}")
+        if response.headers.get("Content-Encoding", "identity").lower() not in {"", "identity"}:
+            response.close()
+            raise free_sources.FreeSourceError("SEC bulk server ignored identity transfer encoding")
         content_range = response.headers.get("Content-Range")
         total = None
         if offset:
