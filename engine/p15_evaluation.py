@@ -307,8 +307,8 @@ def _mature(con, market_date: date, horizon: int, generated_at: datetime) -> boo
         return False
     return con.execute(
         f"SELECT COUNT(DISTINCT date)>=? FROM prices WHERE ticker='SPY' AND date>? "
-        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL}",
-        [horizon, market_date, generated_at.replace(tzinfo=None)],
+        f"AND date<=? AND {REAL_BAR_SQL}",
+        [horizon, market_date, generated_at.date()],
     ).fetchone()[0]
 
 
@@ -1153,8 +1153,8 @@ def events(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> dict:
                 ).date()
                 mature = bool(con.execute(
                     f"SELECT COUNT(DISTINCT date)>=5 FROM prices WHERE ticker='SPY' "
-                    f"AND date>=? AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL}",
-                    [day, cutoff],
+                    f"AND date>=? AND date<=? AND {REAL_BAR_SQL}",
+                    [day, generated_at.astimezone(p15_event_sources.ET).date()],
                 ).fetchone()[0]) if table_exists(con, "prices") else False
             else:
                 mature = _mature(con, decision_at.date(), 5, generated_at)

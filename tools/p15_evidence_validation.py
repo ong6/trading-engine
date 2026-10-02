@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 import duckdb
 
@@ -12,6 +12,51 @@ from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
 
 MAX_AUDIT_ROWS = 100_000
+
+
+def validation_sessions(
+    con: duckdb.DuckDBPyConnection, *, source_market_date: date,
+    entry_date: date, exit_date: date, horizon_sessions: int,
+    include_source_date: bool = False, missing_bar_status: str = "complete",
+) -> list[date]:
+    """Return a stored label's current date-only SPY session calendar."""
+    comparison = ">=" if include_source_date else ">"
+    if missing_bar_status == "complete":
+        rows = con.execute(
+            f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' "
+            f"AND date{comparison}? AND date>=? AND date<=? AND {REAL_BAR_SQL} "
+            "ORDER BY date",
+            [source_market_date, entry_date, exit_date],
+        ).fetchall()
+    else:
+        rows = con.execute(
+            f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' "
+            f"AND date{comparison}? AND {REAL_BAR_SQL} ORDER BY date LIMIT ?",
+            [source_market_date, horizon_sessions],
+        ).fetchall()
+    return [row[0] for row in rows]
+
+
+def daily_label_source_revised(
+    con: duckdb.DuckDBPyConnection, *, ticker: str, source_market_date: date,
+    entry_date: date, exit_date: date, horizon_sessions: int,
+    price_prefix_sha256: str, generated_at: datetime, label_outcome,
+    error_type, error_message: str, include_source_date: bool = False,
+    missing_bar_status: str = "complete",
+) -> bool:
+    """Validate immutable dates and compare a label prefix with current bar values."""
+    sessions = validation_sessions(
+        con, source_market_date=source_market_date, entry_date=entry_date,
+        exit_date=exit_date, horizon_sessions=horizon_sessions,
+        include_source_date=include_source_date, missing_bar_status=missing_bar_status,
+    )
+    if (len(sessions) != horizon_sessions
+            or (missing_bar_status == "complete" and (
+                sessions[0] != entry_date or sessions[-1] != exit_date
+            ))):
+        raise error_type(error_message)
+    current = label_outcome(con, ticker, sessions, generated_at)
+    return current is None or current["price_prefix_sha256"] != price_prefix_sha256
 
 
 def enforce_bounds(con: duckdb.DuckDBPyConnection, error_type) -> None:
@@ -105,17 +150,17 @@ def validate_common_labels(
                 or row["labeled_at"] < close):
             raise error_type("common-entry label evidence differs")
         if row["schema_version"] >= 2:
-            sessions = [item[0] for item in con.execute(
-                f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>=? "
-                f"AND {REAL_BAR_SQL} ORDER BY date LIMIT ?",
-                [row["entry_date"], row["horizon_sessions"]],
-            ).fetchall()]
-            if (len(sessions) != row["horizon_sessions"]
-                    or sessions[-1] != row["exit_date"]):
-                raise error_type("common-entry label evidence differs")
-            current = label_outcome(con, row["ticker"], sessions, generated_at)
-            if (current is None
-                    or current["price_prefix_sha256"] != row["price_prefix_sha256"]):
+            if daily_label_source_revised(
+                con, ticker=row["ticker"],
+                source_market_date=row["entry_date"],
+                entry_date=row["entry_date"], exit_date=row["exit_date"],
+                horizon_sessions=row["horizon_sessions"],
+                price_prefix_sha256=row["price_prefix_sha256"],
+                generated_at=generated_at, label_outcome=label_outcome,
+                error_type=error_type, error_message="common-entry label evidence differs",
+                include_source_date=True,
+                missing_bar_status=row["missing_bar_status"],
+            ):
                 source_revised_ids.append(int(row["id"]))
     return {
         "labels_source_revised": len(source_revised_ids),
@@ -243,13 +288,12 @@ def _event_label_body(row: dict) -> dict:
 def _next_bar_expected(
     con, row: dict, ticker: str, decision_at, label_outcome, generated_at: datetime,
 ):
-    cutoff = generated_at.astimezone(timezone.utc).replace(tzinfo=None)
-    sessions = [item[0] for item in con.execute(
-        f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>=? "
-        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
-        "ORDER BY date LIMIT ?",
-        [decision_at.date(), cutoff, row["horizon_sessions"]],
-    ).fetchall()]
+    sessions = validation_sessions(
+        con, source_market_date=decision_at.date(),
+        entry_date=row["entry_at"].date(), exit_date=row["exit_date"],
+        horizon_sessions=row["horizon_sessions"], include_source_date=True,
+        missing_bar_status=row["missing_bar_status"],
+    )
     outcome = label_outcome(con, ticker, sessions, generated_at) \
         if len(sessions) == row["horizon_sessions"] else None
     if outcome is None:
@@ -273,8 +317,7 @@ def _next_bar_expected(
     )
     spy_exit = con.execute(
         f"SELECT close FROM prices WHERE ticker='SPY' AND date=? "
-        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL}",
-        [outcome["exit_date"], cutoff],
+        f"AND {REAL_BAR_SQL}", [outcome["exit_date"]],
     ).fetchone()
     if spy_exit is None:
         return None, matches
@@ -331,23 +374,22 @@ def _validate_next_bar_label(
                 or first_used["available_at"] > row["labeled_at"]
                 or first_used["ingested_at"] > row["labeled_at"]):
             raise error_type("P15 event label evidence differs")
-    if canonical_sha256(expected) != row["label_sha256"]:
-        raise error_type("P15 event label evidence differs")
-    return False
+    return canonical_sha256(expected) != row["label_sha256"]
 
 
-def _event_label_expected(con, row: dict, label_outcome, event_runner):
+def _event_label_expected(con, row: dict, label_outcome, event_runner, generated_at):
     ticker, decision_at = con.execute(
         "SELECT ticker,decision_at FROM p15_event_decisions WHERE id=?", [row["decision_id"]]
     ).fetchone()
     labeled_at = row["labeled_at"].replace(tzinfo=timezone.utc)
     if row["label_basis"] == "next_session_open":
-        sessions = [item[0] for item in con.execute(
-            f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>? "
-            f"AND fetched_at<=? AND {REAL_BAR_SQL} ORDER BY date LIMIT ?",
-            [decision_at.date(), row["labeled_at"], row["horizon_sessions"]],
-        ).fetchall()]
-        outcome = label_outcome(con, ticker, sessions, labeled_at) \
+        sessions = validation_sessions(
+            con, source_market_date=decision_at.date(),
+            entry_date=row["entry_at"].date(), exit_date=row["exit_date"],
+            horizon_sessions=row["horizon_sessions"],
+            missing_bar_status=row["missing_bar_status"],
+        )
+        outcome = label_outcome(con, ticker, sessions, generated_at) \
             if len(sessions) == row["horizon_sessions"] else None
         entry_at = None if outcome is None else datetime.combine(
             outcome["entry_date"], time(9, 30), p15_event_sources.ET
@@ -355,13 +397,34 @@ def _event_label_expected(con, row: dict, label_outcome, event_runner):
         entry_px = None if outcome is None else float(outcome["entry_open"])
         spy_return = None if outcome is None else float(outcome["spy_return"])
     elif row["missing_bar_status"] == "missing_next_bar_last_available_close":
-        ready = event_runner._missing_next_bar_ready(
-            con, ticker, decision_at, labeled_at,
-        )
-        missing = (
-            event_runner._missing_next_bar(con, ticker, decision_at, labeled_at)
-            if ready else None
-        )
+        decision_day = decision_at.replace(tzinfo=timezone.utc).astimezone(
+            p15_event_sources.ET
+        ).date()
+        labeled_day = labeled_at.astimezone(p15_event_sources.ET).date()
+        later_sessions = int(con.execute(
+            f"SELECT COUNT(DISTINCT date) FROM prices WHERE ticker='SPY' "
+            f"AND date>? AND date<=? AND {REAL_BAR_SQL}",
+            [decision_day, labeled_day],
+        ).fetchone()[0])
+        last = con.execute(
+            f"SELECT date,close FROM prices WHERE ticker=? AND date<? AND {REAL_BAR_SQL} "
+            "ORDER BY date DESC LIMIT 1", [ticker, decision_at.date()],
+        ).fetchone()
+        missing = None
+        if (later_sessions >= event_runner.agent_evaluation.MISSING_BAR_GRACE_SESSIONS
+                and last is not None and last[1] not in (None, 0)):
+            entry_at = datetime.combine(
+                last[0], p15_event_sources.session_close(last[0]), p15_event_sources.ET,
+            ).astimezone(timezone.utc).replace(tzinfo=None)
+            price = float(last[1])
+            missing = (entry_at, price, {
+                "exit_date": last[0], "exit_close": price, "spy_return": 0.0,
+                "missing_bar_status": "missing_next_bar_last_available_close",
+                "price_prefix_sha256": canonical_sha256({
+                    "requested_basis": "next_bar", "decision_at": decision_at.isoformat(),
+                    "asset_rows": [(last[0].isoformat(), price)],
+                }),
+            })
         entry_at, entry_px, outcome = (None, None, None) if missing is None else missing
         spy_return = 0.0
     else:
@@ -381,21 +444,20 @@ def _event_label_expected(con, row: dict, label_outcome, event_runner):
             "WHERE a.security_id=? ORDER BY a.event_at LIMIT 1",
             [decision_at, end, row["labeled_at"], row["labeled_at"], ticker],
         ).fetchone()
-        day = decision_at.date()
-        sessions = [item[0] for item in con.execute(
-            f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>=? "
-            f"AND fetched_at<=? AND {REAL_BAR_SQL} ORDER BY date LIMIT ?",
-            [day, row["labeled_at"], row["horizon_sessions"]],
-        ).fetchall()]
-        outcome = label_outcome(con, ticker, sessions, labeled_at) \
+        sessions = validation_sessions(
+            con, source_market_date=decision_at.date(),
+            entry_date=row["entry_at"].date(), exit_date=row["exit_date"],
+            horizon_sessions=row["horizon_sessions"], include_source_date=True,
+            missing_bar_status=row["missing_bar_status"],
+        )
+        outcome = label_outcome(con, ticker, sessions, generated_at) \
             if intraday is not None and len(sessions) == row["horizon_sessions"] else None
         if outcome is not None:
             entry_at, asset_raw, asset_sha, spy_raw, spy_sha = intraday
             asset, spy = json.loads(asset_raw), json.loads(spy_raw)
             spy_exit = con.execute(
-                f"SELECT close FROM prices WHERE ticker='SPY' AND date=? "
-                f"AND fetched_at<=? AND {REAL_BAR_SQL}",
-                [outcome["exit_date"], row["labeled_at"]],
+                f"SELECT close FROM prices WHERE ticker='SPY' AND date=? AND {REAL_BAR_SQL}",
+                [outcome["exit_date"]],
             ).fetchone()
             if spy_exit is None:
                 outcome = None
@@ -502,7 +564,7 @@ def validate_event_labels(
 ) -> dict:
     from farm import p15_event_runner
 
-    unverifiable_ids = []
+    revised_ids, unverifiable_ids = [], []
     labels = con.execute("SELECT * FROM p15_event_labels ORDER BY id")
     columns = [item[0] for item in labels.description]
     for values in labels.fetchall():
@@ -519,10 +581,16 @@ def validate_event_labels(
             ):
                 unverifiable_ids.append(int(row["id"]))
             continue
-        expected = _event_label_expected(con, row, label_outcome, p15_event_runner)
+        expected = _event_label_expected(
+            con, row, label_outcome, p15_event_runner, generated_at,
+        )
         if expected is None or canonical_sha256(expected) != row["label_sha256"]:
-            raise error_type("P15 event label evidence differs")
+            target = revised_ids if row["label_basis"] == "next_session_open" \
+                else unverifiable_ids
+            target.append(int(row["id"]))
     return {
+        "labels_source_revised": len(revised_ids),
+        "labels_source_revised_ids": revised_ids,
         "labels_source_unverifiable": len(unverifiable_ids),
         "labels_source_unverifiable_ids": unverifiable_ids,
     }

@@ -427,33 +427,37 @@ def replay_artifact_trace(artifact: dict, *, source_identifier: str) -> dict:
     )
 
 
-def _label_outcome(
+def _label_outcome_from_prices(
     con: duckdb.DuckDBPyConnection,
     ticker: str,
     sessions: list[date],
-    labeled_at: datetime,
+    known_at: datetime | None,
 ) -> dict | None:
     entry_date, exit_date = sessions[0], sessions[-1]
+    availability_sql = (
+        "AND fetched_at IS NOT NULL AND fetched_at<=? " if known_at is not None else ""
+    )
+    availability_args = [] if known_at is None else [_timestamp(known_at)]
     asset = con.execute(
         f"SELECT date,open,high,low,close FROM prices WHERE ticker=? "
-        f"AND date>=? AND date<=? AND fetched_at IS NOT NULL AND fetched_at<=? "
+        f"AND date>=? AND date<=? {availability_sql}"
         f"AND {REAL_BAR_SQL} ORDER BY date",
-        [ticker, entry_date, exit_date, labeled_at],
+        [ticker, entry_date, exit_date, *availability_args],
     ).fetchall()
     spy = con.execute(
         f"SELECT date,open,high,low,close FROM prices WHERE ticker='SPY' "
-        f"AND date>=? AND date<=? AND fetched_at IS NOT NULL AND fetched_at<=? "
+        f"AND date>=? AND date<=? {availability_sql}"
         f"AND {REAL_BAR_SQL} ORDER BY date",
-        [entry_date, exit_date, labeled_at],
+        [entry_date, exit_date, *availability_args],
     ).fetchall()
     if len(spy) != len(sessions):
         return None
     if not asset or asset[0][0] != entry_date or asset[0][1] in (None, 0):
         last = con.execute(
             f"SELECT date,close FROM prices WHERE ticker=? AND date<? "
-            f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
+            f"{availability_sql}AND {REAL_BAR_SQL} "
             "ORDER BY date DESC LIMIT 1",
-            [ticker, entry_date, labeled_at],
+            [ticker, entry_date, *availability_args],
         ).fetchone()
         if last is None or last[1] in (None, 0):
             return None
@@ -513,6 +517,26 @@ def _label_outcome(
         "spy_net_return": spy_net,
         "net_excess_return": net_return - spy_net,
     }
+
+
+def _label_outcome(
+    con: duckdb.DuckDBPyConnection,
+    ticker: str,
+    sessions: list[date],
+    labeled_at: datetime,
+) -> dict | None:
+    """Build a label from only prices known when the label is written."""
+    return _label_outcome_from_prices(con, ticker, sessions, labeled_at)
+
+
+def _current_label_outcome(
+    con: duckdb.DuckDBPyConnection,
+    ticker: str,
+    sessions: list[date],
+    _generated_at: datetime,
+) -> dict | None:
+    """Rebuild a stored label from current values without mutable fetch timestamps."""
+    return _label_outcome_from_prices(con, ticker, sessions, None)
 
 
 def _label_outcome_when_ready(
@@ -885,7 +909,7 @@ def validate_p15_evidence(
     p15_price_fetch_attempts.validate(con, EvaluationError)
     p15_evidence_validation.validate_links(con, EvaluationError)
     label_source_status = p15_evidence_validation.validate_common_labels(
-        con, generated_at, EvaluationError, _label_outcome,
+        con, generated_at, EvaluationError, _current_label_outcome,
     )
     cursor = con.execute(
         "SELECT * FROM agent_evaluation_traces WHERE policy_id='p15-scoring-v1' ORDER BY id"
@@ -1079,35 +1103,17 @@ def validate_p15_evidence(
                     exit_date=row["exit_date"].isoformat())
         if canonical_sha256(body) != row["label_sha256"]:
             raise EvaluationError("P15 label evidence differs")
-        sessions = [item[0] for item in con.execute(
-            f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>? "
-            f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
-            "ORDER BY date LIMIT ?", [row["source_market_date"], row["labeled_at"],
-                                      row["horizon_sessions"]]
-        ).fetchall()]
-        if len(sessions) != row["horizon_sessions"]:
-            raise EvaluationError("P15 label maturity evidence differs")
-        outcome_fn = (
-            _label_outcome_when_ready if row["schema_version"] >= 2 else _label_outcome
+        source_revised = p15_evidence_validation.daily_label_source_revised(
+            con, ticker=row["source_ticker"], source_market_date=row["source_market_date"],
+            entry_date=row["entry_date"], exit_date=row["exit_date"],
+            horizon_sessions=row["horizon_sessions"],
+            price_prefix_sha256=row["price_prefix_sha256"],
+            generated_at=generated_at, label_outcome=_current_label_outcome,
+            error_type=EvaluationError, error_message="P15 label maturity evidence differs",
+            missing_bar_status=row["missing_bar_status"],
         )
-        outcome = outcome_fn(
-            con, row["source_ticker"], sessions,
-            row["labeled_at"].replace(tzinfo=timezone.utc),
-        )
-        expected_basis = None if outcome is None else outcome.get(
-            "label_basis_override", "next_session_open"
-        )
-        expected_body = None if outcome is None else {
-            "schema_version": row["schema_version"], "decision_id": row["decision_id"],
-            "horizon_sessions": row["horizon_sessions"], "label_basis": expected_basis,
-            **{key: value.isoformat() if isinstance(value, date) else value
-               for key, value in outcome.items() if key != "label_basis_override"},
-            "missing_bar_status": outcome["missing_bar_status"],
-        }
-        if expected_body is not None and row["schema_version"] < 2:
-            expected_body.pop("spy_net_return", None)
-        if expected_body is None or canonical_sha256(expected_body) != row["label_sha256"]:
-            raise EvaluationError("P15 label source evidence differs")
+        if source_revised:
+            label_source_status["labels_source_revised_ids"].append(int(row["id"]))
     if preopen_schema:
         p15_evidence_validation.validate_preopen(con, generated_at, EvaluationError)
     if book_schema:
@@ -1150,7 +1156,7 @@ def validate_p15_evidence(
         for values in con.execute(
             "SELECT l.intent_id,l.attempt_date,l.horizon_sessions,l.entry_px,l.exit_date,"
             "l.exit_close,l.net_return,l.spy_net_return,l.net_excess_return,"
-            "l.price_prefix_sha256,l.labeled_at,l.label_sha256,i.ticker "
+            "l.price_prefix_sha256,l.labeled_at,l.label_sha256,i.ticker,i.signal_date "
             "FROM p15_limit_labels l JOIN p15_order_intents i ON i.id=l.intent_id ORDER BY l.intent_id"
         ).fetchall():
             identity = {"intent_id": int(values[0]), "attempt_date": values[1].isoformat(),
@@ -1158,37 +1164,40 @@ def validate_p15_evidence(
                         "exit_date": values[4].isoformat(), "exit_close": values[5],
                         "net_return": values[6], "spy_net_return": values[7],
                         "net_excess_return": values[8], "price_prefix_sha256": values[9]}
-            sessions = [row[0] for row in con.execute(
-                f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>=? "
-                f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
-                "ORDER BY date LIMIT 5", [values[1], values[10]]
-            ).fetchall()]
-            outcome = _label_outcome(
-                con, values[12], sessions, values[10].replace(tzinfo=timezone.utc)
-            ) if len(sessions) == 5 else None
-            expected = None if outcome is None else {
-                "intent_id": int(values[0]), "attempt_date": values[1].isoformat(),
-                "horizon_sessions": 5, "entry_px": values[3],
-                "exit_date": outcome["exit_date"].isoformat(),
-                "exit_close": outcome["exit_close"],
-                "net_return": float(outcome["exit_close"]) * 0.999 / values[3] - 1,
-                "spy_net_return": outcome["net_return"] - outcome["net_excess_return"],
-                "net_excess_return": (float(outcome["exit_close"]) * 0.999 / values[3] - 1)
-                - (outcome["net_return"] - outcome["net_excess_return"]),
-                "price_prefix_sha256": outcome["price_prefix_sha256"],
-            }
-            if (canonical_sha256(identity) != values[11] or expected is None
-                    or canonical_sha256(expected) != values[11]):
+            if canonical_sha256(identity) != values[11]:
                 raise EvaluationError("P15 limit label evidence differs")
+            source_revised = p15_evidence_validation.daily_label_source_revised(
+                con, ticker=values[12], source_market_date=values[13],
+                entry_date=values[1], exit_date=values[4], horizon_sessions=values[2],
+                price_prefix_sha256=values[9], generated_at=generated_at,
+                label_outcome=_current_label_outcome, error_type=EvaluationError,
+                error_message="P15 limit label evidence differs",
+            )
+            if source_revised:
+                label_source_status["labels_source_revised_ids"].append(int(values[0]))
     if event_schema:
-        label_source_status.update(p15_evidence_validation.validate_events(
-            con, EvaluationError, _label_outcome_when_ready, generated_at,
-        ))
+        event_source_status = p15_evidence_validation.validate_events(
+            con, EvaluationError, _current_label_outcome, generated_at,
+        )
+        label_source_status["labels_source_revised_ids"].extend(
+            event_source_status["labels_source_revised_ids"]
+        )
+        label_source_status.update(
+            labels_source_unverifiable=event_source_status[
+                "labels_source_unverifiable"
+            ],
+            labels_source_unverifiable_ids=event_source_status[
+                "labels_source_unverifiable_ids"
+            ],
+        )
     else:
         label_source_status.update(
             labels_source_unverifiable=0,
             labels_source_unverifiable_ids=[],
         )
+    label_source_status["labels_source_revised"] = len(
+        label_source_status["labels_source_revised_ids"]
+    )
     return label_source_status
 
 
@@ -1205,7 +1214,7 @@ def status(con: duckdb.DuckDBPyConnection) -> dict:
                 "performance_claim": "none", "labels_source_revised": 0,
                 "labels_source_revised_ids": []}
     label_source_status = p15_evidence_validation.validate_common_labels(
-        con, datetime.now(timezone.utc), EvaluationError, _label_outcome,
+        con, datetime.now(timezone.utc), EvaluationError, _current_label_outcome,
     )
     policies = []
     for policy_id, cadence, traces, decisions, labels in con.execute(

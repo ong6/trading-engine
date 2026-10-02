@@ -124,6 +124,12 @@ def test_incremental_records_append_only_price_fetch_attempts(monkeypatch, tmp_p
     assert _read(db_path, "SELECT COUNT(*) FROM prices WHERE ticker='BBB'") == [(0,)]
     con = db.connect(db_path)
     p15_price_fetch_attempts.validate(con, ValueError)
+    insert_bars(con, "BBB", [market_date], open_=100, close=101, high=102, low=99)
+    con.execute(
+        "UPDATE prices SET fetched_at=? WHERE ticker='BBB' AND date=?",
+        [(first_attempt + timedelta(hours=1)).replace(tzinfo=None), market_date],
+    )
+    p15_price_fetch_attempts.validate(con, ValueError)
     con.execute(
         "INSERT INTO price_fetch_attempts VALUES "
         "(99,'BBB',?,?, 'yfinance','missing',?,?)",
@@ -247,6 +253,12 @@ def test_demoted_p15_ticker_keeps_exact_date_fetch_obligations_until_labeled(con
             grace_through=SESSIONS[23],
         )
         assert outcome["missing_bar_status"] == "last_available_close"
+    insert_bars(con, "AAA", [horizon_sessions[4]], open_=100, close=101, high=102, low=99)
+    con.execute(
+        "UPDATE prices SET fetched_at=? WHERE ticker='AAA' AND date=?",
+        [(labeled_at + timedelta(hours=1)).replace(tzinfo=None), horizon_sessions[4]],
+    )
+    p15_price_fetch_attempts.validate(con, ValueError)
     con.execute(
         "UPDATE p15_open_label_fetch_receipts SET request_sha256=? WHERE id=1",
         ["0" * 64],

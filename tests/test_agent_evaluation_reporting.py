@@ -23,6 +23,10 @@ from server import (
 )
 from sim import p15_books
 from tests.conftest import insert_bars
+from tests.test_p15_books import _activate
+from tests.test_p15_event_runner import (
+    _next_bar_label_for_validation as _event_label_for_validation,
+)
 from tools import p15_evidence_validation
 
 NOW = datetime(2026, 9, 30, 12, tzinfo=timezone.utc)
@@ -290,6 +294,99 @@ def _p15_trace_with_label(con):
         con, decision_id, 5, outcome, NOW, label_basis="next_session_open"
     )
     return result["trace_id"], decision_id
+
+
+@pytest.fixture
+def refetched_p15_evidence(tmp_path):
+    database = tmp_path / "market.duckdb"
+    con = db.connect(database)
+    _event_label_for_validation(con)
+    _trace_id, decision_id = _p15_trace_with_label(con)
+    _schema2_common_label(con)
+    _activate(con, date(2026, 9, 1))
+    for book_id in p15_books.BOOK_IDS:
+        p15_books._mark_exact(con, book_id, date(2026, 9, 2), NOW)
+    con.execute(
+        "INSERT INTO p15_order_intents "
+        "(id,decision_id,portfolio_id,ticker,side,qty,signal_date,order_role,priority,"
+        "signal_close,entry_atr,limit_px,status,reason,sim_order_id,created_at) VALUES "
+        "(1,?,?, 'AAA','buy',1,DATE '2026-09-01','entry',1,100,2,101.5,"
+        "'rejected','limit_not_reached',NULL,?)",
+        [decision_id, p15_books.BOOK_IDS[0], NOW.replace(tzinfo=None)],
+    )
+    con.execute(
+        "INSERT INTO p15_limit_attempts VALUES "
+        "(1,DATE '2026-09-02',101.5,102,102.1,'limit_not_reached',"
+        "'limit_not_reached')"
+    )
+    assert p15_books.label_limit_counterfactuals(con, labeled_at=NOW) == 1
+    counts = {
+        table: int(con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+        for table in (
+            "agent_evaluation_labels_v2", "p15_limit_labels",
+            "p15_book_windows", "p15_event_labels",
+        )
+    }
+    assert all(counts.values())
+    refetched_at = NOW + timedelta(days=1)
+    con.execute("UPDATE prices SET fetched_at=?", [refetched_at.replace(tzinfo=None)])
+    con.close()
+    return database, refetched_at
+
+
+def test_all_p15_label_validation_survives_unchanged_nightly_refetch(
+    refetched_p15_evidence, tmp_path,
+):
+    database, refetched_at = refetched_p15_evidence
+    generated_at = refetched_at + timedelta(minutes=1)
+    with db.connect(database, read_only=True, wait_s=0) as con:
+        assert agent_evaluation.validate_p15_evidence(con, generated_at) == {
+            "labels_source_revised": 0, "labels_source_revised_ids": [],
+            "labels_source_unverifiable": 0, "labels_source_unverifiable_ids": [],
+        }
+    output, p15_output = tmp_path / "report.json", tmp_path / "p15.md"
+    assert agent_evaluation_reporting.main([
+        "--database", str(database), "--output", str(output),
+        "--p15-output", str(p15_output),
+        "--contamination", str(tmp_path / "absent.json"),
+    ]) == 0
+    report = json.loads(output.read_text())
+    assert report["labels_source_revised"] == 0
+    assert report["labels_source_unverifiable"] == 0
+
+
+def test_p15_label_validation_reports_source_revision_after_refetch(
+    refetched_p15_evidence,
+):
+    database, refetched_at = refetched_p15_evidence
+    with db.connect(database) as con:
+        con.execute(
+            "UPDATE prices SET close=close+1 WHERE ticker='AAA' AND date=DATE '2026-09-08'"
+        )
+    with db.connect(database, read_only=True, wait_s=0) as con:
+        result = agent_evaluation.validate_p15_evidence(
+            con, refetched_at + timedelta(minutes=1),
+        )
+    assert result["labels_source_revised"] == 2
+    assert result["labels_source_unverifiable"] == 0
+
+
+def test_p15_label_validation_still_rejects_stored_body_tamper(
+    refetched_p15_evidence,
+):
+    database, refetched_at = refetched_p15_evidence
+    with db.connect(database) as con:
+        con.execute(
+            "UPDATE agent_evaluation_labels_v2 SET net_return=-9 "
+            "WHERE decision_id=(SELECT d.id FROM agent_evaluation_decisions d "
+            "JOIN agent_evaluation_traces t ON t.id=d.trace_id "
+            "WHERE t.policy_id='p15-scoring-v1')"
+        )
+    with db.connect(database, read_only=True, wait_s=0) as con:
+        with pytest.raises(agent_evaluation.EvaluationError, match="P15 label evidence differs"):
+            agent_evaluation.validate_p15_evidence(
+                con, refetched_at + timedelta(minutes=1),
+            )
 
 
 def test_p16_input_adapter_accepts_canonical_validated_p15_origin(con):
