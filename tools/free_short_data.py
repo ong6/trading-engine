@@ -230,7 +230,11 @@ def capture_finra_short_interest(client: CachedClient, max_files: int | None = N
     targets: dict[date, str] = {}
     for item in static:
         measured = datetime.strptime(item["date"], "%m/%d/%Y").date()
-        targets[measured] = urljoin("https://otce.finra.org/otce/", item["path"].removeprefix("./"))
+        # The official manifest transposes January 15, 2019; filenames otherwise use YYYYDDMM.
+        filename = f"shrt{measured.strftime('%Y%d%m')}.txt"
+        targets[measured] = urljoin(
+            "https://otce.finra.org/otce/", f"assets/archives/equityShortInterest/{filename}"
+        )
     for item in partitions.get("availablePartitions", []):
         measured = date.fromisoformat(item["partitions"][0])
         if measured not in targets:
@@ -311,39 +315,59 @@ def capture_regsho(
         dates = [value for value in dates if value >= start]
     if end:
         dates = [value for value in dates if value <= end]
+    if venue == "finra_otc":
+        if not dates:
+            return {"files": 0, "rows": 0, "inserted": 0, "resumed": 0}
+        return _capture_finra_otc_pages(client, dates[0], dates[-1], max_files)
     totals = {"files": 0, "rows": 0, "inserted": 0, "resumed": 0}
     for measured in _bounded(dates, max_files):
         stamp = measured.strftime("%Y%m%d")
-        if venue == "finra_otc":
-            url, method = FINRA_OTC_DATA, "POST"
-            payload = {"limit": 5000, "offset": 0, "compareFilters": [{
-                "fieldName": "tradeDate", "fieldValue": measured.isoformat(),
-                "compareType": "EQUAL",
-            }]}
-            key = f"POST:{url}:{measured.isoformat()}"
-        else:
-            template = {"nasdaq": NASDAQ_URL, "nyse": NYSE_URL, "cboe": CBOE_URL}[venue]
-            url, method, payload = template.format(stamp=stamp, date=measured.isoformat()), "GET", None
-            key = f"GET:{url}:null"
-        response = client.get(venue, url, method=method, payload=payload,
-                              suffix=".json" if payload else ".txt", request_key=key)
-        rows = (free_short_data.parse_finra_otc_threshold(response.body, trade_date=measured)
-                if venue == "finra_otc" else
-                free_short_data.parse_regsho_text(
-                    response.body, venue={"nasdaq": "Nasdaq", "nyse": "NYSE", "cboe": "Cboe"}[venue],
-                    trade_date=measured,
-                ))
+        template = {"nasdaq": NASDAQ_URL, "nyse": NYSE_URL, "cboe": CBOE_URL}[venue]
+        url = template.format(stamp=stamp, date=measured.isoformat())
+        key = f"GET:{url}:null"
+        response = client.get(venue, url, suffix=".txt", request_key=key)
+        rows = free_short_data.parse_regsho_text(
+            response.body, venue={"nasdaq": "Nasdaq", "nyse": "NYSE", "cboe": "Cboe"}[venue],
+            trade_date=measured,
+        )
         result = free_short_data.load_rows(
             client.con, "regsho_threshold", response.body, rows,
             ingested_at=response.fetched_at,
         )
         _receipt(client.con, response, venue, request_key=key, rows=rows,
-                 publication_date=measured if venue == "finra_otc" else None,
                  measurement_date=measured)
         totals["files"] += 1
         totals["rows"] += result["rows"]
         totals["inserted"] += result["inserted"]
         totals["resumed"] += int(response.resumed)
+    return totals
+
+
+def _capture_finra_otc_pages(
+    client: CachedClient, start: date, end: date, max_pages: int | None,
+) -> dict:
+    totals = {"files": 0, "rows": 0, "inserted": 0, "resumed": 0}
+    offset, limit = 0, 5000
+    while max_pages is None or totals["files"] < max_pages:
+        payload = {"limit": limit, "offset": offset, "dateRangeFilters": [{
+            "fieldName": "tradeDate", "startDate": start.isoformat(), "endDate": end.isoformat(),
+        }]}
+        key = f"POST:{FINRA_OTC_DATA}:{start}:{end}:{offset}"
+        response = client.get("finra_otc", FINRA_OTC_DATA, method="POST", payload=payload,
+                              suffix=".json", request_key=key)
+        rows = free_short_data.parse_finra_otc_threshold(response.body)
+        result = free_short_data.load_rows(
+            client.con, "regsho_threshold", response.body, rows,
+            ingested_at=response.fetched_at,
+        )
+        _receipt(client.con, response, "finra_otc", request_key=key, rows=rows)
+        totals["files"] += 1
+        totals["rows"] += result["rows"]
+        totals["inserted"] += result["inserted"]
+        totals["resumed"] += int(response.resumed)
+        if len(rows) < limit:
+            break
+        offset += limit
     return totals
 
 

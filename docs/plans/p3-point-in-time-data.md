@@ -3,7 +3,7 @@ plan: P3 # Point-in-time data
 title: Survivorship-free point-in-time data
 status: approved
 opened: 2026-09-18
-owner_decision: paid-vendor spend remains deferred; free grouped-daily capture is active
+owner_decision: paid-vendor spend remains deferred; free captures are active
 ---
 
 # Survivorship-free point-in-time data (P3)
@@ -109,6 +109,38 @@ started with `KillMode=process` and its private log under `~/.local/state/`.
 **Budget.** Up to 1,200 code-and-test lines in `engine/free_massive_minute.py`,
 `tools/free_massive_minute.py`, `tests/test_free_massive_minute.py`, and the shared limiter
 integration. Each logical commit remains below 1,500 inserted non-data lines.
+
+## Phase 0 part 5: shorting-stress data — active 2026-10-02
+
+Capture FINRA twice-monthly consolidated short interest, SEC fails-to-deliver files, and the
+Nasdaq, NYSE, Cboe, and FINRA OTC Reg SHO threshold lists into an isolated host-only database.
+Each observation records its measurement or settlement date, official publication date, and
+ingestion time. A parameterized `short_data_asof(as_of)` table macro exposes only published rows.
+Exact symbols are resolved on observation date against the read-only Tiingo listing intervals and
+`free_cik_ticker_history`; ambiguous overlaps are retained and flagged instead of guessed.
+
+Raw responses are private, content-addressed by SHA-256, and resumable. The collector makes one
+request at a time, waits at least one second between requests, uses the private SEC contact only at
+runtime, and stops at the registered UTC and New York network windows. Raw CUSIPs stay outside Git.
+The existing FINRA daily short-sale-volume implementation is not modified and remains a distinct
+measure.
+
+**Scope.** Add only `engine/free_short_data.py`, `tools/free_short_data.py`,
+`tests/test_free_short_data.py`, the dated coverage audit, and these P3 documentation entries. The
+default raw directory is `~/trading-engine/store/pit/short-data/`; the isolated database is
+`~/trading-engine/store/pit/short-data.duckdb`. No registered or XS-contract file changes.
+
+**Done when.** Source fixtures prove every parser, publication gating, SHA-verified resume, and
+pacing; the live capture reaches each source's free boundary; the audit reports annual coverage,
+ticker match rate and collisions, and publication-lag distributions; the full suite and
+whole-repository Ruff pass; and `p3/short-stack` is pushed.
+
+**Known source boundary.** FINRA archive files start in November 2014. Before June 2021 they cover
+OTC securities only; exchange-listed consolidated short interest begins in June 2021. SEC FTD
+starts in February 2004. Threshold-list boundaries are measured independently per venue.
+
+**Budget.** Up to 1,500 code-and-test lines in the three claimed files, plus the audit and P3
+documentation entries, in reviewable commits below the repository-wide insertion cap.
 
 ## Phase 0 part 2: free SEC history — complete 2026-10-01
 

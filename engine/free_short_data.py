@@ -166,8 +166,9 @@ def parse_finra_short_interest(body: bytes, *, settlement_date: date | None = No
     reader = csv.DictReader(io.StringIO(text), delimiter="|")
     fields = set(reader.fieldnames or ())
     current = {"symbolCode", "issueName", "currentShortPositionQuantity", "settlementDate"}
+    standardized = {"issueSymbolIdentifier", "issueName", "currentShortShareNumber"}
     legacy = {"Security Symbol", "Security Name", "Current Shares Short"}
-    if not (current <= fields or legacy <= fields):
+    if not (current <= fields or standardized <= fields or legacy <= fields):
         raise FreeSourceError("FINRA short-interest columns are invalid")
     rows = []
     for source_row, raw in enumerate(reader, 2):
@@ -177,8 +178,10 @@ def parse_finra_short_interest(body: bytes, *, settlement_date: date | None = No
                     else settlement_date)
         if row_date is None:
             raise FreeSourceError("legacy FINRA short interest needs a settlement date")
-        symbol_key = "symbolCode" if current <= fields else "Security Symbol"
-        name_key = "issueName" if current <= fields else "Security Name"
+        modern = current <= fields or standardized <= fields
+        symbol_key = ("symbolCode" if current <= fields else "issueSymbolIdentifier"
+                      if standardized <= fields else "Security Symbol")
+        name_key = "issueName" if modern else "Security Name"
         rows.append({
             "source_row": source_row, "settlement_date": row_date,
             "publication_date": finra_publication_date(row_date),
@@ -186,17 +189,22 @@ def parse_finra_short_interest(body: bytes, *, settlement_date: date | None = No
             "issue_name": _text(raw[name_key], "FINRA issue name"),
             "exchange": _text(raw.get("issuerServicesGroupExchangeCode"), "FINRA exchange",
                               optional=True),
-            "market_class": _text(raw.get("marketClassCode") or raw.get("OTC Market"),
+            "market_class": _text(raw.get("marketClassCode") or raw.get("marketCategoryCode")
+                                  or raw.get("OTC Market"),
                                   "FINRA market class", optional=True),
             "current_short": _integer(raw.get("currentShortPositionQuantity")
+                                      or raw.get("currentShortShareNumber")
                                       or raw.get("Current Shares Short"), "current short"),
             "previous_short": _integer(raw.get("previousShortPositionQuantity")
+                                       or raw.get("previousShortShareNumber")
                                        or raw.get("Previous Report Shares Short"),
                                        "previous short", optional=True),
             "average_daily_volume": _integer(raw.get("averageDailyVolumeQuantity")
+                                             or raw.get("averageShortShareNumber")
                                              or raw.get("Average Daily Share Volume"),
                                              "average daily volume", optional=True),
             "days_to_cover": _decimal(raw.get("daysToCoverQuantity")
+                                      or raw.get("daysToCoverNumber")
                                       or raw.get("Days to Cover"), "days to cover", optional=True),
             "revision_flag": _text(raw.get("revisionFlag"), "revision flag", optional=True),
         })
@@ -293,7 +301,7 @@ def parse_regsho_text(body: bytes, *, venue: str, trade_date: date) -> list[dict
     return rows
 
 
-def parse_finra_otc_threshold(body: bytes, *, trade_date: date) -> list[dict]:
+def parse_finra_otc_threshold(body: bytes, *, trade_date: date | None = None) -> list[dict]:
     try:
         payload = json.loads(body)
     except (UnicodeDecodeError, ValueError) as exc:
@@ -302,11 +310,14 @@ def parse_finra_otc_threshold(body: bytes, *, trade_date: date) -> list[dict]:
         raise FreeSourceError("FINRA OTC threshold response is not a list")
     rows = []
     for source_row, raw in enumerate(payload, 1):
-        if not isinstance(raw, dict) or raw.get("tradeDate") != trade_date.isoformat():
+        if not isinstance(raw, dict):
+            raise FreeSourceError("FINRA OTC threshold row is invalid")
+        measured = _date(raw.get("tradeDate"), "FINRA OTC trade date")
+        if trade_date is not None and measured != trade_date:
             raise FreeSourceError("FINRA OTC threshold row has the wrong trade date")
         rows.append({
-            "source_row": source_row, "trade_date": trade_date,
-            "publication_date": trade_date, "venue": "FINRA OTC",
+            "source_row": source_row, "trade_date": measured,
+            "publication_date": measured, "venue": "FINRA OTC",
             "symbol": _text(raw.get("issueSymbolIdentifier"), "FINRA OTC symbol").upper(),
             "security_name": _text(raw.get("issueName"), "FINRA OTC issue name"),
             "market_category": _text(raw.get("marketCategoryDescription"), "market category",
