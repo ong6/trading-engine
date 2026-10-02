@@ -137,7 +137,10 @@ def build_market(
 
 
 def _condition(view, position) -> bool:
-    close = view.value(position.ticker, "close")
+    try:
+        close = view.value(position.ticker, "close")
+    except KeyError:
+        return False
     return bool(close is not None and close >= position.entry_price * 1.002)
 
 
