@@ -1755,4 +1755,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +6, tools +17, product unchanged; budget ok.
 - **Next:** resume P16 W9b.
 
+## 2026-10-03 — Restore the CI security-lint gate
+
+- **Why:** public Actions run 37091722960 reproduced an S101 failure at
+  `farm/study/data.py:300` after the revision 10 push.
+- **What:** replace the optimization-sensitive panel-presence assertion with the same explicit
+  `KeyError` used by the view's missing-coordinate contract.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 --dist loadfile` passes at 100%.
+- **Metrics:** server and tools unchanged; product +1; budget ok.
+- **Next:** resume P16 W9b.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

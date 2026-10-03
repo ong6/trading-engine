@@ -297,7 +297,8 @@ class PointInTimeView:
             value = self.source.value(ticker, target, field)
         elif field == "funding":
             bar = self.source.get(ticker, target)
-            assert bar is not None
+            if bar is None:
+                raise KeyError((ticker, target))
             available = bar.funding_at or (
                 _local_moment(target, declaration.session_close, declaration)
                 + declaration.daily_bar_lag)
