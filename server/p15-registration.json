@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "registration_id": "p15-profitability-evidence-loop-v1",
-  "registered_at": "2026-10-02T08:48:49Z",
+  "registered_at": "2026-10-03T02:52:40Z",
   "activated_at": "2026-09-29T00:00:00-04:00",
   "activation_session": "2026-09-29",
   "status": "registered_inactive",
@@ -188,7 +188,7 @@
     "price_fetch_availability": "after_collection_completion"
   },
   "code_identity": {
-    "source_commit": "b8de0cbbb20b07618a2021c42f20a715c22cf0d6",
+    "source_commit": "ddd17b8829fd4bdea480bf3c83795dbb83a181da",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/actions.py": "a6c2ec46d198df2318498ec7d55e1b7cfeca4c8afaccd8a5c208618e4ea8b850",
@@ -246,7 +246,7 @@
       "farm/walkforward/runner.py": "e36a5b40c3c6283e7e506ed8ba1fcc7a580f341d6ba5a963c984113cfd12c644",
       "server/__init__.py": "c462735edca08a01b1bda392e672430ed441aca796251c6adcaf6b5e648ea4b5",
       "server/agent-cadence-registration.json": "cf66040d889662f7ad740f79ce83e2c87528853bafe4f31a0634c7195b5c4b59",
-      "server/agent_evaluation.py": "6a1e8d4c107842c77d771445f6c836a812e8e295e7055397e592b013cf85a202",
+      "server/agent_evaluation.py": "fd09058505f1eb039e30595ca6d00b66fb4bc92fa0416074f66d34692a987f8c",
       "server/agent_evaluation_reporting.py": "4116ca8251bd47d3e589340ebe6bf1a737dae20082120725f4acff0cb4668a7f",
       "server/agent_model_client.py": "3c4fbdfd48aa6e1c32a8fbe7fba18f8c7470aef01a684f7ab2d9d8cadf1394f8",
       "server/daily_opportunity_execution.py": "8f599df3f6ba71770d72ce23010f43d6d40695092de0e30e4a9986987dcc7798",
@@ -321,13 +321,13 @@
       "tools/__init__.py": "1f23b3f78a32b5567d64752ddc564b1182bdfe50616b87bca6a3a603b597d927",
       "tools/agent_trial_register.py": "08cb4553ef83b49297f0222e063bf1da506e2b6e8d185f5a430739dc659125f6",
       "tools/backup_database.py": "813d0317faad00365ad9227e1b47827065eed9fcbefe17a364c0995f24b2bbfe",
-      "tools/p15_evidence_validation.py": "dda47574f198b0ef5e53109dcea26a1ed6409cba650ae01bf95791bf63ade305",
+      "tools/p15_evidence_validation.py": "fe8c1bd3c6f319cdf144755437350559bacd0c1d5ea02a29dcda64645f879b2e",
       "tools/publish_snapshot.py": "23c1057ee3524f1a26c54ab814c68cdff127f7b0702fd3f2142ee370091533b5",
       "tools/release_manifest.py": "90b52c70a99d5ccab09d0efd6b453f6ac814243decee68071c7f658b4d96e217",
       "tools/sec_edgar_capture.py": "b6f46658930844cf4deed830e8e3a9412e9a19232663aced8a01472c42f0024f"
     }
   },
-  "registration_revision": 9,
-  "revision_reason": "infrastructure only: per-stage timing; nightly sync autostash and single rebase retry; read-only snapshots with throttled publication and lock-only API fallback; fail-soft evidence reporting after league rendering; cached evaluation and readiness projections; single-connection observers; concurrent verify/farm; intraday unchanged-payload dedupe with batch writes; rolling queue pool and walk-forward scratch hygiene; paced parallel price verification, bounded nightly earnings and multi-session TradingView requests. No scoring, book, gate, label or written-row semantics change.",
-  "registration_sha256": "5840c3c6070d0266e82d8d23912da684bf71d44718559e16ea474bfe0695a9bc"
+  "registration_revision": 10,
+  "revision_reason": "book-link validation treats the latest nightly-marked equity before its P15 book window as pending, not orphan; no scoring, book, gate, label, schedule or written-row change",
+  "registration_sha256": "edcb346130f233a7fdd48994b1459b669fc639612eeb8ea48f46001864b20693"
 }

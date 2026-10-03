@@ -446,7 +446,7 @@ only** (owner, 2026-09-25). Every other AGENTS.md rule still applies.
 | W5 Event triggers | done | 2026-09-26 |
 | W6 Gates and reporting | done | 2026-09-26 |
 | W7 Cleanup and docs | done | 2026-09-26 |
-| W8 Activation | active; revision 9 is issued for timing, sync recovery, snapshots/API fallback, fail-soft reporting, cached projections, single-connection observers, concurrent verify/farm, deduped batch fact writes, rolling queue/scratch hygiene, and bounded parallel collection; scoring, books, gates, labels, registered values, and written rows are unchanged | 2026-10-02 |
+| W8 Activation | active; registration revision 10 treats the latest nightly-marked equity before its P15 book window as pending rather than orphan; scoring, books, gates, labels, schedules, registered values, and written rows are unchanged | 2026-10-03 |
 
 ## Risks
 

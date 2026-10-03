@@ -526,6 +526,8 @@ def test_agent_evaluation_status_delegates_and_closes_connection(monkeypatch):
     validation = {
         "labels_source_unverifiable": 1,
         "labels_source_unverifiable_ids": [7],
+        "book_windows_pending": 1,
+        "book_windows_pending_dates": ["2026-10-02"],
     }
     extra = {"p15": {"status": "collecting"}, "p8_evaluation": {}, "p16": {},
              "trial_count_register": {}}

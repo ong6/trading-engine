@@ -1720,6 +1720,50 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server and tools unchanged; product +542 lines; P18 is 3,438/3,600 farm lines.
 - **Next:** nothing admitted.
 
+## 2026-10-02 — Start the free Massive small-stock minute archive
+
+- **Why:** P3 Phase 0 part 4, directed by the owner and technically specified by the orchestrator.
+- **What:** freeze a 3,302-ticker universe from the completed grouped-daily MDV60 history; add
+  paginated minute parsing, NYSE session tags, content-addressed resume, isolated storage, and a
+  window-aware background runner. Make grouped-daily and minute requests share one process-safe
+  13-second key limiter, with fixture coverage for the existing daily job.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 --dist loadfile` passes at 100%;
+  whole-repository Ruff and the published metrics budget also pass.
+- **Metrics:** server unchanged; tools +361, product +344, tests +244 lines; budget ok.
+- **Next:** the orchestrator reviews checkpoint minute-1 while the resumable capture runs.
+
+## 2026-10-02 — Reject the frozen Kaggle archive after census
+
+- **Why:** P3 Phase 0's orchestrator-directed frozen-archive census and conditional 30% ingest
+  gate.
+- **What:** retain the exact CC0 ZIP and full per-ticker census outside Git; add the offline
+  parser, deterministic Tiingo/Form 25 comparison, ticker-risk flags, split-basis checks, and
+  public census report. Coverage failed the gate, so no loader or database was created.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 --dist loadfile` passes at 100%;
+  whole-repository Ruff and the published metrics budget also pass.
+- **Metrics:** server unchanged; tools +49; product +554 lines; budget ok.
+- **Next:** nothing admitted; keep the archive out of research and continue existing P3 capture.
+
+## 2026-10-03 — Issue P15 registration revision 10
+
+- **Why:** the orchestrator-directed revision 10; the pre-fix reproduction rejected the latest
+  2026-10-02 nightly book-equity row as `P15 book evidence has orphan rows`.
+- **What:** treat exactly one latest equity date after each book's processed window as pending;
+  keep older gaps and multiple pending dates fatal. Surface the pending count and dates in the
+  report and status API, rebind the registered closure, and update the P15/P16 progress rows.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 --dist loadfile` passes at 100%.
+- **Metrics:** server +6, tools +17, product unchanged; budget ok.
+- **Next:** resume P16 W9b.
+
+## 2026-10-03 — Restore the CI security-lint gate
+
+- **Why:** public Actions run 37091722960 reproduced an S101 failure at
+  `farm/study/data.py:300` after the revision 10 push.
+- **What:** replace the optimization-sensitive panel-presence assertion with the same explicit
+  `KeyError` used by the view's missing-coordinate contract.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 --dist loadfile` passes at 100%.
+- **Metrics:** server and tools unchanged; product +1; budget ok.
+- **Next:** resume P16 W9b.
 ## 2026-10-02 — Build the offline SEC bulk checkpoint
 
 - **Why:** P3 Phase 0 part 4 admits the owner's requested free SEC nightly bulk fundamentals and

@@ -902,6 +902,7 @@ def validate_p15_evidence(
         return {
             "labels_source_revised": 0, "labels_source_revised_ids": [],
             "labels_source_unverifiable": 0, "labels_source_unverifiable_ids": [],
+            "book_windows_pending": 0, "book_windows_pending_dates": [],
         }
     if preopen_schema and not book_schema:
         raise EvaluationError("P15 pre-open book schema is missing")
@@ -1152,7 +1153,7 @@ def validate_p15_evidence(
         ).fetchone()[0]
         if mismatch:
             raise EvaluationError("P15 book runtime evidence differs")
-        p15_evidence_validation.validate_book_links(con, EvaluationError)
+        book_window_status = p15_evidence_validation.validate_book_links(con, EvaluationError)
         for values in con.execute(
             "SELECT l.intent_id,l.attempt_date,l.horizon_sessions,l.entry_px,l.exit_date,"
             "l.exit_close,l.net_return,l.spy_net_return,l.net_excess_return,"
@@ -1198,7 +1199,12 @@ def validate_p15_evidence(
     label_source_status["labels_source_revised"] = len(
         label_source_status["labels_source_revised_ids"]
     )
-    return label_source_status
+    return {
+        **label_source_status,
+        **(book_window_status if book_schema else {
+            "book_windows_pending": 0, "book_windows_pending_dates": [],
+        }),
+    }
 
 
 def status(con: duckdb.DuckDBPyConnection) -> dict:

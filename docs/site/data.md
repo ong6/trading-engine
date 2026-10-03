@@ -24,6 +24,7 @@ could the system know it?” as separate questions.
 | A local RSS/news scraper | Public headline titles collected throughout the day | Read as an owner-controlled file; each accepted line becomes a timestamped fact |
 | Tiingo’s public ticker archive | Historical listing intervals for US stocks | Loaded into an isolated free-source store, never into operational prices |
 | Massive grouped daily data | Free grouped daily bars for all US securities returned on each historical date | Isolated rolling two-year capture and the complete-coverage source for small names within that window; never an operational fill price |
+| Massive minute aggregates | Free extended-hours minute bars for a frozen small-stock tier plus three market benchmarks | Isolated, resumable research history with one key-wide limiter; never an operational fill price |
 
 Raw market data and source transcripts are not shipped in this public repository. A new user
 regenerates local data from admitted sources.
@@ -67,6 +68,19 @@ stored as a floating-point value because fractional-share volume exists, and val
 preferred-share and warrant suffixes are accepted. The source response remains the audit record for
 both admitted and rejected rows.
 
+## Free small-stock minute history
+
+The minute lane freezes its universe from the completed grouped-daily archive: three market
+benchmarks plus every exact USD Stock ticker that entered the USD 1--5M MDV60 tier. It records
+04:00--20:00 New York aggregates in bounded 50-session chunks and labels each bar as pre-market,
+regular, or post-market using the exchange calendar, including holidays and early closes. A
+content-addressed per-chunk cache makes pagination and restarts repeatable.
+
+All Massive processes share one owner-only lock and timestamp, with at least 13 seconds between
+calls. The minute runner also stops in the registered UTC and New York no-call windows and resumes
+after the boundary. Its database and manifest are local research inputs only; they do not rewrite
+daily prices or grant execution authority.
+
 ## What the engine knows it does not know
 
 The primary historical price universe is survivor-biased. It begins from names available to the
@@ -101,4 +115,4 @@ Those boundaries make the evidence slower to accumulate, but they also make the 
 to trust. A strategy that works only after current membership, revised text, or a later bar leaks
 backward has not worked at all.
 
-<!-- sources: BUILDLOG.md, docs/plans/p3-point-in-time-data.md, engine/collect.py, engine/bitemporal_facts.py, engine/free_sources.py, engine/free_sec.py, engine/p15_event_sources.py, server/intraday_source.py, server/official_quote_source.py, server/tradingview_source.py, tests/test_free_sources.py, tools/free_sources.py, tools/free_sec.py -->
+<!-- sources: BUILDLOG.md, docs/plans/p3-point-in-time-data.md, engine/collect.py, engine/bitemporal_facts.py, engine/free_sources.py, engine/free_massive_minute.py, engine/free_sec.py, engine/p15_event_sources.py, server/intraday_source.py, server/official_quote_source.py, server/tradingview_source.py, tests/test_free_sources.py, tools/free_sources.py, tools/free_massive_minute.py, tools/free_sec.py -->
