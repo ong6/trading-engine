@@ -110,7 +110,7 @@ started with `KillMode=process` and its private log under `~/.local/state/`.
 `tools/free_massive_minute.py`, `tests/test_free_massive_minute.py`, and the shared limiter
 integration. Each logical commit remains below 1,500 inserted non-data lines.
 
-## Phase 0 part 5: shorting-stress data — active 2026-10-02
+## Phase 0 part 5: shorting-stress data — complete 2026-10-03
 
 Capture FINRA twice-monthly consolidated short interest, SEC fails-to-deliver files, and the
 Nasdaq, NYSE, Cboe, and FINRA OTC Reg SHO threshold lists into an isolated host-only database.
@@ -139,8 +139,17 @@ whole-repository Ruff pass; and `p3/short-stack` is pushed.
 OTC securities only; exchange-listed consolidated short interest begins in June 2021. SEC FTD
 starts in February 2004. Threshold-list boundaries are measured independently per venue.
 
-**Budget.** Up to 1,500 code-and-test lines in the three claimed files, plus the audit and P3
+**Budget.** Up to 1,700 code-and-test lines in the three claimed files, including the
+orchestrator-requested segmented mapping diagnosis, plus the audit and P3
 documentation entries, in reviewable commits below the repository-wide insertion cap.
+
+**Outcome.** The isolated database holds FINRA short interest from 2014-11-14 (OTC-only before
+June 2021), SEC FTD from 2004-03-22, Nasdaq thresholds from 2005-01-07, NYSE thresholds from its
+first nonempty served file on 2008-10-14, Cboe thresholds from its first nonempty file on
+2014-09-02, and FINRA OTC thresholds from 2016-01-04. Unique date-valid punctuation normalization
+added 163,827 mappings. The combined exchange-listed U.S. Stock candidate match rate is 96.5%;
+per-source and OTC rates, collision counts, unmatched causes, and publication lags are in
+`docs/short-data-audit-2026-10-02.md`.
 
 ## Phase 0 part 2: free SEC history — complete 2026-10-01
 

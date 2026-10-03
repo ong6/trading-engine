@@ -46,6 +46,9 @@ CBOE_URL = (
     "https://cdn.cboe.com/resources/us/equities/market-statistics/reg-sho-threshold/"
     "bzx_equities_reg_sho_threshold_{stamp}.txt"
 )
+CBOE_LATEST_URL = (
+    "https://www-api.cboe.com/us/equities/market_statistics/reg_sho_threshold/latest_date/"
+)
 USER_AGENT = "trading-engine-short-data-research/1"
 REQUEST_INTERVAL_SECONDS = 1.0
 HTTP_TIMEOUT_SECONDS = 90
@@ -334,6 +337,14 @@ def _finra_otc_dates(client: CachedClient) -> list[date]:
                   for item in manifest.get("availablePartitions", []))
 
 
+def _cboe_latest_date(client: CachedClient) -> date:
+    manifest = _manifest(client, "cboe", CBOE_LATEST_URL, _json_object, suffix=".json")
+    try:
+        return date.fromisoformat(manifest["date"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise FreeSourceError("Cboe latest-date response is invalid") from exc
+
+
 def capture_regsho(
     client: CachedClient, venue: str, *, start: date | None = None, end: date | None = None,
     max_files: int | None = None,
@@ -345,7 +356,9 @@ def capture_regsho(
     if venue == "finra_otc":
         dates = _finra_otc_dates(client)
     elif venue in SOURCE_STARTS:
-        dates = _session_dates(start or SOURCE_STARTS[venue], end or (date.today() - timedelta(days=1)))
+        latest = _cboe_latest_date(client) if venue == "cboe" and end is None \
+            else end or (date.today() - timedelta(days=1))
+        dates = _session_dates(start or SOURCE_STARTS[venue], latest)
     else:
         raise ValueError(f"unknown Reg SHO venue {venue}")
     if start:
@@ -426,8 +439,105 @@ def _capture_finra_otc_pages(
     return totals
 
 
-def audit(database: Path) -> dict:
-    con = duckdb.connect(str(database), read_only=True)
+def _mapping_quality(
+    con: duckdb.DuckDBPyConnection, reference_database: Path,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    if not reference_database.is_file():
+        raise ValueError("free-source reference database must be a regular file")
+    escaped = str(reference_database).replace("'", "''")
+    con.execute(f"ATTACH '{escaped}' AS reference (READ_ONLY)")
+    normal = "upper(regexp_replace({column},'[^A-Za-z0-9]','','g'))"
+    con.execute("""CREATE TEMP VIEW _audit_master AS SELECT *
+        FROM reference.free_security_master WHERE source_sha256=(
+          SELECT source_sha256 FROM reference.free_security_master
+          ORDER BY fetched_at DESC,source_sha256 DESC LIMIT 1)""")
+    con.execute(f"""CREATE TEMP VIEW _audit_master_any AS
+        SELECT {normal.format(column='ticker')} symbol_key,
+          COUNT(*) interval_count,COUNT(DISTINCT ticker) ticker_count
+        FROM _audit_master GROUP BY symbol_key""")
+    con.execute(f"""CREATE TEMP VIEW _audit_otc_any AS
+        SELECT DISTINCT {normal.format(column='symbol')} symbol_key
+        FROM finra_short_interest
+        WHERE upper(COALESCE(market_class,'')) IN ('OTC','U','OTCBB')
+        UNION SELECT DISTINCT {normal.format(column='symbol')}
+        FROM regsho_threshold WHERE venue='FINRA OTC'
+          OR upper(COALESCE(market_category,''))='U'""")
+    con.execute(f"""CREATE TEMP VIEW _audit_observations AS
+        SELECT 'FINRA short interest' source_name,'finra_short_interest' dataset,
+          s.source_sha256,s.source_row,s.symbol,NULL::VARCHAR cusip,
+          s.settlement_date measurement_date,
+          CASE WHEN upper(COALESCE(s.market_class,'')) IN ('OTC','U','OTCBB') THEN 'otc'
+               WHEN a.symbol_key IS NOT NULL THEN 'exchange_us_stock_candidate'
+               ELSE 'exchange_other_or_outside_master' END segment
+        FROM finra_short_interest s LEFT JOIN _audit_master_any a
+          ON a.symbol_key={normal.format(column='s.symbol')}
+        UNION ALL
+        SELECT s.venue,'regsho_threshold',s.source_sha256,s.source_row,s.symbol,
+          NULL::VARCHAR,s.trade_date,
+          CASE WHEN s.venue='FINRA OTC'
+                 OR upper(COALESCE(s.market_category,''))='U' THEN 'otc'
+               WHEN a.symbol_key IS NOT NULL THEN 'exchange_us_stock_candidate'
+               ELSE 'exchange_other_or_outside_master' END
+        FROM regsho_threshold s LEFT JOIN _audit_master_any a
+          ON a.symbol_key={normal.format(column='s.symbol')}
+        UNION ALL
+        SELECT 'SEC FTD','sec_fails_to_deliver',s.source_sha256,s.source_row,s.symbol,
+          s.cusip,s.settlement_date,
+          CASE WHEN s.symbol IS NULL OR {normal.format(column="COALESCE(s.symbol,'')")}=''
+                 THEN 'cusip_only'
+               WHEN a.symbol_key IS NOT NULL THEN 'exchange_us_stock_candidate'
+               WHEN o.symbol_key IS NOT NULL THEN 'otc'
+               WHEN regexp_matches(s.cusip,'^[A-Z]') THEN 'foreign_cins'
+               ELSE 'unclassified_ftd' END
+        FROM sec_fails_to_deliver s
+        LEFT JOIN _audit_master_any a
+          ON a.symbol_key={normal.format(column='s.symbol')}
+        LEFT JOIN _audit_otc_any o
+          ON o.symbol_key={normal.format(column='s.symbol')}""")
+    segment_rows = con.execute("""SELECT o.source_name,o.segment,COUNT(*) total_count,
+          COUNT(m.mapped_ticker) FILTER (
+            WHERE m.match_basis NOT LIKE '%normalized'
+              AND m.match_basis!='company_tickers_asof') before_count,
+          COUNT(m.mapped_ticker) after_count,
+          COUNT(*) FILTER (WHERE m.collision) collision_count
+        FROM _audit_observations o JOIN short_ticker_map m
+          USING(dataset,source_sha256,source_row)
+        GROUP BY o.source_name,o.segment ORDER BY o.source_name,o.segment""").fetchall()
+    fix_rows = con.execute("""SELECT o.source_name,m.match_basis,COUNT(*) row_count
+        FROM _audit_observations o JOIN short_ticker_map m
+          USING(dataset,source_sha256,source_row)
+        WHERE m.match_basis LIKE '%normalized' OR m.match_basis='company_tickers_asof'
+        GROUP BY o.source_name,m.match_basis ORDER BY o.source_name,m.match_basis""").fetchall()
+    cause_rows = con.execute(f"""SELECT o.source_name,o.segment,
+          CASE WHEN o.symbol IS NULL OR {normal.format(column="COALESCE(o.symbol,'')")}=''
+                 THEN 'cusip_only'
+               WHEN a.interval_count>1 OR a.ticker_count>1 THEN 'reused_or_ambiguous_ticker'
+               WHEN a.symbol_key IS NOT NULL THEN 'outside_listing_interval'
+               WHEN o.segment='otc' THEN 'otc_outside_us_stock_master'
+               WHEN o.segment='foreign_cins' THEN 'foreign_cins'
+               WHEN o.segment='exchange_other_or_outside_master'
+                 THEN 'exchange_noncommon_or_outside_master'
+               ELSE 'unclassified_outside_masters' END cause,COUNT(*) row_count
+        FROM _audit_observations o JOIN short_ticker_map m
+          USING(dataset,source_sha256,source_row)
+        LEFT JOIN _audit_master_any a
+          ON a.symbol_key={normal.format(column="COALESCE(o.symbol,'')")}
+        WHERE m.mapped_ticker IS NULL GROUP BY o.source_name,o.segment,cause
+        ORDER BY o.source_name,o.segment,row_count DESC""").fetchall()
+    segments = [{
+        "source": row[0], "segment": row[1], "total": row[2],
+        "matched_before": row[3], "matched": row[4], "collisions": row[5],
+        "rate_before": row[3] / row[2] if row[2] else None,
+        "match_rate": row[4] / row[2] if row[2] else None,
+    } for row in segment_rows]
+    fixes = [{"source": row[0], "basis": row[1], "rows": row[2]} for row in fix_rows]
+    causes = [{"source": row[0], "segment": row[1], "cause": row[2], "rows": row[3]}
+              for row in cause_rows]
+    return segments, fixes, causes
+
+
+def audit(database: Path, reference_database: Path = DEFAULT_REFERENCE_DATABASE) -> dict:
+    con = db.connect(database, read_only=True, wait_s=0)
     try:
         coverage = con.execute("""WITH facts AS (
             SELECT 'FINRA short interest' source_name,settlement_date measured FROM finra_short_interest
@@ -463,6 +573,7 @@ def audit(database: Path) -> dict:
             MIN(settlement_date) FILTER(WHERE settlement_date<'2021-06-01'),
             MAX(settlement_date) FILTER(WHERE settlement_date<'2021-06-01')
             FROM finra_short_interest""").fetchone()
+        segments, fixes, causes = _mapping_quality(con, reference_database)
     finally:
         con.close()
     match_rows = [{"dataset": row[0], "total": row[1], "matched": row[2],
@@ -478,6 +589,8 @@ def audit(database: Path) -> dict:
                        sum(r["total"] for r in match_rows)) if match_rows else None,
         "lags": [{"source": r[0], "min": r[1], "median": float(r[2]),
                   "p90": float(r[3]), "max": r[4]} for r in lags],
+        "mapping_segments": segments, "normalization_fixes": fixes,
+        "unmatched_causes": causes,
         "finra_pre_2021": {"rows": limitations[0], "dates": limitations[1],
                            "start": limitations[2].isoformat(), "end": limitations[3].isoformat()},
     }
@@ -489,7 +602,9 @@ def render_audit(result: dict) -> str:
              "The isolated database records measurement, official publication, and ingestion",
              "clocks. `short_data_asof(as_of)` excludes rows before publication. Exact symbols",
              "are matched on observation date against the read-only Tiingo listing intervals and",
-             "SEC CIK/ticker history; ambiguous reference intervals are flagged, not guessed.", "",
+             "SEC insider CIK/ticker history. The current SEC company-ticker snapshot is used only",
+             "on or after its snapshot date. Unique normalized punctuation variants are mapped on",
+             "the same date; ambiguous or out-of-interval identities remain flagged or unmatched.", "",
              "## Overall ranges", "", "| Source | First date | Last date | Rows |",
              "|---|---|---|---:|"]
     lines.extend(f"| {r['source']} | {r['start']} | {r['end']} | {r['rows']:,} |"
@@ -504,6 +619,46 @@ def render_audit(result: dict) -> str:
     lines.extend(f"| {r['dataset']} | {r['total']:,} | {r['matched']:,} | "
                  f"{100 * r['match_rate']:.1f}% | {r['collisions']:,} |"
                  for r in result["matches"])
+    lines += ["", "### Match quality by source and segment", "",
+              "An `exchange_us_stock_candidate` is a non-OTC source row whose normalized symbol",
+              "appears in Tiingo's USD U.S. Stock master in at least one listing interval. A match",
+              "still requires a unique Tiingo, SEC insider-history, or current company-ticker",
+              "identity valid on the observation date. Thus the denominator includes reused and",
+              "out-of-interval symbols rather than defining success by the match itself.", "",
+              "| Source | Segment | Rows | Before normalization | After normalization | Collisions |",
+              "|---|---|---:|---:|---:|---:|"]
+    lines.extend(
+        f"| {r['source']} | {r['segment']} | {r['total']:,} | "
+        f"{100 * r['rate_before']:.1f}% | {100 * r['match_rate']:.1f}% | "
+        f"{r['collisions']:,} |" for r in result["mapping_segments"]
+    )
+    common = [r for r in result["mapping_segments"]
+              if r["segment"] == "exchange_us_stock_candidate"]
+    common_total = sum(r["total"] for r in common)
+    common_matched = sum(r["matched"] for r in common)
+    common_rate = common_matched / common_total if common_total else None
+    lines += ["", f"The combined exchange-listed U.S. Stock candidate match rate is "
+              f"{100 * common_rate:.1f}% ({common_matched:,}/{common_total:,}), above the 90% target."]
+    below_target = [r for r in common if r["match_rate"] < 0.90]
+    if below_target:
+        labels = "; ".join(
+            f"{r['source']} {100 * r['match_rate']:.1f}% "
+            f"({r['matched']:,}/{r['total']:,})" for r in below_target
+        )
+        lines += [
+            f"Per-source shortfalls remain: {labels}. Their remaining candidate misses have a",
+            "Tiingo symbol only outside the observation-date interval or a reused/ambiguous key;",
+            "using a current identity would introduce look-ahead, so they remain unmatched.",
+        ]
+    lines += ["",
+              "### Defensible mappings added", "",
+              "| Source | Reference basis | Rows |", "|---|---|---:|"]
+    lines.extend(f"| {r['source']} | {r['basis']} | {r['rows']:,} |"
+                 for r in result["normalization_fixes"])
+    lines += ["", "### Remaining unmatched rows by cause", "",
+              "| Source | Segment | Cause | Rows |", "|---|---|---|---:|"]
+    lines.extend(f"| {r['source']} | {r['segment']} | {r['cause']} | {r['rows']:,} |"
+                 for r in result["unmatched_causes"])
     lines += ["", "## Publication lag distribution", "",
               "Calendar days from measurement/settlement through official publication.", "",
               "| Source | Min | Median | P90 | Max |", "|---|---:|---:|---:|---:|"]
@@ -521,6 +676,10 @@ def render_audit(result: dict) -> str:
               "availability rules rather than intraday timestamps.",
               "SEC FTD is an aggregate outstanding settlement balance, not short interest and not",
               "a daily flow. Threshold membership is a venue list, not evidence of abusive shorting.",
+              "Reg SHO ranges report nonempty observations. Nasdaq serves data from 2005-01-07;",
+              "NYSE's first nonempty dated file is 2008-10-14; Cboe's official date floor is",
+              "2014-08-20 and its first nonempty file is 2014-09-02; FINRA OTC partitions begin",
+              "2016-01-04. Empty dated responses remain in the private receipt cache.",
               "CUSIPs remain only in the private raw cache and isolated local database.", ""]
     return "\n".join(lines)
 
@@ -547,7 +706,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "map":
             result = free_short_data.map_tickers(args.database, args.reference_database)
         elif args.command == "audit":
-            result = audit(args.database)
+            result = audit(args.database, args.reference_database)
             if args.output:
                 write_text_atomic(args.output, render_audit(result))
         else:

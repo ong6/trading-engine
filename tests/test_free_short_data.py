@@ -183,12 +183,74 @@ def test_symbol_date_mapping_flags_reference_collisions(tmp_path):
           (1::BIGINT,'TEST',DATE '2020-01-01',DATE '2026-10-01','insider_submissions'),
           (2::BIGINT,'TEST',DATE '2021-01-01',DATE '2026-10-01','insider_submissions'))
         t(cik,ticker,first_seen,last_seen,source)""")
+    ref.execute("""CREATE TABLE free_company_tickers (
+        cik BIGINT,ticker VARCHAR,company VARCHAR,snapshot_date DATE,
+        source_sha256 VARCHAR,source_row BIGINT)""")
     ref.close()
     result = free_short_data.map_tickers(short_db, reference_db)
     assert result == {"total": 1, "matched": 1, "collisions": 1, "match_rate": 1.0}
     con = duckdb.connect(str(short_db), read_only=True)
     try:
         assert con.execute("SELECT mapped_ticker,ticker_collision FROM short_data_asof(DATE '2026-10-01')").fetchone() == ("TEST", True)
+    finally:
+        con.close()
+
+
+def test_symbol_normalization_maps_only_inside_reference_interval(tmp_path):
+    assert free_short_data.normalize_symbol("brk.b") == "BRKB"
+    short_db, reference_db = tmp_path / "short.duckdb", tmp_path / "reference.duckdb"
+    con = duckdb.connect(str(short_db))
+    current = _finra_current().replace(b"TEST", b"BRKB")
+    rows = free_short_data.parse_finra_short_interest(current)
+    free_short_data.load_rows(con, "finra_short_interest", current, rows, ingested_at=INGESTED)
+    old = _finra_current().replace(b"TEST", b"OLDA").replace(b"20260915", b"20190915").replace(
+        b"2026-09-15", b"2019-09-15"
+    )
+    free_short_data.load_rows(
+        con, "finra_short_interest", old, free_short_data.parse_finra_short_interest(old),
+        ingested_at=INGESTED,
+    )
+    company_early = _finra_current().replace(b"TEST", b"NEWC")
+    company_current = company_early.replace(b"20260915", b"20261001").replace(
+        b"2026-09-15", b"2026-10-01"
+    )
+    for body in (company_early, company_current):
+        free_short_data.load_rows(
+            con, "finra_short_interest", body,
+            free_short_data.parse_finra_short_interest(body), ingested_at=INGESTED,
+        )
+    con.close()
+    ref = duckdb.connect(str(reference_db))
+    ref.execute("""CREATE TABLE free_security_master (
+        source VARCHAR,source_sha256 VARCHAR,fetched_at TIMESTAMP,source_row BIGINT,
+        ticker VARCHAR,exchange VARCHAR,asset_type VARCHAR,price_currency VARCHAR,
+        start_date DATE,end_date DATE)""")
+    ref.execute("""INSERT INTO free_security_master VALUES
+        ('tiingo','hash',TIMESTAMP '2026-10-01',1,'BRK-B','NYSE','Stock','USD',
+         DATE '2000-01-01',DATE '2026-10-01'),
+        ('tiingo','hash',TIMESTAMP '2026-10-01',2,'OLD-A','NYSE','Stock','USD',
+         DATE '2020-01-01',DATE '2026-10-01')""")
+    ref.execute("""CREATE VIEW free_cik_ticker_history AS
+        SELECT * FROM (VALUES (1::BIGINT,'BRK.B',DATE '2000-01-01',DATE '2026-10-01',
+          'insider_submissions')) t(cik,ticker,first_seen,last_seen,source)""")
+    ref.execute("""CREATE TABLE free_company_tickers (
+        cik BIGINT,ticker VARCHAR,company VARCHAR,snapshot_date DATE,
+        source_sha256 VARCHAR,source_row BIGINT)""")
+    ref.execute("""INSERT INTO free_company_tickers VALUES
+        (2,'NEW.C','Synthetic Current',DATE '2026-10-01','company-hash',1)""")
+    ref.close()
+    result = free_short_data.map_tickers(short_db, reference_db)
+    assert result["matched"] == 2
+    con = duckdb.connect(str(short_db), read_only=True)
+    try:
+        assert con.execute("""SELECT s.symbol,m.mapped_ticker,m.match_basis
+            FROM short_ticker_map m JOIN finra_short_interest s
+              USING(source_sha256,source_row) ORDER BY s.settlement_date,s.symbol""").fetchall() == [
+                ("OLDA", None, "unmatched"),
+                ("BRKB", "BRK-B", "tiingo+cik_normalized"),
+                ("NEWC", None, "unmatched"),
+                ("NEWC", "NEWC", "company_tickers_asof"),
+            ]
     finally:
         con.close()
 
@@ -271,5 +333,16 @@ def test_nyse_uses_source_specific_two_second_pacing(tmp_path):
     client = tool.CachedClient(con, tmp_path, session=_FakeSession(body), pacer=pacer)
     tool.capture_regsho(client, "nyse", start=date(2005, 1, 3), end=date(2005, 1, 3))
     assert pacer.interval == 2.0
+    con.close()
+
+
+def test_cboe_latest_date_parser(tmp_path):
+    con = duckdb.connect(":memory:")
+    free_short_data.init_schema(con)
+    client = tool.CachedClient(
+        con, tmp_path, session=_FakeSession(b'{"date":"2026-10-01"}'),
+        pacer=tool.Pacer(now=lambda: datetime(2026, 10, 3, 8, tzinfo=timezone.utc)),
+    )
+    assert tool._cboe_latest_date(client) == date(2026, 10, 1)
     con.close()
 
