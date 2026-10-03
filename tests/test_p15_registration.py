@@ -246,15 +246,10 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 9
+    assert registration["registration_revision"] == 10
     assert registration["revision_reason"] == (
-        "infrastructure only: per-stage timing; nightly sync autostash and single rebase retry; "
-        "read-only snapshots with throttled publication and lock-only API fallback; fail-soft "
-        "evidence reporting after league rendering; cached evaluation and readiness projections; "
-        "single-connection observers; concurrent verify/farm; intraday unchanged-payload dedupe "
-        "with batch writes; rolling queue pool and walk-forward scratch hygiene; paced parallel "
-        "price verification, bounded nightly earnings and multi-session TradingView requests. No "
-        "scoring, book, gate, label or written-row semantics change."
+        "book-link validation treats the latest nightly-marked equity before its P15 book window "
+        "as pending, not orphan; no scoring, book, gate, label, schedule or written-row change"
     )
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
