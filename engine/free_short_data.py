@@ -287,7 +287,7 @@ def parse_regsho_text(body: bytes, *, venue: str, trade_date: date) -> list[dict
         lines = [line for line in body.decode("latin-1").splitlines() if line.strip()]
     if len(lines) < 2:
         raise FreeSourceError("Reg SHO file is incomplete")
-    footer = FOOTER_TIMESTAMP.fullmatch(lines[-1].strip())
+    footer = FOOTER_TIMESTAMP.fullmatch(lines[-1].split("|", 1)[0].strip())
     if footer is None:
         raise FreeSourceError("Reg SHO file lacks a creation timestamp")
     published = _date(footer.group(1), "Reg SHO publication date", "%Y%m%d")

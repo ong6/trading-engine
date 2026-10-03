@@ -1743,4 +1743,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server unchanged; tools +576, product +434, tests +235 lines; budget ok.
 - **Next:** resume the three exchange threshold archives at 2026-10-02 23:30 UTC.
 
+## 2026-10-03 — Complete Nasdaq and checkpoint NYSE pacing
+
+- **Why:** P3 Phase 0 part 5 and the orchestrator's 23:35 UTC network-window wake-up.
+- **What:** finish Nasdaq's 2005--2026 threshold archive, admit padded creation footers and
+  HTTP-200 missing pages, and raise only NYSE to a two-second interval after its measured 429.
+- **Evidence:** `tests/test_free_short_data.py` passes all 12 tests and whole-repository Ruff passes.
+- **Metrics:** server unchanged; product +20 lines; tests +22 lines; budget ok.
+- **Next:** resume NYSE at 2026-10-03 02:45 UTC, then capture Cboe and finish the audit.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

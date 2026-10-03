@@ -51,6 +51,7 @@ REQUEST_INTERVAL_SECONDS = 1.0
 HTTP_TIMEOUT_SECONDS = 90
 SOURCE_STARTS = {"nasdaq": date(2005, 1, 7), "nyse": date(2005, 1, 3),
                  "cboe": date(2014, 8, 20)}
+SOURCE_INTERVAL_SECONDS = {"nyse": 2.0}
 
 
 class _NotFound(FreeSourceError):
@@ -338,6 +339,9 @@ def capture_regsho(
     max_files: int | None = None,
 ) -> dict:
     venue = venue.lower()
+    client.pacer.interval = max(
+        client.pacer.interval, SOURCE_INTERVAL_SECONDS.get(venue, REQUEST_INTERVAL_SECONDS)
+    )
     if venue == "finra_otc":
         dates = _finra_otc_dates(client)
     elif venue in SOURCE_STARTS:
@@ -361,6 +365,12 @@ def capture_regsho(
         try:
             response = client.get(venue, url, suffix=".txt", request_key=key)
         except _NotFound:
+            continue
+        if response.body.lstrip().lower().startswith((b"<!doctype html", b"<html")):
+            with db.transaction(client.con):
+                client.con.execute("INSERT OR IGNORE INTO short_source_misses VALUES (?,?,?,?,?)", [
+                    key, venue, url, datetime.now(timezone.utc), 200,
+                ])
             continue
         if response.resumed and (count := _resumed_rows(client.con, key)) is not None:
             _record_resume(totals, count)
