@@ -1745,4 +1745,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server unchanged; tools +5; product +46 lines; budget ok.
 - **Next:** resume the remaining Companyfacts bytes at 23:30 UTC, load facts, audit, and run gates.
 
+## 2026-10-03 — Complete the SEC bulk point-in-time audit
+
+- **Why:** P3 Phase 0 part 4 required both nightly SEC archives, referenced older submissions,
+  point-in-time fundamentals and earnings timestamps, and the dated coverage audit.
+- **What:** complete the resumable Companyfacts load, accepting only observed SEC placeholders and
+  fiscal-year sentinels without weakening identity checks. Publish annual fact/company/event counts,
+  ticker match rates and read-only engine-earnings overlap in the P3 audit.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 --dist loadfile` passes at 100%;
+  whole-repository `.venv/bin/ruff check .` reports `All checks passed!`.
+- **Metrics:** server unchanged; tools +3; product +10 lines; budget ok.
+- **Next:** nothing admitted; paid P3 data remains spend-blocked.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -201,7 +201,14 @@ def _json(body: bytes) -> dict:
 def parse_companyfacts_document(body: bytes, *, expected_cik: int | None = None) -> list[dict]:
     """Return selected numerical facts from one Companyfacts company document."""
     payload = _json(body)
-    cik = _cik(payload.get("cik"))
+    # The official nightly archive contains a small number of named CIK
+    # placeholders whose complete JSON document is the empty object.
+    if not payload:
+        return []
+    raw_cik = payload.get("cik")
+    # Some fund Companyfacts documents omit the redundant body CIK while the
+    # canonical member name still carries it.
+    cik = expected_cik if raw_cik is None and expected_cik is not None else _cik(raw_cik)
     if expected_cik is not None and cik != expected_cik:
         raise FreeSourceError("Companyfacts member CIK differs")
     facts = payload.get("facts")
@@ -235,10 +242,12 @@ def parse_companyfacts_document(body: bytes, *, expected_cik: int | None = None)
                     if ACCESSION.fullmatch(accn) is None:
                         raise FreeSourceError("Companyfacts accession is invalid")
                     fy_raw = observation.get("fy")
-                    if fy_raw is None:
+                    if fy_raw in {None, 0}:
                         fy = None
-                    elif isinstance(fy_raw, int) and 1800 <= fy_raw <= 2200:
-                        fy = fy_raw
+                    elif isinstance(fy_raw, int) and not isinstance(fy_raw, bool):
+                        # A few official rows carry non-year numeric sentinels
+                        # (for example 1215); retain the fact with unknown FY.
+                        fy = fy_raw if 1800 <= fy_raw <= 2200 else None
                     else:
                         raise FreeSourceError("Companyfacts fiscal year is invalid")
                     row = {
@@ -590,6 +599,7 @@ def audit(
         copy_ticker_history(con, free_database)
         facts = con.execute("""SELECT year(filed),COUNT(*),COUNT(DISTINCT cik)
             FROM sec_facts GROUP BY ALL ORDER BY 1""").fetchall()
+        companies = con.execute("SELECT COUNT(DISTINCT cik) FROM sec_facts").fetchone()[0]
         events = con.execute("""SELECT year(acceptance_datetime),COUNT(*)
             FROM sec_earnings_events GROUP BY ALL ORDER BY 1""").fetchall()
         fact_match = con.execute("""SELECT COUNT(*),COUNT(ticker)
@@ -626,7 +636,7 @@ def audit(
             {"year": row[0], "events": row[1]} for row in events
         ],
         "facts_rows": fact_match[0],
-        "companies": sum(row[2] for row in facts),
+        "companies": companies,
         "earnings_events": event_match[0],
         "ticker_match": {
             "matched": combined_matched, "total": combined_total,

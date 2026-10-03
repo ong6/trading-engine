@@ -110,6 +110,9 @@ Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](sit
 - [`sec-free-audit-2026-10-01.md`](sec-free-audit-2026-10-01.md) — P3 Phase 0 Form 25 and insider
   coverage against the Tiingo master and a consistent operational-store copy, with explicit
   filing-date availability and symbol-quality limits.
+- [`sec-bulk-audit-2026-10-02.md`](sec-bulk-audit-2026-10-02.md) — P3 nightly Companyfacts and
+  Submissions coverage, ordered fundamental-tag fallbacks, ticker matching, and earnings-date
+  overlap under the filing-acceptance availability rule.
 - The dated “Live decision checkpoint” in
   [`strategy-research-backlog.md`](strategy-research-backlog.md) records the latest reconciled
   counts and the next permitted action. The endpoints and generated reports supersede that
