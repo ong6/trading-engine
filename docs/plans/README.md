@@ -29,6 +29,7 @@ each plan's YAML `status` must match its row.
 | [P16](p16-challenger-lab-and-text-edge.md) | Challenger lab, text edge, evaluation science | active | W0 P15 revision-4 activation complete; W9b registration remains |
 | [P17](p17-personal-host-ibkr-paper-execution.md) | Personal-host IBKR paper execution and reconciliation | proposed | Future work, explicitly not now; requires a Stage 1 pass and owner approval before any implementation or account action |
 | [P18](p18-backtest-core.md) | Shared backtest core | done | Completed: native event/portfolio simulation, deterministic reports, proving ground, and example |
+| [P19](p19-market-data-auditor.md) | Offline market-data auditor | done | Completed 2026-10-03: independent coverage JSON/Markdown sidecars and fictional native-evaluator reversal; full Linux CI green; real-data adapters deferred |
 
 Recommended order: follow [`../product.md`](../product.md) ("Focus now"). P15 comes first, then P7
 activation; P8/P9 keep running untouched; P2 remains admitted; P3's bounded free captures run

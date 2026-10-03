@@ -168,4 +168,28 @@ running, never by code inspection. Operational response:
 [`docs/how-it-works.md`](docs/how-it-works.md). Architecture and authority boundaries:
 [`docs/architecture-reference.md`](docs/architecture-reference.md).
 
-<!-- sources: BUILDLOG.md, docs/plans/README.md, docs/plans/p3-point-in-time-data.md, docs/plans/p18-backtest-core.md, docs/product.md, engine/free_sources.py, engine/run_daily.sh, server/p15-registration.json, sim/fills.py, sim/league.py, tools/free_sources.py -->
+## Offline market-data audit
+
+The [market-data auditor](docs/plans/p19-market-data-auditor.md) measures per-session signal-input
+coverage against an independently supplied reference population. A security absent from the
+audited source stays in the denominator. Unknown reference eligibility and publication evidence
+remain explicit; passing these scoped checks does not establish profitability.
+
+Run the fictional, offline omission demonstration without an account, database or network:
+
+```sh
+.venv/bin/python -m farm.study.examples.data_audit --output-dir /tmp/market-data-audit-demo
+```
+
+It writes separate JSON/Markdown audit sidecars and native evaluator evidence. The same four-name
+rule, costs and $40,000 capital are held fixed: retaining only two favorable names produces
++0.9740742%, while the complete population produces -2.0510404%. The omission is a planted
+hindsight fault, not a strategy. Inspect the report for exact populations, missing attempts,
+identities, independent fee arithmetic and the future-input failure case.
+
+The library is `farm.study.audit`; raw immutable snapshots enter before panel normalization.
+Existing study report bytes, evaluator identities and holdout markers remain unchanged.
+Real-data adapters, full revision/action tracing, production-scale memory acceptance and a visual
+export are separate work. The first slice produces JSON/Markdown only.
+
+<!-- sources: BUILDLOG.md, docs/plans/README.md, docs/plans/p3-point-in-time-data.md, docs/plans/p18-backtest-core.md, docs/plans/p19-market-data-auditor.md, docs/product.md, engine/free_sources.py, engine/run_daily.sh, server/p15-registration.json, sim/fills.py, sim/league.py, tools/free_sources.py -->
