@@ -51,8 +51,9 @@ Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](sit
   [P14 TradingView historical archive](plans/p14-tradingview-history-archive.md),
   [P15 profitability evidence loop](plans/p15-profitability-evidence-loop.md),
   [P16 challenger lab and text edge](plans/p16-challenger-lab-and-text-edge.md),
-  [P17 personal-host IBKR paper execution](plans/p17-personal-host-ibkr-paper-execution.md), and
-  [P18 shared backtest core](plans/p18-backtest-core.md).
+  [P17 personal-host IBKR paper execution](plans/p17-personal-host-ibkr-paper-execution.md),
+  [P18 shared backtest core](plans/p18-backtest-core.md), and
+  [P19 offline market-data auditor](plans/p19-market-data-auditor.md).
 - [`glossary.md`](glossary.md) — plain names for P1–P18, the P15/P16 workstreams, and research
   terms such as registration, holdout, census, DSR, and walk-forward.
 
