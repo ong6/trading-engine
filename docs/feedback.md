@@ -610,3 +610,7 @@ Real-data integration and visual/hosted product work remain outside this slice.
 
 **Budget.** P19 allows 1,800 farm lines, 1,200 test lines, 600 documentation lines and five logical
 implementation commits, each below the existing 1,500-insertion cap.
+
+**Verification follow-up.** The orchestrator increased P19 to six logical commits to include
+the documentation-index correction required by full CI and final publication closure. No code,
+test, documentation-line or product scope expanded.

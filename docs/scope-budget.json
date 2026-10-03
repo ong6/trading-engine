@@ -20,7 +20,7 @@
     "max_new_farm_lines": 1800,
     "max_new_test_lines": 1200,
     "max_new_doc_lines": 600,
-    "max_logical_commits": 5,
+    "max_logical_commits": 6,
     "note": "Offline coverage sidecar and fictional demo only; existing evaluator and runtime unchanged."
   },
   "p18": {

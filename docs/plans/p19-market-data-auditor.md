@@ -52,7 +52,7 @@ Workers own separate Git worktrees and the following disjoint paths:
 |---|---|---|
 | Core worker | `farm/study/audit.py`, `tests/test_study_audit.py` | Frozen contract/evidence, validation, independent population, coverage and status/identity semantics |
 | Example/report worker | `farm/study/audit_report.py`, `farm/study/examples/data_audit.py`, `tests/test_study_audit_report.py`, `tests/test_study_audit_demo.py` | Atomic JSON/Markdown and fictional native-evaluator comparison with independent arithmetic |
-| Integration writer | This plan, `docs/plans/README.md`, `docs/scope.md`, `docs/feedback.md`, `docs/product.md`, `docs/scope-budget.json`, `BUILDLOG.md`, focused README entry and generated metrics | Admissions, evidence, review and publication |
+| Integration writer | This plan, `docs/plans/README.md`, `docs/README.md`, `docs/scope.md`, `docs/feedback.md`, `docs/product.md`, `docs/scope-budget.json`, `BUILDLOG.md`, focused README entry and generated metrics | Admissions, evidence, review and publication |
 
 Existing simulation, data, panel, protocol, core version, report code and registered files are
 read-only dependencies. No exports in `farm/study/__init__.py` are required; use direct imports.
@@ -145,7 +145,7 @@ verify branch push. Runtime independence is explicit; no local test establishes 
 
 ## Budget, risks and rollback
 
-At most 5 logical implementation commits, each below 1,500 inserted non-data lines; up to 1,800
+At most 6 logical commits, each below 1,500 inserted non-data lines; up to 1,800
 new farm lines, 1,200 new test lines and 600 documentation lines. No dependencies or source
 mutations. Small normal-suite fixture: four names × 61 sessions plus focused fault variants.
 The bounded profile below establishes this diagnostic's scale only. The future real-data adapter
@@ -174,9 +174,10 @@ existing study artifacts remain independently readable.
   `demo.md`/`demo.json` link separate case audit and unchanged native-report artifacts.
 - Whole-repository Ruff and S101 checks pass. Git diff over existing evaluator, engine,
   simulator, server and tools files is empty against the baseline.
-- A complete local full-suite run before auditor code was added had 179 failures in the cached
-  4,358-test baseline. Linux-specific descriptor/service checks and Python 3.14 differences
-  prevent a local green claim; unchanged upstream Linux CI was green. Final Linux CI is required.
+- A complete local full-suite run before auditor code was added had 179 failures across 4,358
+  cached test nodes. That run already included the new plan; its missing documentation-index
+  entry was corrected after CI identified it. Linux-specific descriptor/service checks and
+  Python 3.14 differences prevent a local green claim; final Linux CI is required.
 - Bounded synthetic profile: 300 securities × 71 input sessions (21,300 raw rows), ten decision
   sessions, 3,000 examined members, supported and zero findings. On 12 logical ARM64 CPUs/macOS,
   Python 3.14.8: snapshot construction/hashing 0.306 seconds; audit 1.183 seconds; no increase in
@@ -184,5 +185,9 @@ existing study artifacts remain independently readable.
 - Fresh review reproduced and cleared premature daily-field admission, contradictory renderer
   ratios/decisions, malformed native traces and missing totals under evidence truncation.
   Terminal-zero losses remain valid; unavailable future fields do not change earlier classifications.
+- The first full Linux CI run had exactly one failing documentation-index test in each timezone;
+  all auditor tests passed. The missing P19 link in `docs/README.md` was added. The orchestrator
+  expanded the logical-commit budget by one for this required index correction and final closure;
+  code, test and documentation line budgets are unchanged.
 
 <!-- sources: farm/study/data.py, farm/study/universe.py, farm/study/panel.py, farm/study/simulate.py, farm/study/report.py, tools/free_source_audit.py, docs/backtest-standard.md -->
