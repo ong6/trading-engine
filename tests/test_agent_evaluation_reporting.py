@@ -221,6 +221,65 @@ def test_book_runtime_rejects_genuinely_different_status(con):
         agent_evaluation.validate_p15_evidence(con, generated_at=NOW)
 
 
+def _mark_book_window(con, book_id: str, market_date: date) -> None:
+    p15_books._mark_exact(con, book_id, market_date, NOW)
+
+
+def _insert_nightly_equity(con, book_id: str, market_date: date) -> None:
+    con.execute(
+        "INSERT INTO sim_equity VALUES (?,?,?,?,0)",
+        [book_id, market_date, p15_books.INITIAL_CASH, p15_books.INITIAL_CASH],
+    )
+
+
+def test_latest_nightly_book_equity_is_pending_until_window_is_written(con):
+    _activate(con, date(2026, 9, 30))
+    for book_id in p15_books.BOOK_IDS:
+        _mark_book_window(con, book_id, date(2026, 10, 1))
+        _insert_nightly_equity(con, book_id, date(2026, 10, 2))
+
+    assert p15_evidence_validation.validate_book_links(
+        con, agent_evaluation.EvaluationError,
+    ) == {
+        "book_windows_pending": 1,
+        "book_windows_pending_dates": ["2026-10-02"],
+    }
+
+
+def test_missing_book_window_before_latest_processed_date_still_fails(con):
+    _activate(con, date(2026, 9, 30))
+    book_id = p15_books.BOOK_IDS[0]
+    _insert_nightly_equity(con, book_id, date(2026, 10, 1))
+    _mark_book_window(con, book_id, date(2026, 10, 2))
+
+    with pytest.raises(agent_evaluation.EvaluationError, match="book evidence has orphan rows"):
+        p15_evidence_validation.validate_book_links(con, agent_evaluation.EvaluationError)
+
+
+def test_more_than_one_pending_book_window_date_fails(con):
+    _activate(con, date(2026, 9, 29))
+    first, second = p15_books.BOOK_IDS[:2]
+    _mark_book_window(con, first, date(2026, 9, 30))
+    _mark_book_window(con, second, date(2026, 9, 30))
+    _insert_nightly_equity(con, first, date(2026, 10, 1))
+    _insert_nightly_equity(con, second, date(2026, 10, 2))
+
+    with pytest.raises(agent_evaluation.EvaluationError, match="book evidence has orphan rows"):
+        p15_evidence_validation.validate_book_links(con, agent_evaluation.EvaluationError)
+
+
+def test_completed_latest_book_window_clears_pending_status(con):
+    _activate(con, date(2026, 9, 30))
+    book_id = p15_books.BOOK_IDS[0]
+    _mark_book_window(con, book_id, date(2026, 10, 1))
+    _insert_nightly_equity(con, book_id, date(2026, 10, 2))
+    _mark_book_window(con, book_id, date(2026, 10, 2))
+
+    assert p15_evidence_validation.validate_book_links(
+        con, agent_evaluation.EvaluationError,
+    ) == {"book_windows_pending": 0, "book_windows_pending_dates": []}
+
+
 def test_public_report_hashes_runtime_identity_but_retains_private_literal(con):
     private_runtime = "private runtime identity"
     agent_evaluation.init_schema(con)
@@ -343,6 +402,7 @@ def test_all_p15_label_validation_survives_unchanged_nightly_refetch(
         assert agent_evaluation.validate_p15_evidence(con, generated_at) == {
             "labels_source_revised": 0, "labels_source_revised_ids": [],
             "labels_source_unverifiable": 0, "labels_source_unverifiable_ids": [],
+            "book_windows_pending": 0, "book_windows_pending_dates": [],
         }
     output, p15_output = tmp_path / "report.json", tmp_path / "p15.md"
     assert agent_evaluation_reporting.main([

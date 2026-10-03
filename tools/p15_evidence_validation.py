@@ -200,7 +200,7 @@ def validate_preopen(con: duckdb.DuckDBPyConnection, generated_at: datetime, err
             raise error_type(f"P15 cancelled intent {intent_id} evidence differs")
 
 
-def validate_book_links(con: duckdb.DuckDBPyConnection, error_type) -> None:
+def validate_book_links(con: duckdb.DuckDBPyConnection, error_type) -> dict:
     missing = con.execute(
         "SELECT (SELECT COUNT(*) FROM sim_fills f LEFT JOIN p15_book_fills p "
         "ON p.order_id=f.order_id WHERE f.portfolio_id IN "
@@ -209,14 +209,31 @@ def validate_book_links(con: duckdb.DuckDBPyConnection, error_type) -> None:
         "ON i.sim_order_id=o.id WHERE o.portfolio_id IN "
         "('p15_ai_ranked','p15_rule_control','p15_hybrid_veto') AND i.id IS NULL)+"
         "(SELECT COUNT(*) FROM p15_book_fills f LEFT JOIN p15_order_intents i "
-        "ON i.id=f.intent_id WHERE i.id IS NULL)+"
-        "(SELECT COUNT(*) FROM sim_equity e LEFT JOIN p15_book_windows w "
-        "ON w.portfolio_id=e.portfolio_id AND w.market_date=e.date WHERE e.portfolio_id IN "
-        "('p15_ai_ranked','p15_rule_control','p15_hybrid_veto') AND w.portfolio_id IS NULL "
-        "AND e.date<>(SELECT MIN(e2.date) FROM sim_equity e2 WHERE e2.portfolio_id=e.portfolio_id))"
+        "ON i.id=f.intent_id WHERE i.id IS NULL)"
     ).fetchone()[0]
     if missing:
         raise error_type("P15 book evidence has orphan rows")
+    missing_windows = con.execute(
+        "SELECT e.portfolio_id,e.date,"
+        "(SELECT MAX(w2.market_date) FROM p15_book_windows w2 "
+        "WHERE w2.portfolio_id=e.portfolio_id),"
+        "(SELECT MAX(e2.date) FROM sim_equity e2 WHERE e2.portfolio_id=e.portfolio_id) "
+        "FROM sim_equity e LEFT JOIN p15_book_windows w "
+        "ON w.portfolio_id=e.portfolio_id AND w.market_date=e.date WHERE e.portfolio_id IN "
+        "('p15_ai_ranked','p15_rule_control','p15_hybrid_veto') AND w.portfolio_id IS NULL "
+        "AND e.date<>(SELECT MIN(e3.date) FROM sim_equity e3 "
+        "WHERE e3.portfolio_id=e.portfolio_id) ORDER BY e.portfolio_id,e.date"
+    ).fetchall()
+    pending_dates = set()
+    for _portfolio_id, equity_date, latest_window, latest_equity in missing_windows:
+        if (latest_window is None or equity_date <= latest_window
+                or equity_date != latest_equity):
+            raise error_type("P15 book evidence has orphan rows")
+        pending_dates.add(equity_date)
+    if len(pending_dates) > 1:
+        raise error_type("P15 book evidence has orphan rows")
+    dates = [item.isoformat() for item in sorted(pending_dates)]
+    return {"book_windows_pending": len(dates), "book_windows_pending_dates": dates}
 
 
 _FACT_COLUMNS = (
