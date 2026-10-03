@@ -99,7 +99,7 @@ def _companyfacts() -> bytes:
                 },
                 "Assets": {"units": {"USD": [{
                     "end": "2025-12-31", "val": 500, "accn": UNMATCHED,
-                    "fy": 2025, "fp": "Q1", "form": "10-Q", "filed": "2026-01-11",
+                    "fy": 1215, "fp": "Q1", "form": "10-Q", "filed": "2026-01-11",
                 }]}},
                 "InventoryNet": {"units": {"USD": [{
                     "end": "2025-12-31", "val": 5, "accn": FIRST,
@@ -115,7 +115,10 @@ def test_recorded_zips_keep_restatements_and_enforce_point_in_time(tmp_path: Pat
     submissions = _write(tmp_path / "submissions.zip", _zip({
         CIK_NAME: _main_submissions(), "CIK0000002000.json": _empty_submissions(),
     }))
-    facts = _write(tmp_path / "companyfacts.zip", _zip({CIK_NAME: _companyfacts()}))
+    facts = _write(tmp_path / "companyfacts.zip", _zip({
+        CIK_NAME: _companyfacts(), "CIK0000003000.json": b"{}",
+        "CIK0000004000.json": b'{"entityName":"No redundant CIK","facts":{}}',
+    }))
     page = _write(tmp_path / "old.json", _old_submissions())
     con = duckdb.connect()
     try:
@@ -151,9 +154,9 @@ def test_recorded_zips_keep_restatements_and_enforce_point_in_time(tmp_path: Pat
             ["2026-01-12T04:59:59Z"],
         ).fetchone()[0] == 0
         assert con.execute(
-            "SELECT value FROM sec_fundamentals_asof(?) WHERE concept='total_assets'",
+            "SELECT value,fy FROM sec_fundamentals_asof(?) WHERE concept='total_assets'",
             ["2026-01-12T05:00:00Z"],
-        ).fetchone()[0] == 500.0
+        ).fetchone() == (500.0, None)
     finally:
         con.close()
 

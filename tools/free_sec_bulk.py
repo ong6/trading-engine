@@ -333,6 +333,9 @@ def render_audit(result: dict) -> str:
         "timezone-aware SEC acceptance timestamp; unmatched accessions become available only",
         "at the end of their filing date in America/New_York. Restated accessions remain",
         "separate source rows. Tickers come from the read-only `free_cik_ticker_history` view.", "",
+        f"The isolated store contains {result['facts_rows']:,} facts across "
+        f"{result['companies']:,} distinct companies and {result['earnings_events']:,} "
+        "item 2.02 earnings events.", "",
         "Tag fallbacks, in priority order, are:", "",
     ]
     for concept, tags in free_sec_bulk.CONCEPT_TAGS.items():
