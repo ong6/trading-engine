@@ -1825,4 +1825,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged; new farm/test code only; budget passes. Large-scale memory unmeasured.
 - **Next:** publish the branch and verify full Linux CI before closing P19.
 
+## 2026-10-03 — Verify and close the offline auditor slice
+
+- **Why:** P19 requires independent acceptance and full Linux CI before closure.
+- **What:** correct the missing plan-index link found by CI and close the offline slice.
+  Real-data adapters, revision/action tracing, visual export and production-scale performance
+  remain separate work; the evaluator and live paths are unchanged.
+- **Evidence:** `gh run view 37106130373` reports successful complete-suite jobs in UTC and
+  Asia/Singapore plus UI build; all 45 new auditor cases also pass locally.
+- **Metrics:** server/tools/product code unchanged by closure; snapshot republished with budget ok.
+- **Next:** merge the verified closure; no additional P19 implementation admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
