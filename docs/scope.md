@@ -35,6 +35,8 @@ Completed outputs from agent paper decisions (P5), the alpha experiment (P6), th
 (P10), forward agent evaluation (P11), the agent research product (P12), market-data source
 hardening (P13), and the TradingView historical archive (P14) stay in scope for operation and
 evidence but authorize no further feature growth.
+P19 admits only its offline audit sidecar, JSON/Markdown renderer and fictional example. Existing
+study identities, reports, holdout markers and running producers remain unchanged.
 P13 TradingView capture runs for research operation; Alpaca remains gated. The P14 archive runs for
 resumable current-liquid-universe daily history, isolated from operational prices and execution.
 The challenger lab's evaluation through broker-paper design workstreams (P16 W1–W8) and cleanup

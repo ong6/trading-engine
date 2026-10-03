@@ -596,3 +596,17 @@ must not mutate them, operational prices, registered files, or forward contracts
 
 **Ceiling changes.** Add a 1,800-line code-and-test allowance for P3 SEC bulk work, split into
 commits below the repository's 1,500-insertion limit.
+
+## 2026-10-03 — Start the offline market-data auditor
+
+**Verdict.** The owner directed the agent to review the market-data auditor handoff and start
+working on it, set a goal and complete it, with subagents permitted. The orchestrator resolved
+the technical scope to the smallest offline slice in P19 after checking the current baseline.
+
+**Rule changes.** P19 is active for independent-reference coverage, explicit unknown evidence,
+a separate JSON/Markdown sidecar and a fictional native-evaluator omission demonstration.
+It does not alter existing evaluator behavior, identities, reports, holdouts, producers or data.
+Real-data integration and visual/hosted product work remain outside this slice.
+
+**Budget.** P19 allows 1,800 farm lines, 1,200 test lines, 600 documentation lines and five logical
+implementation commits, each below the existing 1,500-insertion cap.
