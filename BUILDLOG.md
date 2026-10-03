@@ -1744,4 +1744,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server unchanged; tools +49; product +554 lines; budget ok.
 - **Next:** nothing admitted; keep the archive out of research and continue existing P3 capture.
 
+## 2026-10-03 — Issue P15 registration revision 10
+
+- **Why:** the orchestrator-directed revision 10; the pre-fix reproduction rejected the latest
+  2026-10-02 nightly book-equity row as `P15 book evidence has orphan rows`.
+- **What:** treat exactly one latest equity date after each book's processed window as pending;
+  keep older gaps and multiple pending dates fatal. Surface the pending count and dates in the
+  report and status API, rebind the registered closure, and update the P15/P16 progress rows.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 --dist loadfile` passes at 100%.
+- **Metrics:** server +6, tools +17, product unchanged; budget ok.
+- **Next:** resume P16 W9b.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
