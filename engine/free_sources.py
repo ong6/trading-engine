@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 import csv
+import fcntl
 import hashlib
 import io
 import json
 import math
 import os
 import re
+import stat
+import time
 import zipfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -33,10 +36,67 @@ MAX_UNCOMPRESSED_BYTES = 128_000_000
 MAX_RESPONSE_BYTES = 32_000_000
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 MASSIVE_TICKER = re.compile(r"^[A-Z0-9][A-Za-z0-9./^-]{0,31}$")  # lowercase marks preferreds/warrants
+MASSIVE_RATE_LOCK = Path.home() / ".local/state/massive-rate.lock"
+MASSIVE_RATE_INTERVAL_SECONDS = 13.0
 
 
 class FreeSourceError(ValueError):
     """A free-source response or local artifact violates the Phase 0 contract."""
+
+
+def wait_for_massive_rate_limit(
+    *, lock_path: Path = MASSIVE_RATE_LOCK,
+    interval_seconds: float = MASSIVE_RATE_INTERVAL_SECONDS,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+    check: Callable[[], None] | None = None,
+) -> float:
+    """Reserve one key-wide Massive call, serialized across local processes.
+
+    The monotonic start time lives in the locked file. Holding the advisory lock while waiting
+    means a daily and minute process cannot both reserve the next call. A value from before a
+    reboot is safely ignored because the monotonic clock moves backwards across reboots.
+    """
+    if interval_seconds <= 0:
+        raise FreeSourceError("Massive rate interval must be positive")
+    lock_path = Path(lock_path).expanduser()
+    lock_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_CLOEXEC", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is None:
+        raise FreeSourceError("secure Massive rate-lock opening is unavailable")
+    try:
+        descriptor = os.open(lock_path, flags | nofollow, 0o600)
+    except OSError as exc:
+        raise FreeSourceError("Massive rate lock is unsafe or unreadable") from exc
+    try:
+        info = os.fstat(descriptor)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or stat.S_IMODE(info.st_mode) != 0o600):
+            raise FreeSourceError("Massive rate lock must be an owner-only regular file")
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        raw = os.read(descriptor, 128)
+        try:
+            last_started = float(raw.decode("ascii").strip()) if raw else None
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise FreeSourceError("Massive rate-lock timestamp is invalid") from exc
+        current = clock()
+        if last_started is not None and last_started <= current:
+            remaining = interval_seconds - (current - last_started)
+            if remaining > 0:
+                sleep(remaining)
+        if check is not None:
+            check()
+        started = clock()
+        body = f"{started:.9f}\n".encode("ascii")
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        os.ftruncate(descriptor, 0)
+        os.write(descriptor, body)
+        os.fsync(descriptor)
+        return started
+    finally:
+        os.close(descriptor)
 
 
 def _configured_path(environ: Mapping[str, str], name: str, default: Path) -> Path:

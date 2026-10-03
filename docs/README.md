@@ -110,6 +110,8 @@ Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](sit
 - [`sec-free-audit-2026-10-01.md`](sec-free-audit-2026-10-01.md) — P3 Phase 0 Form 25 and insider
   coverage against the Tiingo master and a consistent operational-store copy, with explicit
   filing-date availability and symbol-quality limits.
+- [`frozen-archive-census-2026-10-02.md`](frozen-archive-census-2026-10-02.md) — P3's census of
+  the 2017 frozen Kaggle archive; its delisted-name gate failed, so no price rows were ingested.
 - [`sec-bulk-audit-2026-10-02.md`](sec-bulk-audit-2026-10-02.md) — P3 nightly Companyfacts and
   Submissions coverage, ordered fundamental-tag fallbacks, ticker matching, and earnings-date
   overlap under the filing-acceptance availability rule.

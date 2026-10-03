@@ -48,6 +48,28 @@ idempotent reload, key refusal, pacing, and date-level resume; and Massive was r
 unrun. The audit records that free sources cannot recover pre-2024-10 prices for delisted names or
 delisting returns. The live capture below is a follow-up to that completed checkpoint.
 
+## Phase 0 part 5: frozen Kaggle archive census — complete 2026-10-02
+
+The anonymous 2017 Kaggle ZIP was downloaded once in a permitted window and retained by content
+hash outside Git. `engine/free_frozen_archive.py` and its tool perform an offline structural census,
+retain per-ticker endpoints in a host-only JSON result, flag gap/price-discontinuity identity risk,
+check ten known splits, and compare a deterministic year-stratified sample against the Tiingo
+listing intervals and SEC Form 25 notices. No running producer, operational table, or forward
+record is touched.
+
+The frozen rule admitted a loader only if at least 30% of sampled ended intervals matched both
+endpoints within ±5 sessions. Only 1 of 247 (0.405%) did. Just 10 of 8,507 populated archive
+tickers ended more than 30 sessions before the 2017-11-10 archive boundary, while 8,025 end exactly
+on that boundary. The archive is a current-at-cutoff survivor snapshot, not a useful delisted-name
+backfill. It is also split/dividend-adjusted current-vintage data without an action ledger.
+
+**Outcome.** [`../frozen-archive-census-2026-10-02.md`](../frozen-archive-census-2026-10-02.md)
+records `skip`; the conditional interval-keyed loader did not activate, zero rows were loaded, and
+`frozen-archive.duckdb` was not created. The raw ZIP and full per-ticker census remain host-only.
+
+**Budget.** One logical commit under the repository's 1,500-insertion limit, confined to the three
+named `free_frozen_archive` files and P3 documentation.
+
 **Budget.** Up to 1,200 new code-and-test lines across P3's claimed `free_*` files, split into
 reviewable commits below the repository's 1,500-line limit. No dependency, service, timer,
 endpoint, operational migration, or tracked raw-data file is added.
@@ -127,6 +149,40 @@ the 5% rejection ceiling. `free_daily_bars.volume` accepts fractional-share volu
 validator accepts lowercase preferred-share and warrant suffixes. The response envelope remains
 fail-closed, raw responses remain private, and the isolated database still has no operational-price
 or execution authority.
+
+## Phase 0 part 4: Massive small-stock minute capture — active 2026-10-02
+
+The free minute lane is isolated in `massive-minute.duckdb` and a private content-addressed raw
+cache. Its frozen manifest contains SPY, QQQ, IWM, and every exact ticker that was a Tiingo-admitted
+USD Stock on a session when its grouped-daily MDV60 was between USD 1M and USD 5M. MDV60 uses the
+existing point-in-time rule: the preceding 60 NYSE sessions, excluding the as-of session. The live
+manifest contains 3,302 tickers, including 575 names that actually traded in the private holdout;
+private names and results remain host-only.
+
+The 2024-10-03 through 2026-10-01 window has ten chunks per ticker, each spanning at most 50 NYSE
+sessions. Massive documents stock extended hours as 04:00--20:00 New York, so a fully populated
+chunk has at most 48,000 minute bars under the endpoint's 50,000-result limit; `next_url` is still
+validated and followed. The lower-bound request estimate is 33,020 calls: 110.1 continuous hours
+at five calls per minute, or about 7.8 days after the registered no-call windows. The service
+therefore visits the benchmarks first, then holdout-traded names, then all remaining names by tier
+frequency.
+
+Every Massive request, including grouped daily, reserves the same owner-only file lock and
+monotonic timestamp and stays at least 13 seconds behind the previous process. The minute service
+also yields around the two already-deployed daily starts until the shared implementation reaches
+that producer. Per-(ticker, chunk) receipts retain every page by SHA-256, resume at the saved
+pagination URL, and mark a chunk loaded transactionally. New York timestamps tag bars as `pre`,
+`regular`, or `post` using the NYSE calendar and early closes. Neither the database, manifest, raw
+responses, nor the private priority input enters Git.
+
+**Done when.** Fixture tests prove pagination, holiday and early-close tagging, two-process pacing,
+resume, no-call refusal, secure key handling, and the existing daily caller's shared reservation;
+the full suite and Ruff pass; `p3/massive-minute` is pushed; and the transient user service is
+started with `KillMode=process` and its private log under `~/.local/state/`.
+
+**Budget.** Up to 1,200 code-and-test lines in `engine/free_massive_minute.py`,
+`tools/free_massive_minute.py`, `tests/test_free_massive_minute.py`, and the shared limiter
+integration. Each logical commit remains below 1,500 inserted non-data lines.
 
 ## Phase 0 part 2: free SEC history — complete 2026-10-01
 
