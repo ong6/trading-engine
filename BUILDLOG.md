@@ -1814,4 +1814,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server unchanged; tools +20; product +73 lines; budget ok.
 - **Next:** nothing admitted; paid P3 data remains spend-blocked.
 
+## 2026-10-03 — Implement the offline market-data auditor
+
+- **Why:** owner-directed P19 adds independent coverage measurement required by the backtest standard.
+- **What:** typed raw snapshots and frozen NYSE rules retain omitted securities, uncertain reference
+  eligibility, unavailable inputs and complete finding totals. Separate JSON/Markdown reports and
+  a fictional native-evaluator example expose a positive-to-negative result reversal.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -o addopts='' tests/test_study_*.py tests/test_operating_contract.py`
+  → 123 passed; the runnable diagnostic independently reproduces +0.9740742% vs -2.0510404%.
+- **Metrics:** server/tools unchanged; new farm/test code only; budget passes. Large-scale memory unmeasured.
+- **Next:** publish the branch and verify full Linux CI before closing P19.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

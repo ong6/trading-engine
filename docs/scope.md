@@ -73,6 +73,9 @@ solely for an admitted provider whose automated non-display terms were explicitl
 Agents append one line here instead of building. The owner promotes a line to a plan or
 deletes it.
 
+- 2026-10-03 · **Raw panel duplicate detection**: a same-chunk duplicate ticker/session is overwritten; P19 validates raw audit inputs, while a separate evaluator fix remains outside P19.
+- 2026-10-03 · **Terminal-zero price cross-check**: the positive-price comparison rejects a zero terminal exit; P19 preserves native zero-loss outcome evidence, while a separate cross-check change remains outside P19.
+
 - 2026-10-02 · **Live paper book for separately held research strategies**: plan a generic,
   paper-only path from the shared backtest core into a real-time simulator book without publishing
   strategy content. This owner direction still needs a separately approved implementation plan.
