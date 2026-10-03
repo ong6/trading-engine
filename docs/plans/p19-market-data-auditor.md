@@ -1,7 +1,7 @@
 ---
 plan: P19
 title: Offline market-data auditor
-status: active
+status: done
 opened: 2026-10-03
 owner_decision: Owner directed review and work on the auditor handoff on 2026-10-03; offline implementation scope recorded below
 ---
@@ -163,7 +163,7 @@ existing study artifacts remain independently readable.
 - M0: complete; two independent read-only reviewers confirmed seams and fictional arithmetic.
 - M1–M3: complete; typed raw snapshots, independent coverage, separate JSON/Markdown and native demo integrated.
 - M4: excluded from this first slice.
-- M5: independent review cleared; publication and final Linux CI pending.
+- M5: complete; independent review cleared, pushed implementation verified by full Linux CI in both timezones and UI build. Final closure documentation follows the same checks before merge.
 
 ### Verified implementation evidence (2026-10-03)
 
@@ -177,7 +177,7 @@ existing study artifacts remain independently readable.
 - A complete local full-suite run before auditor code was added had 179 failures across 4,358
   cached test nodes. That run already included the new plan; its missing documentation-index
   entry was corrected after CI identified it. Linux-specific descriptor/service checks and
-  Python 3.14 differences prevent a local green claim; final Linux CI is required.
+  Python 3.14 differences prevent a local green claim; full Linux CI is the suite authority.
 - Bounded synthetic profile: 300 securities × 71 input sessions (21,300 raw rows), ten decision
   sessions, 3,000 examined members, supported and zero findings. On 12 logical ARM64 CPUs/macOS,
   Python 3.14.8: snapshot construction/hashing 0.306 seconds; audit 1.183 seconds; no increase in
@@ -189,5 +189,10 @@ existing study artifacts remain independently readable.
   all auditor tests passed. The missing P19 link in `docs/README.md` was added. The orchestrator
   expanded the logical-commit budget by one for this required index correction and final closure;
   code, test and documentation line budgets are unchanged.
+
+- Full Linux/Python 3.12 CI [run 37106130373](https://github.com/ong6/trading-engine/actions/runs/37106130373)
+  passes at implementation commit `6a4f10e`: complete suite in UTC and Asia/Singapore, dependency
+  audit, wheel build, lint, compilation and UI build. Closure documentation is verified on its
+  own final head before merge; this completed plan admits no real-data or visual follow-up.
 
 <!-- sources: farm/study/data.py, farm/study/universe.py, farm/study/panel.py, farm/study/simulate.py, farm/study/report.py, tools/free_source_audit.py, docs/backtest-standard.md -->
