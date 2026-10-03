@@ -22,6 +22,7 @@ from sim import nyse
 MAX_RAW_BYTES = 512_000_000
 MAX_EXPANDED_BYTES = 2_000_000_000
 FOOTER_TIMESTAMP = re.compile(r"^(\d{8})(\d{6})$")
+SYMBOL_PUNCTUATION = re.compile(r"[^A-Za-z0-9]")
 
 
 def _utc(value: datetime) -> datetime:
@@ -72,6 +73,13 @@ def _text(raw: object, field: str, *, optional: bool = False) -> str | None:
     if not value or len(value) > 4096 or not value.isprintable():
         raise FreeSourceError(f"invalid {field}")
     return value
+
+
+def normalize_symbol(symbol: str) -> str:
+    """Return the comparison key used only for unique, date-valid ticker joins."""
+    if not isinstance(symbol, str):
+        raise FreeSourceError("symbol must be text")
+    return SYMBOL_PUNCTUATION.sub("", symbol).upper()
 
 
 def finra_publication_date(settlement_date: date) -> date:
@@ -389,6 +397,13 @@ def map_tickers(short_database: Path, reference_database: Path) -> dict:
         init_schema(con)
         escaped = str(reference_database).replace("'", "''")
         con.execute(f"ATTACH '{escaped}' AS reference (READ_ONLY)")
+        con.execute("""UPDATE short_ticker_map SET match_basis='company_tickers_asof'
+            WHERE match_basis='company_tickers_normalized'""")
+        con.execute("""UPDATE short_ticker_map AS target SET mapped_ticker=NULL,
+              collision=FALSE,match_basis='unmatched'
+            FROM sec_fails_to_deliver s WHERE target.dataset='sec_fails_to_deliver'
+              AND target.source_sha256=s.source_sha256 AND target.source_row=s.source_row
+              AND upper(regexp_replace(COALESCE(s.symbol,''),'[^A-Za-z0-9]','','g'))=''""")
         con.execute("""CREATE OR REPLACE TEMP VIEW _short_observations AS
             SELECT 'finra_short_interest' dataset,source_sha256,source_row,symbol,
               settlement_date measurement_date FROM finra_short_interest s WHERE NOT EXISTS (
@@ -414,9 +429,11 @@ def map_tickers(short_database: Path, reference_database: Path) -> dict:
                     COUNT(DISTINCT h.cik) AS cik_matches
                   FROM _short_observations o
                   LEFT JOIN _latest_master m ON m.ticker=o.symbol
+                    AND regexp_matches(COALESCE(o.symbol,''),'[A-Za-z0-9]')
                     AND m.start_date<=o.measurement_date
                     AND (m.end_date IS NULL OR m.end_date>=o.measurement_date)
                   LEFT JOIN reference.free_cik_ticker_history h ON h.ticker=o.symbol
+                    AND regexp_matches(COALESCE(o.symbol,''),'[A-Za-z0-9]')
                     AND h.first_seen<=o.measurement_date AND h.last_seen>=o.measurement_date
                   GROUP BY o.dataset,o.source_sha256,o.source_row,o.symbol)
                 SELECT dataset,source_sha256,source_row,
@@ -426,6 +443,74 @@ def map_tickers(short_database: Path, reference_database: Path) -> dict:
                        WHEN tiingo_matches>0 THEN 'tiingo'
                        WHEN cik_matches>0 THEN 'cik' ELSE 'unmatched' END
                 FROM matches""")
+            con.execute("""CREATE OR REPLACE TEMP VIEW _unmatched_observations AS
+                SELECT 'finra_short_interest' dataset,s.source_sha256,s.source_row,s.symbol,
+                  s.settlement_date measurement_date FROM finra_short_interest s
+                JOIN short_ticker_map x ON x.dataset='finra_short_interest'
+                  AND x.source_sha256=s.source_sha256 AND x.source_row=s.source_row
+                WHERE x.mapped_ticker IS NULL AND s.symbol IS NOT NULL
+                  AND regexp_matches(s.symbol,'[A-Za-z0-9]')
+                UNION ALL
+                SELECT 'sec_fails_to_deliver',s.source_sha256,s.source_row,s.symbol,
+                  s.settlement_date FROM sec_fails_to_deliver s
+                JOIN short_ticker_map x ON x.dataset='sec_fails_to_deliver'
+                  AND x.source_sha256=s.source_sha256 AND x.source_row=s.source_row
+                WHERE x.mapped_ticker IS NULL AND s.symbol IS NOT NULL
+                  AND regexp_matches(s.symbol,'[A-Za-z0-9]')
+                UNION ALL
+                SELECT 'regsho_threshold',s.source_sha256,s.source_row,s.symbol,s.trade_date
+                FROM regsho_threshold s JOIN short_ticker_map x
+                  ON x.dataset='regsho_threshold' AND x.source_sha256=s.source_sha256
+                  AND x.source_row=s.source_row
+                WHERE x.mapped_ticker IS NULL
+                  AND regexp_matches(s.symbol,'[A-Za-z0-9]')""")
+            con.execute("""CREATE OR REPLACE TEMP VIEW _normalized_master AS
+                SELECT upper(regexp_replace(ticker,'[^A-Za-z0-9]','','g')) symbol_key,
+                  ticker,source_row,start_date,
+                  COALESCE(end_date,DATE '9999-12-31') end_date
+                FROM _latest_master""")
+            con.execute("""CREATE OR REPLACE TEMP VIEW _normalized_cik AS
+                SELECT upper(regexp_replace(ticker,'[^A-Za-z0-9]','','g')) symbol_key,
+                  ticker,cik,first_seen,last_seen
+                FROM reference.free_cik_ticker_history
+                WHERE source='insider_submissions'""")
+            con.execute("""CREATE OR REPLACE TEMP VIEW _normalized_company_tickers AS
+                SELECT upper(regexp_replace(ticker,'[^A-Za-z0-9]','','g')) symbol_key,
+                  ticker,cik,snapshot_date FROM reference.free_company_tickers""")
+            con.execute("""UPDATE short_ticker_map AS target SET
+                  mapped_ticker=matched.mapped_ticker,
+                  collision=matched.tiingo_matches>1 OR matched.cik_matches>1
+                    OR matched.company_matches>1,
+                  match_basis=CASE
+                    WHEN matched.tiingo_matches>0
+                      AND matched.cik_matches+matched.company_matches>0
+                      THEN 'tiingo+cik_normalized'
+                    WHEN matched.tiingo_matches>0 THEN 'tiingo_normalized'
+                    WHEN matched.cik_matches>0 THEN 'cik_normalized'
+                    ELSE 'company_tickers_asof' END
+                FROM (
+                  SELECT o.dataset,o.source_sha256,o.source_row,
+                    CASE WHEN COUNT(DISTINCT m.source_row)>0 THEN MIN(m.ticker)
+                         ELSE o.symbol END mapped_ticker,
+                    COUNT(DISTINCT m.source_row) tiingo_matches,
+                    COUNT(DISTINCT h.cik) cik_matches,
+                    COUNT(DISTINCT c.cik) company_matches
+                  FROM _unmatched_observations o
+                  LEFT JOIN _normalized_master m
+                    ON m.symbol_key=upper(regexp_replace(o.symbol,'[^A-Za-z0-9]','','g'))
+                    AND o.measurement_date BETWEEN m.start_date AND m.end_date
+                  LEFT JOIN _normalized_cik h
+                    ON h.symbol_key=upper(regexp_replace(o.symbol,'[^A-Za-z0-9]','','g'))
+                    AND o.measurement_date BETWEEN h.first_seen AND h.last_seen
+                  LEFT JOIN _normalized_company_tickers c
+                    ON c.symbol_key=upper(regexp_replace(o.symbol,'[^A-Za-z0-9]','','g'))
+                    AND c.snapshot_date<=o.measurement_date
+                  GROUP BY o.dataset,o.source_sha256,o.source_row,o.symbol
+                  HAVING COUNT(DISTINCT m.source_row)+COUNT(DISTINCT h.cik)
+                    +COUNT(DISTINCT c.cik)>0
+                ) matched WHERE target.dataset=matched.dataset
+                  AND target.source_sha256=matched.source_sha256
+                  AND target.source_row=matched.source_row""")
         total, matched, collisions = con.execute("""SELECT COUNT(*),
             COUNT(mapped_ticker),COUNT(*) FILTER (WHERE collision) FROM short_ticker_map""").fetchone()
         return {"total": total, "matched": matched, "collisions": collisions,

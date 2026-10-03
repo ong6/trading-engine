@@ -1761,4 +1761,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server unchanged; product +10 lines; tests +9 lines; budget ok.
 - **Next:** resume Cboe at 2026-10-03 07:00 UTC and finish the audit.
 
+## 2026-10-03 — Complete the free shorting-stress stack
+
+- **Why:** P3 Phase 0 part 5 and the orchestrator's segmented mapping-quality acceptance.
+- **What:** complete FINRA short interest, SEC FTD, and four Reg SHO archives with three clocks;
+  add publication-gated reads, resumable receipts, unique date-valid symbol normalization, and
+  an audit separating exchange U.S. Stock candidates, OTC rows, collisions, and unmatched causes.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 --dist loadfile` passes at 100%;
+  whole-repository Ruff passes and the exchange-listed U.S. Stock candidate match rate is 96.5%.
+- **Metrics:** server unchanged; tools +745, product +520 lines; budget ok.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

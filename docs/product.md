@@ -66,6 +66,12 @@ USD 1--5M point-in-time MDV60 tier in the completed grouped-daily archive. Ten 5
 per ticker produce a 33,020-request estimate; the capture is resumable, window-aware, and isolated
 from operational and execution prices.
 
+The isolated free shorting-stress archive is complete: FINRA consolidated short interest, SEC
+fails-to-deliver, and Nasdaq, NYSE, Cboe, and FINRA OTC threshold lists retain measurement,
+publication, and ingestion clocks. Unique date-valid symbol normalization raises the combined
+exchange-listed U.S. Stock candidate match rate to 96.5%; OTC, foreign, non-common,
+out-of-interval, and reused-symbol misses remain explicit and have no execution authority.
+
 [The challenger lab, text edge, and evaluation science plan
 (P16)](plans/p16-challenger-lab-and-text-edge.md) has built its evaluation through broker-paper
 design workstreams (W1–W8) and the cleanup half of activation (W9a). They remain inert. The

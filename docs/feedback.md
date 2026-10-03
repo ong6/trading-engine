@@ -597,3 +597,17 @@ prices or the distinct existing daily short-sale-volume implementation.
 
 **Ceiling changes.** Add a 1,500-line code-and-test allowance for the three short-data files.
 Repository-wide per-layer limits remain removed.
+
+## 2026-10-03 — Require segmented short-data mapping quality
+
+**Verdict.** The orchestrator required unmatched rows to be measured by source and cause, with
+exchange-listed U.S. common-stock candidates separated from OTC data and a 90% target for the
+backtest-relevant segment.
+
+**Rule changes.** P3 Phase 0 part 5 may uniquely normalize symbol punctuation only when Tiingo,
+SEC insider history, or the current SEC company-ticker snapshot identifies the security on the
+observation date. Out-of-interval and reused identities remain unmatched. The audit reports the
+before/after rate, collisions, OTC coverage, and remaining cause counts for every source.
+
+**Ceiling changes.** Raise the part 5 code-and-test allowance from 1,500 to 1,700 lines for the
+orchestrator-requested diagnosis, normalized mapper, audit segmentation, and fixtures.

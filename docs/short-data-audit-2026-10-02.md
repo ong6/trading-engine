@@ -6,18 +6,15 @@ All raw responses are held outside Git in a content-addressed owner-only cache.
 The isolated database records measurement, official publication, and ingestion
 clocks. `short_data_asof(as_of)` excludes rows before publication. Exact symbols
 are matched on observation date against the read-only Tiingo listing intervals and
-SEC CIK/ticker history; ambiguous reference intervals are flagged, not guessed.
-
-This is checkpoint `shorts-3`: FINRA short interest, SEC FTD, FINRA OTC,
-Nasdaq, and NYSE are complete. Cboe is resumable through 2016-09-02 and will
-resume after the 05:45--07:00 UTC network blackout. The final audit replaces
-this note after that capture finishes.
+SEC insider CIK/ticker history. The current SEC company-ticker snapshot is used only
+on or after its snapshot date. Unique normalized punctuation variants are mapped on
+the same date; ambiguous or out-of-interval identities remain flagged or unmatched.
 
 ## Overall ranges
 
 | Source | First date | Last date | Rows |
 |---|---|---|---:|
-| Cboe | 2014-09-02 | 2016-09-02 | 1,062 |
+| Cboe | 2014-09-02 | 2026-10-01 | 22,976 |
 | FINRA OTC | 2016-01-04 | 2026-10-01 | 61,236 |
 | FINRA short interest | 2014-11-14 | 2026-09-15 | 4,200,011 |
 | NYSE | 2008-10-14 | 2026-10-02 | 178,547 |
@@ -30,7 +27,17 @@ this note after that capture finishes.
 |---|---:|---:|---:|
 | Cboe | 2014 | 181 | 80 |
 | Cboe | 2015 | 391 | 196 |
-| Cboe | 2016 | 490 | 158 |
+| Cboe | 2016 | 771 | 240 |
+| Cboe | 2017 | 843 | 234 |
+| Cboe | 2018 | 776 | 240 |
+| Cboe | 2019 | 1,507 | 252 |
+| Cboe | 2020 | 3,082 | 253 |
+| Cboe | 2021 | 1,660 | 252 |
+| Cboe | 2022 | 2,142 | 251 |
+| Cboe | 2023 | 1,511 | 250 |
+| Cboe | 2024 | 1,656 | 252 |
+| Cboe | 2025 | 2,855 | 250 |
+| Cboe | 2026 | 5,601 | 188 |
 | FINRA OTC | 2016 | 7,146 | 250 |
 | FINRA OTC | 2017 | 6,486 | 249 |
 | FINRA OTC | 2018 | 8,398 | 250 |
@@ -124,9 +131,90 @@ this note after that capture finishes.
 
 | Dataset | Rows | Matched | Match rate | Collisions |
 |---|---:|---:|---:|---:|
-| finra_short_interest | 4,200,011 | 1,249,143 | 29.7% | 7,185 |
-| regsho_threshold | 609,553 | 172,419 | 28.3% | 564 |
-| sec_fails_to_deliver | 28,089,776 | 14,527,444 | 51.7% | 105,560 |
+| finra_short_interest | 4,200,011 | 1,279,384 | 30.5% | 8,338 |
+| regsho_threshold | 631,467 | 174,392 | 27.6% | 564 |
+| sec_fails_to_deliver | 28,089,776 | 14,660,501 | 52.2% | 109,462 |
+
+### Match quality by source and segment
+
+An `exchange_us_stock_candidate` is a non-OTC source row whose normalized symbol
+appears in Tiingo's USD U.S. Stock master in at least one listing interval. A match
+still requires a unique Tiingo, SEC insider-history, or current company-ticker
+identity valid on the observation date. Thus the denominator includes reused and
+out-of-interval symbols rather than defining success by the match itself.
+
+| Source | Segment | Rows | Before normalization | After normalization | Collisions |
+|---|---|---:|---:|---:|---:|
+| Cboe | exchange_other_or_outside_master | 21,068 | 0.0% | 0.0% | 0 |
+| Cboe | exchange_us_stock_candidate | 1,908 | 75.6% | 75.6% | 0 |
+| FINRA OTC | otc | 61,236 | 7.1% | 7.2% | 12 |
+| FINRA short interest | exchange_other_or_outside_master | 831,422 | 16.9% | 17.0% | 184 |
+| FINRA short interest | exchange_us_stock_candidate | 1,032,683 | 95.7% | 98.6% | 7,704 |
+| FINRA short interest | otc | 2,335,906 | 5.1% | 5.2% | 450 |
+| NYSE | exchange_other_or_outside_master | 164,673 | 4.2% | 4.2% | 12 |
+| NYSE | exchange_us_stock_candidate | 13,874 | 79.4% | 81.3% | 126 |
+| Nasdaq | exchange_other_or_outside_master | 109,375 | 41.2% | 41.2% | 95 |
+| Nasdaq | exchange_us_stock_candidate | 82,603 | 94.4% | 94.4% | 317 |
+| Nasdaq | otc | 176,730 | 15.4% | 15.4% | 2 |
+| SEC FTD | cusip_only | 2,359 | 0.0% | 0.0% | 0 |
+| SEC FTD | exchange_us_stock_candidate | 11,187,437 | 95.2% | 96.3% | 94,571 |
+| SEC FTD | foreign_cins | 289,664 | 18.6% | 18.6% | 927 |
+| SEC FTD | otc | 5,883,127 | 19.7% | 19.7% | 924 |
+| SEC FTD | unclassified_ftd | 10,727,189 | 24.8% | 24.9% | 13,040 |
+
+The combined exchange-listed U.S. Stock candidate match rate is 96.5% (11,884,845/12,318,505), above the 90% target.
+Per-source shortfalls remain: Cboe 75.6% (1,443/1,908); NYSE 81.3% (11,273/13,874). Their remaining candidate misses have a
+Tiingo symbol only outside the observation-date interval or a reused/ambiguous key;
+using a current identity would introduce look-ahead, so they remain unmatched.
+
+### Defensible mappings added
+
+| Source | Reference basis | Rows |
+|---|---|---:|
+| Cboe | cik_normalized | 6 |
+| FINRA OTC | cik_normalized | 48 |
+| FINRA short interest | cik_normalized | 498 |
+| FINRA short interest | tiingo+cik_normalized | 834 |
+| FINRA short interest | tiingo_normalized | 28,909 |
+| NYSE | cik_normalized | 20 |
+| NYSE | company_tickers_asof | 4 |
+| NYSE | tiingo+cik_normalized | 24 |
+| NYSE | tiingo_normalized | 229 |
+| Nasdaq | cik_normalized | 121 |
+| Nasdaq | tiingo_normalized | 77 |
+| SEC FTD | cik_normalized | 10,064 |
+| SEC FTD | tiingo+cik_normalized | 4,685 |
+| SEC FTD | tiingo_normalized | 118,308 |
+
+### Remaining unmatched rows by cause
+
+| Source | Segment | Cause | Rows |
+|---|---|---|---:|
+| Cboe | exchange_other_or_outside_master | exchange_noncommon_or_outside_master | 21,061 |
+| Cboe | exchange_us_stock_candidate | outside_listing_interval | 465 |
+| FINRA OTC | otc | otc_outside_us_stock_master | 56,687 |
+| FINRA OTC | otc | outside_listing_interval | 143 |
+| FINRA short interest | exchange_other_or_outside_master | exchange_noncommon_or_outside_master | 690,365 |
+| FINRA short interest | exchange_us_stock_candidate | outside_listing_interval | 13,952 |
+| FINRA short interest | exchange_us_stock_candidate | reused_or_ambiguous_ticker | 1,005 |
+| FINRA short interest | otc | otc_outside_us_stock_master | 2,209,745 |
+| FINRA short interest | otc | outside_listing_interval | 5,539 |
+| FINRA short interest | otc | reused_or_ambiguous_ticker | 21 |
+| NYSE | exchange_other_or_outside_master | exchange_noncommon_or_outside_master | 157,789 |
+| NYSE | exchange_us_stock_candidate | outside_listing_interval | 2,414 |
+| NYSE | exchange_us_stock_candidate | reused_or_ambiguous_ticker | 187 |
+| Nasdaq | exchange_other_or_outside_master | exchange_noncommon_or_outside_master | 64,258 |
+| Nasdaq | exchange_us_stock_candidate | outside_listing_interval | 4,442 |
+| Nasdaq | exchange_us_stock_candidate | reused_or_ambiguous_ticker | 170 |
+| Nasdaq | otc | otc_outside_us_stock_master | 145,215 |
+| Nasdaq | otc | outside_listing_interval | 4,226 |
+| Nasdaq | otc | reused_or_ambiguous_ticker | 18 |
+| SEC FTD | cusip_only | cusip_only | 2,359 |
+| SEC FTD | exchange_us_stock_candidate | outside_listing_interval | 384,318 |
+| SEC FTD | exchange_us_stock_candidate | reused_or_ambiguous_ticker | 26,707 |
+| SEC FTD | foreign_cins | foreign_cins | 235,821 |
+| SEC FTD | otc | otc_outside_us_stock_master | 4,725,673 |
+| SEC FTD | unclassified_ftd | unclassified_outside_masters | 8,054,397 |
 
 ## Publication lag distribution
 
@@ -151,4 +239,8 @@ quarter ends. The SEC cautions that posting can be later, so these are date-leve
 availability rules rather than intraday timestamps.
 SEC FTD is an aggregate outstanding settlement balance, not short interest and not
 a daily flow. Threshold membership is a venue list, not evidence of abusive shorting.
+Reg SHO ranges report nonempty observations. Nasdaq serves data from 2005-01-07;
+NYSE's first nonempty dated file is 2008-10-14; Cboe's official date floor is
+2014-08-20 and its first nonempty file is 2014-09-02; FINRA OTC partitions begin
+2016-01-04. Empty dated responses remain in the private receipt cache.
 CUSIPs remain only in the private raw cache and isolated local database.

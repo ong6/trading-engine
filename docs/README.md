@@ -110,6 +110,9 @@ Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](sit
 - [`sec-free-audit-2026-10-01.md`](sec-free-audit-2026-10-01.md) — P3 Phase 0 Form 25 and insider
   coverage against the Tiingo master and a consistent operational-store copy, with explicit
   filing-date availability and symbol-quality limits.
+- [`short-data-audit-2026-10-02.md`](short-data-audit-2026-10-02.md) — P3 Phase 0 FINRA short
+  interest, SEC fails-to-deliver, and four-venue Reg SHO coverage, publication lags, segmented
+  ticker match rates, collisions, and remaining unmatched causes.
 - The dated “Live decision checkpoint” in
   [`strategy-research-backlog.md`](strategy-research-backlog.md) records the latest reconciled
   counts and the next permitted action. The endpoints and generated reports supersede that
