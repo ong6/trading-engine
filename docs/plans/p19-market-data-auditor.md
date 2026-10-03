@@ -83,7 +83,8 @@ read-only dependencies. No exports in `farm/study/__init__.py` are required; use
   exact contract, snapshots and their clock/basis metadata, reference and optional outcomes,
   audit version and optional existing study identity. Reject mismatched hashes.
 - Optional native ledger evidence reports all recorded attempts, exclusions, fallback flags and
-  open positions. Missing traces are unknown. Outcome defects do not rewrite signal coverage.
+  open positions. Counts do not establish a frozen outcome-completeness policy: a required
+  outcome quality check remains unknown in this coverage slice. Outcomes do not rewrite signal coverage.
 - JSON is canonical; Markdown displays those same counts, identities, decisions and limitations.
   Semantic outputs exclude runtime/environment noise. Write atomically to a caller-owned output
   directory outside tracked `data/`; no database or network access.
@@ -92,7 +93,7 @@ read-only dependencies. No exports in `farm/study/__init__.py` are required; use
 
 Four fictional securities, 60 reference warmup sessions and one decision session, 2024-03-28.
 Every security opens at $100; two close at $102 and two at $94. Reference membership contains
-all four; two have ended intervals after evaluation. The planted omission removes the two losing
+all four; two intervals end on the evaluation date, inclusive. The planted omission removes the two losing
 names from audited data. This is labelled hindsight selection demonstrating a fault.
 
 One fixed pre-open strategy emits the same four $10,000 open-auction orders, same-session-close
@@ -147,10 +148,11 @@ verify branch push. Runtime independence is explicit; no local test establishes 
 At most 5 logical implementation commits, each below 1,500 inserted non-data lines; up to 1,800
 new farm lines, 1,200 new test lines and 600 documentation lines. No dependencies or source
 mutations. Small normal-suite fixture: four names × 61 sessions plus focused fault variants.
-After correctness, profile at most one 3,000 × 3,800 synthetic panel: target ≤60 seconds additional
-audit time and ≤256 MiB additional peak memory above already-built input panels, using streaming
-counts and bounded samples. These are proposed acceptance targets, not measured results; disclose
-a miss and optimize within scope rather than change rules. Avoid constructing a second dense panel.
+The bounded profile below establishes this diagnostic's scale only. The future real-data adapter
+checkpoint retains the proposed 3,000 × 3,800 target of ≤60 seconds additional audit time and
+≤256 MiB additional peak memory above already-built inputs. That target is unverified and is not
+a completion claim of this raw-snapshot slice: indexes scale with input rows. Do not construct a
+second dense panel or present bounded-fixture results as production-size acceptance.
 
 Main risk is false confidence in imperfect reference/clock metadata. Explicit evidence basis,
 unresolved counts and limited status address it. Remove the optional sidecar/example to roll back;
@@ -159,8 +161,28 @@ existing study artifacts remain independently readable.
 ## Progress
 
 - M0: complete; two independent read-only reviewers confirmed seams and fictional arithmetic.
-- M1–M3: implementation in progress on disjoint worktrees; root owns integration.
+- M1–M3: complete; typed raw snapshots, independent coverage, separate JSON/Markdown and native demo integrated.
 - M4: excluded from this first slice.
-- M5: pending verification and publication.
+- M5: independent review cleared; publication and final Linux CI pending.
+
+### Verified implementation evidence (2026-10-03)
+
+- `.venv/bin/python -m pytest -q -W error -o addopts='' tests/test_study_*.py tests/test_operating_contract.py`
+  → 123 passed in 12.22 seconds, including all 45 new audit/report/demo cases.
+- `.venv/bin/python -m farm.study.examples.data_audit --output-dir /tmp/market-data-audit-demo`
+  → incomplete unusable/+0.9740742%, complete supported/-2.0510404%, late input unusable.
+  `demo.md`/`demo.json` link separate case audit and unchanged native-report artifacts.
+- Whole-repository Ruff and S101 checks pass. Git diff over existing evaluator, engine,
+  simulator, server and tools files is empty against the baseline.
+- A complete local full-suite run before auditor code was added had 179 failures in the cached
+  4,358-test baseline. Linux-specific descriptor/service checks and Python 3.14 differences
+  prevent a local green claim; unchanged upstream Linux CI was green. Final Linux CI is required.
+- Bounded synthetic profile: 300 securities × 71 input sessions (21,300 raw rows), ten decision
+  sessions, 3,000 examined members, supported and zero findings. On 12 logical ARM64 CPUs/macOS,
+  Python 3.14.8: snapshot construction/hashing 0.306 seconds; audit 1.183 seconds; no increase in
+  process peak RSS after snapshot construction. This does not establish the large-shape target.
+- Fresh review reproduced and cleared premature daily-field admission, contradictory renderer
+  ratios/decisions, malformed native traces and missing totals under evidence truncation.
+  Terminal-zero losses remain valid; unavailable future fields do not change earlier classifications.
 
 <!-- sources: farm/study/data.py, farm/study/universe.py, farm/study/panel.py, farm/study/simulate.py, farm/study/report.py, tools/free_source_audit.py, docs/backtest-standard.md -->
