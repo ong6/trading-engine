@@ -1752,4 +1752,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server unchanged; product +20 lines; tests +22 lines; budget ok.
 - **Next:** resume NYSE at 2026-10-03 02:45 UTC, then capture Cboe and finish the audit.
 
+## 2026-10-03 — Complete the NYSE threshold archive
+
+- **Why:** P3 Phase 0 part 5 and the orchestrator's 02:50 UTC network-window wake-up.
+- **What:** measure NYSE's exact 2008-10-14 boundary, complete its 2008--2026 archive at the
+  accepted two-second pace, retain blank official security names, and start Cboe resumably.
+- **Evidence:** `tests/test_free_short_data.py` passes all 13 tests and whole-repository Ruff passes.
+- **Metrics:** server unchanged; product +10 lines; tests +9 lines; budget ok.
+- **Next:** resume Cboe at 2026-10-03 07:00 UTC and finish the audit.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

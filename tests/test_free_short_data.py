@@ -107,6 +107,15 @@ def test_exchange_regsho_parsers(venue, header, row, published):
     assert rows[0]["publication_date"] == published
 
 
+def test_exchange_regsho_preserves_missing_security_name():
+    rows = free_short_data.parse_regsho_text(
+        b"Symbol|Security Name|Market Category|Reg SHO Threshold Flag|Filler|Filler\n"
+        b"AHD||NYSE|Y||\n20110223000000\n",
+        venue="NYSE", trade_date=date(2011, 2, 22),
+    )
+    assert rows[0]["security_name"] is None
+
+
 def test_finra_otc_threshold_parser():
     body = json.dumps([{
         "tradeDate": "2026-10-01", "issueSymbolIdentifier": "TEST",

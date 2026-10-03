@@ -124,10 +124,11 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     con.execute("""CREATE TABLE IF NOT EXISTS regsho_threshold (
         trade_date DATE NOT NULL, publication_date DATE NOT NULL,
         ingested_at TIMESTAMPTZ NOT NULL, venue VARCHAR NOT NULL,
-        symbol VARCHAR NOT NULL, security_name VARCHAR NOT NULL,
+        symbol VARCHAR NOT NULL, security_name VARCHAR,
         market_category VARCHAR, reg_sho_flag VARCHAR, rule_4320_flag VARCHAR,
         source_sha256 VARCHAR NOT NULL, source_row BIGINT NOT NULL,
         PRIMARY KEY(source_sha256, source_row))""")
+    con.execute("ALTER TABLE regsho_threshold ALTER COLUMN security_name DROP NOT NULL")
     con.execute("""CREATE TABLE IF NOT EXISTS short_ticker_map (
         dataset VARCHAR NOT NULL, source_sha256 VARCHAR NOT NULL, source_row BIGINT NOT NULL,
         mapped_ticker VARCHAR, collision BOOLEAN NOT NULL, match_basis VARCHAR NOT NULL,
@@ -304,7 +305,7 @@ def parse_regsho_text(body: bytes, *, venue: str, trade_date: date) -> list[dict
             "source_row": source_row, "trade_date": trade_date,
             "publication_date": published, "venue": venue,
             "symbol": _text(fields[0], "Reg SHO symbol").upper(),
-            "security_name": _text(fields[1], "Reg SHO security name"),
+            "security_name": _text(fields[1], "Reg SHO security name", optional=True),
             "market_category": _text(raw.get("Market Category"), "market category", optional=True),
             "reg_sho_flag": _text(raw.get("Reg SHO Threshold Flag"), "Reg SHO flag",
                                   optional=True),
