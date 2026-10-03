@@ -351,6 +351,7 @@ def render_audit(result: dict) -> str:
         f"| {row['year']} | {row['events']:,} |" for row in result["earnings_events_by_year"]
     )
     ticker, overlap = result["ticker_match"], result["earnings_overlap"]
+    reverse = result["engine_earnings_coverage"]
     lines += [
         "", "## Mapping and overlap", "",
         f"- Combined fact/event ticker match: {ticker['matched']:,}/{ticker['total']:,} "
@@ -360,9 +361,28 @@ def render_audit(result: dict) -> str:
         f"- SEC earnings events within ±1 calendar day of an existing engine earnings date: "
         f"{overlap['matched']:,}/{overlap['total']:,} ({_percent(overlap['share'])}); "
         f"{overlap['ticker_mapped']:,} events had a ticker mapping.", "",
-        "The overlap denominator is every SEC item 2.02 event, so an unmapped CIK cannot count",
-        "as an overlap. The engine snapshot was attached read-only and was not modified.", "",
+        "That event-first percentage is a source-overlap diagnostic, not engine-calendar coverage:",
+        "its denominator includes the full 2004–2026 SEC history, while the engine table contains",
+        "current names and a recent date window.", "",
+        "### Engine-date-first coverage", "",
+        f"After deduplicating engine as-of snapshots, {reverse['eligible']:,} ticker/date pairs for",
+        f"{reverse['tickers']:,} mapped tickers fall between {reverse['first_date']} and",
+        f"{reverse['last_date']}, the intersection of the engine table and SEC Submissions capture.",
+        f"Of those engine dates, {reverse['within_1_day']:,} ({_percent(reverse['within_1_day_share'])})",
+        "have a same-ticker item 2.02 event within ±1 calendar day and",
+        f"{reverse['within_3_days']:,} ({_percent(reverse['within_3_days_share'])}) within ±3 days.", "",
+        "### Deterministic 30-row miss sample", "",
+        f"The ±3-day rule misses {reverse['misses']:,} eligible engine dates. The table classifies",
+        f"a deterministic MD5-ordered sample of {reverse['sample_size']} misses. Categories are",
+        "assigned in this order: alternate CIK/ticker mapping, nearby 8-K without a matched exact",
+        "item 2.02 event, same-ticker item 2.02 timing at ±4–7 days, another engine date within",
+        "14 days that does match, then no nearby 8-K for any mapped CIK.", "",
+        "| Reason | Sample rows |", "|---|---:|",
     ]
+    lines.extend(
+        f"| {row['reason']} | {row['count']} |" for row in reverse["sample_reasons"]
+    )
+    lines += ["", "The engine snapshot was attached read-only and was not modified.", ""]
     return "\n".join(lines)
 
 

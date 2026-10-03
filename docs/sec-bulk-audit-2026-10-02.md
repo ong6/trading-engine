@@ -82,5 +82,33 @@ Tag fallbacks, in priority order, are:
 - Fundamental ticker match: 11,398,481/12,170,777; earnings-event ticker match: 407,155/421,723.
 - SEC earnings events within ±1 calendar day of an existing engine earnings date: 2,162/421,723 (0.5%); 407,155 events had a ticker mapping.
 
-The overlap denominator is every SEC item 2.02 event, so an unmapped CIK cannot count
-as an overlap. The engine snapshot was attached read-only and was not modified.
+That event-first percentage is a source-overlap diagnostic, not engine-calendar coverage:
+its denominator includes the full 2004–2026 SEC history, while the engine table contains
+current names and a recent date window.
+
+### Engine-date-first coverage
+
+After deduplicating engine as-of snapshots, 3,649 ticker/date pairs for
+2,751 mapped tickers fall between 2026-04-22 and
+2026-10-01, the intersection of the engine table and SEC Submissions capture.
+Of those engine dates, 2,284 (62.6%)
+have a same-ticker item 2.02 event within ±1 calendar day and
+2,364 (64.8%) within ±3 days.
+
+### Deterministic 30-row miss sample
+
+The ±3-day rule misses 1,285 eligible engine dates. The table classifies
+a deterministic MD5-ordered sample of 30 misses. Categories are
+assigned in this order: alternate CIK/ticker mapping, nearby 8-K without a matched exact
+item 2.02 event, same-ticker item 2.02 timing at ±4–7 days, another engine date within
+14 days that does match, then no nearby 8-K for any mapped CIK.
+
+| Reason | Sample rows |
+|---|---:|
+| no 8-K filed within +/-3 days for a mapped CIK | 15 |
+| different CIK or ticker mapping | 9 |
+| engine earnings-date revision | 3 |
+| nearby 8-K without a matched item 2.02 event | 2 |
+| timing convention beyond +/-3 days | 1 |
+
+The engine snapshot was attached read-only and was not modified.

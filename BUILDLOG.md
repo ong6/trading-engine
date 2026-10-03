@@ -1757,4 +1757,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server unchanged; tools +3; product +10 lines; budget ok.
 - **Next:** nothing admitted; paid P3 data remains spend-blocked.
 
+## 2026-10-03 — Measure SEC coverage from the engine calendar
+
+- **Why:** the orchestrator accepted the SEC bulk work in principle but found the all-SEC-event
+  overlap denominator misleading for the engine's current-name, recent-window earnings table.
+- **What:** deduplicate engine ticker/dates inside the mapped SEC Submissions window and report
+  same-ticker item 2.02 coverage at ±1 and ±3 days. Add a deterministic 30-miss sample with five
+  aggregate reason categories and no published ticker identities; retain the event-first measure
+  only as an explicitly labelled source diagnostic.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 --dist loadfile` passes at 100%;
+  whole-repository `.venv/bin/ruff check .` reports `All checks passed!`.
+- **Metrics:** server unchanged; tools +20; product +73 lines; budget ok.
+- **Next:** nothing admitted; paid P3 data remains spend-blocked.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

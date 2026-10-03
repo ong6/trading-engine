@@ -622,6 +622,67 @@ def audit(
                     AND abs(date_diff('day',CAST(e.acceptance_datetime AS DATE),
                                       m.earnings_date))<=1))
                 FROM sec_earnings_events_with_ticker e""").fetchone()
+            con.execute("""CREATE TEMP VIEW _sec_event_dates AS
+                SELECT ticker,cik,CAST(acceptance_datetime AS DATE) AS event_date
+                FROM sec_earnings_events_with_ticker WHERE ticker IS NOT NULL""")
+            con.execute(f"""CREATE TEMP VIEW _engine_earnings_dates AS
+                SELECT ticker,earnings_date FROM market.{earnings_table} GROUP BY ALL""")
+            con.execute("""CREATE TEMP VIEW _eligible_engine_dates AS
+                SELECT d.* FROM _engine_earnings_dates d
+                WHERE d.earnings_date BETWEEN
+                    (SELECT MIN(filed) FROM sec_submission_index) AND
+                    (SELECT MAX(filed) FROM sec_submission_index)
+                  AND EXISTS (SELECT 1 FROM sec_cik_ticker_history h
+                              WHERE h.ticker=d.ticker)""")
+            reverse = con.execute("""SELECT COUNT(*),COUNT(DISTINCT ticker),
+                MIN(earnings_date),MAX(earnings_date),
+                COUNT(*) FILTER (WHERE EXISTS (
+                  SELECT 1 FROM _sec_event_dates e WHERE e.ticker=d.ticker
+                    AND abs(date_diff('day',d.earnings_date,e.event_date))<=1)),
+                COUNT(*) FILTER (WHERE EXISTS (
+                  SELECT 1 FROM _sec_event_dates e WHERE e.ticker=d.ticker
+                    AND abs(date_diff('day',d.earnings_date,e.event_date))<=3))
+                FROM _eligible_engine_dates d""").fetchone()
+            con.execute("""CREATE TEMP TABLE _engine_miss_sample AS
+                SELECT d.* FROM _eligible_engine_dates d WHERE NOT EXISTS (
+                  SELECT 1 FROM _sec_event_dates e WHERE e.ticker=d.ticker
+                    AND abs(date_diff('day',d.earnings_date,e.event_date))<=3)
+                ORDER BY md5(ticker||CAST(earnings_date AS VARCHAR)) LIMIT 30""")
+            misses = con.execute("""WITH classified AS (
+                SELECT s.*,CASE
+                  WHEN EXISTS (
+                    SELECT 1 FROM sec_earnings_events e
+                    JOIN sec_cik_ticker_history h ON h.cik=e.cik
+                    WHERE h.ticker=s.ticker AND abs(date_diff(
+                      'day',s.earnings_date,CAST(e.acceptance_datetime AS DATE)))<=3
+                  ) THEN 'different CIK or ticker mapping'
+                  WHEN EXISTS (
+                    SELECT 1 FROM sec_submission_index x
+                    JOIN sec_cik_ticker_history h ON h.cik=x.cik
+                    WHERE h.ticker=s.ticker AND x.form IN ('8-K','8-K/A')
+                      AND abs(date_diff('day',s.earnings_date,x.filed))<=3
+                  ) THEN 'nearby 8-K without a matched item 2.02 event'
+                  WHEN EXISTS (
+                    SELECT 1 FROM _sec_event_dates e WHERE e.ticker=s.ticker
+                      AND abs(date_diff('day',s.earnings_date,e.event_date)) BETWEEN 4 AND 7
+                  ) THEN 'timing convention beyond +/-3 days'
+                  WHEN EXISTS (
+                    SELECT 1 FROM _engine_earnings_dates d2
+                    WHERE d2.ticker=s.ticker AND d2.earnings_date<>s.earnings_date
+                      AND abs(date_diff('day',s.earnings_date,d2.earnings_date))<=14
+                      AND EXISTS (SELECT 1 FROM _sec_event_dates e
+                        WHERE e.ticker=d2.ticker AND abs(date_diff(
+                          'day',d2.earnings_date,e.event_date))<=3)
+                  ) THEN 'engine earnings-date revision'
+                  ELSE 'no 8-K filed within +/-3 days for a mapped CIK'
+                END AS reason FROM _engine_miss_sample s)
+                SELECT reason,COUNT(*) FROM classified
+                GROUP BY reason ORDER BY COUNT(*) DESC,reason""").fetchall()
+            miss_total = con.execute("""SELECT COUNT(*) FROM _eligible_engine_dates d
+                WHERE NOT EXISTS (SELECT 1 FROM _sec_event_dates e
+                  WHERE e.ticker=d.ticker
+                    AND abs(date_diff('day',d.earnings_date,e.event_date))<=3)""").fetchone()[0]
+            sample_size = con.execute("SELECT COUNT(*) FROM _engine_miss_sample").fetchone()[0]
         finally:
             con.execute("DETACH market")
     finally:
@@ -647,5 +708,17 @@ def audit(
         "earnings_overlap": {
             "matched": overlap[2], "total": overlap[0], "ticker_mapped": overlap[1],
             "share": overlap[2] / overlap[0] if overlap[0] else None,
+        },
+        "engine_earnings_coverage": {
+            "eligible": reverse[0], "tickers": reverse[1],
+            "first_date": reverse[2], "last_date": reverse[3],
+            "within_1_day": reverse[4],
+            "within_1_day_share": reverse[4] / reverse[0] if reverse[0] else None,
+            "within_3_days": reverse[5],
+            "within_3_days_share": reverse[5] / reverse[0] if reverse[0] else None,
+            "misses": miss_total, "sample_size": sample_size,
+            "sample_reasons": [
+                {"reason": row[0], "count": row[1]} for row in misses
+            ],
         },
     }
