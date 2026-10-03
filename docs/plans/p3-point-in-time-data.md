@@ -98,9 +98,11 @@ repository gates once, publish metrics and BUILDLOG, and push the lane branch.
 5,387 referenced older pages are cached and loaded. The 1.41 GB Companyfacts partial resumed from
 its exact byte after a quiet-window stop and completed. The isolated store holds 12,170,777 core
 facts across 17,096 companies and 421,723 exact item 2.02 events from 2004 onward. Combined fact and
-event ticker matching is 93.8%; 0.5% of all SEC events are within one calendar day of an existing
-engine earnings date. [`../sec-bulk-audit-2026-10-02.md`](../sec-bulk-audit-2026-10-02.md) records
-the annual counts, ordered tag fallbacks and denominator. No operational or execution table changed.
+event ticker matching is 93.8%. Of 3,649 distinct engine ticker/dates inside the mapped SEC capture
+window, 62.6% have a same-ticker item 2.02 event within ±1 day and 64.8% within ±3 days. The original
+0.5% event-first overlap is retained only as a full-history source diagnostic.
+[`../sec-bulk-audit-2026-10-02.md`](../sec-bulk-audit-2026-10-02.md) records the annual counts,
+ordered tag fallbacks, denominators and 30-miss sample. No operational or execution table changed.
 
 ## Phase 0 part 3: Massive grouped daily capture — active 2026-10-02
 

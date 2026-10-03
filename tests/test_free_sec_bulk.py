@@ -305,3 +305,56 @@ def test_missing_contact_refuses_before_network_or_database(tmp_path: Path, monk
     assert output["status"] == "failed"
     assert "contact identity" in output["reason"]
     assert not database.exists()
+
+
+def test_audit_measures_engine_dates_inside_sec_window(tmp_path: Path):
+    sec_database = tmp_path / "sec.duckdb"
+    free_database = tmp_path / "free.duckdb"
+    market_database = tmp_path / "market.duckdb"
+    con = duckdb.connect(str(sec_database))
+    try:
+        free_sec_bulk.init_schema(con)
+        con.execute("""INSERT INTO sec_submission_index VALUES
+            ('0000001000-26-000010',1000,'2026-01-10','2026-01-10 17:00:00+00',
+             '8-K','2.02','hash','first.json'),
+            ('0000001000-26-000020',1000,'2026-02-10','2026-02-10 17:00:00+00',
+             '8-K','2.02','hash','second.json')""")
+        con.execute("""INSERT INTO sec_earnings_events VALUES
+            ('0000001000-26-000010',1000,'2026-01-10 17:00:00+00','2026-01-10',
+             '8-K','2.02','hash','first.json'),
+            ('0000001000-26-000020',1000,'2026-02-10 17:00:00+00','2026-02-10',
+             '8-K','2.02','hash','second.json')""")
+        con.execute("""INSERT INTO sec_facts VALUES
+            ('fact',1000,'revenue',0,'us-gaap','Revenues','USD',10,NULL,'2025-12-31',
+             2025,'FY','10-K','2026-01-10','0000001000-26-000010',NULL,'hash','fact.json')""")
+    finally:
+        con.close()
+    con = duckdb.connect(str(free_database))
+    try:
+        con.execute("""CREATE TABLE free_cik_ticker_history(
+            cik BIGINT,ticker VARCHAR,first_seen DATE,last_seen DATE,source VARCHAR)""")
+        con.execute("""INSERT INTO free_cik_ticker_history VALUES
+            (1000,'ACME','2020-01-01','2026-12-31','insider_submissions')""")
+    finally:
+        con.close()
+    con = duckdb.connect(str(market_database))
+    try:
+        con.execute("""CREATE TABLE earnings_calendar(
+            ticker VARCHAR,earnings_date DATE,as_of DATE,is_estimate BOOLEAN,
+            source VARCHAR,fetched_at TIMESTAMP)""")
+        con.execute("""INSERT INTO earnings_calendar VALUES
+            ('ACME','2026-01-11','2026-01-01',false,'fixture',now()),
+            ('ACME','2026-01-11','2026-01-02',false,'fixture',now()),
+            ('ACME','2026-01-13','2026-01-01',false,'fixture',now()),
+            ('ACME','2026-01-30','2026-01-01',false,'fixture',now())""")
+    finally:
+        con.close()
+
+    result = free_sec_bulk.audit(sec_database, free_database, market_database)
+    reverse = result["engine_earnings_coverage"]
+    assert (reverse["eligible"], reverse["within_1_day"], reverse["within_3_days"]) == (3, 1, 2)
+    assert reverse["sample_size"] == 1
+    assert reverse["sample_reasons"] == [{
+        "reason": "no 8-K filed within +/-3 days for a mapped CIK", "count": 1,
+    }]
+    assert "Engine-date-first coverage" in capture.render_audit(result)
