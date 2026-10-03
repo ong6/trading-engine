@@ -16,6 +16,13 @@
     "p3_sec_bulk": 1800
   },
   "doc_test_ceiling": 86,
+  "p19": {
+    "max_new_farm_lines": 1800,
+    "max_new_test_lines": 1200,
+    "max_new_doc_lines": 600,
+    "max_logical_commits": 5,
+    "note": "Offline coverage sidecar and fictional demo only; existing evaluator and runtime unchanged."
+  },
   "p18": {
     "max_new_farm_lines": 3600,
     "max_new_test_lines": 2500,
