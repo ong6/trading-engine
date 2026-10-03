@@ -8,10 +8,10 @@ clocks. `short_data_asof(as_of)` excludes rows before publication. Exact symbols
 are matched on observation date against the read-only Tiingo listing intervals and
 SEC CIK/ticker history; ambiguous reference intervals are flagged, not guessed.
 
-This is checkpoint `shorts-1`: FINRA short interest, SEC FTD, and FINRA OTC are
-complete. Nasdaq is resumable through 2005-07-01; NYSE and Cboe remain to be
-captured after the 21:45--23:30 UTC network blackout. The final audit replaces
-these partial exchange ranges after all three captures finish.
+This is checkpoint `shorts-2`: FINRA short interest, SEC FTD, FINRA OTC, and
+Nasdaq are complete. NYSE is resumable after its first 50 dated responses and
+Cboe remains to be captured after the 01:15--02:45 UTC network blackout. The
+final audit replaces these partial venue notes after both captures finish.
 
 ## Overall ranges
 
@@ -19,7 +19,7 @@ these partial exchange ranges after all three captures finish.
 |---|---|---|---:|
 | FINRA OTC | 2016-01-04 | 2026-10-01 | 61,236 |
 | FINRA short interest | 2014-11-14 | 2026-09-15 | 4,200,011 |
-| Nasdaq | 2005-01-07 | 2005-07-01 | 27,117 |
+| Nasdaq | 2005-01-07 | 2026-10-01 | 368,708 |
 | SEC FTD | 2004-03-22 | 2026-09-14 | 28,089,776 |
 
 ## Coverage by source and year
@@ -50,7 +50,28 @@ these partial exchange ranges after all three captures finish.
 | FINRA short interest | 2024 | 468,759 | 24 |
 | FINRA short interest | 2025 | 493,428 | 24 |
 | FINRA short interest | 2026 | 373,233 | 17 |
-| Nasdaq | 2005 | 27,117 | 122 |
+| Nasdaq | 2005 | 52,038 | 248 |
+| Nasdaq | 2006 | 50,740 | 251 |
+| Nasdaq | 2007 | 65,936 | 250 |
+| Nasdaq | 2008 | 59,728 | 252 |
+| Nasdaq | 2009 | 9,895 | 252 |
+| Nasdaq | 2010 | 9,904 | 252 |
+| Nasdaq | 2011 | 11,544 | 252 |
+| Nasdaq | 2012 | 8,071 | 250 |
+| Nasdaq | 2013 | 11,546 | 252 |
+| Nasdaq | 2014 | 10,918 | 252 |
+| Nasdaq | 2015 | 4,759 | 252 |
+| Nasdaq | 2016 | 5,876 | 252 |
+| Nasdaq | 2017 | 5,915 | 251 |
+| Nasdaq | 2018 | 4,386 | 251 |
+| Nasdaq | 2019 | 4,033 | 252 |
+| Nasdaq | 2020 | 4,897 | 253 |
+| Nasdaq | 2021 | 6,227 | 252 |
+| Nasdaq | 2022 | 4,884 | 251 |
+| Nasdaq | 2023 | 4,993 | 250 |
+| Nasdaq | 2024 | 8,521 | 252 |
+| Nasdaq | 2025 | 11,660 | 250 |
+| Nasdaq | 2026 | 12,237 | 188 |
 | SEC FTD | 2004 | 534,488 | 194 |
 | SEC FTD | 2005 | 622,182 | 250 |
 | SEC FTD | 2006 | 657,217 | 249 |
@@ -80,7 +101,7 @@ these partial exchange ranges after all three captures finish.
 | Dataset | Rows | Matched | Match rate | Collisions |
 |---|---:|---:|---:|---:|
 | finra_short_interest | 4,200,011 | 1,249,143 | 29.7% | 7,185 |
-| regsho_threshold | 88,353 | 7,335 | 8.3% | 12 |
+| regsho_threshold | 429,944 | 154,539 | 35.9% | 426 |
 | sec_fails_to_deliver | 28,089,776 | 14,527,444 | 51.7% | 105,560 |
 
 ## Publication lag distribution
@@ -91,7 +112,7 @@ Calendar days from measurement/settlement through official publication.
 |---|---:|---:|---:|---:|
 | FINRA OTC | 0 | 0.0 | 0.0 | 0 |
 | FINRA short interest | 9 | 11.0 | 12.0 | 13 |
-| Nasdaq | 0 | 0.0 | 1.0 | 4 |
+| Nasdaq | 0 | 0.0 | 0.0 | 393 |
 | SEC FTD | 0 | 23.0 | 32.0 | 91 |
 
 ## Source limitations

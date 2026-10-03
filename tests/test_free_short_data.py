@@ -97,7 +97,7 @@ def test_sec_ftd_parser_supports_archive_trailer_and_missing_price():
     ],
 )
 def test_exchange_regsho_parsers(venue, header, row, published):
-    stamp = "20261002030418" if venue == "Cboe" else "20261001230024"
+    stamp = "20261002030418" if venue == "Cboe" else "20261001230024|||||"
     rows = free_short_data.parse_regsho_text(
         f"{header}\r\n{row}\r\n{stamp}\r\n".encode(), venue=venue,
         trade_date=date(2026, 10, 1),
@@ -232,4 +232,35 @@ def test_pacer_waits_between_requests():
     state["clock"] += 0.25
     pacer.reserve()
     assert waits == [pytest.approx(0.75)]
+
+
+def test_missing_regsho_html_is_not_parsed(tmp_path):
+    con = duckdb.connect(":memory:")
+    free_short_data.init_schema(con)
+    session = _FakeSession(b"<!DOCTYPE html><title>Page Not Available</title>")
+    client = tool.CachedClient(
+        con, tmp_path, session=session,
+        pacer=tool.Pacer(now=lambda: datetime(2026, 10, 3, 3, tzinfo=timezone.utc)),
+    )
+    result = tool.capture_regsho(
+        client, "nasdaq", start=date(2005, 1, 7), end=date(2005, 1, 7)
+    )
+    assert result == {"files": 0, "rows": 0, "inserted": 0, "resumed": 0}
+    assert con.execute("SELECT http_status FROM short_source_misses").fetchone() == (200,)
+    con.close()
+
+
+def test_nyse_uses_source_specific_two_second_pacing(tmp_path):
+    con = duckdb.connect(":memory:")
+    free_short_data.init_schema(con)
+    body = (b"Symbol|Security Name|Market Category|Reg SHO Threshold Flag|Filler|Filler\n"
+            b"TEST|Synthetic Corporation|NYSE|Y||\n20050103210500\n")
+    pacer = tool.Pacer(
+        interval=1.0, clock=lambda: 1.0, sleep=lambda _: None,
+        now=lambda: datetime(2026, 10, 3, 3, tzinfo=timezone.utc),
+    )
+    client = tool.CachedClient(con, tmp_path, session=_FakeSession(body), pacer=pacer)
+    tool.capture_regsho(client, "nyse", start=date(2005, 1, 3), end=date(2005, 1, 3))
+    assert pacer.interval == 2.0
+    con.close()
 
