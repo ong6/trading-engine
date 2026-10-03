@@ -49,7 +49,7 @@ CBOE_URL = (
 USER_AGENT = "trading-engine-short-data-research/1"
 REQUEST_INTERVAL_SECONDS = 1.0
 HTTP_TIMEOUT_SECONDS = 90
-SOURCE_STARTS = {"nasdaq": date(2005, 1, 7), "nyse": date(2005, 1, 3),
+SOURCE_STARTS = {"nasdaq": date(2005, 1, 7), "nyse": date(2008, 10, 14),
                  "cboe": date(2014, 8, 20)}
 SOURCE_INTERVAL_SECONDS = {"nyse": 2.0}
 
