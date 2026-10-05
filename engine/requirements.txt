@@ -1,12 +1,12 @@
-duckdb>=1.5
+duckdb>=1.5.6
 numpy>=2.0
-pandas>=3.0
+pandas>=3.0.6
 PyYAML>=6.0
 requests>=2.31
 websockets>=17.1
 yfinance>=1.5
 pandas_market_calendars>=5.4
-fastapi>=0.139
+fastapi>=0.142.2
 uvicorn[standard]>=0.51
 # engine/signals.py: this network filters on TLS fingerprint (plain requests dies
 # mid-stream on FRED), so the macro collector uses curl_cffi's chrome impersonation.
