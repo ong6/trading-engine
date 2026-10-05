@@ -1993,4 +1993,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** Budget passed; engine +1 line and tests +13, frozen collector and registered source bindings unchanged.
 - **Next:** Verify the explicit history recovery and current-source research refresh.
 
+## 2026-10-06 — Reconcile current deployment documentation
+
+- **Why:** P21 live acceptance verified revision 11, while current status pages still named revision 10.
+- **What:** Update the current README, operating state and plan progress to the deployed revision.
+  Retain historical revision records and distinguish earlier validation fixes from the current source amendment.
+- **Evidence:** Live API/UI health checks passed; all 135 registered source bindings verified. Published CI passed both timezones and UI at the deployed source.
+- **Metrics:** Runtime unchanged; documentation only.
+- **Next:** Complete the isolated walk-forward refresh and off-host archive/restore verification.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

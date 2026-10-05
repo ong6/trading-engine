@@ -276,7 +276,7 @@ consistent copy of the live database. Verification and restore semantics are unc
 
 ## P15 activation record and recovery boundary
 
-P15 activated on 2026-09-29. Registration revision 10 is live as of 2026-10-03 and binds
+P15 activated on 2026-09-29. Registration revision 11 is live as of 2026-10-05 and binds
 infrastructure changes without changing scoring, books, gates, labels, registered values, or
 written evidence. The six source units and three timers are installed and enabled. The original
 activation steps remain in the plan record; they are not a procedure to activate a second cohort.

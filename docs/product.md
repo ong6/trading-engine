@@ -42,13 +42,14 @@ product (P12).
 **No policy has yet beaten its frozen control prospectively.**
 
 [The profitability evidence loop (P15)](plans/p15-profitability-evidence-loop.md) went live on
-2026-09-29 after a verified 90-table recovery bundle. Registration revision 10 is live; it binds
-infrastructure and contention changes without changing scoring, books, gates, labels, registered
-values, or written evidence. P15 is `active` and collecting. No performance claim exists before
-its registered looks. The revision records per-stage timing, faster bounded collection, snapshot
-throttling, cached status projections, single-connection observers, fail-soft reporting, deduplicated
-intraday facts, and rolling queue and walk-forward scratch handling. Revision 10 corrects pending nightly-marked book validation;
-it does not change scoring, book mechanics, gates, labels, schedules or recorded evidence.
+2026-09-29 after a verified 90-table recovery bundle. Registration revision 11 is live
+as of 2026-10-05. It binds complete verifier receipts, strict source identity and numeric checks,
+optional-provider refusals, backup identity corrections and behavior-preserving extraction.
+Scoring, books, gates, labels, registered values, schedules and written evidence are unchanged.
+P15 is `active` and collecting; no performance claim exists before its registered looks.
+Earlier operational revisions introduced stage timings, bounded collection, snapshot throttling,
+cached status projections and queue scratch handling. Revision 10 corrected pending
+nightly-marked book validation; that correction remains in force.
 
 [The shared backtest core (P18)](plans/p18-backtest-core.md) is done. It builds one immutable
 columnar price panel and shares it with forked workers. On the registered 3,000-stock × 3,800-session
@@ -169,7 +170,7 @@ Each row has the default that applies until the owner decides.
 
 ## Focus now (in order)
 
-1. **Keep the evidence clean and the revision 10 operating path green.** Use per-stage timings to
+1. **Keep the evidence clean and the revision 11 operating path green.** Use per-stage timings to
    watch the bounded collection, shared snapshots, queue, observers, and status projections. Keep
    scheduled producers green, miss no agent windows, allow no identity drift, and leave no
    uncommitted work on the host. A broken producer beats every item below.
