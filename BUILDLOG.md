@@ -2008,7 +2008,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **What:** Give only the aggregate metadata snapshot an 8 MiB ceiling, using the same stable-file reader and strict JSON decoder.
   Keep shared file limits, duplicate-key/nonfinite/nesting checks and registered source dependencies unchanged.
 - **Evidence:** The real-snapshot assertion fails before and passes after correction; 96 supported-Linux metadata/file/registration tests pass. Independent Python 3.12 strict-loader tests also pass.
-- **Metrics:** Budget passed; server +6 lines, tests +42. Engine/farm/sim sources and the active walk-forward identity remain unchanged.
+- **Metrics:** Budget passed; server +5 lines, tests +36. Engine/farm/sim sources and the active walk-forward identity remain unchanged.
 - **Next:** Independent review, CI and real-browser acceptance, then final archive and research acceptance.
+
+## 2026-10-06 — Project complete verifier evidence through the existing board limit
+
+- **Why:** P21 real-payload validation reproduces the next integration mismatch: the monitor expects exactly 20 truncated rows and rejects the complete 84-row verifier evidence.
+- **What:** Validate either retained legacy summaries or complete producer details, then publish only the existing worst-20 view with explicit total/truncation fields.
+  Validate every supplied row, full ticker counts and material counts before truncating; source receipts and policies stay unchanged.
+- **Evidence:** Real metadata fails before and passes after correction (84 total, 45 material, 20 displayed); 92 focused tests pass. Independent replay and all registered bindings pass.
+- **Metrics:** Budget and unchanged C90 threshold pass; server +2 lines, tests +42. No research-runtime or registered-source identity changes.
+- **Next:** Validate and deploy the two complete-evidence reader corrections, then finish operational acceptance.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
