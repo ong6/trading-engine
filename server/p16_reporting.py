@@ -76,6 +76,28 @@ def _number(value: object) -> str:
     return f"{value:.6g}"
 
 
+def _construction_lines(report: dict) -> list[str]:
+    construction = report.get("construction")
+    if not isinstance(construction, dict) or construction.get("execution_authority") != "none":
+        raise ValueError("P16 construction projection is invalid")
+    construction_lines = [
+        "## Portfolio construction v2",
+        "",
+        f"Status: **{construction['status']}**",
+        "",
+        "| Book | Active | Lambda | Cost / turnover | Latest target |",
+        "|---|---|---:|---:|---|",
+    ]
+    for row in construction["books"]:
+        target = row.get("latest_target")
+        construction_lines.append(
+            f"| {row['book_id']} | {'yes' if row['active'] else 'no'} | "
+            f"{_number(row.get('risk_aversion'))} | {_number(row.get('cost_per_turnover'))} | "
+            f"{target['signal_date'] if target else 'unavailable'} |"
+        )
+    return construction_lines
+
+
 def markdown(report: dict) -> str:
     """Render the P16 section from a validated status projection."""
     if (not isinstance(report, dict) or report.get("schema_version") != 1
@@ -94,22 +116,7 @@ def markdown(report: dict) -> str:
                 if key != "grid_report_sha256"})):
         raise ValueError("P16 origin-grid report differs")
     lines = ["# P16 evaluation", "", f"Status: **{status}**", ""]
-    construction = report.get("construction")
-    if not isinstance(construction, dict) or construction.get("execution_authority") != "none":
-        raise ValueError("P16 construction projection is invalid")
-    construction_lines = [
-        "## Portfolio construction v2", "",
-        f"Status: **{construction['status']}**", "",
-        "| Book | Active | Lambda | Cost / turnover | Latest target |",
-        "|---|---|---:|---:|---|",
-    ]
-    for row in construction["books"]:
-        target = row.get("latest_target")
-        construction_lines.append(
-            f"| {row['book_id']} | {'yes' if row['active'] else 'no'} | "
-            f"{_number(row.get('risk_aversion'))} | {_number(row.get('cost_per_turnover'))} | "
-            f"{target['signal_date'] if target else 'unavailable'} |"
-        )
+    construction_lines = _construction_lines(report)
     if family is None:
         if status != "not_initialized" and not (status == "incomplete" and blocked):
             raise ValueError("P16 status lacks its family report")

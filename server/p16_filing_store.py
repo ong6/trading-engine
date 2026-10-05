@@ -215,6 +215,32 @@ def _scan(con, scan_id: str):
         raise ValueError("filing scan is unavailable")
     return row
 
+def _validate_work_transition(
+    con, work_id: str, previous: tuple, status: str, work_kind: str, reason: str | None
+) -> int | None:
+    prior_retries = None
+    allowed = {
+        "queued": {"started", "unavailable"},
+        "started": {"retry", "complete", "unavailable"},
+        "retry": {"started", "unavailable"},
+    }
+    if status not in allowed[previous[1]]:
+        raise ValueError("invalid filing work transition")
+    if status == "retry":
+        prior_retries = int(
+            con.execute(
+                "SELECT COUNT(*) FROM p16_filing_work_events WHERE work_id=? AND status='retry'",
+                [work_id],
+            ).fetchone()[0]
+        )
+        limit = 1 if work_kind == "score" else 3
+        if prior_retries >= limit:
+            raise ValueError("filing work retry exhausted")
+        if work_kind == "score" and reason != "transport_lost":
+            raise ValueError("score retry requires lost transport")
+    return prior_retries
+
+
 def append_work_event(con, *, policy_id: str, work_kind: str, accession: str,
                       security_id: str = "", session_date: date, status: str,
                       event_at: datetime, not_before: datetime, input_payload: dict,
@@ -235,20 +261,9 @@ def append_work_event(con, *, policy_id: str, work_kind: str, accession: str,
             return work_id
         if previous[1] in TERMINAL_WORK:
             raise ValueError("filing work is terminal")
-        allowed = {"queued": {"started", "unavailable"},
-                   "started": {"retry", "complete", "unavailable"},
-                   "retry": {"started", "unavailable"}}
-        if status not in allowed[previous[1]]:
-            raise ValueError("invalid filing work transition")
-        if status == "retry":
-            prior_retries = int(con.execute(
-                "SELECT COUNT(*) FROM p16_filing_work_events WHERE work_id=? AND status='retry'",
-                [work_id]).fetchone()[0])
-            limit = 1 if work_kind == "score" else 3
-            if prior_retries >= limit:
-                raise ValueError("filing work retry exhausted")
-            if work_kind == "score" and reason != "transport_lost":
-                raise ValueError("score retry requires lost transport")
+        prior_retries = _validate_work_transition(
+            con, work_id, previous, status, work_kind, reason,
+        )
         sequence = int(previous[0]) + 1
     else:
         if status != "queued":
@@ -274,6 +289,38 @@ def append_work_event(con, *, policy_id: str, work_kind: str, accession: str,
     ])
     return work_id
 
+def _submission_receipt(con, response, prior, cik: str, request_payload: dict) -> tuple[dict, str]:
+    if response.status_code == 200:
+        parsed = p16_filing_sources.parse_submissions(response, cik=cik)
+        if prior is not None and parsed["source_body_sha256"] == prior[4]:
+            parsed["source_status"], receipt = "unchanged_200", prior[3]
+        else:
+            receipt = bitemporal_facts.record_receipt(
+                con,
+                source="sec-edgar",
+                dataset="submissions",
+                endpoint=response.final_url,
+                request=request_payload,
+                requested_at=response.requested_at,
+                received_at=response.received_at,
+                http_status=200,
+                content_type=response.content_type,
+                body=response.body,
+                license_class="public",
+            )["receipt_sha256"]
+    elif response.status_code == 304 and prior is not None:
+        verified = p16_filing_sources.Verified304(bytes(prior[5]), prior[4])
+        parsed = p16_filing_sources.parse_submissions(
+            response,
+            cik=cik,
+            verified_304=verified,
+        )
+        receipt = prior[3]
+    else:
+        raise ValueError("untrusted CIK response")
+    return parsed, receipt
+
+
 def commit_cik_success(
     con, *, scan_id: str, cik: str, response: p16_filing_sources.SecResponse,
     request_payload: dict, ingested_at: datetime, after_response: Callable[[], None] | None = None,
@@ -296,24 +343,7 @@ def commit_cik_success(
             "WHERE r.policy_id=? AND r.cik=? AND r.scan_id<>? "
             "ORDER BY r.received_at DESC,r.response_id DESC LIMIT 1", [policy_id, cik, scan_id],
         ).fetchone()
-        if response.status_code == 200:
-            parsed = p16_filing_sources.parse_submissions(response, cik=cik)
-            if prior is not None and parsed["source_body_sha256"] == prior[4]:
-                parsed["source_status"], receipt = "unchanged_200", prior[3]
-            else:
-                receipt = bitemporal_facts.record_receipt(
-                    con, source="sec-edgar", dataset="submissions", endpoint=response.final_url,
-                    request=request_payload, requested_at=response.requested_at,
-                    received_at=response.received_at, http_status=200, content_type=response.content_type,
-                    body=response.body, license_class="public")["receipt_sha256"]
-        elif response.status_code == 304 and prior is not None:
-            verified = p16_filing_sources.Verified304(bytes(prior[5]), prior[4])
-            parsed = p16_filing_sources.parse_submissions(
-                response, cik=cik, verified_304=verified,
-            )
-            receipt = prior[3]
-        else:
-            raise ValueError("untrusted CIK response")
+        parsed, receipt = _submission_receipt(con, response, prior, cik, request_payload)
         source_status = parsed["source_status"]
         source_body_sha = _sha(parsed["source_body_sha256"], "source body")
         accessions, prior_id = parsed["response_accessions"], None if prior is None else prior[0]
@@ -455,18 +485,73 @@ def record_acceptance(
         identity["input_sha256"],
     ])
     return {**result, "resolution_sha256": resolution_sha, "replayed": False}
-def record_bundle(
-    con, *, policy_id: str, accession: str, components: list[dict],
-    normalized_payload: dict, status: str, exhibit_status: str,
-) -> str:
+def _validate_bundle_receipts(
+    con, accession: str, accession_row: tuple, components: list[dict]
+) -> None:
+    archive_prefix = (
+        p16_filing_sources.archive_url(
+            accession_row[0],
+            accession,
+        ).rsplit("/", 1)[0]
+        + "/"
+    )
+    expected_datasets = {
+        "map": "ticker_map",
+        "acceptance_index": "filing_index",
+        "acceptance_sgml": "complete_submission",
+        "primary": "filing_document",
+        "exhibit": "filing_document",
+    }
+    for item in components:
+        receipt = con.execute(
+            "SELECT source,dataset,endpoint,received_at,response_size_bytes,http_status,"
+            "response_sha256 FROM source_response_receipts "
+            "WHERE receipt_sha256=?",
+            [item["receipt_sha256"]],
+        ).fetchone()
+        allowed_dataset = expected_datasets[item["role"]]
+        if (
+            receipt is None
+            or receipt[0] != "sec-edgar"
+            or (
+                receipt[1] not in allowed_dataset
+                if isinstance(allowed_dataset, set)
+                else receipt[1] != allowed_dataset
+            )
+            or receipt[3] != _time(item["received_at"], "received_at")
+            or int(receipt[4]) != item["byte_count"]
+            or receipt[5] != 200
+            or _time(item["ingested_at"], "ingested_at") < receipt[3]
+            or (item["role"] != "map" and item.get("accession") != accession)
+            or (item["role"] != "map" and not receipt[2].startswith(archive_prefix))
+            or (item["role"] == "map" and receipt[6] != accession_row[4])
+            or (item["role"] == "map" and item.get("accession") is not None)
+        ):
+            raise ValueError("filing bundle receipt is unavailable")
+
+
+def _bundle_components(
+    con,
+    policy_id: str,
+    accession: str,
+    components: list[dict],
+    normalized_payload: dict,
+    status: str,
+    exhibit_status: str,
+) -> tuple:
     if status not in BUNDLE_STATES or exhibit_status not in EXHIBIT_STATES:
         raise ValueError("invalid filing bundle status")
     if not components or not isinstance(normalized_payload, dict):
         raise ValueError("filing bundle evidence is missing")
-    if any(not isinstance(item, dict) or item.get("role") not in {
-            "map", "acceptance_index", "acceptance_sgml", "primary", "exhibit"}
-           or isinstance(item.get("byte_count"), bool) or not isinstance(item.get("byte_count"), int)
-           or item["byte_count"] <= 0 for item in components):
+    if any(
+        not isinstance(item, dict)
+        or item.get("role")
+        not in {"map", "acceptance_index", "acceptance_sgml", "primary", "exhibit"}
+        or isinstance(item.get("byte_count"), bool)
+        or not isinstance(item.get("byte_count"), int)
+        or item["byte_count"] <= 0
+        for item in components
+    ):
         raise ValueError("invalid filing bundle component")
     components = sorted((dict(item) for item in components), key=lambda item: item["role"])
     roles = [item["role"] for item in components]
@@ -480,11 +565,22 @@ def record_bundle(
     expected_roles = {"map", "primary", *(f"acceptance_{name}" for name in reference_receipts)}
     if status in READY_BUNDLES and exhibit_status in {"ex99_1", "ex99_sole"}:
         expected_roles.add("exhibit")
-    if ((status == "complete") != (exhibit_status in {"ex99_1", "ex99_sole"})
-            or (status == "primary_only" and exhibit_status != "absent")):
+    if (status == "complete") != (exhibit_status in {"ex99_1", "ex99_sole"}) or (
+        status == "primary_only" and exhibit_status != "absent"
+    ):
         raise ValueError("filing bundle status is inconsistent")
     if set(roles) != expected_roles or len(roles) != len(set(roles)):
         raise ValueError("filing bundle roles are incomplete")
+    return components, acceptance, reference_receipts
+
+
+def record_bundle(
+    con, *, policy_id: str, accession: str, components: list[dict],
+    normalized_payload: dict, status: str, exhibit_status: str,
+) -> str:
+    components, acceptance, reference_receipts = _bundle_components(
+        con, policy_id, accession, components, normalized_payload, status, exhibit_status,
+    )
     available = max(_time(item["received_at"], "received_at") for item in components)
     ingested = max(_time(item["ingested_at"], "ingested_at") for item in components)
     byte_count = sum(item["byte_count"] for item in components)
@@ -503,32 +599,7 @@ def record_bundle(
     ).fetchone()
     if accession_row is None:
         raise ValueError("filing accession is unavailable")
-    archive_prefix = p16_filing_sources.archive_url(
-        accession_row[0], accession,
-    ).rsplit("/", 1)[0] + "/"
-    expected_datasets = {"map": "ticker_map", "acceptance_index": "filing_index",
-                         "acceptance_sgml": "complete_submission",
-                         "primary": "filing_document", "exhibit": "filing_document"}
-    for item in components:
-        receipt = con.execute(
-            "SELECT source,dataset,endpoint,received_at,response_size_bytes,http_status,"
-            "response_sha256 FROM source_response_receipts "
-            "WHERE receipt_sha256=?",
-            [item["receipt_sha256"]],
-        ).fetchone()
-        allowed_dataset = expected_datasets[item["role"]]
-        if (receipt is None or receipt[0] != "sec-edgar"
-                or (receipt[1] not in allowed_dataset if isinstance(allowed_dataset, set)
-                    else receipt[1] != allowed_dataset)
-                or receipt[3] != _time(item["received_at"], "received_at")
-                or int(receipt[4]) != item["byte_count"]
-                or receipt[5] != 200
-                or _time(item["ingested_at"], "ingested_at") < receipt[3]
-                or (item["role"] != "map" and item.get("accession") != accession)
-                or (item["role"] != "map" and not receipt[2].startswith(archive_prefix))
-                or (item["role"] == "map" and receipt[6] != accession_row[4])
-                or (item["role"] == "map" and item.get("accession") is not None)):
-            raise ValueError("filing bundle receipt is unavailable")
+    _validate_bundle_receipts(con, accession, accession_row, components)
     component_receipts = {item["role"].removeprefix("acceptance_"): item["receipt_sha256"]
                           for item in components if item["role"].startswith("acceptance_")}
     if component_receipts != reference_receipts:

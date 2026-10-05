@@ -89,6 +89,62 @@ def _p15_snapshot(con, cutoff: datetime) -> dict | None:
     return {"run_id": int(row[0]), "market_date": row[1].isoformat(), "universe_sha256": row[3],
             "completed_at": _utc(row[4], database_value=True).isoformat(),
             "tickers": sorted({item["ticker"] for item in candidates})}
+def _mapped_filing_universe(
+    con, map_snapshot, security_rows, map_sha256, market_date, tickers, cutoff, aliases, liquidity
+) -> dict:
+    ciks = sorted(map_snapshot["cik_tickers"])
+    universe = {}
+    for cik in ciks:
+        mapped = p16_filing_parser.map_cik_scope(
+            cik,
+            rows=security_rows,
+            snapshot_id=map_sha256,
+            universe=tickers,
+            cutoff_at=cutoff,
+            aliases=aliases,
+        )
+        if mapped["status"] != "mapped":
+            continue
+        selected = mapped["securities"]
+        if any(item["security_id"] not in liquidity for item in selected):
+            raise FilingRunError("primary security liquidity is unavailable")
+        volumes = {
+            item["security_id"]: liquidity[item["security_id"]]["median_dollar_volume_60d"]
+            for item in selected
+        }
+        liquidity_lineage = {
+            item["security_id"]: liquidity[item["security_id"]]["price_rows_sha256"]
+            for item in selected
+        }
+        primary = min(volumes, key=lambda security_id: (-volumes[security_id], security_id))
+        entered_at = cutoff
+        if table_exists(con, "p16_filing_scans"):
+            prior = con.execute(
+                "SELECT universe_json FROM p16_filing_scans WHERE policy_id=? AND started_at<=? "
+                "ORDER BY started_at DESC LIMIT 1",
+                [POLICY_ID, cutoff.replace(tzinfo=None)],
+            ).fetchone()
+            prior_scope = None if prior is None else json.loads(prior[0]).get(cik)
+            if prior_scope:
+                entered_at = _utc(prior_scope["entered_at"])
+        universe[cik] = {
+            "entered_at": entered_at.isoformat(),
+            "securities": sorted(volumes),
+            "security_tickers": {item["security_id"]: item["ticker"] for item in selected},
+            "primary_security_id": primary,
+            "selection_sha256": canonical_sha256(
+                {
+                    "map_sha256": map_sha256,
+                    "market_date": market_date.isoformat(),
+                    "cutoff_at": cutoff.isoformat(),
+                    "aliases": aliases,
+                    "liquidity": liquidity_lineage,
+                }
+            ),
+        }
+    return universe
+
+
 def frozen_scope(
     con, *, market_date: date, scan_started_at: datetime, map_sha256: str,
     aliases: dict[str, str] | None = None,
@@ -140,40 +196,10 @@ def frozen_scope(
                       "snapshot_id": map_sha256, "available_at": map_snapshot["received_at"]}
                      for cik, values in map_snapshot["cik_tickers"].items()
                      for ticker in values if aliases.get(ticker, ticker) in liquidity]
-    ciks = sorted(map_snapshot["cik_tickers"])
-    universe = {}
-    for cik in ciks:
-        mapped = p16_filing_parser.map_cik_scope(
-            cik, rows=security_rows, snapshot_id=map_sha256, universe=tickers,
-            cutoff_at=cutoff, aliases=aliases,
-        )
-        if mapped["status"] != "mapped":
-            continue
-        selected = mapped["securities"]
-        if any(item["security_id"] not in liquidity for item in selected):
-            raise FilingRunError("primary security liquidity is unavailable")
-        volumes = {item["security_id"]: liquidity[item["security_id"]]["median_dollar_volume_60d"]
-                   for item in selected}
-        liquidity_lineage = {item["security_id"]: liquidity[item["security_id"]]["price_rows_sha256"]
-                             for item in selected}
-        primary = min(volumes, key=lambda security_id: (-volumes[security_id], security_id))
-        entered_at = cutoff
-        if table_exists(con, "p16_filing_scans"):
-            prior = con.execute(
-                    "SELECT universe_json FROM p16_filing_scans WHERE policy_id=? AND started_at<=? "
-                    "ORDER BY started_at DESC LIMIT 1",
-                    [POLICY_ID, cutoff.replace(tzinfo=None)]).fetchone()
-            prior_scope = None if prior is None else json.loads(prior[0]).get(cik)
-            if prior_scope:
-                entered_at = _utc(prior_scope["entered_at"])
-        universe[cik] = {
-            "entered_at": entered_at.isoformat(),
-            "securities": sorted(volumes),
-            "security_tickers": {item["security_id"]: item["ticker"] for item in selected},
-            "primary_security_id": primary,
-            "selection_sha256": canonical_sha256({"map_sha256": map_sha256, "market_date": market_date.isoformat(),
-                                                   "cutoff_at": cutoff.isoformat(), "aliases": aliases, "liquidity": liquidity_lineage}),
-        }
+    universe = _mapped_filing_universe(
+        con, map_snapshot, security_rows, map_sha256, market_date, tickers, cutoff,
+        aliases, liquidity,
+    )
     return {"status": "ready" if universe else "map_unavailable", "universe": universe,
             "map_sha256": map_sha256, "p15": p15, "screen": screen,
             "scope_sha256": canonical_sha256({"universe": universe, "map_sha256": map_sha256,
@@ -320,6 +346,23 @@ def _claim_score_sweep(con, *, now: datetime, batch_size: int) -> dict:
         claimed.extend(capacity["claimed"])
         unavailable.extend(capacity["capacity_unavailable"])
     return {"claimed": claimed, "capacity_unavailable": unavailable}
+def _score_request(con, work_id: str, work: dict, now: datetime) -> tuple[dict, dict]:
+    prior = con.execute(
+        "SELECT request_json FROM p16_filing_score_attempts WHERE work_id=? "
+        "ORDER BY attempt_number LIMIT 1",
+        [work_id],
+    ).fetchone()
+    if prior:
+        request = json.loads(prior[0])
+        payload = json.loads(request["input"])
+        if p16_filing_client.request_payload(payload) != request:
+            raise FilingRunError("filing retry request differs")
+    else:
+        payload = build_input(con, work, cutoff_at=now)
+        request = p16_filing_client.request_payload(payload)
+    return payload, request
+
+
 def _score_pending_locked(database, *, now, session_date, generate, clock) -> dict:
     con = db.connect(database)
     prepared = []
@@ -331,18 +374,7 @@ def _score_pending_locked(database, *, now, session_date, generate, clock) -> di
             for work_id in capacity["claimed"]:
                 work = _work(con, work_id)
                 try:
-                    prior = con.execute(
-                        "SELECT request_json FROM p16_filing_score_attempts WHERE work_id=? "
-                        "ORDER BY attempt_number LIMIT 1", [work_id],
-                    ).fetchone()
-                    if prior:
-                        request = json.loads(prior[0])
-                        payload = json.loads(request["input"])
-                        if p16_filing_client.request_payload(payload) != request:
-                            raise FilingRunError("filing retry request differs")
-                    else:
-                        payload = build_input(con, work, cutoff_at=now)
-                        request = p16_filing_client.request_payload(payload)
+                    payload, request = _score_request(con, work_id, work, now)
                     attempt = p16_filing_store.record_score_attempt(
                         con, work_id=work_id, started_at=now, request_payload=request,
                         runtime_identity=p16_filing_client.identity())

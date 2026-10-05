@@ -393,6 +393,35 @@ def _trial_visible(con, trial_id: str, at: datetime) -> bool:
         con, trial_id=trial_id, generated_at=_aware(at)) is not None
 
 
+def _validate_origin_status(event_kind, status, reason, available, delta_ic, entry) -> None:
+    if event_kind == "decision" and status == "eligible":
+        if reason is not None or available is not None or delta_ic is not None:
+            raise ValueError("P16 eligible sequential decision is invalid")
+    elif event_kind == "decision" and status == "decision_unavailable":
+        if (
+            reason not in p16_sequential.SKIP_REASONS
+            or available is not None
+            or delta_ic is not None
+        ):
+            raise ValueError("P16 skipped sequential origin is invalid")
+    elif event_kind == "outcome" and status == "scored":
+        if (
+            available is None
+            or available < entry
+            or isinstance(delta_ic, bool)
+            or not isinstance(delta_ic, (int, float))
+            or not math.isfinite(delta_ic)
+            or not -2 <= float(delta_ic) <= 2
+            or reason is not None
+        ):
+            raise ValueError("P16 scored sequential origin is invalid")
+    elif event_kind == "outcome" and status == "invalid":
+        if available is None or not isinstance(reason, str) or not reason or delta_ic is not None:
+            raise ValueError("P16 invalid sequential outcome is invalid")
+    else:
+        raise ValueError("P16 sequential event kind and status differ")
+
+
 def _origin_body(
     *, registration_sha256: str, family_id: str, comparison_id: str, trial_id: str,
     control_trial_id: str, epoch_session: date, session_index: int, market_date: date,
@@ -420,23 +449,7 @@ def _origin_body(
         raise ValueError("P16 sequential decision is not pre-entry")
     available = None if labels_available_at is None else _timestamp(
         labels_available_at, "labels available at")
-    if event_kind == "decision" and status == "eligible":
-        if reason is not None or available is not None or delta_ic is not None:
-            raise ValueError("P16 eligible sequential decision is invalid")
-    elif event_kind == "decision" and status == "decision_unavailable":
-        if reason not in p16_sequential.SKIP_REASONS or available is not None \
-                or delta_ic is not None:
-            raise ValueError("P16 skipped sequential origin is invalid")
-    elif event_kind == "outcome" and status == "scored":
-        if (available is None or available < entry or isinstance(delta_ic, bool)
-                or not isinstance(delta_ic, (int, float)) or not math.isfinite(delta_ic)
-                or not -2 <= float(delta_ic) <= 2 or reason is not None):
-            raise ValueError("P16 scored sequential origin is invalid")
-    elif event_kind == "outcome" and status == "invalid":
-        if available is None or not isinstance(reason, str) or not reason or delta_ic is not None:
-            raise ValueError("P16 invalid sequential outcome is invalid")
-    else:
-        raise ValueError("P16 sequential event kind and status differ")
+    _validate_origin_status(event_kind, status, reason, available, delta_ic, entry)
     return {
         "registration_sha256": registration, "family_id": family,
         "comparison_id": comparison, "trial_id": trial, "control_trial_id": control,
@@ -564,6 +577,18 @@ def record_origin_decision(
     )
 
 
+def _exact_factor_input(artifacts: list[dict], kind: str, field: str, expected: object) -> dict:
+    matches = [
+        row
+        for row in artifacts
+        if row["artifact_kind"] == kind and row["payload"].get(field) == expected
+    ]
+    if len(matches) != 1:
+        raise ValueError("P16 factor report inputs differ")
+    return matches[0]
+
+
+
 def record_origin_outcome(
     con, *, registration_sha256: str, family_id: str, comparison_id: str,
     trial_id: str, control_trial_id: str, epoch_session: date, session_index: int,
@@ -582,19 +607,12 @@ def record_origin_outcome(
     ) if row["market_date"] == market_date]
     payload = factor["payload"]
 
-    def exact_input(kind: str, field: str, expected: object) -> dict:
-        matches = [row for row in artifacts if row["artifact_kind"] == kind
-                   and row["payload"].get(field) == expected]
-        if len(matches) != 1:
-            raise ValueError("P16 factor report inputs differ")
-        return matches[0]
-
-    origin = exact_input(
-        "evaluation_input", "input_snapshot_sha256",
+    origin = _exact_factor_input(
+        artifacts,         "evaluation_input", "input_snapshot_sha256",
         payload.get("input_snapshot_sha256"),
     )
-    exposure = exact_input(
-        "exposure_snapshot", "snapshot_sha256",
+    exposure = _exact_factor_input(
+        artifacts,         "exposure_snapshot", "snapshot_sha256",
         payload.get("exposure_snapshot_sha256"),
     )
     source_scores = payload.get("score_snapshot_sha256")
@@ -605,7 +623,7 @@ def record_origin_outcome(
     for policy_id, score_sha256 in source_scores.items():
         if policy_id in {CHAMPION, RULE}:
             continue
-        score = exact_input("policy_scores", "score_snapshot_sha256", score_sha256)
+        score = _exact_factor_input(artifacts, "policy_scores", "score_snapshot_sha256", score_sha256)
         if score["artifact_key"] != policy_id:
             raise ValueError("P16 factor report inputs differ")
         score_rows.append(score)

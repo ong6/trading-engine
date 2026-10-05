@@ -246,6 +246,26 @@ def _existing_census(con, snapshot_sha256: str) -> dict | None:
     return None
 
 
+def _resolve_census_parent(by_policy: dict, reference: str, child: dict) -> str | None:
+    candidates = [item for item in by_policy.get(reference, ()) if item is not child]
+    if len(candidates) == 1:
+        return candidates[0]["trial_id"]
+    active = [item for item in candidates if item["source"]["retired_at"] is None]
+    if len(active) == 1:
+        return active[0]["trial_id"]
+    for policy_id, options in by_policy.items():
+        prefix = f"{policy_id} "
+        if reference.startswith(prefix):
+            version = reference.removeprefix(prefix)
+            matches = [
+                item for item in options if item["source"]["policy_version"].startswith(version)
+            ]
+            if len(matches) == 1:
+                return matches[0]["trial_id"]
+    return None
+
+
+
 def load_census(con, *, path: Path = CENSUS_PATH) -> dict:
     """Load the accepted historical census and seal its exact trial contribution."""
     init_schema(con)
@@ -272,26 +292,9 @@ def load_census(con, *, path: Path = CENSUS_PATH) -> dict:
     if len({item["trial_id"] for item in prepared}) != len(rows):
         raise ValueError("trial census identity is duplicated")
 
-    def resolve_parent(reference: str, child: dict) -> str | None:
-        candidates = [item for item in by_policy.get(reference, ()) if item is not child]
-        if len(candidates) == 1:
-            return candidates[0]["trial_id"]
-        active = [item for item in candidates if item["source"]["retired_at"] is None]
-        if len(active) == 1:
-            return active[0]["trial_id"]
-        for policy_id, options in by_policy.items():
-            prefix = f"{policy_id} "
-            if reference.startswith(prefix):
-                version = reference.removeprefix(prefix)
-                matches = [item for item in options
-                           if item["source"]["policy_version"].startswith(version)]
-                if len(matches) == 1:
-                    return matches[0]["trial_id"]
-        return None
-
     for item in prepared:
         item["parent_trial_ids"] = sorted(filter(None, (
-            resolve_parent(reference, item)
+            _resolve_census_parent(by_policy, reference, item)
             for reference in item["source"]["parent_trial_ids"]
         )))
     pending, loaded = list(prepared), set()

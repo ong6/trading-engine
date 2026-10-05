@@ -207,6 +207,45 @@ def _memory_history(con, cutoff: datetime, champion_identity: str) -> list[dict]
     return result
 
 
+def _retained_sample_chunks(sample_rows: list, selected: date, cutoff: datetime) -> list[dict]:
+    samples = []
+    for chunk_index, sample_index, raw, request_sha, status in sample_rows:
+        request = _json_object(raw, "retained P15 request")
+        if canonical_sha256(request) != request_sha or status not in {"completed", "failed"}:
+            raise ChallengerRunError("retained P15 request identity differs")
+        original = _json_object(request.get("input"), "retained P15 request input")
+        if (
+            original.get("chunk_index") != chunk_index
+            or original.get("sample_index") != sample_index
+            or original.get("market_date") != selected.isoformat()
+            or _parse_time(original.get("information_cutoff_at"), "retained P15 request cutoff")
+            != cutoff
+        ):
+            raise ChallengerRunError("retained P15 request grid differs")
+        samples.append(
+            {
+                "chunk_index": chunk_index,
+                "sample_index": sample_index,
+                "original": original,
+                "p15_request_sha256": request_sha,
+            }
+        )
+    chunks = []
+    for chunk_index in sorted({row["chunk_index"] for row in samples}):
+        chunk = [row for row in samples if row["chunk_index"] == chunk_index]
+        if [row["sample_index"] for row in chunk] != list(range(SAMPLE_COUNT)):
+            raise ChallengerRunError("retained P15 sample grid is incomplete")
+        sets = [
+            {item.get("ticker") for item in row["original"].get("candidates", [])} for row in chunk
+        ]
+        if not sets[0] or any(item != sets[0] for item in sets[1:]):
+            raise ChallengerRunError("retained P15 chunk candidates differ")
+        chunks.append({"chunk_index": chunk_index, "tickers": sets[0], "samples": chunk})
+    if [row["chunk_index"] for row in chunks] != list(range(len(chunks))):
+        raise ChallengerRunError("retained P15 chunk grid differs")
+    return chunks
+
+
 def _source_snapshot(database: Path, market_date: date | None, now: datetime) -> dict:
     con = db.connect(database, read_only=True)
     try:
@@ -235,34 +274,7 @@ def _source_snapshot(database: Path, market_date: date | None, now: datetime) ->
             "ORDER BY chunk_index,sample_index", [int(run["id"])],
         )
         sample_rows = cursor.fetchall()
-        samples = []
-        for chunk_index, sample_index, raw, request_sha, status in sample_rows:
-            request = _json_object(raw, "retained P15 request")
-            if canonical_sha256(request) != request_sha or status not in {"completed", "failed"}:
-                raise ChallengerRunError("retained P15 request identity differs")
-            original = _json_object(request.get("input"), "retained P15 request input")
-            if (original.get("chunk_index") != chunk_index
-                    or original.get("sample_index") != sample_index
-                    or original.get("market_date") != selected.isoformat()
-                    or _parse_time(original.get("information_cutoff_at"),
-                                   "retained P15 request cutoff") != cutoff):
-                raise ChallengerRunError("retained P15 request grid differs")
-            samples.append({
-                "chunk_index": chunk_index, "sample_index": sample_index,
-                "original": original, "p15_request_sha256": request_sha,
-            })
-        chunks = []
-        for chunk_index in sorted({row["chunk_index"] for row in samples}):
-            chunk = [row for row in samples if row["chunk_index"] == chunk_index]
-            if [row["sample_index"] for row in chunk] != list(range(SAMPLE_COUNT)):
-                raise ChallengerRunError("retained P15 sample grid is incomplete")
-            sets = [{item.get("ticker") for item in row["original"].get("candidates", [])}
-                    for row in chunk]
-            if not sets[0] or any(item != sets[0] for item in sets[1:]):
-                raise ChallengerRunError("retained P15 chunk candidates differ")
-            chunks.append({"chunk_index": chunk_index, "tickers": sets[0], "samples": chunk})
-        if [row["chunk_index"] for row in chunks] != list(range(len(chunks))):
-            raise ChallengerRunError("retained P15 chunk grid differs")
+        chunks = _retained_sample_chunks(sample_rows, selected, cutoff)
         frozen = _json_object(run["universe_payload"], "retained P15 universe")
         candidates = frozen.get("candidates")
         tickers = [row.get("ticker") for row in candidates] if isinstance(candidates, list) else []
@@ -492,6 +504,93 @@ def _start_member_run(
         con.close()
 
 
+def _reuse_challenger_receipt(
+    retained: dict, treated: dict, treatment: dict, validated: list, chunk_failures: list
+) -> None:
+    if retained["data"]["status"] == "available":
+        try:
+            validated.append(
+                _validate_output(
+                    retained["data"]["receipt"].get("output"),
+                    treated["candidates"],
+                    treatment,
+                )
+            )
+        except ChallengerRunError as exc:
+            chunk_failures.append(str(exc))
+    else:
+        chunk_failures.append(retained["data"].get("reason") or "unavailable")
+
+
+def _prepare_challenger_attempt(
+    con, run, chunk, sample, member, snapshot, call_at, contract, instructions
+) -> tuple:
+    attempt_id = canonical_sha256(
+        {
+            "run_id": run["record_id"],
+            "chunk_index": chunk["chunk_index"],
+            "sample_index": sample["sample_index"],
+        }
+    )
+    attempt = p16_challenger_store.get(con, "p16_challenger_attempts", attempt_id)
+    was_existing = attempt is not None
+    if attempt is None:
+        treatment = _treatment(member, sample["original"], snapshot, call_at)
+        treated = treatment["payload"]
+        request = p16_model_client.request_payload(treated, contract, instructions=instructions)
+        attempt = p16_challenger_store.start_attempt(
+            con,
+            run["record_id"],
+            chunk_index=chunk["chunk_index"],
+            sample_index=sample["sample_index"],
+            request_payload=request,
+            treatment=treatment,
+            started_at=call_at,
+        )
+    else:
+        treatment = attempt["data"]["treatment"]
+        request = attempt["data"]["request"]
+        treated = treatment.get("payload")
+        if not isinstance(treated, dict):
+            raise ChallengerRunError("retained P16 challenger treatment is invalid")
+    receipt_id = canonical_sha256({"attempt_id": attempt["record_id"]})
+    retained = p16_challenger_store.get(con, "p16_challenger_receipts", receipt_id)
+    return attempt, was_existing, treatment, treated, request, retained
+
+
+def _invoke_challenger(
+    generate, treated, treatment, contract, member, instructions, request
+) -> tuple:
+    model_receipt = None
+    try:
+        model_receipt = generate(
+            treated,
+            contract,
+            registered_model_contract_sha256=member["model_contract_sha256"],
+            instructions=instructions,
+        )
+        receipt = model_receipt
+        if receipt.get("request") != request:
+            raise ChallengerRunError("P16 model request identity differs")
+        parsed = _validate_output(
+            receipt.get("output"),
+            treated["candidates"],
+            treatment,
+        )
+        status, reason = "available", None
+    except (
+        agent_model_client.ConnectorError,
+        ChallengerRunError,
+        duckdb.Error,
+        TypeError,
+        ValueError,
+    ) as exc:
+        reason = str(exc) or exc.__class__.__name__
+        receipt = model_receipt or _receipt_for_error(request, exc)
+        status, parsed = "unavailable", None
+    return receipt, parsed, status, reason
+
+
 def _run_member(
     database: Path, registration: dict, member: dict, contract: dict,
     snapshot: dict, now: datetime, *, generate: Callable, clock: Callable[[], datetime],
@@ -508,47 +607,15 @@ def _run_member(
             con = db.connect(database)
             try:
                 with db.transaction(con):
-                    attempt_id = canonical_sha256({
-                        "run_id": run["record_id"], "chunk_index": chunk["chunk_index"],
-                        "sample_index": sample["sample_index"],
-                    })
-                    attempt = p16_challenger_store.get(
-                        con, "p16_challenger_attempts", attempt_id)
-                    was_existing = attempt is not None
-                    if attempt is None:
-                        treatment = _treatment(
-                            member, sample["original"], snapshot, call_at)
-                        treated = treatment["payload"]
-                        request = p16_model_client.request_payload(
-                            treated, contract, instructions=instructions)
-                        attempt = p16_challenger_store.start_attempt(
-                            con, run["record_id"], chunk_index=chunk["chunk_index"],
-                            sample_index=sample["sample_index"], request_payload=request,
-                            treatment=treatment, started_at=call_at,
+                    attempt, was_existing, treatment, treated, request, retained = (
+                        _prepare_challenger_attempt(
+                            con, run, chunk, sample, member, snapshot, call_at, contract, instructions,
                         )
-                    else:
-                        treatment = attempt["data"]["treatment"]
-                        request = attempt["data"]["request"]
-                        treated = treatment.get("payload")
-                        if not isinstance(treated, dict):
-                            raise ChallengerRunError(
-                                "retained P16 challenger treatment is invalid")
-                    receipt_id = canonical_sha256({"attempt_id": attempt["record_id"]})
-                    retained = p16_challenger_store.get(
-                        con, "p16_challenger_receipts", receipt_id)
+                    )
             finally:
                 con.close()
             if retained is not None:
-                if retained["data"]["status"] == "available":
-                    try:
-                        validated.append(_validate_output(
-                            retained["data"]["receipt"].get("output"),
-                            treated["candidates"], treatment,
-                        ))
-                    except ChallengerRunError as exc:
-                        chunk_failures.append(str(exc))
-                else:
-                    chunk_failures.append(retained["data"].get("reason") or "unavailable")
+                _reuse_challenger_receipt(retained, treated, treatment, validated, chunk_failures)
                 continue
             if was_existing:
                 reason = "interrupted before durable challenger response"
@@ -561,27 +628,9 @@ def _run_member(
                 status, parsed = "unavailable", None
             else:
                 calls += 1
-                model_receipt = None
-                try:
-                    model_receipt = generate(
-                        treated, contract,
-                        registered_model_contract_sha256=member["model_contract_sha256"],
-                        instructions=instructions,
-                    )
-                    receipt = model_receipt
-                    if receipt.get("request") != request:
-                        raise ChallengerRunError("P16 model request identity differs")
-                    parsed = _validate_output(
-                        receipt.get("output"), treated["candidates"], treatment,
-                    )
-                    status, reason = "available", None
-                except (
-                    agent_model_client.ConnectorError, ChallengerRunError,
-                    duckdb.Error, TypeError, ValueError,
-                ) as exc:
-                    reason = str(exc) or exc.__class__.__name__
-                    receipt = model_receipt or _receipt_for_error(request, exc)
-                    status, parsed = "unavailable", None
+                receipt, parsed, status, reason = _invoke_challenger(
+                    generate, treated, treatment, contract, member, instructions, request,
+                )
             completed = _aware(clock(), "challenger completion time")
             con = db.connect(database)
             try:
