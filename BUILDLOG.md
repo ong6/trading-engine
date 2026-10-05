@@ -1907,3 +1907,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** Focused scoring/pre-open/evaluation/collector suite: 127 passed; capture/tools/evaluation suite: 85 passed. Owned paths have zero C90 findings at ten.
 - **Metrics:** The 21 remaining findings are confined to the separately owned P16 extraction.
 - **Next:** Register the reviewed source revision and run one complete supported-Linux verification after independent review.
+
+## 2026-10-05 — Preserve request pacing after a delayed worker wakes
+
+- **Why:** P21 rehearsal reproduced the existing verifier concurrency regression: requests started less than the reserved interval apart.
+- **What:** Hold the reservation lock across the wait and anchor the next slot to actual wake time; refuse a wake beyond the deadline.
+  Retain exact in-memory store bars in the immutable verification receipt alongside raw provider bytes.
+- **Evidence:** Focused verifier regression now includes deterministic oversleep and deadline tests; the previously failing concurrent check passes.
+- **Metrics:** No threshold or comparison tolerance changed.
+- **Next:** Refresh the prepared source registration after this corrected pacing implementation.
