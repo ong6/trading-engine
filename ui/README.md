@@ -80,6 +80,27 @@ UTF-8 percent sequences are rejected by Next before page code runs and can still
 fetching or validating endpoints; the ticket panel delegates interactive state and mutation to
 `TicketForm.js`.
 
+## First local setup
+
+Install the root Python environment first (`uv sync --extra dev --frozen`). The UI requires
+Node.js 20.9 or newer and npm; use the committed lockfile:
+
+```bash
+cd ui
+npm ci
+npm test
+npm run build
+```
+
+Start `server/run_server.sh` from the repository root in one terminal, then
+`npm run start -- --hostname 127.0.0.1 --port 3000` from `ui/` in another. API reads require a
+populated local store or a published snapshot. A missing or busy store is shown as unavailable;
+it never becomes fabricated market data. Use the SSH tunnel below to inspect an existing host.
+
+The header's operational and research status is a separate, horizontally scrollable row. It
+stays within the page on narrow screens; use touch, a trackpad, or Tab then the arrow keys to
+reach every status. The row has a visible focus outline and an accessible region label.
+
 ## Persistent service
 
 The production UI is supervised by the versioned user unit
@@ -96,7 +117,7 @@ systemctl --user status trading-engine-ui.service --no-pager
 
 The unit runs `npm run build` before each start and serves the resulting
 production build with `npm run start`. The build script intentionally selects
-Webpack: this Debian 10 host cannot load Next.js 16.3.4's native SWC binary, and
+Webpack: this Debian 10 host cannot load the pinned Next.js native SWC binary, and
 Turbopack does not support Next's WASM fallback. Do not remove `--webpack` until
 the deployment host has a compatible glibc. Logs append to `logs/ui.log` in the
 repository root. Restart after source changes with:

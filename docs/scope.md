@@ -19,7 +19,7 @@ owner entry in `feedback.md`.
 | Multi-cadence agent tools (P9): hourly and four-hour shadow observers (`trading-engine-{hourly,four-hour}-opportunity.timer`) | Weekdays 10:15–16:15 hourly and 10:30/13:30 America/New_York | Same; missed windows are not replayed (`Persistent=false`) |
 | Agent data capture and agent-only shadow (`trading-engine-agent-{data-capture,shadow}.timer`) | 01:25 and 01:30 UTC Tue–Sat | Same |
 | Forward agent evaluation (P11) and P15 evaluation (`GET /agent/evaluation/status`, JSON and P15 Markdown reports) | After P8; refreshes after P15 scoring | Same; labels are mechanical and never tune a policy |
-| P15 pre-open check, event triggers, and scoring (`trading-engine-p15-{preopen,events,scoring}.timer`) | Pre-open 09:05 and events at 09:35/09:50 then :05/:20/:35/:50 through 15:50 America/New_York on weekdays; scoring 02:30 UTC Tue–Sat | Same; revision 9 is live and no registered value may be tuned |
+| P15 pre-open check, event triggers, and scoring (`trading-engine-p15-{preopen,events,scoring}.timer`) | Pre-open 09:05 and events at 09:35/09:50 then :05/:20/:35/:50 through 15:50 America/New_York on weekdays; scoring 02:30 UTC Tue–Sat | Same; revision 10 is live and no registered value may be tuned |
 | TradingView historical archive (P14; existing queue, bounded slices) | 03:40, 07:40, 11:40, 21:40 and 23:40 UTC weekdays, six four-hourly slices on weekends (`trading-engine-tradingview-history.timer`); nightly enqueue is a fallback | Same; retrieval-time research only, current-universe survivor bias explicit |
 
 Change a running component only through a plan, as a new registered version. Existing versions
@@ -30,7 +30,7 @@ and their evidence are never edited.
 Plan status lives in one place: the table in [`plans/README.md`](plans/README.md). Only plans
 marked `approved` or `active` there admit work, subject to their stated prerequisites. The
 profitability evidence loop's activation workstream (P15 W8) activated on 2026-09-29;
-registration revision 9 is live as of 2026-10-02.
+registration revision 10 is live as of 2026-10-03.
 Completed outputs from agent paper decisions (P5), the alpha experiment (P6), the 2022 replay
 (P10), forward agent evaluation (P11), the agent research product (P12), market-data source
 hardening (P13), and the TradingView historical archive (P14) stay in scope for operation and
@@ -73,12 +73,17 @@ solely for an admitted provider whose automated non-display terms were explicitl
 Agents append one line here instead of building. The owner promotes a line to a plan or
 deletes it.
 
-- 2026-10-03 · **Raw panel duplicate detection**: a same-chunk duplicate ticker/session is overwritten; P19 validates raw audit inputs, while a separate evaluator fix remains outside P19.
-- 2026-10-03 · **Terminal-zero price cross-check**: the positive-price comparison rejects a zero terminal exit; P19 preserves native zero-loss outcome evidence, while a separate cross-check change remains outside P19.
 
 - 2026-10-02 · **Live paper book for separately held research strategies**: plan a generic,
   paper-only path from the shared backtest core into a real-time simulator book without publishing
   strategy content. This owner direction still needs a separately approved implementation plan.
+
+## Admitted review
+
+The two 2026-10-03 shared-study findings (duplicate bars and terminal-zero cross-checks) are
+now admitted for reproduction and correction by [P20](plans/p20-engine-and-board-review.md).
+The review also covers existing dashboard reliability and setup documentation, with read-only
+host inspection and independent acceptance. Frozen strategy and execution rules remain in force.
 
 ## Completed from this ledger
 

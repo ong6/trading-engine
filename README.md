@@ -1,11 +1,12 @@
 # trading-engine
 
 A paper-only trading research engine with an AI agent in the decision loop, running unattended on
-one always-on Linux host. No broker, no real money, and no credentials.
+one always-on Linux host. No broker, no real money, and no broker credentials.
 
-**Status (2026-10-02):** the profitability evidence loop is live on registration revision 9; the
-shared backtest core is complete with byte-identical accelerated simulation; and the isolated free
-Massive grouped-daily capture is running over the available 2024-10-02 through 2026-09-30 window.
+**Status (2026-10-05):** the profitability evidence loop uses registration revision 10;
+the shared backtest core and offline market-data auditor are complete. Isolated free grouped-daily,
+minute and SEC archives support research; the operational store and frozen evidence stay separate.
+Current collection coverage and failures come from host evidence, not this dated summary.
 
 - **Research engine.** Real market data in DuckDB, a nightly Minervini screen, **25 active paper
   portfolios** (including the three profitability evidence loop books (P15) and 18 historically
@@ -20,7 +21,7 @@ Massive grouped-daily capture is running over the available 2024-10-02 through 2
   prospectively against its paired control.
 - **Profitability evidence loop (P15; live since 2026-09-29).** Candidate-wide scoring, equal-mechanics
   comparator books, a cancel-only pre-open check, shadow event triggers, and coded
-  profitability gates. Registration revision 9 is live and evidence collection continues.
+  profitability gates. Registration revision 10 is live and evidence collection continues.
 - **North star:** [`docs/product.md`](docs/product.md) — an engine that runs on its own and
   makes money net of trading and data cost, with AI choosing and deterministic code in control.
 - **Public engine, private strategies.** This repo is the open infrastructure plus the
@@ -96,14 +97,22 @@ the retired implementation or its evidence.
 ```bash
 uv venv --python 3.12 .venv
 uv sync --extra dev --frozen
-.venv/bin/python -m pytest -q -W error             # full suite, warnings are failures
+.venv/bin/python -m pytest -q -W error -n auto     # full suite, warnings are failures
 .venv/bin/ruff check .                             # active Python; archive is immutable history
 .venv/bin/python -m engine.universe                # build the ticker universe
 .venv/bin/python -m engine.collect --bootstrap-floor   # first backfill (hours; see how-it-works)
 engine/run_daily.sh                                  # one nightly, end to end
 ```
 
-The repo ships no market data and no credentials. `store/` (the DuckDB) and `data/eod/`
+The complete operating suite targets Linux, including `/proc`, file-descriptor safety and
+systemd checks. Numerical and dashboard tests also run on macOS; a local macOS full-suite
+failure does not substitute for Linux validation. Use Python 3.12 for the supported host setup.
+
+For the local dashboard, follow [`ui/README.md`](ui/README.md) for Node setup, production build,
+loopback services and SSH access. The API and dashboard have no authentication and must stay
+on loopback.
+
+The repo ships no raw market store or credentials. `store/` (the DuckDB) and `data/eod/`
 are regenerated locally; `data/screens/` and `data/reports/` are the committed outputs.
 Paper trading only — see the notice in `LICENSE`.
 

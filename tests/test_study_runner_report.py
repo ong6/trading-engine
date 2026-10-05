@@ -70,3 +70,41 @@ def test_report_has_fixed_sections_caveats_and_biased_secondary_cross_check(tmp_
     assert "SURVIVOR-BIASED SOURCE" in text
     assert "open_as_indication" in text
     assert json.loads(json_path.read_text()) == report
+
+
+@pytest.mark.parametrize("side,expected", [("long", -1.0), ("short", 1.0)])
+def test_cross_check_preserves_terminal_zero_outcomes(side, expected):
+    from farm.study.report import price_cross_check
+
+    first, second = date(2024, 1, 2), date(2024, 1, 3)
+    bars = [_bar("AAA", first, 100, 100), _bar("AAA", second, 1, 0)]
+    data = MarketData(PriceSource.declared(source="primary", bars=bars),
+                      PriceSource.declared(source="independent", bars=bars))
+    result = price_cross_check(data, [CrossCheckTrade(
+        "AAA", side, first, "open", second, "close")], hard_max_date=second)
+    assert result["covered_trades"] == 1
+    assert result["per_trade"][0]["primary_result"] == expected
+    assert result["per_trade"][0]["secondary_result"] == expected
+    # A zero secondary denominator has no price ratio, but still covers the trade.
+    assert result["fill_field_distributions"]["close"]["n"] == 0
+    assert result["secondary_trade_result"]["mean"] == expected
+
+
+@pytest.mark.parametrize("source", ["primary", "secondary"])
+@pytest.mark.parametrize("field,value", [("open", 0), ("close", -1),
+                                         ("close", float("inf"))])
+def test_cross_check_rejects_invalid_entry_and_exit_prices(source, field, value):
+    from farm.study.data import DataDeclaration
+    from farm.study.report import price_cross_check
+
+    day = date(2024, 1, 2)
+    bars = [_bar("AAA", day, 100, 110)]
+    invalid = [Bar("AAA", day, value if field == "open" else 100, 110, 0,
+                   value if field == "close" else 110, 100)]
+    primary = PriceSource(DataDeclaration("primary", "a" * 64, True, "point_in_time"),
+                          invalid if source == "primary" else bars)
+    secondary = PriceSource(DataDeclaration("independent", "b" * 64, True, "point_in_time"),
+                            invalid if source == "secondary" else bars)
+    with pytest.raises(ValueError, match="cross-check entry prices"):
+        price_cross_check(MarketData(primary, secondary), [CrossCheckTrade(
+            "AAA", "long", day, "open", day, "close")], hard_max_date=day)

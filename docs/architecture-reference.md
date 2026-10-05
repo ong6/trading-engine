@@ -33,6 +33,22 @@ with the specs or BUILDLOG, they win.
 5. **Prove by running** — nothing is "done" from code inspection; every feature ships with
    an end-to-end proof on a DB copy, logged in BUILDLOG.
 
+## Shared studies and dashboard boundaries
+
+The reusable study core (`farm/study/`) normalizes an immutable ticker-by-session price panel.
+Duplicate ticker/session inputs are rejected both within each bounded chunk and across chunks,
+so input order cannot silently choose a price. Vectorized coordinate checks keep the panel's
+bounded ingestion path; valid-input simulation and report formats are unchanged.
+Independent price checks require positive entries and nonnegative exits. A terminal zero remains
+a complete long loss (or short gain) when computing the paired trade return. Its secondary price
+ratio is undefined and excluded from that field's ratio distribution; trade coverage remains
+complete, so distribution sample counts and trade coverage answer different questions.
+
+The dashboard admits API responses at page boundaries, then passes them to presentation-only
+components. `/meta` is shared within one render, not cached across requests. The persistent
+status row scrolls within the viewport and remains keyboard accessible, including on mobile.
+Frozen forward reports are validated and projected without rewriting their payloads or rules.
+
 ## Components
 
 ```

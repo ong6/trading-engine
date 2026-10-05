@@ -32,7 +32,7 @@ accounting, halts, and kill switches. That split is the product, not a temporary
 5. **Inside the drawdown envelope**: a policy that can lose most of the book fails regardless of
    its recent run.
 
-## Where it stands (2026-10-02)
+## Where it stands (2026-10-05)
 
 The engine runs nightly data collection, screening, a paper league, three frozen forward records,
 weekly walk-forward checks, recovery bundles, research-only market data, and the daily opportunity
@@ -42,12 +42,13 @@ product (P12).
 **No policy has yet beaten its frozen control prospectively.**
 
 [The profitability evidence loop (P15)](plans/p15-profitability-evidence-loop.md) went live on
-2026-09-29 after a verified 90-table recovery bundle. Registration revision 9 is live; it binds
+2026-09-29 after a verified 90-table recovery bundle. Registration revision 10 is live; it binds
 infrastructure and contention changes without changing scoring, books, gates, labels, registered
 values, or written evidence. P15 is `active` and collecting. No performance claim exists before
 its registered looks. The revision records per-stage timing, faster bounded collection, snapshot
 throttling, cached status projections, single-connection observers, fail-soft reporting, deduplicated
-intraday facts, and rolling queue and walk-forward scratch handling.
+intraday facts, and rolling queue and walk-forward scratch handling. Revision 10 corrects pending nightly-marked book validation;
+it does not change scoring, book mechanics, gates, labels, schedules or recorded evidence.
 
 [The shared backtest core (P18)](plans/p18-backtest-core.md) is done. It builds one immutable
 columnar price panel and shares it with forked workers. On the registered 3,000-stock × 3,800-session
@@ -106,6 +107,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-10-05 | Review and improve the existing engine and paper dashboard against real host evidence, with independent acceptance and unchanged frozen strategy authority | P20; feedback |
 | 2026-10-03 | Start an offline market-data auditor: independent coverage, explicit unknown evidence and a fictional omission demo, with unchanged evaluator/live behavior | P19; feedback |
 | 2026-10-02 | Capture the free Massive rolling two-year minute history for the frozen small-stock tier, with one shared key limiter and isolated storage | P3; feedback |
 | 2026-10-02 | Use SEC's free nightly Companyfacts and Submissions archives for isolated point-in-time fundamentals and acceptance-timestamped earnings events | P3; feedback |
@@ -166,7 +168,7 @@ Each row has the default that applies until the owner decides.
 
 ## Focus now (in order)
 
-1. **Keep the evidence clean and the revision 9 operating path green.** Use per-stage timings to
+1. **Keep the evidence clean and the revision 10 operating path green.** Use per-stage timings to
    watch the bounded collection, shared snapshots, queue, observers, and status projections. Keep
    scheduled producers green, miss no agent windows, allow no identity drift, and leave no
    uncommitted work on the host. A broken producer beats every item below.
