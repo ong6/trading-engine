@@ -7,11 +7,14 @@ import logging
 import os
 from pathlib import Path
 
-from .json_utils import load_object
+from .file_utils import read_bytes
+from .json_utils import loads_object
 from .status_validation import iso_date, iso_timestamp
 
 log = logging.getLogger(__name__)
 PUBLIC_SUMMARY_FIELDS = ("regime", "last_run", "last_screen", "screen_date")
+# Full-universe verifier summaries exceed the generic 1 MiB operational-file cap.
+MAX_META_SNAPSHOT_BYTES = 8 * 1024 * 1024
 
 
 def public_summary(payload: dict) -> dict:
@@ -40,7 +43,9 @@ def load(path: Path) -> tuple[dict, dict]:
             "path": str(path),
         }
     try:
-        payload = load_object(path)
+        payload = loads_object(read_bytes(
+            path, max_bytes=MAX_META_SNAPSHOT_BYTES, label="metadata"
+        ))
     except (OSError, json.JSONDecodeError) as exc:
         log.warning("metadata snapshot is unreadable or malformed", exc_info=exc)
         return {}, {

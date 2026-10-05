@@ -4,14 +4,14 @@
     "violations": []
   },
   "code_size": {
-    "buildlog": 2005,
+    "buildlog": 2014,
     "docs_md": 27510,
     "engine": 20319,
     "farm": 26441,
     "product": 55462,
-    "server": 64101,
+    "server": 64106,
     "sim": 8702,
-    "tests": 83509,
+    "tests": 83545,
     "tools": 10758,
     "ui_app": 6657
   },
@@ -19,20 +19,20 @@
     "largest_insertions": 86905,
     "largest_sha": "89b416d",
     "largest_subject": "Harden paper-trading operations and research recovery",
-    "non_screen_commits": 516,
+    "non_screen_commits": 517,
     "product_touching": 206,
-    "research_touching": 219,
-    "support_only": 310,
+    "research_touching": 220,
+    "support_only": 311,
     "window_days": 30
   },
   "date": "2026-10-05",
   "ledger": {
-    "entries_total": 170,
+    "entries_total": 171,
     "recent_entries": 10,
     "recent_max_lines": 11,
     "recent_mean_lines": 8.5,
     "recent_sha256_mentions": 0,
-    "v2_entries": 170,
+    "v2_entries": 171,
     "v2_max_lines": 19,
     "v2_max_sha256": 0
   },
