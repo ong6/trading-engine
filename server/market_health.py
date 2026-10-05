@@ -136,7 +136,9 @@ def _price_disagreements(
     tolerance_abs_usd: int | float,
 ) -> list[dict]:
     details = raw["disagreements"]
-    if not isinstance(details, list) or len(details) != min(count, PRICE_DISAGREEMENT_LIMIT):
+    if not isinstance(details, list) or len(details) not in {
+        count, min(count, PRICE_DISAGREEMENT_LIMIT)
+    }:
         raise ValueError("price disagreement details do not reconcile")
 
     projected: list[dict] = []
@@ -175,13 +177,13 @@ def _price_disagreements(
             }
         )
     if len(tickers) > names_disagreeing or (
-        count <= PRICE_DISAGREEMENT_LIMIT and len(tickers) != names_disagreeing
+        len(details) == count and len(tickers) != names_disagreeing
     ):
         raise ValueError("price disagreement ticker count does not reconcile")
     listed_material = sum(item["diff_bp"] > material_bp for item in projected)
-    if listed_material != min(material_count, PRICE_DISAGREEMENT_LIMIT):
+    if listed_material != min(material_count, len(details)):
         raise ValueError("material price disagreement details do not reconcile")
-    return projected
+    return projected[:PRICE_DISAGREEMENT_LIMIT]
 
 
 def _price_evidence(

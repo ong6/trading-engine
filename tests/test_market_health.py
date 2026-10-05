@@ -167,6 +167,48 @@ def test_price_verification_caps_disagreements_with_explicit_truncation():
     assert result["disagreements_truncated"] is True
 
 
+def _complete_price_details():
+    details = [{"ticker": f"T{i}", "date": "2026-09-04", "field": "close",
+                "store": 100.0, "source": 110.0, "diff_bp": 909.09}
+               for i in range(25)]
+    return _price_verify_meta(names_agreeing=15, names_disagreeing=25,
+                              n_disagreements=25, n_material=25, disagreements=details)
+
+
+def test_complete_verifier_details_are_validated_before_public_truncation():
+    meta = _complete_price_details()
+    result = market_health.price_verification(
+        meta, date(2026, 9, 4), None, now=datetime(2026, 9, 8, tzinfo=timezone.utc)
+    )
+    assert result["status"] == "issues"
+    assert len(result["disagreements"]) == 20
+    assert result["n_material"] == result["disagreements_matching_count"] == 25
+    assert result["disagreements_truncated"] is True
+    assert len(meta["price_verify"]["disagreements"]) == 25
+
+
+@pytest.mark.parametrize("defect", ["duplicate", "nonfinite", "material-count", "ticker-count", "missing"])
+def test_complete_verifier_refuses_bad_evidence_beyond_public_limit(defect):
+    meta = _complete_price_details()
+    raw = meta["price_verify"]
+    details = raw["disagreements"]
+    if defect == "duplicate":
+        details[-1] = details[0].copy()
+    elif defect == "nonfinite":
+        details[-1]["store"] = float("nan")
+    elif defect == "material-count":
+        raw["n_material"] -= 1
+    elif defect == "ticker-count":
+        raw["names_disagreeing"] -= 1
+        raw["names_agreeing"] += 1
+    else:
+        details.pop()
+    result = market_health.price_verification(
+        meta, date(2026, 9, 4), None, now=datetime(2026, 9, 8, tzinfo=timezone.utc)
+    )
+    assert result == {"status": "invalid", "reason": "malformed-evidence"}
+
+
 @pytest.mark.parametrize(
     "disagreements",
     [

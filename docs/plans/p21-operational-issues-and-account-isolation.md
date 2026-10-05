@@ -72,8 +72,17 @@ checks establish actual progress while genuine unavailable-source gaps remain ex
 
 ## Budget and risks
 
-At most 18 logical commits, each below 1,500 insertions, and 4,500 added test/documentation lines.
+At most 20 logical commits, each below 1,500 insertions, and 4,500 added test/documentation lines.
 No per-layer ceiling is introduced. Exact source identities couple operational improvements to
 registration: preserve original modules/revisions until their replacement is properly bound.
 An abbreviated provider result never counts as complete history. A newer successful queue job
 never clears an older failure without evidence of the same work.
+
+
+## Acceptance correction budget
+
+Real full-universe browser acceptance exposed two producer/consumer integration defects:
+the aggregate metadata exceeded the generic file cap, and the monitor still required a
+truncated disagreement list. The orchestrator extended the execution budget from 18 to 20
+small commits to fix these demonstrated defects and record final acceptance. Scope and
+trading authority are unchanged; both corrections are outside registered/runtime source closure.
