@@ -30,7 +30,12 @@
     "samples_per_chunk": 3,
     "aggregation": "numeric_median_majority_action_representative_text_v1",
     "deadline_utc": "12:00:00",
-    "actions": ["ignore", "watch", "buy_candidate", "exit"],
+    "actions": [
+      "ignore",
+      "watch",
+      "buy_candidate",
+      "exit"
+    ],
     "exit_requires_held": true,
     "ai_entry_minimum_probability": 0.55,
     "ai_entry_minimum_expected_excess_bp_5": 50.0,
@@ -48,16 +53,28 @@
   },
   "baseline": {
     "version": "p15-baseline-v1",
-    "ranking": ["rs_rank_desc", "standout_score_desc", "ticker_asc"],
+    "ranking": [
+      "rs_rank_desc",
+      "standout_score_desc",
+      "ticker_asc"
+    ],
     "missing_rs_rank": "last"
   },
   "labels": {
     "schema_version": 2,
     "round_trip_cost_bps": 20.0,
-    "horizons_sessions": [1, 5, 10, 20],
+    "horizons_sessions": [
+      1,
+      5,
+      10,
+      20
+    ],
     "primary_horizon_sessions": 5,
     "nightly_basis": "next_session_open",
-    "event_bases": ["next_bar", "next_session_open"],
+    "event_bases": [
+      "next_bar",
+      "next_session_open"
+    ],
     "missing_bars": "last_available_close_after_confirmation",
     "missing_bar_grace_sessions": 3,
     "missing_bar_confirmation": "later_ticker_bar_or_completed_exact_date_fetch",
@@ -66,7 +83,11 @@
   },
   "books": {
     "mechanics_version": "p15-book-v1",
-    "portfolio_ids": ["p15_ai_ranked", "p15_rule_control", "p15_hybrid_veto"],
+    "portfolio_ids": [
+      "p15_ai_ranked",
+      "p15_rule_control",
+      "p15_hybrid_veto"
+    ],
     "initial_cash_usd_each": 10000.0,
     "execution_profile": "baseline_v1",
     "risk_fraction": 0.01,
@@ -101,7 +122,11 @@
   "events": {
     "policy_id": "p15-events-v1",
     "schedule": "09:35,09:50,10:05-15:50 at :05/:20/:35/:50 America/New_York",
-    "sources": ["local_rss", "sec_edgar_8k", "intraday_mover"],
+    "sources": [
+      "local_rss",
+      "sec_edgar_8k",
+      "intraday_mover"
+    ],
     "maximum_universe": 300,
     "maximum_workers": 8,
     "maximum_decisions_per_session": 60,
@@ -132,9 +157,20 @@
       "origin_epoch": "2026-09-29",
       "stride": 5,
       "offset": 0,
-      "nominal_look_labels": [60, 90, 120],
-      "retained_observations_at_looks": [12, 18, 24],
-      "skip_decided_before_forward_outcome": ["fewer_than_20_candidates", "constant_scores"],
+      "nominal_look_labels": [
+        60,
+        90,
+        120
+      ],
+      "retained_observations_at_looks": [
+        12,
+        18,
+        24
+      ],
+      "skip_decided_before_forward_outcome": [
+        "fewer_than_20_candidates",
+        "constant_scores"
+      ],
       "constant_scores_definition": "either champion score or rule score is constant on the common eligible candidate set",
       "skip_effect": "stay_on_original_offset0_grid_and_delay_until_target_retained_count",
       "unresolved_or_outcome_dependent_missing": "block_prefix_no_replacement",
@@ -143,8 +179,16 @@
     "primary_interval": {
       "standard_error": "sample_sd_ddof1_divided_by_sqrt_retained_n",
       "one_sided_alpha_per_look": 0.016666666666666666,
-      "degrees_of_freedom": [11, 17, 23],
-      "critical_values": [2.431291192871, 2.315573401153, 2.263728355255],
+      "degrees_of_freedom": [
+        11,
+        17,
+        23
+      ],
+      "critical_values": [
+        2.431291192871,
+        2.315573401153,
+        2.263728355255
+      ],
       "zero_variance": "no_interval_no_pass_and_kill_at_completed_final_look"
     },
     "primary_pass": "lower_bound_gt_0_and_mean_champion_IC_on_same_retained_origins_gt_0",
@@ -188,12 +232,12 @@
     "price_fetch_availability": "after_collection_completion"
   },
   "code_identity": {
-    "source_commit": "ddd17b8829fd4bdea480bf3c83795dbb83a181da",
+    "source_commit": "a2a71e6033dfd0a552638634ff2482830ad73392",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/actions.py": "a6c2ec46d198df2318498ec7d55e1b7cfeca4c8afaccd8a5c208618e4ea8b850",
       "engine/bitemporal_facts.py": "9f593e82da0f65a54b93d0dac5505e6a98fad5d1d4d63ce672b71d527655c8cc",
-      "engine/collect.py": "23ec8da4be7342101b061f6db49b2338dcbe8fd127c2fb607c66995652d340f1",
+      "engine/collect.py": "c157b8c948b23b86aaa5e9d22816993f7ace43f71db769105fe5c42a8e77e58c",
       "engine/daily_opportunities.py": "d8d8cd884183f10055204b606af3a748198d7c9686342b5fad091a24ab71292b",
       "engine/earnings.py": "2d3b702f523b1a88c12b48bc62e4bba78deefb09122e65d0bb934460072483d2",
       "engine/forward_review.py": "ef8fde636b198b93fb71350e0dd76b5cc3e0280194e3b4b614f812142f2b61f2",
@@ -220,7 +264,7 @@
       "engine/sync.py": "538ca3637f57302b18104d7caac943d03443d43b5217685a9b8aa011b3b536e6",
       "engine/tradingview_history_archive.py": "910f09b31dec6cdd5f8e24d9ca62134a869f4fd31139c686a151e5e6c8e11d4b",
       "engine/universe.py": "ad3cf5f62730767081ee7718006ce4f78f4c6bfdbb80ab90caeef118abc276a7",
-      "engine/verify_prices.py": "ff8591787ff0c1db02d6905ddbd9b6a7be1671b5fbae326275ab28f120226703",
+      "engine/verify_prices.py": "b78a25830eeafd695c2b4d8697af1ab48446bbb796c52e07e381839063f41afd",
       "engine/xs_forward_review.py": "3ccaffeb1d634c2c79d25980fdf4bd166a2af23aa0cf480b8540927a065db1be",
       "farm/__init__.py": "bf84aec09336388f858d7c1e7c28cab3da1d8d18096ed36ef460ea49114f11e0",
       "farm/agent_evaluation_analysis.py": "67ba119bd1974a184e03c64852b22f42d0ae654e2844f60974082b66c1159ab8",
@@ -246,7 +290,7 @@
       "farm/walkforward/runner.py": "e36a5b40c3c6283e7e506ed8ba1fcc7a580f341d6ba5a963c984113cfd12c644",
       "server/__init__.py": "c462735edca08a01b1bda392e672430ed441aca796251c6adcaf6b5e648ea4b5",
       "server/agent-cadence-registration.json": "cf66040d889662f7ad740f79ce83e2c87528853bafe4f31a0634c7195b5c4b59",
-      "server/agent_evaluation.py": "fd09058505f1eb039e30595ca6d00b66fb4bc92fa0416074f66d34692a987f8c",
+      "server/agent_evaluation.py": "77ab93c39d165c8818b255224772a12d0c04deff04c041b38d97e78cfd3ca8e7",
       "server/agent_evaluation_reporting.py": "4116ca8251bd47d3e589340ebe6bf1a737dae20082120725f4acff0cb4668a7f",
       "server/agent_model_client.py": "3c4fbdfd48aa6e1c32a8fbe7fba18f8c7470aef01a684f7ab2d9d8cadf1394f8",
       "server/daily_opportunity_execution.py": "8f599df3f6ba71770d72ce23010f43d6d40695092de0e30e4a9986987dcc7798",
@@ -264,10 +308,10 @@
       "server/nightly_monitor.py": "2240c1e21b7c9973737f49680dc06802fc7e7e1de0f98b4b80c2e283f76d2fb4",
       "server/nightly_reports.py": "901448247bb8169952a3ac862a64b9051840a2f6bbfb3fad400a4cfd61b34517",
       "server/official_quote_source.py": "f0ce3e4113ca76e8437e8d959c507f361200f8fe694b6a2b5dcfd096c59aa2c5",
-      "server/p15_preopen.py": "d02aacdc3a70efff67584dac516874f96519767331f79ca5284d983c70543a45",
+      "server/p15_preopen.py": "be026d021c10e62dd723188f196fde0224109398128386ace7b1076d722424f1",
       "server/p15_incremental_collect.py": "59361f8a402da6080857d7ec122c46f718476d274a127c82daa876e3275e312f",
-      "server/p15_price_fetch_attempts.py": "96dd0afcb8b400d7102086fba8d666a7fef664fd86ffbb81b90e2347ae9f3ae2",
-      "server/p15_scoring_runner.py": "6e97bbc9b9e51c128a7f9e2705a0cc7d590237c1f7b7368507724193fe8a3644",
+      "server/p15_price_fetch_attempts.py": "ce871d970af3f50ee61aee4d9ce81196542fb01954cde50168b89edf74805b60",
+      "server/p15_scoring_runner.py": "f590551a79d4dcca4c36f073b1503b949e9f30447c388f2170267060a0c626bc",
       "server/p15_scoring_store.py": "4660607b6bb5b18fdb6ee7585b8bdadab9dfa9af9417f0ae51833bc87a695bee",
       "server/run_p15_scoring.sh": "0a78ab86b3e72ac3b6f9692745acbf79822a462ca4290d7d46cd08bb033a539b",
       "server/status_validation.py": "538a2b74aa645475cdbb760c14f0ce2f49a2a4417e4c400197b724dd2ff4c770",
@@ -319,15 +363,15 @@
       "sim/strategies/xs_momentum_12_1.py": "39c5e0069278b737c446052169acf955e051cd568f3b9883f533343f7f252062",
       "sim/strategies/xs_reversal_1m.py": "84d75403e79184e80a9013ef77b24c0bcb4bb9f85a0840f0d3295583885a50e7",
       "tools/__init__.py": "1f23b3f78a32b5567d64752ddc564b1182bdfe50616b87bca6a3a603b597d927",
-      "tools/agent_trial_register.py": "08cb4553ef83b49297f0222e063bf1da506e2b6e8d185f5a430739dc659125f6",
+      "tools/agent_trial_register.py": "6cd235435466a0a18ec8bcb4c1618f9228e2b3f994583a905ff2da3ed9c7d84d",
       "tools/backup_database.py": "813d0317faad00365ad9227e1b47827065eed9fcbefe17a364c0995f24b2bbfe",
       "tools/p15_evidence_validation.py": "fe8c1bd3c6f319cdf144755437350559bacd0c1d5ea02a29dcda64645f879b2e",
       "tools/publish_snapshot.py": "23c1057ee3524f1a26c54ab814c68cdff127f7b0702fd3f2142ee370091533b5",
       "tools/release_manifest.py": "90b52c70a99d5ccab09d0efd6b453f6ac814243decee68071c7f658b4d96e217",
-      "tools/sec_edgar_capture.py": "b6f46658930844cf4deed830e8e3a9412e9a19232663aced8a01472c42f0024f"
+      "tools/sec_edgar_capture.py": "63dc9eb0b5f6dc2ac910077a07c58e65a95b5ba0961ae2b5cd4d3d5148b4ecab"
     }
   },
-  "registration_revision": 10,
-  "revision_reason": "book-link validation treats the latest nightly-marked equity before its P15 book window as pending, not orphan; no scoring, book, gate, label, schedule or written-row change",
-  "registration_sha256": "edcb346130f233a7fdd48994b1459b669fc639612eeb8ea48f46001864b20693"
+  "registration_revision": 11,
+  "revision_reason": "complete verifier receipts and identity checks, full-history coverage fallback, and behavior-preserving evidence/capture extraction; no scoring, book, gate, label, schedule or written-row change",
+  "registration_sha256": "74c98579b52f663ed960fb57032b5ad2c64f0a45c474f0e291e49a39e567ea67"
 }

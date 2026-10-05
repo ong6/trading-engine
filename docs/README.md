@@ -64,6 +64,7 @@ Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](sit
   requirements for point-in-time data, agent decisions, execution, evaluation, and external gates.
 - [`how-it-works.md`](how-it-works.md) — concise operations runbook: schedules, health checks,
   recovery, services, and gated activation procedure.
+- [`paper-account-contract.md`](paper-account-contract.md) — independent capital tiers, private strategy specifications and engine-owned next-open accounting.
 - [`architecture-reference.md`](architecture-reference.md) — detailed component, data-flow,
   paper-league, agent-service, UI/API, and authority-boundary reference.
 - [`settlement-runbook.md`](settlement-runbook.md) — manual adjudication of dead or

@@ -93,6 +93,7 @@ def create_account(con, spec: dict, *, now: datetime) -> dict:
         if old is not None:
             if old != (json.dumps(spec, sort_keys=True), digest):
                 raise AccountRefused("account identity already bound to a different specification")
+            _load_spec(con, account_id)
             return {"account_id": account_id, "replayed": True, "specification_sha256": digest}
         if con.execute("SELECT 1 FROM portfolios WHERE id=?", [account_id]).fetchone():
             raise AccountRefused("existing portfolio cannot be re-funded or rebound")
@@ -199,6 +200,15 @@ def _reserved_buys(con, pending: list, signal_date: date) -> dict:
     return reserved
 
 
+def _validate_replayed_order(con, order_id, intent):
+    row = con.execute("SELECT portfolio_id,ticker,side,qty,signal_date FROM sim_orders WHERE id=?",
+                      [order_id]).fetchone()
+    expected = (intent["account_id"], intent["ticker"], intent["side"], intent["quantity"],
+                date.fromisoformat(intent["signal_date"]))
+    if row != expected:
+        raise AccountRefused("retained intake no longer matches its engine order")
+
+
 def submit_intent(con, intent: dict, *, now: datetime) -> dict:
     now = _utc(now)
     if not isinstance(intent, dict) or set(intent) != INTENT_FIELDS:
@@ -206,11 +216,13 @@ def submit_intent(con, intent: dict, *, now: datetime) -> dict:
     digest = canonical_sha256(intent)
     with db.transaction(con):
         spec = _load_spec(con, intent["account_id"])
-        previous = con.execute("SELECT account_id,order_id,sha256 FROM paper_account_intakes "
+        previous = con.execute("SELECT account_id,order_id,sha256,payload FROM paper_account_intakes "
                                "WHERE intent_id=?", [intent["intent_id"]]).fetchone()
         if previous is not None:
-            if previous[0] != intent["account_id"] or previous[2] != digest:
+            if (previous[0] != intent["account_id"] or previous[2] != digest
+                    or canonical_sha256(json.loads(previous[3])) != digest):
                 raise AccountRefused("intent identifier already bound to different evidence")
+            _validate_replayed_order(con, previous[1], intent)
             return {"order_id": previous[1], "replayed": True}
         signal_date, quantity = validate_intent(intent, spec, now)
         latest = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
