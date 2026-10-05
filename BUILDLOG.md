@@ -1859,4 +1859,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** published snapshot passes the budget; source changes remain below the commit cap.
 - **Next:** publish, verify CI and inspect the deployed read-only API and dashboard.
 
+## 2026-10-05 — Close verified engine and dashboard review
+
+- **Why:** P20 requires independent acceptance, publication and production verification.
+- **What:** close the review after deployment; preserve genuine source-quality and cohort warnings.
+- **Evidence:** `gh run view 37283503856` reports successful UTC/Singapore tests and UI build.
+  Deployed `/meta` shows accumulating two-session XS evidence; four browser routes return 200
+  without JavaScript errors, and the 390px status region stays within the viewport.
+- **Metrics:** code unchanged; metrics budget passes.
+- **Next:** nothing further admitted by P20; existing collection and revalidation continue.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

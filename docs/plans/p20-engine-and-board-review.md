@@ -1,7 +1,7 @@
 ---
 plan: P20
 title: Engine and paper dashboard correctness review
-status: active
+status: done
 opened: 2026-10-05
 owner_decision: Owner requested a comprehensive review and improvements with independent reviewers
 ---
@@ -54,3 +54,15 @@ At most five logical implementation/documentation commits, each below 1,500 inse
 No new operator CLI, endpoint, or monitoring service. Rejecting formerly accepted duplicate
 input is intentional; preserve results for valid input and do not rewrite stored research.
 UI request cancellation must preserve caller cancellation and never retry a mutation.
+
+## Verified outcome — 2026-10-05
+
+The bounded review is complete. Independent review found no remaining blockers after the
+generic input/report and forward-projection fixes. The complete Linux suite passed 4,309
+cases; 54 UI tests, production compilation and browser checks at 390px and 1280px also passed.
+[CI on the implementation](https://github.com/ong6/trading-engine/actions/runs/37283503856)
+passed both UTC and Asia/Singapore suites, dependency audits, packaging and the UI build.
+After deployment the live API reports the unchanged two-session XS evidence as accumulating,
+and all four dashboard routes load without JavaScript errors. The mobile status region stays
+inside the viewport and supports keyboard scrolling. Real source-quality warnings remain
+visible; existing evidence and frozen contracts were not rewritten.
