@@ -8,13 +8,15 @@ clock or schedule changes. No production model call is used for the rehearsal.
 
 Revision 10 and its exact source files remain reproducible at commit `46bd665`. Revision 11
 binds the source commit recorded in `server/p15-registration.json` and its full dependency map.
-It covers complete independent-price receipts and explicit symbol/nonfinite checks, corrected
-request pacing after delayed wakeups, a full-history fallback that proves completed listing
-coverage, and named helper extraction in evidence/scoring/pre-open/capture code.
+It covers complete independent-price receipts and explicit symbol/nonfinite/schema checks,
+corrected request pacing after delayed wakeups, a full-history fallback that proves completed
+listing coverage and valid bars, and named helper extraction in evidence/scoring/pre-open/capture
+code. Malformed source refusals retain exact response bytes; public receipt references are relative.
 
 The registration tests verify unchanged runtime constants and a complete local dependency
 closure in addition to every file hash and the committed source identity. The focused
-registration/evaluation/pre-open/scoring/verifier/account fixture rehearsal passed 99 cases.
+registration/evaluation/pre-open/scoring/verifier/account and operating-contract fixture rehearsal
+passed 127 cases after independent review corrections.
 Original written evidence is unchanged. New source hashes are disclosed because operational
 behavior was corrected; they are not silently substituted into older research registrations.
 Any private consumer freezing one of these files needs its own explicit dependency decision.
