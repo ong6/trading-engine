@@ -1,12 +1,12 @@
 # Dual Momentum (GEM) — walk-forward re-validation
 
-_`dual_momentum` · dual_momentum · monthly cadence · verdict **REVIEW** · generated 2026-10-04T06:08:42+00:00_
+_`dual_momentum` · dual_momentum · monthly cadence · verdict **REVIEW** · generated 2026-10-05T16:41:43+00:00_
 
 **Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-10-02. Each fold is an independent replay starting at $39,000. Span 2014-10-02 → 2026-10-02 (3018 sessions); data floor 2008-05-29; screen source `not-used`.
 
-**Provenance.** Source `d0bd517ea958c0cd36effb93747c04d9a2b5fa43e016aa622ba5e35e55c1189d`; config `c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35`.
+**Provenance.** Source `e533fb3b2cbb71a883fdb88ff4af0b6257676575c4e7bc0bfb80df4cf0373c4e`; config `c551f29438f5906f477ac4be3ddd62050817c34446c224a9a25b865628638e35`.
 
-**Evidence and execution.** Data quality `fixed_etf_history`; execution profile `baseline_v1`; data snapshot `39c8ea0953a0761a486ca6bf24f2938d0d5cb2f3e265ab01ba7d963354e539d0`; comparison protocol `wf-controls-2026-09-07-v1`.
+**Evidence and execution.** Data quality `fixed_etf_history`; execution profile `baseline_v1`; data snapshot `0affd34308e8ca5132398cb1f228225beb8f46edd2d68291a7428c94d2e3fca8`; comparison protocol `wf-controls-2026-09-07-v1`.
 
 **Pre-registered expectation.** Lower drawdown than buy-and-hold via the cash switch; lags in strong bull runs.
 
@@ -82,7 +82,7 @@ _`dual_momentum` · dual_momentum · monthly cadence · verdict **REVIEW** · ge
 * mean validate CAGR **+9.42%** vs mean train CAGR +6.32% → decay **+3.10%**
 * mean validate Sharpe +0.74, worst validate max drawdown −33.69%
 * 61 fill(s) inside validate windows
-* runtime 519.1s (scratch 16.1s, screen 0.0s)
+* runtime 584.7s (scratch 16.1s, screen 0.0s)
 
 **Verdict rule (mechanical exploratory triage, NOT an automatic kill).** For
 each book, against the versioned comparison declared in its result artifact:

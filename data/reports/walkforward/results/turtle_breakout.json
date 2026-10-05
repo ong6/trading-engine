@@ -28,7 +28,7 @@
   "data_floor": "1994-01-27",
   "data_quality_class": "current_universe_survivor_biased",
   "data_snapshot": {
-    "sha256": "39c8ea0953a0761a486ca6bf24f2938d0d5cb2f3e265ab01ba7d963354e539d0",
+    "sha256": "0affd34308e8ca5132398cb1f228225beb8f46edd2d68291a7428c94d2e3fca8",
     "tables": {
       "corporate_actions": {
         "exists": true,
@@ -50,7 +50,7 @@
       },
       "prices": {
         "exists": true,
-        "latest_fetch": "2026-10-04T02:04:52.145064",
+        "latest_fetch": "2026-10-05T16:28:35.262083",
         "max_date": "2026-10-02",
         "min_date": "1962-01-02",
         "rows": 21007108
@@ -106,7 +106,7 @@
           "ticker": "ABEO"
         }
       ],
-      "runtime_s": 176.4,
+      "runtime_s": 213.6,
       "sessions": 756,
       "split_date": "2016-10-02",
       "split_session": "2016-09-30",
@@ -222,7 +222,7 @@
       "n_rejected": 13,
       "n_validate_fills": 137,
       "pending_orders": [],
-      "runtime_s": 183.3,
+      "runtime_s": 221.0,
       "sessions": 756,
       "split_date": "2017-10-02",
       "split_session": "2017-10-02",
@@ -353,7 +353,7 @@
           "ticker": "JBSS"
         }
       ],
-      "runtime_s": 190.8,
+      "runtime_s": 246.3,
       "sessions": 755,
       "split_date": "2018-10-02",
       "split_session": "2018-10-02",
@@ -465,7 +465,7 @@
       "n_rejected": 0,
       "n_validate_fills": 115,
       "pending_orders": [],
-      "runtime_s": 180.4,
+      "runtime_s": 215.6,
       "sessions": 757,
       "split_date": "2019-10-02",
       "split_session": "2019-10-02",
@@ -590,7 +590,7 @@
           "ticker": "AR"
         }
       ],
-      "runtime_s": 182.7,
+      "runtime_s": 218.4,
       "sessions": 756,
       "split_date": "2020-10-02",
       "split_session": "2020-10-02",
@@ -702,7 +702,7 @@
       "n_rejected": 5,
       "n_validate_fills": 88,
       "pending_orders": [],
-      "runtime_s": 168.9,
+      "runtime_s": 201.7,
       "sessions": 756,
       "split_date": "2021-10-02",
       "split_session": "2021-10-01",
@@ -823,7 +823,7 @@
           "ticker": "CVNA"
         }
       ],
-      "runtime_s": 163.7,
+      "runtime_s": 209.6,
       "sessions": 754,
       "split_date": "2022-10-02",
       "split_session": "2022-09-30",
@@ -939,7 +939,7 @@
       "n_rejected": 0,
       "n_validate_fills": 154,
       "pending_orders": [],
-      "runtime_s": 160.9,
+      "runtime_s": 191.2,
       "sessions": 754,
       "split_date": "2023-10-02",
       "split_session": "2023-10-02",
@@ -1058,7 +1058,7 @@
           "ticker": "ONDS"
         }
       ],
-      "runtime_s": 174.7,
+      "runtime_s": 209.5,
       "sessions": 753,
       "split_date": "2024-10-02",
       "split_session": "2024-10-02",
@@ -1170,7 +1170,7 @@
       "n_rejected": 8,
       "n_validate_fills": 165,
       "pending_orders": [],
-      "runtime_s": 182.9,
+      "runtime_s": 223.7,
       "sessions": 754,
       "split_date": "2025-10-02",
       "split_session": "2025-10-02",
@@ -1269,9 +1269,9 @@
       "validate_universe": 12643
     }
   ],
-  "generated_utc": "2026-10-04T06:52:26+00:00",
+  "generated_utc": "2026-10-05T17:34:03+00:00",
   "git_dirty": true,
-  "git_sha": "284cb06d60409ce5d7f715e23afa69e820a5da43",
+  "git_sha": "4a6d050d30b0ac7e36da6ae6f37968b56a1c58de",
   "initial_cash": 39000.0,
   "kill_criterion": "Max drawdown exceeds 25%, or trails ew_benchmark by >15% over any rolling 6 months.",
   "name": "Turtle Breakout (ATR-stopped)",
@@ -1345,14 +1345,14 @@
     "validate_months": 12
   },
   "registered": "2026-07-28",
-  "runtime_s": 1790.3,
+  "runtime_s": 2177.7,
   "scratch_s": 0.1,
   "screen_rows": 1120910,
-  "screen_s": 25.7,
+  "screen_s": 26.9,
   "screen_source": "hist",
   "sessions": 3018,
-  "source_file_count": 196,
-  "source_sha256": "d0bd517ea958c0cd36effb93747c04d9a2b5fa43e016aa622ba5e35e55c1189d",
+  "source_file_count": 202,
+  "source_sha256": "e533fb3b2cbb71a883fdb88ff4af0b6257676575c4e7bc0bfb80df4cf0373c4e",
   "span_end": "2026-10-02",
   "span_start": "2014-10-02",
   "strategy": "turtle_breakout",

@@ -24,7 +24,7 @@
   "data_floor": "1994-01-27",
   "data_quality_class": "current_universe_survivor_biased",
   "data_snapshot": {
-    "sha256": "39c8ea0953a0761a486ca6bf24f2938d0d5cb2f3e265ab01ba7d963354e539d0",
+    "sha256": "0affd34308e8ca5132398cb1f228225beb8f46edd2d68291a7428c94d2e3fca8",
     "tables": {
       "corporate_actions": {
         "exists": true,
@@ -46,7 +46,7 @@
       },
       "prices": {
         "exists": true,
-        "latest_fetch": "2026-10-04T02:04:52.145064",
+        "latest_fetch": "2026-10-05T16:28:35.262083",
         "max_date": "2026-10-02",
         "min_date": "1962-01-02",
         "rows": 21007108
@@ -95,7 +95,7 @@
       "n_rejected": 0,
       "n_validate_fills": 346,
       "pending_orders": [],
-      "runtime_s": 81.7,
+      "runtime_s": 90.5,
       "sessions": 756,
       "split_date": "2016-10-02",
       "split_session": "2016-09-30",
@@ -211,7 +211,7 @@
       "n_rejected": 0,
       "n_validate_fills": 322,
       "pending_orders": [],
-      "runtime_s": 84.8,
+      "runtime_s": 93.0,
       "sessions": 756,
       "split_date": "2017-10-02",
       "split_session": "2017-10-02",
@@ -323,7 +323,7 @@
       "n_rejected": 0,
       "n_validate_fills": 230,
       "pending_orders": [],
-      "runtime_s": 84.6,
+      "runtime_s": 93.1,
       "sessions": 755,
       "split_date": "2018-10-02",
       "split_session": "2018-10-02",
@@ -490,7 +490,7 @@
           "ticker": "TSLA"
         }
       ],
-      "runtime_s": 82.4,
+      "runtime_s": 90.4,
       "sessions": 757,
       "split_date": "2019-10-02",
       "split_session": "2019-10-02",
@@ -645,7 +645,7 @@
           "ticker": "GSM"
         }
       ],
-      "runtime_s": 82.1,
+      "runtime_s": 90.1,
       "sessions": 756,
       "split_date": "2020-10-02",
       "split_session": "2020-10-02",
@@ -757,7 +757,7 @@
       "n_rejected": 36,
       "n_validate_fills": 146,
       "pending_orders": [],
-      "runtime_s": 79.3,
+      "runtime_s": 104.9,
       "sessions": 756,
       "split_date": "2021-10-02",
       "split_session": "2021-10-01",
@@ -865,7 +865,7 @@
       "n_rejected": 0,
       "n_validate_fills": 261,
       "pending_orders": [],
-      "runtime_s": 80.8,
+      "runtime_s": 89.7,
       "sessions": 754,
       "split_date": "2022-10-02",
       "split_session": "2022-09-30",
@@ -981,7 +981,7 @@
       "n_rejected": 0,
       "n_validate_fills": 324,
       "pending_orders": [],
-      "runtime_s": 79.0,
+      "runtime_s": 87.2,
       "sessions": 754,
       "split_date": "2023-10-02",
       "split_session": "2023-10-02",
@@ -1093,7 +1093,7 @@
       "n_rejected": 0,
       "n_validate_fills": 279,
       "pending_orders": [],
-      "runtime_s": 82.9,
+      "runtime_s": 92.5,
       "sessions": 753,
       "split_date": "2024-10-02",
       "split_session": "2024-10-02",
@@ -1242,7 +1242,7 @@
           "ticker": "IOVA"
         }
       ],
-      "runtime_s": 84.1,
+      "runtime_s": 93.7,
       "sessions": 754,
       "split_date": "2025-10-02",
       "split_session": "2025-10-02",
@@ -1341,9 +1341,9 @@
       "validate_universe": 12643
     }
   ],
-  "generated_utc": "2026-10-04T06:22:46+00:00",
+  "generated_utc": "2026-10-05T16:57:31+00:00",
   "git_dirty": true,
-  "git_sha": "284cb06d60409ce5d7f715e23afa69e820a5da43",
+  "git_sha": "4a6d050d30b0ac7e36da6ae6f37968b56a1c58de",
   "initial_cash": 39000.0,
   "kill_criterion": "Does not reduce max drawdown vs ungated top5 across a full risk-off episode.",
   "name": "Template Top 5 (regime-gated)",
@@ -1417,14 +1417,14 @@
     "validate_months": 12
   },
   "registered": "2026-07-17",
-  "runtime_s": 847.8,
+  "runtime_s": 952.8,
   "scratch_s": 0.1,
   "screen_rows": 1120910,
-  "screen_s": 25.8,
+  "screen_s": 27.6,
   "screen_source": "hist",
   "sessions": 3018,
-  "source_file_count": 196,
-  "source_sha256": "d0bd517ea958c0cd36effb93747c04d9a2b5fa43e016aa622ba5e35e55c1189d",
+  "source_file_count": 202,
+  "source_sha256": "e533fb3b2cbb71a883fdb88ff4af0b6257676575c4e7bc0bfb80df4cf0373c4e",
   "span_end": "2026-10-02",
   "span_start": "2014-10-02",
   "strategy": "template_top5",

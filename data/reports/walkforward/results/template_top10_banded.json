@@ -23,7 +23,7 @@
   "data_floor": "1994-01-27",
   "data_quality_class": "current_universe_survivor_biased",
   "data_snapshot": {
-    "sha256": "39c8ea0953a0761a486ca6bf24f2938d0d5cb2f3e265ab01ba7d963354e539d0",
+    "sha256": "0affd34308e8ca5132398cb1f228225beb8f46edd2d68291a7428c94d2e3fca8",
     "tables": {
       "corporate_actions": {
         "exists": true,
@@ -45,7 +45,7 @@
       },
       "prices": {
         "exists": true,
-        "latest_fetch": "2026-10-04T02:04:52.145064",
+        "latest_fetch": "2026-10-05T16:28:35.262083",
         "max_date": "2026-10-02",
         "min_date": "1962-01-02",
         "rows": 21007108
@@ -94,7 +94,7 @@
       "n_rejected": 0,
       "n_validate_fills": 742,
       "pending_orders": [],
-      "runtime_s": 135.2,
+      "runtime_s": 153.3,
       "sessions": 756,
       "split_date": "2016-10-02",
       "split_session": "2016-09-30",
@@ -210,7 +210,7 @@
       "n_rejected": 0,
       "n_validate_fills": 707,
       "pending_orders": [],
-      "runtime_s": 136.1,
+      "runtime_s": 165.1,
       "sessions": 756,
       "split_date": "2017-10-02",
       "split_session": "2017-10-02",
@@ -322,7 +322,7 @@
       "n_rejected": 0,
       "n_validate_fills": 755,
       "pending_orders": [],
-      "runtime_s": 136.1,
+      "runtime_s": 151.7,
       "sessions": 755,
       "split_date": "2018-10-02",
       "split_session": "2018-10-02",
@@ -513,7 +513,7 @@
           "ticker": "ZM"
         }
       ],
-      "runtime_s": 138.6,
+      "runtime_s": 156.3,
       "sessions": 757,
       "split_date": "2019-10-02",
       "split_session": "2019-10-02",
@@ -716,7 +716,7 @@
           "ticker": "SM"
         }
       ],
-      "runtime_s": 141.5,
+      "runtime_s": 159.9,
       "sessions": 756,
       "split_date": "2020-10-02",
       "split_session": "2020-10-02",
@@ -925,7 +925,7 @@
           "ticker": "TNK"
         }
       ],
-      "runtime_s": 143.1,
+      "runtime_s": 161.9,
       "sessions": 756,
       "split_date": "2021-10-02",
       "split_session": "2021-10-01",
@@ -1033,7 +1033,7 @@
       "n_rejected": 0,
       "n_validate_fills": 750,
       "pending_orders": [],
-      "runtime_s": 142.2,
+      "runtime_s": 176.7,
       "sessions": 754,
       "split_date": "2022-10-02",
       "split_session": "2022-09-30",
@@ -1149,7 +1149,7 @@
       "n_rejected": 0,
       "n_validate_fills": 744,
       "pending_orders": [],
-      "runtime_s": 140.2,
+      "runtime_s": 159.6,
       "sessions": 754,
       "split_date": "2023-10-02",
       "split_session": "2023-10-02",
@@ -1261,7 +1261,7 @@
       "n_rejected": 0,
       "n_validate_fills": 783,
       "pending_orders": [],
-      "runtime_s": 139.0,
+      "runtime_s": 158.8,
       "sessions": 753,
       "split_date": "2024-10-02",
       "split_session": "2024-10-02",
@@ -1458,7 +1458,7 @@
           "ticker": "TXG"
         }
       ],
-      "runtime_s": 137.3,
+      "runtime_s": 157.2,
       "sessions": 754,
       "split_date": "2025-10-02",
       "split_session": "2025-10-02",
@@ -1557,9 +1557,9 @@
       "validate_universe": 12643
     }
   ],
-  "generated_utc": "2026-10-04T06:24:02+00:00",
+  "generated_utc": "2026-10-05T16:59:29+00:00",
   "git_dirty": true,
-  "git_sha": "284cb06d60409ce5d7f715e23afa69e820a5da43",
+  "git_sha": "4a6d050d30b0ac7e36da6ae6f37968b56a1c58de",
   "initial_cash": 39000.0,
   "kill_criterion": "Turnover fails to fall below template_top5, or trails ew_benchmark by >15% over 6 months.",
   "name": "Template Top 10 (banded)",
@@ -1633,14 +1633,14 @@
     "validate_months": 12
   },
   "registered": "2026-07-17",
-  "runtime_s": 1415.0,
+  "runtime_s": 1626.8,
   "scratch_s": 0.1,
   "screen_rows": 1120910,
-  "screen_s": 25.4,
+  "screen_s": 26.1,
   "screen_source": "hist",
   "sessions": 3018,
-  "source_file_count": 196,
-  "source_sha256": "d0bd517ea958c0cd36effb93747c04d9a2b5fa43e016aa622ba5e35e55c1189d",
+  "source_file_count": 202,
+  "source_sha256": "e533fb3b2cbb71a883fdb88ff4af0b6257676575c4e7bc0bfb80df4cf0373c4e",
   "span_end": "2026-10-02",
   "span_start": "2014-10-02",
   "strategy": "template_top10_banded",

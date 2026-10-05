@@ -1,12 +1,12 @@
 # Mean-Reversion Overlay — walk-forward re-validation
 
-_`mr_overlay` · mr_overlay · daily cadence · verdict **REVIEW** · generated 2026-10-04T08:02:13+00:00_
+_`mr_overlay` · mr_overlay · daily cadence · verdict **REVIEW** · generated 2026-10-05T18:53:58+00:00_
 
 **Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-10-02. Each fold is an independent replay starting at $39,000. Span 2014-10-02 → 2026-10-02 (3018 sessions); data floor 1994-01-27; screen source `hist` (1,120,910 passing rows).
 
-**Provenance.** Source `d0bd517ea958c0cd36effb93747c04d9a2b5fa43e016aa622ba5e35e55c1189d`; config `cc049dd59ad46b14ff6f16c5878b8ef49789945a7714226a6e6929db25429cb4`.
+**Provenance.** Source `e533fb3b2cbb71a883fdb88ff4af0b6257676575c4e7bc0bfb80df4cf0373c4e`; config `cc049dd59ad46b14ff6f16c5878b8ef49789945a7714226a6e6929db25429cb4`.
 
-**Evidence and execution.** Data quality `current_universe_survivor_biased`; execution profile `baseline_v1`; data snapshot `39c8ea0953a0761a486ca6bf24f2938d0d5cb2f3e265ab01ba7d963354e539d0`; comparison protocol `wf-controls-2026-09-07-v1`.
+**Evidence and execution.** Data quality `current_universe_survivor_biased`; execution profile `baseline_v1`; data snapshot `0affd34308e8ca5132398cb1f228225beb8f46edd2d68291a7428c94d2e3fca8`; comparison protocol `wf-controls-2026-09-07-v1`.
 
 **Pre-registered expectation.** Many small quick wins; positive expectancy in trending names bought on pullbacks.
 
@@ -82,7 +82,7 @@ _`mr_overlay` · mr_overlay · daily cadence · verdict **REVIEW** · generated 
 * mean validate CAGR **+2.02%** vs mean train CAGR +0.75% → decay **+1.26%**
 * mean validate Sharpe +0.08, worst validate max drawdown −18.07%
 * 4284 fill(s) inside validate windows
-* runtime 5889.4s (scratch 0.1s, screen 25.5s)
+* runtime 6867.7s (scratch 0.1s, screen 26.0s)
 
 **Verdict rule (mechanical exploratory triage, NOT an automatic kill).** For
 each book, against the versioned comparison declared in its result artifact:

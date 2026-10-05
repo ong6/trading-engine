@@ -1,12 +1,12 @@
 # Template Top 10 (banded) — walk-forward re-validation
 
-_`template_top10_banded` · template_top10_banded · weekly cadence · verdict **WATCH** · generated 2026-10-04T06:24:02+00:00_
+_`template_top10_banded` · template_top10_banded · weekly cadence · verdict **WATCH** · generated 2026-10-05T16:59:29+00:00_
 
 **Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-10-02. Each fold is an independent replay starting at $39,000. Span 2014-10-02 → 2026-10-02 (3018 sessions); data floor 1994-01-27; screen source `hist` (1,120,910 passing rows).
 
-**Provenance.** Source `d0bd517ea958c0cd36effb93747c04d9a2b5fa43e016aa622ba5e35e55c1189d`; config `e3fbf7485f3da5770b0e9a7ceb4a3451330bd54d81c58c8684ed69da15601353`.
+**Provenance.** Source `e533fb3b2cbb71a883fdb88ff4af0b6257676575c4e7bc0bfb80df4cf0373c4e`; config `e3fbf7485f3da5770b0e9a7ceb4a3451330bd54d81c58c8684ed69da15601353`.
 
-**Evidence and execution.** Data quality `current_universe_survivor_biased`; execution profile `baseline_v1`; data snapshot `39c8ea0953a0761a486ca6bf24f2938d0d5cb2f3e265ab01ba7d963354e539d0`; comparison protocol `wf-controls-2026-09-07-v1`.
+**Evidence and execution.** Data quality `current_universe_survivor_biased`; execution profile `baseline_v1`; data snapshot `0affd34308e8ca5132398cb1f228225beb8f46edd2d68291a7428c94d2e3fca8`; comparison protocol `wf-controls-2026-09-07-v1`.
 
 **Pre-registered expectation.** Similar return to top5 with lower turnover and drawdown; banding cuts whipsaw churn.
 
@@ -82,7 +82,7 @@ _`template_top10_banded` · template_top10_banded · weekly cadence · verdict *
 * mean validate CAGR **+29.41%** vs mean train CAGR +22.28% → decay **+7.13%**
 * mean validate Sharpe +0.46, worst validate max drawdown −49.36%
 * 7628 fill(s) inside validate windows
-* runtime 1415.0s (scratch 0.1s, screen 25.4s)
+* runtime 1626.8s (scratch 0.1s, screen 26.1s)
 
 **Verdict rule (mechanical exploratory triage, NOT an automatic kill).** For
 each book, against the versioned comparison declared in its result artifact:
