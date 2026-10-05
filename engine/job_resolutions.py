@@ -2,7 +2,9 @@
 
 Run under the normal single-writer connection: --job ID --kind cancelled|completed
 --reason TEXT --evidence TEXT [--replacement-job ID]. Cancellation records an operator's
-intentional stop; completion requires a later successful job with identical work parameters.
+intentional stop; completion is an operator attestation backed by retained coverage evidence.
+A later successful job with identical parameters is required but cannot alone prove that a
+resumable job covered the original window or chunks.
 """
 from __future__ import annotations
 
@@ -16,7 +18,7 @@ from engine.lib.util import table_exists
 
 CLASSIFICATIONS = {
     "cancelled": "operator cancellation retained with evidence",
-    "completed": "same work completed; original failure retained",
+    "completed": "operator-attested completion; original failure retained",
 }
 
 
@@ -32,7 +34,7 @@ def _job(con, job_id: int) -> dict:
     return dict(zip((col[0] for col in cursor.description), rows[0], strict=True))
 
 
-def _same_work(first: dict, second: dict) -> bool:
+def _same_request(first: dict, second: dict) -> bool:
     try:
         first_params = json.loads(first["params"])
         second_params = json.loads(second["params"])
@@ -54,8 +56,8 @@ def record(con, *, job_id: int, kind: str, reason: str, evidence: str,
         if replacement_job is None or replacement_job <= job_id:
             raise ValueError("completion needs a later successful replacement job")
         replacement = _job(con, replacement_job)
-        if replacement["state"] != "done" or not _same_work(source, replacement):
-            raise ValueError("replacement must complete exactly the same work")
+        if replacement["state"] != "done" or not _same_request(source, replacement):
+            raise ValueError("replacement must be done with the same request parameters")
     elif replacement_job is not None:
         raise ValueError("cancellation cannot claim replacement completion")
     body = {"job_id": job_id, "job_sha256": _hash(source), "kind": kind,
@@ -91,7 +93,7 @@ def classifications(con) -> dict[int, str]:
             valid = valid and source["state"] == "failed" and _hash(source) == body["job_sha256"]
             if body["kind"] == "completed":
                 replacement = _job(con, body["replacement_job"])
-                valid = (valid and replacement["state"] == "done" and _same_work(source, replacement)
+                valid = (valid and replacement["state"] == "done" and _same_request(source, replacement)
                          and _hash(replacement) == body["replacement_sha256"])
             if valid and body["reason"].strip() and body["evidence"].strip():
                 out[job_id] = CLASSIFICATIONS[body["kind"]]

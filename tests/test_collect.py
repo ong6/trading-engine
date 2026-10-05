@@ -638,3 +638,24 @@ def test_history_metadata_accepts_aware_pandas_clocks_and_excludes_intraday_tail
 
     monkeypatch.setattr(collect.yf, "Ticker", lambda _ticker: Ticker())
     assert collect._explicit_full_history("MN") is not None
+
+
+@pytest.mark.parametrize("overrides", [
+    {"Open": float("inf"), "High": float("inf")}, {"Low": -1}, {"High": 1},
+    {"Volume": -1}, {"Close": 0},
+])
+def test_full_history_fallback_refuses_invalid_bars(monkeypatch, overrides):
+    class Ticker:
+        def get_history_metadata(self):
+            return {"symbol": "AAA", "currency": "USD", "exchangeTimezoneName": "America/New_York",
+                    "firstTradeDate": pd.Timestamp("2026-10-02T09:30:00-04:00"),
+                    "regularMarketTime": pd.Timestamp("2026-10-02T16:00:00-04:00")}
+
+        def history(self, **_kwargs):
+            frame = _raw_frame("2026-10-02")
+            for field, value in overrides.items():
+                frame[field] = value
+            return frame
+
+    monkeypatch.setattr(collect.yf, "Ticker", lambda _ticker: Ticker())
+    assert collect._explicit_full_history("AAA") is None

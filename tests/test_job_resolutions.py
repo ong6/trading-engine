@@ -1,4 +1,4 @@
-"""Resolutions preserve the failed job and require exact replacement evidence."""
+"""Operator attestations preserve failures and bind matching request identities."""
 import json
 
 import pytest
@@ -32,14 +32,17 @@ def test_cancellation_preserves_failure_and_replays_idempotently(con):
         job_resolutions.record(con, **{**kwargs, "reason": "different"})
 
 
-def test_completion_requires_exact_successor_and_tamper_restores_warning(con):
+def test_completion_requires_matching_request_and_tamper_restores_warning(con):
     _setup(con)
     kwargs = dict(job_id=1, kind="completed", reason="same window recovered",
                   evidence="retained successful archive coverage receipt")
-    with pytest.raises(ValueError, match="same work"):
+    with pytest.raises(ValueError, match="same request parameters"):
         job_resolutions.record(con, **kwargs, replacement_job=2)
     job_resolutions.record(con, **kwargs, replacement_job=3)
     assert job_resolutions.classifications(con) == {1: job_resolutions.CLASSIFICATIONS["completed"]}
+    assert queue_monitor.status(con)["historical_failures"][0]["classification"] == (
+        "operator-attested completion; original failure retained"
+    )
     con.execute("UPDATE jobs SET progress='changed' WHERE id=3")
     assert queue_monitor.status(con)["actionable_failure_count"] == 1
 

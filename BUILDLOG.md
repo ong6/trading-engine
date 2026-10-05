@@ -1934,3 +1934,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** P16 worker: 144 focused tests; original/refactored adapter: same nine transcript cases. Integrated registration/account/queue suite: 35 passed; UI: 55 passed.
 - **Metrics:** `ruff check --select C90 server tools`: all checks passed at threshold ten; no new exemption.
 - **Next:** Independent functional review and complete supported-host validation before deployment.
+
+## 2026-10-05 — Resolve independent accounting and source-evidence findings
+
+- **Why:** P21 review reproduced intake marking an unfinished nightly as complete; nonfinite prices could agree and seven malformed-response cases lost receipts.
+- **What:** Defer initial marks to the league and require completed active-book accounting before later intake.
+  Reject invalid history/comparison values, retain malformed source bodies as refusals, and use a host-neutral receipt reference.
+  Label queue completion as operator-attested; matching request parameters alone cannot prove resumable chunk coverage.
+- **Evidence:** Account/collector/verifier suite: 61 passed, including real bootstrap/next-open league steps and malformed-response continuity; queue: 26 passed; UI: 55 passed.
+- **Metrics:** Pending final snapshot; registered constants, balances and frozen strategies are unchanged.
+- **Next:** Refresh the prepared source identity, independent acceptance and complete supported-host verification.

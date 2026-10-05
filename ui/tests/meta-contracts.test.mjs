@@ -1789,7 +1789,7 @@ test("meta projection rejects nested values that could misstate runtime evidence
 test("queue projection accepts only explicit retained failure dispositions", () => {
   for (const classification of [
     "operator cancellation retained with evidence",
-    "same work completed; original failure retained",
+    "operator-attested completion; original failure retained",
   ]) {
     const payload = validMeta();
     payload.queue.historical_failures[0].classification = classification;
