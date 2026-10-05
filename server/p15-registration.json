@@ -232,12 +232,12 @@
     "price_fetch_availability": "after_collection_completion"
   },
   "code_identity": {
-    "source_commit": "a2a71e6033dfd0a552638634ff2482830ad73392",
+    "source_commit": "157291e7ac8d32ca0913b7b246f87640a1809005",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/actions.py": "a6c2ec46d198df2318498ec7d55e1b7cfeca4c8afaccd8a5c208618e4ea8b850",
       "engine/bitemporal_facts.py": "9f593e82da0f65a54b93d0dac5505e6a98fad5d1d4d63ce672b71d527655c8cc",
-      "engine/collect.py": "c157b8c948b23b86aaa5e9d22816993f7ace43f71db769105fe5c42a8e77e58c",
+      "engine/collect.py": "5717db5233e26edc284b27b55d598dd859e01ccfdc4d080d46f9c68ee9b76b57",
       "engine/daily_opportunities.py": "d8d8cd884183f10055204b606af3a748198d7c9686342b5fad091a24ab71292b",
       "engine/earnings.py": "2d3b702f523b1a88c12b48bc62e4bba78deefb09122e65d0bb934460072483d2",
       "engine/forward_review.py": "ef8fde636b198b93fb71350e0dd76b5cc3e0280194e3b4b614f812142f2b61f2",
@@ -264,7 +264,7 @@
       "engine/sync.py": "538ca3637f57302b18104d7caac943d03443d43b5217685a9b8aa011b3b536e6",
       "engine/tradingview_history_archive.py": "910f09b31dec6cdd5f8e24d9ca62134a869f4fd31139c686a151e5e6c8e11d4b",
       "engine/universe.py": "ad3cf5f62730767081ee7718006ce4f78f4c6bfdbb80ab90caeef118abc276a7",
-      "engine/verify_prices.py": "b78a25830eeafd695c2b4d8697af1ab48446bbb796c52e07e381839063f41afd",
+      "engine/verify_prices.py": "7d5457918132a72e806ee19a729c56a7c2884d6ba095425f22df3318e279c9a3",
       "engine/xs_forward_review.py": "3ccaffeb1d634c2c79d25980fdf4bd166a2af23aa0cf480b8540927a065db1be",
       "farm/__init__.py": "bf84aec09336388f858d7c1e7c28cab3da1d8d18096ed36ef460ea49114f11e0",
       "farm/agent_evaluation_analysis.py": "67ba119bd1974a184e03c64852b22f42d0ae654e2844f60974082b66c1159ab8",
@@ -373,5 +373,5 @@
   },
   "registration_revision": 11,
   "revision_reason": "complete verifier receipts and identity checks, full-history coverage fallback, and behavior-preserving evidence/capture extraction; no scoring, book, gate, label, schedule or written-row change",
-  "registration_sha256": "74c98579b52f663ed960fb57032b5ad2c64f0a45c474f0e291e49a39e567ea67"
+  "registration_sha256": "8f5cf5f0a040ab586c6125ccb6bb2d95d163c0ac54f72a4b0b196800f5da6e36"
 }

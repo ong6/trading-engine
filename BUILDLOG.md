@@ -1944,3 +1944,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** Account/collector/verifier suite: 61 passed, including real bootstrap/next-open league steps and malformed-response continuity; queue: 26 passed; UI: 55 passed.
 - **Metrics:** Pending final snapshot; registered constants, balances and frozen strategies are unchanged.
 - **Next:** Refresh the prepared source identity, independent acceptance and complete supported-host verification.
+
+## 2026-10-05 — Bind reviewed source corrections and final fixture evidence
+
+- **Why:** P21; independent review corrected accounting and source refusal behavior before revision 11 deployment.
+- **What:** Refresh the prepared registration's exact source commit and collector/verifier digests; retain every registered policy constant.
+  Document the corrected activation checkpoint and operator-attested queue completion semantics.
+- **Evidence:** Registration/evaluation/pre-open/scoring/verifier/account and operating-contract rehearsal: 127 passed; required lint and C90 checks pass.
+- **Metrics:** Budget passed; since the previous snapshot, server/tools unchanged, product +48, tests +122.
+- **Next:** Independent acceptance and one complete supported-Linux suite, then orchestrated live verification.
