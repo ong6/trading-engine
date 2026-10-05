@@ -25,6 +25,37 @@ def project(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> dict:
         if len(rows) < LIMIT:
             rows.append(record)
 
+    _project_existing_versions(con, cutoff, add)
+    _project_event_versions(con, cutoff, add)
+    if all(table_exists(con, table) for table in ("p15_book_contracts", "p15_book_windows")):
+        for row in con.execute(
+            "SELECT c.portfolio_id,c.mechanics_version,c.config_sha256,COUNT(w.market_date) "
+            "FROM p15_book_contracts c JOIN p15_book_windows w USING(portfolio_id) "
+            "WHERE w.completed_at<=? GROUP BY 1,2,3 ORDER BY 1", [cutoff]
+        ).fetchmany(LIMIT):
+            add({"policy_id": row[0], "evidence_class": "comparator_book",
+                 "identity": [row[1], row[2]], "observation_count": int(row[3])},
+                counts=row[0] != "p15_rule_control")
+    return {"status": "capturing" if total else "waiting", "version_count": total,
+            "returned_version_count": len(rows), "versions_truncated": len(rows) < total,
+            "selection_trial_count": selection_trials, "versions": rows,
+            "register_sha256": digest}
+
+
+def _response_identity(raw, status):
+    if raw is None:
+        return ("no_model_call", status)
+    payload = json.loads(raw)
+    identity = [payload.get(key) for key in (
+        "model", "model_version", "proxy_version", "proxy_source_sha256",
+        "traecli_runtime", "upstream_model_family", "model_catalog_entry_sha256",
+    )]
+    identity[4] = canonical_sha256(identity[4])
+    return tuple(identity)
+
+
+
+def _project_existing_versions(con, cutoff, add):
     queries = []
     if table_exists(con, "agent_evaluation_traces"):
         queries.append((
@@ -54,24 +85,16 @@ def project(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> dict:
                 add({"policy_id": row[0] or "legacy_unregistered",
                      "evidence_class": "shadow_attempt", "identity": [row[1]],
                      "observation_count": int(row[2])})
-    def response_identity(raw, status):
-        if raw is None:
-            return ("no_model_call", status)
-        payload = json.loads(raw)
-        identity = [payload.get(key) for key in (
-            "model", "model_version", "proxy_version", "proxy_source_sha256",
-            "traecli_runtime", "upstream_model_family", "model_catalog_entry_sha256",
-        )]
-        identity[4] = canonical_sha256(identity[4])
-        return tuple(identity)
 
+
+def _project_event_versions(con, cutoff, add):
     if table_exists(con, "p15_preopen_runs"):
         grouped = {}
         for policy, status, response in con.execute(
             "SELECT policy_id,status,response_payload FROM p15_preopen_runs "
             "WHERE started_at<=? ORDER BY id", [cutoff]
         ).fetchall():
-            key = (policy, response_identity(response, status))
+            key = (policy, _response_identity(response, status))
             grouped[key] = grouped.get(key, 0) + 1
         for (policy, identity), count in sorted(grouped.items()):
             add({"policy_id": policy, "evidence_class": "preopen",
@@ -85,22 +108,9 @@ def project(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> dict:
             [cutoff],
         ).fetchall():
             policy = window_id.split(":", 1)[0]
-            key = (policy, response_identity(response, status or "no_call"))
+            key = (policy, _response_identity(response, status or "no_call"))
             grouped[key] = grouped.get(key, 0) + 1
         for (policy, identity), count in sorted(grouped.items()):
             add({"policy_id": policy, "evidence_class": "event_shadow",
                  "identity": list(identity), "observation_count": count},
                 counts=identity[0] != "no_model_call")
-    if all(table_exists(con, table) for table in ("p15_book_contracts", "p15_book_windows")):
-        for row in con.execute(
-            "SELECT c.portfolio_id,c.mechanics_version,c.config_sha256,COUNT(w.market_date) "
-            "FROM p15_book_contracts c JOIN p15_book_windows w USING(portfolio_id) "
-            "WHERE w.completed_at<=? GROUP BY 1,2,3 ORDER BY 1", [cutoff]
-        ).fetchmany(LIMIT):
-            add({"policy_id": row[0], "evidence_class": "comparator_book",
-                 "identity": [row[1], row[2]], "observation_count": int(row[3])},
-                counts=row[0] != "p15_rule_control")
-    return {"status": "capturing" if total else "waiting", "version_count": total,
-            "returned_version_count": len(rows), "versions_truncated": len(rows) < total,
-            "selection_trial_count": selection_trials, "versions": rows,
-            "register_sha256": digest}

@@ -202,22 +202,7 @@ def _massive_cache_receipt(
         return None
     if receipt_path.is_symlink() or not receipt_path.is_file():
         raise free_sources.FreeSourceError("Massive cache receipt is unsafe")
-    try:
-        receipt = json.loads(receipt_path.read_text())
-        if set(receipt) != {"date", "fetched_at", "raw_file", "source_sha256"}:
-            raise ValueError
-        if receipt["date"] != session_date.isoformat():
-            raise ValueError
-        source_sha = receipt["source_sha256"]
-        if free_sources.SHA256.fullmatch(source_sha) is None:
-            raise ValueError
-        if receipt["raw_file"] != f"{source_sha}.json":
-            raise ValueError
-        fetched_at = datetime.fromisoformat(receipt["fetched_at"])
-        if fetched_at.utcoffset() is None:
-            raise ValueError
-    except (OSError, TypeError, ValueError) as exc:
-        raise free_sources.FreeSourceError("Massive cache receipt is invalid") from exc
+    receipt, fetched_at, source_sha = _parse_massive_cache_receipt(receipt_path, session_date)
     raw_path = directory / receipt["raw_file"]
     if raw_path.is_symlink() or not raw_path.is_file():
         raise free_sources.FreeSourceError("Massive cached response is missing or unsafe")
@@ -291,16 +276,7 @@ def capture_massive_dates(
                     "resumed": True,
                 })
                 continue
-            _require_network_window(now())
-            if last_started is not None:
-                remaining = MASSIVE_INTERVAL_SECONDS - (monotonic() - last_started)
-                if remaining > 0:
-                    sleep(remaining)
-            _require_network_window(now())
-            if rate_limit is not None:
-                rate_limit()
-                _require_network_window(now())
-            last_started = monotonic()
+            last_started = _reserve_massive_request(now, monotonic, sleep, rate_limit, last_started)
             try:
                 response = client.get(
                     MASSIVE_ENDPOINT.format(date=session_date.isoformat()),
@@ -446,6 +422,43 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(json.dumps({"status": "complete", "result": result}, sort_keys=True))
     return 0
+
+
+
+
+
+def _parse_massive_cache_receipt(receipt_path, session_date):
+    try:
+        receipt = json.loads(receipt_path.read_text())
+        if set(receipt) != {"date", "fetched_at", "raw_file", "source_sha256"}:
+            raise ValueError
+        if receipt["date"] != session_date.isoformat():
+            raise ValueError
+        source_sha = receipt["source_sha256"]
+        if free_sources.SHA256.fullmatch(source_sha) is None:
+            raise ValueError
+        if receipt["raw_file"] != f"{source_sha}.json":
+            raise ValueError
+        fetched_at = datetime.fromisoformat(receipt["fetched_at"])
+        if fetched_at.utcoffset() is None:
+            raise ValueError
+    except (OSError, TypeError, ValueError) as exc:
+        raise free_sources.FreeSourceError("Massive cache receipt is invalid") from exc
+    return receipt, fetched_at, source_sha
+
+
+def _reserve_massive_request(now, monotonic, sleep, rate_limit, last_started):
+    _require_network_window(now())
+    if last_started is not None:
+        remaining = MASSIVE_INTERVAL_SECONDS - (monotonic() - last_started)
+        if remaining > 0:
+            sleep(remaining)
+    _require_network_window(now())
+    if rate_limit is not None:
+        rate_limit()
+        _require_network_window(now())
+    last_started = monotonic()
+    return last_started
 
 
 if __name__ == "__main__":

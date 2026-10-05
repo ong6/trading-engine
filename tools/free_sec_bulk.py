@@ -180,6 +180,28 @@ class BulkClient:
             raise free_sources.FreeSourceError("SEC bulk cache receipt is invalid") from exc
         return Download(path, source_sha, receipt["size"], True)
 
+    def _stream_partial(self, response, partial, mode):
+        try:
+            with partial.open(mode) as output:
+                partial.chmod(0o600)
+                for chunk in response.iter_content(CHUNK_BYTES):
+                    if not _network_permitted(self.now()):
+                        raise free_sources.FreeSourceError(
+                            "SEC bulk download reached a configured no-call window"
+                        )
+                    if chunk:
+                        output.write(chunk)
+                        if output.tell() > MAX_DOWNLOAD_BYTES:
+                            raise free_sources.FreeSourceError(
+                                "SEC bulk download exceeds the size limit"
+                            )
+                output.flush()
+                os.fsync(output.fileno())
+        except requests.RequestException as exc:
+            raise free_sources.FreeSourceError("SEC bulk download was interrupted") from exc
+        finally:
+            response.close()
+
     def download(self, url: str, *, suffix: str) -> Download:
         """Download one URL, preserving an interrupted partial for a later Range request."""
         cached = self._cached(url, suffix)
@@ -206,51 +228,10 @@ class BulkClient:
             status = int(response.status_code)
         except (requests.RequestException, TypeError, ValueError) as exc:
             raise free_sources.FreeSourceError("SEC bulk download request failed") from exc
-        if status not in ({206} if offset else {200}):
-            response.close()
-            raise free_sources.FreeSourceError(f"SEC bulk download returned HTTP {status}")
-        if response.headers.get("Content-Encoding", "identity").lower() not in {"", "identity"}:
-            response.close()
-            raise free_sources.FreeSourceError("SEC bulk server ignored identity transfer encoding")
-        content_range = response.headers.get("Content-Range")
-        total = None
-        if offset:
-            match = re.fullmatch(r"bytes ([0-9]+)-([0-9]+)/([0-9]+)", content_range or "")
-            if match is None or int(match.group(1)) != offset:
-                response.close()
-                raise free_sources.FreeSourceError("SEC bulk resume range is invalid")
-            total = int(match.group(3))
-        else:
-            try:
-                total = int(response.headers.get("Content-Length", 0)) or None
-            except (TypeError, ValueError) as exc:
-                response.close()
-                raise free_sources.FreeSourceError("SEC bulk download length is invalid") from exc
-        if total is not None and not 0 < total <= MAX_DOWNLOAD_BYTES:
-            response.close()
-            raise free_sources.FreeSourceError("SEC bulk download length is outside the limit")
+        total = _download_length(response, offset, status)
         _private_atomic(state_path, json.dumps({"url": url, "total": total}).encode() + b"\n")
         mode = "ab" if offset else "wb"
-        try:
-            with partial.open(mode) as output:
-                partial.chmod(0o600)
-                for chunk in response.iter_content(CHUNK_BYTES):
-                    if not _network_permitted(self.now()):
-                        raise free_sources.FreeSourceError(
-                            "SEC bulk download reached a configured no-call window"
-                        )
-                    if chunk:
-                        output.write(chunk)
-                        if output.tell() > MAX_DOWNLOAD_BYTES:
-                            raise free_sources.FreeSourceError(
-                                "SEC bulk download exceeds the size limit"
-                            )
-                output.flush()
-                os.fsync(output.fileno())
-        except requests.RequestException as exc:
-            raise free_sources.FreeSourceError("SEC bulk download was interrupted") from exc
-        finally:
-            response.close()
+        self._stream_partial(response, partial, mode)
         size = partial.stat().st_size
         if total is not None and size != total:
             raise free_sources.FreeSourceError("SEC bulk download ended before its declared length")
@@ -422,6 +403,36 @@ def main(argv: list[str] | None = None) -> int:
             client.close()
     print(json.dumps({"status": "complete", **result}, sort_keys=True, default=str))
     return 0
+
+
+
+
+
+def _download_length(response, offset, status):
+    if status not in ({206} if offset else {200}):
+        response.close()
+        raise free_sources.FreeSourceError(f"SEC bulk download returned HTTP {status}")
+    if response.headers.get("Content-Encoding", "identity").lower() not in {"", "identity"}:
+        response.close()
+        raise free_sources.FreeSourceError("SEC bulk server ignored identity transfer encoding")
+    content_range = response.headers.get("Content-Range")
+    total = None
+    if offset:
+        match = re.fullmatch(r"bytes ([0-9]+)-([0-9]+)/([0-9]+)", content_range or "")
+        if match is None or int(match.group(1)) != offset:
+            response.close()
+            raise free_sources.FreeSourceError("SEC bulk resume range is invalid")
+        total = int(match.group(3))
+    else:
+        try:
+            total = int(response.headers.get("Content-Length", 0)) or None
+        except (TypeError, ValueError) as exc:
+            response.close()
+            raise free_sources.FreeSourceError("SEC bulk download length is invalid") from exc
+    if total is not None and not 0 < total <= MAX_DOWNLOAD_BYTES:
+        response.close()
+        raise free_sources.FreeSourceError("SEC bulk download length is outside the limit")
+    return total
 
 
 if __name__ == "__main__":

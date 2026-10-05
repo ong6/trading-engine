@@ -72,7 +72,8 @@ def test_twenty_five_accounts_cannot_sell_or_spend_each_others_assets(con):
 
 
 @pytest.mark.parametrize("changes", [
-    {"instrument_kind": "option"}, {"instrument_kind": "future"}, {"capital_usd": 750},
+    {"schema_version": True}, {"instrument_kind": "option"},
+    {"instrument_kind": "future"}, {"capital_usd": 750},
     {"max_position_fraction": 2}, {"min_trade_usd": float("nan")},
 ])
 def test_infeasible_or_unsupported_account_is_refused_before_mutation(con, changes):
@@ -82,7 +83,8 @@ def test_infeasible_or_unsupported_account_is_refused_before_mutation(con, chang
 
 
 @pytest.mark.parametrize("changes", [
-    {"instrument_kind": "option"}, {"spec_sha256": "d" * 64}, {"quantity": float("inf")},
+    {"schema_version": True}, {"instrument_kind": "option"},
+    {"spec_sha256": "d" * 64}, {"quantity": float("inf")},
     {"created_at": "2026-10-05T14:00:00+00:00"}, {"created_at": "2026-10-02T19:00:00+00:00"},
 ])
 def test_invalid_intake_never_creates_an_order_or_activates(con, changes):

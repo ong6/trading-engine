@@ -179,21 +179,24 @@ class SecClient:
         write_text_atomic(directory / "receipt.json", json.dumps(receipt, sort_keys=True) + "\n")
         (directory / "receipt.json").chmod(0o600)
 
+    def _reserve_request(self):
+        with self._rate_lock:
+            if not _network_permitted(self.now()):
+                raise free_sources.FreeSourceError("SEC batch reached a configured no-call window")
+            if self.last_started is not None:
+                remaining = REQUEST_INTERVAL_SECONDS - (self.monotonic() - self.last_started)
+                if remaining > 0:
+                    self.sleep(remaining)
+            if not _network_permitted(self.now()):
+                raise free_sources.FreeSourceError("SEC batch reached a configured no-call window")
+            self.last_started = self.monotonic()
+
     def get(self, url: str) -> CachedResponse:
         cached = self._cached(url)
         if cached is not None:
             return cached
         for attempt in range(3):
-            with self._rate_lock:
-                if not _network_permitted(self.now()):
-                    raise free_sources.FreeSourceError("SEC batch reached a configured no-call window")
-                if self.last_started is not None:
-                    remaining = REQUEST_INTERVAL_SECONDS - (self.monotonic() - self.last_started)
-                    if remaining > 0:
-                        self.sleep(remaining)
-                if not _network_permitted(self.now()):
-                    raise free_sources.FreeSourceError("SEC batch reached a configured no-call window")
-                self.last_started = self.monotonic()
+            self._reserve_request()
             try:
                 response = self._session().get(
                     url, timeout=HTTP_TIMEOUT_SECONDS, allow_redirects=True,

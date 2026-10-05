@@ -1898,3 +1898,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `pytest -q tests/test_collect.py tests/test_paper_accounts.py -W error`: 34 passed.
 - **Metrics:** Pending final snapshot; no existing portfolio balance or frozen private request changed.
 - **Next:** Finish behavior-preserving source extraction and bind the reviewed registration revision.
+
+## 2026-10-05 — Split registered evidence checks without changing their decisions
+
+- **Why:** P21's explicit complexity scope; eleven advisory findings in the registered evidence path and capture tools.
+- **What:** Extract trace/sample/receipt/book validation, pre-open replay/commit, scoring context/sample replay and provider pacing/stream helpers.
+  Keep checks, ordering, errors and side effects intact; no model, threshold or frozen rule changes.
+- **Evidence:** Focused scoring/pre-open/evaluation/collector suite: 127 passed; capture/tools/evaluation suite: 85 passed. Owned paths have zero C90 findings at ten.
+- **Metrics:** The 21 remaining findings are confined to the separately owned P16 extraction.
+- **Next:** Register the reviewed source revision and run one complete supported-Linux verification after independent review.

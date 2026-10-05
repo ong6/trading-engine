@@ -342,6 +342,10 @@ def validate(con: duckdb.DuckDBPyConnection, error_type) -> None:
         raise error_type("P15 price fetch attempt evidence differs")
     if not table_exists(con, "p15_open_label_fetch_receipts"):
         return
+    _validate_open_label_receipts(con, error_type)
+
+
+def _validate_open_label_receipts(con, error_type):
     for row in con.execute(
         "SELECT ticker,provider_ticker,market_date,requested_at,completed_at,source,status,"
         "outcome_reason,"
