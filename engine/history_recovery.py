@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+from collections.abc import Mapping
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -38,7 +39,7 @@ def _provider_clock(value, zone) -> datetime:
     return datetime.fromtimestamp(value, zone)
 
 
-def _listing_interval(metadata: dict) -> tuple[date, date]:
+def _listing_interval(metadata: Mapping) -> tuple[date, date]:
     zone = ZoneInfo(metadata["exchangeTimezoneName"])
     first = _provider_clock(metadata["firstTradeDate"], zone).date()
     latest = _provider_clock(metadata["regularMarketTime"], zone)
@@ -75,7 +76,7 @@ def fetch_history(ticker: str, provider_ticker: str, is_etf: bool) -> tuple[pd.D
     source = yf.Ticker(provider_ticker)
     metadata = source.get_history_metadata()
     quote_type = "ETF" if is_etf else "EQUITY"
-    if (not isinstance(metadata, dict) or metadata.get("symbol") != provider_ticker
+    if (not isinstance(metadata, Mapping) or metadata.get("symbol") != provider_ticker
             or metadata.get("currency") != "USD" or metadata.get("instrumentType") != quote_type):
         raise HistoryRefused("provider security identity/currency/instrument missing or different")
     first, last = _listing_interval(metadata)

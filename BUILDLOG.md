@@ -1983,4 +1983,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** Budget passed; tools -1 line, server/product/tests unchanged.
 - **Next:** Observe both timezone CI runs before deployment.
 
+## 2026-10-06 — Accept the provider's lazy history metadata
+
+- **Why:** P21 live history recovery refused valid ETF identity: the installed provider returns a Mapping wrapper, not a dict.
+  The new regression using the actual provider wrapper reproduces the same refusal before the correction.
+- **What:** Accept mapping metadata while preserving every security, currency, coverage and overlap check.
+  Read only required keys; do not materialize unrelated lazy intraday fields or change the frozen collector.
+- **Evidence:** Actual provider-wrapper regression failed before the fix; all 24 history-recovery/registration checks pass after it.
+- **Metrics:** Budget passed; engine +1 line and tests +13, frozen collector and registered source bindings unchanged.
+- **Next:** Verify the explicit history recovery and current-source research refresh.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -1,15 +1,17 @@
 """Explicit recovery preserves frozen collection and rejects mixed listing history."""
 from datetime import date
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
+from yfinance.scrapers.history import HistoryMetadata
 
 from engine import history_recovery as recovery
 from engine.lib import db
 from tests.test_collect import _raw_frame
 
 
-def _provider(monkeypatch, *, frame=None, metadata=None):
+def _provider(monkeypatch, *, frame=None, metadata=None, lazy=False):
     identity = {"symbol": "AAA", "currency": "USD", "instrumentType": "EQUITY",
                 "exchangeTimezoneName": "America/New_York",
                 "firstTradeDate": pd.Timestamp("2026-10-02T09:30:00-04:00"),
@@ -19,6 +21,8 @@ def _provider(monkeypatch, *, frame=None, metadata=None):
 
     class Ticker:
         def get_history_metadata(self):
+            if lazy:
+                return HistoryMetadata(SimpleNamespace(_history_metadata=identity))
             return identity
 
         def history(self, **kwargs):
@@ -54,6 +58,15 @@ def test_provider_epoch_clocks_are_supported(monkeypatch):
         "regularMarketTime": int(pd.Timestamp("2026-10-02T16:00:00-04:00").timestamp()),
     })
     assert len(recovery.fetch_history("AAA", "AAA", False)[0]) == 1
+
+
+def test_yfinance_lazy_metadata_identity_does_not_request_intraday_fields(monkeypatch):
+    # The installed provider returns Mapping, not dict. Missing the lazy loader
+    # also proves recovery never requests unrelated intraday metadata.
+    _provider(monkeypatch, lazy=True)
+    frame, evidence = recovery.fetch_history("AAA", "AAA", False)
+    assert len(frame) == 1
+    assert evidence["provider_ticker"] == "AAA"
 
 
 @pytest.mark.parametrize("metadata", [
