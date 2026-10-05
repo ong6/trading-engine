@@ -614,3 +614,16 @@ implementation commits, each below the existing 1,500-insertion cap.
 **Verification follow-up.** The orchestrator increased P19 to six logical commits to include
 the documentation-index correction required by full CI and final publication closure. No code,
 test, documentation-line or product scope expanded.
+
+## 2026-10-05 — Review the engine and paper dashboard with independent checks
+
+**Verdict.** The owner requested separate improvements to alpha, data and the main trading
+engine, verification against real host data, complete documentation and independent review.
+The public infrastructure work is admitted by P20; private alpha and backup work stay separate.
+
+**Rule changes.** P20 admits reproduced shared-study defects, existing dashboard reliability
+and setup fixes, and documentation reconciliation. Read-only host verification uses the API
+and published snapshots. Frozen policies and evidence, producer authority, inactive plans and
+broker restrictions remain unchanged. Review agents do not invoke production model policies.
+
+**Budget.** Five logical commits, each under the existing 1,500-insertion limit.

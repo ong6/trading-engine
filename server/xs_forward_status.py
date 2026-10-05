@@ -73,13 +73,26 @@ def _validate_runtime(payload: dict) -> dict:
     return frozen
 
 
+def _signal_boundary_frozen(payload: dict) -> bool:
+    if payload["status"] == "WAITING":
+        return payload["observation"]["signal_boundary_frozen"]
+    # The frozen producer includes the flag only in WAITING. Once observations
+    # accrue, the boundary itself is authoritative; do not mutate stored evidence.
+    boundary = payload["frozen_runtime"].get("signal_boundary")
+    if not isinstance(boundary, dict) or not boundary:
+        raise ValueError("XS accrued observations require a frozen signal boundary")
+    if payload["observation"].get("signal_boundary_frozen", True) is not True:
+        raise ValueError("XS signal boundary flag contradicts the frozen boundary")
+    return True
+
+
 def _validate_observation(payload: dict, latest_date: date | None) -> dict:
     result_status = payload["status"]
     observation = payload["observation"]
     paired_months = observation["paired_complete_months"]
     shared_sessions = observation["shared_sessions"]
     mature = observation["mature"]
-    boundary_frozen = observation["signal_boundary_frozen"]
+    boundary_frozen = _signal_boundary_frozen(payload)
     eligible_after = iso_date(
         observation["eligible_after"], "XS eligible_after must be YYYY-MM-DD"
     )
@@ -103,7 +116,9 @@ def _validate_observation(payload: dict, latest_date: date | None) -> dict:
     derived_mature = (
         as_of >= eligible_after and paired_months >= xs_forward_monitor.MIN_PAIRED_MONTHS
     )
-    if mature != derived_mature or (result_status == "ACCUMULATING") == mature:
+    if (mature != derived_mature
+            or (result_status == "ACCUMULATING" and mature)
+            or (result_status in {"PASS-FORWARD", "INCONCLUSIVE"} and not mature)):
         raise ValueError("XS forward status is inconsistent with maturity")
     if latest_date is not None and as_of != latest_date:
         raise ValueError("XS forward report is stale relative to latest prices")
@@ -138,7 +153,7 @@ def _project(payload: dict, frozen: dict) -> dict:
         "signal_date": observation["signal_date"],
         "observation_start": observation["observation_start"],
         "eligible_after": observation["eligible_after"],
-        "signal_boundary_frozen": observation["signal_boundary_frozen"],
+        "signal_boundary_frozen": _signal_boundary_frozen(payload),
         "shared_sessions": observation["shared_sessions"],
         "paired_complete_months": observation["paired_complete_months"],
         "minimum_paired_months": xs_forward_monitor.MIN_PAIRED_MONTHS,

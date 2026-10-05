@@ -85,7 +85,8 @@ class Panel:
         present = np.zeros(shape, dtype=np.bool_)
         for rows in chunks:
             ti, si = ticker_remap[rows["ticker"]], session_remap[rows["session"]]
-            if np.any(present[ti, si]):
+            flat = ti.astype(np.int64) * len(sessions) + si
+            if np.unique(flat).size != len(rows) or np.any(present[ti, si]):
                 raise ValueError("duplicate ticker/session bar")
             present[ti, si] = True
             for field in FIELDS:

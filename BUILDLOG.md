@@ -1836,4 +1836,27 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product code unchanged by closure; snapshot republished with budget ok.
 - **Next:** merge the verified closure; no additional P19 implementation admitted.
 
+## 2026-10-05 — Reproduce engine and dashboard review defects
+
+- **Why:** owner-authorized P20 review covers existing engine and dashboard correctness.
+- **What:** reproduce same-chunk duplicate-price overwrite, terminal-zero report failure, and
+  the API rejecting the frozen monitor's real accumulating XS payload. Host inspection confirms
+  the same missing observation field rejects the current two-session report.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_study_spec_data.py tests/test_study_runner_report.py tests/test_xs_forward_status.py`
+  fails five new regressions: two duplicate chunk sizes, two zero-exit sides and the real monitor projection.
+- **Metrics:** server/tools/product unchanged before fixes; budget passes.
+- **Next:** correct generic normalization, reporting and the API projection without changing frozen evidence.
+
+## 2026-10-05 — Fix and independently verify the engine and paper dashboard
+
+- **Why:** the reproduced defects and the owner's P20 review admit these bounded corrections.
+- **What:** reject duplicate panel coordinates, preserve terminal-zero return cross-checks,
+  project valid accumulating/early-kill forward evidence, and make every header alert reachable.
+  Reconcile setup, architecture, operating guidance and the current registration revision.
+- **Evidence:** full Linux `.venv/bin/python -m pytest -q -W error -n 8` exits 0 (4,309 cases).
+  Independent review passes 83 focused cases, 54 UI tests and browser checks at 390/1280px;
+  the production build and Ruff pass. macOS cannot run Linux operational assertions.
+- **Metrics:** published snapshot passes the budget; source changes remain below the commit cap.
+- **Next:** publish, verify CI and inspect the deployed read-only API and dashboard.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

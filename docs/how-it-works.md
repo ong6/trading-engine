@@ -149,6 +149,20 @@ unreadable primary databases do not trigger fallback. Evidence validation, inclu
 database's last write. If no qualifying snapshot exists, the endpoint keeps its normal 503
 behaviour. Research processes may open `store/snapshots/market-latest.duckdb` read-only.
 
+For a one-off data inspection, resolve `market-latest.duckdb` once and open that immutable
+path with `read_only=True`; never take a second writer or copy the changing live database.
+A snapshot proves its own publication time, so compare its manifest with current API freshness
+before interpreting counts. A successful driver and a current evidence cohort are separate:
+`walkforward_evidence.status=stale-source` means the result's executable source hash differs from
+the current tree. The final sync can pull a newer source after a successful weekly calculation.
+Inspect result `git_sha` and `source_sha256`, then the source diff; retain the original evidence
+and let the next admitted revalidation create a current cohort. Do not relabel old results.
+
+The XS forward projection accepts the monitor's two output forms: waiting reports carry an
+explicit `signal_boundary_frozen` flag; accumulating and verdict reports carry the frozen signal
+boundary itself. The API still reconciles the entire report against the database. An early
+`REVIEW-KILL` is valid before statistical maturity and remains visible as a paper review request.
+
 If the nightly failed:
 
 1. Identify the newest exact start and terminal marker in `logs/cron.log`.
@@ -262,7 +276,7 @@ consistent copy of the live database. Verification and restore semantics are unc
 
 ## P15 activation record and recovery boundary
 
-P15 activated on 2026-09-29. Registration revision 9 is live as of 2026-10-02 and binds
+P15 activated on 2026-09-29. Registration revision 10 is live as of 2026-10-03 and binds
 infrastructure changes without changing scoring, books, gates, labels, registered values, or
 written evidence. The six source units and three timers are installed and enabled. The original
 activation steps remain in the plan record; they are not a procedure to activate a second cohort.

@@ -61,10 +61,14 @@ def price_cross_check(data: MarketData, trades: Iterable[CrossCheckTrade], *,
         exit_ = data.fill_prices(trade.ticker, trade.exit_session, trade.exit_field,
                                  hard_max_date=hard_max_date)
         pairs = ((trade.entry_field, entry), (trade.exit_field, exit_))
-        for field, pair in pairs:
-            if pair.secondary is not None:
-                if pair.secondary <= 0:
-                    raise ValueError("secondary cross-check prices must be positive")
+        for index, (field, pair) in enumerate(pairs):
+            for value in (pair.primary, pair.secondary):
+                if value is not None and (not math.isfinite(value) or value < 0
+                                          or (index == 0 and value == 0)):
+                    raise ValueError("cross-check entry prices must be positive; exits nonnegative")
+            # A terminal-zero exit is a complete loss for a long. Its return remains
+            # measurable, but a price ratio with a zero denominator is undefined.
+            if pair.secondary is not None and pair.secondary > 0:
                 ratios[field].append(pair.primary / pair.secondary - 1)
         covered = entry.secondary is not None and exit_.secondary is not None
         by_day.setdefault(trade.entry_session, []).append(covered)

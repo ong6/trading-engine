@@ -118,3 +118,14 @@ def test_columnar_panel_is_dense_read_only_and_preserves_sparse_bars():
     assert source.get("BBB", second) is None
     with pytest.raises(ValueError):
         panel.fields["close"][0, 1] = 0
+
+
+@pytest.mark.parametrize("chunk_size", [2, 3, 262_144])
+def test_duplicate_bars_are_rejected_within_and_across_chunks(monkeypatch, chunk_size):
+    from farm.study import panel
+
+    monkeypatch.setattr(panel, "_CHUNK", chunk_size)
+    day = date(2024, 1, 2)
+    bars = [_bar(day), _bar(day, ticker="BBB"), _bar(day, close=1)]
+    with pytest.raises(ValueError, match="duplicate ticker/session"):
+        PriceSource.declared(source="duplicate", bars=bars)

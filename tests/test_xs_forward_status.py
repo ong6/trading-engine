@@ -180,3 +180,53 @@ def test_xs_forward_status_rejects_unsafe_or_malformed_payload(tmp_path, overrid
         "paper_only": True,
         "automatic_action": "none",
     }
+
+
+def test_real_accumulating_monitor_output_projects_without_rewriting_evidence(con, tmp_path):
+    from tests.test_xs_forward_review import _freeze, _setup, _transition
+
+    monitor = xs_forward_status.xs_forward_monitor
+    _setup(con)
+    prior = _freeze(con)
+    _transition(con)
+    payload = monitor.evaluate(con, prior_result=prior)
+    assert payload["status"] == "ACCUMULATING"
+    assert "signal_boundary_frozen" not in payload["observation"]
+    path = tmp_path / "xs.json"
+    original = json.dumps(payload, default=str)
+    path.write_text(original)
+
+    result = xs_forward_status.status(path, monitor.OBSERVATION_START, con)
+
+    assert result["status"] == "ACCUMULATING"
+    assert result["signal_boundary_frozen"] is True
+    assert result["shared_sessions"] == 1
+    assert result["paper_only"] is True and result["automatic_action"] == "none"
+    assert path.read_text() == original
+
+    payload["frozen_runtime"]["signal_boundary"] = None
+    path.write_text(json.dumps(payload, default=str))
+    assert xs_forward_status.status(path, monitor.OBSERVATION_START, con)["status"] == "INVALID"
+
+
+def test_real_early_kill_remains_visible_before_statistical_maturity(con, tmp_path):
+    from tests.test_xs_forward_review import _append_month_ends, _freeze, _setup, _transition
+
+    monitor = xs_forward_status.xs_forward_monitor
+    _setup(con)
+    prior = _freeze(con)
+    _transition(con)
+    initial = monitor.evaluate(con, prior_result=prior)
+    _append_month_ends(con, 1, candidate_step=0.4, control_step=1.0)
+    payload = monitor.evaluate(con, prior_result=initial)
+    assert payload["status"] == "REVIEW-KILL"
+    assert payload["observation"]["mature"] is False
+    path = tmp_path / "xs.json"
+    path.write_text(json.dumps(payload, default=str))
+
+    result = xs_forward_status.status(path, date(2026, 10, 30), con)
+
+    assert result["status"] == "REVIEW-KILL"
+    assert result["signal_boundary_frozen"] is True
+    assert result["mature"] is False
+    assert result["automatic_action"] == "none"
