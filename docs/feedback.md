@@ -645,3 +645,9 @@ bypass. Private research stays separate from public infrastructure.
 
 **Budget.** Eighteen logical commits below 1,500 insertions each; 4,500 added test/documentation
 lines. Existing complexity threshold and repository hygiene limits remain unchanged.
+
+**Account clarification.** New paper accounts use independently funded USD 10,000, 50,000 or
+100,000 tiers. The private alpha layer owns generation, feasibility planning and versioned
+trade specifications across asset classes; the engine owns balance/execution/position/fill/equity
+state. Existing balances and registered sizing stay unchanged. An unsupported instrument must
+be explicitly refused, never run through stock arithmetic. New accounts start inactive.

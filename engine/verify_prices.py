@@ -62,11 +62,15 @@ HARD RULES
 from __future__ import annotations
 
 import argparse
+import base64
 import fcntl
+import hashlib
 import json
+import math
 import os
 import random
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -195,7 +199,10 @@ def _num(raw, field: str) -> float | None:
     if s in ("", "N/A", "--", "n/a"):
         return None
     try:
-        return float(s)
+        value = float(s)
+        if not math.isfinite(value):
+            raise ValueError("nonfinite numeric value")
+        return value
     except ValueError as exc:
         raise ValueError(f"{field}={raw!r}: {exc}") from exc
 
@@ -272,6 +279,11 @@ def parse_nasdaq_history(
             raise SymbolNotFound(f"rCode {rcode}: {msg}")
         raise SourceError(f"rCode {rcode}: {msg}")
     data = (payload or {}).get("data") or {}
+    symbol = data.get("symbol")
+    def normalize(value):
+        return str(value).replace("/", ".").replace("-", ".").upper()
+    if not symbol or normalize(symbol) != normalize(ticker):
+        raise SourceError(f"source symbol identity differs: {symbol!r}")
     table = data.get("tradesTable") or {}
     rows = table.get("rows")
     if rows is None:
@@ -285,6 +297,8 @@ def parse_nasdaq_history(
         except (KeyError, ValueError) as exc:
             parse_errors.append(f"{ticker}: date {row.get('date')!r}: {exc}")
             continue
+        if d in bars:
+            raise SourceError(f"duplicate source session for {ticker}: {d}")
         bar: dict = {}
         bad = False
         for field in ("open", "high", "low", "close", "volume"):
@@ -295,7 +309,7 @@ def parse_nasdaq_history(
                 bad = True
         if not bad:
             bars[d] = bar
-    return {"symbol": data.get("symbol") or ticker, "bars": bars,
+    return {"symbol": symbol, "bars": bars,
             "parse_errors": parse_errors, "rows": len(rows)}
 
 
@@ -320,7 +334,21 @@ def fetch_nasdaq_history(ticker: str, *, assetclass: str,
         session=session,
         timeout=timeout,
     )
-    return parse_nasdaq_history(ticker, response)
+    evidence = {
+        "ticker": ticker, "assetclass": assetclass,
+        "start": start.isoformat(), "end": end.isoformat(),
+        "url": API_URL.format(sym=urllib.parse.quote(ticker, safe="")),
+        "status_code": response.status_code, "content_type": response.content_type,
+        "received_at": response.received_at.isoformat(),
+        "body_sha256": hashlib.sha256(response.body).hexdigest(),
+        "body_base64": base64.b64encode(response.body).decode("ascii"),
+    }
+    try:
+        parsed = parse_nasdaq_history(ticker, response)
+    except SourceError as exc:
+        exc.evidence = evidence
+        raise
+    return {**parsed, "evidence": evidence}
 
 
 # --------------------------------------------------------------------------- #
@@ -556,6 +584,7 @@ def run(
     thread_state = threading.local()
     http_sessions: list[requests.Session] = []
     http_sessions_lock = threading.Lock()
+    source_evidence: dict[str, list[dict]] = {}
 
     def worker_session() -> requests.Session:
         sess = getattr(thread_state, "session", None)
@@ -595,11 +624,17 @@ def run(
                 fetched = fetch_nasdaq_history(
                     ticker, assetclass=assetclass, start=start, end=as_of,
                     session=worker_session())
+                if "evidence" in fetched:
+                    source_evidence.setdefault(ticker, []).append(fetched["evidence"])
                 break
             except SymbolNotFound as exc:   # a settled fact, not a flaky call
+                if hasattr(exc, "evidence"):
+                    source_evidence.setdefault(ticker, []).append(exc.evidence)
                 last_err, gone = str(exc), True
                 break
             except SourceError as exc:
+                if hasattr(exc, "evidence"):
+                    source_evidence.setdefault(ticker, []).append(exc.evidence)
                 last_err = str(exc)
                 if attempt == 1:
                     time.sleep(RETRY_SLEEP)
@@ -607,7 +642,7 @@ def run(
             return (i, not_checked(ticker, why,
                                    "symbol_not_found" if gone else "fetch_failed",
                                    last_err[:200]), [], [], [])
-        item_parse_errors = fetched["parse_errors"][:5]
+        item_parse_errors = fetched["parse_errors"]
         # The API normalises class shares ('BRK.B' -> 'BRK/B'); anything else is
         # a symbol we did not ask for and must not be compared as if we had.
         got = str(fetched["symbol"]).replace("/", ".").replace("-", ".").upper()
@@ -717,7 +752,7 @@ def run(
         # the thing this stage exists to make visible.
         "not_checked_names": [{"ticker": r["ticker"], "why": r.get("why"),
                                "reason": r["reason"], "detail": r.get("detail", "")[:120]}
-                              for r in unchecked][:25],
+                              for r in unchecked],
         "bars_compared": sum(r.get("bars_compared", 0) for r in checked),
         "field_comparisons": sum(r.get("fields_compared", 0) for r in checked),
         # The single worst gap ANYWHERE, disagreement or not — so a clean night
@@ -727,12 +762,18 @@ def run(
                                       and worst_overall["diff_bp"] > tol_bp
                                       and abs(worst_overall["store"] - worst_overall["source"])
                                       >= tol_abs),
-        "disagreements": all_disagreements[:20],
+        "disagreements": all_disagreements,
+        "name_results": results,
+        "source_evidence": source_evidence,
+        "price_basis": {"store": "Yahoo auto_adjust=False; provider split adjustments",
+                        "reference": "Nasdaq displayed historical OHLC",
+                        "equivalence": "unverified: corporate actions may use different adjustment bases",
+                        "currency": "USD expected; raw provider identity retained, never converted"},
         "n_disagreements": len(all_disagreements),
         "disagreements_by_field": by_field,
         "disagreements_by_date": by_date,
         "n_material": sum(1 for d in all_disagreements if d["diff_bp"] > MATERIAL_BP),
-        "parse_errors": parse_errors[:20],
+        "parse_errors": parse_errors,
         "n_parse_errors": len(parse_errors),
         # Volume: EXPECTED to differ, NEVER counted as a disagreement. Measured
         # here only so a change in the pattern is visible. The pattern, measured
@@ -765,7 +806,7 @@ def run(
                                    if prov_diffs else None),
         "provisional_ohl_over_tolerance": sum(1 for _, bp in prov_diffs if bp > tol_bp),
         "provisional_comparisons": len(prov_diffs),
-        "store_missing_sessions": {k: v for k, v in list(store_missing.items())[:10]},
+        "store_missing_sessions": store_missing,
         "n_names_store_missing_sessions": len(store_missing),
         "secs": round(time.monotonic() - t0, 1),
     }
@@ -774,6 +815,30 @@ def run(
         accounting["self_test"] = ("SYNTHETIC: one stored close was corrupted in "
                                    "memory to exercise the detector — not a real run")
     return accounting
+
+
+def retain_evidence(accounting: dict, directory: Path) -> dict:
+    """Publish a complete immutable receipt before replacing the current summary."""
+    body = json.dumps(accounting, sort_keys=True, separators=(",", ":")).encode()
+    digest = hashlib.sha256(body).hexdigest()
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{digest}.json"
+    fd, temporary = tempfile.mkstemp(prefix=".receipt-", dir=directory)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(body)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            if path.read_bytes() != body:
+                raise RuntimeError("verification evidence hash collision or changed receipt") from None
+    finally:
+        os.unlink(temporary)
+    summary = {key: value for key, value in accounting.items() if key != "source_evidence"}
+    summary["evidence_receipt"] = {"sha256": digest, "path": str(path), "bytes": len(body)}
+    return summary
 
 
 def _connect_ro(path: str | Path, tries: int = 6, retry_s: float = 5.0):
@@ -872,6 +937,7 @@ def main() -> int:
         log.info("[verify] --no-meta/--self-test: _meta.json NOT written")
         return 0
     try:
+        acc = retain_evidence(acc, Path(args.meta).parent / "price-verify")
         rsc.merge_meta(args.meta, {META_KEY: acc})
         log.info(f"[verify] merged '{META_KEY}' into {args.meta}")
     except Exception as exc:

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 import duckdb
 
+from engine import job_resolutions
 from engine.lib.util import table_exists
 
 from . import sweep_monitor
@@ -114,6 +115,7 @@ def _historical_reason(
 
 
 def _failure_summary(con: duckdb.DuckDBPyConnection) -> dict:
+    resolutions = job_resolutions.classifications(con)
     open_sweeps, active_identities, open_names = _sweep_context(con)
     result = {
         "actionable_failure_count": 0,
@@ -122,7 +124,9 @@ def _failure_summary(con: duckdb.DuckDBPyConnection) -> dict:
         "historical_failures": [],
     }
     for failure in _failure_rows(con):
-        reason = _historical_reason(failure, open_sweeps, active_identities, open_names)
+        reason = resolutions.get(failure["id"]) or _historical_reason(
+            failure, open_sweeps, active_identities, open_names
+        )
         if reason is None:
             result["actionable_failure_count"] += 1
             if len(result["actionable_failures"]) < FAILURE_DETAIL_LIMIT:
@@ -192,7 +196,9 @@ def _validate_failure_rows(rows: object, *, historical: bool) -> set[int]:
         if len(kind) > FAILURE_KIND_MAX_CHARS:
             raise ValueError("public queue job kind is invalid")
         updated_at = _queue_timestamp(row["updated_at"])
-        if historical and row["classification"] != HISTORICAL_CLASSIFICATION:
+        if historical and row["classification"] not in {
+            HISTORICAL_CLASSIFICATION, *job_resolutions.CLASSIFICATIONS.values()
+        }:
             raise ValueError("public queue failure classification is invalid")
         if previous is not None and _failure_is_out_of_order(previous, (updated_at, job_id)):
             raise ValueError("public queue failures are not ordered")

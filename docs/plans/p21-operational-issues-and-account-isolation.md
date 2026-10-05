@@ -31,6 +31,10 @@ walk-forward source identity. These are operational findings, not evidence of pr
 - `tools/free_massive_minute.py`: bounded retries and resume for transient transport failures,
   preserving request pacing, rolling window and immutable manifests.
 - Existing walk-forward operation: create a current source cohort without rewriting old results.
+- `engine/paper_accounts.py`: generic immutable account-spec and timely intent intake over existing
+  engine-owned portfolios. Private alpha owns generation/specification; engine owns balances,
+  positions, fills and equity. New accounts use separately funded USD 10k/50k/100k tiers selected
+  by private feasibility planning; options/futures refuse until their execution models exist.
 - Existing paper-account schemas and simulator: prove isolation of holdings, orders, fills,
   cash and equity by portfolio identity, and fix any demonstrated cross-account leakage.
 - Behavior-preserving extraction for the 32 `ruff --select C90 server tools` findings; maintain

@@ -167,6 +167,7 @@ def test_workers_overlap_waits_but_share_one_request_rate(monkeypatch, tmp_path)
 def test_retains_every_disagreeing_name_and_field(monkeypatch, tmp_path, con):
     from datetime import timedelta
 
+    db.init_schema(con)
     tickers = [f"BAD{i}" for i in range(6)]
     days = [date(2026, 9, 8) + timedelta(days=i) for i in range(5)]
     for ticker in tickers:
@@ -224,3 +225,27 @@ def test_source_nonfinite_and_duplicate_prices_are_not_silent():
         verify_prices.parse_nasdaq_history("AAA", _response({
             "symbol": "AAA", "tradesTable": {"rows": [row, row]},
         }))
+
+
+def test_exact_source_response_retained_and_receipt_is_immutable(monkeypatch, tmp_path):
+    import base64
+    import hashlib
+    import json
+
+    response = _response({"symbol": "AAA", "tradesTable": {"rows": []}})
+    monkeypatch.setattr(verify_prices, "fetch_nasdaq_response", lambda *_a, **_kw: response)
+    fetched = verify_prices.fetch_nasdaq_history(
+        "AAA", assetclass="stocks", start=date(2026, 9, 1), end=date(2026, 9, 8),
+    )
+    evidence = fetched["evidence"]
+    assert base64.b64decode(evidence["body_base64"]) == response.body
+    assert evidence["body_sha256"] == hashlib.sha256(response.body).hexdigest()
+    acc = {"source_evidence": {"AAA": [evidence]}, "names_checked": 0}
+    summary = verify_prices.retain_evidence(acc, tmp_path)
+    receipt = summary["evidence_receipt"]
+    path = tmp_path / f"{receipt['sha256']}.json"
+    assert json.loads(path.read_bytes()) == acc
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == receipt["sha256"]
+    assert "source_evidence" not in summary
+    assert verify_prices.retain_evidence(acc, tmp_path) == summary
+    assert list(tmp_path.glob(".receipt-*")) == []
