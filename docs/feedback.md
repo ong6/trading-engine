@@ -627,3 +627,21 @@ and published snapshots. Frozen policies and evidence, producer authority, inact
 broker restrictions remain unchanged. Review agents do not invoke production model policies.
 
 **Budget.** Five logical commits, each under the existing 1,500-insertion limit.
+
+## 2026-10-05 — Fix the remaining issues and prove separate strategy accounts
+
+**Verdict.** After P20, the owner requested every remaining issue be addressed and clarified
+that each alpha account must keep its own stocks and other state, with many strategies running
+at once. The owner also required host work to be published and reconciled before local changes
+are deployed. No Trae models are permitted.
+
+**Rule changes.** P21 admits the bounded operational corrections, complete verifier evidence,
+explicit queue resolution audit, capture reliability, behavior-preserving complexity extraction,
+and proof/fixes of existing portfolio isolation. Independent strategy evaluation may run in
+parallel; committed holdings, orders, fills, cash and equity stay isolated by account identity
+and use one DuckDB writer. Frozen rules/evidence and broker restrictions remain unchanged.
+Changed registered source files require the established new-revision rehearsal, never a hash-gate
+bypass. Private research stays separate from public infrastructure.
+
+**Budget.** Eighteen logical commits below 1,500 insertions each; 4,500 added test/documentation
+lines. Existing complexity threshold and repository hygiene limits remain unchanged.

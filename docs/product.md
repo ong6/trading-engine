@@ -107,6 +107,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-10-05 | Fix P20 remaining issues and prove independent strategy accounts with isolated holdings, orders, fills, cash and equity | P21; feedback |
 | 2026-10-05 | Review and improve the existing engine and paper dashboard against real host evidence, with independent acceptance and unchanged frozen strategy authority | P20; feedback |
 | 2026-10-03 | Start an offline market-data auditor: independent coverage, explicit unknown evidence and a fictional omission demo, with unchanged evaluator/live behavior | P19; feedback |
 | 2026-10-02 | Capture the free Massive rolling two-year minute history for the frozen small-stock tier, with one shared key limiter and isolated storage | P3; feedback |

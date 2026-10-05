@@ -78,6 +78,13 @@ deletes it.
   paper-only path from the shared backtest core into a real-time simulator book without publishing
   strategy content. This owner direction still needs a separately approved implementation plan.
 
+## Admitted issue closure
+
+[P21](plans/p21-operational-issues-and-account-isolation.md) admits the owner-requested
+operational fixes, complete independent-source evidence, queue-resolution audit, capture
+reliability, separate-account proof and behavior-preserving advisory-complexity work. Existing
+registered source identity changes require a properly rehearsed new revision before deployment.
+
 ## Admitted review
 
 The two 2026-10-03 shared-study findings (duplicate bars and terminal-zero cross-checks) are

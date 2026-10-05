@@ -1870,3 +1870,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Next:** nothing further admitted by P20; existing collection and revalidation continue.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
+
+## 2026-10-05 — Admit operational issue closure and separate-account proof
+
+- **Why:** Owner approved P21 after P20 and requested separate saved state for every strategy account.
+- **What:** Record operational fixes, source-preserving complexity work and account isolation as one bounded plan.
+  Verifier regressions reproduce truncated discrepancies, accepted missing/wrong symbols and nonfinite prices.
+- **Evidence:** `pytest -q tests/test_verify_prices.py` before fixes: three new regressions fail; existing checks pass.
+- **Metrics:** Baseline captured; 32 advisory server/tools complexity findings.
+- **Next:** Correct verification evidence and recoverable provider requests, then independent acceptance.
