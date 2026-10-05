@@ -134,6 +134,7 @@ def _capture_cross_checks(
             connection=connection,
         ), [], status
     except (official_quote_source.OfficialSourceError,
+            official_quote_source.tradingview_source.TradingViewSourceError,
             official_quote_source.market_data_sources.MarketDataError,
             bitemporal_facts.FactError, db.DBBusyError, duckdb.Error, OSError) as exc:
         return [], [{"ticker": "*", "reason": str(exc)[:200]}], status

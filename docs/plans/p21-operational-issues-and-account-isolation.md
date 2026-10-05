@@ -25,7 +25,9 @@ walk-forward source identity. These are operational findings, not evidence of pr
 
 - `engine/verify_prices.py` and generic helpers: retain complete verification identities,
   discrepancies and source bytes; reject invalid symbols/numbers/ambiguous comparison basis.
-- `engine/collect.py`: full-history request fallback only when full coverage is established.
+- `engine/history_recovery.py`: explicit full-history maintenance only when complete listing
+  coverage, current security identity and every overlapping stored bar agree. The collector
+  stays byte-identical to the frozen forward contract; no wrapper, monkeypatch or new schedule.
 - `engine/queue_runner.py`, `server/queue_monitor.py`: explicit append-only cancellation and
   resolution records that preserve original failed jobs and require evidence.
 - `tools/free_massive_minute.py`: bounded retries and resume for transient transport failures,
@@ -41,6 +43,9 @@ walk-forward source identity. These are operational findings, not evidence of pr
   the existing threshold of ten. A changed registered file must use the existing registration
   revision/rehearsal mechanics before deployment; never change a gate to hide the hash change.
 - Targeted tests, design/operations documentation, independent review and supported-host checks.
+- Supported-host review corrections: optional TradingView cross-check errors degrade to missing
+  evidence; backup verification fingerprints its opened directory rather than a procfs descriptor
+  symlink. These are reproduced operational defects, not new runtime authority.
 
 ## Not in scope
 

@@ -519,7 +519,9 @@ def _bundle_tree_identity(bundle: Path) -> dict[str, tuple[int, int, int, int, i
         result = {}
         for path in paths:
             relative = "." if path == bundle else path.relative_to(bundle).as_posix()
-            value = path.lstat()
+            # The root is a trusted open descriptor path, not a bundle member.
+            # Its procfs symlink metadata is unrelated to the held directory.
+            value = path.stat() if path == bundle else path.lstat()
             result[relative] = (
                 value.st_dev,
                 value.st_ino,

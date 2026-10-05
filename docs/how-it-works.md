@@ -329,3 +329,21 @@ Use the ordinary single-writer maintenance window for this explicit operation.
 Minute capture retries transport errors and HTTP 429/500/502/503/504 at most three times per
 page. Each attempt reserves the shared request limiter and rechecks the no-call window.
 Exhaustion exits with a sanitized failure; completed pages and their receipts remain resumable.
+TradingView `symbol_error` and `series_error` packets are retained in the source receipt and
+reported as provider unavailability immediately. They are not missing prices that can be invented
+or evidence that another resumable job covered the original request.
+
+## Explicit full-history recovery
+
+When a provider refuses maximum history for a pending liquid name, use the existing single-writer
+maintenance window and `python -m engine.history_recovery --ticker SYMBOL --db PATH`. Retain its
+JSON output as the recovery evidence. It binds the current universe mapping to provider symbol,
+USD currency, stock/ETF instrument type and listing date, then requires every completed listing
+session and valid OHLCV. The output contains normalized provider bars, not raw HTTP response bytes.
+
+After the network fetch it rechecks the current universe binding and all stored rows within a
+transaction. Any pre-listing stored row can indicate ticker reuse and causes refusal; conflicting
+overlapping bars or sources also refuse. Only absent rows are inserted, and `backfill_done` changes
+only after those checks. Existing prices, failed jobs and other metadata are unchanged. Refused
+evidence requires investigation; never delete old ticker history to force acceptance. The frozen
+collector and forward-record identity remain unchanged, and no producer schedule invokes recovery.
