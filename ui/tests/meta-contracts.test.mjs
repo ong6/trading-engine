@@ -1784,3 +1784,17 @@ test("meta projection rejects nested values that could misstate runtime evidence
   };
   assert.equal(isMetaProjection(prematureStaleReceipt), false);
 });
+
+
+test("queue projection accepts only explicit retained failure dispositions", () => {
+  for (const classification of [
+    "operator cancellation retained with evidence",
+    "same work completed; original failure retained",
+  ]) {
+    const payload = validMeta();
+    payload.queue.historical_failures[0].classification = classification;
+    assert.equal(isMetaProjection(payload), true);
+    payload.queue.historical_failures[0].classification = "newer unrelated job succeeded";
+    assert.equal(isMetaProjection(payload), false);
+  }
+});

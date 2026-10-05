@@ -114,7 +114,11 @@ function isQueueFailure(failure, classification) {
     [...failure.kind].length <= 64 &&
     isQueueTimestamp(failure.updated_at) &&
     (classification === "historical"
-      ? failure.classification === "recurring sweep charter is closed"
+      ? [
+          "recurring sweep charter is closed",
+          "operator cancellation retained with evidence",
+          "same work completed; original failure retained",
+        ].includes(failure.classification)
       : !Object.prototype.hasOwnProperty.call(failure, "classification"))
   );
 }
