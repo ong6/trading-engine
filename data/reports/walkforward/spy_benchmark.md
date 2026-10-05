@@ -1,12 +1,12 @@
 # SPY Buy & Hold — walk-forward re-validation
 
-_`spy_benchmark` · spy_benchmark · once cadence · verdict **reference** · generated 2026-10-04T06:07:14+00:00_
+_`spy_benchmark` · spy_benchmark · once cadence · verdict **reference** · generated 2026-10-05T16:40:17+00:00_
 
 **Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-10-02. Each fold is an independent replay starting at $39,000. Span 2014-10-02 → 2026-10-02 (3018 sessions); data floor 1994-01-27; screen source `not-used`.
 
-**Provenance.** Source `d0bd517ea958c0cd36effb93747c04d9a2b5fa43e016aa622ba5e35e55c1189d`; config `277c8f3c71e7fe220af0b0cd80ff41400ccacebd6be90495ad3433fc5b040e1e`.
+**Provenance.** Source `e533fb3b2cbb71a883fdb88ff4af0b6257676575c4e7bc0bfb80df4cf0373c4e`; config `277c8f3c71e7fe220af0b0cd80ff41400ccacebd6be90495ad3433fc5b040e1e`.
 
-**Evidence and execution.** Data quality `fixed_etf_history`; execution profile `baseline_v1`; data snapshot `39c8ea0953a0761a486ca6bf24f2938d0d5cb2f3e265ab01ba7d963354e539d0`; comparison protocol `wf-controls-2026-09-07-v1`.
+**Evidence and execution.** Data quality `fixed_etf_history`; execution profile `baseline_v1`; data snapshot `0affd34308e8ca5132398cb1f228225beb8f46edd2d68291a7428c94d2e3fca8`; comparison protocol `wf-controls-2026-09-07-v1`.
 
 **Pre-registered expectation.** Baseline market return; the absolute-return yardstick.
 
@@ -82,7 +82,7 @@ _`spy_benchmark` · spy_benchmark · once cadence · verdict **reference** · ge
 * mean validate CAGR **+15.64%** vs mean train CAGR +13.97% → decay **+1.67%**
 * mean validate Sharpe +1.18, worst validate max drawdown −32.53%
 * 0 fill(s) inside validate windows
-* runtime 418.5s (scratch 4.1s, screen 0.0s)
+* runtime 486.8s (scratch 4.1s, screen 0.0s)
 
 **Verdict rule (mechanical exploratory triage, NOT an automatic kill).** For
 each book, against the versioned comparison declared in its result artifact:

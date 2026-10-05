@@ -1,12 +1,12 @@
 # Sector ETF Rotation — walk-forward re-validation
 
-_`sector_momentum` · sector_momentum · monthly cadence · verdict **WATCH** · generated 2026-10-04T06:09:14+00:00_
+_`sector_momentum` · sector_momentum · monthly cadence · verdict **WATCH** · generated 2026-10-05T16:42:35+00:00_
 
 **Protocol.** train 24mo → validate 12mo, step 12mo, 9 fold(s), anchored 2026-10-02. Each fold is an independent replay starting at $39,000. Span 2016-10-07 → 2026-10-02 (2510 sessions); data floor 2016-10-07; screen source `not-used`.
 
-**Provenance.** Source `d0bd517ea958c0cd36effb93747c04d9a2b5fa43e016aa622ba5e35e55c1189d`; config `c72300f5e438958572985c2257f7bcdf800dfe2cfe89c73f55c471850cc6e67a`.
+**Provenance.** Source `e533fb3b2cbb71a883fdb88ff4af0b6257676575c4e7bc0bfb80df4cf0373c4e`; config `c72300f5e438958572985c2257f7bcdf800dfe2cfe89c73f55c471850cc6e67a`.
 
-**Evidence and execution.** Data quality `fixed_etf_history`; execution profile `baseline_v1`; data snapshot `39c8ea0953a0761a486ca6bf24f2938d0d5cb2f3e265ab01ba7d963354e539d0`; comparison protocol `wf-controls-2026-09-07-v1`.
+**Evidence and execution.** Data quality `fixed_etf_history`; execution profile `baseline_v1`; data snapshot `0affd34308e8ca5132398cb1f228225beb8f46edd2d68291a7428c94d2e3fca8`; comparison protocol `wf-controls-2026-09-07-v1`.
 
 **Pre-registered expectation.** Market-like return with lower drawdown — it wins by losing less in downturns, not by out-running the index.
 
@@ -82,7 +82,7 @@ _`sector_momentum` · sector_momentum · monthly cadence · verdict **WATCH** ·
 * mean validate CAGR **+13.87%** vs mean train CAGR +11.59% → decay **+2.29%**
 * mean validate Sharpe +0.92, worst validate max drawdown −31.86%
 * 369 fill(s) inside validate windows
-* runtime 543.2s (scratch 8.0s, screen 0.0s)
+* runtime 629.2s (scratch 8.0s, screen 0.0s)
 
 **Verdict rule (mechanical exploratory triage, NOT an automatic kill).** For
 each book, against the versioned comparison declared in its result artifact:

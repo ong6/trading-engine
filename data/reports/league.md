@@ -25,16 +25,7 @@
 | 21 | Daily Opportunity Agent | 2026-09-21 | $9,820 | −1.80% | −1.31% | −1.80% | 2 | 6 | −0.85% |
 | 22 | Dual Momentum (GEM) | 2026-07-17 | $38,285 | −1.83% | −5.63% | −5.22% | 1 | 4 | −1.59% |
 | 23 | Dual Momentum (regime-gated) | 2026-07-17 | $38,285 | −1.83% | −5.63% | −5.22% | 1 | 4 | −1.59% |
-| 24 | 52-Week-High Momentum | 2026-07-28 | $37,948 | −2.70% | −6.84% | −4.07% | 27 | 88 | −0.61% |
+| 24 | 52-Week-High Momentum | 2026-07-28 | $37,948 | −2.70% | −6.84% | −4.07% | 25 | 88 | −0.61% |
 | 25 | Low-Volatility Defensive | 2026-07-28 | $36,438 | −6.57% | −10.71% | −6.88% | 18 | 94 | −0.91% |
 
 _Regime: **risk-on** · each return uses its book's persisted starting capital · as of 2026-10-02._
-
-## ⚠ Stale marks — 2 position(s) carried at an old close
-
-These names have not TRADED since the date shown, so they are valued at a close that cannot change until they trade again. **Sessions stale counts from the last bar with real volume, not the last bar on file** — yfinance keeps emitting a dead quote as a zero-volume bar after a name stops trading, which makes a dead position look fresher than it is. A halt resolves itself; a delisting or acquisition needs the position settled by hand. **The equity above includes these marks.**
-
-| Book | Ticker | Qty | Last traded | Sessions stale | Frozen value | % of equity |
-|---|---|---|---|---|---|---|
-| high_52wk | GBTG | 165.5245 | 2026-09-28 | 4 | $1,572.48 | 4.14% |
-| high_52wk | DBRG | 98.2987 | 2026-09-29 | 3 | $1,572.78 | 4.14% |

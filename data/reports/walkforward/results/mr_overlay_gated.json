@@ -27,7 +27,7 @@
   "data_floor": "1994-01-27",
   "data_quality_class": "current_universe_survivor_biased",
   "data_snapshot": {
-    "sha256": "39c8ea0953a0761a486ca6bf24f2938d0d5cb2f3e265ab01ba7d963354e539d0",
+    "sha256": "0affd34308e8ca5132398cb1f228225beb8f46edd2d68291a7428c94d2e3fca8",
     "tables": {
       "corporate_actions": {
         "exists": true,
@@ -49,7 +49,7 @@
       },
       "prices": {
         "exists": true,
-        "latest_fetch": "2026-10-04T02:04:52.145064",
+        "latest_fetch": "2026-10-05T16:28:35.262083",
         "max_date": "2026-10-02",
         "min_date": "1962-01-02",
         "rows": 21007108
@@ -123,7 +123,7 @@
           "ticker": "INTU"
         }
       ],
-      "runtime_s": 529.7,
+      "runtime_s": 661.5,
       "sessions": 756,
       "split_date": "2016-10-02",
       "split_session": "2016-09-30",
@@ -239,7 +239,7 @@
       "n_rejected": 0,
       "n_validate_fills": 439,
       "pending_orders": [],
-      "runtime_s": 534.8,
+      "runtime_s": 660.1,
       "sessions": 756,
       "split_date": "2017-10-02",
       "split_session": "2017-10-02",
@@ -358,7 +358,7 @@
           "ticker": "CSTM"
         }
       ],
-      "runtime_s": 530.6,
+      "runtime_s": 625.3,
       "sessions": 755,
       "split_date": "2018-10-02",
       "split_session": "2018-10-02",
@@ -477,7 +477,7 @@
           "ticker": "MDGL"
         }
       ],
-      "runtime_s": 479.7,
+      "runtime_s": 561.0,
       "sessions": 757,
       "split_date": "2019-10-02",
       "split_session": "2019-10-02",
@@ -596,7 +596,7 @@
           "ticker": "SITM"
         }
       ],
-      "runtime_s": 548.5,
+      "runtime_s": 646.9,
       "sessions": 756,
       "split_date": "2020-10-02",
       "split_session": "2020-10-02",
@@ -708,7 +708,7 @@
       "n_rejected": 0,
       "n_validate_fills": 155,
       "pending_orders": [],
-      "runtime_s": 489.6,
+      "runtime_s": 571.7,
       "sessions": 756,
       "split_date": "2021-10-02",
       "split_session": "2021-10-01",
@@ -829,7 +829,7 @@
           "ticker": "HLX"
         }
       ],
-      "runtime_s": 493.4,
+      "runtime_s": 581.6,
       "sessions": 754,
       "split_date": "2022-10-02",
       "split_session": "2022-09-30",
@@ -952,7 +952,7 @@
           "ticker": "SEZL"
         }
       ],
-      "runtime_s": 460.3,
+      "runtime_s": 547.8,
       "sessions": 754,
       "split_date": "2023-10-02",
       "split_session": "2023-10-02",
@@ -1083,7 +1083,7 @@
           "ticker": "SKE"
         }
       ],
-      "runtime_s": 522.1,
+      "runtime_s": 638.5,
       "sessions": 753,
       "split_date": "2024-10-02",
       "split_session": "2024-10-02",
@@ -1220,7 +1220,7 @@
           "ticker": "HELP"
         }
       ],
-      "runtime_s": 558.9,
+      "runtime_s": 655.7,
       "sessions": 754,
       "split_date": "2025-10-02",
       "split_session": "2025-10-02",
@@ -1319,9 +1319,9 @@
       "validate_universe": 12643
     }
   ],
-  "generated_utc": "2026-10-04T07:52:37+00:00",
+  "generated_utc": "2026-10-05T18:44:18+00:00",
   "git_dirty": true,
-  "git_sha": "284cb06d60409ce5d7f715e23afa69e820a5da43",
+  "git_sha": "4a6d050d30b0ac7e36da6ae6f37968b56a1c58de",
   "initial_cash": 39000.0,
   "kill_criterion": "No drawdown/expectancy improvement vs ungated MR.",
   "name": "Mean-Reversion Overlay (regime-gated)",
@@ -1395,14 +1395,14 @@
     "validate_months": 12
   },
   "registered": "2026-07-17",
-  "runtime_s": 5173.0,
+  "runtime_s": 6177.3,
   "scratch_s": 0.1,
   "screen_rows": 1120910,
-  "screen_s": 25.3,
+  "screen_s": 26.8,
   "screen_source": "hist",
   "sessions": 3018,
-  "source_file_count": 196,
-  "source_sha256": "d0bd517ea958c0cd36effb93747c04d9a2b5fa43e016aa622ba5e35e55c1189d",
+  "source_file_count": 202,
+  "source_sha256": "e533fb3b2cbb71a883fdb88ff4af0b6257676575c4e7bc0bfb80df4cf0373c4e",
   "span_end": "2026-10-02",
   "span_start": "2014-10-02",
   "strategy": "mr_overlay",
