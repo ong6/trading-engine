@@ -8,6 +8,8 @@ import time
 from datetime import date
 from itertools import pairwise
 
+import pytest
+
 from engine import verify_prices
 from engine.lib import db
 
@@ -243,12 +245,59 @@ def test_exact_source_response_retained_and_receipt_is_immutable(monkeypatch, tm
     acc = {"source_evidence": {"AAA": [evidence]}, "names_checked": 0}
     summary = verify_prices.retain_evidence(acc, tmp_path)
     receipt = summary["evidence_receipt"]
+    assert receipt["path"] == f"price-verify/{receipt['sha256']}.json"
     path = tmp_path / f"{receipt['sha256']}.json"
     assert json.loads(path.read_bytes()) == acc
     assert hashlib.sha256(path.read_bytes()).hexdigest() == receipt["sha256"]
     assert "source_evidence" not in summary
     assert verify_prices.retain_evidence(acc, tmp_path) == summary
     assert list(tmp_path.glob(".receipt-*")) == []
+
+
+@pytest.mark.parametrize("payload", [
+    ["unexpected envelope"],
+    {"status": [200]},
+    {"status": {"rCode": 200}, "data": ["AAA"]},
+    {"status": {"rCode": 200}, "data": {"symbol": "AAA", "tradesTable": [1]}},
+    {"status": {"rCode": 200}, "data": {"symbol": "AAA", "tradesTable": {"rows": {}}}},
+    {"status": {"rCode": 200}, "data": {"symbol": "AAA", "tradesTable": {"rows": [None]}}},
+])
+def test_malformed_source_shapes_retain_exact_body(monkeypatch, payload):
+    import base64
+    import json
+    from datetime import datetime, timezone
+
+    body = json.dumps(payload).encode()
+    response = verify_prices.NasdaqResponse(body, "application/json", 200,
+                                            datetime.now(timezone.utc))
+    monkeypatch.setattr(verify_prices, "fetch_nasdaq_response", lambda *_a, **_kw: response)
+    with pytest.raises(verify_prices.SourceError) as caught:
+        verify_prices.fetch_nasdaq_history(
+            "AAA", assetclass="stocks", start=date(2026, 9, 1), end=date(2026, 9, 8),
+        )
+    assert base64.b64decode(caught.value.evidence["body_base64"]) == body
+
+
+def test_malformed_source_does_not_abandon_other_names(monkeypatch, con, tmp_path):
+    import base64
+
+    db.init_schema(con)
+    for ticker in ("AAA", "BBB"):
+        con.execute("INSERT INTO universe(ticker,etf) VALUES (?,FALSE)", [ticker])
+        con.execute("INSERT INTO prices(ticker,date,open,high,low,close,volume) "
+                    "VALUES (?,'2026-09-08',10,11,9,10,100)", [ticker])
+    invalid = _response({"symbol": "AAA", "tradesTable": {"rows": [None]}})
+    valid = _response({"symbol": "BBB", "tradesTable": {"rows": [{
+        "date": "09/08/2026", "open": 10, "high": 11, "low": 9, "close": 10, "volume": 100,
+    }]}})
+    monkeypatch.setattr(verify_prices, "fetch_nasdaq_response",
+                        lambda ticker, **_kw: invalid if ticker == "AAA" else valid)
+    monkeypatch.setattr(verify_prices, "PER_NAME_SLEEP", 0)
+    monkeypatch.setattr(verify_prices, "RETRY_SLEEP", 0)
+    result = verify_prices.run({"tickers": ["AAA", "BBB"]}, con, tmp_path / "meta.json")
+    assert result["names_agreeing"] == 1
+    assert result["names_not_checked"] == 1
+    assert base64.b64decode(result["source_evidence"]["AAA"][0]["body_base64"]) == invalid.body
 
 
 def test_rate_limiter_oversleep_does_not_compress_next_request_slot():
@@ -274,3 +323,20 @@ def test_rate_limiter_oversleep_past_deadline_does_not_admit_request():
     )
     assert limiter.wait(2)
     assert not limiter.wait(2)
+
+
+def test_nonfinite_or_nonpositive_store_price_is_never_agreement():
+    import pytest
+
+    day = date(2026, 10, 2)
+    for value in (float("nan"), float("inf"), -1.0, 0.0):
+        result = verify_prices.compare_bars(
+            "AAA", {day: {"close": value}}, {day: {"close": 10}}, 10, 0.01, day,
+        )
+        assert result["status"] == "not_checked"
+        assert result["reason"] == "invalid_comparison_price"
+        assert result["fields_compared"] == 0
+        assert result["worst"] is None
+        assert result["invalid_fields"][0]["side"] == "store"
+    with pytest.raises(ValueError):
+        verify_prices._num("inf", "close")

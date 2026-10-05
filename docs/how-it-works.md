@@ -309,16 +309,21 @@ uncommitted.
 
 Price verification retains every discrepant field and named result. Exact Nasdaq response
 bytes, HTTP identity and requested security/window are written to a hash-named receipt under
-`data/price-verify/` before `_meta.json` changes. The summary points to the immutable receipt.
+`data/price-verify/` before `_meta.json` changes. The summary points to the immutable receipt
+relative to `_meta.json`'s directory, without publishing an absolute host path.
 A mismatch remains a mismatch until security, currency and corporate-action adjustment basis
 are established; the verifier never overwrites operational prices or converts currencies.
 
 A failed job remains in `jobs` permanently. For an intentional operator stop, record its
 reason and retained evidence with `python -m engine.job_resolutions --job ID --kind cancelled
---reason TEXT --evidence TEXT`. For proven completion, use `--kind completed --replacement-job ID`;
-the replacement must be a later successful job of the same kind with identical parameters.
-An unrelated newer success cannot clear a failure. The disposition and original job identity
-are checked whenever queue status is projected; altered evidence restores the actionable warning.
+--reason TEXT --evidence TEXT`. For operator-attested completion, use
+`--kind completed --replacement-job ID` after inspecting retained receipts proving the original
+window/chunk coverage. The replacement must be a later successful job of the same kind with
+identical parameters; these checks bind the request identities but do not establish coverage.
+In particular, a resumable job can process different chunks with the same parameters. Without
+coverage evidence, leave the failure actionable. An unrelated newer success cannot clear it.
+The disposition and original/replacement job identities are checked whenever queue status is
+projected; altered evidence restores the actionable warning.
 Use the ordinary single-writer maintenance window for this explicit operation.
 
 Minute capture retries transport errors and HTTP 429/500/502/503/504 at most three times per

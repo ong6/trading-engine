@@ -277,23 +277,31 @@ def parse_nasdaq_history(
             f"non-JSON body ({len(response.body)} bytes): {exc}"
         ) from exc
 
-    status = (payload or {}).get("status") or {}
+    if not isinstance(payload, dict):
+        raise SourceError("invalid Nasdaq envelope: expected object")
+    status = payload.get("status")
+    if not isinstance(status, dict):
+        raise SourceError("invalid Nasdaq status: expected object")
     rcode = status.get("rCode")
     if rcode != 200:
         msg = status.get("bCodeMessage") or payload.get("message")
         if "not exists" in str(msg).lower():
             raise SymbolNotFound(f"rCode {rcode}: {msg}")
         raise SourceError(f"rCode {rcode}: {msg}")
-    data = (payload or {}).get("data") or {}
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise SourceError("invalid Nasdaq data: expected object")
     symbol = data.get("symbol")
     def normalize(value):
         return str(value).replace("/", ".").replace("-", ".").upper()
     if not symbol or normalize(symbol) != normalize(ticker):
         raise SourceError(f"source symbol identity differs: {symbol!r}")
-    table = data.get("tradesTable") or {}
+    table = data.get("tradesTable")
+    if not isinstance(table, dict):
+        raise SourceError("invalid Nasdaq tradesTable: expected object")
     rows = table.get("rows")
-    if rows is None:
-        raise SourceError("no data.tradesTable.rows in response (schema change?)")
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise SourceError("invalid data.tradesTable.rows: expected array of objects")
 
     bars: dict[date, dict] = {}
     parse_errors: list[str] = []
@@ -325,10 +333,9 @@ def fetch_nasdaq_history(ticker: str, *, assetclass: str,
                          timeout: float = HTTP_TIMEOUT) -> dict:
     """Daily OHLCV for one name from api.nasdaq.com.
 
-    `assetclass` is required and never inferred from the symbol. This legacy
-    verifier API intentionally returns parsed data only; evidence capture uses
-    ``fetch_nasdaq_response`` plus ``parse_nasdaq_history`` so it can retain
-    the exact bytes before deriving facts.
+    `assetclass` is required and never inferred from the symbol. Parsed data and
+    the exact response bytes are returned together; a source refusal carries
+    the same evidence on the exception so failed parsing cannot erase its cause.
     """
     # Class shares: the store's canonical 'BRK.B' is accepted and normalised by
     # the API to 'BRK/B' (verified). The yfinance form 'BRK-B' is NOT.
@@ -482,6 +489,16 @@ def compare_bars(ticker: str, store_bars: dict, src_bars: dict,
     if not common:
         out["status"] = "not_checked"
         out["reason"] = "no_overlapping_sessions"
+        return out
+
+    invalid = [
+        {"date": day.isoformat(), "side": side, "field": field, "value": repr(bar[field])}
+        for day in common for side, bar in (("store", store_bars[day]), ("source", src_bars[day]))
+        for field in FIELDS if bar.get(field) is not None
+        and (not math.isfinite(float(bar[field])) or float(bar[field]) <= 0)
+    ]
+    if invalid:
+        out.update(status="not_checked", reason="invalid_comparison_price", invalid_fields=invalid)
         return out
 
     for d in common:
@@ -771,8 +788,12 @@ def run(
         "disagreements": all_disagreements,
         "name_results": results,
         "source_evidence": source_evidence,
-        "store_evidence": {ticker: {day.isoformat(): bar for day, bar in bars.items()}
-                           for ticker, bars in store.items()},
+        "store_evidence": {
+            ticker: {day.isoformat(): {
+                field: (repr(value) if isinstance(value, float) and not math.isfinite(value) else value)
+                for field, value in bar.items()
+            } for day, bar in bars.items()} for ticker, bars in store.items()
+        },
         "price_basis": {"store": "Yahoo auto_adjust=False; provider split adjustments",
                         "reference": "Nasdaq displayed historical OHLC",
                         "equivalence": "unverified: corporate actions may use different adjustment bases",
@@ -827,7 +848,7 @@ def run(
 
 def retain_evidence(accounting: dict, directory: Path) -> dict:
     """Publish a complete immutable receipt before replacing the current summary."""
-    body = json.dumps(accounting, sort_keys=True, separators=(",", ":")).encode()
+    body = json.dumps(accounting, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     digest = hashlib.sha256(body).hexdigest()
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{digest}.json"
@@ -845,7 +866,9 @@ def retain_evidence(accounting: dict, directory: Path) -> dict:
     finally:
         os.unlink(temporary)
     summary = {key: value for key, value in accounting.items() if key not in {"source_evidence", "store_evidence"}}
-    summary["evidence_receipt"] = {"sha256": digest, "path": str(path), "bytes": len(body)}
+    summary["evidence_receipt"] = {
+        "sha256": digest, "path": f"price-verify/{digest}.json", "bytes": len(body),
+    }
     return summary
 
 

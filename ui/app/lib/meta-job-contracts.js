@@ -117,7 +117,7 @@ function isQueueFailure(failure, classification) {
       ? [
           "recurring sweep charter is closed",
           "operator cancellation retained with evidence",
-          "same work completed; original failure retained",
+          "operator-attested completion; original failure retained",
         ].includes(failure.classification)
       : !Object.prototype.hasOwnProperty.call(failure, "classification"))
   );

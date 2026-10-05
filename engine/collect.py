@@ -32,6 +32,7 @@ pulls (batched, sleeps, one backoff retry), only yfinance + nasdaqtrader.com.
 from __future__ import annotations
 
 import argparse
+import math
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -215,8 +216,12 @@ def _explicit_full_history(ticker: str) -> pd.DataFrame | None:
         actual = set(normalized["date"]) if got else set()
         if actual != expected or len(normalized) != len(expected):
             raise ValueError("explicit history does not cover every declared listing session")
-        if normalized[["open", "high", "low", "close"]].isna().any().any():
-            raise ValueError("explicit history has incomplete OHLC")
+        for row in normalized.itertuples(index=False):
+            values = (row.open, row.high, row.low, row.close)
+            if (any(not math.isfinite(value) or value <= 0 for value in values)
+                    or row.low > min(row.open, row.close) or row.high < max(row.open, row.close)
+                    or not math.isfinite(row.volume) or row.volume < 0):
+                raise ValueError("explicit history has invalid OHLCV")
         log.info(f"[collect] {ticker}: explicit full history verified {first}..{last} ({len(actual)} sessions)")
         return raw
     except Exception as exc:  # provider failures leave backfill pending, never accept a 5d substitute

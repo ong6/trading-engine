@@ -209,6 +209,22 @@ def _validate_replayed_order(con, order_id, intent):
         raise AccountRefused("retained intake no longer matches its engine order")
 
 
+def _activation_checkpoint(con, signal_date: date) -> bool:
+    """Never make a new account's mark look like the whole nightly completed."""
+    has_history = con.execute("SELECT 1 FROM sim_equity LIMIT 1").fetchone() is not None
+    if not has_history:
+        return False  # All first-run accounts are marked together by the league.
+    unfinished = con.execute(
+        "SELECT p.id FROM portfolios p LEFT JOIN sim_equity e "
+        "ON e.portfolio_id=p.id AND e.date=? WHERE p.active AND e.portfolio_id IS NULL",
+        [signal_date],
+    ).fetchall()
+    if unfinished:
+        raise AccountRefused("nightly accounting must complete before account intake")
+    return con.execute("SELECT 1 FROM sim_equity WHERE date=? LIMIT 1",
+                       [signal_date]).fetchone() is not None
+
+
 def submit_intent(con, intent: dict, *, now: datetime) -> dict:
     now = _utc(now)
     if not isinstance(intent, dict) or set(intent) != INTENT_FIELDS:
@@ -228,6 +244,7 @@ def submit_intent(con, intent: dict, *, now: datetime) -> dict:
         latest = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
         if latest != signal_date:
             raise AccountRefused("intent must use the current stored signal session")
+        completed_checkpoint = _activation_checkpoint(con, signal_date)
         _capacity(con, spec, intent, signal_date, quantity)
         order_id = con.execute("SELECT COALESCE(MAX(id),0)+1 FROM sim_orders").fetchone()[0]
         con.execute("INSERT INTO sim_orders VALUES (?,?,?,?,?,?,'pending',NULL)",
@@ -237,5 +254,6 @@ def submit_intent(con, intent: dict, *, now: datetime) -> dict:
                     [intent["intent_id"], intent["account_id"], order_id,
                      json.dumps(intent, sort_keys=True), digest, now])
         con.execute("UPDATE portfolios SET active=TRUE WHERE id=?", [intent["account_id"]])
-        portfolio.mark_to_market(con, intent["account_id"], signal_date)
+        if completed_checkpoint:
+            portfolio.mark_to_market(con, intent["account_id"], signal_date)
     return {"order_id": order_id, "replayed": False}

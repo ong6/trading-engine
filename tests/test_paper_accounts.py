@@ -133,3 +133,35 @@ def test_replayed_receipt_must_still_match_its_order_and_spec(con):
     con.execute("UPDATE portfolios SET initial_cash=50000 WHERE id='a'")
     with pytest.raises(accounts.AccountRefused, match="differs"):
         accounts.create_account(con, spec, now=NOW)
+
+
+def test_bootstrap_intake_does_not_poison_nightly_completion(con, tmp_path):
+    insert_bars(con, "SAME", [SIGNAL], open_=100, close=100)
+    for account in ("a", "b", "c"):
+        accounts.create_account(con, _spec(account), now=NOW)
+        accounts.submit_intent(con, _intent(account), now=NOW)
+    assert con.execute("SELECT COUNT(*) FROM sim_equity").fetchone()[0] == 0
+    league.step(con, SIGNAL, tmp_path, False, False, True)
+    assert con.execute("SELECT COUNT(*) FROM sim_equity WHERE date=?", [SIGNAL]).fetchone()[0] == 3
+    insert_bars(con, "SAME", [FILL], open_=100, close=102)
+    league.step(con, FILL, tmp_path, False, False, True)
+    assert con.execute("SELECT portfolio_id,qty FROM sim_fills ORDER BY portfolio_id").fetchall() == [
+        ("a", 5), ("b", 5), ("c", 5),
+    ]
+    assert con.execute("SELECT COUNT(*) FROM sim_equity WHERE date=?", [FILL]).fetchone()[0] == 3
+
+
+def test_initialized_intake_waits_for_all_books_then_preserves_completed_checkpoint(con, tmp_path):
+    previous = date(2026, 10, 1)
+    insert_bars(con, "SAME", [previous, SIGNAL], open_=100, close=100)
+    accounts.create_account(con, _spec("existing"), now=NOW)
+    con.execute("UPDATE portfolios SET active=TRUE WHERE id='existing'")
+    portfolio.mark_to_market(con, "existing", previous)
+    accounts.create_account(con, _spec("new"), now=NOW)
+    with pytest.raises(accounts.AccountRefused, match="nightly accounting"):
+        accounts.submit_intent(con, _intent("new"), now=NOW)
+    assert con.execute("SELECT COUNT(*) FROM sim_equity WHERE date=?", [SIGNAL]).fetchone()[0] == 0
+    league.step(con, SIGNAL, tmp_path, False, False, True)
+    accounts.submit_intent(con, _intent("new"), now=NOW)
+    assert con.execute("SELECT portfolio_id FROM sim_equity WHERE date=? ORDER BY 1",
+                       [SIGNAL]).fetchall() == [("existing",), ("new",)]

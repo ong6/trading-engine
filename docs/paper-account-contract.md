@@ -60,10 +60,17 @@ by the existing fill model and its cash bounds. An unsupported instrument or fai
 no order and does not activate the account.
 
 A successful intake atomically records `paper_account_intakes`, creates one pending `sim_orders`
-row, activates that account and records its signal-session equity. An identical retry returns its
-original order ID even after the admission window closes; changed evidence under the same ID is
-refused. The ordinary league fills at the next open and alone records fills, cash, positions and
-equity. Parallel alpha producers must route mutations through the one engine writer.
+row and activates that account. If accounting history exists, every active book must already have
+signal-session equity before intake; only then is the new account's equity added to that completed
+checkpoint. An unfinished night refuses intake. When the whole equity ledger is empty, all initial
+accounts can queue requests, but intake writes no equity: the ordinary league completes their first
+signal-session marks together. This prevents one new account's mark from causing the league to
+mistake an unfinished night for completed accounting.
+
+An identical retry returns its original order ID even after the admission window closes; changed
+evidence under the same ID is refused. The ordinary league fills at the next open and alone records
+fills, cash and positions. Parallel alpha producers must route mutations through the one engine
+writer.
 
 ## Verification
 
@@ -71,4 +78,6 @@ equity. Parallel alpha producers must route mutations through the one engine wri
 same symbol, independent cash/fill/equity and exact state reconstruction; 25 accounts cannot sell
 or spend another account's assets. It also checks idempotence without re-funding, immutable
 specification identity, early closes, late requests, invalid capital and unsupported instruments.
+Bootstrap and existing-league regressions run the ordinary league to prove intake cannot skip a
+nightly step or block several accounts from their first next-open fills.
 These are accounting/operating proofs, not strategy or profitability claims.
