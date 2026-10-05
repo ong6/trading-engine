@@ -27,3 +27,5 @@ ui/.next/
 # screen REPORTS — stay tracked; they are the synced deliverable)
 data/eod/
 data/universe.csv
+# exact independent-provider receipts contain raw data and stay host/private backup only
+data/price-verify/

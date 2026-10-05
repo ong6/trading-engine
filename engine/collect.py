@@ -117,12 +117,14 @@ def _download(
     if start:
         kwargs["start"] = start
     try:
-        return yf.download(yf_tickers, **kwargs)
+        raw = yf.download(yf_tickers, **kwargs)
+        return _complete_max_history(raw, yf_tickers) if period == "max" else raw
     except Exception as exc:  # noqa: BLE001 - be resilient, retry once
         log.warning(f"[collect] batch download failed ({exc}); retry in {retry_sleep}s")
         time.sleep(retry_sleep)
         try:
-            return yf.download(yf_tickers, **kwargs)
+            raw = yf.download(yf_tickers, **kwargs)
+            return _complete_max_history(raw, yf_tickers) if period == "max" else raw
         except Exception as exc2:  # noqa: BLE001
             log.warning(f"[collect] batch retry failed ({exc2}); marking batch failed")
             return pd.DataFrame()
@@ -167,6 +169,75 @@ def _upsert_batch(db_path: str | Path, frame: pd.DataFrame) -> int:
         return db.upsert_prices(con, frame)
     finally:
         con.close()
+
+
+def _provider_clock(value, zone) -> datetime:
+    if isinstance(value, datetime):
+        if value.utcoffset() is None:
+            raise ValueError("provider timestamp lacks timezone")
+        return value.astimezone(zone)
+    if type(value) not in (int, float):
+        raise ValueError("provider timestamp is invalid")
+    return datetime.fromtimestamp(value, zone)
+
+
+def _explicit_full_history(ticker: str) -> pd.DataFrame | None:
+    """A range fallback is complete only with identity-bound listing/session coverage."""
+    from zoneinfo import ZoneInfo
+
+    from sim import nyse
+
+    try:
+        source = yf.Ticker(ticker)
+        metadata = source.get_history_metadata()
+        if metadata.get("symbol") != ticker or metadata.get("currency") != "USD":
+            raise ValueError("provider identity/currency missing or different")
+        zone = ZoneInfo(metadata["exchangeTimezoneName"])
+        from engine.p15_event_sources import session_close
+
+        first = _provider_clock(metadata["firstTradeDate"], zone).date()
+        latest = _provider_clock(metadata["regularMarketTime"], zone)
+        last = latest.date()
+        if latest.timetz().replace(tzinfo=None) < session_close(last):
+            last -= timedelta(days=1)
+            while not nyse.is_session(last):
+                last -= timedelta(days=1)
+        if first > last or first.year < 2000 or not nyse.is_session(first):
+            raise ValueError("unsupported or invalid provider listing interval")
+        raw = source.history(start=first.isoformat(), end=(last + timedelta(days=1)).isoformat(),
+                             period=None, auto_adjust=False, actions=False, raise_errors=True)
+        normalized, got = _extract_long(raw, {ticker: ticker})
+        expected, day = set(), first
+        while day <= last:
+            if nyse.is_session(day):
+                expected.add(day)
+            day += timedelta(days=1)
+        actual = set(normalized["date"]) if got else set()
+        if actual != expected or len(normalized) != len(expected):
+            raise ValueError("explicit history does not cover every declared listing session")
+        if normalized[["open", "high", "low", "close"]].isna().any().any():
+            raise ValueError("explicit history has incomplete OHLC")
+        log.info(f"[collect] {ticker}: explicit full history verified {first}..{last} ({len(actual)} sessions)")
+        return raw
+    except Exception as exc:  # provider failures leave backfill pending, never accept a 5d substitute
+        log.warning(f"[collect] {ticker}: full-history fallback refused ({type(exc).__name__}: {exc})")
+        return None
+
+
+def _complete_max_history(raw: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
+    _, got = _extract_long(raw, {ticker: ticker for ticker in tickers})
+    missing = set(tickers) - got
+    if not missing:
+        return raw
+    frames = {}
+    for ticker in tickers:
+        if ticker in got:
+            frames[ticker] = raw[ticker] if isinstance(raw.columns, pd.MultiIndex) else raw
+        else:
+            fallback = _explicit_full_history(ticker)
+            if fallback is not None:
+                frames[ticker] = fallback
+    return pd.concat(frames, axis=1) if frames else pd.DataFrame()
 
 
 # --------------------------------------------------------------------------- #

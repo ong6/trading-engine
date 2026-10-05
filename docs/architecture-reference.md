@@ -781,3 +781,12 @@ CI uses the same locked environment, builds a wheel, then
 runs Ruff, compilation, shell syntax, tests with warnings as errors, and the UI production build.
 A static packaging test rejects bare internal imports and undeclared direct dependencies before
 they can become environment-dependent failures.
+
+## External strategy accounts
+
+Private alpha generates versioned strategy specifications and prospective requests. The engine's
+[`paper account contract`](paper-account-contract.md) owns independent funding, admission and
+all execution/accounting state through the existing `portfolios` and `sim_*` tables. Many
+strategies may evaluate shared immutable prices concurrently; all order/account mutations use
+one writer. A USD 10k, 50k or 100k tier is a separate account, never a shared balance. Unsupported
+option/future execution is refused explicitly while those specifications remain research-only.

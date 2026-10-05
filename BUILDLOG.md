@@ -1888,3 +1888,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `pytest -q tests/test_verify_prices.py tests/test_free_massive_minute.py tests/test_job_resolutions.py tests/test_queue_monitor.py -W error`: 43 passed.
 - **Metrics:** Pending final snapshot; registered source changes await the next properly rehearsed revision.
 - **Next:** Engine-owned independent paper accounts and remaining focused infrastructure refactors.
+
+## 2026-10-05 — Separate engine-owned paper accounts and complete history fallback
+
+- **Why:** P21; owner requested independently saved strategy accounts with USD 10k/50k/100k tiers and private-alpha/engine separation.
+- **What:** Bind immutable generic account specifications; accept only timely prospective stock/ETF requests into existing next-open accounting.
+  Reject unsupported instruments, cross-account spending, stale requests and re-funding; prove parallel strategy/account isolation.
+  A failed maximum-history fetch gets an explicit-date fallback only after provider identity and every completed listing session validate.
+- **Evidence:** `pytest -q tests/test_collect.py tests/test_paper_accounts.py -W error`: 34 passed.
+- **Metrics:** Pending final snapshot; no existing portfolio balance or frozen private request changed.
+- **Next:** Finish behavior-preserving source extraction and bind the reviewed registration revision.
