@@ -232,12 +232,12 @@
     "price_fetch_availability": "after_collection_completion"
   },
   "code_identity": {
-    "source_commit": "157291e7ac8d32ca0913b7b246f87640a1809005",
+    "source_commit": "2cfe50c0a9dde2967a95a739b59d0c09a4f2d0b2",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/actions.py": "a6c2ec46d198df2318498ec7d55e1b7cfeca4c8afaccd8a5c208618e4ea8b850",
       "engine/bitemporal_facts.py": "9f593e82da0f65a54b93d0dac5505e6a98fad5d1d4d63ce672b71d527655c8cc",
-      "engine/collect.py": "5717db5233e26edc284b27b55d598dd859e01ccfdc4d080d46f9c68ee9b76b57",
+      "engine/collect.py": "23ec8da4be7342101b061f6db49b2338dcbe8fd127c2fb607c66995652d340f1",
       "engine/daily_opportunities.py": "d8d8cd884183f10055204b606af3a748198d7c9686342b5fad091a24ab71292b",
       "engine/earnings.py": "2d3b702f523b1a88c12b48bc62e4bba78deefb09122e65d0bb934460072483d2",
       "engine/forward_review.py": "ef8fde636b198b93fb71350e0dd76b5cc3e0280194e3b4b614f812142f2b61f2",
@@ -301,7 +301,7 @@
       "server/driver_log.py": "b2a4bcca1ecdff999bba02917a62639709975571d798e16978d747b2dfecc1d6",
       "server/driver_monitor.py": "79d8577855156344d34745ad89e6fd0035a1e008556a93825bdc33a07db60873",
       "server/file_utils.py": "79d3fccabe4fadc0467c82bfc5c442f7eb74aee77ef199c15979634b451cbedf",
-      "server/hourly_opportunity_observer.py": "009616450a2923f877e1229ceec8730dde61186260efe1137c16699eb78a0ba0",
+      "server/hourly_opportunity_observer.py": "81a13d4f999d583cc390ccaf8e26fd5b8f3ce5ec50fe541f130099927583a5ab",
       "server/intraday_source.py": "83a85c249f51cfd7b0cfc3120376d2c14be628cf51806f79719c184307aeb9a2",
       "server/json_utils.py": "e08ff1e169c9f2b183f27b43c27a762fa046a1283e0c75c56055db81e80539fc",
       "server/market_data_sources.py": "349dd6f2c7489edea65bfaa734f29c3d62781813521912a6db6eba77b124d250",
@@ -321,7 +321,7 @@
       "server/trading-engine-p15-preopen.timer": "7f847981860a3c2be1439305b4e98d4662a0850a30bb7e1299fc85a2ffad8c35",
       "server/trading-engine-p15-scoring.service": "3b9b8edfe712602c28bbc07c8a5c999bf530fd77a04900738b96e5a2b28fc6ac",
       "server/trading-engine-p15-scoring.timer": "065c0886d27259dbd8cb0e1527b3334dc1adb7dd0c047a0db0b7de67d8736e9a",
-      "server/tradingview_source.py": "819132aa2583ad34c281342fe0efe3b9cc981d44fbb155076db825df689f26e0",
+      "server/tradingview_source.py": "1a510129ec9e8e3c04d1c86d9a03a760c6d615b743ccce45fc98299598ee5525",
       "sim/__init__.py": "579569d527ff531dd9f6b0c819fe0afb317e72d13eb15fdb64564e73c9eec7f9",
       "sim/p15_books.py": "21519a9d482cb7e02b8bae33caf567bc200d1d7e91dd37a09f9cb7634a28f445",
       "sim/p15_fills.py": "baf1cf1aa52277ced800908a0f8716d2693499e9c27ef895e1ab6a9a1e2b806e",
@@ -364,7 +364,7 @@
       "sim/strategies/xs_reversal_1m.py": "84d75403e79184e80a9013ef77b24c0bcb4bb9f85a0840f0d3295583885a50e7",
       "tools/__init__.py": "1f23b3f78a32b5567d64752ddc564b1182bdfe50616b87bca6a3a603b597d927",
       "tools/agent_trial_register.py": "6cd235435466a0a18ec8bcb4c1618f9228e2b3f994583a905ff2da3ed9c7d84d",
-      "tools/backup_database.py": "813d0317faad00365ad9227e1b47827065eed9fcbefe17a364c0995f24b2bbfe",
+      "tools/backup_database.py": "2a4389f408b95ea68ab194bb971f299fc5c296ce81eb01ef185d9f86c953e954",
       "tools/p15_evidence_validation.py": "fe8c1bd3c6f319cdf144755437350559bacd0c1d5ea02a29dcda64645f879b2e",
       "tools/publish_snapshot.py": "23c1057ee3524f1a26c54ab814c68cdff127f7b0702fd3f2142ee370091533b5",
       "tools/release_manifest.py": "90b52c70a99d5ccab09d0efd6b453f6ac814243decee68071c7f658b4d96e217",
@@ -372,6 +372,6 @@
     }
   },
   "registration_revision": 11,
-  "revision_reason": "complete verifier receipts and identity checks, full-history coverage fallback, and behavior-preserving evidence/capture extraction; no scoring, book, gate, label, schedule or written-row change",
-  "registration_sha256": "8f5cf5f0a040ab586c6125ccb6bb2d95d163c0ac54f72a4b0b196800f5da6e36"
+  "revision_reason": "complete verifier receipts and identity checks, optional source refusal and backup identity corrections, and behavior-preserving evidence/capture extraction; frozen collector, scoring, book, gate, label, schedule and written rows unchanged",
+  "registration_sha256": "57126ad62e10dd13b56e625c066917cebd9043ddc5070c2778e45192aa22a086"
 }

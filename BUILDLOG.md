@@ -1965,4 +1965,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** Pending final snapshot; no frozen strategy, signal boundary or stored price is rewritten.
 - **Next:** Independent sidecar and backup review, final registered dependency refresh and supported-host verification.
 
+## 2026-10-05 — Bind supported-host corrections without changing frozen records
+
+- **Why:** P21 requires the final operational corrections to pass the existing registered source contract before deployment.
+- **What:** Refresh the prepared revision 11 dependency map for restored collection, explicit provider refusals and backup directory identity.
+  Update its exact revision-reason assertion to describe these reviewed corrections; self-hash and dependency gates remain intact.
+- **Evidence:** Final source rehearsal: 120 passing cases; refreshed registration suite: five passed. All required lint and C90 checks pass.
+- **Metrics:** Budget passed; since the preceding snapshot, server +9, tools +2, product +78, tests +143.
+- **Next:** Complete Linux verification and live maintenance checks under the orchestrator.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
