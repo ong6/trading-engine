@@ -335,6 +335,232 @@ def _queue_mandatory_only(
     }
 
 
+def _construct_book_target(
+    con,
+    instance,
+    logical,
+    risk_aversion,
+    cost,
+    signal_date,
+    scoring_cutoff,
+    recorded_at,
+    snapshot,
+    decisions,
+    trailing,
+) -> dict:
+    book = _current_book(con, instance, signal_date, snapshot["tickers"], scoring_cutoff)
+    exits = p16_books.mandatory_exits(
+        con,
+        book_instance_id=instance,
+        market_date=signal_date,
+        information_cutoff_at=scoring_cutoff,
+        held_tickers={
+            ticker
+            for ticker, quantity in book["quantities"].items()
+            if ticker != "SPY" and quantity > 0
+        },
+    )
+    exits.update(
+        p16_books.deferred_mandatory_exits(
+            con,
+            book_instance_id=instance,
+            signal_date=signal_date,
+            information_cutoff_at=scoring_cutoff,
+            held_tickers={
+                ticker
+                for ticker, quantity in book["quantities"].items()
+                if ticker != "SPY" and quantity > 0
+            },
+        )
+    )
+    policy = "champion" if logical == "p16_construct_ai" else "rule"
+    scores = [float(decisions[ticker][f"{policy}_score"]) for ticker in snapshot["tickers"]]
+    try:
+        risk = p16_risk.risk_and_alpha(
+            snapshot["stock_returns"], snapshot["spy_returns"], scores, trailing["vectors"][policy]
+        )
+    except (ValueError, RuntimeError) as exc:
+        return _queue_mandatory_only(
+            con,
+            book_instance_id=instance,
+            logical_book_id=logical,
+            signal_date=signal_date,
+            information_cutoff_at=scoring_cutoff,
+            recorded_at=recorded_at,
+            reason=str(exc),
+            risk_sha256=snapshot["risk_sha256"],
+            score_sha256=snapshot["score_sha256"],
+            ic_source_sha256=trailing["source_sha256"],
+            risk_aversion=float(risk_aversion),
+            cost_per_turnover=float(cost),
+            state={
+                "positions": {
+                    ticker: quantity
+                    for ticker, quantity in book["quantities"].items()
+                    if quantity > 0
+                },
+                "state_sha256": book["state_sha256"],
+            },
+            exits=exits,
+        )
+    gates = {
+        ticker: "eligible"
+        if decisions[ticker].get("tradeable") is True
+        else decisions[ticker].get("entry_gate_reason") or "unavailable"
+        for ticker in snapshot["tickers"]
+    }
+    upper_limits = []
+    for index, ticker in enumerate(snapshot["tickers"]):
+        if ticker in exits:
+            upper_limits.append(0.0)
+        elif gates[ticker] == "eligible" and (not book["entry_halted"]):
+            upper_limits.append(0.1)
+        else:
+            upper_limits.append(min(0.1, float(book["previous"][index])))
+    try:
+        solved = p16_optimizer.solve(
+            risk["alpha_h5"],
+            risk["covariance_h5"],
+            risk["beta"],
+            snapshot["sectors"],
+            book["previous"],
+            risk_aversion=float(risk_aversion),
+            cost=float(cost),
+            upper_limits=upper_limits,
+            fixed_weights={snapshot["tickers"].index(ticker): 0.0 for ticker in exits},
+        )
+    except (ValueError, RuntimeError) as exc:
+        solved = {
+            "status": "input_unavailable" if isinstance(exc, ValueError) else "not_converged",
+            "reason": str(exc),
+            "sector_coverage": None,
+            "sector_status": None,
+        }
+    target_weights = solved.get("weights")
+    if target_weights is None:
+        return _queue_mandatory_only(
+            con,
+            book_instance_id=instance,
+            logical_book_id=logical,
+            signal_date=signal_date,
+            information_cutoff_at=scoring_cutoff,
+            recorded_at=recorded_at,
+            reason=solved["status"],
+            risk_sha256=snapshot["risk_sha256"],
+            score_sha256=snapshot["score_sha256"],
+            ic_source_sha256=trailing["source_sha256"],
+            risk_aversion=float(risk_aversion),
+            cost_per_turnover=float(cost),
+            solver_result=solved,
+            state={
+                "positions": {
+                    ticker: quantity
+                    for ticker, quantity in book["quantities"].items()
+                    if quantity > 0
+                },
+                "state_sha256": book["state_sha256"],
+            },
+            exits=exits,
+        )
+    entry_atr = {
+        ticker: float(decisions[ticker]["atr_14"])
+        for ticker in snapshot["tickers"]
+        if isinstance(decisions[ticker].get("atr_14"), (int, float))
+        and decisions[ticker]["atr_14"] > 0
+    }
+    if set(entry_atr) != set(snapshot["tickers"]):
+        return _queue_mandatory_only(
+            con,
+            book_instance_id=instance,
+            logical_book_id=logical,
+            signal_date=signal_date,
+            information_cutoff_at=scoring_cutoff,
+            recorded_at=recorded_at,
+            reason="entry_atr_unavailable",
+            risk_sha256=snapshot["risk_sha256"],
+            score_sha256=snapshot["score_sha256"],
+            ic_source_sha256=trailing["source_sha256"],
+            risk_aversion=float(risk_aversion),
+            cost_per_turnover=float(cost),
+            state={
+                "positions": {
+                    ticker: quantity
+                    for ticker, quantity in book["quantities"].items()
+                    if quantity > 0
+                },
+                "state_sha256": book["state_sha256"],
+            },
+            exits=exits,
+        )
+    limits = {
+        ticker: book["marks"][ticker]
+        * (1 + max(0.015, 0.5 * entry_atr[ticker] / book["marks"][ticker]))
+        for ticker in snapshot["tickers"]
+    }
+    plan = plan_whole_share_orders(
+        tickers=snapshot["tickers"],
+        target_weights=target_weights,
+        current_quantities=book["quantities"],
+        operational_prices={**limits, "SPY": book["marks"]["SPY"]},
+        cash=book["cash"],
+        equity=book["equity"],
+        beta=risk["beta"],
+        sectors=snapshot["sectors"],
+        alpha=risk["alpha_h5"],
+        entry_atr=entry_atr,
+        mandatory_exits=exits,
+    )
+    with db.transaction(con):
+        target_sha = p16_book_store.record_target(
+            con,
+            book_instance_id=instance,
+            signal_date=signal_date,
+            risk_snapshot_sha256=snapshot["risk_sha256"],
+            score_sha256=snapshot["score_sha256"],
+            ic_source_sha256=trailing["source_sha256"],
+            risk_aversion=float(risk_aversion),
+            cost_per_turnover=float(cost),
+            solver_result=solved,
+            continuous_weights=solved["continuous_weights"].tolist(),
+            banded_weights=target_weights.tolist(),
+            rounded_plan=plan,
+            recorded_at=recorded_at,
+        )
+        previous_state = con.execute(
+            "SELECT state_sha256 FROM p16_book_state WHERE book_instance_id=? AND market_date<=? AND recorded_at<=? ORDER BY market_date DESC LIMIT 1",
+            [instance, signal_date, scoring_cutoff.replace(tzinfo=None)],
+        ).fetchone()
+        p16_book_store.claim_window(
+            con,
+            book_instance_id=instance,
+            market_date=nyse.next_session(signal_date),
+            information_cutoff_at=scoring_cutoff,
+            risk_sha256=snapshot["risk_sha256"],
+            score_sha256=snapshot["score_sha256"],
+            previous_state_sha256=None if previous_state is None else previous_state[0],
+            target_sha256=target_sha,
+            started_at=recorded_at,
+        )
+        queued = p16_books.queue_plan(
+            con,
+            book_instance_id=instance,
+            signal_date=signal_date,
+            plan=plan,
+            limit_prices=limits,
+            source_sha256=target_sha,
+            created_at=recorded_at,
+            entry_gates=gates,
+            transactional=False,
+        )
+    return {
+        "book_id": logical,
+        "status": plan["status"],
+        "queued": queued,
+        "target_sha256": target_sha,
+        "mandatory_exits": exits,
+    }
+
+
 def construct_targets(
     con, *, registration_sha256: str, signal_date: date,
     information_cutoff_at: datetime, recorded_at: datetime,
@@ -438,160 +664,10 @@ def construct_targets(
     }
     results = []
     for instance, logical, risk_aversion, cost in contracts:
-        book = _current_book(con, instance, signal_date, snapshot["tickers"], scoring_cutoff)
-        exits = p16_books.mandatory_exits(
-            con, book_instance_id=instance, market_date=signal_date,
-            information_cutoff_at=scoring_cutoff,
-            held_tickers={
-                ticker for ticker, quantity in book["quantities"].items()
-                if ticker != "SPY" and quantity > 0
-            },
-        )
-        exits.update(p16_books.deferred_mandatory_exits(
-            con, book_instance_id=instance, signal_date=signal_date,
-            information_cutoff_at=scoring_cutoff,
-            held_tickers={
-                ticker for ticker, quantity in book["quantities"].items()
-                if ticker != "SPY" and quantity > 0
-            },
+        results.append(_construct_book_target(
+            con, instance, logical, risk_aversion, cost, signal_date, scoring_cutoff,
+            recorded_at, snapshot, decisions, trailing,
         ))
-        policy = "champion" if logical == "p16_construct_ai" else "rule"
-        scores = [float(decisions[ticker][f"{policy}_score"])
-                  for ticker in snapshot["tickers"]]
-        try:
-            risk = p16_risk.risk_and_alpha(
-                snapshot["stock_returns"], snapshot["spy_returns"], scores,
-                trailing["vectors"][policy],
-            )
-        except (ValueError, RuntimeError) as exc:
-            results.append(_queue_mandatory_only(
-                con, book_instance_id=instance, logical_book_id=logical,
-                signal_date=signal_date, information_cutoff_at=scoring_cutoff,
-                recorded_at=recorded_at, reason=str(exc),
-                risk_sha256=snapshot["risk_sha256"],
-                score_sha256=snapshot["score_sha256"],
-                ic_source_sha256=trailing["source_sha256"],
-                risk_aversion=float(risk_aversion), cost_per_turnover=float(cost),
-                state={"positions": {
-                    ticker: quantity for ticker, quantity in book["quantities"].items()
-                    if quantity > 0
-                }, "state_sha256": book["state_sha256"]}, exits=exits,
-            ))
-            continue
-        gates = {
-            ticker: ("eligible" if decisions[ticker].get("tradeable") is True
-                     else decisions[ticker].get("entry_gate_reason") or "unavailable")
-            for ticker in snapshot["tickers"]
-        }
-        upper_limits = []
-        for index, ticker in enumerate(snapshot["tickers"]):
-            if ticker in exits:
-                upper_limits.append(0.0)
-            elif gates[ticker] == "eligible" and not book["entry_halted"]:
-                upper_limits.append(0.1)
-            else:
-                upper_limits.append(min(0.1, float(book["previous"][index])))
-        try:
-            solved = p16_optimizer.solve(
-                risk["alpha_h5"], risk["covariance_h5"], risk["beta"],
-                snapshot["sectors"], book["previous"],
-                risk_aversion=float(risk_aversion), cost=float(cost),
-                upper_limits=upper_limits,
-                fixed_weights={snapshot["tickers"].index(ticker): 0.0 for ticker in exits},
-            )
-        except (ValueError, RuntimeError) as exc:
-            solved = {
-                "status": "input_unavailable" if isinstance(exc, ValueError)
-                else "not_converged",
-                "reason": str(exc), "sector_coverage": None, "sector_status": None,
-            }
-        target_weights = solved.get("weights")
-        if target_weights is None:
-            results.append(_queue_mandatory_only(
-                con, book_instance_id=instance, logical_book_id=logical,
-                signal_date=signal_date, information_cutoff_at=scoring_cutoff,
-                recorded_at=recorded_at, reason=solved["status"],
-                risk_sha256=snapshot["risk_sha256"],
-                score_sha256=snapshot["score_sha256"],
-                ic_source_sha256=trailing["source_sha256"],
-                risk_aversion=float(risk_aversion), cost_per_turnover=float(cost),
-                solver_result=solved, state={
-                    "positions": {
-                        ticker: quantity for ticker, quantity in book["quantities"].items()
-                        if quantity > 0
-                    },
-                    "state_sha256": book["state_sha256"],
-                }, exits=exits,
-            ))
-            continue
-        entry_atr = {
-            ticker: float(decisions[ticker]["atr_14"])
-            for ticker in snapshot["tickers"]
-            if isinstance(decisions[ticker].get("atr_14"), (int, float))
-            and decisions[ticker]["atr_14"] > 0
-        }
-        if set(entry_atr) != set(snapshot["tickers"]):
-            results.append(_queue_mandatory_only(
-                con, book_instance_id=instance, logical_book_id=logical,
-                signal_date=signal_date, information_cutoff_at=scoring_cutoff,
-                recorded_at=recorded_at, reason="entry_atr_unavailable",
-                risk_sha256=snapshot["risk_sha256"],
-                score_sha256=snapshot["score_sha256"],
-                ic_source_sha256=trailing["source_sha256"],
-                risk_aversion=float(risk_aversion), cost_per_turnover=float(cost),
-                state={"positions": {
-                    ticker: quantity for ticker, quantity in book["quantities"].items()
-                    if quantity > 0
-                }, "state_sha256": book["state_sha256"]}, exits=exits,
-            ))
-            continue
-        limits = {
-            ticker: book["marks"][ticker] * (
-                1 + max(0.015, 0.5 * entry_atr[ticker] / book["marks"][ticker])
-            ) for ticker in snapshot["tickers"]
-        }
-        plan = plan_whole_share_orders(
-            tickers=snapshot["tickers"], target_weights=target_weights,
-            current_quantities=book["quantities"],
-            operational_prices={**limits, "SPY": book["marks"]["SPY"]},
-            cash=book["cash"], equity=book["equity"], beta=risk["beta"],
-            sectors=snapshot["sectors"], alpha=risk["alpha_h5"],
-            entry_atr=entry_atr, mandatory_exits=exits,
-        )
-        with db.transaction(con):
-            target_sha = p16_book_store.record_target(
-                con, book_instance_id=instance, signal_date=signal_date,
-                risk_snapshot_sha256=snapshot["risk_sha256"],
-                score_sha256=snapshot["score_sha256"],
-                ic_source_sha256=trailing["source_sha256"],
-                risk_aversion=float(risk_aversion), cost_per_turnover=float(cost),
-                solver_result=solved,
-                continuous_weights=solved["continuous_weights"].tolist(),
-                banded_weights=target_weights.tolist(), rounded_plan=plan,
-                recorded_at=recorded_at,
-            )
-            previous_state = con.execute(
-                "SELECT state_sha256 FROM p16_book_state WHERE book_instance_id=? "
-                "AND market_date<=? AND recorded_at<=? ORDER BY market_date DESC LIMIT 1",
-                [instance, signal_date, scoring_cutoff.replace(tzinfo=None)],
-            ).fetchone()
-            p16_book_store.claim_window(
-                con, book_instance_id=instance,
-                market_date=nyse.next_session(signal_date),
-                information_cutoff_at=scoring_cutoff,
-                risk_sha256=snapshot["risk_sha256"], score_sha256=snapshot["score_sha256"],
-                previous_state_sha256=None if previous_state is None else previous_state[0],
-                target_sha256=target_sha, started_at=recorded_at,
-            )
-            queued = p16_books.queue_plan(
-                con, book_instance_id=instance, signal_date=signal_date, plan=plan,
-                limit_prices=limits, source_sha256=target_sha, created_at=recorded_at,
-                entry_gates=gates, transactional=False,
-            )
-        results.append({
-            "book_id": logical, "status": plan["status"], "queued": queued,
-            "target_sha256": target_sha, "mandatory_exits": exits,
-        })
     return {
         "status": "completed", "books": results,
         "risk_sha256": snapshot["risk_sha256"],

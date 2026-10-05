@@ -46,11 +46,273 @@ def _same_number(left: object, right: object) -> bool:
     )
 
 
+def _calibration_snapshot_inputs(
+    snapshot: dict, recorded_at: datetime, seen_snapshots: set
+) -> tuple:
+    from engine.p16_features import session_dates
+
+    if not isinstance(snapshot, dict):
+        raise P16BookError("P16 calibration snapshot is invalid")
+    snapshot_sha = _digest(snapshot.get("snapshot_sha256"), "snapshot digest")
+    snapshot_body = {key: value for key, value in snapshot.items() if key != "snapshot_sha256"}
+    if snapshot_sha != canonical_sha256(snapshot_body) or snapshot_sha in seen_snapshots:
+        raise P16BookError("P16 calibration snapshot is invalid")
+    seen_snapshots.add(snapshot_sha)
+    try:
+        market_date = date.fromisoformat(snapshot["market_date"])
+        scoring_cutoff = datetime.fromisoformat(
+            snapshot["scoring_information_cutoff_at"].replace("Z", "+00:00"),
+        )
+        sessions = [date.fromisoformat(value) for value in snapshot["sessions"]]
+        expected_sessions = session_dates(market_date, 121)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise P16BookError("P16 calibration snapshot is invalid") from exc
+    tickers = snapshot.get("tickers")
+    sectors = snapshot.get("sectors")
+    scores = snapshot.get("scores")
+    inputs = snapshot.get("solver_inputs")
+    previous = snapshot.get("previous_weights")
+    if (
+        scoring_cutoff.tzinfo is None
+        or scoring_cutoff.utcoffset() is None
+        or scoring_cutoff.astimezone(timezone.utc).replace(tzinfo=None) > recorded_at
+        or scoring_cutoff.astimezone(timezone.utc).date() < market_date
+        or sessions != expected_sessions
+        or not isinstance(tickers, list)
+        or tickers != sorted(set(tickers))
+        or not tickers
+        or "SPY" in tickers
+        or not isinstance(sectors, list)
+        or len(sectors) != len(tickers)
+        or not isinstance(scores, dict)
+        or not isinstance(inputs, dict)
+        or snapshot.get("previous_weight_source") != "initial_all_spy"
+        or previous != [*([0.0] * len(tickers)), 1.0]
+    ):
+        raise P16BookError("P16 calibration snapshot is invalid")
+    return snapshot_sha, market_date, sessions, tickers, sectors, scores, inputs, previous
+
+
+def _calibration_cases(
+    inputs,
+    scores,
+    tickers,
+    sectors,
+    previous,
+    stock_returns,
+    spy_returns,
+    snapshot_sha,
+    market_date,
+    risk_sha,
+    score_sha,
+) -> list[dict]:
+    from farm import p16_risk
+
+    cases = []
+    for policy, book_id in zip(("champion", "rule"), LOGICAL_BOOK_IDS, strict=True):
+        policy_inputs = inputs.get(policy)
+        policy_scores = scores.get(policy)
+        try:
+            alpha = np.asarray(policy_inputs["alpha_h5"], dtype=float)
+            covariance = np.asarray(policy_inputs["covariance_h5"], dtype=float)
+            beta = np.asarray(policy_inputs["beta"], dtype=float)
+            score_values = np.asarray(policy_scores, dtype=float)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise P16BookError("P16 calibration snapshot is invalid") from exc
+        count = len(tickers)
+        if (
+            alpha.shape != (count,)
+            or covariance.shape != (count, count)
+            or beta.shape != (count,)
+            or score_values.shape != (count,)
+            or not all(
+                np.all(np.isfinite(value))
+                for value in (
+                    alpha,
+                    covariance,
+                    beta,
+                    score_values,
+                )
+            )
+        ):
+            raise P16BookError("P16 calibration snapshot is invalid")
+        derived = p16_risk.calibration_risk_and_alpha(
+            stock_returns,
+            spy_returns,
+            score_values,
+            assumed_ic=0.03,
+        )
+        if (
+            not np.allclose(alpha, derived["alpha_h5"], rtol=1e-12, atol=1e-14)
+            or not np.allclose(
+                covariance,
+                derived["covariance_h5"],
+                rtol=1e-12,
+                atol=1e-14,
+            )
+            or not np.allclose(beta, derived["beta"], rtol=1e-12, atol=1e-14)
+        ):
+            raise P16BookError("P16 calibration risk derivation differs")
+        cases.append(
+            {
+                "book_id": book_id,
+                "alpha": alpha,
+                "covariance": covariance,
+                "beta": beta,
+                "sectors": sectors,
+                "previous": previous,
+                "band": 0.005,
+                "horizon_sessions": 5,
+                "snapshot_sha256": snapshot_sha,
+                "snapshot_date": market_date.isoformat(),
+                "risk_snapshot_sha256": risk_sha,
+                "score_snapshot_sha256": score_sha,
+            }
+        )
+    return cases
+
+
+def _calibration_costs(snapshot: dict, tickers: list[str], market_date: date) -> list[float]:
+    from sim import execution
+
+    all_costs = []
+    cost_rows = snapshot.get("cost_rows")
+    if not isinstance(cost_rows, list):
+        raise P16BookError("P16 calibration cost evidence is invalid")
+    expected_keys = {(ticker, side) for ticker in [*tickers, "SPY"] for side in ("buy", "sell")}
+    observed_keys = {(row.get("ticker"), row.get("side")) for row in cost_rows}
+    if len(cost_rows) != len(expected_keys) or observed_keys != expected_keys:
+        raise P16BookError("P16 calibration cost evidence is incomplete")
+    for row in cost_rows:
+        ticker, side = row["ticker"], row["side"]
+        notional = 10_000.0 if ticker == "SPY" else 1_000.0
+        role = "core_financing" if ticker == "SPY" else "stock"
+        if (
+            row.get("market_date") != market_date.isoformat()
+            or row.get("execution_profile") != "baseline_v1"
+            or row.get("role") != role
+            or not _same_number(row.get("reference_notional"), notional)
+            or not _same_number(
+                float(row.get("qty", 0)) * float(row.get("open_px", 0)),
+                notional,
+            )
+        ):
+            raise P16BookError("P16 calibration cost evidence is invalid")
+        try:
+            replayed = execution.cost_components(
+                "baseline_v1",
+                side=side,
+                qty=row["qty"],
+                open_px=row["open_px"],
+                median_dollar_volume=row["median_dollar_volume"],
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise P16BookError("P16 calibration cost evidence is invalid") from exc
+        if any(not _same_number(row.get(key), value) for key, value in replayed.items()):
+            raise P16BookError("P16 calibration cost evidence differs")
+        all_costs.append(float(replayed["total_bps"]) / 10_000)
+    return all_costs
+
+
+def _validate_calibration_curve_cases(
+    observed: dict, expected: dict, cases: list[dict]
+) -> list[dict]:
+    observed_cases = observed.get("cases")
+    if not isinstance(observed_cases, list) or len(observed_cases) != len(cases):
+        raise P16BookError("P16 calibration cases are incomplete")
+    for observed_case, expected_case in zip(
+        observed_cases,
+        expected["cases"],
+        strict=True,
+    ):
+        identity_keys = (
+            "case_index",
+            "book_id",
+            "snapshot_sha256",
+            "snapshot_date",
+            "risk_snapshot_sha256",
+            "score_snapshot_sha256",
+            "status",
+            "reason",
+        )
+        if any(observed_case.get(key) != expected_case.get(key) for key in identity_keys):
+            raise P16BookError("P16 calibration case differs")
+        if expected_case["tracking_error"] is None:
+            if observed_case.get("tracking_error") is not None:
+                raise P16BookError("P16 calibration case differs")
+        elif not _same_number(
+            observed_case.get("tracking_error"),
+            expected_case["tracking_error"],
+        ):
+            raise P16BookError("P16 calibration case differs")
+        if (
+            not _same_number(
+                observed_case.get("solve_seconds"),
+                observed_case.get("solve_seconds"),
+            )
+            or float(observed_case["solve_seconds"]) < 0
+        ):
+            raise P16BookError("P16 calibration timing is invalid")
+    return observed_cases
+
+
+def _validate_calibration_curve(curve: list[dict], recomputed: dict, cases: list[dict]) -> None:
+    for observed, expected in zip(curve, recomputed["curve"], strict=True):
+        if (
+            not _same_number(observed.get("risk_aversion"), expected["risk_aversion"])
+            or observed.get("status") != expected["status"]
+            or observed.get("eligible") != expected["eligible"]
+            or observed.get("failures") != expected["failures"]
+        ):
+            raise P16BookError("P16 calibration curve differs")
+        if expected.get("median_tracking_error") is None:
+            if observed.get("median_tracking_error") is not None:
+                raise P16BookError("P16 calibration curve differs")
+        elif any(
+            not _same_number(observed["median_tracking_error"].get(book), value)
+            for book, value in expected["median_tracking_error"].items()
+        ):
+            raise P16BookError("P16 calibration curve differs")
+        if "distance" in expected and not _same_number(
+            observed.get("distance"),
+            expected["distance"],
+        ):
+            raise P16BookError("P16 calibration curve differs")
+        observed_cases = _validate_calibration_curve_cases(observed, expected, cases)
+        timings = observed.get("solve_timings")
+        if not isinstance(timings, list) or len(timings) != len(cases):
+            raise P16BookError("P16 calibration timing is incomplete")
+        if any(
+            timing.get("case_index") != case_row["case_index"]
+            or timing.get("book_id") != case_row["book_id"]
+            or not _same_number(timing.get("solve_seconds"), case_row["solve_seconds"])
+            for timing, case_row in zip(timings, observed_cases, strict=True)
+        ) or not _same_number(
+            observed.get("solve_seconds_total"),
+            sum(float(row["solve_seconds"]) for row in timings),
+        ):
+            raise P16BookError("P16 calibration timing differs")
+
+
+def _calibration_returns(snapshot: dict, tickers: list[str]) -> tuple[np.ndarray, np.ndarray]:
+    try:
+        stock_returns = np.asarray(snapshot["stock_returns"], dtype=float)
+        spy_returns = np.asarray(snapshot["spy_returns"], dtype=float)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise P16BookError("P16 calibration risk evidence is invalid") from exc
+    if (
+        stock_returns.shape != (120, len(tickers))
+        or spy_returns.shape != (120,)
+        or not np.all(np.isfinite(stock_returns))
+        or not np.all(np.isfinite(spy_returns))
+    ):
+        raise P16BookError("P16 calibration risk evidence is invalid")
+    return stock_returns, spy_returns
+
+
 def _validate_calibration_body(body: dict, recorded_at: datetime) -> tuple[float, float, int]:
     """Recompute the retained cohort, cost maximum, curve, and lambda selection."""
-    from engine.p16_features import session_dates
-    from farm import p16_calibration, p16_risk
-    from sim import execution
+    from farm import p16_calibration
 
     snapshots = body.get("snapshots")
     dates = body.get("snapshot_dates")
@@ -70,87 +332,16 @@ def _validate_calibration_body(body: dict, recorded_at: datetime) -> tuple[float
     cases, observed_dates, observed_risk, observed_scores, all_costs = [], [], [], [], []
     seen_snapshots = set()
     for snapshot in snapshots:
-        if not isinstance(snapshot, dict):
-            raise P16BookError("P16 calibration snapshot is invalid")
-        snapshot_sha = _digest(snapshot.get("snapshot_sha256"), "snapshot digest")
-        snapshot_body = {
-            key: value for key, value in snapshot.items() if key != "snapshot_sha256"
-        }
-        if snapshot_sha != canonical_sha256(snapshot_body) or snapshot_sha in seen_snapshots:
-            raise P16BookError("P16 calibration snapshot is invalid")
-        seen_snapshots.add(snapshot_sha)
-        try:
-            market_date = date.fromisoformat(snapshot["market_date"])
-            scoring_cutoff = datetime.fromisoformat(
-                snapshot["scoring_information_cutoff_at"].replace("Z", "+00:00"),
-            )
-            sessions = [date.fromisoformat(value) for value in snapshot["sessions"]]
-            expected_sessions = session_dates(market_date, 121)
-        except (KeyError, TypeError, ValueError) as exc:
-            raise P16BookError("P16 calibration snapshot is invalid") from exc
-        tickers = snapshot.get("tickers")
-        sectors = snapshot.get("sectors")
-        scores = snapshot.get("scores")
-        inputs = snapshot.get("solver_inputs")
-        previous = snapshot.get("previous_weights")
-        if (scoring_cutoff.tzinfo is None or scoring_cutoff.utcoffset() is None
-                or scoring_cutoff.astimezone(timezone.utc).replace(tzinfo=None) > recorded_at
-                or scoring_cutoff.astimezone(timezone.utc).date() < market_date
-                or sessions != expected_sessions
-                or not isinstance(tickers, list)
-                or tickers != sorted(set(tickers)) or not tickers or "SPY" in tickers
-                or not isinstance(sectors, list) or len(sectors) != len(tickers)
-                or not isinstance(scores, dict) or not isinstance(inputs, dict)
-                or snapshot.get("previous_weight_source") != "initial_all_spy"
-                or previous != [*([0.0] * len(tickers)), 1.0]):
-            raise P16BookError("P16 calibration snapshot is invalid")
+        snapshot_sha, market_date, sessions, tickers, sectors, scores, inputs, previous = (
+            _calibration_snapshot_inputs(snapshot, recorded_at, seen_snapshots)
+        )
         risk_sha = _digest(snapshot.get("risk_snapshot_sha256"), "risk snapshot digest")
         score_sha = _digest(snapshot.get("score_snapshot_sha256"), "score snapshot digest")
-        try:
-            stock_returns = np.asarray(snapshot["stock_returns"], dtype=float)
-            spy_returns = np.asarray(snapshot["spy_returns"], dtype=float)
-        except (KeyError, TypeError, ValueError) as exc:
-            raise P16BookError("P16 calibration risk evidence is invalid") from exc
-        if (stock_returns.shape != (120, len(tickers))
-                or spy_returns.shape != (120,)
-                or not np.all(np.isfinite(stock_returns))
-                or not np.all(np.isfinite(spy_returns))):
-            raise P16BookError("P16 calibration risk evidence is invalid")
-        for policy, book_id in zip(("champion", "rule"), LOGICAL_BOOK_IDS, strict=True):
-            policy_inputs = inputs.get(policy)
-            policy_scores = scores.get(policy)
-            try:
-                alpha = np.asarray(policy_inputs["alpha_h5"], dtype=float)
-                covariance = np.asarray(policy_inputs["covariance_h5"], dtype=float)
-                beta = np.asarray(policy_inputs["beta"], dtype=float)
-                score_values = np.asarray(policy_scores, dtype=float)
-            except (KeyError, TypeError, ValueError) as exc:
-                raise P16BookError("P16 calibration snapshot is invalid") from exc
-            count = len(tickers)
-            if (alpha.shape != (count,) or covariance.shape != (count, count)
-                    or beta.shape != (count,) or score_values.shape != (count,)
-                    or not all(np.all(np.isfinite(value)) for value in (
-                        alpha, covariance, beta, score_values,
-                    ))):
-                raise P16BookError("P16 calibration snapshot is invalid")
-            derived = p16_risk.calibration_risk_and_alpha(
-                stock_returns, spy_returns, score_values, assumed_ic=0.03,
-            )
-            if (not np.allclose(alpha, derived["alpha_h5"], rtol=1e-12, atol=1e-14)
-                    or not np.allclose(
-                        covariance, derived["covariance_h5"], rtol=1e-12, atol=1e-14,
-                    )
-                    or not np.allclose(beta, derived["beta"], rtol=1e-12, atol=1e-14)):
-                raise P16BookError("P16 calibration risk derivation differs")
-            cases.append({
-                "book_id": book_id, "alpha": alpha, "covariance": covariance,
-                "beta": beta, "sectors": sectors, "previous": previous,
-                "band": 0.005, "horizon_sessions": 5,
-                "snapshot_sha256": snapshot_sha,
-                "snapshot_date": market_date.isoformat(),
-                "risk_snapshot_sha256": risk_sha,
-                "score_snapshot_sha256": score_sha,
-            })
+        stock_returns, spy_returns = _calibration_returns(snapshot, tickers)
+        cases.extend(_calibration_cases(
+            inputs, scores, tickers, sectors, previous, stock_returns, spy_returns,
+            snapshot_sha, market_date, risk_sha, score_sha,
+        ))
         champion = inputs["champion"]
         expected_risk = canonical_sha256({
             "market_date": market_date.isoformat(), "tickers": tickers,
@@ -164,37 +355,7 @@ def _validate_calibration_body(body: dict, recorded_at: datetime) -> tuple[float
         })
         if expected_risk != risk_sha or expected_score != score_sha:
             raise P16BookError("P16 calibration snapshot identity differs")
-        cost_rows = snapshot.get("cost_rows")
-        if not isinstance(cost_rows, list):
-            raise P16BookError("P16 calibration cost evidence is invalid")
-        expected_keys = {
-            (ticker, side) for ticker in [*tickers, "SPY"] for side in ("buy", "sell")
-        }
-        observed_keys = {(row.get("ticker"), row.get("side")) for row in cost_rows}
-        if len(cost_rows) != len(expected_keys) or observed_keys != expected_keys:
-            raise P16BookError("P16 calibration cost evidence is incomplete")
-        for row in cost_rows:
-            ticker, side = row["ticker"], row["side"]
-            notional = 10_000.0 if ticker == "SPY" else 1_000.0
-            role = "core_financing" if ticker == "SPY" else "stock"
-            if (row.get("market_date") != market_date.isoformat()
-                    or row.get("execution_profile") != "baseline_v1"
-                    or row.get("role") != role
-                    or not _same_number(row.get("reference_notional"), notional)
-                    or not _same_number(
-                        float(row.get("qty", 0)) * float(row.get("open_px", 0)), notional,
-                    )):
-                raise P16BookError("P16 calibration cost evidence is invalid")
-            try:
-                replayed = execution.cost_components(
-                    "baseline_v1", side=side, qty=row["qty"], open_px=row["open_px"],
-                    median_dollar_volume=row["median_dollar_volume"],
-                )
-            except (KeyError, TypeError, ValueError) as exc:
-                raise P16BookError("P16 calibration cost evidence is invalid") from exc
-            if any(not _same_number(row.get(key), value) for key, value in replayed.items()):
-                raise P16BookError("P16 calibration cost evidence differs")
-            all_costs.append(float(replayed["total_bps"]) / 10_000)
+        all_costs.extend(_calibration_costs(snapshot, tickers, market_date))
         observed_dates.append(market_date.isoformat())
         observed_risk.append(risk_sha)
         observed_scores.append(score_sha)
@@ -214,58 +375,7 @@ def _validate_calibration_body(body: dict, recorded_at: datetime) -> tuple[float
             or body.get("selected_at_grid_endpoint") != recomputed["selected_at_grid_endpoint"]
             or body.get("grid_bounds") != recomputed["grid_bounds"]):
         raise P16BookError("P16 calibration selection differs")
-    for observed, expected in zip(curve, recomputed["curve"], strict=True):
-        if (not _same_number(observed.get("risk_aversion"), expected["risk_aversion"])
-                or observed.get("status") != expected["status"]
-                or observed.get("eligible") != expected["eligible"]
-                or observed.get("failures") != expected["failures"]):
-            raise P16BookError("P16 calibration curve differs")
-        if expected.get("median_tracking_error") is None:
-            if observed.get("median_tracking_error") is not None:
-                raise P16BookError("P16 calibration curve differs")
-        elif any(not _same_number(observed["median_tracking_error"].get(book), value)
-                 for book, value in expected["median_tracking_error"].items()):
-            raise P16BookError("P16 calibration curve differs")
-        if "distance" in expected and not _same_number(
-            observed.get("distance"), expected["distance"],
-        ):
-            raise P16BookError("P16 calibration curve differs")
-        observed_cases = observed.get("cases")
-        if not isinstance(observed_cases, list) or len(observed_cases) != len(cases):
-            raise P16BookError("P16 calibration cases are incomplete")
-        for observed_case, expected_case in zip(
-            observed_cases, expected["cases"], strict=True,
-        ):
-            identity_keys = (
-                "case_index", "book_id", "snapshot_sha256", "snapshot_date",
-                "risk_snapshot_sha256", "score_snapshot_sha256", "status", "reason",
-            )
-            if any(observed_case.get(key) != expected_case.get(key) for key in identity_keys):
-                raise P16BookError("P16 calibration case differs")
-            if expected_case["tracking_error"] is None:
-                if observed_case.get("tracking_error") is not None:
-                    raise P16BookError("P16 calibration case differs")
-            elif not _same_number(
-                observed_case.get("tracking_error"), expected_case["tracking_error"],
-            ):
-                raise P16BookError("P16 calibration case differs")
-            if not _same_number(
-                observed_case.get("solve_seconds"), observed_case.get("solve_seconds"),
-            ) or float(observed_case["solve_seconds"]) < 0:
-                raise P16BookError("P16 calibration timing is invalid")
-        timings = observed.get("solve_timings")
-        if not isinstance(timings, list) or len(timings) != len(cases):
-            raise P16BookError("P16 calibration timing is incomplete")
-        if any(
-            timing.get("case_index") != case_row["case_index"]
-            or timing.get("book_id") != case_row["book_id"]
-            or not _same_number(timing.get("solve_seconds"), case_row["solve_seconds"])
-            for timing, case_row in zip(timings, observed_cases, strict=True)
-        ) or not _same_number(
-            observed.get("solve_seconds_total"),
-            sum(float(row["solve_seconds"]) for row in timings),
-        ):
-            raise P16BookError("P16 calibration timing differs")
+    _validate_calibration_curve(curve, recomputed, cases)
     selected_row = next(
         row for row in recomputed["curve"]
         if row["risk_aversion"] == recomputed["selected_lambda"]

@@ -170,6 +170,82 @@ def _split_factor(
     ).fetchall()]))
 
 
+def _replay_fill_state(
+    con, fills: list, initial_cash: float, holding_date: date, cutoff: datetime | None
+) -> tuple[float, dict, dict]:
+    cash = initial_cash
+    quantities: dict[str, float] = {}
+    average_costs: dict[str, float] = {}
+    for order_id, ticker, side, quantity, fill_date, fill_px in fills:
+        del order_id
+        factor = _split_factor(con, ticker, fill_date, holding_date, cutoff)
+        adjusted = float(quantity) * factor
+        prior_quantity = quantities.get(ticker, 0.0)
+        if side == "buy":
+            total = prior_quantity + adjusted
+            average_costs[ticker] = (
+                prior_quantity * average_costs.get(ticker, 0.0) + adjusted * float(fill_px) / factor
+            ) / total
+            quantities[ticker] = total
+        else:
+            quantities[ticker] = prior_quantity - adjusted
+        cash += (-1 if side == "buy" else 1) * float(quantity) * float(fill_px)
+    return cash, quantities, average_costs
+
+
+def _retained_fills(
+    con, instance: str, holding_date: date, cutoff: datetime | None, p16_instance: bool
+) -> tuple | None:
+    if cutoff is None:
+        fills = con.execute(
+            "SELECT order_id,ticker,side,qty,fill_date,fill_px FROM sim_fills "
+            "WHERE portfolio_id=? AND fill_date<=? ORDER BY fill_date,order_id",
+            [instance, holding_date],
+        ).fetchall()
+        retained_state = None
+    elif p16_instance:
+        retained_state = con.execute(
+            "SELECT s.cash,s.position_state_sha256 FROM p16_book_state s "
+            "JOIN p16_book_windows w ON w.book_instance_id=s.book_instance_id "
+            "AND w.market_date=s.market_date WHERE s.book_instance_id=? "
+            "AND s.market_date=? AND s.recorded_at<=? AND w.status='completed' "
+            "AND w.completed_at<=?",
+            [instance, holding_date, cutoff, cutoff],
+        ).fetchone()
+        if retained_state is None:
+            return None
+        fills = con.execute(
+            "SELECT f.order_id,f.ticker,f.side,f.qty,f.fill_date,f.fill_px "
+            "FROM p16_book_fills f JOIN p16_book_windows w "
+            "ON w.book_instance_id=f.book_instance_id AND w.market_date=f.fill_date "
+            "WHERE f.book_instance_id=? AND f.fill_date<=? AND w.status='completed' "
+            "AND w.completed_at<=? ORDER BY f.fill_date,f.order_id",
+            [instance, holding_date, cutoff],
+        ).fetchall()
+    else:
+        if not table_exists(con, "p15_book_windows") or not table_exists(
+            con,
+            "p15_book_fills",
+        ):
+            return None
+        retained_state = con.execute(
+            "SELECT cash,n_positions FROM p15_book_windows WHERE portfolio_id=? "
+            "AND market_date=? AND completed_at<=?",
+            [instance, holding_date, cutoff],
+        ).fetchone()
+        if retained_state is None:
+            return None
+        fills = con.execute(
+            "SELECT f.order_id,f.ticker,f.side,f.qty,f.fill_date,f.fill_px "
+            "FROM p15_book_fills f JOIN p15_book_windows w "
+            "ON w.portfolio_id=f.portfolio_id AND w.market_date=f.fill_date "
+            "WHERE f.portfolio_id=? AND f.fill_date<=? AND w.completed_at<=? "
+            "ORDER BY f.fill_date,f.order_id",
+            [instance, holding_date, cutoff],
+        ).fetchall()
+    return fills, retained_state
+
+
 def _state_as_of(
     con, instance: str, holding_date: date,
     information_cutoff_at: datetime | None = None,
@@ -188,67 +264,13 @@ def _state_as_of(
     p16_instance = table_exists(con, "p16_book_contracts") and con.execute(
         "SELECT 1 FROM p16_book_contracts WHERE book_instance_id=?", [instance],
     ).fetchone() is not None
-    if cutoff is None:
-        fills = con.execute(
-            "SELECT order_id,ticker,side,qty,fill_date,fill_px FROM sim_fills "
-            "WHERE portfolio_id=? AND fill_date<=? ORDER BY fill_date,order_id",
-            [instance, holding_date],
-        ).fetchall()
-        retained_state = None
-    elif p16_instance:
-        retained_state = con.execute(
-            "SELECT s.cash,s.position_state_sha256 FROM p16_book_state s "
-            "JOIN p16_book_windows w ON w.book_instance_id=s.book_instance_id "
-            "AND w.market_date=s.market_date WHERE s.book_instance_id=? "
-            "AND s.market_date=? AND s.recorded_at<=? AND w.status='completed' "
-            "AND w.completed_at<=?", [instance, holding_date, cutoff, cutoff],
-        ).fetchone()
-        if retained_state is None:
-            return None
-        fills = con.execute(
-            "SELECT f.order_id,f.ticker,f.side,f.qty,f.fill_date,f.fill_px "
-            "FROM p16_book_fills f JOIN p16_book_windows w "
-            "ON w.book_instance_id=f.book_instance_id AND w.market_date=f.fill_date "
-            "WHERE f.book_instance_id=? AND f.fill_date<=? AND w.status='completed' "
-            "AND w.completed_at<=? ORDER BY f.fill_date,f.order_id",
-            [instance, holding_date, cutoff],
-        ).fetchall()
-    else:
-        if not table_exists(con, "p15_book_windows") or not table_exists(
-            con, "p15_book_fills",
-        ):
-            return None
-        retained_state = con.execute(
-            "SELECT cash,n_positions FROM p15_book_windows WHERE portfolio_id=? "
-            "AND market_date=? AND completed_at<=?", [instance, holding_date, cutoff],
-        ).fetchone()
-        if retained_state is None:
-            return None
-        fills = con.execute(
-            "SELECT f.order_id,f.ticker,f.side,f.qty,f.fill_date,f.fill_px "
-            "FROM p15_book_fills f JOIN p15_book_windows w "
-            "ON w.portfolio_id=f.portfolio_id AND w.market_date=f.fill_date "
-            "WHERE f.portfolio_id=? AND f.fill_date<=? AND w.completed_at<=? "
-            "ORDER BY f.fill_date,f.order_id", [instance, holding_date, cutoff],
-        ).fetchall()
-    cash = float(portfolio_row[0])
-    quantities: dict[str, float] = {}
-    average_costs: dict[str, float] = {}
-    for order_id, ticker, side, quantity, fill_date, fill_px in fills:
-        del order_id
-        factor = _split_factor(con, ticker, fill_date, holding_date, cutoff)
-        adjusted = float(quantity) * factor
-        prior_quantity = quantities.get(ticker, 0.0)
-        if side == "buy":
-            total = prior_quantity + adjusted
-            average_costs[ticker] = (
-                prior_quantity * average_costs.get(ticker, 0.0)
-                + adjusted * float(fill_px) / factor
-            ) / total
-            quantities[ticker] = total
-        else:
-            quantities[ticker] = prior_quantity - adjusted
-        cash += (-1 if side == "buy" else 1) * float(quantity) * float(fill_px)
+    retained = _retained_fills(con, instance, holding_date, cutoff, p16_instance)
+    if retained is None:
+        return None
+    fills, retained_state = retained
+    cash, quantities, average_costs = _replay_fill_state(
+        con, fills, float(portfolio_row[0]), holding_date, cutoff,
+    )
     dividends = []
     if cutoff is None and table_exists(con, "sim_dividends"):
         dividends = con.execute(
@@ -303,6 +325,35 @@ def _instance(con, book_id: str, registration_sha256: str) -> str | None:
     return None if row is None else row[0]
 
 
+def _holding_marks(con, positions: dict, holding_date: date, cutoff: datetime) -> dict:
+    holding_marks = {}
+    for ticker in positions:
+        mark = con.execute(
+            f"SELECT open FROM prices WHERE ticker=? AND date=? AND open>0 "
+            f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL}",
+            [ticker, holding_date, cutoff],
+        ).fetchone()
+        if mark is None:
+            break
+        holding_marks[ticker] = float(mark[0])
+    return holding_marks
+
+
+def _portfolio_weights(
+    tickers: list[str], positions: dict, holding_marks: dict, equity: float
+) -> tuple[list[float], float]:
+    weights, missing_held = [], 0.0
+    for ticker in tickers:
+        quantity = positions.get(ticker)
+        weights.append(
+            0.0 if quantity is None else float(quantity) * holding_marks[ticker] / equity
+        )
+    for ticker, quantity in positions.items():
+        if ticker not in {"SPY", *tickers}:
+            missing_held += float(quantity) * holding_marks[ticker] / equity
+    return weights, missing_held
+
+
 def produce(
     con, *, registration_sha256: str, signal_date: date, holding_date: date,
     information_cutoff_at: datetime,
@@ -340,16 +391,7 @@ def produce(
             continue
         positions = state["positions"]
         row["holding_state_sha256"] = state["state_sha256"]
-        holding_marks = {}
-        for ticker in positions:
-            mark = con.execute(
-                f"SELECT open FROM prices WHERE ticker=? AND date=? AND open>0 "
-                f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL}",
-                [ticker, holding_date, cutoff],
-            ).fetchone()
-            if mark is None:
-                break
-            holding_marks[ticker] = float(mark[0])
+        holding_marks = _holding_marks(con, positions, holding_date, cutoff)
         if len(holding_marks) != len(positions):
             rows.append({**row, "status": "unavailable", "reason": "next_open_mark_unavailable",
                          "tc_diagonal": None})
@@ -362,14 +404,7 @@ def produce(
             rows.append({**row, "status": "unavailable", "reason": "book_equity_invalid",
                          "tc_diagonal": None})
             continue
-        weights, missing_held = [], 0.0
-        for ticker in tickers:
-            quantity = positions.get(ticker)
-            weights.append(0.0 if quantity is None else
-                           float(quantity) * holding_marks[ticker] / equity)
-        for ticker, quantity in positions.items():
-            if ticker not in {"SPY", *tickers}:
-                missing_held += float(quantity) * holding_marks[ticker] / equity
+        weights, missing_held = _portfolio_weights(tickers, positions, holding_marks, equity)
         if sigma is None:
             rows.append({**row, "status": "unavailable", "reason": "active_risk_unavailable",
                          "tc_diagonal": None})

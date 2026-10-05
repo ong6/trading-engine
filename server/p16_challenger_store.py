@@ -106,6 +106,52 @@ def _put(
     return {**body, "record_id": record_id, "row_sha256": digest}
 
 
+def _validated_attempt_manifest(attempt_manifest, model_contract_sha256, tickers) -> list[dict]:
+    manifest = []
+    for item in attempt_manifest:
+        if (
+            not isinstance(item, dict)
+            or set(item)
+            != {
+                "chunk_index",
+                "sample_index",
+                "source_request_sha256",
+                "source_input_sha256",
+                "source_tickers",
+            }
+            or any(
+                type(item[key]) is not int or item[key] < 0
+                for key in ("chunk_index", "sample_index")
+            )
+            or not isinstance(item["source_tickers"], list)
+            or item["source_tickers"] != sorted(set(item["source_tickers"]))
+            or not item["source_tickers"]
+            or any(not isinstance(ticker, str) or not ticker for ticker in item["source_tickers"])
+        ):
+            raise ValueError("invalid P16 challenger attempt manifest")
+        _hash(item["source_request_sha256"], "source request identity")
+        _hash(item["source_input_sha256"], "source input identity")
+        manifest.append(dict(item))
+    manifest.sort(key=lambda item: (item["chunk_index"], item["sample_index"]))
+    pairs = [(item["chunk_index"], item["sample_index"]) for item in manifest]
+    if (
+        len(pairs) != len(set(pairs))
+        or (model_contract_sha256 is None and manifest)
+        or (model_contract_sha256 is not None and not manifest)
+    ):
+        raise ValueError("invalid P16 challenger attempt manifest")
+    if manifest:
+        chunk_tickers = {}
+        for item in manifest:
+            existing_tickers = chunk_tickers.setdefault(item["chunk_index"], item["source_tickers"])
+            if existing_tickers != item["source_tickers"]:
+                raise ValueError("invalid P16 challenger attempt manifest")
+        flattened = [ticker for names in chunk_tickers.values() for ticker in names]
+        if len(flattened) != len(set(flattened)) or set(flattened) != set(tickers):
+            raise ValueError("invalid P16 challenger attempt manifest")
+    return manifest
+
+
 def start_run(
     con, *, registration_sha256: str, family_id: str, policy_id: str,
     trial_id: str, window_id: str, market_date: date, run_mode: str,
@@ -126,38 +172,7 @@ def start_run(
         raise ValueError("invalid P16 challenger run inputs")
     if model_contract_sha256 is not None:
         _hash(model_contract_sha256, "model contract")
-    manifest = []
-    for item in attempt_manifest:
-        if (not isinstance(item, dict) or set(item) != {
-                "chunk_index", "sample_index", "source_request_sha256",
-                "source_input_sha256", "source_tickers"}
-                or any(type(item[key]) is not int or item[key] < 0
-                       for key in ("chunk_index", "sample_index"))
-                or not isinstance(item["source_tickers"], list)
-                or item["source_tickers"] != sorted(set(item["source_tickers"]))
-                or not item["source_tickers"]
-                or any(not isinstance(ticker, str) or not ticker
-                       for ticker in item["source_tickers"])):
-            raise ValueError("invalid P16 challenger attempt manifest")
-        _hash(item["source_request_sha256"], "source request identity")
-        _hash(item["source_input_sha256"], "source input identity")
-        manifest.append(dict(item))
-    manifest.sort(key=lambda item: (item["chunk_index"], item["sample_index"]))
-    pairs = [(item["chunk_index"], item["sample_index"]) for item in manifest]
-    if (len(pairs) != len(set(pairs))
-            or (model_contract_sha256 is None and manifest)
-            or (model_contract_sha256 is not None and not manifest)):
-        raise ValueError("invalid P16 challenger attempt manifest")
-    if manifest:
-        chunk_tickers = {}
-        for item in manifest:
-            existing_tickers = chunk_tickers.setdefault(
-                item["chunk_index"], item["source_tickers"])
-            if existing_tickers != item["source_tickers"]:
-                raise ValueError("invalid P16 challenger attempt manifest")
-        flattened = [ticker for names in chunk_tickers.values() for ticker in names]
-        if len(flattened) != len(set(flattened)) or set(flattened) != set(tickers):
-            raise ValueError("invalid P16 challenger attempt manifest")
+    manifest = _validated_attempt_manifest(attempt_manifest, model_contract_sha256, tickers)
     dependencies = sorted(dependency_policy_ids)
     if (dependencies != sorted(set(dependencies))
             or (policy_id == "c-ensemble"
@@ -282,6 +297,112 @@ def finish_attempt(
     )
 
 
+def _validate_output_rows(rows: list[dict]) -> None:
+    for row in rows:
+        values = [row.get(field) for field in NUMERIC_SCORES]
+        if row.get("scoring_status") == "available":
+            if (
+                any(
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(value)
+                    for value in values
+                )
+                or not 0 <= values[0] <= 1
+                or any(abs(value) > 10_000 for value in values[1:])
+                or row.get("action") not in ACTIONS
+                or any(
+                    not isinstance(row.get(field), str)
+                    or not row[field].strip()
+                    or len(row[field]) > 1_000
+                    for field in ("thesis", "invalidation")
+                )
+                or not isinstance(row.get("evidence_ids"), list)
+                or not row["evidence_ids"]
+                or len(row["evidence_ids"]) != len(set(row["evidence_ids"]))
+                or any(not isinstance(value, str) or not value for value in row["evidence_ids"])
+            ):
+                raise ValueError("invalid P16 available output")
+        elif (
+            row.get("scoring_status") != "unavailable"
+            or any(value is not None for value in values)
+            or row.get("action") != "unavailable"
+            or row.get("thesis") is not None
+            or row.get("invalidation") is not None
+            or not isinstance(row.get("unavailable_reason"), str)
+            or not row["unavailable_reason"].strip()
+            or not isinstance(row.get("evidence_ids"), list)
+            or not row["evidence_ids"]
+        ):
+            raise ValueError("unavailable P16 output must stay explicitly null")
+
+
+
+def _validated_run_receipts(
+    con, run_id: str, run: dict, rows: list[dict], completed_at: datetime
+) -> list[dict]:
+    receipts = []
+    statuses = {}
+    attempt_pairs = []
+    if table_exists(con, "p16_challenger_attempts"):
+        attempts = con.execute(
+            "SELECT * FROM p16_challenger_attempts WHERE parent_id=? ORDER BY record_id",
+            [run_id],
+        ).fetchall()
+        for raw in attempts:
+            attempt = _decode(raw)
+            attempt_pairs.append((attempt["key"]["chunk_index"], attempt["key"]["sample_index"]))
+            receipt_id = canonical_sha256({"attempt_id": attempt["record_id"]})
+            receipt = get(con, "p16_challenger_receipts", receipt_id)
+            if receipt is None or datetime.fromisoformat(receipt["recorded_at"]) > _utc(
+                completed_at
+            ):
+                raise ValueError("P16 challenger run has an unresolved or future receipt")
+            if (
+                receipt["parent_id"] != attempt["record_id"]
+                or receipt["data"]["attempt_sha256"] != attempt["row_sha256"]
+            ):
+                raise ValueError("P16 challenger receipt no longer binds its attempt")
+            receipts.append(
+                {
+                    "attempt_id": attempt["record_id"],
+                    "receipt_sha256": receipt["row_sha256"],
+                    "status": receipt["data"]["status"],
+                }
+            )
+            statuses[(attempt["key"]["chunk_index"], attempt["key"]["sample_index"])] = receipt[
+                "data"
+            ]["status"]
+    expected_pairs = [
+        (item["chunk_index"], item["sample_index"])
+        for item in run["data"].get("attempt_manifest", [])
+    ]
+    if sorted(attempt_pairs) != expected_pairs:
+        raise ValueError("P16 challenger attempt grid is incomplete")
+    output_by_ticker = {row["ticker"]: row["scoring_status"] for row in rows}
+    for chunk_index in sorted(
+        {item["chunk_index"] for item in run["data"].get("attempt_manifest", [])}
+    ):
+        manifest_rows = [
+            item for item in run["data"]["attempt_manifest"] if item["chunk_index"] == chunk_index
+        ]
+        expected_status = (
+            "available"
+            if all(
+                statuses[(item["chunk_index"], item["sample_index"])] == "available"
+                for item in manifest_rows
+            )
+            else "unavailable"
+        )
+        if any(
+            output_by_ticker[ticker] != expected_status
+            for ticker in manifest_rows[0]["source_tickers"]
+        ):
+            raise ValueError("P16 challenger output violates whole-chunk availability")
+
+    return receipts
+
+
 def finish_run(
     con, run_id: str, *, rows: list[dict], completed_at: datetime,
     dependency_output_ids: list[str] | None = None, reason: str | None = None,
@@ -295,75 +416,9 @@ def finish_run(
     if len(names) != len(rows) or len(set(names)) != len(names) \
             or set(names) != set(run["data"]["tickers"]):
         raise ValueError("P16 challenger output must preserve every frozen candidate")
-    for row in rows:
-        values = [row.get(field) for field in NUMERIC_SCORES]
-        if row.get("scoring_status") == "available":
-            if (
-                any(isinstance(value, bool) or not isinstance(value, (int, float))
-                    or not math.isfinite(value) for value in values)
-                or not 0 <= values[0] <= 1
-                or any(abs(value) > 10_000 for value in values[1:])
-                or row.get("action") not in ACTIONS
-                or any(not isinstance(row.get(field), str) or not row[field].strip()
-                       or len(row[field]) > 1_000 for field in ("thesis", "invalidation"))
-                or not isinstance(row.get("evidence_ids"), list)
-                or not row["evidence_ids"]
-                or len(row["evidence_ids"]) != len(set(row["evidence_ids"]))
-                or any(not isinstance(value, str) or not value
-                       for value in row["evidence_ids"])
-            ):
-                raise ValueError("invalid P16 available output")
-        elif row.get("scoring_status") != "unavailable" \
-                or any(value is not None for value in values) \
-                or row.get("action") != "unavailable" \
-                or row.get("thesis") is not None or row.get("invalidation") is not None \
-                or not isinstance(row.get("unavailable_reason"), str) \
-                or not row["unavailable_reason"].strip() \
-                or not isinstance(row.get("evidence_ids"), list) \
-                or not row["evidence_ids"]:
-            raise ValueError("unavailable P16 output must stay explicitly null")
+    _validate_output_rows(rows)
 
-    receipts = []
-    statuses = {}
-    attempt_pairs = []
-    if table_exists(con, "p16_challenger_attempts"):
-        attempts = con.execute(
-            "SELECT * FROM p16_challenger_attempts WHERE parent_id=? ORDER BY record_id",
-            [run_id],
-        ).fetchall()
-        for raw in attempts:
-            attempt = _decode(raw)
-            attempt_pairs.append((attempt["key"]["chunk_index"],
-                                  attempt["key"]["sample_index"]))
-            receipt_id = canonical_sha256({"attempt_id": attempt["record_id"]})
-            receipt = get(con, "p16_challenger_receipts", receipt_id)
-            if receipt is None or datetime.fromisoformat(receipt["recorded_at"]) > _utc(completed_at):
-                raise ValueError("P16 challenger run has an unresolved or future receipt")
-            if receipt["parent_id"] != attempt["record_id"] \
-                    or receipt["data"]["attempt_sha256"] != attempt["row_sha256"]:
-                raise ValueError("P16 challenger receipt no longer binds its attempt")
-            receipts.append({
-                "attempt_id": attempt["record_id"],
-                "receipt_sha256": receipt["row_sha256"],
-                "status": receipt["data"]["status"],
-            })
-            statuses[(attempt["key"]["chunk_index"],
-                      attempt["key"]["sample_index"])] = receipt["data"]["status"]
-    expected_pairs = [(item["chunk_index"], item["sample_index"])
-                      for item in run["data"].get("attempt_manifest", [])]
-    if sorted(attempt_pairs) != expected_pairs:
-        raise ValueError("P16 challenger attempt grid is incomplete")
-    output_by_ticker = {row["ticker"]: row["scoring_status"] for row in rows}
-    for chunk_index in sorted({item["chunk_index"] for item in run["data"].get(
-            "attempt_manifest", [])}):
-        manifest_rows = [item for item in run["data"]["attempt_manifest"]
-                         if item["chunk_index"] == chunk_index]
-        expected_status = "available" if all(
-            statuses[(item["chunk_index"], item["sample_index"])] == "available"
-            for item in manifest_rows) else "unavailable"
-        if any(output_by_ticker[ticker] != expected_status
-               for ticker in manifest_rows[0]["source_tickers"]):
-            raise ValueError("P16 challenger output violates whole-chunk availability")
+    receipts = _validated_run_receipts(con, run_id, run, rows, completed_at)
 
     dependencies = dependency_output_ids or []
     if dependencies != sorted(set(dependencies)):

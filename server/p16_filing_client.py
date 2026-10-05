@@ -136,6 +136,44 @@ def _string_list(value, *, allow_empty: bool = False) -> bool:
             and all(isinstance(item, str) and bool(item) for item in value)
             and len(value) == len(set(value)))
 
+def _validate_input_evidence(value: dict, cutoff: datetime) -> None:
+    evidence, allowed = value["evidence"], value["allowed_evidence_ids"]
+    if not isinstance(evidence, list) or not evidence or not _string_list(allowed):
+        raise base.ConnectorError("filing evidence is invalid")
+    evidence_ids, text_size = set(), 0
+    for item in evidence:
+        if not isinstance(item, dict) or set(item) != EVIDENCE_FIELDS:
+            raise base.ConnectorError("filing evidence is invalid")
+        evidence_id, text = item["evidence_id"], item["text"]
+        if (
+            not isinstance(evidence_id, str)
+            or re.fullmatch(r"[0-9a-f]{64}", evidence_id) is None
+            or evidence_id in evidence_ids
+            or not isinstance(text, str)
+            or any(
+                not isinstance(item[field], str)
+                or re.fullmatch(r"[0-9a-f]{64}", item[field]) is None
+                for field in ("source_sha256", "normalized_sha256")
+            )
+            or item["parser_version"] != p16_filing_parser.PARSER_VERSION
+            or any(
+                isinstance(item[field], bool) or not isinstance(item[field], int)
+                for field in ("start", "end")
+            )
+            or not 0 <= item["start"] <= item["end"]
+        ):
+            raise base.ConnectorError("filing evidence is invalid")
+        evidence_ids.add(evidence_id)
+        text_size += len(text)
+        published, available, ingested = (
+            _utc(item[field], field) for field in ("published_at", "available_at", "ingested_at")
+        )
+        if not published <= available <= ingested <= cutoff:
+            raise base.ConnectorError("filing evidence is after the cutoff")
+    if text_size > 40_000 or not set(allowed) <= evidence_ids:
+        raise base.ConnectorError("filing evidence exceeds its bound or allowlist")
+
+
 def validate_input(value: object) -> dict:
     """Validate the exact W3 envelope before any transport call."""
     if not isinstance(value, dict) or set(value) != INPUT_FIELDS:
@@ -160,33 +198,8 @@ def validate_input(value: object) -> dict:
     cutoff = _utc(value["information_cutoff_at"], "information cutoff")
     if _utc(value["current_decision_time"], "decision time") != cutoff:
         raise base.ConnectorError("filing decision time differs from its cutoff")
-    evidence, allowed = value["evidence"], value["allowed_evidence_ids"]
-    if not isinstance(evidence, list) or not evidence or not _string_list(allowed):
-        raise base.ConnectorError("filing evidence is invalid")
-    evidence_ids, text_size = set(), 0
-    for item in evidence:
-        if not isinstance(item, dict) or set(item) != EVIDENCE_FIELDS:
-            raise base.ConnectorError("filing evidence is invalid")
-        evidence_id, text = item["evidence_id"], item["text"]
-        if (not isinstance(evidence_id, str) or re.fullmatch(r"[0-9a-f]{64}", evidence_id) is None
-                or evidence_id in evidence_ids or not isinstance(text, str)
-                or any(not isinstance(item[field], str)
-                       or re.fullmatch(r"[0-9a-f]{64}", item[field]) is None
-                       for field in ("source_sha256", "normalized_sha256"))
-                or item["parser_version"] != p16_filing_parser.PARSER_VERSION
-                or any(isinstance(item[field], bool) or not isinstance(item[field], int)
-                       for field in ("start", "end"))
-                or not 0 <= item["start"] <= item["end"]):
-            raise base.ConnectorError("filing evidence is invalid")
-        evidence_ids.add(evidence_id)
-        text_size += len(text)
-        published, available, ingested = (
-            _utc(item[field], field) for field in ("published_at", "available_at", "ingested_at")
-        )
-        if not published <= available <= ingested <= cutoff:
-            raise base.ConnectorError("filing evidence is after the cutoff")
-    if text_size > 40_000 or not set(allowed) <= evidence_ids:
-        raise base.ConnectorError("filing evidence exceeds its bound or allowlist")
+    _validate_input_evidence(value, cutoff)
+    allowed = value["allowed_evidence_ids"]
     kinds = value["allowed_event_kinds"]
     if (not _string_list(kinds)
             or not set(kinds) <= set(p16_filing_parser.EVENTS.values())):
@@ -226,6 +239,32 @@ def _number(value, low: float, high: float) -> float:
         raise base.ModelOutputError("filing numeric output is outside bounds")
     return float(value)
 
+def _validate_one_offs(item: dict, allowed: set[str]) -> None:
+    one_offs = item["one_off_items"]
+    if not isinstance(one_offs, list) or len(one_offs) > 8:
+        raise base.ModelOutputError("filing one-off items are invalid")
+    for one_off in one_offs:
+        if (
+            not isinstance(one_off, dict)
+            or set(one_off) != {"description", "amount", "currency", "evidence_id"}
+            or not isinstance(one_off["description"], str)
+            or not one_off["description"].strip()
+            or len(one_off["description"]) > 160
+            or not isinstance(one_off["evidence_id"], str)
+            or one_off["evidence_id"] not in allowed
+            or (
+                one_off["currency"] is not None
+                and (
+                    not isinstance(one_off["currency"], str)
+                    or one_off["currency"] not in ISO_CURRENCIES
+                )
+            )
+        ):
+            raise base.ModelOutputError("filing one-off item is invalid")
+        if one_off["amount"] is not None:
+            _number(one_off["amount"], -math.inf, math.inf)
+
+
 def validate_output(output: object, input_payload: dict) -> dict:
     """Reject any assessment outside the exact W3 schema and evidence boundary."""
     validate_input(input_payload)
@@ -260,22 +299,7 @@ def validate_output(output: object, input_payload: dict) -> dict:
                          and bool(set(evidence_ids) & set(input_payload["company_consensus_evidence_ids"])))
         if not input_payload["comparable_consensus"] and not company_route:
             raise base.ModelOutputError("filing surprise evidence is unavailable")
-    one_offs = item["one_off_items"]
-    if not isinstance(one_offs, list) or len(one_offs) > 8:
-        raise base.ModelOutputError("filing one-off items are invalid")
-    for one_off in one_offs:
-        if (not isinstance(one_off, dict)
-                or set(one_off) != {"description", "amount", "currency", "evidence_id"}
-                or not isinstance(one_off["description"], str) or not one_off["description"].strip()
-                or len(one_off["description"]) > 160
-                or not isinstance(one_off["evidence_id"], str)
-                or one_off["evidence_id"] not in allowed
-                or (one_off["currency"] is not None
-                    and (not isinstance(one_off["currency"], str)
-                         or one_off["currency"] not in ISO_CURRENCIES))):
-            raise base.ModelOutputError("filing one-off item is invalid")
-        if one_off["amount"] is not None:
-            _number(one_off["amount"], -math.inf, math.inf)
+    _validate_one_offs(item, allowed)
     normalized = {**item, "p_outperform_5": probability,
                   "expected_excess_bp_5": excess5, "expected_excess_bp_10": excess10,
                   "tone": tone}

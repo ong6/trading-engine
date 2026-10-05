@@ -79,6 +79,28 @@ def load_execution_realism(path: Path = REGISTRATION_PATH) -> dict:
     return value["execution_realism"]
 
 
+def _validate_staging_registration(value: dict) -> None:
+    historical = value.get("historical_labs")
+    valid_historical = (
+        value.get("schema_version") == 1
+        and value.get("status") == "registered_inactive"
+        and isinstance(historical, dict)
+        and historical.get("registration_id") == "p16-w4-historical-labs-v1"
+        and historical.get("status") == "registered_inactive"
+        and historical.get("real_data_producer_allowed") is False
+        and historical.get("registration_sha256")
+        == canonical_sha256(
+            {key: item for key, item in historical.items() if key != "registration_sha256"}
+        )
+        and (
+            value.get("execution_realism") is None
+            or _execution_realism_valid(value.get("execution_realism"))
+        )
+    )
+    if not valid_historical:
+        raise ValueError("P16 registration contract differs")
+
+
 def load(path: Path = REGISTRATION_PATH, *, required: bool = True) -> dict | None:
     """Load the self-hashed registration and validate its fixed family allocation."""
     if not path.exists():
@@ -96,23 +118,7 @@ def load(path: Path = REGISTRATION_PATH, *, required: bool = True) -> dict | Non
             key: item for key, item in value.items() if key != "registration_sha256"}):
         raise ValueError("P16 registration identity differs")
     if value.get("registration_id") == "p16-staging-v1":
-        historical = value.get("historical_labs")
-        valid_historical = (
-            value.get("schema_version") == 1
-            and value.get("status") == "registered_inactive"
-            and isinstance(historical, dict)
-            and historical.get("registration_id") == "p16-w4-historical-labs-v1"
-            and historical.get("status") == "registered_inactive"
-            and historical.get("real_data_producer_allowed") is False
-            and historical.get("registration_sha256") == canonical_sha256({
-                key: item for key, item in historical.items()
-                if key != "registration_sha256"
-            })
-            and (value.get("execution_realism") is None
-                 or _execution_realism_valid(value.get("execution_realism")))
-        )
-        if not valid_historical:
-            raise ValueError("P16 registration contract differs")
+        _validate_staging_registration(value)
         if required:
             raise ValueError("P16 challenger registration is absent")
         return None
