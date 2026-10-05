@@ -47,7 +47,10 @@ complexity findings are removed at the existing threshold of ten, with no exempt
 
 ## Deployment gate
 
-Independent functional review, a complete supported-Linux suite and normal publication checks
-still precede live deployment. The ordinary macOS release-manifest tests rely on Linux `/proc`
+Independent functional review and the complete supported-Linux suite passed at `184a127`
+(4,381 tests). Publication checks then caught a redundant return assignment in the standalone
+capture pacing helper. Its behavior-identical correction passes all CI Ruff selectors and 41
+focused source/capture/registration tests; it changes no registered dependency. Both timezone
+CI runs still precede deployment. The ordinary macOS release-manifest tests rely on Linux `/proc`
 filesystem identity and do not provide supported-host release proof. Source and registration
-amendments are prepared here; a fixture rehearsal alone is not production activation.
+amendments are prepared here; fixture or Linux verification alone is not production activation.

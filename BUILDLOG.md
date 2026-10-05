@@ -1974,4 +1974,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** Budget passed; since the preceding snapshot, server +9, tools +2, product +78, tests +143.
 - **Next:** Complete Linux verification and live maintenance checks under the orchestrator.
 
+## 2026-10-05 — Complete the CI lint checks for capture pacing
+
+- **Why:** P21 publication checks found one mandatory RET504 violation after the supported-Linux suite passed all 4,381 tests.
+- **What:** Return the pacing helper's monotonic timestamp directly, preserving the same call order and value.
+  The helper is outside P15's registered source closure; its existing revision, dependency map and source commit remain valid.
+- **Evidence:** Source/minute-capture/registration tests: 41 passed. All CI Ruff selectors pass: default, C90, PLW2901, RET504 and S101.
+- **Metrics:** Budget passed; tools -1 line, server/product/tests unchanged.
+- **Next:** Observe both timezone CI runs before deployment.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

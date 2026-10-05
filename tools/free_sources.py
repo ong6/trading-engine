@@ -457,8 +457,7 @@ def _reserve_massive_request(now, monotonic, sleep, rate_limit, last_started):
     if rate_limit is not None:
         rate_limit()
         _require_network_window(now())
-    last_started = monotonic()
-    return last_started
+    return monotonic()
 
 
 if __name__ == "__main__":
