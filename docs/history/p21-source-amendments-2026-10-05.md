@@ -9,9 +9,18 @@ clock or schedule changes. No production model call is used for the rehearsal.
 Revision 10 and its exact source files remain reproducible at commit `46bd665`. Revision 11
 binds the source commit recorded in `server/p15-registration.json` and its full dependency map.
 It covers complete independent-price receipts and explicit symbol/nonfinite/schema checks,
-corrected request pacing after delayed wakeups, a full-history fallback that proves completed
-listing coverage and valid bars, and named helper extraction in evidence/scoring/pre-open/capture
-code. Malformed source refusals retain exact response bytes; public receipt references are relative.
+corrected request pacing after delayed wakeups and named helper extraction in
+evidence/scoring/pre-open/capture code. Malformed source refusals retain exact response bytes;
+public receipt references are relative. Optional TradingView failures become missing cross-checks.
+Explicit provider `symbol_error`/`series_error` responses complete the raw transcript immediately;
+capture retains it before classifying the symbol as unavailable. No price row or retry is added.
+
+The complete Linux run exposed the collector's existing whole-file dependency in the frozen XS
+forward record. `engine/collect.py` is restored byte-for-byte to the baseline, preserving that
+record's exact source hash and all published boundaries. Complete listing recovery instead lives
+in the explicit `engine.history_recovery` maintenance command: no runtime wrapper or new schedule,
+no stored-price overwrite, and no mark as complete when prior-incarnation rows or overlapping
+prices conflict. Its output retains the provider metadata and normalized coverage used.
 
 The registration tests verify unchanged runtime constants and a complete local dependency
 closure in addition to every file hash and the committed source identity. The focused

@@ -1869,7 +1869,6 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** code unchanged; metrics budget passes.
 - **Next:** nothing further admitted by P20; existing collection and revalidation continue.
 
-<!-- append-only-tail: insert new verified entries immediately above this line -->
 
 ## 2026-10-05 — Admit operational issue closure and separate-account proof
 
@@ -1953,3 +1952,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** Registration/evaluation/pre-open/scoring/verifier/account and operating-contract rehearsal: 127 passed; required lint and C90 checks pass.
 - **Metrics:** Budget passed; since the previous snapshot, server/tools unchanged, product +48, tests +122.
 - **Next:** Independent acceptance and one complete supported-Linux suite, then orchestrated live verification.
+
+## 2026-10-05 — Preserve frozen collector and correct supported-host review failures
+
+- **Why:** P21 Linux suite reproduced 41 frozen collector hash failures, two documentation defects and an uncaught optional provider error.
+  Backup review also reproduces fingerprinting a descriptor symlink instead of its opened directory.
+- **What:** Restore the exact frozen collector and move complete-history recovery to explicit insert-only maintenance with reused-ticker refusal.
+  Degrade TradingView cross-check source errors to missing evidence; remove an unintended network call from the observer fixture.
+  Retain explicit provider symbol/series refusals before reporting unavailability, without waiting for a generic timeout.
+  Restore the log tail marker and direct plan index; fingerprint the real backup root while preserving child symlink checks.
+- **Evidence:** XS/collector/history recovery/observer/docs suite: 106 passed; provider/observer/archive suite: 42 passed; backup root regression fails before and passes after.
+- **Metrics:** Pending final snapshot; no frozen strategy, signal boundary or stored price is rewritten.
+- **Next:** Independent sidecar and backup review, final registered dependency refresh and supported-host verification.
+
+<!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -131,6 +131,10 @@ def _handle_packets(socket, transcript: dict, message: str, mode: str, transcrip
             transcript["sent"].append(heartbeat)
         elif packet.get("m") == "protocol_error":
             raise TradingViewSourceError("TradingView protocol error")
+        elif packet.get("m") in {"symbol_error", "series_error"}:
+            # Complete the transcript so callers retain the exact refusal
+            # before normalization classifies provider unavailability.
+            done = True
         elif mode == "realtime" and packet.get("m") == "quote_completed":
             done = True
         elif mode == "history" and packet.get("m") == "series_completed":
@@ -188,7 +192,11 @@ def packets(transcript: Transcript) -> list[dict]:
         raise TradingViewSourceError("TradingView transcript JSON is invalid") from exc
     if not isinstance(received, list) or not all(isinstance(item, str) for item in received):
         raise TradingViewSourceError("TradingView transcript shape is invalid")
-    return [packet for raw in received for packet in parse_frames(raw) if isinstance(packet, dict)]
+    result = [packet for raw in received for packet in parse_frames(raw) if isinstance(packet, dict)]
+    for packet in result:
+        if packet.get("m") in {"symbol_error", "series_error"}:
+            raise TradingViewSourceError(f"TradingView provider unavailable: {packet['m']}")
+    return result
 
 
 def parse_realtime(symbol: str, transcript: Transcript) -> dict:

@@ -136,3 +136,47 @@ def test_historical_capture_is_range_bounded_and_research_only(tmp_path):
         official_quote_source.capture_tradingview_history(
             SYMBOL, date(2020, 1, 1), date(2022, 1, 1), database=database,
             fetch=lambda *_args, **_kwargs: transcript)
+
+
+@pytest.mark.parametrize("method", ["symbol_error", "series_error"])
+@pytest.mark.parametrize("mode", ["history", "realtime"])
+def test_provider_unavailability_stops_waiting_and_retains_exact_transcript(
+    monkeypatch, tmp_path, method, mode,
+):
+    database = tmp_path / "market.duckdb"
+    _secure_database(database)
+    message = _frame({"m": method, "p": ["cs_fixture", "ser_1", "resolve_error"]})
+    received = []
+
+    class Socket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def send(self, _message):
+            pass
+
+        def recv(self, **_kwargs):
+            assert not received, "explicit provider error must not wait for another frame"
+            received.append(message)
+            return message
+
+    monkeypatch.setattr(tradingview_source, "connect", lambda *_args, **_kwargs: Socket())
+    with pytest.raises(tradingview_source.TradingViewSourceError,
+                       match=f"provider unavailable: {method}"):
+        if mode == "history":
+            official_quote_source.capture_tradingview_history(
+                SYMBOL, NOW.date(), NOW.date(), database=database,
+            )
+        else:
+            official_quote_source.capture_tradingview_realtime(SYMBOL, database=database)
+    con = db.connect(database, read_only=True)
+    try:
+        body = bytes(con.execute("SELECT response_body FROM source_response_receipts").fetchone()[0])
+        assert json.loads(body)["received"] == [message]
+        assert con.execute("SELECT COUNT(*) FROM prices").fetchone() == (0,)
+        assert con.execute("SELECT COUNT(*) FROM bitemporal_facts").fetchone() == (0,)
+    finally:
+        con.close()

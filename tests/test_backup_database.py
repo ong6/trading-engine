@@ -18,6 +18,20 @@ from engine.lib import db as engine_db
 from tools import backup_database, publish_snapshot
 
 
+def test_bundle_tree_identity_follows_only_its_opened_root(tmp_path):
+    root = tmp_path / "bundle"
+    root.mkdir()
+    (root / "data").write_text("retained")
+    (root / "child-link").symlink_to(root / "data")
+    descriptor = tmp_path / "descriptor"
+    descriptor.symlink_to(root, target_is_directory=True)
+    identity = backup_database._bundle_tree_identity(descriptor)
+    value = root.stat()
+    assert identity["."] == (value.st_dev, value.st_ino, value.st_mode, value.st_size,
+                             value.st_mtime_ns, value.st_ctime_ns)
+    assert stat.S_ISLNK(identity["child-link"][2])
+
+
 def _source_database(path: Path) -> None:
     connection = duckdb.connect(str(path))
     connection.execute("CREATE TABLE prices (date DATE, ticker VARCHAR, volume BIGINT)")

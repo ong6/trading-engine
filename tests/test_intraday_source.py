@@ -219,6 +219,22 @@ def test_cross_check_persistence_error_degrades_to_missing(monkeypatch, tmp_path
     assert observations == [] and failures[0]["reason"] == "wrong receipt"
 
 
+def test_cross_check_provider_error_degrades_to_missing(monkeypatch, tmp_path):
+    from server.tradingview_source import TradingViewSourceError
+
+    monkeypatch.setattr(
+        hourly_opportunity_observer.official_quote_source.market_data_sources,
+        "source_status", lambda *_: {"status": "admitted"},
+    )
+    observations, failures, status = hourly_opportunity_observer._capture_cross_checks(
+        ["SPY"], database=tmp_path / "never.duckdb", observed_at=NOW,
+        capture=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            TradingViewSourceError("TradingView request failed")),
+    )
+    assert observations == [] and status["status"] == "admitted"
+    assert failures == [{"ticker": "*", "reason": "TradingView request failed"}]
+
+
 def test_hourly_observer_retains_and_replays_exact_quote_evidence(monkeypatch, tmp_path):
     database = tmp_path / "market.duckdb"
     _database(database)
@@ -233,11 +249,13 @@ def test_hourly_observer_retains_and_replays_exact_quote_evidence(monkeypatch, t
     first = hourly_opportunity_observer.observe(
         "hourly_market_watch_v5", database=database, now=NOW, generate=_connector,
         fetch_news=_news_response, fetch_quote=fetch,
+        capture_cross_checks=lambda *_args, **_kwargs: ([], [], {"status": "admitted"}),
         clock=lambda: NOW + timedelta(seconds=1),
     )
     second = hourly_opportunity_observer.observe(
         "hourly_market_watch_v5", database=database, now=NOW, generate=_connector,
         fetch_news=_news_response, fetch_quote=fetch,
+        capture_cross_checks=lambda *_args, **_kwargs: ([], [], {"status": "admitted"}),
         clock=lambda: NOW + timedelta(seconds=1),
     )
 
