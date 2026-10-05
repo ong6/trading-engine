@@ -50,7 +50,8 @@ complexity findings are removed at the existing threshold of ten, with no exempt
 Independent functional review and the complete supported-Linux suite passed at `184a127`
 (4,381 tests). Publication checks then caught a redundant return assignment in the standalone
 capture pacing helper. Its behavior-identical correction passes all CI Ruff selectors and 41
-focused source/capture/registration tests; it changes no registered dependency. Both timezone
-CI runs still precede deployment. The ordinary macOS release-manifest tests rely on Linux `/proc`
-filesystem identity and do not provide supported-host release proof. Source and registration
-amendments are prepared here; fixture or Linux verification alone is not production activation.
+focused source/capture/registration tests; it changes no registered dependency. Both timezone CI runs and UI checks passed at `bdfa24d` and `4a6d050`. The ordinary macOS release-manifest tests rely on Linux `/proc`
+filesystem identity and do not provide supported-host release proof. Revision 11 was deployed on 2026-10-05; API and UI restarted successfully and health checks passed.
+All 135 source bindings were independently verified, while the frozen XS collector stayed byte-identical.
+The later history-metadata Mapping correction is outside the registered dependency closure.
+P16 remains registered but inactive; these infrastructure updates grant no new execution authority.
