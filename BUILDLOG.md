@@ -2002,4 +2002,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** Runtime unchanged; documentation only.
 - **Next:** Complete the isolated walk-forward refresh and off-host archive/restore verification.
 
+## 2026-10-06 — Admit the complete verifier snapshot in the board
+
+- **Why:** P21 browser acceptance reproduces valid 1,835,568-byte metadata rejected by the generic 1 MiB reader; the board hides nightly, liquidity and price evidence.
+- **What:** Give only the aggregate metadata snapshot an 8 MiB ceiling, using the same stable-file reader and strict JSON decoder.
+  Keep shared file limits, duplicate-key/nonfinite/nesting checks and registered source dependencies unchanged.
+- **Evidence:** The real-snapshot assertion fails before and passes after correction; 96 supported-Linux metadata/file/registration tests pass. Independent Python 3.12 strict-loader tests also pass.
+- **Metrics:** Budget passed; server +6 lines, tests +42. Engine/farm/sim sources and the active walk-forward identity remain unchanged.
+- **Next:** Independent review, CI and real-browser acceptance, then final archive and research acceptance.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

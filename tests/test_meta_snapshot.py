@@ -1,10 +1,46 @@
 """Tests for loading the operational metadata snapshot."""
 
+import json
 import sys
 
 import pytest
 
 from server import meta_snapshot
+from server.json_utils import MAX_JSON_FILE_BYTES, load_object
+
+
+def test_full_universe_metadata_retains_complete_verifier_summary(tmp_path):
+    results = [{
+        "ticker": f"T{index}", "sessions_compared": 5, "bars_compared": 5,
+        "fields_compared": 17, "disagreements": [], "store_missing": [],
+        "status": "agrees", "why": "liquid",
+        "worst": {"ticker": f"T{index}", "date": "2026-10-02", "field": "low",
+                  "store": 100.001, "source": 100.0, "diff_bp": 0.1},
+    } for index in range(4054)]
+    payload = {"regime": "risk-on", "price_verify": {"name_results": results},
+               "last_run": "2026-10-02T22:32:47+00:00"}
+    path = tmp_path / "meta.json"
+    path.write_text(json.dumps(payload, indent=2))
+    assert MAX_JSON_FILE_BYTES < path.stat().st_size < meta_snapshot.MAX_META_SNAPSHOT_BYTES
+    assert meta_snapshot.load(path) == (payload, {"status": "ok", "path": str(path)})
+    # The larger aggregate allowance must not change other operational readers.
+    with pytest.raises(ValueError, match="exceeds"):
+        load_object(path)
+
+
+def test_metadata_retains_a_hard_size_ceiling(tmp_path):
+    path = tmp_path / "meta.json"
+    path.write_text('{"extra":"' + "x" * meta_snapshot.MAX_META_SNAPSHOT_BYTES + '"}')
+    assert meta_snapshot.load(path) == (
+        {}, {"status": "invalid", "reason": "malformed", "path": str(path)}
+    )
+
+
+@pytest.mark.parametrize("fragment", ['{"same":1,"same":2}', "NaN", "Infinity", "1e999"])
+def test_large_metadata_still_rejects_ambiguous_or_nonfinite_json(tmp_path, fragment):
+    path = tmp_path / "meta.json"
+    path.write_text('{"padding":"' + "x" * MAX_JSON_FILE_BYTES + '","nested":' + fragment + '}')
+    assert meta_snapshot.load(path)[1]["status"] == "invalid"
 
 
 def test_meta_snapshot_status_is_explicit(tmp_path):
