@@ -1925,3 +1925,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `pytest` registration/evaluation/pre-open/scoring/verifier/account fixture rehearsal: 99 passed; no runtime model call.
 - **Metrics:** Updated metrics snapshot passes the existing hygiene budget.
 - **Next:** Independent review, remaining inactive P16 source amendment and one complete Linux suite before deployment.
+
+## 2026-10-05 — Finish inactive research extraction and preserve queue projection parity
+
+- **Why:** P21; the independent worker completed twenty-one P16 advisory findings and found one source-bound inactive adapter.
+- **What:** Merge reviewed helper extraction; amend only the inactive adapter's registered source digest and enclosing hashes.
+  Extend the board's exact queue schema to the two evidence-backed dispositions without accepting arbitrary reasons.
+- **Evidence:** P16 worker: 144 focused tests; original/refactored adapter: same nine transcript cases. Integrated registration/account/queue suite: 35 passed; UI: 55 passed.
+- **Metrics:** `ruff check --select C90 server tools`: all checks passed at threshold ten; no new exemption.
+- **Next:** Independent functional review and complete supported-host validation before deployment.

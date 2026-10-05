@@ -233,3 +233,5 @@ the locked Python runtime and installed UI production dependencies; Dependabot p
 automatically.
 
 <!-- sources: docs/plans/README.md, docs/product.md, docs/scope.md -->
+
+- [`Operational source amendments`](history/p21-source-amendments-2026-10-05.md) — P21 registered source changes and unchanged evidence/activation boundaries.
