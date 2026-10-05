@@ -130,11 +130,17 @@ class _GlobalRateLimiter:
             slot = max(now, self._next_start)
             if slot > deadline:
                 return False
-            self._next_start = slot + self.interval
-        delay = slot - now
-        if delay > 0:
-            self.sleep(delay)
-        return True
+            delay = slot - now
+            if delay > 0:
+                self.sleep(delay)
+            # An overslept slot must not release the next waiting thread at once.
+            # Anchor the next reservation to the actual wake time while holding
+            # the lock; only HTTP work happens concurrently.
+            actual = self.clock()
+            if actual > deadline:
+                return False
+            self._next_start = max(slot, actual) + self.interval
+            return True
 
 # --------------------------------------------------------------------------- #
 # Pre-registered tolerance (decided BEFORE the first run, per house discipline)
@@ -765,6 +771,8 @@ def run(
         "disagreements": all_disagreements,
         "name_results": results,
         "source_evidence": source_evidence,
+        "store_evidence": {ticker: {day.isoformat(): bar for day, bar in bars.items()}
+                           for ticker, bars in store.items()},
         "price_basis": {"store": "Yahoo auto_adjust=False; provider split adjustments",
                         "reference": "Nasdaq displayed historical OHLC",
                         "equivalence": "unverified: corporate actions may use different adjustment bases",
@@ -836,7 +844,7 @@ def retain_evidence(accounting: dict, directory: Path) -> dict:
                 raise RuntimeError("verification evidence hash collision or changed receipt") from None
     finally:
         os.unlink(temporary)
-    summary = {key: value for key, value in accounting.items() if key != "source_evidence"}
+    summary = {key: value for key, value in accounting.items() if key not in {"source_evidence", "store_evidence"}}
     summary["evidence_receipt"] = {"sha256": digest, "path": str(path), "bytes": len(body)}
     return summary
 

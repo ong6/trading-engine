@@ -249,3 +249,28 @@ def test_exact_source_response_retained_and_receipt_is_immutable(monkeypatch, tm
     assert "source_evidence" not in summary
     assert verify_prices.retain_evidence(acc, tmp_path) == summary
     assert list(tmp_path.glob(".receipt-*")) == []
+
+
+def test_rate_limiter_oversleep_does_not_compress_next_request_slot():
+    instant, waits = [0.0], []
+
+    def sleep(delay):
+        waits.append(delay)
+        instant[0] += delay + 10.0
+
+    limiter = verify_prices._GlobalRateLimiter(1.0, clock=lambda: instant[0], sleep=sleep)
+    assert limiter.wait(100)
+    assert limiter.wait(100)
+    assert instant[0] == 11
+    assert limiter.wait(100)
+    assert instant[0] == 22
+    assert waits == [1.0, 1.0]
+
+
+def test_rate_limiter_oversleep_past_deadline_does_not_admit_request():
+    instant = [0.0]
+    limiter = verify_prices._GlobalRateLimiter(
+        1.0, clock=lambda: instant[0], sleep=lambda _delay: instant.__setitem__(0, 10.0),
+    )
+    assert limiter.wait(2)
+    assert not limiter.wait(2)
