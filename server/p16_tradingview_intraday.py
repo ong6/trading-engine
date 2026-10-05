@@ -48,6 +48,20 @@ def commands(symbol: str, session_id: str) -> list[tuple[str, list]]:
     ]
 
 
+def _receive_packets(socket, message: str, transcript: dict, complete: bool) -> bool:
+    for packet in tv.parse_frames(message):
+        if isinstance(packet, int):
+            payload = f"~h~{packet}"
+            heartbeat = f"~m~{len(payload)}~m~{payload}"
+            socket.send(heartbeat)
+            transcript["sent"].append(heartbeat)
+        elif packet.get("m") == "protocol_error":
+            raise tv.TradingViewSourceError("TradingView protocol error")
+        elif packet.get("m") == "series_completed":
+            complete = True
+    return complete
+
+
 def fetch(symbol: str, *, timeout: float = 15.0) -> tv.Transcript:
     """Fetch one bounded exact transcript. No caller is scheduled before W9."""
     session_id = "cs_p16fills"
@@ -83,16 +97,7 @@ def fetch(symbol: str, *, timeout: float = 15.0) -> tv.Transcript:
                 if size > tv.MAX_TRANSCRIPT_BYTES:
                     raise tv.TradingViewSourceError("TradingView transcript is too large")
                 transcript["received"].append(message)
-                for packet in tv.parse_frames(message):
-                    if isinstance(packet, int):
-                        payload = f"~h~{packet}"
-                        heartbeat = f"~m~{len(payload)}~m~{payload}"
-                        socket.send(heartbeat)
-                        transcript["sent"].append(heartbeat)
-                    elif packet.get("m") == "protocol_error":
-                        raise tv.TradingViewSourceError("TradingView protocol error")
-                    elif packet.get("m") == "series_completed":
-                        complete = True
+                complete = _receive_packets(socket, message, transcript, complete)
             if not complete:
                 raise tv.TradingViewSourceError("TradingView request timed out")
     except (OSError, TimeoutError, WebSocketException) as exc:
