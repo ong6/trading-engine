@@ -1916,3 +1916,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** Focused verifier regression now includes deterministic oversleep and deadline tests; the previously failing concurrent check passes.
 - **Metrics:** No threshold or comparison tolerance changed.
 - **Next:** Refresh the prepared source registration after this corrected pacing implementation.
+
+## 2026-10-05 — Bind the corrected operating path as source revision 11
+
+- **Why:** P21 requires real source identity changes to use the existing registration contract, not a hash-gate bypass.
+- **What:** Register the committed verifier, full-history collector and behavior-preserving evidence/capture source changes.
+  Revision 10 remains reproducible in Git; all policy constants, activation clock, scoring, books, gates, labels and schedules remain equal.
+- **Evidence:** `pytest` registration/evaluation/pre-open/scoring/verifier/account fixture rehearsal: 99 passed; no runtime model call.
+- **Metrics:** Updated metrics snapshot passes the existing hygiene budget.
+- **Next:** Independent review, remaining inactive P16 source amendment and one complete Linux suite before deployment.

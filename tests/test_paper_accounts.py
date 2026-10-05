@@ -120,3 +120,16 @@ def test_pure_intent_validation_uses_exchange_early_close():
     now = datetime(2026, 11, 27, 18, 15, tzinfo=timezone.utc)
     intent = _intent(signal_date="2026-11-27", created_at=now.isoformat())
     assert accounts.validate_intent(intent, _spec(), now)[0] == date(2026, 11, 27)
+
+
+def test_replayed_receipt_must_still_match_its_order_and_spec(con):
+    insert_bars(con, "SAME", [SIGNAL], open_=100, close=100)
+    spec, intent = _spec(), _intent()
+    accounts.create_account(con, spec, now=NOW)
+    accounts.submit_intent(con, intent, now=NOW)
+    con.execute("UPDATE sim_orders SET portfolio_id='different-account'")
+    with pytest.raises(accounts.AccountRefused, match="engine order"):
+        accounts.submit_intent(con, intent, now=NOW)
+    con.execute("UPDATE portfolios SET initial_cash=50000 WHERE id='a'")
+    with pytest.raises(accounts.AccountRefused, match="differs"):
+        accounts.create_account(con, spec, now=NOW)
