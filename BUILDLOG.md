@@ -1879,3 +1879,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `pytest -q tests/test_verify_prices.py` before fixes: three new regressions fail; existing checks pass.
 - **Metrics:** Baseline captured; 32 advisory server/tools complexity findings.
 - **Next:** Correct verification evidence and recoverable provider requests, then independent acceptance.
+
+## 2026-10-05 — Retain source evidence and recover transient capture requests
+
+- **Why:** P21; corrected reproduction confirms truncation hides four disagreeing securities and invalid source identity/numbers pass parsing.
+- **What:** Keep every discrepancy/name and exact HTTP receipts; publish immutable verified evidence before the current summary.
+  Retry transient minute requests three times with shared pacing/window checks. Preserve failures via evidence-bound queue dispositions.
+- **Evidence:** `pytest -q tests/test_verify_prices.py tests/test_free_massive_minute.py tests/test_job_resolutions.py tests/test_queue_monitor.py -W error`: 43 passed.
+- **Metrics:** Pending final snapshot; registered source changes await the next properly rehearsed revision.
+- **Next:** Engine-owned independent paper accounts and remaining focused infrastructure refactors.

@@ -304,3 +304,23 @@ stashed, reverted, or included in a build commit. Leave no source or documentati
 uncommitted.
 
 <!-- sources: BUILDLOG.md, engine/bitemporal_facts.py, engine/earnings.py, engine/run_daily.sh, engine/lib/driver.sh, engine/queue_runner.py, engine/tradingview_history_archive.py, engine/verify_prices.py, farm/walkforward/runner.py, server/agent_evaluation_reporting.py, server/hourly_opportunity_observer.py, server/intraday_readiness.py, server/main.py, server/run_p15_scoring.sh, server/trading-engine-p15-events.timer, server/trading-engine-p15-preopen.timer, server/trading-engine-p15-scoring.service, server/trading-engine-p15-scoring.timer, server/p15-registration.json, server/p16-registration.json, tools/backup_database.py, tools/publish_snapshot.py, tools/stage_timings.py -->
+
+## Verification receipts and resolved queue failures
+
+Price verification retains every discrepant field and named result. Exact Nasdaq response
+bytes, HTTP identity and requested security/window are written to a hash-named receipt under
+`data/price-verify/` before `_meta.json` changes. The summary points to the immutable receipt.
+A mismatch remains a mismatch until security, currency and corporate-action adjustment basis
+are established; the verifier never overwrites operational prices or converts currencies.
+
+A failed job remains in `jobs` permanently. For an intentional operator stop, record its
+reason and retained evidence with `python -m engine.job_resolutions --job ID --kind cancelled
+--reason TEXT --evidence TEXT`. For proven completion, use `--kind completed --replacement-job ID`;
+the replacement must be a later successful job of the same kind with identical parameters.
+An unrelated newer success cannot clear a failure. The disposition and original job identity
+are checked whenever queue status is projected; altered evidence restores the actionable warning.
+Use the ordinary single-writer maintenance window for this explicit operation.
+
+Minute capture retries transport errors and HTTP 429/500/502/503/504 at most three times per
+page. Each attempt reserves the shared request limiter and rechecks the no-call window.
+Exhaustion exits with a sanitized failure; completed pages and their receipts remain resumable.

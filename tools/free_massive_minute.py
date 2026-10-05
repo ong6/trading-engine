@@ -204,11 +204,42 @@ def _validate_next_url(url: str) -> None:
         raise free_sources.FreeSourceError("Massive minute next_url is unsafe")
 
 
+PAGE_ATTEMPTS = 3
+RETRYABLE_HTTP = frozenset({429, 500, 502, 503, 504})
+
+
+def _request_page(session, *, url, first_url, api_key, now, rate_limit, sleep):
+    """Retry transient requests; every attempt obeys the shared pacing/window."""
+    for attempt in range(PAGE_ATTEMPTS):
+        _require_minute_window(now())
+        if rate_limit is None:
+            free_sources.wait_for_massive_rate_limit(check=lambda: _require_minute_window(now()))
+        else:
+            rate_limit()
+            _require_minute_window(now())
+        try:
+            response = session.get(
+                url, params={"adjusted": "true", "sort": "asc", "limit": 50_000}
+                if url == first_url else None,
+                timeout=HTTP_TIMEOUT_SECONDS, allow_redirects=False,
+                headers={"Authorization": f"Bearer {api_key}",
+                         "User-Agent": daily_capture.USER_AGENT, "Accept": "application/json"},
+            )
+        except requests.RequestException:
+            response = None
+        if response is not None and response.status_code not in RETRYABLE_HTTP:
+            return response
+        if attempt + 1 < PAGE_ATTEMPTS:
+            sleep(3.0 * (2 ** attempt))
+    raise free_sources.FreeSourceError("Massive minute request failed after 3 attempts")
+
+
 def capture_chunk(
     con, *, manifest_sha256: str, ticker: str, start: date, end: date,
     api_key: str, data_dir: Path, session: requests.Session,
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     rate_limit: Callable[[], object] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> dict:
     directory = _chunk_directory(data_dir, ticker, start, end)
     receipt_path = directory / "receipt.json"
@@ -225,22 +256,10 @@ def capture_chunk(
     first_url = ENDPOINT.format(ticker=encoded, start=start.isoformat(), end=end.isoformat())
     url = progress["next_url"] or first_url
     while not progress["complete"]:
-        _require_minute_window(now())
-        if rate_limit is None:
-            free_sources.wait_for_massive_rate_limit(check=lambda: _require_minute_window(now()))
-        else:
-            rate_limit()
-            _require_minute_window(now())
-        try:
-            response = session.get(
-                url, params={"adjusted": "true", "sort": "asc", "limit": 50_000}
-                if url == first_url else None,
-                timeout=HTTP_TIMEOUT_SECONDS, allow_redirects=False,
-                headers={"Authorization": f"Bearer {api_key}",
-                         "User-Agent": daily_capture.USER_AGENT, "Accept": "application/json"},
-            )
-        except requests.RequestException as exc:
-            raise free_sources.FreeSourceError("Massive minute request failed") from exc
+        response = _request_page(
+            session, url=url, first_url=first_url, api_key=api_key,
+            now=now, rate_limit=rate_limit, sleep=sleep,
+        )
         fetched_at = now()
         body = daily_capture._response_body(response, "Massive minute")
         _, next_url = minute.parse_page(body, ticker=ticker, start=start, end=end)
@@ -287,7 +306,7 @@ def capture_manifest(
                     result = capture_chunk(
                         con, manifest_sha256=manifest["manifest_sha256"], ticker=ticker,
                         start=start, end=end, api_key=api_key, data_dir=data_dir,
-                        session=client, now=now, rate_limit=rate_limit,
+                        session=client, now=now, rate_limit=rate_limit, sleep=sleep,
                     )
                 except MinuteWindowClosed:
                     resume_at = _next_permitted(now())
@@ -297,7 +316,7 @@ def capture_manifest(
                     result = capture_chunk(
                         con, manifest_sha256=manifest["manifest_sha256"], ticker=ticker,
                         start=start, end=end, api_key=api_key, data_dir=data_dir,
-                        session=client, now=now, rate_limit=rate_limit,
+                        session=client, now=now, rate_limit=rate_limit, sleep=sleep,
                     )
                 completed += 1
                 if progress is not None:

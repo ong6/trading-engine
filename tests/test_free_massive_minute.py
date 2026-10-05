@@ -104,7 +104,7 @@ def test_interrupted_pagination_resumes_at_saved_next_url(tmp_path: Path):
     next_url = "https://api.massive.com/v2/aggs/ticker/ABC/range/1/minute/next"
     first = _Session([
         _page("ABC", [_bar(datetime(2026, 9, 28, 8, 0))], next_url),
-        requests.ConnectionError("interrupted"),
+        *[requests.ConnectionError("interrupted") for _ in range(3)],
     ])
     con = duckdb.connect()
     try:
@@ -112,18 +112,18 @@ def test_interrupted_pagination_resumes_at_saved_next_url(tmp_path: Path):
             capture.capture_chunk(
                 con, manifest_sha256=MANIFEST_SHA, ticker="ABC", start=START, end=END,
                 api_key="fixture-secret", data_dir=tmp_path, session=first,
-                now=lambda: ALLOWED, rate_limit=lambda: None,
+                now=lambda: ALLOWED, rate_limit=lambda: None, sleep=lambda _s: None,
             )
         resumed = _Session([_page("ABC", [_bar(datetime(2026, 9, 29, 9, 30))])])
         result = capture.capture_chunk(
             con, manifest_sha256=MANIFEST_SHA, ticker="ABC", start=START, end=END,
             api_key="fixture-secret", data_dir=tmp_path, session=resumed,
-            now=lambda: ALLOWED, rate_limit=lambda: None,
+            now=lambda: ALLOWED, rate_limit=lambda: None, sleep=lambda _s: None,
         )
     finally:
         con.close()
     assert result["row_count"] == 2
-    assert len(first.calls) == 2
+    assert len(first.calls) == 4
     assert [item[0] for item in resumed.calls] == [next_url]
 
 
@@ -242,3 +242,34 @@ def test_existing_daily_capture_uses_shared_limiter(tmp_path: Path, monkeypatch)
     )
     assert result["fetched_sessions"] == 1
     assert reservations == [1]
+
+
+def test_transient_page_failure_retries_with_rate_limit_and_no_duplicate_receipt(tmp_path):
+    client = _Session([requests.Timeout("transient"), _page("ABC", [])])
+    reservations, sleeps = [], []
+    con = duckdb.connect()
+    try:
+        result = capture.capture_chunk(
+            con, manifest_sha256=MANIFEST_SHA, ticker="ABC", start=START, end=END,
+            api_key="fixture-secret", data_dir=tmp_path, session=client,
+            now=lambda: ALLOWED, rate_limit=lambda: reservations.append(True), sleep=sleeps.append,
+        )
+    finally:
+        con.close()
+    assert result["row_count"] == 0
+    assert len(reservations) == len(client.calls) == 2
+    assert sleeps == [3.0]
+    receipt = capture._read_progress(tmp_path, "ABC", START, END)
+    assert receipt["complete"] and len(receipt["pages"]) == 1
+
+
+def test_retry_rechecks_no_call_window_before_sending():
+    instants = iter([ALLOWED, ALLOWED, datetime(2026, 10, 2, 17, tzinfo=timezone.utc)])
+    client = _Session([requests.Timeout("transient")])
+    with pytest.raises(capture.MinuteWindowClosed):
+        capture._request_page(
+            client, url="https://api.massive.com/v2/aggs/ticker/ABC", first_url="same",
+            api_key="fixture-secret", now=lambda: next(instants),
+            rate_limit=lambda: None, sleep=lambda _s: None,
+        )
+    assert len(client.calls) == 1
