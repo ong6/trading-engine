@@ -306,6 +306,93 @@ def _replay_run(con, run_id: int, status: str) -> dict:
             "cancelled": sum(row[3] == "cancel" for row in rows)}
 
 
+
+def _commit_preopen(con, run_id, status, reason, response, decisions, completed, clock):
+    try:
+        with db.transaction(con):
+            final_time = _utc(clock())
+            if final_time < completed:
+                status, reason = "unavailable", "pre-open clock moved backwards"
+            elif status == "completed" and final_time.astimezone(ET).timetz().replace(
+                tzinfo=None
+            ) >= DEADLINE:
+                status, reason = "late", "pre-open commit missed deadline"
+            if status != "completed":
+                decisions = [{**item, "decision": "keep", "reason": reason}
+                             if item["portfolio_id"] in BOOK_IDS else item
+                             for item in decisions]
+            result = _finish_run(
+                con, run_id=run_id, status=status, reason=reason, response=response,
+                decisions=decisions, completed=final_time,
+            )
+            post_apply = _utc(clock())
+            if result["cancelled"] and post_apply.astimezone(ET).timetz().replace(
+                tzinfo=None
+            ) >= DEADLINE:
+                raise _LateCommit(post_apply)
+        return result
+    except _LateCommit as exc:
+        keep = [{**item, "decision": "keep", "reason": "pre-open commit missed deadline"}
+                if item["portfolio_id"] in BOOK_IDS else item for item in decisions]
+        with db.transaction(con):
+            return _finish_run(
+                con, run_id=run_id, status="late",
+                reason="pre-open commit missed deadline", response=response,
+                decisions=keep, completed=exc.observed_at,
+            )
+
+
+def _resume_preopen(con, existing, started):
+    if existing[1] != "running":
+        return _replay_run(con, int(existing[0]), existing[1])
+    retained = con.execute(
+        "SELECT input_payload,input_sha256 FROM p15_preopen_runs WHERE id=?",
+        [existing[0]],
+    ).fetchone()
+    payload = json.loads(retained[0])
+    if canonical_sha256(payload) != retained[1]:
+        raise PreopenError("pre-open retained input is invalid")
+    original = [*payload["intents"], *payload["control_noops"]]
+    decisions = [{"intent_id": item["intent_id"],
+                  "portfolio_id": item["portfolio_id"], "ticker": item["ticker"],
+                  "decision": "keep", "reason": "interrupted_preopen_run",
+                  "evidence_ids": []} for item in original]
+    with db.transaction(con):
+        return _finish_run(
+            con, run_id=int(existing[0]), status="unavailable",
+            reason="interrupted pre-open run", response=None,
+            decisions=decisions, completed=started,
+        )
+
+
+def _preopen_decisions(started, cutoff, model_intents, payload, allowed, generate, clock):
+    response, status, reason, model_decisions = None, "completed", None, []
+    completed = started
+    if cutoff.astimezone(ET).timetz().replace(tzinfo=None) >= DEADLINE:
+        status, reason = "late", "pre-open deadline reached"
+    elif model_intents:
+        try:
+            generated = generate(payload)
+            _validate_identity(generated, payload)
+            response = asdict(generated)
+            completed = _utc(clock())
+            if completed < cutoff:
+                status, reason = "unavailable", "pre-open clock moved backwards"
+            elif completed.astimezone(ET).timetz().replace(tzinfo=None) >= DEADLINE:
+                status, reason = "late", "pre-open response missed deadline"
+            else:
+                model_decisions = _validate(response["output"], allowed)
+        except (agent_model_client.ConnectorError, PreopenError, TypeError, ValueError) as exc:
+            status, reason = "unavailable", str(exc)[:500]
+            completed = _utc(clock())
+    elif status == "late":
+        completed = _utc(clock())
+    if status != "completed":
+        model_decisions = [{"intent_id": item["intent_id"], "decision": "keep",
+                            "reason": reason, "evidence_ids": sorted(allowed[item["intent_id"]])}
+                           for item in model_intents]
+    return response, status, reason, model_decisions, completed
+
 def run(
     con: duckdb.DuckDBPyConnection, *, session_date: date, now: datetime,
     generate: Callable[[dict], agent_model_client.ConnectorResult]
@@ -328,26 +415,7 @@ def run(
         [POLICY_ID, session_date],
     ).fetchone()
     if existing is not None:
-        if existing[1] != "running":
-            return _replay_run(con, int(existing[0]), existing[1])
-        retained = con.execute(
-            "SELECT input_payload,input_sha256 FROM p15_preopen_runs WHERE id=?",
-            [existing[0]],
-        ).fetchone()
-        payload = json.loads(retained[0])
-        if canonical_sha256(payload) != retained[1]:
-            raise PreopenError("pre-open retained input is invalid")
-        original = [*payload["intents"], *payload["control_noops"]]
-        decisions = [{"intent_id": item["intent_id"],
-                      "portfolio_id": item["portfolio_id"], "ticker": item["ticker"],
-                      "decision": "keep", "reason": "interrupted_preopen_run",
-                      "evidence_ids": []} for item in original]
-        with db.transaction(con):
-            return _finish_run(
-                con, run_id=int(existing[0]), status="unavailable",
-                reason="interrupted pre-open run", response=None,
-                decisions=decisions, completed=started,
-            )
+        return _resume_preopen(con, existing, started)
     pending = _pending(con, session_date)
     if not pending:
         payload = {"schema_version": 1, "policy_id": POLICY_ID,
@@ -410,31 +478,9 @@ def run(
             con, session_date=session_date, payload=payload,
             receipts=news["receipts"], started=started,
         )
-    response, status, reason, model_decisions = None, "completed", None, []
-    completed = started
-    if cutoff.astimezone(ET).timetz().replace(tzinfo=None) >= DEADLINE:
-        status, reason = "late", "pre-open deadline reached"
-    elif model_intents:
-        try:
-            generated = generate(payload)
-            _validate_identity(generated, payload)
-            response = asdict(generated)
-            completed = _utc(clock())
-            if completed < cutoff:
-                status, reason = "unavailable", "pre-open clock moved backwards"
-            elif completed.astimezone(ET).timetz().replace(tzinfo=None) >= DEADLINE:
-                status, reason = "late", "pre-open response missed deadline"
-            else:
-                model_decisions = _validate(response["output"], allowed)
-        except (agent_model_client.ConnectorError, PreopenError, TypeError, ValueError) as exc:
-            status, reason = "unavailable", str(exc)[:500]
-            completed = _utc(clock())
-    elif status == "late":
-        completed = _utc(clock())
-    if status != "completed":
-        model_decisions = [{"intent_id": item["intent_id"], "decision": "keep",
-                            "reason": reason, "evidence_ids": sorted(allowed[item["intent_id"]])}
-                           for item in model_intents]
+    response, status, reason, model_decisions, completed = _preopen_decisions(
+        started, cutoff, model_intents, payload, allowed, generate, clock,
+    )
     by_id = {item["intent_id"]: item for item in pending}
     decisions = [{**item, "portfolio_id": by_id[item["intent_id"]]["portfolio_id"],
                   "ticker": by_id[item["intent_id"]]["ticker"]}
@@ -442,38 +488,7 @@ def run(
     decisions.extend({**item, "decision": "keep",
                       "reason": "rule_control_noop", "evidence_ids": []}
                      for item in control_noops)
-    try:
-        with db.transaction(con):
-            final_time = _utc(clock())
-            if final_time < completed:
-                status, reason = "unavailable", "pre-open clock moved backwards"
-            elif status == "completed" and final_time.astimezone(ET).timetz().replace(
-                tzinfo=None
-            ) >= DEADLINE:
-                status, reason = "late", "pre-open commit missed deadline"
-            if status != "completed":
-                decisions = [{**item, "decision": "keep", "reason": reason}
-                             if item["portfolio_id"] in BOOK_IDS else item
-                             for item in decisions]
-            result = _finish_run(
-                con, run_id=run_id, status=status, reason=reason, response=response,
-                decisions=decisions, completed=final_time,
-            )
-            post_apply = _utc(clock())
-            if result["cancelled"] and post_apply.astimezone(ET).timetz().replace(
-                tzinfo=None
-            ) >= DEADLINE:
-                raise _LateCommit(post_apply)
-        return result
-    except _LateCommit as exc:
-        keep = [{**item, "decision": "keep", "reason": "pre-open commit missed deadline"}
-                if item["portfolio_id"] in BOOK_IDS else item for item in decisions]
-        with db.transaction(con):
-            return _finish_run(
-                con, run_id=run_id, status="late",
-                reason="pre-open commit missed deadline", response=response,
-                decisions=keep, completed=exc.observed_at,
-            )
+    return _commit_preopen(con, run_id, status, reason, response, decisions, completed, clock)
 
 
 def run_database(database: Path = DEFAULT_DB, *, now: datetime | None = None, **kwargs) -> dict:

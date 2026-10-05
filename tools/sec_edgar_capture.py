@@ -179,6 +179,17 @@ def _record_ticker_mapping(
             )
 
 
+
+def _released_fetch(fetch, url, delay, sleep, release_for_capture, reacquire_after_capture):
+    release_for_capture()
+    try:
+        if delay:
+            sleep(delay)
+        return _safe_fetch(fetch, url)
+    finally:
+        reacquire_after_capture()
+
+
 def capture(
     con: duckdb.DuckDBPyConnection, tickers: list[str], *, fetch: Fetch = _fetch,
     sleep: Callable[[float], None] = time.sleep, ingested_at: datetime | None = None,
@@ -192,13 +203,7 @@ def capture(
     bitemporal_facts.init_schema(con)
 
     def released_fetch(url: str, *, delay: float = 0.0) -> Response:
-        release_for_capture()
-        try:
-            if delay:
-                sleep(delay)
-            return _safe_fetch(fetch, url)
-        finally:
-            reacquire_after_capture()
+        return _released_fetch(fetch, url, delay, sleep, release_for_capture, reacquire_after_capture)
 
     try:
         map_response = released_fetch(TICKERS_URL)

@@ -178,6 +178,20 @@ def _text(value: object, *, words: int | None = None) -> str:
     return value
 
 
+
+def _validate_numeric_assessment(item):
+    values = [item[name] for name in (
+        "p_outperform_5", "expected_excess_bp_5", "expected_excess_bp_10")]
+    if any(isinstance(value, bool) or not isinstance(value, (int, float))
+           or not math.isfinite(value) for value in values):
+        raise ScoringError("P15 scoring numeric value is invalid")
+    if not 0 <= values[0] <= 1 or any(
+        abs(value) > MAX_EXPECTED_EXCESS_BP for value in values[1:]
+    ):
+        raise ScoringError("P15 scoring numeric value is outside bounds")
+    return values
+
+
 def _validate_output(
     output: object, candidates: list[dict], allowed: dict[str, set[str]]
 ) -> dict[str, dict]:
@@ -196,15 +210,7 @@ def _validate_output(
         ticker = item["ticker"]
         if ticker in result:
             raise ScoringError("P15 scoring assessment is duplicated")
-        values = [item[name] for name in (
-            "p_outperform_5", "expected_excess_bp_5", "expected_excess_bp_10")]
-        if any(isinstance(value, bool) or not isinstance(value, (int, float))
-               or not math.isfinite(value) for value in values):
-            raise ScoringError("P15 scoring numeric value is invalid")
-        if not 0 <= values[0] <= 1 or any(
-            abs(value) > MAX_EXPECTED_EXCESS_BP for value in values[1:]
-        ):
-            raise ScoringError("P15 scoring numeric value is outside bounds")
+        values = _validate_numeric_assessment(item)
         action = item["action"]
         if action not in {"ignore", "watch", "buy_candidate", "exit"}:
             raise ScoringError("P15 scoring action is invalid")
@@ -400,55 +406,8 @@ def _fail_outside_window(
     }
 
 
-def _run(
-    *, database: Path = DEFAULT_DB, now: datetime | None = None,
-    generate: Callable[[dict], agent_model_client.ConnectorResult]
-    = agent_model_client.generate_p15_scoring_json,
-    fetch_news=daily_opportunity_news._fetch,
-    clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
-) -> dict:
-    started = (now or clock()).astimezone(timezone.utc)
-    deadline = datetime.combine(started.date(), DEADLINE_UTC)
-    bundle = None
-    con = db.connect(database, read_only=True, wait_s=DB_WAIT_S)
-    try:
-        market_date = db.latest_operational_market_date(con)
-        if market_date is None:
-            raise ScoringError("P15 scoring market date is unavailable")
-        existing = (
-            store.find_run(con, market_date)
-            if table_exists(con, "p15_scoring_runs") else None
-        )
-    finally:
-        con.close()
-    if existing is not None and existing["status"] in {"completed", "failed"}:
-        if existing["status"] == "completed":
-            return {"status": "completed", "market_date": market_date.isoformat(),
-                    "replayed": True, "model_call_count": 0}
-        return {"status": "failed", "market_date": market_date.isoformat(),
-                "reason": existing["reason"], "replayed": True,
-                "model_call_count": 0}
-    if started >= deadline:
-        return _fail_outside_window(
-            database, market_date=market_date,
-            bundle=bundle if existing is None else None,
-            existing=existing, started=started, reason="deadline_start_refusal",
-        )
-    if not _in_admissible_window(market_date, started):
-        return _fail_outside_window(
-            database, market_date=market_date,
-            bundle=bundle if existing is None else None,
-            existing=existing, started=started,
-        )
-    if existing is None:
-        con = db.connect(database, read_only=True, wait_s=DB_WAIT_S)
-        try:
-            bundle = p15_universe(
-                con, market_date, held_tickers=_held(con),
-                information_cutoff_at=started,
-            )
-        finally:
-            con.close()
+
+def _prepare_scoring_context(database, existing, bundle, started, market_date, now, clock, fetch_news):
     if existing is not None:
         if existing["status"] != "running":
             raise ScoringError("P15 scoring run status is invalid")
@@ -506,6 +465,31 @@ def _run(
             run_id = created["run_id"]
         finally:
             con.close()
+    return bundle, context, allowed, cutoff, run_id
+
+
+
+def _replay_scoring_sample(con, started_sample, chunk, allowed, validated, failure, clock):
+    row = con.execute(
+        "SELECT response_payload FROM p15_scoring_samples WHERE id=?",
+        [started_sample["sample_id"]],
+    ).fetchone()
+    if started_sample["status"] == "completed" and row and row[0]:
+        retained = json.loads(row[0])
+        validated.append(_validate_output(retained["output"], chunk, allowed))
+    elif started_sample["status"] == "started":
+        with db.transaction(con):
+            store.fail_sample(
+                con, started_sample["sample_id"],
+                reason="interrupted before durable response",
+                completed_at=clock(),
+            )
+        failure = "interrupted before durable response"
+    else:
+        failure = f"sample replay is terminal: {started_sample['status']}"
+    return failure
+
+def _score_chunks(database, bundle, context, allowed, cutoff, run_id, deadline, generate, clock):
     chunks = [context["candidates"][index:index + CHUNK_SIZE]
               for index in range(0, len(context["candidates"]), CHUNK_SIZE)]
     aggregates, calls, deadline_exceeded = [], 0, False
@@ -535,23 +519,9 @@ def _run(
                         ticker_order=order, request_payload=request, started_at=clock(),
                     )
                 if started_sample["replayed"]:
-                    row = con.execute(
-                        "SELECT response_payload FROM p15_scoring_samples WHERE id=?",
-                        [started_sample["sample_id"]],
-                    ).fetchone()
-                    if started_sample["status"] == "completed" and row and row[0]:
-                        retained = json.loads(row[0])
-                        validated.append(_validate_output(retained["output"], chunk, allowed))
-                    elif started_sample["status"] == "started":
-                        with db.transaction(con):
-                            store.fail_sample(
-                                con, started_sample["sample_id"],
-                                reason="interrupted before durable response",
-                                completed_at=clock(),
-                            )
-                        failure = "interrupted before durable response"
-                    else:
-                        failure = f"sample replay is terminal: {started_sample['status']}"
+                    failure = _replay_scoring_sample(
+                        con, started_sample, chunk, allowed, validated, failure, clock,
+                    )
                     continue
             finally:
                 con.close()
@@ -604,6 +574,63 @@ def _run(
         )
         if deadline_exceeded:
             break
+    return aggregates, calls, deadline_exceeded
+
+def _run(
+    *, database: Path = DEFAULT_DB, now: datetime | None = None,
+    generate: Callable[[dict], agent_model_client.ConnectorResult]
+    = agent_model_client.generate_p15_scoring_json,
+    fetch_news=daily_opportunity_news._fetch,
+    clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+) -> dict:
+    started = (now or clock()).astimezone(timezone.utc)
+    deadline = datetime.combine(started.date(), DEADLINE_UTC)
+    bundle = None
+    con = db.connect(database, read_only=True, wait_s=DB_WAIT_S)
+    try:
+        market_date = db.latest_operational_market_date(con)
+        if market_date is None:
+            raise ScoringError("P15 scoring market date is unavailable")
+        existing = (
+            store.find_run(con, market_date)
+            if table_exists(con, "p15_scoring_runs") else None
+        )
+    finally:
+        con.close()
+    if existing is not None and existing["status"] in {"completed", "failed"}:
+        if existing["status"] == "completed":
+            return {"status": "completed", "market_date": market_date.isoformat(),
+                    "replayed": True, "model_call_count": 0}
+        return {"status": "failed", "market_date": market_date.isoformat(),
+                "reason": existing["reason"], "replayed": True,
+                "model_call_count": 0}
+    if started >= deadline:
+        return _fail_outside_window(
+            database, market_date=market_date,
+            bundle=bundle if existing is None else None,
+            existing=existing, started=started, reason="deadline_start_refusal",
+        )
+    if not _in_admissible_window(market_date, started):
+        return _fail_outside_window(
+            database, market_date=market_date,
+            bundle=bundle if existing is None else None,
+            existing=existing, started=started,
+        )
+    if existing is None:
+        con = db.connect(database, read_only=True, wait_s=DB_WAIT_S)
+        try:
+            bundle = p15_universe(
+                con, market_date, held_tickers=_held(con),
+                information_cutoff_at=started,
+            )
+        finally:
+            con.close()
+    bundle, context, allowed, cutoff, run_id = _prepare_scoring_context(
+        database, existing, bundle, started, market_date, now, clock, fetch_news,
+    )
+    aggregates, calls, deadline_exceeded = _score_chunks(
+        database, bundle, context, allowed, cutoff, run_id, deadline, generate, clock,
+    )
     if deadline_exceeded:
         con = db.connect(database, wait_s=DB_WAIT_S)
         try:

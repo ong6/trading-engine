@@ -53,7 +53,8 @@ def _utc(value: datetime) -> datetime:
 
 
 def validate_spec(spec: dict) -> dict:
-    if not isinstance(spec, dict) or set(spec) != SPEC_FIELDS or spec["schema_version"] != 1:
+    if (not isinstance(spec, dict) or set(spec) != SPEC_FIELDS
+            or type(spec["schema_version"]) is not int or spec["schema_version"] != 1):
         raise AccountRefused("invalid account specification v1")
     for field in ("strategy_ref", "account_id"):
         _identity(spec[field], field)
@@ -125,7 +126,8 @@ def _load_spec(con, account_id: str) -> dict:
 def validate_intent(intent: dict, spec: dict, now: datetime) -> tuple[date, float]:
     """Pure envelope/clock admission; callers can preview without a database."""
     spec, now = validate_spec(spec), _utc(now)
-    if not isinstance(intent, dict) or set(intent) != INTENT_FIELDS or intent["schema_version"] != 1:
+    if (not isinstance(intent, dict) or set(intent) != INTENT_FIELDS
+            or type(intent["schema_version"]) is not int or intent["schema_version"] != 1):
         raise AccountRefused("invalid trade intent v1")
     for field in ("intent_id", "account_id", "ticker"):
         _identity(intent[field], field)
