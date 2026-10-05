@@ -248,9 +248,9 @@ def test_p15_registration_revision_and_self_hash():
     assert registration["schema_version"] == 1
     assert registration["registration_revision"] == 11
     assert registration["revision_reason"] == (
-        "complete verifier receipts and identity checks, full-history coverage fallback, and "
-        "behavior-preserving evidence/capture extraction; no scoring, book, gate, label, "
-        "schedule or written-row change"
+        "complete verifier receipts and identity checks, optional source refusal and backup identity "
+        "corrections, and behavior-preserving evidence/capture extraction; frozen collector, scoring, "
+        "book, gate, label, schedule and written rows unchanged"
     )
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
