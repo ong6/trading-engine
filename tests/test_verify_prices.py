@@ -162,3 +162,65 @@ def test_workers_overlap_waits_but_share_one_request_rate(monkeypatch, tmp_path)
     assert max_active > 1
     ordered = sorted(starts)
     assert all(later - earlier >= 0.015 for earlier, later in pairwise(ordered))
+
+
+def test_retains_every_disagreeing_name_and_field(monkeypatch, tmp_path, con):
+    from datetime import timedelta
+
+    tickers = [f"BAD{i}" for i in range(6)]
+    days = [date(2026, 9, 8) + timedelta(days=i) for i in range(5)]
+    for ticker in tickers:
+        con.execute("INSERT INTO universe(ticker,etf) VALUES (?,FALSE)", [ticker])
+        for day in days:
+            con.execute(
+                "INSERT INTO prices(ticker,date,open,high,low,close,volume) "
+                "VALUES (?,?,10,11,9,10,100)", [ticker, day],
+            )
+    monkeypatch.setattr(verify_prices, "PER_NAME_SLEEP", 0)
+    monkeypatch.setattr(verify_prices, "fetch_nasdaq_history", lambda ticker, **_kw: {
+        "symbol": ticker, "bars": {d: {"open": 100, "high": 110, "low": 90,
+                                        "close": 100, "volume": 100} for d in days},
+        "parse_errors": [], "rows": 5,
+    })
+    result = verify_prices.run({"tickers": tickers}, con, tmp_path / "meta.json")
+    assert result["names_disagreeing"] == 6
+    assert {item["ticker"] for item in result["disagreements"]} == set(tickers)
+    assert len(result["disagreements"]) == result["n_disagreements"] == 102
+    assert {item["ticker"] for item in result["name_results"]} == set(tickers)
+
+
+def _response(data):
+    import json
+    from datetime import datetime, timezone
+    return verify_prices.NasdaqResponse(
+        json.dumps({"status": {"rCode": 200}, "data": data}).encode(),
+        "application/json", 200, datetime.now(timezone.utc),
+    )
+
+
+def test_source_symbol_must_be_explicit_and_match():
+    import pytest
+    for symbol in (None, "", "OTHER"):
+        with pytest.raises(verify_prices.SourceError, match="symbol"):
+            verify_prices.parse_nasdaq_history("AAA", _response({
+                "symbol": symbol, "tradesTable": {"rows": []},
+            }))
+    result = verify_prices.parse_nasdaq_history("BRK.B", _response({
+        "symbol": "BRK/B", "tradesTable": {"rows": []},
+    }))
+    assert result["symbol"] == "BRK/B"
+
+
+def test_source_nonfinite_and_duplicate_prices_are_not_silent():
+    import pytest
+    row = {"date": "09/08/2026", "open": "10", "high": "11", "low": "9",
+           "close": "NaN", "volume": "100"}
+    parsed = verify_prices.parse_nasdaq_history("AAA", _response({
+        "symbol": "AAA", "tradesTable": {"rows": [row]},
+    }))
+    assert parsed["parse_errors"] and not parsed["bars"]
+    row["close"] = "10"
+    with pytest.raises(verify_prices.SourceError, match="duplicate"):
+        verify_prices.parse_nasdaq_history("AAA", _response({
+            "symbol": "AAA", "tradesTable": {"rows": [row, row]},
+        }))
