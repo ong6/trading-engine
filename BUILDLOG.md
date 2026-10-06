@@ -2046,4 +2046,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** Production source LOC and the 135 registered bindings are unchanged.
 - **Next:** Verify exact-commit CI, then install the fixed dependency and restart the production dashboard.
 
+## 2026-10-06 — Add the engine-v2 identity foundation
+
+- **Why:** Active P22 L0 foundation plan: additive schema, monotonic order ids, instrument identities and order lifecycle.
+- **What:** Add the v2 side tables and portfolio metadata without changing positional legacy ledger tables.
+  Bootstrap a persistent order sequence, canonicalise OCC contracts, and define order states and receipt cutoffs.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_schema_v2.py tests/test_instruments.py tests/test_order_types.py` — 16 passed.
+- **Metrics:** server/tools unchanged; product +453 lines; budget clean.
+- **Next:** Implement the effective-dated cost registry and its authoritative worked examples.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
