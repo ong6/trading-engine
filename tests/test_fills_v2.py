@@ -154,7 +154,7 @@ def test_partial_limit_session_stays_pending_until_close_is_known(con):
     assert result.status == "pending"
 
 
-def test_available_time_after_close_finalises_missing_intraday_orders(con):
+def test_capture_outage_stays_pending_then_rejects_after_three_sessions(con):
     _daily_history(con)
     _intraday(con, [])
     available = datetime(2026, 10, 12, 20, 1, tzinfo=timezone.utc)
@@ -165,10 +165,19 @@ def test_available_time_after_close_finalises_missing_intraday_orders(con):
         con, "XYZ", "buy", 1, SESSION, _at(10, 17), 99,
         available_at=available,
     )
-    assert (market.status, market.reject_reason) == ("rejected", "no_bar")
-    assert (limit.status, limit.reject_reason) == (
-        "expired", "day_limit_not_touched",
+    assert (market.status, market.reject_reason) == ("pending", None)
+    assert (limit.status, limit.reject_reason) == ("pending", None)
+
+    later = datetime(2026, 10, 15, 20, 1, tzinfo=timezone.utc)
+    market = fills.attempt_intraday_market_fill(
+        con, "XYZ", "buy", 1, SESSION, _at(10, 17), available_at=later,
     )
+    limit = fills.attempt_intraday_limit_fill(
+        con, "XYZ", "buy", 1, SESSION, _at(10, 17), 99,
+        available_at=later,
+    )
+    assert (market.status, market.reject_reason) == ("rejected", "no_bar")
+    assert (limit.status, limit.reject_reason) == ("rejected", "no_bar")
 
 
 def test_market_without_possible_later_minute_rejects_no_bar(con):
