@@ -162,15 +162,38 @@ def would_create_day_trade(
     qty: float,
     session_date: date,
 ) -> bool:
+    return matched_day_trade_open(
+        con, portfolio_id, instrument_id, side, qty, session_date,
+    ) is not None
+
+
+def matched_day_trade_open(
+    con: duckdb.DuckDBPyConnection,
+    portfolio_id: str,
+    instrument_id: str,
+    side: str,
+    qty: float,
+    session_date: date,
+) -> int | None:
+    """Return the first same-session opening lot reached by FIFO matching."""
     if side not in {"sell", "cover"}:
-        return False
+        return None
     sign = ">0" if side == "sell" else "<0"
-    row = con.execute(
-        "SELECT COALESCE(SUM(ABS(qty)),0) FROM sim_position_lots "
-        f"WHERE portfolio_id=? AND instrument_id=? AND opened_session=? AND qty{sign}",
-        [portfolio_id, instrument_id, session_date],
-    ).fetchone()
-    return bool(row and min(float(row[0]), qty) > 1e-12)
+    remaining = qty
+    rows = con.execute(
+        "SELECT opened_session,open_order_id,ABS(qty) FROM sim_position_lots "
+        f"WHERE portfolio_id=? AND instrument_id=? AND qty{sign} "
+        "ORDER BY opened_session,open_order_id",
+        [portfolio_id, instrument_id],
+    ).fetchall()
+    for opened, order_id, available in rows:
+        consumed = min(remaining, float(available))
+        if consumed > 1e-12 and opened == session_date:
+            return int(order_id)
+        remaining -= consumed
+        if remaining <= 1e-12:
+            break
+    return None
 
 
 def trailing_day_trades(
@@ -263,22 +286,34 @@ def record_day_trade(
     close_order_id: int,
     side: str,
     session_date: date,
+    *,
+    open_order_id: int | None = None,
 ) -> bool:
     """Record a filled close against its earliest same-session opening lot."""
     if side not in {"sell", "cover"}:
         return False
-    sign = ">0" if side == "sell" else "<0"
-    row = con.execute(
-        "SELECT open_order_id FROM sim_position_lots "
-        f"WHERE portfolio_id=? AND instrument_id=? AND opened_session=? AND qty{sign} "
-        "ORDER BY open_order_id LIMIT 1",
-        [portfolio_id, instrument_id, session_date],
-    ).fetchone()
-    if row is None:
+    if open_order_id is None:
+        sign = ">0" if side == "sell" else "<0"
+        row = con.execute(
+            "SELECT open_order_id FROM sim_position_lots "
+            f"WHERE portfolio_id=? AND instrument_id=? AND opened_session=? AND qty{sign} "
+            "ORDER BY open_order_id LIMIT 1",
+            [portfolio_id, instrument_id, session_date],
+        ).fetchone()
+        open_order_id = None if row is None else int(row[0])
+    if open_order_id is None:
+        opening_side = "buy" if side == "sell" else "short"
+        row = con.execute(
+            "SELECT order_id FROM sim_fills WHERE portfolio_id=? AND ticker=? "
+            "AND fill_date=? AND side=? ORDER BY order_id LIMIT 1",
+            [portfolio_id, instrument_id, session_date, opening_side],
+        ).fetchone()
+        open_order_id = None if row is None else int(row[0])
+    if open_order_id is None:
         return False
     con.execute(
         "INSERT OR IGNORE INTO sim_day_trades VALUES (?,?,?,?,?)",
-        [portfolio_id, session_date, instrument_id, row[0], close_order_id],
+        [portfolio_id, session_date, instrument_id, open_order_id, close_order_id],
     )
     return True
 

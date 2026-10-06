@@ -60,7 +60,8 @@ def _naive_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
-def _session_bounds(session_date: date) -> tuple[datetime, datetime]:
+def session_bounds(session_date: date) -> tuple[datetime, datetime]:
+    """UTC-naive regular-session bounds, including recurring early closes."""
     opened = datetime.combine(session_date, time(9, 30), NEW_YORK)
     # The only recurring early closes used by the engine's published NYSE
     # calendar are July 3, Christmas Eve and the Friday after Thanksgiving.
@@ -157,7 +158,7 @@ def minute_bars(
     required = {"ticker", ts_col, open_col, high_col, low_col, close_col, volume_col}
     if not required <= columns:
         return []
-    opened, closed = _session_bounds(session_date)
+    opened, closed = session_bounds(session_date)
     where = f"ticker=? AND {ts_col}>=? AND {ts_col}<?"
     params: list[object] = [ticker, opened, closed]
     if source == "intraday_prices" and "interval" in columns:
