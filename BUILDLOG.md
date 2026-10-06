@@ -2559,4 +2559,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged since the implementation entry; budget ok.
 - **Next:** orchestrator re-merges L2 and applies its L0 schema handoff.
 
+## 2026-10-06 — Rebind P22 runtime contracts explicitly
+
+- **Why:** P22 R12 and the Phase B signal require the accepted L1/L2 runtime and
+  commission break to replace every frozen dependency only through documented revisions.
+- **What:** Wire borrow, interest, account settlement, halts and alerts into the league
+  phases. Advance E1, sector and XS contracts with exact predecessor migrations; stamp
+  walk-forward cohorts with revision 2. Every revision cites the owner's 2026-10-06
+  decision, commissions and clock restart at parameterized D0, the schema/sequence/ledger
+  refactor, and the byte-identical pre-D0 rehearsal. Strategies and verdict gates stay fixed.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto` on the E1, sector,
+  XS, walk-forward, hook, settlement and money suites — 273 passed; Ruff clean.
+- **Metrics:** accepted L1/L2 plus revisions: server +405, tools +1, product +3,632; budget ok.
+- **Next:** freeze this source commit, then bind P15 registration revision 13 to it.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

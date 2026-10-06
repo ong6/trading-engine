@@ -11,6 +11,8 @@ from engine.lib.util import table_exists
 from .schema import portfolio_account
 
 BASELINE_COST_PROFILE = "baseline_v1"
+COMMISSION_COST_PROFILE = "ibkr_pro_tiered_v1"
+COST_BREAK_SESSION_PARAMETER = "migration --d0 parameter"
 COST_PROFILE_BREAK = "cost_profile"
 def latest_break(
     con: duckdb.DuckDBPyConnection,

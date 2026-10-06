@@ -33,6 +33,14 @@ def _append(con, cfg, trade, *, run_at=None):
     return phash
 
 
+def test_forward_registration_documents_runtime_revision():
+    revision = _config()["runtime_revision"]
+    assert revision["version"] == experiment_runner.RUNTIME_CONTRACT_VERSION
+    assert revision["decision_date"] == "2026-10-06"
+    assert "commissions" in revision["reason"]
+    assert "byte-identical" in revision["pre_d0_replay"]
+
+
 def test_compute_trade_stamps_frozen_baseline_profile(con):
     trade_date = date(2024, 6, 3)
     history = [trade_date - timedelta(days=i) for i in range(30, 0, -1)]
@@ -238,6 +246,7 @@ def test_runtime_contract_migration_preserves_prior_v3_prefix(con, tmp_path, mon
         ),
         runtime_contract_migration=experiment_runner.PRIOR_RUNTIME_CONTRACT_MIGRATION,
     )
+    prior["forward_config_sha256"] = experiment_runner.PRIOR_FORWARD_CONFIG_SHA256
     monkeypatch.setattr(experiment_runner, "EXPECTED_LEGACY_OBSERVATIONS", 1)
     monkeypatch.setattr(experiment_runner, "EXPECTED_LEGACY_THROUGH", trade["date"].isoformat())
     monkeypatch.setattr(experiment_runner, "EXPECTED_LEGACY_PREFIX_SHA256", prior["prefix_sha256"])

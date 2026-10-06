@@ -7,6 +7,7 @@ import pytest
 
 from engine.lib.provenance import canonical_sha256
 from farm.walkforward import controls as walkforward_controls
+from farm.walkforward import runtime_contract
 from farm.walkforward.runner import summarize as summarize_folds
 from server import walkforward_cohort, walkforward_evidence
 from sim import execution
@@ -51,7 +52,7 @@ def test_walkforward_evidence_status_is_current_for_complete_matching_cohort(
         "cohort_train_months": 24,
         "cohort_validate_months": 12,
         "cohort_step_months": 12,
-        "cohort_fill_model": "v4",
+        "cohort_fill_model": "v5",
         "cohort_universe_policy": "all",
         "cohort_initial_cash": 39_000.0,
         "cohort_execution_profile_id": "baseline_v1",
@@ -60,6 +61,8 @@ def test_walkforward_evidence_status_is_current_for_complete_matching_cohort(
         ),
         "cohort_data_snapshot_sha256": walkforward_snapshot()["sha256"],
         "cohort_comparison_protocol": walkforward_controls.CONTROL_PROTOCOL,
+        "cohort_runtime_contract_revision": runtime_contract.REVISION,
+        "cohort_runtime_contract_sha256": runtime_contract.payload()["sha256"],
         "cohort_signature_sha256": result["cohort_signature_sha256"],
         "cohort_signature_count": 1,
         "expected_results": 2,
@@ -216,7 +219,7 @@ def test_walkforward_evidence_status_rejects_mixed_research_assumptions(
 @pytest.mark.parametrize(
     ("field", "changed"),
     [
-        ("fill_model", "v5"),
+        ("fill_model", "v4"),
         ("universe_policy", "ex-leveraged"),
         ("data_quality_class", "current_universe_survivor_biased"),
     ],
@@ -228,6 +231,27 @@ def test_walkforward_evidence_rejects_unregistered_producer_assumption(
     monkeypatch.setattr(walkforward_evidence, "runtime_source_hash", lambda: ("a" * 64, 99))
     write_walkforward_result(tmp_path / "spy.json", "spy")
     write_walkforward_result(tmp_path / "sector.json", "sector", **{field: changed})
+
+    result = walkforward_evidence.evidence_status(con, tmp_path)
+
+    assert result["status"] == "invalid"
+    assert result["invalid_files"] == ["sector.json"]
+
+
+def test_walkforward_evidence_rejects_prior_runtime_revision(
+    con, tmp_path, monkeypatch,
+):
+    setup_walkforward_recovery(con)
+    monkeypatch.setattr(walkforward_evidence, "runtime_source_hash", lambda: ("a" * 64, 99))
+    prior = runtime_contract.payload()
+    prior["revision"] -= 1
+    prior["sha256"] = canonical_sha256({
+        key: value for key, value in prior.items() if key != "sha256"
+    })
+    write_walkforward_result(tmp_path / "spy.json", "spy")
+    write_walkforward_result(
+        tmp_path / "sector.json", "sector", runtime_contract=prior
+    )
 
     result = walkforward_evidence.evidence_status(con, tmp_path)
 

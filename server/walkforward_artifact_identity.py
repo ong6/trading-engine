@@ -48,6 +48,8 @@ def validate_registration_identity(payload: dict, registration: dict) -> None:
     for field in ("fill_model", "universe_policy", "data_quality_class"):
         if payload.get(field) != registration[field]:
             raise ValueError(f"result {field} does not match registration")
+    if payload.get("runtime_contract") != registration["runtime_contract"]:
+        raise ValueError("result runtime contract does not match registration")
 
 
 def _validated_hash(value: object, message: str) -> str:
@@ -87,6 +89,25 @@ def _validated_comparison(value: object) -> str:
     return _nonempty_string(value.get("protocol"), "invalid comparison protocol")
 
 
+def _validated_runtime_contract(value: object) -> dict:
+    if not isinstance(value, dict):
+        raise ValueError("invalid runtime contract")
+    body = {key: value.get(key) for key in (
+        "revision", "decision_date", "cost_profile", "cost_break_session", "migration"
+    )}
+    if (
+        isinstance(body["revision"], bool)
+        or not isinstance(body["revision"], int)
+        or body["revision"] <= 0
+    ):
+        raise ValueError("invalid runtime contract revision")
+    for field in ("decision_date", "cost_profile", "cost_break_session", "migration"):
+        _nonempty_string(body[field], f"invalid runtime contract {field}")
+    if value.get("sha256") != canonical_sha256(body) or set(value) != {*body, "sha256"}:
+        raise ValueError("runtime contract hash mismatch")
+    return value
+
+
 def signature(payload: dict) -> tuple[dict, str]:
     """Validate and canonicalize assumptions shared by one evidence cohort."""
     anchor, months = validated_protocol(payload.get("protocol"))
@@ -105,5 +126,6 @@ def signature(payload: dict) -> tuple[dict, str]:
         "execution_profile": profile,
         "data_snapshot_sha256": _validated_snapshot(payload.get("data_snapshot")),
         "comparison_protocol": _validated_comparison(payload.get("comparison")),
+        "runtime_contract": _validated_runtime_contract(payload.get("runtime_contract")),
     }
     return cohort, canonical_sha256(cohort)
