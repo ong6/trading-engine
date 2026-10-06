@@ -2573,4 +2573,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** accepted L1/L2 plus revisions: server +405, tools +1, product +3,632; budget ok.
 - **Next:** freeze this source commit, then bind P15 registration revision 13 to it.
 
+## 2026-10-06 — Register P15 revision 13
+
+- **Why:** P22 Phase B requires the final integrated source closure and D0 commission
+  contract to be registered before any migration or deployment rehearsal.
+- **What:** Bind 158 runtime files to the frozen source commit; register
+  `ibkr_pro_tiered_v1`, the migration `--d0` break parameter and restarted book clocks.
+  The explicit reason cites the owner's 2026-10-06 decision and byte-identical pre-D0
+  replay. Scoring, labels, statistical gates and schedules remain unchanged.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error
+  tests/test_p15_registration.py` — all 5 identity, constant, closure and source gates pass.
+- **Metrics:** server/tools/product unchanged; tests/documentation only; budget ok.
+- **Next:** run both-timezone full suites with registration enabled, then rehearse migration and accounts.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

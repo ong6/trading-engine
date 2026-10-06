@@ -18,20 +18,26 @@ from server import (
     p15_preopen,
     p15_scoring_runner,
 )
-from sim import p15_books
+from sim import book_breaks, p15_books
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRATION_PATH = ROOT / "server" / "p15-registration.json"
 REGISTERED_PATHS = {
     "engine/__init__.py",
     "engine/actions.py",
+    "engine/account_watch.py",
+    "engine/accounts/__init__.py",
+    "engine/accounts/settle.py",
     "engine/bitemporal_facts.py",
     "engine/collect.py",
     "engine/daily_opportunities.py",
     "engine/earnings.py",
     "engine/forward_review.py",
+    "engine/free_massive_minute.py",
+    "engine/free_sources.py",
     "engine/fundamentals.py",
     "engine/intraday.py",
+    "engine/instruments.py",
     "engine/lib/__init__.py",
     "engine/lib/data_quality.py",
     "engine/lib/db.py",
@@ -44,8 +50,14 @@ REGISTERED_PATHS = {
     "engine/lib/snapshots.py",
     "engine/lib/util.py",
     "engine/market_date.py",
+    "engine/money/alerts.py",
+    "engine/money/__init__.py",
+    "engine/money/allocation.py",
+    "engine/money/halts.py",
+    "engine/money/limits.py",
     "engine/p15_evaluation.py",
     "engine/p15_event_sources.py",
+    "engine/paper_accounts.py",
     "engine/queue_runner.py",
     "engine/run_daily.sh",
     "engine/screen.py",
@@ -77,6 +89,7 @@ REGISTERED_PATHS = {
     "farm/walkforward/protocol.py",
     "farm/walkforward/report.py",
     "farm/walkforward/runner.py",
+    "farm/walkforward/runtime_contract.py",
     "server/__init__.py",
     "server/agent-cadence-registration.json",
     "server/agent_evaluation.py",
@@ -112,16 +125,26 @@ REGISTERED_PATHS = {
     "server/trading-engine-p15-scoring.timer",
     "server/tradingview_source.py",
     "sim/__init__.py",
+    "sim/bar_sources.py",
+    "sim/book_breaks.py",
     "sim/calendar.py",
     "sim/execution.py",
     "sim/fills.py",
+    "sim/costs/__init__.py",
+    "sim/costs/baseline_v1.py",
+    "sim/costs/ibkr_pro_tiered_v1.py",
+    "sim/costs/profiles.py",
+    "sim/ledger.py",
     "sim/league.py",
     "sim/nyse.py",
+    "sim/margin.py",
+    "sim/order_types.py",
     "sim/p15_books.py",
     "sim/p15_fills.py",
     "sim/portfolio.py",
     "sim/schema.py",
     "sim/settle.py",
+    "sim/shorts.py",
     "sim/strategies/__init__.py",
     "sim/strategies/agent_only_policy.py",
     "sim/strategies/base.py",
@@ -246,10 +269,12 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 12
+    assert registration["registration_revision"] == 13
     assert registration["revision_reason"] == (
-        "bounded recovery metadata copying and verification at existing snapshot limit; other artifact caps, "
-        "frozen collector, research runtime, scoring, book, gate, label, schedule and written rows unchanged"
+        "owner decision 2026-10-06: ibkr_pro_tiered_v1 commissions from the migration --d0 "
+        "parameter; book evaluation clocks restart at D0; additive account schema, monotonic "
+        "order sequence, shared ledger and account engine; pre-D0 league.csv and league.md "
+        "byte-identical; scoring, labels, gates and schedules unchanged"
     )
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
@@ -331,6 +356,8 @@ def test_p15_registered_constants_match_runtime():
     assert books["maximum_positions"] == p15_books.COMMON_CONFIG["max_positions"]
     assert books["drawdown_halt"] == p15_books.COMMON_CONFIG["drawdown_halt"]
     assert books["time_exit_sessions"] == p15_books.COMMON_CONFIG["time_exit_sessions"]
+    assert books["cost_profile"] == book_breaks.COMMISSION_COST_PROFILE
+    assert books["cost_break_session"] == book_breaks.COST_BREAK_SESSION_PARAMETER
     assert books["stale_entry_sessions"] == 1
     assert set(books) == {
         "mechanics_version", "portfolio_ids", "initial_cash_usd_each",
@@ -338,7 +365,7 @@ def test_p15_registered_constants_match_runtime():
         "maximum_name_fraction", "maximum_new_entries_per_session", "maximum_positions",
         "maximum_gross_exposure", "drawdown_halt", "time_exit_sessions", "spy_sleeve",
         "entry_order", "entry_limit", "hybrid_vetoed_slot_replacement",
-        "stale_entry_sessions", "config_sha256",
+        "stale_entry_sessions", "cost_profile", "cost_break_session", "config_sha256",
     }
     preopen_identity = agent_model_client.identity(role="p15_preopen")
     assert registration["preopen"] == {
@@ -454,6 +481,7 @@ def test_p15_registered_constants_match_runtime():
         "missing_label_grace_sessions": p15_evaluation.MISSING_LABEL_GRACE_SESSIONS,
         "book_newey_west_lag": p15_evaluation.NW_LAG,
         "book_minimum_calendar_days": 90, "book_minimum_closed_trades_each": 30,
+        "book_clock_restart_session": book_breaks.COST_BREAK_SESSION_PARAMETER,
         "book_promotion": (
             "primary_pass_and_challenger_lower_bound_gt_0_and_all_drawdowns_gte_minus_0.20"
         ),
