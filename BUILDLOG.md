@@ -2209,4 +2209,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged; budget check pending final full-suite gate.
 - **Next:** run the R12 failure-set comparison, ruff and metrics, then report round 2.
 
+## 2026-10-06 — Close P22 L1 review round 2
+
+- **Why:** the orchestrator required the rejected L1 implementation to clear nine
+  execution-correctness blockers and the listed accounting corrections.
+- **What:** Add targeted regression probes for early close, bar completeness,
+  as-of source isolation, late contingencies, directional liquidity, locate
+  evidence, opening-date borrow, same-day PDT and atomic fee settlement.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,311 passed; the 185 failures exactly match
+  the R12 base list; 5 deselected.
+- **Metrics:** server/tools unchanged; product +362 and tests +381 from round 1; budget ok.
+- **Next:** nothing admitted; await orchestrator acceptance and the R13 base refresh.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
