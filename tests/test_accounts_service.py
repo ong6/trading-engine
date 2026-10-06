@@ -57,14 +57,24 @@ def test_retire_queues_moc_closes_and_deactivates(con):
     _active_account(con)
     con.execute("INSERT INTO sim_positions VALUES ('acct-a','LONG',4,100)")
     con.execute("INSERT INTO sim_positions VALUES ('acct-a','SHORT',-2,100)")
+    con.execute("INSERT INTO sim_orders VALUES (99,'acct-a','NEW','buy',1,DATE '2026-10-05',"
+                "'pending',NULL)")
+    con.execute("INSERT INTO sim_order_details "
+                "(order_id,instrument_id,instrument_kind,order_type,side,tif,session_date,"
+                "received_at,state,state_at) VALUES "
+                "(99,'NEW','stock','moo','buy','day',DATE '2026-10-05',?,'queued',?)",
+                [NOW, NOW])
     result = service.retire(con, "acct-a", now=NOW)
     assert len(result["queued_order_ids"]) == 2
     assert con.execute("SELECT active FROM portfolios WHERE id='acct-a'").fetchone()[0] is False
     assert sim_schema.portfolio_account(con, "acct-a")["status"] == "retired"
     assert con.execute(
         "SELECT o.ticker,o.side,o.qty,d.order_type FROM sim_orders o JOIN sim_order_details d "
-        "ON o.id=d.order_id ORDER BY o.ticker"
+        "ON o.id=d.order_id WHERE o.status='pending' ORDER BY o.ticker"
     ).fetchall() == [("LONG", "sell", 4, "moc"), ("SHORT", "cover", 2, "moc")]
+    assert con.execute("SELECT status,reject_reason FROM sim_orders WHERE id=99").fetchone() == (
+        "cancelled", "retired",
+    )
 
 
 def test_watch_replacement_is_bounded_and_sorted(con):
@@ -97,6 +107,36 @@ def test_cancel_after_window_opens_is_refused(con):
     opened = datetime(2026, 10, 5, 13, 30, tzinfo=timezone.utc)
     with pytest.raises(paper_accounts.AccountRefused, match="window"):
         service.cancel(con, "acct-a", 1, now=opened)
+
+
+@pytest.mark.parametrize(("order_type", "received_at", "allowed_at", "refused_at"), [
+    ("market", datetime(2026, 10, 5, 14, 17, tzinfo=timezone.utc),
+     datetime(2026, 10, 5, 14, 18, tzinfo=timezone.utc),
+     datetime(2026, 10, 5, 14, 18, 1, tzinfo=timezone.utc)),
+    ("limit", datetime(2026, 10, 5, 13, 0, tzinfo=timezone.utc),
+     datetime(2026, 10, 5, 13, 30, tzinfo=timezone.utc),
+     datetime(2026, 10, 5, 13, 30, 1, tzinfo=timezone.utc)),
+    ("moc", datetime(2026, 11, 27, 17, 0, tzinfo=timezone.utc),
+     datetime(2026, 11, 27, 17, 50, tzinfo=timezone.utc),
+     datetime(2026, 11, 27, 17, 50, 1, tzinfo=timezone.utc)),
+])
+def test_cancel_uses_each_order_receipt_window(
+    con, order_type, received_at, allowed_at, refused_at,
+):
+    _active_account(con)
+    session = date(2026, 11, 27) if order_type == "moc" else date(2026, 10, 5)
+    for order_id in (1, 2):
+        con.execute("INSERT INTO sim_orders VALUES (?,?,'XYZ','buy',1,?,'pending',NULL)",
+                    [order_id, "acct-a", session])
+        con.execute(
+            "INSERT INTO sim_order_details "
+            "(order_id,instrument_id,instrument_kind,order_type,side,tif,session_date,"
+            "received_at,state,state_at) VALUES (?,'XYZ','stock',?,'buy','day',?,?,"
+            "'queued',?)", [order_id, order_type, session, received_at, received_at],
+        )
+    assert service.cancel(con, "acct-a", 1, now=allowed_at)["state"] == "cancelled"
+    with pytest.raises(paper_accounts.AccountRefused, match="window"):
+        service.cancel(con, "acct-a", 2, now=refused_at)
 
 
 def test_reconciliation_replay_cannot_change_evidence(con):

@@ -59,6 +59,9 @@ def test_result_payload_and_sha_are_deterministic(con):
     assert first_result["costs_paid"]["total_usd"] == 0.76
     assert first_result["costs_paid"]["borrow"] == 0.25
     assert first_result["trade_stats"]["n"] == 1
+    assert first_result["trade_stats"]["mean_net_bp"] == pytest.approx(
+        (10.0 - 0.76) / 1010.0 * 10_000
+    )
     assert first_result["late_settled_fills"] == 1
     assert len(first_result["sha256"]) == 64
 
@@ -71,3 +74,11 @@ def test_empty_account_result_is_stable_and_contains_all_money_signals(con):
     assert payload["total_return"] is None
     assert payload["halts"] == payload["alerts"] == payload["margin_calls"] == 0
     assert payload["reconciliation_status"] is None
+
+
+def test_drawdown_is_seeded_with_initial_cash(con):
+    service.create(con, _spec(), now=NOW)
+    con.execute("INSERT INTO sim_equity VALUES ('acct-a',DATE '2026-10-02',8000,8000,0)")
+    payload = results.build(con, "acct-a")
+    assert payload["max_drawdown"] == pytest.approx(-0.20)
+    assert payload["daily_loss_worst"] == pytest.approx(-0.20)
