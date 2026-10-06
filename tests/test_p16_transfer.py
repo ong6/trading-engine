@@ -98,9 +98,7 @@ def _database():
         if book_id.startswith("p16_"):
             continue
         con.execute(
-            "INSERT INTO portfolios "
-            "(id,name,strategy,config,created,active,cash,initial_cash,execution_profile) "
-            "VALUES (?,?,'noop','{}',?,TRUE,0,10000,'baseline_v1')",
+            "INSERT INTO portfolios VALUES (?,?,'noop','{}',?,TRUE,0,10000,'baseline_v1')",
             [book_id, book_id, signal_date],
         )
     for instance in instances:
