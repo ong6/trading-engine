@@ -2068,4 +2068,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +107, tools +117, product +107, tests +102; server unchanged; budget ok.
 - **Next:** add the bounded Massive contracts and option-daily capture.
 
+## 2026-10-06 — Capture a bounded free options dataset
+
+- **Why:** P22 L4 sections 6.4 and 8 admit options reference and daily aggregates
+  for a frozen free universe, with no execution authority or live-network tests.
+- **What:** Add manifest-bounded contract snapshots, daily bars, verified raw receipts
+  and shared-limiter capture. The permitted temp-DB SPY smoke loaded 748 contracts in one page.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_free_massive_options.py
+  tests/test_free_splits.py tests/test_free_sources.py tests/test_free_massive_minute.py`: 42 passed.
+- **Metrics:** server unchanged, tools +379, product/engine +286, tests +125, docs +14; budget ok.
+- **Next:** register the options and account-settle systemd units without installing them.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
