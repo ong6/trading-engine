@@ -8,6 +8,7 @@ from pathlib import Path
 
 from engine.accounts import api, results, service
 from engine.lib import db
+from engine.paper_accounts import AccountRefused
 
 
 def _json_file(path: str) -> dict:
@@ -91,7 +92,13 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"token_file": str(path), "mode": "0600"}, sort_keys=True))
         return 0
     now = datetime.now(timezone.utc)
-    with db.connect(wait_s=180) as con:
-        payload = _execute(args, con, now)
+    try:
+        with db.connect(wait_s=180) as con:
+            payload = _execute(args, con, now)
+    except AccountRefused as exc:
+        payload = {"order_id": None, "state": "refused", "received_at": now.isoformat(),
+                   "cutoff": None, "refusal_reason": str(exc)}
+        print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+        return 2
     print(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str))
     return 0

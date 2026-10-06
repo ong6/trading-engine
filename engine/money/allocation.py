@@ -4,11 +4,12 @@ from __future__ import annotations
 from datetime import date
 
 from engine.lib.util import table_exists
+from engine.paper_accounts import AccountRefused
 
 TOTAL_GROSS_CAP_FRACTION = 1.0
 
 
-class AllocationRefused(ValueError):
+class AllocationRefused(AccountRefused):
     """A new opening order would breach the account-engine aggregate cap."""
 
 
@@ -26,30 +27,41 @@ def total_gross_cap(con, *, include_account: str | None = None) -> float:
     return float(row[0]) * TOTAL_GROSS_CAP_FRACTION
 
 
-def _mark(con, ticker: str, as_of: date) -> float:
+def _mark(con, ticker: str, as_of: date, price_source: str) -> float | None:
+    relation, column = (
+        ("free_daily_bars", "c") if price_source == "massive_daily" else ("prices", "close")
+    )
+    if not table_exists(con, relation):
+        return None
     row = con.execute(
-        "SELECT close FROM prices WHERE ticker=? AND date<=? ORDER BY date DESC LIMIT 1",
-        [ticker, as_of],
+        f"SELECT {column} FROM {relation} WHERE ticker=? AND date<=? "
+        "ORDER BY date DESC LIMIT 1", [ticker, as_of],
     ).fetchone()
-    if row is None or row[0] is None:
-        raise AllocationRefused(f"total_exposure_cap: no mark for {ticker}")
-    return float(row[0])
+    return None if row is None or row[0] is None else float(row[0])
 
 
 def total_gross_exposure(con, as_of: date) -> float:
     positions = con.execute(
-        "SELECT sp.ticker,sp.qty FROM sim_positions sp "
+        "SELECT sp.ticker,sp.qty,pa.pa_price_source FROM sim_positions sp "
         "JOIN portfolio_accounts_v pa ON pa.portfolio_id=sp.portfolio_id "
         "WHERE pa.pa_engine='account' AND pa.pa_status IN ('active','halted')"
     ).fetchall()
-    gross = sum(abs(float(qty) * _mark(con, ticker, as_of)) for ticker, qty in positions)
+    gross = sum(
+        abs(float(qty) * mark)
+        for ticker, qty, source in positions
+        if (mark := _mark(con, ticker, as_of, source)) is not None
+    )
     pending = con.execute(
-        "SELECT o.ticker,o.qty FROM sim_orders o "
+        "SELECT o.ticker,o.qty,pa.pa_price_source FROM sim_orders o "
         "JOIN portfolio_accounts_v pa ON pa.portfolio_id=o.portfolio_id "
         "WHERE pa.pa_engine='account' AND o.status='pending' "
         "AND o.side IN ('buy','short')"
     ).fetchall()
-    gross += sum(abs(float(qty) * _mark(con, ticker, as_of)) for ticker, qty in pending)
+    gross += sum(
+        abs(float(qty) * mark)
+        for ticker, qty, source in pending
+        if (mark := _mark(con, ticker, as_of, source)) is not None
+    )
     return gross
 
 
@@ -69,4 +81,11 @@ def account_gross(con, account_id: str, as_of: date) -> float:
     rows = con.execute(
         "SELECT ticker,qty FROM sim_positions WHERE portfolio_id=?", [account_id]
     ).fetchall()
-    return sum(abs(float(qty) * _mark(con, ticker, as_of)) for ticker, qty in rows)
+    source = con.execute(
+        "SELECT pa_price_source FROM portfolio_accounts_v WHERE portfolio_id=?", [account_id]
+    ).fetchone()
+    return sum(
+        abs(float(qty) * mark)
+        for ticker, qty in rows
+        if (mark := _mark(con, ticker, as_of, source[0])) is not None
+    )
