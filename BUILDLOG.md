@@ -2222,6 +2222,64 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged; product +362 and tests +381 from round 1; budget ok.
 - **Next:** nothing admitted; await orchestrator acceptance and the R13 base refresh.
 
+## 2026-10-06 — Add the versioned account intake contract
+
+- **Why:** active P22 L2 sections 2.7 and 5 admit the v2 account boundary and fixes 4c–4e.
+- **What:** Preserve v1 while adding v2 specs/intents, engine-stamped replayable receipts,
+  monotonic order IDs, three-session carried marks, and NY-session account dates. R13 settings
+  use `portfolio_accounts`; a small compatibility shim remains until revised L0 is merged.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_paper_accounts.py`
+  passes all 26 cases.
+- **Metrics:** server/tools unchanged; product/engine +450, tests +132; budget ok.
+- **Next:** implement the transactional service and money-layer lifecycle.
+
+## 2026-10-06 — Enforce the account money lifecycle
+
+- **Why:** active P22 L2 sections 2.6 and 5 require independent account limits,
+  structured loss/reconciliation halts, explicit resume, alerts, and retirement.
+- **What:** Add transactional lifecycle services, total/per-account exposure checks,
+  one-shot halt events and queued-order cancellation, concentration alerts, reconciliations,
+  watch lists, replay verification, and MOC retirement orders using R13 settings.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_accounts_service.py
+  tests/test_money.py` passes all 13 cases.
+- **Metrics:** server/tools unchanged; product/engine +581, tests +222; budget ok.
+- **Next:** expose deterministic results through the private loopback API and CLI.
+
+## 2026-10-06 — Expose private account results and operations
+
+- **Why:** active P22 L2 sections 2.7–2.8 require the account CLI, loopback API,
+  private token boundary, read models, stable result hashes, and lazy L1 settlement wiring.
+- **What:** Add all account reads and mutations, a mode-0600 bearer token command,
+  deterministic account metrics, and an `engine.accounts` CLI. API receipt time is captured
+  before its 180-second writer acquisition, and R13 side-table reads remain read-only.
+- **Evidence:** focused account/server/no-bare-connect run passes all 121 cases; ruff is clean.
+- **Metrics:** tools unchanged; product +720 (engine +369, server +351), tests +208; budget ok.
+- **Next:** document the v2 contract and run the complete L2 acceptance matrix.
+
+## 2026-10-06 — Publish the account v2 operating contract
+
+- **Why:** active P22 L2 requires the public sections 2.6–2.8 contract without any
+  private account identity, strategy parameters, or results.
+- **What:** Document v2 specs/intents, R13 side-table settings, cutoff and replay rules,
+  money halts, lifecycle commands, token-protected loopback routes, deferred intraday
+  settlement, and deterministic private results. Add the three-tier MOO accounting proof.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_paper_accounts.py`
+  passes all 27 cases.
+- **Metrics:** server/tools/product unchanged; docs +92, tests +34; budget ok.
+- **Next:** run focused acceptance, full-suite drift comparison, and final metrics.
+
+## 2026-10-06 — Close P22 account-service acceptance
+
+- **Why:** P22 L2 is done when its focused checks, full-suite drift comparison, ruff,
+  and metrics budget pass without adding a failure outside the shared-base list.
+- **What:** Confirm all account writers use the monotonic order sequence and R13 side-table
+  settings. Focused acceptance and ruff are green; the complete run adds no failure beyond
+  the 185 frozen-contract failures assigned to L3. P15 registration stayed deselected per R7.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,286 passed, 185 base-listed failures, 5 deselected.
+- **Metrics:** server +351, tools unchanged, product +1,407; budget ok.
+- **Next:** orchestrator merges revised L0, deletes the compatibility shim, and integrates L1/L2.
+
 ## 2026-10-06 — Correct the L0 foundation after review
 
 - **Why:** R13 replaces portfolio columns with a side table and review reproduced replay, timing, lot and precision defects.
@@ -2347,5 +2405,28 @@ the 42-entry 2026-09-19 C90 complexity series is in
   P22 base list; 5 deselected.
 - **Metrics:** refreshed-base server/tools/product changes included; budget ok.
 - **Next:** nothing admitted; await orchestrator acceptance.
+
+## 2026-10-06 — Correct account service review findings
+
+- **Why:** orchestrator review of d867b4a reproduced stale reconciliation re-halts,
+  cancellation timing, contention mapping, result arithmetic and source-specific mark defects.
+- **What:** Re-arm drawdown at resume while retaining the all-time peak, use only fresh/latest
+  reconciliation evidence, cancel opening orders on retirement, serialize API writes, return
+  retryable conflicts, hide private identities, and apply exact early-close/order windows.
+  Allocation and alerts now honor each account's price source; result trade bp is fee-net.
+- **Evidence:** focused L2/schema/server acceptance passes all 180 cases; ruff is clean.
+- **Metrics:** tools unchanged; product/engine +121, server +23, tests +175; budget ok.
+- **Next:** verify the L0 schema handoff and run the complete suite against the merged base.
+
+## 2026-10-06 — Close P22 L2 review round two
+
+- **Why:** orchestrator review required the final R13 base plus six account-service
+  corrections and an L0-owned account-table initialization handoff.
+- **What:** All review cases pass, the compatibility shim is gone, and the schema change is
+  packaged in the L2 status patch directory. No claimed implementation remains uncommitted.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,342 passed, 184 base-listed failures, 5 deselected.
+- **Metrics:** server/tools/product unchanged since the correction entry; budget ok.
+- **Next:** orchestrator applies the L0 schema patch before integrating L1 and L2.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
