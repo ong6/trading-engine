@@ -2055,4 +2055,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged; product +453 lines; budget clean.
 - **Next:** Implement the effective-dated cost registry and its authoritative worked examples.
 
+## 2026-10-06 — Implement effective-dated dollar costs
+
+- **Why:** P22 L0 and ruling R10 require the verified IBKR schedule and exact worked examples.
+- **What:** Add immutable cost-profile identities, unrounded fee components, half-up totals, and dated SEC/TAF/margin rates.
+  Keep baseline fees zero and expose the same engine profile through the generic study layer.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_costs_ibkr.py` — 11 passed, including all eight verified examples.
+- **Metrics:** server/tools unchanged; product +423 lines; budget clean.
+- **Next:** Build side-aware fill accounting, cash events, lots, and deterministic replay phases.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

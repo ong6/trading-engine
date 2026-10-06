@@ -168,6 +168,7 @@ def init_sim_schema(con: duckdb.DuckDBPyConnection) -> None:
             exchange_fee  DOUBLE,
             clearing_fee  DOUBLE,
             pass_through  DOUBLE,
+            cat_fee       DOUBLE,
             sec_fee       DOUBLE,
             finra_taf     DOUBLE,
             occ_fee       DOUBLE,
