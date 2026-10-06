@@ -8,7 +8,7 @@ the source exposes one.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import duckdb
@@ -63,15 +63,27 @@ def _naive_utc(value: datetime) -> datetime:
 def session_bounds(session_date: date) -> tuple[datetime, datetime]:
     """UTC-naive regular-session bounds, including recurring early closes."""
     opened = datetime.combine(session_date, time(9, 30), NEW_YORK)
-    # The only recurring early closes used by the engine's published NYSE
-    # calendar are July 3, Christmas Eve and the Friday after Thanksgiving.
-    early = (
-        (session_date.month, session_date.day) in {(7, 3), (12, 24)}
-        or session_date.month == 11
-        and session_date.weekday() == 4
-        and 23 <= session_date.day <= 29
-    )
-    closed = datetime.combine(session_date, time(13 if early else 16), NEW_YORK)
+    from . import order_types
+
+    resolver = getattr(order_types, "session_close", None)
+    if resolver is not None:
+        value = resolver(session_date)
+        closed = (
+            value.astimezone(NEW_YORK)
+            if isinstance(value, datetime) and value.utcoffset() is not None
+            else value.replace(tzinfo=NEW_YORK)
+            if isinstance(value, datetime)
+            else datetime.combine(session_date, value, NEW_YORK)
+        )
+    else:
+        # Temporary old-base shim for the L0 round-2 API.
+        early = (
+            (session_date.month, session_date.day) in {(7, 3), (12, 24)}
+            or session_date.month == 11
+            and session_date.weekday() == 4
+            and 23 <= session_date.day <= 29
+        )
+        closed = datetime.combine(session_date, time(13 if early else 16), NEW_YORK)
     return _naive_utc(opened), _naive_utc(closed)
 
 
@@ -88,7 +100,9 @@ def daily_bar(
         table = "prices"
         names = ("open", "high", "low", "close", "volume", None)
     elif source == "massive_daily":
-        table = "free_daily_bars_adjusted"
+        # Execution must see the bar as captured, not today's split-restated
+        # research view.  A later split must never rewrite an old fill input.
+        table = "free_daily_bars"
         names = ("o", "h", "l", "c", "volume", "vwap")
     else:
         raise ValueError(f"unknown daily bar source {source!r}")
@@ -110,9 +124,13 @@ def daily_bar(
         if stamp:
             where += f" AND {stamp} IS NOT NULL AND {stamp}<=?"
             params.append(_naive_utc(available_at))
+    ordering = (
+        "fetched_at DESC,source_sha256 DESC" if source == "massive_daily"
+        else "date DESC"
+    )
     row = con.execute(
         f"SELECT {open_col},{high_expr},{low_expr},{close_col},{volume_col},"
-        f"{vwap_expr} FROM {table} WHERE {where} ORDER BY date DESC LIMIT 1",
+        f"{vwap_expr} FROM {table} WHERE {where} ORDER BY {ordering} LIMIT 1",
         params,
     ).fetchone()
     if row is None or any(row[index] is None for index in range(5)):
@@ -199,6 +217,62 @@ def minute_bars(
     return out
 
 
+def minute_session_complete(
+    con: duckdb.DuckDBPyConnection,
+    ticker: str,
+    session_date: date,
+    *,
+    source: str = "intraday_prices",
+    available_at: datetime | None = None,
+) -> bool:
+    """Whether no later executable minute can still appear for this read."""
+    _opened, closed = session_bounds(session_date)
+    if available_at is not None and _naive_utc(available_at) >= closed:
+        return True
+    bars = minute_bars(
+        con, ticker, session_date, source=source, available_at=available_at,
+    )
+    return bool(bars and bars[-1].ts >= closed - timedelta(minutes=1))
+
+
+def latest_close(
+    con: duckdb.DuckDBPyConnection,
+    ticker: str,
+    on_or_before: date,
+    *,
+    source: str = "prices",
+    available_at: datetime | None = None,
+    strictly_before: bool = False,
+) -> float | None:
+    """Latest unadjusted close admitted by date and availability time."""
+    if source == "prices":
+        table, close_col = "prices", "close"
+    elif source == "massive_daily":
+        table, close_col = "free_daily_bars", "c"
+    else:
+        raise ValueError(f"unknown daily bar source {source!r}")
+    columns = _columns(con, table)
+    if not columns:
+        return None
+    operator = "<" if strictly_before else "<="
+    where = f"ticker=? AND date{operator}?"
+    params: list[object] = [ticker, on_or_before]
+    stamp = "first_fetched_at" if "first_fetched_at" in columns else (
+        "fetched_at" if "fetched_at" in columns else None
+    )
+    if available_at is not None and stamp:
+        where += f" AND {stamp} IS NOT NULL AND {stamp}<=?"
+        params.append(_naive_utc(available_at))
+    order = "date DESC"
+    if source == "massive_daily":
+        order += ",fetched_at DESC,source_sha256 DESC"
+    row = con.execute(
+        f"SELECT {close_col} FROM {table} WHERE {where} ORDER BY {order} LIMIT 1",
+        params,
+    ).fetchone()
+    return None if row is None or row[0] is None else float(row[0])
+
+
 def median_dollar_volume(
     con: duckdb.DuckDBPyConnection,
     ticker: str,
@@ -212,7 +286,7 @@ def median_dollar_volume(
     if source == "prices":
         table, close_col = "prices", "close"
     elif source == "massive_daily":
-        table, close_col = "free_daily_bars_adjusted", "c"
+        table, close_col = "free_daily_bars", "c"
     else:
         raise ValueError(f"unknown daily bar source {source!r}")
     columns = _columns(con, table)
@@ -228,9 +302,13 @@ def median_dollar_volume(
             where += f" AND {stamp} IS NOT NULL AND {stamp}<=?"
             params.append(_naive_utc(available_at))
     params.append(bars)
+    canonical = (
+        "QUALIFY ROW_NUMBER() OVER (PARTITION BY date ORDER BY fetched_at DESC,"
+        "source_sha256 DESC)=1 " if source == "massive_daily" else ""
+    )
     row = con.execute(
         f"SELECT MEDIAN({close_col}*volume) FROM ("
-        f"SELECT {close_col},volume FROM {table} WHERE {where} "
+        f"SELECT {close_col},volume,date FROM {table} WHERE {where} {canonical}"
         "ORDER BY date DESC LIMIT ?)",
         params,
     ).fetchone()

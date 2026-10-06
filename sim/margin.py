@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import duckdb
 
 from engine.accounts import account_portfolios, portfolio_account
 from engine.lib.util import table_exists
 
-from . import costs, ledger, nyse, portfolio
+from . import bar_sources, costs, ledger, nyse, portfolio
 from .schema import next_order_id
 
 PDT_MIN_EQUITY = 25_000.0
@@ -49,17 +49,65 @@ def day_trade_rule(con: duckdb.DuckDBPyConnection, portfolio_id: str) -> str:
 
 
 def _marks(
-    con: duckdb.DuckDBPyConnection, portfolio_id: str, day: date,
+    con: duckdb.DuckDBPyConnection,
+    portfolio_id: str,
+    day: date,
+    *,
+    price_source: str,
+    as_of: datetime | None,
+    available_at: datetime | None,
 ) -> dict[str, tuple[float, float]]:
     out: dict[str, tuple[float, float]] = {}
     for ticker, qty in con.execute(
         "SELECT ticker,qty FROM sim_positions WHERE portfolio_id=? AND qty<>0",
         [portfolio_id],
     ).fetchall():
-        close, _carried = portfolio.close_on(con, ticker, day)
+        close = _mark_at(
+            con, ticker, day, price_source=price_source,
+            as_of=as_of, available_at=available_at,
+        )
         if close is not None:
             out[ticker] = (float(qty), close)
     return out
+
+
+def _mark_at(
+    con: duckdb.DuckDBPyConnection,
+    ticker: str,
+    day: date,
+    *,
+    price_source: str,
+    as_of: datetime | None,
+    available_at: datetime | None,
+) -> float | None:
+    if as_of is None:
+        return bar_sources.latest_close(
+            con, ticker, day, source=price_source, available_at=available_at,
+        )
+    stamp = (
+        as_of if as_of.utcoffset() is None
+        else as_of.astimezone(timezone.utc).replace(tzinfo=None)
+    )
+    opened, closed = bar_sources.session_bounds(day)
+    if stamp >= closed:
+        return bar_sources.latest_close(
+            con, ticker, day, source=price_source, available_at=available_at,
+        )
+    if stamp > opened:
+        minute_source = (
+            "massive_minute" if price_source == "massive_daily"
+            else "intraday_prices"
+        )
+        bars = bar_sources.minute_bars(
+            con, ticker, day, source=minute_source, available_at=available_at,
+        )
+        eligible = [bar.close for bar in bars if bar.ts <= stamp]
+        if eligible:
+            return eligible[-1]
+    return bar_sources.latest_close(
+        con, ticker, day, source=price_source, available_at=available_at,
+        strictly_before=True,
+    )
 
 
 def margin_state(
@@ -69,10 +117,16 @@ def margin_state(
     *,
     projected: tuple[str, str, float, float] | None = None,
     fees: float = 0.0,
+    price_source: str = "prices",
+    as_of: datetime | None = None,
+    available_at: datetime | None = None,
 ) -> MarginState:
     """Return current or post-fill Reg T initial and maintenance excess."""
     cash = portfolio.get_cash(con, portfolio_id) - fees
-    marks = _marks(con, portfolio_id, day)
+    marks = _marks(
+        con, portfolio_id, day, price_source=price_source,
+        as_of=as_of, available_at=available_at,
+    )
     if projected is not None:
         ticker, side, qty, price = projected
         current = marks.get(ticker, (0.0, price))[0]
@@ -118,10 +172,14 @@ def initial_margin_allows(
     day: date,
     *,
     fees: float = 0.0,
+    price_source: str = "prices",
+    as_of: datetime | None = None,
+    available_at: datetime | None = None,
 ) -> bool:
     state = margin_state(
         con, portfolio_id, day,
         projected=(ticker, side, qty, price), fees=fees,
+        price_source=price_source, as_of=as_of, available_at=available_at,
     )
     return state.initial_excess >= -1e-9
 
@@ -175,24 +233,20 @@ def matched_day_trade_open(
     qty: float,
     session_date: date,
 ) -> int | None:
-    """Return the first same-session opening lot reached by FIFO matching."""
+    """Return a same-session opening lot matched first for PDT purposes."""
     if side not in {"sell", "cover"}:
         return None
     sign = ">0" if side == "sell" else "<0"
     remaining = qty
     rows = con.execute(
-        "SELECT opened_session,open_order_id,ABS(qty) FROM sim_position_lots "
-        f"WHERE portfolio_id=? AND instrument_id=? AND qty{sign} "
-        "ORDER BY opened_session,open_order_id",
-        [portfolio_id, instrument_id],
+        "SELECT open_order_id,ABS(qty) FROM sim_position_lots "
+        f"WHERE portfolio_id=? AND instrument_id=? AND opened_session=? AND qty{sign} "
+        "ORDER BY open_order_id",
+        [portfolio_id, instrument_id, session_date],
     ).fetchall()
-    for opened, order_id, available in rows:
-        consumed = min(remaining, float(available))
-        if consumed > 1e-12 and opened == session_date:
+    for order_id, available in rows:
+        if min(remaining, float(available)) > 1e-12:
             return int(order_id)
-        remaining -= consumed
-        if remaining <= 1e-12:
-            break
     return None
 
 
@@ -251,6 +305,9 @@ def pdt_check(
     session_date: date,
     *,
     price: float | None = None,
+    price_source: str | None = None,
+    as_of: datetime | None = None,
+    available_at: datetime | None = None,
 ) -> PDTResult:
     """Apply the selected R10 rule before an account fill."""
     rule = day_trade_rule(con, portfolio_id)
@@ -258,9 +315,14 @@ def pdt_check(
         con, portfolio_id, instrument_id, side, qty, session_date,
     )
     count = trailing_day_trades(con, portfolio_id, session_date)
+    settings = portfolio_account(con, portfolio_id)
+    if settings["account_type"] != "margin":
+        return PDTResult(True, None, creates, count, rule)
     if rule == "intraday_margin_2026":
         if price is not None and side in {"buy", "short"} and not initial_margin_allows(
             con, portfolio_id, instrument_id, side, qty, price, session_date,
+            price_source=price_source or settings["price_source"],
+            as_of=as_of, available_at=available_at,
         ):
             return PDTResult(False, "reg_t_initial", creates, count, rule)
         return PDTResult(True, None, creates, count, rule)
@@ -359,7 +421,10 @@ def queue_margin_reductions(
     con: duckdb.DuckDBPyConnection, portfolio_id: str, day: date,
 ) -> list[int]:
     """Queue proportional next-open sell/covers after a maintenance breach."""
-    state = margin_state(con, portfolio_id, day)
+    settings = portfolio_account(con, portfolio_id)
+    state = margin_state(
+        con, portfolio_id, day, price_source=settings["price_source"],
+    )
     if state.maintenance_excess >= 0 or state.maintenance_requirement <= 0:
         return []
     if table_exists(con, "account_events"):
@@ -386,7 +451,8 @@ def queue_margin_reductions(
             )
     ratio = min(1.0, -state.maintenance_excess / state.maintenance_requirement)
     queued: list[int] = []
-    now = datetime.combine(day, time(20), timezone.utc).replace(tzinfo=None)
+    _opened, close_utc = bar_sources.session_bounds(day)
+    now = close_utc
     for ticker, qty in con.execute(
         "SELECT ticker,qty FROM sim_positions WHERE portfolio_id=? AND qty<>0 ORDER BY ticker",
         [portfolio_id],
@@ -398,7 +464,7 @@ def queue_margin_reductions(
         duplicate = con.execute(
             "SELECT 1 FROM sim_orders o JOIN sim_order_details d ON d.order_id=o.id "
             "WHERE o.portfolio_id=? AND o.ticker=? AND o.status='pending' "
-            "AND d.state_reason='margin_call'",
+            "AND d.state_reason LIKE 'margin_call%'",
             [portfolio_id, ticker],
         ).fetchone()
         if duplicate:
