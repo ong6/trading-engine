@@ -42,8 +42,9 @@ def initialize_book(con: duckdb.DuckDBPyConnection, start: date, *, active: bool
     ).fetchone()
     if row is None:
         con.execute(
-            "INSERT INTO portfolios VALUES (?, 'Daily Opportunity Agent', 'agent_only_policy', "
-            "?, ?, ?, ?, ?, ?)",
+            "INSERT INTO portfolios "
+            "(id,name,strategy,config,created,active,cash,initial_cash,execution_profile) "
+            "VALUES (?, 'Daily Opportunity Agent', 'agent_only_policy', ?, ?, ?, ?, ?, ?)",
             [PORTFOLIO_ID, encoded, start, active, INITIAL_CASH, INITIAL_CASH, DEFAULT_PROFILE_ID],
         )
         con.execute(

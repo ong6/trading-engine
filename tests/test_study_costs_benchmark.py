@@ -73,6 +73,7 @@ def test_profile_hashes_and_harsher_run_validation_are_stable():
         "ibkr_fixed_v1": "27847c6ff385795ee127240a8aa3546d2142ecdfa92b2e8f5431edc92097d831",
         "binance_spot_base_v1": "3b4e6ec022fc2dac7aec95e31b061e55f0bfb44029acac752791c2922180455f",
         "binance_perp_base_v1": "ef1bf48aae29e9ff8881c7421d1499bd312a30d11c10b6061e3934fdb679b8af",
+        "ibkr_pro_tiered_v1": "405b4a6260f199e00ded1147d29e1cecde13f1104b2e0254955ac866ab0b0494",
     }
     assert {name: profile.sha256 for name, profile in PROFILES.items()} == expected
     selection = CostSelection("binance_perp_base_v1", ("binance_spot_base_v1",))
