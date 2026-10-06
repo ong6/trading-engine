@@ -2148,4 +2148,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged since the prior entry; budget ok.
 - **Next:** orchestrator applies the two handoff patches and L3 issues the merged runtime contracts.
 
+## 2026-10-06 — Add the versioned account intake contract
+
+- **Why:** active P22 L2 sections 2.7 and 5 admit the v2 account boundary and fixes 4c–4e.
+- **What:** Preserve v1 while adding v2 specs/intents, engine-stamped replayable receipts,
+  monotonic order IDs, three-session carried marks, and NY-session account dates. R13 settings
+  use `portfolio_accounts`; a small compatibility shim remains until revised L0 is merged.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_paper_accounts.py`
+  passes all 26 cases.
+- **Metrics:** server/tools unchanged; product/engine +450, tests +132; budget ok.
+- **Next:** implement the transactional service and money-layer lifecycle.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
