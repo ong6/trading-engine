@@ -2194,4 +2194,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; docs +92, tests +34; budget ok.
 - **Next:** run focused acceptance, full-suite drift comparison, and final metrics.
 
+## 2026-10-06 — Close P22 account-service acceptance
+
+- **Why:** P22 L2 is done when its focused checks, full-suite drift comparison, ruff,
+  and metrics budget pass without adding a failure outside the shared-base list.
+- **What:** Confirm all account writers use the monotonic order sequence and R13 side-table
+  settings. Focused acceptance and ruff are green; the complete run adds no failure beyond
+  the 185 frozen-contract failures assigned to L3. P15 registration stayed deselected per R7.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,286 passed, 185 base-listed failures, 5 deselected.
+- **Metrics:** server +351, tools unchanged, product +1,407; budget ok.
+- **Next:** orchestrator merges revised L0, deletes the compatibility shim, and integrates L1/L2.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
