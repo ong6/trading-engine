@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import duckdb
 import pytest
+import requests
 
 from engine import verify_prices
 from engine.lib import db
@@ -160,6 +161,51 @@ def test_capture_retains_exact_responses_and_never_mutates_operational_state(
     assert evidence["source_publication_time_available"] is False
     assert evidence["provider_dataset_version"] is None
     assert evidence["execution_authority"] == "none"
+
+
+def test_transient_transport_and_http_retry_commit_only_success(con, tmp_path):
+    path, market_date = _database(tmp_path, con)
+    attempts = []
+    sleeps = []
+
+    def fetch(ticker, _asset_class, _start, _end):
+        attempts.append(ticker)
+        ticker_attempt = attempts.count(ticker)
+        if ticker == "BIL" and ticker_attempt == 1:
+            raise requests.Timeout("temporary timeout")
+        if ticker == "BIL" and ticker_attempt == 2:
+            return verify_prices.NasdaqResponse(
+                body=b"temporary outage",
+                content_type="text/plain",
+                status_code=503,
+                received_at=NOW,
+            )
+        return _response(
+            ticker,
+            close={"BIL": 100.0, "EFA": 110.0, "SPY": 120.0}[ticker],
+        )
+
+    result = agent_independent_price_evidence.capture(
+        path,
+        "dual_momentum",
+        market_date,
+        fetch=fetch,
+        now=lambda: NOW,
+        sleep=sleeps.append,
+        jitter=lambda _low, _high: 0.0,
+    )
+
+    assert result["inserted_responses"] == 3
+    assert attempts == ["BIL", "BIL", "BIL", "EFA", "SPY"]
+    assert sleeps == [5.0, 10.0]
+    stored = duckdb.connect(str(path), read_only=True)
+    try:
+        assert stored.execute(
+            "SELECT ticker, COUNT(*) FROM agent_independent_price_responses "
+            "GROUP BY ticker ORDER BY ticker"
+        ).fetchall() == [("BIL", 1), ("EFA", 1), ("SPY", 1)]
+    finally:
+        stored.close()
 
 
 def test_repeated_response_is_corroboration_and_changed_value_is_revision(con, tmp_path):
