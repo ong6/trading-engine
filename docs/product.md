@@ -32,7 +32,7 @@ accounting, halts, and kill switches. That split is the product, not a temporary
 5. **Inside the drawdown envelope**: a policy that can lose most of the book fails regardless of
    its recent run.
 
-## Where it stands (2026-10-05)
+## Where it stands (2026-10-06)
 
 The engine runs nightly data collection, screening, a paper league, three frozen forward records,
 weekly walk-forward checks, recovery bundles, research-only market data, and the daily opportunity
@@ -42,9 +42,10 @@ product (P12).
 **No policy has yet beaten its frozen control prospectively.**
 
 [The profitability evidence loop (P15)](plans/p15-profitability-evidence-loop.md) went live on
-2026-09-29 after a verified 90-table recovery bundle. Registration revision 11 is live
-as of 2026-10-05. It binds complete verifier receipts, strict source identity and numeric checks,
-optional-provider refusals, backup identity corrections and behavior-preserving extraction.
+2026-09-29 after a verified 90-table recovery bundle. The current source registration is
+revision 12: bounded complete-metadata recovery, retaining revision 11's complete verifier
+receipts, strict source identity/numeric checks, optional-provider refusals, backup identity
+corrections and behavior-preserving extraction.
 Scoring, books, gates, labels, registered values, schedules and written evidence are unchanged.
 P15 is `active` and collecting; no performance claim exists before its registered looks.
 Earlier operational revisions introduced stage timings, bounded collection, snapshot throttling,
@@ -86,6 +87,13 @@ registration, rehearsal, and activation half (W9b) still owns any activation.
 
 Since 2026-09-28, new strategy research runs in a private repository against this engine under
 the same census and pre-registration rules; its results are not published here.
+
+P21 implements the generic [paper-account boundary](paper-account-contract.md). Private alpha
+owns generation, trade specifications and manual/all/auto planning across USD 10k/50k/100k
+tiers; the engine owns each account's funding, holdings, orders, fills, cash and equity. New
+accounts start inactive. Selecting or testing a tier grants no strategy activation. Stock/ETF
+requests use the existing next-open simulator; options and futures are refused until their
+execution models and authority are separately admitted.
 
 ## Stages
 
@@ -155,7 +163,7 @@ Each row has the default that applies until the owner decides.
 | Decision | Unblocks | Default until decided |
 |---|---|---|
 | **Failure response** | Operational follow-up | Decided 2026-10-02: an agent investigates on demand; no push alerting |
-| **Private-strategy paper book** | Real-time paper observation of separately held research | Decided 2026-10-02: paper only; private research strategies stay separate and reach the engine only through the shared backtest core and paper books |
+| **Private-strategy paper book** | Activation of separately held research in paper books | P21 generic account intake is implemented; new accounts remain inactive and strategy activation still needs its own admitted gates |
 | **Fill model v5 basis**: keep W6 as non-activating continuous-opening measurement, or authorize a separately registered continuous-session cohort before Stage 2 paper-auction evidence exists | Any pre-Stage-2 use of v5 coefficients | Measurement and report only; `baseline_v1` remains the default and direct paper-auction evidence is required for an auction v5 |
 | **`research-text` dependency group** (`torch`, `transformers` in a separate virtual environment) | P16's time-locked historical text lab | P16 W4 stops after building the corpus |
 | **Simulator short side** | Using the ~half of candidates that are losers | Long-only. P15 filters candidates to upside and trend names |
@@ -170,7 +178,7 @@ Each row has the default that applies until the owner decides.
 
 ## Focus now (in order)
 
-1. **Keep the evidence clean and the revision 11 operating path green.** Use per-stage timings to
+1. **Keep the evidence clean and the revision 12 operating path green.** Use per-stage timings to
    watch the bounded collection, shared snapshots, queue, observers, and status projections. Keep
    scheduled producers green, miss no agent windows, allow no identity drift, and leave no
    uncommitted work on the host. A broken producer beats every item below.

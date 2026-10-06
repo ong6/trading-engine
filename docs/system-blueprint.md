@@ -89,7 +89,7 @@ flowchart LR
 | Layer | Deployed (2026-09-29) | P16 built, inactive | Later |
 |---|---|---|---|
 | Data | EOD store, screens, earnings, headline titles, TradingView research data, the TradingView historical archive (P14); P15 RSS and 8-K event facts and intraday mover scan | Acceptance-timestamped filing capture and gated historical EDGAR/news corpus paths | Point-in-time data (P3; owner spend) |
-| Signals | Daily opportunity agent (P8) nightly pick; multi-cadence agent tools (P9) shadow observers; P15 candidate scoring, deterministic baseline, pre-open cancel, and shadow event triggers; P7 allocator (inactive) | Challenger lab (blinded, memory, tournament, ensemble, ablations) and filing reader | Promoted challengers get book authority; separately held strategies through a plug-in boundary |
+| Signals | Daily opportunity agent (P8) nightly pick; multi-cadence agent tools (P9) shadow observers; P15 candidate scoring, deterministic baseline, pre-open cancel, and shadow event triggers; P7 allocator (inactive) | Challenger lab (blinded, memory, tournament, ensemble, ablations) and filing reader | Promoted challengers and separately held strategies gain book authority only through their activation gates |
 | Evaluation | Ledger, 1/5/10/20 labels, contamination probes; P15 paired IC test with looks, book comparison, coded P8 gate | Factor-neutral IC, always-valid sequential tests, deflated Sharpe over the N=139 trial census, time-locked text lab, and post-cutoff replay lockbox | Stage gates computed from live fills |
 | Portfolio | P8 fixed-fraction sizing, 3 names; P15 ATR sizing, SPY core, 8 names | Score-to-weight optimizer, recovery, and shadow diagnostics | Beta hedge if shorting is approved |
 | Execution | Next-open simulator, fill model v4; P15 limit-on-open path | Best-attempt opening measurement and slippage calibration; `baseline_v1` remains active | IBKR paper on personal hardware, then live |
@@ -162,7 +162,7 @@ an owner decision first.
 | Stage 2 design (portability, IBKR paper, reconciliation, loss limits) | Complete (P16, docs only) | No broker code on this host |
 | Long-short or beta-hedged books | Later | Needs the shorting decision; would monetize IC far better than long-only |
 | Promote a challenger to book authority | Later | Needs a sequential-test pass and owner approval |
-| Live paper book for separately held strategies | Near-term product direction; implementation still requires an admitted plan | Runs private research strategies in real time without publishing them; paper only, through the shared backtest core and paper books |
+| Live paper book for separately held strategies | Generic account specification and stock/ETF intake implemented (P21); new accounts inactive | Private alpha selects/tests capital tiers and submits requests; engine owns isolated balances and execution. Strategy activation remains gated; options/futures execution is unsupported |
 | Event-trigger order authority | Later | Needs its own gate after P15 evidence |
 | Intraday execution authority | Parked | Needs quote/trade data and queue modelling |
 | Model fine-tuning on own labels | Parked | Tiny, overlapping labels; high overfit risk; revisit after a year of data |

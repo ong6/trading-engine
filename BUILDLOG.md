@@ -2029,4 +2029,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** Extend P21 to 21 logical commits: source correction first, then its exact registration; existing line limits stay fixed.
 - **Next:** Independently review the correction, bind its committed source, rehearse revision 12 and finish recovery acceptance.
 
+## 2026-10-06 — Close the operational and account-isolation review
+
+- **Why:** P21's implementation, independent review and final recovery gates are complete.
+- **What:** Record engine-owned accounts, the 18/18 public walk-forward refresh and verified private recovery.
+  Reconcile implemented intake with still-gated strategy activation; preserve P15 and frozen source authority.
+- **Evidence:** Earlier implementation CI passed both timezones and UI; revision 12 was rehearsed, and recovery receipts passed independent acceptance.
+- **Metrics:** Research runtime unchanged; revision 12 binds the reviewed backup source correction.
+- **Next:** Nothing further admitted by P21; P15 continues its registered evidence collection.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

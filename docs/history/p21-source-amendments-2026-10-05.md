@@ -4,7 +4,7 @@ P21 explicitly admits infrastructure corrections and behavior-preserving complex
 No registered strategy, scoring constant, limit, cohort outcome, label, book rule, look, activation
 clock or schedule changes. No production model call is used for the rehearsal.
 
-## Active evidence path: P15 revision 11
+## Earlier evidence path: P15 revision 11
 
 Revision 10 and its exact source files remain reproducible at commit `46bd665`. Revision 11
 binds the source commit recorded in `server/p15-registration.json` and its full dependency map.
@@ -55,3 +55,23 @@ filesystem identity and do not provide supported-host release proof. Revision 11
 All 135 source bindings were independently verified, while the frozen XS collector stayed byte-identical.
 The later history-metadata Mapping correction is outside the registered dependency closure.
 P16 remains registered but inactive; these infrastructure updates grant no new execution authority.
+
+## P15 revision 12 — complete recovery metadata
+
+The recorded daily backup exposed the recovery helper's 1 MiB limit for the complete
+`data/_meta.json` snapshot. Its existing locked-copy fallback preserved logical database
+recovery; that result did not establish a verified operational bundle. Revision 12 binds
+source commit `de071fc995aefef6172ff76c52e7dc4afb2e5819` for the narrow correction.
+Both descriptor-based copying and operational verification now admit this exact metadata
+path up to 8 MiB, matching the existing snapshot contract. Other artifacts retain 1 MiB caps.
+
+The dependency set remains 135 paths. Only `tools/backup_database.py` changes its source pin;
+revision number/reason, source commit and the complete registration digest are updated through
+the established amendment path. The exact source-commit assertion remains enforced. All other
+registration fields are byte-equivalent as parsed values, including policy, activation clock,
+books, scoring values, labels, gates, delivery and schedules. The research runtime remains
+`e533fb3b2cbb71a883fdb88ff4af0b6257676575c4e7bc0bfb80df4cf0373c4e` across 202 source files, and the frozen collector is unchanged.
+
+Independent backup regression acceptance and the normal P15 registration/operating rehearsal
+are required before publication. No production model-policy call, activation or schedule change
+is part of that rehearsal. Revision 11 and its original source commit remain reproducible.
