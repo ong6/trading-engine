@@ -34,6 +34,7 @@ from engine.lib.settings import DATA_DIR, REPO_ROOT
 from engine.lib.util import table_exists
 from farm.stats.equity import max_drawdown
 from farm.walkforward.protocol import minus_months
+from sim import book_breaks
 from sim.execution import resolve_profile
 from sim.portfolio import FILL_MODEL_VERSION
 from sim.strategies import REGISTRY
@@ -736,13 +737,20 @@ def evaluate(con, prior_result: dict | None = None) -> dict:
     as_of = shared[-1][0]
     forward_ledger = _forward_ledger(con, as_of)
     forward_ledger_sha256 = canonical_sha256(_ledger_checkpoint(forward_ledger))
+    clock_start = book_breaks.evaluation_start(
+        con, (CANDIDATE_ID, CONTROL_ID), OBSERVATION_START
+    )
+    clocked = [row for row in shared if row[0] >= clock_start]
+    evaluation_rows = clocked or [shared[-1]]
     cutoff = minus_months(as_of, WINDOW_MONTHS)
-    full_calendar_window = first_date <= cutoff
+    full_calendar_window = bool(clocked) and clock_start <= cutoff
     if full_calendar_window:
-        start_index = max(i for i, row in enumerate(shared) if row[0] <= cutoff)
+        start_index = max(
+            i for i, row in enumerate(evaluation_rows) if row[0] <= cutoff
+        )
     else:
         start_index = 0
-    window = shared[start_index:]
+    window = evaluation_rows[start_index:]
 
     candidate_metrics = _book_metrics(window, 1)
     control_metrics = _book_metrics(window, 2)
@@ -787,11 +795,16 @@ def evaluate(con, prior_result: dict | None = None) -> dict:
             "first_shared_date": first_date.isoformat(),
             "window_start": window[0][0].isoformat(),
             "as_of": as_of.isoformat(),
-            "calendar_days_available": (as_of - first_date).days,
-            "shared_sessions_available": len(shared),
+            "evaluation_clock_start": clock_start.isoformat(),
+            "cost_break_session": (
+                clock_start.isoformat() if clock_start > OBSERVATION_START else None
+            ),
+            "calendar_days_available": max(0, (as_of - clock_start).days),
+            "shared_sessions_available": len(clocked),
+            "pre_break_shared_sessions": len(shared) - len(clocked),
             "shared_sessions_in_window": len(window),
             "minimum_shared_sessions": MIN_SHARED_SESSIONS,
-            "eligible_after": _plus_months(first_date, WINDOW_MONTHS).isoformat(),
+            "eligible_after": _plus_months(clock_start, WINDOW_MONTHS).isoformat(),
             "mature": mature,
             "equity_sha256": canonical_sha256(equity_payload),
             "forward_ledger_sha256": forward_ledger_sha256,
@@ -850,6 +863,15 @@ def render(result: dict) -> str:
         "CONTINUE": "The kill condition did not fire; this does not establish positive alpha.",
         "REVIEW-KILL": "The frozen kill condition fired; a human should review retirement.",
     }[result["status"]]
+    break_lines = (
+        [
+            "Commissions and this evaluation clock restart at the recorded break "
+            f"**{obs['cost_break_session']}**.",
+            "",
+        ]
+        if obs.get("cost_break_session")
+        else []
+    )
     return "\n".join(
         [
             "# Sector momentum — forward paper review",
@@ -868,6 +890,7 @@ def render(result: dict) -> str:
             "",
             result["frozen_runtime"]["baseline_note"],
             "",
+            *break_lines,
             f"{mature_note} {interpretation}",
             "",
             "| Measure | `sector_momentum` | `spy_benchmark` | Difference |",

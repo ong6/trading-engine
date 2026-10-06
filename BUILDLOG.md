@@ -2170,4 +2170,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +22, tools unchanged, product +396; tests +218; budget ok.
 - **Next:** add the one-shot D0 migration and restart every book evaluation clock.
 
+## 2026-10-06 — Restart book clocks at the commission break
+
+- **Why:** P22 section 4 requires a one-shot D0 migration and restarts every
+  book-comparison clock without rewriting its frozen pre-break evidence.
+- **What:** Add the parameterized migration, R13 side-table routing, break rows,
+  sequence reservation, and lazy L4 first-fetch backfill. It refuses repeats and any
+  D0-or-later equity. P15, P8, sector, and XS metrics now start at their common break;
+  the frozen forward prefixes remain validated and their reports disclose the restart.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_migrate_cost_profiles.py
+  tests/test_book_breaks.py tests/test_p15_evaluation.py` — 36 passed.
+- **Metrics:** server unchanged, tools +144, product +68; tests +342; budget ok.
+- **Next:** reconcile P22's product/scope/blueprint/plan documents, then run lane gates.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
