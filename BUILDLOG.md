@@ -2239,4 +2239,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged since the implementation entry; budget ok.
 - **Next:** L3 applies the existing handoffs and rebinds merged runtime contracts.
 
+## 2026-10-06 — Isolate and retry agent data capture failures
+
+- **Why:** `pytest -q -W error -n 0 tests/test_agent_provider_responses.py::test_ticker_failure_preserves_other_verified_receipts` reproduced that an EFA response failure leaves only BIL committed and skips SPY.
+- **What:** Add bounded transient retries to both external evidence sources and isolate per-symbol failures.
+  Run all four capture stages through one aggregate runner so later stages still execute while the unit reports any failure.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_agent_provider_responses.py tests/test_agent_independent_price_evidence.py tests/test_agent_data_capture_runner.py` passed all 24 tests.
+- **Metrics:** Server +235 lines and tests +181; tools and product unchanged. Budget passed.
+- **Next:** Nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

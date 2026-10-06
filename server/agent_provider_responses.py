@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import random
 import re
+import time as time_module
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from importlib.metadata import PackageNotFoundError, version
@@ -33,6 +35,9 @@ SOURCE_OBSERVATION_ADAPTER = "yahoo_finance.chart_v8"
 SOURCE_OBSERVATION_ADAPTER_VERSION = "exact_response_v1"
 MAX_RESPONSE_BYTES = 2_000_000
 MAX_CONTENT_TYPE_CHARS = 128
+REQUEST_ATTEMPTS = 3
+BACKOFF_BASE_SECONDS = 5.0
+MAX_TOTAL_BACKOFF_SECONDS = 30.0
 PROVIDER_TICKER = re.compile(r"^[A-Za-z0-9.^=-]{1,32}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -50,6 +55,8 @@ class Response:
 
 
 Fetch = Callable[[str, date, date], Response]
+Sleep = Callable[[float], None]
+Jitter = Callable[[float, float], float]
 
 
 def _utc(value: datetime, field: str) -> datetime:
@@ -127,6 +134,65 @@ def _fetch(provider_ticker: str, start: date, end: date) -> Response:
     except Exception as exc:
         raise ProviderResponseError("provider response request failed") from exc
     return Response(body, content_type, status_code, received_at)
+
+
+def _transient_exception(exc: BaseException) -> bool:
+    """Recognize connection, timeout, and DNS failures through wrapper causes."""
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, (TimeoutError, ConnectionError, OSError)):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _transient_status(status_code: object) -> bool:
+    return isinstance(status_code, int) and (
+        status_code == 429 or 500 <= status_code <= 599
+    )
+
+
+def _request_with_retry(
+    fetch: Fetch,
+    provider_ticker: str,
+    start: date,
+    end: date,
+    *,
+    now: Callable[[], datetime],
+    sleep: Sleep,
+    jitter: Jitter,
+) -> tuple[datetime, Response]:
+    """Return only a successful/non-transient response after bounded retries."""
+    backoff_spent = 0.0
+    for attempt in range(REQUEST_ATTEMPTS):
+        requested_at = now()
+        transient_error: BaseException | None = None
+        try:
+            response = fetch(provider_ticker, start, end)
+        except Exception as exc:
+            if not _transient_exception(exc):
+                raise
+            transient_error = exc
+        else:
+            if not _transient_status(response.status_code):
+                return requested_at, response
+            transient_error = ProviderResponseError(
+                f"provider returned transient HTTP {response.status_code}"
+            )
+        if attempt + 1 == REQUEST_ATTEMPTS:
+            raise ProviderResponseError(
+                f"provider response request failed after {REQUEST_ATTEMPTS} attempts"
+            ) from transient_error
+        base = BACKOFF_BASE_SECONDS * (2**attempt)
+        delay = min(
+            base + max(0.0, jitter(0.0, base / 2.0)),
+            MAX_TOTAL_BACKOFF_SECONDS - backoff_spent,
+        )
+        sleep(delay)
+        backoff_spent += delay
+    raise AssertionError("unreachable")
 
 
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
@@ -815,6 +881,8 @@ def capture(
     *,
     fetch: Fetch = _fetch,
     now: Callable[[], datetime] | None = None,
+    sleep: Sleep = time_module.sleep,
+    jitter: Jitter = random.uniform,
 ) -> dict:
     """Fetch without a writer lease, then atomically retain validated receipts."""
     con = engine_db.connect(database, read_only=True)
@@ -829,24 +897,42 @@ def capture(
         "linked_observations": 0,
         "inserted_source_observations": 0,
     }
+    failures = []
+    clock = now or (lambda: datetime.now(timezone.utc))
     for ticker, provider_ticker, start, end in scope:
-        requested_at = (now or (lambda: datetime.now(timezone.utc)))()
-        response = fetch(provider_ticker, start, end)
-        receipt, facts = _receipt(
-            ticker=ticker,
-            provider_ticker=provider_ticker,
-            start=start,
-            end=end,
-            requested_at=requested_at,
-            response=response,
-        )
-        con = engine_db.connect(database)
         try:
-            result = _persist(con, [(receipt, response.body, facts)])
-        finally:
-            con.close()
+            requested_at, response = _request_with_retry(
+                fetch,
+                provider_ticker,
+                start,
+                end,
+                now=clock,
+                sleep=sleep,
+                jitter=jitter,
+            )
+            receipt, facts = _receipt(
+                ticker=ticker,
+                provider_ticker=provider_ticker,
+                start=start,
+                end=end,
+                requested_at=requested_at,
+                response=response,
+            )
+            con = engine_db.connect(database)
+            try:
+                result = _persist(con, [(receipt, response.body, facts)])
+            finally:
+                con.close()
+        except ProviderResponseError as exc:
+            failures.append((ticker, str(exc)))
+            continue
         for field in totals:
             totals[field] += result[field]
+    if failures:
+        detail = "; ".join(f"{ticker}: {message}" for ticker, message in failures)
+        raise ProviderResponseError(
+            f"provider response capture failed for {len(failures)} ticker(s): {detail}"
+        )
     return {
         "schema_version": RESPONSE_SCHEMA_VERSION,
         "strategy_id": strategy_id,
