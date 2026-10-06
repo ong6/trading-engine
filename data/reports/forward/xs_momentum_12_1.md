@@ -1,6 +1,6 @@
 # XS momentum 12-1 — prospective paper review
 
-_Status **ACCUMULATING** · through 2026-10-05 · paper only · no automatic action._
+_Status **ACCUMULATING** · through 2026-10-06 · paper only · no automatic action._
 
 The first shared close after the frozen 2026-09-30 signal and next-open execution is the baseline. This excludes legacy EW performance and the initial transition; later monthly rebalances retain their realized costs.
 
@@ -8,8 +8,8 @@ The test cannot mature before **2031-10-01** and requires at least **48** comple
 
 | Measure | `xs_momentum_12_1` | `ew_benchmark` | Difference |
 |---|---:|---:|---:|
-| Return | +1.19% | +3.70% | -2.51% |
-| Max drawdown | +0.00% | +0.00% | +0.00% |
+| Return | -2.14% | +1.43% | -3.57% |
+| Max drawdown | -3.29% | -2.19% | -1.10% |
 | Mean monthly excess | · | · | · (90% CI) |
 
 A positive verdict is evidence for continued paper observation only. It cannot authorize live capital or automatic promotion.
