@@ -2346,4 +2346,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +6, tools/product unchanged; budget ok.
 - **Next:** publish metrics and return revised Phase A status.
 
+## 2026-10-06 — Publish reviewed P22 L3 Phase A metrics
+
+- **Why:** the active P22 plan requires a fresh budget snapshot after the refreshed-base
+  merge, byte-identity rehearsal and review corrections.
+- **What:** Publish the reviewed Phase A repository metrics; no live state, producer,
+  registered policy or service changed in this closure step.
+- **Evidence:** `.venv/bin/python -m tools.metrics_snapshot --check-budget` — snapshot
+  published with `budget.ok=true` and no violations.
+- **Metrics:** server/tools/product unchanged; budget ok.
+- **Next:** await the orchestrator's L1/L2 merge and Phase B signal.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
