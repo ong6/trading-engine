@@ -307,7 +307,7 @@ def test_missing_short_data_rejects_short_but_other_order_and_mark_complete(con)
     )
     con.execute("UPDATE sim_order_details SET state_reason='bar_missing'")
     con.execute(
-        "CREATE TABLE account_events (id BIGINT PRIMARY KEY,portfolio_id VARCHAR,"
+        "CREATE TABLE IF NOT EXISTS account_events (id BIGINT PRIMARY KEY,portfolio_id VARCHAR,"
         "kind VARCHAR,payload VARCHAR,created_at TIMESTAMP)"
     )
     result = _settle(con, late=True)
@@ -344,7 +344,7 @@ def test_stale_locate_is_recorded_for_results(con):
         "('XYZ','2026-09-01',1,'2026-09-01')"
     )
     con.execute(
-        "CREATE TABLE account_events (id BIGINT PRIMARY KEY,portfolio_id VARCHAR,"
+        "CREATE TABLE IF NOT EXISTS account_events (id BIGINT PRIMARY KEY,portfolio_id VARCHAR,"
         "kind VARCHAR,payload VARCHAR,created_at TIMESTAMP)"
     )
     _order(con, "acct-a", "XYZ", "short", 10, "moo",
