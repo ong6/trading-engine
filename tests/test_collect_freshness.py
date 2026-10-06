@@ -56,3 +56,25 @@ def test_incremental_universe_tolerates_missing_account_tables():
         assert account_watch.incremental_universe(con) == {"LIQ": "LIQ"}
     finally:
         con.close()
+
+
+def test_supplemental_universe_defaults_to_logged_two_thousand_cap(caplog):
+    con = duckdb.connect()
+    try:
+        con.execute(
+            "CREATE TABLE universe (ticker VARCHAR PRIMARY KEY, yf_ticker VARCHAR, liquid BOOLEAN)"
+        )
+        rows = [(f"T{index:04d}", f"T{index:04d}", False) for index in range(2001)]
+        con.executemany("INSERT INTO universe VALUES (?, ?, ?)", rows)
+        account_watch.init_schema(con)
+        con.executemany(
+            "INSERT INTO account_watch VALUES ('acct-a', ?)",
+            [[ticker] for ticker, _provider, _liquid in rows],
+        )
+
+        names = account_watch.supplemental_universe(con)
+    finally:
+        con.close()
+
+    assert len(names) == account_watch.DEFAULT_SUPPLEMENTAL_LIMIT
+    assert "truncating supplemental universe from 2001 to 2000" in caplog.text
