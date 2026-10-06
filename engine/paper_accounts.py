@@ -100,9 +100,13 @@ def create_account(con, spec: dict, *, now: datetime) -> dict:
         capital = spec["capital_usd"]
         config = {"id": account_id, "strategy": "discretionary", "cadence": "daily",
                   "external_specification_sha256": digest, "params": {}}
-        con.execute("INSERT INTO portfolios VALUES (?,?,?,?,?,FALSE,?,?,?)",
-                    [account_id, account_id, "discretionary", json.dumps(config, sort_keys=True),
-                     now.date(), capital, capital, DEFAULT_PROFILE_ID])
+        con.execute(
+            "INSERT INTO portfolios "
+            "(id,name,strategy,config,created,active,cash,initial_cash,execution_profile) "
+            "VALUES (?,?,?,?,?,FALSE,?,?,?)",
+            [account_id, account_id, "discretionary", json.dumps(config, sort_keys=True),
+             now.date(), capital, capital, DEFAULT_PROFILE_ID],
+        )
         con.execute("INSERT INTO paper_account_specs VALUES (?,?,?,?)",
                     [account_id, json.dumps(spec, sort_keys=True), digest, now])
     return {"account_id": account_id, "replayed": False, "specification_sha256": digest}

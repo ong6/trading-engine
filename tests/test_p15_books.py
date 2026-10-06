@@ -135,7 +135,8 @@ def test_mixed_activation_and_runtime_rows_fail_closed(con):
 def test_initialization_and_activation_are_atomic_and_reject_owned_state(con):
     checkpoint = date(2026, 9, 24)
     con.execute(
-        "INSERT INTO portfolios VALUES "
+        "INSERT INTO portfolios "
+        "(id,name,strategy,config,created,active,cash,initial_cash,execution_profile) VALUES "
         "('p15_rule_control','wrong','noop','{}',?,FALSE,1,1,'baseline_v1')",
         [checkpoint],
     )
@@ -148,7 +149,8 @@ def test_initialization_and_activation_are_atomic_and_reject_owned_state(con):
     con.execute("DELETE FROM portfolios WHERE id='p15_rule_control'")
     p15_books.initialize_books(con, checkpoint)
     con.execute(
-        "INSERT INTO portfolios VALUES "
+        "INSERT INTO portfolios "
+        "(id,name,strategy,config,created,active,cash,initial_cash,execution_profile) VALUES "
         "('control','control','noop','{}',?,TRUE,100,100,'baseline_v1')",
         [checkpoint],
     )
@@ -172,7 +174,9 @@ def test_activation_requires_one_common_active_checkpoint(con):
     checkpoint = date(2026, 9, 24)
     p15_books.initialize_books(con, checkpoint)
     con.executemany(
-        "INSERT INTO portfolios VALUES (?,?,'noop','{}',?,TRUE,100,100,'baseline_v1')",
+        "INSERT INTO portfolios "
+        "(id,name,strategy,config,created,active,cash,initial_cash,execution_profile) "
+        "VALUES (?,?,'noop','{}',?,TRUE,100,100,'baseline_v1')",
         [("a", "a", checkpoint), ("b", "b", checkpoint)],
     )
     con.executemany(
@@ -690,7 +694,8 @@ def test_complete_dry_run_window_uses_copy_and_leaves_source_unchanged(tmp_path)
     for ticker in ("SPY", "AAA"):
         insert_bars(con, ticker, SESSIONS[:31], open_=100, close=100, high=101, low=99)
     con.execute(
-        "INSERT INTO portfolios VALUES "
+        "INSERT INTO portfolios "
+        "(id,name,strategy,config,created,active,cash,initial_cash,execution_profile) VALUES "
         "('control','control','noop','{}',?,TRUE,100,100,'baseline_v1')",
         [signal_date],
     )
