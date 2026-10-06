@@ -8,10 +8,12 @@ the source exposes one.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import duckdb
+
+from . import order_types
 
 NEW_YORK = ZoneInfo("America/New_York")
 
@@ -62,28 +64,8 @@ def _naive_utc(value: datetime) -> datetime:
 
 def session_bounds(session_date: date) -> tuple[datetime, datetime]:
     """UTC-naive regular-session bounds, including recurring early closes."""
-    opened = datetime.combine(session_date, time(9, 30), NEW_YORK)
-    from . import order_types
-
-    resolver = getattr(order_types, "session_close", None)
-    if resolver is not None:
-        value = resolver(session_date)
-        closed = (
-            value.astimezone(NEW_YORK)
-            if isinstance(value, datetime) and value.utcoffset() is not None
-            else value.replace(tzinfo=NEW_YORK)
-            if isinstance(value, datetime)
-            else datetime.combine(session_date, value, NEW_YORK)
-        )
-    else:
-        # Temporary old-base shim for the L0 round-2 API.
-        early = (
-            (session_date.month, session_date.day) in {(7, 3), (12, 24)}
-            or session_date.month == 11
-            and session_date.weekday() == 4
-            and 23 <= session_date.day <= 29
-        )
-        closed = datetime.combine(session_date, time(13 if early else 16), NEW_YORK)
+    opened = datetime.combine(session_date, order_types.MARKET_OPEN, NEW_YORK)
+    closed = order_types.session_close(session_date)
     return _naive_utc(opened), _naive_utc(closed)
 
 
@@ -225,10 +207,8 @@ def minute_session_complete(
     source: str = "intraday_prices",
     available_at: datetime | None = None,
 ) -> bool:
-    """Whether no later executable minute can still appear for this read."""
+    """Whether captured bars reach the final minute of the session."""
     _opened, closed = session_bounds(session_date)
-    if available_at is not None and _naive_utc(available_at) >= closed:
-        return True
     bars = minute_bars(
         con, ticker, session_date, source=source, available_at=available_at,
     )

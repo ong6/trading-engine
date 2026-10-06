@@ -8,7 +8,7 @@ import pytest
 
 from engine.accounts.settle import settle_session
 from sim import costs, ledger, shorts
-from sim.schema import next_order_id
+from sim.schema import next_order_id, set_portfolio_account
 from tests.conftest import insert_bars
 
 DAY = date(2026, 10, 12)
@@ -17,35 +17,28 @@ NEW_YORK = ZoneInfo("America/New_York")
 SETTLED_AT = datetime(2026, 10, 13, 8, tzinfo=timezone.utc)
 
 
-def _settings_table(con):
-    con.execute(
-        "CREATE TABLE IF NOT EXISTS portfolio_accounts ("
-        "portfolio_id VARCHAR PRIMARY KEY,engine VARCHAR,cost_profile VARCHAR,"
-        "account_type VARCHAR,visibility VARCHAR,status VARCHAR,price_source VARCHAR,"
-        "day_trade_rule VARCHAR,allow_short BOOLEAN,updated_at TIMESTAMP)"
-    )
-
-
 def _account(
     con, account_id, *, capital=50_000, rule="pdt_25k_legacy", allow_short=True,
     account_type="margin",
 ):
-    _settings_table(con)
     con.execute(
         "INSERT INTO portfolios "
         "(id,name,strategy,config,created,active,cash,initial_cash,execution_profile) "
         "VALUES (?,?, 'none','{}',?,TRUE,?,?, 'baseline_v1')",
         [account_id, account_id, PRIOR, capital, capital],
     )
-    con.execute(
-        "UPDATE portfolios SET account_type=?,cost_profile='ibkr_pro_tiered_v1',"
-        "engine='account',visibility='private',price_source='prices' WHERE id=?",
-        [account_type, account_id],
-    )
-    con.execute(
-        "INSERT INTO portfolio_accounts VALUES "
-        "(?, 'account','ibkr_pro_tiered_v1',?,'private','active','prices',?,?,?)",
-        [account_id, account_type, rule, allow_short, datetime(2026, 10, 9, 20)],
+    set_portfolio_account(
+        con,
+        account_id,
+        engine="account",
+        cost_profile="ibkr_pro_tiered_v1",
+        account_type=account_type,
+        visibility="private",
+        status="active",
+        price_source="prices",
+        day_trade_rule=rule,
+        allow_short=allow_short,
+        updated_at=datetime(2026, 10, 9, 20),
     )
 
 
@@ -219,6 +212,30 @@ def test_contingent_moc_uses_exact_fractional_moo_quantity(con):
     ).fetchone() == (0.0,)
 
 
+def test_contingent_child_keeps_its_received_at_position(con):
+    _account(con, "acct-a", capital=10_000)
+    _daily(con, "XYZ")
+    parent = _order(
+        con, "acct-a", "XYZ", "buy", 60, "moo",
+        datetime(2026, 10, 12, 9, 27, tzinfo=NEW_YORK),
+    )
+    child = _order(
+        con, "acct-a", "XYZ", "sell", 999, "moc",
+        datetime(2026, 10, 12, 9, 27, 1, tzinfo=NEW_YORK),
+        contingent_on=parent,
+    )
+    later = _order(
+        con, "acct-a", "XYZ", "buy", 60, "moo",
+        datetime(2026, 10, 12, 9, 27, 2, tzinfo=NEW_YORK),
+    )
+    result = _settle(con)
+    assert result["filled"] == 3
+    assert con.execute(
+        "SELECT id,status FROM sim_orders WHERE id IN (?,?,?) ORDER BY id",
+        [parent, child, later],
+    ).fetchall() == [(parent, "filled"), (child, "filled"), (later, "filled")]
+
+
 def test_contingent_moc_does_nothing_when_moo_is_refused(con):
     _account(con, "acct-a")
     _daily(con, "XYZ")
@@ -276,13 +293,37 @@ def test_short_in_threshold_name_is_refused_without_fill(con):
     assert con.execute("SELECT COUNT(*) FROM sim_fills").fetchone() == (0,)
 
 
-def test_short_settlement_requires_short_data_connection(con):
-    _account(con, "acct-a", allow_short=True)
+def test_missing_short_data_rejects_short_but_other_order_and_mark_complete(con):
+    _account(con, "short", allow_short=True)
+    _account(con, "other")
     _daily(con, "XYZ", open_=10, close=10, mdv=10_000_000)
-    _order(con, "acct-a", "XYZ", "short", 10, "moo",
-           datetime(2026, 10, 12, 9, 27, tzinfo=NEW_YORK))
-    with pytest.raises(RuntimeError, match="short-data connection"):
-        _settle(con)
+    short_order = _order(
+        con, "short", "XYZ", "short", 10, "moo",
+        datetime(2026, 10, 12, 9, 27, tzinfo=NEW_YORK),
+    )
+    other_order = _order(
+        con, "other", "XYZ", "buy", 10, "moo",
+        datetime(2026, 10, 12, 9, 27, 1, tzinfo=NEW_YORK),
+    )
+    con.execute("UPDATE sim_order_details SET state_reason='bar_missing'")
+    con.execute(
+        "CREATE TABLE account_events (id BIGINT PRIMARY KEY,portfolio_id VARCHAR,"
+        "kind VARCHAR,payload VARCHAR,created_at TIMESTAMP)"
+    )
+    result = _settle(con, late=True)
+    assert result["filled"] == result["rejected"] == 1
+    assert con.execute(
+        "SELECT status,reject_reason FROM sim_orders WHERE id=?", [short_order]
+    ).fetchone() == ("rejected", "locate_unavailable")
+    assert con.execute(
+        "SELECT kind FROM account_events WHERE portfolio_id='short'"
+    ).fetchone() == ("locate_unavailable",)
+    assert con.execute(
+        "SELECT status FROM sim_orders WHERE id=?", [other_order]
+    ).fetchone() == ("filled",)
+    assert con.execute(
+        "SELECT equity FROM sim_equity WHERE portfolio_id='other' AND date=?", [DAY]
+    ).fetchone() is not None
 
 
 def test_stale_locate_is_recorded_for_results(con):
@@ -464,6 +505,29 @@ def test_late_moo_unblocks_and_fills_its_contingent_moc(con):
     assert con.execute(
         "SELECT order_id,qty FROM sim_fills ORDER BY order_id"
     ).fetchall() == [(moo, 2.25), (moc, 2.25)]
+
+
+def test_intraday_capture_outage_stays_pending_for_late_retries(con):
+    _account(con, "late")
+    _daily(con, "XYZ")
+    _minute_table(con)
+    order_id = _order(
+        con, "late", "XYZ", "buy", 1, "market",
+        datetime(2026, 10, 12, 10, 17, tzinfo=NEW_YORK),
+    )
+    first = _settle(con)
+    assert first["pending"] == 1
+    assert con.execute(
+        "SELECT status FROM sim_orders WHERE id=?", [order_id]
+    ).fetchone() == ("pending",)
+    final = settle_session(
+        con, DAY, late=True,
+        settled_at=datetime(2026, 10, 15, 20, tzinfo=timezone.utc),
+    )
+    assert final["rejected"] == 1
+    assert con.execute(
+        "SELECT status,reject_reason FROM sim_orders WHERE id=?", [order_id]
+    ).fetchone() == ("rejected", "no_bar")
 
 
 def test_cash_clamp_charges_fee_for_applied_fractional_quantity(con):
