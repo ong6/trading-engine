@@ -20,6 +20,14 @@
   "phase": "forward",
   "registered": "2026-07-29",
 
+  "runtime_revision": {
+    "version": 7,
+    "decision_date": "2026-10-06",
+    "reason": "The owner moved every engine book to effective-dated commissions at a parameterized D0 with restarted book clocks, and authorized explicit frozen-runtime rebinding for the additive account schema, monotonic order sequence and shared ledger/replay refactor.",
+    "behavior_change": "Engine books charge ibkr_pro_tiered_v1 from D0. E1 remains on its frozen 20 bp compatibility cost and its strategy, accumulated observations and verdict rule do not change.",
+    "pre_d0_replay": "A snapshot-copy 2026-10-05 rerun produced byte-identical league.csv and league.md under the predecessor and revised runtimes."
+  },
+
   "parent_config": "farm/experiments/e1-spy-monday.yaml",
   "parent_config_hash": "5dc40ff465de67a9b887966ba853bf5dfcb310076edd171739c4fd7ebe925d35",
 

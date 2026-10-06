@@ -348,9 +348,10 @@ def test_forward_fill_ledger_is_validated_and_hashed(con):
         result["frozen_runtime"]["superseded_runtime_contract_sha256"]
         == forward_review.SUPERSEDED_RUNTIME_CONTRACT_SHA256
     )
-    assert "interruption-safe transaction cleanup" in (
+    assert "Owner decision 2026-10-06" in (
         result["frozen_runtime"]["runtime_contract_migration"]
     )
+    assert "pre-D0" in result["frozen_runtime"]["runtime_contract_migration"]
     assert result["execution"][forward_review.CANDIDATE_ID]["filled"] == 1
     assert len(result["observation"]["forward_ledger_sha256"]) == 64
 

@@ -117,6 +117,12 @@ def _cohort_payload(cohort: dict | None) -> dict:
         ),
         "cohort_data_snapshot_sha256": cohort["data_snapshot_sha256"] if cohort else None,
         "cohort_comparison_protocol": cohort["comparison_protocol"] if cohort else None,
+        "cohort_runtime_contract_revision": (
+            cohort["runtime_contract"]["revision"] if cohort else None
+        ),
+        "cohort_runtime_contract_sha256": (
+            cohort["runtime_contract"]["sha256"] if cohort else None
+        ),
         "cohort_signature_sha256": canonical_sha256(cohort) if cohort else None,
     }
 

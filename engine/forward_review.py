@@ -53,7 +53,7 @@ MAX_TRAIL = 0.10
 OBSERVATION_START = date(2026, 9, 4)
 EXPECTED_INITIAL_CASH = 39_000.0
 EXPECTED_EXECUTION_PROFILE = "baseline_v1"
-EXPECTED_FILL_MODEL_VERSION = "v4"
+EXPECTED_FILL_MODEL_VERSION = "v5"
 EXPECTED_PROFILE_SHA256 = "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db"
 EXPECTED_BASELINE_EQUITY = {
     CANDIDATE_ID: 41_742.09372396311,
@@ -83,20 +83,21 @@ EXPECTED_BASELINE_STATE_SHA256 = (
 EXPECTED_LEGACY_BASELINE_EQUITY_SHA256 = (
     "1fb07940da9d3a310b9d63ccf3829184edd68175a81cac30b78344f3913a88cb"
 )
-RUNTIME_CONTRACT_VERSION = 10
+RUNTIME_CONTRACT_VERSION = 11
 SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "c430b451ee510c858705ba4235f81b68f9d7443745a60b4716035acb32741788"
-)
-RUNTIME_CONTRACT_MIGRATION = (
-    "2026-09-18 isolated agent-paper lifecycle after interruption-safe transaction cleanup: "
-    "attributed agent orders survive same-date "
-    "reruns and the no-op agent book uses the ordinary simulator lifecycle; sector strategy, "
-    "execution economics, baseline, and evidence-continuity rules are unchanged"
-)
-EXPECTED_RUNTIME_CONTRACT_SHA256 = (
     "8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce"
 )
-RUNTIME_CONTRACT_FILES = (
+RUNTIME_CONTRACT_MIGRATION = (
+    "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized "
+    "D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared "
+    "ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a "
+    "snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. Sector strategy, "
+    "paired control, baseline prefix and kill criterion are unchanged"
+)
+EXPECTED_RUNTIME_CONTRACT_SHA256 = (
+    "bf54bf3b21df83792d952b7da384635edf97f64a9f30fb6aa816480f351a0471"
+)
+PRIOR_RUNTIME_CONTRACT_FILES = (
     "engine/forward_review.py",
     "engine/actions.py",
     "engine/lib/data_quality.py",
@@ -114,18 +115,32 @@ RUNTIME_CONTRACT_FILES = (
     "sim/strategies/sector_momentum.py",
     "sim/strategies/spy_benchmark.py",
 )
-PRIOR_RUNTIME_CONTRACT_VERSION = 9
+RUNTIME_CONTRACT_FILES = (*PRIOR_RUNTIME_CONTRACT_FILES,
+    "engine/accounts/__init__.py",
+    "engine/accounts/settle.py",
+    "engine/money/alerts.py",
+    "engine/money/halts.py",
+    "sim/bar_sources.py",
+    "sim/book_breaks.py",
+    "sim/costs/__init__.py",
+    "sim/costs/baseline_v1.py",
+    "sim/costs/ibkr_pro_tiered_v1.py",
+    "sim/costs/profiles.py",
+    "sim/ledger.py",
+    "sim/margin.py",
+    "sim/shorts.py",
+)
+PRIOR_RUNTIME_CONTRACT_VERSION = 10
 PRIOR_RUNTIME_CONTRACT_SHA256 = SUPERSEDED_RUNTIME_CONTRACT_SHA256
 PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "c0788167bf63f734c6c9b3428b425a0054f1cead1754048aa00a6cc48eb5662f"
+    "c430b451ee510c858705ba4235f81b68f9d7443745a60b4716035acb32741788"
 )
 PRIOR_RUNTIME_CONTRACT_MIGRATION = (
-    "2026-09-13 interruption-safe transaction cleanup: every explicit DuckDB transaction now "
-    "rolls back process-level interruptions, preserves the original failure if cleanup also "
-    "fails, and leaves borrowed connections reusable; strategy, execution economics, baseline, "
-    "and evidence-continuity rules are unchanged"
+    "2026-09-18 isolated agent-paper lifecycle after interruption-safe transaction cleanup: "
+    "attributed agent orders survive same-date reruns and the no-op agent book uses the ordinary "
+    "simulator lifecycle; sector strategy, execution economics, baseline, and evidence-continuity "
+    "rules are unchanged"
 )
-PRIOR_RUNTIME_CONTRACT_FILES = RUNTIME_CONTRACT_FILES
 EXPECTED_STRATEGY_TYPES = {
     CANDIDATE_ID: SectorMomentum,
     CONTROL_ID: SpyBenchmark,

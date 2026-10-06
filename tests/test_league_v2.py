@@ -48,11 +48,14 @@ def test_rerun_preserves_every_externally_referenced_order(con):
     con.execute(
         "CREATE TABLE daily_opportunity_order_attribution (order_id BIGINT)"
     )
-    con.execute("CREATE TABLE paper_account_intakes (order_id BIGINT)")
     con.execute("CREATE TABLE p15_order_intents (sim_order_id BIGINT)")
     con.execute("CREATE TABLE p16_order_intents (sim_order_id BIGINT)")
     con.execute("INSERT INTO daily_opportunity_order_attribution VALUES (1)")
-    con.execute("INSERT INTO paper_account_intakes VALUES (2)")
+    con.execute(
+        "INSERT INTO paper_account_intakes "
+        "(intent_id,account_id,order_id,payload,sha256,received_at) "
+        "VALUES ('intent-2','book',2,'{}',repeat('a',64),now())"
+    )
     con.execute("INSERT INTO p15_order_intents VALUES (3)")
     con.execute("INSERT INTO p16_order_intents VALUES (4)")
     con.execute(
@@ -138,6 +141,31 @@ def test_present_optional_module_with_missing_hook_fails_loudly(monkeypatch):
 
     with pytest.raises(AttributeError):
         league._optional_phase("engine.accounts.settle", "settle_session", None, SESSIONS[0])
+
+
+def test_integrated_phase_hooks_use_l1_and_l2_entry_points(monkeypatch):
+    observed = []
+
+    def call(module_name, function_name, _con, _day):
+        observed.append((module_name, function_name))
+        return function_name
+
+    monkeypatch.setattr(league, "_optional_phase", call)
+
+    assert league.accrue_accounts(None, SESSIONS[0]) == {
+        "borrow": "accrue_borrow", "interest": "accrue_interest",
+    }
+    assert league.settle_accounts(None, SESSIONS[0]) == "settle_session"
+    assert league.check_account_halts(None, SESSIONS[0]) == {
+        "halts": "check_all", "alerts": "concentration",
+    }
+    assert observed == [
+        ("sim.shorts", "accrue_borrow"),
+        ("sim.margin", "accrue_interest"),
+        ("engine.accounts.settle", "settle_session"),
+        ("engine.money.halts", "check_all"),
+        ("engine.money.alerts", "concentration"),
+    ]
 
 
 def test_private_book_never_reaches_public_files_or_read_models(con, tmp_path):

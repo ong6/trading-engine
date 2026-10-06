@@ -101,9 +101,12 @@ def settle_accounts(con, d: date):
     return _optional_phase("engine.accounts.settle", "settle_session", con, d)
 
 
-def check_account_halts(con, d: date):
-    """Phase b2: apply L2 account halt rules after every portfolio is marked."""
-    return _optional_phase("engine.money.halts", "check_all", con, d)
+def check_account_halts(con, d: date) -> dict:
+    """Phase b2: apply L2 account halts and non-blocking concentration alerts."""
+    return {
+        "halts": _optional_phase("engine.money.halts", "check_all", con, d),
+        "alerts": _optional_phase("engine.money.alerts", "concentration", con, d),
+    }
 
 
 # --------------------------------------------------------------------------- #
