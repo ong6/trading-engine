@@ -2148,4 +2148,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged since the prior entry; budget ok.
 - **Next:** orchestrator applies the two handoff patches and L3 issues the merged runtime contracts.
 
+## 2026-10-06 — Add account auction and intraday fill attempts
+
+- **Why:** active P22 L1 requires opening/closing auctions and deferred minute-bar
+  market/limit execution without changing the legacy next-open fill path.
+- **What:** Add point-in-time daily/minute source readers, inclusive auction cutoffs,
+  next-minute market pricing, one-tick limit touches, and v2 fill provenance fields.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_fills.py
+  tests/test_fills_v2.py tests/test_p15_fills.py`: 35 passed.
+- **Metrics:** server/tools/product unchanged; sim and tests grew within the P22 plan budget.
+- **Next:** implement short locates, borrow/buy-ins, Reg T and both R10 settings.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
