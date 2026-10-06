@@ -1,10 +1,12 @@
 """Transactional lifecycle tests for the paper-account service."""
+import sys
 from datetime import date, datetime, timezone
+from types import ModuleType
 
 import pytest
 
 from engine import paper_accounts
-from engine.accounts import service
+from engine.accounts import cli, service
 
 NOW = datetime(2026, 10, 5, 13, 27, tzinfo=timezone.utc)
 
@@ -112,3 +114,15 @@ def test_verify_rebuilds_without_mutating_the_account(con):
     con.execute("UPDATE portfolios SET cash=9999 WHERE id='acct-a'")
     assert service.verify(con, "acct-a")["status"] == "mismatch"
     assert con.execute("SELECT cash FROM portfolios WHERE id='acct-a'").fetchone()[0] == 9999
+
+
+def test_settle_cli_wiring_lazily_calls_l1(monkeypatch, con):
+    stub = ModuleType("engine.accounts.settle")
+    calls = []
+    stub.settle_session = lambda connection, session_date, *, late: (
+        calls.append((connection, session_date, late)) or {"settled": 2}
+    )
+    monkeypatch.setitem(sys.modules, "engine.accounts.settle", stub)
+    session_date = date(2026, 10, 5)
+    assert cli._settle(con, session_date=session_date, late=True) == {"settled": 2}
+    assert calls == [(con, session_date, True)]

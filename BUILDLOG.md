@@ -2171,4 +2171,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged; product/engine +581, tests +222; budget ok.
 - **Next:** expose deterministic results through the private loopback API and CLI.
 
+## 2026-10-06 — Expose private account results and operations
+
+- **Why:** active P22 L2 sections 2.7–2.8 require the account CLI, loopback API,
+  private token boundary, read models, stable result hashes, and lazy L1 settlement wiring.
+- **What:** Add all account reads and mutations, a mode-0600 bearer token command,
+  deterministic account metrics, and an `engine.accounts` CLI. API receipt time is captured
+  before its 180-second writer acquisition, and R13 side-table reads remain read-only.
+- **Evidence:** focused account/server/no-bare-connect run passes all 121 cases; ruff is clean.
+- **Metrics:** tools unchanged; product +720 (engine +369, server +351), tests +208; budget ok.
+- **Next:** document the v2 contract and run the complete L2 acceptance matrix.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
