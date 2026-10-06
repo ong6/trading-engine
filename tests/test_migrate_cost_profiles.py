@@ -28,8 +28,11 @@ def test_migration_routes_books_records_breaks_bootstraps_ids_and_runs_l4_backfi
         "league-book", "p15_ai_ranked", "p16_construct_ai@sha256:abc", "acct-a"
     ):
         _portfolio(con, portfolio_id)
-    con.execute("CREATE TABLE paper_account_specs (account_id VARCHAR)")
-    con.execute("INSERT INTO paper_account_specs VALUES ('acct-a')")
+    con.execute(
+        "INSERT INTO paper_account_specs "
+        "(account_id,payload,sha256,created_at) "
+        "VALUES ('acct-a','{}',repeat('a',64),now())"
+    )
     set_portfolio_account(
         con,
         "acct-a",
@@ -130,3 +133,20 @@ def test_cli_requires_explicit_apply():
     with pytest.raises(SystemExit) as exc:
         migrate_cost_profiles.main(["--d0", D0.isoformat()])
     assert exc.value.code == 2
+
+
+def test_migration_initializes_and_backfills_legacy_price_availability(con):
+    _portfolio(con, "league-book")
+    con.execute(
+        "INSERT INTO prices "
+        "(ticker,date,open,high,low,close,volume,fetched_at) "
+        "VALUES ('XYZ',DATE '2026-10-09',10,10,10,10,100,"
+        "TIMESTAMP '2026-10-10 01:00:00')"
+    )
+
+    result = migrate_cost_profiles.migrate(con, D0)
+
+    assert result["first_fetched_at_backfill"] == 1
+    assert con.execute(
+        "SELECT first_fetched_at=fetched_at FROM prices WHERE ticker='XYZ'"
+    ).fetchone() == (True,)

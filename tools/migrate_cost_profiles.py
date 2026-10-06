@@ -52,6 +52,7 @@ def migrate(
     """Apply the cost break exactly once in one transaction."""
     if not isinstance(d0, date):
         raise TypeError("D0 must be a date")
+    db.init_schema(con)
     init_sim_schema(con)
     timestamp = (migrated_at or datetime.now(timezone.utc)).astimezone(
         timezone.utc

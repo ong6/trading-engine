@@ -72,6 +72,36 @@ def test_rerun_preserves_every_externally_referenced_order(con):
     ]
 
 
+def test_rerun_requeues_account_detail_when_its_fill_is_removed(con):
+    _portfolio(con, "account-book", SESSIONS[0])
+    set_portfolio_account(con, "account-book", engine="account")
+    con.execute(
+        "INSERT INTO sim_orders VALUES "
+        "(1,'account-book','XYZ','buy',1,?,'filled',NULL)", [SESSIONS[0]]
+    )
+    con.execute(
+        "INSERT INTO sim_order_details "
+        "(order_id,instrument_id,instrument_kind,order_type,side,tif,session_date,"
+        "received_at,state,state_at) VALUES "
+        "(1,'XYZ','stock','moo','buy','day',?,?, 'filled',now())",
+        [SESSIONS[1], datetime(2026, 10, 6, 20)],
+    )
+    con.execute(
+        "INSERT INTO sim_fills VALUES "
+        "(1,'account-book','XYZ','buy',1,?,100,100,0,0)", [SESSIONS[1]]
+    )
+
+    league.rerun_cleanup(con, SESSIONS[1])
+
+    assert con.execute("SELECT status FROM sim_orders WHERE id=1").fetchone() == (
+        "pending",
+    )
+    assert con.execute("SELECT state FROM sim_order_details WHERE order_id=1").fetchone() == (
+        "queued",
+    )
+    assert con.execute("SELECT COUNT(*) FROM sim_fills WHERE order_id=1").fetchone() == (0,)
+
+
 def test_league_fills_and_generates_only_league_engine_books(con, monkeypatch):
     signal_date, fill_date = SESSIONS[29:31]
     insert_bars(
@@ -146,8 +176,8 @@ def test_present_optional_module_with_missing_hook_fails_loudly(monkeypatch):
 def test_integrated_phase_hooks_use_l1_and_l2_entry_points(monkeypatch):
     observed = []
 
-    def call(module_name, function_name, _con, _day):
-        observed.append((module_name, function_name))
+    def call(module_name, function_name, _con, _day, **kwargs):
+        observed.append((module_name, function_name, kwargs))
         return function_name
 
     monkeypatch.setattr(league, "_optional_phase", call)
@@ -160,11 +190,11 @@ def test_integrated_phase_hooks_use_l1_and_l2_entry_points(monkeypatch):
         "halts": "check_all", "alerts": "concentration",
     }
     assert observed == [
-        ("sim.shorts", "accrue_borrow"),
-        ("sim.margin", "accrue_interest"),
-        ("engine.accounts.settle", "settle_session"),
-        ("engine.money.halts", "check_all"),
-        ("engine.money.alerts", "concentration"),
+        ("sim.shorts", "accrue_borrow", {}),
+        ("sim.margin", "accrue_interest", {}),
+        ("engine.accounts.settle", "settle_session", {"manage_transactions": False}),
+        ("engine.money.halts", "check_all", {}),
+        ("engine.money.alerts", "concentration", {}),
     ]
 
 
@@ -197,6 +227,25 @@ def test_private_book_never_reaches_public_files_or_read_models(con, tmp_path):
     assert "private-book" not in markdown and "private-book" not in csv
     assert [row["id"] for row in payload["rows"]] == ["public-book"]
     assert league_read_models.equity(con, "private-book") is None
+
+
+def test_future_break_is_not_disclosed_in_pre_break_report(con, tmp_path):
+    prior, d0 = SESSIONS[:2]
+    insert_bars(con, "SPY", [prior], open_=100, close=100)
+    _portfolio(con, "public-book", prior, cash=100)
+    con.execute("INSERT INTO sim_equity VALUES ('public-book',?,100,100,0)", [prior])
+    con.execute(
+        "INSERT INTO sim_book_breaks VALUES "
+        "('public-book',?,'cost_profile','baseline_v1','ibkr_pro_tiered_v1',"
+        "13,'test',now())",
+        [d0],
+    )
+
+    league.write_reports(con, prior, tmp_path)
+
+    markdown = (tmp_path / "reports" / "league.md").read_text()
+    assert "Commission break" not in markdown
+    assert "Since break" not in markdown
 
 
 def test_post_break_p15_fill_charges_fee_and_debits_cash(con):

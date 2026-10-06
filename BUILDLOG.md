@@ -2586,4 +2586,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; tests/documentation only; budget ok.
 - **Next:** run both-timezone full suites with registration enabled, then rehearse migration and accounts.
 
+## 2026-10-06 — Rehearse D0 migration and private account lifecycle
+
+- **Why:** P22 Phase B requires the real snapshot-copy migration, auction account,
+  privacy and ledger verification path before revision 13 can close.
+- **What:** Initialize legacy price schema before first-fetch backfill; admit a contingent
+  MOC against its queued MOO; requeue v2 detail state on rerun; and let league call L1
+  settlement inside its outer transaction. Future D0 disclosure stays absent pre-break.
+- **Evidence:** Fresh snapshot: migration applied to 33 books and second run refused;
+  2026-10-05 CSV/Markdown matched base byte-for-byte. A private $50k margin account filled
+  MOO+MOC (fees $0.90), closed at equity $50,046.6388, stayed out of public reports, and
+  `engine.accounts verify` returned `ok`; all database copies and temp credentials were deleted.
+- **Metrics:** engine +20, server unchanged, tools +1, product +33; tests +119; budget ok.
+- **Next:** freeze the corrected source, refresh revision 13 identities, then rerun both timezone suites.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -436,6 +436,23 @@ def _capacity(con, spec: dict, intent: dict, session_date: date, quantity: float
         raise AccountRefused("same account already has a pending order for this leg")
     held = float(positions.get(ticker, {}).get("qty", 0.0))
     side = intent["side"]
+    contingent = intent.get("contingent_on")
+    if contingent is not None and side in {"sell", "cover"}:
+        parent = con.execute(
+            "SELECT o.ticker,o.side,o.status FROM paper_account_intakes i "
+            "JOIN sim_orders o ON o.id=i.order_id "
+            "WHERE i.intent_id=? AND i.account_id=?",
+            [contingent, account],
+        ).fetchone()
+        expected_parent_side = "buy" if side == "sell" else "short"
+        if (
+            parent is None
+            or parent[0] != ticker
+            or parent[1] != expected_parent_side
+            or parent[2] not in {"pending", "filled"}
+        ):
+            raise AccountRefused("contingent intent is unavailable for this account leg")
+        return
     if side == "sell" and quantity > max(held, 0.0):
         raise AccountRefused("sell exceeds this account's holdings")
     if side == "cover" and quantity > max(-held, 0.0):
