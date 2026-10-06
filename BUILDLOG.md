@@ -2219,6 +2219,138 @@ the 42-entry 2026-09-19 C90 complexity series is in
   published with `budget.ok=true` and no violations.
 - **Metrics:** server/tools/product unchanged; budget ok.
 - **Next:** await the orchestrator's Phase B signal and refreshed P22 base.
+## 2026-10-06 — Add account auction and intraday fill attempts
+
+- **Why:** active P22 L1 requires opening/closing auctions and deferred minute-bar
+  market/limit execution without changing the legacy next-open fill path.
+- **What:** Add point-in-time daily/minute source readers, inclusive auction cutoffs,
+  next-minute market pricing, one-tick limit touches, and v2 fill provenance fields.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_fills.py
+  tests/test_fills_v2.py tests/test_p15_fills.py`: 35 passed.
+- **Metrics:** server/tools/product unchanged; sim and tests grew within the P22 plan budget.
+- **Next:** implement short locates, borrow/buy-ins, Reg T and both R10 settings.
+
+## 2026-10-06 — Add short and margin controls
+
+- **Why:** P22 L1 and R10 require point-in-time locates, borrow/buy-ins, Reg T,
+  margin calls, and selectable legacy or 2026 intraday day-trading rules.
+- **What:** Add conservative locate classification, threshold-list buy-ins, financing
+  cash events, Reg T state/reductions, fractional-lot day trades, and the R13 accessor shim.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_shorts.py
+  tests/test_margin.py tests/test_ledger.py tests/test_costs_ibkr.py`: 33 passed.
+- **Metrics:** server/tools/product unchanged; sim and tests grew within the P22 plan budget.
+- **Next:** settle account orders with aggregate liquidity, fees, contingencies and late marks.
+
+## 2026-10-06 — Settle account sessions through the common ledger
+
+- **Why:** P22 L1 requires one ordered settlement pass for account auctions,
+  deferred intraday orders, aggregate liquidity, contingencies and late bars.
+- **What:** Route due account orders through locates, R10, Reg T, gross/liquidity
+  caps, L0 fees and ledger; persist fill provenance and restate only late-filled accounts.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_accounts_settle.py
+  tests/test_fills_v2.py tests/test_shorts.py tests/test_margin.py tests/test_ledger.py
+  tests/test_costs_ibkr.py`: 52 passed.
+- **Metrics:** server/tools/product unchanged; engine/sim/tests remain within the P22 budget.
+- **Next:** run the lane acceptance set, full-suite failure diff, ruff and metrics publication.
+
+## 2026-10-06 — Close P22 L1 execution gates
+
+- **Why:** P22 L1 is done when focused acceptance, ruff, metrics and the full
+  repository suite add no failure beyond the R12 base list.
+- **What:** Confirm all L1 fills, shorts, margin, R10 and settlement tests; retain
+  a temporary R13 accessor shim until the refreshed L0 base is available.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,293 passed; 185 failures exactly match the
+  published P22 base-failure list; 5 deselected.
+- **Metrics:** server/tools unchanged; product +1,775 and tests +807; budget ok.
+- **Next:** nothing admitted; the orchestrator merges the refreshed R13 base and deletes the shim.
+
+## 2026-10-06 — Correct L1 temporal and account controls
+
+- **Why:** orchestrator acceptance review reproduced early-close, point-in-time,
+  PDT matching, late-contingency, locate and atomic settlement defects in P22 L1.
+- **What:** Make cutoffs close-relative, require complete minute sessions before
+  terminal outcomes, use unadjusted as-of bars, same-session PDT matching and
+  source-aware risk marks; fix late contingencies, locate evidence, directional
+  liquidity, accrual spans, applied-quantity fees and per-fill transactions.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_fills.py
+  tests/test_fills_v2.py tests/test_order_types.py tests/test_shorts.py
+  tests/test_margin.py tests/test_accounts_settle.py tests/test_ledger.py
+  tests/test_costs_ibkr.py tests/test_schema_v2.py`: 104 passed.
+- **Metrics:** server/tools unchanged; budget check pending final full-suite gate.
+- **Next:** run the R12 failure-set comparison, ruff and metrics, then report round 2.
+
+## 2026-10-06 — Close P22 L1 review round 2
+
+- **Why:** the orchestrator required the rejected L1 implementation to clear nine
+  execution-correctness blockers and the listed accounting corrections.
+- **What:** Add targeted regression probes for early close, bar completeness,
+  as-of source isolation, late contingencies, directional liquidity, locate
+  evidence, opening-date borrow, same-day PDT and atomic fee settlement.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,311 passed; the 185 failures exactly match
+  the R12 base list; 5 deselected.
+- **Metrics:** server/tools unchanged; product +362 and tests +381 from round 1; budget ok.
+- **Next:** nothing admitted; await orchestrator acceptance and the R13 base refresh.
+
+## 2026-10-06 — Add the versioned account intake contract
+
+- **Why:** active P22 L2 sections 2.7 and 5 admit the v2 account boundary and fixes 4c–4e.
+- **What:** Preserve v1 while adding v2 specs/intents, engine-stamped replayable receipts,
+  monotonic order IDs, three-session carried marks, and NY-session account dates. R13 settings
+  use `portfolio_accounts`; a small compatibility shim remains until revised L0 is merged.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_paper_accounts.py`
+  passes all 26 cases.
+- **Metrics:** server/tools unchanged; product/engine +450, tests +132; budget ok.
+- **Next:** implement the transactional service and money-layer lifecycle.
+
+## 2026-10-06 — Enforce the account money lifecycle
+
+- **Why:** active P22 L2 sections 2.6 and 5 require independent account limits,
+  structured loss/reconciliation halts, explicit resume, alerts, and retirement.
+- **What:** Add transactional lifecycle services, total/per-account exposure checks,
+  one-shot halt events and queued-order cancellation, concentration alerts, reconciliations,
+  watch lists, replay verification, and MOC retirement orders using R13 settings.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_accounts_service.py
+  tests/test_money.py` passes all 13 cases.
+- **Metrics:** server/tools unchanged; product/engine +581, tests +222; budget ok.
+- **Next:** expose deterministic results through the private loopback API and CLI.
+
+## 2026-10-06 — Expose private account results and operations
+
+- **Why:** active P22 L2 sections 2.7–2.8 require the account CLI, loopback API,
+  private token boundary, read models, stable result hashes, and lazy L1 settlement wiring.
+- **What:** Add all account reads and mutations, a mode-0600 bearer token command,
+  deterministic account metrics, and an `engine.accounts` CLI. API receipt time is captured
+  before its 180-second writer acquisition, and R13 side-table reads remain read-only.
+- **Evidence:** focused account/server/no-bare-connect run passes all 121 cases; ruff is clean.
+- **Metrics:** tools unchanged; product +720 (engine +369, server +351), tests +208; budget ok.
+- **Next:** document the v2 contract and run the complete L2 acceptance matrix.
+
+## 2026-10-06 — Publish the account v2 operating contract
+
+- **Why:** active P22 L2 requires the public sections 2.6–2.8 contract without any
+  private account identity, strategy parameters, or results.
+- **What:** Document v2 specs/intents, R13 side-table settings, cutoff and replay rules,
+  money halts, lifecycle commands, token-protected loopback routes, deferred intraday
+  settlement, and deterministic private results. Add the three-tier MOO accounting proof.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_paper_accounts.py`
+  passes all 27 cases.
+- **Metrics:** server/tools/product unchanged; docs +92, tests +34; budget ok.
+- **Next:** run focused acceptance, full-suite drift comparison, and final metrics.
+
+## 2026-10-06 — Close P22 account-service acceptance
+
+- **Why:** P22 L2 is done when its focused checks, full-suite drift comparison, ruff,
+  and metrics budget pass without adding a failure outside the shared-base list.
+- **What:** Confirm all account writers use the monotonic order sequence and R13 side-table
+  settings. Focused acceptance and ruff are green; the complete run adds no failure beyond
+  the 185 frozen-contract failures assigned to L3. P15 registration stayed deselected per R7.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,286 passed, 185 base-listed failures, 5 deselected.
+- **Metrics:** server +351, tools unchanged, product +1,407; budget ok.
+- **Next:** orchestrator merges revised L0, deletes the compatibility shim, and integrates L1/L2.
+
 ## 2026-10-06 — Correct the L0 foundation after review
 
 - **Why:** R13 replaces portfolio columns with a side table and review reproduced replay, timing, lot and precision defects.
@@ -2356,5 +2488,53 @@ the 42-entry 2026-09-19 C90 complexity series is in
   published with `budget.ok=true` and no violations.
 - **Metrics:** server/tools/product unchanged; budget ok.
 - **Next:** await the orchestrator's L1/L2 merge and Phase B signal.
+## 2026-10-06 — Integrate R13 and close L1 round 3 findings
+
+- **Why:** orchestrator re-review required the final L0/L4 base plus five bounded
+  fixes for fail-soft locates, capture outages, PDT depletion, ordering and as-of locates.
+- **What:** Merge the refreshed base with both BUILDLOG histories, remove temporary
+  shims, reject unavailable locates per order, retain incomplete minute sessions,
+  deplete recorded same-day lots, preserve receipt order and cutoff locate marks.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_fills_v2.py
+  tests/test_shorts.py tests/test_margin.py tests/test_accounts_settle.py
+  tests/test_order_types.py tests/test_schema_v2.py tests/test_ledger.py
+  tests/test_costs_ibkr.py`: 98 passed.
+- **Metrics:** pending final merged-base full-suite and budget gates.
+- **Next:** run the merged full suite, ruff and metrics, then publish round-3 status.
+
+## 2026-10-06 — Close P22 L1 review round 3
+
+- **Why:** L1 must finish on the refreshed R13/L4 base with no regression beyond
+  the integration-owned frozen-contract failures.
+- **What:** The five re-review findings pass focused probes; the final L0 APIs are
+  used directly, both merge histories are retained, and the lane is cleanly integrated.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,358 passed; 184 failures match the refreshed
+  P22 base list; 5 deselected.
+- **Metrics:** refreshed-base server/tools/product changes included; budget ok.
+- **Next:** nothing admitted; await orchestrator acceptance.
+
+## 2026-10-06 — Correct account service review findings
+
+- **Why:** orchestrator review of d867b4a reproduced stale reconciliation re-halts,
+  cancellation timing, contention mapping, result arithmetic and source-specific mark defects.
+- **What:** Re-arm drawdown at resume while retaining the all-time peak, use only fresh/latest
+  reconciliation evidence, cancel opening orders on retirement, serialize API writes, return
+  retryable conflicts, hide private identities, and apply exact early-close/order windows.
+  Allocation and alerts now honor each account's price source; result trade bp is fee-net.
+- **Evidence:** focused L2/schema/server acceptance passes all 180 cases; ruff is clean.
+- **Metrics:** tools unchanged; product/engine +121, server +23, tests +175; budget ok.
+- **Next:** verify the L0 schema handoff and run the complete suite against the merged base.
+
+## 2026-10-06 — Close P22 L2 review round two
+
+- **Why:** orchestrator review required the final R13 base plus six account-service
+  corrections and an L0-owned account-table initialization handoff.
+- **What:** All review cases pass, the compatibility shim is gone, and the schema change is
+  packaged in the L2 status patch directory. No claimed implementation remains uncommitted.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,342 passed, 184 base-listed failures, 5 deselected.
+- **Metrics:** server/tools/product unchanged since the correction entry; budget ok.
+- **Next:** orchestrator applies the L0 schema patch before integrating L1 and L2.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
