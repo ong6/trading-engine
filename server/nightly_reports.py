@@ -12,8 +12,6 @@ from pathlib import Path
 
 import duckdb
 
-from sim.book_breaks import portfolio_account
-
 from .file_utils import MAX_OPERATIONAL_FILE_BYTES, read_text
 
 _SCREEN_REPORT_HEADER = re.compile(
@@ -38,10 +36,10 @@ _MISSING_ROW = object()
 
 
 def _public_portfolio_ids(con: duckdb.DuckDBPyConnection) -> list[str]:
-    return [
-        row[0] for row in con.execute("SELECT id FROM portfolios ORDER BY id").fetchall()
-        if portfolio_account(con, row[0])["visibility"] == "public"
-    ]
+    return [row[0] for row in con.execute(
+        "SELECT portfolio_id FROM portfolio_accounts_v "
+        "WHERE pa_visibility='public' ORDER BY portfolio_id"
+    ).fetchall()]
 
 
 class EvidenceState(Exception):

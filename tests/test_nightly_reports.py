@@ -6,7 +6,8 @@ from datetime import date
 import pytest
 
 from server import nightly_monitor, nightly_reports
-from sim import book_breaks, league
+from sim import league
+from sim.schema import set_portfolio_account
 from tests.nightly_test_helpers import nightly_fixture
 
 
@@ -163,7 +164,7 @@ def test_private_portfolio_is_excluded_from_nightly_report_evidence(con, tmp_pat
         [latest],
     )
     con.execute("INSERT INTO sim_equity VALUES ('private',?,100,100,0)", [latest])
-    book_breaks.set_portfolio_account(con, "private", visibility="private")
+    set_portfolio_account(con, "private", visibility="private")
 
     league.write_reports(con, latest, tmp_path)
 
@@ -171,6 +172,26 @@ def test_private_portfolio_is_excluded_from_nightly_report_evidence(con, tmp_pat
         meta, driver, con, latest, data_dir=tmp_path
     )["status"] == "current"
     assert "private" not in (tmp_path / "reports" / "league.csv").read_text()
+
+
+def test_inactive_public_equity_remains_in_csv_but_not_standings(con, tmp_path):
+    meta, driver = nightly_fixture(con, tmp_path)
+    latest = date(2026, 9, 4)
+    con.execute(
+        "INSERT INTO portfolios "
+        "(id,name,strategy,config,created,active,cash,initial_cash,execution_profile) "
+        "VALUES ('retired','Retired','none','{}',?,FALSE,90,100,'baseline_v1')",
+        [latest],
+    )
+    con.execute("INSERT INTO sim_equity VALUES ('retired',?,90,90,0)", [latest])
+
+    league.write_reports(con, latest, tmp_path)
+
+    assert nightly_monitor.evidence_status(
+        meta, driver, con, latest, data_dir=tmp_path
+    )["status"] == "current"
+    assert "retired" in (tmp_path / "reports" / "league.csv").read_text()
+    assert "Retired" not in (tmp_path / "reports" / "league.md").read_text()
 
 
 @pytest.mark.parametrize(
