@@ -981,8 +981,9 @@ def upsert_prices(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
     df["first_fetched_at"] = df["fetched_at"]
 
     with registered_frame(con, "_incoming_prices", df):
-        con.execute(
-            """
+        try:
+            con.execute(
+                """
             INSERT INTO prices
                 (ticker, date, open, high, low, close, volume, source,
                  fetched_at, first_fetched_at)
@@ -1000,6 +1001,19 @@ def upsert_prices(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
                 first_fetched_at = COALESCE(
                     prices.first_fetched_at, excluded.first_fetched_at
                 )
-            """
-        )
+                """
+            )
+        except duckdb.BinderException:
+            has_first_fetch = con.execute(
+                """SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name='prices' AND column_name='first_fetched_at'"""
+            ).fetchone()[0]
+            if has_first_fetch:
+                raise
+            con.execute(
+                """INSERT OR REPLACE INTO prices
+                (ticker, date, open, high, low, close, volume, source, fetched_at)
+                SELECT ticker, date, open, high, low, close, volume, source, fetched_at
+                FROM _incoming_prices"""
+            )
     return len(df)
