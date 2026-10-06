@@ -2020,4 +2020,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** Budget and unchanged C90 threshold pass; server +2 lines, tests +42. No research-runtime or registered-source identity changes.
 - **Next:** Validate and deploy the two complete-evidence reader corrections, then finish operational acceptance.
 
+## 2026-10-06 — Admit the complete-metadata recovery correction
+
+- **Why:** The actual daily backup refused `data/_meta.json` above 1,048,576 bytes and used its existing locked-copy fallback.
+- **What:** Admit an 8 MiB limit for this exact metadata artifact in copying and verification; retain other caps.
+  P15 revision 12 must bind the correction before deployment; policy, books, clocks and schedules stay unchanged.
+- **Evidence:** The saved backup command exited zero with the refusal and fallback method recorded; this is not verified-bundle proof.
+- **Metrics:** Extend P21 to 21 logical commits: source correction first, then its exact registration; existing line limits stay fixed.
+- **Next:** Independently review the correction, bind its committed source, rehearse revision 12 and finish recovery acceptance.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -28,7 +28,7 @@ from engine.lib.snapshots import latest_snapshot
 from server import nightly_monitor
 from server.driver_monitor import DRIVER_SCHEDULES
 from server.file_utils import MAX_OPERATIONAL_FILE_BYTES
-from server.json_utils import load_object
+from server.json_utils import load_object, loads_object
 from tools import release_manifest
 
 SCHEMA_VERSION = 3
@@ -93,6 +93,8 @@ OPERATIONAL_STATIC_FILES = (
     "data/reports/league.md",
     "data/reports/league.csv",
 )
+# Match the board's bounded metadata contract without widening other artifacts.
+MAX_META_SNAPSHOT_BYTES = 8 * 1024 * 1024
 OPTIONAL_OPERATIONAL_CONTROL_FILES = ("store/agent-shadow-control.json",)
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
@@ -226,9 +228,9 @@ def _inode_identity(value: os.stat_result) -> tuple[int, int]:
     return value.st_dev, value.st_ino
 
 
-def _read_bounded_descriptor(descriptor: int) -> bytes:
+def _read_bounded_descriptor(descriptor: int, *, max_bytes: int) -> bytes:
     chunks = []
-    remaining = MAX_OPERATIONAL_FILE_BYTES + 1
+    remaining = max_bytes + 1
     while remaining:
         chunk = os.read(descriptor, min(remaining, 64 * 1024))
         if not chunk:
@@ -241,6 +243,10 @@ def _read_bounded_descriptor(descriptor: int) -> bytes:
 def _read_source_file(
     repo_root: Path, relative: str, label: str, *, data_dir: Path | None = None,
 ) -> bytes:
+    max_bytes = (
+        MAX_META_SNAPSHOT_BYTES if relative == "data/_meta.json"
+        else MAX_OPERATIONAL_FILE_BYTES
+    )
     parts = Path(relative).parts
     if not parts or Path(relative).is_absolute():
         raise BackupError(f"required {label} path is invalid: {relative}")
@@ -268,7 +274,7 @@ def _read_source_file(
                 before = os.fstat(descriptor)
                 if not stat.S_ISREG(before.st_mode):
                     raise BackupError(f"required {label} is not a regular file: {relative}")
-                content = _read_bounded_descriptor(descriptor)
+                content = _read_bounded_descriptor(descriptor, max_bytes=max_bytes)
                 after = os.fstat(descriptor)
                 path_after = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
             finally:
@@ -279,9 +285,9 @@ def _read_source_file(
         raise SourceFileMissing(f"required {label} missing: {relative}") from exc
     except OSError as exc:
         raise BackupError(f"required {label} missing: {relative}") from exc
-    if len(content) > MAX_OPERATIONAL_FILE_BYTES:
+    if len(content) > max_bytes:
         raise BackupError(
-            f"required {label} exceeds {MAX_OPERATIONAL_FILE_BYTES} bytes: {relative}"
+            f"required {label} exceeds {max_bytes} bytes: {relative}"
         )
     if (
         _stat_identity(before) != _stat_identity(after)
@@ -1272,7 +1278,9 @@ def _verify_operational_consistency(bundle: Path, manifest: dict) -> None:
     latest = date.fromisoformat(manifest["database"]["snapshot"]["latest_price_date"])
     data_dir = bundle / "evidence" / "data"
     try:
-        meta = load_object(data_dir / "_meta.json")
+        meta = loads_object(_read_source_file(
+            bundle / "evidence", "data/_meta.json", "operational artifact"
+        ))
         connection = duckdb.connect(str(bundle / DATABASE_FILENAME), read_only=True)
         try:
             result = nightly_monitor.validate_snapshot(

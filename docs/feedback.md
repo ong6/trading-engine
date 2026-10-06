@@ -651,3 +651,13 @@ lines. Existing complexity threshold and repository hygiene limits remain unchan
 trade specifications across asset classes; the engine owns balance/execution/position/fill/equity
 state. Existing balances and registered sizing stay unchanged. An unsupported instrument must
 be explicitly refused, never run through stock arithmetic. New accounts start inactive.
+
+
+**Acceptance correction budget.** Full-metadata integration exposed three defects: the board's
+aggregate file-size limit, the monitor's legacy truncation requirement and the recovery-bundle
+metadata limit. The orchestrator extended P21 from 18 to 20, then 21 logical commits. The
+registered backup correction must first land as source commit 20; revision 12 binds that exact
+commit and lands with closure as commit 21. The existing source-commit assertion is preserved;
+no hash bypass or self-referential identity is introduced. Both commits are published together.
+Scope, trading authority, the 4,500 test/documentation-line budget and the 1,500-insertion
+per-commit limit are unchanged.

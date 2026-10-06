@@ -808,6 +808,104 @@ def test_create_rejects_oversized_evidence_source(tmp_path):
     assert not (tmp_path / "outside" / "snapshot").exists()
 
 
+def _metadata_bytes(root: Path, size: int) -> bytes:
+    content = (root / "data/_meta.json").read_bytes()
+    assert len(content) < size
+    return content + b" " * (size - len(content))
+
+
+@pytest.mark.parametrize("size", [1_048_577, 8 * 1024 * 1024])
+def test_backup_preserves_full_metadata_through_eight_mib(tmp_path, size):
+    from server.meta_snapshot import MAX_META_SNAPSHOT_BYTES
+
+    root, source = _repo(tmp_path)
+    content = _metadata_bytes(root, size)
+    (root / "data/_meta.json").write_bytes(content)
+    destination = tmp_path / "outside" / "snapshot"
+
+    created = backup_database.create_backup(root, source, destination)
+    assert backup_database.verify_backup(destination) == created
+    assert (destination / "evidence/data/_meta.json").read_bytes() == content
+    assert backup_database.MAX_META_SNAPSHOT_BYTES == MAX_META_SNAPSHOT_BYTES
+
+
+@pytest.mark.parametrize("phase", ["create", "verify"])
+def test_backup_refuses_metadata_above_eight_mib(tmp_path, phase):
+    root, source = _repo(tmp_path)
+    content = _metadata_bytes(root, 8 * 1024 * 1024 + 1)
+    destination = tmp_path / "outside" / "snapshot"
+    if phase == "verify":
+        backup_database.create_backup(root, source, destination)
+        (destination / "evidence/data/_meta.json").write_bytes(content)
+        _rehash_artifact(destination, "data/_meta.json")
+    else:
+        (root / "data/_meta.json").write_bytes(content)
+
+    with pytest.raises(backup_database.BackupError, match="exceeds 8388608 bytes"):
+        if phase == "verify":
+            backup_database.verify_backup(destination)
+        else:
+            backup_database.create_backup(root, source, destination)
+    assert destination.exists() is (phase == "verify")
+
+
+@pytest.mark.parametrize("relative", ["logs/friday-postflight.json", "logs/_meta.json"])
+def test_metadata_allowance_does_not_widen_other_artifacts(tmp_path, relative):
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"x" * 1_048_577)
+    with pytest.raises(backup_database.BackupError, match="exceeds 1048576 bytes"):
+        backup_database._read_source_file(tmp_path, relative, "operational artifact")
+
+
+def test_metadata_descriptor_read_stops_at_eight_mib_plus_one(tmp_path, monkeypatch):
+    path = tmp_path / "data/_meta.json"
+    path.parent.mkdir()
+    path.write_bytes(b"x" * (8 * 1024 * 1024 + 100))
+    original_read = backup_database.os.read
+    total_read = 0
+
+    def counted_read(descriptor, size):
+        nonlocal total_read
+        assert size <= 64 * 1024
+        chunk = original_read(descriptor, size)
+        total_read += len(chunk)
+        return chunk
+
+    monkeypatch.setattr(backup_database.os, "read", counted_read)
+    with pytest.raises(backup_database.BackupError, match="exceeds 8388608 bytes"):
+        backup_database._read_source_file(tmp_path, "data/_meta.json", "operational artifact")
+    assert total_read == 8 * 1024 * 1024 + 1
+
+
+@pytest.mark.parametrize("operation", ["modify", "replace"])
+def test_large_metadata_keeps_descriptor_stability_checks(tmp_path, monkeypatch, operation):
+    root, _ = _repo(tmp_path)
+    path = root / "data/_meta.json"
+    path.write_bytes(_metadata_bytes(root, 1_048_577))
+    original_read = backup_database.os.read
+    changed = False
+
+    def read_then_change(descriptor, size):
+        nonlocal changed
+        chunk = original_read(descriptor, size)
+        if chunk and not changed:
+            changed = True
+            if operation == "modify":
+                with path.open("ab") as stream:
+                    stream.write(b" ")
+            else:
+                replacement = path.with_suffix(".replacement")
+                replacement.write_bytes(path.read_bytes())
+                replacement.replace(path)
+        return chunk
+
+    monkeypatch.setattr(backup_database.os, "read", read_then_change)
+    with pytest.raises(backup_database.BackupError, match="changed during backup"):
+        backup_database._read_source_file(root, "data/_meta.json", "operational artifact")
+    assert changed
+
+
 @pytest.mark.parametrize("operation", ["modify", "replace"])
 def test_create_rejects_evidence_changed_during_descriptor_read(
     tmp_path, monkeypatch, operation
