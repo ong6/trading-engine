@@ -2135,4 +2135,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged, product/engine +13, tests +52; budget ok.
 - **Next:** make options prior-close reads immutable and share daily-bar budget fairly.
 
+## 2026-10-06 — Share the bounded options budget fairly
+
+- **Why:** P22 L4 review reproduced a global 400-contract limit starving later
+  underlyings and an options reader mutating the grouped-daily store.
+- **What:** Open prior closes read-only, require the adjusted view, divide the cap
+  equally and rank 31-60 DTE near-money contracts. Verify receipt resume, missing
+  cache/key and HTTP 429 refusals; cap account freshness at a logged 2,000 names.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_free_massive_options.py
+  tests/test_collect_freshness.py tests/test_free_splits.py tests/test_free_sources.py
+  tests/test_install_automation.py`: 96 passed.
+- **Metrics:** server unchanged, tools +39, product/engine +9, tests +157; budget ok.
+- **Next:** run the complete acceptance, refresh handoffs and publish round-two status.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
