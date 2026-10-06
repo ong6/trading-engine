@@ -2166,4 +2166,77 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +23, tools/product unchanged; budget clean.
 - **Next:** Confirm the full-suite failure set is exactly the R12 baseline, then write final status.
 
+## 2026-10-06 — Bound split adjustments by knowledge date
+
+- **Why:** P22 L4 review reproduced future announced splits changing current bars
+  and first-seen split rows retaining corrected or cancelled actions.
+- **What:** Add an as-of adjusted-bar macro, current-date default view, corrected
+  split upserts and complete-response withdrawals; overlap the cursor by 30 days.
+  Run split capture before the options job through the same shared limiter.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_free_splits.py
+  tests/test_free_sources.py tests/test_install_automation.py`: 83 passed.
+- **Metrics:** server unchanged, tools +17, product/engine +83, tests +128; budget ok.
+- **Next:** add the engine-owned first-fetch backfill and historical fallback.
+
+## 2026-10-06 — Backfill first-seen price availability
+
+- **Why:** P22 L4 review reproduced a pre-migration row losing its historic fetch
+  time when the first post-migration refresh arrived before the planned backfill.
+- **What:** Fall back through the stored `fetched_at` during conflict updates and
+  expose `backfill_first_fetched_at`; L3's migration calls this helper once.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_db_bitemporal.py
+  tests/test_collect.py tests/test_refetch_ticker.py tests/test_history_recovery.py`: 44 passed.
+- **Metrics:** server/tools unchanged, product/engine +13, tests +52; budget ok.
+- **Next:** make options prior-close reads immutable and share daily-bar budget fairly.
+
+## 2026-10-06 — Share the bounded options budget fairly
+
+- **Why:** P22 L4 review reproduced a global 400-contract limit starving later
+  underlyings and an options reader mutating the grouped-daily store.
+- **What:** Open prior closes read-only, require the adjusted view, divide the cap
+  equally and rank 31-60 DTE near-money contracts. Verify receipt resume, missing
+  cache/key and HTTP 429 refusals; cap account freshness at a logged 2,000 names.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_free_massive_options.py
+  tests/test_collect_freshness.py tests/test_free_splits.py tests/test_free_sources.py
+  tests/test_install_automation.py`: 96 passed.
+- **Metrics:** server unchanged, tools +39, product/engine +9, tests +157; budget ok.
+- **Next:** run the complete acceptance, refresh handoffs and publish round-two status.
+
+## 2026-10-06 — Close L4 round-two review
+
+- **Why:** Orchestrator review required as-of split handling, a migration helper,
+  fair option capture, immutable inputs and bounded refusal/resume behavior.
+- **What:** All eight blockers and minor cases are corrected; 140 focused tests,
+  Ruff, systemd verification, both handoff patches and the metrics budget pass.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,320 passed, 104 integration-bound failures, 5 deselected.
+- **Metrics:** server/tools/product unchanged since the implementation entries; budget ok.
+- **Next:** L3 calls the backfill helper, routes the fail-soft nightly line, applies
+  the positional-writer patch and rebinds the merged E1/sector/XS/P15 contracts.
+
+## 2026-10-06 — Require strong evidence before split withdrawal
+
+- **Why:** Round-three review reproduced an ambiguous empty 200 response withdrawing
+  every active split in the capture window.
+- **What:** Require explicit and complete pages, alarm on empty or excessive absence,
+  and advance safe absences through `pending_withdrawal` on two complete refreshes.
+  Old response replays cannot reactivate withdrawals; options read their explicit as-of view.
+  Split refresh is fail-soft so aggregate options capture still runs.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_free_splits.py
+  tests/test_free_massive_options.py tests/test_free_sources.py
+  tests/test_install_automation.py`: 101 passed.
+- **Metrics:** server unchanged, tools +4, product/engine +58, tests +183; budget ok.
+- **Next:** run complete acceptance and publish round-three status.
+
+## 2026-10-06 — Close L4 round-three review
+
+- **Why:** Orchestrator re-review required strong withdrawal evidence, explicit
+  option as-of prices, UTC defaults and fail-soft split scheduling.
+- **What:** The withdrawal state machine and every incomplete/suspicious refusal
+  pass 148 focused cases; Ruff, systemd, both handoff patches and budget pass.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,328 passed, 104 integration-bound failures, 5 deselected.
+- **Metrics:** server/tools/product unchanged since the implementation entry; budget ok.
+- **Next:** L3 applies the existing handoffs and rebinds merged runtime contracts.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
