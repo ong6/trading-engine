@@ -110,8 +110,10 @@ def test_total_cap_refusal_maps_through_api_and_cli(con, monkeypatch, capsys):
     monkeypatch.setattr(
         accounts_cli, "_execute", lambda *_args, **_kwargs: (_ for _ in ()).throw(error),
     )
-    assert accounts_cli.main(["list"]) == 2
+    assert accounts_cli.main(["submit", "unused.json"]) == 2
     assert json.loads(capsys.readouterr().out)["refusal_reason"] == "total_exposure_cap"
+    assert accounts_cli.main(["list"]) == 2
+    assert json.loads(capsys.readouterr().out) == {"error": "total_exposure_cap"}
 
 
 def test_transaction_conflict_maps_to_retryable_503():

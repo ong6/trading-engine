@@ -82,7 +82,7 @@ def test_reconciliation_mismatch_halts_and_resume_records_actor(con):
     assert con.execute(
         "SELECT resumed_by,peak_equity,drawdown_anchor_equity FROM account_state "
         "WHERE portfolio_id='acct-a'"
-    ).fetchone() == ("owner", 10_000.0, 10_000.0)
+    ).fetchone() == ("owner", 10_000.0, None)
 
 
 def test_resolved_reconciliation_does_not_rehalt_after_resume(con):
@@ -117,6 +117,21 @@ def test_resume_rearms_drawdown_from_resume_equity(con):
     assert con.execute(
         "SELECT peak_equity,drawdown_anchor_equity FROM account_state WHERE portfolio_id='acct-a'"
     ).fetchone() == (10_000.0, 8_000.0)
+
+
+def test_reconciliation_resume_keeps_all_time_drawdown_armed(con):
+    _account(con, "acct-a")
+    con.execute("INSERT INTO sim_equity VALUES ('acct-a',DATE '2026-10-02',8550,8550,0)")
+    mismatch = {"session_date": "2026-10-02", "expected_sha256": "d" * 64,
+                "observed_sha256": "e" * 64, "status": "mismatch", "detail": "old"}
+    service.reconcile(con, "acct-a", mismatch, now=NOW)
+    service.resume(con, "acct-a", resumed_by="owner", now=NOW)
+    assert con.execute(
+        "SELECT drawdown_anchor_equity FROM account_state WHERE portfolio_id='acct-a'"
+    ).fetchone()[0] is None
+    con.execute("INSERT INTO sim_equity VALUES ('acct-a',DATE '2026-10-06',7950,7950,0)")
+    later = datetime(2026, 10, 6, 20, tzinfo=timezone.utc)
+    assert halts.check(con, "acct-a", date(2026, 10, 6), now=later) == "halt_drawdown"
 
 
 def test_total_account_exposure_cap_refuses_increment(con):
