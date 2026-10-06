@@ -2334,4 +2334,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** refreshed base plus review: server +280, tools +61, product +376; budget ok.
 - **Next:** run the full Phase A suite, publish metrics and return revised status.
 
+## 2026-10-06 — Validate legacy recovery bundles without R13 views
+
+- **Why:** the post-review full suite reproduced 100 backup failures because recovery
+  fixtures created before R13 correctly lack `portfolio_accounts_v`.
+- **What:** The nightly validator uses the R13 public view on current stores and treats
+  pre-R13 recovery schemas as all-public, preserving historical bundle verification.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --tb=no --deselect
+  tests/test_p15_registration.py` — 4,323 passed; all 181 failures exactly match the
+  refreshed 184-node Phase B list minus the three repaired driver tests.
+- **Metrics:** server +6, tools/product unchanged; budget ok.
+- **Next:** publish metrics and return revised Phase A status.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
