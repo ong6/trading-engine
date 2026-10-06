@@ -30,7 +30,8 @@ def record_event(con, portfolio_id: str, kind: str, payload: dict,
 
 def _state(con, portfolio_id: str, now: datetime):
     row = con.execute(
-        "SELECT peak_equity,prior_close_equity,halted_at,halt_reason "
+        "SELECT peak_equity,prior_close_equity,halted_at,halt_reason,resumed_at,"
+        "drawdown_anchor_equity "
         "FROM account_state WHERE portfolio_id=?", [portfolio_id]
     ).fetchone()
     if row is not None:
@@ -40,10 +41,11 @@ def _state(con, portfolio_id: str, now: datetime):
     if initial is None:
         raise AccountRefused("unknown account")
     con.execute(
-        "INSERT INTO account_state (portfolio_id,peak_equity,prior_close_equity,updated_at) "
-        "VALUES (?,?,?,?)", [portfolio_id, initial[0], initial[0], now],
+        "INSERT INTO account_state (portfolio_id,peak_equity,prior_close_equity,"
+        "drawdown_anchor_equity,updated_at) VALUES (?,?,?,?,?)",
+        [portfolio_id, initial[0], initial[0], initial[0], now],
     )
-    return float(initial[0]), float(initial[0]), None, None
+    return float(initial[0]), float(initial[0]), None, None, None, float(initial[0])
 
 
 def halt_account(con, portfolio_id: str, reason: str, *, now: datetime,
@@ -63,7 +65,8 @@ def halt_account(con, portfolio_id: str, reason: str, *, now: datetime,
     if settings["status"] == "halted":
         return False
     _state(con, portfolio_id, now)
-    con.execute("UPDATE portfolios SET active=TRUE WHERE id=?", [portfolio_id])
+    if settings["status"] != "inactive":
+        con.execute("UPDATE portfolios SET active=TRUE WHERE id=?", [portfolio_id])
     set_portfolio_account(con, portfolio_id, status="halted", updated_at=now)
     con.execute(
         "UPDATE account_state SET halted_at=?,halt_reason=?,updated_at=? WHERE portfolio_id=?",
@@ -88,11 +91,11 @@ def halt_account(con, portfolio_id: str, reason: str, *, now: datetime,
     return True
 
 
-def _latest_mismatch(con, portfolio_id: str, session_date: date):
+def _latest_reconciliation(con, portfolio_id: str, session_date: date):
     return con.execute(
-        "SELECT session_date,detail FROM account_reconciliations "
-        "WHERE portfolio_id=? AND session_date<=? AND status='mismatch' "
-        "ORDER BY session_date DESC LIMIT 1", [portfolio_id, session_date]
+        "SELECT session_date,status,detail,created_at FROM account_reconciliations "
+        "WHERE portfolio_id=? AND session_date<=? "
+        "ORDER BY session_date DESC,created_at DESC LIMIT 1", [portfolio_id, session_date]
     ).fetchone()
 
 
@@ -116,21 +119,38 @@ def check(con, portfolio_id: str, session_date: date, *,
     if equity_row is None:
         raise AccountRefused("account has no equity mark for halt check")
     equity = float(equity_row[0])
-    peak, stored_prior, _halted_at, _halt_reason = _state(con, portfolio_id, now)
+    peak, stored_prior, _halted_at, _halt_reason, resumed_at, anchor = _state(
+        con, portfolio_id, now,
+    )
     prior_row = con.execute(
         "SELECT equity FROM sim_equity WHERE portfolio_id=? AND date<? "
         "ORDER BY date DESC LIMIT 1", [portfolio_id, session_date]
     ).fetchone()
     prior = float(prior_row[0]) if prior_row is not None else stored_prior
     peak = max(float(peak), equity)
-    mismatch = _latest_mismatch(con, portfolio_id, session_date)
+    risk_peak = peak
+    if resumed_at is not None:
+        resume_date = resumed_at.date()
+        post_resume_peak = con.execute(
+            "SELECT MAX(equity) FROM sim_equity WHERE portfolio_id=? AND date>=? AND date<=?",
+            [portfolio_id, resume_date, session_date],
+        ).fetchone()[0]
+        risk_peak = max(float(anchor or equity), float(post_resume_peak or equity))
+    latest_reconciliation = _latest_reconciliation(con, portfolio_id, session_date)
     reason, detail = None, {}
-    if mismatch is not None:
+    fresh_mismatch = (
+        latest_reconciliation is not None
+        and latest_reconciliation[1] == "mismatch"
+        and (resumed_at is None or latest_reconciliation[3] > resumed_at)
+    )
+    if fresh_mismatch:
         reason = "halt_reconciliation"
-        detail = {"session_date": mismatch[0].isoformat(), "detail": mismatch[1]}
-    elif equity <= peak * (1.0 + DRAWDOWN_LIMIT):
+        detail = {"session_date": latest_reconciliation[0].isoformat(),
+                  "detail": latest_reconciliation[2]}
+    elif equity <= risk_peak * (1.0 + DRAWDOWN_LIMIT):
         reason = "halt_drawdown"
-        detail = {"drawdown": drawdown(equity, peak), "equity": equity, "peak_equity": peak}
+        detail = {"drawdown": drawdown(equity, risk_peak), "equity": equity,
+                  "peak_equity": risk_peak}
     elif (daily_return(equity, prior) is not None
           and equity <= float(prior) * (1.0 + DAILY_LOSS_LIMIT)):
         reason = "halt_daily_loss"
