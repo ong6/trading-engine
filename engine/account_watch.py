@@ -11,7 +11,11 @@ import duckdb
 
 from engine import collect
 from engine.lib import db
+from engine.lib.log import get_logger
 from engine.lib.settings import DEFAULT_DB
+
+DEFAULT_SUPPLEMENTAL_LIMIT = 2_000
+log = get_logger("account_watch")
 
 
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
@@ -83,6 +87,8 @@ def supplemental_universe(
     con: duckdb.DuckDBPyConnection, limit: int | None = None
 ) -> dict[str, str]:
     """Return watched account names not already covered by the liquid pull."""
+    if limit is None:
+        limit = DEFAULT_SUPPLEMENTAL_LIMIT
     if limit is not None and limit < 0:
         raise ValueError("limit must be non-negative")
     all_names = incremental_universe(con)
@@ -93,8 +99,11 @@ def supplemental_universe(
         ).fetchall()
     }
     rows = [(provider, ticker) for provider, ticker in all_names.items() if provider not in liquid]
-    if limit is not None:
-        rows = rows[:limit]
+    if len(rows) > limit:
+        log.warning(
+            f"[account-watch] truncating supplemental universe from {len(rows)} to {limit}"
+        )
+    rows = rows[:limit]
     return dict(rows)
 
 
