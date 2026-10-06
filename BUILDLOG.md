@@ -2046,4 +2046,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** Production source LOC and the 135 registered bindings are unchanged.
 - **Next:** Verify exact-commit CI, then install the fixed dependency and restart the production dashboard.
 
+## 2026-10-06 — Preserve first-seen prices and refresh account names
+
+- **Why:** P22 L4 sections 6.3 and 8 admit bitemporal prices and daily held,
+  pending and watched-name freshness; the frozen collector must retain its bytes.
+- **What:** Preserve `first_fetched_at` across price corrections and add the isolated
+  account-watch table/universe collector for L3 to call before the frozen collector.
+- **Evidence:** On a 21,011,171-row snapshot copy, seven paired 1,000-row repeats measured
+  `ON CONFLICT` at 6.976 ms versus 6.529 ms for `INSERT OR REPLACE` (6.84% slower, under 20%).
+- **Metrics:** engine +158, product +158, tests +127; server/tools unchanged; budget ok.
+- **Next:** add Massive split capture and the adjusted grouped-daily view.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
