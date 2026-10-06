@@ -482,10 +482,14 @@ def capture_massive_splits(
                 con.close()
             pages.append({**loaded, "row_count": len(rows)})
             if next_url is None:
+                if len(rows) == free_sources.MAX_SPLIT_RESULTS:
+                    raise free_sources.FreeSourceError(
+                        "Massive splits full page without next_url is incomplete"
+                    )
                 reconciliation_sha = hashlib.sha256("\n".join(page_shas).encode()).hexdigest()
                 con = db.connect(database, wait_s=0)
                 try:
-                    withdrawn = free_sources.reconcile_splits(
+                    reconciliation = free_sources.reconcile_splits(
                         con, observed=observed, start=start,
                         through=_aware_utc(reconciliation_at, "split fetched_at").date(),
                         fetched_at=reconciliation_at, source_sha256=reconciliation_sha,
@@ -494,7 +498,7 @@ def capture_massive_splits(
                     con.close()
                 return {
                     "status": "complete", "start": start.isoformat(),
-                    "pages": pages, "withdrawn": withdrawn,
+                    "pages": pages, **reconciliation,
                 }
             url = next_url
     finally:

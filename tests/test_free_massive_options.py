@@ -228,6 +228,36 @@ def test_prior_closes_refuses_store_without_adjusted_view(tmp_path):
         capture.prior_closes(database, ["SPY"], AS_OF)
 
 
+def test_prior_closes_uses_requested_asof_not_current_adjusted_view(tmp_path):
+    database = tmp_path / "daily.duckdb"
+    con = duckdb.connect(str(database))
+    try:
+        free_sources.init_schema(con)
+        con.execute(
+            """INSERT INTO free_daily_bars VALUES
+            ('2026-01-02','SPY',100,101,99,100,1000,100,
+             'fixture','2026-01-02 22:00:00',?)""",
+            ["c" * 64],
+        )
+        split_body = json.dumps({
+            "status": "OK", "count": 1, "results": [{
+                "ticker": "SPY", "execution_date": "2026-01-07",
+                "split_from": 1, "split_to": 2,
+            }],
+        }).encode()
+        free_sources.load_splits(
+            con, split_body, fetched_at=datetime(2026, 1, 3, tzinfo=timezone.utc)
+        )
+        current_adjusted = con.execute(
+            "SELECT c FROM free_daily_bars_adjusted WHERE ticker='SPY'"
+        ).fetchone()[0]
+    finally:
+        con.close()
+
+    assert current_adjusted == 50.0
+    assert capture.prior_closes(database, ["SPY"], date(2026, 1, 6)) == {"SPY": 100.0}
+
+
 def test_daily_contract_cap_is_equal_and_prefers_31_to_60_dte_then_atm():
     con = duckdb.connect()
     try:

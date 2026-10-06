@@ -19,6 +19,7 @@ from pathlib import Path
 import duckdb
 
 from engine.lib import db
+from engine.lib.log import get_logger
 from engine.lib.settings import REPO_ROOT
 from sim import nyse
 
@@ -39,6 +40,7 @@ SHA256 = re.compile(r"^[0-9a-f]{64}$")
 MASSIVE_TICKER = re.compile(r"^[A-Z0-9][A-Za-z0-9./^-]{0,31}$")  # lowercase marks preferreds/warrants
 MASSIVE_RATE_LOCK = Path.home() / ".local/state/massive-rate.lock"
 MASSIVE_RATE_INTERVAL_SECONDS = 13.0
+log = get_logger("free_sources")
 
 
 class FreeSourceError(ValueError):
@@ -156,10 +158,17 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         split_from DOUBLE NOT NULL, split_to DOUBLE NOT NULL,
         fetched_at TIMESTAMP NOT NULL, source_sha256 VARCHAR NOT NULL,
         status VARCHAR NOT NULL DEFAULT 'active',
+        pending_withdrawal_at TIMESTAMP, pending_withdrawal_source_sha256 VARCHAR,
         withdrawn_at TIMESTAMP, withdrawn_source_sha256 VARCHAR,
         PRIMARY KEY(ticker, ex_date))"""
     )
     con.execute("ALTER TABLE free_splits ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'active'")
+    con.execute(
+        "ALTER TABLE free_splits ADD COLUMN IF NOT EXISTS pending_withdrawal_at TIMESTAMP"
+    )
+    con.execute(
+        "ALTER TABLE free_splits ADD COLUMN IF NOT EXISTS pending_withdrawal_source_sha256 VARCHAR"
+    )
     con.execute("ALTER TABLE free_splits ADD COLUMN IF NOT EXISTS withdrawn_at TIMESTAMP")
     con.execute(
         "ALTER TABLE free_splits ADD COLUMN IF NOT EXISTS withdrawn_source_sha256 VARCHAR"
@@ -178,7 +187,7 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
                        SELECT PRODUCT(s.split_to / s.split_from)
                        FROM free_splits s
                        WHERE s.ticker = b.ticker
-                         AND s.status = 'active'
+                         AND s.status IN ('active', 'pending_withdrawal')
                          AND s.ex_date > b.date
                          AND s.ex_date > CAST(b.fetched_at AS DATE)
                          AND s.ex_date <= cutoff_date
@@ -195,7 +204,9 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     )
     con.execute(
         """CREATE OR REPLACE VIEW free_daily_bars_adjusted AS
-        SELECT * FROM free_daily_bars_adjusted_asof(CURRENT_DATE)"""
+        SELECT * FROM free_daily_bars_adjusted_asof(
+            CAST(CURRENT_TIMESTAMP AT TIME ZONE 'UTC' AS DATE)
+        )"""
     )
 
 
@@ -449,8 +460,6 @@ def parse_massive_splits(body: bytes) -> tuple[list[dict], str | None]:
     except (UnicodeDecodeError, ValueError) as exc:
         raise FreeSourceError("Massive splits response is not valid JSON") from exc
     results = payload.get("results") if isinstance(payload, dict) else None
-    if isinstance(payload, dict) and payload.get("status") == "OK" and results is None:
-        results = []
     count = payload.get("resultsCount", payload.get("count")) if isinstance(payload, dict) else None
     next_url = payload.get("next_url") if isinstance(payload, dict) else None
     if (
@@ -502,10 +511,13 @@ def load_splits(
     init_schema(con)
     before = con.execute("SELECT COUNT(*) FROM free_splits").fetchone()[0]
     existing = {
-        (ticker, ex_date): (split_from, split_to, observed_sha, status, observed_at)
-        for ticker, ex_date, split_from, split_to, observed_sha, status, observed_at
+        (ticker, ex_date): (
+            observed_sha, status, observed_at, pending_at, withdrawn_at,
+        )
+        for ticker, ex_date, observed_sha, status, observed_at, pending_at, withdrawn_at
         in con.execute(
-            """SELECT ticker,ex_date,split_from,split_to,source_sha256,status,fetched_at
+            """SELECT ticker,ex_date,source_sha256,status,fetched_at,
+                      pending_withdrawal_at,withdrawn_at
             FROM free_splits
             WHERE (ticker,ex_date) IN (
                 SELECT UNNEST(?), UNNEST(?)
@@ -520,27 +532,45 @@ def load_splits(
         con.executemany(
             """INSERT INTO free_splits
             (ticker,ex_date,split_from,split_to,fetched_at,source_sha256,status,
+             pending_withdrawal_at,pending_withdrawal_source_sha256,
              withdrawn_at,withdrawn_source_sha256)
-            VALUES (?, ?, ?, ?, ?, ?, 'active', NULL, NULL)
+            VALUES (?, ?, ?, ?, ?, ?, 'active', NULL, NULL, NULL, NULL)
             ON CONFLICT (ticker,ex_date) DO UPDATE SET
                 split_from=excluded.split_from, split_to=excluded.split_to,
                 fetched_at=excluded.fetched_at, source_sha256=excluded.source_sha256,
-                status='active', withdrawn_at=NULL, withdrawn_source_sha256=NULL
-            WHERE excluded.fetched_at >= free_splits.fetched_at
-              AND (excluded.source_sha256 <> free_splits.source_sha256
-                   OR free_splits.status <> 'active')""",
+                status='active', pending_withdrawal_at=NULL,
+                pending_withdrawal_source_sha256=NULL,
+                withdrawn_at=NULL, withdrawn_source_sha256=NULL
+            WHERE (
+                free_splits.status='active'
+                AND excluded.fetched_at >= free_splits.fetched_at
+                AND excluded.source_sha256 <> free_splits.source_sha256
+            ) OR (
+                free_splits.status='pending_withdrawal'
+                AND excluded.fetched_at > free_splits.pending_withdrawal_at
+            ) OR (
+                free_splits.status='withdrawn'
+                AND excluded.fetched_at > COALESCE(
+                    free_splits.withdrawn_at, free_splits.fetched_at
+                )
+            )""",
             [[
                 row["ticker"], row["ex_date"], row["split_from"], row["split_to"],
                 fetched, source_sha,
             ] for row in rows],
         )
     after = con.execute("SELECT COUNT(*) FROM free_splits").fetchone()[0]
-    updated = sum(
-        key in existing
-        and fetched >= existing[key][4]
-        and (source_sha != existing[key][2] or existing[key][3] != "active")
-        for key in ((row["ticker"], row["ex_date"]) for row in rows)
-    )
+    def eligible(key: tuple[str, date]) -> bool:
+        if key not in existing:
+            return False
+        observed_sha, status, observed_at, pending_at, withdrawn_at = existing[key]
+        if status == "active":
+            return fetched >= observed_at and source_sha != observed_sha
+        if status == "pending_withdrawal":
+            return pending_at is not None and fetched > pending_at
+        return status == "withdrawn" and fetched > (withdrawn_at or observed_at)
+
+    updated = sum(eligible((row["ticker"], row["ex_date"])) for row in rows)
     return {
         "source": "massive_reference_splits",
         "source_sha256": source_sha,
@@ -554,31 +584,59 @@ def load_splits(
 def reconcile_splits(
     con: duckdb.DuckDBPyConnection, *, observed: set[tuple[str, date]],
     start: date, through: date, fetched_at: datetime, source_sha256: str,
-) -> int:
-    """Withdraw missing splits only after a complete bounded reference response."""
+) -> dict:
+    """Advance safe absences from active to pending, then pending to withdrawn."""
     start = _date_argument(start, "split reconciliation start")
     through = _date_argument(through, "split reconciliation through")
     fetched = _utc_naive(fetched_at, "split reconciliation fetched_at")
     if start > through or SHA256.fullmatch(source_sha256) is None:
         raise FreeSourceError("Massive split reconciliation identity is invalid")
     init_schema(con)
-    active = {
-        (ticker, ex_date)
-        for ticker, ex_date in con.execute(
-            """SELECT ticker,ex_date FROM free_splits
-            WHERE status='active' AND ex_date BETWEEN ? AND ?""",
+    current = {
+        (ticker, ex_date): status
+        for ticker, ex_date, status in con.execute(
+            """SELECT ticker,ex_date,status FROM free_splits
+            WHERE status IN ('active','pending_withdrawal')
+              AND ex_date BETWEEN ? AND ?""",
             [start, through],
         ).fetchall()
     }
-    withdrawn = sorted(active - observed)
+    absent = sorted(set(current) - observed)
+    if current and not observed:
+        message = (
+            f"[free-splits] ALARM empty complete response with {len(current)} "
+            "active or pending splits; withdrawal state unchanged"
+        )
+        log.error(message)
+        return {"pending": 0, "withdrawn": 0, "alarm": message}
+    absent_share = len(absent) / len(current) if current else 0.0
+    if len(absent) > 3 or absent_share > 0.20:
+        message = (
+            f"[free-splits] ALARM suspicious absence set {len(absent)}/{len(current)} "
+            "exceeds 3 or 20%; withdrawal state unchanged"
+        )
+        log.error(message)
+        return {"pending": 0, "withdrawn": 0, "alarm": message}
+    pending = [key for key in absent if current[key] == "active"]
+    withdrawn = [key for key in absent if current[key] == "pending_withdrawal"]
+    if pending:
+        con.executemany(
+            """UPDATE free_splits
+            SET status='pending_withdrawal', pending_withdrawal_at=?,
+                pending_withdrawal_source_sha256=?
+            WHERE ticker=? AND ex_date=? AND status='active'""",
+            [[fetched, source_sha256, ticker, ex_date] for ticker, ex_date in pending],
+        )
     if withdrawn:
         con.executemany(
             """UPDATE free_splits
             SET status='withdrawn', withdrawn_at=?, withdrawn_source_sha256=?
-            WHERE ticker=? AND ex_date=? AND status='active'""",
+            WHERE ticker=? AND ex_date=? AND status='pending_withdrawal'""",
             [[fetched, source_sha256, ticker, ex_date] for ticker, ex_date in withdrawn],
         )
-    return len(withdrawn)
+    return {
+        "pending": len(pending), "withdrawn": len(withdrawn), "alarm": None,
+    }
 
 
 def _date_argument(value: date, field: str) -> date:
