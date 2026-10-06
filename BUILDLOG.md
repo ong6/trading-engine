@@ -2318,4 +2318,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools unchanged; product/engine +121, server +23, tests +175; budget ok.
 - **Next:** verify the L0 schema handoff and run the complete suite against the merged base.
 
+## 2026-10-06 — Close P22 L2 review round two
+
+- **Why:** orchestrator review required the final R13 base plus six account-service
+  corrections and an L0-owned account-table initialization handoff.
+- **What:** All review cases pass, the compatibility shim is gone, and the schema change is
+  packaged in the L2 status patch directory. No claimed implementation remains uncommitted.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,342 passed, 184 base-listed failures, 5 deselected.
+- **Metrics:** server/tools/product unchanged since the correction entry; budget ok.
+- **Next:** orchestrator applies the L0 schema patch before integrating L1 and L2.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
