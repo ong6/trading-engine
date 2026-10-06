@@ -25,7 +25,7 @@ each plan's YAML `status` must match its row.
 | [P12](p12-agent-research-product.md) | Agent research product | done | Full data, execution, and evaluation programme delivered 2026-09-23; data/news spend external |
 | [P13](p13-market-data-source-hardening.md) | Market-data source hardening | done | TradingView realtime/history active under owner-asserted rights; Alpaca dormant |
 | [P14](p14-tradingview-history-archive.md) | TradingView historical archive | done | Resumable current-liquid-universe daily bars with exact transcripts and research-only authority |
-| [P15](p15-profitability-evidence-loop.md) | Profitability evidence loop | active | Revision 12 live; scoring, pre-open, event, report, and status collection continue |
+| [P15](p15-profitability-evidence-loop.md) | Profitability evidence loop | active | Revision 13 binds the P22 commission/account runtime; scoring, labels, gates and collection continue unchanged |
 | [P16](p16-challenger-lab-and-text-edge.md) | Challenger lab, text edge, evaluation science | active | W0 P15 revision-4 activation complete; W9b registration remains |
 | [P17](p17-personal-host-ibkr-paper-execution.md) | Personal-host IBKR paper execution and reconciliation | proposed | Future work, explicitly not now; requires a Stage 1 pass and owner approval before any implementation or account action |
 | [P18](p18-backtest-core.md) | Shared backtest core | done | Completed: native event/portfolio simulation, deterministic reports, proving ground, and example |
@@ -35,7 +35,7 @@ each plan's YAML `status` must match its row.
 | [P22](p22-engine-v2-accounts.md) | Engine v2 accounts and money foundation | active | Phase A routes books, commissions and private results; Phase B integrates lanes, rehearses D0 and explicitly rebinds every frozen runtime contract |
 
 Recommended order: follow [`../product.md`](../product.md) ("Focus now"). Complete P22 without
-disturbing the revision-12 evidence path, then continue P15 and P7 activation; P8/P9 keep running
+disturbing the revision-13 evidence path, then continue P15 and P7 activation; P8/P9 keep running
 untouched; P2 remains admitted; P3's bounded free captures run while paid data waits.
 
 ## Plan template
