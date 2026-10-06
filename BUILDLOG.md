@@ -2174,4 +2174,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server unchanged, tools +4, product/engine +58, tests +183; budget ok.
 - **Next:** run complete acceptance and publish round-three status.
 
+## 2026-10-06 — Close L4 round-three review
+
+- **Why:** Orchestrator re-review required strong withdrawal evidence, explicit
+  option as-of prices, UTC defaults and fail-soft split scheduling.
+- **What:** The withdrawal state machine and every incomplete/suspicious refusal
+  pass 148 focused cases; Ruff, systemd, both handoff patches and budget pass.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,328 passed, 104 integration-bound failures, 5 deselected.
+- **Metrics:** server/tools/product unchanged since the implementation entry; budget ok.
+- **Next:** L3 applies the existing handoffs and rebinds merged runtime contracts.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
