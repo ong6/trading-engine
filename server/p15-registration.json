@@ -235,18 +235,18 @@
     "price_fetch_availability": "after_collection_completion"
   },
   "code_identity": {
-    "source_commit": "c8b19621492ce9029d551d8f8e66fe06b8f8114c",
+    "source_commit": "06d19b14e26a5763a3e72c2c314c942675f347ef",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/account_watch.py": "cbda8d47487c8a827f8f5cb7ab22ec916c100055ffaa7ff753ea24759121eb6c",
       "engine/accounts/__init__.py": "42ec5fcd2730c9d2efa8dc8bfda6d3c54340268ef64f945f1f19d4097300635e",
-      "engine/accounts/settle.py": "a35baa72d4465446aaf5c1d871c9235f94beef79c600b8af31123f3651ebd57d",
+      "engine/accounts/settle.py": "4151486060a1657d4df2011a447fce200fa33c513a128320d86f0a4bbd9a1e1f",
       "engine/actions.py": "a6c2ec46d198df2318498ec7d55e1b7cfeca4c8afaccd8a5c208618e4ea8b850",
       "engine/bitemporal_facts.py": "9f593e82da0f65a54b93d0dac5505e6a98fad5d1d4d63ce672b71d527655c8cc",
       "engine/collect.py": "23ec8da4be7342101b061f6db49b2338dcbe8fd127c2fb607c66995652d340f1",
       "engine/daily_opportunities.py": "d8d8cd884183f10055204b606af3a748198d7c9686342b5fad091a24ab71292b",
       "engine/earnings.py": "2d3b702f523b1a88c12b48bc62e4bba78deefb09122e65d0bb934460072483d2",
-      "engine/forward_review.py": "69ee0bbf815762315e86e06e88ad6c2ae2e0582ab89486cb4aa5050212337eac",
+      "engine/forward_review.py": "6d13d88167cf93e85f72292e23c7453c3d049912294fed3d2d484403dbe120fc",
       "engine/free_massive_minute.py": "ee1bc0120836e264b52fc016dbc446233f7bff160b7976ee2c697c69e02a1b1d",
       "engine/free_sources.py": "414af6dcd99bba91ea96cd2340f40680a74b39d0dab31aed194aaaca93a49126",
       "engine/fundamentals.py": "7a50a1762e2df25aa9ebb37b11b45592c287bb4a8fb438aa6ded4ae3eb079192",
@@ -271,7 +271,7 @@
       "engine/money/limits.py": "a6496437d7c3bb98757ae379f41450e3c1d7f277e410bdcc195edc89846b9968",
       "engine/p15_evaluation.py": "c9d65f8f294532c16bea738db77cec88333a7d2ec1349d1970ed866f01398810",
       "engine/p15_event_sources.py": "fb2831a69168d4ffd4dfec0c283601e30d94d017ebaff4103967bd61559df488",
-      "engine/paper_accounts.py": "248ed0026e7b6521c348e07cd8d2c5d7fca2ac3102431982889b7793b3e7bfbc",
+      "engine/paper_accounts.py": "7623aeb8452526b1c620818dd896dd00baac08eeadeb7f5a779a1287ce3af3a8",
       "engine/queue_runner.py": "041c3cdf8417ddb8cbe96283314c278bbb99bac87903e44227fb4331f729b096",
       "engine/run_daily.sh": "c3a77da9946022aefc6c54b5c3a95c9d30050a5ced15facbc2c6dd438d9123d6",
       "engine/screen.py": "10ad75b95fd8d9f6280365b648105d2eaf5ff26fe6e13966423d0133a43787b3",
@@ -280,7 +280,7 @@
       "engine/tradingview_history_archive.py": "910f09b31dec6cdd5f8e24d9ca62134a869f4fd31139c686a151e5e6c8e11d4b",
       "engine/universe.py": "ad3cf5f62730767081ee7718006ce4f78f4c6bfdbb80ab90caeef118abc276a7",
       "engine/verify_prices.py": "7d5457918132a72e806ee19a729c56a7c2884d6ba095425f22df3318e279c9a3",
-      "engine/xs_forward_review.py": "e72ffe9bd04151bda2faa7d4830ca892848c438158133491dbadcd89bc50c40b",
+      "engine/xs_forward_review.py": "a8bd084dc51f4ee6165825d1c74335fa91daed1224afe3b5e3797fe0f010299c",
       "farm/__init__.py": "bf84aec09336388f858d7c1e7c28cab3da1d8d18096ed36ef460ea49114f11e0",
       "farm/agent_evaluation_analysis.py": "67ba119bd1974a184e03c64852b22f42d0ae654e2844f60974082b66c1159ab8",
       "farm/backtest/__init__.py": "b65d882bc9e7d1ba6e704fc93be8aa4188775ead4cf4028a3da7141c298427b7",
@@ -348,7 +348,7 @@
       "sim/costs/profiles.py": "bbd4c25da233957405a3fea96da1787800b113391eb05d48a6ec2c0437c0a4d2",
       "sim/execution.py": "e6e9c36d7ff2c2dfb12eaa3832b5e9e1697bd8cb3dfa9b9126a966ab4d8121ac",
       "sim/fills.py": "b32b8360c0ba4efe5eb9372b3642d7058d330c1daa4f2bd4c7f898cd9528f777",
-      "sim/league.py": "41ba5180ca6ce928dd469678d596b83f04329b445b116f291a6d7afa4005485c",
+      "sim/league.py": "c06adcd16d50d07e412e10b127b26d698837cbfdde33321901b7cad580391add",
       "sim/ledger.py": "e16e0b3b9dcdc70e2c88688014eb8d2f3618c6079550345fcd8eb979a4612b6a",
       "sim/margin.py": "a560c794ee8ddac9e9903759dd9a2f61f6399434445b555b6f3e603d36712cde",
       "sim/nyse.py": "7911bf0f9c6c0c4be6d43b1e6d23604c2d4a74c18deac41116c5865b11604f5b",
@@ -399,5 +399,5 @@
   },
   "registration_revision": 13,
   "revision_reason": "owner decision 2026-10-06: ibkr_pro_tiered_v1 commissions from the migration --d0 parameter; book evaluation clocks restart at D0; additive account schema, monotonic order sequence, shared ledger and account engine; pre-D0 league.csv and league.md byte-identical; scoring, labels, gates and schedules unchanged",
-  "registration_sha256": "8503c9e90e178510309711dcb459ba13588b93296682159dc84b9ea633cb850b"
+  "registration_sha256": "e66d40fa8784ce0bb87e6240043ba4e767b3bce03436610ab871fd68e499e084"
 }

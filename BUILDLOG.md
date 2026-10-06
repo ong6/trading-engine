@@ -2600,4 +2600,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +20, server unchanged, tools +1, product +33; tests +119; budget ok.
 - **Next:** freeze the corrected source, refresh revision 13 identities, then rerun both timezone suites.
 
+## 2026-10-06 — Refresh revision 13 after rehearsal fixes
+
+- **Why:** the accepted snapshot rehearsal found three integrated runtime defects whose
+  corrections changed registered account, settlement and league source bytes.
+- **What:** Keep every revision-13 policy field and reason unchanged; refresh only its
+  frozen source commit, 158 exact file hashes and registration self-hash.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error
+  tests/test_p15_registration.py` — all 5 source, closure and identity gates pass.
+- **Metrics:** server/tools/product unchanged; budget ok.
+- **Next:** rerun the complete UTC and Asia/Singapore suites on final bytes.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
