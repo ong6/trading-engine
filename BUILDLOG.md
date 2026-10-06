@@ -2038,4 +2038,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** Research runtime unchanged; revision 12 binds the reviewed backup source correction.
 - **Next:** Nothing further admitted by P21; P15 continues its registered evidence collection.
 
+## 2026-10-06 — Correct the vulnerable UI source-map dependency
+
+- **Why:** CI run 37421970021 failed its mandatory production-dependency audit on source-map-js 1.2.1 (GHSA-68fv-2mgg-jv7q).
+- **What:** Update only source-map-js 1.2.1 to 1.2.2 in the lockfile; UI behavior and trading source are unchanged.
+- **Evidence:** Public-registry audit changed from one high-severity finding to zero; all 55 UI tests and the production build pass on Node 20.
+- **Metrics:** Production source LOC and the 135 registered bindings are unchanged.
+- **Next:** Verify exact-commit CI, then install the fixed dependency and restart the production dashboard.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
