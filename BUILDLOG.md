@@ -2196,4 +2196,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; documentation +76 lines; budget ok.
 - **Next:** run focused gates, Ruff, the baseline-diffed full suite, and the metrics check.
 
+## 2026-10-06 — Preserve pre-D0 replay compatibility
+
+- **Why:** the required full suite reproduced four failures outside the 185-node
+  frozen-identity baseline: nightly parsing, legacy-id reuse and two P16 replay cases.
+- **What:** Keep the frozen ten-column standings table and publish break metrics beside it;
+  skip legacy ids until R13 lands; clear position lots before P15 replay; and avoid writing
+  zero-fee sidecars for baseline fills. All four reproductions pass.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --tb=no --deselect
+  tests/test_p15_registration.py` — 4,276 passed; the 182 failures exactly equal the
+  185-node P22 base list minus the three repaired driver nodes.
+- **Metrics:** server/tools unchanged, product +23; tests unchanged; budget ok.
+- **Next:** publish the metrics snapshot and hand Phase A to the orchestrator.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

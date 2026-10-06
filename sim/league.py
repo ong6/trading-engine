@@ -77,7 +77,11 @@ def init_portfolios(con, as_of: date) -> int:
 
 
 def next_order_id(con) -> int:
-    return sequence_order_id(con)
+    maximum = int(con.execute("SELECT COALESCE(MAX(id),0) FROM sim_orders").fetchone()[0])
+    allocated = sequence_order_id(con)
+    while allocated <= maximum:
+        allocated = sequence_order_id(con)
+    return allocated
 
 
 def _optional_phase(module_name: str, function_name: str, con, d: date):
@@ -186,7 +190,7 @@ def fill_pending(con, d: date) -> dict:
                 "fill_px": res.fill_px,
                 "fill_date": d,
             },
-            fees,
+            None if fees.profile_id == book_breaks.BASELINE_COST_PROFILE else fees,
         )
         if applied <= 0:
             reject(oid, "insufficient_cash" if side == "buy"
@@ -516,15 +520,14 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
     lines = [
         f"# Paper League — {d.isoformat()}",
         "",
-        "| # | Portfolio | Inception | Equity | Total ret | Since break | "
-        "Fees paid | vs SPY | Max DD | Open | Fills | Last 5d |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| # | Portfolio | Inception | Equity | Total ret | vs SPY | Max DD | "
+        "Open | Fills | Last 5d |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for i, r in enumerate(rows, 1):
         lines.append(
             f"| {i} | {r['name']} | {r['inception']} | "
             f"${r['equity']:,.0f} | {_fmt_pct(r['total_ret'])} | "
-            f"{_fmt_pct(r['since_break'])} | ${r['fees_paid']:,.2f} | "
             f"{_fmt_pct(r['vs_spy'])} | {_fmt_pct(r['mdd'])} | "
             f"{r['n_open']} | {r['n_fills']} | {_fmt_pct(r['last5'])} |"
         )
@@ -538,6 +541,16 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
     if break_dates:
         dates = ", ".join(value.isoformat() for value in break_dates)
         lines += [
+            "## Commission break",
+            "",
+            "| Portfolio | Since break | Fees paid |",
+            "|---|---:|---:|",
+            *[
+                f"| {row['name']} | {_fmt_pct(row['since_break'])} | "
+                f"${row['fees_paid']:,.2f} |"
+                for row in rows if row["break_date"] is not None
+            ],
+            "",
             f"_† commissions from the recorded cost-profile break ({dates}); "
             "evaluation clocks restart at each break._",
             "",
