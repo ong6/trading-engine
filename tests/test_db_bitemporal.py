@@ -67,3 +67,18 @@ def test_schema_adds_first_fetch_column_to_an_existing_prices_table():
         con.close()
 
     assert "first_fetched_at" in columns
+
+
+def test_upsert_remains_compatible_with_a_minimal_legacy_prices_fixture():
+    con = duckdb.connect()
+    try:
+        con.execute(
+            """CREATE TABLE prices (
+            ticker VARCHAR, date DATE, open DOUBLE, high DOUBLE, low DOUBLE,
+            close DOUBLE, volume BIGINT, source VARCHAR, fetched_at TIMESTAMP,
+            PRIMARY KEY (ticker, date))"""
+        )
+        assert db.upsert_prices(con, _frame(10.5)) == 1
+        assert con.execute("SELECT close FROM prices").fetchone() == (10.5,)
+    finally:
+        con.close()

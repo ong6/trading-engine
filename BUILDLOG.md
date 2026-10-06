@@ -2090,4 +2090,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/product unchanged, tools +12, tests +26; budget ok.
 - **Next:** run the complete L4 acceptance and repository gates.
 
+## 2026-10-06 — Keep bitemporal upsert compatible with legacy fixtures
+
+- **Why:** the required full suite reproduced `upsert_prices` refusing a minimal
+  pre-migration prices fixture that intentionally omits `first_fetched_at`.
+- **What:** Use the point-in-time conflict path directly on current stores and fall
+  back to the former write only after confirming the optional column is absent.
+- **Evidence:** On the 21,011,171-row snapshot copy, seven paired 1,000-row repeats
+  measured 21.735 ms versus 20.197 ms today (7.62% slower, under the 20% limit).
+- **Metrics:** server/tools unchanged, product/engine +14, tests +15; budget ok.
+- **Next:** hand positional whole-row writers to their owning integration lane, then close gates.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
