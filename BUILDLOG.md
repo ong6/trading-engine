@@ -2079,4 +2079,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server unchanged, tools +379, product/engine +286, tests +125, docs +14; budget ok.
 - **Next:** register the options and account-settle systemd units without installing them.
 
+## 2026-10-06 — Register data and late-settlement timers
+
+- **Why:** P22 L4 section 8 requires the options 11:35 UTC job and account late-settle
+  07:45/11:55 UTC jobs to ship through automation without installing or starting them.
+- **What:** Add the four hardened oneshot/timer units, register both timers for autostart,
+  and accept an explicit read-only `--audit` mode. No host automation state changed.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_install_automation.py`
+  passes all 50 cases; systemd verification passes and audit lists all four new units.
+- **Metrics:** server/product unchanged, tools +12, tests +26; budget ok.
+- **Next:** run the complete L4 acceptance and repository gates.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
