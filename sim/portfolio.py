@@ -14,6 +14,7 @@ import duckdb
 
 from engine.lib.util import table_exists
 
+from .execution import FILL_MODEL_VERSION as FILL_MODEL_VERSION
 from .ledger import MIN_FILL_USD as MIN_FILL_USD
 from .ledger import apply_fill as ledger_apply_fill
 from .schema import INITIAL_CASH
@@ -31,8 +32,7 @@ from .schema import INITIAL_CASH
 #   v4  profile-aware market/fee costs, actual-quantity participation audit,
 #       per-book capital, explicit quarantine; baseline_v1 remains v3-equivalent
 #   v5  side-aware lots, dollar fees and phase-3 cash-event replay; legacy
-#       baseline_v1 fill arithmetic remains v4-equivalent
-FILL_MODEL_VERSION = "v5"
+#       baseline_v1 fill arithmetic remains v4-equivalent (version in execution.py)
 
 # A buy whose affordable notional falls below this is dust, not a position:
 # filling it writes a sim_fills row and an avg_cost for an amount that cannot

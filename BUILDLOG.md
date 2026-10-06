@@ -2073,4 +2073,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged; product +228 lines; budget clean.
 - **Next:** Run repository-wide acceptance, package cross-lane compatibility patches, and publish the final metrics snapshot.
 
+## 2026-10-06 — Stamp fill model v5
+
+- **Why:** P22 L0 acceptance requires the new ledger semantics to carry a distinct fill-model identity.
+- **What:** Define v5 in the execution layer and re-export it through the existing portfolio interface.
+  The baseline slippage coefficients and legacy zero-fee arithmetic remain unchanged.
+- **Evidence:** All 34 claimed L0 tests pass; repository-wide `ruff check .` passes.
+- **Metrics:** server/tools unchanged; product +2 lines; budget clean.
+- **Next:** L3 must migrate frozen runtime identities and apply the supplied compatibility patch before the full suite can pass.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

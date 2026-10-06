@@ -10,6 +10,8 @@ from __future__ import annotations
 import math
 from dataclasses import asdict, dataclass
 
+FILL_MODEL_VERSION = "v5"
+
 
 @dataclass(frozen=True)
 class ExecutionProfile:
