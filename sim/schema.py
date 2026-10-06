@@ -199,6 +199,67 @@ def init_sim_schema(con: duckdb.DuckDBPyConnection) -> None:
     )
     con.execute(
         """
+        CREATE TABLE IF NOT EXISTS paper_account_specs (
+            account_id VARCHAR PRIMARY KEY, payload VARCHAR NOT NULL,
+            sha256 VARCHAR NOT NULL, created_at TIMESTAMP NOT NULL,
+            schema_version INTEGER DEFAULT 1
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS paper_account_intakes (
+            intent_id VARCHAR PRIMARY KEY, account_id VARCHAR NOT NULL,
+            order_id BIGINT UNIQUE NOT NULL, payload VARCHAR NOT NULL,
+            sha256 VARCHAR NOT NULL, received_at TIMESTAMP NOT NULL,
+            receipt VARCHAR
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS account_state (
+            portfolio_id VARCHAR PRIMARY KEY, peak_equity DOUBLE NOT NULL,
+            prior_close_equity DOUBLE, drawdown_anchor_equity DOUBLE,
+            halted_at TIMESTAMP, halt_reason VARCHAR, resumed_at TIMESTAMP,
+            resumed_by VARCHAR, pdt_flagged_at TIMESTAMP,
+            pdt_restricted_until DATE, retired_at TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS account_events (
+            id BIGINT PRIMARY KEY, portfolio_id VARCHAR, kind VARCHAR,
+            payload VARCHAR, created_at TIMESTAMP
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS account_reconciliations (
+            portfolio_id VARCHAR, session_date DATE, expected_sha256 VARCHAR,
+            observed_sha256 VARCHAR, status VARCHAR, detail VARCHAR,
+            created_at TIMESTAMP, PRIMARY KEY (portfolio_id, session_date)
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS account_watch (
+            portfolio_id VARCHAR, ticker VARCHAR, created_at TIMESTAMP NOT NULL,
+            PRIMARY KEY (portfolio_id, ticker)
+        )
+        """
+    )
+    con.execute("ALTER TABLE paper_account_specs ADD COLUMN IF NOT EXISTS "
+                "schema_version INTEGER DEFAULT 1")
+    con.execute("ALTER TABLE paper_account_intakes ADD COLUMN IF NOT EXISTS receipt VARCHAR")
+    con.execute("ALTER TABLE account_state ADD COLUMN IF NOT EXISTS "
+                "drawdown_anchor_equity DOUBLE")
+    con.execute(
+        """
         CREATE TABLE IF NOT EXISTS sim_orders (
             id            BIGINT PRIMARY KEY,
             portfolio_id  VARCHAR,
