@@ -740,6 +740,7 @@ def test_completed_tool_call_resumes_order_without_second_model_call(tmp_path):
     )
     con = db.connect(path)
     assessment_id = con.execute("SELECT id FROM daily_opportunity_assessments").fetchone()[0]
+    original_order_id = con.execute("SELECT id FROM sim_orders").fetchone()[0]
     con.execute("DELETE FROM daily_opportunity_order_attribution")
     con.execute("DELETE FROM sim_orders")
     con.close()
@@ -749,7 +750,49 @@ def test_completed_tool_call_resumes_order_without_second_model_call(tmp_path):
         lock_path=tmp_path / "tool.lock",
     )
     assert recovered["replayed"] is True
-    assert recovered["paper_order_id"] is not None
+    assert recovered["paper_order_id"] == original_order_id
     con = db.connect(path, read_only=True)
-    assert con.execute("SELECT COUNT(*) FROM sim_orders").fetchone() == (1,)
+    assert con.execute("SELECT id FROM sim_orders").fetchone() == (original_order_id,)
     con.close()
+
+
+def test_completed_tool_recovery_refuses_retained_id_owned_by_another_order(tmp_path):
+    path = tmp_path / "market.duckdb"
+    _database(path)
+    con = db.connect(path)
+    with db.transaction(con):
+        daily_opportunity_store.init_schema(con)
+        daily_opportunity_execution.initialize_book(con, MARKET_DATE, active=True)
+    con.close()
+
+    def swing(payload):
+        result = _connector(payload)
+        result.output["assessments"][0].update(
+            decision="swing", action="buy", alert=None
+        )
+        return result
+
+    daily_opportunity_runner.run(
+        database=path, now=NOW, generate=swing, fetch_news=_news_response,
+        tool_generate=_tool_connector,
+    )
+    con = db.connect(path)
+    assessment_id = con.execute("SELECT id FROM daily_opportunity_assessments").fetchone()[0]
+    original_order_id = con.execute("SELECT id FROM sim_orders").fetchone()[0]
+    con.execute("DELETE FROM daily_opportunity_order_attribution")
+    con.execute("DELETE FROM sim_orders")
+    con.execute(
+        "INSERT INTO sim_orders VALUES "
+        "(?,'other','OTHER','buy',1,?,'pending',NULL)",
+        [original_order_id, MARKET_DATE],
+    )
+    con.close()
+
+    with pytest.raises(
+        daily_opportunity_execution.ExecutionError, match="held by a different order",
+    ):
+        daily_opportunity_tools.submit(
+            assessment_id, database=path, now=NOW + timedelta(minutes=2),
+            generate=lambda _payload: pytest.fail("completed tool must not call model"),
+            lock_path=tmp_path / "tool.lock",
+        )

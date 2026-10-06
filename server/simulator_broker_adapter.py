@@ -14,6 +14,7 @@ import duckdb
 
 from engine.lib import db
 from engine.lib.util import table_exists
+from sim.schema import next_order_id
 
 from .broker_contract import (
     MAX_ACCOUNT_ROWS,
@@ -304,9 +305,7 @@ class SimulatorBrokerAdapter(BrokerAdapter):
                         "is already bound to different order terms"
                     )
                 return order
-            order_id = self._con.execute(
-                "SELECT COALESCE(MAX(id), 0) + 1 FROM sim_orders"
-            ).fetchone()[0]
+            order_id = next_order_id(self._con)
             order_id = _require_stored_id(order_id, "next order identifier")
             self._con.execute(
                 "INSERT INTO sim_orders (id, portfolio_id, ticker, side, qty, "

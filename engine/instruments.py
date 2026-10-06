@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
@@ -84,6 +85,24 @@ def format_occ(instrument: Instrument) -> str:
     if scaled != scaled.to_integral_value() or not 0 <= scaled <= 99_999_999:
         raise ValueError("OCC strike must be a non-negative multiple of 0.001")
     return f"{root:<6}{instrument.expiry:%y%m%d}{instrument.right}{int(scaled):08d}"
+
+
+def future(instrument_id: str, *, multiplier: float, underlying: str | None = None,
+           currency: str = "USD", source: str | None = None) -> Instrument:
+    """Create a validated identity placeholder for a future supplied by a spec."""
+    canonical = normalise(instrument_id)
+    if not canonical.strip() or any(character.isspace() for character in canonical):
+        raise ValueError("future instrument_id must be a compact identifier")
+    if not math.isfinite(multiplier) or multiplier <= 0:
+        raise ValueError("future multiplier must be positive and finite")
+    return Instrument(
+        instrument_id=canonical,
+        kind="future",
+        underlying=underlying,
+        multiplier=float(multiplier),
+        currency=currency,
+        source=source,
+    )
 
 
 def ensure(con: duckdb.DuckDBPyConnection, instrument: Instrument) -> Instrument:
