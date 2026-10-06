@@ -2182,4 +2182,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; engine/sim/tests remain within the P22 budget.
 - **Next:** run the lane acceptance set, full-suite failure diff, ruff and metrics publication.
 
+## 2026-10-06 — Close P22 L1 execution gates
+
+- **Why:** P22 L1 is done when focused acceptance, ruff, metrics and the full
+  repository suite add no failure beyond the R12 base list.
+- **What:** Confirm all L1 fills, shorts, margin, R10 and settlement tests; retain
+  a temporary R13 accessor shim until the refreshed L0 base is available.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,293 passed; 185 failures exactly match the
+  published P22 base-failure list; 5 deselected.
+- **Metrics:** server/tools unchanged; product +1,775 and tests +807; budget ok.
+- **Next:** nothing admitted; the orchestrator merges the refreshed R13 base and deletes the shim.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
