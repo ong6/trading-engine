@@ -15,6 +15,7 @@ from engine.lib.util import table_exists
 from farm.backtest.replay import DEFAULT_REQUIRED, REQUIRED, REQUIRED_LOOKBACK
 from farm.walkforward import controls as walkforward_controls
 from farm.walkforward import protocol as walkforward_protocol
+from farm.walkforward import runtime_contract as walkforward_runtime_contract
 from server import walkforward_cohort
 from server.json_utils import loads_object
 from sim import execution, portfolio
@@ -88,6 +89,7 @@ def _registration(row: tuple, floors_by_ticker: dict[str, object] | None) -> dic
             "step_months": walkforward_protocol.STEP_MONTHS,
         },
         "data_floor": _data_floor(strategy, floors_by_ticker),
+        "runtime_contract": walkforward_runtime_contract.payload(),
     }
 
 
