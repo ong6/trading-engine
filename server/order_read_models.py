@@ -22,8 +22,8 @@ from .ticket_contract import PLAYBOOK_MAX_CHARS
 ORDERS_LIMIT = 500
 REJECT_REASON_MAX_CHARS = 4_096
 ORDER_SIDES = frozenset({"buy", "sell"})
-ORDER_STATUSES = frozenset({"pending", "filled", "rejected", "cancelled"})
-TERMINAL_WITHOUT_FILL_STATUSES = frozenset({"rejected", "cancelled"})
+ORDER_STATUSES = frozenset({"pending", "filled", "rejected", "cancelled", "expired"})
+TERMINAL_WITHOUT_FILL_STATUSES = frozenset({"rejected", "cancelled", "expired"})
 ORDERS_PROJECTION_FIELDS = frozenset({"status", "limit", "matching_count", "truncated", "orders"})
 ORDER_ROW_FIELDS = frozenset(
     {
