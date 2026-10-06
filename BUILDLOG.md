@@ -2611,4 +2611,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; budget ok.
 - **Next:** rerun the complete UTC and Asia/Singapore suites on final bytes.
 
+## 2026-10-06 — Close P22 L3 Phase B
+
+- **Why:** Phase B completion requires final revision-13 bytes, both supported
+  timezones green and the full migration/account rehearsal recorded.
+- **What:** Freeze the rehearsal-corrected runtime and refreshed revision 13. The
+  migration is one-shot, pre-D0 reports are byte-identical, private auction accounts
+  settle with fees/equity/results and remain absent from public reports, and replay
+  verification is clean. Temporary databases, token, specs and reports were deleted.
+- **Evidence:** `TZ=UTC` and `TZ=Asia/Singapore .venv/bin/python -m pytest -q
+  -W error -n auto` — 4,615 passed in each timezone, zero failures, registration enabled.
+- **Metrics:** server/tools/product unchanged since the rehearsal fixes; budget ok.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
