@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
 import duckdb
@@ -11,7 +12,7 @@ from engine.lib.log import get_logger
 from engine.lib.util import table_exists
 
 from .costs import FeeBreakdown
-from .schema import INITIAL_CASH
+from .schema import INITIAL_CASH, portfolio_account
 
 MIN_FILL_USD = 1.0
 CASH_EVENT_KINDS = frozenset({
@@ -26,6 +27,14 @@ CASH_EVENT_KINDS = frozenset({
     "adjustment",
 })
 log = get_logger("ledger")
+
+
+@dataclass(frozen=True)
+class MatchedLot:
+    open_order_id: int
+    opened_session: date
+    qty: float
+    avg_px: float
 
 
 def _value(fill, name: str, *aliases: str, default=None):
@@ -94,32 +103,63 @@ def _persist_fees(con: duckdb.DuckDBPyConnection, order_id: int,
     )
 
 
+def add_lot(con: duckdb.DuckDBPyConnection, portfolio_id: str, instrument_id: str,
+            opened_session: date, open_order_id: int, qty: float, avg_px: float) -> None:
+    """Add signed quantity to one open lot, preserving its weighted basis."""
+    existing = con.execute(
+        "SELECT qty,avg_px FROM sim_position_lots WHERE portfolio_id=? "
+        "AND instrument_id=? AND open_order_id=?",
+        [portfolio_id, instrument_id, open_order_id],
+    ).fetchone()
+    if existing is None:
+        con.execute(
+            "INSERT INTO sim_position_lots "
+            "(portfolio_id,instrument_id,opened_session,open_order_id,qty,avg_px) "
+            "VALUES (?,?,?,?,?,?)",
+            [portfolio_id, instrument_id, opened_session, open_order_id, qty, avg_px],
+        )
+        return
+    old_qty, old_px = float(existing[0]), float(existing[1])
+    if old_qty * qty < 0:
+        raise ValueError("cannot merge long and short quantities into one lot")
+    new_qty = old_qty + qty
+    new_px = (
+        (abs(old_qty) * old_px + abs(qty) * avg_px) / abs(new_qty)
+        if new_qty else 0.0
+    )
+    con.execute(
+        "UPDATE sim_position_lots SET qty=?,avg_px=? WHERE portfolio_id=? "
+        "AND instrument_id=? AND open_order_id=?",
+        [new_qty, new_px, portfolio_id, instrument_id, open_order_id],
+    )
+
+
 def _open_lot(con, fill, instrument_id: str, qty: float, px: float) -> None:
     order_id = _value(fill, "order_id")
     opened = _value(fill, "session_date", "fill_date")
     if order_id is None or opened is None:
         return
-    con.execute(
-        "INSERT INTO sim_position_lots "
-        "(portfolio_id,instrument_id,opened_session,open_order_id,qty,avg_px) "
-        "VALUES (?,?,?,?,?,?)",
-        [_value(fill, "portfolio_id"), instrument_id, opened, order_id, qty, px],
+    add_lot(
+        con, _value(fill, "portfolio_id"), instrument_id, opened, int(order_id), qty, px,
     )
 
 
-def _consume_lots(con, portfolio_id: str, instrument_id: str, qty: float,
-                  *, closing_short: bool) -> None:
+def match_lots(con: duckdb.DuckDBPyConnection, portfolio_id: str,
+               instrument_id: str, qty: float, *,
+               closing_short: bool = False) -> tuple[MatchedLot, ...]:
+    """Consume FIFO lots and return the exact opens matched by a close."""
     comparison = "< 0" if closing_short else "> 0"
     remaining = qty
-    rows = con.execute(
-        "SELECT open_order_id,qty FROM sim_position_lots "
+    matched = []
+    for order_id, stored, opened_session, avg_px in con.execute(
+        "SELECT open_order_id,qty,opened_session,avg_px FROM sim_position_lots "
         f"WHERE portfolio_id=? AND instrument_id=? AND qty {comparison} "
         "ORDER BY opened_session,open_order_id",
         [portfolio_id, instrument_id],
-    ).fetchall()
-    for order_id, stored in rows:
+    ).fetchall():
         available = abs(float(stored))
         consumed = min(remaining, available)
+        matched.append(MatchedLot(int(order_id), opened_session, consumed, float(avg_px)))
         left = available - consumed
         if left <= 1e-12:
             con.execute(
@@ -136,6 +176,48 @@ def _consume_lots(con, portfolio_id: str, instrument_id: str, qty: float,
         remaining -= consumed
         if remaining <= 1e-12:
             break
+    return tuple(matched)
+
+
+def _record_day_trade(con, fill, instrument_id: str,
+                      matched: tuple[MatchedLot, ...]) -> None:
+    close_order_id = _value(fill, "order_id")
+    session = _value(fill, "session_date", "fill_date")
+    same_day = next((lot for lot in matched if lot.opened_session == session), None)
+    if same_day is None:
+        return
+    con.execute(
+        "INSERT INTO sim_day_trades "
+        "(portfolio_id,session_date,instrument_id,open_order_id,close_order_id) "
+        "VALUES (?,?,?,?,?)",
+        [_value(fill, "portfolio_id"), session, instrument_id,
+         same_day.open_order_id, close_order_id],
+    )
+
+
+def assert_lots_match_positions(con: duckdb.DuckDBPyConnection,
+                                portfolio_id: str) -> None:
+    """Raise when an account's signed open lots differ from current positions."""
+    positions = {
+        instrument_id: float(qty)
+        for instrument_id, qty in con.execute(
+            "SELECT ticker,qty FROM sim_positions WHERE portfolio_id=? AND abs(qty)>=1e-9",
+            [portfolio_id],
+        ).fetchall()
+    }
+    lots = {
+        instrument_id: float(qty)
+        for instrument_id, qty in con.execute(
+            "SELECT instrument_id,SUM(qty) FROM sim_position_lots "
+            "WHERE portfolio_id=? GROUP BY instrument_id HAVING abs(SUM(qty))>=1e-9",
+            [portfolio_id],
+        ).fetchall()
+    }
+    if positions.keys() != lots.keys() or any(
+        not math.isclose(positions[key], lots[key], rel_tol=1e-12, abs_tol=1e-9)
+        for key in positions
+    ):
+        raise ValueError(f"position lots differ from positions for {portfolio_id!r}")
 
 
 def apply_fill(con: duckdb.DuckDBPyConnection, fill, fees=None, *,
@@ -162,12 +244,20 @@ def apply_fill(con: duckdb.DuckDBPyConnection, fill, fees=None, *,
         )
         return 0.0
     portfolio = con.execute(
-        "SELECT cash,COALESCE(account_type,'cash_legacy') FROM portfolios WHERE id=?",
+        "SELECT cash FROM portfolios WHERE id=?",
         [portfolio_id],
     ).fetchone()
     if portfolio is None:
         raise KeyError(f"unknown portfolio {portfolio_id!r}")
-    cash, account_type = float(portfolio[0]), portfolio[1]
+    cash = float(portfolio[0])
+    settings = portfolio_account(con, portfolio_id)
+    account_type = settings["account_type"]
+    order_id = _value(fill, "order_id")
+    fill_date = _value(fill, "session_date", "fill_date")
+    if settings["engine"] == "account" and (order_id is None or fill_date is None):
+        raise ValueError("account-engine fills require order_id and fill date")
+    if side == "short" and account_type == "cash_legacy":
+        raise ValueError("cash_legacy portfolios cannot short")
     row = con.execute(
         "SELECT qty,avg_cost FROM sim_positions WHERE portfolio_id=? AND ticker=?",
         [portfolio_id, instrument_id],
@@ -213,7 +303,9 @@ def apply_fill(con: duckdb.DuckDBPyConnection, fill, fees=None, *,
             qty = current_qty
         new_qty, new_cost = current_qty - qty, current_cost
         cash_delta = qty * px * multiplier - fee
-        _consume_lots(con, portfolio_id, instrument_id, qty, closing_short=False)
+        matched = match_lots(con, portfolio_id, instrument_id, qty)
+        if settings["engine"] == "account":
+            _record_day_trade(con, fill, instrument_id, matched)
     elif side == "short":
         if current_qty > 0:
             raise ValueError("short cannot close a long position; use sell")
@@ -237,7 +329,11 @@ def apply_fill(con: duckdb.DuckDBPyConnection, fill, fees=None, *,
             qty = abs(current_qty)
         new_qty, new_cost = current_qty + qty, current_cost
         cash_delta = -(qty * px * multiplier) - fee
-        _consume_lots(con, portfolio_id, instrument_id, qty, closing_short=True)
+        matched = match_lots(
+            con, portfolio_id, instrument_id, qty, closing_short=True
+        )
+        if settings["engine"] == "account":
+            _record_day_trade(con, fill, instrument_id, matched)
 
     con.execute("UPDATE portfolios SET cash=cash+? WHERE id=?", [cash_delta, portfolio_id])
     if row:
@@ -250,9 +346,10 @@ def apply_fill(con: duckdb.DuckDBPyConnection, fill, fees=None, *,
             "INSERT INTO sim_positions (portfolio_id,ticker,qty,avg_cost) VALUES (?,?,?,?)",
             [portfolio_id, instrument_id, new_qty, new_cost],
         )
-    order_id = _value(fill, "order_id")
     if persist_fees and fees is not None and order_id is not None:
         _persist_fees(con, int(order_id), charged)
+    if settings["engine"] == "account":
+        assert_lots_match_positions(con, portfolio_id)
     return float(qty)
 
 
@@ -304,6 +401,7 @@ def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
     ).fetchall()
     con.execute("DELETE FROM sim_positions")
     con.execute("DELETE FROM sim_position_lots")
+    con.execute("DELETE FROM sim_day_trades")
     for portfolio_id, initial_cash in portfolios:
         con.execute(
             "UPDATE portfolios SET cash=? WHERE id=?", [initial_cash, portfolio_id]
@@ -330,14 +428,26 @@ def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
     )
     fills = con.execute(
         "SELECT f.order_id,f.portfolio_id,f.ticker,f.side,f.qty,f.fill_px,f.fill_date,"
-        "COALESCE(fd.multiplier,1)," + fee_columns + " FROM sim_fills f "
+        "COALESCE(fd.multiplier,1),pa.pa_engine,fd.fill_ts," + fee_columns
+        + " FROM sim_fills f "
         "LEFT JOIN sim_fill_details fd ON fd.order_id=f.order_id "
+        "LEFT JOIN portfolio_accounts_v pa USING (portfolio_id) "
         "LEFT JOIN sim_fill_fees ff ON ff.order_id=f.order_id "
-        "ORDER BY f.fill_date,CASE f.side WHEN 'sell' THEN 0 WHEN 'cover' THEN 0 ELSE 1 END,"
-        "f.order_id"
+        "ORDER BY f.fill_date,f.portfolio_id,f.order_id"
     ).fetchall()
-    for seq, row in enumerate(fills):
-        events.append((row[6], 2, seq, "fill", row))
+    for row in fills:
+        order_id, portfolio_id, _ticker, side, *_tail = row
+        engine, fill_ts = row[8:10]
+        if engine == "account":
+            if fill_ts is None:
+                raise ValueError(
+                    f"account-engine fill {order_id} has no authoritative fill_ts"
+                )
+            replay_order = (portfolio_id, 1, fill_ts, order_id)
+        else:
+            side_priority = 0 if side in {"sell", "cover"} else 1
+            replay_order = (portfolio_id, 0, side_priority, order_id)
+        events.append((row[6], 2, replay_order, "fill", row))
     if table_exists(con, "sim_cash_events"):
         for row in con.execute(
             "SELECT portfolio_id,event_date,seq,amount FROM sim_cash_events "
@@ -367,7 +477,7 @@ def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
         for ex_date, ratio in splits.get(ticker, ()):
             if fill_date < ex_date:
                 factor *= ratio
-        fee_row = row[8:]
+        fee_row = row[10:]
         fees = None if fee_row[0] is None else FeeBreakdown(
             profile_id=fee_row[0],
             commission=float(fee_row[1] or 0),
