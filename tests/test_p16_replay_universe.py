@@ -38,7 +38,11 @@ def _prices(con, ticker: str, days: list[date], base: float = 20.0) -> None:
         "fetched_at": datetime(2024, 1, 1),
     })
     with db.registered_frame(con, "_bars", frame):
-        con.execute("INSERT INTO prices SELECT * FROM _bars")
+        con.execute(
+            """INSERT INTO prices
+            (ticker,date,open,high,low,close,volume,source,fetched_at)
+            SELECT ticker,date,open,high,low,close,volume,source,fetched_at FROM _bars"""
+        )
 
 
 def _con():

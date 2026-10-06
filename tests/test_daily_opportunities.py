@@ -616,11 +616,15 @@ def test_rejected_agent_exit_is_retried_once_no_exit_is_pending(tmp_path):
     first, second = date(2026, 9, 22), date(2026, 9, 23)
     for session in (first, second):
         con.execute(
-            "INSERT INTO prices VALUES ('FAST',?,?,?,?,?,?,?,?)",
+            "INSERT INTO prices "
+            "(ticker,date,open,high,low,close,volume,source,fetched_at) "
+            "VALUES ('FAST',?,?,?,?,?,?,?,?)",
             [session, 163, 165, 162, 164, 2_000_000, "test", NOW],
         )
         con.execute(
-            "INSERT INTO prices VALUES ('SPY',?,?,?,?,?,?,?,?)",
+            "INSERT INTO prices "
+            "(ticker,date,open,high,low,close,volume,source,fetched_at) "
+            "VALUES ('SPY',?,?,?,?,?,?,?,?)",
             [session, 120, 121, 119, 120, 2_000_000, "test", NOW],
         )
     league.fill_pending(con, first)
