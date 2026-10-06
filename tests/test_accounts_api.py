@@ -1,13 +1,17 @@
 """Loopback account API authentication and receipt timing tests."""
 import asyncio
+import json
 import stat
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
+import duckdb
 import pytest
 from fastapi import HTTPException
 
 from engine.accounts import api, service
+from engine.accounts import cli as accounts_cli
+from engine.money.allocation import AllocationRefused
 from server import accounts_routes, main
 from sim import schema as sim_schema
 
@@ -59,7 +63,7 @@ def test_account_list_hides_private_without_token(con, monkeypatch, tmp_path):
     ]
     with pytest.raises(HTTPException) as exc_info:
         accounts_routes.get_account("acct-private")
-    assert exc_info.value.status_code == 401
+    assert exc_info.value.status_code == 404
     assert accounts_routes.get_account("acct-private", f"Bearer {token}")["id"] == (
         "acct-private"
     )
@@ -84,12 +88,65 @@ def test_order_route_stamps_received_at_before_opening_writer(con, monkeypatch):
         return {"received_at": received_at.isoformat()}
 
     monkeypatch.setattr(accounts_routes, "datetime", Clock)
-    monkeypatch.setattr(accounts_routes, "_connection", connection)
-    monkeypatch.setattr(accounts_routes, "_require_token", lambda _authorization: None)
+    monkeypatch.setattr(accounts_routes, "_write_connection", lambda: connection(None))
+    monkeypatch.setattr(
+        accounts_routes, "_require_account_mutation",
+        lambda _account_id, _authorization: None,
+    )
     monkeypatch.setattr(accounts_routes.service, "submit", submit)
     result = accounts_routes.submit_order("acct-a", {"account_id": "acct-a"}, "Bearer x")
     assert events == ["stamp", "lock", "submit"]
     assert result["received_at"] == NOW.isoformat()
+
+
+def test_total_cap_refusal_maps_through_api_and_cli(con, monkeypatch, capsys):
+    error = AllocationRefused("total_exposure_cap")
+    with pytest.raises(HTTPException) as exc_info:
+        accounts_routes._invoke(lambda: (_ for _ in ()).throw(error))
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "total_exposure_cap"
+
+    monkeypatch.setattr(accounts_cli.db, "connect", lambda **_kwargs: _borrowed(con))
+    monkeypatch.setattr(
+        accounts_cli, "_execute", lambda *_args, **_kwargs: (_ for _ in ()).throw(error),
+    )
+    assert accounts_cli.main(["list"]) == 2
+    assert json.loads(capsys.readouterr().out)["refusal_reason"] == "total_exposure_cap"
+
+
+def test_transaction_conflict_maps_to_retryable_503():
+    with pytest.raises(HTTPException) as exc_info:
+        accounts_routes._invoke(
+            lambda: (_ for _ in ()).throw(duckdb.TransactionException("conflict"))
+        )
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.headers == {"Retry-After": "1"}
+
+
+def test_writer_open_transaction_conflict_is_retryable(monkeypatch):
+    monkeypatch.setattr(
+        accounts_routes, "_write_con",
+        lambda: (_ for _ in ()).throw(duckdb.TransactionException("conflict")),
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        with accounts_routes._write_connection():
+            pass
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.headers == {"Retry-After": "1"}
+
+
+def test_private_and_unknown_accounts_are_indistinguishable(con, monkeypatch):
+    service.create(con, _spec(), now=NOW)
+    monkeypatch.setattr(accounts_routes, "_connection", lambda _factory: _borrowed(con))
+    errors = []
+    for account_id in ("acct-private", "missing"):
+        with pytest.raises(HTTPException) as exc_info:
+            accounts_routes.get_account(account_id)
+        errors.append((exc_info.value.status_code, exc_info.value.detail))
+    assert errors == [(404, "unknown account"), (404, "unknown account")]
+    with pytest.raises(HTTPException) as exc_info:
+        accounts_routes.halt_account("acct-private")
+    assert (exc_info.value.status_code, exc_info.value.detail) == (404, "unknown account")
 
 
 def test_account_routes_reject_non_loopback_host_before_database_access(monkeypatch):

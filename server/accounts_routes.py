@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
+from threading import Lock
 from typing import Annotated, Iterator
 
 import duckdb
@@ -17,6 +18,7 @@ from . import account_read_models
 from . import db as server_db
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
+_WRITER_LOCK = Lock()
 
 
 @contextmanager
@@ -37,6 +39,17 @@ def _write_con():
         raise
 
 
+@contextmanager
+def _write_connection() -> Iterator[duckdb.DuckDBPyConnection]:
+    try:
+        with _WRITER_LOCK:
+            with _connection(_write_con) as con:
+                yield con
+    except duckdb.TransactionException as exc:
+        raise HTTPException(503, "account writer contention; retry",
+                            headers={"Retry-After": "1"}) from exc
+
+
 def _authorized(authorization: str | None) -> bool:
     return account_api.authenticated(authorization)
 
@@ -49,7 +62,14 @@ def _require_token(authorization: str | None) -> None:
 
 def _require_account_access(con, account_id: str, authorization: str | None) -> None:
     if account_read_models.visibility(con, account_id) == "private":
-        _require_token(authorization)
+        if not _authorized(authorization):
+            raise HTTPException(404, "unknown account")
+
+
+def _require_account_mutation(account_id: str, authorization: str | None) -> None:
+    with _connection(server_db.read_con) as con:
+        _invoke(_require_account_access, con, account_id, authorization)
+    _require_token(authorization)
 
 
 def _since(value: str | None) -> date | None:
@@ -62,6 +82,9 @@ def _since(value: str | None) -> date | None:
 def _invoke(function, *args, **kwargs):
     try:
         return function(*args, **kwargs)
+    except duckdb.TransactionException as exc:
+        raise HTTPException(503, "account writer contention; retry",
+                            headers={"Retry-After": "1"}) from exc
     except paper_accounts.AccountRefused as exc:
         status = 404 if str(exc) == "unknown account" else 409
         raise HTTPException(status, str(exc)) from exc
@@ -79,7 +102,7 @@ def list_accounts(authorization: Annotated[str | None, Header()] = None):
 def create_account(body: dict, authorization: Annotated[str | None, Header()] = None):
     _require_token(authorization)
     received_at = datetime.now(timezone.utc)
-    with _connection(_write_con) as con:
+    with _write_connection() as con:
         return _invoke(service.create, con, body, now=received_at)
 
 
@@ -138,38 +161,38 @@ def get_results(account_id: str, authorization: Annotated[str | None, Header()] 
 @router.post("/{account_id}/orders")
 def submit_order(account_id: str, body: dict,
                  authorization: Annotated[str | None, Header()] = None):
-    _require_token(authorization)
+    _require_account_mutation(account_id, authorization)
     received_at = datetime.now(timezone.utc)  # authoritative: before writer acquisition
     if body.get("account_id") != account_id:
         raise HTTPException(422, "path and intent account identifiers differ")
-    with _connection(_write_con) as con:
+    with _write_connection() as con:
         return _invoke(service.submit, con, body, received_at=received_at)
 
 
 @router.post("/{account_id}/orders/{order_id}/cancel")
 def cancel_order(account_id: str, order_id: int,
                  authorization: Annotated[str | None, Header()] = None):
-    _require_token(authorization)
+    _require_account_mutation(account_id, authorization)
     received_at = datetime.now(timezone.utc)
-    with _connection(_write_con) as con:
+    with _write_connection() as con:
         return _invoke(service.cancel, con, account_id, order_id, now=received_at)
 
 
 @router.post("/{account_id}/reconciliations")
 def post_reconciliation(account_id: str, body: dict,
                         authorization: Annotated[str | None, Header()] = None):
-    _require_token(authorization)
+    _require_account_mutation(account_id, authorization)
     received_at = datetime.now(timezone.utc)
-    with _connection(_write_con) as con:
+    with _write_connection() as con:
         return _invoke(service.reconcile, con, account_id, body, now=received_at)
 
 
 @router.post("/{account_id}/halt")
 def halt_account(account_id: str, body: dict | None = None,
                  authorization: Annotated[str | None, Header()] = None):
-    _require_token(authorization)
+    _require_account_mutation(account_id, authorization)
     received_at = datetime.now(timezone.utc)
-    with _connection(_write_con) as con:
+    with _write_connection() as con:
         return _invoke(service.halt, con, account_id, note=(body or {}).get("note", ""),
                        now=received_at)
 
@@ -177,26 +200,26 @@ def halt_account(account_id: str, body: dict | None = None,
 @router.post("/{account_id}/resume")
 def resume_account(account_id: str, body: dict,
                    authorization: Annotated[str | None, Header()] = None):
-    _require_token(authorization)
+    _require_account_mutation(account_id, authorization)
     received_at = datetime.now(timezone.utc)
-    with _connection(_write_con) as con:
+    with _write_connection() as con:
         return _invoke(service.resume, con, account_id, resumed_by=body.get("by"),
                        note=body.get("note", ""), now=received_at)
 
 
 @router.post("/{account_id}/retire")
 def retire_account(account_id: str, authorization: Annotated[str | None, Header()] = None):
-    _require_token(authorization)
+    _require_account_mutation(account_id, authorization)
     received_at = datetime.now(timezone.utc)
-    with _connection(_write_con) as con:
+    with _write_connection() as con:
         return _invoke(service.retire, con, account_id, now=received_at)
 
 
 @router.post("/{account_id}/watch")
 def replace_account_watch(account_id: str, body: dict,
                           authorization: Annotated[str | None, Header()] = None):
-    _require_token(authorization)
+    _require_account_mutation(account_id, authorization)
     received_at = datetime.now(timezone.utc)
-    with _connection(_write_con) as con:
+    with _write_connection() as con:
         return _invoke(service.replace_watch, con, account_id, body.get("tickers"),
                        now=received_at)

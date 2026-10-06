@@ -158,9 +158,12 @@ def init_schema(con) -> None:
     con.execute("ALTER TABLE paper_account_intakes ADD COLUMN IF NOT EXISTS receipt VARCHAR")
     con.execute("CREATE TABLE IF NOT EXISTS account_state ("
                 "portfolio_id VARCHAR PRIMARY KEY, peak_equity DOUBLE NOT NULL, "
-                "prior_close_equity DOUBLE, halted_at TIMESTAMP, halt_reason VARCHAR, "
+        "prior_close_equity DOUBLE, drawdown_anchor_equity DOUBLE, "
+        "halted_at TIMESTAMP, halt_reason VARCHAR, "
                 "resumed_at TIMESTAMP, resumed_by VARCHAR, pdt_flagged_at TIMESTAMP, "
                 "pdt_restricted_until DATE, retired_at TIMESTAMP, updated_at TIMESTAMP NOT NULL)")
+    con.execute("ALTER TABLE account_state ADD COLUMN IF NOT EXISTS "
+                "drawdown_anchor_equity DOUBLE")
     con.execute("CREATE TABLE IF NOT EXISTS account_events ("
                 "id BIGINT PRIMARY KEY, portfolio_id VARCHAR, kind VARCHAR, "
                 "payload VARCHAR, created_at TIMESTAMP)")
@@ -226,8 +229,9 @@ def create_account(con, spec: dict, *, now: datetime) -> dict:
             [account_id, json.dumps(spec, sort_keys=True), digest, now, spec["schema_version"]],
         )
         con.execute(
-            "INSERT INTO account_state (portfolio_id,peak_equity,prior_close_equity,updated_at) "
-            "VALUES (?,?,?,?)", [account_id, capital, capital, now],
+            "INSERT INTO account_state (portfolio_id,peak_equity,prior_close_equity,"
+            "drawdown_anchor_equity,updated_at) VALUES (?,?,?,?,?)",
+            [account_id, capital, capital, capital, now],
         )
     return {"account_id": account_id, "replayed": False, "specification_sha256": digest}
 

@@ -18,16 +18,17 @@ FEE_COMPONENTS = (
 )
 
 
-def _drawdowns(values: list[float]) -> tuple[float | None, float | None]:
+def _drawdowns(values: list[float], initial_cash: float) -> tuple[float | None, float | None]:
     if not values:
         return None, None
-    peak, maximum, worst_day = values[0], 0.0, 0.0
+    peak, maximum, worst_day = initial_cash, 0.0, 0.0
     for index, value in enumerate(values):
         peak = max(peak, value)
         if peak > 0:
             maximum = min(maximum, value / peak - 1.0)
-        if index and values[index - 1] > 0:
-            worst_day = min(worst_day, value / values[index - 1] - 1.0)
+        prior = initial_cash if index == 0 else values[index - 1]
+        if prior > 0:
+            worst_day = min(worst_day, value / prior - 1.0)
     return maximum, worst_day
 
 
@@ -62,14 +63,20 @@ def _costs(con, account_id: str) -> dict:
 
 def _trade_stats(con, account_id: str) -> dict:
     rows = con.execute(
-        "SELECT ticker,side,qty,fill_px,fill_date,order_id FROM sim_fills "
-        "WHERE portfolio_id=? ORDER BY fill_date,order_id", [account_id]
+        "SELECT f.ticker,f.side,f.qty,f.fill_px,f.fill_date,f.order_id,"
+        "COALESCE(ff.total_usd,0),COALESCE(fd.multiplier,1) FROM sim_fills f "
+        "LEFT JOIN sim_fill_fees ff ON ff.order_id=f.order_id "
+        "LEFT JOIN sim_fill_details fd ON fd.order_id=f.order_id "
+        "WHERE f.portfolio_id=? ORDER BY f.fill_date,f.order_id", [account_id]
     ).fetchall()
-    books: dict[str, dict] = defaultdict(lambda: {"qty": 0.0, "avg": 0.0, "date": None})
+    books: dict[str, dict] = defaultdict(
+        lambda: {"qty": 0.0, "avg": 0.0, "date": None, "fee_per_unit": 0.0}
+    )
     clustered: dict[date, list[float]] = defaultdict(list)
     outcomes = []
-    for ticker, side, quantity, fill_px, fill_date, _order_id in rows:
+    for ticker, side, quantity, fill_px, fill_date, _order_id, fee, multiplier in rows:
         quantity, fill_px = float(quantity), float(fill_px)
+        fee, multiplier = float(fee), float(multiplier)
         signed = quantity if side in {"buy", "cover"} else -quantity
         book = books[ticker]
         old_qty = book["qty"]
@@ -77,18 +84,26 @@ def _trade_stats(con, account_id: str) -> dict:
             new_qty = old_qty + signed
             book["avg"] = ((abs(old_qty) * book["avg"] + abs(signed) * fill_px)
                            / abs(new_qty))
+            book["fee_per_unit"] = (
+                abs(old_qty) * book["fee_per_unit"] + fee
+            ) / abs(new_qty)
             book["qty"], book["date"] = new_qty, book["date"] or fill_date
             continue
         closed = min(abs(old_qty), abs(signed))
-        gross = (fill_px / book["avg"] - 1.0) * (1.0 if old_qty > 0 else -1.0)
-        bp = gross * 10_000
+        gross_pnl = closed * (fill_px - book["avg"]) * multiplier
+        if old_qty < 0:
+            gross_pnl *= -1
+        allocated_fees = closed * book["fee_per_unit"] + fee * closed / quantity
+        entry_notional = closed * book["avg"] * multiplier
+        bp = (gross_pnl - allocated_fees) / entry_notional * 10_000
         outcomes.append(bp)
-        clustered[book["date"]].append(bp * closed)
+        clustered[book["date"]].append(bp)
         new_qty = old_qty + signed
         if old_qty * new_qty < 0:
-            book.update(qty=new_qty, avg=fill_px, date=fill_date)
+            book.update(qty=new_qty, avg=fill_px, date=fill_date,
+                        fee_per_unit=fee * abs(new_qty) / quantity / abs(new_qty))
         elif math.isclose(new_qty, 0.0, abs_tol=1e-12):
-            book.update(qty=0.0, avg=0.0, date=None)
+            book.update(qty=0.0, avg=0.0, date=None, fee_per_unit=0.0)
         else:
             book["qty"] = new_qty
     cluster_means = [mean(values) for _day, values in sorted(clustered.items())]
@@ -144,7 +159,7 @@ def build(con, account_id: str) -> dict:
     last_date = curve_rows[-1][0] if curve_rows else None
     total_return = values[-1] / float(account[1]) - 1.0 if values else None
     benchmark = curve[-1]["benchmark_total_return"] if curve else None
-    maximum_drawdown, worst_day = _drawdowns(values)
+    maximum_drawdown, worst_day = _drawdowns(values, float(account[1]))
     fills = con.execute(
         "SELECT COUNT(*),COALESCE(SUM(ABS(qty*fill_px)),0) FROM sim_fills "
         "WHERE portfolio_id=?", [account_id]

@@ -332,3 +332,18 @@ def test_three_v2_tiers_submit_same_moo_with_independent_accounting(con):
             "SELECT equity FROM sim_equity WHERE portfolio_id=? AND date=?",
             [account_id, FILL],
         ).fetchone()[0] == capital + quantity * 2
+
+
+def test_moc_receipt_uses_early_close_cutoff(con):
+    early_close = date(2026, 11, 27)
+    received = datetime(2026, 11, 27, 17, 49, tzinfo=timezone.utc)
+    prior = date(2026, 11, 25)
+    insert_bars(con, "SAME", [prior], open_=100, close=100)
+    accounts.create_account(con, _spec_v2(), now=received)
+    receipt = accounts.submit_intent(
+        con,
+        _intent_v2(order_type="moc", session_date=early_close.isoformat(),
+                   created_at=received.isoformat()),
+        now=received,
+    )
+    assert receipt["cutoff"] == "2026-11-27T17:50:00+00:00"

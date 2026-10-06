@@ -1,7 +1,7 @@
 """Transactional application service for engine-owned paper accounts."""
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from engine import paper_accounts
@@ -10,6 +10,7 @@ from engine.lib.provenance import canonical_sha256
 from engine.money import alerts, halts
 from sim import ledger, nyse
 from sim import schema as sim_schema
+from sim.order_types import moc_cutoff, moo_cutoff
 
 NEW_YORK = ZoneInfo("America/New_York")
 RECONCILIATION_STATUSES = frozenset({"ok", "mismatch"})
@@ -44,17 +45,28 @@ def _account(con, account_id: str):
     return {"id": row[0], "active": bool(row[1]), **settings}
 
 
-def _window_start(order_type: str, session_date: date) -> datetime:
+def _cancel_deadline(order_type: str, session_date: date,
+                     received_at: datetime | None) -> datetime:
     if order_type in {"moo", "limit_on_open"}:
-        at = time(9, 30)
-    elif order_type == "moc":
-        at = time(16, 0)
-    elif order_type in {"market", "limit"}:
-        at = time(16, 0)
-    else:
-        at = time(9, 30)
-        session_date = nyse.next_session(session_date)
-    return datetime.combine(session_date, at, NEW_YORK).astimezone(timezone.utc)
+        return moo_cutoff(session_date).astimezone(timezone.utc)
+    if order_type == "moc":
+        return moc_cutoff(session_date).astimezone(timezone.utc)
+    if received_at is not None and received_at.tzinfo is None:
+        received_at = received_at.replace(tzinfo=timezone.utc)
+    if order_type == "market":
+        if received_at is None:
+            raise paper_accounts.AccountRefused("market order has no receipt timestamp")
+        return received_at + timedelta(seconds=60)
+    if order_type == "limit":
+        if received_at is None:
+            raise paper_accounts.AccountRefused("limit order has no receipt timestamp")
+        market_open = datetime.combine(session_date, time(9, 30), NEW_YORK).astimezone(
+            timezone.utc
+        )
+        return max(received_at, market_open)
+    return datetime.combine(
+        nyse.next_session(session_date), time(9, 30), NEW_YORK,
+    ).astimezone(timezone.utc)
 
 
 def cancel(con, account_id: str, order_id: int, *,
@@ -64,7 +76,7 @@ def cancel(con, account_id: str, order_id: int, *,
         init_schema(con)
         _account(con, account_id)
         row = con.execute(
-            "SELECT o.status,o.signal_date,d.order_type,d.state FROM sim_orders o "
+            "SELECT o.status,o.signal_date,d.order_type,d.state,d.received_at FROM sim_orders o "
             "LEFT JOIN sim_order_details d ON d.order_id=o.id "
             "WHERE o.id=? AND o.portfolio_id=?", [order_id, account_id]
         ).fetchone()
@@ -75,7 +87,7 @@ def cancel(con, account_id: str, order_id: int, *,
         if row[0] != "pending" or (row[3] is not None and row[3] != "queued"):
             raise paper_accounts.AccountRefused("order is no longer queued")
         order_type = row[2] or "next_open"
-        if now >= _window_start(order_type, row[1]):
+        if now > _cancel_deadline(order_type, row[1], row[4]):
             raise paper_accounts.AccountRefused("order window has opened")
         con.execute(
             "UPDATE sim_orders SET status='cancelled',reject_reason='cancelled_by_client' "
@@ -108,12 +120,20 @@ def resume(con, account_id: str, *, resumed_by: str, note: str = "",
         row = _account(con, account_id)
         if row["status"] != "halted":
             raise paper_accounts.AccountRefused("only a halted account can resume")
+        equity = con.execute(
+            "SELECT equity FROM sim_equity WHERE portfolio_id=? ORDER BY date DESC LIMIT 1",
+            [account_id],
+        ).fetchone()
+        anchor = float(equity[0]) if equity is not None else float(con.execute(
+            "SELECT cash FROM portfolios WHERE id=?", [account_id]
+        ).fetchone()[0])
         con.execute("UPDATE portfolios SET active=TRUE WHERE id=?", [account_id])
         sim_schema.set_portfolio_account(con, account_id, status="active", updated_at=now)
         con.execute(
             "UPDATE account_state SET resumed_at=?,resumed_by=?,halted_at=NULL,"
-            "halt_reason=NULL,updated_at=? WHERE portfolio_id=?",
-            [now, resumed_by, now, account_id],
+            "halt_reason=NULL,drawdown_anchor_equity=?,prior_close_equity=?,updated_at=? "
+            "WHERE portfolio_id=?",
+            [now, resumed_by, anchor, anchor, now, account_id],
         )
         halts.record_event(
             con, account_id, "resumed",
@@ -136,6 +156,21 @@ def retire(con, account_id: str, *, now: datetime | None = None) -> dict:
             return {"account_id": account_id, "status": "retired", "queued_order_ids": [],
                     "replayed": True}
         session_date = _retirement_session(now)
+        opening_ids = [item[0] for item in con.execute(
+            "SELECT id FROM sim_orders WHERE portfolio_id=? AND status='pending' "
+            "AND side IN ('buy','short') ORDER BY id", [account_id]
+        ).fetchall()]
+        if opening_ids:
+            placeholders = ",".join("?" for _ in opening_ids)
+            con.execute(
+                f"UPDATE sim_orders SET status='cancelled',reject_reason='retired' "
+                f"WHERE id IN ({placeholders})", opening_ids,
+            )
+            con.execute(
+                f"UPDATE sim_order_details SET state='cancelled',state_reason='retired',"
+                f"state_at=? WHERE order_id IN ({placeholders}) AND state='queued'",
+                [now, *opening_ids],
+            )
         positions = con.execute(
             "SELECT ticker,qty FROM sim_positions WHERE portfolio_id=? AND qty<>0 ORDER BY ticker",
             [account_id],
@@ -165,7 +200,8 @@ def retire(con, account_id: str, *, now: datetime | None = None) -> dict:
         )
         halts.record_event(
             con, account_id, "retired",
-            {"close_session": session_date.isoformat(), "queued_order_ids": queued}, now=now,
+            {"close_session": session_date.isoformat(), "queued_order_ids": queued,
+             "cancelled_opening_order_ids": opening_ids}, now=now,
         )
     return {"account_id": account_id, "status": "retired", "queued_order_ids": queued,
             "replayed": False}

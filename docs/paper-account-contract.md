@@ -125,8 +125,9 @@ only for a limit order. `contingent_on` names an earlier intent in the same acco
 only `instrument_id`, `side`, and a non-zero integer `ratio`.
 
 The authoritative `received_at` is stamped by the engine before it waits for the DuckDB writer.
-MOO requests are accepted through 09:28:00 New York time and MOC through 15:50:00. Market orders
-are accepted during the regular session. Intraday market and limit fills are deferred until the
+MOO requests are accepted through 09:28:00 New York time. MOC requests are accepted through ten
+minutes before that session's scheduled close: 15:50 on ordinary sessions and 12:50 on a 13:00
+early close. Market orders are accepted during the regular session. Intraday market and limit fills are deferred until the
 nightly minute bars exist; this service does not claim real-time execution. A successful response
 is `{order_id, state, received_at, cutoff, refusal_reason}`. Retrying byte-equivalent intent data
 under the same `intent_id` returns that original response, including its first receipt timestamp,
@@ -144,7 +145,8 @@ After every normal or late mark, the account risk hook halts once at a 20% peak-
 drawdown, a 5% close-to-close loss, or a reconciliation mismatch. The durable `account_events.kind`
 is respectively `halt_drawdown`, `halt_daily_loss`, or `halt_reconciliation`; consumers never
 need to match prose. A halt cancels queued orders, refuses new ones, and keeps positions open and
-marked. Resume records `resumed_by` and does not reset peak equity. Retirement queues next-session
+marked. Resume records `resumed_by`, keeps the all-time peak for reporting, and re-arms the
+drawdown halt from equity at resume. Retirement queues next-session
 MOC sell or cover orders, changes the account status to retired, and preserves all history.
 
 Across account portfolios, opening exposure cannot exceed one times the sum of active independent

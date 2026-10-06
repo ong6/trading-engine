@@ -2306,4 +2306,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** Server +235 lines and tests +181; tools and product unchanged. Budget passed.
 - **Next:** Nothing admitted.
 
+## 2026-10-06 — Correct account service review findings
+
+- **Why:** orchestrator review of d867b4a reproduced stale reconciliation re-halts,
+  cancellation timing, contention mapping, result arithmetic and source-specific mark defects.
+- **What:** Re-arm drawdown at resume while retaining the all-time peak, use only fresh/latest
+  reconciliation evidence, cancel opening orders on retirement, serialize API writes, return
+  retryable conflicts, hide private identities, and apply exact early-close/order windows.
+  Allocation and alerts now honor each account's price source; result trade bp is fee-net.
+- **Evidence:** focused L2/schema/server acceptance passes all 180 cases; ruff is clean.
+- **Metrics:** tools unchanged; product/engine +121, server +23, tests +175; budget ok.
+- **Next:** verify the L0 schema handoff and run the complete suite against the merged base.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
