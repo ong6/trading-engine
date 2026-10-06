@@ -493,7 +493,11 @@ def queue_orders(
 
 
 def _next_order_id(con: duckdb.DuckDBPyConnection) -> int:
-    return next_order_id(con)
+    maximum = int(con.execute("SELECT COALESCE(MAX(id),0) FROM sim_orders").fetchone()[0])
+    allocated = next_order_id(con)
+    while allocated <= maximum:
+        allocated = next_order_id(con)
+    return allocated
 
 
 def _split_factor(
@@ -568,7 +572,7 @@ def _terminal_order(
                     "fill_px": result.fill_px,
                     "fill_date": fill_date,
                 },
-                fees,
+                None if fees.profile_id == book_breaks.BASELINE_COST_PROFILE else fees,
             )
             if applied <= 0:
                 status, reason = "rejected", (
@@ -769,7 +773,8 @@ def _restore_rerun_evidence(con: duckdb.DuckDBPyConnection) -> int:
             instrument={"kind": "stock", "multiplier": 1.0},
             session_date=fill_date,
         )
-        ledger._persist_fees(con, order_id, fees)
+        if fees.profile_id != book_breaks.BASELINE_COST_PROFILE:
+            ledger._persist_fees(con, order_id, fees)
         restored += 1
     if restored:
         _rebuild_p15_state(con)
@@ -783,6 +788,7 @@ def _restore_rerun_evidence(con: duckdb.DuckDBPyConnection) -> int:
 def _rebuild_p15_state(con: duckdb.DuckDBPyConnection) -> None:
     for book_id in BOOK_IDS:
         con.execute("DELETE FROM sim_positions WHERE portfolio_id=?", [book_id])
+        con.execute("DELETE FROM sim_position_lots WHERE portfolio_id=?", [book_id])
         con.execute("UPDATE portfolios SET cash=initial_cash WHERE id=?", [book_id])
         dates = {row[0] for row in con.execute(
             "SELECT fill_date FROM sim_fills WHERE portfolio_id=?", [book_id],
