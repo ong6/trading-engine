@@ -20,7 +20,7 @@ def total_gross_cap(con, *, include_account: str | None = None) -> float:
     row = con.execute(
         "SELECT COALESCE(SUM(p.initial_cash),0) FROM portfolios p "
         "JOIN portfolio_accounts_v pa ON pa.portfolio_id=p.id "
-        f"WHERE pa.engine='account' AND (pa.status='active'{clause})",
+        f"WHERE pa.pa_engine='account' AND (pa.pa_status='active'{clause})",
         params,
     ).fetchone()
     return float(row[0]) * TOTAL_GROSS_CAP_FRACTION
@@ -40,13 +40,13 @@ def total_gross_exposure(con, as_of: date) -> float:
     positions = con.execute(
         "SELECT sp.ticker,sp.qty FROM sim_positions sp "
         "JOIN portfolio_accounts_v pa ON pa.portfolio_id=sp.portfolio_id "
-        "WHERE pa.engine='account' AND pa.status IN ('active','halted')"
+        "WHERE pa.pa_engine='account' AND pa.pa_status IN ('active','halted')"
     ).fetchall()
     gross = sum(abs(float(qty) * _mark(con, ticker, as_of)) for ticker, qty in positions)
     pending = con.execute(
         "SELECT o.ticker,o.qty FROM sim_orders o "
         "JOIN portfolio_accounts_v pa ON pa.portfolio_id=o.portfolio_id "
-        "WHERE pa.engine='account' AND o.status='pending' "
+        "WHERE pa.pa_engine='account' AND o.status='pending' "
         "AND o.side IN ('buy','short')"
     ).fetchall()
     gross += sum(abs(float(qty) * _mark(con, ticker, as_of)) for ticker, qty in pending)

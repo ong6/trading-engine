@@ -8,7 +8,8 @@ from statistics import mean, stdev
 
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
-from engine.paper_accounts import AccountRefused, portfolio_account
+from engine.paper_accounts import AccountRefused
+from sim.schema import portfolio_account
 from sim.strategies.base import total_return_between
 
 FEE_COMPONENTS = (

@@ -4,12 +4,8 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timezone
 
-from engine.paper_accounts import (
-    AccountRefused,
-    init_schema,
-    portfolio_account,
-    set_portfolio_account,
-)
+from engine.paper_accounts import AccountRefused, init_schema
+from sim.schema import portfolio_account, set_portfolio_account
 
 from .limits import DAILY_LOSS_LIMIT, DRAWDOWN_LIMIT, daily_return, drawdown
 
@@ -152,8 +148,8 @@ def check(con, portfolio_id: str, session_date: date, *,
 def check_all(con, session_date: date, *, now: datetime | None = None) -> dict[str, str]:
     results = {}
     rows = con.execute(
-        "SELECT portfolio_id FROM portfolio_accounts_v WHERE engine='account' "
-        "AND status='active' ORDER BY portfolio_id"
+        "SELECT portfolio_id FROM portfolio_accounts_v WHERE pa_engine='account' "
+        "AND pa_status='active' ORDER BY portfolio_id"
     ).fetchall()
     for (portfolio_id,) in rows:
         reason = check(con, portfolio_id, session_date, now=now)
