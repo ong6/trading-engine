@@ -2091,4 +2091,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +5, tools unchanged, product +289 lines; budget clean.
 - **Next:** L2 changes its remaining paper-account order allocator; L3 performs the R12 identity rebindings.
 
+## 2026-10-06 — Preserve logical order identity during recovery
+
+- **Why:** The orchestrator ruled that completed-tool recovery restores its retained logical id without calling the allocator.
+- **What:** Restore a missing order from retained attribution/exit-rule identity and refuse an occupied conflicting id.
+  Fold the still-required plan indexes and v5/cost-profile expectations into the lane; retire the obsolete consumer patch.
+- **Evidence:** The 112-test L0, recovery, identity and documentation set passes; the conflict regression is included.
+- **Metrics:** server +23, tools/product unchanged; budget clean.
+- **Next:** Confirm the full-suite failure set is exactly the R12 baseline, then write final status.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
