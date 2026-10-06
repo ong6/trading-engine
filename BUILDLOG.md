@@ -2159,4 +2159,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged; product/engine +450, tests +132; budget ok.
 - **Next:** implement the transactional service and money-layer lifecycle.
 
+## 2026-10-06 — Enforce the account money lifecycle
+
+- **Why:** active P22 L2 sections 2.6 and 5 require independent account limits,
+  structured loss/reconciliation halts, explicit resume, alerts, and retirement.
+- **What:** Add transactional lifecycle services, total/per-account exposure checks,
+  one-shot halt events and queued-order cancellation, concentration alerts, reconciliations,
+  watch lists, replay verification, and MOC retirement orders using R13 settings.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_accounts_service.py
+  tests/test_money.py` passes all 13 cases.
+- **Metrics:** server/tools unchanged; product/engine +581, tests +222; budget ok.
+- **Next:** expose deterministic results through the private loopback API and CLI.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
