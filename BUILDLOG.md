@@ -2319,4 +2319,19 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** Server +235 lines and tests +181; tools and product unchanged. Budget passed.
 - **Next:** Nothing admitted.
 
+## 2026-10-06 — Preserve complete public league history
+
+- **Why:** P22 L3 Phase A review reproduced inactive public equity disappearing from
+  `league.csv` and required the final R13 API, strict hooks and fee-aware P15 sizing.
+- **What:** Merge the refreshed L0/L4 base with both BUILDLOG histories; remove the R13
+  shim; export all public equity while standings stay active-only; align the nightly
+  validator and cache the API cohort. Missing hooks in present modules now raise, and
+  P15 reserves its commission before sizing SPY. Shared-ledger league fills intentionally
+  add 22 `sim_position_lots` rows on the snapshot (437 versus base's 415).
+- **Evidence:** Two `python -m sim.league --date 2026-10-05 --rerun` snapshot-copy
+  rehearsals produced byte-identical 50,044-byte CSV and 2,936-byte Markdown reports;
+  the CSV retained all 73 rows for eight inactive portfolios. Both copies were deleted.
+- **Metrics:** refreshed base plus review: server +280, tools +61, product +376; budget ok.
+- **Next:** run the full Phase A suite, publish metrics and return revised status.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

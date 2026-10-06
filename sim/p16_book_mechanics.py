@@ -29,11 +29,7 @@ def current_position_state(con, book_instance_id: str) -> dict:
 
 
 def next_sim_order_id(con) -> int:
-    maximum = int(con.execute("SELECT COALESCE(MAX(id),0) FROM sim_orders").fetchone()[0])
-    allocated = next_order_id(con)
-    while allocated <= maximum:
-        allocated = next_order_id(con)
-    return allocated
+    return next_order_id(con)
 
 
 def split_factor(con, ticker: str, after: date, through: date) -> float:
