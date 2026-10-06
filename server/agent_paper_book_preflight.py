@@ -35,6 +35,12 @@ EXPECTED_TABLE_SCHEMAS = {
         ("cash", "DOUBLE"),
         ("initial_cash", "DOUBLE"),
         ("execution_profile", "VARCHAR"),
+        ("engine", "VARCHAR"),
+        ("cost_profile", "VARCHAR"),
+        ("account_type", "VARCHAR"),
+        ("visibility", "VARCHAR"),
+        ("status", "VARCHAR"),
+        ("price_source", "VARCHAR"),
     ),
     agent_paper_attribution.BOOK_ATTRIBUTION_TABLE: (
         agent_paper_attribution.BOOK_ATTRIBUTION_SCHEMA
