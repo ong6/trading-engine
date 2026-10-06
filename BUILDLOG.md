@@ -2336,4 +2336,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** pending final merged-base full-suite and budget gates.
 - **Next:** run the merged full suite, ruff and metrics, then publish round-3 status.
 
+## 2026-10-06 — Close P22 L1 review round 3
+
+- **Why:** L1 must finish on the refreshed R13/L4 base with no regression beyond
+  the integration-owned frozen-contract failures.
+- **What:** The five re-review findings pass focused probes; the final L0 APIs are
+  used directly, both merge histories are retained, and the lane is cleanly integrated.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,358 passed; 184 failures match the refreshed
+  P22 base list; 5 deselected.
+- **Metrics:** refreshed-base server/tools/product changes included; budget ok.
+- **Next:** nothing admitted; await orchestrator acceptance.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
