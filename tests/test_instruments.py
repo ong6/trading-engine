@@ -5,7 +5,15 @@ from datetime import date, timedelta
 
 import pytest
 
-from engine.instruments import Instrument, ensure, format_occ, normalise, parse_occ, resolve
+from engine.instruments import (
+    Instrument,
+    ensure,
+    format_occ,
+    future,
+    normalise,
+    parse_occ,
+    resolve,
+)
 
 
 def test_occ_example_parses_and_formats_exactly():
@@ -52,6 +60,16 @@ def test_master_ensure_and_resolve_preserve_first_seen(con):
     assert found.first_seen == date(2026, 1, 2)
     assert found.last_seen == date(2026, 2, 2)
     assert found.source == "refresh"
+
+
+def test_future_placeholder_uses_spec_multiplier(con):
+    contract = future("MESZ6", multiplier=5, underlying="MES", source="spec")
+    ensure(con, contract)
+    assert contract.kind == "future"
+    assert contract.multiplier == 5
+    assert resolve("MESZ6", con=con) == contract
+    with pytest.raises(ValueError, match="multiplier"):
+        future("MESZ6", multiplier=0)
 
 
 @pytest.mark.parametrize("symbol", ["", "AAPL260117X00200000", "TOOLONG260117C00200000"])
