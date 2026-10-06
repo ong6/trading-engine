@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule bounded Massive options capture
+
+[Timer]
+OnCalendar=*-*-* 11:35:00 UTC
+Persistent=true
+AccuracySec=1min
+Unit=massive-options-daily.service
+
+[Install]
+WantedBy=timers.target

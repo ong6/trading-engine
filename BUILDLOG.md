@@ -2082,4 +2082,70 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged; product +2 lines; budget clean.
 - **Next:** L3 must migrate frozen runtime identities and apply the supplied compatibility patch before the full suite can pass.
 
+## 2026-10-06 — Preserve first-seen prices and refresh account names
+
+- **Why:** P22 L4 sections 6.3 and 8 admit bitemporal prices and daily held,
+  pending and watched-name freshness; the frozen collector must retain its bytes.
+- **What:** Preserve `first_fetched_at` across price corrections and add the isolated
+  account-watch table/universe collector for L3 to call before the frozen collector.
+- **Evidence:** On a 21,011,171-row snapshot copy, seven paired 1,000-row repeats measured
+  `ON CONFLICT` at 6.976 ms versus 6.529 ms for `INSERT OR REPLACE` (6.84% slower, under 20%).
+- **Metrics:** engine +158, product +158, tests +127; server/tools unchanged; budget ok.
+- **Next:** add Massive split capture and the adjusted grouped-daily view.
+
+## 2026-10-06 — Re-adjust grouped bars for later splits
+
+- **Why:** P22 L4 sections 6.2 and 8 admit daily Massive split capture and an
+  as-fetched adjustment view without re-fetching the rolling daily archive.
+- **What:** Store first-seen split facts, retain exact reference responses and apply
+  only splits whose ex-date follows both the bar date and its fetch date.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_free_splits.py
+  tests/test_free_sources.py` passes all 29 recorded-fixture and existing cases.
+- **Metrics:** engine +107, tools +117, product +107, tests +102; server unchanged; budget ok.
+- **Next:** add the bounded Massive contracts and option-daily capture.
+
+## 2026-10-06 — Capture a bounded free options dataset
+
+- **Why:** P22 L4 sections 6.4 and 8 admit options reference and daily aggregates
+  for a frozen free universe, with no execution authority or live-network tests.
+- **What:** Add manifest-bounded contract snapshots, daily bars, verified raw receipts
+  and shared-limiter capture. The permitted temp-DB SPY smoke loaded 748 contracts in one page.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_free_massive_options.py
+  tests/test_free_splits.py tests/test_free_sources.py tests/test_free_massive_minute.py`: 42 passed.
+- **Metrics:** server unchanged, tools +379, product/engine +286, tests +125, docs +14; budget ok.
+- **Next:** register the options and account-settle systemd units without installing them.
+
+## 2026-10-06 — Register data and late-settlement timers
+
+- **Why:** P22 L4 section 8 requires the options 11:35 UTC job and account late-settle
+  07:45/11:55 UTC jobs to ship through automation without installing or starting them.
+- **What:** Add the four hardened oneshot/timer units, register both timers for autostart,
+  and accept an explicit read-only `--audit` mode. No host automation state changed.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_install_automation.py`
+  passes all 50 cases; systemd verification passes and audit lists all four new units.
+- **Metrics:** server/product unchanged, tools +12, tests +26; budget ok.
+- **Next:** run the complete L4 acceptance and repository gates.
+
+## 2026-10-06 — Keep bitemporal upsert compatible with legacy fixtures
+
+- **Why:** the required full suite reproduced `upsert_prices` refusing a minimal
+  pre-migration prices fixture that intentionally omits `first_fetched_at`.
+- **What:** Use the point-in-time conflict path directly on current stores and fall
+  back to the former write only after confirming the optional column is absent.
+- **Evidence:** On the 21,011,171-row snapshot copy, seven paired 1,000-row repeats
+  measured 21.735 ms versus 20.197 ms today (7.62% slower, under the 20% limit).
+- **Metrics:** server/tools unchanged, product/engine +14, tests +15; budget ok.
+- **Next:** hand positional whole-row writers to their owning integration lane, then close gates.
+
+## 2026-10-06 — Hand L4 integration-bound gates to their owners
+
+- **Why:** P22 requires the complete suite, while L4 may not edit the frozen
+  forward monitors, replay writer, nightly driver or their tests.
+- **What:** All claimed acceptance is green. Two format patches cover the L3
+  nightly call and six positional price writers; L3 must rebind E1/sector/XS after all merges.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,306 passed, 104 integration-bound failures, 5 deselected.
+- **Metrics:** server/tools/product unchanged since the prior entry; budget ok.
+- **Next:** orchestrator applies the two handoff patches and L3 issues the merged runtime contracts.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
