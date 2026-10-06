@@ -56,10 +56,6 @@ V2_INTENT_FIELDS = frozenset({
     "legs", "created_at", "source_sha256",
 })
 NEW_YORK = ZoneInfo("America/New_York")
-PORTFOLIO_ACCOUNT_FIELDS = frozenset({
-    "engine", "cost_profile", "account_type", "visibility", "status", "price_source",
-    "day_trade_rule", "allow_short", "updated_at",
-})
 
 
 class AccountRefused(ValueError):
@@ -150,7 +146,6 @@ def validate_spec(spec: dict) -> dict:
 def init_schema(con) -> None:
     """Initialize L0 simulation tables and additive account-service tables."""
     sim_schema.init_sim_schema(con)
-    _init_portfolio_account_shim(con)
     con.execute("CREATE TABLE IF NOT EXISTS paper_account_specs ("
                 "account_id VARCHAR PRIMARY KEY, payload VARCHAR NOT NULL, "
                 "sha256 VARCHAR NOT NULL, created_at TIMESTAMP NOT NULL)")
@@ -176,70 +171,6 @@ def init_schema(con) -> None:
     con.execute("CREATE TABLE IF NOT EXISTS account_watch ("
                 "portfolio_id VARCHAR, ticker VARCHAR, created_at TIMESTAMP NOT NULL, "
                 "PRIMARY KEY (portfolio_id, ticker))")
-
-
-def _init_portfolio_account_shim(con) -> None:
-    """Temporary R13 compatibility until the revised L0 base is merged."""
-    if hasattr(sim_schema, "portfolio_account"):
-        return
-    objects = {row[0] for row in con.execute(
-        "SELECT table_name FROM information_schema.tables "
-        "WHERE table_name IN ('portfolio_accounts','portfolio_accounts_v')"
-    ).fetchall()}
-    if objects == {"portfolio_accounts", "portfolio_accounts_v"}:
-        return
-    con.execute(
-        "CREATE TABLE IF NOT EXISTS portfolio_accounts ("
-        "portfolio_id VARCHAR PRIMARY KEY, engine VARCHAR NOT NULL DEFAULT 'league', "
-        "cost_profile VARCHAR NOT NULL DEFAULT 'baseline_v1', "
-        "account_type VARCHAR NOT NULL DEFAULT 'cash_legacy', "
-        "visibility VARCHAR NOT NULL DEFAULT 'public', status VARCHAR, "
-        "price_source VARCHAR NOT NULL DEFAULT 'prices', "
-        "day_trade_rule VARCHAR NOT NULL DEFAULT 'pdt_25k_legacy', "
-        "allow_short BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMP)"
-    )
-    con.execute(
-        "CREATE OR REPLACE VIEW portfolio_accounts_v AS "
-        "SELECT p.id AS portfolio_id,COALESCE(pa.engine,'league') AS engine,"
-        "COALESCE(pa.cost_profile,'baseline_v1') AS cost_profile,"
-        "COALESCE(pa.account_type,'cash_legacy') AS account_type,"
-        "COALESCE(pa.visibility,'public') AS visibility,"
-        "COALESCE(pa.status,CASE WHEN p.active THEN 'active' ELSE 'inactive' END) AS status,"
-        "COALESCE(pa.price_source,'prices') AS price_source,"
-        "COALESCE(pa.day_trade_rule,'pdt_25k_legacy') AS day_trade_rule,"
-        "COALESCE(pa.allow_short,FALSE) AS allow_short,pa.updated_at "
-        "FROM portfolios p LEFT JOIN portfolio_accounts pa ON pa.portfolio_id=p.id"
-    )
-
-
-def portfolio_account(con, portfolio_id: str) -> dict:
-    """Call the R13 accessor, with a local compatibility shim for the current base."""
-    if hasattr(sim_schema, "portfolio_account"):
-        return sim_schema.portfolio_account(con, portfolio_id)
-    _init_portfolio_account_shim(con)
-    cursor = con.execute("SELECT * FROM portfolio_accounts_v WHERE portfolio_id=?", [portfolio_id])
-    row = cursor.fetchone()
-    if row is None:
-        raise AccountRefused("unknown account")
-    return dict(zip([column[0] for column in cursor.description], row, strict=True))
-
-
-def set_portfolio_account(con, portfolio_id: str, **fields) -> None:
-    """Call the R13 writer, with a local compatibility shim for the current base."""
-    if not fields or not set(fields) <= PORTFOLIO_ACCOUNT_FIELDS:
-        raise ValueError("invalid portfolio-account settings")
-    if hasattr(sim_schema, "set_portfolio_account"):
-        sim_schema.set_portfolio_account(con, portfolio_id, **fields)
-        return
-    _init_portfolio_account_shim(con)
-    current = portfolio_account(con, portfolio_id)
-    current.update(fields)
-    con.execute(
-        "INSERT OR REPLACE INTO portfolio_accounts VALUES (?,?,?,?,?,?,?,?,?,?)",
-        [portfolio_id, current["engine"], current["cost_profile"], current["account_type"],
-         current["visibility"], current["status"], current["price_source"],
-         current["day_trade_rule"], current["allow_short"], current["updated_at"]],
-    )
 
 
 def _v2_binding(spec: dict) -> dict:
@@ -276,7 +207,7 @@ def create_account(con, spec: dict, *, now: datetime) -> dict:
             [account_id, account_id, "discretionary", json.dumps(config, sort_keys=True),
              _session_on_or_before(now), capital, capital, DEFAULT_PROFILE_ID],
         )
-        set_portfolio_account(
+        sim_schema.set_portfolio_account(
             con,
             account_id,
             engine="account" if v2 else "league",
@@ -315,7 +246,7 @@ def _load_spec(con, account_id: str) -> dict:
             or json.loads(pf[2]).get("external_specification_sha256") != row[1]):
         raise AccountRefused("engine portfolio differs from admitted specification")
     if spec["schema_version"] == 2:
-        settings = portfolio_account(con, account_id)
+        settings = sim_schema.portfolio_account(con, account_id)
         if any((settings["engine"] != "account",
                 settings["account_type"] != spec["account_type"],
                 settings["price_source"] != spec["price_source"],
@@ -587,7 +518,7 @@ def submit_intent(con, intent: dict, *, now: datetime) -> dict:
                 return {"order_id": previous[1], "replayed": True}
             return json.loads(previous[4])
         session_date, quantity = validate_intent(intent, spec, received_at)
-        status = portfolio_account(con, spec["account_id"])["status"]
+        status = sim_schema.portfolio_account(con, spec["account_id"])["status"]
         if status in {"halted", "retired"}:
             raise AccountRefused(status)
         if spec["schema_version"] == 2 and (
@@ -648,7 +579,9 @@ def submit_intent(con, intent: dict, *, now: datetime) -> dict:
              json.dumps(receipt, sort_keys=True)],
         )
         con.execute("UPDATE portfolios SET active=TRUE WHERE id=?", [intent["account_id"]])
-        set_portfolio_account(con, intent["account_id"], status="active", updated_at=received_at)
+        sim_schema.set_portfolio_account(
+            con, intent["account_id"], status="active", updated_at=received_at,
+        )
         if completed_checkpoint:
             portfolio.mark_to_market(con, intent["account_id"], session_date)
     return receipt
