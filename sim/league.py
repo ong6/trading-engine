@@ -75,7 +75,7 @@ def init_portfolios(con, as_of: date) -> int:
     return created
 
 
-def _optional_phase(module_name: str, function_name: str, con, d: date):
+def _optional_phase(module_name: str, function_name: str, con, d: date, **kwargs):
     """Call an integration phase when its owning lane is present."""
     try:
         module = importlib.import_module(module_name)
@@ -85,7 +85,7 @@ def _optional_phase(module_name: str, function_name: str, con, d: date):
             return None
         raise
     function = getattr(module, function_name)
-    return function(con, d)
+    return function(con, d, **kwargs)
 
 
 def accrue_accounts(con, d: date) -> dict:
@@ -98,7 +98,10 @@ def accrue_accounts(con, d: date) -> dict:
 
 def settle_accounts(con, d: date):
     """Phase a2: settle account-engine orders when L1 is installed."""
-    return _optional_phase("engine.accounts.settle", "settle_session", con, d)
+    return _optional_phase(
+        "engine.accounts.settle", "settle_session", con, d,
+        manage_transactions=False,
+    )
 
 
 def check_account_halts(con, d: date) -> dict:
@@ -537,7 +540,11 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
         f"persisted starting capital · as of {d.isoformat()}._",
         "",
     ]
-    break_dates = sorted({row["break_date"] for row in rows if row["break_date"]})
+    broken_rows = [
+        row for row in rows
+        if row["break_date"] is not None and row["break_date"] <= d
+    ]
+    break_dates = sorted({row["break_date"] for row in broken_rows})
     if break_dates:
         dates = ", ".join(value.isoformat() for value in break_dates)
         lines += [
@@ -548,7 +555,7 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
             *[
                 f"| {row['name']} | {_fmt_pct(row['since_break'])} | "
                 f"${row['fees_paid']:,.2f} |"
-                for row in rows if row["break_date"] is not None
+                for row in broken_rows
             ],
             "",
             f"_† commissions from the recorded cost-profile break ({dates}); "
@@ -659,6 +666,12 @@ def rerun_cleanup(con, d: date) -> None:
     """
     con.execute("DELETE FROM sim_equity WHERE date = ?", [d])
     filled_order_ids = "SELECT order_id FROM sim_fills WHERE fill_date = ?"
+    if table_exists(con, "sim_order_details"):
+        con.execute(
+            "UPDATE sim_order_details SET state='queued' "
+            f"WHERE state='filled' AND order_id IN ({filled_order_ids})",
+            [d],
+        )
     for table in ("sim_fill_costs", "sim_fill_fees", "sim_fill_details"):
         if table_exists(con, table):
             con.execute(

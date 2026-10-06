@@ -117,7 +117,7 @@ RUNTIME_CONTRACT_MIGRATION = (
 )
 # Filled after the file list was frozen; tests verify this against current bytes.
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "e285961e3bc9018186ae651f3fceddf1553401e468cb3e81d96a9770c984d390"
+    "b45f881bda34d15f9780f4f492f17a79ca57ff12422306162763d1ed14ef7811"
 )
 
 PRIOR_RUNTIME_CONTRACT_VERSION = 21

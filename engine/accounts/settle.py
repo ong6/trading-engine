@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from typing import Any
@@ -331,6 +332,7 @@ def settle_session(
     *,
     short_con: duckdb.DuckDBPyConnection | None = None,
     settled_at: datetime | None = None,
+    manage_transactions: bool = True,
 ) -> dict[str, Any]:
     """Settle every due account order once, in global receipt order."""
     now = settled_at or datetime.now(timezone.utc)
@@ -494,7 +496,8 @@ def settle_session(
             _state(con, row["order_id"], "rejected", "gross_cap", now)
             counts["rejected"] += 1
             continue
-        with db.transaction(con):
+        transaction = db.transaction(con) if manage_transactions else nullcontext()
+        with transaction:
             applied = _persist_fill(con, row, result, fee, day, now, late)
             if not math.isclose(applied, row["qty"], rel_tol=1e-12, abs_tol=1e-12):
                 raise RuntimeError("ledger changed the prevalidated account fill quantity")
