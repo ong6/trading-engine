@@ -2101,4 +2101,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged, product/engine +14, tests +15; budget ok.
 - **Next:** hand positional whole-row writers to their owning integration lane, then close gates.
 
+## 2026-10-06 — Hand L4 integration-bound gates to their owners
+
+- **Why:** P22 requires the complete suite, while L4 may not edit the frozen
+  forward monitors, replay writer, nightly driver or their tests.
+- **What:** All claimed acceptance is green. Two format patches cover the L3
+  nightly call and six positional price writers; L3 must rebind E1/sector/XS after all merges.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,306 passed, 104 integration-bound failures, 5 deselected.
+- **Metrics:** server/tools/product unchanged since the prior entry; budget ok.
+- **Next:** orchestrator applies the two handoff patches and L3 issues the merged runtime contracts.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
