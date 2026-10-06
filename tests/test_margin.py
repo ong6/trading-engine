@@ -6,22 +6,25 @@ from datetime import date, datetime, timezone
 import pytest
 
 from sim import margin
+from sim.schema import set_portfolio_account
 from tests.conftest import insert_bars
 
 DAY = date(2026, 10, 12)
 
 
 def _set_account(con, portfolio_id, *, rule="pdt_25k_legacy", profile="baseline_v1"):
-    con.execute(
-        "CREATE TABLE IF NOT EXISTS portfolio_accounts ("
-        "portfolio_id VARCHAR PRIMARY KEY,engine VARCHAR,cost_profile VARCHAR,"
-        "account_type VARCHAR,visibility VARCHAR,status VARCHAR,price_source VARCHAR,"
-        "day_trade_rule VARCHAR,allow_short BOOLEAN,updated_at TIMESTAMP)"
-    )
-    con.execute(
-        "INSERT OR REPLACE INTO portfolio_accounts VALUES "
-        "(?, 'account', ?, 'margin', 'private', 'active', 'prices', ?, TRUE, ?)",
-        [portfolio_id, profile, rule, datetime(2026, 10, 12, 20)],
+    set_portfolio_account(
+        con,
+        portfolio_id,
+        engine="account",
+        cost_profile=profile,
+        account_type="margin",
+        visibility="private",
+        status="active",
+        price_source="prices",
+        day_trade_rule=rule,
+        allow_short=True,
+        updated_at=datetime(2026, 10, 12, 20),
     )
 
 
@@ -155,18 +158,41 @@ def test_day_trade_match_prioritises_same_session_lot(con, book):
     assert margin.matched_day_trade_open(con, book, "XYZ", "sell", 0.5, DAY) == 100
 
 
+def test_recorded_day_trade_depletes_same_session_lot_before_next_close(con, book):
+    _set_account(con, book)
+    con.execute("INSERT INTO sim_positions VALUES (?, 'XYZ', 2, 100)", [book])
+    con.executemany(
+        "INSERT INTO sim_position_lots VALUES (?, 'XYZ', ?, ?, 1, 100)",
+        [(book, date(2026, 10, 9), 90), (book, DAY, 100)],
+    )
+    assert margin.matched_day_trade_open(con, book, "XYZ", "sell", 1, DAY) == 100
+    con.execute(
+        "INSERT INTO sim_fills VALUES (201,?,'XYZ','sell',1,?,100,100,0,0)",
+        [book, DAY],
+    )
+    con.execute(
+        "INSERT INTO sim_day_trades VALUES (?,?,'XYZ',100,201)", [book, DAY]
+    )
+    # The same-day opening share is already assigned to the first sell; the
+    # remaining MOC closes the older share and must not count again.
+    assert margin.matched_day_trade_open(con, book, "XYZ", "sell", 1, DAY) is None
+    assert not margin.pdt_check(
+        con, book, "XYZ", "sell", 1, DAY, price=100,
+    ).creates_day_trade
+
+
 def test_margin_interest_uses_verified_rate_and_is_idempotent(con, book):
     _set_account(con, book, profile="ibkr_pro_tiered_v1")
     con.execute("UPDATE portfolios SET cash=-2000 WHERE id=?", [book])
-    assert margin.accrue_interest(con, DAY, days=30) == {
-        "events": 1, "charged": 8.97,
-    }
+    first = margin.accrue_interest(con, DAY, days=30)
+    assert first["events"] == 1
+    assert first["charged"] == pytest.approx(2_000 * 0.0538 * 30 / 360)
     assert margin.accrue_interest(con, DAY, days=30) == {
         "events": 0, "charged": 0.0,
     }
     assert con.execute(
         "SELECT amount FROM sim_cash_events WHERE kind='margin_interest'"
-    ).fetchone() == (-8.97,)
+    ).fetchone() == (pytest.approx(-first["charged"]),)
 
 
 def test_maintenance_breach_queues_proportional_reduction(con, book):
@@ -211,11 +237,7 @@ def test_margin_call_receipt_uses_new_york_close_not_fixed_utc(con, book):
 
 def test_legacy_pdt_does_not_apply_to_cash_legacy_account(con, book):
     _set_account(con, book)
-    con.execute(
-        "UPDATE portfolio_accounts SET account_type='cash_legacy' WHERE portfolio_id=?",
-        [book],
-    )
-    con.execute("UPDATE portfolios SET account_type='cash_legacy' WHERE id=?", [book])
+    set_portfolio_account(con, book, account_type="cash_legacy")
     con.execute("UPDATE portfolios SET initial_cash=10000,cash=9750 WHERE id=?", [book])
     _same_day_lot(con, book)
     _three_prior_day_trades(con, book)

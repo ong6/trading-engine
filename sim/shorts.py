@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import duckdb
 
@@ -112,10 +112,15 @@ def _latest_days_to_cover(
 
 
 def _prior_close(
-    con: duckdb.DuckDBPyConnection, ticker: str, day: date, source: str,
+    con: duckdb.DuckDBPyConnection,
+    ticker: str,
+    day: date,
+    source: str,
+    available_at: datetime | None = None,
 ) -> float | None:
     return bar_sources.latest_close(
-        con, ticker, day, source=source, strictly_before=True,
+        con, ticker, day, source=source, available_at=available_at,
+        strictly_before=True,
     )
 
 
@@ -158,6 +163,7 @@ def locate(
     *,
     market_con: duckdb.DuckDBPyConnection | None = None,
     price_source: str = "prices",
+    available_at: datetime | None = None,
 ) -> LocateResult:
     """Classify a point-in-time stock locate as ETB or HTB/no-locate."""
     market = market_con or con_short
@@ -173,9 +179,11 @@ def locate(
         default=None,
     )
     stale = newest is None or _session_days(newest, day) > STALE_AFTER_SESSIONS
-    close = _prior_close(market, ticker, day, price_source)
+    close = _prior_close(
+        market, ticker, day, price_source, available_at=available_at,
+    )
     mdv = bar_sources.median_dollar_volume(
-        market, ticker, day, source=price_source,
+        market, ticker, day, source=price_source, available_at=available_at,
     )
     liquid = _liquid_as_of(market, ticker, day)
     conservative_reason = (

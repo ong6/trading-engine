@@ -6,23 +6,25 @@ from datetime import date, datetime, timedelta
 import pytest
 
 from sim import ledger, shorts
+from sim.schema import set_portfolio_account
 from tests.conftest import insert_bars
 
 DAY = date(2026, 10, 12)
 
 
 def _set_account(con, portfolio_id, *, profile="ibkr_pro_tiered_v1"):
-    con.execute(
-        "CREATE TABLE IF NOT EXISTS portfolio_accounts ("
-        "portfolio_id VARCHAR PRIMARY KEY,engine VARCHAR,cost_profile VARCHAR,"
-        "account_type VARCHAR,visibility VARCHAR,status VARCHAR,price_source VARCHAR,"
-        "day_trade_rule VARCHAR,allow_short BOOLEAN,updated_at TIMESTAMP)"
-    )
-    con.execute(
-        "INSERT OR REPLACE INTO portfolio_accounts VALUES "
-        "(?, 'account', ?, 'margin', 'private', 'active', 'prices', "
-        "'pdt_25k_legacy', TRUE, ?)",
-        [portfolio_id, profile, datetime(2026, 10, 12, 20)],
+    set_portfolio_account(
+        con,
+        portfolio_id,
+        engine="account",
+        cost_profile=profile,
+        account_type="margin",
+        visibility="private",
+        status="active",
+        price_source="prices",
+        day_trade_rule="pdt_25k_legacy",
+        allow_short=True,
+        updated_at=datetime(2026, 10, 12, 20),
     )
 
 
@@ -91,6 +93,30 @@ def test_locate_uses_dated_liquidity_before_current_flag(con):
     assert result.reason == "not_liquid"
 
 
+def test_locate_prices_and_liquidity_use_availability_cutoff(con):
+    _short_tables(con)
+    con.execute("CREATE TABLE universe (ticker VARCHAR,liquid BOOLEAN)")
+    con.execute("INSERT INTO universe VALUES ('XYZ',TRUE)")
+    con.execute(
+        "INSERT INTO finra_short_interest VALUES ('XYZ',?,?,?)",
+        [date(2026, 10, 1), 1.0, DAY],
+    )
+    con.executemany(
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume,fetched_at) "
+        "VALUES ('XYZ',?,?,?,?,?,?,?)",
+        [
+            (date(2026, 10, 8), 4, 4, 4, 4, 2_000_000,
+             datetime(2026, 10, 8, 22)),
+            (date(2026, 10, 9), 10, 10, 10, 10, 1_000_000,
+             datetime(2026, 10, 12, 23)),
+        ],
+    )
+    cutoff = datetime(2026, 10, 12, 22)
+    result = shorts.locate(con, "XYZ", DAY, available_at=cutoff)
+    assert not result.available
+    assert result.reason == "price_below_5"
+
+
 @pytest.mark.parametrize(
     ("price", "volume", "liquid", "reason"),
     [(4.99, 2_000_000, True, "price_below_5"),
@@ -118,11 +144,12 @@ def test_borrow_fee_debits_cash_once_with_fractional_short(con, book):
     before = con.execute("SELECT cash FROM portfolios WHERE id=?", [book]).fetchone()[0]
     first = shorts.accrue_borrow(con, DAY, days=10)
     second = shorts.accrue_borrow(con, DAY, days=10)
-    assert first == {"events": 1, "charged": 0.35}
+    assert first["events"] == 1
+    assert first["charged"] == pytest.approx(5_010 * 0.0025 * 10 / 360)
     assert second == {"events": 0, "charged": 0.0}
     assert con.execute(
         "SELECT cash FROM portfolios WHERE id=?", [book]
-    ).fetchone()[0] == pytest.approx(before - 0.35)
+    ).fetchone()[0] == pytest.approx(before - first["charged"])
 
 
 def test_first_borrow_accrual_starts_at_lot_open_after_prior_accrual(con, book):
@@ -137,7 +164,8 @@ def test_first_borrow_accrual_starts_at_lot_open_after_prior_accrual(con, book):
         "qty": 250, "fill_px": 20, "fill_date": date(2026, 10, 9),
     })
     result = shorts.accrue_borrow(con, DAY)
-    assert result == {"events": 1, "charged": 0.1}
+    assert result["events"] == 1
+    assert result["charged"] == pytest.approx(5_000 * 0.0025 * 3 / 360)
 
 
 def test_five_threshold_sessions_queue_one_buy_in_cover(con, book):
