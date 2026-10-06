@@ -2159,4 +2159,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; sim and tests grew within the P22 plan budget.
 - **Next:** implement short locates, borrow/buy-ins, Reg T and both R10 settings.
 
+## 2026-10-06 — Add short and margin controls
+
+- **Why:** P22 L1 and R10 require point-in-time locates, borrow/buy-ins, Reg T,
+  margin calls, and selectable legacy or 2026 intraday day-trading rules.
+- **What:** Add conservative locate classification, threshold-list buy-ins, financing
+  cash events, Reg T state/reductions, fractional-lot day trades, and the R13 accessor shim.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_shorts.py
+  tests/test_margin.py tests/test_ledger.py tests/test_costs_ibkr.py`: 33 passed.
+- **Metrics:** server/tools/product unchanged; sim and tests grew within the P22 plan budget.
+- **Next:** settle account orders with aggregate liquidity, fees, contingencies and late marks.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
