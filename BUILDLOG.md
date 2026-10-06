@@ -2148,4 +2148,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server unchanged, tools +39, product/engine +9, tests +157; budget ok.
 - **Next:** run the complete acceptance, refresh handoffs and publish round-two status.
 
+## 2026-10-06 — Close L4 round-two review
+
+- **Why:** Orchestrator review required as-of split handling, a migration helper,
+  fair option capture, immutable inputs and bounded refusal/resume behavior.
+- **What:** All eight blockers and minor cases are corrected; 140 focused tests,
+  Ruff, systemd verification, both handoff patches and the metrics budget pass.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,320 passed, 104 integration-bound failures, 5 deselected.
+- **Metrics:** server/tools/product unchanged since the implementation entries; budget ok.
+- **Next:** L3 calls the backfill helper, routes the fail-soft nightly line, applies
+  the positional-writer patch and rebinds the merged E1/sector/XS/P15 contracts.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
