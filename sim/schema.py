@@ -21,6 +21,32 @@ from .execution import DEFAULT_PROFILE_ID
 
 # Reference notional per paper portfolio: S$50k ≈ US$39,000 (spec §12.4).
 INITIAL_CASH = 39_000.0
+ORDER_SEQUENCE = "sim_order_id_seq"
+
+
+def bootstrap_order_sequence(con: duckdb.DuckDBPyConnection) -> None:
+    """Create the order sequence once, starting above every legacy order id.
+
+    DuckDB sequences are not transactional counters and deliberately survive row
+    deletion.  Creating the sequence only when it is absent preserves that
+    monotonic history while upgrading old stores from ``MAX(id) + 1``.
+    """
+    exists = con.execute(
+        "SELECT 1 FROM duckdb_sequences() WHERE sequence_name = ?",
+        [ORDER_SEQUENCE],
+    ).fetchone()
+    if exists is not None:
+        return
+    next_id = int(
+        con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM sim_orders").fetchone()[0]
+    )
+    con.execute(f"CREATE SEQUENCE {ORDER_SEQUENCE} START {next_id}")
+
+
+def next_order_id(con: duckdb.DuckDBPyConnection) -> int:
+    """Return a never-reused order id from the persistent DuckDB sequence."""
+    bootstrap_order_sequence(con)
+    return int(con.execute(f"SELECT nextval('{ORDER_SEQUENCE}')").fetchone()[0])
 
 
 def init_sim_schema(con: duckdb.DuckDBPyConnection) -> None:
@@ -48,6 +74,17 @@ def init_sim_schema(con: duckdb.DuckDBPyConnection) -> None:
                 [INITIAL_CASH])
     con.execute("UPDATE portfolios SET execution_profile = ? "
                 "WHERE execution_profile IS NULL", [DEFAULT_PROFILE_ID])
+    con.execute("ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS engine "
+                "VARCHAR DEFAULT 'league'")
+    con.execute("ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS cost_profile VARCHAR")
+    con.execute("ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS account_type "
+                "VARCHAR DEFAULT 'cash_legacy'")
+    con.execute("ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS visibility "
+                "VARCHAR DEFAULT 'public'")
+    con.execute("ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS status "
+                "VARCHAR DEFAULT 'active'")
+    con.execute("ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS price_source "
+                "VARCHAR DEFAULT 'prices'")
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS sim_orders (
@@ -59,6 +96,139 @@ def init_sim_schema(con: duckdb.DuckDBPyConnection) -> None:
             signal_date   DATE,
             status        VARCHAR,   -- 'pending' | 'filled' | 'rejected' | 'cancelled'
             reject_reason VARCHAR
+        )
+        """
+    )
+    bootstrap_order_sequence(con)
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS instruments (
+            instrument_id  VARCHAR PRIMARY KEY,
+            kind           VARCHAR NOT NULL,
+            underlying     VARCHAR,
+            multiplier     DOUBLE NOT NULL,
+            expiry         DATE,
+            strike         DOUBLE,
+            "right"        VARCHAR,
+            exercise_style VARCHAR,
+            settlement     VARCHAR,
+            deliverable    VARCHAR,
+            currency       VARCHAR DEFAULT 'USD',
+            source         VARCHAR,
+            first_seen     DATE,
+            last_seen      DATE
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sim_order_details (
+            order_id        BIGINT PRIMARY KEY,
+            instrument_id   VARCHAR NOT NULL,
+            instrument_kind VARCHAR NOT NULL,
+            order_type      VARCHAR NOT NULL,
+            side            VARCHAR NOT NULL,
+            tif             VARCHAR NOT NULL DEFAULT 'day',
+            limit_px        DOUBLE,
+            session_date    DATE NOT NULL,
+            received_at     TIMESTAMP NOT NULL,
+            created_at      TIMESTAMP,
+            parent_order_id BIGINT,
+            leg_no          INTEGER,
+            leg_ratio       INTEGER,
+            contingent_on   BIGINT,
+            state           VARCHAR NOT NULL,
+            state_reason    VARCHAR,
+            state_at        TIMESTAMP,
+            source_sha256   VARCHAR
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sim_fill_details (
+            order_id     BIGINT PRIMARY KEY,
+            fill_ts      TIMESTAMP,
+            fill_kind    VARCHAR,
+            price_source VARCHAR,
+            bar_ref      VARCHAR,
+            reference_px DOUBLE,
+            multiplier   DOUBLE DEFAULT 1,
+            late_settled BOOLEAN DEFAULT FALSE,
+            settled_at   TIMESTAMP
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sim_fill_fees (
+            order_id      BIGINT PRIMARY KEY,
+            cost_profile  VARCHAR NOT NULL,
+            commission    DOUBLE,
+            exchange_fee  DOUBLE,
+            clearing_fee  DOUBLE,
+            pass_through  DOUBLE,
+            sec_fee       DOUBLE,
+            finra_taf     DOUBLE,
+            occ_fee       DOUBLE,
+            orf_fee       DOUBLE,
+            total_usd     DOUBLE NOT NULL
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sim_cash_events (
+            portfolio_id VARCHAR NOT NULL,
+            event_date   DATE NOT NULL,
+            seq          INTEGER NOT NULL,
+            kind         VARCHAR NOT NULL,
+            amount       DOUBLE NOT NULL,
+            instrument_id VARCHAR,
+            ref_order_id BIGINT,
+            note          VARCHAR,
+            created_at    TIMESTAMP NOT NULL,
+            PRIMARY KEY (portfolio_id, event_date, seq)
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sim_position_lots (
+            portfolio_id  VARCHAR,
+            instrument_id VARCHAR,
+            opened_session DATE,
+            open_order_id BIGINT,
+            qty            DOUBLE,
+            avg_px         DOUBLE,
+            PRIMARY KEY (portfolio_id, instrument_id, open_order_id)
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sim_day_trades (
+            portfolio_id  VARCHAR,
+            session_date  DATE,
+            instrument_id VARCHAR,
+            open_order_id BIGINT,
+            close_order_id BIGINT,
+            PRIMARY KEY (portfolio_id, close_order_id)
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sim_book_breaks (
+            portfolio_id VARCHAR,
+            break_date DATE,
+            kind VARCHAR,
+            from_value VARCHAR,
+            to_value VARCHAR,
+            registration_revision INTEGER,
+            note VARCHAR,
+            created_at TIMESTAMP,
+            PRIMARY KEY (portfolio_id, break_date, kind)
         )
         """
     )
