@@ -78,6 +78,19 @@ def test_stale_short_data_uses_conservative_market_fallback(con):
     assert result.data_stale
 
 
+def test_locate_uses_dated_liquidity_before_current_flag(con):
+    _short_tables(con)
+    _liquid_market(con)
+    con.execute(
+        "CREATE TABLE universe_snapshot "
+        "(snapshot_date DATE,ticker VARCHAR,liquid BOOLEAN)"
+    )
+    con.execute("INSERT INTO universe_snapshot VALUES (?, 'XYZ', FALSE)", [DAY])
+    result = shorts.locate(con, "XYZ", DAY)
+    assert not result.available
+    assert result.reason == "not_liquid"
+
+
 @pytest.mark.parametrize(
     ("price", "volume", "liquid", "reason"),
     [(4.99, 2_000_000, True, "price_below_5"),
@@ -112,6 +125,21 @@ def test_borrow_fee_debits_cash_once_with_fractional_short(con, book):
     ).fetchone()[0] == pytest.approx(before - 0.35)
 
 
+def test_first_borrow_accrual_starts_at_lot_open_after_prior_accrual(con, book):
+    _set_account(con, book)
+    insert_bars(con, "XYZ", [DAY], open_=20, close=20, volume=1_000_000)
+    ledger.apply_cash_event(con, {
+        "portfolio_id": book, "event_date": date(2026, 10, 8),
+        "kind": "borrow_fee", "amount": 0, "instrument_id": "XYZ",
+    })
+    ledger.apply_fill(con, {
+        "order_id": 1, "portfolio_id": book, "ticker": "XYZ", "side": "short",
+        "qty": 250, "fill_px": 20, "fill_date": date(2026, 10, 9),
+    })
+    result = shorts.accrue_borrow(con, DAY)
+    assert result == {"events": 1, "charged": 0.1}
+
+
 def test_five_threshold_sessions_queue_one_buy_in_cover(con, book):
     _set_account(con, book)
     _short_tables(con)
@@ -126,6 +154,10 @@ def test_five_threshold_sessions_queue_one_buy_in_cover(con, book):
     )
     queued = shorts.queue_buy_ins(con, con, DAY)
     assert len(queued) == 1
+    con.execute(
+        "UPDATE sim_order_details SET state_reason='buy_in|bar_missing' WHERE order_id=?",
+        [queued[0]],
+    )
     assert shorts.queue_buy_ins(con, con, DAY) == []
     assert con.execute(
         "SELECT side,qty,signal_date,status FROM sim_orders WHERE id=?", [queued[0]]
@@ -133,4 +165,23 @@ def test_five_threshold_sessions_queue_one_buy_in_cover(con, book):
     assert con.execute(
         "SELECT order_type,state_reason FROM sim_order_details WHERE order_id=?",
         [queued[0]],
-    ).fetchone() == ("next_open", "buy_in")
+    ).fetchone() == ("next_open", "buy_in|bar_missing")
+
+
+def test_buy_in_receipt_uses_actual_early_close(con, book):
+    early = date(2026, 11, 27)
+    _set_account(con, book)
+    _short_tables(con)
+    ledger.apply_fill(con, {
+        "order_id": 1, "portfolio_id": book, "ticker": "XYZ", "side": "short",
+        "qty": 1, "fill_px": 10, "fill_date": date(2026, 11, 19),
+    })
+    sessions = [date(2026, 11, value) for value in (20, 23, 24, 25, 27)]
+    con.executemany(
+        "INSERT INTO regsho_threshold VALUES ('XYZ',?,?)",
+        [(value, value) for value in sessions],
+    )
+    order_id, = shorts.queue_buy_ins(con, con, early)
+    assert con.execute(
+        "SELECT received_at FROM sim_order_details WHERE order_id=?", [order_id]
+    ).fetchone() == (datetime(2026, 11, 27, 18),)

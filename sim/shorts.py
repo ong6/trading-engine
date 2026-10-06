@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, timedelta
 
 import duckdb
 
@@ -114,20 +114,41 @@ def _latest_days_to_cover(
 def _prior_close(
     con: duckdb.DuckDBPyConnection, ticker: str, day: date, source: str,
 ) -> float | None:
-    if source == "prices":
-        table, close_col = "prices", "close"
-    elif source == "massive_daily":
-        table, close_col = "free_daily_bars_adjusted", "c"
-    else:
-        raise ValueError(f"unknown price source {source!r}")
-    if not _columns(con, table):
-        return None
-    row = con.execute(
-        f"SELECT {close_col} FROM {table} WHERE ticker=? AND date<? "
-        "ORDER BY date DESC LIMIT 1",
-        [ticker, day],
-    ).fetchone()
-    return None if row is None or row[0] is None else float(row[0])
+    return bar_sources.latest_close(
+        con, ticker, day, source=source, strictly_before=True,
+    )
+
+
+def short_data_available(con_short: duckdb.DuckDBPyConnection | None) -> bool:
+    """Both point-in-time locate inputs must be attached and readable."""
+    return bool(
+        con_short is not None
+        and table_exists(con_short, "regsho_threshold")
+        and table_exists(con_short, "finra_short_interest")
+    )
+
+
+def _liquid_as_of(
+    con: duckdb.DuckDBPyConnection, ticker: str, day: date,
+) -> bool:
+    """Use a dated liquid flag when present, else the current-universe fallback."""
+    snapshot_columns = _columns(con, "universe_snapshot")
+    if {"snapshot_date", "ticker", "liquid"} <= snapshot_columns:
+        row = con.execute(
+            "SELECT liquid FROM universe_snapshot WHERE ticker=? AND snapshot_date<=? "
+            "ORDER BY snapshot_date DESC LIMIT 1",
+            [ticker, day],
+        ).fetchone()
+        if row is not None:
+            return bool(row[0])
+    # Legacy stores have no dated liquidity history. Their current flag is an
+    # explicit compatibility limitation, never a substitute when a snapshot exists.
+    if table_exists(con, "universe") and "liquid" in _columns(con, "universe"):
+        row = con.execute(
+            "SELECT liquid FROM universe WHERE ticker=?", [ticker]
+        ).fetchone()
+        return bool(row and row[0])
+    return False
 
 
 def locate(
@@ -156,12 +177,7 @@ def locate(
     mdv = bar_sources.median_dollar_volume(
         market, ticker, day, source=price_source,
     )
-    liquid = False
-    if table_exists(market, "universe") and "liquid" in _columns(market, "universe"):
-        row = market.execute(
-            "SELECT liquid FROM universe WHERE ticker=?", [ticker]
-        ).fetchone()
-        liquid = bool(row and row[0])
+    liquid = _liquid_as_of(market, ticker, day)
     conservative_reason = (
         "price_below_5" if close is None or close < MIN_SHORT_PRICE
         else "mdv_below_5m" if mdv is None or mdv < MIN_SHORT_MDV
@@ -203,7 +219,7 @@ def accrue_borrow(
     days: int | None = None,
 ) -> dict:
     """Debit borrow cost once per held account short and session."""
-    span = _calendar_days_since_previous_session(day) if days is None else days
+    default_span = _calendar_days_since_previous_session(day)
     charged = 0.0
     count = 0
     rows = []
@@ -228,17 +244,46 @@ def accrue_borrow(
         )
         if close is None:
             continue
-        fee = costs.borrow_fee(
-            abs(float(qty)) * close, span, session_date=day,
-            profile=settings["cost_profile"],
+        if days is not None:
+            portions = [(abs(float(qty)), days)]
+        else:
+            last = con.execute(
+                "SELECT MAX(event_date) FROM sim_cash_events WHERE portfolio_id=? "
+                "AND instrument_id=? AND kind='borrow_fee' AND event_date<?",
+                [portfolio_id, ticker, day],
+            ).fetchone()[0]
+            prior = day - timedelta(days=default_span)
+            start_floor = last or prior
+            portions = []
+            covered = 0.0
+            for lot_qty, opened in con.execute(
+                "SELECT ABS(qty),opened_session FROM sim_position_lots "
+                "WHERE portfolio_id=? AND instrument_id=? AND qty<0",
+                [portfolio_id, ticker],
+            ).fetchall():
+                span = max((day - max(start_floor, opened)).days, 0)
+                portions.append((float(lot_qty), span))
+                covered += float(lot_qty)
+            if covered + 1e-12 < abs(float(qty)):
+                portions.append((abs(float(qty)) - covered, default_span))
+        fee = sum(
+            costs.borrow_fee(
+                portion_qty * close, span, session_date=day,
+                profile=settings["cost_profile"],
+            )
+            for portion_qty, span in portions
+            if span > 0
         )
+        if fee <= 0:
+            continue
+        charged_days = max((span for _qty, span in portions), default=0)
         ledger.apply_cash_event(con, {
             "portfolio_id": portfolio_id,
             "event_date": day,
             "kind": "borrow_fee",
             "amount": -fee,
             "instrument_id": ticker,
-            "note": f"{span} calendar day(s)",
+            "note": f"up to {charged_days} calendar day(s)",
         })
         charged += fee
         count += 1
@@ -260,14 +305,14 @@ def queue_buy_ins(
             [settings["portfolio_id"]],
         ).fetchall():
             positions.append((settings["portfolio_id"], ticker, qty))
-    received = datetime.combine(day, time(20), timezone.utc).replace(tzinfo=None)
+    _opened, received = bar_sources.session_bounds(day)
     for portfolio_id, ticker, qty in positions:
         if not threshold_streak(con_short, ticker, day):
             continue
         duplicate = con.execute(
             "SELECT 1 FROM sim_orders o JOIN sim_order_details d ON d.order_id=o.id "
             "WHERE o.portfolio_id=? AND o.ticker=? AND o.side='cover' "
-            "AND o.status='pending' AND d.state_reason='buy_in'",
+            "AND o.status='pending' AND d.state_reason LIKE 'buy_in%'",
             [portfolio_id, ticker],
         ).fetchone()
         if duplicate:
