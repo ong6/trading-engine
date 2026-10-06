@@ -237,15 +237,17 @@ def matched_day_trade_open(
     if side not in {"sell", "cover"}:
         return None
     sign = ">0" if side == "sell" else "<0"
-    remaining = qty
     rows = con.execute(
-        "SELECT open_order_id,ABS(qty) FROM sim_position_lots "
+        "SELECT l.open_order_id,GREATEST(ABS(l.qty)-COALESCE(("
+        "SELECT SUM(f.qty) FROM sim_day_trades d JOIN sim_fills f "
+        "ON f.order_id=d.close_order_id WHERE d.portfolio_id=l.portfolio_id "
+        "AND d.open_order_id=l.open_order_id),0),0) FROM sim_position_lots l "
         f"WHERE portfolio_id=? AND instrument_id=? AND opened_session=? AND qty{sign} "
         "ORDER BY open_order_id",
         [portfolio_id, instrument_id, session_date],
     ).fetchall()
     for order_id, available in rows:
-        if min(remaining, float(available)) > 1e-12:
+        if min(qty, float(available)) > 1e-12:
             return int(order_id)
     return None
 

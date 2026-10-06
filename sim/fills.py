@@ -193,66 +193,6 @@ def _utc_naive(value: datetime) -> datetime:
     return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
-def _clock_at(session_date: date, value) -> datetime:
-    if isinstance(value, datetime):
-        if value.utcoffset() is None:
-            return value.replace(tzinfo=bar_sources.NEW_YORK)
-        return value.astimezone(bar_sources.NEW_YORK)
-    return datetime.combine(session_date, value, bar_sources.NEW_YORK)
-
-
-def _session_close_at(session_date: date) -> datetime:
-    resolver = getattr(order_types, "session_close", None)
-    if resolver is not None:
-        return _clock_at(session_date, resolver(session_date))
-    _opened, closed = bar_sources.session_bounds(session_date)
-    return closed.replace(tzinfo=timezone.utc).astimezone(bar_sources.NEW_YORK)
-
-
-def _moc_cutoff_at(session_date: date) -> datetime:
-    resolver = getattr(order_types, "moc_cutoff", None)
-    if resolver is not None:
-        return _clock_at(session_date, resolver(session_date))
-    return _session_close_at(session_date) - timedelta(minutes=10)
-
-
-def _previous_session(session_date: date) -> date:
-    cursor = session_date - timedelta(days=1)
-    while not nyse.is_session(cursor):
-        cursor -= timedelta(days=1)
-    return cursor
-
-
-def _received_at_allowed(
-    order_type: OrderType, session_date: date, received_at: datetime,
-) -> bool:
-    """R13 transition shim; L0 will provide the same close-aware contract."""
-    if received_at.utcoffset() is None or not nyse.is_session(session_date):
-        return False
-    received_et = received_at.astimezone(bar_sources.NEW_YORK)
-    opened = datetime.combine(
-        session_date, order_types.MARKET_OPEN, bar_sources.NEW_YORK,
-    )
-    closed = _session_close_at(session_date)
-    prior_close = _session_close_at(_previous_session(session_date))
-    if order_type is OrderType.NEXT_OPEN:
-        next_open = datetime.combine(
-            nyse.next_session(session_date), order_types.MARKET_OPEN,
-            bar_sources.NEW_YORK,
-        )
-        return closed <= received_et < next_open
-    if order_type in {OrderType.MOO, OrderType.LIMIT_ON_OPEN}:
-        cutoff = datetime.combine(
-            session_date, order_types.MOO_CUTOFF, bar_sources.NEW_YORK,
-        )
-        return prior_close <= received_et <= cutoff
-    if order_type is OrderType.MOC:
-        return prior_close <= received_et <= _moc_cutoff_at(session_date)
-    if order_type is OrderType.MARKET:
-        return opened <= received_et < closed
-    return prior_close <= received_et < closed
-
-
 def _v2_result(
     *,
     side: str,
@@ -382,7 +322,7 @@ def attempt_auction_fill(
         raise ValueError("auction order_type must be 'moo' or 'moc'")
     if received_at.utcoffset() is None:
         raise ValueError("received_at must include its timezone")
-    if not _received_at_allowed(kind, session_date, received_at):
+    if not order_types.received_at_allowed(kind, session_date, received_at):
         return FillResult(status="rejected", reject_reason="cutoff")
     bar = bar_sources.daily_bar(
         con, ticker, session_date, source=price_source, available_at=available_at,
@@ -398,7 +338,7 @@ def attempt_auction_fill(
     # half-spread tier and no fixed adverse-movement component.
     slip = half_spread_bps(mdv) / 2 + penalty_bps
     opened, _closed = bar_sources.session_bounds(session_date)
-    fill_ts = opened if opening else _utc_naive(_session_close_at(session_date))
+    fill_ts = opened if opening else _utc_naive(order_types.session_close(session_date))
     return _v2_result(
         side=side,
         qty=qty,
@@ -431,6 +371,32 @@ def _eligible_minutes(
     ]
 
 
+def _missing_intraday_result(
+    session_date: date,
+    available_at: datetime | None,
+    *,
+    price_source: str,
+    terminal_status: str,
+    terminal_reason: str,
+) -> FillResult:
+    if available_at is None:
+        return FillResult(status="pending", price_source=price_source)
+    elapsed = 0
+    cursor = session_date
+    through = _utc_naive(available_at).date()
+    while cursor < through:
+        cursor += timedelta(days=1)
+        if nyse.is_session(cursor):
+            elapsed += 1
+    if elapsed < PENDING_MAX_DAYS:
+        return FillResult(status="pending", price_source=price_source)
+    return FillResult(
+        status=terminal_status,
+        reject_reason=terminal_reason,
+        price_source=price_source,
+    )
+
+
 def attempt_intraday_market_fill(
     con: duckdb.DuckDBPyConnection,
     ticker: str,
@@ -447,23 +413,23 @@ def attempt_intraday_market_fill(
     """Fill at the first minute bar at least 60 seconds after receipt."""
     if received_at.utcoffset() is None:
         raise ValueError("received_at must include its timezone")
-    if not _received_at_allowed(OrderType.MARKET, session_date, received_at):
+    if not order_types.received_at_allowed(OrderType.MARKET, session_date, received_at):
         return FillResult(status="rejected", reject_reason="market_closed")
     bars = _eligible_minutes(
         con, ticker, session_date, received_at,
         price_source=price_source, available_at=available_at,
     )
     if not bars:
-        status = (
-            "rejected" if bar_sources.minute_session_complete(
-                con, ticker, session_date, source=price_source,
-                available_at=available_at,
-            ) else "pending"
-        )
-        return FillResult(
-            status=status,
-            reject_reason="no_bar" if status == "rejected" else None,
-            price_source=price_source,
+        if bar_sources.minute_session_complete(
+            con, ticker, session_date, source=price_source,
+            available_at=available_at,
+        ):
+            return FillResult(
+                status="rejected", reject_reason="no_bar", price_source=price_source,
+            )
+        return _missing_intraday_result(
+            session_date, available_at, price_source=price_source,
+            terminal_status="rejected", terminal_reason="no_bar",
         )
     bar = bars[0]
     reference = bar.vwap if bar.vwap is not None and bar.vwap > 0 else (
@@ -511,21 +477,24 @@ def attempt_intraday_limit_fill(
     """Fill a day limit only after a full later minute bar crosses one tick."""
     if received_at.utcoffset() is None:
         raise ValueError("received_at must include its timezone")
-    if not _received_at_allowed(OrderType.LIMIT, session_date, received_at):
+    if not order_types.received_at_allowed(OrderType.LIMIT, session_date, received_at):
         return FillResult(status="rejected", reject_reason="market_closed")
     bars = _eligible_minutes(
         con, ticker, session_date, received_at,
         price_source=price_source, available_at=available_at,
     )
     if not bars:
-        complete = bar_sources.minute_session_complete(
+        if bar_sources.minute_session_complete(
             con, ticker, session_date, source=price_source,
             available_at=available_at,
-        )
-        return FillResult(
-            status="expired" if complete else "pending",
-            reject_reason="day_limit_not_touched" if complete else None,
-            price_source=price_source,
+        ):
+            return FillResult(
+                status="expired", reject_reason="day_limit_not_touched",
+                price_source=price_source,
+            )
+        return _missing_intraday_result(
+            session_date, available_at, price_source=price_source,
+            terminal_status="rejected", terminal_reason="no_bar",
         )
     tick = tick_size(limit_px)
     if side in {"buy", "cover"}:
@@ -537,7 +506,10 @@ def attempt_intraday_limit_fill(
     if touched is None and not bar_sources.minute_session_complete(
         con, ticker, session_date, source=price_source, available_at=available_at,
     ):
-        return FillResult(status="pending", price_source=price_source)
+        return _missing_intraday_result(
+            session_date, available_at, price_source=price_source,
+            terminal_status="rejected", terminal_reason="no_bar",
+        )
     if touched is None:
         return FillResult(
             status="expired", reject_reason="day_limit_not_touched",

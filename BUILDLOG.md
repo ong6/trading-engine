@@ -2322,4 +2322,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** Server +235 lines and tests +181; tools and product unchanged. Budget passed.
 - **Next:** Nothing admitted.
 
+## 2026-10-06 — Integrate R13 and close L1 round 3 findings
+
+- **Why:** orchestrator re-review required the final L0/L4 base plus five bounded
+  fixes for fail-soft locates, capture outages, PDT depletion, ordering and as-of locates.
+- **What:** Merge the refreshed base with both BUILDLOG histories, remove temporary
+  shims, reject unavailable locates per order, retain incomplete minute sessions,
+  deplete recorded same-day lots, preserve receipt order and cutoff locate marks.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_fills_v2.py
+  tests/test_shorts.py tests/test_margin.py tests/test_accounts_settle.py
+  tests/test_order_types.py tests/test_schema_v2.py tests/test_ledger.py
+  tests/test_costs_ibkr.py`: 98 passed.
+- **Metrics:** pending final merged-base full-suite and budget gates.
+- **Next:** run the merged full suite, ruff and metrics, then publish round-3 status.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

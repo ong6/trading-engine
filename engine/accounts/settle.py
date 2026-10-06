@@ -319,7 +319,7 @@ def _pending_rows(con: duckdb.DuckDBPyConnection) -> list[dict[str, Any]]:
         "JOIN sim_order_details d ON d.order_id=o.id "
         "JOIN portfolios p ON p.id=o.portfolio_id "
         "WHERE o.status='pending' AND d.state='queued' "
-        "ORDER BY CASE WHEN d.contingent_on IS NULL THEN 0 ELSE 1 END,d.received_at,o.id"
+        "ORDER BY d.received_at,o.id"
     ).fetchall()
     return [dict(zip(names, row, strict=True)) for row in rows]
 
@@ -393,12 +393,17 @@ def settle_session(
                 counts["rejected"] += 1
                 continue
             if not shorts.short_data_available(short_con):
-                raise RuntimeError(
-                    "short-data connection with locate tables is required for short settlement"
+                _record_account_event(
+                    con, row["portfolio_id"], "locate_unavailable",
+                    {"instrument_id": row["ticker"], "session_date": day.isoformat()},
+                    now,
                 )
+                _state(con, row["order_id"], "rejected", "locate_unavailable", now)
+                counts["rejected"] += 1
+                continue
             locate = shorts.locate(
                 short_con, row["ticker"], day, market_con=con,
-                price_source=settings["price_source"],
+                price_source=settings["price_source"], available_at=now,
             )
             if locate.data_stale:
                 _record_account_event(
