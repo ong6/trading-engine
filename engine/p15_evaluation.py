@@ -16,7 +16,7 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock, write_text_atomic
 from engine.lib.settings import DATA_DIR, REPO_ROOT
 from engine.lib.util import table_exists
-from sim import nyse
+from sim import book_breaks, nyse
 
 POLICY_ID = "p15-scoring-v1"
 BOOK_IDS = ("p15_ai_ranked", "p15_rule_control", "p15_hybrid_veto")
@@ -977,7 +977,8 @@ def books(con: duckdb.DuckDBPyConnection, primary_result: dict | None = None) ->
     if not all(table_exists(con, table) for table in required):
         return {"status": "not_initialized", "books": [], "comparisons": []}
     contracts = con.execute(
-        "SELECT c.portfolio_id,p.active,p.initial_cash FROM p15_book_contracts c "
+        "SELECT c.portfolio_id,p.active,p.initial_cash,p.created "
+        "FROM p15_book_contracts c "
         "JOIN portfolios p ON p.id=c.portfolio_id ORDER BY c.portfolio_id"
     ).fetchall()
     if {row[0] for row in contracts} != set(BOOK_IDS):
@@ -990,27 +991,35 @@ def books(con: duckdb.DuckDBPyConnection, primary_result: dict | None = None) ->
         latest_look["evaluated_at"]
     ).date()
     output, series = [], {}
-    for portfolio_id, active, initial_cash in contracts:
+    for portfolio_id, active, initial_cash, created in contracts:
         values = [(row[0], float(row[1])) for row in con.execute(
             "SELECT market_date,equity FROM p15_book_windows WHERE portfolio_id=? "
             "ORDER BY market_date", [portfolio_id],
         ).fetchall()]
         evaluated_values = values if look_date is None else [row for row in values
                                                              if row[0] <= look_date]
+        inception = created or (values[0][0] if values else date.max)
+        clock_start = book_breaks.evaluation_start(con, portfolio_id, inception)
+        evaluated_values = [
+            row for row in evaluated_values if row[0] >= clock_start
+        ]
         metrics = _series_metrics(evaluated_values)
         returns = metrics.pop("returns")
         closed = int(con.execute(
             "SELECT COUNT(*) FROM p15_order_intents i JOIN p15_book_fills f ON f.intent_id=i.id "
             "WHERE i.portfolio_id=? AND i.side='sell' AND i.ticker<>'SPY' AND i.status='filled' "
-            "AND (? IS NULL OR f.fill_date<=?)", [portfolio_id, look_date, look_date],
+            "AND f.fill_date>=? AND (? IS NULL OR f.fill_date<=?)",
+            [portfolio_id, clock_start, look_date, look_date],
         ).fetchone()[0])
         turnover = float(con.execute(
             "SELECT COALESCE(SUM(ABS(qty*fill_px)),0) FROM p15_book_fills "
-            "WHERE portfolio_id=? AND (? IS NULL OR fill_date<=?)",
-            [portfolio_id, look_date, look_date],
+            "WHERE portfolio_id=? AND fill_date>=? "
+            "AND (? IS NULL OR fill_date<=?)",
+            [portfolio_id, clock_start, look_date, look_date],
         ).fetchone()[0])
         series[portfolio_id] = returns if look_date is not None else {}
-        output.append({"portfolio_id": portfolio_id, "active": bool(active), **metrics,
+        output.append({"portfolio_id": portfolio_id, "active": bool(active),
+                       "evaluation_clock_start": clock_start.isoformat(), **metrics,
                        "closed_trade_count": closed, "turnover_notional": turnover,
                        "turnover_over_initial_cash": None if not initial_cash else
                        turnover / float(initial_cash),
@@ -1183,11 +1192,21 @@ def events(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> dict:
 def p8_rule(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> dict:
     sessions, cohort_start = 0, None
     if table_exists(con, "agent_evaluation_traces"):
-        cohort_start, sessions = con.execute(
-            "SELECT MIN(market_date),COUNT(DISTINCT market_date) FROM agent_evaluation_traces "
+        cohort_start = con.execute(
+            "SELECT MIN(market_date) FROM agent_evaluation_traces "
             "WHERE policy_id='nightly_opportunity_tool_v1' AND terminal_status='completed' "
             "AND market_date<=?", [generated_at.date()]
-        ).fetchone()
+        ).fetchone()[0]
+        if cohort_start is not None:
+            cohort_start = book_breaks.evaluation_start(
+                con, "daily_opportunity_agent_v1", cohort_start
+            )
+            sessions = int(con.execute(
+                "SELECT COUNT(DISTINCT market_date) FROM agent_evaluation_traces "
+                "WHERE policy_id='nightly_opportunity_tool_v1' "
+                "AND terminal_status='completed' AND market_date>=? AND market_date<=?",
+                [cohort_start, generated_at.date()],
+            ).fetchone()[0])
     returns = []
     if all(table_exists(con, table) for table in (
         "daily_opportunity_exit_rules", "daily_opportunity_exit_events", "sim_fills"
@@ -1198,8 +1217,10 @@ def p8_rule(con: duckdb.DuckDBPyConnection, generated_at: datetime) -> dict:
             "JOIN daily_opportunity_exit_events e ON e.rule_sha256=r.rule_sha256 "
             "JOIN sim_fills exit ON exit.order_id=e.exit_order_id "
             "WHERE entry.portfolio_id='daily_opportunity_agent_v1' "
-            "AND exit.portfolio_id='daily_opportunity_agent_v1' AND exit.fill_date<=? "
-            "ORDER BY exit.fill_date,r.ticker", [generated_at.date()]
+            "AND exit.portfolio_id='daily_opportunity_agent_v1' "
+            "AND (? IS NULL OR (entry.fill_date>=? AND exit.fill_date>=?)) "
+            "AND exit.fill_date<=? ORDER BY exit.fill_date,r.ticker",
+            [cohort_start, cohort_start, cohort_start, generated_at.date()]
         ).fetchall() if row[0] and row[1]]
     elapsed = 0 if cohort_start is None else max(0, (generated_at.date() - cohort_start).days)
     ready = elapsed >= 90 and sessions >= 60

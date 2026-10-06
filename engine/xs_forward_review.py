@@ -32,7 +32,7 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.settings import DATA_DIR, REPO_ROOT
 from farm.stats.equity import max_drawdown
 from farm.walkforward.monthly import block_bootstrap_ci
-from sim import nyse
+from sim import book_breaks, nyse
 from sim.execution import resolve_profile
 from sim.portfolio import FILL_MODEL_VERSION
 from sim.strategies import REGISTRY
@@ -1003,9 +1003,14 @@ def evaluate(con, prior_result: dict | None = None) -> dict:
     execution = _execution_audit(con, shared[-1][0])
     if execution[CANDIDATE_ID]["filled"] == 0:
         raise ValueError("XS forward candidate has no fills from the frozen signal")
-    candidate_metrics = _metrics(shared, 1)
-    control_metrics = _metrics(shared, 2)
-    monthly = _completed_monthly_excess(shared)
+    clock_start = book_breaks.evaluation_start(
+        con, (CANDIDATE_ID, CONTROL_ID), OBSERVATION_START
+    )
+    clocked = [row for row in shared if row[0] >= clock_start]
+    evaluation_rows = clocked or [shared[-1]]
+    candidate_metrics = _metrics(evaluation_rows, 1)
+    control_metrics = _metrics(evaluation_rows, 2)
+    monthly = _completed_monthly_excess(evaluation_rows)
     excess = [row[3] for row in monthly]
     mean_ci = block_bootstrap_ci(
         excess,
@@ -1016,8 +1021,12 @@ def evaluate(con, prior_result: dict | None = None) -> dict:
         seed=BOOTSTRAP_SEED,
     )
     cumulative_excess = candidate_metrics["total_return"] - control_metrics["total_return"]
-    eligible_after = _plus_months(OBSERVATION_START, WINDOW_MONTHS)
-    mature = shared[-1][0] >= eligible_after and len(monthly) >= MIN_PAIRED_MONTHS
+    eligible_after = _plus_months(clock_start, WINDOW_MONTHS)
+    mature = (
+        bool(clocked)
+        and shared[-1][0] >= eligible_after
+        and len(monthly) >= MIN_PAIRED_MONTHS
+    )
     execution_clean = all(
         values["rejected"] == 0 and values["stale_pending"] == 0 for values in execution.values()
     )
@@ -1055,9 +1064,14 @@ def evaluate(con, prior_result: dict | None = None) -> dict:
         "observation": {
             "signal_date": SIGNAL_DATE.isoformat(),
             "observation_start": OBSERVATION_START.isoformat(),
+            "evaluation_clock_start": clock_start.isoformat(),
+            "cost_break_session": (
+                clock_start.isoformat() if clock_start > OBSERVATION_START else None
+            ),
             "as_of": shared[-1][0].isoformat(),
             "eligible_after": eligible_after.isoformat(),
-            "shared_sessions": len(shared),
+            "shared_sessions": len(clocked),
+            "pre_break_shared_sessions": len(shared) - len(clocked),
             "paired_complete_months": len(monthly),
             "mature": mature,
             "equity_sha256": canonical_sha256(_equity_payload(shared)),
@@ -1120,6 +1134,15 @@ def render(result: dict) -> str:
     control = metrics[CONTROL_ID]
     ci = metrics["mean_monthly_excess_ci"]
     ci_text = "·" if ci is None else f"[{_pct(ci['lo'])}, {_pct(ci['hi'])}]"
+    break_lines = (
+        [
+            "Commissions and this evaluation clock restart at the recorded break "
+            f"**{obs['cost_break_session']}**.",
+            "",
+        ]
+        if obs.get("cost_break_session")
+        else []
+    )
     return "\n".join(
         [
             "# XS momentum 12-1 — prospective paper review",
@@ -1128,6 +1151,7 @@ def render(result: dict) -> str:
             "",
             result["frozen_runtime"]["baseline_note"],
             "",
+            *break_lines,
             f"The test cannot mature before **{obs['eligible_after']}** and requires at least "
             f"**{MIN_PAIRED_MONTHS}** complete paired months. It currently has "
             f"**{obs['paired_complete_months']}**.",
