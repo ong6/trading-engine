@@ -184,6 +184,20 @@ started with `KillMode=process` and its private log under `~/.local/state/`.
 `tools/free_massive_minute.py`, `tests/test_free_massive_minute.py`, and the shared limiter
 integration. Each logical commit remains below 1,500 inserted non-data lines.
 
+## Phase 0 part 6: bounded Massive options capture — active 2026-10-06
+
+The free options lane is isolated in `store/pit/options.duckdb` with content-addressed raw
+responses. Its tracked manifest fixes SPY, QQQ and IWM, 20--60 calendar days to expiry, strikes
+within 5% of the prior adjusted grouped-daily close, at most four contract pages per underlying,
+and at most 400 daily-bar requests over a five-calendar-day tail. Contract snapshots retain their
+as-of date; daily bars retain the first captured source body. Every HTTP request reserves the same
+process-safe Massive limiter used by grouped daily and minute capture.
+
+This is reference and aggregate-bar research data only. The endpoints provide no bid/ask quotes,
+so option execution remains refused as `instrument_not_executable` until a separately approved
+quote-data and execution model exists. Tests use recorded responses only; the one permitted SPY
+contracts smoke writes solely to a temporary database and cache.
+
 ## Phase 0 part 2: free SEC history — complete 2026-10-01
 
 The SEC contact identity is now present in the owner-only environment file, so the pending
