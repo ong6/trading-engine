@@ -59,7 +59,7 @@ the monotonic sequence helper.
 - Add the one-shot `--d0` migration, break-aware report columns, first-fetch backfill hook and
   restarted sector, XS, P15-book and P8 review clocks.
 - Record the owner decisions and this architecture in the product, scope and blueprint docs.
-  Frozen runtime hashes and P15 revision 13 deliberately remain for Phase B.
+  Phase B explicitly revises every frozen runtime and P15 registration only after integration.
 
 The reviewed Phase A branch has merged the refreshed L0/L4 base and now uses the final R13 API
 directly; no compatibility shim remains.
@@ -73,6 +73,9 @@ directly; no compatibility shim remains.
 - On a snapshot copy, apply the migration and rerun the final pre-D0 session; require
   `league.csv` to remain byte-identical. Re-enable `tests/test_p15_registration.py` and require
   the full suite to pass before deployment.
+
+Phase B source integration and explicit runtime/P15 revision 13 binding are complete; the
+both-timezone suites and full account/migration rehearsal remain the final acceptance gates.
 
 ## Not in scope
 

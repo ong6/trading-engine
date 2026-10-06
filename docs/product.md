@@ -43,10 +43,10 @@ product (P12).
 
 [The profitability evidence loop (P15)](plans/p15-profitability-evidence-loop.md) went live on
 2026-09-29 after a verified 90-table recovery bundle. The current source registration is
-revision 12: bounded complete-metadata recovery, retaining revision 11's complete verifier
-receipts, strict source identity/numeric checks, optional-provider refusals, backup identity
-corrections and behavior-preserving extraction.
-Scoring, books, gates, labels, registered values, schedules and written evidence are unchanged.
+revision 13: the owner's 2026-10-06 commission decision, parameterized D0 break, restarted book
+clocks, additive account schema, monotonic order sequence and shared ledger/account runtime. It
+retains revision 12's bounded complete-metadata recovery and revision 11's verifier receipts.
+Scoring, labels, statistical gates, schedules and pre-D0 written evidence are unchanged.
 P15 is `active` and collecting; no performance claim exists before its registered looks.
 Earlier operational revisions introduced stage timings, bounded collection, snapshot throttling,
 cached status projections and queue scratch handling. Revision 10 corrected pending
@@ -194,7 +194,7 @@ Each row has the default that applies until the owner decides.
 
 ## Focus now (in order)
 
-1. **Keep the evidence clean and the revision 12 operating path green.** Use per-stage timings to
+1. **Keep the evidence clean and the revision 13 operating path green.** Use per-stage timings to
    watch the bounded collection, shared snapshots, queue, observers, and status projections. Keep
    scheduled producers green, miss no agent windows, allow no identity drift, and leave no
    uncommitted work on the host. A broken producer beats every item below.
