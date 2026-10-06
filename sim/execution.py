@@ -1,13 +1,16 @@
 """Named, versioned execution-cost assumptions.
 
-Market friction and broker/exchange fees are deliberately separate.  The
-baseline profile reproduces the historical simulator exactly; profiles with
+Market friction and broker/exchange fees are deliberately separate. Fill model
+v5 keeps this slippage layer unchanged and charges dollar fees in ``sim.ledger``.
+The baseline profile reproduces the historical simulator exactly; profiles with
 unverified broker charges must never be labelled as broker-specific.
 """
 from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass
+
+FILL_MODEL_VERSION = "v5"
 
 
 @dataclass(frozen=True)
