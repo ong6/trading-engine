@@ -2124,4 +2124,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server unchanged, tools +17, product/engine +83, tests +128; budget ok.
 - **Next:** add the engine-owned first-fetch backfill and historical fallback.
 
+## 2026-10-06 — Backfill first-seen price availability
+
+- **Why:** P22 L4 review reproduced a pre-migration row losing its historic fetch
+  time when the first post-migration refresh arrived before the planned backfill.
+- **What:** Fall back through the stored `fetched_at` during conflict updates and
+  expose `backfill_first_fetched_at`; L3's migration calls this helper once.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_db_bitemporal.py
+  tests/test_collect.py tests/test_refetch_ticker.py tests/test_history_recovery.py`: 44 passed.
+- **Metrics:** server/tools unchanged, product/engine +13, tests +52; budget ok.
+- **Next:** make options prior-close reads immutable and share daily-bar budget fairly.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
