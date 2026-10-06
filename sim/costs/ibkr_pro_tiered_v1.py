@@ -48,6 +48,7 @@ RATES = (
     RateRow("stock_taf_per_share", 0.000195, date(2027, 1, 1)),
     RateRow("stock_taf_cap", 9.79, _MIN_DATE),
     RateRow("borrow_annual_fraction", 0.0025, _MIN_DATE),
+    RateRow("margin_benchmark_fraction", 0.0433, _MIN_DATE, date(2026, 10, 1)),
     RateRow("margin_benchmark_fraction", 0.0388, date(2026, 10, 2)),
     RateRow("margin_markup_fraction", 0.0150, _MIN_DATE),
     RateRow("option_commission_high", 0.65, _MIN_DATE),
@@ -111,15 +112,16 @@ def _stock_charge(*, side: str, qty: float, price: float, fill_kind: str,
     value = shares * float(price) * _multiplier(instrument)
     if not all(math.isfinite(number) and number > 0 for number in (shares, value)):
         raise ValueError("qty and price must be positive and finite")
-    minimum_name = (
-        "fractional_commission_minimum" if not shares.is_integer()
-        else "stock_commission_minimum"
-    )
+    fractional = not shares.is_integer()
     commission = min(
-        max(_rate(minimum_name, session_date),
+        max(_rate("stock_commission_minimum", session_date),
             _rate("stock_commission_per_share", session_date) * shares),
         _rate("stock_commission_value_cap", session_date) * value,
     )
+    if fractional:
+        commission = max(
+            _rate("fractional_commission_minimum", session_date), commission
+        )
     exchange_component = {
         "moo": "opening_auction_per_share",
         "open_auction": "opening_auction_per_share",
@@ -184,7 +186,7 @@ def _option_charge(*, side, qty, price, session_date: date, instrument) -> FeeBr
             taf += leg_contracts * _rate("option_taf_per_contract", session_date)
     commission = max(commission, _rate("option_commission_minimum", session_date))
     exchange = contracts * _rate("option_exchange_per_contract", session_date)
-    occ = min(contracts * _rate("option_occ_per_contract", session_date), 55.0)
+    occ = contracts * _rate("option_occ_per_contract", session_date)
     orf = contracts * _rate("option_orf_per_contract", session_date)
     cat = contracts * _rate("option_cat_per_contract", session_date)
     taf = min(taf, _rate("stock_taf_cap", session_date))
@@ -217,9 +219,7 @@ def borrow_fee(short_market_value: float, days: int = 1, *,
                session_date: date) -> float:
     if not math.isfinite(short_market_value) or short_market_value < 0 or days < 0:
         raise ValueError("short market value and days must be non-negative")
-    return _round_usd(
-        short_market_value * _rate("borrow_annual_fraction", session_date) * days / 360
-    )
+    return short_market_value * _rate("borrow_annual_fraction", session_date) * days / 360
 
 
 def margin_interest(debit: float, days: int = 1, *, session_date: date) -> float:
@@ -229,7 +229,7 @@ def margin_interest(debit: float, days: int = 1, *, session_date: date) -> float
         _rate("margin_benchmark_fraction", session_date)
         + _rate("margin_markup_fraction", session_date)
     )
-    return _round_usd(debit * annual * days / 360)
+    return debit * annual * days / 360
 
 
 PROFILE = CostProfile(
@@ -239,6 +239,7 @@ PROFILE = CostProfile(
     verified={
         "retrieved": "2026-10-06",
         "option_exchange_fee": "unverified conservative placeholder",
+        "margin_benchmark_before_2026-10-02": "unverified best-known 4.33%",
         "source": "P22 VERIFIED FEE TABLE",
     },
     calculator=charge,
