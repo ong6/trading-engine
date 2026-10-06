@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import calendar
+import copy
 import json
 import shutil
 from datetime import date
@@ -499,9 +500,10 @@ def test_runtime_contract_migration_is_explicit(con):
     frozen = result["frozen_runtime"]
     assert frozen["runtime_contract_version"] == review.RUNTIME_CONTRACT_VERSION
     assert frozen["superseded_runtime_contract_sha256"] == review.SUPERSEDED_RUNTIME_CONTRACT_SHA256
-    assert "interruption-safe transaction cleanup" in (
+    assert "Owner decision 2026-10-06" in (
         frozen["runtime_contract_migration"]
     )
+    assert "pre-D0" in frozen["runtime_contract_migration"]
     assert "engine/lib/resources.py" in frozen["runtime_contract_files"]
 
 
@@ -552,15 +554,50 @@ def test_explicit_runtime_contract_migration_preserves_pre_signal_protocol(con):
     )
 
 
-def test_runtime_contract_migration_refuses_existing_signal_boundary(con):
+def test_runtime_contract_migration_rejects_unpublished_signal_boundary(con):
     prior = _pre_signal_v17_checkpoint(con)
     con.execute(
         "INSERT INTO sim_orders VALUES (99, ?, 'AAA', 'buy', 1, ?, 'pending', NULL)",
         [review.CANDIDATE_ID, review.SIGNAL_DATE],
     )
 
-    with pytest.raises(ValueError, match="only before its first signal"):
+    with pytest.raises(ValueError, match="not the exact migration checkpoint"):
         review.migrate_runtime_contract(con, prior)
+
+
+def test_runtime_contract_migration_preserves_accumulated_prefix(con):
+    _setup(con)
+    waiting = _freeze(con)
+    _transition(con)
+    current = review.evaluate(con, prior_result=waiting)
+    prior = copy.deepcopy(current)
+    prior["frozen_runtime"].update(
+        {
+            "runtime_contract_version": review.PRIOR_RUNTIME_CONTRACT_VERSION,
+            "runtime_contract_sha256": review.PRIOR_RUNTIME_CONTRACT_SHA256,
+            "superseded_runtime_contract_sha256": (
+                review.PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256
+            ),
+            "runtime_contract_migration": review.PRIOR_RUNTIME_CONTRACT_MIGRATION,
+            "runtime_contract_files": list(review.PRIOR_RUNTIME_CONTRACT_FILES),
+        }
+    )
+
+    migrated = review.migrate_runtime_contract(con, prior)
+
+    expected = copy.deepcopy(prior)
+    expected["frozen_runtime"].update(
+        {
+            "runtime_contract_version": review.RUNTIME_CONTRACT_VERSION,
+            "runtime_contract_sha256": review.EXPECTED_RUNTIME_CONTRACT_SHA256,
+            "superseded_runtime_contract_sha256": (
+                review.SUPERSEDED_RUNTIME_CONTRACT_SHA256
+            ),
+            "runtime_contract_migration": review.RUNTIME_CONTRACT_MIGRATION,
+            "runtime_contract_files": list(review.RUNTIME_CONTRACT_FILES),
+        }
+    )
+    assert migrated == expected
 
 
 def test_invalid_result_is_safe():

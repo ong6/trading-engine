@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from engine.lib import db
+from sim import book_breaks
 from sim.schema import (
     init_sim_schema,
     next_order_id,
@@ -13,7 +14,7 @@ from sim.schema import (
     set_portfolio_account,
 )
 
-TARGET_COST_PROFILE = "ibkr_pro_tiered_v1"
+TARGET_COST_PROFILE = book_breaks.COMMISSION_COST_PROFILE
 REGISTRATION_REVISION = 13
 
 
