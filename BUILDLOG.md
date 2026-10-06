@@ -2209,4 +2209,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged, product +23; tests unchanged; budget ok.
 - **Next:** publish the metrics snapshot and hand Phase A to the orchestrator.
 
+## 2026-10-06 — Publish P22 L3 Phase A metrics
+
+- **Why:** the active P22 plan and operating contract require a budget-checked metrics
+  snapshot after the lane's focused and baseline-diffed full-suite gates.
+- **What:** Publish the 2026-10-06 repository snapshot after Phase A; no runtime,
+  registered policy, live state or data producer changed in this closure step.
+- **Evidence:** `.venv/bin/python -m tools.metrics_snapshot --check-budget` — snapshot
+  published with `budget.ok=true` and no violations.
+- **Metrics:** server/tools/product unchanged; budget ok.
+- **Next:** await the orchestrator's Phase B signal and refreshed P22 base.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
