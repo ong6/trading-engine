@@ -2046,4 +2046,40 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** Production source LOC and the 135 registered bindings are unchanged.
 - **Next:** Verify exact-commit CI, then install the fixed dependency and restart the production dashboard.
 
+## 2026-10-06 — Add the engine-v2 identity foundation
+
+- **Why:** Active P22 L0 foundation plan: additive schema, monotonic order ids, instrument identities and order lifecycle.
+- **What:** Add the v2 side tables and portfolio metadata without changing positional legacy ledger tables.
+  Bootstrap a persistent order sequence, canonicalise OCC contracts, and define order states and receipt cutoffs.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_schema_v2.py tests/test_instruments.py tests/test_order_types.py` — 16 passed.
+- **Metrics:** server/tools unchanged; product +453 lines; budget clean.
+- **Next:** Implement the effective-dated cost registry and its authoritative worked examples.
+
+## 2026-10-06 — Implement effective-dated dollar costs
+
+- **Why:** P22 L0 and ruling R10 require the verified IBKR schedule and exact worked examples.
+- **What:** Add immutable cost-profile identities, unrounded fee components, half-up totals, and dated SEC/TAF/margin rates.
+  Keep baseline fees zero and expose the same engine profile through the generic study layer.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_costs_ibkr.py` — 11 passed, including all eight verified examples.
+- **Metrics:** server/tools unchanged; product +423 lines; budget clean.
+- **Next:** Build side-aware fill accounting, cash events, lots, and deterministic replay phases.
+
+## 2026-10-06 — Centralise side-aware ledger replay
+
+- **Why:** P22 L0 requires one fill/cash writer and phase-ordered reconstruction with exact legacy compatibility.
+- **What:** Delegate portfolio fills and rebuilds to a buy/sell/short/cover ledger with FIFO lots and dollar fees.
+  Replay dividends, settlements, fills and cash events in phases 0–3; short dividends are signed debits.
+- **Evidence:** The 99-test L0/portfolio/settlement/regression set passes, including exact multi-day legacy replay and short-cover accounting.
+- **Metrics:** server/tools unchanged; product +228 lines; budget clean.
+- **Next:** Run repository-wide acceptance, package cross-lane compatibility patches, and publish the final metrics snapshot.
+
+## 2026-10-06 — Stamp fill model v5
+
+- **Why:** P22 L0 acceptance requires the new ledger semantics to carry a distinct fill-model identity.
+- **What:** Define v5 in the execution layer and re-export it through the existing portfolio interface.
+  The baseline slippage coefficients and legacy zero-fee arithmetic remain unchanged.
+- **Evidence:** All 34 claimed L0 tests pass; repository-wide `ruff check .` passes.
+- **Metrics:** server/tools unchanged; product +2 lines; budget clean.
+- **Next:** L3 must migrate frozen runtime identities and apply the supplied compatibility patch before the full suite can pass.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
