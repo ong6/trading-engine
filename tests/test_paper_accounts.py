@@ -347,3 +347,25 @@ def test_moc_receipt_uses_early_close_cutoff(con):
         now=received,
     )
     assert receipt["cutoff"] == "2026-11-27T17:50:00+00:00"
+
+
+def test_contingent_moc_is_admitted_before_parent_moo_fills(con):
+    insert_bars(con, "SAME", [SIGNAL], open_=100, close=100)
+    accounts.create_account(con, _spec_v2(), now=MOO_RECEIVED)
+    parent = _intent_v2(intent_id="moo-parent", quantity=5.0)
+    parent_receipt = accounts.submit_intent(con, parent, now=MOO_RECEIVED)
+    child = _intent_v2(
+        intent_id="moc-child",
+        side="sell",
+        quantity=999.0,
+        order_type="moc",
+        contingent_on="moo-parent",
+    )
+
+    child_receipt = accounts.submit_intent(con, child, now=MOO_RECEIVED)
+
+    assert parent_receipt["state"] == child_receipt["state"] == "queued"
+    assert con.execute(
+        "SELECT contingent_on FROM sim_order_details WHERE order_id=?",
+        [child_receipt["order_id"]],
+    ).fetchone() == (parent_receipt["order_id"],)
