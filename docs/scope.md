@@ -82,8 +82,10 @@ deletes it.
 
 [P21](plans/p21-operational-issues-and-account-isolation.md) admits the owner-requested
 operational fixes, complete independent-source evidence, queue-resolution audit, capture
-reliability, separate-account proof and behavior-preserving advisory-complexity work. Existing
-registered source identity changes require a properly rehearsed new revision before deployment.
+reliability, separate-account proof and behavior-preserving advisory-complexity work. The
+complete metadata snapshot also requires a narrow recovery-bundle limit correction through
+P15 revision 12. Registered source identity changes require a properly rehearsed new revision
+before deployment; policies and the research runtime remain unchanged.
 
 ## Admitted review
 
