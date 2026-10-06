@@ -1,7 +1,7 @@
 """Reg T, financing, margin calls and both R10 account settings."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import pytest
 
@@ -44,6 +44,39 @@ def test_initial_margin_refuses_exposure_above_reg_t(con, book):
     con.execute("UPDATE portfolios SET cash=10000,initial_cash=10000 WHERE id=?", [book])
     assert margin.initial_margin_allows(con, book, "XYZ", "buy", 200, 100, DAY)
     assert not margin.initial_margin_allows(con, book, "XYZ", "buy", 201, 100, DAY)
+
+
+def test_intraday_margin_marks_without_future_daily_close(con, book):
+    _set_account(con, book, rule="intraday_margin_2026")
+    prior = date(2026, 10, 9)
+    insert_bars(con, "OLD", [prior], close=10)
+    insert_bars(con, "OLD", [DAY], close=1_000)
+    con.execute("INSERT INTO sim_positions VALUES (?, 'OLD', 10, 10)", [book])
+    at_open = datetime(2026, 10, 12, 13, 30, tzinfo=timezone.utc)
+    state = margin.margin_state(con, book, DAY, as_of=at_open)
+    assert state.long_market_value == 100
+
+
+def test_margin_marks_use_accounts_own_massive_source(con, book):
+    _set_account(con, book, rule="intraday_margin_2026")
+    con.execute(
+        "CREATE TABLE free_daily_bars (date DATE,ticker VARCHAR,o DOUBLE,h DOUBLE,"
+        "l DOUBLE,c DOUBLE,volume DOUBLE,vwap DOUBLE,source VARCHAR,fetched_at TIMESTAMP,"
+        "source_sha256 VARCHAR)"
+    )
+    con.execute(
+        "INSERT INTO free_daily_bars VALUES "
+        "('2026-10-09','OLD',10,10,10,10,1000000,10,'massive',"
+        "'2026-10-10 07:00:00','raw')"
+    )
+    insert_bars(con, "OLD", [date(2026, 10, 9)], close=999)
+    con.execute("INSERT INTO sim_positions VALUES (?, 'OLD', 10, 10)", [book])
+    state = margin.margin_state(
+        con, book, DAY, price_source="massive_daily",
+        as_of=datetime(2026, 10, 12, 13, 30, tzinfo=timezone.utc),
+        available_at=datetime(2026, 10, 12, 22, tzinfo=timezone.utc),
+    )
+    assert state.long_market_value == 100
 
 
 def _same_day_lot(con, book):
@@ -108,7 +141,7 @@ def test_record_day_trade_preserves_fractional_open_lot_identity(con, book):
     )
 
 
-def test_day_trade_match_obeys_fifo_before_same_day_lot(con, book):
+def test_day_trade_match_prioritises_same_session_lot(con, book):
     _set_account(con, book)
     con.execute("INSERT INTO sim_positions VALUES (?, 'XYZ', 3, 100)", [book])
     con.executemany(
@@ -118,8 +151,8 @@ def test_day_trade_match_obeys_fifo_before_same_day_lot(con, book):
             (book, DAY, 100, 1.0),
         ],
     )
-    assert not margin.would_create_day_trade(con, book, "XYZ", "sell", 2, DAY)
-    assert margin.matched_day_trade_open(con, book, "XYZ", "sell", 2.5, DAY) == 100
+    assert margin.would_create_day_trade(con, book, "XYZ", "sell", 0.5, DAY)
+    assert margin.matched_day_trade_open(con, book, "XYZ", "sell", 0.5, DAY) == 100
 
 
 def test_margin_interest_uses_verified_rate_and_is_idempotent(con, book):
@@ -156,4 +189,36 @@ def test_maintenance_breach_queues_proportional_reduction(con, book):
     assert con.execute(
         "SELECT kind FROM account_events WHERE portfolio_id=?", [book]
     ).fetchone() == ("margin_call",)
+    con.execute(
+        "UPDATE sim_order_details SET state_reason='margin_call|bar_missing' "
+        "WHERE order_id=?",
+        [queued[0]],
+    )
     assert margin.queue_margin_reductions(con, book, DAY) == []
+
+
+def test_margin_call_receipt_uses_new_york_close_not_fixed_utc(con, book):
+    winter_day = date(2026, 11, 30)
+    _set_account(con, book)
+    con.execute("UPDATE portfolios SET cash=-9000,initial_cash=1000 WHERE id=?", [book])
+    con.execute("INSERT INTO sim_positions VALUES (?, 'XYZ', 100, 100)", [book])
+    insert_bars(con, "XYZ", [winter_day], close=100)
+    order_id, = margin.queue_margin_reductions(con, book, winter_day)
+    assert con.execute(
+        "SELECT received_at FROM sim_order_details WHERE order_id=?", [order_id]
+    ).fetchone() == (datetime(2026, 11, 30, 21),)
+
+
+def test_legacy_pdt_does_not_apply_to_cash_legacy_account(con, book):
+    _set_account(con, book)
+    con.execute(
+        "UPDATE portfolio_accounts SET account_type='cash_legacy' WHERE portfolio_id=?",
+        [book],
+    )
+    con.execute("UPDATE portfolios SET account_type='cash_legacy' WHERE id=?", [book])
+    con.execute("UPDATE portfolios SET initial_cash=10000,cash=9750 WHERE id=?", [book])
+    _same_day_lot(con, book)
+    _three_prior_day_trades(con, book)
+    assert margin.pdt_check(
+        con, book, "XYZ", "sell", 1, DAY, price=100,
+    ).allowed

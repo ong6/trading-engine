@@ -116,6 +116,8 @@ def test_limit_requires_one_tick_cross_and_expires(con):
          100, 20, "fixture", SESSION),
         ("XYZ", datetime(2026, 10, 12, 14, 19), "1m", 100, 101, 99.99,
          100, 20, "fixture", SESSION),
+        ("XYZ", datetime(2026, 10, 12, 19, 59), "1m", 100, 101, 100,
+         100, 20, "fixture", SESSION),
     ])
     result = fills.attempt_intraday_limit_fill(
         con, "XYZ", "buy", 1.25, SESSION, _at(10, 17), 100,
@@ -138,6 +140,93 @@ def test_missing_intraday_data_stays_pending_for_late_settlement(con):
         con, "XYZ", "buy", 1, SESSION, _at(10, 17),
     )
     assert result.status == "pending"
+
+
+def test_partial_limit_session_stays_pending_until_close_is_known(con):
+    _daily_history(con)
+    _intraday(con, [
+        ("XYZ", datetime(2026, 10, 12, 14, 18), "1m", 100, 101, 100,
+         100, 20, "fixture", SESSION),
+    ])
+    result = fills.attempt_intraday_limit_fill(
+        con, "XYZ", "buy", 1, SESSION, _at(10, 17), 99,
+    )
+    assert result.status == "pending"
+
+
+def test_available_time_after_close_finalises_missing_intraday_orders(con):
+    _daily_history(con)
+    _intraday(con, [])
+    available = datetime(2026, 10, 12, 20, 1, tzinfo=timezone.utc)
+    market = fills.attempt_intraday_market_fill(
+        con, "XYZ", "buy", 1, SESSION, _at(10, 17), available_at=available,
+    )
+    limit = fills.attempt_intraday_limit_fill(
+        con, "XYZ", "buy", 1, SESSION, _at(10, 17), 99,
+        available_at=available,
+    )
+    assert (market.status, market.reject_reason) == ("rejected", "no_bar")
+    assert (limit.status, limit.reject_reason) == (
+        "expired", "day_limit_not_touched",
+    )
+
+
+def test_market_without_possible_later_minute_rejects_no_bar(con):
+    _daily_history(con)
+    _intraday(con, [
+        ("XYZ", datetime(2026, 10, 12, 19, 59), "1m", 100, 101, 99,
+         100, 20, "fixture", SESSION),
+    ])
+    result = fills.attempt_intraday_market_fill(
+        con, "XYZ", "buy", 1, SESSION, _at(15, 59, 30),
+    )
+    assert (result.status, result.reject_reason) == ("rejected", "no_bar")
+
+
+def test_early_close_uses_actual_close_for_moc_market_and_limit(con):
+    early = date(2026, 11, 27)
+    history = [date(2026, 11, 23), date(2026, 11, 24), date(2026, 11, 25)]
+    insert_bars(con, "XYZ", history, open_=100, close=100, volume=1_000_000)
+    insert_bars(con, "XYZ", [early], open_=100, close=101, volume=1_000_000)
+    _intraday(con, [])
+    moc = fills.attempt_auction_fill(
+        con, "XYZ", "sell", 1, early,
+        datetime(2026, 11, 27, 14, 0, tzinfo=NEW_YORK), "moc",
+    )
+    market = fills.attempt_intraday_market_fill(
+        con, "XYZ", "buy", 1, early,
+        datetime(2026, 11, 27, 14, 30, tzinfo=NEW_YORK),
+    )
+    limit = fills.attempt_intraday_limit_fill(
+        con, "XYZ", "buy", 1, early,
+        datetime(2026, 11, 27, 14, 30, tzinfo=NEW_YORK), 99,
+    )
+    assert (moc.status, moc.reject_reason) == ("rejected", "cutoff")
+    assert (market.status, market.reject_reason) == ("rejected", "market_closed")
+    assert (limit.status, limit.reject_reason) == ("rejected", "market_closed")
+
+
+def test_massive_daily_execution_reads_unadjusted_as_of_bar(con):
+    con.execute(
+        "CREATE TABLE free_daily_bars (date DATE,ticker VARCHAR,o DOUBLE,h DOUBLE,"
+        "l DOUBLE,c DOUBLE,volume DOUBLE,vwap DOUBLE,source VARCHAR,fetched_at TIMESTAMP,"
+        "source_sha256 VARCHAR)"
+    )
+    con.execute(
+        "INSERT INTO free_daily_bars VALUES "
+        "(?,'XYZ',100,101,99,100,1000,100,'massive','2026-10-12 21:00:00','raw')",
+        [SESSION],
+    )
+    con.execute(
+        "CREATE VIEW free_daily_bars_adjusted AS SELECT date,ticker,o/4 o,h/4 h,"
+        "l/4 l,c/4 c,volume*4 volume,vwap/4 vwap,source,fetched_at,source_sha256 "
+        "FROM free_daily_bars"
+    )
+    bar = bar_sources.daily_bar(
+        con, "XYZ", SESSION, source="massive_daily",
+        available_at=datetime(2026, 10, 12, 22, tzinfo=timezone.utc),
+    )
+    assert bar.open == 100
 
 
 def test_daily_reader_enforces_first_availability_stamp(con):

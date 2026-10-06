@@ -2194,4 +2194,19 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged; product +1,775 and tests +807; budget ok.
 - **Next:** nothing admitted; the orchestrator merges the refreshed R13 base and deletes the shim.
 
+## 2026-10-06 — Correct L1 temporal and account controls
+
+- **Why:** orchestrator acceptance review reproduced early-close, point-in-time,
+  PDT matching, late-contingency, locate and atomic settlement defects in P22 L1.
+- **What:** Make cutoffs close-relative, require complete minute sessions before
+  terminal outcomes, use unadjusted as-of bars, same-session PDT matching and
+  source-aware risk marks; fix late contingencies, locate evidence, directional
+  liquidity, accrual spans, applied-quantity fees and per-fill transactions.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_fills.py
+  tests/test_fills_v2.py tests/test_order_types.py tests/test_shorts.py
+  tests/test_margin.py tests/test_accounts_settle.py tests/test_ledger.py
+  tests/test_costs_ibkr.py tests/test_schema_v2.py`: 104 passed.
+- **Metrics:** server/tools unchanged; budget check pending final full-suite gate.
+- **Next:** run the R12 failure-set comparison, ruff and metrics, then report round 2.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
