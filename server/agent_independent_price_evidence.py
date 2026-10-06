@@ -10,6 +10,8 @@ import argparse
 import hashlib
 import json
 import math
+import random
+import time
 from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 from importlib.metadata import PackageNotFoundError, version
@@ -33,6 +35,9 @@ OBSERVATION_SCHEMA_VERSION = 1
 DEFAULT_SESSIONS = 5
 MAX_RESPONSE_BYTES = 2_000_000
 MAX_CONTENT_TYPE_CHARS = 128
+REQUEST_ATTEMPTS = 3
+BACKOFF_BASE_SECONDS = 5.0
+MAX_TOTAL_BACKOFF_SECONDS = 30.0
 CLASSIFICATIONS = frozenset(
     {"baseline_source_observation", "unchanged_source_observation", "source_value_revision"}
 )
@@ -88,6 +93,8 @@ Fetch = Callable[
     [str, str, date, date],
     verify_prices.NasdaqResponse,
 ]
+Sleep = Callable[[float], None]
+Jitter = Callable[[float, float], float]
 
 
 class IndependentPriceEvidenceError(RuntimeError):
@@ -152,6 +159,66 @@ def _fetch(
         start=period_start,
         end=period_end,
     )
+
+
+def _transient_exception(exc: BaseException) -> bool:
+    """Recognize connection, timeout, and DNS failures through wrapper causes."""
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, (TimeoutError, ConnectionError, OSError)):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _transient_status(status_code: object) -> bool:
+    return isinstance(status_code, int) and (
+        status_code == 429 or 500 <= status_code <= 599
+    )
+
+
+def _request_with_retry(
+    fetch: Fetch,
+    ticker: str,
+    asset_class: str,
+    period_start: date,
+    period_end: date,
+    *,
+    now: Callable[[], datetime],
+    sleep: Sleep,
+    jitter: Jitter,
+) -> tuple[datetime, verify_prices.NasdaqResponse]:
+    """Return only a successful/non-transient response after bounded retries."""
+    backoff_spent = 0.0
+    for attempt in range(REQUEST_ATTEMPTS):
+        requested_at = now()
+        transient_error: BaseException | None = None
+        try:
+            response = fetch(ticker, asset_class, period_start, period_end)
+        except Exception as exc:
+            if not _transient_exception(exc):
+                raise
+            transient_error = exc
+        else:
+            if not _transient_status(response.status_code):
+                return requested_at, response
+            transient_error = IndependentPriceEvidenceError(
+                f"independent source returned transient HTTP {response.status_code}"
+            )
+        if attempt + 1 == REQUEST_ATTEMPTS:
+            raise IndependentPriceEvidenceError(
+                f"independent request failed after {REQUEST_ATTEMPTS} attempts"
+            ) from transient_error
+        base = BACKOFF_BASE_SECONDS * (2**attempt)
+        delay = min(
+            base + max(0.0, jitter(0.0, base / 2.0)),
+            MAX_TOTAL_BACKOFF_SECONDS - backoff_spent,
+        )
+        sleep(delay)
+        backoff_spent += delay
+    raise AssertionError("unreachable")
 
 
 def _number(value: object, label: str) -> float:
@@ -607,6 +674,8 @@ def capture(
     sessions: int = DEFAULT_SESSIONS,
     fetch: Fetch = _fetch,
     now: Callable[[], datetime] | None = None,
+    sleep: Sleep = time.sleep,
+    jitter: Jitter = random.uniform,
 ) -> dict:
     """Fetch outside DuckDB locks, then append each exact validated response."""
     con = engine_db.connect(database, read_only=True)
@@ -615,24 +684,43 @@ def capture(
     finally:
         con.close()
     totals = {"inserted_responses": 0, "inserted_observations": 0}
+    failures = []
+    clock = now or (lambda: datetime.now(timezone.utc))
     for ticker, asset_class, start, end in scope:
-        requested_at = (now or (lambda: datetime.now(timezone.utc)))()
-        response = fetch(ticker, asset_class, start, end)
-        receipt, facts = _receipt(
-            ticker=ticker,
-            asset_class=asset_class,
-            period_start=start,
-            period_end=end,
-            requested_at=requested_at,
-            response=response,
-        )
-        con = engine_db.connect(database)
         try:
-            result = _persist(con, receipt, response.body, facts)
-        finally:
-            con.close()
+            requested_at, response = _request_with_retry(
+                fetch,
+                ticker,
+                asset_class,
+                start,
+                end,
+                now=clock,
+                sleep=sleep,
+                jitter=jitter,
+            )
+            receipt, facts = _receipt(
+                ticker=ticker,
+                asset_class=asset_class,
+                period_start=start,
+                period_end=end,
+                requested_at=requested_at,
+                response=response,
+            )
+            con = engine_db.connect(database)
+            try:
+                result = _persist(con, receipt, response.body, facts)
+            finally:
+                con.close()
+        except IndependentPriceEvidenceError as exc:
+            failures.append((ticker, str(exc)))
+            continue
         totals["inserted_responses"] += result["inserted_responses"]
         totals["inserted_observations"] += result["inserted_observations"]
+    if failures:
+        detail = "; ".join(f"{ticker}: {message}" for ticker, message in failures)
+        raise IndependentPriceEvidenceError(
+            f"independent capture failed for {len(failures)} ticker(s): {detail}"
+        )
     return {
         "schema_version": RECEIPT_SCHEMA_VERSION,
         "strategy_id": strategy_id,

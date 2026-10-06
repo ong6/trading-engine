@@ -9,6 +9,7 @@ import duckdb
 from engine.lib.data_quality import quarantine_reason
 from engine.lib.provenance import canonical_sha256
 from sim.execution import DEFAULT_PROFILE_ID
+from sim.schema import next_order_id
 from sim.strategies.base import Order
 
 from . import daily_opportunity_store
@@ -42,9 +43,8 @@ def initialize_book(con: duckdb.DuckDBPyConnection, start: date, *, active: bool
     ).fetchone()
     if row is None:
         con.execute(
-            "INSERT INTO portfolios "
-            "(id,name,strategy,config,created,active,cash,initial_cash,execution_profile) "
-            "VALUES (?, 'Daily Opportunity Agent', 'agent_only_policy', ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO portfolios VALUES (?, 'Daily Opportunity Agent', 'agent_only_policy', "
+            "?, ?, ?, ?, ?, ?)",
             [PORTFOLIO_ID, encoded, start, active, INITIAL_CASH, INITIAL_CASH, DEFAULT_PROFILE_ID],
         )
         con.execute(
@@ -152,34 +152,57 @@ def consume_assessment(
     if observed.date() > market_date and observed.hour >= SUBMISSION_CUTOFF_UTC_HOUR:
         raise ExecutionError("paper intent missed the pre-open submission cutoff")
     prior = con.execute(
-        "SELECT order_id FROM daily_opportunity_order_attribution WHERE assessment_id = ?",
+        "SELECT order_id,portfolio_id,ticker,side,quantity,signal_date "
+        "FROM daily_opportunity_order_attribution WHERE assessment_id = ?",
         [assessment_id],
     ).fetchone()
-    if prior is not None:
-        return int(prior[0])
     candidate = _candidate(bundle, ticker)
-    quantity = _assessment_quantity(
-        con, side=side, ticker=ticker, candidate=candidate, confidence=confidence,
-        market_date=market_date, bundle=bundle, cash=book[2],
-    )
-    if quantity is None:
-        return None
-    order_id = int(con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM sim_orders").fetchone()[0])
-    con.execute(
-        "INSERT INTO sim_orders VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",
-        [order_id, PORTFOLIO_ID, ticker, side, quantity, market_date],
-    )
+    prior_identity = (PORTFOLIO_ID, ticker, side, market_date)
+    if prior is not None:
+        if (prior[1], prior[2], prior[3], prior[5]) != prior_identity:
+            raise ExecutionError("retained attribution differs from recovery")
+        quantity = float(prior[4])
+    else:
+        quantity = _assessment_quantity(
+            con, side=side, ticker=ticker, candidate=candidate, confidence=confidence,
+            market_date=market_date, bundle=bundle, cash=book[2],
+        )
+        if quantity is None:
+            return None
+    retained_rule = con.execute(
+        "SELECT entry_order_id FROM daily_opportunity_exit_rules WHERE assessment_id=?",
+        [assessment_id],
+    ).fetchone() if side == "buy" else None
+    retained_ids = {int(row[0]) for row in (prior, retained_rule) if row is not None}
+    if len(retained_ids) > 1:
+        raise ExecutionError("retained order references disagree")
+    order_id = retained_ids.pop() if retained_ids else next_order_id(con)
+    expected_order = (PORTFOLIO_ID, ticker, side, quantity, market_date)
+    occupied = con.execute(
+        "SELECT portfolio_id,ticker,side,qty,signal_date FROM sim_orders WHERE id=?",
+        [order_id],
+    ).fetchone()
+    if occupied is not None and occupied != expected_order:
+        raise ExecutionError("retained order id is held by a different order")
+    if occupied is None:
+        con.execute(
+            "INSERT INTO sim_orders VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",
+            [order_id, PORTFOLIO_ID, ticker, side, quantity, market_date],
+        )
     attribution = {
         "order_id": order_id, "assessment_id": assessment_id, "run_id": run_id,
         "portfolio_id": PORTFOLIO_ID, "ticker": ticker, "side": side,
         "quantity": quantity, "signal_date": market_date.isoformat(),
         "assessment_sha256": assessment_sha256, "recorded_at": now.isoformat(),
     }
-    con.execute(
-        "INSERT INTO daily_opportunity_order_attribution VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [order_id, assessment_id, run_id, PORTFOLIO_ID, ticker, side, quantity, market_date,
-         assessment_sha256, canonical_sha256(attribution), now],
-    )
+    if prior is None:
+        con.execute(
+            "INSERT INTO daily_opportunity_order_attribution "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [order_id, assessment_id, run_id, PORTFOLIO_ID, ticker, side,
+             quantity, market_date, assessment_sha256,
+             canonical_sha256(attribution), now],
+        )
     if side == "buy":
         assessment = con.execute(
             "SELECT horizon_sessions FROM daily_opportunity_assessments WHERE id=?",
@@ -399,9 +422,7 @@ def process_lifecycle(
         if last_attempt is not None and last_attempt[1] in {"pending", "filled"}:
             continue
         attempt = 1 if last_attempt is None else int(last_attempt[0]) + 1
-        order_id = int(con.execute(
-            "SELECT COALESCE(MAX(id),0)+1 FROM sim_orders"
-        ).fetchone()[0])
+        order_id = next_order_id(con)
         order = Order(PORTFOLIO_ID, ticker, "sell", float(position["qty"]), market_date)
         con.execute(
             "INSERT INTO sim_orders VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",

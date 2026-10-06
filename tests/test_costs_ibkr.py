@@ -76,8 +76,15 @@ def test_commission_cap_below_minimum_and_taf_cap():
 
 
 def test_verified_borrow_and_margin_examples():
-    assert borrow_fee(5_000, 10, session_date=OCTOBER) == 0.35
-    assert margin_interest(2_000, 30, session_date=OCTOBER) == 8.97
+    daily_borrow = borrow_fee(5_000, session_date=OCTOBER)
+    assert daily_borrow == pytest.approx(5_000 * 0.0025 / 360)
+    assert round(daily_borrow * 10 + 1e-12, 2) == 0.35
+    interest = margin_interest(2_000, 30, session_date=OCTOBER)
+    assert interest == pytest.approx(2_000 * 0.0538 / 360 * 30)
+    assert round(interest + 1e-12, 2) == 8.97
+    assert margin_interest(
+        2_000, 1, session_date=date(2026, 10, 1)
+    ) == pytest.approx(2_000 * 0.0583 / 360)
     assert borrow_fee(5_000, 10, session_date=OCTOBER, profile="baseline_v1") == 0
     assert margin_interest(2_000, 30, session_date=OCTOBER, profile="baseline_v1") == 0
 
@@ -108,6 +115,17 @@ def test_verified_option_combo_example_and_baseline():
     assert charge("baseline_v1", **kwargs).total_usd == 0
 
 
+def test_occ_fee_has_no_unregistered_cap():
+    option = Instrument(
+        "XYZ261218C00002500", "option", 100, "XYZ", date(2026, 12, 18), 2.5, "C",
+    )
+    fees = charge(
+        "ibkr_pro_tiered_v1", side="buy", qty=3_000, price=2.50,
+        fill_kind="market", instrument=option, session_date=OCTOBER,
+    )
+    assert fees.occ_fee == 75
+
+
 def test_profile_payload_identity_is_stable_and_study_wrapper_delegates():
     profile = resolve_profile("ibkr_pro_tiered_v1")
     assert profile is IBKR_PRO_TIERED_V1
@@ -121,4 +139,29 @@ def test_profile_payload_identity_is_stable_and_study_wrapper_delegates():
         session_date=OCTOBER, fill_kind="moo",
     )
     assert study.total == 1.56
-    assert study_costs.resolve("ibkr_pro_tiered_v1").payload == profile.payload
+    wrapper = study_costs.resolve("ibkr_pro_tiered_v1")
+    assert wrapper.payload == profile.payload
+    assert wrapper.verified_against_fills is False
+
+
+def test_study_wrapper_defaults_to_whole_shares():
+    whole = study_costs.calculate(
+        "ibkr_pro_tiered_v1", side="buy", notional=10_010, fill_price=100,
+        session_date=OCTOBER, fill_kind="moo",
+    )
+    fractional = study_costs.calculate(
+        "ibkr_pro_tiered_v1", side="buy", notional=10_010, fill_price=100,
+        session_date=OCTOBER, fill_kind="moo", fractional_shares=True,
+    )
+    assert whole.shares == 100
+    assert whole.commission == pytest.approx(0.35)
+    assert fractional.commission == pytest.approx(0.35035)
+    assert whole.auction_allowance < fractional.auction_allowance
+
+
+def test_fractional_commission_keeps_one_cent_floor():
+    fees = charge(
+        "ibkr_pro_tiered_v1", side="buy", qty=0.01, price=0.01,
+        fill_kind="limit", instrument=STOCK, session_date=OCTOBER,
+    )
+    assert fees.commission == 0.01

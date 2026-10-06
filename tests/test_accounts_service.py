@@ -7,6 +7,7 @@ import pytest
 
 from engine import paper_accounts
 from engine.accounts import cli, service
+from sim import schema as sim_schema
 
 NOW = datetime(2026, 10, 5, 13, 27, tzinfo=timezone.utc)
 
@@ -26,7 +27,7 @@ def _spec(account_id="acct-a"):
 def _active_account(con, account_id="acct-a"):
     service.create(con, _spec(account_id), now=NOW)
     con.execute("UPDATE portfolios SET active=TRUE WHERE id=?", [account_id])
-    paper_accounts.set_portfolio_account(con, account_id, status="active", updated_at=NOW)
+    sim_schema.set_portfolio_account(con, account_id, status="active", updated_at=NOW)
 
 
 def test_cancel_requires_queued_order_before_auction(con):
@@ -59,7 +60,7 @@ def test_retire_queues_moc_closes_and_deactivates(con):
     result = service.retire(con, "acct-a", now=NOW)
     assert len(result["queued_order_ids"]) == 2
     assert con.execute("SELECT active FROM portfolios WHERE id='acct-a'").fetchone()[0] is False
-    assert paper_accounts.portfolio_account(con, "acct-a")["status"] == "retired"
+    assert sim_schema.portfolio_account(con, "acct-a")["status"] == "retired"
     assert con.execute(
         "SELECT o.ticker,o.side,o.qty,d.order_type FROM sim_orders o JOIN sim_order_details d "
         "ON o.id=d.order_id ORDER BY o.ticker"

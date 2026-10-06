@@ -6,6 +6,7 @@ import json
 from datetime import date, datetime, timezone
 
 import pytest
+import requests
 
 from server import (
     agent_context,
@@ -644,6 +645,100 @@ def test_context_prefers_verified_exact_response_source_observations(con):
     assert dividend["availability"]["source_published_at"] is None
 
 
+def test_transient_transport_retry_commits_only_successful_response(con, tmp_path):
+    fixed_etf_market(con)
+    market_date = complete_dual_momentum_history(con)
+    database = _file_database(tmp_path, con)
+    attempts = []
+    sleeps = []
+
+    def fetch(ticker, _start, _end):
+        attempts.append(ticker)
+        if ticker == "BIL" and attempts.count(ticker) == 1:
+            raise requests.Timeout("temporary timeout")
+        close = {"BIL": 100.0, "EFA": 110.0, "SPY": 120.0}[ticker]
+        return _response(
+            _body(
+                ticker,
+                open_price=close,
+                high=close + 1,
+                low=close - 1,
+                close=close,
+                volume=1_000_000,
+            )
+        )
+
+    result = agent_provider_responses.capture(
+        database,
+        "dual_momentum",
+        market_date,
+        fetch=fetch,
+        now=lambda: NOW,
+        sleep=sleeps.append,
+        jitter=lambda _low, _high: 0.0,
+    )
+
+    assert result["inserted_responses"] == 3
+    assert attempts == ["BIL", "BIL", "EFA", "SPY"]
+    assert sleeps == [5.0]
+    stored = __import__("duckdb").connect(str(database), read_only=True)
+    try:
+        assert stored.execute(
+            "SELECT ticker, COUNT(*) FROM agent_provider_responses "
+            "GROUP BY ticker ORDER BY ticker"
+        ).fetchall() == [("BIL", 1), ("EFA", 1), ("SPY", 1)]
+    finally:
+        stored.close()
+
+
+def test_persistent_transport_failure_preserves_other_receipts(con, tmp_path):
+    fixed_etf_market(con)
+    market_date = complete_dual_momentum_history(con)
+    database = _file_database(tmp_path, con)
+    attempts = []
+    sleeps = []
+
+    def fetch(ticker, _start, _end):
+        attempts.append(ticker)
+        if ticker == "BIL":
+            raise requests.ConnectionError("temporary connection failure")
+        close = {"EFA": 110.0, "SPY": 120.0}[ticker]
+        return _response(
+            _body(
+                ticker,
+                open_price=close,
+                high=close + 1,
+                low=close - 1,
+                close=close,
+                volume=1_000_000,
+            )
+        )
+
+    with pytest.raises(
+        agent_provider_responses.ProviderResponseError,
+        match="BIL: provider response request failed after 3 attempts",
+    ):
+        agent_provider_responses.capture(
+            database,
+            "dual_momentum",
+            market_date,
+            fetch=fetch,
+            now=lambda: NOW,
+            sleep=sleeps.append,
+            jitter=lambda _low, _high: 0.0,
+        )
+
+    assert attempts == ["BIL", "BIL", "BIL", "EFA", "SPY"]
+    assert sleeps == [5.0, 10.0]
+    stored = __import__("duckdb").connect(str(database), read_only=True)
+    try:
+        assert stored.execute(
+            "SELECT ticker FROM agent_provider_responses ORDER BY ticker"
+        ).fetchall() == [("EFA",), ("SPY",)]
+    finally:
+        stored.close()
+
+
 def test_invalid_response_is_rejected_before_database_write(con, tmp_path):
     fixed_etf_market(con)
     market_date = complete_dual_momentum_history(con)
@@ -672,7 +767,7 @@ def test_invalid_response_is_rejected_before_database_write(con, tmp_path):
     assert exists == 0
 
 
-def test_later_ticker_failure_preserves_prior_verified_receipt(con, tmp_path):
+def test_ticker_failure_preserves_other_verified_receipts(con, tmp_path):
     fixed_etf_market(con)
     market_date = complete_dual_momentum_history(con)
     database = _file_database(tmp_path, con)
@@ -707,9 +802,9 @@ def test_later_ticker_failure_preserves_prior_verified_receipt(con, tmp_path):
     stored = __import__("duckdb").connect(str(database), read_only=True)
     try:
         assert stored.execute(
-            "SELECT ticker FROM agent_provider_responses"
-        ).fetchall() == [("BIL",)]
-        assert agent_provider_responses.status(stored)["response_count"] == 1
+            "SELECT ticker FROM agent_provider_responses ORDER BY ticker"
+        ).fetchall() == [("BIL",), ("SPY",)]
+        assert agent_provider_responses.status(stored)["response_count"] == 2
     finally:
         stored.close()
 

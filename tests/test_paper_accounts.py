@@ -6,6 +6,7 @@ import pytest
 from engine import paper_accounts as accounts
 from sim import league, portfolio
 from sim import ledger as account_ledger
+from sim import schema as sim_schema
 from tests.conftest import insert_bars
 
 NOW = datetime(2026, 10, 2, 21, tzinfo=timezone.utc)
@@ -221,10 +222,10 @@ def test_initialized_intake_waits_for_all_books_then_preserves_completed_checkpo
 def test_v2_account_uses_side_table_and_replays_original_receipt(con):
     insert_bars(con, "SAME", [SIGNAL], open_=100, close=100)
     created = accounts.create_account(con, _spec_v2(), now=MOO_RECEIVED)
-    settings = accounts.portfolio_account(con, "acct-a")
+    settings = sim_schema.portfolio_account(con, "acct-a")
     assert created["replayed"] is False
     assert settings == {
-        "portfolio_id": "acct-a", "engine": "account",
+        "engine": "account",
         "cost_profile": "ibkr_pro_tiered_v1", "account_type": "margin",
         "visibility": "private", "status": "inactive", "price_source": "prices",
         "day_trade_rule": "pdt_25k_legacy", "allow_short": False,
@@ -237,7 +238,7 @@ def test_v2_account_uses_side_table_and_replays_original_receipt(con):
     assert accounts.submit_intent(
         con, _intent_v2(), now=datetime(2026, 10, 5, 14, tzinfo=timezone.utc)
     ) == receipt
-    assert accounts.portfolio_account(con, "acct-a")["status"] == "active"
+    assert sim_schema.portfolio_account(con, "acct-a")["status"] == "active"
     assert con.execute("SELECT order_type,state FROM sim_order_details").fetchone() == (
         "moo", "queued",
     )

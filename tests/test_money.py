@@ -3,10 +3,10 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from engine import paper_accounts
 from engine.accounts import service
 from engine.money import alerts, halts
 from engine.money.allocation import AllocationRefused, require_total_capacity
+from sim import schema as sim_schema
 from tests.conftest import insert_bars
 
 NOW = datetime(2026, 10, 5, 13, 27, tzinfo=timezone.utc)
@@ -30,7 +30,7 @@ def _spec(account_id: str, *, gross=1.0):
 def _account(con, account_id: str, *, gross=1.0):
     service.create(con, _spec(account_id, gross=gross), now=NOW)
     con.execute("UPDATE portfolios SET active=TRUE WHERE id=?", [account_id])
-    paper_accounts.set_portfolio_account(
+    sim_schema.set_portfolio_account(
         con, account_id, status="active", updated_at=NOW,
     )
 
@@ -59,7 +59,7 @@ def test_loss_halt_is_structured_once_and_cancels_queued_orders(con, equity, rea
                 [SESSION, equity, equity])
     assert halts.check(con, "acct-a", SESSION, now=NOW) == reason
     assert halts.check(con, "acct-a", SESSION, now=NOW) is None
-    assert paper_accounts.portfolio_account(con, "acct-a")["status"] == "halted"
+    assert sim_schema.portfolio_account(con, "acct-a")["status"] == "halted"
     assert con.execute("SELECT status,reject_reason FROM sim_orders").fetchone() == (
         "cancelled", reason,
     )

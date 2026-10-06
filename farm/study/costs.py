@@ -70,7 +70,7 @@ BASELINE_V1 = StudyCostProfile(
     execution.BASELINE, "sim_execution", "delegated", verified_against_fills=False)
 IBKR_PRO_TIERED_V1 = StudyCostProfile(
     _base("ibkr_pro_tiered_v1", "Verified effective-dated IBKR Pro Tiered schedule"),
-    "engine_costs", "delegated", verified_against_fills=True,
+    "engine_costs", "delegated", verified_against_fills=False,
     engine_profile="ibkr_pro_tiered_v1")
 
 PROFILES = {profile.id: profile for profile in (
@@ -109,7 +109,8 @@ def resolve(profile: str | StudyCostProfile) -> StudyCostProfile:
 def calculate(profile: str | StudyCostProfile, *, side: str, notional: float,
               fill_price: float, mdv60: float | None = None,
               funding_rate: float = 0.0, session_date=None,
-              fill_kind: str = "moo", instrument="stock") -> CostBreakdown:
+              fill_kind: str = "moo", instrument="stock",
+              fractional_shares: bool = False) -> CostBreakdown:
     """Return exact per-side dollar costs; funding_rate is signed for the position."""
     selected = resolve(profile)
     if side not in {"buy", "sell"}:
@@ -123,12 +124,16 @@ def calculate(profile: str | StudyCostProfile, *, side: str, notional: float,
     if selected.engine_profile:
         if session_date is None:
             raise ValueError("session_date is required by effective-dated cost profiles")
+        charged_shares = shares if fractional_shares else math.floor(shares)
+        if charged_shares <= 0:
+            raise ValueError("whole-share cost calculation has zero executable shares")
         charged = engine_costs.charge(
-            selected.engine_profile, side=side, qty=shares, price=fill_price,
+            selected.engine_profile, side=side, qty=charged_shares, price=fill_price,
             fill_kind=fill_kind, instrument=instrument, session_date=session_date,
         )
         return CostBreakdown(
-            selected.id, value, shares, charged.commission, charged.pass_through,
+            selected.id, charged_shares * fill_price, charged_shares,
+            charged.commission, charged.pass_through,
             charged.sec_fee, charged.finra_taf,
             charged.exchange_fee + charged.clearing_fee + charged.cat_fee
             + charged.occ_fee + charged.orf_fee,

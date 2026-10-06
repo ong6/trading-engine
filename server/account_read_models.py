@@ -6,7 +6,8 @@ from datetime import date
 from engine.accounts import results
 from engine.lib.util import table_exists
 from engine.money.limits import margin_excess
-from engine.paper_accounts import AccountRefused, portfolio_account
+from engine.paper_accounts import AccountRefused
+from sim.schema import portfolio_account
 
 
 def visibility(con, account_id: str) -> str:
@@ -22,11 +23,11 @@ def visibility(con, account_id: str) -> str:
 def accounts(con, *, include_private: bool = False) -> list[dict]:
     if not table_exists(con, "portfolio_accounts"):
         return []
-    clause = "" if include_private else " AND pa.visibility='public'"
+    clause = "" if include_private else " AND pa.pa_visibility='public'"
     rows = con.execute(
-        "SELECT p.id,pa.status,p.initial_cash,pa.engine,pa.visibility FROM portfolios p "
+        "SELECT p.id,pa.pa_status,p.initial_cash,pa.pa_engine,pa.pa_visibility FROM portfolios p "
         "JOIN portfolio_accounts_v pa ON pa.portfolio_id=p.id "
-        f"WHERE pa.engine='account'{clause} ORDER BY p.id"
+        f"WHERE pa.pa_engine='account'{clause} ORDER BY p.id"
     ).fetchall()
     return [{"id": row[0], "status": row[1], "tier": int(row[2]), "engine": row[3],
              "visibility": row[4]} for row in rows]

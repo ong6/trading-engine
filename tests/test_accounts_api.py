@@ -7,9 +7,9 @@ from datetime import datetime, timezone
 import pytest
 from fastapi import HTTPException
 
-from engine import paper_accounts
 from engine.accounts import api, service
 from server import accounts_routes, main
+from sim import schema as sim_schema
 
 NOW = datetime(2026, 10, 5, 13, 27, tzinfo=timezone.utc)
 
@@ -46,7 +46,7 @@ def test_token_generation_is_private_and_authentication_is_constant_time(tmp_pat
 def test_account_list_hides_private_without_token(con, monkeypatch, tmp_path):
     service.create(con, _spec(), now=NOW)
     service.create(con, _spec("acct-public"), now=NOW)
-    paper_accounts.set_portfolio_account(con, "acct-public", visibility="public", updated_at=NOW)
+    sim_schema.set_portfolio_account(con, "acct-public", visibility="public", updated_at=NOW)
     token_path = tmp_path / "token"
     api.generate_token(path=token_path)
     token = api.read_token(path=token_path)

@@ -999,7 +999,7 @@ def upsert_prices(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
                 source = excluded.source,
                 fetched_at = excluded.fetched_at,
                 first_fetched_at = COALESCE(
-                    prices.first_fetched_at, excluded.first_fetched_at
+                    prices.first_fetched_at, prices.fetched_at, excluded.first_fetched_at
                 )
                 """
             )
@@ -1017,3 +1017,16 @@ def upsert_prices(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
                 FROM _incoming_prices"""
             )
     return len(df)
+
+
+def backfill_first_fetched_at(con: duckdb.DuckDBPyConnection) -> int:
+    """Backfill pre-migration price rows from their last known fetch timestamp."""
+    pending = con.execute(
+        """SELECT COUNT(*) FROM prices
+        WHERE first_fetched_at IS NULL AND fetched_at IS NOT NULL"""
+    ).fetchone()[0]
+    con.execute(
+        """UPDATE prices SET first_fetched_at=fetched_at
+        WHERE first_fetched_at IS NULL AND fetched_at IS NOT NULL"""
+    )
+    return int(pending)

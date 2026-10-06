@@ -100,7 +100,12 @@ def _cached_body(database: Path, data_dir: Path, url: str) -> tuple[bytes, datet
     if receipt is None:
         return None
     source_sha, fetched_at = receipt
-    raw = (data_dir / f"{source_sha}.json").read_bytes()
+    try:
+        raw = (data_dir / f"{source_sha}.json").read_bytes()
+    except OSError as exc:
+        raise free_sources.FreeSourceError(
+            "Massive option cached response file is missing or unreadable"
+        ) from exc
     if hashlib.sha256(raw).hexdigest() != source_sha:
         raise free_sources.FreeSourceError("Massive option cached response hash is invalid")
     return raw, fetched_at.replace(tzinfo=timezone.utc)
@@ -168,15 +173,24 @@ def _daily_url(occ: str, start: date, end: date) -> str:
 
 
 def prior_closes(database: Path, underlyings: list[str], as_of: date) -> dict[str, float]:
-    con = db.connect(database)
+    if not database.is_file():
+        raise free_sources.FreeSourceError("Massive options daily-bar store is unavailable")
+    con = db.connect(database, read_only=True)
     try:
-        free_sources.init_schema(con)
+        view_exists = con.execute(
+            """SELECT COUNT(*) FROM information_schema.tables
+            WHERE table_name='free_daily_bars_adjusted'"""
+        ).fetchone()[0]
+        if not view_exists:
+            raise free_sources.FreeSourceError(
+                "Massive options adjusted daily-bar view is unavailable"
+            )
         rows = con.execute(
             """SELECT ticker, arg_max(c, date)
-            FROM free_daily_bars_adjusted
+            FROM free_daily_bars_adjusted_asof(?)
             WHERE ticker IN (SELECT UNNEST(?)) AND date < ?
             GROUP BY ticker""",
-            [underlyings, as_of],
+            [as_of, underlyings, as_of],
         ).fetchall()
     finally:
         con.close()
@@ -187,6 +201,34 @@ def prior_closes(database: Path, underlyings: list[str], as_of: date) -> dict[st
             f"Massive options prior close is missing for: {', '.join(missing)}"
         )
     return result
+
+
+def _select_daily_contracts(
+    con, *, as_of: date, underlyings: list[str], closes: Mapping[str, float], cap: int,
+) -> list[str]:
+    """Share the daily budget equally, preferring 31-60 DTE then near-money strikes."""
+    if cap < 1 or not underlyings:
+        return []
+    per_underlying = cap // len(underlyings)
+    if per_underlying < 1:
+        raise free_sources.FreeSourceError(
+            "Massive options daily request cap is below the underlying count"
+        )
+    selected = []
+    for underlying in underlyings:
+        close = float(closes[underlying])
+        rows = con.execute(
+            """SELECT occ,expiry,strike,"right" FROM option_contracts
+            WHERE as_of=? AND underlying=?""",
+            [as_of, underlying],
+        ).fetchall()
+        rows.sort(key=lambda row: (
+            0 if 31 <= (row[1] - as_of).days <= 60 else 1,
+            abs(float(row[2]) - close) / close,
+            row[1], row[3], row[0],
+        ))
+        selected.extend(row[0] for row in rows[:per_underlying])
+    return selected
 
 
 def _store_contract_page(
@@ -298,17 +340,14 @@ def capture(
             return {**summary, "as_of": capture_date.isoformat(), "truncated": truncated}
         con = db.connect(database, read_only=True)
         try:
-            contracts = con.execute(
-                """SELECT occ FROM option_contracts
-                WHERE as_of=? AND underlying IN (SELECT UNNEST(?))
-                ORDER BY underlying, expiry, strike, "right", occ
-                LIMIT ?""",
-                [capture_date, underlyings, manifest["daily_bar_request_cap"]],
-            ).fetchall()
+            contracts = _select_daily_contracts(
+                con, as_of=capture_date, underlyings=underlyings, closes=closes,
+                cap=manifest["daily_bar_request_cap"],
+            )
         finally:
             con.close()
         start = capture_date - timedelta(days=manifest["daily_bar_lookback_calendar_days"])
-        for (occ,) in contracts:
+        for occ in contracts:
             url = _daily_url(occ, start, capture_date)
             body, fetched_at, source_sha, _cached = _fetch(
                 database=database, data_dir=data_dir, url=url, api_key=key,

@@ -383,7 +383,7 @@ def capture_massive_daily(
 
 def _split_start(database: Path, fallback: date) -> date:
     if not database.exists():
-        return fallback
+        return fallback - timedelta(days=30)
     con = db.connect(database, read_only=True)
     try:
         tables = {
@@ -396,12 +396,12 @@ def _split_start(database: Path, fallback: date) -> date:
         if "free_splits" in tables:
             latest = con.execute("SELECT MAX(ex_date) FROM free_splits").fetchone()[0]
             if latest is not None:
-                return latest
+                return min(latest, fallback) - timedelta(days=30)
         if "free_daily_bars" in tables:
             earliest = con.execute("SELECT MIN(date) FROM free_daily_bars").fetchone()[0]
             if earliest is not None:
                 return earliest
-        return fallback
+        return fallback - timedelta(days=30)
     finally:
         con.close()
 
@@ -443,7 +443,8 @@ def capture_massive_splits(
     key = _load_massive_key() if api_key is None else api_key
     client = session or requests.Session()
     url = _split_url(start)
-    pages = []
+    pages, observed, page_shas = [], set(), []
+    reconciliation_at = instant
     try:
         for _page in range(max_pages):
             _validate_split_url(url)
@@ -470,6 +471,9 @@ def capture_massive_splits(
             body = _response_body(response, "Massive splits")
             rows, next_url = free_sources.parse_massive_splits(body)
             source_sha = hashlib.sha256(body).hexdigest()
+            observed.update((row["ticker"], row["ex_date"]) for row in rows)
+            page_shas.append(source_sha)
+            reconciliation_at = fetched_at
             _write_private_atomic(data_dir / "massive" / "splits" / f"{source_sha}.json", body)
             con = db.connect(database, wait_s=0)
             try:
@@ -478,7 +482,24 @@ def capture_massive_splits(
                 con.close()
             pages.append({**loaded, "row_count": len(rows)})
             if next_url is None:
-                return {"status": "complete", "start": start.isoformat(), "pages": pages}
+                if len(rows) == free_sources.MAX_SPLIT_RESULTS:
+                    raise free_sources.FreeSourceError(
+                        "Massive splits full page without next_url is incomplete"
+                    )
+                reconciliation_sha = hashlib.sha256("\n".join(page_shas).encode()).hexdigest()
+                con = db.connect(database, wait_s=0)
+                try:
+                    reconciliation = free_sources.reconcile_splits(
+                        con, observed=observed, start=start,
+                        through=_aware_utc(reconciliation_at, "split fetched_at").date(),
+                        fetched_at=reconciliation_at, source_sha256=reconciliation_sha,
+                    )
+                finally:
+                    con.close()
+                return {
+                    "status": "complete", "start": start.isoformat(),
+                    "pages": pages, **reconciliation,
+                }
             url = next_url
     finally:
         if session is None:
