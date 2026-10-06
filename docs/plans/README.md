@@ -25,18 +25,18 @@ each plan's YAML `status` must match its row.
 | [P12](p12-agent-research-product.md) | Agent research product | done | Full data, execution, and evaluation programme delivered 2026-09-23; data/news spend external |
 | [P13](p13-market-data-source-hardening.md) | Market-data source hardening | done | TradingView realtime/history active under owner-asserted rights; Alpaca dormant |
 | [P14](p14-tradingview-history-archive.md) | TradingView historical archive | done | Resumable current-liquid-universe daily bars with exact transcripts and research-only authority |
-| [P15](p15-profitability-evidence-loop.md) | Profitability evidence loop | active | Revision 11 live; scoring, pre-open, event, report, and status collection continue |
+| [P15](p15-profitability-evidence-loop.md) | Profitability evidence loop | active | Revision 12 live; scoring, pre-open, event, report, and status collection continue |
 | [P16](p16-challenger-lab-and-text-edge.md) | Challenger lab, text edge, evaluation science | active | W0 P15 revision-4 activation complete; W9b registration remains |
 | [P17](p17-personal-host-ibkr-paper-execution.md) | Personal-host IBKR paper execution and reconciliation | proposed | Future work, explicitly not now; requires a Stage 1 pass and owner approval before any implementation or account action |
 | [P18](p18-backtest-core.md) | Shared backtest core | done | Completed: native event/portfolio simulation, deterministic reports, proving ground, and example |
 | [P19](p19-market-data-auditor.md) | Offline market-data auditor | done | Completed 2026-10-03: independent coverage JSON/Markdown sidecars and fictional native-evaluator reversal; full Linux CI green; real-data adapters deferred |
 | [P20](p20-engine-and-board-review.md) | Engine and paper dashboard correctness review | done | Completed 2026-10-05: generic study and forward-projection fixes, responsive status alerts, setup/design documentation, independent review, both-timezone CI and production browser verification |
 | [P21](p21-operational-issues-and-account-isolation.md) | Operational issue closure and separate paper accounts | done | Complete source evidence, isolated paper-account intake, 18/18 public walk-forward refresh and independently verified private recovery; new strategy activation remains gated |
-| [P22](p22-engine-v2-accounts.md) | Engine v2 accounts and money foundation | active | Additive account execution, costs, shorts, risk, replay, and private/public result isolation |
+| [P22](p22-engine-v2-accounts.md) | Engine v2 accounts and money foundation | active | Phase A routes books, commissions and private results; Phase B integrates lanes, rehearses D0 and explicitly rebinds every frozen runtime contract |
 
-Recommended order: follow [`../product.md`](../product.md) ("Focus now"). P15 comes first, then P7
-activation; P8/P9 keep running untouched; P2 remains admitted; P3's bounded free captures run
-while paid data waits for the owner's data-vendor budget.
+Recommended order: follow [`../product.md`](../product.md) ("Focus now"). Complete P22 without
+disturbing the revision-12 evidence path, then continue P15 and P7 activation; P8/P9 keep running
+untouched; P2 remains admitted; P3's bounded free captures run while paid data waits.
 
 ## Plan template
 

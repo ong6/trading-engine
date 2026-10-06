@@ -2183,4 +2183,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server unchanged, tools +144, product +68; tests +342; budget ok.
 - **Next:** reconcile P22's product/scope/blueprint/plan documents, then run lane gates.
 
+## 2026-10-06 — Record the engine-v2 account decisions
+
+- **Why:** P22 R9 and L3 require the dated owner decisions, architecture, scope and
+  two-phase frozen-contract closure to be durable before integration.
+- **What:** Product now records executor/ledger ownership, costs, fills, PDT, shorts,
+  halts, options refusal, versioning and monthly review. Scope and blueprint describe the
+  R13 side table and public/private boundary; the active plan separates Phase A from the
+  post-merge rehearsal and explicit E1/sector/XS/walk-forward/P15 revisions in Phase B.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_operating_contract.py
+  tests/test_documentation_integrity.py` — 16 passed.
+- **Metrics:** server/tools/product unchanged; documentation +76 lines; budget ok.
+- **Next:** run focused gates, Ruff, the baseline-diffed full suite, and the metrics check.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
