@@ -239,6 +239,9 @@ def apply_settlement_event(con: duckdb.DuckDBPyConnection, pf_id: str, ticker: s
     is printed — that means a fill before `effective` was added or removed
     after the settlement was booked, and a human should look.
     """
+    from .ledger import add_lot, assert_lots_match_positions, match_lots
+    from .schema import portfolio_account
+
     row = con.execute(
         "SELECT qty, avg_cost FROM sim_positions WHERE portfolio_id = ? AND ticker = ?",
         [pf_id, ticker]).fetchone()
@@ -250,12 +253,18 @@ def apply_settlement_event(con: duckdb.DuckDBPyConnection, pf_id: str, ticker: s
     if price:
         con.execute("UPDATE portfolios SET cash = cash + ? WHERE id = ?",
                     [qty * price, pf_id])
+    matched_lots = match_lots(con, pf_id, ticker, qty)
     if row:
         con.execute("UPDATE sim_positions SET qty = ? WHERE portfolio_id = ? "
                     "AND ticker = ?", [max(held - qty, 0.0), pf_id, ticker])
     if kind == "stock":
         new_shares = qty * ratio
         basis_per_acq = avg_cost / ratio if ratio else 0.0
+        for lot in matched_lots:
+            add_lot(
+                con, pf_id, into_ticker, lot.opened_session, lot.open_order_id,
+                lot.qty * ratio, lot.avg_px / ratio,
+            )
         acq = con.execute(
             "SELECT qty, avg_cost FROM sim_positions WHERE portfolio_id = ? AND ticker = ?",
             [pf_id, into_ticker]).fetchone()
@@ -270,6 +279,8 @@ def apply_settlement_event(con: duckdb.DuckDBPyConnection, pf_id: str, ticker: s
             con.execute("INSERT INTO sim_positions (portfolio_id, ticker, qty, avg_cost) "
                         "VALUES (?, ?, ?, ?)",
                         [pf_id, into_ticker, new_shares, basis_per_acq])
+    if portfolio_account(con, pf_id)["engine"] == "account":
+        assert_lots_match_positions(con, pf_id)
 
 
 def settle(con: duckdb.DuckDBPyConnection, t: Terms, apply: bool = False,
