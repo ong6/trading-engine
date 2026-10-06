@@ -9,6 +9,7 @@ import duckdb
 from engine.lib.data_quality import quarantine_reason
 from engine.lib.provenance import canonical_sha256
 from sim.execution import DEFAULT_PROFILE_ID
+from sim.schema import next_order_id
 from sim.strategies.base import Order
 
 from . import daily_opportunity_store
@@ -163,7 +164,7 @@ def consume_assessment(
     )
     if quantity is None:
         return None
-    order_id = int(con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM sim_orders").fetchone()[0])
+    order_id = next_order_id(con)
     con.execute(
         "INSERT INTO sim_orders VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",
         [order_id, PORTFOLIO_ID, ticker, side, quantity, market_date],
@@ -398,9 +399,7 @@ def process_lifecycle(
         if last_attempt is not None and last_attempt[1] in {"pending", "filled"}:
             continue
         attempt = 1 if last_attempt is None else int(last_attempt[0]) + 1
-        order_id = int(con.execute(
-            "SELECT COALESCE(MAX(id),0)+1 FROM sim_orders"
-        ).fetchone()[0])
+        order_id = next_order_id(con)
         order = Order(PORTFOLIO_ID, ticker, "sell", float(position["qty"]), market_date)
         con.execute(
             "INSERT INTO sim_orders VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",
