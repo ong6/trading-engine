@@ -463,7 +463,8 @@ def rewrite_private_prices(
         with db.registered_frame(con, "_replay_price_batch", frame):
             con.execute(
                 "INSERT OR REPLACE INTO prices "
-                "SELECT ticker,date,open,high,low,close,volume,source,fetched_at "
+                "(ticker,date,open,high,low,close,volume,source,fetched_at,first_fetched_at) "
+                "SELECT ticker,date,open,high,low,close,volume,source,fetched_at,fetched_at "
                 "FROM _replay_price_batch"
             )
     state_rows = [

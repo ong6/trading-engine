@@ -65,7 +65,10 @@ def _seed_manifest_inputs(con):
         current += timedelta(days=1)
     for ticker in ("AAA", "BBB"):
         for current in days:
-            con.execute("INSERT INTO prices VALUES (?,?,?,?,?,?,?,?,?)", [
+            con.execute(
+                "INSERT INTO prices "
+                "(ticker,date,open,high,low,close,volume,source,fetched_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?)", [
                 ticker, current, 99.0, 101.0, 98.0, 100.0, 1_000_000,
                 "fixture", datetime(2026, 10, 3)])
 
