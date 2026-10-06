@@ -96,8 +96,11 @@ def main(argv: list[str] | None = None) -> int:
         with db.connect(wait_s=180) as con:
             payload = _execute(args, con, now)
     except AccountRefused as exc:
-        payload = {"order_id": None, "state": "refused", "received_at": now.isoformat(),
-                   "cutoff": None, "refusal_reason": str(exc)}
+        if args.command == "submit":
+            payload = {"order_id": None, "state": "refused", "received_at": now.isoformat(),
+                       "cutoff": None, "refusal_reason": str(exc)}
+        else:
+            payload = {"error": str(exc)}
         print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
         return 2
     print(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str))
