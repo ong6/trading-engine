@@ -38,7 +38,7 @@ def _account(con, account_id: str):
     row = con.execute("SELECT id,active FROM portfolios WHERE id=?", [account_id]).fetchone()
     if row is None:
         raise paper_accounts.AccountRefused("unknown account")
-    settings = paper_accounts.portfolio_account(con, account_id)
+    settings = sim_schema.portfolio_account(con, account_id)
     if settings["engine"] != "account":
         raise paper_accounts.AccountRefused("unknown account")
     return {"id": row[0], "active": bool(row[1]), **settings}
@@ -109,7 +109,7 @@ def resume(con, account_id: str, *, resumed_by: str, note: str = "",
         if row["status"] != "halted":
             raise paper_accounts.AccountRefused("only a halted account can resume")
         con.execute("UPDATE portfolios SET active=TRUE WHERE id=?", [account_id])
-        paper_accounts.set_portfolio_account(con, account_id, status="active", updated_at=now)
+        sim_schema.set_portfolio_account(con, account_id, status="active", updated_at=now)
         con.execute(
             "UPDATE account_state SET resumed_at=?,resumed_by=?,halted_at=NULL,"
             "halt_reason=NULL,updated_at=? WHERE portfolio_id=?",
@@ -158,7 +158,7 @@ def retire(con, account_id: str, *, now: datetime | None = None) -> dict:
             )
             queued.append(order_id)
         con.execute("UPDATE portfolios SET active=FALSE WHERE id=?", [account_id])
-        paper_accounts.set_portfolio_account(con, account_id, status="retired", updated_at=now)
+        sim_schema.set_portfolio_account(con, account_id, status="retired", updated_at=now)
         con.execute(
             "UPDATE account_state SET retired_at=?,updated_at=? WHERE portfolio_id=?",
             [now, now, account_id],
@@ -237,11 +237,11 @@ def replace_watch(con, account_id: str, tickers: list[str], *,
 
 def account_list(con, *, include_private: bool = False) -> list[dict]:
     init_schema(con)
-    visibility = "" if include_private else " AND pa.visibility='public'"
+    visibility = "" if include_private else " AND pa.pa_visibility='public'"
     rows = con.execute(
-        "SELECT p.id,pa.status,p.initial_cash,pa.engine,pa.visibility FROM portfolios p "
+        "SELECT p.id,pa.pa_status,p.initial_cash,pa.pa_engine,pa.pa_visibility FROM portfolios p "
         "JOIN portfolio_accounts_v pa ON pa.portfolio_id=p.id "
-        f"WHERE pa.engine='account'{visibility} ORDER BY p.id"
+        f"WHERE pa.pa_engine='account'{visibility} ORDER BY p.id"
     ).fetchall()
     return [{"id": row[0], "status": row[1], "tier": int(row[2]), "engine": row[3],
              "visibility": row[4]} for row in rows]

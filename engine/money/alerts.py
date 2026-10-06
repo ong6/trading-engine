@@ -52,7 +52,7 @@ def concentration(con, session_date: date, *,
     rows = con.execute(
         "SELECT sp.ticker,sp.portfolio_id,sp.qty FROM sim_positions sp "
         "JOIN portfolio_accounts_v pa ON pa.portfolio_id=sp.portfolio_id "
-        "WHERE pa.engine='account' AND pa.status IN ('active','halted') "
+        "WHERE pa.pa_engine='account' AND pa.pa_status IN ('active','halted') "
         "AND sp.qty<>0 ORDER BY sp.ticker,sp.portfolio_id"
     ).fetchall()
     grouped: dict[str, list[tuple[str, float]]] = {}
