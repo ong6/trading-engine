@@ -29,6 +29,7 @@ from engine.lib.settings import DATA_DIR, META_PATH
 from tools import agent_trial_register
 
 from . import (
+    accounts_routes,
     agent_attribution_read_models,
     agent_authority_read_models,
     agent_context,
@@ -186,6 +187,7 @@ class DataSourceHeaderMiddleware:
 app = FastAPI(title="trading-engine paper backend", version="0.1.0")
 app.add_middleware(ExactHostMiddleware)
 app.add_middleware(DataSourceHeaderMiddleware)
+app.include_router(accounts_routes.router)
 
 
 @contextmanager

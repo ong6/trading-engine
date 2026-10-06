@@ -182,6 +182,12 @@ def _init_portfolio_account_shim(con) -> None:
     """Temporary R13 compatibility until the revised L0 base is merged."""
     if hasattr(sim_schema, "portfolio_account"):
         return
+    objects = {row[0] for row in con.execute(
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_name IN ('portfolio_accounts','portfolio_accounts_v')"
+    ).fetchall()}
+    if objects == {"portfolio_accounts", "portfolio_accounts_v"}:
+        return
     con.execute(
         "CREATE TABLE IF NOT EXISTS portfolio_accounts ("
         "portfolio_id VARCHAR PRIMARY KEY, engine VARCHAR NOT NULL DEFAULT 'league', "
