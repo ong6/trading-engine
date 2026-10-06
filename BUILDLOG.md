@@ -2148,6 +2148,80 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged since the prior entry; budget ok.
 - **Next:** orchestrator applies the two handoff patches and L3 issues the merged runtime contracts.
 
+## 2026-10-06 — Add account auction and intraday fill attempts
+
+- **Why:** active P22 L1 requires opening/closing auctions and deferred minute-bar
+  market/limit execution without changing the legacy next-open fill path.
+- **What:** Add point-in-time daily/minute source readers, inclusive auction cutoffs,
+  next-minute market pricing, one-tick limit touches, and v2 fill provenance fields.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_fills.py
+  tests/test_fills_v2.py tests/test_p15_fills.py`: 35 passed.
+- **Metrics:** server/tools/product unchanged; sim and tests grew within the P22 plan budget.
+- **Next:** implement short locates, borrow/buy-ins, Reg T and both R10 settings.
+
+## 2026-10-06 — Add short and margin controls
+
+- **Why:** P22 L1 and R10 require point-in-time locates, borrow/buy-ins, Reg T,
+  margin calls, and selectable legacy or 2026 intraday day-trading rules.
+- **What:** Add conservative locate classification, threshold-list buy-ins, financing
+  cash events, Reg T state/reductions, fractional-lot day trades, and the R13 accessor shim.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_shorts.py
+  tests/test_margin.py tests/test_ledger.py tests/test_costs_ibkr.py`: 33 passed.
+- **Metrics:** server/tools/product unchanged; sim and tests grew within the P22 plan budget.
+- **Next:** settle account orders with aggregate liquidity, fees, contingencies and late marks.
+
+## 2026-10-06 — Settle account sessions through the common ledger
+
+- **Why:** P22 L1 requires one ordered settlement pass for account auctions,
+  deferred intraday orders, aggregate liquidity, contingencies and late bars.
+- **What:** Route due account orders through locates, R10, Reg T, gross/liquidity
+  caps, L0 fees and ledger; persist fill provenance and restate only late-filled accounts.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_accounts_settle.py
+  tests/test_fills_v2.py tests/test_shorts.py tests/test_margin.py tests/test_ledger.py
+  tests/test_costs_ibkr.py`: 52 passed.
+- **Metrics:** server/tools/product unchanged; engine/sim/tests remain within the P22 budget.
+- **Next:** run the lane acceptance set, full-suite failure diff, ruff and metrics publication.
+
+## 2026-10-06 — Close P22 L1 execution gates
+
+- **Why:** P22 L1 is done when focused acceptance, ruff, metrics and the full
+  repository suite add no failure beyond the R12 base list.
+- **What:** Confirm all L1 fills, shorts, margin, R10 and settlement tests; retain
+  a temporary R13 accessor shim until the refreshed L0 base is available.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,293 passed; 185 failures exactly match the
+  published P22 base-failure list; 5 deselected.
+- **Metrics:** server/tools unchanged; product +1,775 and tests +807; budget ok.
+- **Next:** nothing admitted; the orchestrator merges the refreshed R13 base and deletes the shim.
+
+## 2026-10-06 — Correct L1 temporal and account controls
+
+- **Why:** orchestrator acceptance review reproduced early-close, point-in-time,
+  PDT matching, late-contingency, locate and atomic settlement defects in P22 L1.
+- **What:** Make cutoffs close-relative, require complete minute sessions before
+  terminal outcomes, use unadjusted as-of bars, same-session PDT matching and
+  source-aware risk marks; fix late contingencies, locate evidence, directional
+  liquidity, accrual spans, applied-quantity fees and per-fill transactions.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_fills.py
+  tests/test_fills_v2.py tests/test_order_types.py tests/test_shorts.py
+  tests/test_margin.py tests/test_accounts_settle.py tests/test_ledger.py
+  tests/test_costs_ibkr.py tests/test_schema_v2.py`: 104 passed.
+- **Metrics:** server/tools unchanged; budget check pending final full-suite gate.
+- **Next:** run the R12 failure-set comparison, ruff and metrics, then report round 2.
+
+## 2026-10-06 — Close P22 L1 review round 2
+
+- **Why:** the orchestrator required the rejected L1 implementation to clear nine
+  execution-correctness blockers and the listed accounting corrections.
+- **What:** Add targeted regression probes for early close, bar completeness,
+  as-of source isolation, late contingencies, directional liquidity, locate
+  evidence, opening-date borrow, same-day PDT and atomic fee settlement.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,311 passed; the 185 failures exactly match
+  the R12 base list; 5 deselected.
+- **Metrics:** server/tools unchanged; product +362 and tests +381 from round 1; budget ok.
+- **Next:** nothing admitted; await orchestrator acceptance and the R13 base refresh.
+
 ## 2026-10-06 — Correct the L0 foundation after review
 
 - **Why:** R13 replaces portfolio columns with a side table and review reproduced replay, timing, lot and precision defects.
@@ -2247,5 +2321,31 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_agent_provider_responses.py tests/test_agent_independent_price_evidence.py tests/test_agent_data_capture_runner.py` passed all 24 tests.
 - **Metrics:** Server +235 lines and tests +181; tools and product unchanged. Budget passed.
 - **Next:** Nothing admitted.
+
+## 2026-10-06 — Integrate R13 and close L1 round 3 findings
+
+- **Why:** orchestrator re-review required the final L0/L4 base plus five bounded
+  fixes for fail-soft locates, capture outages, PDT depletion, ordering and as-of locates.
+- **What:** Merge the refreshed base with both BUILDLOG histories, remove temporary
+  shims, reject unavailable locates per order, retain incomplete minute sessions,
+  deplete recorded same-day lots, preserve receipt order and cutoff locate marks.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_fills_v2.py
+  tests/test_shorts.py tests/test_margin.py tests/test_accounts_settle.py
+  tests/test_order_types.py tests/test_schema_v2.py tests/test_ledger.py
+  tests/test_costs_ibkr.py`: 98 passed.
+- **Metrics:** pending final merged-base full-suite and budget gates.
+- **Next:** run the merged full suite, ruff and metrics, then publish round-3 status.
+
+## 2026-10-06 — Close P22 L1 review round 3
+
+- **Why:** L1 must finish on the refreshed R13/L4 base with no regression beyond
+  the integration-owned frozen-contract failures.
+- **What:** The five re-review findings pass focused probes; the final L0 APIs are
+  used directly, both merge histories are retained, and the lane is cleanly integrated.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,358 passed; 184 failures match the refreshed
+  P22 base list; 5 deselected.
+- **Metrics:** refreshed-base server/tools/product changes included; budget ok.
+- **Next:** nothing admitted; await orchestrator acceptance.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
