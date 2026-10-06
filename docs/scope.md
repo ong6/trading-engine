@@ -19,7 +19,7 @@ owner entry in `feedback.md`.
 | Multi-cadence agent tools (P9): hourly and four-hour shadow observers (`trading-engine-{hourly,four-hour}-opportunity.timer`) | Weekdays 10:15–16:15 hourly and 10:30/13:30 America/New_York | Same; missed windows are not replayed (`Persistent=false`) |
 | Agent data capture and agent-only shadow (`trading-engine-agent-{data-capture,shadow}.timer`) | 01:25 and 01:30 UTC Tue–Sat | Same |
 | Forward agent evaluation (P11) and P15 evaluation (`GET /agent/evaluation/status`, JSON and P15 Markdown reports) | After P8; refreshes after P15 scoring | Same; labels are mechanical and never tune a policy |
-| P15 pre-open check, event triggers, and scoring (`trading-engine-p15-{preopen,events,scoring}.timer`) | Pre-open 09:05 and events at 09:35/09:50 then :05/:20/:35/:50 through 15:50 America/New_York on weekdays; scoring 02:30 UTC Tue–Sat | Same; revision 11 is live and no registered value may be tuned |
+| P15 pre-open check, event triggers, and scoring (`trading-engine-p15-{preopen,events,scoring}.timer`) | Pre-open 09:05 and events at 09:35/09:50 then :05/:20/:35/:50 through 15:50 America/New_York on weekdays; scoring 02:30 UTC Tue–Sat | Same; revision 12 preserves registered values and no tuning is admitted |
 | TradingView historical archive (P14; existing queue, bounded slices) | 03:40, 07:40, 11:40, 21:40 and 23:40 UTC weekdays, six four-hourly slices on weekends (`trading-engine-tradingview-history.timer`); nightly enqueue is a fallback | Same; retrieval-time research only, current-universe survivor bias explicit |
 
 Change a running component only through a plan, as a new registered version. Existing versions
@@ -30,7 +30,7 @@ and their evidence are never edited.
 Plan status lives in one place: the table in [`plans/README.md`](plans/README.md). Only plans
 marked `approved` or `active` there admit work, subject to their stated prerequisites. The
 profitability evidence loop's activation workstream (P15 W8) activated on 2026-09-29;
-registration revision 11 is live as of 2026-10-05.
+source registration revision 12 binds the complete-metadata recovery correction without changing activation.
 Completed outputs from agent paper decisions (P5), the alpha experiment (P6), the 2022 replay
 (P10), forward agent evaluation (P11), the agent research product (P12), market-data source
 hardening (P13), and the TradingView historical archive (P14) stay in scope for operation and
@@ -74,24 +74,25 @@ Agents append one line here instead of building. The owner promotes a line to a 
 deletes it.
 
 
-- 2026-10-02 · **Live paper book for separately held research strategies**: plan a generic,
-  paper-only path from the shared backtest core into a real-time simulator book without publishing
-  strategy content. This owner direction still needs a separately approved implementation plan.
+- 2026-10-02 · **Activation of separately held research strategies**: P21 implements the generic
+  paper-account specification and stock/ETF intake boundary; new accounts start inactive.
+  Manual/all/auto tier planning does not grant activation. A private strategy runner or new
+  execution instrument still needs its own admitted plan and activation gates.
 
-## Admitted issue closure
+## Completed issue closure
 
-[P21](plans/p21-operational-issues-and-account-isolation.md) admits the owner-requested
+[P21](plans/p21-operational-issues-and-account-isolation.md) completed the owner-requested
 operational fixes, complete independent-source evidence, queue-resolution audit, capture
 reliability, separate-account proof and behavior-preserving advisory-complexity work. The
-complete metadata snapshot also requires a narrow recovery-bundle limit correction through
+complete metadata snapshot is supported by the narrow recovery-bundle limit correction in
 P15 revision 12. Registered source identity changes require a properly rehearsed new revision
 before deployment; policies and the research runtime remain unchanged.
 
-## Admitted review
+## Completed review
 
-The two 2026-10-03 shared-study findings (duplicate bars and terminal-zero cross-checks) are
-now admitted for reproduction and correction by [P20](plans/p20-engine-and-board-review.md).
-The review also covers existing dashboard reliability and setup documentation, with read-only
+The two 2026-10-03 shared-study findings (duplicate bars and terminal-zero cross-checks) were
+reproduced and corrected under [P20](plans/p20-engine-and-board-review.md).
+The review also covered existing dashboard reliability and setup documentation, with read-only
 host inspection and independent acceptance. Frozen strategy and execution rules remain in force.
 
 ## Completed from this ledger

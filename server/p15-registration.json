@@ -232,7 +232,7 @@
     "price_fetch_availability": "after_collection_completion"
   },
   "code_identity": {
-    "source_commit": "2cfe50c0a9dde2967a95a739b59d0c09a4f2d0b2",
+    "source_commit": "de071fc995aefef6172ff76c52e7dc4afb2e5819",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/actions.py": "a6c2ec46d198df2318498ec7d55e1b7cfeca4c8afaccd8a5c208618e4ea8b850",
@@ -364,14 +364,14 @@
       "sim/strategies/xs_reversal_1m.py": "84d75403e79184e80a9013ef77b24c0bcb4bb9f85a0840f0d3295583885a50e7",
       "tools/__init__.py": "1f23b3f78a32b5567d64752ddc564b1182bdfe50616b87bca6a3a603b597d927",
       "tools/agent_trial_register.py": "6cd235435466a0a18ec8bcb4c1618f9228e2b3f994583a905ff2da3ed9c7d84d",
-      "tools/backup_database.py": "2a4389f408b95ea68ab194bb971f299fc5c296ce81eb01ef185d9f86c953e954",
+      "tools/backup_database.py": "44bd1bbc1c001ca2f42f0bfb6e61d0f83ea4c1528aba808aaaed756c61de1a46",
       "tools/p15_evidence_validation.py": "fe8c1bd3c6f319cdf144755437350559bacd0c1d5ea02a29dcda64645f879b2e",
       "tools/publish_snapshot.py": "23c1057ee3524f1a26c54ab814c68cdff127f7b0702fd3f2142ee370091533b5",
       "tools/release_manifest.py": "90b52c70a99d5ccab09d0efd6b453f6ac814243decee68071c7f658b4d96e217",
       "tools/sec_edgar_capture.py": "63dc9eb0b5f6dc2ac910077a07c58e65a95b5ba0961ae2b5cd4d3d5148b4ecab"
     }
   },
-  "registration_revision": 11,
-  "revision_reason": "complete verifier receipts and identity checks, optional source refusal and backup identity corrections, and behavior-preserving evidence/capture extraction; frozen collector, scoring, book, gate, label, schedule and written rows unchanged",
-  "registration_sha256": "57126ad62e10dd13b56e625c066917cebd9043ddc5070c2778e45192aa22a086"
+  "registration_revision": 12,
+  "revision_reason": "bounded recovery metadata copying and verification at existing snapshot limit; other artifact caps, frozen collector, research runtime, scoring, book, gate, label, schedule and written rows unchanged",
+  "registration_sha256": "d888837791752bdfd2720e566f62ebc6ab7cad39484b503b00f1ff44f464bd1d"
 }
