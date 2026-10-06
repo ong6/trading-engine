@@ -2158,4 +2158,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; engine +1 and tests +13; budget ok.
 - **Next:** implement L3 routing, monotonic ids, fees, rerun protection, and public reports.
 
+## 2026-10-06 — Route books through costed engine ledgers
+
+- **Why:** active P22 L3 sections 2.4, 2.5, 4, and 5 require one routed fill path,
+  monotonic ids, protected reruns, dollar fees, break-aware reports, and public isolation.
+- **What:** League, P15, and P16 now allocate sequence ids and charge effective-dated
+  profiles through the shared ledger. Reruns preserve every attributed order and fee sidecar.
+  Lazy account accrual/settle/halt phases keep their specified order before L1/L2 merge.
+  Public Markdown, CSV, and API projections exclude private side-table accounts.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_league_v2.py` — 6 passed.
+- **Metrics:** server +22, tools unchanged, product +396; tests +218; budget ok.
+- **Next:** add the one-shot D0 migration and restart every book evaluation clock.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

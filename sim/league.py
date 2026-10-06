@@ -18,6 +18,7 @@ only sim_* / portfolios.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 from datetime import date
 from pathlib import Path
@@ -31,9 +32,10 @@ from engine.lib.settings import DATA_DIR as DEFAULT_DATA_DIR
 from engine.lib.settings import REPO_ROOT  # noqa: F401
 from engine.lib.util import table_exists
 
-from . import calendar, fills, portfolio
+from . import book_breaks, calendar, costs, fills, ledger, portfolio
 from .execution import DEFAULT_PROFILE_ID
 from .schema import INITIAL_CASH, init_sim_schema
+from .schema import next_order_id as sequence_order_id
 from .strategies import PortfolioView, get_strategy
 from .strategies.base import total_return_between
 from .strategies.configs import CONFIGS
@@ -75,7 +77,38 @@ def init_portfolios(con, as_of: date) -> int:
 
 
 def next_order_id(con) -> int:
-    return con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM sim_orders").fetchone()[0]
+    return sequence_order_id(con)
+
+
+def _optional_phase(module_name: str, function_name: str, con, d: date):
+    """Call an integration phase when its owning lane is present."""
+    try:
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        missing = exc.name or ""
+        if missing == module_name or module_name.startswith(f"{missing}."):
+            return None
+        raise
+    function = getattr(module, function_name, None)
+    return None if function is None else function(con, d)
+
+
+def accrue_accounts(con, d: date) -> dict:
+    """Phase a0b: accrue optional borrow and margin costs."""
+    return {
+        "borrow": _optional_phase("sim.shorts", "accrue_borrow", con, d),
+        "interest": _optional_phase("sim.margin", "accrue_interest", con, d),
+    }
+
+
+def settle_accounts(con, d: date):
+    """Phase a2: settle account-engine orders when L1 is installed."""
+    return _optional_phase("engine.accounts.settle", "settle_session", con, d)
+
+
+def check_account_halts(con, d: date):
+    """Phase b2: apply L2 account halt rules after every portfolio is marked."""
+    return _optional_phase("engine.money.halts", "check_all", con, d)
 
 
 # --------------------------------------------------------------------------- #
@@ -97,8 +130,23 @@ def fill_pending(con, d: date) -> dict:
         "ORDER BY CASE o.side WHEN 'sell' THEN 0 ELSE 1 END, o.id",
         [DEFAULT_PROFILE_ID, d]
     ).fetchall()
+    pend = [
+        row for row in pend
+        if book_breaks.portfolio_account(con, row[1])["engine"] == "league"
+    ]
     counts = {"filled": 0, "rejected": 0, "pending": 0}
     buy_candidates: dict[str, list[tuple]] = {}
+
+    def fill_fees(pf_id: str, side: str, qty: float, px: float):
+        return costs.charge(
+            book_breaks.effective_cost_profile(con, pf_id, d),
+            side=side,
+            qty=qty,
+            price=px,
+            fill_kind="next_open",
+            instrument={"kind": "stock", "multiplier": 1.0},
+            session_date=d,
+        )
 
     def reject(oid: int, reason: str) -> None:
         con.execute(
@@ -126,9 +174,20 @@ def fill_pending(con, d: date) -> dict:
                 res = fills.attempt_fill(
                     con, tk, side, actual, sig, d, profile_id)
             qty = actual
-        applied = portfolio.apply_fill(
-            con, {"portfolio_id": pf_id, "ticker": tk, "side": side,
-                  "qty": qty, "fill_px": res.fill_px})
+        fees = fill_fees(pf_id, side, qty, res.fill_px)
+        applied = ledger.apply_fill(
+            con,
+            {
+                "order_id": oid,
+                "portfolio_id": pf_id,
+                "ticker": tk,
+                "side": side,
+                "qty": qty,
+                "fill_px": res.fill_px,
+                "fill_date": d,
+            },
+            fees,
+        )
         if applied <= 0:
             reject(oid, "insufficient_cash" if side == "buy"
                    else "no_position_to_sell")
@@ -208,9 +267,23 @@ def fill_pending(con, d: date) -> dict:
     # equal-weight strategy into a ticker-order bet.
     for pf_id, candidates in buy_candidates.items():
         cash = portfolio.get_cash(con, pf_id)
-        wanted = sum(float(qty) * float(res.fill_px)
-                     for _oid, _tk, qty, _sig, _profile, res in candidates)
+        wanted = sum(
+            float(qty) * float(res.fill_px)
+            + fill_fees(pf_id, "buy", float(qty), float(res.fill_px)).total_usd
+            for _oid, _tk, qty, _sig, _profile, res in candidates
+        )
         scale = min(1.0, (cash / wanted) * (1.0 - 1e-12)) if wanted > cash else 1.0
+        for _attempt in range(3):
+            scaled_total = sum(
+                float(qty) * scale * float(res.fill_px)
+                + fill_fees(
+                    pf_id, "buy", float(qty) * scale, float(res.fill_px)
+                ).total_usd
+                for _oid, _tk, qty, _sig, _profile, res in candidates
+            )
+            if scaled_total <= cash or scaled_total <= 0:
+                break
+            scale *= (cash / scaled_total) * (1.0 - 1e-12)
         for oid, tk, qty, sig, profile_id, res in candidates:
             scaled_qty = float(qty) * scale
             if scale < 1.0:
@@ -292,6 +365,8 @@ def generate_all(con, d: date) -> int:
     for pf_id, strat_name, cfg_json, cash in con.execute(
         "SELECT id, strategy, config, cash FROM portfolios WHERE active ORDER BY id"
     ).fetchall():
+        if book_breaks.portfolio_account(con, pf_id)["engine"] != "league":
+            continue
         cfg = json.loads(cfg_json)
         cadence = cfg.get("cadence", "daily")
         if not _cadence_fires(con, cadence, d, pf_id):
@@ -311,7 +386,6 @@ def generate_all(con, d: date) -> int:
             equity=equity,
         )
         orders = strat.generate_orders(con, pv, d)
-        oid = next_order_id(con)
         for o in orders:
             dup = con.execute(
                 "SELECT 1 FROM sim_orders WHERE portfolio_id = ? AND ticker = ? "
@@ -325,6 +399,7 @@ def generate_all(con, d: date) -> int:
                 continue
             quarantine = (quarantine_reason(con, o.ticker)
                           if o.side == "buy" else None)
+            oid = next_order_id(con)
             con.execute(
                 "INSERT INTO sim_orders (id, portfolio_id, ticker, side, qty,"
                 " signal_date, status, reject_reason)"
@@ -333,7 +408,6 @@ def generate_all(con, d: date) -> int:
                  "rejected" if quarantine else "pending",
                  f"data_quarantine: {quarantine}" if quarantine else None],
             )
-            oid += 1
             n_new += 1
     if n_skipped:
         log.info(f"[league] dedup: skipped {n_skipped} duplicate pending order(s)")
@@ -399,8 +473,11 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
     rows = []
     for pf_id, name, created, initial_cash in con.execute(
         "SELECT id, name, created, COALESCE(initial_cash, ?) FROM portfolios "
-        "WHERE active ORDER BY id", [INITIAL_CASH]
+        "WHERE active ORDER BY id",
+        [INITIAL_CASH],
     ).fetchall():
+        if book_breaks.portfolio_account(con, pf_id)["visibility"] != "public":
+            continue
         eq = con.execute(
             "SELECT date, equity FROM sim_equity WHERE portfolio_id = ? ORDER BY date",
             [pf_id],
@@ -420,25 +497,34 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
         n_fills = con.execute(
             "SELECT COUNT(*) FROM sim_fills WHERE portfolio_id = ?",
             [pf_id]).fetchone()[0]
+        break_date = book_breaks.latest_break(con, pf_id)
         rows.append({
             "id": pf_id, "name": name, "inception": created, "equity": equity,
             "initial_cash": float(initial_cash), "total_ret": total_ret,
             "vs_spy": vs_spy, "mdd": mdd,
             "n_open": n_open, "n_fills": n_fills, "last5": last5,
+            "break_date": break_date,
+            "since_break": book_breaks.return_since_break(
+                con, pf_id, equity, d
+            ),
+            "fees_paid": book_breaks.fees_paid(
+                con, pf_id, since=break_date, through=d
+            ) if break_date is not None else 0.0,
         })
     rows.sort(key=lambda r: r["total_ret"], reverse=True)
 
     lines = [
         f"# Paper League — {d.isoformat()}",
         "",
-        "| # | Portfolio | Inception | Equity | Total ret | vs SPY | Max DD | "
-        "Open | Fills | Last 5d |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "| # | Portfolio | Inception | Equity | Total ret | Since break | "
+        "Fees paid | vs SPY | Max DD | Open | Fills | Last 5d |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for i, r in enumerate(rows, 1):
         lines.append(
             f"| {i} | {r['name']} | {r['inception']} | "
             f"${r['equity']:,.0f} | {_fmt_pct(r['total_ret'])} | "
+            f"{_fmt_pct(r['since_break'])} | ${r['fees_paid']:,.2f} | "
             f"{_fmt_pct(r['vs_spy'])} | {_fmt_pct(r['mdd'])} | "
             f"{r['n_open']} | {r['n_fills']} | {_fmt_pct(r['last5'])} |"
         )
@@ -448,6 +534,14 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
         f"persisted starting capital · as of {d.isoformat()}._",
         "",
     ]
+    break_dates = sorted({row["break_date"] for row in rows if row["break_date"]})
+    if break_dates:
+        dates = ", ".join(value.isoformat() for value in break_dates)
+        lines += [
+            f"_† commissions from the recorded cost-profile break ({dates}); "
+            "evaluation clocks restart at each break._",
+            "",
+        ]
 
     # --- stale marks, on the dashboard rather than only in a log line -------
     # A held name that stopped printing is carried at its last close forever, so
@@ -475,6 +569,8 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
         HAVING MAX(pr.date) FILTER (WHERE pr.volume > 0) < ?
         ORDER BY last_traded, p.portfolio_id, p.ticker
         """, [d]).fetchall()
+    public_ids = {row["id"] for row in rows}
+    stale = [row for row in stale if row[0] in public_ids]
     if stale:
         lines += [
             f"## ⚠ Stale marks — {len(stale)} position(s) carried at an old close",
@@ -516,9 +612,17 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
     resources.write_text_atomic(md_path, "\n".join(lines))
 
     # full sim_equity export
-    csv_df = con.execute(
-        "SELECT portfolio_id, date, equity FROM sim_equity ORDER BY portfolio_id, date"
-    ).fetch_df()
+    if public_ids:
+        placeholders = ",".join("?" for _ in public_ids)
+        csv_df = con.execute(
+            "SELECT portfolio_id,date,equity FROM sim_equity "
+            f"WHERE portfolio_id IN ({placeholders}) ORDER BY portfolio_id,date",
+            sorted(public_ids),
+        ).fetch_df()
+    else:
+        csv_df = con.execute(
+            "SELECT portfolio_id,date,equity FROM sim_equity WHERE FALSE"
+        ).fetch_df()
     resources.write_text_atomic(
         reports_dir / "league.csv", csv_df.to_csv(index=False)
     )
@@ -541,9 +645,12 @@ def rerun_cleanup(con, d: date) -> None:
     - State is rebuilt by replaying every surviving fill (exact).
     """
     con.execute("DELETE FROM sim_equity WHERE date = ?", [d])
-    con.execute(
-        "DELETE FROM sim_fill_costs WHERE order_id IN "
-        "(SELECT order_id FROM sim_fills WHERE fill_date = ?)", [d])
+    filled_order_ids = "SELECT order_id FROM sim_fills WHERE fill_date = ?"
+    for table in ("sim_fill_costs", "sim_fill_fees", "sim_fill_details"):
+        if table_exists(con, table):
+            con.execute(
+                f"DELETE FROM {table} WHERE order_id IN ({filled_order_ids})", [d]
+            )
     con.execute(
         "DELETE FROM sim_execution_attempts WHERE attempt_date = ? AND order_id IN "
         "(SELECT order_id FROM sim_fills WHERE fill_date = ?)", [d, d])
@@ -554,14 +661,25 @@ def rerun_cleanup(con, d: date) -> None:
     # points at the order by id) — deleting them left disc_tickets.order_id
     # dangling and the ticket 'submitted' forever.
     protected_order_queries = []
-    if table_exists(con, "disc_tickets"):
-        protected_order_queries.append(
-            "SELECT order_id FROM disc_tickets WHERE order_id IS NOT NULL"
+    protected_tables = (
+        ("disc_tickets", "order_id"),
+        ("daily_opportunity_order_attribution", "order_id"),
+        ("agent_paper_order_attribution", "order_id"),
+        ("paper_account_intakes", "order_id"),
+        ("p15_order_intents", "sim_order_id"),
+        ("p16_order_intents", "sim_order_id"),
+        ("sim_order_details", "order_id"),
+    )
+    for table, column in protected_tables:
+        columns = (
+            {row[1] for row in con.execute(f"PRAGMA table_info('{table}')").fetchall()}
+            if table_exists(con, table)
+            else set()
         )
-    if table_exists(con, "agent_paper_order_attribution"):
-        protected_order_queries.append(
-            "SELECT order_id FROM agent_paper_order_attribution"
-        )
+        if column in columns:
+            protected_order_queries.append(
+                f"SELECT {column} FROM {table} WHERE {column} IS NOT NULL"
+            )
     if protected_order_queries:
         protected = " UNION ".join(protected_order_queries)
         con.execute(
@@ -629,11 +747,14 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
             if verbose:
                 log.info(f"[league] --rerun: cleared {d} sim rows, rebuilt state")
         dv = portfolio.credit_dividends(con, d)
+        accrue_accounts(con, d)
         fc = fill_pending(con, d)
+        settle_accounts(con, d)
         # verbose is threaded through so a walk-forward replay (thousands of
         # sessions, verbose=False) does not print a carried-mark line per day,
         # while the nightly — the one run a human reads — always does.
         mm = mtm_all(con, d, verbose=verbose)
+        check_account_halts(con, d)
         nn = generate_all(con, d)
 
     md_path = write_reports(con, d, data_dir)

@@ -7,13 +7,14 @@ from datetime import date
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
 from server.p16_book_store import P16BookError
-from sim import fills, p15_fills, portfolio
+from sim import book_breaks, costs, fills, ledger, p15_fills, portfolio
+from sim.schema import next_order_id
 
 SIM_FILLED_STATUS = "p16_filled"
 
 attempt_limit_on_open = p15_fills.attempt_limit_on_open
 attempt_fill = fills.attempt_fill
-apply_fill = portfolio.apply_fill
+apply_fill = ledger.apply_fill
 
 
 def current_position_state(con, book_instance_id: str) -> dict:
@@ -28,7 +29,7 @@ def current_position_state(con, book_instance_id: str) -> dict:
 
 
 def next_sim_order_id(con) -> int:
-    return int(con.execute("SELECT COALESCE(MAX(id),0)+1 FROM sim_orders").fetchone()[0])
+    return next_order_id(con)
 
 
 def split_factor(con, ticker: str, after: date, through: date) -> float:
@@ -68,6 +69,15 @@ def record_sim_fill(
     status, reason = result.status, result.reject_reason
     applied = 0.0
     if status == "filled":
+        fees = costs.charge(
+            book_breaks.effective_cost_profile(con, book, fill_date),
+            side=side,
+            qty=quantity,
+            price=result.fill_px,
+            fill_kind="limit_on_open" if role == "entry" else "next_open",
+            instrument={"kind": "stock", "multiplier": 1.0},
+            session_date=fill_date,
+        )
         existing_quantity = con.execute(
             "SELECT qty FROM sim_positions WHERE portfolio_id=? AND ticker=?",
             [book, ticker],
@@ -76,8 +86,10 @@ def record_sim_fill(
                 and (existing_quantity is None or existing_quantity[0] <= 0)
                 and entry_atr is None):
             raise P16BookError("P16 new stock entry lacks its ATR rule")
-        if side == "buy" and quantity * float(result.fill_px) > portfolio.get_cash(
-                con, book) + 1e-9:
+        if side == "buy" and (
+            quantity * float(result.fill_px) + fees.total_usd
+            > portfolio.get_cash(con, book) + 1e-9
+        ):
             status = "rejected"
             reason = "insufficient_cash"
         elif side == "sell" and (
@@ -85,10 +97,19 @@ def record_sim_fill(
             status = "rejected"
             reason = "no_position_to_sell"
         else:
-            applied = apply_fill(con, {
-                "portfolio_id": book, "ticker": ticker, "side": side,
-                "qty": float(quantity), "fill_px": result.fill_px,
-            })
+            applied = apply_fill(
+                con,
+                {
+                    "order_id": order_id,
+                    "portfolio_id": book,
+                    "ticker": ticker,
+                    "side": side,
+                    "qty": float(quantity),
+                    "fill_px": result.fill_px,
+                    "fill_date": fill_date,
+                },
+                fees,
+            )
             if not math.isclose(applied, quantity, rel_tol=1e-12, abs_tol=1e-12):
                 raise P16BookError("P16 fill was not applied at its full quantity")
     con.execute(

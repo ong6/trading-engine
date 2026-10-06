@@ -15,8 +15,8 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import REPO_ROOT
 from engine.lib.util import table_exists
-from sim import fills, nyse, p15_fills, portfolio
-from sim.schema import init_sim_schema
+from sim import book_breaks, costs, fills, ledger, nyse, p15_fills, portfolio
+from sim.schema import init_sim_schema, next_order_id
 
 BOOK_IDS = ("p15_ai_ranked", "p15_rule_control", "p15_hybrid_veto")
 INITIAL_CASH = 10_000.0
@@ -493,7 +493,7 @@ def queue_orders(
 
 
 def _next_order_id(con: duckdb.DuckDBPyConnection) -> int:
-    return int(con.execute("SELECT COALESCE(MAX(id),0)+1 FROM sim_orders").fetchone()[0])
+    return next_order_id(con)
 
 
 def _split_factor(
@@ -548,10 +548,28 @@ def _terminal_order(
             if qty <= 0 or result.status != "filled":
                 status, reason = "rejected", "insufficient_cash"
         if status == "filled":
-            applied = portfolio.apply_fill(con, {
-                "portfolio_id": portfolio_id, "ticker": ticker,
-                "side": side, "qty": qty, "fill_px": result.fill_px,
-            })
+            fees = costs.charge(
+                book_breaks.effective_cost_profile(con, portfolio_id, fill_date),
+                side=side,
+                qty=qty,
+                price=result.fill_px,
+                fill_kind="limit_on_open" if role == "entry" else "next_open",
+                instrument={"kind": "stock", "multiplier": 1.0},
+                session_date=fill_date,
+            )
+            applied = ledger.apply_fill(
+                con,
+                {
+                    "order_id": order_id,
+                    "portfolio_id": portfolio_id,
+                    "ticker": ticker,
+                    "side": side,
+                    "qty": qty,
+                    "fill_px": result.fill_px,
+                    "fill_date": fill_date,
+                },
+                fees,
+            )
             if applied <= 0:
                 status, reason = "rejected", (
                     "insufficient_cash" if side == "buy" else "no_position_to_sell"
@@ -699,14 +717,14 @@ def _signal_equity(
 
 def _restore_rerun_evidence(con: duckdb.DuckDBPyConnection) -> int:
     rows = con.execute(
-        "SELECT r.*,i.signal_date FROM p15_book_fills r "
+        "SELECT r.*,i.signal_date,i.order_role FROM p15_book_fills r "
         "JOIN p15_order_intents i ON i.id=r.intent_id ORDER BY r.order_id"
     ).fetchall()
     restored = 0
     for row in rows:
         (_intent_id, order_id, book_id, ticker, side, qty, fill_date, open_px,
          fill_px, slippage, cost, profile, median_dollar_vol, participation,
-         impact, fee, signal_date) = row
+         impact, fee, signal_date, role) = row
         expected_order = (book_id, ticker, side, qty, signal_date, SIM_FILLED_STATUS, None)
         order = con.execute(
             "SELECT portfolio_id,ticker,side,qty,signal_date,status,reject_reason "
@@ -742,6 +760,16 @@ def _restore_rerun_evidence(con: duckdb.DuckDBPyConnection) -> int:
             [order_id, fill_date, profile, qty * open_px, median_dollar_vol, participation,
              "filled", None],
         )
+        fees = costs.charge(
+            book_breaks.effective_cost_profile(con, book_id, fill_date),
+            side=side,
+            qty=qty,
+            price=fill_px,
+            fill_kind="limit_on_open" if role == "entry" else "next_open",
+            instrument={"kind": "stock", "multiplier": 1.0},
+            session_date=fill_date,
+        )
+        ledger._persist_fees(con, order_id, fees)
         restored += 1
     if restored:
         _rebuild_p15_state(con)
@@ -783,17 +811,42 @@ def _rebuild_p15_state(con: duckdb.DuckDBPyConnection) -> None:
                         con, book_id, ticker, kind, float(qty), float(price), into,
                         None if ratio is None else float(ratio),
                     )
-            for ticker, side, qty, fill_px in con.execute(
-                "SELECT ticker,side,qty,fill_px FROM sim_fills WHERE portfolio_id=? "
+            for order_id, ticker, side, qty, fill_px in con.execute(
+                "SELECT order_id,ticker,side,qty,fill_px FROM sim_fills WHERE portfolio_id=? "
                 "AND fill_date=? ORDER BY CASE side WHEN 'sell' THEN 0 ELSE 1 END,order_id",
                 [book_id, event_date],
             ).fetchall():
                 factor = _split_factor(con, ticker, event_date, date.max)
                 adjusted = float(qty) * factor
-                applied = portfolio.apply_fill(con, {
-                    "portfolio_id": book_id, "ticker": ticker, "side": side,
-                    "qty": adjusted, "fill_px": float(fill_px) / factor,
-                })
+                fee_row = con.execute(
+                    "SELECT cost_profile,commission,exchange_fee,clearing_fee,"
+                    "pass_through,cat_fee,sec_fee,finra_taf,occ_fee,orf_fee,total_usd "
+                    "FROM sim_fill_fees WHERE order_id=?",
+                    [order_id],
+                ).fetchone()
+                fees = None if fee_row is None else dict(zip(
+                    (
+                        "cost_profile", "commission", "exchange_fee", "clearing_fee",
+                        "pass_through", "cat_fee", "sec_fee", "finra_taf",
+                        "occ_fee", "orf_fee", "total_usd",
+                    ),
+                    fee_row,
+                    strict=True,
+                ))
+                applied = ledger.apply_fill(
+                    con,
+                    {
+                        "order_id": order_id,
+                        "portfolio_id": book_id,
+                        "ticker": ticker,
+                        "side": side,
+                        "qty": adjusted,
+                        "fill_px": float(fill_px) / factor,
+                        "fill_date": event_date,
+                    },
+                    fees,
+                    persist_fees=False,
+                )
                 if not math.isclose(applied, adjusted, rel_tol=1e-12, abs_tol=1e-12):
                     raise P15BookError("P15 fill replay changed applied quantity")
 

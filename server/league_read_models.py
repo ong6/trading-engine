@@ -8,6 +8,7 @@ from datetime import date
 import duckdb
 
 from engine.lib.util import table_exists
+from sim import book_breaks
 from sim.league import _spy_return, regime_label
 from sim.schema import INITIAL_CASH
 
@@ -79,6 +80,10 @@ def _active_portfolios(con: duckdb.DuckDBPyConnection) -> list[tuple]:
         f"SELECT id, name, created, {initial_expr}, {profile_expr} "
         "FROM portfolios WHERE active ORDER BY id"
     ).fetchall()
+    portfolios = [
+        row for row in portfolios
+        if book_breaks.portfolio_account(con, row[0])["visibility"] == "public"
+    ]
     for portfolio in portfolios:
         require_public_portfolio_id(portfolio[0])
     return portfolios
@@ -92,6 +97,9 @@ def _equity_summaries_by_portfolio(
     result: dict[str, dict] = {}
     if as_of is None or not table_exists(con, "sim_equity"):
         return result
+    public_ids = {
+        row[0] for row in _active_portfolios(con)
+    }
     cursor = con.execute(
         "SELECT e.portfolio_id, e.date, e.equity FROM sim_equity e "
         "JOIN portfolios p ON p.id = e.portfolio_id "
@@ -101,6 +109,8 @@ def _equity_summaries_by_portfolio(
     previous_dates: dict[str, date] = {}
     while batch := cursor.fetchmany(EQUITY_SCAN_BATCH_SIZE):
         for raw_portfolio_id, raw_equity_date, raw_equity in batch:
+            if raw_portfolio_id not in public_ids:
+                continue
             portfolio_id = require_public_portfolio_id(raw_portfolio_id)
             equity_date = require_public_date(raw_equity_date, "league equity date")
             if equity_date > as_of:
@@ -392,6 +402,18 @@ def league(con: duckdb.DuckDBPyConnection) -> dict:
 
 def equity(con: duckdb.DuckDBPyConnection, portfolio_id: str) -> dict | None:
     """Return one active portfolio's bounded equity series, or ``None`` if inactive."""
+    require_public_portfolio_id(portfolio_id)
+    row = (
+        con.execute(
+            "SELECT 1 FROM portfolios WHERE id=? AND active", [portfolio_id]
+        ).fetchone()
+        if table_exists(con, "portfolios")
+        else None
+    )
+    if row is None or book_breaks.portfolio_account(
+        con, portfolio_id
+    )["visibility"] != "public":
+        return None
     return league_equity_read_models.project_equity(con, portfolio_id, latest_prices_date)
 
 
