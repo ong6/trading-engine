@@ -30,11 +30,12 @@ tradeable bar it rejects as 'no_bar'. A bar is never invented.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import duckdb
 
-from . import calendar, execution
+from . import bar_sources, calendar, execution
+from .order_types import OrderType, received_at_allowed
 
 MEDVOL_BARS = 60          # lookback for median dollar volume
 # Compatibility alias. New code reads this from the named execution profile.
@@ -56,6 +57,11 @@ class FillResult:
     impact_bps: float | None = None
     fee_bps: float | None = None
     execution_profile: str | None = None
+    fill_kind: str | None = None
+    price_source: str | None = None
+    bar_ref: str | None = None
+    fill_ts: datetime | None = None
+    reference_px: float | None = None
 
 
 def median_dollar_vol(
@@ -177,4 +183,246 @@ def attempt_fill(
         impact_bps=components["impact_bps"],
         fee_bps=components["fee_bps"],
         execution_profile=selected.id,
+    )
+
+
+def _utc_naive(value: datetime) -> datetime:
+    if value.utcoffset() is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _v2_result(
+    *,
+    side: str,
+    qty: float,
+    reference_px: float,
+    mdv: float | None,
+    slip_bps: float,
+    fill_kind: str,
+    price_source: str,
+    bar_ref: str,
+    fill_ts: datetime,
+    profile: str | execution.ExecutionProfile | None,
+) -> FillResult:
+    selected = execution.resolve_profile(profile)
+    participation = (
+        0.0 if mdv is None or mdv <= 0 else qty * reference_px / mdv
+    )
+    if mdv is not None and participation > selected.max_participation:
+        return FillResult(
+            status="rejected",
+            reject_reason=f"illiquid: notional ${qty * reference_px:,.0f} > "
+            f"{selected.max_participation:.2%} of median $vol ${mdv:,.0f} "
+            f"(profile {selected.id})",
+            open_px=reference_px,
+            median_dollar_vol=mdv,
+            participation=participation,
+            execution_profile=selected.id,
+            fill_kind=fill_kind,
+            price_source=price_source,
+            bar_ref=bar_ref,
+            fill_ts=fill_ts,
+            reference_px=reference_px,
+        )
+    direction = 1 if side in {"buy", "cover"} else -1
+    if side not in {"buy", "sell", "short", "cover"}:
+        raise ValueError(f"bad side {side!r}")
+    fill_px = reference_px * (1 + direction * slip_bps / 1e4)
+    return FillResult(
+        status="filled",
+        open_px=reference_px,
+        fill_px=fill_px,
+        slippage_bps=slip_bps,
+        cost_bps=slip_bps,
+        median_dollar_vol=mdv,
+        participation=participation,
+        impact_bps=0.0,
+        fee_bps=0.0,
+        execution_profile=selected.id,
+        fill_kind=fill_kind,
+        price_source=price_source,
+        bar_ref=bar_ref,
+        fill_ts=fill_ts,
+        reference_px=reference_px,
+    )
+
+
+def attempt_auction_fill(
+    con: duckdb.DuckDBPyConnection,
+    ticker: str,
+    side: str,
+    qty: float,
+    session_date: date,
+    received_at: datetime,
+    order_type: str = "moo",
+    profile: str | execution.ExecutionProfile | None = None,
+    *,
+    price_source: str = "prices",
+    available_at: datetime | None = None,
+    penalty_bps: float = 0.0,
+) -> FillResult:
+    """Attempt an opening- or closing-auction fill without a same-bar peek."""
+    kind = OrderType(order_type)
+    if kind not in {OrderType.MOO, OrderType.MOC}:
+        raise ValueError("auction order_type must be 'moo' or 'moc'")
+    if received_at.utcoffset() is None:
+        raise ValueError("received_at must include its timezone")
+    if not received_at_allowed(kind, session_date, received_at):
+        return FillResult(status="rejected", reject_reason="cutoff")
+    bar = bar_sources.daily_bar(
+        con, ticker, session_date, source=price_source, available_at=available_at,
+    )
+    if bar is None:
+        return FillResult(status="pending", price_source=price_source)
+    opening = kind is OrderType.MOO
+    reference = bar.open if opening else bar.close
+    mdv = bar_sources.median_dollar_volume(
+        con, ticker, session_date, source=price_source, available_at=available_at,
+    )
+    # Auction orders trade at one clearing print: half the normal estimated
+    # half-spread tier and no fixed adverse-movement component.
+    slip = half_spread_bps(mdv) / 2 + penalty_bps
+    local_time = datetime.min.time().replace(hour=9, minute=30) if opening else (
+        datetime.min.time().replace(hour=16)
+    )
+    fill_ts = datetime.combine(
+        session_date, local_time, bar_sources.NEW_YORK,
+    ).astimezone(timezone.utc).replace(tzinfo=None)
+    return _v2_result(
+        side=side,
+        qty=qty,
+        reference_px=reference,
+        mdv=mdv,
+        slip_bps=slip,
+        fill_kind="open_auction" if opening else "close_auction",
+        price_source=price_source,
+        bar_ref=bar.bar_ref,
+        fill_ts=fill_ts,
+        profile=profile,
+    )
+
+
+def _eligible_minutes(
+    con: duckdb.DuckDBPyConnection,
+    ticker: str,
+    session_date: date,
+    received_at: datetime,
+    *,
+    price_source: str,
+    available_at: datetime | None,
+) -> list[bar_sources.MinuteBar]:
+    earliest = _utc_naive(received_at) + timedelta(minutes=1)
+    return [
+        bar for bar in bar_sources.minute_bars(
+            con, ticker, session_date, source=price_source, available_at=available_at,
+        )
+        if bar.ts >= earliest
+    ]
+
+
+def attempt_intraday_market_fill(
+    con: duckdb.DuckDBPyConnection,
+    ticker: str,
+    side: str,
+    qty: float,
+    session_date: date,
+    received_at: datetime,
+    profile: str | execution.ExecutionProfile | None = None,
+    *,
+    price_source: str = "intraday_prices",
+    daily_price_source: str = "prices",
+    available_at: datetime | None = None,
+) -> FillResult:
+    """Fill at the first minute bar at least 60 seconds after receipt."""
+    if received_at.utcoffset() is None:
+        raise ValueError("received_at must include its timezone")
+    if not received_at_allowed(OrderType.MARKET, session_date, received_at):
+        return FillResult(status="rejected", reject_reason="market_closed")
+    bars = _eligible_minutes(
+        con, ticker, session_date, received_at,
+        price_source=price_source, available_at=available_at,
+    )
+    if not bars:
+        return FillResult(status="pending", price_source=price_source)
+    bar = bars[0]
+    reference = bar.vwap if bar.vwap is not None and bar.vwap > 0 else (
+        bar.open + bar.high + bar.low + bar.close
+    ) / 4
+    mdv = bar_sources.median_dollar_volume(
+        con, ticker, session_date, source=daily_price_source, available_at=available_at,
+    )
+    slip = half_spread_bps(mdv) + 5.0
+    return _v2_result(
+        side=side,
+        qty=qty,
+        reference_px=reference,
+        mdv=mdv,
+        slip_bps=slip,
+        fill_kind="intraday_bar",
+        price_source=price_source,
+        bar_ref=bar.bar_ref,
+        fill_ts=bar.ts,
+        profile=profile,
+    )
+
+
+def tick_size(price: float) -> float:
+    """US equity tick used by the deterministic limit-touch rule."""
+    if price <= 0:
+        raise ValueError("limit price must be positive")
+    return 0.01 if price >= 1 else 0.0001
+
+
+def attempt_intraday_limit_fill(
+    con: duckdb.DuckDBPyConnection,
+    ticker: str,
+    side: str,
+    qty: float,
+    session_date: date,
+    received_at: datetime,
+    limit_px: float,
+    profile: str | execution.ExecutionProfile | None = None,
+    *,
+    price_source: str = "intraday_prices",
+    daily_price_source: str = "prices",
+    available_at: datetime | None = None,
+) -> FillResult:
+    """Fill a day limit only after a full later minute bar crosses one tick."""
+    if received_at.utcoffset() is None:
+        raise ValueError("received_at must include its timezone")
+    if not received_at_allowed(OrderType.LIMIT, session_date, received_at):
+        return FillResult(status="rejected", reject_reason="market_closed")
+    bars = _eligible_minutes(
+        con, ticker, session_date, received_at,
+        price_source=price_source, available_at=available_at,
+    )
+    if not bars:
+        return FillResult(status="pending", price_source=price_source)
+    tick = tick_size(limit_px)
+    if side in {"buy", "cover"}:
+        touched = next((bar for bar in bars if bar.low <= limit_px - tick), None)
+    elif side in {"sell", "short"}:
+        touched = next((bar for bar in bars if bar.high >= limit_px + tick), None)
+    else:
+        raise ValueError(f"bad side {side!r}")
+    if touched is None:
+        return FillResult(
+            status="expired", reject_reason="day_limit_not_touched",
+            price_source=price_source,
+        )
+    mdv = bar_sources.median_dollar_volume(
+        con, ticker, session_date, source=daily_price_source, available_at=available_at,
+    )
+    return _v2_result(
+        side=side,
+        qty=qty,
+        reference_px=limit_px,
+        mdv=mdv,
+        slip_bps=0.0,
+        fill_kind="limit_touch",
+        price_source=price_source,
+        bar_ref=touched.bar_ref,
+        fill_ts=touched.ts,
+        profile=profile,
     )
