@@ -6,7 +6,7 @@ from datetime import date
 import pytest
 
 from server import nightly_monitor, nightly_reports
-from sim import league
+from sim import book_breaks, league
 from tests.nightly_test_helpers import nightly_fixture
 
 
@@ -151,6 +151,26 @@ def test_p15_equity_update_requires_league_rerender(con, tmp_path):
         name: (tmp_path / "reports" / name).read_bytes()
         for name in ("league.md", "league.csv")
     } == rendered
+
+
+def test_private_portfolio_is_excluded_from_nightly_report_evidence(con, tmp_path):
+    meta, driver = nightly_fixture(con, tmp_path)
+    latest = date(2026, 9, 4)
+    con.execute(
+        "INSERT INTO portfolios "
+        "(id,name,strategy,config,created,active,cash,initial_cash,execution_profile) "
+        "VALUES ('private','Private','none','{}',?,TRUE,100,100,'baseline_v1')",
+        [latest],
+    )
+    con.execute("INSERT INTO sim_equity VALUES ('private',?,100,100,0)", [latest])
+    book_breaks.set_portfolio_account(con, "private", visibility="private")
+
+    league.write_reports(con, latest, tmp_path)
+
+    assert nightly_monitor.evidence_status(
+        meta, driver, con, latest, data_dir=tmp_path
+    )["status"] == "current"
+    assert "private" not in (tmp_path / "reports" / "league.csv").read_text()
 
 
 @pytest.mark.parametrize(
