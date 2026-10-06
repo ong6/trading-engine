@@ -142,6 +142,10 @@ def test_p22_data_and_account_units_are_registered_with_required_schedules():
     account_timer = (root / "server/trading-engine-accounts-settle.timer").read_text()
 
     assert "python -m tools.free_massive_options" in options_service
+    assert "python -m tools.free_sources massive --splits" in options_service
+    assert options_service.index("massive --splits") < options_service.index(
+        "tools.free_massive_options"
+    )
     assert "Nice=10" in options_service and "TimeoutStartSec=3h" in options_service
     assert "OnCalendar=*-*-* 11:35:00 UTC" in options_timer
     assert "python -m engine.accounts settle --late" in account_service

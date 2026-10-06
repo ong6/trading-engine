@@ -155,10 +155,17 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         ticker VARCHAR NOT NULL, ex_date DATE NOT NULL,
         split_from DOUBLE NOT NULL, split_to DOUBLE NOT NULL,
         fetched_at TIMESTAMP NOT NULL, source_sha256 VARCHAR NOT NULL,
+        status VARCHAR NOT NULL DEFAULT 'active',
+        withdrawn_at TIMESTAMP, withdrawn_source_sha256 VARCHAR,
         PRIMARY KEY(ticker, ex_date))"""
     )
+    con.execute("ALTER TABLE free_splits ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'active'")
+    con.execute("ALTER TABLE free_splits ADD COLUMN IF NOT EXISTS withdrawn_at TIMESTAMP")
     con.execute(
-        """CREATE OR REPLACE VIEW free_daily_bars_adjusted AS
+        "ALTER TABLE free_splits ADD COLUMN IF NOT EXISTS withdrawn_source_sha256 VARCHAR"
+    )
+    con.execute(
+        """CREATE OR REPLACE MACRO free_daily_bars_adjusted_asof(cutoff_date) AS TABLE (
         WITH canonical AS (
             SELECT *
             FROM free_daily_bars
@@ -171,8 +178,10 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
                        SELECT PRODUCT(s.split_to / s.split_from)
                        FROM free_splits s
                        WHERE s.ticker = b.ticker
+                         AND s.status = 'active'
                          AND s.ex_date > b.date
                          AND s.ex_date > CAST(b.fetched_at AS DATE)
+                         AND s.ex_date <= cutoff_date
                    ), 1.0) AS split_factor
             FROM canonical b
         )
@@ -182,7 +191,11 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
                volume * split_factor AS volume,
                vwap / split_factor AS vwap,
                source, fetched_at, source_sha256
-        FROM adjusted"""
+        FROM adjusted)"""
+    )
+    con.execute(
+        """CREATE OR REPLACE VIEW free_daily_bars_adjusted AS
+        SELECT * FROM free_daily_bars_adjusted_asof(CURRENT_DATE)"""
     )
 
 
@@ -482,27 +495,90 @@ def parse_massive_splits(body: bytes) -> tuple[list[dict], str | None]:
 def load_splits(
     con: duckdb.DuckDBPyConnection, body: bytes, *, fetched_at: datetime
 ) -> dict:
-    """Insert the first observed version of each ticker/ex-date split."""
+    """Insert or refresh the latest observed version of each ticker/ex-date split."""
     fetched = _utc_naive(fetched_at, "Massive split fetched_at")
     rows, next_url = parse_massive_splits(body)
     source_sha = hashlib.sha256(body).hexdigest()
     init_schema(con)
     before = con.execute("SELECT COUNT(*) FROM free_splits").fetchone()[0]
-    con.executemany(
-        "INSERT OR IGNORE INTO free_splits VALUES (?, ?, ?, ?, ?, ?)",
-        [[
-            row["ticker"], row["ex_date"], row["split_from"], row["split_to"],
-            fetched, source_sha,
-        ] for row in rows],
-    )
+    existing = {
+        (ticker, ex_date): (split_from, split_to, observed_sha, status, observed_at)
+        for ticker, ex_date, split_from, split_to, observed_sha, status, observed_at
+        in con.execute(
+            """SELECT ticker,ex_date,split_from,split_to,source_sha256,status,fetched_at
+            FROM free_splits
+            WHERE (ticker,ex_date) IN (
+                SELECT UNNEST(?), UNNEST(?)
+            )""",
+            [
+                [row["ticker"] for row in rows],
+                [row["ex_date"] for row in rows],
+            ],
+        ).fetchall()
+    } if rows else {}
+    if rows:
+        con.executemany(
+            """INSERT INTO free_splits
+            (ticker,ex_date,split_from,split_to,fetched_at,source_sha256,status,
+             withdrawn_at,withdrawn_source_sha256)
+            VALUES (?, ?, ?, ?, ?, ?, 'active', NULL, NULL)
+            ON CONFLICT (ticker,ex_date) DO UPDATE SET
+                split_from=excluded.split_from, split_to=excluded.split_to,
+                fetched_at=excluded.fetched_at, source_sha256=excluded.source_sha256,
+                status='active', withdrawn_at=NULL, withdrawn_source_sha256=NULL
+            WHERE excluded.fetched_at >= free_splits.fetched_at
+              AND (excluded.source_sha256 <> free_splits.source_sha256
+                   OR free_splits.status <> 'active')""",
+            [[
+                row["ticker"], row["ex_date"], row["split_from"], row["split_to"],
+                fetched, source_sha,
+            ] for row in rows],
+        )
     after = con.execute("SELECT COUNT(*) FROM free_splits").fetchone()[0]
+    updated = sum(
+        key in existing
+        and fetched >= existing[key][4]
+        and (source_sha != existing[key][2] or existing[key][3] != "active")
+        for key in ((row["ticker"], row["ex_date"]) for row in rows)
+    )
     return {
         "source": "massive_reference_splits",
         "source_sha256": source_sha,
         "row_count": len(rows),
         "inserted": after - before,
+        "updated": updated,
         "next_url": next_url,
     }
+
+
+def reconcile_splits(
+    con: duckdb.DuckDBPyConnection, *, observed: set[tuple[str, date]],
+    start: date, through: date, fetched_at: datetime, source_sha256: str,
+) -> int:
+    """Withdraw missing splits only after a complete bounded reference response."""
+    start = _date_argument(start, "split reconciliation start")
+    through = _date_argument(through, "split reconciliation through")
+    fetched = _utc_naive(fetched_at, "split reconciliation fetched_at")
+    if start > through or SHA256.fullmatch(source_sha256) is None:
+        raise FreeSourceError("Massive split reconciliation identity is invalid")
+    init_schema(con)
+    active = {
+        (ticker, ex_date)
+        for ticker, ex_date in con.execute(
+            """SELECT ticker,ex_date FROM free_splits
+            WHERE status='active' AND ex_date BETWEEN ? AND ?""",
+            [start, through],
+        ).fetchall()
+    }
+    withdrawn = sorted(active - observed)
+    if withdrawn:
+        con.executemany(
+            """UPDATE free_splits
+            SET status='withdrawn', withdrawn_at=?, withdrawn_source_sha256=?
+            WHERE ticker=? AND ex_date=? AND status='active'""",
+            [[fetched, source_sha256, ticker, ex_date] for ticker, ex_date in withdrawn],
+        )
+    return len(withdrawn)
 
 
 def _date_argument(value: date, field: str) -> date:
@@ -512,19 +588,26 @@ def _date_argument(value: date, field: str) -> date:
 
 
 def daily_panel(
-    con: duckdb.DuckDBPyConnection, start: date, end: date,
+    con: duckdb.DuckDBPyConnection, start: date, end: date, *, as_of: date | None = None,
 ):
     """Return one canonical grouped-daily bar per date and ticker in ``[start, end]``."""
     start = _date_argument(start, "start")
     end = _date_argument(end, "end")
+    as_of = None if as_of is None else _date_argument(as_of, "as_of")
     if start > end:
         raise FreeSourceError("daily panel start is after end")
+    source = (
+        "free_daily_bars_adjusted"
+        if as_of is None
+        else "free_daily_bars_adjusted_asof(?)"
+    )
+    params = [start, end] if as_of is None else [as_of, start, end]
     return con.execute(
-        """SELECT date, ticker, o, h, l, c, volume, vwap
-        FROM free_daily_bars_adjusted
+        f"""SELECT date, ticker, o, h, l, c, volume, vwap
+        FROM {source}
         WHERE date BETWEEN ? AND ?
         ORDER BY date, ticker""",
-        [start, end],
+        params,
     ).df()
 
 
@@ -546,12 +629,12 @@ def mdv60(con: duckdb.DuckDBPyConnection, as_of: date):
     return con.execute(
         """WITH canonical AS (
             SELECT date, ticker, c, volume, vwap
-            FROM free_daily_bars_adjusted
+            FROM free_daily_bars_adjusted_asof(?)
             WHERE date >= ? AND date < ?
         )
         SELECT ticker, MEDIAN(COALESCE(vwap, c) * volume) AS mdv60
         FROM canonical
         GROUP BY ticker
         ORDER BY ticker""",
-        [window_start, as_of],
+        [as_of, window_start, as_of],
     ).df()
