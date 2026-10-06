@@ -6,7 +6,8 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=%h/trading-engine
-ExecStart=%h/trading-engine/.venv/bin/python -m tools.free_sources massive --splits
+# Split refresh is fail-soft: options still use the prior as-of-correct split view.
+ExecStart=-%h/trading-engine/.venv/bin/python -m tools.free_sources massive --splits
 ExecStart=%h/trading-engine/.venv/bin/python -m tools.free_massive_options
 Environment=PYTHONUNBUFFERED=1
 Nice=10

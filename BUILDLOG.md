@@ -2160,4 +2160,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Next:** L3 calls the backfill helper, routes the fail-soft nightly line, applies
   the positional-writer patch and rebinds the merged E1/sector/XS/P15 contracts.
 
+## 2026-10-06 — Require strong evidence before split withdrawal
+
+- **Why:** Round-three review reproduced an ambiguous empty 200 response withdrawing
+  every active split in the capture window.
+- **What:** Require explicit and complete pages, alarm on empty or excessive absence,
+  and advance safe absences through `pending_withdrawal` on two complete refreshes.
+  Old response replays cannot reactivate withdrawals; options read their explicit as-of view.
+  Split refresh is fail-soft so aggregate options capture still runs.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_free_splits.py
+  tests/test_free_massive_options.py tests/test_free_sources.py
+  tests/test_install_automation.py`: 101 passed.
+- **Metrics:** server unchanged, tools +4, product/engine +58, tests +183; budget ok.
+- **Next:** run complete acceptance and publish round-three status.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

@@ -187,10 +187,10 @@ def prior_closes(database: Path, underlyings: list[str], as_of: date) -> dict[st
             )
         rows = con.execute(
             """SELECT ticker, arg_max(c, date)
-            FROM free_daily_bars_adjusted
+            FROM free_daily_bars_adjusted_asof(?)
             WHERE ticker IN (SELECT UNNEST(?)) AND date < ?
             GROUP BY ticker""",
-            [underlyings, as_of],
+            [as_of, underlyings, as_of],
         ).fetchall()
     finally:
         con.close()
