@@ -1,7 +1,7 @@
 """Account-engine order vocabulary, lifecycle, and authoritative clock rules."""
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
@@ -77,20 +77,39 @@ def coarse_status(state: OrderState | str) -> str:
         return "filled"
     if state is OrderState.CANCELLED:
         return "cancelled"
-    return "rejected"
+    if state is OrderState.EXPIRED:
+        return "expired"
+    if state is OrderState.REJECTED:
+        return "rejected"
+    raise ValueError("refused orders have no sim_orders row or coarse status")
 
 
 def cutoff_at(order_type: OrderType | str, session_date: date) -> datetime | None:
     """Return the inclusive exchange cutoff in UTC, if the type has one."""
     order_type = OrderType(order_type)
-    cutoff = {
-        OrderType.MOO: MOO_CUTOFF,
-        OrderType.LIMIT_ON_OPEN: MOO_CUTOFF,
-        OrderType.MOC: MOC_CUTOFF,
-    }.get(order_type)
+    cutoff = None
+    if order_type in {OrderType.MOO, OrderType.LIMIT_ON_OPEN}:
+        cutoff = moo_cutoff(session_date)
+    if order_type is OrderType.MOC:
+        cutoff = moc_cutoff(session_date)
     if cutoff is None:
         return None
-    return datetime.combine(session_date, cutoff, NEW_YORK).astimezone(timezone.utc)
+    return cutoff.astimezone(timezone.utc)
+
+
+def session_close(session_date: date) -> datetime:
+    """Return the timezone-aware scheduled NYSE close for a session."""
+    return datetime.combine(session_date, nyse.session_close(session_date), NEW_YORK)
+
+
+def moc_cutoff(session_date: date) -> datetime:
+    """Return the inclusive MOC deadline, ten minutes before the session close."""
+    return session_close(session_date) - timedelta(minutes=10)
+
+
+def moo_cutoff(session_date: date) -> datetime:
+    """Return the inclusive 09:28 ET MOO deadline for a session."""
+    return datetime.combine(session_date, MOO_CUTOFF, NEW_YORK)
 
 
 def _previous_session(session_date: date) -> date:
@@ -107,28 +126,23 @@ def received_at_allowed(order_type: OrderType | str, session_date: date,
         return False
     order_type = OrderType(order_type)
     received_et = received_at.astimezone(NEW_YORK)
-    prior_close = datetime.combine(
-        _previous_session(session_date), MARKET_CLOSE, NEW_YORK,
-    )
+    previous = _previous_session(session_date)
+    prior_close = datetime.combine(previous, nyse.session_close(previous), NEW_YORK)
     if order_type is OrderType.NEXT_OPEN:
-        signal_close = datetime.combine(session_date, MARKET_CLOSE, NEW_YORK)
+        signal_close = session_close(session_date)
         next_open = datetime.combine(nyse.next_session(session_date), MARKET_OPEN, NEW_YORK)
         return signal_close <= received_et < next_open
     if order_type in {OrderType.MOO, OrderType.LIMIT_ON_OPEN}:
-        return prior_close <= received_et <= datetime.combine(
-            session_date, MOO_CUTOFF, NEW_YORK,
-        )
+        return prior_close <= received_et <= moo_cutoff(session_date)
     if order_type is OrderType.MOC:
-        return prior_close <= received_et <= datetime.combine(
-            session_date, MOC_CUTOFF, NEW_YORK,
-        )
+        return prior_close <= received_et <= moc_cutoff(session_date)
     if order_type is OrderType.MARKET:
-        return datetime.combine(session_date, MARKET_OPEN, NEW_YORK) <= received_et < datetime.combine(
-            session_date, MARKET_CLOSE, NEW_YORK,
+        return (
+            datetime.combine(session_date, MARKET_OPEN, NEW_YORK)
+            <= received_et
+            < session_close(session_date)
         )
-    return prior_close <= received_et < datetime.combine(
-        session_date, MARKET_CLOSE, NEW_YORK,
-    )
+    return prior_close <= received_et < session_close(session_date)
 
 
 def validate_received_at(order_type: OrderType | str, session_date: date,
