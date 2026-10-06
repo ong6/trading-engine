@@ -207,9 +207,13 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
             volume     BIGINT,
             source     VARCHAR DEFAULT 'yfinance',
             fetched_at TIMESTAMP,
+            first_fetched_at TIMESTAMP,
             PRIMARY KEY (ticker, date)
         )
         """
+    )
+    con.execute(
+        "ALTER TABLE prices ADD COLUMN IF NOT EXISTS first_fetched_at TIMESTAMP"
     )
     con.execute(
         """
@@ -957,7 +961,7 @@ def insert_intraday(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
 
 
 def upsert_prices(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
-    """INSERT OR REPLACE price bars.
+    """Upsert price bars while preserving their first availability timestamp.
 
     df must have columns: ticker, date, open, high, low, close, volume.
     Rows with a NaN close are dropped — we never store an empty/fabricated bar.
@@ -974,14 +978,42 @@ def upsert_prices(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
 
     df["source"] = "yfinance"
     df["fetched_at"] = datetime.now(timezone.utc)
+    df["first_fetched_at"] = df["fetched_at"]
 
     with registered_frame(con, "_incoming_prices", df):
-        con.execute(
-            """
-            INSERT OR REPLACE INTO prices
-                (ticker, date, open, high, low, close, volume, source, fetched_at)
-            SELECT ticker, date, open, high, low, close, volume, source, fetched_at
+        try:
+            con.execute(
+                """
+            INSERT INTO prices
+                (ticker, date, open, high, low, close, volume, source,
+                 fetched_at, first_fetched_at)
+            SELECT ticker, date, open, high, low, close, volume, source,
+                   fetched_at, first_fetched_at
             FROM _incoming_prices
-            """
-        )
+            ON CONFLICT (ticker, date) DO UPDATE SET
+                open = excluded.open,
+                high = excluded.high,
+                low = excluded.low,
+                close = excluded.close,
+                volume = excluded.volume,
+                source = excluded.source,
+                fetched_at = excluded.fetched_at,
+                first_fetched_at = COALESCE(
+                    prices.first_fetched_at, excluded.first_fetched_at
+                )
+                """
+            )
+        except duckdb.BinderException:
+            has_first_fetch = con.execute(
+                """SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name='prices' AND column_name='first_fetched_at'"""
+            ).fetchone()[0]
+            if has_first_fetch:
+                raise
+            con.execute(
+                """INSERT OR REPLACE INTO prices
+                (ticker, date, open, high, low, close, volume, source, fetched_at)
+                SELECT ticker, date, open, high, low, close, volume, source, fetched_at
+                FROM _incoming_prices"""
+            )
     return len(df)

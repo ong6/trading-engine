@@ -1,0 +1,15 @@
+[Unit]
+Description=Settle late trading-engine account fills
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/trading-engine
+ExecStart=%h/trading-engine/.venv/bin/python -m engine.accounts settle --late
+Environment=PYTHONUNBUFFERED=1
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=30min
+PrivateTmp=true
+ProtectSystem=full
+ProtectControlGroups=true
+UMask=0077

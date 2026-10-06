@@ -123,6 +123,32 @@ def test_plan_reports_drift_without_writing(tmp_path, monkeypatch):
     )
 
 
+def test_p22_data_and_account_units_are_registered_with_required_schedules():
+    expected = {
+        "massive-options-daily.service",
+        "massive-options-daily.timer",
+        "trading-engine-accounts-settle.service",
+        "trading-engine-accounts-settle.timer",
+    }
+    assert expected <= set(install_automation.UNIT_SOURCES)
+    assert {
+        "massive-options-daily.timer", "trading-engine-accounts-settle.timer"
+    } <= install_automation.AUTOSTART_UNITS
+
+    root = install_automation.REPO_ROOT
+    options_service = (root / "server/massive-options-daily.service").read_text()
+    options_timer = (root / "server/massive-options-daily.timer").read_text()
+    account_service = (root / "server/trading-engine-accounts-settle.service").read_text()
+    account_timer = (root / "server/trading-engine-accounts-settle.timer").read_text()
+
+    assert "python -m tools.free_massive_options" in options_service
+    assert "Nice=10" in options_service and "TimeoutStartSec=3h" in options_service
+    assert "OnCalendar=*-*-* 11:35:00 UTC" in options_timer
+    assert "python -m engine.accounts settle --late" in account_service
+    assert "OnCalendar=Tue..Sat *-*-* 07:45:00 UTC" in account_timer
+    assert "OnCalendar=Tue..Sat *-*-* 11:55:00 UTC" in account_timer
+
+
 def test_plan_is_ok_when_units_and_managed_cron_match(tmp_path, monkeypatch):
     root, home = _repo(tmp_path)
     unit_dir = home / ".config" / "systemd" / "user"

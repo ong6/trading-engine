@@ -82,6 +82,14 @@ UNIT_SOURCES = {
     "trading-engine-p16-challengers.timer": Path(
         "server/trading-engine-p16-challengers.timer"
     ),
+    "massive-options-daily.service": Path("server/massive-options-daily.service"),
+    "massive-options-daily.timer": Path("server/massive-options-daily.timer"),
+    "trading-engine-accounts-settle.service": Path(
+        "server/trading-engine-accounts-settle.service"
+    ),
+    "trading-engine-accounts-settle.timer": Path(
+        "server/trading-engine-accounts-settle.timer"
+    ),
 }
 AUTOSTART_UNITS = frozenset(
     {
@@ -94,6 +102,8 @@ AUTOSTART_UNITS = frozenset(
         "trading-engine-p15-scoring.timer",
         "trading-engine-p15-preopen.timer",
         "trading-engine-p15-events.timer",
+        "massive-options-daily.timer",
+        "trading-engine-accounts-settle.timer",
         "trading-engine-api.service",
         "trading-engine-ui.service",
     }
@@ -885,7 +895,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, default=REPO_ROOT)
     parser.add_argument("--home", type=Path, default=Path.home())
-    parser.add_argument("--apply", action="store_true", help="install the reported changes")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--audit", action="store_true", help="report changes without installing")
+    mode.add_argument("--apply", action="store_true", help="install the reported changes")
     args = parser.parse_args(argv)
 
     summary, desired_crontab = plan(args.repo_root, args.home)

@@ -34,6 +34,7 @@ US_STOCK_EXCHANGES = frozenset({
 MAX_ARCHIVE_BYTES = 64_000_000
 MAX_UNCOMPRESSED_BYTES = 128_000_000
 MAX_RESPONSE_BYTES = 32_000_000
+MAX_SPLIT_RESULTS = 1_000
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 MASSIVE_TICKER = re.compile(r"^[A-Z0-9][A-Za-z0-9./^-]{0,31}$")  # lowercase marks preferreds/warrants
 MASSIVE_RATE_LOCK = Path.home() / ".local/state/massive-rate.lock"
@@ -148,6 +149,40 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         date DATE NOT NULL, row_index BIGINT NOT NULL, ticker VARCHAR, reason VARCHAR NOT NULL,
         raw_item VARCHAR NOT NULL, source VARCHAR NOT NULL, fetched_at TIMESTAMP NOT NULL,
         source_sha256 VARCHAR NOT NULL, PRIMARY KEY(source_sha256, row_index))"""
+    )
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS free_splits (
+        ticker VARCHAR NOT NULL, ex_date DATE NOT NULL,
+        split_from DOUBLE NOT NULL, split_to DOUBLE NOT NULL,
+        fetched_at TIMESTAMP NOT NULL, source_sha256 VARCHAR NOT NULL,
+        PRIMARY KEY(ticker, ex_date))"""
+    )
+    con.execute(
+        """CREATE OR REPLACE VIEW free_daily_bars_adjusted AS
+        WITH canonical AS (
+            SELECT *
+            FROM free_daily_bars
+            QUALIFY ROW_NUMBER() OVER (
+                PARTITION BY date, ticker ORDER BY fetched_at DESC, source_sha256 DESC
+            ) = 1
+        ), adjusted AS (
+            SELECT b.*,
+                   COALESCE((
+                       SELECT PRODUCT(s.split_to / s.split_from)
+                       FROM free_splits s
+                       WHERE s.ticker = b.ticker
+                         AND s.ex_date > b.date
+                         AND s.ex_date > CAST(b.fetched_at AS DATE)
+                   ), 1.0) AS split_factor
+            FROM canonical b
+        )
+        SELECT date, ticker,
+               o / split_factor AS o, h / split_factor AS h,
+               l / split_factor AS l, c / split_factor AS c,
+               volume * split_factor AS volume,
+               vwap / split_factor AS vwap,
+               source, fetched_at, source_sha256
+        FROM adjusted"""
     )
 
 
@@ -392,6 +427,84 @@ def load_daily_bars(
     }
 
 
+def parse_massive_splits(body: bytes) -> tuple[list[dict], str | None]:
+    """Validate one Massive reference-splits response page."""
+    if not isinstance(body, bytes) or not 0 < len(body) <= MAX_RESPONSE_BYTES:
+        raise FreeSourceError("Massive splits response size is invalid")
+    try:
+        payload = json.loads(body)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise FreeSourceError("Massive splits response is not valid JSON") from exc
+    results = payload.get("results") if isinstance(payload, dict) else None
+    if isinstance(payload, dict) and payload.get("status") == "OK" and results is None:
+        results = []
+    count = payload.get("resultsCount", payload.get("count")) if isinstance(payload, dict) else None
+    next_url = payload.get("next_url") if isinstance(payload, dict) else None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("status") != "OK"
+        or not isinstance(results, list)
+        or len(results) > MAX_SPLIT_RESULTS
+        or (count is not None and (isinstance(count, bool) or count != len(results)))
+        or (next_url is not None and (not isinstance(next_url, str) or not next_url))
+    ):
+        raise FreeSourceError("Massive splits response envelope is invalid")
+    rows = []
+    for item in results:
+        if not isinstance(item, dict):
+            raise FreeSourceError("Massive split row shape is invalid")
+        ticker = item.get("ticker")
+        ex_date = _iso_date(item.get("execution_date"), "Massive split execution_date")
+        split_from = item.get("split_from")
+        split_to = item.get("split_to")
+        if (
+            not isinstance(ticker, str)
+            or MASSIVE_TICKER.fullmatch(ticker) is None
+            or isinstance(split_from, bool)
+            or not isinstance(split_from, (int, float))
+            or isinstance(split_to, bool)
+            or not isinstance(split_to, (int, float))
+            or not math.isfinite(float(split_from))
+            or not math.isfinite(float(split_to))
+            or float(split_from) <= 0
+            or float(split_to) <= 0
+        ):
+            raise FreeSourceError("Massive split row is invalid")
+        rows.append({
+            "ticker": ticker,
+            "ex_date": ex_date,
+            "split_from": float(split_from),
+            "split_to": float(split_to),
+        })
+    return rows, next_url
+
+
+def load_splits(
+    con: duckdb.DuckDBPyConnection, body: bytes, *, fetched_at: datetime
+) -> dict:
+    """Insert the first observed version of each ticker/ex-date split."""
+    fetched = _utc_naive(fetched_at, "Massive split fetched_at")
+    rows, next_url = parse_massive_splits(body)
+    source_sha = hashlib.sha256(body).hexdigest()
+    init_schema(con)
+    before = con.execute("SELECT COUNT(*) FROM free_splits").fetchone()[0]
+    con.executemany(
+        "INSERT OR IGNORE INTO free_splits VALUES (?, ?, ?, ?, ?, ?)",
+        [[
+            row["ticker"], row["ex_date"], row["split_from"], row["split_to"],
+            fetched, source_sha,
+        ] for row in rows],
+    )
+    after = con.execute("SELECT COUNT(*) FROM free_splits").fetchone()[0]
+    return {
+        "source": "massive_reference_splits",
+        "source_sha256": source_sha,
+        "row_count": len(rows),
+        "inserted": after - before,
+        "next_url": next_url,
+    }
+
+
 def _date_argument(value: date, field: str) -> date:
     if not isinstance(value, date) or isinstance(value, datetime):
         raise FreeSourceError(f"{field} must be a date")
@@ -408,11 +521,8 @@ def daily_panel(
         raise FreeSourceError("daily panel start is after end")
     return con.execute(
         """SELECT date, ticker, o, h, l, c, volume, vwap
-        FROM free_daily_bars
+        FROM free_daily_bars_adjusted
         WHERE date BETWEEN ? AND ?
-        QUALIFY ROW_NUMBER() OVER (
-            PARTITION BY date, ticker ORDER BY fetched_at DESC, source_sha256 DESC
-        ) = 1
         ORDER BY date, ticker""",
         [start, end],
     ).df()
@@ -436,11 +546,8 @@ def mdv60(con: duckdb.DuckDBPyConnection, as_of: date):
     return con.execute(
         """WITH canonical AS (
             SELECT date, ticker, c, volume, vwap
-            FROM free_daily_bars
+            FROM free_daily_bars_adjusted
             WHERE date >= ? AND date < ?
-            QUALIFY ROW_NUMBER() OVER (
-                PARTITION BY date, ticker ORDER BY fetched_at DESC, source_sha256 DESC
-            ) = 1
         )
         SELECT ticker, MEDIAN(COALESCE(vwap, c) * volume) AS mdv60
         FROM canonical
