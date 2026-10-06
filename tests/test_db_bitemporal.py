@@ -82,3 +82,55 @@ def test_upsert_remains_compatible_with_a_minimal_legacy_prices_fixture():
         assert con.execute("SELECT close FROM prices").fetchone() == (10.5,)
     finally:
         con.close()
+
+
+def test_existing_fetch_time_is_used_when_first_seen_was_not_backfilled(monkeypatch):
+    original = datetime(2026, 10, 5, 22, 30, tzinfo=timezone.utc)
+    refreshed = datetime(2026, 10, 6, 22, 30, tzinfo=timezone.utc)
+
+    class Clock:
+        @staticmethod
+        def now(_timezone):
+            return refreshed
+
+    con = duckdb.connect()
+    try:
+        db.init_schema(con)
+        con.execute(
+            """INSERT INTO prices
+            (ticker,date,open,high,low,close,volume,source,fetched_at,first_fetched_at)
+            VALUES ('XYZ','2026-10-05',10,12,9,10.5,1000,'yfinance',?,NULL)""",
+            [original.replace(tzinfo=None)],
+        )
+        monkeypatch.setattr(db, "datetime", Clock)
+        db.upsert_prices(con, _frame(11.5))
+        stored = con.execute(
+            "SELECT fetched_at,first_fetched_at FROM prices"
+        ).fetchone()
+    finally:
+        con.close()
+
+    assert stored == (refreshed.replace(tzinfo=None), original.replace(tzinfo=None))
+
+
+def test_engine_backfill_sets_only_missing_first_fetch_times():
+    fetched = datetime(2026, 10, 5, 22, 30)
+    con = duckdb.connect()
+    try:
+        db.init_schema(con)
+        con.execute(
+            """INSERT INTO prices
+            (ticker,date,close,fetched_at,first_fetched_at)
+            VALUES ('XYZ','2026-10-05',10,?,NULL),
+                   ('NONE','2026-10-05',20,NULL,NULL)""",
+            [fetched],
+        )
+        assert db.backfill_first_fetched_at(con) == 1
+        assert db.backfill_first_fetched_at(con) == 0
+        rows = con.execute(
+            "SELECT ticker,first_fetched_at FROM prices ORDER BY ticker"
+        ).fetchall()
+    finally:
+        con.close()
+
+    assert rows == [("NONE", None), ("XYZ", fetched)]
