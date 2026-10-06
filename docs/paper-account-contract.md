@@ -145,8 +145,9 @@ After every normal or late mark, the account risk hook halts once at a 20% peak-
 drawdown, a 5% close-to-close loss, or a reconciliation mismatch. The durable `account_events.kind`
 is respectively `halt_drawdown`, `halt_daily_loss`, or `halt_reconciliation`; consumers never
 need to match prose. A halt cancels queued orders, refuses new ones, and keeps positions open and
-marked. Resume records `resumed_by`, keeps the all-time peak for reporting, and re-arms the
-drawdown halt from equity at resume. Retirement queues next-session
+marked. Resume records `resumed_by` and keeps the all-time peak for reporting. Only a resumed
+drawdown halt re-arms that rule from equity at resume; other halt reasons retain the all-time
+drawdown threshold. Retirement queues next-session
 MOC sell or cover orders, changes the account status to retired, and preserves all history.
 
 Across account portfolios, opening exposure cannot exceed one times the sum of active independent

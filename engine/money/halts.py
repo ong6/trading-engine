@@ -65,8 +65,6 @@ def halt_account(con, portfolio_id: str, reason: str, *, now: datetime,
     if settings["status"] == "halted":
         return False
     _state(con, portfolio_id, now)
-    if settings["status"] != "inactive":
-        con.execute("UPDATE portfolios SET active=TRUE WHERE id=?", [portfolio_id])
     set_portfolio_account(con, portfolio_id, status="halted", updated_at=now)
     con.execute(
         "UPDATE account_state SET halted_at=?,halt_reason=?,updated_at=? WHERE portfolio_id=?",
@@ -129,7 +127,7 @@ def check(con, portfolio_id: str, session_date: date, *,
     prior = float(prior_row[0]) if prior_row is not None else stored_prior
     peak = max(float(peak), equity)
     risk_peak = peak
-    if resumed_at is not None:
+    if resumed_at is not None and anchor is not None:
         resume_date = resumed_at.date()
         post_resume_peak = con.execute(
             "SELECT MAX(equity) FROM sim_equity WHERE portfolio_id=? AND date>=? AND date<=?",
