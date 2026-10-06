@@ -2537,4 +2537,26 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged since the correction entry; budget ok.
 - **Next:** orchestrator applies the L0 schema patch before integrating L1 and L2.
 
+## 2026-10-06 — Tighten account resume and CLI refusal semantics
+
+- **Why:** orchestrator re-review required halt-specific drawdown anchors, intake-aware
+  activation on resume, and distinct CLI errors outside order submission.
+- **What:** Drawdown resumes alone set a fresh anchor; reconciliation/daily/manual resumes
+  retain the all-time threshold. Resume activates the legacy portfolio flag only after an
+  accepted intake. Non-submit CLI failures now emit `error` instead of an order receipt.
+- **Evidence:** focused L2/schema/server acceptance passes all 182 cases; ruff is clean.
+- **Metrics:** server/tools unchanged; product/engine +8, tests +35; budget ok.
+- **Next:** run the complete merged-base suite and publish final handoff status.
+
+## 2026-10-06 — Close P22 L2 re-review
+
+- **Why:** the accepted L2 re-review required three final resume and CLI semantics fixes.
+- **What:** Regression coverage proves non-drawdown resumes retain the all-time threshold,
+  inactive accounts stay inactive until an accepted intake, and only submit refusals use the
+  order-receipt shape. The L0 account-table initialization patch remains ready for integration.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,344 passed, 184 base-listed failures, 5 deselected.
+- **Metrics:** server/tools/product unchanged since the implementation entry; budget ok.
+- **Next:** orchestrator re-merges L2 and applies its L0 schema handoff.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

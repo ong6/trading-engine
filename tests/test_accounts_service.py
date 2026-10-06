@@ -53,6 +53,24 @@ def test_halted_account_keeps_positions_and_manual_halt_is_idempotent(con):
     assert con.execute("SELECT COUNT(*) FROM account_events").fetchone()[0] == 1
 
 
+def test_resume_activates_portfolio_only_after_an_accepted_intake(con):
+    service.create(con, _spec(), now=NOW)
+    service.halt(con, "acct-a", now=NOW)
+    service.resume(con, "acct-a", resumed_by="owner", now=NOW)
+    assert con.execute("SELECT active FROM portfolios WHERE id='acct-a'").fetchone()[0] is False
+
+    service.halt(con, "acct-a", now=NOW)
+    con.execute("INSERT INTO sim_orders VALUES (1,'acct-a','XYZ','buy',1,DATE '2026-10-05',"
+                "'cancelled','halt_manual')")
+    con.execute(
+        "INSERT INTO paper_account_intakes "
+        "(intent_id,account_id,order_id,payload,sha256,received_at) "
+        "VALUES ('accepted','acct-a',1,'{}',?,?)", ["d" * 64, NOW]
+    )
+    service.resume(con, "acct-a", resumed_by="owner", now=NOW)
+    assert con.execute("SELECT active FROM portfolios WHERE id='acct-a'").fetchone()[0] is True
+
+
 def test_retire_queues_moc_closes_and_deactivates(con):
     _active_account(con)
     con.execute("INSERT INTO sim_positions VALUES ('acct-a','LONG',4,100)")
