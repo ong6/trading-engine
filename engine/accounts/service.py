@@ -124,16 +124,23 @@ def resume(con, account_id: str, *, resumed_by: str, note: str = "",
             "SELECT equity FROM sim_equity WHERE portfolio_id=? ORDER BY date DESC LIMIT 1",
             [account_id],
         ).fetchone()
-        anchor = float(equity[0]) if equity is not None else float(con.execute(
+        resume_equity = float(equity[0]) if equity is not None else float(con.execute(
             "SELECT cash FROM portfolios WHERE id=?", [account_id]
         ).fetchone()[0])
-        con.execute("UPDATE portfolios SET active=TRUE WHERE id=?", [account_id])
+        halt_reason = con.execute(
+            "SELECT halt_reason FROM account_state WHERE portfolio_id=?", [account_id]
+        ).fetchone()[0]
+        anchor = resume_equity if halt_reason == "halt_drawdown" else None
+        accepted = con.execute(
+            "SELECT 1 FROM paper_account_intakes WHERE account_id=? LIMIT 1", [account_id]
+        ).fetchone() is not None
+        con.execute("UPDATE portfolios SET active=? WHERE id=?", [accepted, account_id])
         sim_schema.set_portfolio_account(con, account_id, status="active", updated_at=now)
         con.execute(
             "UPDATE account_state SET resumed_at=?,resumed_by=?,halted_at=NULL,"
             "halt_reason=NULL,drawdown_anchor_equity=?,prior_close_equity=?,updated_at=? "
             "WHERE portfolio_id=?",
-            [now, resumed_by, anchor, anchor, now, account_id],
+            [now, resumed_by, anchor, resume_equity, now, account_id],
         )
         halts.record_event(
             con, account_id, "resumed",
