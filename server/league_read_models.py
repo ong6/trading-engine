@@ -8,9 +8,8 @@ from datetime import date
 import duckdb
 
 from engine.lib.util import table_exists
-from sim import book_breaks
 from sim.league import _spy_return, regime_label
-from sim.schema import INITIAL_CASH
+from sim.schema import INITIAL_CASH, portfolio_account
 
 from . import league_equity_read_models
 from .market_read_models import latest_prices_date
@@ -70,7 +69,17 @@ LEAGUE_ROW_FIELDS = frozenset(
 )
 
 
-def _active_portfolios(con: duckdb.DuckDBPyConnection) -> list[tuple]:
+def _public_portfolio_ids(con: duckdb.DuckDBPyConnection) -> frozenset[str]:
+    return frozenset(row[0] for row in con.execute(
+        "SELECT portfolio_id FROM portfolio_accounts_v "
+        "WHERE pa_visibility='public'"
+    ).fetchall())
+
+
+def _active_portfolios(
+    con: duckdb.DuckDBPyConnection,
+    public_ids: frozenset[str],
+) -> list[tuple]:
     portfolio_columns = {
         row[1] for row in con.execute("PRAGMA table_info('portfolios')").fetchall()
     }
@@ -80,10 +89,7 @@ def _active_portfolios(con: duckdb.DuckDBPyConnection) -> list[tuple]:
         f"SELECT id, name, created, {initial_expr}, {profile_expr} "
         "FROM portfolios WHERE active ORDER BY id"
     ).fetchall()
-    portfolios = [
-        row for row in portfolios
-        if book_breaks.portfolio_account(con, row[0])["visibility"] == "public"
-    ]
+    portfolios = [row for row in portfolios if row[0] in public_ids]
     for portfolio in portfolios:
         require_public_portfolio_id(portfolio[0])
     return portfolios
@@ -92,14 +98,12 @@ def _active_portfolios(con: duckdb.DuckDBPyConnection) -> list[tuple]:
 def _equity_summaries_by_portfolio(
     con: duckdb.DuckDBPyConnection,
     as_of: date | None,
+    public_ids: frozenset[str],
 ) -> dict[str, dict]:
     """Stream complete active-book equity into constant-size ranking summaries."""
     result: dict[str, dict] = {}
     if as_of is None or not table_exists(con, "sim_equity"):
         return result
-    public_ids = {
-        row[0] for row in _active_portfolios(con)
-    }
     cursor = con.execute(
         "SELECT e.portfolio_id, e.date, e.equity FROM sim_equity e "
         "JOIN portfolios p ON p.id = e.portfolio_id "
@@ -231,11 +235,12 @@ def _league_rows(
     result_rows = []
     if not table_exists(con, "portfolios"):
         return result_rows
-    equity_by_portfolio = _equity_summaries_by_portfolio(con, as_of)
+    public_ids = _public_portfolio_ids(con)
+    equity_by_portfolio = _equity_summaries_by_portfolio(con, as_of, public_ids)
     open_positions = _counts_by_portfolio(con, "sim_positions", "qty > 0")
     fills = _counts_by_portfolio(con, "sim_fills")
     spy_returns: dict[tuple[date, date], float | None] = {}
-    for portfolio in _active_portfolios(con):
+    for portfolio in _active_portfolios(con, public_ids):
         equity_summary = equity_by_portfolio.get(portfolio[0])
         if equity_summary:
             result_rows.append(
@@ -410,7 +415,7 @@ def equity(con: duckdb.DuckDBPyConnection, portfolio_id: str) -> dict | None:
         if table_exists(con, "portfolios")
         else None
     )
-    if row is None or book_breaks.portfolio_account(
+    if row is None or portfolio_account(
         con, portfolio_id
     )["visibility"] != "public":
         return None

@@ -493,11 +493,7 @@ def queue_orders(
 
 
 def _next_order_id(con: duckdb.DuckDBPyConnection) -> int:
-    maximum = int(con.execute("SELECT COALESCE(MAX(id),0) FROM sim_orders").fetchone()[0])
-    allocated = next_order_id(con)
-    while allocated <= maximum:
-        allocated = next_order_id(con)
-    return allocated
+    return next_order_id(con)
 
 
 def _split_factor(
@@ -520,6 +516,22 @@ def _terminal_order(
     order_id = _next_order_id(con)
     status, reason = result.status, result.reject_reason
     applied = 0.0
+    cost_profile = book_breaks.effective_cost_profile(
+        con, portfolio_id, fill_date
+    )
+    fill_kind = "limit_on_open" if role == "entry" else "next_open"
+
+    def estimate_fees(fill_qty: float, fill_px: float):
+        return costs.charge(
+            cost_profile,
+            side=side,
+            qty=fill_qty,
+            price=fill_px,
+            fill_kind=fill_kind,
+            instrument={"kind": "stock", "multiplier": 1.0},
+            session_date=fill_date,
+        )
+
     if status == "filled":
         if side == "buy" and ticker != "SPY":
             stock_count = int(con.execute(
@@ -537,30 +549,42 @@ def _terminal_order(
                 status, reason = "rejected", "daily_entry_cap"
             elif quarantine_reason(con, ticker) is not None:
                 status, reason = "rejected", "data_quarantine"
-            elif qty * result.fill_px > portfolio.get_cash(con, portfolio_id):
+            elif (
+                qty * result.fill_px
+                + estimate_fees(qty, result.fill_px).total_usd
+                > portfolio.get_cash(con, portfolio_id)
+            ):
                 status, reason = "rejected", "insufficient_cash"
             elif qty * result.fill_px > COMMON_CONFIG["max_name_fraction"] * _signal_equity(
                 con, portfolio_id, signal_date
             ) + 1e-9:
                 status, reason = "rejected", "name_cap"
         if side == "buy" and ticker == "SPY":
-            qty = float(math.floor(portfolio.get_cash(con, portfolio_id) / result.fill_px))
+            cash = portfolio.get_cash(con, portfolio_id)
+            candidate_qty = float(math.floor(cash / result.fill_px))
+            estimated_fee = (
+                estimate_fees(candidate_qty, result.fill_px).total_usd
+                if candidate_qty > 0
+                else 0.0
+            )
+            qty = float(math.floor(max(cash - estimated_fee, 0.0) / result.fill_px))
             if qty > 0:
                 result = fills.attempt_fill(
                     con, ticker, side, qty, signal_date, fill_date, "baseline_v1"
                 )
-            if qty <= 0 or result.status != "filled":
+            final_fees = (
+                estimate_fees(qty, result.fill_px)
+                if qty > 0 and result.status == "filled"
+                else None
+            )
+            if (
+                qty <= 0
+                or result.status != "filled"
+                or qty * result.fill_px + final_fees.total_usd > cash
+            ):
                 status, reason = "rejected", "insufficient_cash"
         if status == "filled":
-            fees = costs.charge(
-                book_breaks.effective_cost_profile(con, portfolio_id, fill_date),
-                side=side,
-                qty=qty,
-                price=result.fill_px,
-                fill_kind="limit_on_open" if role == "entry" else "next_open",
-                instrument={"kind": "stock", "multiplier": 1.0},
-                session_date=fill_date,
-            )
+            fees = estimate_fees(qty, result.fill_px)
             applied = ledger.apply_fill(
                 con,
                 {

@@ -6,7 +6,8 @@ from datetime import date, datetime
 import pytest
 
 from server import league_read_models
-from sim import book_breaks, fills, league, p15_books, p16_book_mechanics
+from sim import fills, league, p15_books, p16_book_mechanics
+from sim.schema import set_portfolio_account
 from tests.conftest import SESSIONS, insert_bars
 from tests.read_model_helpers import liquid_universe
 
@@ -75,7 +76,7 @@ def test_league_fills_and_generates_only_league_engine_books(con, monkeypatch):
     )
     for portfolio_id in ("league-book", "account-book"):
         _portfolio(con, portfolio_id, signal_date)
-    book_breaks.set_portfolio_account(con, "account-book", engine="account")
+    set_portfolio_account(con, "account-book", engine="account")
     con.execute(
         "INSERT INTO sim_orders VALUES "
         "(1,'league-book','XYZ','buy',1,?,'pending',NULL),"
@@ -132,6 +133,13 @@ def test_phase_order_calls_optional_account_hooks_between_legacy_phases(
     assert observed == ["a0", "a0b", "a", "a2", "b", "b2", "c", "d"]
 
 
+def test_present_optional_module_with_missing_hook_fails_loudly(monkeypatch):
+    monkeypatch.setattr(league.importlib, "import_module", lambda _name: object())
+
+    with pytest.raises(AttributeError):
+        league._optional_phase("engine.accounts.settle", "settle_session", None, SESSIONS[0])
+
+
 def test_private_book_never_reaches_public_files_or_read_models(con, tmp_path):
     prior, current = SESSIONS[:2]
     liquid_universe(con, ("SPY",))
@@ -143,7 +151,7 @@ def test_private_book_never_reaches_public_files_or_read_models(con, tmp_path):
             [(portfolio_id, prior, 100.0, 100.0),
              (portfolio_id, current, 110.0, 110.0)],
         )
-    book_breaks.set_portfolio_account(con, "private-book", visibility="private")
+    set_portfolio_account(con, "private-book", visibility="private")
     con.execute(
         "INSERT INTO sim_book_breaks VALUES "
         "('public-book',?,'cost_profile','baseline_v1','ibkr_pro_tiered_v1',"
@@ -171,7 +179,7 @@ def test_post_break_p15_fill_charges_fee_and_debits_cash(con):
     con.execute(
         "INSERT INTO sim_positions VALUES (?, 'XYZ', 10, 90)", [portfolio_id]
     )
-    book_breaks.set_portfolio_account(
+    set_portfolio_account(
         con, portfolio_id, engine="p15", cost_profile="ibkr_pro_tiered_v1"
     )
     con.execute(
@@ -203,3 +211,47 @@ def test_post_break_p15_fill_charges_fee_and_debits_cash(con):
     ).fetchone()[0]
     assert fee > 0
     assert cash == pytest.approx(9_000.0 + 1_000.0 - fee)
+
+
+def test_post_break_p15_spy_sizing_reserves_estimated_fee(con, monkeypatch):
+    signal_date, fill_date = SESSIONS[:2]
+    portfolio_id = p15_books.BOOK_IDS[0]
+    p15_books.init_schema(con)
+    _portfolio(con, portfolio_id, signal_date, cash=1_000.0)
+    set_portfolio_account(
+        con, portfolio_id, engine="p15", cost_profile="ibkr_pro_tiered_v1"
+    )
+    con.execute(
+        "INSERT INTO sim_book_breaks VALUES "
+        "(?,?,'cost_profile','baseline_v1','ibkr_pro_tiered_v1',13,'test',now())",
+        [portfolio_id, fill_date],
+    )
+    result = fills.FillResult(
+        status="filled",
+        open_px=100.0,
+        fill_px=100.0,
+        slippage_bps=0.0,
+        cost_bps=0.0,
+        execution_profile="baseline_v1",
+        median_dollar_vol=1_000_000.0,
+        participation=0.001,
+        impact_bps=0.0,
+        fee_bps=0.0,
+    )
+    monkeypatch.setattr(p15_books.fills, "attempt_fill", lambda *_args: result)
+    intent = (
+        1, portfolio_id, "SPY", "buy", 1.0, signal_date, "spy_reinvest",
+        99, 100.0, None, None,
+    )
+
+    assert p15_books._terminal_order(con, intent, fill_date, result) == "filled"
+    qty, fee = con.execute(
+        "SELECT f.qty,ff.total_usd FROM sim_fills f "
+        "JOIN sim_fill_fees ff USING (order_id)"
+    ).fetchone()
+    cash = con.execute(
+        "SELECT cash FROM portfolios WHERE id=?", [portfolio_id]
+    ).fetchone()[0]
+    assert qty == 9.0
+    assert cash == pytest.approx(1_000.0 - qty * 100.0 - fee)
+    assert cash >= 0

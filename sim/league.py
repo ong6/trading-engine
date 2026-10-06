@@ -34,8 +34,7 @@ from engine.lib.util import table_exists
 
 from . import book_breaks, calendar, costs, fills, ledger, portfolio
 from .execution import DEFAULT_PROFILE_ID
-from .schema import INITIAL_CASH, init_sim_schema
-from .schema import next_order_id as sequence_order_id
+from .schema import INITIAL_CASH, init_sim_schema, next_order_id, portfolio_account
 from .strategies import PortfolioView, get_strategy
 from .strategies.base import total_return_between
 from .strategies.configs import CONFIGS
@@ -76,14 +75,6 @@ def init_portfolios(con, as_of: date) -> int:
     return created
 
 
-def next_order_id(con) -> int:
-    maximum = int(con.execute("SELECT COALESCE(MAX(id),0) FROM sim_orders").fetchone()[0])
-    allocated = sequence_order_id(con)
-    while allocated <= maximum:
-        allocated = sequence_order_id(con)
-    return allocated
-
-
 def _optional_phase(module_name: str, function_name: str, con, d: date):
     """Call an integration phase when its owning lane is present."""
     try:
@@ -93,8 +84,8 @@ def _optional_phase(module_name: str, function_name: str, con, d: date):
         if missing == module_name or module_name.startswith(f"{missing}."):
             return None
         raise
-    function = getattr(module, function_name, None)
-    return None if function is None else function(con, d)
+    function = getattr(module, function_name)
+    return function(con, d)
 
 
 def accrue_accounts(con, d: date) -> dict:
@@ -136,7 +127,7 @@ def fill_pending(con, d: date) -> dict:
     ).fetchall()
     pend = [
         row for row in pend
-        if book_breaks.portfolio_account(con, row[1])["engine"] == "league"
+        if portfolio_account(con, row[1])["engine"] == "league"
     ]
     counts = {"filled": 0, "rejected": 0, "pending": 0}
     buy_candidates: dict[str, list[tuple]] = {}
@@ -369,7 +360,7 @@ def generate_all(con, d: date) -> int:
     for pf_id, strat_name, cfg_json, cash in con.execute(
         "SELECT id, strategy, config, cash FROM portfolios WHERE active ORDER BY id"
     ).fetchall():
-        if book_breaks.portfolio_account(con, pf_id)["engine"] != "league":
+        if portfolio_account(con, pf_id)["engine"] != "league":
             continue
         cfg = json.loads(cfg_json)
         cadence = cfg.get("cadence", "daily")
@@ -474,13 +465,19 @@ def _spy_return(con, inception: date, d: date):
 
 
 def write_reports(con, d: date, data_dir: Path) -> Path:
+    all_public_ids = {
+        row[0] for row in con.execute(
+            "SELECT portfolio_id FROM portfolio_accounts_v "
+            "WHERE pa_visibility='public'"
+        ).fetchall()
+    }
     rows = []
     for pf_id, name, created, initial_cash in con.execute(
         "SELECT id, name, created, COALESCE(initial_cash, ?) FROM portfolios "
         "WHERE active ORDER BY id",
         [INITIAL_CASH],
     ).fetchall():
-        if book_breaks.portfolio_account(con, pf_id)["visibility"] != "public":
+        if pf_id not in all_public_ids:
             continue
         eq = con.execute(
             "SELECT date, equity FROM sim_equity WHERE portfolio_id = ? ORDER BY date",
@@ -582,8 +579,8 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
         HAVING MAX(pr.date) FILTER (WHERE pr.volume > 0) < ?
         ORDER BY last_traded, p.portfolio_id, p.ticker
         """, [d]).fetchall()
-    public_ids = {row["id"] for row in rows}
-    stale = [row for row in stale if row[0] in public_ids]
+    standings_ids = {row["id"] for row in rows}
+    stale = [row for row in stale if row[0] in standings_ids]
     if stale:
         lines += [
             f"## ⚠ Stale marks — {len(stale)} position(s) carried at an old close",
@@ -625,12 +622,12 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
     resources.write_text_atomic(md_path, "\n".join(lines))
 
     # full sim_equity export
-    if public_ids:
-        placeholders = ",".join("?" for _ in public_ids)
+    if all_public_ids:
+        placeholders = ",".join("?" for _ in all_public_ids)
         csv_df = con.execute(
             "SELECT portfolio_id,date,equity FROM sim_equity "
             f"WHERE portfolio_id IN ({placeholders}) ORDER BY portfolio_id,date",
-            sorted(public_ids),
+            sorted(all_public_ids),
         ).fetch_df()
     else:
         csv_df = con.execute(

@@ -6,7 +6,12 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from engine.lib import db
-from sim import book_breaks, schema
+from sim.schema import (
+    init_sim_schema,
+    next_order_id,
+    portfolio_account,
+    set_portfolio_account,
+)
 
 TARGET_COST_PROFILE = "ibkr_pro_tiered_v1"
 REGISTRATION_REVISION = 13
@@ -33,11 +38,7 @@ def _engine_for(con, portfolio_id: str, current: dict) -> str:
 
 
 def _bootstrap_sequence_above_orders(con) -> int:
-    maximum = int(con.execute("SELECT COALESCE(MAX(id),0) FROM sim_orders").fetchone()[0])
-    allocated = schema.next_order_id(con)
-    while allocated <= maximum:
-        allocated = schema.next_order_id(con)
-    return allocated
+    return next_order_id(con)
 
 
 def migrate(
@@ -50,7 +51,7 @@ def migrate(
     """Apply the cost break exactly once in one transaction."""
     if not isinstance(d0, date):
         raise TypeError("D0 must be a date")
-    schema.init_sim_schema(con)
+    init_sim_schema(con)
     timestamp = (migrated_at or datetime.now(timezone.utc)).astimezone(
         timezone.utc
     ).replace(tzinfo=None)
@@ -70,9 +71,9 @@ def migrate(
             "SELECT id FROM portfolios ORDER BY id"
         ).fetchall()]
         for portfolio_id in portfolios:
-            current = book_breaks.portfolio_account(con, portfolio_id)
+            current = portfolio_account(con, portfolio_id)
             engine = _engine_for(con, portfolio_id, current)
-            book_breaks.set_portfolio_account(
+            set_portfolio_account(
                 con,
                 portfolio_id,
                 engine=engine,

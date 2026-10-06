@@ -8,99 +8,10 @@ import duckdb
 
 from engine.lib.util import table_exists
 
-from . import schema
+from .schema import portfolio_account
 
 BASELINE_COST_PROFILE = "baseline_v1"
 COST_PROFILE_BREAK = "cost_profile"
-ACCOUNT_DEFAULTS = {
-    "engine": "league",
-    "cost_profile": BASELINE_COST_PROFILE,
-    "account_type": "cash_legacy",
-    "visibility": "public",
-    "price_source": "prices",
-    "day_trade_rule": "pdt_25k_legacy",
-    "allow_short": False,
-}
-
-
-def _ensure_account_table(con: duckdb.DuckDBPyConnection) -> None:
-    """Temporary R13 compatibility for p22/base before L0 is re-merged."""
-    con.execute(
-        """CREATE TABLE IF NOT EXISTS portfolio_accounts (
-        portfolio_id VARCHAR PRIMARY KEY,
-        engine VARCHAR NOT NULL DEFAULT 'league',
-        cost_profile VARCHAR NOT NULL DEFAULT 'baseline_v1',
-        account_type VARCHAR NOT NULL DEFAULT 'cash_legacy',
-        visibility VARCHAR NOT NULL DEFAULT 'public',
-        status VARCHAR,
-        price_source VARCHAR NOT NULL DEFAULT 'prices',
-        day_trade_rule VARCHAR NOT NULL DEFAULT 'pdt_25k_legacy',
-        allow_short BOOLEAN NOT NULL DEFAULT FALSE,
-        updated_at TIMESTAMP)"""
-    )
-
-
-def portfolio_account(con: duckdb.DuckDBPyConnection, portfolio_id: str) -> dict:
-    """Use L0's R13 reader, with a temporary side-table fallback on this base."""
-    reader = getattr(schema, "portfolio_account", None)
-    if reader is not None:
-        return reader(con, portfolio_id)
-    active = con.execute(
-        "SELECT active FROM portfolios WHERE id=?", [portfolio_id]
-    ).fetchone()
-    if active is None:
-        raise KeyError(f"unknown portfolio {portfolio_id!r}")
-    values = {**ACCOUNT_DEFAULTS, "status": "active" if active[0] else "inactive"}
-    if table_exists(con, "portfolio_accounts"):
-        row = con.execute(
-            "SELECT engine,cost_profile,account_type,visibility,status,price_source,"
-            "day_trade_rule,allow_short,updated_at FROM portfolio_accounts "
-            "WHERE portfolio_id=?",
-            [portfolio_id],
-        ).fetchone()
-        if row is not None:
-            keys = (
-                "engine", "cost_profile", "account_type", "visibility", "status",
-                "price_source", "day_trade_rule", "allow_short", "updated_at",
-            )
-            values.update(dict(zip(keys, row, strict=True)))
-            values["status"] = values["status"] or (
-                "active" if active[0] else "inactive"
-            )
-    return {"portfolio_id": portfolio_id, **values}
-
-
-def set_portfolio_account(
-    con: duckdb.DuckDBPyConnection, portfolio_id: str, **fields,
-) -> dict:
-    """Use L0's R13 writer, with a temporary side-table fallback on this base."""
-    writer = getattr(schema, "set_portfolio_account", None)
-    if writer is not None:
-        return writer(con, portfolio_id, **fields)
-    unknown = set(fields) - (set(ACCOUNT_DEFAULTS) | {"status", "updated_at"})
-    if unknown:
-        raise ValueError(f"unknown portfolio account fields: {sorted(unknown)}")
-    current = portfolio_account(con, portfolio_id)
-    current.update(fields)
-    _ensure_account_table(con)
-    con.execute(
-        "INSERT OR REPLACE INTO portfolio_accounts VALUES (?,?,?,?,?,?,?,?,?,?)",
-        [
-            portfolio_id,
-            current["engine"],
-            current["cost_profile"],
-            current["account_type"],
-            current["visibility"],
-            current["status"],
-            current["price_source"],
-            current["day_trade_rule"],
-            current["allow_short"],
-            current.get("updated_at"),
-        ],
-    )
-    return portfolio_account(con, portfolio_id)
-
-
 def latest_break(
     con: duckdb.DuckDBPyConnection,
     portfolio_id: str,

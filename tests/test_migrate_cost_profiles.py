@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from sim import book_breaks
+from sim.schema import portfolio_account, set_portfolio_account
 from tools import migrate_cost_profiles
 
 D0 = date(2026, 10, 12)
@@ -29,7 +30,7 @@ def test_migration_routes_books_records_breaks_bootstraps_ids_and_runs_l4_backfi
         _portfolio(con, portfolio_id)
     con.execute("CREATE TABLE paper_account_specs (account_id VARCHAR)")
     con.execute("INSERT INTO paper_account_specs VALUES ('acct-a')")
-    book_breaks.set_portfolio_account(
+    set_portfolio_account(
         con,
         "acct-a",
         account_type="margin",
@@ -64,7 +65,7 @@ def test_migration_routes_books_records_breaks_bootstraps_ids_and_runs_l4_backfi
     }
     assert calls == [con]
     accounts = {
-        portfolio_id: book_breaks.portfolio_account(con, portfolio_id)
+        portfolio_id: portfolio_account(con, portfolio_id)
         for portfolio_id in (
             "league-book", "p15_ai_ranked", "p16_construct_ai@sha256:abc", "acct-a"
         )
@@ -120,7 +121,7 @@ def test_migration_refuses_equity_at_or_after_d0_without_partial_writes(con):
         migrate_cost_profiles.migrate(con, D0)
 
     assert con.execute("SELECT COUNT(*) FROM sim_book_breaks").fetchone() == (0,)
-    assert book_breaks.portfolio_account(
+    assert portfolio_account(
         con, "league-book"
     )["cost_profile"] == "baseline_v1"
 

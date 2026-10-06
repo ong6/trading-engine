@@ -61,10 +61,13 @@ the monotonic sequence helper.
 - Record the owner decisions and this architecture in the product, scope and blueprint docs.
   Frozen runtime hashes and P15 revision 13 deliberately remain for Phase B.
 
+The reviewed Phase A branch has merged the refreshed L0/L4 base and now uses the final R13 API
+directly; no compatibility shim remains.
+
 ### L3 Phase B — only after the orchestrator's merge signal
 
-- Merge the refreshed shared base containing L1, L2, L4 and the final R13 schema API; remove the
-  temporary compatibility shim.
+- Merge the refreshed shared base containing the accepted L1 and L2 account execution/money
+  layers while retaining the final R13 schema API.
 - Explicitly revise the E1, sector, XS and walk-forward runtime contracts, then issue P15
   registration revision 13 with unchanged scoring, labels, gates and schedules.
 - On a snapshot copy, apply the migration and rerun the final pre-D0 session; require
