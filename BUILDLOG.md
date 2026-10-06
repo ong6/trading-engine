@@ -2057,4 +2057,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +158, product +158, tests +127; server/tools unchanged; budget ok.
 - **Next:** add Massive split capture and the adjusted grouped-daily view.
 
+## 2026-10-06 — Re-adjust grouped bars for later splits
+
+- **Why:** P22 L4 sections 6.2 and 8 admit daily Massive split capture and an
+  as-fetched adjustment view without re-fetching the rolling daily archive.
+- **What:** Store first-seen split facts, retain exact reference responses and apply
+  only splits whose ex-date follows both the bar date and its fetch date.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_free_splits.py
+  tests/test_free_sources.py` passes all 29 recorded-fixture and existing cases.
+- **Metrics:** engine +107, tools +117, product +107, tests +102; server unchanged; budget ok.
+- **Next:** add the bounded Massive contracts and option-daily capture.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
