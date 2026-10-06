@@ -2182,4 +2182,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools unchanged; product +720 (engine +369, server +351), tests +208; budget ok.
 - **Next:** document the v2 contract and run the complete L2 acceptance matrix.
 
+## 2026-10-06 — Publish the account v2 operating contract
+
+- **Why:** active P22 L2 requires the public sections 2.6–2.8 contract without any
+  private account identity, strategy parameters, or results.
+- **What:** Document v2 specs/intents, R13 side-table settings, cutoff and replay rules,
+  money halts, lifecycle commands, token-protected loopback routes, deferred intraday
+  settlement, and deterministic private results. Add the three-tier MOO accounting proof.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_paper_accounts.py`
+  passes all 27 cases.
+- **Metrics:** server/tools/product unchanged; docs +92, tests +34; budget ok.
+- **Next:** run focused acceptance, full-suite drift comparison, and final metrics.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
