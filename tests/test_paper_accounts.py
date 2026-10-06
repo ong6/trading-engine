@@ -5,6 +5,7 @@ import pytest
 
 from engine import paper_accounts as accounts
 from sim import league, portfolio
+from sim import ledger as account_ledger
 from tests.conftest import insert_bars
 
 NOW = datetime(2026, 10, 2, 21, tzinfo=timezone.utc)
@@ -297,3 +298,36 @@ def test_account_created_date_is_latest_new_york_session(con):
     saturday_utc = datetime(2026, 10, 4, 2, tzinfo=timezone.utc)
     accounts.create_account(con, _spec_v2(), now=saturday_utc)
     assert con.execute("SELECT created FROM portfolios").fetchone()[0] == SIGNAL
+
+
+def test_three_v2_tiers_submit_same_moo_with_independent_accounting(con):
+    insert_bars(con, "SAME", [SIGNAL, FILL], open_=[100, 100], close=[100, 102])
+    tiers = {"acct-small": (10_000, 10), "acct-medium": (50_000, 20),
+             "acct-large": (100_000, 30)}
+    receipts = {}
+    for account_id, (capital, quantity) in tiers.items():
+        accounts.create_account(con, _spec_v2(account_id, capital), now=MOO_RECEIVED)
+        receipts[account_id] = accounts.submit_intent(
+            con, _intent_v2(account_id, quantity=quantity), now=MOO_RECEIVED,
+        )
+    for account_id, (_capital, quantity) in tiers.items():
+        order_id = receipts[account_id]["order_id"]
+        con.execute("UPDATE sim_orders SET status='filled' WHERE id=?", [order_id])
+        con.execute(
+            "INSERT INTO sim_fills VALUES (?,?,'SAME','buy',?,?,100,100,0,0)",
+            [order_id, account_id, quantity, FILL],
+        )
+        account_ledger.apply_fill(
+            con,
+            {"order_id": order_id, "portfolio_id": account_id, "instrument_id": "SAME",
+             "side": "buy", "quantity": quantity, "fill_px": 100, "session_date": FILL},
+            persist_fees=False,
+        )
+        portfolio.mark_to_market(con, account_id, FILL)
+    for account_id, (capital, quantity) in tiers.items():
+        assert portfolio.get_cash(con, account_id) == capital - quantity * 100
+        assert portfolio.get_positions(con, account_id)["SAME"]["qty"] == quantity
+        assert con.execute(
+            "SELECT equity FROM sim_equity WHERE portfolio_id=? AND date=?",
+            [account_id, FILL],
+        ).fetchone()[0] == capital + quantity * 2
