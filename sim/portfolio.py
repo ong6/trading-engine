@@ -257,7 +257,7 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
                 qty = held_now.get(tk, 0.0)
             else:
                 qty = _position_as_of(con, pf_id, tk, ex, splits)
-            if qty == 0:
+            if abs(qty) < 1e-9:
                 continue
             dps = float(value)
             amount = qty * dps

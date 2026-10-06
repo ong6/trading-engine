@@ -15,7 +15,10 @@ from sim.order_types import (
     can_transition,
     coarse_status,
     cutoff_at,
+    moc_cutoff,
+    moo_cutoff,
     received_at_allowed,
+    session_close,
     validate_received_at,
 )
 
@@ -38,8 +41,10 @@ def test_state_machine_and_legacy_status_projection():
     assert not can_transition("filled", "cancelled")
     assert coarse_status(OrderState.RECEIVED) == "pending"
     assert coarse_status(OrderState.QUEUED) == "pending"
-    assert coarse_status(OrderState.EXPIRED) == "rejected"
+    assert coarse_status(OrderState.EXPIRED) == "expired"
     assert coarse_status(OrderState.CANCELLED) == "cancelled"
+    with pytest.raises(ValueError, match="no sim_orders row"):
+        coarse_status(OrderState.REFUSED)
 
 
 @pytest.mark.parametrize(
@@ -77,4 +82,40 @@ def test_next_open_and_intraday_windows():
     )
     assert not received_at_allowed(
         "market", SESSION, datetime(2026, 10, 12, 16, 0, tzinfo=ET),
+    )
+
+
+def test_early_close_moves_moc_cutoff_and_market_close():
+    early = date(2026, 11, 27)
+    assert session_close(early) == datetime(2026, 11, 27, 13, 0, tzinfo=ET)
+    assert moc_cutoff(early) == datetime(2026, 11, 27, 12, 50, tzinfo=ET)
+    assert moo_cutoff(early) == datetime(2026, 11, 27, 9, 28, tzinfo=ET)
+    assert cutoff_at("moc", early) == datetime(2026, 11, 27, 17, 50,
+                                               tzinfo=ZoneInfo("UTC"))
+    assert received_at_allowed(
+        "moc", early, datetime(2026, 11, 27, 12, 50, tzinfo=ET),
+    )
+    assert not received_at_allowed(
+        "moc", early, datetime(2026, 11, 27, 12, 50, 1, tzinfo=ET),
+    )
+    assert received_at_allowed(
+        "market", early, datetime(2026, 11, 27, 12, 59, 59, tzinfo=ET),
+    )
+    assert not received_at_allowed(
+        "market", early, datetime(2026, 11, 27, 13, 0, tzinfo=ET),
+    )
+
+
+def test_cutoffs_follow_dst_transitions():
+    assert cutoff_at("moo", date(2026, 3, 6)) == datetime(
+        2026, 3, 6, 14, 28, tzinfo=ZoneInfo("UTC")
+    )
+    assert cutoff_at("moo", date(2026, 3, 9)) == datetime(
+        2026, 3, 9, 13, 28, tzinfo=ZoneInfo("UTC")
+    )
+    assert cutoff_at("moc", date(2026, 10, 30)) == datetime(
+        2026, 10, 30, 19, 50, tzinfo=ZoneInfo("UTC")
+    )
+    assert cutoff_at("moc", date(2026, 11, 2)) == datetime(
+        2026, 11, 2, 20, 50, tzinfo=ZoneInfo("UTC")
     )

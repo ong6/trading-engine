@@ -7,7 +7,7 @@ import pytest
 
 from sim import ledger, portfolio, settle
 from sim.costs import FeeBreakdown
-from sim.schema import INITIAL_CASH
+from sim.schema import INITIAL_CASH, set_portfolio_account
 from tests.conftest import SESSIONS
 
 
@@ -33,7 +33,14 @@ def _record_fill(con, book, order_id, ticker, side, qty, price, session, fees=No
     return applied
 
 
+def _margin_account(con, book, *, engine="league"):
+    set_portfolio_account(
+        con, book, engine=engine, account_type="margin", allow_short=True,
+    )
+
+
 def test_short_cover_round_trip_tracks_lot_cash_and_fees(con, book):
+    _margin_account(con, book)
     one_dollar = FeeBreakdown("ibkr_pro_tiered_v1", commission=1, total_usd=1)
     assert ledger.apply_fill(con, {
         "order_id": 1, "portfolio_id": book, "ticker": "XYZ", "side": "short",
@@ -53,6 +60,7 @@ def test_short_cover_round_trip_tracks_lot_cash_and_fees(con, book):
 
 
 def test_long_and_short_sides_cannot_cross_zero_implicitly(con, book):
+    _margin_account(con, book)
     ledger.apply_fill(con, {
         "portfolio_id": book, "ticker": "LONG", "side": "buy", "qty": 2, "fill_px": 10,
     })
@@ -73,6 +81,7 @@ def test_long_and_short_sides_cannot_cross_zero_implicitly(con, book):
 
 
 def test_short_dividend_is_a_signed_debit(con, book):
+    _margin_account(con, book)
     session = SESSIONS[3]
     con.execute(
         "CREATE TABLE corporate_actions "
@@ -160,3 +169,98 @@ def test_rebuild_replays_fill_fee_once(con, book):
     ledger.rebuild_state(con)
     assert portfolio.get_cash(con, book) == expected == INITIAL_CASH - 1_500 - 1.56
     assert portfolio.get_positions(con, book)["XYZ"]["qty"] == 300
+
+
+def test_cash_legacy_portfolio_cannot_short(con, book):
+    with pytest.raises(ValueError, match="cash_legacy"):
+        ledger.apply_fill(con, {
+            "portfolio_id": book, "ticker": "XYZ", "side": "short",
+            "qty": 1, "fill_px": 10,
+        })
+
+
+def test_account_fill_requires_order_identity_and_session(con, book):
+    _margin_account(con, book, engine="account")
+    with pytest.raises(ValueError, match="order_id and fill date"):
+        ledger.apply_fill(con, {
+            "portfolio_id": book, "ticker": "XYZ", "side": "buy",
+            "qty": 1, "fill_px": 10,
+        })
+
+
+@pytest.mark.parametrize(
+    "opening,closing,opening_px,closing_px,expected_cash",
+    [
+        ("buy", "sell", 10, 12, INITIAL_CASH + 20),
+        ("short", "cover", 12, 10, INITIAL_CASH + 20),
+    ],
+)
+def test_account_same_day_round_trip_replays_by_fill_timestamp(
+    con, book, opening, closing, opening_px, closing_px, expected_cash,
+):
+    _margin_account(con, book, engine="account")
+    session = SESSIONS[2]
+    _record_fill(con, book, 20, "XYZ", opening, 10, opening_px, session)
+    _record_fill(con, book, 10, "XYZ", closing, 10, closing_px, session)
+    con.executemany(
+        "INSERT INTO sim_fill_details (order_id,fill_ts,fill_kind,multiplier) "
+        "VALUES (?,?,?,1)",
+        [
+            (20, datetime(2026, 10, 12, 13, 30), "open_auction"),
+            (10, datetime(2026, 10, 12, 20, 0), "close_auction"),
+        ],
+    )
+    assert portfolio.get_cash(con, book) == expected_cash
+    con.execute("UPDATE portfolios SET cash=0 WHERE id=?", [book])
+    con.execute("DELETE FROM sim_positions")
+    ledger.rebuild_state(con)
+    assert portfolio.get_cash(con, book) == expected_cash
+    assert portfolio.get_positions(con, book) == {}
+    assert con.execute(
+        "SELECT open_order_id,close_order_id FROM sim_day_trades"
+    ).fetchall() == [(20, 10)]
+
+
+def test_legacy_same_day_fills_keep_sells_before_buys(con, book):
+    _record_fill(con, book, 1, "XYZ", "buy", 10, 10, SESSIONS[1])
+    _record_fill(con, book, 3, "XYZ", "sell", 10, 12, SESSIONS[2])
+    _record_fill(con, book, 2, "XYZ", "buy", 5, 11, SESSIONS[2])
+    expected = (portfolio.get_cash(con, book), portfolio.get_positions(con, book))
+    ledger.rebuild_state(con)
+    assert (portfolio.get_cash(con, book), portfolio.get_positions(con, book)) == expected
+
+
+def test_fifo_matching_exposes_lots_and_records_same_day_trade(con, book):
+    _margin_account(con, book, engine="account")
+    _record_fill(con, book, 1, "XYZ", "buy", 10, 10, SESSIONS[1])
+    _record_fill(con, book, 2, "XYZ", "buy", 10, 11, SESSIONS[2])
+    _record_fill(con, book, 3, "XYZ", "sell", 15, 12, SESSIONS[2])
+    assert con.execute(
+        "SELECT session_date,open_order_id,close_order_id FROM sim_day_trades"
+    ).fetchall() == [(SESSIONS[2], 2, 3)]
+    assert con.execute(
+        "SELECT open_order_id,qty FROM sim_position_lots"
+    ).fetchall() == [(2, 5.0)]
+
+    ledger.add_lot(con, book, "ABC", SESSIONS[1], 10, 2, 20)
+    matched = ledger.match_lots(con, book, "ABC", 1)
+    assert matched == (ledger.MatchedLot(10, SESSIONS[1], 1, 20),)
+
+
+def test_stock_settlement_transfers_lots_with_position(con, book):
+    _margin_account(con, book, engine="account")
+    _record_fill(con, book, 1, "OLD", "buy", 10, 20, SESSIONS[1])
+    settle.apply_settlement_event(con, book, "OLD", "stock", 10, 0, "NEW", 2)
+    assert portfolio.get_positions(con, book) == {
+        "NEW": {"qty": 20.0, "avg_cost": 10.0},
+    }
+    positions = dict(con.execute(
+        "SELECT ticker,qty FROM sim_positions WHERE portfolio_id=? AND abs(qty)>=1e-9",
+        [book],
+    ).fetchall())
+    lots = dict(con.execute(
+        "SELECT instrument_id,SUM(qty) FROM sim_position_lots "
+        "WHERE portfolio_id=? GROUP BY instrument_id HAVING abs(SUM(qty))>=1e-9",
+        [book],
+    ).fetchall())
+    assert lots == positions

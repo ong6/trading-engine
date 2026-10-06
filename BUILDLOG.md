@@ -2219,5 +2219,104 @@ the 42-entry 2026-09-19 C90 complexity series is in
   published with `budget.ok=true` and no violations.
 - **Metrics:** server/tools/product unchanged; budget ok.
 - **Next:** await the orchestrator's Phase B signal and refreshed P22 base.
+## 2026-10-06 — Correct the L0 foundation after review
+
+- **Why:** R13 replaces portfolio columns with a side table and review reproduced replay, timing, lot and precision defects.
+- **What:** Add the account-settings view/API, collision-safe sequence allocation across the four claimed writers, and time-ordered account replay.
+  Complete day-trade lots, settlement transfers, early-close clocks, unrounded accruals, fractional fees and futures identity.
+- **Evidence:** Snapshot base/lane rebuild comparison: 33 portfolios, 829 positions, cash_diff=0, position_diff=0; copies deleted.
+- **Metrics:** server +5, tools unchanged, product +289 lines; budget clean.
+- **Next:** L2 changes its remaining paper-account order allocator; L3 performs the R12 identity rebindings.
+
+## 2026-10-06 — Preserve logical order identity during recovery
+
+- **Why:** The orchestrator ruled that completed-tool recovery restores its retained logical id without calling the allocator.
+- **What:** Restore a missing order from retained attribution/exit-rule identity and refuse an occupied conflicting id.
+  Fold the still-required plan indexes and v5/cost-profile expectations into the lane; retire the obsolete consumer patch.
+- **Evidence:** The 112-test L0, recovery, identity and documentation set passes; the conflict regression is included.
+- **Metrics:** server +23, tools/product unchanged; budget clean.
+- **Next:** Confirm the full-suite failure set is exactly the R12 baseline, then write final status.
+
+## 2026-10-06 — Bound split adjustments by knowledge date
+
+- **Why:** P22 L4 review reproduced future announced splits changing current bars
+  and first-seen split rows retaining corrected or cancelled actions.
+- **What:** Add an as-of adjusted-bar macro, current-date default view, corrected
+  split upserts and complete-response withdrawals; overlap the cursor by 30 days.
+  Run split capture before the options job through the same shared limiter.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_free_splits.py
+  tests/test_free_sources.py tests/test_install_automation.py`: 83 passed.
+- **Metrics:** server unchanged, tools +17, product/engine +83, tests +128; budget ok.
+- **Next:** add the engine-owned first-fetch backfill and historical fallback.
+
+## 2026-10-06 — Backfill first-seen price availability
+
+- **Why:** P22 L4 review reproduced a pre-migration row losing its historic fetch
+  time when the first post-migration refresh arrived before the planned backfill.
+- **What:** Fall back through the stored `fetched_at` during conflict updates and
+  expose `backfill_first_fetched_at`; L3's migration calls this helper once.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_db_bitemporal.py
+  tests/test_collect.py tests/test_refetch_ticker.py tests/test_history_recovery.py`: 44 passed.
+- **Metrics:** server/tools unchanged, product/engine +13, tests +52; budget ok.
+- **Next:** make options prior-close reads immutable and share daily-bar budget fairly.
+
+## 2026-10-06 — Share the bounded options budget fairly
+
+- **Why:** P22 L4 review reproduced a global 400-contract limit starving later
+  underlyings and an options reader mutating the grouped-daily store.
+- **What:** Open prior closes read-only, require the adjusted view, divide the cap
+  equally and rank 31-60 DTE near-money contracts. Verify receipt resume, missing
+  cache/key and HTTP 429 refusals; cap account freshness at a logged 2,000 names.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_free_massive_options.py
+  tests/test_collect_freshness.py tests/test_free_splits.py tests/test_free_sources.py
+  tests/test_install_automation.py`: 96 passed.
+- **Metrics:** server unchanged, tools +39, product/engine +9, tests +157; budget ok.
+- **Next:** run the complete acceptance, refresh handoffs and publish round-two status.
+
+## 2026-10-06 — Close L4 round-two review
+
+- **Why:** Orchestrator review required as-of split handling, a migration helper,
+  fair option capture, immutable inputs and bounded refusal/resume behavior.
+- **What:** All eight blockers and minor cases are corrected; 140 focused tests,
+  Ruff, systemd verification, both handoff patches and the metrics budget pass.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,320 passed, 104 integration-bound failures, 5 deselected.
+- **Metrics:** server/tools/product unchanged since the implementation entries; budget ok.
+- **Next:** L3 calls the backfill helper, routes the fail-soft nightly line, applies
+  the positional-writer patch and rebinds the merged E1/sector/XS/P15 contracts.
+
+## 2026-10-06 — Require strong evidence before split withdrawal
+
+- **Why:** Round-three review reproduced an ambiguous empty 200 response withdrawing
+  every active split in the capture window.
+- **What:** Require explicit and complete pages, alarm on empty or excessive absence,
+  and advance safe absences through `pending_withdrawal` on two complete refreshes.
+  Old response replays cannot reactivate withdrawals; options read their explicit as-of view.
+  Split refresh is fail-soft so aggregate options capture still runs.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_free_splits.py
+  tests/test_free_massive_options.py tests/test_free_sources.py
+  tests/test_install_automation.py`: 101 passed.
+- **Metrics:** server unchanged, tools +4, product/engine +58, tests +183; budget ok.
+- **Next:** run complete acceptance and publish round-three status.
+
+## 2026-10-06 — Close L4 round-three review
+
+- **Why:** Orchestrator re-review required strong withdrawal evidence, explicit
+  option as-of prices, UTC defaults and fail-soft split scheduling.
+- **What:** The withdrawal state machine and every incomplete/suspicious refusal
+  pass 148 focused cases; Ruff, systemd, both handoff patches and budget pass.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,328 passed, 104 integration-bound failures, 5 deselected.
+- **Metrics:** server/tools/product unchanged since the implementation entry; budget ok.
+- **Next:** L3 applies the existing handoffs and rebinds merged runtime contracts.
+
+## 2026-10-06 — Isolate and retry agent data capture failures
+
+- **Why:** `pytest -q -W error -n 0 tests/test_agent_provider_responses.py::test_ticker_failure_preserves_other_verified_receipts` reproduced that an EFA response failure leaves only BIL committed and skips SPY.
+- **What:** Add bounded transient retries to both external evidence sources and isolate per-symbol failures.
+  Run all four capture stages through one aggregate runner so later stages still execute while the unit reports any failure.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_agent_provider_responses.py tests/test_agent_independent_price_evidence.py tests/test_agent_data_capture_runner.py` passed all 24 tests.
+- **Metrics:** Server +235 lines and tests +181; tools and product unchanged. Budget passed.
+- **Next:** Nothing admitted.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
