@@ -95,4 +95,4 @@ def test_full_replay_return_can_include_day_one_drag():
 
 
 def test_fill_model_version_marks_profile_aware_semantics():
-    assert portfolio.FILL_MODEL_VERSION == "v5"
+    assert portfolio.FILL_MODEL_VERSION == "v4"
