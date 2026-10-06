@@ -2082,4 +2082,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged; product +2 lines; budget clean.
 - **Next:** L3 must migrate frozen runtime identities and apply the supplied compatibility patch before the full suite can pass.
 
+## 2026-10-06 — Correct the L0 foundation after review
+
+- **Why:** R13 replaces portfolio columns with a side table and review reproduced replay, timing, lot and precision defects.
+- **What:** Add the account-settings view/API, collision-safe sequence allocation across the four claimed writers, and time-ordered account replay.
+  Complete day-trade lots, settlement transfers, early-close clocks, unrounded accruals, fractional fees and futures identity.
+- **Evidence:** Snapshot base/lane rebuild comparison: 33 portfolios, 829 positions, cash_diff=0, position_diff=0; copies deleted.
+- **Metrics:** server +5, tools unchanged, product +289 lines; budget clean.
+- **Next:** L2 changes its remaining paper-account order allocator; L3 performs the R12 identity rebindings.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
