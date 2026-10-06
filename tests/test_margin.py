@@ -108,6 +108,20 @@ def test_record_day_trade_preserves_fractional_open_lot_identity(con, book):
     )
 
 
+def test_day_trade_match_obeys_fifo_before_same_day_lot(con, book):
+    _set_account(con, book)
+    con.execute("INSERT INTO sim_positions VALUES (?, 'XYZ', 3, 100)", [book])
+    con.executemany(
+        "INSERT INTO sim_position_lots VALUES (?, 'XYZ', ?, ?, ?, 100)",
+        [
+            (book, date(2026, 10, 9), 90, 2.0),
+            (book, DAY, 100, 1.0),
+        ],
+    )
+    assert not margin.would_create_day_trade(con, book, "XYZ", "sell", 2, DAY)
+    assert margin.matched_day_trade_open(con, book, "XYZ", "sell", 2.5, DAY) == 100
+
+
 def test_margin_interest_uses_verified_rate_and_is_idempotent(con, book):
     _set_account(con, book, profile="ibkr_pro_tiered_v1")
     con.execute("UPDATE portfolios SET cash=-2000 WHERE id=?", [book])

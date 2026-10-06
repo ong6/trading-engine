@@ -34,7 +34,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import duckdb
 
-from . import bar_sources, calendar, execution
+from . import bar_sources, calendar, execution, nyse
 from .order_types import OrderType, received_at_allowed
 
 MEDVOL_BARS = 60          # lookback for median dollar volume
@@ -248,6 +248,59 @@ def _v2_result(
     )
 
 
+def attempt_next_open_fill(
+    con: duckdb.DuckDBPyConnection,
+    ticker: str,
+    side: str,
+    qty: float,
+    signal_date: date,
+    fill_date: date,
+    profile: str | execution.ExecutionProfile | None = None,
+    *,
+    price_source: str = "prices",
+    available_at: datetime | None = None,
+    penalty_bps: float = 0.0,
+) -> FillResult:
+    """V2 next-open attempt with alternate daily sources and explicit sides."""
+    if fill_date <= signal_date:
+        raise ValueError(
+            f"look-ahead violation: fill_date {fill_date} !> signal_date {signal_date}"
+        )
+    bar = bar_sources.daily_bar(
+        con, ticker, fill_date, source=price_source, available_at=available_at,
+    )
+    if bar is None:
+        elapsed = 0
+        cursor = signal_date
+        while cursor < fill_date:
+            cursor += timedelta(days=1)
+            if nyse.is_session(cursor):
+                elapsed += 1
+        if elapsed >= PENDING_MAX_DAYS:
+            return FillResult(status="rejected", reject_reason="no_bar")
+        return FillResult(status="pending", price_source=price_source)
+    mdv = bar_sources.median_dollar_volume(
+        con, ticker, fill_date, source=price_source, available_at=available_at,
+    )
+    slip = half_spread_bps(mdv) + 5.0 + penalty_bps
+    fill_ts = datetime.combine(
+        fill_date, datetime.min.time().replace(hour=9, minute=30),
+        bar_sources.NEW_YORK,
+    ).astimezone(timezone.utc).replace(tzinfo=None)
+    return _v2_result(
+        side=side,
+        qty=qty,
+        reference_px=bar.open,
+        mdv=mdv,
+        slip_bps=slip,
+        fill_kind="next_open",
+        price_source=price_source,
+        bar_ref=bar.bar_ref,
+        fill_ts=fill_ts,
+        profile=profile,
+    )
+
+
 def attempt_auction_fill(
     con: duckdb.DuckDBPyConnection,
     ticker: str,
@@ -283,12 +336,8 @@ def attempt_auction_fill(
     # Auction orders trade at one clearing print: half the normal estimated
     # half-spread tier and no fixed adverse-movement component.
     slip = half_spread_bps(mdv) / 2 + penalty_bps
-    local_time = datetime.min.time().replace(hour=9, minute=30) if opening else (
-        datetime.min.time().replace(hour=16)
-    )
-    fill_ts = datetime.combine(
-        session_date, local_time, bar_sources.NEW_YORK,
-    ).astimezone(timezone.utc).replace(tzinfo=None)
+    opened, closed = bar_sources.session_bounds(session_date)
+    fill_ts = opened if opening else closed
     return _v2_result(
         side=side,
         qty=qty,

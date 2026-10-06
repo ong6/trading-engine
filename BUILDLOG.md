@@ -2170,4 +2170,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; sim and tests grew within the P22 plan budget.
 - **Next:** settle account orders with aggregate liquidity, fees, contingencies and late marks.
 
+## 2026-10-06 — Settle account sessions through the common ledger
+
+- **Why:** P22 L1 requires one ordered settlement pass for account auctions,
+  deferred intraday orders, aggregate liquidity, contingencies and late bars.
+- **What:** Route due account orders through locates, R10, Reg T, gross/liquidity
+  caps, L0 fees and ledger; persist fill provenance and restate only late-filled accounts.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_accounts_settle.py
+  tests/test_fills_v2.py tests/test_shorts.py tests/test_margin.py tests/test_ledger.py
+  tests/test_costs_ibkr.py`: 52 passed.
+- **Metrics:** server/tools/product unchanged; engine/sim/tests remain within the P22 budget.
+- **Next:** run the lane acceptance set, full-suite failure diff, ruff and metrics publication.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
