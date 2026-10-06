@@ -2148,4 +2148,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged since the prior entry; budget ok.
 - **Next:** orchestrator applies the two handoff patches and L3 issues the merged runtime contracts.
 
+## 2026-10-06 — Keep account freshness fail-soft
+
+- **Why:** P22 L3 owns the nightly handoff; the orchestrator reproduced three driver
+  expectation failures and ruled that an account-freshness lock timeout cannot abort trading.
+- **What:** The account freshness stage now warns and continues, while the P15 collector
+  remains fatal; driver expectations cover the added stage and both failure semantics.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_drivers.py` — 28 passed.
+- **Metrics:** server/tools/product unchanged; engine +1 and tests +13; budget ok.
+- **Next:** implement L3 routing, monotonic ids, fees, rerun protection, and public reports.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
