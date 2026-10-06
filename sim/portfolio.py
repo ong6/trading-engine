@@ -2,8 +2,9 @@
 
 sim_positions and portfolios.cash are current state; sim_equity is persisted by
 book/date and restatable only through an explicit league rerun.
-State can always be reconstructed from sim_fills (`rebuild_state`) — that replay
-is how `--rerun` restores exact cash/positions after deleting a date's rows.
+State can always be reconstructed from fills, fees, dividends, settlements and
+cash events (`rebuild_state`) — that replay is how `--rerun` restores exact
+cash/positions after deleting a date's rows.
 """
 from __future__ import annotations
 
@@ -11,9 +12,10 @@ from datetime import date, timedelta
 
 import duckdb
 
-from engine.lib.log import get_logger
 from engine.lib.util import table_exists
 
+from .ledger import MIN_FILL_USD as MIN_FILL_USD
+from .ledger import apply_fill as ledger_apply_fill
 from .schema import INITIAL_CASH
 
 # --------------------------------------------------------------------------- #
@@ -28,18 +30,15 @@ from .schema import INITIAL_CASH
 #                                    before application (no order-ID/ticker bias)
 #   v4  profile-aware market/fee costs, actual-quantity participation audit,
 #       per-book capital, explicit quarantine; baseline_v1 remains v3-equivalent
-FILL_MODEL_VERSION = "v4"
+#   v5  side-aware lots, dollar fees and phase-3 cash-event replay; legacy
+#       baseline_v1 fill arithmetic remains v4-equivalent
+FILL_MODEL_VERSION = "v5"
 
 # A buy whose affordable notional falls below this is dust, not a position:
 # filling it writes a sim_fills row and an avg_cost for an amount that cannot
 # move the book, and rejecting it is the honest outcome. v1 had no explicit
 # floor — its effective floor was one whole share, which is $1 for a penny
 # stock and $47,988 for a reverse-split-mangled leveraged ETF.
-MIN_FILL_USD = 1.0
-
-log = get_logger("apply_fill")
-
-
 # --------------------------------------------------------------------------- #
 # reads
 # --------------------------------------------------------------------------- #
@@ -133,110 +132,8 @@ def close_on(con: duckdb.DuckDBPyConnection, ticker: str, d: date):
 # writes
 # --------------------------------------------------------------------------- #
 def apply_fill(con: duckdb.DuckDBPyConnection, fill: dict) -> float:
-    """Apply one fill to sim_positions + portfolios.cash. `fill` carries
-    portfolio_id, ticker, side, qty, fill_px.
-
-    Returns the qty ACTUALLY applied, which may be less than the requested qty:
-
-    - Sells are close-only: if the requested qty exceeds the held qty it is
-      clamped to the held qty (never go negative) and a WARN is printed.
-    - Buys are cash-bounded: if the notional exceeds available cash the qty is
-      reduced to cash / fill_px so cash never goes negative (no phantom leverage
-      from a signal-day → next-open gap-up). If the affordable notional is below
-      MIN_FILL_USD the fill is rejected (returns 0.0, nothing written) and a
-      WARN is printed — that residual is dust, not a position.
-
-      **fillmodel v2 (2026-08-20): the clamp is FRACTIONAL.** v1 used
-      `floor(cash / px)`, which was the one place in the engine that rounded to
-      whole shares. Every sizing path is fractional (`base.py`,
-      `turtle_breakout.py`, `pead_ear.py`) and the live books hold fractional
-      quantities (`DLLL qty 102.384263`); `trading-execution-design.md` §2
-      specifies fills, slippage and the liquidity guard and says NOTHING about
-      lot size. The `floor()` was a 2026-07-18 negative-cash safety fix
-      (BUILDLOG:284) and whole-share trading was its incidental side effect.
-
-      Why it mattered: `collect.py` fetches `auto_adjust=False`, which still
-      SPLIT-adjusts OHLC, so a name with heavy cumulative REVERSE splits has its
-      old prices multiplied without limit — `TNXP` reaches $19.2bn in 2012,
-      `DRIP` $83,000, and 32 tickers exceed $100,000. A $39,000 book facing a
-      $31.7M adjusted price computed `floor(0.0012) = 0`, rejected the order and
-      stranded the whole allocation. Measured across the fold replays: 2,634
-      rejects, of which 436 (16.6%) were leveraged/inverse ETFs carrying 90.8%
-      of ALL stranded cash, and 50 rejects stranded >10% of a book.
-
-      The prices are not wrong — back-adjustment preserves returns, which is
-      what a backtest consumes, and dollar-volume stays split-invariant so the
-      liquidity filter is sound. Exactly one rule keyed on absolute price per
-      share, and this was it.
-
-    A return of 0.0 means nothing was applied — the caller must not record a
-    sim_fills row and should mark the order rejected. Callers that record a
-    sim_fills row MUST use the returned qty so the fill log and order status
-    reflect what actually happened.
-    """
-    pf_id, tk = fill["portfolio_id"], fill["ticker"]
-    qty, px, side = fill["qty"], fill["fill_px"], fill["side"]
-    row = con.execute(
-        "SELECT qty, avg_cost FROM sim_positions WHERE portfolio_id = ? AND ticker = ?",
-        [pf_id, tk],
-    ).fetchone()
-    cur_qty, cur_cost = (row[0], row[1]) if row else (0.0, 0.0)
-
-    if px is None or not px > 0:
-        # A non-positive fill price is never a trade: a buy at 0 would book free
-        # shares (and skip the cash clamp), a sell at 0 would erase a position for
-        # nothing. fills.attempt_fill already refuses such bars; this is the
-        # last line of defence for any other caller.
-        log.warning(f"[apply_fill] WARN bad_price: {pf_id} {tk} {side} {qty} @ {px!r} "
-              f"— fill rejected")
-        return 0.0
-
-    if side == "buy":
-        cash = get_cash(con, pf_id)
-        if qty * px > cash:
-            # Shave a floating-point epsilon so `qty * px` can never round up
-            # past `cash` and drive the balance negative — the invariant the
-            # v1 floor() was protecting, kept without the whole-share side
-            # effect.
-            affordable = (cash / px) * (1.0 - 1e-12) if cash > 0 else 0.0
-            if affordable * px < MIN_FILL_USD:
-                log.warning(f"[apply_fill] WARN insufficient_cash: {pf_id} {tk} buy "
-                      f"{qty} @ {px:.4f} (notional ${qty * px:,.2f} > cash "
-                      f"${cash:,.2f}; affordable ${affordable * px:,.2f} < "
-                      f"${MIN_FILL_USD:g} dust floor) — fill rejected")
-                return 0.0
-            log.warning(f"[apply_fill] WARN cash-clamp: {pf_id} {tk} buy {qty} → "
-                  f"{affordable:.6f} @ {px:.4f} (cash ${cash:,.2f})")
-            qty = float(affordable)
-        new_qty = cur_qty + qty
-        new_cost = ((cur_qty * cur_cost) + (qty * px)) / new_qty if new_qty else 0.0
-        con.execute("UPDATE portfolios SET cash = cash - ? WHERE id = ?",
-                    [qty * px, pf_id])
-    else:  # sell — close-only, never go short
-        if qty > cur_qty:
-            log.warning(f"[apply_fill] WARN sell-clamp: {pf_id} {tk} sell {qty} > held "
-                  f"{cur_qty} → {cur_qty} (close-only)")
-            qty = cur_qty
-        if qty <= 0:
-            return 0.0
-        new_qty = cur_qty - qty
-        new_cost = cur_cost  # realized P&L falls out of cash; avg_cost unchanged
-        con.execute("UPDATE portfolios SET cash = cash + ? WHERE id = ?",
-                    [qty * px, pf_id])
-
-    if row:
-        con.execute(
-            "UPDATE sim_positions SET qty = ?, avg_cost = ? "
-            "WHERE portfolio_id = ? AND ticker = ?",
-            [new_qty, new_cost, pf_id, tk],
-        )
-    else:
-        con.execute(
-            "INSERT INTO sim_positions (portfolio_id, ticker, qty, avg_cost) "
-            "VALUES (?, ?, ?, ?)",
-            [pf_id, tk, new_qty, new_cost],
-        )
-    return float(qty)
+    """Delegate legacy buy/sell accounting to the common side-aware ledger."""
+    return ledger_apply_fill(con, fill)
 
 
 def mark_to_market(con: duckdb.DuckDBPyConnection, pf_id: str, d: date) -> dict:
@@ -290,8 +187,11 @@ def _position_as_of(con: duckdb.DuckDBPyConnection, pf_id: str, tk: str,
         for ex, ratio in splits.get(tk, ()):
             if fd < ex:
                 factor *= ratio
-        qty += float(q) * factor if side == "buy" else -float(q) * factor
-    return max(qty, 0.0)
+        if side in {"buy", "cover"}:
+            qty += float(q) * factor
+        else:
+            qty -= float(q) * factor
+    return qty
 
 
 def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
@@ -308,12 +208,13 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
     row whenever it lands; the (portfolio, ticker, ex_date) primary key on
     sim_dividends keeps every credit exactly-once.
 
-    Entitlement is the position at the close of ex_date − 1. For ex_date == d
+    Entitlement is the signed position at the close of ex_date − 1. For ex_date == d
     that is the current sim_positions state (this runs BEFORE the day's fills);
     for an earlier ex_date it is reconstructed from sim_fills so a name bought
     after the ex-date is not paid. Cash += qty × dps, one append-only
     sim_dividends row per credit, stamped with the TRUE ex_date so rebuild_state
-    replays it at the right point in the cash trajectory.
+    replays it at the right point in the cash trajectory. A short position has
+    negative entitlement and therefore records and applies a dividend debit.
 
     Returns {'credited': n_rows, 'amount': total_cash}. A store without a
     corporate_actions table (an old copy) credits nothing rather than failing.
@@ -342,7 +243,7 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
         held_now = {
             tk: float(q) for tk, q in con.execute(
                 "SELECT ticker, qty FROM sim_positions "
-                "WHERE portfolio_id = ? AND qty > 0", [pf_id]
+                "WHERE portfolio_id = ? AND qty <> 0", [pf_id]
             ).fetchall()
         }
         # Any name the book has EVER filled is a candidate for a late credit.
@@ -356,7 +257,7 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
                 qty = held_now.get(tk, 0.0)
             else:
                 qty = _position_as_of(con, pf_id, tk, ex, splits)
-            if qty <= 0:
+            if qty == 0:
                 continue
             dps = float(value)
             amount = qty * dps
@@ -396,83 +297,7 @@ def _split_factors(con: duckdb.DuckDBPyConnection) -> dict[str, list[tuple[date,
 # reconstruction (used by --rerun)
 # --------------------------------------------------------------------------- #
 def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
-    """Replay every surviving sim_fill + sim_dividend to recompute sim_positions
-    and cash exactly.
+    """Delegate all phase-ordered reconstruction to the common ledger."""
+    from .ledger import rebuild_state as ledger_rebuild_state
 
-    Cash starts at INITIAL_CASH per portfolio; events are replayed in date order
-    with dividends BEFORE fills within a date — the SAME order the live day-step
-    applies them (phase a0 then phase a), so the cash-bounded buy clamp in
-    apply_fill sees an identical cash trajectory and never re-clamps a stored
-    fill. Fills within a date keep the live (sells-before-buys, order_id) order.
-    This makes state a pure function of (sim_fills, sim_dividends).
-
-    Splits: a fill recorded before an APPLIED split's ex-date is replayed with
-    qty × ratio and fill_px ÷ ratio. Notional (and therefore the cash trajectory)
-    is unchanged, while the rebuilt share count and avg_cost land on the current,
-    post-split scale — without this, any --rerun after a split would silently
-    revert the reconciler's position adjustment. Dividends are replayed at their
-    RECORDED amount: the cash was received at the share count of the day, and a
-    later split does not retroactively change what was paid.
-
-    Settlements (sim_settlements, owner-supplied terms for a name that stopped
-    trading — see sim/settle.py) are replayed at `effective`, phased AFTER that
-    date's dividends and BEFORE its fills, at their RECORDED qty/price. Why an
-    event and not a synthetic fill: a settlement is not a trade (no bar, no
-    slippage, no order) and must never look like one in sim_fills; and it must
-    survive `--rerun`, which deletes a date's fills/dividends but never the
-    owner's settlement rows. Phase order: dividends first because a final
-    dividend can go ex on the same day the shares are cancelled; fills after
-    because by `effective` the fill model can no longer produce one anyway.
-    """
-    pf_ids = con.execute(
-        "SELECT id, COALESCE(initial_cash, ?) FROM portfolios", [INITIAL_CASH]
-    ).fetchall()
-    con.execute("DELETE FROM sim_positions")
-    for pf_id, initial_cash in pf_ids:
-        con.execute("UPDATE portfolios SET cash = ? WHERE id = ?",
-                    [initial_cash, pf_id])
-
-    splits = _split_factors(con)
-
-    # (date, phase, seq, kind, payload) — phase 0 = dividends, 1 = settlements,
-    # 2 = fills.
-    events: list[tuple] = []
-    if table_exists(con, "sim_dividends"):
-        for i, (pf_id, tk, ex, amount) in enumerate(con.execute(
-            "SELECT portfolio_id, ticker, ex_date, amount FROM sim_dividends "
-            "ORDER BY ex_date, portfolio_id, ticker"
-        ).fetchall()):
-            events.append((ex, 0, i, "div", (pf_id, tk, float(amount))))
-    for i, (pf_id, tk, side, qty, px, fd, _oid) in enumerate(con.execute(
-        "SELECT portfolio_id, ticker, side, qty, fill_px, fill_date, order_id "
-        "FROM sim_fills "
-        "ORDER BY fill_date, CASE side WHEN 'sell' THEN 0 ELSE 1 END, order_id"
-    ).fetchall()):
-        events.append((fd, 2, i, "fill", (pf_id, tk, side, qty, px, fd)))
-    if table_exists(con, "sim_settlements"):
-        for i, row in enumerate(con.execute(
-            "SELECT portfolio_id, ticker, kind, qty, price, into_ticker, ratio, "
-            "effective FROM sim_settlements ORDER BY effective, portfolio_id, ticker"
-        ).fetchall()):
-            events.append((row[7], 1, i, "settle", row[:7]))
-    events.sort(key=lambda e: (e[0], e[1], e[2]))
-
-    for _d, _phase, _seq, kind, payload in events:
-        if kind == "div":
-            pf_id, _tk, amount = payload
-            con.execute("UPDATE portfolios SET cash = cash + ? WHERE id = ?",
-                        [amount, pf_id])
-            continue
-        if kind == "settle":
-            from .settle import apply_settlement_event  # local: settle imports us
-            pf_id, tk, skind, qty, price, into, ratio = payload
-            apply_settlement_event(con, pf_id, tk, skind, float(qty), float(price),
-                                   into, None if ratio is None else float(ratio))
-            continue
-        pf_id, tk, side, qty, px, fd = payload
-        factor = 1.0
-        for ex, ratio in splits.get(tk, ()):
-            if fd < ex:
-                factor *= ratio
-        apply_fill(con, {"portfolio_id": pf_id, "ticker": tk, "side": side,
-                         "qty": qty * factor, "fill_px": px / factor})
+    ledger_rebuild_state(con)

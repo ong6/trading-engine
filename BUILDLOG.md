@@ -2064,4 +2064,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged; product +423 lines; budget clean.
 - **Next:** Build side-aware fill accounting, cash events, lots, and deterministic replay phases.
 
+## 2026-10-06 — Centralise side-aware ledger replay
+
+- **Why:** P22 L0 requires one fill/cash writer and phase-ordered reconstruction with exact legacy compatibility.
+- **What:** Delegate portfolio fills and rebuilds to a buy/sell/short/cover ledger with FIFO lots and dollar fees.
+  Replay dividends, settlements, fills and cash events in phases 0–3; short dividends are signed debits.
+- **Evidence:** The 99-test L0/portfolio/settlement/regression set passes, including exact multi-day legacy replay and short-cover accounting.
+- **Metrics:** server/tools unchanged; product +228 lines; budget clean.
+- **Next:** Run repository-wide acceptance, package cross-lane compatibility patches, and publish the final metrics snapshot.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

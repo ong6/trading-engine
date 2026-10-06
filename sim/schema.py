@@ -177,6 +177,7 @@ def init_sim_schema(con: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
+    con.execute("ALTER TABLE sim_fill_fees ADD COLUMN IF NOT EXISTS cat_fee DOUBLE")
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS sim_cash_events (
