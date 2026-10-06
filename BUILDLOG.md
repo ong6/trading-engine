@@ -2112,4 +2112,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged since the prior entry; budget ok.
 - **Next:** orchestrator applies the two handoff patches and L3 issues the merged runtime contracts.
 
+## 2026-10-06 — Bound split adjustments by knowledge date
+
+- **Why:** P22 L4 review reproduced future announced splits changing current bars
+  and first-seen split rows retaining corrected or cancelled actions.
+- **What:** Add an as-of adjusted-bar macro, current-date default view, corrected
+  split upserts and complete-response withdrawals; overlap the cursor by 30 days.
+  Run split capture before the options job through the same shared limiter.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_free_splits.py
+  tests/test_free_sources.py tests/test_install_automation.py`: 83 passed.
+- **Metrics:** server unchanged, tools +17, product/engine +83, tests +128; budget ok.
+- **Next:** add the engine-owned first-fetch backfill and historical fallback.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
