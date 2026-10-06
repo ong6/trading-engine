@@ -198,7 +198,7 @@ def test_margin_interest_uses_verified_rate_and_is_idempotent(con, book):
 def test_maintenance_breach_queues_proportional_reduction(con, book):
     _set_account(con, book)
     con.execute(
-        "CREATE TABLE account_events (id BIGINT PRIMARY KEY,portfolio_id VARCHAR,"
+        "CREATE TABLE IF NOT EXISTS account_events (id BIGINT PRIMARY KEY,portfolio_id VARCHAR,"
         "kind VARCHAR,payload VARCHAR,created_at TIMESTAMP)"
     )
     con.execute("UPDATE portfolios SET cash=-9000,initial_cash=1000 WHERE id=?", [book])
