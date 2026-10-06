@@ -7,6 +7,8 @@ from datetime import date, datetime
 
 import duckdb
 
+from sim.schema import next_order_id
+
 from .read_model_utils import require_public_positive_integer
 
 
@@ -72,9 +74,15 @@ def available_to_sell(
 def _next_id(con: duckdb.DuckDBPyConnection, table: str) -> int:
     if table not in {"disc_tickets", "sim_orders"}:
         raise ValueError(f"unsupported ticket ID table: {table}")
-    maximum = con.execute(f"SELECT COALESCE(MAX(id), 0) FROM {table}").fetchone()[0]
+    if table == "sim_orders":
+        candidate = next_order_id(con)
+    else:
+        maximum = con.execute(
+            "SELECT COALESCE(MAX(id), 0) FROM disc_tickets"
+        ).fetchone()[0]
+        candidate = maximum + 1
     try:
-        return require_public_positive_integer(maximum + 1)
+        return require_public_positive_integer(candidate)
     except (TypeError, ValueError) as exc:
         raise IdentifierSpaceExhausted(table) from exc
 
