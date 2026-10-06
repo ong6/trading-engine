@@ -20,6 +20,7 @@ import duckdb
 from engine.lib import db as engine_db
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
+from sim.schema import next_order_id
 
 from . import (
     agent_attribution_read_models,
@@ -434,9 +435,7 @@ def _consume_once(
         [account_id, symbol, side],
     ).fetchone()[0]:
         raise PaperDecisionError(409, "an equivalent agent paper order is already pending")
-    order_id = require_public_positive_integer(
-        con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM sim_orders").fetchone()[0]
-    )
+    order_id = require_public_positive_integer(next_order_id(con))
     con.execute(
         "INSERT INTO sim_orders VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",
         [order_id, account_id, symbol, side, quantity, signal_date],
