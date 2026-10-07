@@ -1,6 +1,8 @@
 """P22 L3 routing, replay, fee, phase-order, and public-report contracts."""
 from __future__ import annotations
 
+import json
+import sys
 from datetime import date, datetime
 
 import pytest
@@ -138,23 +140,24 @@ def test_phase_order_calls_optional_account_hooks_between_legacy_phases(
     monkeypatch.setattr(
         league.portfolio, "credit_dividends", lambda *_args: observed.append("a0") or {}
     )
-    monkeypatch.setattr(league, "accrue_accounts", lambda *_args: observed.append("a0b"))
     monkeypatch.setattr(
         league, "fill_pending", lambda *_args: observed.append("a") or {
             "filled": 0, "rejected": 0, "pending": 0,
         }
     )
-    monkeypatch.setattr(league, "settle_accounts", lambda *_args: observed.append("a2"))
     monkeypatch.setattr(
         league, "mtm_all", lambda *_args, **_kwargs: observed.append("b") or {
             "carried": {},
         }
     )
     monkeypatch.setattr(
-        league, "check_account_halts", lambda *_args: observed.append("b2")
+        league, "generate_all", lambda *_args: observed.append("c") or 0
     )
     monkeypatch.setattr(
-        league, "generate_all", lambda *_args: observed.append("c") or 0
+        league, "run_account_phases", lambda *_args, **_kwargs: (
+            observed.append("accounts")
+            or {"completed": [], "errors": {}, "carried": {}}
+        ),
     )
     monkeypatch.setattr(
         league, "write_reports", lambda *_args: observed.append("d") or tmp_path
@@ -163,7 +166,7 @@ def test_phase_order_calls_optional_account_hooks_between_legacy_phases(
     assert league.step(
         con, SESSIONS[1], tmp_path, rerun=False, verbose=False
     ) == 0
-    assert observed == ["a0", "a0b", "a", "a2", "b", "b2", "c", "d"]
+    assert observed == ["a0", "a", "b", "c", "accounts", "d"]
 
 
 def test_present_optional_module_with_missing_hook_fails_loudly(monkeypatch):
@@ -190,12 +193,112 @@ def test_integrated_phase_hooks_use_l1_and_l2_entry_points(monkeypatch):
         "halts": "check_all", "alerts": "concentration",
     }
     assert observed == [
-        ("sim.shorts", "accrue_borrow", {}),
-        ("sim.margin", "accrue_interest", {}),
-        ("engine.accounts.settle", "settle_session", {"manage_transactions": False}),
+        ("sim.shorts", "accrue_borrow", {"portfolio_id": None}),
+        ("sim.margin", "accrue_interest", {"portfolio_id": None}),
+        ("engine.accounts.settle", "settle_session", {
+            "manage_transactions": False, "portfolio_id": None,
+        }),
         ("engine.money.halts", "check_all", {}),
         ("engine.money.alerts", "concentration", {}),
     ]
+
+
+def test_account_failure_rolls_back_only_that_account_and_returns_final_error(
+    con, tmp_path, monkeypatch, caplog,
+):
+    day = SESSIONS[1]
+    insert_bars(con, "SPY", [day], open_=100, close=100)
+    _portfolio(con, "legacy-book", SESSIONS[0], cash=100.0)
+    for account_id in ("account-bad", "account-good"):
+        _portfolio(con, account_id, SESSIONS[0], cash=1_000.0)
+        set_portfolio_account(
+            con, account_id, engine="account", status="active", visibility="private"
+        )
+
+    monkeypatch.setattr(league, "generate_all", lambda *_args: 0)
+    monkeypatch.setattr(
+        league, "accrue_accounts", lambda *_args, **_kwargs: {
+            "borrow": {}, "interest": {},
+        },
+    )
+
+    def settle(connection, _day, *, portfolio_id):
+        connection.execute(
+            "UPDATE portfolios SET cash=cash+10 WHERE id=?", [portfolio_id]
+        )
+        if portfolio_id == "account-bad":
+            raise RuntimeError("planted account settle failure")
+        return {"filled": 0}
+
+    monkeypatch.setattr(league, "settle_accounts", settle)
+    monkeypatch.setattr(
+        league, "check_account_halts", lambda *_args, **_kwargs: {
+            "halts": None, "alerts": [],
+        },
+    )
+
+    result = league.step(con, day, tmp_path, rerun=False, verbose=False)
+
+    assert result == 1
+    assert con.execute(
+        "SELECT equity FROM sim_equity WHERE portfolio_id='legacy-book' AND date=?", [day]
+    ).fetchone() == (100.0,)
+    assert con.execute(
+        "SELECT cash FROM portfolios WHERE id='account-bad'"
+    ).fetchone() == (1_000.0,)
+    assert con.execute(
+        "SELECT cash FROM portfolios WHERE id='account-good'"
+    ).fetchone() == (1_010.0,)
+    assert con.execute(
+        "SELECT equity FROM sim_equity WHERE portfolio_id='account-good' AND date=?", [day]
+    ).fetchone() == (1_010.0,)
+    assert con.execute(
+        "SELECT COUNT(*) FROM sim_equity WHERE portfolio_id='account-bad' AND date=?", [day]
+    ).fetchone() == (0,)
+    kind, payload = con.execute(
+        "SELECT kind,payload FROM account_events WHERE portfolio_id='account-bad'"
+    ).fetchone()
+    assert kind == "settlement_error"
+    assert json.loads(payload) == {
+        "code": "settlement_error",
+        "exception_type": "RuntimeError",
+        "message": "planted account settle failure",
+        "session_date": day.isoformat(),
+    }
+    assert "ACCOUNT_STATUS failed; legacy_day_committed=true" in caplog.text
+
+
+def test_no_accounts_skips_account_phases_and_cli_flag(con, tmp_path, monkeypatch):
+    day = SESSIONS[1]
+    insert_bars(con, "SPY", [day], open_=100, close=100)
+    _portfolio(con, "legacy-book", SESSIONS[0], cash=100.0)
+    _portfolio(con, "private-account", SESSIONS[0], cash=1_000.0)
+    set_portfolio_account(
+        con, "private-account", engine="account", status="active", visibility="private"
+    )
+    monkeypatch.setattr(league, "generate_all", lambda *_args: 0)
+    monkeypatch.setattr(
+        league, "run_account_phases",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("account phase ran")),
+    )
+
+    assert league.step(
+        con, day, tmp_path, rerun=False, verbose=False, no_accounts=True
+    ) == 0
+    assert con.execute(
+        "SELECT equity FROM sim_equity WHERE portfolio_id='legacy-book' AND date=?", [day]
+    ).fetchone() == (100.0,)
+    assert con.execute(
+        "SELECT COUNT(*) FROM sim_equity WHERE portfolio_id='private-account'"
+    ).fetchone() == (0,)
+
+    calls = []
+    monkeypatch.setattr(
+        league, "run", lambda *_args, **kwargs: calls.append(kwargs) or 0
+    )
+    monkeypatch.setattr(sys, "argv", ["sim.league", "--no-accounts"])
+    assert league.main() == 0
+    assert calls == [{"skip_if_done": False, "no_accounts": True}]
 
 
 def test_private_book_never_reaches_public_files_or_read_models(con, tmp_path):
