@@ -63,7 +63,8 @@ def _already_recorded(con, account_id: str, session_date: date, ticker: str) -> 
 
 
 def concentration(con, session_date: date, *,
-                  now: datetime | None = None) -> list[dict]:
+                  now: datetime | None = None,
+                  portfolio_id: str | None = None) -> list[dict]:
     """Record one daily alert per affected account/instrument, never refuse."""
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     init_schema(con)
@@ -93,6 +94,8 @@ def concentration(con, session_date: date, *,
         if not reasons:
             continue
         for account_id, _quantity, _source in holdings:
+            if portfolio_id is not None and account_id != portfolio_id:
+                continue
             if _already_recorded(con, account_id, session_date, ticker):
                 continue
             payload = {

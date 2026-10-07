@@ -230,7 +230,10 @@ def test_runtime_contract_migration_preserves_legacy_prefix(con, tmp_path, monke
     ) == before
 
 
-def test_runtime_contract_migration_preserves_prior_v3_prefix(con, tmp_path, monkeypatch):
+@pytest.mark.parametrize("config_hash", ["predecessor", "current"])
+def test_runtime_contract_migration_preserves_prior_v3_prefix(
+    con, tmp_path, monkeypatch, config_hash,
+):
     cfg = _config()
     trade = _trade(con)
     phash = _append(con, cfg, trade)
@@ -246,7 +249,11 @@ def test_runtime_contract_migration_preserves_prior_v3_prefix(con, tmp_path, mon
         ),
         runtime_contract_migration=experiment_runner.PRIOR_RUNTIME_CONTRACT_MIGRATION,
     )
-    prior["forward_config_sha256"] = experiment_runner.PRIOR_FORWARD_CONFIG_SHA256
+    prior["forward_config_sha256"] = (
+        experiment_runner.PRIOR_FORWARD_CONFIG_SHA256
+        if config_hash == "predecessor"
+        else experiment_runner.forward_config_hash(cfg)
+    )
     monkeypatch.setattr(experiment_runner, "EXPECTED_LEGACY_OBSERVATIONS", 1)
     monkeypatch.setattr(experiment_runner, "EXPECTED_LEGACY_THROUGH", trade["date"].isoformat())
     monkeypatch.setattr(experiment_runner, "EXPECTED_LEGACY_PREFIX_SHA256", prior["prefix_sha256"])
@@ -262,6 +269,7 @@ def test_runtime_contract_migration_preserves_prior_v3_prefix(con, tmp_path, mon
         experiment_runner.PRIOR_RUNTIME_CONTRACT_SHA256
     )
     assert migrated["prefix_sha256"] == prior["prefix_sha256"]
+    assert migrated["forward_config_sha256"] == experiment_runner.forward_config_hash(cfg)
 
 
 def test_runtime_contract_migration_rejects_changed_legacy_prefix(

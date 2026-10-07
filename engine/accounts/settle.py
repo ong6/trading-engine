@@ -333,6 +333,7 @@ def settle_session(
     short_con: duckdb.DuckDBPyConnection | None = None,
     settled_at: datetime | None = None,
     manage_transactions: bool = True,
+    portfolio_id: str | None = None,
 ) -> dict[str, Any]:
     """Settle every due account order once, in global receipt order."""
     now = settled_at or datetime.now(timezone.utc)
@@ -340,6 +341,7 @@ def settle_session(
         now = now.replace(tzinfo=timezone.utc)
     settings_by_id = {
         row["portfolio_id"]: row for row in account_portfolios(con)
+        if portfolio_id is None or row["portfolio_id"] == portfolio_id
     }
     used = _existing_notional(con, day)
     counts = {"filled": 0, "rejected": 0, "expired": 0, "pending": 0}

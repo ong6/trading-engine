@@ -225,13 +225,19 @@ def accrue_borrow(
     day: date,
     *,
     days: int | None = None,
+    portfolio_id: str | None = None,
 ) -> dict:
     """Debit borrow cost once per held account short and session."""
     default_span = _calendar_days_since_previous_session(day)
     charged = 0.0
     count = 0
     rows = []
-    for settings in account_portfolios(con):
+    settings_rows = [
+        settings for settings in account_portfolios(con, active_only=False)
+        if settings["status"] in {"active", "halted"}
+        and (portfolio_id is None or settings["portfolio_id"] == portfolio_id)
+    ]
+    for settings in settings_rows:
         for ticker, qty in con.execute(
             "SELECT ticker,qty FROM sim_positions WHERE portfolio_id=? AND qty<0 "
             "ORDER BY ticker",
