@@ -347,3 +347,20 @@ def test_moc_receipt_uses_early_close_cutoff(con):
         now=received,
     )
     assert receipt["cutoff"] == "2026-11-27T17:50:00+00:00"
+
+
+def test_contingent_cover_uses_queued_short_quantity_not_current_holdings(con):
+    insert_bars(con, "SAME", [SIGNAL], open_=100, close=100)
+    accounts.create_account(con, _spec_v2(allow_short=True), now=MOO_RECEIVED)
+    parent = _intent_v2(intent_id="short-parent", side="short", quantity=4)
+    child = _intent_v2(
+        intent_id="cover-child", side="cover", quantity=4, order_type="moc",
+        contingent_on="short-parent",
+    )
+    assert accounts.submit_intent(con, parent, now=MOO_RECEIVED)["state"] == "queued"
+    with pytest.raises(accounts.AccountRefused, match="short position"):
+        accounts.submit_intent(
+            con, _intent_v2(intent_id="bare-cover", side="cover", quantity=1,
+                            order_type="moc"), now=MOO_RECEIVED,
+        )
+    assert accounts.submit_intent(con, child, now=MOO_RECEIVED)["state"] == "queued"
