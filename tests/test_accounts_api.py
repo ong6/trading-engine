@@ -3,7 +3,7 @@ import asyncio
 import json
 import stat
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import duckdb
 import pytest
@@ -14,6 +14,7 @@ from engine.accounts import cli as accounts_cli
 from engine.money.allocation import AllocationRefused
 from server import accounts_routes, main
 from sim import schema as sim_schema
+from tests.conftest import insert_bars
 
 NOW = datetime(2026, 10, 5, 13, 27, tzinfo=timezone.utc)
 
@@ -30,9 +31,43 @@ def _spec(account_id="acct-private"):
     }
 
 
+def _intent(account_id="acct-private", *, intent_id="moo-parent", side="buy", quantity=5,
+            order_type="moo", contingent_on=None, instrument_id="SAME"):
+    return {
+        "schema_version": 2, "intent_id": intent_id, "account_id": account_id,
+        "spec_sha256": "a" * 64, "registration_sha256": "c" * 64,
+        "instrument_id": instrument_id, "instrument_kind": "stock", "side": side,
+        "quantity": quantity, "order_type": order_type, "limit_price": None,
+        "time_in_force": "day", "session_date": "2026-10-05",
+        "contingent_on": contingent_on, "legs": [], "created_at": NOW.isoformat(),
+        "source_sha256": "d" * 64,
+    }
+
+
 @contextmanager
 def _borrowed(con):
     yield con
+
+
+def _api_account(con, monkeypatch, account_id="acct-private"):
+    class Clock:
+        @classmethod
+        def now(cls, _tz):
+            return NOW
+
+    insert_bars(con, "SAME", [date(2026, 10, 2)], open_=100, close=100)
+    service.create(con, _spec(account_id), now=NOW)
+    monkeypatch.setattr(accounts_routes, "datetime", Clock)
+    monkeypatch.setattr(accounts_routes, "_write_connection", lambda: _borrowed(con))
+    monkeypatch.setattr(
+        accounts_routes, "_require_account_mutation",
+        lambda _account_id, _authorization: None,
+    )
+    monkeypatch.setattr(
+        accounts_routes, "_require_account_access",
+        lambda _con, _account_id, _authorization: None,
+    )
+    monkeypatch.setattr(accounts_routes, "_connection", lambda _factory: _borrowed(con))
 
 
 def test_token_generation_is_private_and_authentication_is_constant_time(tmp_path):
@@ -177,3 +212,74 @@ def test_account_routes_reject_non_loopback_host_before_database_access(monkeypa
     body = b"".join(item.get("body", b"") for item in messages)
     assert start["status"] == 400
     assert body == b"Invalid host header"
+
+
+def test_api_accepts_moo_and_contingent_moc_and_exposes_linkage(con, monkeypatch):
+    _api_account(con, monkeypatch)
+    parent = accounts_routes.submit_order(
+        "acct-private", _intent(), "Bearer token",
+    )
+    child = accounts_routes.submit_order(
+        "acct-private",
+        _intent(intent_id="moc-child", side="sell", order_type="moc",
+                contingent_on="moo-parent"),
+        "Bearer token",
+    )
+    assert parent["state"] == child["state"] == "queued"
+    projected = accounts_routes.get_orders("acct-private", authorization="Bearer token")
+    assert [(row["intent_id"], row["contingent_on"]) for row in projected] == [
+        ("moo-parent", None), ("moc-child", "moo-parent"),
+    ]
+
+    con.execute(
+        "INSERT INTO sim_fills VALUES (?, 'acct-private', 'SAME', 'buy', 5, "
+        "DATE '2026-10-05', 100, 101, 100, 100)", [parent["order_id"]]
+    )
+    con.execute(
+        "INSERT INTO sim_fill_details (order_id,reference_px,fill_kind,price_source) "
+        "VALUES (?,100,'open_auction','prices')", [parent["order_id"]]
+    )
+    fills = accounts_routes.get_fills("acct-private", authorization="Bearer token")
+    assert fills[0]["fill_price"] == 101
+    assert fills[0]["reference_px"] == 100
+
+
+def test_api_refuses_contingent_child_larger_than_parent(con, monkeypatch):
+    _api_account(con, monkeypatch)
+    accounts_routes.submit_order("acct-private", _intent(quantity=5), "Bearer token")
+    with pytest.raises(HTTPException, match="exceeds parent quantity") as exc_info:
+        accounts_routes.submit_order(
+            "acct-private",
+            _intent(intent_id="large-child", side="sell", quantity=6, order_type="moc",
+                    contingent_on="moo-parent"),
+            "Bearer token",
+        )
+    assert exc_info.value.status_code == 409
+
+
+def test_api_refuses_contingent_child_from_another_account(con, monkeypatch):
+    _api_account(con, monkeypatch)
+    service.create(con, _spec("acct-other"), now=NOW)
+    accounts_routes.submit_order("acct-private", _intent(), "Bearer token")
+    with pytest.raises(HTTPException, match="another account") as exc_info:
+        accounts_routes.submit_order(
+            "acct-other",
+            _intent("acct-other", intent_id="foreign-child", side="sell", order_type="moc",
+                    contingent_on="moo-parent"),
+            "Bearer token",
+        )
+    assert exc_info.value.status_code == 409
+
+
+def test_api_refuses_contingent_child_of_cancelled_parent(con, monkeypatch):
+    _api_account(con, monkeypatch)
+    parent = accounts_routes.submit_order("acct-private", _intent(), "Bearer token")
+    service.cancel(con, "acct-private", parent["order_id"], now=NOW)
+    with pytest.raises(HTTPException, match="not queued") as exc_info:
+        accounts_routes.submit_order(
+            "acct-private",
+            _intent(intent_id="cancelled-child", side="sell", order_type="moc",
+                    contingent_on="moo-parent"),
+            "Bearer token",
+        )
+    assert exc_info.value.status_code == 409

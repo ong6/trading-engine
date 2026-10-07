@@ -95,8 +95,11 @@ def orders(con, account_id: str, *, since: date | None = None) -> list[dict]:
         clause, params = " AND o.signal_date>=?", [account_id, since]
     rows = con.execute(
         "SELECT o.id,o.ticker,o.side,o.qty,o.signal_date,o.status,o.reject_reason,"
-        "d.order_type,d.tif,d.limit_px,d.received_at,d.state,d.state_reason "
+        "d.order_type,d.tif,d.limit_px,d.received_at,d.state,d.state_reason,"
+        "i.intent_id,pi.intent_id "
         "FROM sim_orders o LEFT JOIN sim_order_details d ON d.order_id=o.id "
+        "LEFT JOIN paper_account_intakes i ON i.order_id=o.id "
+        "LEFT JOIN paper_account_intakes pi ON pi.order_id=d.contingent_on "
         f"WHERE o.portfolio_id=?{clause} ORDER BY o.id", params,
     ).fetchall()
     return [{"order_id": row[0], "instrument_id": row[1], "side": row[2],
@@ -104,7 +107,8 @@ def orders(con, account_id: str, *, since: date | None = None) -> list[dict]:
              "status": row[5], "reject_reason": row[6], "order_type": row[7],
              "time_in_force": row[8], "limit_price": row[9],
              "received_at": row[10].replace(tzinfo=None).isoformat() + "+00:00" if row[10] else None,
-             "state": row[11], "state_reason": row[12]} for row in rows]
+             "state": row[11], "state_reason": row[12], "intent_id": row[13],
+             "contingent_on": row[14]} for row in rows]
 
 
 def fills(con, account_id: str, *, since: date | None = None) -> list[dict]:
@@ -114,7 +118,7 @@ def fills(con, account_id: str, *, since: date | None = None) -> list[dict]:
         clause, params = " AND f.fill_date>=?", [account_id, since]
     rows = con.execute(
         "SELECT f.order_id,f.ticker,f.side,f.qty,f.fill_date,f.fill_px,fd.fill_ts,"
-        "fd.fill_kind,fd.price_source,fd.late_settled,ff.total_usd "
+        "fd.fill_kind,fd.price_source,fd.reference_px,fd.late_settled,ff.total_usd "
         "FROM sim_fills f LEFT JOIN sim_fill_details fd ON fd.order_id=f.order_id "
         "LEFT JOIN sim_fill_fees ff ON ff.order_id=f.order_id "
         f"WHERE f.portfolio_id=?{clause} ORDER BY f.fill_date,f.order_id", params,
@@ -122,8 +126,9 @@ def fills(con, account_id: str, *, since: date | None = None) -> list[dict]:
     return [{"order_id": row[0], "instrument_id": row[1], "side": row[2],
              "quantity": float(row[3]), "fill_date": row[4].isoformat(),
              "fill_price": float(row[5]), "fill_at": row[6].isoformat() if row[6] else None,
-             "fill_kind": row[7], "price_source": row[8], "late_settled": bool(row[9]),
-             "fees_usd": float(row[10] or 0.0)} for row in rows]
+             "fill_kind": row[7], "price_source": row[8],
+             "reference_px": None if row[9] is None else float(row[9]),
+             "late_settled": bool(row[10]), "fees_usd": float(row[11] or 0.0)} for row in rows]
 
 
 def cash_events(con, account_id: str, *, since: date | None = None) -> list[dict]:
