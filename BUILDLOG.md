@@ -2351,4 +2351,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged since the implementation entry; budget ok.
 - **Next:** orchestrator re-merges L2 and applies its L0 schema handoff.
 
+## 2026-10-07 — Admit and expose contingent close orders
+
+- **Why:** alpha integration reproduced a same-session MOC child being refused before its
+  queued MOO parent could create holdings.
+- **What:** Validate contingent buy/sell and short/cover pairs by accepted intent, account,
+  instrument, session, queued state and parent quantity before holdings admission. Account order
+  reads now expose child/parent intent IDs, and fill reads include the recorded reference price.
+- **Evidence:** focused L2/schema/server acceptance passes all 187 cases; ruff is clean.
+- **Metrics:** tools unchanged; product/engine +30, server +5, tests +123; budget ok.
+- **Next:** run the complete merged-base suite and publish the alpha-integration handoff.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
