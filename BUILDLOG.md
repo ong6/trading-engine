@@ -2624,4 +2624,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged since the rehearsal fixes; budget ok.
 - **Next:** nothing admitted.
 
+## 2026-10-07 — Isolate account-phase failures from legacy books
+
+- **Why:** final L3 review found an account exception could roll back every legacy
+  portfolio's otherwise-valid nightly day.
+- **What:** Commit the legacy day first, then run accrual, settlement, mark, halt and
+  alert work in one transaction per account. A failed account rolls back locally,
+  records structured `settlement_error` evidence and a WARN, while a separate final
+  account status returns non-zero. Add `--no-accounts` and idempotent account retry on
+  `--skip-if-done`. E1 migration now restamps both predecessor/current config hashes.
+- **Evidence:** 179 focused league, account, replay, driver and E1 migration cases pass;
+  planted one-account failure preserves legacy/peer commits and the escape hatch skips all phases.
+- **Metrics:** server/tools unchanged, product +154; engine +5, tests +111; budget ok.
+- **Next:** wait for the final L2 base, then merge and repin revision 13 last.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
