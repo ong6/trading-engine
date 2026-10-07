@@ -357,7 +357,7 @@ def test_contingent_moc_is_admitted_before_parent_moo_fills(con):
     child = _intent_v2(
         intent_id="moc-child",
         side="sell",
-        quantity=999.0,
+        quantity=5.0,
         order_type="moc",
         contingent_on="moo-parent",
     )
@@ -369,3 +369,20 @@ def test_contingent_moc_is_admitted_before_parent_moo_fills(con):
         "SELECT contingent_on FROM sim_order_details WHERE order_id=?",
         [child_receipt["order_id"]],
     ).fetchone() == (parent_receipt["order_id"],)
+
+
+def test_contingent_cover_uses_queued_short_quantity_not_current_holdings(con):
+    insert_bars(con, "SAME", [SIGNAL], open_=100, close=100)
+    accounts.create_account(con, _spec_v2(allow_short=True), now=MOO_RECEIVED)
+    parent = _intent_v2(intent_id="short-parent", side="short", quantity=4)
+    child = _intent_v2(
+        intent_id="cover-child", side="cover", quantity=4, order_type="moc",
+        contingent_on="short-parent",
+    )
+    assert accounts.submit_intent(con, parent, now=MOO_RECEIVED)["state"] == "queued"
+    with pytest.raises(accounts.AccountRefused, match="short position"):
+        accounts.submit_intent(
+            con, _intent_v2(intent_id="bare-cover", side="cover", quantity=1,
+                            order_type="moc"), now=MOO_RECEIVED,
+        )
+    assert accounts.submit_intent(con, child, now=MOO_RECEIVED)["state"] == "queued"
