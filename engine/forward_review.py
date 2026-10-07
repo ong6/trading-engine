@@ -95,7 +95,7 @@ RUNTIME_CONTRACT_MIGRATION = (
     "paired control, baseline prefix and kill criterion are unchanged"
 )
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "804f33aca2b70d6d60e906b880742563d2ef65c1d357cc52822bb94b2d817722"
+    "b79ca1239f7eebff99a2869e3183085ba036a54402616afb9ff6d4a90382f8e2"
 )
 PRIOR_RUNTIME_CONTRACT_FILES = (
     "engine/forward_review.py",

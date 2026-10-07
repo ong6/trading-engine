@@ -2671,4 +2671,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged since the implementation entry; budget ok.
 - **Next:** orchestrator re-merges L2 into the integration branch.
 
+## 2026-10-07 — Freeze the final L2-integrated runtime
+
+- **Why:** the orchestrator's final base adds the accepted contingent-order/read-model
+  contract and must precede the last revision-13 source pin.
+- **What:** Merge the final L2 base, retain its stricter contingent contract and both
+  regressions, and refresh the existing sector/XS successor digests for the isolated
+  account-phase runtime. E1 and all verdict rules remain unchanged.
+- **Evidence:** 167 focused sector, XS, E1, account intake/API and league isolation cases
+  pass; runtime digests match and Ruff is clean.
+- **Metrics:** server/tools/product unchanged apart from accepted base; budget ok.
+- **Next:** freeze this source commit and repin revision 13 last.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
