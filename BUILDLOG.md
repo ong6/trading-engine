@@ -2638,4 +2638,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged, product +154; engine +5, tests +111; budget ok.
 - **Next:** wait for the final L2 base, then merge and repin revision 13 last.
 
+## 2026-10-07 — Publish the pre-repin checkpoint
+
+- **Why:** the operating contract requires a budget snapshot before L3 pauses for the
+  orchestrator's final base/re-pin signal.
+- **What:** Publish the isolated-account implementation checkpoint; frozen hashes and
+  revision 13 intentionally remain pending the final L2 merge.
+- **Evidence:** `.venv/bin/python -m tools.metrics_snapshot --check-budget` — snapshot
+  published with `budget.ok=true` and no violations.
+- **Metrics:** server/tools/product unchanged; budget ok.
+- **Next:** wait for final base, merge it, then repin revision 13 last.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
