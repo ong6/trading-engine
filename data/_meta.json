@@ -1,10 +1,10 @@
 {
-  "last_run": "2026-10-06T22:32:38.834359+00:00",
+  "last_run": "2026-10-07T22:32:34.360839+00:00",
   "mode": "incremental",
-  "universe_size": 12738,
-  "active_count": 11888,
+  "universe_size": 12747,
+  "active_count": 11892,
   "liquid_count": 4089,
-  "prices_rows": 21015230,
+  "prices_rows": 21019293,
   "tickers_with_data": 12643,
   "stale_tickers": {
     "count": 25,
@@ -44,17 +44,17 @@
   "regime": "risk-on",
   "actions_incremental": {
     "mode": "incremental",
-    "universe": 162,
+    "universe": 170,
     "universe_source": "active-held \u222a active-pending \u222a core-ETFs \u222a screen-top-N",
-    "pulled_this_run": 162,
-    "with_actions": 94,
-    "no_actions": 68,
+    "pulled_this_run": 170,
+    "with_actions": 100,
+    "no_actions": 70,
     "failed_tickers": 0,
-    "rows_written_this_run": 4165,
+    "rows_written_this_run": 4741,
     "total_splits": 8707,
-    "total_dividends": 401103,
-    "last_run": "2026-10-06T22:34:06.944879+00:00",
-    "store_gb": 51.97
+    "total_dividends": 401107,
+    "last_run": "2026-10-07T22:34:11.260423+00:00",
+    "store_gb": 54.68
   },
   "disk_warning": null,
   "actions_reconcile": {
@@ -62,12 +62,12 @@
     "rows_restated": 0,
     "outcomes": {},
     "warnings": 0,
-    "last_run": "2026-10-06T22:34:08.809154+00:00",
-    "store_gb": 51.97
+    "last_run": "2026-10-07T22:34:13.166105+00:00",
+    "store_gb": 54.68
   },
   "price_verify": {
-    "last_run": "2026-10-05T22:36:07.390930+00:00",
-    "as_of": "2026-10-05",
+    "last_run": "2026-10-06T22:36:12.086197+00:00",
+    "as_of": "2026-10-06",
     "source": "api.nasdaq.com/api/quote/{ticker}/historical",
     "role": "verify-only; this source never writes a price row",
     "sessions_requested": 5,
@@ -80,15 +80,15 @@
       "low",
       "close"
     ],
-    "names_selected": 183,
-    "names_checked": 183,
-    "names_agreeing": 183,
+    "names_selected": 185,
+    "names_checked": 185,
+    "names_agreeing": 185,
     "names_disagreeing": 0,
     "names_not_checked": 0,
     "not_checked_reasons": {},
     "not_checked_names": [],
-    "bars_compared": 732,
-    "field_comparisons": 2928,
+    "bars_compared": 741,
+    "field_comparisons": 2964,
     "worst": {
       "ticker": "EVC",
       "date": "2026-10-02",
@@ -126,11 +126,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "QQQ",
-          "date": "2026-09-29",
-          "field": "open",
-          "store": 740.150024,
-          "source": 740.145,
-          "diff_bp": 0.07
+          "date": "2026-10-05",
+          "field": "close",
+          "store": 756.200012,
+          "source": 756.2,
+          "diff_bp": 0.0
         },
         "store_missing": [],
         "status": "agrees",
@@ -162,10 +162,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "BIL",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 91.43,
-          "source": 91.43,
+          "store": 91.440002,
+          "source": 91.44,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -180,11 +180,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "A",
-          "date": "2026-10-02",
-          "field": "close",
-          "store": 167.779999,
-          "source": 167.78,
-          "diff_bp": 0.0
+          "date": "2026-10-05",
+          "field": "high",
+          "store": 171.429993,
+          "source": 171.425,
+          "diff_bp": 0.29
         },
         "store_missing": [],
         "status": "agrees",
@@ -270,10 +270,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "AAPL",
-          "date": "2026-09-29",
+          "date": "2026-10-05",
           "field": "open",
-          "store": 336.970001,
-          "source": 336.965,
+          "store": 332.820007,
+          "source": 332.815,
           "diff_bp": 0.15
         },
         "store_missing": [],
@@ -324,10 +324,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "ABCL",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 13.74,
-          "source": 13.74,
+          "store": 13.78,
+          "source": 13.78,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -360,10 +360,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "ABSI",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 11.07,
-          "source": 11.07,
+          "store": 11.53,
+          "source": 11.53,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -396,10 +396,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "ABVX",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 92.879997,
-          "source": 92.88,
+          "store": 91.730003,
+          "source": 91.73,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -414,10 +414,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "ACA",
-          "date": "2026-10-02",
-          "field": "open",
-          "store": 146.789993,
-          "source": 146.79,
+          "date": "2026-10-05",
+          "field": "low",
+          "store": 146.529999,
+          "source": 146.53,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -468,11 +468,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "ACI",
-          "date": "2026-10-02",
-          "field": "low",
-          "store": 11.675,
-          "source": 11.675,
-          "diff_bp": 0.0
+          "date": "2026-10-05",
+          "field": "high",
+          "store": 11.786,
+          "source": 11.7858,
+          "diff_bp": 0.17
         },
         "store_missing": [],
         "status": "agrees",
@@ -540,10 +540,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "ACRS",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 4.39,
-          "source": 4.39,
+          "store": 4.27,
+          "source": 4.27,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -558,10 +558,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "ACT",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 45.259998,
-          "source": 45.26,
+          "store": 45.869999,
+          "source": 45.87,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -576,10 +576,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "ACVA",
-          "date": "2026-10-02",
-          "field": "close",
-          "store": 10.45,
-          "source": 10.45,
+          "date": "2026-10-05",
+          "field": "low",
+          "store": 10.44,
+          "source": 10.44,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -612,10 +612,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "AGL",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 84.139999,
-          "source": 84.14,
+          "store": 84.279999,
+          "source": 84.28,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -630,10 +630,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "ALMS",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 6.85,
-          "source": 6.85,
+          "store": 6.84,
+          "source": 6.84,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -648,10 +648,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "AMD",
-          "date": "2026-09-29",
+          "date": "2026-10-05",
           "field": "open",
-          "store": 616.73999,
-          "source": 616.735,
+          "store": 630.609985,
+          "source": 630.605,
           "diff_bp": 0.08
         },
         "store_missing": [],
@@ -684,11 +684,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "AMDL",
-          "date": "2026-09-29",
-          "field": "high",
-          "store": 82.250999,
-          "source": 82.2506,
-          "diff_bp": 0.05
+          "date": "2026-10-05",
+          "field": "close",
+          "store": 84.059998,
+          "source": 84.06,
+          "diff_bp": 0.0
         },
         "store_missing": [],
         "status": "agrees",
@@ -720,11 +720,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "ANAB",
-          "date": "2026-10-02",
-          "field": "close",
-          "store": 48.529999,
-          "source": 48.53,
-          "diff_bp": 0.0
+          "date": "2026-10-05",
+          "field": "low",
+          "store": 47.52,
+          "source": 47.5201,
+          "diff_bp": 0.02
         },
         "store_missing": [],
         "status": "agrees",
@@ -738,10 +738,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "ANRO",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 24.799999,
-          "source": 24.8,
+          "store": 24.01,
+          "source": 24.01,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -756,11 +756,29 @@
         "disagreements": [],
         "worst": {
           "ticker": "ARX",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
           "store": 19.73,
           "source": 19.73,
           "diff_bp": 0.0
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "held"
+      },
+      {
+        "ticker": "ARXS",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "ARXS",
+          "date": "2026-09-30",
+          "field": "high",
+          "store": 49.91,
+          "source": 49.905,
+          "diff_bp": 1.0
         },
         "store_missing": [],
         "status": "agrees",
@@ -774,11 +792,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "ASX",
-          "date": "2026-09-29",
-          "field": "low",
-          "store": 43.490002,
-          "source": 43.485,
-          "diff_bp": 1.15
+          "date": "2026-10-01",
+          "field": "open",
+          "store": 44.279999,
+          "source": 44.275,
+          "diff_bp": 1.13
         },
         "store_missing": [],
         "status": "agrees",
@@ -792,10 +810,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "ATEX",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 84.330002,
-          "source": 84.33,
+          "store": 85.610001,
+          "source": 85.61,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -810,10 +828,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "ATKR",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 94.620003,
-          "source": 94.62,
+          "store": 94.779999,
+          "source": 94.78,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -864,10 +882,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "BE",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 289.149994,
-          "source": 289.15,
+          "store": 286.649994,
+          "source": 286.65,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -882,10 +900,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "BFLY",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 8.95,
-          "source": 8.95,
+          "store": 9.38,
+          "source": 9.38,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -900,10 +918,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "BWET",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "low",
-          "store": 805.0,
-          "source": 805.0001,
+          "store": 869.48999,
+          "source": 869.49,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -936,10 +954,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "CGEM",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 15.51,
-          "source": 15.51,
+          "store": 16.040001,
+          "source": 16.04,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -972,10 +990,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "CLYM",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 10.94,
-          "source": 10.94,
+          "store": 11.05,
+          "source": 11.05,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -990,11 +1008,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "CMPS",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "high",
-          "store": 12.07,
-          "source": 12.0699,
-          "diff_bp": 0.08
+          "store": 12.057,
+          "source": 12.0568,
+          "diff_bp": 0.17
         },
         "store_missing": [],
         "status": "agrees",
@@ -1008,11 +1026,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "CNXN",
-          "date": "2026-09-29",
-          "field": "low",
-          "store": 88.75,
-          "source": 88.745,
-          "diff_bp": 0.56
+          "date": "2026-09-30",
+          "field": "high",
+          "store": 90.589996,
+          "source": 90.585,
+          "diff_bp": 0.55
         },
         "store_missing": [],
         "status": "agrees",
@@ -1062,11 +1080,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "CRWL",
-          "date": "2026-09-29",
-          "field": "close",
-          "store": 102.981003,
-          "source": 102.9805,
-          "diff_bp": 0.05
+          "date": "2026-10-01",
+          "field": "high",
+          "store": 108.652,
+          "source": 108.6522,
+          "diff_bp": 0.02
         },
         "store_missing": [],
         "status": "agrees",
@@ -1134,11 +1152,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "DMRA",
-          "date": "2026-10-02",
-          "field": "close",
-          "store": 20.65,
-          "source": 20.65,
-          "diff_bp": 0.0
+          "date": "2026-10-05",
+          "field": "low",
+          "store": 19.542999,
+          "source": 19.5425,
+          "diff_bp": 0.26
         },
         "store_missing": [],
         "status": "agrees",
@@ -1152,10 +1170,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "DOCN",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 140.070007,
-          "source": 140.07,
+          "store": 137.229996,
+          "source": 137.23,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -1188,11 +1206,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "DSGR",
-          "date": "2026-10-02",
-          "field": "close",
-          "store": 34.98,
-          "source": 34.98,
-          "diff_bp": 0.0
+          "date": "2026-10-05",
+          "field": "open",
+          "store": 34.970001,
+          "source": 34.965,
+          "diff_bp": 1.43
         },
         "store_missing": [],
         "status": "agrees",
@@ -1206,10 +1224,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "DV",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 13.49,
-          "source": 13.49,
+          "store": 13.44,
+          "source": 13.44,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -1242,10 +1260,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "EL",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 91.970001,
-          "source": 91.97,
+          "store": 93.300003,
+          "source": 93.3,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -1260,11 +1278,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "ERAS",
-          "date": "2026-09-30",
+          "date": "2026-10-05",
           "field": "low",
-          "store": 14.11,
-          "source": 14.1101,
-          "diff_bp": 0.07
+          "store": 13.803,
+          "source": 13.8034,
+          "diff_bp": 0.29
         },
         "store_missing": [],
         "status": "agrees",
@@ -1296,11 +1314,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "FET",
-          "date": "2026-09-29",
-          "field": "low",
-          "store": 79.470001,
-          "source": 79.465,
-          "diff_bp": 0.63
+          "date": "2026-09-30",
+          "field": "high",
+          "store": 81.690002,
+          "source": 81.685,
+          "diff_bp": 0.61
         },
         "store_missing": [],
         "status": "agrees",
@@ -1314,10 +1332,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "FPS",
-          "date": "2026-09-29",
+          "date": "2026-09-30",
           "field": "low",
-          "store": 36.68,
-          "source": 36.675,
+          "store": 36.860001,
+          "source": 36.855,
           "diff_bp": 1.36
         },
         "store_missing": [],
@@ -1332,10 +1350,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "FTH",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 28.35,
-          "source": 28.35,
+          "store": 27.1,
+          "source": 27.1,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -1350,11 +1368,29 @@
         "disagreements": [],
         "worst": {
           "ticker": "FTRE",
-          "date": "2026-10-02",
-          "field": "low",
-          "store": 19.09,
-          "source": 19.09,
+          "date": "2026-10-05",
+          "field": "close",
+          "store": 21.110001,
+          "source": 21.11,
           "diff_bp": 0.0
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "held"
+      },
+      {
+        "ticker": "GILD",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "GILD",
+          "date": "2026-10-01",
+          "field": "low",
+          "store": 147.190002,
+          "source": 147.185,
+          "diff_bp": 0.34
         },
         "store_missing": [],
         "status": "agrees",
@@ -1368,10 +1404,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "GMAB",
-          "date": "2026-10-02",
-          "field": "low",
-          "store": 33.724998,
-          "source": 33.725,
+          "date": "2026-10-05",
+          "field": "close",
+          "store": 38.48,
+          "source": 38.48,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -1422,11 +1458,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "HPE",
-          "date": "2026-09-29",
+          "date": "2026-09-30",
           "field": "high",
-          "store": 63.696999,
-          "source": 63.6965,
-          "diff_bp": 0.08
+          "store": 67.100998,
+          "source": 67.1008,
+          "diff_bp": 0.03
         },
         "store_missing": [],
         "status": "agrees",
@@ -1440,10 +1476,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "HYMC",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 18.709999,
-          "source": 18.71,
+          "store": 18.799999,
+          "source": 18.8,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -1458,7 +1494,7 @@
         "disagreements": [],
         "worst": {
           "ticker": "HZO",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
           "store": 52.349998,
           "source": 52.35,
@@ -1476,10 +1512,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "IBRX",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 10.285,
-          "source": 10.285,
+          "store": 10.38,
+          "source": 10.38,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -1494,11 +1530,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "IBTA",
-          "date": "2026-10-02",
-          "field": "close",
-          "store": 41.610001,
-          "source": 41.61,
-          "diff_bp": 0.0
+          "date": "2026-10-05",
+          "field": "high",
+          "store": 42.349998,
+          "source": 42.3499,
+          "diff_bp": 0.02
         },
         "store_missing": [],
         "status": "agrees",
@@ -1584,11 +1620,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "IMOS",
-          "date": "2026-09-29",
-          "field": "high",
-          "store": 68.660004,
-          "source": 68.664,
-          "diff_bp": 0.58
+          "date": "2026-10-05",
+          "field": "close",
+          "store": 77.410004,
+          "source": 77.405,
+          "diff_bp": 0.65
         },
         "store_missing": [],
         "status": "agrees",
@@ -1602,11 +1638,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "INBX",
-          "date": "2026-10-01",
-          "field": "low",
-          "store": 97.575996,
-          "source": 97.5758,
-          "diff_bp": 0.02
+          "date": "2026-10-05",
+          "field": "high",
+          "store": 98.504997,
+          "source": 98.5054,
+          "diff_bp": 0.04
         },
         "store_missing": [],
         "status": "agrees",
@@ -1620,10 +1656,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "INTC",
-          "date": "2026-09-30",
-          "field": "low",
-          "store": 116.0,
-          "source": 115.995,
+          "date": "2026-10-05",
+          "field": "open",
+          "store": 115.339996,
+          "source": 115.335,
           "diff_bp": 0.43
         },
         "store_missing": [],
@@ -1656,7 +1692,7 @@
         "disagreements": [],
         "worst": {
           "ticker": "ITGR",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
           "store": 126.449997,
           "source": 126.45,
@@ -1710,11 +1746,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "KOD",
-          "date": "2026-09-29",
-          "field": "high",
-          "store": 93.139999,
-          "source": 93.1386,
-          "diff_bp": 0.15
+          "date": "2026-10-05",
+          "field": "open",
+          "store": 92.860001,
+          "source": 92.855,
+          "diff_bp": 0.54
         },
         "store_missing": [],
         "status": "agrees",
@@ -1728,11 +1764,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "KRT",
-          "date": "2026-10-02",
-          "field": "close",
-          "store": 54.57,
-          "source": 54.57,
-          "diff_bp": 0.0
+          "date": "2026-10-05",
+          "field": "high",
+          "store": 55.360001,
+          "source": 55.3599,
+          "diff_bp": 0.02
         },
         "store_missing": [],
         "status": "agrees",
@@ -1746,10 +1782,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "LBRX",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 36.990002,
-          "source": 36.99,
+          "store": 34.619999,
+          "source": 34.62,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -1764,10 +1800,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "LITE",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 1085.420044,
-          "source": 1085.42,
+          "store": 1091.670044,
+          "source": 1091.67,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -1782,10 +1818,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "LXP",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 60.950001,
-          "source": 60.95,
+          "store": 60.919998,
+          "source": 60.92,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -1800,10 +1836,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "MBX",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 58.509998,
-          "source": 58.51,
+          "store": 58.540001,
+          "source": 58.54,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -1818,11 +1854,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "MRNA",
-          "date": "2026-09-29",
-          "field": "high",
-          "store": 208.903,
-          "source": 208.9032,
-          "diff_bp": 0.01
+          "date": "2026-10-05",
+          "field": "close",
+          "store": 203.210007,
+          "source": 203.21,
+          "diff_bp": 0.0
         },
         "store_missing": [],
         "status": "agrees",
@@ -1836,11 +1872,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "MRNY",
-          "date": "2026-09-29",
+          "date": "2026-10-05",
           "field": "high",
-          "store": 42.632999,
-          "source": 42.6326,
-          "diff_bp": 0.09
+          "store": 41.528999,
+          "source": 41.5287,
+          "diff_bp": 0.07
         },
         "store_missing": [],
         "status": "agrees",
@@ -1854,10 +1890,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "MRVI",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 7.9,
-          "source": 7.9,
+          "store": 8.52,
+          "source": 8.52,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -1872,10 +1908,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "MRVL",
-          "date": "2026-09-29",
+          "date": "2026-10-01",
           "field": "open",
-          "store": 258.549988,
-          "source": 258.545,
+          "store": 265.100006,
+          "source": 265.095,
           "diff_bp": 0.19
         },
         "store_missing": [],
@@ -1962,10 +1998,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "ODD",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 18.9,
-          "source": 18.9,
+          "store": 19.59,
+          "source": 19.59,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -1980,10 +2016,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "OGN",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 13.72,
-          "source": 13.72,
+          "store": 13.7,
+          "source": 13.7,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -2052,11 +2088,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "PALU",
-          "date": "2026-09-29",
-          "field": "low",
-          "store": 56.717999,
-          "source": 56.7177,
-          "diff_bp": 0.05
+          "date": "2026-09-30",
+          "field": "high",
+          "store": 64.790001,
+          "source": 64.7899,
+          "diff_bp": 0.02
         },
         "store_missing": [],
         "status": "agrees",
@@ -2070,7 +2106,7 @@
         "disagreements": [],
         "worst": {
           "ticker": "PAYO",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
           "store": 7.15,
           "source": 7.15,
@@ -2106,10 +2142,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "PRAX",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 295.51001,
-          "source": 295.51,
+          "store": 283.559998,
+          "source": 283.56,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -2178,10 +2214,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "REPL",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 13.07,
-          "source": 13.07,
+          "store": 13.15,
+          "source": 13.15,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -2196,10 +2232,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "RLAY",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 18.959999,
-          "source": 18.96,
+          "store": 19.389999,
+          "source": 19.39,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -2232,10 +2268,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "RVMD",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 206.639999,
-          "source": 206.64,
+          "store": 207.679993,
+          "source": 207.68,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -2250,10 +2286,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "SAFT",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 103.919998,
-          "source": 103.92,
+          "store": 103.889999,
+          "source": 103.89,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -2286,11 +2322,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "SILC",
-          "date": "2026-10-02",
-          "field": "close",
-          "store": 60.029999,
-          "source": 60.03,
-          "diff_bp": 0.0
+          "date": "2026-10-05",
+          "field": "high",
+          "store": 62.759998,
+          "source": 62.7599,
+          "diff_bp": 0.02
         },
         "store_missing": [],
         "status": "agrees",
@@ -2322,10 +2358,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "SLS",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 11.74,
-          "source": 11.74,
+          "store": 11.63,
+          "source": 11.63,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -2340,11 +2376,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "SMTI",
-          "date": "2026-09-29",
-          "field": "high",
-          "store": 35.16,
-          "source": 35.1625,
-          "diff_bp": 0.71
+          "date": "2026-10-05",
+          "field": "low",
+          "store": 34.740002,
+          "source": 34.74,
+          "diff_bp": 0.0
         },
         "store_missing": [],
         "status": "agrees",
@@ -2358,10 +2394,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "SNDK",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 1719.98999,
-          "source": 1719.99,
+          "store": 1704.160034,
+          "source": 1704.16,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -2376,11 +2412,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "SNX",
-          "date": "2026-10-02",
-          "field": "close",
-          "store": 278.369995,
-          "source": 278.37,
-          "diff_bp": 0.0
+          "date": "2026-10-05",
+          "field": "open",
+          "store": 277.899994,
+          "source": 277.895,
+          "diff_bp": 0.18
         },
         "store_missing": [],
         "status": "agrees",
@@ -2430,10 +2466,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "TECH",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 72.400002,
-          "source": 72.4,
+          "store": 72.580002,
+          "source": 72.58,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -2448,11 +2484,29 @@
         "disagreements": [],
         "worst": {
           "ticker": "TMO",
-          "date": "2026-09-29",
-          "field": "low",
-          "store": 670.900024,
-          "source": 670.895,
-          "diff_bp": 0.07
+          "date": "2026-10-05",
+          "field": "close",
+          "store": 676.76001,
+          "source": 676.76,
+          "diff_bp": 0.0
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "held"
+      },
+      {
+        "ticker": "TRLV",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "TRLV",
+          "date": "2026-10-05",
+          "field": "close",
+          "store": 10.65,
+          "source": 10.65,
+          "diff_bp": 0.0
         },
         "store_missing": [],
         "status": "agrees",
@@ -2466,11 +2520,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "TWST",
-          "date": "2026-09-29",
-          "field": "low",
-          "store": 179.729996,
-          "source": 179.725,
-          "diff_bp": 0.28
+          "date": "2026-10-02",
+          "field": "high",
+          "store": 198.100006,
+          "source": 198.0955,
+          "diff_bp": 0.23
         },
         "store_missing": [],
         "status": "agrees",
@@ -2484,10 +2538,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "TXG",
-          "date": "2026-10-01",
+          "date": "2026-10-05",
           "field": "high",
-          "store": 92.919998,
-          "source": 92.9199,
+          "store": 98.32,
+          "source": 98.3199,
           "diff_bp": 0.01
         },
         "store_missing": [],
@@ -2502,11 +2556,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "UMC",
-          "date": "2026-09-30",
-          "field": "high",
-          "store": 24.690001,
-          "source": 24.685,
-          "diff_bp": 2.03
+          "date": "2026-10-05",
+          "field": "low",
+          "store": 23.26,
+          "source": 23.255,
+          "diff_bp": 2.15
         },
         "store_missing": [],
         "status": "agrees",
@@ -2520,10 +2574,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "UTZ",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 14.27,
-          "source": 14.27,
+          "store": 14.28,
+          "source": 14.28,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -2556,11 +2610,11 @@
         "disagreements": [],
         "worst": {
           "ticker": "VICR",
-          "date": "2026-09-30",
+          "date": "2026-10-05",
           "field": "low",
-          "store": 280.350006,
-          "source": 280.352,
-          "diff_bp": 0.07
+          "store": 293.070007,
+          "source": 293.0666,
+          "diff_bp": 0.12
         },
         "store_missing": [],
         "status": "agrees",
@@ -2574,10 +2628,10 @@
         "disagreements": [],
         "worst": {
           "ticker": "VREX",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 18.459999,
-          "source": 18.46,
+          "store": 18.450001,
+          "source": 18.45,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -2604,16 +2658,16 @@
       },
       {
         "ticker": "WBD",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
+        "sessions_compared": 5,
+        "bars_compared": 5,
+        "fields_compared": 20,
         "disagreements": [],
         "worst": {
           "ticker": "WBD",
-          "date": "2026-10-02",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 30.940001,
-          "source": 30.94,
+          "store": 30.950001,
+          "source": 30.95,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -2693,143 +2747,161 @@
         "why": "held"
       },
       {
-        "ticker": "CVBF",
+        "ticker": "TDG",
         "sessions_compared": 4,
         "bars_compared": 4,
         "fields_compared": 16,
         "disagreements": [],
         "worst": {
-          "ticker": "CVBF",
+          "ticker": "TDG",
           "date": "2026-10-01",
           "field": "low",
-          "store": 21.33,
-          "source": 21.325,
-          "diff_bp": 2.34
+          "store": 1080.089966,
+          "source": 1080.085,
+          "diff_bp": 0.05
         },
         "store_missing": [],
         "status": "agrees",
         "why": "sample"
       },
       {
-        "ticker": "SOUN",
+        "ticker": "STAA",
         "sessions_compared": 4,
         "bars_compared": 4,
         "fields_compared": 16,
         "disagreements": [],
         "worst": {
-          "ticker": "SOUN",
-          "date": "2026-09-29",
-          "field": "high",
-          "store": 6.01,
-          "source": 6.0095,
-          "diff_bp": 0.83
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "NXST",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "NXST",
+          "ticker": "STAA",
           "date": "2026-10-02",
           "field": "low",
-          "store": 154.350006,
-          "source": 154.345,
-          "diff_bp": 0.32
+          "store": 22.09,
+          "source": 22.085,
+          "diff_bp": 2.26
         },
         "store_missing": [],
         "status": "agrees",
         "why": "sample"
       },
       {
-        "ticker": "VSGX",
+        "ticker": "MNTN",
         "sessions_compared": 4,
         "bars_compared": 4,
         "fields_compared": 16,
         "disagreements": [],
         "worst": {
-          "ticker": "VSGX",
-          "date": "2026-09-29",
-          "field": "open",
-          "store": 81.440002,
-          "source": 81.435,
-          "diff_bp": 0.61
+          "ticker": "MNTN",
+          "date": "2026-09-30",
+          "field": "high",
+          "store": 10.67,
+          "source": 10.6699,
+          "diff_bp": 0.09
         },
         "store_missing": [],
         "status": "agrees",
         "why": "sample"
       },
       {
-        "ticker": "DBA",
+        "ticker": "VSNT",
         "sessions_compared": 4,
         "bars_compared": 4,
         "fields_compared": 16,
         "disagreements": [],
         "worst": {
-          "ticker": "DBA",
+          "ticker": "VSNT",
+          "date": "2026-10-05",
+          "field": "close",
+          "store": 31.02,
+          "source": 31.02,
+          "diff_bp": 0.0
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "SWBI",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "SWBI",
           "date": "2026-10-01",
-          "field": "open",
-          "store": 28.07,
-          "source": 28.065,
-          "diff_bp": 1.78
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "IAK",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "IAK",
-          "date": "2026-10-02",
           "field": "high",
-          "store": 137.559998,
-          "source": 137.555,
-          "diff_bp": 0.36
+          "store": 14.43,
+          "source": 14.425,
+          "diff_bp": 3.47
         },
         "store_missing": [],
         "status": "agrees",
         "why": "sample"
       },
       {
-        "ticker": "AMBP",
+        "ticker": "FTSL",
         "sessions_compared": 4,
         "bars_compared": 4,
         "fields_compared": 16,
         "disagreements": [],
         "worst": {
-          "ticker": "AMBP",
-          "date": "2026-10-02",
+          "ticker": "FTSL",
+          "date": "2026-10-05",
+          "field": "close",
+          "store": 44.599998,
+          "source": 44.5961,
+          "diff_bp": 0.87
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "LOGI",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "LOGI",
+          "date": "2026-10-01",
           "field": "low",
-          "store": 4.374,
-          "source": 4.3741,
-          "diff_bp": 0.23
+          "store": 102.279999,
+          "source": 102.275,
+          "diff_bp": 0.49
         },
         "store_missing": [],
         "status": "agrees",
         "why": "sample"
       },
       {
-        "ticker": "MRP",
+        "ticker": "FTLS",
         "sessions_compared": 4,
         "bars_compared": 4,
         "fields_compared": 16,
         "disagreements": [],
         "worst": {
-          "ticker": "MRP",
-          "date": "2026-10-02",
+          "ticker": "FTLS",
+          "date": "2026-10-05",
           "field": "high",
-          "store": 26.049999,
-          "source": 26.0498,
+          "store": 77.900002,
+          "source": 77.8999,
+          "diff_bp": 0.01
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "AKRE",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "AKRE",
+          "date": "2026-10-05",
+          "field": "low",
+          "store": 53.094002,
+          "source": 53.0936,
           "diff_bp": 0.08
         },
         "store_missing": [],
@@ -2837,179 +2909,35 @@
         "why": "sample"
       },
       {
-        "ticker": "SPTM",
+        "ticker": "DPZ",
         "sessions_compared": 4,
         "bars_compared": 4,
         "fields_compared": 16,
         "disagreements": [],
         "worst": {
-          "ticker": "SPTM",
-          "date": "2026-10-02",
-          "field": "close",
-          "store": 93.019997,
-          "source": 93.02,
-          "diff_bp": 0.0
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "LIF",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "LIF",
-          "date": "2026-10-02",
-          "field": "close",
-          "store": 43.099998,
-          "source": 43.1,
-          "diff_bp": 0.0
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "ALOY",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "ALOY",
-          "date": "2026-09-29",
-          "field": "high",
-          "store": 8.7,
-          "source": 8.6999,
-          "diff_bp": 0.11
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "M",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "M",
-          "date": "2026-10-02",
-          "field": "low",
-          "store": 22.610001,
-          "source": 22.605,
-          "diff_bp": 2.21
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "DEM",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "DEM",
-          "date": "2026-10-01",
-          "field": "low",
-          "store": 54.650002,
-          "source": 54.645,
-          "diff_bp": 0.92
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "MTDR",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "MTDR",
-          "date": "2026-10-02",
-          "field": "high",
-          "store": 53.75,
-          "source": 53.754,
-          "diff_bp": 0.74
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "RPV",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "RPV",
-          "date": "2026-10-02",
-          "field": "close",
-          "store": 115.739998,
-          "source": 115.74,
-          "diff_bp": 0.0
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "ORA",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "ORA",
-          "date": "2026-09-29",
-          "field": "high",
-          "store": 91.910004,
-          "source": 91.905,
-          "diff_bp": 0.54
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "AMT",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "AMT",
+          "ticker": "DPZ",
           "date": "2026-09-30",
           "field": "low",
-          "store": 163.350006,
-          "source": 163.345,
-          "diff_bp": 0.31
+          "store": 296.399994,
+          "source": 296.395,
+          "diff_bp": 0.17
         },
         "store_missing": [],
         "status": "agrees",
         "why": "sample"
       },
       {
-        "ticker": "CGGR",
+        "ticker": "TSLR",
         "sessions_compared": 4,
         "bars_compared": 4,
         "fields_compared": 16,
         "disagreements": [],
         "worst": {
-          "ticker": "CGGR",
-          "date": "2026-10-02",
+          "ticker": "TSLR",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 47.810001,
-          "source": 47.81,
+          "store": 17.77,
+          "source": 17.77,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -3017,125 +2945,35 @@
         "why": "sample"
       },
       {
-        "ticker": "TBBB",
+        "ticker": "OZK",
         "sessions_compared": 4,
         "bars_compared": 4,
         "fields_compared": 16,
         "disagreements": [],
         "worst": {
-          "ticker": "TBBB",
-          "date": "2026-10-02",
-          "field": "close",
-          "store": 52.650002,
-          "source": 52.65,
-          "diff_bp": 0.0
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "GSST",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "GSST",
+          "ticker": "OZK",
           "date": "2026-10-01",
           "field": "low",
-          "store": 50.27,
-          "source": 50.2701,
-          "diff_bp": 0.02
+          "store": 45.099998,
+          "source": 45.095,
+          "diff_bp": 1.11
         },
         "store_missing": [],
         "status": "agrees",
         "why": "sample"
       },
       {
-        "ticker": "KNTK",
+        "ticker": "J",
         "sessions_compared": 4,
         "bars_compared": 4,
         "fields_compared": 16,
         "disagreements": [],
         "worst": {
-          "ticker": "KNTK",
-          "date": "2026-10-02",
-          "field": "low",
-          "store": 50.740002,
-          "source": 50.735,
-          "diff_bp": 0.99
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "GSBD",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "GSBD",
-          "date": "2026-09-29",
-          "field": "high",
-          "store": 9.62,
-          "source": 9.6199,
-          "diff_bp": 0.1
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "MSTX",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "MSTX",
-          "date": "2026-10-02",
-          "field": "low",
-          "store": 18.826,
-          "source": 18.8256,
-          "diff_bp": 0.21
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "KKR",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "KKR",
-          "date": "2026-09-30",
-          "field": "high",
-          "store": 93.269997,
-          "source": 93.265,
-          "diff_bp": 0.54
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "PCTY",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "PCTY",
-          "date": "2026-10-02",
+          "ticker": "J",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 144.470001,
-          "source": 144.47,
+          "store": 138.669998,
+          "source": 138.67,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -3143,215 +2981,35 @@
         "why": "sample"
       },
       {
-        "ticker": "BUSE",
+        "ticker": "KN",
         "sessions_compared": 4,
         "bars_compared": 4,
         "fields_compared": 16,
         "disagreements": [],
         "worst": {
-          "ticker": "BUSE",
-          "date": "2026-09-29",
-          "field": "low",
-          "store": 29.24,
-          "source": 29.235,
-          "diff_bp": 1.71
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "VECO",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "VECO",
-          "date": "2026-09-29",
-          "field": "low",
-          "store": 49.709999,
-          "source": 49.705,
-          "diff_bp": 1.01
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "EWA",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "EWA",
-          "date": "2026-10-01",
-          "field": "low",
-          "store": 27.76,
-          "source": 27.755,
-          "diff_bp": 1.8
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "SII",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "SII",
-          "date": "2026-09-29",
-          "field": "low",
-          "store": 118.129997,
-          "source": 118.1279,
-          "diff_bp": 0.18
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "SBSW",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "SBSW",
+          "ticker": "KN",
           "date": "2026-10-02",
           "field": "low",
-          "store": 9.88,
-          "source": 9.875,
-          "diff_bp": 5.06
+          "store": 38.5,
+          "source": 38.495,
+          "diff_bp": 1.3
         },
         "store_missing": [],
         "status": "agrees",
         "why": "sample"
       },
       {
-        "ticker": "AMLX",
+        "ticker": "RDVY",
         "sessions_compared": 4,
         "bars_compared": 4,
         "fields_compared": 16,
         "disagreements": [],
         "worst": {
-          "ticker": "AMLX",
-          "date": "2026-10-02",
-          "field": "close",
-          "store": 27.790001,
-          "source": 27.79,
-          "diff_bp": 0.0
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "PTC",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "PTC",
-          "date": "2026-10-02",
-          "field": "open",
-          "store": 148.029999,
-          "source": 148.025,
-          "diff_bp": 0.34
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "FNCL",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "FNCL",
-          "date": "2026-10-02",
-          "field": "low",
-          "store": 75.629997,
-          "source": 75.625,
-          "diff_bp": 0.66
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "SJNK",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "SJNK",
-          "date": "2026-10-02",
+          "ticker": "RDVY",
+          "date": "2026-10-05",
           "field": "high",
-          "store": 24.24,
-          "source": 24.235,
-          "diff_bp": 2.06
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "SKYY",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "SKYY",
-          "date": "2026-10-02",
-          "field": "close",
-          "store": 168.139999,
-          "source": 168.14,
-          "diff_bp": 0.0
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "SFLR",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "SFLR",
-          "date": "2026-10-01",
-          "field": "high",
-          "store": 39.279999,
-          "source": 39.2799,
-          "diff_bp": 0.03
-        },
-        "store_missing": [],
-        "status": "agrees",
-        "why": "sample"
-      },
-      {
-        "ticker": "BBUS",
-        "sessions_compared": 4,
-        "bars_compared": 4,
-        "fields_compared": 16,
-        "disagreements": [],
-        "worst": {
-          "ticker": "BBUS",
-          "date": "2026-09-29",
-          "field": "low",
-          "store": 137.610992,
-          "source": 137.6105,
+          "store": 79.658997,
+          "source": 79.6587,
           "diff_bp": 0.04
         },
         "store_missing": [],
@@ -3359,17 +3017,17 @@
         "why": "sample"
       },
       {
-        "ticker": "DVA",
+        "ticker": "PPA",
         "sessions_compared": 4,
         "bars_compared": 4,
         "fields_compared": 16,
         "disagreements": [],
         "worst": {
-          "ticker": "DVA",
-          "date": "2026-10-02",
+          "ticker": "PPA",
+          "date": "2026-10-05",
           "field": "close",
-          "store": 178.690002,
-          "source": 178.69,
+          "store": 155.460007,
+          "source": 155.46,
           "diff_bp": 0.0
         },
         "store_missing": [],
@@ -3377,18 +3035,396 @@
         "why": "sample"
       },
       {
-        "ticker": "TRMD",
+        "ticker": "MEI",
         "sessions_compared": 4,
         "bars_compared": 4,
         "fields_compared": 16,
         "disagreements": [],
         "worst": {
-          "ticker": "TRMD",
+          "ticker": "MEI",
+          "date": "2026-10-05",
+          "field": "close",
+          "store": 15.4,
+          "source": 15.4,
+          "diff_bp": 0.0
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "TEM",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "TEM",
+          "date": "2026-10-02",
+          "field": "low",
+          "store": 75.800003,
+          "source": 75.8002,
+          "diff_bp": 0.03
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "AMSC",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "AMSC",
+          "date": "2026-09-30",
+          "field": "open",
+          "store": 29.52,
+          "source": 29.515,
+          "diff_bp": 1.69
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "CCEP",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "CCEP",
+          "date": "2026-09-30",
+          "field": "open",
+          "store": 102.959999,
+          "source": 102.955,
+          "diff_bp": 0.49
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "ANF",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "ANF",
+          "date": "2026-10-02",
+          "field": "low",
+          "store": 135.309998,
+          "source": 135.305,
+          "diff_bp": 0.37
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "PTIR",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "PTIR",
+          "date": "2026-10-01",
+          "field": "low",
+          "store": 20.940001,
+          "source": 20.9401,
+          "diff_bp": 0.05
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "NKTR",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "NKTR",
+          "date": "2026-10-01",
+          "field": "open",
+          "store": 55.41,
+          "source": 55.405,
+          "diff_bp": 0.9
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "MGC",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "MGC",
           "date": "2026-09-30",
           "field": "high",
-          "store": 38.825001,
-          "source": 38.8252,
-          "diff_bp": 0.05
+          "store": 285.049988,
+          "source": 285.0467,
+          "diff_bp": 0.12
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "AGCO",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "AGCO",
+          "date": "2026-10-01",
+          "field": "high",
+          "store": 113.620003,
+          "source": 113.615,
+          "diff_bp": 0.44
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "LSTR",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "LSTR",
+          "date": "2026-09-30",
+          "field": "low",
+          "store": 167.589996,
+          "source": 167.585,
+          "diff_bp": 0.3
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "EUV",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "EUV",
+          "date": "2026-09-30",
+          "field": "open",
+          "store": 25.42,
+          "source": 25.415,
+          "diff_bp": 1.97
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "UNHG",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "UNHG",
+          "date": "2026-09-30",
+          "field": "close",
+          "store": 17.179001,
+          "source": 17.1791,
+          "diff_bp": 0.06
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "FLMI",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "FLMI",
+          "date": "2026-10-01",
+          "field": "high",
+          "store": 23.436001,
+          "source": 23.4363,
+          "diff_bp": 0.13
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "SPTI",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "SPTI",
+          "date": "2026-10-01",
+          "field": "low",
+          "store": 27.129999,
+          "source": 27.125,
+          "diff_bp": 1.84
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "CQP",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "CQP",
+          "date": "2026-09-30",
+          "field": "high",
+          "store": 61.470001,
+          "source": 61.4659,
+          "diff_bp": 0.67
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "BXP",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "BXP",
+          "date": "2026-10-05",
+          "field": "close",
+          "store": 59.369999,
+          "source": 59.37,
+          "diff_bp": 0.0
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "MOO",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "MOO",
+          "date": "2026-10-01",
+          "field": "low",
+          "store": 80.290001,
+          "source": 80.285,
+          "diff_bp": 0.62
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "IAI",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "IAI",
+          "date": "2026-10-05",
+          "field": "low",
+          "store": 174.970001,
+          "source": 174.965,
+          "diff_bp": 0.29
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "JCAP",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "JCAP",
+          "date": "2026-10-05",
+          "field": "close",
+          "store": 19.67,
+          "source": 19.67,
+          "diff_bp": 0.0
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "HIMS",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "HIMS",
+          "date": "2026-10-01",
+          "field": "high",
+          "store": 29.884001,
+          "source": 29.8841,
+          "diff_bp": 0.03
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "RELY",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "RELY",
+          "date": "2026-10-05",
+          "field": "close",
+          "store": 22.91,
+          "source": 22.91,
+          "diff_bp": 0.0
+        },
+        "store_missing": [],
+        "status": "agrees",
+        "why": "sample"
+      },
+      {
+        "ticker": "EFX",
+        "sessions_compared": 4,
+        "bars_compared": 4,
+        "fields_compared": 16,
+        "disagreements": [],
+        "worst": {
+          "ticker": "EFX",
+          "date": "2026-10-02",
+          "field": "low",
+          "store": 137.910004,
+          "source": 137.905,
+          "diff_bp": 0.36
         },
         "store_missing": [],
         "status": "agrees",
@@ -3410,30 +3446,30 @@
     "volume_note": "volume differs by design on the newest session (same-day volume settles after the close); measured, never alarmed on",
     "volume_median_abs_diff_pct_latest_session": null,
     "volume_median_abs_diff_pct_prior_sessions": 0.01,
-    "volume_bars_compared": 732,
-    "provisional_note": "on 2026-10-05 (newest stored session) open/high/low are measured but never flagged; the close IS checked on every name",
+    "volume_bars_compared": 741,
+    "provisional_note": "on 2026-10-06 (newest stored session) open/high/low are measured but never flagged; the close IS checked on every name",
     "provisional_ohl_median_bp": null,
     "provisional_ohl_max_bp": null,
     "provisional_ohl_over_tolerance": 0,
     "provisional_comparisons": 0,
     "store_missing_sessions": {},
     "n_names_store_missing_sessions": 0,
-    "secs": 110.7,
+    "secs": 114.3,
     "evidence_receipt": {
-      "sha256": "b59a96bae30583df9e970dd5c1a36e6476f934a7c14ad7854eaa058f33e69532",
-      "path": "price-verify/b59a96bae30583df9e970dd5c1a36e6476f934a7c14ad7854eaa058f33e69532.json",
-      "bytes": 692122
+      "sha256": "0bf563df4d87dcdffa8f32d9d83760fcf76699716cfafd5321d7ebf472702988",
+      "path": "price-verify/0bf563df4d87dcdffa8f32d9d83760fcf76699716cfafd5321d7ebf472702988.json",
+      "bytes": 700206
     }
   },
   "intraday": {
-    "last_run": "2026-10-05T22:37:03.066147+00:00",
-    "tickers_requested": 943,
-    "tickers_with_data": 943,
-    "new_rows_1m": 389393,
-    "new_rows_5m": 180214,
+    "last_run": "2026-10-06T22:37:13.835461+00:00",
+    "tickers_requested": 930,
+    "tickers_with_data": 930,
+    "new_rows_1m": 333918,
+    "new_rows_5m": 108427,
     "failed_tickers": 0,
     "failed_batches": 0,
-    "store_gb": 49.32
+    "store_gb": 51.97
   },
   "signals_incremental": {
     "mode": "incremental",
@@ -3441,17 +3477,17 @@
     "sources": {
       "squeezemetrics": {
         "status": "ok",
-        "rows_fetched": 7760,
+        "rows_fetched": 7762,
         "rows_inserted": 2,
         "series": [
           "dix",
           "gex"
         ],
-        "secs": 2.0
+        "secs": 2.1
       },
       "vix": {
         "status": "ok",
-        "rows_fetched": 13572,
+        "rows_fetched": 13574,
         "rows_inserted": 2,
         "series": [
           "vix",
@@ -3469,7 +3505,7 @@
           "nfci",
           "t10y2y"
         ],
-        "secs": 1.8
+        "secs": 2.1
       },
       "putcall": {
         "status": "ok",
@@ -3489,7 +3525,7 @@
           "aaii_bear",
           "aaii_bull"
         ],
-        "secs": 1.6
+        "secs": 0.7
       },
       "finra_margin": {
         "status": "ok",
@@ -3499,7 +3535,7 @@
           "free_credit",
           "margin_debt"
         ],
-        "secs": 0.9
+        "secs": 1.3
       },
       "short_interest": {
         "status": "ok",
@@ -3508,7 +3544,7 @@
         "series": [
           "short_interest_dtc"
         ],
-        "secs": 11.9
+        "secs": 10.7
       },
       "cot": {
         "status": "ok",
@@ -3517,7 +3553,7 @@
         "series": [
           "cot_es_lev_net"
         ],
-        "secs": 1.1
+        "secs": 1.0
       },
       "breadth": {
         "status": "ok",
@@ -3536,56 +3572,56 @@
     "series_totals": {
       "aaii_bear": 2044,
       "aaii_bull": 2044,
-      "breadth_nh_nl": 3709,
-      "breadth_pct_200": 3709,
+      "breadth_nh_nl": 3710,
+      "breadth_pct_200": 3710,
       "cot_es_lev_net": 1060,
-      "dix": 3880,
+      "dix": 3881,
       "free_credit": 199,
-      "gex": 3880,
-      "hy_oas": 833,
+      "gex": 3881,
+      "hy_oas": 834,
       "icsa": 3117,
       "margin_debt": 356,
       "nfci": 2908,
-      "pc_equity": 4195,
-      "pc_total": 4195,
+      "pc_equity": 4196,
+      "pc_total": 4196,
       "short_interest_dtc": 75,
-      "t10y2y": 12583,
-      "vix": 9286,
-      "vix3m": 4286,
-      "zweig_ratio": 3709
+      "t10y2y": 12584,
+      "vix": 9287,
+      "vix3m": 4287,
+      "zweig_ratio": 3710
     },
-    "last_run": "2026-10-05T22:37:32.555073+00:00",
-    "store_gb": 49.32
+    "last_run": "2026-10-06T22:37:42.073700+00:00",
+    "store_gb": 51.97
   },
   "earnings": {
-    "last_run": "2026-10-05T22:58:06.657963+00:00",
-    "as_of": "2026-10-05",
-    "universe": 2863,
+    "last_run": "2026-10-06T22:53:11.276346+00:00",
+    "as_of": "2026-10-06",
+    "universe": 2861,
     "universe_source": "fundamentals-coverage \u222a screen-passers",
     "selection": {
-      "mode": "weekly-full",
+      "mode": "nightly-bounded",
       "near_sessions": 21,
       "stale_after_days": 7,
-      "unknown": 0,
-      "near": 0,
+      "unknown": 149,
+      "near": 1399,
       "stale": 0,
-      "deferred": 0
+      "deferred": 1313
     },
-    "selected_for_refresh": 2863,
-    "deferred_this_run": 0,
-    "pulled_this_run": 2863,
-    "with_upcoming_date": 2805,
+    "selected_for_refresh": 1548,
+    "deferred_this_run": 1313,
+    "pulled_this_run": 1548,
+    "with_upcoming_date": 1490,
     "no_upcoming_date": 58,
     "failed_tickers": 0,
-    "rows_inserted_this_run": 2805,
-    "rows_for_as_of": 2805,
-    "store_gb": 49.32
+    "rows_inserted_this_run": 1490,
+    "rows_for_as_of": 1490,
+    "store_gb": 51.97
   },
-  "screen_date": "2026-10-06",
-  "last_screen": "2026-10-06T22:32:49.202743+00:00",
-  "passing_count": 515,
-  "new_today_count": 32,
-  "screened": 3854,
+  "screen_date": "2026-10-07",
+  "last_screen": "2026-10-07T22:32:47.183700+00:00",
+  "passing_count": 460,
+  "new_today_count": 24,
+  "screened": 3852,
   "skipped_stale": 0,
   "skipped_phantom": 0,
   "skipped_short": 196,
@@ -3689,18 +3725,18 @@
     "target_symbols": 4063,
     "limitation": "current-liquid-universe snapshot; survivor-biased and retrieval-time-only; not historical membership or promotion-quality stock-selection evidence",
     "attempts": {
-      "complete": 2925,
-      "empty": 485,
-      "failed": 15
+      "complete": 3194,
+      "empty": 509,
+      "failed": 22
     },
-    "unresolved_failed_windows": 1,
-    "fact_count": 1073463,
-    "symbols_with_facts": 2924,
-    "symbols_checkpointed": 3410,
-    "symbols_unstarted": 653,
+    "unresolved_failed_windows": 4,
+    "fact_count": 1170950,
+    "symbols_with_facts": 3193,
+    "symbols_checkpointed": 3703,
+    "symbols_unstarted": 360,
     "checkpoint_start": "2023-07-05",
     "checkpoint_end": "2023-07-05",
-    "target_through": "2026-10-05",
+    "target_through": "2026-10-06",
     "symbols_caught_up": 0,
     "symbols_pending": 4063,
     "fact_start": "2022-01-03",
@@ -3709,10 +3745,10 @@
     "execution_authority": "none",
     "operational_price_mutation": false,
     "attempted_this_run": 50,
-    "completed_this_run": 46,
-    "empty_this_run": 4,
-    "failed_this_run": 0,
-    "through": "2026-10-05",
-    "last_run": "2026-10-06T21:50:40.359984+00:00"
+    "completed_this_run": 44,
+    "empty_this_run": 5,
+    "failed_this_run": 1,
+    "through": "2026-10-06",
+    "last_run": "2026-10-07T21:50:57.754205+00:00"
   }
 }
