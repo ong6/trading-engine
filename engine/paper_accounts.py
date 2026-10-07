@@ -419,7 +419,37 @@ def _reserved_orders(con, spec: dict, pending: list, as_of: date) -> dict[str, f
     return reserved
 
 
-def _capacity(con, spec: dict, intent: dict, session_date: date, quantity: float) -> None:
+def _contingent_parent(con, intent: dict, session_date: date, quantity: float) -> int | None:
+    parent_intent = intent.get("contingent_on")
+    if parent_intent is None:
+        return None
+    row = con.execute(
+        "SELECT i.order_id,i.account_id,o.ticker,o.side,o.qty,o.signal_date,o.status,d.state "
+        "FROM paper_account_intakes i JOIN sim_orders o ON o.id=i.order_id "
+        "LEFT JOIN sim_order_details d ON d.order_id=o.id WHERE i.intent_id=?",
+        [parent_intent],
+    ).fetchone()
+    if row is None:
+        raise AccountRefused("contingent parent is unavailable")
+    instrument_id = intent.get("ticker", intent.get("instrument_id"))
+    expected_parent_side = {"sell": "buy", "cover": "short"}.get(intent["side"])
+    if expected_parent_side is None:
+        raise AccountRefused("only sell or cover may be contingent")
+    if row[1] != intent["account_id"]:
+        raise AccountRefused("contingent parent belongs to another account")
+    if row[2] != instrument_id or row[5] != session_date:
+        raise AccountRefused("contingent parent instrument or session differs")
+    if row[3] != expected_parent_side:
+        raise AccountRefused("contingent parent side is incompatible")
+    if row[6] != "pending" or row[7] != "queued":
+        raise AccountRefused("contingent parent is not queued")
+    if quantity > float(row[4]):
+        raise AccountRefused("contingent child exceeds parent quantity")
+    return int(row[0])
+
+
+def _capacity(con, spec: dict, intent: dict, session_date: date, quantity: float,
+              *, contingent_parent: int | None = None) -> None:
     account = spec["account_id"]
     ticker = intent.get("ticker", intent.get("instrument_id"))
     reference_date = _reference_date(spec, intent, session_date)
@@ -436,6 +466,8 @@ def _capacity(con, spec: dict, intent: dict, session_date: date, quantity: float
         raise AccountRefused("same account already has a pending order for this leg")
     held = float(positions.get(ticker, {}).get("qty", 0.0))
     side = intent["side"]
+    if contingent_parent is not None:
+        return
     if side == "sell" and quantity > max(held, 0.0):
         raise AccountRefused("sell exceeds this account's holdings")
     if side == "cover" and quantity > max(-held, 0.0):
@@ -540,7 +572,14 @@ def submit_intent(con, intent: dict, *, now: datetime) -> dict:
             if latest is None:
                 raise AccountRefused("intent has no current stored reference session")
             completed_checkpoint = False
-        _capacity(con, spec, intent, session_date, quantity)
+        contingent_order = (
+            _contingent_parent(con, intent, session_date, quantity)
+            if spec["schema_version"] == 2 else None
+        )
+        _capacity(
+            con, spec, intent, session_date, quantity,
+            contingent_parent=contingent_order,
+        )
         order_id = sim_schema.next_order_id(con)
         ticker = intent.get("ticker", intent.get("instrument_id"))
         con.execute(
@@ -551,15 +590,6 @@ def submit_intent(con, intent: dict, *, now: datetime) -> dict:
             ensure(con, Instrument(ticker, intent["instrument_kind"], 1.0,
                                    source="account_intake", first_seen=session_date,
                                    last_seen=session_date))
-            contingent_order = None
-            if intent["contingent_on"] is not None:
-                parent = con.execute(
-                    "SELECT order_id,account_id FROM paper_account_intakes WHERE intent_id=?",
-                    [intent["contingent_on"]],
-                ).fetchone()
-                if parent is None or parent[1] != intent["account_id"]:
-                    raise AccountRefused("contingent intent is unavailable for this account")
-                contingent_order = parent[0]
             created = _utc(datetime.fromisoformat(intent["created_at"]))
             con.execute(
                 "INSERT INTO sim_order_details "
