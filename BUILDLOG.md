@@ -2683,4 +2683,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged apart from accepted base; budget ok.
 - **Next:** freeze this source commit and repin revision 13 last.
 
+## 2026-10-07 — Repin revision 13 to final sources
+
+- **Why:** P22 requires registration identity to land after the final accepted L2 merge
+  and isolated account-phase source commit.
+- **What:** Keep revision-13 policies and reason unchanged; repin its 158-file closure,
+  source commit and self-hash to the final runtime bytes.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error
+  tests/test_p15_registration.py` — all 5 revision, closure, file and source gates pass.
+- **Metrics:** server/tools/product unchanged; budget ok.
+- **Next:** run both complete timezone suites, publish metrics and close L3.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
