@@ -2694,4 +2694,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; budget ok.
 - **Next:** run both complete timezone suites, publish metrics and close L3.
 
+## 2026-10-07 — Close isolated account settlement review
+
+- **Why:** final acceptance requires the last L2 contract, isolated account failure
+  handling, revision-13 repin and both timezone suites on identical final bytes.
+- **What:** Preserve the stricter final contingent-order contract, freeze the isolated
+  account-phase runtime, and repin revision 13 last to its 158-file final source closure.
+- **Evidence:** `TZ=UTC` and `TZ=Asia/Singapore .venv/bin/python -m pytest -q
+  -W error -n auto` — 4,623 passed in each timezone, zero failures, registration enabled.
+- **Metrics:** server/tools/product unchanged since the final source and base merges; budget ok.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
