@@ -2648,5 +2648,27 @@ the 42-entry 2026-09-19 C90 complexity series is in
   published with `budget.ok=true` and no violations.
 - **Metrics:** server/tools/product unchanged; budget ok.
 - **Next:** wait for final base, merge it, then repin revision 13 last.
+## 2026-10-07 — Admit and expose contingent close orders
+
+- **Why:** alpha integration reproduced a same-session MOC child being refused before its
+  queued MOO parent could create holdings.
+- **What:** Validate contingent buy/sell and short/cover pairs by accepted intent, account,
+  instrument, session, queued state and parent quantity before holdings admission. Account order
+  reads now expose child/parent intent IDs, and fill reads include the recorded reference price.
+- **Evidence:** focused L2/schema/server acceptance passes all 187 cases; ruff is clean.
+- **Metrics:** tools unchanged; product/engine +30, server +5, tests +123; budget ok.
+- **Next:** run the complete merged-base suite and publish the alpha-integration handoff.
+
+## 2026-10-07 — Close contingent-order integration fix
+
+- **Why:** alpha integration required queued parent orders to authorize same-session contingent
+  closes and required intent/fill reconciliation fields in the read API.
+- **What:** Buy/MOC-sell and short/MOC-cover pairs now admit safely without current holdings;
+  oversized, cross-account, mismatched-session/instrument and cancelled-parent children refuse.
+  Order reads expose intent linkage and fills expose `reference_px`.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect
+  tests/test_p15_registration.py`: 4,349 passed, 184 base-listed failures, 5 deselected.
+- **Metrics:** server/tools/product unchanged since the implementation entry; budget ok.
+- **Next:** orchestrator re-merges L2 into the integration branch.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
