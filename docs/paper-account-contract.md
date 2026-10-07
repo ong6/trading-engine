@@ -122,7 +122,9 @@ A v2 intent contains exactly `schema_version`, `intent_id`, `account_id`, `spec_
 `source_sha256`. Sides are `buy`, `sell`, `short`, and `cover`. Order types are `next_open`,
 `moo`, `moc`, `market`, and `limit`; time in force is currently `day`. `limit_price` is positive
 only for a limit order. `contingent_on` names an earlier intent in the same account. A leg has
-only `instrument_id`, `side`, and a non-zero integer `ratio`.
+only `instrument_id`, `side`, and a non-zero integer `ratio`. A contingent sell or cover may be
+admitted before holdings exist only when its named buy or short parent is still queued in the same
+account, instrument, and session, and the child quantity does not exceed the parent quantity.
 
 The authoritative `received_at` is stamped by the engine before it waits for the DuckDB writer.
 MOO requests are accepted through 09:28:00 New York time. MOC requests are accepted through ten
@@ -167,7 +169,9 @@ stored in this repository.
 The API remains bound to loopback by the server host boundary. `GET /accounts` shows public
 accounts without credentials; a valid `Authorization: Bearer <token>` also shows private ones.
 Every route that addresses a private account, and every mutation, requires that token. Read routes
-cover account state, positions, orders, fills, cash events, equity, and deterministic results;
+cover account state, positions, orders, fills, cash events, equity, and deterministic results.
+Order rows expose `intent_id` and the parent `contingent_on` intent ID; fill rows expose both
+`fill_price` and its `reference_px`;
 write routes cover creation, submission, cancellation, reconciliation, halt, resume, retirement,
 and the account watch.
 
