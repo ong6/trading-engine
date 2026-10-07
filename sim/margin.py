@@ -387,11 +387,17 @@ def accrue_interest(
     day: date,
     *,
     days: int = 1,
+    portfolio_id: str | None = None,
 ) -> dict:
     """Debit effective-dated margin interest once per account and date."""
     count = 0
     charged = 0.0
-    for settings in account_portfolios(con):
+    settings_rows = [
+        settings for settings in account_portfolios(con, active_only=False)
+        if settings["status"] in {"active", "halted"}
+        and (portfolio_id is None or settings["portfolio_id"] == portfolio_id)
+    ]
+    for settings in settings_rows:
         portfolio_id = settings["portfolio_id"]
         cash = portfolio.get_cash(con, portfolio_id)
         if cash >= 0:

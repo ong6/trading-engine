@@ -20,7 +20,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -88,28 +88,112 @@ def _optional_phase(module_name: str, function_name: str, con, d: date, **kwargs
     return function(con, d, **kwargs)
 
 
-def accrue_accounts(con, d: date) -> dict:
+def accrue_accounts(con, d: date, *, portfolio_id: str | None = None) -> dict:
     """Phase a0b: accrue optional borrow and margin costs."""
     return {
-        "borrow": _optional_phase("sim.shorts", "accrue_borrow", con, d),
-        "interest": _optional_phase("sim.margin", "accrue_interest", con, d),
+        "borrow": _optional_phase(
+            "sim.shorts", "accrue_borrow", con, d, portfolio_id=portfolio_id,
+        ),
+        "interest": _optional_phase(
+            "sim.margin", "accrue_interest", con, d, portfolio_id=portfolio_id,
+        ),
     }
 
 
-def settle_accounts(con, d: date):
+def settle_accounts(con, d: date, *, portfolio_id: str | None = None):
     """Phase a2: settle account-engine orders when L1 is installed."""
     return _optional_phase(
         "engine.accounts.settle", "settle_session", con, d,
-        manage_transactions=False,
+        manage_transactions=False, portfolio_id=portfolio_id,
     )
 
 
-def check_account_halts(con, d: date) -> dict:
+def check_account_halts(
+    con, d: date, *, portfolio_id: str | None = None,
+) -> dict:
     """Phase b2: apply L2 account halts and non-blocking concentration alerts."""
+    halt_function = "check_all" if portfolio_id is None else "check"
+    halt_kwargs = {} if portfolio_id is None else {"portfolio_id": portfolio_id}
+    alert_kwargs = {} if portfolio_id is None else {"portfolio_id": portfolio_id}
     return {
-        "halts": _optional_phase("engine.money.halts", "check_all", con, d),
-        "alerts": _optional_phase("engine.money.alerts", "concentration", con, d),
+        "halts": _optional_phase(
+            "engine.money.halts", halt_function, con, d, **halt_kwargs,
+        ),
+        "alerts": _optional_phase(
+            "engine.money.alerts", "concentration", con, d, **alert_kwargs,
+        ),
     }
+
+
+def _record_settlement_error(con, portfolio_id: str, d: date, exc: Exception) -> None:
+    payload = json.dumps(
+        {
+            "code": "settlement_error",
+            "session_date": d.isoformat(),
+            "exception_type": type(exc).__name__,
+            "message": str(exc)[:1000],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        with db.transaction(con):
+            event_id = int(con.execute(
+                "SELECT COALESCE(MAX(id),0)+1 FROM account_events"
+            ).fetchone()[0])
+            con.execute(
+                "INSERT INTO account_events (id,portfolio_id,kind,payload,created_at) "
+                "VALUES (?,?,\'settlement_error\',?,?)",
+                [event_id, portfolio_id, payload, created_at],
+            )
+    except Exception as event_exc:  # pragma: no cover - last-resort ops breadcrumb
+        log.warning(
+            f"[league] WARN account={portfolio_id} settlement_error event_write_failed "
+            f"{type(event_exc).__name__}: {event_exc}"
+        )
+
+
+def run_account_phases(con, d: date, *, verbose: bool = True) -> dict:
+    rows = con.execute(
+        "SELECT portfolio_id,pa_status FROM portfolio_accounts_v "
+        "WHERE pa_engine='account' AND pa_status IN ('active','halted') "
+        "ORDER BY portfolio_id"
+    ).fetchall()
+    completed, errors, carried = [], {}, {}
+    for portfolio_id, status in rows:
+        try:
+            with db.transaction(con):
+                accrue_accounts(con, d, portfolio_id=portfolio_id)
+                if status == "active":
+                    settle_accounts(con, d, portfolio_id=portfolio_id)
+                mark = portfolio.mark_to_market(con, portfolio_id, d)
+                if mark.get("carried"):
+                    carried[portfolio_id] = sorted(mark["carried"])
+                if status == "active":
+                    check_account_halts(con, d, portfolio_id=portfolio_id)
+                else:
+                    _optional_phase(
+                        "engine.money.alerts", "concentration", con, d,
+                        portfolio_id=portfolio_id,
+                    )
+            completed.append(portfolio_id)
+        except Exception as exc:
+            errors[portfolio_id] = {
+                "exception_type": type(exc).__name__,
+                "message": str(exc)[:1000],
+            }
+            _record_settlement_error(con, portfolio_id, d, exc)
+            log.warning(
+                f"[league] WARN account={portfolio_id} settlement_error "
+                f"{type(exc).__name__}: {exc}"
+            )
+    if carried and verbose:
+        log.warning(
+            f"[league] WARN {sum(len(value) for value in carried.values())} "
+            "account position(s) used carried closes"
+        )
+    return {"completed": completed, "errors": errors, "carried": carried}
 
 
 # --------------------------------------------------------------------------- #
@@ -315,7 +399,9 @@ def fill_pending(con, d: date) -> dict:
     return counts
 
 
-def mtm_all(con, d: date, verbose: bool = True) -> dict:
+def mtm_all(
+    con, d: date, verbose: bool = True, *, include_accounts: bool = True,
+) -> dict:
     """Phase b. Mark every active portfolio to market → append sim_equity.
 
     Returns {"carried": {pf_id: [ticker, ...]}} — the positions valued at a
@@ -339,6 +425,8 @@ def mtm_all(con, d: date, verbose: bool = True) -> dict:
     for (pf_id,) in con.execute(
         "SELECT id FROM portfolios WHERE active ORDER BY id"
     ).fetchall():
+        if not include_accounts and portfolio_account(con, pf_id)["engine"] == "account":
+            continue
         res = portfolio.mark_to_market(con, pf_id, d)
         if res.get("carried"):
             carried[pf_id] = sorted(res["carried"])
@@ -722,8 +810,51 @@ def rerun_cleanup(con, d: date) -> None:
     portfolio.rebuild_state(con)
 
 
+def _safe_account_phases(
+    con, d: date, *, no_accounts: bool, verbose: bool,
+) -> dict:
+    if no_accounts:
+        return {"completed": [], "errors": {}, "carried": {}, "skipped": True}
+    try:
+        return {
+            **run_account_phases(con, d, verbose=verbose),
+            "skipped": False,
+        }
+    except Exception as exc:
+        log.warning(
+            f"[league] WARN account_phase_global_error {type(exc).__name__}: {exc}"
+        )
+        return {
+            "completed": [],
+            "errors": {"__account_phase__": {
+                "exception_type": type(exc).__name__,
+                "message": str(exc)[:1000],
+            }},
+            "carried": {},
+            "skipped": False,
+        }
+
+
+def _log_account_status(result: dict, *, verbose: bool) -> None:
+    if result["skipped"]:
+        if verbose:
+            log.info("[league] ACCOUNT_STATUS skipped (--no-accounts); legacy_day_committed=true")
+        return
+    if result["errors"]:
+        log.error(
+            "[league] ACCOUNT_STATUS failed; legacy_day_committed=true; "
+            f"failed_accounts={','.join(sorted(result['errors']))}"
+        )
+        return
+    if verbose:
+        log.info(
+            "[league] ACCOUNT_STATUS ok; legacy_day_committed=true; "
+            f"completed_accounts={len(result['completed'])}"
+        )
+
+
 def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
-         skip_if_done: bool = False) -> int:
+         skip_if_done: bool = False, no_accounts: bool = False) -> int:
     existing = con.execute(
         "SELECT COUNT(*) FROM sim_equity WHERE date = ?", [d]
     ).fetchone()[0]
@@ -743,47 +874,43 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
         if not rerun:
             if skip_if_done:
                 # Benign no-op: the date is already stepped (e.g. a weekend/holiday
-                # nightly where MAX(date) hasn't advanced, or a re-run). Regenerate
-                # reports from the committed ledger so an interruption between the
-                # day transaction and companion-file publication repairs itself.
+                # nightly where MAX(date) hasn't advanced, or a re-run). Account
+                # phases are idempotent and retry here after a prior account-only
+                # failure; legacy rows remain untouched.
+                account_result = _safe_account_phases(
+                    con, d, no_accounts=no_accounts, verbose=verbose,
+                )
                 write_reports(con, d, data_dir)
+                _log_account_status(account_result, verbose=verbose)
                 if verbose:
                     log.info(f"[league] {d} already stepped ({existing} equity rows); "
-                          f"--skip-if-done → restored reports, exit 0")
-                return 0
+                          "--skip-if-done → restored reports and retried accounts")
+                return 1 if account_result["errors"] else 0
             if verbose:
                 log.error(f"[league] ABORT: sim_equity already has {existing} rows for "
                       f"{d} — the step is idempotent. Pass --rerun to redo this date.")
             return 1
-    # The whole per-day step is ONE DuckDB transaction so the day is all-or-
-    # nothing. Without it, a mid-run death (e.g. after fills + partial equity
-    # writes) leaves fills applied but that day's orders never generated and some
-    # portfolios missing equity rows — and because "day done" is inferred from ANY
-    # sim_equity[d] row existing, --skip-if-done would then no-op forever. Wrapping
-    # fill_pending + mtm_all + generate_all (and the --rerun cleanup) in one
-    # BEGIN…COMMIT makes a crash roll back everything, so a rerun redoes the whole
-    # day exactly once. This also fixes the per-order double-fill window: the
-    # INSERT sim_fills + apply_fill + UPDATE status trio is now atomic, so a crash
-    # between them rolls back rather than double-filling on rerun.
-    # (db.connect returns a fresh autocommit connection with no enclosing
-    # transaction, so this BEGIN never nests.)
+    # Legacy books retain one all-or-nothing transaction. Account-engine phases
+    # run only after this commits, one transaction per account, so one private
+    # account can fail without erasing the public league day.
     with db.transaction(con):
         if existing:  # reached only on --rerun (non-rerun already returned above)
             rerun_cleanup(con, d)
             if verbose:
                 log.info(f"[league] --rerun: cleared {d} sim rows, rebuilt state")
         dv = portfolio.credit_dividends(con, d)
-        accrue_accounts(con, d)
         fc = fill_pending(con, d)
-        settle_accounts(con, d)
         # verbose is threaded through so a walk-forward replay (thousands of
         # sessions, verbose=False) does not print a carried-mark line per day,
         # while the nightly — the one run a human reads — always does.
-        mm = mtm_all(con, d, verbose=verbose)
-        check_account_halts(con, d)
+        mm = mtm_all(con, d, verbose=verbose, include_accounts=False)
         nn = generate_all(con, d)
 
+    account_result = _safe_account_phases(
+        con, d, no_accounts=no_accounts, verbose=verbose,
+    )
     md_path = write_reports(con, d, data_dir)
+    _log_account_status(account_result, verbose=verbose)
     if verbose:
         div_note = (f" divs={dv['credited']}/${dv['amount']:,.2f}"
                     if dv["credited"] else "")
@@ -792,11 +919,12 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
         log.info(f"[league] {d}: fills={fc['filled']} rejected={fc['rejected']} "
               f"still_pending={fc['pending']} new_orders={nn}{div_note}"
               f"{carry_note} → {md_path}")
-    return 0
+    return 1 if account_result["errors"] else 0
 
 
 def run(db_path: str, data_dir: Path, requested_date: str | None,
-        do_init: bool, rerun: bool, skip_if_done: bool = False) -> int:
+        do_init: bool, rerun: bool, skip_if_done: bool = False,
+        no_accounts: bool = False) -> int:
     con = db.connect(db_path)
     try:
         db.init_schema(con)
@@ -813,7 +941,10 @@ def run(db_path: str, data_dir: Path, requested_date: str | None,
             log.info("[league] no portfolios — run with --init first")
             return 1
 
-        return step(con, d, data_dir, rerun, skip_if_done=skip_if_done)
+        return step(
+            con, d, data_dir, rerun, skip_if_done=skip_if_done,
+            no_accounts=no_accounts,
+        )
     finally:
         con.close()
 
@@ -827,13 +958,19 @@ def main() -> int:
         "--init", action="store_true", help="create configured portfolios if absent"
     )
     ap.add_argument("--rerun", action="store_true", help="redo an already-run date")
+    ap.add_argument(
+        "--no-accounts", action="store_true",
+        help="commit only the legacy league day and skip every account-engine phase",
+    )
     ap.add_argument("--skip-if-done", action="store_true",
                     help="exit 0 (not 1) if the date is already stepped — for the "
                          "unattended nightly, where a weekend/holiday run re-sees the "
                          "same MAX(date). Real errors still fail loudly.")
     args = ap.parse_args()
-    return run(args.db, Path(args.data_dir), args.date, args.init, args.rerun,
-               skip_if_done=args.skip_if_done)
+    return run(
+        args.db, Path(args.data_dir), args.date, args.init, args.rerun,
+        skip_if_done=args.skip_if_done, no_accounts=args.no_accounts,
+    )
 
 
 if __name__ == "__main__":
