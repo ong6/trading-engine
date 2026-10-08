@@ -11,8 +11,8 @@ from fastapi import APIRouter, Header, HTTPException, Query
 
 from engine import paper_accounts
 from engine.accounts import api as account_api
-from engine.accounts import sources as account_sources
 from engine.accounts import service
+from engine.accounts import sources as account_sources
 from engine.lib import db as engine_db
 
 from . import account_read_models
