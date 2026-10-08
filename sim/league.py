@@ -18,13 +18,14 @@ only sim_* / portfolios.
 from __future__ import annotations
 
 import argparse
-import importlib
 import json
-from datetime import date, datetime, timezone
+from datetime import date
 from pathlib import Path
 
 import numpy as np
 
+from engine.accounts import settle as account_settle
+from engine.accounts import sources as account_sources
 from engine.lib import db, resources
 from engine.lib.data_quality import quarantine_reason
 from engine.lib.log import get_logger
@@ -75,125 +76,18 @@ def init_portfolios(con, as_of: date) -> int:
     return created
 
 
-def _optional_phase(module_name: str, function_name: str, con, d: date, **kwargs):
-    """Call an integration phase when its owning lane is present."""
-    try:
-        module = importlib.import_module(module_name)
-    except ModuleNotFoundError as exc:
-        missing = exc.name or ""
-        if missing == module_name or module_name.startswith(f"{missing}."):
-            return None
-        raise
-    function = getattr(module, function_name)
-    return function(con, d, **kwargs)
-
-
-def accrue_accounts(con, d: date, *, portfolio_id: str | None = None) -> dict:
-    """Phase a0b: accrue optional borrow and margin costs."""
-    return {
-        "borrow": _optional_phase(
-            "sim.shorts", "accrue_borrow", con, d, portfolio_id=portfolio_id,
-        ),
-        "interest": _optional_phase(
-            "sim.margin", "accrue_interest", con, d, portfolio_id=portfolio_id,
-        ),
-    }
-
-
-def settle_accounts(con, d: date, *, portfolio_id: str | None = None):
-    """Phase a2: settle account-engine orders when L1 is installed."""
-    return _optional_phase(
-        "engine.accounts.settle", "settle_session", con, d,
-        manage_transactions=False, portfolio_id=portfolio_id,
-    )
-
-
-def check_account_halts(
-    con, d: date, *, portfolio_id: str | None = None,
-) -> dict:
-    """Phase b2: apply L2 account halts and non-blocking concentration alerts."""
-    halt_function = "check_all" if portfolio_id is None else "check"
-    halt_kwargs = {} if portfolio_id is None else {"portfolio_id": portfolio_id}
-    alert_kwargs = {} if portfolio_id is None else {"portfolio_id": portfolio_id}
-    return {
-        "halts": _optional_phase(
-            "engine.money.halts", halt_function, con, d, **halt_kwargs,
-        ),
-        "alerts": _optional_phase(
-            "engine.money.alerts", "concentration", con, d, **alert_kwargs,
-        ),
-    }
-
-
-def _record_settlement_error(con, portfolio_id: str, d: date, exc: Exception) -> None:
-    payload = json.dumps(
-        {
-            "code": "settlement_error",
-            "session_date": d.isoformat(),
-            "exception_type": type(exc).__name__,
-            "message": str(exc)[:1000],
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    created_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    try:
-        with db.transaction(con):
-            event_id = int(con.execute(
-                "SELECT COALESCE(MAX(id),0)+1 FROM account_events"
-            ).fetchone()[0])
-            con.execute(
-                "INSERT INTO account_events (id,portfolio_id,kind,payload,created_at) "
-                "VALUES (?,?,\'settlement_error\',?,?)",
-                [event_id, portfolio_id, payload, created_at],
-            )
-    except Exception as event_exc:  # pragma: no cover - last-resort ops breadcrumb
-        log.warning(
-            f"[league] WARN account={portfolio_id} settlement_error event_write_failed "
-            f"{type(event_exc).__name__}: {event_exc}"
-        )
-
-
 def run_account_phases(con, d: date, *, verbose: bool = True) -> dict:
-    rows = con.execute(
-        "SELECT portfolio_id,pa_status FROM portfolio_accounts_v "
-        "WHERE pa_engine='account' AND pa_status IN ('active','halted') "
-        "ORDER BY portfolio_id"
-    ).fetchall()
-    completed, errors, carried = [], {}, {}
-    for portfolio_id, status in rows:
-        try:
-            with db.transaction(con):
-                accrue_accounts(con, d, portfolio_id=portfolio_id)
-                if status == "active":
-                    settle_accounts(con, d, portfolio_id=portfolio_id)
-                mark = portfolio.mark_to_market(con, portfolio_id, d)
-                if mark.get("carried"):
-                    carried[portfolio_id] = sorted(mark["carried"])
-                if status == "active":
-                    check_account_halts(con, d, portfolio_id=portfolio_id)
-                else:
-                    _optional_phase(
-                        "engine.money.alerts", "concentration", con, d,
-                        portfolio_id=portfolio_id,
-                    )
-            completed.append(portfolio_id)
-        except Exception as exc:
-            errors[portfolio_id] = {
-                "exception_type": type(exc).__name__,
-                "message": str(exc)[:1000],
-            }
-            _record_settlement_error(con, portfolio_id, d, exc)
-            log.warning(
-                f"[league] WARN account={portfolio_id} settlement_error "
-                f"{type(exc).__name__}: {exc}"
-            )
-    if carried and verbose:
+    """Run the required, consolidated account processor with production sources."""
+    with account_sources.production_sources(con) as short_con:
+        result = account_settle.settle_session(
+            con, d, short_con=short_con, manage_transactions=True,
+        )
+    if result.get("carried") and verbose:
         log.warning(
-            f"[league] WARN {sum(len(value) for value in carried.values())} "
+            f"[league] WARN {sum(len(value) for value in result['carried'].values())} "
             "account position(s) used carried closes"
         )
-    return {"completed": completed, "errors": errors, "carried": carried}
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -752,24 +646,54 @@ def rerun_cleanup(con, d: date) -> None:
       same data, so re-attempting d would reproduce it identically (documented).
     - State is rebuilt by replaying every surviving fill (exact).
     """
-    con.execute("DELETE FROM sim_equity WHERE date = ?", [d])
-    filled_order_ids = "SELECT order_id FROM sim_fills WHERE fill_date = ?"
-    if table_exists(con, "sim_order_details"):
-        con.execute(
-            "UPDATE sim_order_details SET state='queued' "
-            f"WHERE state='filled' AND order_id IN ({filled_order_ids})",
-            [d],
-        )
-    for table in ("sim_fill_costs", "sim_fill_fees", "sim_fill_details"):
-        if table_exists(con, table):
-            con.execute(
-                f"DELETE FROM {table} WHERE order_id IN ({filled_order_ids})", [d]
-            )
+    account_ids = {
+        row[0] for row in con.execute(
+            "SELECT portfolio_id FROM portfolio_accounts_v WHERE pa_engine='account'"
+        ).fetchall()
+    }
+    legacy_ids = [
+        row[0] for row in con.execute("SELECT id FROM portfolios ORDER BY id").fetchall()
+        if row[0] not in account_ids
+    ]
+    if not legacy_ids:
+        return
+    portfolio_marks = ",".join("?" for _ in legacy_ids)
     con.execute(
-        "DELETE FROM sim_execution_attempts WHERE attempt_date = ? AND order_id IN "
-        "(SELECT order_id FROM sim_fills WHERE fill_date = ?)", [d, d])
-    con.execute("DELETE FROM sim_fills WHERE fill_date = ?", [d])
-    con.execute("DELETE FROM sim_dividends WHERE ex_date = ?", [d])
+        f"DELETE FROM sim_equity WHERE date=? AND portfolio_id IN ({portfolio_marks})",
+        [d, *legacy_ids],
+    )
+    filled_ids = [
+        row[0] for row in con.execute(
+            f"SELECT order_id FROM sim_fills WHERE fill_date=? "
+            f"AND portfolio_id IN ({portfolio_marks})",
+            [d, *legacy_ids],
+        ).fetchall()
+    ]
+    fill_marks = ",".join("?" for _ in filled_ids)
+    if table_exists(con, "sim_order_details"):
+        if filled_ids:
+            con.execute(
+                "UPDATE sim_order_details SET state='queued' "
+                f"WHERE state='filled' AND order_id IN ({fill_marks})",
+                filled_ids,
+            )
+    for table in ("sim_fill_costs", "sim_fill_fees", "sim_fill_details"):
+        if table_exists(con, table) and filled_ids:
+            con.execute(
+                f"DELETE FROM {table} WHERE order_id IN ({fill_marks})", filled_ids,
+            )
+    if filled_ids:
+        con.execute(
+            f"DELETE FROM sim_execution_attempts WHERE attempt_date=? "
+            f"AND order_id IN ({fill_marks})", [d, *filled_ids],
+        )
+        con.execute(
+            f"DELETE FROM sim_fills WHERE order_id IN ({fill_marks})", filled_ids,
+        )
+    con.execute(
+        f"DELETE FROM sim_dividends WHERE ex_date=? "
+        f"AND portfolio_id IN ({portfolio_marks})", [d, *legacy_ids],
+    )
     # Orders the day-step CREATED are regenerated by the re-run; orders a
     # discretionary ticket created are not (the ticket is the owner's record and
     # points at the order by id) — deleting them left disc_tickets.order_id
@@ -797,17 +721,22 @@ def rerun_cleanup(con, d: date) -> None:
     if protected_order_queries:
         protected = " UNION ".join(protected_order_queries)
         con.execute(
-            "DELETE FROM sim_orders WHERE signal_date = ? AND id NOT IN "
-            f"({protected})",
-            [d],
+            f"DELETE FROM sim_orders WHERE signal_date=? "
+            f"AND portfolio_id IN ({portfolio_marks}) AND id NOT IN ({protected})",
+            [d, *legacy_ids],
         )
     else:
-        con.execute("DELETE FROM sim_orders WHERE signal_date = ?", [d])
+        con.execute(
+            f"DELETE FROM sim_orders WHERE signal_date=? "
+            f"AND portfolio_id IN ({portfolio_marks})", [d, *legacy_ids],
+        )
     con.execute(
         "UPDATE sim_orders SET status = 'pending', reject_reason = NULL "
-        "WHERE status = 'filled' AND id NOT IN (SELECT order_id FROM sim_fills)"
+        f"WHERE status='filled' AND portfolio_id IN ({portfolio_marks}) "
+        "AND id NOT IN (SELECT order_id FROM sim_fills)",
+        legacy_ids,
     )
-    portfolio.rebuild_state(con)
+    portfolio.rebuild_state(con, legacy_ids)
 
 
 def _safe_account_phases(

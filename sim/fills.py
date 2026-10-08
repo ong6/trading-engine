@@ -448,7 +448,9 @@ def attempt_intraday_market_fill(
         fill_kind="intraday_bar",
         price_source=price_source,
         bar_ref=bar.bar_ref,
-        fill_ts=bar.ts,
+        # Minute timestamps are interval starts.  The simulated decision/fill
+        # occurs only once the complete [ts, ts+1m) bar is observable.
+        fill_ts=bar.ts + timedelta(minutes=1),
         profile=profile,
     )
 
@@ -527,6 +529,6 @@ def attempt_intraday_limit_fill(
         fill_kind="limit_touch",
         price_source=price_source,
         bar_ref=touched.bar_ref,
-        fill_ts=touched.ts,
+        fill_ts=touched.ts + timedelta(minutes=1),
         profile=profile,
     )

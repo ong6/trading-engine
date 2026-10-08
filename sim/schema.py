@@ -104,7 +104,7 @@ def set_portfolio_account(con: duckdb.DuckDBPyConnection, portfolio_id: str,
         "engine": {"league", "p15", "p16", "account"},
         "account_type": {"cash_legacy", "margin"},
         "visibility": {"public", "private"},
-        "status": {None, "inactive", "active", "halted", "retired"},
+        "status": {None, "inactive", "active", "halted", "retiring", "retired"},
         "price_source": {"prices", "massive_daily"},
         "day_trade_rule": {"pdt_25k_legacy", "intraday_margin_2026"},
     }
