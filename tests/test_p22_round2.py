@@ -49,6 +49,7 @@ class Harness:
         monkeypatch.setenv(api.TOKEN_ENV, str(token))
         self.auth = f'Bearer {api.read_token(path=token)}'
         self.now = RECEIVED
+        self.session = DAY
         harness = self
 
         class Clock:
@@ -74,6 +75,7 @@ class Harness:
     def order(self, name, ticker, side, qty, kind='moo', account='acct-a', parent=None):
         intent = {**_intent(name, ticker, side, kind, contingent_on=parent),
                   'quantity': qty, 'account_id': account,
+                  'session_date': self.session.isoformat(),
                   'created_at': self.now.isoformat()}
         return routes.submit_order(account, intent, self.auth)
 
@@ -287,5 +289,106 @@ def test_captured_massive_split_updates_signed_lots_orders_and_replay(h):
     assert h.scalar(f"SELECT qty FROM sim_fills WHERE order_id={cover['order_id']}") == 100
     assert h.scalar("SELECT qty FROM sim_position_lots WHERE instrument_id='SHORT'") == -100
     assert 49_900 < routes.get_account('acct-a', h.auth)['equity'] < 50_000
+    assert cli.main(['verify', 'acct-a']) == 0
+    assert h.scalar("SELECT COUNT(*) FROM account_reconciliations WHERE status='mismatch'") == 0
+
+
+def test_late_mark_without_fills_refreshes_equity_and_halts(h):
+    h.create()
+    h.history('LONG', 'buy', 400, 100)
+    with h.con(h.daily) as con:
+        con.execute("DELETE FROM free_daily_bars WHERE ticker='LONG' AND date=?", [DAY])
+    assert h.night() == 0
+    assert h.scalar("SELECT equity FROM sim_equity WHERE portfolio_id='acct-a'") == 50_000
+    with h.con(h.daily) as con:
+        con.execute("INSERT INTO free_daily_bars VALUES "
+                    "(?,'LONG',100,100,50,50,100000,75,'fixture',?,'late')",
+                    [DAY, datetime(2026, 10, 8, 7)])
+    assert cli.main(['settle', '--late']) == 0
+    assert h.scalar("SELECT equity FROM sim_equity WHERE portfolio_id='acct-a' AND date=DATE '2026-10-07'") == 30_000
+    assert h.scalar("SELECT pa_status FROM portfolio_accounts_v WHERE portfolio_id='acct-a'") == 'halted'
+
+
+def test_late_cli_revisits_older_order_and_recomputes_later_financing(h):
+    h.now = datetime(2026, 10, 6, 13, 27, tzinfo=timezone.utc)
+    h.session = PRIOR
+    h.create()
+    h.order('older-short', 'SHORT', 'short', 100)
+    with h.con(h.daily) as con:
+        con.execute("DELETE FROM free_daily_bars WHERE ticker='SHORT' AND date=?", [PRIOR])
+    assert h.night(PRIOR) == 0
+    assert h.night(DAY) == 0
+    with h.con(h.daily) as con:
+        con.execute("INSERT INTO free_daily_bars VALUES "
+                    "(?,'SHORT',100,100,100,100,100000,100,'fixture',?,'late')",
+                    [PRIOR, datetime(2026, 10, 8, 7)])
+    assert cli.main(['settle', '--late']) == 0
+    assert h.scalar("SELECT COUNT(*) FROM sim_fills WHERE fill_date=DATE '2026-10-06'") == 1
+    assert h.scalar("SELECT COUNT(*) FROM sim_cash_events WHERE kind='borrow_fee' "
+                    "AND event_date=DATE '2026-10-07'") == 1
+    with h.con() as con:
+        history = con.execute("SELECT date,equity,cash FROM sim_equity WHERE portfolio_id='acct-a' "
+                              'ORDER BY date').fetchall()
+    assert len(history) == 2
+    assert history[1][1] < history[0][1] < 50_000
+    assert cli.main(['verify', 'acct-a']) == 0
+    assert h.scalar("SELECT COUNT(*) FROM account_reconciliations WHERE status='mismatch'") == 0
+    before = h.scalar("SELECT cash FROM portfolios WHERE id='acct-a'")
+    assert cli.main(['settle', '--late']) == 0
+    assert h.scalar("SELECT cash FROM portfolios WHERE id='acct-a'") == before
+
+
+def test_migration_keeps_v1_order_on_its_league_route(h):
+    from engine import paper_accounts
+    from tests.conftest import insert_bars
+    from tests.test_paper_accounts import _intent as v1_intent
+    from tests.test_paper_accounts import _spec as v1_spec
+    from tools.migrate_cost_profiles import migrate
+
+    with h.con() as con:
+        con.execute('DELETE FROM prices')
+        insert_bars(con, 'SAME', [PRIOR], open_=100, close=100, volume=1_000_000)
+        now = datetime(2026, 10, 6, 21, tzinfo=timezone.utc)
+        paper_accounts.create_account(con, v1_spec('v1-book'), now=now)
+        paper_accounts.submit_intent(con, v1_intent('v1-book', signal_date=PRIOR.isoformat(),
+                                                  created_at=now.isoformat()), now=now)
+        migrate(con, DAY)
+        insert_bars(con, 'SAME', [DAY], open_=100, close=100, volume=1_000_000)
+    assert h.night() == 0
+    assert h.scalar('SELECT COUNT(*) FROM sim_fills') == 1
+    assert h.scalar("SELECT pa_engine FROM portfolio_accounts_v WHERE portfolio_id='v1-book'") == 'league'
+
+
+def test_migration_reports_and_refuses_routing_change_without_flag(h):
+    from tools.migrate_cost_profiles import MigrationRefused, migrate
+
+    h.create()
+    with h.con() as con:
+        set_portfolio_account(con, 'acct-a', engine='league')
+        with pytest.raises(MigrationRefused, match='acct-a'):
+            migrate(con, DAY)
+        assert con.execute('SELECT COUNT(*) FROM sim_book_breaks').fetchone()[0] == 0
+
+
+def test_retiring_margin_debt_keeps_interest_until_flat(h):
+    h.create()
+    h.history('RETIRE', 'buy', 600, 100)
+    h.now = datetime(2026, 10, 6, 21, tzinfo=timezone.utc)
+    assert routes.retire_account('acct-a', h.auth)['status'] == 'retiring'
+    assert h.night() == 0
+    assert h.scalar("SELECT COUNT(*) FROM sim_cash_events WHERE kind='margin_interest'") == 1
+    assert h.scalar("SELECT pa_status FROM portfolio_accounts_v WHERE portfolio_id='acct-a'") == 'retired'
+
+
+def test_financed_731_share_short_cover_round_trip_reconciles(h):
+    h.create()
+    h.history('SHORT', 'short', 731, 100)
+    h.order('cover', 'SHORT', 'cover', 731, 'moc')
+    with h.con(h.daily) as con:
+        con.execute("INSERT INTO free_daily_bars VALUES "
+                    "(?,'SHORT',99,99,99,99,100000,99,'fixture',?,'cover')",
+                    [DAY, datetime(2026, 10, 7, 21)])
+    assert h.night() == 0
+    assert h.scalar("SELECT pa_status FROM portfolio_accounts_v WHERE portfolio_id='acct-a'") == 'active'
     assert cli.main(['verify', 'acct-a']) == 0
     assert h.scalar("SELECT COUNT(*) FROM account_reconciliations WHERE status='mismatch'") == 0

@@ -31,7 +31,7 @@ def test_migration_routes_books_records_breaks_bootstraps_ids_and_runs_l4_backfi
     con.execute(
         "INSERT INTO paper_account_specs "
         "(account_id,payload,sha256,created_at) "
-        "VALUES ('acct-a','{}',repeat('a',64),now())"
+        "VALUES ('acct-a','{\"schema_version\":2}',repeat('a',64),now())"
     )
     set_portfolio_account(
         con,
@@ -55,7 +55,8 @@ def test_migration_routes_books_records_breaks_bootstraps_ids_and_runs_l4_backfi
     )
 
     result = migrate_cost_profiles.migrate(
-        con, D0, migrated_at=datetime(2026, 10, 11, 19, tzinfo=timezone.utc)
+        con, D0, migrated_at=datetime(2026, 10, 11, 19, tzinfo=timezone.utc),
+        allow_routing_change=True
     )
 
     assert result == {
@@ -65,6 +66,11 @@ def test_migration_routes_books_records_breaks_bootstraps_ids_and_runs_l4_backfi
         "break_count": 4,
         "reserved_order_id": 51,
         "first_fetched_at_backfill": 123,
+        "routing_changes": [
+            {"portfolio_id": "acct-a", "from": "league", "to": "account"},
+            {"portfolio_id": "p15_ai_ranked", "from": "league", "to": "p15"},
+            {"portfolio_id": "p16_construct_ai@sha256:abc", "from": "league", "to": "p16"},
+        ],
     }
     assert calls == [con]
     accounts = {

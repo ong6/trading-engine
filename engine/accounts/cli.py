@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from engine.accounts import api, results, service
+from engine.accounts import late as late_settle
 from engine.accounts import settle as account_settle
 from engine.accounts import sources as account_sources
 from engine.lib import db
@@ -54,6 +55,9 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _settle(con, *, session_date: date | None, late: bool):
+    if late:
+        with account_sources.production_sources(con) as short_con:
+            return late_settle.settle(con, session_date=session_date, short_con=short_con)
     if session_date is None:
         session_date = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
     if session_date is None:

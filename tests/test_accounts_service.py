@@ -179,15 +179,23 @@ def test_verify_rebuilds_without_mutating_the_account(con):
     ).fetchone() == ("mismatch",)
 
 
-def test_settle_cli_calls_real_processor_with_production_sources(monkeypatch, con):
-    calls = []
-    monkeypatch.setattr(cli.account_settle, "settle_session", lambda connection, session_date,
-                        *, late, short_con: (
-        calls.append((connection, session_date, late, short_con)) or {"settled": 2}
-    ))
-    monkeypatch.setattr(cli.account_sources, "production_sources", lambda connection: (
-        __import__("contextlib").nullcontext("short-source")
-    ))
+def test_settle_cli_calls_real_processor_with_production_sources(con):
+    from tests.conftest import insert_bars
+
+    _active_account(con)
     session_date = date(2026, 10, 5)
-    assert cli._settle(con, session_date=session_date, late=True) == {"settled": 2}
-    assert calls == [(con, session_date, True, "short-source")]
+    insert_bars(con, "XYZ", [date(2026, 10, 2), session_date],
+                open_=100, close=100, volume=1_000_000)
+    con.execute("UPDATE prices SET fetched_at='2026-10-05 21:00:00'")
+    con.execute("INSERT INTO sim_orders VALUES (1,'acct-a','XYZ','buy',1,?, 'pending',NULL)",
+                [session_date])
+    con.execute("INSERT INTO sim_order_details "
+                "(order_id,instrument_id,instrument_kind,order_type,side,tif,session_date,"
+                "received_at,state,state_at) VALUES "
+                "(1,'XYZ','stock','moo','buy','day',?,?,'queued',?)", [session_date, NOW, NOW])
+    result = cli._settle(con, session_date=session_date, late=True)
+    assert result['filled'] == 1
+    assert result['errors'] == {}
+    assert con.execute('SELECT qty FROM sim_positions').fetchone() == (1.0,)
+    assert con.execute('SELECT COUNT(*) FROM sim_fill_fees').fetchone() == (1,)
+    assert service.verify(con, 'acct-a')['status'] == 'ok'

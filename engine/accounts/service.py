@@ -381,7 +381,7 @@ def verify(
             [account_id],
         ).fetchall()
         try:
-            ledger.rebuild_state(con, [account_id])
+            ledger.rebuild_state(con, [account_id], through=session_date)
             expected = _current_state(con, account_id)
         finally:
             _restore_account_state(

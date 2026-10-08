@@ -2813,7 +2813,6 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +2, tools unchanged, product +475; tests +759; budget ok.
 - **Next:** nothing admitted.
 
-<!-- append-only-tail: insert new verified entries immediately above this line -->
 
 ## 2026-10-08 — P22 isolated account valuation and execution
 
@@ -2822,7 +2821,7 @@ the 42-entry 2026-09-19 C90 complexity series is in
   share carried valuation, keep financing through retirement, cap contingent closes,
   and reconcile cash within half a cent with financing before fills.
 - **Evidence:** `pytest -q tests/test_p22_round2.py` — 8 passed; 7 failed on baseline.
-- **Metrics:** unchanged.
+- **Metrics:** server -5 LOC, tools +0 LOC, product -138 LOC.
 - **Next:** isolate source contention and account corporate actions.
 
 ## 2026-10-08 — Isolate source contention and account dividend booking
@@ -2836,3 +2835,19 @@ the 42-entry 2026-09-19 C90 complexity series is in
   writer/dividend regressions failed before their fixes; split regression failed too.
 - **Metrics:** server -5 LOC, tools +0 LOC, product +18 LOC since baseline.
 - **Next:** captured splits and chronological late recovery.
+
+
+## 2026-10-08 — Recover old account sessions and preserve v1 routing
+
+- **Why:** P22 round-2 late-mark, stranded-order and migration reproductions.
+- **What:** replay unresolved sessions oldest-first through dependent later marks,
+  merge stored and new fills chronologically, append financing corrections, and
+  preserve v1 league routing; migration reports and refuses unacknowledged route changes.
+- **Evidence:** store-copy rehearsal: 42 fills, 2 late fills, flat positions,
+  cash/equity $49,991.872499436395, financing booked, reconciliation ok; copy deleted.
+  Both full timezone suites: 4,580 passed / 83 failed; 81 frozen identity failures,
+  two corrected test/document failures proved by an 18-test focused rerun.
+- **Metrics:** server +0 LOC, tools +28 LOC, product +218 LOC.
+- **Next:** orchestrator re-pins P15 and frozen runtime identities, then acceptance.
+
+<!-- append-only-tail: insert new verified entries immediately above this line -->

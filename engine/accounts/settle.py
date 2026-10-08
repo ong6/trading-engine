@@ -546,6 +546,7 @@ def settle_session(
     settled_at: datetime | None = None,
     manage_transactions: bool = True,
     portfolio_id: str | None = None,
+    replay: bool = False,
 ) -> dict[str, Any]:
     """Run one chronological, source-aware, atomic lifecycle per account."""
     now = settled_at or datetime.now(timezone.utc)
@@ -554,10 +555,9 @@ def settle_session(
     settings_by_id = {
         row["portfolio_id"]: row for row in account_portfolios(con, active_only=False)
         if row["status"] in {"active", "halted", "retiring"}
-        if portfolio_id is None or row["portfolio_id"] == portfolio_id
     }
     rows = [
-        row for row in _pending_rows(con)
+        actions.prepare_order(con, row, day, now) for row in _pending_rows(con)
         if row["portfolio_id"] in settings_by_id and _due(con, row, day, late)
     ]
     prepared = [
@@ -588,6 +588,8 @@ def settle_session(
     carried: dict[str, list[str]] = {}
     recovered: list[str] = []
     for account_id in account_order:
+        if portfolio_id is not None and account_id != portfolio_id:
+            continue
         settings = settings_by_id[account_id]
         local = {key: 0 for key in counts}
         has_unmarked_fill = bool(con.execute(
@@ -600,7 +602,15 @@ def settle_session(
         try:
             with transaction:
                 sources.require_sources(con, settings, [row for row, _ in by_account[account_id]])
-                actions.apply_splits(con, account_id, day, now, _record_account_event)
+                if replay:
+                    ledger.rebuild_state(con, [account_id], through=day - timedelta(days=1))
+                    dividends = con.execute(
+                        'SELECT COALESCE(SUM(amount),0) FROM sim_dividends '
+                        'WHERE portfolio_id=? AND ex_date=?', [account_id, day],
+                    ).fetchone()[0]
+                    con.execute('UPDATE portfolios SET cash=cash+? WHERE id=?',
+                                [dividends, account_id])
+                actions.apply_splits(con, account_id, day, now, _record_account_event, replay=replay)
                 # Splits can change queued quantities and limits after preparation.
                 for row, _result in by_account[account_id]:
                     qty, limit_px = con.execute(
@@ -609,16 +619,31 @@ def settle_session(
                     ).fetchone()
                     row['qty'], row['limit_px'] = float(qty), limit_px
                 portfolio.credit_dividends(con, day, portfolio_id=account_id)
-                shorts.accrue_borrow(con, day, portfolio_id=account_id)
-                margin.accrue_interest(con, day, portfolio_id=account_id)
+                shorts.accrue_borrow(con, day, portfolio_id=account_id, replay=replay)
+                margin.accrue_interest(con, day, portfolio_id=account_id, replay=replay)
+                stored = ledger.replay_session_fills(con, account_id, day) if replay else []
                 for row, result in by_account[account_id]:
+                    while stored and (stored[0]['fill_ts'], stored[0]['order_id']) < (
+                        execution_keys[row['order_id']][0], row['order_id'],
+                    ):
+                        ledger.apply_stored_fill(con, stored.pop(0))
                     result = _fill_attempt(con, row, settings, day, now)
                     state = _settle_order(
                         con, row, result, settings, day, now, late, short_con,
                         liquidity_refusals, execution_keys,
                     )
                     local[state] += 1
-                should_mark = not late or local["filled"] > 0 or has_unmarked_fill
+                for old_fill in stored:
+                    ledger.apply_stored_fill(con, old_fill)
+                if replay:
+                    other_cash = con.execute(
+                        'SELECT COALESCE(SUM(amount),0) FROM sim_cash_events '
+                        "WHERE portfolio_id=? AND event_date=? AND kind NOT IN ('borrow_fee','margin_interest')",
+                        [account_id, day],
+                    ).fetchone()[0]
+                    con.execute('UPDATE portfolios SET cash=cash+? WHERE id=?',
+                                [other_cash, account_id])
+                should_mark = True
                 if should_mark:
                     mark = _mark_account(
                         con, account_id, day, settings["price_source"], now,

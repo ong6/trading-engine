@@ -226,6 +226,7 @@ def accrue_borrow(
     *,
     days: int | None = None,
     portfolio_id: str | None = None,
+    replay: bool = False,
 ) -> dict:
     """Debit borrow cost once per held account short and session."""
     default_span = _calendar_days_since_previous_session(day)
@@ -238,11 +239,17 @@ def accrue_borrow(
         and (portfolio_id is None or settings["portfolio_id"] == portfolio_id)
     ]
     for settings in settings_rows:
-        for ticker, qty in con.execute(
-            "SELECT ticker,qty FROM sim_positions WHERE portfolio_id=? AND qty<0 "
-            "ORDER BY ticker",
-            [settings["portfolio_id"]],
-        ).fetchall():
+        held = dict(con.execute(
+            'SELECT ticker,qty FROM sim_positions WHERE portfolio_id=? AND qty<0',
+            [settings['portfolio_id']],
+        ).fetchall())
+        if replay:
+            for (ticker,) in con.execute(
+                "SELECT DISTINCT instrument_id FROM sim_cash_events WHERE portfolio_id=? "
+                "AND event_date=? AND kind='borrow_fee'", [settings['portfolio_id'], day],
+            ).fetchall():
+                held.setdefault(ticker, 0.0)
+        for ticker, qty in sorted(held.items()):
             rows.append((settings, ticker, qty))
     for settings, ticker, qty in rows:
         portfolio_id = settings["portfolio_id"]
@@ -251,13 +258,13 @@ def accrue_borrow(
             "AND kind='borrow_fee' AND instrument_id=?",
             [portfolio_id, day, ticker],
         ).fetchone()
-        if exists:
+        if exists and not replay:
             continue
-        close = _prior_close(
-            con, ticker, nyse.next_session(day), settings["price_source"],
-        )
-        if close is None:
-            continue
+        from . import valuation
+
+        close = valuation.mark(
+            con, portfolio_id, ticker, day, price_source=settings['price_source'],
+        ).price if qty else 0.0
         if days is not None:
             portions = [(abs(float(qty)), days)]
         else:
@@ -288,17 +295,15 @@ def accrue_borrow(
             for portion_qty, span in portions
             if span > 0
         )
-        if fee <= 0:
-            continue
         charged_days = max((span for _qty, span in portions), default=0)
-        ledger.apply_cash_event(con, {
+        ledger.post_accrual(con, {
             "portfolio_id": portfolio_id,
             "event_date": day,
             "kind": "borrow_fee",
             "amount": -fee,
             "instrument_id": ticker,
             "note": f"up to {charged_days} calendar day(s)",
-        })
+        }, replay=replay)
         charged += fee
         count += 1
     return {"events": count, "charged": charged}
