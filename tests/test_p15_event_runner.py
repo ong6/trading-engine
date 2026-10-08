@@ -470,6 +470,43 @@ def test_event_labels_use_next_common_bar_and_next_session_open(con):
     assert rows[1][3] == 106.0 and rows[1][4] == SESSIONS[31]
 
 
+def test_nightly_maturation_appends_event_label_idempotently(tmp_path, monkeypatch):
+    database = tmp_path / "market.duckdb"
+    con = db.connect(database)
+    observed, _fact_sha = _setup(con)
+    p15_event_runner.score_pending(
+        con, session_date=observed.date(), observed_at=observed,
+        source_summary={}, generate=_result,
+        clock=lambda: observed + timedelta(minutes=1),
+    )
+    labeled_at = datetime(2024, 7, 18, 21, tzinfo=timezone.utc)
+    insert_bars(
+        con, "AAA", SESSIONS[30:32], open_=[100, 106], close=[105, 107],
+        high=[106, 108], low=[99, 105],
+    )
+    insert_bars(
+        con, "SPY", SESSIONS[30:32], open_=[100, 101], close=[101, 102],
+        high=[102, 103], low=[99, 100],
+    )
+    con.execute("UPDATE prices SET fetched_at=?", [labeled_at.replace(tzinfo=None)])
+    con.close()
+    monkeypatch.setattr(p15_event_runner, "LOCK_PATH", tmp_path / "p15.lock")
+    monkeypatch.setattr(p15_event_runner, "NIGHTLY_LOCK", tmp_path / "nightly.lock")
+
+    assert p15_event_runner.mature_labels_database(
+        database, labeled_at=labeled_at,
+    ) == {"status": "complete", "labels": 1}
+    assert p15_event_runner.mature_labels_database(
+        database, labeled_at=labeled_at,
+    ) == {"status": "complete", "labels": 0}
+    con = db.connect(database, read_only=True)
+    assert con.execute(
+        "SELECT label_basis,horizon_sessions,entry_at,exit_date "
+        "FROM p15_event_labels"
+    ).fetchall() == [("next_session_open", 1, datetime(2024, 7, 18, 13, 30), SESSIONS[31])]
+    con.close()
+
+
 def _next_bar_label_for_validation(con, *, availability_delay_minutes: int = 1):
     observed, _fact_sha = _setup(con)
     p15_event_runner.score_pending(

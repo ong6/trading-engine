@@ -273,10 +273,9 @@ def test_p15_registration_revision_and_self_hash():
     assert registration["schema_version"] == 1
     assert registration["registration_revision"] == 13
     assert registration["revision_reason"] == (
-        "owner decision 2026-10-06: ibkr_pro_tiered_v1 commissions from the migration --d0 "
-        "parameter; book evaluation clocks restart at D0; additive account schema, monotonic "
-        "order sequence, shared ledger and account engine; pre-D0 league.csv and league.md "
-        "byte-identical; scoring, labels, gates and schedules unchanged"
+        "cash-rule SPY reinvestment resize validation against both fill ledgers and nightly maturation "
+        "of existing event-shadow labels before evidence reporting; scoring, book mechanics, gates, "
+        "label values, schedules, registered values and written evidence unchanged"
     )
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()

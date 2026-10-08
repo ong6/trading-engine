@@ -33,6 +33,10 @@ from farm.replay.store import open_store
 from server import agent_model_client
 from sim import nyse, p15_books
 
+# Fixed entry time: writestr(name, ...) stamps the current time, so two fixtures
+# built across a 2-second tick hash differently.
+FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
+
 UTC = timezone.utc
 CHECKPOINT = date(2024, 11, 15)
 SESSIONS = tuple(
@@ -57,7 +61,7 @@ def _gdelt_zip() -> bytes:
     fields[59], fields[60] = "20241118140000", "https://example.test/halt"
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("20241118140000.export.CSV", "\t".join(fields) + "\n")
+        archive.writestr(zipfile.ZipInfo("20241118140000.export.CSV", FIXED_ZIP_TIME), "\t".join(fields) + "\n")
     return output.getvalue()
 
 
