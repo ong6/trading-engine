@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from engine.lib import db
+from engine.lib.settings import REPO_ROOT
 from sim import book_breaks
 from sim.schema import (
     init_sim_schema,
@@ -16,39 +17,12 @@ from sim.schema import (
 )
 
 TARGET_COST_PROFILE = book_breaks.COMMISSION_COST_PROFILE
-REGISTRATION_REVISION = 13
+def registration_revision() -> int:
+    return int(json.loads((REPO_ROOT / 'server/p15-registration.json').read_text())['registration_revision'])
 
 
 class MigrationRefused(RuntimeError):
     """The store is not at the safe pre-D0 migration boundary."""
-
-
-def _engine_for(con, portfolio_id: str, current: dict) -> str:
-    if portfolio_id.startswith("p15_"):
-        return "p15"
-    if portfolio_id.startswith("p16_"):
-        return "p16"
-    if current["engine"] == "account":
-        return "account"
-    if con.execute(
-        "SELECT 1 FROM information_schema.tables WHERE table_name='paper_account_specs'"
-    ).fetchone():
-        row = con.execute(
-            'SELECT payload FROM paper_account_specs WHERE account_id=?', [portfolio_id],
-        ).fetchone()
-        if row and json.loads(row[0]).get('schema_version') == 2:
-            return 'account'
-    return "league"
-
-
-def routing_changes(con) -> list[dict]:
-    changes = []
-    for (portfolio_id,) in con.execute('SELECT id FROM portfolios ORDER BY id').fetchall():
-        current = portfolio_account(con, portfolio_id)
-        target = _engine_for(con, portfolio_id, current)
-        if target != current['engine']:
-            changes.append({'portfolio_id': portfolio_id, 'from': current['engine'], 'to': target})
-    return changes
 
 
 def _bootstrap_sequence_above_orders(con) -> int:
@@ -59,9 +33,7 @@ def migrate(
     con,
     d0: date,
     *,
-    registration_revision: int = REGISTRATION_REVISION,
     migrated_at: datetime | None = None,
-    allow_routing_change: bool = False,
 ) -> dict:
     """Apply the cost break exactly once in one transaction."""
     if not isinstance(d0, date):
@@ -83,32 +55,13 @@ def migrate(
         if post_boundary:
             raise MigrationRefused("sim_equity already contains D0-or-later rows")
 
-        changes = routing_changes(con)
-        if changes and not allow_routing_change:
-            raise MigrationRefused('routing changes require --allow-routing-change: '
-                                   + json.dumps(changes, sort_keys=True))
-
         portfolios = [row[0] for row in con.execute(
             "SELECT id FROM portfolios ORDER BY id"
         ).fetchall()]
         for portfolio_id in portfolios:
             current = portfolio_account(con, portfolio_id)
-            engine = _engine_for(con, portfolio_id, current)
-            set_portfolio_account(
-                con,
-                portfolio_id,
-                engine=engine,
-                cost_profile=TARGET_COST_PROFILE,
-                account_type=(
-                    current["account_type"] if engine == "account" else "cash_legacy"
-                ),
-                visibility=current["visibility"],
-                status=current["status"] if engine == "account" else None,
-                price_source=current["price_source"],
-                day_trade_rule=current["day_trade_rule"],
-                allow_short=current["allow_short"] if engine == "account" else False,
-                updated_at=timestamp,
-            )
+            set_portfolio_account(con, portfolio_id, cost_profile=TARGET_COST_PROFILE,
+                                  updated_at=timestamp)
             con.execute(
                 "INSERT INTO sim_book_breaks VALUES (?,?,?,?,?,?,?,?)",
                 [
@@ -117,7 +70,7 @@ def migrate(
                     "cost_profile",
                     current["cost_profile"],
                     TARGET_COST_PROFILE,
-                    registration_revision,
+                    registration_revision(),
                     "commissions begin and the book evaluation clock restarts",
                     timestamp,
                 ],
@@ -133,7 +86,7 @@ def migrate(
         "break_count": len(portfolios),
         "reserved_order_id": reserved_order_id,
         "first_fetched_at_backfill": backfilled,
-        "routing_changes": changes,
+        "routing_changes": [],
     }
 
 
@@ -144,7 +97,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--db", default=str(db.DEFAULT_DB), help="DuckDB store path")
     parser.add_argument("--d0", required=True, help="first commission session (YYYY-MM-DD)")
     parser.add_argument("--apply", action="store_true", help="perform the migration")
-    parser.add_argument('--allow-routing-change', action='store_true')
     args = parser.parse_args(argv)
     if not args.apply:
         parser.error("refusing without --apply")
@@ -156,9 +108,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         db.init_schema(con)
         init_sim_schema(con)
-        print(json.dumps({'routing_changes': routing_changes(con)}, sort_keys=True))
+        print(json.dumps({'routing_changes': []}, sort_keys=True))
         try:
-            result = migrate(con, d0, allow_routing_change=args.allow_routing_change)
+            result = migrate(con, d0)
         except MigrationRefused as exc:
             print(json.dumps({'error': str(exc)}, sort_keys=True))
             return 2
