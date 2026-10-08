@@ -162,10 +162,11 @@ resume, the −5% daily-loss rule from equity at resume; results retain all-time
 Retirement enters `retiring`, keeps marks and financing active, queues next-session MOC sell or
 cover orders, and changes to `retired`/inactive only after every position is flat.
 
-Margin interest covers every elapsed calendar day since the preceding accrual and splits the
-charge at effective-dated rate changes. Verification is part of settlement completion: a ledger
-rebuild mismatch is persisted in `account_reconciliations` and halts the account in the same
-transaction. A retry also repairs an older committed fill whose session equity mark is missing.
+Financing is an opening event before execution checks, using only marks observable at that
+opening timestamp. Margin interest records a checkpoint on every processed session, including
+zero-debt sessions, and splits charges at effective-dated rate changes. Verification is part of settlement completion. Normal verification records a mismatch and
+halts the account; failed late reconstruction rolls back the entire recovery and reports an
+account error with a nonzero CLI exit. A retry also repairs an older committed fill whose session equity mark is missing.
 
 Accounts have no shared gross exposure cap. Holding the same instrument in three accounts, or aggregate notional above 2% of its
 MDV60, records a non-blocking concentration alert in each affected private result. The watch route
@@ -191,8 +192,11 @@ and the account watch.
 
 Results include the equity curve, total and benchmark return, excess, drawdown and worst daily
 loss, fill count/notional, itemized fees and financing costs, closed-trade statistics, trailing
-day trades, halt/alert/PDT/margin-call counts, late fills, and latest reconciliation state. The
-canonical payload carries its own stable SHA-256. Private results stay in DuckDB and may be copied
+day trades, halt/alert/PDT/margin-call counts, late fills, and latest reconciliation state. Closed-trade statistics consume the same FIFO lot matches as the ledger, in execution-time
+order. Splits change lot units and basis, stock conversions carry lots into the acquirer, and
+cash delistings close lots. Entry and exit fees are allocated to matched quantities; financing
+and other cash events are reported separately. Results run that ledger on an in-memory copy.
+The canonical payload carries its own stable SHA-256. Private results stay in DuckDB and may be copied
 only into the private alpha repository; no command writes them below `data/`.
 
 ## 2026-10-08 — P22 lifecycle round 2 (binding orchestrator rulings)
@@ -224,3 +228,11 @@ orchestrator owns the P15 re-pin; this lane leaves its revision unchanged.
    routing, reports proposed route changes and requires --allow-routing-change
    before changing any route.
 
+
+## Round-3 deployment rule
+
+The commission migration preserves every existing portfolio setting except its cost profile.
+It reports zero routing changes and reads revision 14 from the deployed P15 registration.
+Only new version-2 accounts select the account engine. Recorded split adjustments also preserve
+identical intake retries: the engine validates immutable receipt evidence and the exact order
+adjustments before returning the original receipt.
