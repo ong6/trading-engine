@@ -35,6 +35,11 @@ from farm.replay.sources import (
     wayback_memento_url,
 )
 
+
+# Fixed entry time: writestr(name, ...) stamps the current time, so two fixtures
+# built across a 2-second tick hash differently.
+FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
+
 NOW = datetime(2026, 9, 27, tzinfo=timezone.utc)
 
 
@@ -169,7 +174,7 @@ def test_registered_archive_url_builders_are_exact():
 def _zip_tsv(fields):
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("fixture.csv", "\t".join(fields) + "\n")
+        archive.writestr(zipfile.ZipInfo("fixture.csv", FIXED_ZIP_TIME), "\t".join(fields) + "\n")
     return output.getvalue()
 
 
@@ -454,7 +459,7 @@ def test_gkg_quote_and_huge_fields_parse_and_bad_rows_quarantine_one_at_a_time()
     lines = ["\t".join(quoted), "short\trow", "\t".join(huge), _gkg_line("last")]
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("fixture.gkg.csv", "\n".join(lines) + "\n")
+        archive.writestr(zipfile.ZipInfo("fixture.gkg.csv", FIXED_ZIP_TIME), "\n".join(lines) + "\n")
     quarantined = []
     rows = parse_gdelt_zip("gdelt_gkg", output.getvalue(), quarantined=quarantined)
     assert [row["source_id"] for row in rows] == ["quoted", "huge", "last"]
@@ -465,7 +470,7 @@ def test_gkg_quote_and_huge_fields_parse_and_bad_rows_quarantine_one_at_a_time()
 def test_collector_quarantines_a_shard_whose_parser_explodes_and_continues(tmp_path):
     good = io.BytesIO()
     with zipfile.ZipFile(good, "w") as archive:
-        archive.writestr("ok.gkg.csv", _gkg_line("ok") + "\nbad\n")
+        archive.writestr(zipfile.ZipInfo("ok.gkg.csv", FIXED_ZIP_TIME), _gkg_line("ok") + "\nbad\n")
     payloads = {"https://data.gdeltproject.org/bad.zip": b"not a zip",
                 "https://data.gdeltproject.org/good.zip": good.getvalue()}
     tasks = [FetchTask("gdelt_gkg", name, f"https://data.gdeltproject.org/{name}.zip", "done")
