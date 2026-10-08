@@ -2990,3 +2990,11 @@ the 42-entry 2026-09-19 C90 complexity series is in
   re-halt after resume, undetected lot/equity corruption, PDT and specification refusals.
 - **Metrics:** unchanged production code.
 - **Next:** consolidate the failing consumers into the chronological ledger.
+
+## 2026-10-08 — Accept documented account sizing and executable runbook examples
+
+- **Why:** P22 round-4 regressions rejected optional whole_shares and bash block 2.
+- **What:** Admitted the documented boolean and quoted shell placeholders.
+- **Evidence:** `pytest tests/test_p22_round4.py -k 'creation or bash' -q -W error` passes.
+- **Metrics:** unchanged production LOC outside tests.
+- **Next:** finish shared accounting consumers and revision 14 binding.
