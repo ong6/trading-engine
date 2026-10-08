@@ -8,6 +8,7 @@ from datetime import date, datetime, timezone
 
 import duckdb
 
+from engine.lib import db
 from engine.lib.log import get_logger
 from engine.lib.util import table_exists
 
@@ -583,7 +584,7 @@ def closed_trades(con, account_id: str) -> list[dict]:
             net = gross - opening_fee - fee * lot.qty / qty
             outcomes.append({'entry_session': lot.opened_session, 'net_bp': net / basis * 10_000})
 
-    with duckdb.connect(':memory:') as target:
+    with db.connect(':memory:') as target:
         for table in tables:
             if not table_exists(con, table):
                 continue
