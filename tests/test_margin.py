@@ -155,6 +155,7 @@ def test_intraday_margin_rule_never_count_refuses_but_enforces_reg_t(con, book):
     _same_day_lot(con, book)
     _three_prior_day_trades(con, book)
     close = margin.pdt_check(con, book, "XYZ", "sell", 1, DAY, price=100)
+    insert_bars(con, "XYZ", [DAY], open_=100, close=100)
     opening = margin.pdt_check(con, book, "BIG", "buy", 300, DAY, price=100)
     assert close.allowed
     assert close.trailing_day_trades == 3

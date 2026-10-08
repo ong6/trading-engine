@@ -248,7 +248,7 @@ def test_execution_time_precedes_receipt_order_for_contingent_pair(con):
     ).fetchall() == [(moo,), (moc,)]
 
 
-def test_global_liquidity_is_allocated_by_execution_window_then_receipt(con):
+def test_global_liquidity_is_allocated_by_global_receipt(con):
     _account(con, "close-order")
     _account(con, "open-order")
     _daily(con, "XYZ", mdv=100_000)
@@ -264,10 +264,10 @@ def test_global_liquidity_is_allocated_by_execution_window_then_receipt(con):
     _settle(con)
 
     assert con.execute(
-        "SELECT status,reject_reason FROM sim_orders WHERE id=?", [moo]
+        "SELECT status,reject_reason FROM sim_orders WHERE id=?", [moc]
     ).fetchone() == ("filled", None)
     assert con.execute(
-        "SELECT status,reject_reason FROM sim_orders WHERE id=?", [moc]
+        "SELECT status,reject_reason FROM sim_orders WHERE id=?", [moo]
     ).fetchone() == ("rejected", "illiquid_aggregate")
 
 
@@ -727,7 +727,7 @@ def test_completion_path_halts_on_five_percent_day_loss(con):
     ).fetchone() == ("halt_daily_loss",)
 
 
-def test_execution_rechecks_total_exposure_without_counting_own_reservation_twice(con):
+def test_execution_rechecks_account_exposure_without_counting_own_reservation_twice(con):
     _account(con, "acct-a", capital=10_000)
     _daily(con, "XYZ")
     order_id = _order(
@@ -739,7 +739,7 @@ def test_execution_rechecks_total_exposure_without_counting_own_reservation_twic
     assert con.execute("SELECT status FROM sim_orders WHERE id=?", [order_id]).fetchone() == ("filled",)
 
 
-def test_execution_rejects_aggregate_account_exposure_breach(con):
+def test_execution_isolated_from_other_account_exposure(con):
     _account(con, "acct-a", capital=10_000)
     _account(con, "acct-b", capital=10_000)
     _daily(con, "OLD")
@@ -755,7 +755,7 @@ def test_execution_rejects_aggregate_account_exposure_breach(con):
     _settle(con)
     assert con.execute(
         "SELECT status,reject_reason FROM sim_orders WHERE id=?", [order_id]
-    ).fetchone() == ("rejected", "total_exposure_cap")
+    ).fetchone() == ("filled", None)
 
 
 def test_late_moo_unblocks_and_fills_its_contingent_moc(con):

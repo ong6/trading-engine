@@ -477,12 +477,13 @@ def rebuild_state(
         events.append((row[6], 2, replay_order, "fill", row))
     if table_exists(con, "sim_cash_events"):
         for row in con.execute(
-            "SELECT portfolio_id,event_date,seq,amount FROM sim_cash_events "
+            "SELECT portfolio_id,event_date,seq,amount,kind FROM sim_cash_events "
             f"WHERE portfolio_id IN ({placeholders}) "
             "ORDER BY event_date,portfolio_id,seq",
             target_ids,
         ).fetchall():
-            events.append((row[1], 3, row[2], "cash", row))
+            phase = 1.5 if row[4] in {"borrow_fee", "margin_interest"} else 3
+            events.append((row[1], phase, row[2], "cash", row))
     events.sort(key=lambda item: (item[0], item[1], item[2]))
     splits = _split_factors(con)
 

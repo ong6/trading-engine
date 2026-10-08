@@ -234,7 +234,7 @@ def accrue_borrow(
     rows = []
     settings_rows = [
         settings for settings in account_portfolios(con, active_only=False)
-        if settings["status"] in {"active", "halted"}
+        if settings["status"] in {"active", "halted", "retiring"}
         and (portfolio_id is None or settings["portfolio_id"] == portfolio_id)
     ]
     for settings in settings_rows:

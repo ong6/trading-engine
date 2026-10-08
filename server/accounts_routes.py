@@ -112,14 +112,16 @@ def create_account(body: dict, authorization: Annotated[str | None, Header()] = 
 def get_account(account_id: str, authorization: Annotated[str | None, Header()] = None):
     with _connection(server_db.read_con) as con:
         _invoke(_require_account_access, con, account_id, authorization)
-        return _invoke(account_read_models.account, con, account_id)
+        with account_sources.production_sources(con):
+            return _invoke(account_read_models.account, con, account_id)
 
 
 @router.get("/{account_id}/positions")
 def get_positions(account_id: str, authorization: Annotated[str | None, Header()] = None):
     with _connection(server_db.read_con) as con:
         _invoke(_require_account_access, con, account_id, authorization)
-        return _invoke(account_read_models.positions, con, account_id)
+        with account_sources.production_sources(con):
+            return _invoke(account_read_models.positions, con, account_id)
 
 
 @router.get("/{account_id}/orders")

@@ -1,12 +1,12 @@
 """Read-only projections for engine-owned paper accounts."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from engine.accounts import results
 from engine.lib.util import table_exists
-from engine.money.limits import margin_excess
 from engine.paper_accounts import AccountRefused
+from sim import valuation
 from sim.schema import portfolio_account
 
 
@@ -35,16 +35,8 @@ def accounts(con, *, include_private: bool = False) -> list[dict]:
 
 def positions(con, account_id: str) -> list[dict]:
     visibility(con, account_id)
-    rows = con.execute(
-        "SELECT sp.ticker,sp.qty,sp.avg_cost,(SELECT close FROM prices pr "
-        "WHERE pr.ticker=sp.ticker ORDER BY date DESC LIMIT 1) AS mark "
-        "FROM sim_positions sp WHERE sp.portfolio_id=? AND sp.qty<>0 ORDER BY sp.ticker",
-        [account_id],
-    ).fetchall()
-    return [{"instrument_id": ticker, "quantity": float(quantity), "avg_cost": float(cost),
-             "mark": None if mark is None else float(mark),
-             "market_value": None if mark is None else float(quantity) * float(mark)}
-            for ticker, quantity, cost, mark in rows]
+    now = datetime.now(timezone.utc)
+    return valuation.positions(con, account_id, now.date(), as_of=now, available_at=now)
 
 
 def account(con, account_id: str) -> dict:
@@ -59,9 +51,9 @@ def account(con, account_id: str) -> dict:
     if row is None:
         raise AccountRefused("unknown account")
     held = positions(con, account_id)
-    long_value = sum(max(item["market_value"] or 0.0, 0.0) for item in held)
-    short_value = sum(min(item["market_value"] or 0.0, 0.0) for item in held)
-    equity = float(row[3]) if row[3] is not None else float(row[0]) + long_value + short_value
+    long_value = sum(max(item["market_value"], 0.0) for item in held)
+    short_value = sum(min(item["market_value"], 0.0) for item in held)
+    equity = float(row[0]) + long_value + short_value
     state = con.execute(
         "SELECT halted_at,halt_reason,resumed_at,resumed_by,pdt_flagged_at,pdt_restricted_until "
         "FROM account_state WHERE portfolio_id=?", [account_id]
@@ -74,7 +66,8 @@ def account(con, account_id: str) -> dict:
         "equity_date": row[2].isoformat() if row[2] else None,
         "positions_market_value": long_value + short_value,
         "gross_market_value": long_value + abs(short_value),
-        "margin_excess": margin_excess(equity, long_value, short_value),
+        "margin_excess": equity - 0.25 * long_value - max(0.30 * abs(short_value),
+            sum(abs(item["quantity"]) * 5 for item in held if item["quantity"] < 0)),
         "pdt": {"flagged_at": state[4].isoformat() if state and state[4] else None,
                 "restricted_until": state[5].isoformat() if state and state[5] else None},
         "halt": {"halted_at": state[0].isoformat() if state and state[0] else None,

@@ -494,9 +494,6 @@ def _capacity(con, spec: dict, intent: dict, session_date: date, quantity: float
             or gross > equity * spec["max_gross_fraction"]
             or position_value > equity * spec["max_position_fraction"]):
         raise AccountRefused("intent exceeds this account's cash/position/gross/minimum constraints")
-    if spec["schema_version"] == 2:
-        from engine.money.allocation import require_total_capacity
-        require_total_capacity(con, account, requested, reference_date)
 
 
 def _validate_replayed_order(con, order_id, intent):

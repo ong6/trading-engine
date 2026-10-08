@@ -661,3 +661,33 @@ commit and lands with closure as commit 21. The existing source-commit assertion
 no hash bypass or self-referential identity is introduced. Both commits are published together.
 Scope, trading authority, the 4,500 test/documentation-line budget and the 1,500-insertion
 per-commit limit are unchanged.
+
+## 2026-10-08 — P22 lifecycle round 2 (binding orchestrator rulings)
+
+Deploy no earlier than Sunday 2026-10-18, with parameterized D0 2026-10-19,
+after lifecycle regressions and the store-copy rehearsal pass. The integration
+orchestrator owns the P15 re-pin; this lane leaves its revision unchanged.
+
+1. Accounts are independently funded. Remove the shared gross exposure cap and
+   its refusal. Keep each account's default 1.0× gross limit (maximum 1.5×),
+   rechecked using marks observable at the fill timestamp. Concentration remains
+   an alert only; aggregate 1%-of-MDV60 liquidity follows global receipt order.
+2. Use one source-aware valuation in settlement, late settlement, margin and API
+   reads. Carry the last observed price, falling back to a fill, and flag it stale.
+   Refuse with a reason only when no price was ever observed; never erase a liability.
+3. Reconcile money within $0.005 per account and align financing/fill event order.
+   Exact floating-point hashes do not decide reconciliation.
+4. Halt/cancel do not attach market stores. Source reads retry writer contention
+   with backoff and defer only dependent accounts with a logged reason.
+5. Captured corporate actions change signed positions, lots, orders and replay,
+   independently of operational prices coverage. Account dividends transact with
+   account settlement; legacy reruns and dividend processing exclude accounts.
+6. Late settlement processes every unresolved session oldest-first, refreshes
+   carried marks without requiring a fill, and recomputes dependent later state,
+   verification, halts and maintenance.
+7. A contingent close cannot exceed its requested quantity, parent fill or holdings.
+   Borrow and margin interest continue during retirement until flat.
+8. The late CLI exits nonzero on any account error. Migration preserves v1 league
+   routing, reports proposed route changes and requires --allow-routing-change
+   before changing any route.
+

@@ -11,7 +11,7 @@ from fastapi import HTTPException
 
 from engine.accounts import api, service
 from engine.accounts import cli as accounts_cli
-from engine.money.allocation import AllocationRefused
+from engine.paper_accounts import AccountRefused
 from server import accounts_routes, main
 from sim import schema as sim_schema
 from tests.conftest import insert_bars
@@ -134,21 +134,21 @@ def test_order_route_stamps_received_at_before_opening_writer(con, monkeypatch):
     assert result["received_at"] == NOW.isoformat()
 
 
-def test_total_cap_refusal_maps_through_api_and_cli(con, monkeypatch, capsys):
-    error = AllocationRefused("total_exposure_cap")
+def test_gross_cap_refusal_maps_through_api_and_cli(con, monkeypatch, capsys):
+    error = AccountRefused("gross_cap")
     with pytest.raises(HTTPException) as exc_info:
         accounts_routes._invoke(lambda: (_ for _ in ()).throw(error))
     assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == "total_exposure_cap"
+    assert exc_info.value.detail == "gross_cap"
 
     monkeypatch.setattr(accounts_cli.db, "connect", lambda **_kwargs: _borrowed(con))
     monkeypatch.setattr(
         accounts_cli, "_execute", lambda *_args, **_kwargs: (_ for _ in ()).throw(error),
     )
     assert accounts_cli.main(["submit", "unused.json"]) == 2
-    assert json.loads(capsys.readouterr().out)["refusal_reason"] == "total_exposure_cap"
+    assert json.loads(capsys.readouterr().out)["refusal_reason"] == "gross_cap"
     assert accounts_cli.main(["list"]) == 2
-    assert json.loads(capsys.readouterr().out) == {"error": "total_exposure_cap"}
+    assert json.loads(capsys.readouterr().out) == {"error": "gross_cap"}
 
 
 def test_transaction_conflict_maps_to_retryable_503():

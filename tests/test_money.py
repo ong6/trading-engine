@@ -5,7 +5,6 @@ import pytest
 
 from engine.accounts import service
 from engine.money import alerts, halts
-from engine.money.allocation import AllocationRefused, require_total_capacity
 from sim import schema as sim_schema
 from tests.conftest import insert_bars
 
@@ -148,16 +147,6 @@ def test_same_session_resume_rearms_daily_loss_from_resume_equity(con):
     assert halts.check(con, "acct-a", date(2026, 10, 5), now=NOW) == "halt_daily_loss"
 
 
-def test_total_account_exposure_cap_refuses_increment(con):
-    insert_bars(con, "XYZ", [SESSION], open_=100, close=100)
-    _account(con, "acct-a", gross=1.5)
-    _account(con, "acct-b", gross=1.5)
-    con.execute("INSERT INTO sim_positions VALUES ('acct-a','XYZ',150,100)")
-    with pytest.raises(AllocationRefused, match="total_exposure_cap"):
-        require_total_capacity(con, "acct-b", 5_001, SESSION)
-    require_total_capacity(con, "acct-b", 5_000, SESSION)
-
-
 def test_three_accounts_create_one_concentration_alert_each(con):
     dates = [date(2026, 7, 10), SESSION]
     insert_bars(con, "XYZ", dates, open_=100, close=100, volume=1_000_000)
@@ -172,14 +161,13 @@ def test_three_accounts_create_one_concentration_alert_each(con):
     ).fetchall() == [("acct-a", "alert"), ("acct-b", "alert"), ("acct-c", "alert")]
 
 
-def test_allocation_and_alerts_honor_massive_source_without_prices(con):
+def test_alerts_honor_massive_source_without_prices(con):
     con.execute("CREATE TABLE free_daily_bars (ticker VARCHAR,date DATE,c DOUBLE,"
                 "volume DOUBLE,vwap DOUBLE)")
     con.execute("INSERT INTO free_daily_bars VALUES ('ONLY',?,100,1000000,100)", [SESSION])
     for account_id in ("acct-a", "acct-b", "acct-c"):
         _account(con, account_id, price_source="massive_daily")
         con.execute("INSERT INTO sim_positions VALUES (?, 'ONLY', 1, 100)", [account_id])
-    require_total_capacity(con, "acct-a", 100, SESSION)
     assert len(alerts.concentration(con, SESSION, now=NOW)) == 3
 
 
