@@ -2958,4 +2958,25 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** production LOC unchanged.
 - **Next:** finalize revision 14 identities, then complete the deployment rehearsal.
 
+## 2026-10-08 — Re-pin undeployed P15 revision 14 after round 3
+
+- **Why:** the orchestrator requires revision 14 to bind the round-3 corrections before deployment.
+- **What:** refreshed registered file identities, source commit and canonical registration hash,
+  retaining revision 14 and the frozen strategy, scoring and statistical rules. Updated the account contract.
+- **Evidence:** full suites under `TZ=UTC` and `TZ=Asia/Singapore` both exited 0 with
+  `.venv/bin/python -m pytest -q -W error -n auto`; Ruff, audits, build and UI checks passed.
+- **Metrics:** server 0, tools −48, product −55 LOC; hygiene budget passes.
+- **Next:** finish and record the disposable deployment/rollback rehearsal, then check PR CI.
+
+## 2026-10-08 — Rehearse P22 deployment and complete rollback
+
+- **Why:** round 3 requires executable commands and a complete disposable-store rehearsal.
+- **What:** corrected backup syntax, canonical paths, readiness checks, unchanged-route migration,
+  unit installation and explicit writer quiescence in both deployment documents. Recorded the transcript.
+  Migration kept 33 routes and wrote revision 14; two captured sessions filled four orders with $1.44 fees.
+- **Evidence:** the complete rehearsal exited 0; both sessions verified, every isolated writer stopped,
+  and the restored database matched the backup before and after the pre-deploy API health check.
+- **Metrics:** server 0, tools −48, product −55 LOC from the starting snapshot; budget passes.
+- **Next:** check the final PR commit's CI and report completion.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
