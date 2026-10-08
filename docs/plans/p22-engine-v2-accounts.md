@@ -69,12 +69,12 @@ directly; no compatibility shim remains.
 - Merge the refreshed shared base containing the accepted L1 and L2 account execution/money
   layers while retaining the final R13 schema API.
 - Explicitly revise the E1, sector, XS and walk-forward runtime contracts, then issue P15
-  registration revision 13 with unchanged scoring, labels, gates and schedules.
+  registration revision 14 on top of revision 13 with unchanged scoring, labels, gates and schedules.
 - On a snapshot copy, apply the migration and rerun the final pre-D0 session; require
   `league.csv` to remain byte-identical. Re-enable `tests/test_p15_registration.py` and require
   the full suite to pass before deployment.
 
-Phase B source integration and explicit runtime/P15 revision 13 binding are complete; the
+Phase B source integration and explicit runtime/P15 revision 14 binding are complete; the
 both-timezone suites and full account/migration rehearsal remain the final acceptance gates.
 
 ## Not in scope
@@ -96,7 +96,7 @@ orchestrator signal for Phase B.
 Phase A is done when its focused routing, rerun, fee, break, migration, clock and driver tests
 pass; Ruff is clean; and the full suite adds no failure outside the recorded frozen-identity
 baseline while P15 registration remains deselected. The complete plan is done only when both
-supported-timezone suites and revision 13 pass, a store-copy rehearsal keeps pre-D0 reports
+supported-timezone suites and revision 14 pass, a store-copy rehearsal keeps pre-D0 reports
 byte-identical, account replay reproduces positions and cash, migration is one-shot, private
 accounts stay out of public reports, and deployment checks show deterministic orders, fills,
 fees, cash events, equity, halts, and reconciliation.
