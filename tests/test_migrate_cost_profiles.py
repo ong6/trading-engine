@@ -21,7 +21,7 @@ def _portfolio(con, portfolio_id: str):
     )
 
 
-def test_migration_routes_books_records_breaks_bootstraps_ids_and_runs_l4_backfill(
+def test_migration_preserves_books_records_breaks_bootstraps_ids_and_runs_l4_backfill(
     con, monkeypatch,
 ):
     for portfolio_id in (
@@ -36,6 +36,7 @@ def test_migration_routes_books_records_breaks_bootstraps_ids_and_runs_l4_backfi
     set_portfolio_account(
         con,
         "acct-a",
+        engine="account",
         account_type="margin",
         visibility="private",
         price_source="massive_daily",
@@ -55,8 +56,7 @@ def test_migration_routes_books_records_breaks_bootstraps_ids_and_runs_l4_backfi
     )
 
     result = migrate_cost_profiles.migrate(
-        con, D0, migrated_at=datetime(2026, 10, 11, 19, tzinfo=timezone.utc),
-        allow_routing_change=True
+        con, D0, migrated_at=datetime(2026, 10, 11, 19, tzinfo=timezone.utc)
     )
 
     assert result == {
@@ -66,11 +66,7 @@ def test_migration_routes_books_records_breaks_bootstraps_ids_and_runs_l4_backfi
         "break_count": 4,
         "reserved_order_id": 51,
         "first_fetched_at_backfill": 123,
-        "routing_changes": [
-            {"portfolio_id": "acct-a", "from": "league", "to": "account"},
-            {"portfolio_id": "p15_ai_ranked", "from": "league", "to": "p15"},
-            {"portfolio_id": "p16_construct_ai@sha256:abc", "from": "league", "to": "p16"},
-        ],
+        "routing_changes": [],
     }
     assert calls == [con]
     accounts = {
@@ -80,8 +76,8 @@ def test_migration_routes_books_records_breaks_bootstraps_ids_and_runs_l4_backfi
         )
     }
     assert accounts["league-book"]["engine"] == "league"
-    assert accounts["p15_ai_ranked"]["engine"] == "p15"
-    assert accounts["p16_construct_ai@sha256:abc"]["engine"] == "p16"
+    assert accounts["p15_ai_ranked"]["engine"] == "league"
+    assert accounts["p16_construct_ai@sha256:abc"]["engine"] == "league"
     account_fields = {
         key: accounts["acct-a"][key] for key in (
             "engine", "account_type", "visibility", "price_source", "allow_short"
@@ -100,7 +96,7 @@ def test_migration_routes_books_records_breaks_bootstraps_ids_and_runs_l4_backfi
     assert con.execute(
         "SELECT COUNT(*),MIN(break_date),MAX(registration_revision) "
         "FROM sim_book_breaks"
-    ).fetchone() == (4, D0, 13)
+    ).fetchone() == (4, D0, 14)
     assert con.execute(
         "SELECT last_value FROM duckdb_sequences() "
         "WHERE sequence_name='sim_order_id_seq'"

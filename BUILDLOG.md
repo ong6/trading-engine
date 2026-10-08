@@ -2929,3 +2929,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `.venv/bin/python -m pytest -q -n 4 tests/test_paper_accounts.py tests/test_p22_round2.py tests/test_p22_round3.py tests/test_shorts.py tests/test_migrate_cost_profiles.py` — 76 passed.
 - **Metrics:** removed the separate admission valuation functions.
 - **Next:** preserve all existing routes in the commission migration.
+
+## 2026-10-08 — Migrate commissions without rerouting existing books
+
+- **Why:** P22 round 3 requires zero migration route changes and deployed registration revision 14.
+- **What:** migration changes only the cost profile, retains all existing account settings,
+  and reads the P15 registration revision from its JSON. Removed route inference and its flag.
+  The retained P15 legacy fill path charges the commission and debits the same book's cash.
+- **Evidence:** `.venv/bin/python -m pytest -q tests/test_p22_round3.py -k 'migration_revision or p15_pending'` — 2 passed; base revision reproduction wrote 13 instead of 14.
+- **Metrics:** migration implementation reduced by 48 lines.
+- **Next:** rehearse deploy and rollback on the disposable snapshot copy.
