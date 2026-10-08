@@ -4,14 +4,14 @@
     "violations": []
   },
   "code_size": {
-    "buildlog": 2853,
-    "docs_md": 27985,
+    "buildlog": 2885,
+    "docs_md": 27986,
     "engine": 23912,
-    "farm": 26507,
-    "product": 62544,
-    "server": 64830,
+    "farm": 26527,
+    "product": 62564,
+    "server": 64922,
     "sim": 12125,
-    "tests": 89992,
+    "tests": 90107,
     "tools": 11509,
     "ui_app": 6657
   },
@@ -19,20 +19,20 @@
     "largest_insertions": 86905,
     "largest_sha": "89b416d",
     "largest_subject": "Harden paper-trading operations and research recovery",
-    "non_screen_commits": 612,
-    "product_touching": 252,
-    "research_touching": 236,
-    "support_only": 360,
+    "non_screen_commits": 622,
+    "product_touching": 254,
+    "research_touching": 239,
+    "support_only": 368,
     "window_days": 30
   },
   "date": "2026-10-08",
   "ledger": {
-    "entries_total": 243,
+    "entries_total": 246,
     "recent_entries": 10,
-    "recent_max_lines": 16,
-    "recent_mean_lines": 11.8,
+    "recent_max_lines": 14,
+    "recent_mean_lines": 10.7,
     "recent_sha256_mentions": 0,
-    "v2_entries": 243,
+    "v2_entries": 246,
     "v2_max_lines": 19,
     "v2_max_sha256": 0
   },
@@ -40,9 +40,9 @@
   "research": {
     "active_books": 25,
     "e1_observations": 11,
-    "league_date": "2026-10-05",
-    "league_stale_days": 3,
-    "sector_shared_sessions": 21,
+    "league_date": "2026-10-07",
+    "league_stale_days": 1,
+    "sector_shared_sessions": 23,
     "sector_status": "ACCUMULATING",
     "xs_status": "ACCUMULATING"
   }

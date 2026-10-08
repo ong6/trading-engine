@@ -2882,4 +2882,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product LOC unchanged.
 - **Next:** run every CI static gate and the full suite in both supported timezones.
 
+## 2026-10-08 — Close P22 revision-14 integration
+
+- **Why:** P22 integration acceptance requires main's revision-13 hotfix, the account runtime,
+  revision 14 and both supported-timezone suites to pass on identical committed bytes.
+- **What:** Preserve the validator and label-maturation hotfix, bind P22 through revision 14,
+  and refresh the frozen sector and XS identities. All blocking Ruff, compile and shell gates pass;
+  the workflow's advisory C90 check retains its two existing findings.
+- **Evidence:** `TZ=UTC ... pytest -o addopts='' -q -W error -n auto -rN &&
+  TZ=Asia/Singapore ... pytest -o addopts='' -q -W error -n auto -rN` — 4,667 passed
+  in each timezone, exit 0 in both.
+- **Metrics:** server +89, tools +28, product +731; budget ok.
+- **Next:** open the draft PR and require hosted CI before the 2026-10-18 deployment window.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
