@@ -1,6 +1,6 @@
 # Sector momentum — forward paper review
 
-_Status **ACCUMULATING** · through 2026-10-05 · paper only · no automatic action._
+_Status **ACCUMULATING** · through 2026-10-07 · paper only · no automatic action._
 
 This report uses only the shared persisted paper equity paths of `sector_momentum` and `spy_benchmark`. It does not reuse walk-forward folds or search parameters.
 
@@ -14,11 +14,11 @@ The registered test is not mature before 2027-09-04 and requires at least 200 sh
 
 | Measure | `sector_momentum` | `spy_benchmark` | Difference |
 |---|---:|---:|---:|
-| Return (2026-09-04 → 2026-10-05) | +1.69% | +0.85% | +0.84% |
+| Return (2026-09-04 → 2026-10-07) | +2.00% | +1.15% | +0.85% |
 | Max drawdown | -1.33% | -2.09% | +0.76% |
 
-Shared observations: **21**; sessions in displayed window: **21**; first shared date: **2026-09-04**.
+Shared observations: **23**; sessions in displayed window: **23**; first shared date: **2026-09-04**.
 
-Candidate config SHA-256: `c72300f5e438958572985c2257f7bcdf800dfe2cfe89c73f55c471850cc6e67a`. Execution profile: `baseline_v1`. Profile SHA-256: `6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db`. Runtime-contract SHA-256: `8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce`. Baseline-state SHA-256: `6009bf5f765b8f28e41636d60666af5d9319c121aa0668f214ba7a647cc0a902`. Equity-prefix SHA-256: `96f9ea7f8e9f0ae56fb0e599f0119187c070476f0e2044cb22169062314cb30d`. Forward-ledger SHA-256: `b27c225b0b919f20e2ee8d4365e192c9484d9488bfad7a33d1028d68f3f1ab34`.
+Candidate config SHA-256: `c72300f5e438958572985c2257f7bcdf800dfe2cfe89c73f55c471850cc6e67a`. Execution profile: `baseline_v1`. Profile SHA-256: `6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db`. Runtime-contract SHA-256: `8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce`. Baseline-state SHA-256: `6009bf5f765b8f28e41636d60666af5d9319c121aa0668f214ba7a647cc0a902`. Equity-prefix SHA-256: `8147b740e30ffc57ec8ab3b1c69c84d062cff6c828d1d9eacbf55d10b48eb71c`. Forward-ledger SHA-256: `b27c225b0b919f20e2ee8d4365e192c9484d9488bfad7a33d1028d68f3f1ab34`.
 
 A `CONTINUE` verdict only means the downside kill rule was not met. Promotion or live deployment requires separate positive-edge evidence and explicit approval.

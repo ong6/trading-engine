@@ -9,6 +9,10 @@ import pytest
 
 from engine import free_frozen_archive as frozen
 
+# Fixed entry time: writestr(name, ...) stamps the current time, so two fixtures
+# built across a 2-second tick hash differently.
+FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
+
 
 def _price_file(rows: list[tuple[str, float]]) -> bytes:
     lines = [",".join(frozen.EXPECTED_COLUMNS)]
@@ -19,7 +23,7 @@ def _price_file(rows: list[tuple[str, float]]) -> bytes:
 def _archive(path: Path, members: dict[str, bytes]) -> Path:
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, body in members.items():
-            archive.writestr(f"Data/{name}", body)
+            archive.writestr(zipfile.ZipInfo(f"Data/{name}", FIXED_ZIP_TIME), body)
             archive.writestr(name, body)
     digest = frozen._sha256(path)
     target = path.with_name(f"{digest}.zip")
@@ -72,8 +76,8 @@ def test_census_counts_ended_names_and_flags_reuse(tmp_path: Path):
 def test_census_rejects_a_nonidentical_duplicate_tree(tmp_path: Path):
     path = tmp_path / "bad.zip"
     with zipfile.ZipFile(path, "w") as archive:
-        archive.writestr("Data/Stocks/abc.us.txt", _price_file([("2017-11-10", 1.0)]))
-        archive.writestr("Stocks/abc.us.txt", _price_file([("2017-11-10", 2.0)]))
+        archive.writestr(zipfile.ZipInfo("Data/Stocks/abc.us.txt", FIXED_ZIP_TIME), _price_file([("2017-11-10", 1.0)]))
+        archive.writestr(zipfile.ZipInfo("Stocks/abc.us.txt", FIXED_ZIP_TIME), _price_file([("2017-11-10", 2.0)]))
 
     with pytest.raises(frozen.FrozenArchiveError, match="duplicate tree differs"):
         frozen.census_archive(path)
