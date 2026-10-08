@@ -2939,3 +2939,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `.venv/bin/python -m pytest -q tests/test_p22_round3.py -k 'migration_revision or p15_pending'` — 2 passed; base revision reproduction wrote 13 instead of 14.
 - **Metrics:** migration implementation reduced by 48 lines.
 - **Next:** rehearse deploy and rollback on the disposable snapshot copy.
+
+## 2026-10-08 — Bind undeployed P22 runtime corrections
+
+- **Why:** the round-3 accounting changes touch registered source files before revision 14 deploys.
+- **What:** refreshed the sector and XS runtime identities for the corrected shared ledger,
+  documenting the undeployed amendment. Strategy rules and prospective records remain frozen.
+- **Evidence:** P15 and full-suite identity gates run with the final revision 14 re-pin.
+- **Metrics:** two runtime amendment lines added.
+- **Next:** pin revision 14 to this corrected source commit and run both timezone suites.
