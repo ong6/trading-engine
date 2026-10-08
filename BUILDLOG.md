@@ -2763,4 +2763,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged.
 - **Next:** run the full UTC and Asia/Singapore suites on the pinned bytes.
 
+## 2026-10-08 — Close lifecycle boundary cases
+
+- **Why:** final focused review required unambiguous ordering for uncertain limit contingencies,
+  nonzero carry marks, and retiring-account exposure accounting.
+- **What:** Refuse a market child whose limit parent may execute later, ignore invalid zero marks
+  when choosing a carried liability, include retiring positions in aggregate exposure, and state
+  signed corporate-action behavior in the settlement runbook.
+- **Evidence:** `.venv/bin/python -m pytest -o addopts='' -q -W error` over the 13 account,
+  money, fill, league, replay and entry-point files — 188 passed.
+- **Metrics:** server/tools unchanged; product +2; tests +17; docs +2.
+- **Next:** refresh the frozen runtime/source digests on these final source bytes.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
