@@ -3011,3 +3011,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
   accounting, legacy-book, attribution and round-2/3 regressions pass.
 - **Metrics:** snapshot pending closure; production code reduced by removing replay loops.
 - **Next:** bind revision 14 and rehearse legacy D0 and revision-13 rollback boundaries.
+
+## 2026-10-08 — Bind undeployed runtime accounting consolidation
+
+- **Why:** P22 round 4 changes registered generic accounting dependencies.
+- **What:** Rebound the still-undeployed sector and XS runtime identities to the shared
+  ledger consumers. Strategy rules, evaluation criteria and historical records are unchanged.
+- **Evidence:** `ruff check .` passes; revision-14 registration and suite follow this source commit.
+- **Metrics:** unchanged production LOC.
+- **Next:** re-pin revision 14, then execute acceptance checks and rehearsal.
