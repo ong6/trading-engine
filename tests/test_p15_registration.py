@@ -27,6 +27,7 @@ REGISTERED_PATHS = {
     "engine/actions.py",
     "engine/account_watch.py",
     "engine/accounts/__init__.py",
+    "engine/accounts/actions.py",
     "engine/accounts/service.py",
     "engine/accounts/settle.py",
     "engine/accounts/sources.py",
@@ -54,7 +55,6 @@ REGISTERED_PATHS = {
     "engine/market_date.py",
     "engine/money/alerts.py",
     "engine/money/__init__.py",
-    "engine/money/allocation.py",
     "engine/money/halts.py",
     "engine/money/limits.py",
     "engine/p15_evaluation.py",
@@ -176,6 +176,7 @@ REGISTERED_PATHS = {
     "sim/strategies/xs_common.py",
     "sim/strategies/xs_momentum_12_1.py",
     "sim/strategies/xs_reversal_1m.py",
+    "sim/valuation.py",
     "tools/__init__.py",
     "tools/agent_trial_register.py",
     "tools/backup_database.py",
@@ -271,11 +272,11 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 13
+    assert registration["registration_revision"] == 14
     assert registration["revision_reason"] == (
-        "cash-rule SPY reinvestment resize validation against both fill ledgers and nightly maturation "
-        "of existing event-shadow labels before evidence reporting; scoring, book mechanics, gates, "
-        "label values, schedules, registered values and written evidence unchanged"
+        "P22 on top of revision 13's validator and label-timing corrections; owner decision "
+        "2026-10-06: ibkr_pro_tiered_v1 commissions from the migration --d0; book evaluation "
+        "clocks restart at D0; account engine; scoring, labels, gates and schedules unchanged"
     )
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()

@@ -276,12 +276,11 @@ consistent copy of the live database. Verification and restore semantics are unc
 
 ## P15 activation record and recovery boundary
 
-P15 activated on 2026-09-29. Registration revision 13 is ready for deployment as of 2026-10-08.
-It validates cash-resized SPY reinvestments against both fill ledgers and matures existing event
-labels after nightly prices, without changing scoring, book mechanics, gates, label values,
-registered values, schedules, or written evidence. The six source units and three timers remain
-the deployment boundary. The original activation steps are not a procedure to activate a second
-cohort.
+P15 activated on 2026-09-29. Registration revision 14 binds the P22 account runtime on top of
+revision 13's cash-resized SPY validation and nightly event-label maturation. From the migration
+`--d0`, books pay `ibkr_pro_tiered_v1` commissions and restart their evaluation clocks; scoring,
+labels, gates and schedules are unchanged. The six source units and three timers remain the
+deployment boundary. The original activation steps are not a procedure to activate a second cohort.
 
 For current operations, treat any change to a registered value as a new version and cohort. Before
 an admitted schema or recovery operation, confirm the worktree and producer locks, create and
