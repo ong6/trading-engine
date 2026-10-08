@@ -278,7 +278,7 @@ def test_v2_non_stock_intent_validates_then_admission_refuses_execution(con):
     assert con.execute("SELECT COUNT(*) FROM sim_orders").fetchone()[0] == 0
 
 
-def test_carried_mark_is_accepted_through_three_sessions_then_refused(con):
+def test_carried_mark_remains_accepted_beyond_three_sessions(con):
     sessions = [date(2026, 9, 28), date(2026, 9, 29), date(2026, 9, 30),
                 date(2026, 10, 1), SIGNAL]
     insert_bars(con, "CAL", sessions, open_=1, close=1)
@@ -291,8 +291,7 @@ def test_carried_mark_is_accepted_through_three_sessions_then_refused(con):
     accounts.create_account(con, _spec_v2("acct-b"), now=MOO_RECEIVED)
     con.execute("INSERT INTO sim_positions VALUES ('acct-b','STALE',1,10)")
     insert_bars(con, "STALE", [date(2026, 9, 28)], open_=10, close=10)
-    with pytest.raises(accounts.AccountRefused, match="STALE"):
-        accounts.submit_intent(con, _intent_v2("acct-b"), now=MOO_RECEIVED)
+    assert accounts.submit_intent(con, _intent_v2("acct-b"), now=MOO_RECEIVED)["state"] == "queued"
 
 
 def test_account_created_date_is_latest_new_york_session(con):
