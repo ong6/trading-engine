@@ -252,7 +252,7 @@ def latest_close_observation(
     if not columns:
         return None
     operator = "<" if strictly_before else "<="
-    where = f"ticker=? AND date{operator}?"
+    where = f"ticker=? AND date{operator}? AND {close_col}>0"
     params: list[object] = [ticker, on_or_before]
     stamp = "first_fetched_at" if "first_fetched_at" in columns else (
         "fetched_at" if "fetched_at" in columns else None

@@ -451,6 +451,8 @@ def _contingent_parent(con, intent: dict, session_date: date, quantity: float) -
     child_phase = phase.get(intent["order_type"])
     if parent_phase is None or child_phase is None or parent_phase > child_phase:
         raise AccountRefused("contingent parent executes later than child")
+    if row[8] == "limit" and intent["order_type"] == "market":
+        raise AccountRefused("contingent parent executes later than child")
     return int(row[0])
 
 

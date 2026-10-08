@@ -399,3 +399,20 @@ def test_contingent_child_is_refused_when_parent_executes_later(con):
     )
     with pytest.raises(accounts.AccountRefused, match="executes later"):
         accounts.submit_intent(con, child, now=MOO_RECEIVED)
+
+
+def test_contingent_market_is_refused_when_limit_parent_may_execute_later(con):
+    received = datetime(2026, 10, 5, 14, 0, tzinfo=timezone.utc)
+    insert_bars(con, "SAME", [SIGNAL], open_=100, close=100)
+    accounts.create_account(con, _spec_v2(), now=received)
+    parent = _intent_v2(
+        intent_id="limit-parent", order_type="limit", limit_price=99,
+        created_at=received.isoformat(),
+    )
+    accounts.submit_intent(con, parent, now=received)
+    child = _intent_v2(
+        intent_id="market-child", side="sell", order_type="market",
+        contingent_on="limit-parent", created_at=received.isoformat(),
+    )
+    with pytest.raises(accounts.AccountRefused, match="executes later"):
+        accounts.submit_intent(con, child, now=received)

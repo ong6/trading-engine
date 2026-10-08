@@ -46,7 +46,7 @@ def total_gross_exposure(con, as_of: date) -> float:
     positions = con.execute(
         "SELECT sp.ticker,sp.qty,pa.pa_price_source FROM sim_positions sp "
         "JOIN portfolio_accounts_v pa ON pa.portfolio_id=sp.portfolio_id "
-        "WHERE pa.pa_engine='account' AND pa.pa_status IN ('active','halted')"
+        "WHERE pa.pa_engine='account' AND pa.pa_status IN ('active','halted','retiring')"
     ).fetchall()
     gross = sum(
         abs(float(qty) * mark)
