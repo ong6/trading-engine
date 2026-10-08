@@ -2919,3 +2919,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `.venv/bin/python -m pytest -q -n 4 tests/test_p22_round2.py tests/test_p22_round3.py tests/test_shorts.py tests/test_paper_accounts.py tests/test_migrate_cost_profiles.py` — 76 passed.
 - **Metrics:** production LOC reduced; final snapshot follows verification.
 - **Next:** finish admission and migration corrections, then rehearse deployment and rollback.
+
+## 2026-10-08 — Preserve account receipts and carried admission marks
+
+- **Why:** P22 round-3 API regressions reproduced split retry conflicts and stale-held-name refusals.
+- **What:** intake checks its immutable evidence and recorded split adjustments before returning
+  the original receipt. Admission now shares source-aware marks with settlement and API reads;
+  existing carried marks remain valued and the position response exposes their stale flag.
+- **Evidence:** `.venv/bin/python -m pytest -q -n 4 tests/test_paper_accounts.py tests/test_p22_round2.py tests/test_p22_round3.py tests/test_shorts.py tests/test_migrate_cost_profiles.py` — 76 passed.
+- **Metrics:** removed the separate admission valuation functions.
+- **Next:** preserve all existing routes in the commission migration.
