@@ -2979,7 +2979,6 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server 0, tools −48, product −55 LOC from the starting snapshot; budget passes.
 - **Next:** check the final PR commit's CI and report completion.
 
-<!-- append-only-tail: insert new verified entries immediately above this line -->
 
 ## 2026-10-08 — Reproduce P22 round-4 ledger consumers
 
@@ -3020,3 +3019,5 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `ruff check .` passes; revision-14 registration and suite follow this source commit.
 - **Metrics:** unchanged production LOC.
 - **Next:** re-pin revision 14, then execute acceptance checks and rehearsal.
+
+<!-- append-only-tail: insert new verified entries immediately above this line -->
