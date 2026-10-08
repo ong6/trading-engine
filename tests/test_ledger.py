@@ -87,9 +87,7 @@ def test_short_dividend_is_a_signed_debit(con, book):
         "CREATE TABLE corporate_actions "
         "(ticker VARCHAR,ex_date DATE,kind VARCHAR,value DOUBLE)"
     )
-    ledger.apply_fill(con, {
-        "portfolio_id": book, "ticker": "XYZ", "side": "short", "qty": 10, "fill_px": 50,
-    })
+    _record_fill(con, book, 1, "XYZ", "short", 10, 50, SESSIONS[2])
     con.execute(
         "INSERT INTO corporate_actions VALUES ('XYZ',?,'dividend',0.5)", [session]
     )

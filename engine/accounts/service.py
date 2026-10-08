@@ -141,7 +141,7 @@ def resume(con, account_id: str, *, resumed_by: str, note: str = "",
         )
         halts.record_event(
             con, account_id, "resumed",
-            {"resumed_by": resumed_by, "note": str(note)[:4096]}, now=now,
+            {"resumed_by": resumed_by, "note": str(note)[:4096], "anchor_equity": anchor}, now=now,
         )
     return {"account_id": account_id, "status": "active", "resumed_by": resumed_by}
 
@@ -327,30 +327,6 @@ def account_list(con, *, include_private: bool = False) -> list[dict]:
              "visibility": row[4]} for row in rows]
 
 
-def _current_state(con, account_id: str) -> dict:
-    return {
-        "cash": float(con.execute("SELECT cash FROM portfolios WHERE id=?", [account_id])
-                      .fetchone()[0]),
-        "positions": dict(con.execute(
-            "SELECT ticker,qty FROM sim_positions WHERE portfolio_id=? AND qty<>0 ORDER BY ticker",
-            [account_id],
-        ).fetchall()),
-    }
-
-
-def _restore_account_state(con, account_id: str, cash: float, positions, lots, day_trades) -> None:
-    con.execute("DELETE FROM sim_positions WHERE portfolio_id=?", [account_id])
-    con.execute("DELETE FROM sim_position_lots WHERE portfolio_id=?", [account_id])
-    con.execute("DELETE FROM sim_day_trades WHERE portfolio_id=?", [account_id])
-    if positions:
-        con.executemany("INSERT INTO sim_positions VALUES (?,?,?,?)", positions)
-    if lots:
-        con.executemany("INSERT INTO sim_position_lots VALUES (?,?,?,?,?,?)", lots)
-    if day_trades:
-        con.executemany("INSERT INTO sim_day_trades VALUES (?,?,?,?,?)", day_trades)
-    con.execute("UPDATE portfolios SET cash=? WHERE id=?", [cash, account_id])
-
-
 def verify(
     con,
     account_id: str,
@@ -358,37 +334,34 @@ def verify(
     session_date: date | None = None,
     now: datetime | None = None,
     manage_transaction: bool = True,
+    check_equity: bool = True,
 ) -> dict:
-    """Rebuild one account, restore it, and durably halt any mismatch."""
+    """Reconcile persisted lots, cash and equity against isolated ledger replay.
+
+    Recovery defers a stale checkpoint until its marks have been refreshed,
+    but always reconciles cash and lots before rewriting dependent state.
+    """
     effective_now = _utc(now)
 
     def run() -> dict:
         init_schema(con)
         _account(con, account_id)
-        observed = _current_state(con, account_id)
-        positions = con.execute(
-            "SELECT portfolio_id,ticker,qty,avg_cost FROM sim_positions "
-            "WHERE portfolio_id=? ORDER BY ticker", [account_id],
-        ).fetchall()
-        lots = con.execute(
-            "SELECT portfolio_id,instrument_id,opened_session,open_order_id,qty,avg_px "
-            "FROM sim_position_lots WHERE portfolio_id=? "
-            "ORDER BY instrument_id,opened_session,open_order_id", [account_id],
-        ).fetchall()
-        day_trades = con.execute(
-            "SELECT portfolio_id,session_date,instrument_id,open_order_id,close_order_id "
-            "FROM sim_day_trades WHERE portfolio_id=? ORDER BY session_date,close_order_id",
-            [account_id],
-        ).fetchall()
-        try:
-            ledger.rebuild_state(con, [account_id], through=session_date)
-            expected = _current_state(con, account_id)
-        finally:
-            _restore_account_state(
-                con, account_id, observed["cash"], positions, lots, day_trades,
-            )
-        ok = (abs(expected["cash"] - observed["cash"]) <= 0.005
-              and expected["positions"] == observed["positions"])
+        observed = ledger.state(con, account_id)
+        expected = ledger.projected_state(con, account_id, through=session_date)
+        if check_equity:
+            checkpoint = con.execute(
+                'SELECT date,equity,cash,n_positions FROM sim_equity WHERE portfolio_id=? '
+                'AND (? IS NULL OR date<=?) ORDER BY date DESC LIMIT 1',
+                [account_id, session_date, session_date],
+            ).fetchone()
+            if checkpoint is not None:
+                day, equity, cash, count = checkpoint
+                prefix = ledger.projected_state(con, account_id, through=day)
+                expected['checkpoint'] = ledger.equity_checkpoint(
+                    con, account_id, day, prefix, available_at=effective_now)
+                observed['checkpoint'] = dict(date=day.isoformat(), equity=float(equity),
+                                              cash=float(cash), n_positions=count)
+        ok = ledger.states_match(expected, observed)
         result = {
             "account_id": account_id,
             "status": "ok" if ok else "mismatch",
@@ -403,7 +376,7 @@ def verify(
                 "SELECT MAX(date) FROM sim_equity WHERE portfolio_id=?", [account_id]
             ).fetchone()[0]
             effective_session = latest or effective_now.date()
-        detail = "engine ledger reconstruction differs from stored cash/positions"
+        detail = "engine ledger reconstruction differs from stored cash, positions, lots or equity"
         con.execute(
             "INSERT INTO account_reconciliations VALUES (?,?,?,?,?,?,?) "
             "ON CONFLICT (portfolio_id,session_date) DO UPDATE SET "
