@@ -2814,3 +2814,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Next:** nothing admitted.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
+
+## 2026-10-08 — P22 isolated account valuation and execution
+
+- **Why:** active P22 plan and the orchestrator's reproduced lifecycle findings.
+- **What:** record the binding isolation, valuation, transaction and recovery rules;
+  share carried valuation, keep financing through retirement, cap contingent closes,
+  and reconcile cash within half a cent with financing before fills.
+- **Evidence:** `pytest -q tests/test_p22_round2.py` — 8 passed; 7 failed on baseline.
+- **Metrics:** unchanged.
+- **Next:** isolate source contention and account corporate actions.
