@@ -114,11 +114,11 @@ RUNTIME_CONTRACT_MIGRATION = (
     "ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a "
     "snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. XS strategy, "
     "signal boundary, paired control and statistical verdict rules are unchanged"
-    "; undeployed P22 round 3 shares chronological accounting and preserves existing fill routes"
+    "; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes"
 )
 # Filled after the file list was frozen; tests verify this against current bytes.
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "b87483faedfaba32c0980ab06b976ccbc33df3ff704f57273614d78a70f476ef"
+    "a07f3283eb9beab702585f36505e08ef4c64f55e09070d5e3d7bd90ee71cef08"
 )
 
 PRIOR_RUNTIME_CONTRACT_VERSION = 21
