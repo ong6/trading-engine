@@ -5,6 +5,7 @@ from datetime import date
 
 from engine.lib.util import table_exists
 from engine.paper_accounts import AccountRefused
+from sim import bar_sources
 
 TOTAL_GROSS_CAP_FRACTION = 1.0
 
@@ -21,7 +22,8 @@ def total_gross_cap(con, *, include_account: str | None = None) -> float:
     row = con.execute(
         "SELECT COALESCE(SUM(p.initial_cash),0) FROM portfolios p "
         "JOIN portfolio_accounts_v pa ON pa.portfolio_id=p.id "
-        f"WHERE pa.pa_engine='account' AND (pa.pa_status='active'{clause})",
+        f"WHERE pa.pa_engine='account' "
+        f"AND (pa.pa_status IN ('active','halted','retiring'){clause})",
         params,
     ).fetchone()
     return float(row[0]) * TOTAL_GROSS_CAP_FRACTION
@@ -89,3 +91,53 @@ def account_gross(con, account_id: str, as_of: date) -> float:
         for ticker, qty in rows
         if (mark := _mark(con, ticker, as_of, source[0])) is not None
     )
+
+
+def require_execution_capacity(
+    con,
+    account_id: str,
+    ticker: str,
+    side: str,
+    quantity: float,
+    price: float,
+    as_of: date,
+    *,
+    available_at=None,
+) -> None:
+    """Recheck the aggregate cap from positions at execution-time prices.
+
+    Pending-order reservations are intentionally absent: the order being executed
+    was already reserved at intake, and counting it again is the reviewed defect.
+    Previously completed fills are present in ``sim_positions`` and therefore do
+    contribute in chronological settlement order.
+    """
+    gross = 0.0
+    target_qty = 0.0
+    rows = con.execute(
+        "SELECT sp.portfolio_id,sp.ticker,sp.qty,pa.pa_price_source "
+        "FROM sim_positions sp JOIN portfolio_accounts_v pa "
+        "ON pa.portfolio_id=sp.portfolio_id "
+        "WHERE pa.pa_engine='account' "
+        "AND pa.pa_status IN ('active','halted','retiring') AND sp.qty<>0"
+    ).fetchall()
+    for portfolio_id, instrument_id, held, source in rows:
+        held = float(held)
+        if portfolio_id == account_id and instrument_id == ticker:
+            mark = price
+            target_qty = held
+        else:
+            mark = bar_sources.latest_close(
+                con, instrument_id, as_of, source=source, available_at=available_at,
+            )
+            if mark is None:
+                raise AllocationRefused("total_exposure_mark_unavailable")
+        gross += abs(held * mark)
+    if side == "buy":
+        projected = target_qty + quantity
+    elif side == "short":
+        projected = target_qty - quantity
+    else:
+        return
+    gross += abs(projected * price) - abs(target_qty * price)
+    if gross > total_gross_cap(con, include_account=account_id) + 1e-9:
+        raise AllocationRefused("total_exposure_cap")

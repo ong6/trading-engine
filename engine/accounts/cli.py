@@ -7,6 +7,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from engine.accounts import api, results, service
+from engine.accounts import settle as account_settle
+from engine.accounts import sources as account_sources
 from engine.lib import db
 from engine.paper_accounts import AccountRefused
 
@@ -52,13 +54,14 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _settle(con, *, session_date: date | None, late: bool):
-    from engine.accounts.settle import settle_session
-
     if session_date is None:
         session_date = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
     if session_date is None:
         raise ValueError("no market session is available to settle")
-    return settle_session(con, session_date, late=late)
+    with account_sources.production_sources(con) as short_con:
+        return account_settle.settle_session(
+            con, session_date, late=late, short_con=short_con,
+        )
 
 
 def _execute(args, con, now: datetime):

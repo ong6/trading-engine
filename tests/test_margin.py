@@ -60,6 +60,33 @@ def test_intraday_margin_marks_without_future_daily_close(con, book):
     assert state.long_market_value == 100
 
 
+def test_intraday_margin_uses_only_completed_minute_bars(con, book):
+    _set_account(con, book, rule="intraday_margin_2026")
+    prior = date(2026, 10, 9)
+    insert_bars(con, "OLD", [prior], close=10)
+    con.execute("INSERT INTO sim_positions VALUES (?, 'OLD', 10, 10)", [book])
+    con.execute(
+        "CREATE TABLE intraday_prices (ticker VARCHAR,ts TIMESTAMP,interval VARCHAR,"
+        "open DOUBLE,high DOUBLE,low DOUBLE,close DOUBLE,volume BIGINT,source VARCHAR,"
+        "as_of DATE)"
+    )
+    con.execute(
+        "INSERT INTO intraday_prices VALUES "
+        "('OLD','2026-10-12 14:18:00','1m',1000,1000,1000,1000,100,'fixture',?)",
+        [DAY],
+    )
+
+    during = margin.margin_state(
+        con, book, DAY, as_of=datetime(2026, 10, 12, 14, 18, 59),
+    )
+    complete = margin.margin_state(
+        con, book, DAY, as_of=datetime(2026, 10, 12, 14, 19),
+    )
+
+    assert during.long_market_value == 100
+    assert complete.long_market_value == 10_000
+
+
 def test_margin_marks_use_accounts_own_massive_source(con, book):
     _set_account(con, book, rule="intraday_margin_2026")
     con.execute(
@@ -186,7 +213,9 @@ def test_margin_interest_uses_verified_rate_and_is_idempotent(con, book):
     con.execute("UPDATE portfolios SET cash=-2000 WHERE id=?", [book])
     first = margin.accrue_interest(con, DAY, days=30)
     assert first["events"] == 1
-    assert first["charged"] == pytest.approx(2_000 * 0.0538 * 30 / 360)
+    assert first["charged"] == pytest.approx(
+        2_000 * (0.0583 * 19 + 0.0538 * 11) / 360
+    )
     assert margin.accrue_interest(con, DAY, days=30) == {
         "events": 0, "charged": 0.0,
     }

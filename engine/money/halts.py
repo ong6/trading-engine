@@ -10,6 +10,7 @@ from sim.schema import portfolio_account, set_portfolio_account
 from .limits import DAILY_LOSS_LIMIT, DRAWDOWN_LIMIT, daily_return, drawdown
 
 HALT_REASONS = frozenset({"halt_drawdown", "halt_daily_loss", "halt_reconciliation"})
+FORCED_CLOSE_REASONS = ("buy_in", "margin_call", "retirement")
 
 
 def next_event_id(con) -> int:
@@ -70,15 +71,20 @@ def halt_account(con, portfolio_id: str, reason: str, *, now: datetime,
         "UPDATE account_state SET halted_at=?,halt_reason=?,updated_at=? WHERE portfolio_id=?",
         [now, reason, now, portfolio_id],
     )
-    order_ids = [row[0] for row in con.execute(
-        "SELECT id FROM sim_orders WHERE portfolio_id=? AND status='pending'", [portfolio_id]
-    ).fetchall()]
-    con.execute(
-        "UPDATE sim_orders SET status='cancelled',reject_reason=? "
-        "WHERE portfolio_id=? AND status='pending'", [reason, portfolio_id]
+    forced = " OR ".join(
+        f"COALESCE(d.state_reason,'') LIKE '{value}%'" for value in FORCED_CLOSE_REASONS
     )
+    order_ids = [row[0] for row in con.execute(
+        "SELECT o.id FROM sim_orders o LEFT JOIN sim_order_details d ON d.order_id=o.id "
+        "WHERE o.portfolio_id=? AND o.status='pending' AND NOT (" + forced + ")",
+        [portfolio_id],
+    ).fetchall()]
     if order_ids:
         placeholders = ",".join("?" for _ in order_ids)
+        con.execute(
+            f"UPDATE sim_orders SET status='cancelled',reject_reason=? "
+            f"WHERE id IN ({placeholders})", [reason, *order_ids],
+        )
         con.execute(
             f"UPDATE sim_order_details SET state='cancelled',state_reason=?,state_at=? "
             f"WHERE order_id IN ({placeholders}) AND state='queued'",
@@ -120,9 +126,10 @@ def check(con, portfolio_id: str, session_date: date, *,
     peak, stored_prior, _halted_at, _halt_reason, resumed_at, anchor = _state(
         con, portfolio_id, now,
     )
+    prior_start = resumed_at.date() if resumed_at is not None else date.min
     prior_row = con.execute(
-        "SELECT equity FROM sim_equity WHERE portfolio_id=? AND date<? "
-        "ORDER BY date DESC LIMIT 1", [portfolio_id, session_date]
+        "SELECT equity FROM sim_equity WHERE portfolio_id=? AND date>=? AND date<? "
+        "ORDER BY date DESC LIMIT 1", [portfolio_id, prior_start, session_date]
     ).fetchone()
     prior = float(prior_row[0]) if prior_row is not None else stored_prior
     peak = max(float(peak), equity)

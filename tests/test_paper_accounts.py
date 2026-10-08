@@ -386,3 +386,16 @@ def test_contingent_cover_uses_queued_short_quantity_not_current_holdings(con):
                             order_type="moc"), now=MOO_RECEIVED,
         )
     assert accounts.submit_intent(con, child, now=MOO_RECEIVED)["state"] == "queued"
+
+
+def test_contingent_child_is_refused_when_parent_executes_later(con):
+    insert_bars(con, "SAME", [SIGNAL], open_=100, close=100)
+    accounts.create_account(con, _spec_v2(), now=MOO_RECEIVED)
+    parent = _intent_v2(intent_id="moc-parent", order_type="moc")
+    accounts.submit_intent(con, parent, now=MOO_RECEIVED)
+    child = _intent_v2(
+        intent_id="moo-child", side="sell", order_type="moo",
+        contingent_on="moc-parent",
+    )
+    with pytest.raises(accounts.AccountRefused, match="executes later"):
+        accounts.submit_intent(con, child, now=MOO_RECEIVED)

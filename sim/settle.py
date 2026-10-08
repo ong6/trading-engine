@@ -175,7 +175,7 @@ def holders(con: duckdb.DuckDBPyConnection, t: Terms) -> list[tuple[str, float, 
     rows = con.execute(
         "SELECT p.portfolio_id, p.qty, p.avg_cost FROM sim_positions p "
         "JOIN portfolios pf ON pf.id = p.portfolio_id "
-        "WHERE p.ticker = ? AND p.qty > 0 AND pf.active ORDER BY p.portfolio_id",
+        "WHERE p.ticker = ? AND p.qty <> 0 AND pf.active ORDER BY p.portfolio_id",
         [t.ticker]).fetchall()
     if t.portfolios is not None:
         want = set(t.portfolios)
@@ -253,17 +253,19 @@ def apply_settlement_event(con: duckdb.DuckDBPyConnection, pf_id: str, ticker: s
     if price:
         con.execute("UPDATE portfolios SET cash = cash + ? WHERE id = ?",
                     [qty * price, pf_id])
-    matched_lots = match_lots(con, pf_id, ticker, qty)
+    matched_lots = match_lots(
+        con, pf_id, ticker, abs(qty), closing_short=qty < 0,
+    )
     if row:
         con.execute("UPDATE sim_positions SET qty = ? WHERE portfolio_id = ? "
-                    "AND ticker = ?", [max(held - qty, 0.0), pf_id, ticker])
+                    "AND ticker = ?", [held - qty, pf_id, ticker])
     if kind == "stock":
         new_shares = qty * ratio
         basis_per_acq = avg_cost / ratio if ratio else 0.0
         for lot in matched_lots:
             add_lot(
                 con, pf_id, into_ticker, lot.opened_session, lot.open_order_id,
-                lot.qty * ratio, lot.avg_px / ratio,
+                (-1 if qty < 0 else 1) * lot.qty * ratio, lot.avg_px / ratio,
             )
         acq = con.execute(
             "SELECT qty, avg_cost FROM sim_positions WHERE portfolio_id = ? AND ticker = ?",
@@ -271,7 +273,15 @@ def apply_settlement_event(con: duckdb.DuckDBPyConnection, pf_id: str, ticker: s
         if acq:
             cur_q, cur_c = float(acq[0]), float(acq[1])
             new_q = cur_q + new_shares
-            new_c = ((cur_q * cur_c) + (new_shares * basis_per_acq)) / new_q if new_q else 0.0
+            if cur_q * new_shares >= 0:
+                new_c = (
+                    (abs(cur_q) * cur_c + abs(new_shares) * basis_per_acq) / abs(new_q)
+                    if new_q else 0.0
+                )
+            elif abs(cur_q) > abs(new_shares):
+                new_c = cur_c
+            else:
+                new_c = basis_per_acq if new_q else 0.0
             con.execute("UPDATE sim_positions SET qty = ?, avg_cost = ? "
                         "WHERE portfolio_id = ? AND ticker = ?",
                         [new_q, new_c, pf_id, into_ticker])

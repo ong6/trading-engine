@@ -1,7 +1,6 @@
 """P22 L3 routing, replay, fee, phase-order, and public-report contracts."""
 from __future__ import annotations
 
-import json
 import sys
 from datetime import date, datetime
 
@@ -74,7 +73,7 @@ def test_rerun_preserves_every_externally_referenced_order(con):
     ]
 
 
-def test_rerun_requeues_account_detail_when_its_fill_is_removed(con):
+def test_legacy_rerun_leaves_account_execution_and_lifecycle_untouched(con):
     _portfolio(con, "account-book", SESSIONS[0])
     set_portfolio_account(con, "account-book", engine="account")
     con.execute(
@@ -92,16 +91,32 @@ def test_rerun_requeues_account_detail_when_its_fill_is_removed(con):
         "INSERT INTO sim_fills VALUES "
         "(1,'account-book','XYZ','buy',1,?,100,100,0,0)", [SESSIONS[1]]
     )
+    con.execute(
+        "INSERT INTO sim_equity VALUES "
+        "('account-book',?,900,900,1)", [SESSIONS[1]]
+    )
+    con.execute(
+        "INSERT INTO account_state "
+        "(portfolio_id,peak_equity,prior_close_equity,halted_at,halt_reason,updated_at) "
+        "VALUES ('account-book',1000,900,now(),'halt_daily_loss',now())"
+    )
 
     league.rerun_cleanup(con, SESSIONS[1])
 
     assert con.execute("SELECT status FROM sim_orders WHERE id=1").fetchone() == (
-        "pending",
+        "filled",
     )
     assert con.execute("SELECT state FROM sim_order_details WHERE order_id=1").fetchone() == (
-        "queued",
+        "filled",
     )
-    assert con.execute("SELECT COUNT(*) FROM sim_fills WHERE order_id=1").fetchone() == (0,)
+    assert con.execute("SELECT COUNT(*) FROM sim_fills WHERE order_id=1").fetchone() == (1,)
+    assert con.execute(
+        "SELECT equity FROM sim_equity WHERE portfolio_id='account-book' AND date=?",
+        [SESSIONS[1]],
+    ).fetchone() == (900.0,)
+    assert con.execute(
+        "SELECT halt_reason FROM account_state WHERE portfolio_id='account-book'"
+    ).fetchone() == ("halt_daily_loss",)
 
 
 def test_league_fills_and_generates_only_league_engine_books(con, monkeypatch):
@@ -132,7 +147,7 @@ def test_league_fills_and_generates_only_league_engine_books(con, monkeypatch):
     assert generated == [True]
 
 
-def test_phase_order_calls_optional_account_hooks_between_legacy_phases(
+def test_phase_order_calls_real_account_processor_after_legacy_phases(
     con, tmp_path, monkeypatch,
 ):
     _portfolio(con, "book", SESSIONS[0])
@@ -154,7 +169,7 @@ def test_phase_order_calls_optional_account_hooks_between_legacy_phases(
         league, "generate_all", lambda *_args: observed.append("c") or 0
     )
     monkeypatch.setattr(
-        league, "run_account_phases", lambda *_args, **_kwargs: (
+        league.account_settle, "settle_session", lambda *_args, **_kwargs: (
             observed.append("accounts")
             or {"completed": [], "errors": {}, "carried": {}}
         ),
@@ -169,38 +184,25 @@ def test_phase_order_calls_optional_account_hooks_between_legacy_phases(
     assert observed == ["a0", "a", "b", "c", "accounts", "d"]
 
 
-def test_present_optional_module_with_missing_hook_fails_loudly(monkeypatch):
-    monkeypatch.setattr(league.importlib, "import_module", lambda _name: object())
-
-    with pytest.raises(AttributeError):
-        league._optional_phase("engine.accounts.settle", "settle_session", None, SESSIONS[0])
-
-
-def test_integrated_phase_hooks_use_l1_and_l2_entry_points(monkeypatch):
+def test_account_processor_is_a_direct_required_dependency(monkeypatch):
     observed = []
+    monkeypatch.setattr(
+        league.account_sources, "production_sources",
+        lambda _connection: __import__("contextlib").nullcontext(None),
+    )
+    monkeypatch.setattr(
+        league.account_settle, "settle_session",
+        lambda connection, day, **kwargs: observed.append((connection, day, kwargs)) or {
+            "completed": [], "errors": {}, "carried": {},
+        },
+    )
 
-    def call(module_name, function_name, _con, _day, **kwargs):
-        observed.append((module_name, function_name, kwargs))
-        return function_name
-
-    monkeypatch.setattr(league, "_optional_phase", call)
-
-    assert league.accrue_accounts(None, SESSIONS[0]) == {
-        "borrow": "accrue_borrow", "interest": "accrue_interest",
+    assert league.run_account_phases(None, SESSIONS[0], verbose=False) == {
+        "completed": [], "errors": {}, "carried": {},
     }
-    assert league.settle_accounts(None, SESSIONS[0]) == "settle_session"
-    assert league.check_account_halts(None, SESSIONS[0]) == {
-        "halts": "check_all", "alerts": "concentration",
-    }
-    assert observed == [
-        ("sim.shorts", "accrue_borrow", {"portfolio_id": None}),
-        ("sim.margin", "accrue_interest", {"portfolio_id": None}),
-        ("engine.accounts.settle", "settle_session", {
-            "manage_transactions": False, "portfolio_id": None,
-        }),
-        ("engine.money.halts", "check_all", {}),
-        ("engine.money.alerts", "concentration", {}),
-    ]
+    assert observed == [(None, SESSIONS[0], {
+        "short_con": None, "manage_transactions": True,
+    })]
 
 
 def test_account_failure_rolls_back_only_that_account_and_returns_final_error(
@@ -216,26 +218,21 @@ def test_account_failure_rolls_back_only_that_account_and_returns_final_error(
         )
 
     monkeypatch.setattr(league, "generate_all", lambda *_args: 0)
-    monkeypatch.setattr(
-        league, "accrue_accounts", lambda *_args, **_kwargs: {
-            "borrow": {}, "interest": {},
-        },
-    )
-
-    def settle(connection, _day, *, portfolio_id):
+    def settle(connection, _day, **_kwargs):
+        connection.execute("UPDATE portfolios SET cash=cash+10 WHERE id='account-good'")
         connection.execute(
-            "UPDATE portfolios SET cash=cash+10 WHERE id=?", [portfolio_id]
+            "INSERT INTO sim_equity VALUES ('account-good',?,1010,1010,0)", [_day]
         )
-        if portfolio_id == "account-bad":
-            raise RuntimeError("planted account settle failure")
-        return {"filled": 0}
+        return {
+            "completed": ["account-good"],
+            "errors": {"account-bad": {
+                "exception_type": "RuntimeError",
+                "message": "planted account settle failure",
+            }},
+            "carried": {},
+        }
 
-    monkeypatch.setattr(league, "settle_accounts", settle)
-    monkeypatch.setattr(
-        league, "check_account_halts", lambda *_args, **_kwargs: {
-            "halts": None, "alerts": [],
-        },
-    )
+    monkeypatch.setattr(league.account_settle, "settle_session", settle)
 
     result = league.step(con, day, tmp_path, rerun=False, verbose=False)
 
@@ -255,16 +252,6 @@ def test_account_failure_rolls_back_only_that_account_and_returns_final_error(
     assert con.execute(
         "SELECT COUNT(*) FROM sim_equity WHERE portfolio_id='account-bad' AND date=?", [day]
     ).fetchone() == (0,)
-    kind, payload = con.execute(
-        "SELECT kind,payload FROM account_events WHERE portfolio_id='account-bad'"
-    ).fetchone()
-    assert kind == "settlement_error"
-    assert json.loads(payload) == {
-        "code": "settlement_error",
-        "exception_type": "RuntimeError",
-        "message": "planted account settle failure",
-        "session_date": day.isoformat(),
-    }
     assert "ACCOUNT_STATUS failed; legacy_day_committed=true" in caplog.text
 
 

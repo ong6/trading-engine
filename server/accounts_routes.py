@@ -11,6 +11,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 
 from engine import paper_accounts
 from engine.accounts import api as account_api
+from engine.accounts import sources as account_sources
 from engine.accounts import service
 from engine.lib import db as engine_db
 
@@ -44,7 +45,8 @@ def _write_connection() -> Iterator[duckdb.DuckDBPyConnection]:
     try:
         with _WRITER_LOCK:
             with _connection(_write_con) as con:
-                yield con
+                with account_sources.production_sources(con):
+                    yield con
     except duckdb.TransactionException as exc:
         raise HTTPException(503, "account writer contention; retry",
                             headers={"Retry-After": "1"}) from exc
