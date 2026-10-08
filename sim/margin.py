@@ -348,6 +348,7 @@ def accrue_interest(
     *,
     days: int | None = None,
     portfolio_id: str | None = None,
+    replay: bool = False,
 ) -> dict:
     """Debit effective-dated margin interest once per account and date."""
     count = 0
@@ -360,14 +361,14 @@ def accrue_interest(
     for settings in settings_rows:
         portfolio_id = settings["portfolio_id"]
         cash = portfolio.get_cash(con, portfolio_id)
-        if cash >= 0:
+        if cash >= 0 and not replay:
             continue
         exists = con.execute(
             "SELECT 1 FROM sim_cash_events WHERE portfolio_id=? AND event_date=? "
             "AND kind='margin_interest'",
             [portfolio_id, day],
         ).fetchone()
-        if exists:
+        if exists and not replay:
             continue
         if days is None:
             last = con.execute(
@@ -391,18 +392,18 @@ def accrue_interest(
             ]
         fee = sum(
             costs.margin_interest(
-                abs(float(cash)), 1, session_date=accrual_date,
+                max(-float(cash), 0), 1, session_date=accrual_date,
                 profile=settings["cost_profile"],
             )
             for accrual_date in accrual_dates
         )
-        ledger.apply_cash_event(con, {
+        ledger.post_accrual(con, {
             "portfolio_id": portfolio_id,
             "event_date": day,
             "kind": "margin_interest",
             "amount": -fee,
             "note": f"{len(accrual_dates)} calendar day(s)",
-        })
+        }, replay=replay)
         count += 1
         charged += fee
     return {"events": count, "charged": charged}
