@@ -172,7 +172,7 @@ def test_record_day_trade_preserves_fractional_open_lot_identity(con, book):
     )
 
 
-def test_day_trade_match_prioritises_same_session_lot(con, book):
+def test_day_trade_match_prioritises_overnight_lot(con, book):
     _set_account(con, book)
     con.execute("INSERT INTO sim_positions VALUES (?, 'XYZ', 3, 100)", [book])
     con.executemany(
@@ -182,8 +182,8 @@ def test_day_trade_match_prioritises_same_session_lot(con, book):
             (book, DAY, 100, 1.0),
         ],
     )
-    assert margin.would_create_day_trade(con, book, "XYZ", "sell", 0.5, DAY)
-    assert margin.matched_day_trade_open(con, book, "XYZ", "sell", 0.5, DAY) == 100
+    assert not margin.would_create_day_trade(con, book, "XYZ", "sell", 0.5, DAY)
+    assert margin.matched_day_trade_open(con, book, "XYZ", "sell", 2.5, DAY) == 100
 
 
 def test_recorded_day_trade_depletes_same_session_lot_before_next_close(con, book):
@@ -193,20 +193,16 @@ def test_recorded_day_trade_depletes_same_session_lot_before_next_close(con, boo
         "INSERT INTO sim_position_lots VALUES (?, 'XYZ', ?, ?, 1, 100)",
         [(book, date(2026, 10, 9), 90), (book, DAY, 100)],
     )
-    assert margin.matched_day_trade_open(con, book, "XYZ", "sell", 1, DAY) == 100
-    con.execute(
-        "INSERT INTO sim_fills VALUES (201,?,'XYZ','sell',1,?,100,100,0,0)",
-        [book, DAY],
-    )
-    con.execute(
-        "INSERT INTO sim_day_trades VALUES (?,?,'XYZ',100,201)", [book, DAY]
-    )
-    # The same-day opening share is already assigned to the first sell; the
-    # remaining MOC closes the older share and must not count again.
+    from sim import ledger
+
     assert margin.matched_day_trade_open(con, book, "XYZ", "sell", 1, DAY) is None
-    assert not margin.pdt_check(
-        con, book, "XYZ", "sell", 1, DAY, price=100,
-    ).creates_day_trade
+    ledger.apply_fill(con, dict(order_id=201, portfolio_id=book, ticker='XYZ', side='sell',
+                                qty=1, fill_px=100, fill_date=DAY))
+    assert margin.matched_day_trade_open(con, book, "XYZ", "sell", 1, DAY) == 100
+    ledger.apply_fill(con, dict(order_id=202, portfolio_id=book, ticker='XYZ', side='sell',
+                                qty=1, fill_px=100, fill_date=DAY))
+    assert margin.matched_day_trade_open(con, book, "XYZ", "sell", 1, DAY) is None
+    assert con.execute('SELECT open_order_id,close_order_id FROM sim_day_trades').fetchall() == [(100, 202)]
 
 
 def test_margin_interest_uses_verified_rate_and_is_idempotent(con, book):

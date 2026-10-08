@@ -1,8 +1,10 @@
 """Side-aware cash, position-lot, fee, and replay accounting."""
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Iterable, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
@@ -147,11 +149,13 @@ def _open_lot(con, fill, instrument_id: str, qty: float, px: float) -> None:
 
 def match_lots(con: duckdb.DuckDBPyConnection, portfolio_id: str,
                instrument_id: str, qty: float, *,
-               closing_short: bool = False) -> tuple[MatchedLot, ...]:
+               closing_short: bool = False, consume: bool = True) -> tuple[MatchedLot, ...]:
     """Consume FIFO lots and return the exact opens matched by a close."""
     comparison = "< 0" if closing_short else "> 0"
     remaining = qty
     matched = []
+    if qty <= 1e-12:
+        return ()
     for order_id, stored, opened_session, avg_px in con.execute(
         "SELECT l.open_order_id,l.qty,l.opened_session,l.avg_px FROM sim_position_lots l "
         "LEFT JOIN sim_fill_details d ON d.order_id=l.open_order_id "
@@ -163,13 +167,13 @@ def match_lots(con: duckdb.DuckDBPyConnection, portfolio_id: str,
         consumed = min(remaining, available)
         matched.append(MatchedLot(int(order_id), opened_session, consumed, float(avg_px)))
         left = available - consumed
-        if left <= 1e-12:
+        if consume and left <= 1e-12:
             con.execute(
                 "DELETE FROM sim_position_lots WHERE portfolio_id=? "
                 "AND instrument_id=? AND open_order_id=?",
                 [portfolio_id, instrument_id, order_id],
             )
-        else:
+        elif consume:
             con.execute(
                 "UPDATE sim_position_lots SET qty=? WHERE portfolio_id=? "
                 "AND instrument_id=? AND open_order_id=?",
@@ -418,11 +422,11 @@ def _rows(con, sql, params):
     return [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
 
 
-def events(con, portfolio_ids, *, since=None, through=None) -> list[LedgerEvent]:
+def events(con, portfolio_ids, *, since=None, through=None, include_risk=False) -> list[LedgerEvent]:
     """The shared chronological sequence for replay, recovery and trade results.
 
     Splits, dividends and settlements precede opening financing; execution uses
-    authoritative fill timestamps. Legacy adjusted history retains its units.
+    authoritative fill timestamps. Splits change units only at their ex-date.
     """
     from engine.accounts.actions import recorded_splits
 
@@ -431,11 +435,22 @@ def events(con, portfolio_ids, *, since=None, through=None) -> list[LedgerEvent]
     result = []
     for account_id in portfolio_ids:
         account = portfolio_account(con, account_id)['engine'] == 'account'
-        splits = recorded_splits(con, account_id, through) if account else []
+        splits = (recorded_splits(con, account_id, through) if account else
+                  [(ticker, day, ratio) for ticker, rows in _split_factors(con).items()
+                   for day, ratio in rows])
         for ticker, day, ratio in splits:
             result.append(LedgerEvent(bar_sources.session_bounds(day)[0], 0,
                 (account_id, 1, ticker), 'split', {'portfolio_id': account_id,
                 'ticker': ticker, 'ex_date': day, 'ratio': ratio}))
+        if include_risk:
+            for row in _rows(con, 'SELECT * FROM account_events WHERE portfolio_id=?', [account_id]):
+                if row['kind'] == 'resumed' or row['kind'].startswith('halt_'):
+                    row['payload'] = json.loads(row['payload'])
+                    result.append(LedgerEvent(row['created_at'], 7,
+                                              (account_id, row['id']), 'risk', row))
+            for row in _rows(con, 'SELECT * FROM sim_equity WHERE portfolio_id=?', [account_id]):
+                result.append(LedgerEvent(bar_sources.session_bounds(row['date'])[1], 6,
+                                          (account_id, 0), 'equity', row))
         tables = (
             ('sim_dividends', 'ex_date', 'dividend', 1),
             ('sim_settlements', 'effective', 'settlement', 2),
@@ -465,11 +480,6 @@ def events(con, portfolio_ids, *, since=None, through=None) -> list[LedgerEvent]
                 raise ValueError(f"account-engine fill {row['order_id']} has no authoritative fill_ts")
             stamp = row['fill_ts'] if account else bar_sources.session_bounds(row['fill_date'])[0]
             priority = 0 if account or row['side'] in {'sell', 'cover'} else 1
-            if not account:
-                factor = math.prod(ratio for ex, ratio in _split_factors(con).get(row['ticker'], ())
-                                   if row['fill_date'] < ex)
-                row['qty'] *= factor
-                row['fill_px'] /= factor
             result.append(LedgerEvent(stamp, 4, (account_id, priority, row['order_id']), 'fill', row))
     return sorted((event for event in result
                    if (since is None or event.stamp.date() >= since)
@@ -564,10 +574,6 @@ def closed_trades(con, account_id: str) -> list[dict]:
     The caller may be a read-only API connection. No result query rewrites the
     real account or maintains its own position/lot arithmetic.
     """
-    tables = ('portfolios', 'portfolio_accounts', 'sim_positions', 'sim_position_lots',
-              'sim_day_trades', 'sim_fills', 'sim_fill_details', 'sim_fill_fees',
-              'sim_dividends', 'sim_settlements', 'sim_cash_events', 'account_events',
-              'split_adjustments')
     outcomes = []
 
     def collect(connection, matched, side, qty, px, multiplier, fee):
@@ -584,6 +590,18 @@ def closed_trades(con, account_id: str) -> list[dict]:
             net = gross - opening_fee - fee * lot.qty / qty
             outcomes.append({'entry_session': lot.opened_session, 'net_bp': net / basis * 10_000})
 
+    with replay_connection(con, account_id) as target:
+        rebuild_state(target, [account_id], on_close=collect)
+    return outcomes
+
+
+@contextmanager
+def replay_connection(con, account_id: str):
+    """Isolate ledger projection from persisted account state and read-only callers."""
+    tables = ('portfolios', 'portfolio_accounts', 'sim_positions', 'sim_position_lots',
+              'sim_day_trades', 'sim_fills', 'sim_fill_details', 'sim_fill_fees',
+              'sim_dividends', 'sim_settlements', 'sim_cash_events', 'account_events',
+              'split_adjustments')
     with db.connect(':memory:') as target:
         for table in tables:
             if not table_exists(con, table):
@@ -608,5 +626,102 @@ def closed_trades(con, account_id: str) -> list[dict]:
         target.execute(con.execute(
             "SELECT sql FROM duckdb_views() WHERE view_name='portfolio_accounts_v' "
             'AND database_name=current_database()').fetchone()[0])
-        rebuild_state(target, [account_id], on_close=collect)
-    return outcomes
+        yield target
+
+
+def state(con, account_id: str) -> dict:
+    """Canonical persisted cash, aggregate basis and FIFO lot state."""
+    return {
+        'cash': float(con.execute('SELECT cash FROM portfolios WHERE id=?', [account_id]).fetchone()[0]),
+        'positions': {ticker: {'qty': float(qty), 'avg_cost': float(basis)}
+                      for ticker, qty, basis in con.execute(
+                          'SELECT ticker,qty,avg_cost FROM sim_positions '
+                          'WHERE portfolio_id=? AND qty<>0 ORDER BY ticker', [account_id]).fetchall()},
+        'lots': [{'instrument_id': ticker, 'opened_session': opened.isoformat(),
+                  'open_order_id': order_id, 'qty': float(qty), 'avg_px': float(px)}
+                 for ticker, opened, order_id, qty, px in con.execute(
+                     'SELECT instrument_id,opened_session,open_order_id,qty,avg_px '
+                     'FROM sim_position_lots WHERE portfolio_id=? AND qty<>0 '
+                     'ORDER BY instrument_id,opened_session,open_order_id', [account_id]).fetchall()],
+    }
+
+
+def projected_state(con, account_id: str, *, through=None, before_order_id=None) -> dict | None:
+    """Read a chronological prefix without maintaining a second accounting implementation."""
+    with replay_connection(con, account_id) as target:
+        if before_order_id is None:
+            rebuild_state(target, [account_id], through=through)
+        else:
+            sequence = events(target, [account_id], through=through)
+            for table in ('sim_positions', 'sim_position_lots', 'sim_day_trades'):
+                target.execute(f'DELETE FROM {table}')
+            target.execute('UPDATE portfolios SET cash=COALESCE(initial_cash,?)', [INITIAL_CASH])
+            for event in sequence:
+                if event.kind == 'fill' and event.row['order_id'] == before_order_id:
+                    break
+                apply_event(target, event)
+            else:
+                return None
+        return state(target, account_id)
+
+
+def risk_state(con, account_id: str, session_date: date, *, now: datetime) -> dict:
+    """Fold risk checkpoints, halts and explicit resume anchors in ledger order.
+
+    The requested close is the candidate under test, never its own prior close.
+    A recorded resume resets both risk baselines, including when replay revisits
+    the same session after the operator resumed it.
+    """
+    from .bar_sources import _naive_utc
+
+    initial = float(con.execute('SELECT COALESCE(initial_cash,?) FROM portfolios WHERE id=?',
+                                [INITIAL_CASH, account_id]).fetchone()[0])
+    result = dict(peak_equity=initial, risk_peak=initial, prior_close_equity=initial,
+                  resumed_at=None, halted_at=None, halt_reason=None,
+                  drawdown_anchor_equity=initial)
+    for event in events(con, [account_id], include_risk=True):
+        row = event.row
+        if event.kind == 'equity' and row['date'] < session_date:
+            value = float(row['equity'])
+            result['peak_equity'] = max(result['peak_equity'], value)
+            if result['halted_at'] is None:
+                result['risk_peak'] = max(result['risk_peak'], value)
+                result['prior_close_equity'] = value
+        elif event.kind == 'risk' and event.stamp <= _naive_utc(now):
+            if row['kind'] == 'resumed':
+                anchor = row['payload'].get('anchor_equity')
+                if anchor is None:
+                    raise ValueError('resume event missing recorded anchor_equity')
+                result.update(resumed_at=event.stamp, halted_at=None, halt_reason=None,
+                              drawdown_anchor_equity=float(anchor), risk_peak=float(anchor),
+                              prior_close_equity=float(anchor))
+            else:
+                result.update(halted_at=event.stamp, halt_reason=row['kind'])
+    return result
+
+
+def equity_checkpoint(con, account_id: str, day: date, snapshot: dict, *, available_at=None) -> dict:
+    """Value a ledger snapshot with the account's source-selected observable marks."""
+    from . import valuation
+
+    equity = snapshot['cash']
+    for ticker, position in snapshot['positions'].items():
+        observed = valuation.mark(con, account_id, ticker, day, available_at=available_at)
+        equity += position['qty'] * observed.price
+    return dict(date=day.isoformat(), cash=snapshot['cash'], equity=equity,
+                n_positions=len(snapshot['positions']))
+
+
+def states_match(expected, observed) -> bool:
+    """Compare identities exactly, quantities tightly and dollars within half a cent."""
+    if isinstance(expected, dict):
+        return (isinstance(observed, dict) and expected.keys() == observed.keys()
+                and all(states_match(expected[k], observed[k]) if k not in {'qty'} else
+                        math.isclose(expected[k], observed[k], rel_tol=0, abs_tol=1e-9)
+                        for k in expected))
+    if isinstance(expected, list):
+        return (isinstance(observed, list) and len(expected) == len(observed)
+                and all(states_match(a, b) for a, b in zip(expected, observed, strict=True)))
+    if isinstance(expected, float):
+        return isinstance(observed, (float, int)) and abs(expected - observed) <= 0.005
+    return expected == observed

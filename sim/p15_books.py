@@ -508,6 +508,17 @@ def _split_factor(
     return math.prod(float(row[0]) for row in rows)
 
 
+def spy_reinvestment_quantity(cash: float, fill_px: float, cost_profile: str,
+                              fill_date: date) -> float:
+    """The executor and validator share the exact whole-share cash/fee sizing rule."""
+    candidate = float(math.floor(cash / fill_px))
+    fee = costs.charge(
+        cost_profile, side='buy', qty=candidate, price=fill_px, fill_kind='next_open',
+        instrument={'kind': 'stock', 'multiplier': 1.0}, session_date=fill_date,
+    ).total_usd if candidate > 0 else 0.0
+    return float(math.floor(max(cash - fee, 0.0) / fill_px))
+
+
 def _terminal_order(
     con: duckdb.DuckDBPyConnection, intent: tuple, fill_date: date, result,
 ) -> str:
@@ -561,13 +572,7 @@ def _terminal_order(
                 status, reason = "rejected", "name_cap"
         if side == "buy" and ticker == "SPY":
             cash = portfolio.get_cash(con, portfolio_id)
-            candidate_qty = float(math.floor(cash / result.fill_px))
-            estimated_fee = (
-                estimate_fees(candidate_qty, result.fill_px).total_usd
-                if candidate_qty > 0
-                else 0.0
-            )
-            qty = float(math.floor(max(cash - estimated_fee, 0.0) / result.fill_px))
+            qty = spy_reinvestment_quantity(cash, result.fill_px, cost_profile, fill_date)
             if qty > 0:
                 result = fills.attempt_fill(
                     con, ticker, side, qty, signal_date, fill_date, "baseline_v1"
@@ -810,75 +815,7 @@ def _restore_rerun_evidence(con: duckdb.DuckDBPyConnection) -> int:
 
 
 def _rebuild_p15_state(con: duckdb.DuckDBPyConnection) -> None:
-    for book_id in BOOK_IDS:
-        con.execute("DELETE FROM sim_positions WHERE portfolio_id=?", [book_id])
-        con.execute("DELETE FROM sim_position_lots WHERE portfolio_id=?", [book_id])
-        con.execute("UPDATE portfolios SET cash=initial_cash WHERE id=?", [book_id])
-        dates = {row[0] for row in con.execute(
-            "SELECT fill_date FROM sim_fills WHERE portfolio_id=?", [book_id],
-        ).fetchall()}
-        dates.update(row[0] for row in con.execute(
-            "SELECT ex_date FROM sim_dividends WHERE portfolio_id=?", [book_id],
-        ).fetchall())
-        if table_exists(con, "sim_settlements"):
-            dates.update(row[0] for row in con.execute(
-                "SELECT effective FROM sim_settlements WHERE portfolio_id=?", [book_id],
-            ).fetchall())
-        for event_date in sorted(dates):
-            dividend = con.execute(
-                "SELECT COALESCE(SUM(amount),0) FROM sim_dividends "
-                "WHERE portfolio_id=? AND ex_date=?", [book_id, event_date],
-            ).fetchone()[0]
-            con.execute("UPDATE portfolios SET cash=cash+? WHERE id=?", [dividend, book_id])
-            if table_exists(con, "sim_settlements"):
-                from sim.settle import apply_settlement_event
-                for ticker, kind, qty, price, into, ratio in con.execute(
-                    "SELECT ticker,kind,qty,price,into_ticker,ratio FROM sim_settlements "
-                    "WHERE portfolio_id=? AND effective=? ORDER BY ticker",
-                    [book_id, event_date],
-                ).fetchall():
-                    apply_settlement_event(
-                        con, book_id, ticker, kind, float(qty), float(price), into,
-                        None if ratio is None else float(ratio),
-                    )
-            for order_id, ticker, side, qty, fill_px in con.execute(
-                "SELECT order_id,ticker,side,qty,fill_px FROM sim_fills WHERE portfolio_id=? "
-                "AND fill_date=? ORDER BY CASE side WHEN 'sell' THEN 0 ELSE 1 END,order_id",
-                [book_id, event_date],
-            ).fetchall():
-                factor = _split_factor(con, ticker, event_date, date.max)
-                adjusted = float(qty) * factor
-                fee_row = con.execute(
-                    "SELECT cost_profile,commission,exchange_fee,clearing_fee,"
-                    "pass_through,cat_fee,sec_fee,finra_taf,occ_fee,orf_fee,total_usd "
-                    "FROM sim_fill_fees WHERE order_id=?",
-                    [order_id],
-                ).fetchone()
-                fees = None if fee_row is None else dict(zip(
-                    (
-                        "cost_profile", "commission", "exchange_fee", "clearing_fee",
-                        "pass_through", "cat_fee", "sec_fee", "finra_taf",
-                        "occ_fee", "orf_fee", "total_usd",
-                    ),
-                    fee_row,
-                    strict=True,
-                ))
-                applied = ledger.apply_fill(
-                    con,
-                    {
-                        "order_id": order_id,
-                        "portfolio_id": book_id,
-                        "ticker": ticker,
-                        "side": side,
-                        "qty": adjusted,
-                        "fill_px": float(fill_px) / factor,
-                        "fill_date": event_date,
-                    },
-                    fees,
-                    persist_fees=False,
-                )
-                if not math.isclose(applied, adjusted, rel_tol=1e-12, abs_tol=1e-12):
-                    raise P15BookError("P15 fill replay changed applied quantity")
+    ledger.rebuild_state(con, BOOK_IDS)
 
 
 def _mark_exact(

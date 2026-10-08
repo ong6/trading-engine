@@ -2998,3 +2998,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `pytest tests/test_p22_round4.py -k 'creation or bash' -q -W error` passes.
 - **Metrics:** unchanged production LOC outside tests.
 - **Next:** finish shared accounting consumers and revision 14 binding.
+
+## 2026-10-08 — Consolidate P22 accounting and risk consumers
+
+- **Why:** round-4 fail-first tests reproduced all four blockers; the sweep found two more
+  replay loops in P15 recovery and paper attribution.
+- **What:** Shared ledger prefixes now drive cash, historical dividend entitlement and
+  verification of lots and source-marked equity. P15 shares executor sizing, PDT previews
+  share FIFO matching, and late recovery retains recorded resume anchors and halt history.
+  Removed the competing P15 and attribution reconstructions; kept their evidence gates.
+- **Evidence:** `pytest tests/test_p22_round4.py -q -W error` → 23 passed; the affected
+  accounting, legacy-book, attribution and round-2/3 regressions pass.
+- **Metrics:** snapshot pending closure; production code reduced by removing replay loops.
+- **Next:** bind revision 14 and rehearse legacy D0 and revision-13 rollback boundaries.

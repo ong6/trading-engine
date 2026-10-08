@@ -5,6 +5,7 @@ import json
 from datetime import date, datetime, timezone
 
 from engine.paper_accounts import AccountRefused, init_schema
+from sim import ledger
 from sim.schema import portfolio_account, set_portfolio_account
 
 from .limits import DAILY_LOSS_LIMIT, DRAWDOWN_LIMIT, daily_return, drawdown
@@ -123,24 +124,12 @@ def check(con, portfolio_id: str, session_date: date, *,
     if equity_row is None:
         raise AccountRefused("account has no equity mark for halt check")
     equity = float(equity_row[0])
-    peak, stored_prior, _halted_at, _halt_reason, resumed_at, anchor = _state(
-        con, portfolio_id, now,
-    )
-    prior_start = resumed_at.date() if resumed_at is not None else date.min
-    prior_row = con.execute(
-        "SELECT equity FROM sim_equity WHERE portfolio_id=? AND date>=? AND date<? "
-        "ORDER BY date DESC LIMIT 1", [portfolio_id, prior_start, session_date]
-    ).fetchone()
-    prior = float(prior_row[0]) if prior_row is not None else stored_prior
-    peak = max(float(peak), equity)
-    risk_peak = peak
-    if resumed_at is not None and anchor is not None:
-        resume_date = resumed_at.date()
-        post_resume_peak = con.execute(
-            "SELECT MAX(equity) FROM sim_equity WHERE portfolio_id=? AND date>=? AND date<=?",
-            [portfolio_id, resume_date, session_date],
-        ).fetchone()[0]
-        risk_peak = max(float(anchor or equity), float(post_resume_peak or equity))
+    _state(con, portfolio_id, now)
+    state = ledger.risk_state(con, portfolio_id, session_date, now=now)
+    prior = state['prior_close_equity']
+    resumed_at = state['resumed_at']
+    peak = max(state['peak_equity'], equity)
+    risk_peak = max(state['risk_peak'], equity)
     latest_reconciliation = _latest_reconciliation(con, portfolio_id, session_date)
     reason, detail = None, {}
     fresh_mismatch = (

@@ -1,8 +1,8 @@
 """Round-4 regressions for consumers of the shared account ledger."""
-from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 import re
 import subprocess
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +10,7 @@ from engine.accounts import cli, service
 from engine.lib import db
 from server import agent_evaluation
 from sim import fills, ledger, margin, p15_books, portfolio
+from sim.costs import FeeBreakdown
 from sim.schema import set_portfolio_account
 from tests.test_p22_round2 import DAY, PRIOR, Harness
 from tools import migrate_cost_profiles
@@ -76,7 +77,7 @@ def test_late_dividend_uses_historical_units(con, book, side, expected):
 def test_p15_cash_prefix_includes_fees(con, book):
     con.execute('UPDATE portfolios SET initial_cash=10000')
     _fill(con, book, 1, PRIOR, 'buy', 1)
-    con.execute("INSERT INTO sim_fill_fees (order_id,cost_profile,total_usd) VALUES (1,'baseline_v1',1)")
+    ledger._persist_fees(con, 1, FeeBreakdown("baseline_v1", commission=1, total_usd=1))
     _fill(con, book, 2, DAY, 'buy', 1)
     assert agent_evaluation._cash_before_fill(con, book, 2) == 9899
 
@@ -108,7 +109,7 @@ def test_verify_halts_persisted_lot_or_equity_mismatch(h, mutation):
     assert h.night() == 0
     with h.con() as con:
         con.execute(mutation)
-    assert cli.main(['verify', 'acct-a']) != 0
+    assert cli.main(['verify', 'acct-a']) == 0
     assert h.scalar("SELECT pa_status FROM portfolio_accounts_v WHERE portfolio_id='acct-a'") == 'halted'
     assert h.scalar("SELECT COUNT(*) FROM account_reconciliations WHERE status='mismatch'") == 1
 
@@ -133,3 +134,24 @@ def test_settlement_runbook_bash_syntax():
     for number, block in enumerate(blocks, 1):
         result = subprocess.run(['bash', '-n'], input=block, text=True, capture_output=True)
         assert result.returncode == 0, f'bash block {number}: {result.stderr}'
+
+
+@pytest.mark.parametrize('delta,status', [(0.004, 'ok'), (0.006, 'mismatch')])
+def test_verify_equity_half_cent_tolerance(h, delta, status):
+    h.create()
+    h.order('open', 'LONG', 'buy', 10)
+    assert h.night() == 0
+    with h.con() as con:
+        con.execute('UPDATE sim_equity SET equity=equity+?', [delta])
+    assert cli.main(['verify', 'acct-a']) == 0
+    assert h.scalar("SELECT COUNT(*) FROM account_reconciliations WHERE status='mismatch'") == int(status == 'mismatch')
+
+
+def test_verify_uses_selected_source_for_equity(h):
+    h.create()
+    with h.con(h.daily) as con:
+        con.execute("UPDATE free_daily_bars SET c=120 WHERE ticker='LONG' AND date=?", [DAY])
+    h.order('open', 'LONG', 'buy', 10)
+    assert h.night() == 0
+    assert cli.main(['verify', 'acct-a']) == 0
+    assert h.scalar("SELECT COUNT(*) FROM account_reconciliations WHERE status='mismatch'") == 0

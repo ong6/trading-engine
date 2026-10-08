@@ -86,7 +86,8 @@ def _execute(args, con, now: datetime):
     if args.command == "results":
         return results.build(con, args.account_id)
     if args.command == "verify":
-        return service.verify(con, args.account_id)
+        with account_sources.production_sources(con):
+            return service.verify(con, args.account_id)
     if args.command == "settle":
         return _settle(con, session_date=args.date, late=args.late)
     raise AssertionError(args.command)
