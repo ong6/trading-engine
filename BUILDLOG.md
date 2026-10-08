@@ -2751,4 +2751,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged; product unchanged.
 - **Next:** run the full suite, then repin P15 revision 13 without changing its contract values.
 
+## 2026-10-08 — Repin P15 revision 13 after lifecycle correction
+
+- **Why:** the lifecycle fix changes registered execution dependencies; the goal requires the
+  source/closure gate green while leaving P15 at revision 13 for the orchestrator's later rebase.
+- **What:** Add the now-required account service and source-attachment modules to the closure and
+  refresh source file digests, source commit and registration self-hash only. Revision, scoring,
+  labels, gates, schedules and book parameters are unchanged.
+- **Evidence:** `.venv/bin/python -m pytest -o addopts='' -q -W error
+  tests/test_p15_registration.py -vv` — 5 passed.
+- **Metrics:** server/tools/product unchanged.
+- **Next:** run the full UTC and Asia/Singapore suites on the pinned bytes.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
