@@ -45,8 +45,7 @@ def _write_connection() -> Iterator[duckdb.DuckDBPyConnection]:
     try:
         with _WRITER_LOCK:
             with _connection(_write_con) as con:
-                with account_sources.production_sources(con):
-                    yield con
+                yield con
     except duckdb.TransactionException as exc:
         raise HTTPException(503, "account writer contention; retry",
                             headers={"Retry-After": "1"}) from exc
@@ -170,7 +169,8 @@ def submit_order(account_id: str, body: dict,
     if body.get("account_id") != account_id:
         raise HTTPException(422, "path and intent account identifiers differ")
     with _write_connection() as con:
-        return _invoke(service.submit, con, body, received_at=received_at)
+        with account_sources.production_sources(con, tickers=[body.get("instrument_id", "")]):
+            return _invoke(service.submit, con, body, received_at=received_at)
 
 
 @router.post("/{account_id}/orders/{order_id}/cancel")
