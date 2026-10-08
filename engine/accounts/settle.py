@@ -5,14 +5,17 @@ import json
 import math
 from contextlib import nullcontext
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import duckdb
 
 from engine.accounts import account_portfolios
+from engine.accounts import service as account_service
 from engine.lib import db
 from engine.lib.util import table_exists
+from engine.money import alerts, allocation, halts
+from engine.paper_accounts import AccountRefused
 from sim import bar_sources, fills, ledger, margin, portfolio, shorts
 from sim.costs import charge
 
@@ -285,24 +288,50 @@ def _mark_account(
     day: date,
     price_source: str,
     available_at: datetime,
-) -> None:
+) -> dict[str, Any]:
+    """Persist one source-aware mark, carrying rather than erasing liabilities."""
     cash = portfolio.get_cash(con, portfolio_id)
     market_value = 0.0
     count = 0
+    carried: list[str] = []
     for ticker, qty in con.execute(
         "SELECT ticker,qty FROM sim_positions WHERE portfolio_id=? AND qty<>0",
         [portfolio_id],
     ).fetchall():
-        close = bar_sources.latest_close(
+        current = bar_sources.daily_bar(
             con, ticker, day, source=price_source, available_at=available_at,
         )
-        if close is not None:
-            market_value += float(qty) * close
+        close = current.close if current is not None else None
+        if close is None:
+            previous = bar_sources.latest_close_observation(
+                con, ticker, day, source=price_source, available_at=available_at,
+            )
+            close = None if previous is None else previous[1]
+            if close is None:
+                row = con.execute(
+                    "SELECT f.fill_px FROM sim_fills f "
+                    "LEFT JOIN sim_fill_details d ON d.order_id=f.order_id "
+                    "WHERE f.portfolio_id=? AND f.ticker=? "
+                    "ORDER BY COALESCE(d.fill_ts,CAST(f.fill_date AS TIMESTAMP)) DESC,"
+                    "f.order_id DESC LIMIT 1", [portfolio_id, ticker],
+                ).fetchone()
+                close = None if row is None else float(row[0])
+            if close is None:
+                raise RuntimeError(f"no carry mark for {portfolio_id} {ticker}")
+            carried.append(ticker)
+            _record_account_event(
+                con, portfolio_id, "stale_mark",
+                {"instrument_id": ticker, "session_date": day.isoformat(),
+                 "price_source": price_source, "carried_price": close},
+                available_at,
+            )
+        market_value += float(qty) * close
         count += 1
     con.execute(
         "INSERT OR REPLACE INTO sim_equity VALUES (?,?,?,?,?)",
         [portfolio_id, day, cash + market_value, cash, count],
     )
+    return {"equity": cash + market_value, "cash": cash, "carried": sorted(carried)}
 
 
 def _pending_rows(con: duckdb.DuckDBPyConnection) -> list[dict[str, Any]]:
@@ -320,9 +349,223 @@ def _pending_rows(con: duckdb.DuckDBPyConnection) -> list[dict[str, Any]]:
         "JOIN sim_order_details d ON d.order_id=o.id "
         "JOIN portfolios p ON p.id=o.portfolio_id "
         "WHERE o.status='pending' AND d.state='queued' "
-        "ORDER BY d.received_at,o.id"
+        "ORDER BY o.id"
     ).fetchall()
     return [dict(zip(names, row, strict=True)) for row in rows]
+
+
+def _due(con, row: dict[str, Any], day: date, late: bool) -> bool:
+    if row["order_type"] == "next_open":
+        if row["signal_date"] >= day:
+            return False
+    elif row["session_date"] != day:
+        return False
+    if not late:
+        return True
+    if _special_reason(row["state_reason"], "bar_missing"):
+        return True
+    return bool(
+        row["contingent_on"] is not None
+        and con.execute(
+            "SELECT 1 FROM sim_fills WHERE order_id=?", [row["contingent_on"]]
+        ).fetchone()
+    )
+
+
+def _execution_key(row: dict[str, Any], result: fills.FillResult, day: date) -> tuple:
+    if result.fill_ts is not None:
+        execution = result.fill_ts
+    else:
+        opened, closed = bar_sources.session_bounds(day)
+        execution = (
+            opened if row["order_type"] in {"next_open", "moo"}
+            else closed if row["order_type"] == "moc"
+            else _utc_naive(row["received_at"]) + timedelta(minutes=1)
+        )
+    return execution, _utc_naive(row["received_at"]), row["order_id"]
+
+
+def _liquidity_refusals(con, day: date, prepared) -> set[int]:
+    used = _existing_notional(con, day)
+    refused: set[int] = set()
+    for row, result in prepared:
+        if result.status != "filled" or result.reference_px is None:
+            continue
+        key = (row["ticker"], _direction(row["side"]))
+        notional = float(row["qty"]) * float(result.reference_px)
+        cap = None if result.median_dollar_vol is None else result.median_dollar_vol * 0.01
+        if cap is not None and used.get(key, 0.0) + notional > cap + 1e-9:
+            refused.add(row["order_id"])
+            continue
+        used[key] = used.get(key, 0.0) + notional
+    return refused
+
+
+def _is_forced(row: dict[str, Any]) -> bool:
+    return any(
+        _special_reason(row["state_reason"], reason)
+        for reason in ("buy_in", "margin_call", "retirement")
+    )
+
+
+def _settle_order(
+    con,
+    row: dict[str, Any],
+    result: fills.FillResult,
+    settings: dict[str, Any],
+    day: date,
+    now: datetime,
+    late: bool,
+    short_con,
+    liquidity_refusals: set[int],
+    execution_keys: dict[int, tuple],
+) -> str:
+    if (
+        row["instrument_kind"] not in {"stock", "etf"}
+        or row["parent_order_id"] is not None
+        or row["leg_no"] is not None
+        or row["leg_ratio"] is not None
+    ):
+        _state(con, row["order_id"], "rejected", "instrument_not_executable", now)
+        return "rejected"
+    if settings["status"] in {"halted", "retiring"} and not _is_forced(row):
+        _state(con, row["order_id"], "cancelled", settings["status"], now)
+        return "rejected"
+    contingent, contingent_qty = _contingent_quantity(con, row["contingent_on"])
+    if contingent == "failed":
+        _state(con, row["order_id"], "rejected", "contingent_not_filled", now)
+        return "rejected"
+    if contingent == "pending":
+        parent_key = execution_keys.get(row["contingent_on"])
+        if parent_key is not None and parent_key > execution_keys[row["order_id"]]:
+            _state(con, row["order_id"], "rejected", "contingent_parent_later", now)
+            return "rejected"
+        _missing_bar(con, row["order_id"], row["state_reason"], now)
+        return "pending"
+    if contingent_qty is not None:
+        row["qty"] = contingent_qty
+    row["qty"] = _available_close_quantity(
+        con, row["portfolio_id"], row["ticker"], row["side"], row["qty"],
+    )
+    if row["qty"] <= 0:
+        _state(con, row["order_id"], "rejected", "no_position", now)
+        return "rejected"
+    if row["side"] == "short":
+        if not settings["allow_short"]:
+            _state(con, row["order_id"], "rejected", "short_not_allowed", now)
+            return "rejected"
+        if not shorts.short_data_available(short_con):
+            _record_account_event(
+                con, row["portfolio_id"], "locate_unavailable",
+                {"instrument_id": row["ticker"], "session_date": day.isoformat()}, now,
+            )
+            _state(con, row["order_id"], "rejected", "locate_unavailable", now)
+            return "rejected"
+        locate = shorts.locate(
+            short_con, row["ticker"], day, market_con=con,
+            price_source=settings["price_source"], available_at=now,
+        )
+        if locate.data_stale:
+            _record_account_event(
+                con, row["portfolio_id"], "locate_data_stale",
+                {"instrument_id": row["ticker"], "session_date": day.isoformat()}, now,
+            )
+        if not locate.available:
+            _state(con, row["order_id"], "rejected", "no_locate", now)
+            return "rejected"
+    if result.status == "pending":
+        _missing_bar(con, row["order_id"], row["state_reason"], now)
+        return "pending"
+    if result.status in {"rejected", "expired"}:
+        state = "expired" if result.status == "expired" else "rejected"
+        _state(con, row["order_id"], state, result.reject_reason, now)
+        return state
+    if row["order_id"] in liquidity_refusals:
+        _state(con, row["order_id"], "rejected", "illiquid_aggregate", now)
+        return "rejected"
+    forced = _is_forced(row)
+    pdt = margin.pdt_check(
+        con, row["portfolio_id"], row["ticker"], row["side"], row["qty"], day,
+        price=result.fill_px, price_source=settings["price_source"],
+        as_of=result.fill_ts, available_at=now,
+    )
+    if not forced and not pdt.allowed:
+        _state(con, row["order_id"], "rejected", pdt.reason, now)
+        return "rejected"
+    day_trade_open = margin.matched_day_trade_open(
+        con, row["portfolio_id"], row["ticker"], row["side"], row["qty"], day,
+    )
+    fee = charge(
+        settings["cost_profile"], side=row["side"], qty=row["qty"],
+        price=result.fill_px, fill_kind=result.fill_kind,
+        instrument={"kind": row["instrument_kind"], "multiplier": 1.0},
+        session_date=day,
+    )
+    applied_qty = _cash_quantity(
+        con, settings, row["portfolio_id"], row["side"], row["qty"],
+        result.fill_px, fee.total_usd,
+    )
+    if applied_qty * result.fill_px < ledger.MIN_FILL_USD:
+        _state(con, row["order_id"], "rejected", "ledger_refused", now)
+        return "rejected"
+    if not math.isclose(applied_qty, row["qty"], rel_tol=1e-12, abs_tol=1e-12):
+        row["qty"] = applied_qty
+        result = replace(
+            result,
+            participation=(
+                0.0 if not result.median_dollar_vol
+                else applied_qty * result.reference_px / result.median_dollar_vol
+            ),
+        )
+        fee = charge(
+            settings["cost_profile"], side=row["side"], qty=row["qty"],
+            price=result.fill_px, fill_kind=result.fill_kind,
+            instrument={"kind": row["instrument_kind"], "multiplier": 1.0},
+            session_date=day,
+        )
+    projected = margin.margin_state(
+        con, row["portfolio_id"], day,
+        projected=(row["ticker"], row["side"], row["qty"], result.fill_px),
+        fees=fee.total_usd, price_source=settings["price_source"],
+        as_of=result.fill_ts, available_at=now,
+    )
+    gross_cap = _max_gross_fraction(con, row["portfolio_id"])
+    if not forced and row["side"] in {"buy", "short"} and projected.initial_excess < -1e-9:
+        _state(con, row["order_id"], "rejected", "reg_t_initial", now)
+        return "rejected"
+    if (
+        not forced
+        and row["side"] in {"buy", "short"}
+        and projected.long_market_value + projected.short_market_value
+        > projected.equity * gross_cap + 1e-9
+    ):
+        _state(con, row["order_id"], "rejected", "gross_cap", now)
+        return "rejected"
+    if not forced and row["side"] in {"buy", "short"}:
+        try:
+            allocation.require_execution_capacity(
+                con, row["portfolio_id"], row["ticker"], row["side"], row["qty"],
+                result.fill_px, day, available_at=now,
+            )
+        except AccountRefused as exc:
+            _state(con, row["order_id"], "rejected", str(exc), now)
+            return "rejected"
+    applied = _persist_fill(con, row, result, fee, day, now, late)
+    if not math.isclose(applied, row["qty"], rel_tol=1e-12, abs_tol=1e-12):
+        raise RuntimeError("ledger changed the prevalidated account fill quantity")
+    _state(con, row["order_id"], "filled", row["state_reason"], now)
+    margin.record_day_trade(
+        con, row["portfolio_id"], row["ticker"], row["order_id"], row["side"], day,
+        open_order_id=day_trade_open,
+    )
+    if _special_reason(row["state_reason"], "buy_in"):
+        ledger.apply_cash_event(con, {
+            "portfolio_id": row["portfolio_id"], "event_date": day,
+            "kind": "buy_in_penalty", "amount": 0.0,
+            "instrument_id": row["ticker"], "ref_order_id": row["order_id"],
+            "note": f"{shorts.BUY_IN_PENALTY_BPS:g} bp in fill price",
+        })
+    return "filled"
 
 
 def settle_session(
@@ -335,199 +578,117 @@ def settle_session(
     manage_transactions: bool = True,
     portfolio_id: str | None = None,
 ) -> dict[str, Any]:
-    """Settle every due account order once, in global receipt order."""
+    """Run one chronological, source-aware, atomic lifecycle per account."""
     now = settled_at or datetime.now(timezone.utc)
     if now.utcoffset() is None:
         now = now.replace(tzinfo=timezone.utc)
     settings_by_id = {
-        row["portfolio_id"]: row for row in account_portfolios(con)
+        row["portfolio_id"]: row for row in account_portfolios(con, active_only=False)
+        if row["status"] in {"active", "halted", "retiring"}
         if portfolio_id is None or row["portfolio_id"] == portfolio_id
     }
-    used = _existing_notional(con, day)
+    rows = [
+        row for row in _pending_rows(con)
+        if row["portfolio_id"] in settings_by_id and _due(con, row, day, late)
+    ]
+    prepared = [
+        (row, _fill_attempt(con, row, settings_by_id[row["portfolio_id"]], day, now))
+        for row in rows
+    ]
+    prepared.sort(key=lambda item: _execution_key(item[0], item[1], day))
+    execution_keys = {
+        row["order_id"]: _execution_key(row, result, day) for row, result in prepared
+    }
+    liquidity_refusals = _liquidity_refusals(con, day, prepared)
+    by_account: dict[str, list[tuple[dict[str, Any], fills.FillResult]]] = {
+        account_id: [] for account_id in settings_by_id
+    }
+    for item in prepared:
+        by_account[item[0]["portfolio_id"]].append(item)
+    account_order = sorted(
+        settings_by_id,
+        key=lambda account_id: (
+            execution_keys[by_account[account_id][0][0]["order_id"]]
+            if by_account[account_id] else (datetime.max, datetime.max, account_id)
+        ),
+    )
     counts = {"filled": 0, "rejected": 0, "expired": 0, "pending": 0}
     affected: set[str] = set()
-    for row in _pending_rows(con):
-        settings = settings_by_id.get(row["portfolio_id"])
-        if settings is None:
-            continue
-        if late and not _special_reason(row["state_reason"], "bar_missing"):
-            parent_filled = (
-                row["contingent_on"] is not None
-                and con.execute(
-                    "SELECT 1 FROM sim_fills WHERE order_id=?", [row["contingent_on"]]
-                ).fetchone() is not None
-            )
-            if not parent_filled:
-                continue
-        if row["order_type"] == "next_open":
-            if row["signal_date"] >= day:
-                continue
-        elif row["session_date"] != day:
-            continue
-        if (
-            row["instrument_kind"] not in {"stock", "etf"}
-            or row["parent_order_id"] is not None
-            or row["leg_no"] is not None
-            or row["leg_ratio"] is not None
-        ):
-            _state(con, row["order_id"], "rejected", "instrument_not_executable", now)
-            counts["rejected"] += 1
-            continue
-        contingent, contingent_qty = _contingent_quantity(con, row["contingent_on"])
-        if contingent == "failed":
-            _state(con, row["order_id"], "rejected", "contingent_not_filled", now)
-            counts["rejected"] += 1
-            continue
-        if contingent == "pending":
-            _missing_bar(con, row["order_id"], row["state_reason"], now)
-            counts["pending"] += 1
-            continue
-        if contingent_qty is not None:
-            row["qty"] = contingent_qty
-        row["qty"] = _available_close_quantity(
-            con, row["portfolio_id"], row["ticker"], row["side"], row["qty"],
-        )
-        if row["qty"] <= 0:
-            _state(con, row["order_id"], "rejected", "no_position", now)
-            counts["rejected"] += 1
-            continue
-        if row["side"] == "short":
-            if not settings["allow_short"]:
-                _state(con, row["order_id"], "rejected", "short_not_allowed", now)
-                counts["rejected"] += 1
-                continue
-            if not shorts.short_data_available(short_con):
-                _record_account_event(
-                    con, row["portfolio_id"], "locate_unavailable",
-                    {"instrument_id": row["ticker"], "session_date": day.isoformat()},
-                    now,
-                )
-                _state(con, row["order_id"], "rejected", "locate_unavailable", now)
-                counts["rejected"] += 1
-                continue
-            locate = shorts.locate(
-                short_con, row["ticker"], day, market_con=con,
-                price_source=settings["price_source"], available_at=now,
-            )
-            if locate.data_stale:
-                _record_account_event(
-                    con, row["portfolio_id"], "locate_data_stale",
-                    {"instrument_id": row["ticker"], "session_date": day.isoformat()},
-                    now,
-                )
-            if not locate.available:
-                _state(con, row["order_id"], "rejected", "no_locate", now)
-                counts["rejected"] += 1
-                continue
-        result = _fill_attempt(con, row, settings, day, now)
-        if result.status == "pending":
-            _missing_bar(con, row["order_id"], row["state_reason"], now)
-            counts["pending"] += 1
-            continue
-        if result.status in {"rejected", "expired"}:
-            state = "expired" if result.status == "expired" else "rejected"
-            _state(con, row["order_id"], state, result.reject_reason, now)
-            counts[state] += 1
-            continue
-        pdt = margin.pdt_check(
-            con, row["portfolio_id"], row["ticker"], row["side"], row["qty"], day,
-            price=result.fill_px, price_source=settings["price_source"],
-            as_of=result.fill_ts, available_at=now,
-        )
-        if not pdt.allowed:
-            _state(con, row["order_id"], "rejected", pdt.reason, now)
-            counts["rejected"] += 1
-            continue
-        day_trade_open = margin.matched_day_trade_open(
-            con, row["portfolio_id"], row["ticker"], row["side"], row["qty"], day,
-        )
-        fee = charge(
-            settings["cost_profile"], side=row["side"], qty=row["qty"],
-            price=result.fill_px, fill_kind=result.fill_kind,
-            instrument={"kind": row["instrument_kind"], "multiplier": 1.0},
-            session_date=day,
-        )
-        applied_qty = _cash_quantity(
-            con, settings, row["portfolio_id"], row["side"], row["qty"],
-            result.fill_px, fee.total_usd,
-        )
-        if applied_qty * result.fill_px < ledger.MIN_FILL_USD:
-            _state(con, row["order_id"], "rejected", "ledger_refused", now)
-            counts["rejected"] += 1
-            continue
-        if not math.isclose(applied_qty, row["qty"], rel_tol=1e-12, abs_tol=1e-12):
-            row["qty"] = applied_qty
-            result = replace(
-                result,
-                participation=(
-                    0.0 if not result.median_dollar_vol
-                    else applied_qty * result.reference_px / result.median_dollar_vol
-                ),
-            )
-            fee = charge(
-                settings["cost_profile"], side=row["side"], qty=row["qty"],
-                price=result.fill_px, fill_kind=result.fill_kind,
-                instrument={"kind": row["instrument_kind"], "multiplier": 1.0},
-                session_date=day,
-            )
-        key = (row["ticker"], _direction(row["side"]))
-        notional = row["qty"] * result.reference_px
-        cap = None if result.median_dollar_vol is None else (
-            result.median_dollar_vol * 0.01
-        )
-        if cap is not None and used.get(key, 0.0) + notional > cap + 1e-9:
-            _state(con, row["order_id"], "rejected", "illiquid_aggregate", now)
-            counts["rejected"] += 1
-            continue
-        projected = margin.margin_state(
-            con, row["portfolio_id"], day,
-            projected=(row["ticker"], row["side"], row["qty"], result.fill_px),
-            fees=fee.total_usd, price_source=settings["price_source"],
-            as_of=result.fill_ts, available_at=now,
-        )
-        gross_cap = _max_gross_fraction(con, row["portfolio_id"])
-        if row["side"] in {"buy", "short"} and projected.initial_excess < -1e-9:
-            _state(con, row["order_id"], "rejected", "reg_t_initial", now)
-            counts["rejected"] += 1
-            continue
-        if (
-            row["side"] in {"buy", "short"}
-            and projected.long_market_value + projected.short_market_value
-            > projected.equity * gross_cap + 1e-9
-        ):
-            _state(con, row["order_id"], "rejected", "gross_cap", now)
-            counts["rejected"] += 1
-            continue
+    completed: list[str] = []
+    errors: dict[str, dict[str, str]] = {}
+    carried: dict[str, list[str]] = {}
+    recovered: list[str] = []
+    for account_id in account_order:
+        settings = settings_by_id[account_id]
+        local = {key: 0 for key in counts}
+        has_unmarked_fill = bool(con.execute(
+            "SELECT 1 FROM sim_fills f LEFT JOIN sim_equity e "
+            "ON e.portfolio_id=f.portfolio_id AND e.date=f.fill_date "
+            "WHERE f.portfolio_id=? AND f.fill_date=? AND e.portfolio_id IS NULL LIMIT 1",
+            [account_id, day],
+        ).fetchone())
         transaction = db.transaction(con) if manage_transactions else nullcontext()
-        with transaction:
-            applied = _persist_fill(con, row, result, fee, day, now, late)
-            if not math.isclose(applied, row["qty"], rel_tol=1e-12, abs_tol=1e-12):
-                raise RuntimeError("ledger changed the prevalidated account fill quantity")
-            _state(con, row["order_id"], "filled", row["state_reason"], now)
-            margin.record_day_trade(
-                con, row["portfolio_id"], row["ticker"], row["order_id"],
-                row["side"], day, open_order_id=day_trade_open,
-            )
-            if _special_reason(row["state_reason"], "buy_in"):
-                ledger.apply_cash_event(con, {
-                    "portfolio_id": row["portfolio_id"], "event_date": day,
-                    "kind": "buy_in_penalty", "amount": 0.0,
-                    "instrument_id": row["ticker"], "ref_order_id": row["order_id"],
-                    "note": f"{shorts.BUY_IN_PENALTY_BPS:g} bp in fill price",
-                })
-        used[key] = used.get(key, 0.0) + applied * result.reference_px
-        affected.add(row["portfolio_id"])
-        counts["filled"] += 1
-    if late:
-        for portfolio_id in sorted(affected):
-            _mark_account(
-                con, portfolio_id, day, settings_by_id[portfolio_id]["price_source"],
-                now,
-            )
+        try:
+            with transaction:
+                shorts.accrue_borrow(con, day, portfolio_id=account_id)
+                margin.accrue_interest(con, day, portfolio_id=account_id)
+                for row, result in by_account[account_id]:
+                    state = _settle_order(
+                        con, row, result, settings, day, now, late, short_con,
+                        liquidity_refusals, execution_keys,
+                    )
+                    local[state] += 1
+                should_mark = not late or local["filled"] > 0 or has_unmarked_fill
+                if should_mark:
+                    mark = _mark_account(
+                        con, account_id, day, settings["price_source"], now,
+                    )
+                    if mark["carried"]:
+                        carried[account_id] = mark["carried"]
+                    if has_unmarked_fill and local["filled"] == 0:
+                        recovered.append(account_id)
+                    verification = account_service.verify(
+                        con, account_id, session_date=day, now=now,
+                        manage_transaction=False,
+                    )
+                    if verification["status"] == "ok" and settings["status"] == "active":
+                        halts.check(con, account_id, day, now=now)
+                    margin.check_maintenance(con, day, portfolio_id=account_id)
+                if short_con is not None:
+                    shorts.queue_buy_ins(
+                        con, short_con, day, portfolio_id=account_id,
+                    )
+                account_service.finalize_retirement(con, account_id, now=now)
+                alerts.concentration(con, day, now=now, portfolio_id=account_id)
+            for key, value in local.items():
+                counts[key] += value
+            if local["filled"]:
+                affected.add(account_id)
+            completed.append(account_id)
+        except Exception as exc:
+            errors[account_id] = {
+                "exception_type": type(exc).__name__, "message": str(exc)[:1000],
+            }
+            if not manage_transactions:
+                raise
+            try:
+                with db.transaction(con):
+                    _record_account_event(
+                        con, account_id, "settlement_error",
+                        {"code": "settlement_error", "session_date": day.isoformat(),
+                         "exception_type": type(exc).__name__, "message": str(exc)[:1000]},
+                        now,
+                    )
+            except Exception:
+                pass
     return {
         **counts,
         "late_settled": counts["filled"] if late else 0,
         "affected_accounts": sorted(affected),
+        "recovered_marks": sorted(recovered),
+        "completed": completed,
+        "errors": errors,
+        "carried": carried,
     }
 
 

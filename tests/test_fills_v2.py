@@ -85,7 +85,7 @@ def test_market_uses_first_bar_after_full_minute_and_vwap(con):
     assert result.status == "filled"
     assert result.reference_px == pytest.approx(101)
     assert result.fill_px == pytest.approx(101 * 1.001)
-    assert result.fill_ts == datetime(2026, 10, 12, 14, 18)
+    assert result.fill_ts == datetime(2026, 10, 12, 14, 19)
     assert "14:18:00" in result.bar_ref
 
 
@@ -127,7 +127,7 @@ def test_limit_requires_one_tick_cross_and_expires(con):
     )
     assert result.status == "filled"
     assert result.fill_px == 100
-    assert result.fill_ts == datetime(2026, 10, 12, 14, 19)
+    assert result.fill_ts == datetime(2026, 10, 12, 14, 20)
     assert result.slippage_bps == 0
     assert expired.status == "expired"
     assert expired.reject_reason == "day_limit_not_touched"

@@ -424,7 +424,8 @@ def _contingent_parent(con, intent: dict, session_date: date, quantity: float) -
     if parent_intent is None:
         return None
     row = con.execute(
-        "SELECT i.order_id,i.account_id,o.ticker,o.side,o.qty,o.signal_date,o.status,d.state "
+        "SELECT i.order_id,i.account_id,o.ticker,o.side,o.qty,o.signal_date,o.status,d.state,"
+        "d.order_type,d.received_at "
         "FROM paper_account_intakes i JOIN sim_orders o ON o.id=i.order_id "
         "LEFT JOIN sim_order_details d ON d.order_id=o.id WHERE i.intent_id=?",
         [parent_intent],
@@ -445,6 +446,11 @@ def _contingent_parent(con, intent: dict, session_date: date, quantity: float) -
         raise AccountRefused("contingent parent is not queued")
     if quantity > float(row[4]):
         raise AccountRefused("contingent child exceeds parent quantity")
+    phase = {"moo": 0, "market": 1, "limit": 1, "moc": 2, "next_open": 3}
+    parent_phase = phase.get(row[8])
+    child_phase = phase.get(intent["order_type"])
+    if parent_phase is None or child_phase is None or parent_phase > child_phase:
+        raise AccountRefused("contingent parent executes later than child")
     return int(row[0])
 
 
@@ -555,7 +561,7 @@ def submit_intent(con, intent: dict, *, now: datetime) -> dict:
             return json.loads(previous[4])
         session_date, quantity = validate_intent(intent, spec, received_at)
         status = sim_schema.portfolio_account(con, spec["account_id"])["status"]
-        if status in {"halted", "retired"}:
+        if status in {"halted", "retiring", "retired"}:
             raise AccountRefused(status)
         if spec["schema_version"] == 2 and (
             intent["instrument_kind"] not in EXECUTABLE_INSTRUMENTS or intent["legs"]
