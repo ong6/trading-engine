@@ -2907,3 +2907,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
   cash delisting recovery restored shares and lost $10,000; flat days tripled interest.
 - **Metrics:** production LOC unchanged.
 - **Next:** replace parallel accounting reconstruction with the shared chronological ledger path.
+
+## 2026-10-08 — Share chronological account replay and lot performance
+
+- **Why:** active P22 round 3; the committed regressions reproduced delisting reversal,
+  future-close borrow financing, flat-day interest and split-corrupted trade results.
+- **What:** one ledger event sequence now merges actions, financing and timestamped executions.
+  Late recovery uses every event type and rolls back failed verification; results replay the same
+  matched-lot accounting on an isolated in-memory copy. Borrow uses the opening observation
+  boundary; zero-interest events advance the debit checkpoint. Removed both parallel reconstructions.
+- **Evidence:** `.venv/bin/python -m pytest -q -n 4 tests/test_p22_round2.py tests/test_p22_round3.py tests/test_shorts.py tests/test_paper_accounts.py tests/test_migrate_cost_profiles.py` — 76 passed.
+- **Metrics:** production LOC reduced; final snapshot follows verification.
+- **Next:** finish admission and migration corrections, then rehearse deployment and rollback.

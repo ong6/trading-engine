@@ -264,6 +264,7 @@ def accrue_borrow(
 
         close = valuation.mark(
             con, portfolio_id, ticker, day, price_source=settings['price_source'],
+            as_of=bar_sources.session_bounds(day)[0],
         ).price if qty else 0.0
         if days is not None:
             portions = [(abs(float(qty)), days)]
@@ -300,6 +301,7 @@ def accrue_borrow(
             "portfolio_id": portfolio_id,
             "event_date": day,
             "kind": "borrow_fee",
+            "created_at": bar_sources.session_bounds(day)[0],
             "amount": -fee,
             "instrument_id": ticker,
             "note": f"up to {charged_days} calendar day(s)",

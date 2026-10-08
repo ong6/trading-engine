@@ -537,6 +537,44 @@ def _settle_order(
     return "filled"
 
 
+def _session_accounting(con, account_id, day, now, replay, prepared, settings, late,
+                        short_con, liquidity_refusals, execution_keys, counts):
+    """Merge recorded events and newly executable work in the ledger's order."""
+    sequence = ledger.events(con, [account_id], since=day, through=day) if replay else []
+    sequence = [event for event in sequence if not (
+        event.kind == 'cash' and event.row['kind'] in {'borrow_fee', 'margin_interest'})]
+    opened = bar_sources.session_bounds(day)[0]
+    operations = [
+        (opened, 0, -1, lambda: actions.apply_splits(
+            con, account_id, day, now, _record_account_event)),
+        (opened, 1, -1, lambda: portfolio.credit_dividends(con, day, portfolio_id=account_id)),
+        (opened, 3, 0, lambda: shorts.accrue_borrow(con, day, portfolio_id=account_id, replay=replay)),
+        (opened, 3, 1, lambda: margin.accrue_interest(con, day, portfolio_id=account_id, replay=replay)),
+    ]
+
+    def execute(row):
+        qty, limit_px = con.execute(
+            'SELECT o.qty,d.limit_px FROM sim_orders o JOIN sim_order_details d '
+            'ON d.order_id=o.id WHERE o.id=?', [row['order_id']],
+        ).fetchone()
+        row['qty'], row['limit_px'] = float(qty), limit_px
+        result = _fill_attempt(con, row, settings, day, now)
+        state = _settle_order(con, row, result, settings, day, now, late, short_con,
+                              liquidity_refusals, execution_keys)
+        counts[state] += 1
+
+    from functools import partial
+
+    for row, _result in prepared:
+        operations.append((execution_keys[row['order_id']][0], 4, row['order_id'],
+                           partial(execute, row)))
+    for stamp, phase, seq, operation in operations:
+        sequence.append(ledger.LedgerEvent(stamp, phase, (account_id, 0, seq),
+                                          'operation', {'run': operation}))
+    for event in sorted(sequence, key=lambda event: event.key):
+        ledger.apply_event(con, event)
+
+
 def settle_session(
     con: duckdb.DuckDBPyConnection,
     day: date,
@@ -604,45 +642,9 @@ def settle_session(
                 sources.require_sources(con, settings, [row for row, _ in by_account[account_id]])
                 if replay:
                     ledger.rebuild_state(con, [account_id], through=day - timedelta(days=1))
-                    dividends = con.execute(
-                        'SELECT COALESCE(SUM(amount),0) FROM sim_dividends '
-                        'WHERE portfolio_id=? AND ex_date=?', [account_id, day],
-                    ).fetchone()[0]
-                    con.execute('UPDATE portfolios SET cash=cash+? WHERE id=?',
-                                [dividends, account_id])
-                actions.apply_splits(con, account_id, day, now, _record_account_event, replay=replay)
-                # Splits can change queued quantities and limits after preparation.
-                for row, _result in by_account[account_id]:
-                    qty, limit_px = con.execute(
-                        'SELECT o.qty,d.limit_px FROM sim_orders o JOIN sim_order_details d '
-                        'ON d.order_id=o.id WHERE o.id=?', [row['order_id']],
-                    ).fetchone()
-                    row['qty'], row['limit_px'] = float(qty), limit_px
-                portfolio.credit_dividends(con, day, portfolio_id=account_id)
-                shorts.accrue_borrow(con, day, portfolio_id=account_id, replay=replay)
-                margin.accrue_interest(con, day, portfolio_id=account_id, replay=replay)
-                stored = ledger.replay_session_fills(con, account_id, day) if replay else []
-                for row, result in by_account[account_id]:
-                    while stored and (stored[0]['fill_ts'], stored[0]['order_id']) < (
-                        execution_keys[row['order_id']][0], row['order_id'],
-                    ):
-                        ledger.apply_stored_fill(con, stored.pop(0))
-                    result = _fill_attempt(con, row, settings, day, now)
-                    state = _settle_order(
-                        con, row, result, settings, day, now, late, short_con,
-                        liquidity_refusals, execution_keys,
-                    )
-                    local[state] += 1
-                for old_fill in stored:
-                    ledger.apply_stored_fill(con, old_fill)
-                if replay:
-                    other_cash = con.execute(
-                        'SELECT COALESCE(SUM(amount),0) FROM sim_cash_events '
-                        "WHERE portfolio_id=? AND event_date=? AND kind NOT IN ('borrow_fee','margin_interest')",
-                        [account_id, day],
-                    ).fetchone()[0]
-                    con.execute('UPDATE portfolios SET cash=cash+? WHERE id=?',
-                                [other_cash, account_id])
+                _session_accounting(con, account_id, day, now, replay,
+                                    by_account[account_id], settings, late, short_con,
+                                    liquidity_refusals, execution_keys, local)
                 should_mark = True
                 if should_mark:
                     mark = _mark_account(
@@ -656,6 +658,8 @@ def settle_session(
                         con, account_id, session_date=day, now=now,
                         manage_transaction=False,
                     )
+                    if replay and verification["status"] != "ok":
+                        raise RuntimeError('ledger reconstruction failed verification during recovery')
                     if verification["status"] == "ok" and settings["status"] == "active":
                         halts.check(con, account_id, day, now=now)
                     margin.check_maintenance(con, day, portfolio_id=account_id)

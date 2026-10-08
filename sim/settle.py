@@ -229,7 +229,7 @@ def _plan_book(con, t: Terms, pf_id: str, qty: float, avg_cost: float) -> BookPl
 
 def apply_settlement_event(con: duckdb.DuckDBPyConnection, pf_id: str, ticker: str,
                            kind: str, qty: float, price: float,
-                           into_ticker: str | None, ratio: float | None) -> None:
+                           into_ticker: str | None, ratio: float | None, *, on_close=None) -> None:
     """Mutate sim_positions + portfolios.cash for one settlement. Used both by
     `settle(..., apply=True)` and by `portfolio.rebuild_state`'s replay, so the
     live path and the rebuild path are the same arithmetic by construction.
@@ -251,12 +251,16 @@ def apply_settlement_event(con: duckdb.DuckDBPyConnection, pf_id: str, ticker: s
         log.warning(f"[settle] WARN {pf_id} {ticker}: recorded settlement qty {qty:.6f} "
               f"!= position {held:.6f} at replay — fills before effective changed "
               f"after the settlement was booked; settling the recorded qty")
+    if abs(held - qty) > 1e-6 and portfolio_account(con, pf_id)['engine'] == 'account':
+        raise ValueError(f'recorded settlement quantity differs from held position: {pf_id} {ticker}')
     if price:
         con.execute("UPDATE portfolios SET cash = cash + ? WHERE id = ?",
                     [qty * price, pf_id])
     matched_lots = match_lots(
         con, pf_id, ticker, abs(qty), closing_short=qty < 0,
     )
+    if on_close is not None and kind != 'stock':
+        on_close(con, matched_lots, 'cover' if qty < 0 else 'sell', abs(qty), price, 1.0, 0.0)
     if row:
         con.execute("UPDATE sim_positions SET qty = ? WHERE portfolio_id = ? "
                     "AND ticker = ?", [held - qty, pf_id, ticker])
