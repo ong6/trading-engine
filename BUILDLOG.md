@@ -2824,3 +2824,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `pytest -q tests/test_p22_round2.py` — 8 passed; 7 failed on baseline.
 - **Metrics:** unchanged.
 - **Next:** isolate source contention and account corporate actions.
+
+## 2026-10-08 — Isolate source contention and account dividend booking
+
+- **Why:** P22 round-2 writer-lock, legacy-dividend and CLI error reproductions.
+- **What:** copy source rows through short-lived read-only attachments with retries;
+  defer dependent accounts, keep halt/cancel independent, and book account dividends
+  inside their transaction. Captured splits change signed lots, orders and replay
+  independently of legacy price restatement. Late CLI propagates account errors.
+- **Evidence:** `pytest -q tests/test_p22_round2.py tests/test_actions.py` — 34 passed;
+  writer/dividend regressions failed before their fixes; split regression failed too.
+- **Metrics:** server -5 LOC, tools +0 LOC, product +18 LOC since baseline.
+- **Next:** captured splits and chronological late recovery.

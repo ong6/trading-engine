@@ -42,7 +42,7 @@ def mark(con, account_id: str, ticker: str, day: date, *,
             bar = eligible[-1]
             candidate = Mark(bar.close, bar.ts + timedelta(minutes=1), False, minute_source)
     if candidate is not None:
-        return candidate
+        return _split_mark(con, account_id, ticker, day, candidate)
     row = con.execute(
         'SELECT f.fill_px,COALESCE(d.fill_ts,CAST(f.fill_date AS TIMESTAMP)) AS stamp '
         'FROM sim_fills f LEFT JOIN sim_fill_details d ON d.order_id=f.order_id '
@@ -52,8 +52,27 @@ def mark(con, account_id: str, ticker: str, day: date, *,
         [account_id, ticker, day, stamp],
     ).fetchone()
     if row is not None and row[0] is not None and row[0] > 0:
-        return Mark(float(row[0]), row[1], True, 'fill')
+        return _split_mark(con, account_id, ticker, day, Mark(float(row[0]), row[1], True, 'fill'))
     raise AccountRefused(f'no price ever observed for {account_id} {ticker} by {stamp.isoformat()}')
+
+
+def _split_mark(con, account_id, ticker, day, observed):
+    from engine.accounts.actions import recorded_splits
+
+    price = observed.price
+    for name, ex, ratio in recorded_splits(con, account_id, day):
+        if name != ticker or observed.observed_at.date() >= ex:
+            continue
+        if observed.source == 'prices':
+            adjusted = con.execute(
+                "SELECT 1 FROM split_adjustments WHERE ticker=? AND ex_date=? "
+                "AND outcome='applied' AND break_date>?",
+                [ticker, ex, observed.observed_at.date()],
+            ).fetchone()
+            if adjusted:
+                continue
+        price /= ratio
+    return Mark(price, observed.observed_at, observed.stale, observed.source)
 
 
 def positions(con, account_id: str, day: date, **kwargs) -> list[dict]:

@@ -500,7 +500,10 @@ def _rebuild_sim_state(con) -> None:
     module keeps working from the queue and from `python -m engine.actions`.
     """
     from sim import portfolio
-    portfolio.rebuild_state(con)
+    ids = [row[0] for row in con.execute(
+        "SELECT portfolio_id FROM portfolio_accounts_v WHERE pa_engine<>'account'"
+    ).fetchall()]
+    portfolio.rebuild_state(con, ids)
 
 
 def _restate(con, ticker: str, ex_date: date, ratio: float, break_date: date) -> int:
@@ -531,7 +534,9 @@ def _restate(con, ticker: str, ex_date: date, ratio: float, break_date: date) ->
         )
         con.execute(
             "UPDATE sim_orders SET qty = qty * ? WHERE ticker = ? "
-            "AND status = 'pending' AND signal_date < ?",
+            "AND status = 'pending' AND signal_date < ? "
+            "AND portfolio_id IN (SELECT portfolio_id FROM portfolio_accounts_v "
+            "WHERE pa_engine<>'account')",
             [ratio, ticker, ex_date],
         )
         con.execute(
