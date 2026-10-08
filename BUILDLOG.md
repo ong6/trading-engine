@@ -2737,4 +2737,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged; product +8; tests +322; docs +18.
 - **Next:** refresh authorized frozen-runtime identities, then run both full timezone suites.
 
+## 2026-10-08 — Refresh frozen forward runtime identities
+
+- **Why:** P22 authorizes explicit rebinding of E1, sector and XS runtime contracts when account
+  execution changes, while preserving their policies, baselines, evidence and verdict rules.
+- **What:** Refresh only the three expected source digests for the reviewed lifecycle runtime.
+  Contract versions, migration reasons, scoring, labels, gates, schedules and stored evidence are
+  unchanged.
+- **Evidence:** `.venv/bin/python -m pytest -o addopts='' -q -W error
+  tests/test_forward_review.py tests/test_xs_forward_review.py tests/test_experiment_runner.py
+  tests/test_sector_forward_status.py tests/test_xs_forward_status.py
+  tests/test_e1_forward_status.py` — 136 passed.
+- **Metrics:** server/tools unchanged; product unchanged.
+- **Next:** run the full suite, then repin P15 revision 13 without changing its contract values.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
