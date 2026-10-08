@@ -15,6 +15,10 @@ from sim import nyse
 from tools import free_source_audit
 from tools import free_sources as capture
 
+# Fixed entry time: writestr(name, ...) stamps the current time, so two fixtures
+# built across a 2-second tick hash differently.
+FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
+
 FETCHED_AT = datetime(2026, 10, 1, 7, 5, tzinfo=timezone.utc)
 MASSIVE_DATE = date(2026, 9, 29)
 MASSIVE_FIXTURE = (
@@ -39,7 +43,7 @@ CADSTK,NASDAQ,Stock,CAD,2010-01-04,
 """
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("supported_tickers.csv", csv_body)
+        archive.writestr(zipfile.ZipInfo("supported_tickers.csv", FIXED_ZIP_TIME), csv_body)
     return output.getvalue()
 
 
