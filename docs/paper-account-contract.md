@@ -124,33 +124,51 @@ A v2 intent contains exactly `schema_version`, `intent_id`, `account_id`, `spec_
 only for a limit order. `contingent_on` names an earlier intent in the same account. A leg has
 only `instrument_id`, `side`, and a non-zero integer `ratio`. A contingent sell or cover may be
 admitted before holdings exist only when its named buy or short parent is still queued in the same
-account, instrument, and session, and the child quantity does not exceed the parent quantity.
+account, instrument, and session, the child quantity does not exceed the parent quantity, and the
+parent's execution window is not later than the child's.
 
 The authoritative `received_at` is stamped by the engine before it waits for the DuckDB writer.
 MOO requests are accepted through 09:28:00 New York time. MOC requests are accepted through ten
 minutes before that session's scheduled close: 15:50 on ordinary sessions and 12:50 on a 13:00
-early close. Market orders are accepted during the regular session. Intraday market and limit fills are deferred until the
-nightly minute bars exist; this service does not claim real-time execution. A successful response
+early close. Market orders are accepted during the regular session. Intraday market and limit fills
+are deferred until the nightly minute bars exist; this service does not claim real-time execution.
+A minute timestamp is the start of `[ts, ts + 1 minute)`, while its fill timestamp is the end of
+that interval. Margin and exposure checks can therefore use that bar only at or after `ts + 1
+minute`. A successful response
 is `{order_id, state, received_at, cutoff, refusal_reason}`. Retrying byte-equivalent intent data
 under the same `intent_id` returns that original response, including its first receipt timestamp,
 even after the cutoff. Reusing the ID for different evidence is refused.
 
 Admission applies holdings, minimum trade, position, per-account gross, and total account-engine
 gross limits. Marks may be carried for at most three exchange sessions; the refusal names every
-stale instrument. The engine rechecks execution-time margin, PDT, and aggregate liquidity in the
-settlement layer. `pdt_25k_legacy` refuses a fourth day trade in five sessions below USD 25,000;
+stale instrument. The engine rechecks execution-time margin, PDT, total exposure without counting
+the accepted order's reservation twice, and aggregate liquidity in execution-time order. Receipt
+order breaks ties only inside one execution window. `pdt_25k_legacy` refuses a fourth day trade in
+five sessions below USD 25,000;
 `intraday_margin_2026` has no count limit but still gets only Reg T initial buying power.
 
 ## Money layer and lifecycle
+
+Nightly and late settlement use the same account processor. For each account, accruals, ordered
+fills, source-selected marking, ledger verification, risk transitions and forced-close generation
+commit in one transaction. The production driver, late CLI and account API attach the isolated
+Massive daily/minute and short-data stores read-only. A missing current mark carries the last
+source mark (or last fill), records `stale_mark`, and never drops a short liability to zero.
 
 After every normal or late mark, the account risk hook halts once at a 20% peak-to-current
 drawdown, a 5% close-to-close loss, or a reconciliation mismatch. The durable `account_events.kind`
 is respectively `halt_drawdown`, `halt_daily_loss`, or `halt_reconciliation`; consumers never
 need to match prose. A halt cancels queued orders, refuses new ones, and keeps positions open and
-marked. Resume records `resumed_by` and keeps the all-time peak for reporting. Only a resumed
-drawdown halt re-arms that rule from equity at resume; other halt reasons retain the all-time
-drawdown threshold. Retirement queues next-session
-MOC sell or cover orders, changes the account status to retired, and preserves all history.
+marked. Engine-generated maintenance, buy-in and retirement closes still execute while halted.
+Every resume records `resumed_by` and re-arms both the −20% drawdown rule and, for a same-session
+resume, the −5% daily-loss rule from equity at resume; results retain all-time drawdown separately.
+Retirement enters `retiring`, keeps marks and financing active, queues next-session MOC sell or
+cover orders, and changes to `retired`/inactive only after every position is flat.
+
+Margin interest covers every elapsed calendar day since the preceding accrual and splits the
+charge at effective-dated rate changes. Verification is part of settlement completion: a ledger
+rebuild mismatch is persisted in `account_reconciliations` and halts the account in the same
+transaction. A retry also repairs an older committed fill whose session equity mark is missing.
 
 Across account portfolios, opening exposure cannot exceed one times the sum of active independent
 funding. Holding the same instrument in three accounts, or aggregate notional above 2% of its
@@ -160,9 +178,9 @@ maintains at most 500 additional symbols for the data collector.
 ## CLI, loopback API, and private results
 
 `python -m engine.accounts` provides `create`, `submit`, `cancel`, `halt`, `resume`, `retire`,
-`list`, `results`, `verify`, and `settle [--late]`. The settle command imports
-`engine.accounts.settle.settle_session` only when invoked so this lane can integrate independently
-with the settlement lane. `generate-token` creates
+`list`, `results`, `verify`, and `settle [--late]`. The settle command and nightly driver call the
+same required account processor; missing modules or signature mismatches fail immediately.
+`generate-token` creates
 `~/.config/trading-engine/accounts-api.token` with mode 0600. Token contents are never printed or
 stored in this repository.
 

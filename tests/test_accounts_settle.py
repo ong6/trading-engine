@@ -628,6 +628,49 @@ def test_halted_account_executes_risk_forced_close(con):
     ).fetchone() == (0.0,)
 
 
+def test_halted_account_queues_and_executes_regsho_buy_in(con):
+    _account(con, "acct-a", allow_short=True)
+    _daily(con, "XYZ")
+    next_day = date(2026, 10, 13)
+    insert_bars(con, "XYZ", [next_day], open_=100, close=100, volume=1_000_000)
+    con.execute(
+        "UPDATE prices SET fetched_at='2026-10-13 21:00:00' "
+        "WHERE ticker='XYZ' AND date=?", [next_day],
+    )
+    _historical_fill(con, "acct-a", "XYZ", "short", 2, 100, PRIOR, 90)
+    set_portfolio_account(con, "acct-a", status="halted")
+    con.execute(
+        "CREATE TABLE regsho_threshold "
+        "(ticker VARCHAR,session_date DATE,publication_date DATE)"
+    )
+    con.execute(
+        "CREATE TABLE finra_short_interest "
+        "(ticker VARCHAR,settlement_date DATE,days_to_cover DOUBLE,publication_date DATE)"
+    )
+    con.executemany(
+        "INSERT INTO regsho_threshold VALUES ('XYZ',?,?)",
+        [(date(2026, 10, value), date(2026, 10, value))
+         for value in (6, 7, 8, 9, 12)],
+    )
+
+    first = _settle(con, short_con=con)
+    forced = con.execute(
+        "SELECT o.id,o.status,d.state_reason FROM sim_orders o "
+        "JOIN sim_order_details d ON d.order_id=o.id WHERE d.state_reason='buy_in'"
+    ).fetchone()
+    assert first["completed"] == ["acct-a"]
+    assert forced[1:] == ("pending", "buy_in")
+
+    second = _settle(
+        con, next_day, short_con=con,
+        settled_at=datetime(2026, 10, 14, 8, tzinfo=timezone.utc),
+    )
+    assert second["filled"] == 1
+    assert con.execute("SELECT status FROM sim_orders WHERE id=?", [forced[0]]).fetchone() == (
+        "filled",
+    )
+
+
 def test_maintenance_breach_queues_reduction_even_when_halt_fires(con):
     _account(con, "acct-a", capital=10_000)
     _daily(con, "XYZ", close=20)

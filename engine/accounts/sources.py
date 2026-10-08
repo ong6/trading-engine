@@ -22,7 +22,7 @@ SOURCE_PATHS = {
     "account_short": ("TRADING_ENGINE_SHORT_DATA_DB", "short-data.duckdb"),
 }
 SOURCE_TABLES = {
-    "account_daily": ("free_daily_bars",),
+    "account_daily": ("free_daily_bars", "free_daily_bars_adjusted"),
     "account_minute": ("massive_minute_bars",),
     "account_short": ("regsho_threshold", "finra_short_interest"),
 }

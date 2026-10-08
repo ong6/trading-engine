@@ -10,10 +10,11 @@ engine books exactly those terms. Nothing here reads a price for the dead
 ticker and nothing here writes to `prices`.
 
 Kinds
-  cash       every active book holding `ticker` receives qty × price in cash on
-             `effective`; the position goes to 0.
-  worthless  cash settlement at price 0 (bankruptcy / cancellation).
-  stock      the position converts into `into_ticker` at `ratio` acquirer shares
+  cash       every active book with a signed `ticker` holding receives qty × price
+             in cash on `effective`; a short therefore pays the consideration.
+  worthless  cash settlement at price 0 (bankruptcy / cancellation); a short
+             liability disappears without an invented payment.
+  stock      the signed position converts into `into_ticker` at `ratio` acquirer shares
              per held share (optionally plus `price` cash per share for mixed
              deals). Cost basis carries over: the acquirer lot's avg_cost is the
              dead lot's avg_cost ÷ ratio, so no P&L is realised on the swap.
