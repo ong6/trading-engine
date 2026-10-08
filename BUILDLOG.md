@@ -2980,3 +2980,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Next:** check the final PR commit's CI and report completion.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
+
+## 2026-10-08 — Reproduce P22 round-4 ledger consumers
+
+- **Why:** P22 round-4 review and the active P22 plan admit all requested accounting corrections.
+- **What:** Added regressions for fee-aware P15 validation, historical dividends, resume
+  recovery, persisted lots/equity, FIFO PDT preview, optional whole shares and bash syntax.
+- **Evidence:** `pytest tests/test_p22_round4.py -q -W error` reproduces P15 runtime rejection,
+  re-halt after resume, undetected lot/equity corruption, PDT and specification refusals.
+- **Metrics:** unchanged production code.
+- **Next:** consolidate the failing consumers into the chronological ledger.
