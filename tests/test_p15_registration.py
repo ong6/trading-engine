@@ -277,6 +277,8 @@ def test_p15_registration_revision_and_self_hash():
         "P22 on top of revision 13's validator and label-timing corrections; owner decision "
         "2026-10-06: ibkr_pro_tiered_v1 commissions from the migration --d0; book evaluation "
         "clocks restart at D0; account engine; scoring, labels, gates and schedules unchanged"
+        "; round-3 chronological accounting, observable opening financing, debit checkpoints, "
+        "corporate-action lot results and route-preserving migration (revision 14 undeployed)"
     )
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
