@@ -359,15 +359,16 @@ def test_migration_keeps_v1_order_on_its_league_route(h):
     assert h.scalar("SELECT pa_engine FROM portfolio_accounts_v WHERE portfolio_id='v1-book'") == 'league'
 
 
-def test_migration_reports_and_refuses_routing_change_without_flag(h):
-    from tools.migrate_cost_profiles import MigrationRefused, migrate
+def test_migration_preserves_existing_route_even_if_spec_disagrees(h):
+    from tools.migrate_cost_profiles import migrate
 
     h.create()
     with h.con() as con:
         set_portfolio_account(con, 'acct-a', engine='league')
-        with pytest.raises(MigrationRefused, match='acct-a'):
-            migrate(con, DAY)
-        assert con.execute('SELECT COUNT(*) FROM sim_book_breaks').fetchone()[0] == 0
+        assert migrate(con, DAY)['routing_changes'] == []
+        assert con.execute(
+            "SELECT pa_engine FROM portfolio_accounts_v WHERE portfolio_id='acct-a'"
+        ).fetchone()[0] == 'league'
 
 
 def test_retiring_margin_debt_keeps_interest_until_flat(h):
