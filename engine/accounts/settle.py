@@ -14,9 +14,8 @@ from engine.accounts import account_portfolios
 from engine.accounts import service as account_service
 from engine.lib import db
 from engine.lib.util import table_exists
-from engine.money import alerts, allocation, halts
-from engine.paper_accounts import AccountRefused
-from sim import bar_sources, fills, ledger, margin, portfolio, shorts
+from engine.money import alerts, halts
+from sim import bar_sources, fills, ledger, margin, portfolio, shorts, valuation
 from sim.costs import charge
 
 MARGIN_CALL_PENALTY_BPS = 25.0
@@ -298,26 +297,12 @@ def _mark_account(
         "SELECT ticker,qty FROM sim_positions WHERE portfolio_id=? AND qty<>0",
         [portfolio_id],
     ).fetchall():
-        current = bar_sources.daily_bar(
-            con, ticker, day, source=price_source, available_at=available_at,
+        observed = valuation.mark(
+            con, portfolio_id, ticker, day, price_source=price_source,
+            available_at=available_at,
         )
-        close = current.close if current is not None else None
-        if close is None:
-            previous = bar_sources.latest_close_observation(
-                con, ticker, day, source=price_source, available_at=available_at,
-            )
-            close = None if previous is None else previous[1]
-            if close is None:
-                row = con.execute(
-                    "SELECT f.fill_px FROM sim_fills f "
-                    "LEFT JOIN sim_fill_details d ON d.order_id=f.order_id "
-                    "WHERE f.portfolio_id=? AND f.ticker=? "
-                    "ORDER BY COALESCE(d.fill_ts,CAST(f.fill_date AS TIMESTAMP)) DESC,"
-                    "f.order_id DESC LIMIT 1", [portfolio_id, ticker],
-                ).fetchone()
-                close = None if row is None else float(row[0])
-            if close is None:
-                raise RuntimeError(f"no carry mark for {portfolio_id} {ticker}")
+        close = observed.price
+        if observed.stale:
             carried.append(ticker)
             _record_account_event(
                 con, portfolio_id, "stale_mark",
@@ -388,7 +373,9 @@ def _execution_key(row: dict[str, Any], result: fills.FillResult, day: date) -> 
 def _liquidity_refusals(con, day: date, prepared) -> set[int]:
     used = _existing_notional(con, day)
     refused: set[int] = set()
-    for row, result in prepared:
+    for row, result in sorted(prepared, key=lambda item: (
+        _utc_naive(item[0]["received_at"]), item[0]["order_id"],
+    )):
         if result.status != "filled" or result.reference_px is None:
             continue
         key = (row["ticker"], _direction(row["side"]))
@@ -443,7 +430,7 @@ def _settle_order(
         _missing_bar(con, row["order_id"], row["state_reason"], now)
         return "pending"
     if contingent_qty is not None:
-        row["qty"] = contingent_qty
+        row["qty"] = min(row["qty"], contingent_qty)
     row["qty"] = _available_close_quantity(
         con, row["portfolio_id"], row["ticker"], row["side"], row["qty"],
     )
@@ -541,15 +528,6 @@ def _settle_order(
     ):
         _state(con, row["order_id"], "rejected", "gross_cap", now)
         return "rejected"
-    if not forced and row["side"] in {"buy", "short"}:
-        try:
-            allocation.require_execution_capacity(
-                con, row["portfolio_id"], row["ticker"], row["side"], row["qty"],
-                result.fill_px, day, available_at=now,
-            )
-        except AccountRefused as exc:
-            _state(con, row["order_id"], "rejected", str(exc), now)
-            return "rejected"
     applied = _persist_fill(con, row, result, fee, day, now, late)
     if not math.isclose(applied, row["qty"], rel_tol=1e-12, abs_tol=1e-12):
         raise RuntimeError("ledger changed the prevalidated account fill quantity")

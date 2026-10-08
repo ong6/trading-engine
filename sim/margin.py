@@ -10,7 +10,7 @@ import duckdb
 from engine.accounts import account_portfolios, portfolio_account
 from engine.lib.util import table_exists
 
-from . import bar_sources, costs, ledger, nyse, portfolio
+from . import bar_sources, costs, ledger, nyse, portfolio, valuation
 from .schema import next_order_id
 
 PDT_MIN_EQUITY = 25_000.0
@@ -62,55 +62,12 @@ def _marks(
         "SELECT ticker,qty FROM sim_positions WHERE portfolio_id=? AND qty<>0",
         [portfolio_id],
     ).fetchall():
-        close = _mark_at(
-            con, ticker, day, price_source=price_source,
+        observed = valuation.mark(
+            con, portfolio_id, ticker, day, price_source=price_source,
             as_of=as_of, available_at=available_at,
         )
-        if close is not None:
-            out[ticker] = (float(qty), close)
+        out[ticker] = (float(qty), observed.price)
     return out
-
-
-def _mark_at(
-    con: duckdb.DuckDBPyConnection,
-    ticker: str,
-    day: date,
-    *,
-    price_source: str,
-    as_of: datetime | None,
-    available_at: datetime | None,
-) -> float | None:
-    if as_of is None:
-        return bar_sources.latest_close(
-            con, ticker, day, source=price_source, available_at=available_at,
-        )
-    stamp = (
-        as_of if as_of.utcoffset() is None
-        else as_of.astimezone(timezone.utc).replace(tzinfo=None)
-    )
-    opened, closed = bar_sources.session_bounds(day)
-    if stamp >= closed:
-        return bar_sources.latest_close(
-            con, ticker, day, source=price_source, available_at=available_at,
-        )
-    if stamp > opened:
-        minute_source = (
-            "massive_minute" if price_source == "massive_daily"
-            else "intraday_prices"
-        )
-        bars = bar_sources.minute_bars(
-            con, ticker, day, source=minute_source, available_at=available_at,
-        )
-        eligible = [
-            bar.close for bar in bars
-            if bar.ts + timedelta(minutes=1) <= stamp
-        ]
-        if eligible:
-            return eligible[-1]
-    return bar_sources.latest_close(
-        con, ticker, day, source=price_source, available_at=available_at,
-        strictly_before=True,
-    )
 
 
 def margin_state(
@@ -397,7 +354,7 @@ def accrue_interest(
     charged = 0.0
     settings_rows = [
         settings for settings in account_portfolios(con, active_only=False)
-        if settings["status"] in {"active", "halted"}
+        if settings["status"] in {"active", "halted", "retiring"}
         and (portfolio_id is None or settings["portfolio_id"] == portfolio_id)
     ]
     for settings in settings_rows:
