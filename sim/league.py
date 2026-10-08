@@ -740,10 +740,13 @@ def rerun_cleanup(con, d: date) -> None:
 
 
 def _safe_account_phases(
-    con, d: date, *, no_accounts: bool, verbose: bool,
+    con, d: date, *, no_accounts: bool, verbose: bool, reason: str | None = None,
 ) -> dict:
     if no_accounts:
-        return {"completed": [], "errors": {}, "carried": {}, "skipped": True}
+        return {
+            "completed": [], "errors": {}, "carried": {}, "skipped": True,
+            "skip_reason": reason or "--no-accounts",
+        }
     try:
         return {
             **run_account_phases(con, d, verbose=verbose),
@@ -767,7 +770,10 @@ def _safe_account_phases(
 def _log_account_status(result: dict, *, verbose: bool) -> None:
     if result["skipped"]:
         if verbose:
-            log.info("[league] ACCOUNT_STATUS skipped (--no-accounts); legacy_day_committed=true")
+            log.info(
+                f"[league] ACCOUNT_STATUS skipped ({result['skip_reason']}); "
+                "legacy_day_committed=true"
+            )
         return
     if result["errors"]:
         log.error(
@@ -836,7 +842,8 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
         nn = generate_all(con, d)
 
     account_result = _safe_account_phases(
-        con, d, no_accounts=no_accounts, verbose=verbose,
+        con, d, no_accounts=no_accounts or rerun, verbose=verbose,
+        reason="legacy rerun" if rerun else None,
     )
     md_path = write_reports(con, d, data_dir)
     _log_account_status(account_result, verbose=verbose)
