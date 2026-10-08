@@ -2896,3 +2896,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Next:** open the draft PR and require hosted CI before the 2026-10-18 deployment window.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
+
+## 2026-10-08 — Reproduce P22 round-3 accounting failures
+
+- **Why:** active P22 and the round-3 orchestrator rulings admit the accounting and deployment corrections.
+- **What:** added API/nightly/late-CLI regressions for delisting recovery, verification failure,
+  borrow timing, debit intervals, split trade results, split receipts, carried marks and migration.
+  Recorded the binding round-3 rulings in the feedback ledger.
+- **Evidence:** `.venv/bin/python -m pytest -q tests/test_p22_round3.py` — nine failures before fixes;
+  cash delisting recovery restored shares and lost $10,000; flat days tripled interest.
+- **Metrics:** production LOC unchanged.
+- **Next:** replace parallel accounting reconstruction with the shared chronological ledger path.
