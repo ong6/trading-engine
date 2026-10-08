@@ -107,4 +107,4 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
         return 2
     print(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str))
-    return 0
+    return 1 if args.command == "settle" and payload.get("errors") else 0

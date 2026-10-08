@@ -180,3 +180,112 @@ def test_retiring_short_keeps_financing_until_moc(h):
     assert h.night() == 0
     assert h.scalar("SELECT COUNT(*) FROM sim_cash_events WHERE kind='borrow_fee'") == 1
     assert h.scalar("SELECT pa_status FROM portfolio_accounts_v WHERE portfolio_id='acct-a'") == 'retired'
+
+
+@contextmanager
+def _source_writer(path):
+    import subprocess
+    import sys
+
+    script = ('import duckdb,sys; c=duckdb.connect(sys.argv[1]); '
+              'print("ready",flush=True); sys.stdin.readline(); c.close()')
+    process = subprocess.Popen([sys.executable, '-c', script, str(path)],
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert process.stdout.readline().strip() == 'ready'
+        yield
+    finally:
+        process.communicate('\n', timeout=10)
+        assert process.returncode == 0
+
+
+def test_halt_and_cancel_ignore_cross_process_source_writer(h):
+    h.create()
+    order = h.order('open', 'LONG', 'buy', 1)
+    with _source_writer(h.minute):
+        routes.cancel_order('acct-a', order['order_id'], h.auth)
+        assert routes.halt_account('acct-a', {}, h.auth)['status'] == 'halted'
+    assert h.scalar('SELECT status FROM sim_orders') == 'cancelled'
+
+
+def test_source_writer_defers_only_dependent_accounts_then_recovers(h):
+    h.create()
+    h.order('open', 'LONG', 'buy', 1)
+    h.create('acct-b', price_source='prices')
+    h.history('SPY', 'buy', 1, 100, 'acct-b')
+    with _source_writer(h.daily):
+        assert h.night() == 1
+    assert h.scalar("SELECT COUNT(*) FROM sim_equity WHERE portfolio_id='acct-b'") == 1
+    assert h.scalar("SELECT COUNT(*) FROM account_events WHERE portfolio_id='acct-a' "
+                    "AND kind='settlement_error'") == 1
+    assert cli.main(['settle', '--late', '--date', DAY.isoformat()]) == 0
+    assert h.scalar("SELECT COUNT(*) FROM sim_fills WHERE portfolio_id='acct-a'") == 1
+
+
+def _dividend(h):
+    with h.con() as con:
+        con.execute("INSERT INTO corporate_actions VALUES ('SHORT',?,'dividend',1,'fixture',?)",
+                    [DAY, RECEIVED])
+
+
+def test_legacy_rerun_cannot_book_account_dividend(h):
+    h.create()
+    h.history('SHORT', 'short', 100, 100)
+    assert h.night() == 0
+    cash = h.scalar("SELECT cash FROM portfolios WHERE id='acct-a'")
+    _dividend(h)
+    assert h.night(rerun=True) == 0
+    assert h.scalar("SELECT cash FROM portfolios WHERE id='acct-a'") == cash
+    assert h.scalar('SELECT COUNT(*) FROM sim_dividends') == 0
+
+
+def test_dividends_rollback_with_failed_account_transaction(h):
+    h.create()
+    h.history('SHORT', 'short', 100, 100)
+    _dividend(h)
+    with h.con() as con:
+        con.execute("INSERT INTO sim_positions VALUES ('acct-a','UNPRICED',1,0)")
+    cash = h.scalar("SELECT cash FROM portfolios WHERE id='acct-a'")
+    assert h.night() == 1
+    assert h.scalar("SELECT cash FROM portfolios WHERE id='acct-a'") == cash
+    assert h.scalar('SELECT COUNT(*) FROM sim_dividends') == 0
+
+
+def test_late_cli_returns_nonzero_for_account_error(h):
+    import subprocess
+    import sys
+
+    h.create()
+    h.order('open', 'LONG', 'buy', 1)
+    h.history('UNPRICED', 'buy', 1, 10)
+    with h.con() as con:
+        con.execute("DELETE FROM sim_fills WHERE ticker='UNPRICED'")
+        con.execute("UPDATE sim_order_details SET state_reason='bar_missing'")
+    result = subprocess.run([sys.executable, '-m', 'engine.accounts', 'settle', '--late',
+                             '--date', DAY.isoformat()], capture_output=True, text=True)
+    assert 'acct-a' in result.stdout
+    assert result.returncode != 0
+
+
+def test_captured_massive_split_updates_signed_lots_orders_and_replay(h):
+    from engine import actions
+
+    h.create()
+    h.history('SHORT', 'short', 100, 100)
+    h.now = datetime(2026, 10, 6, 21, tzinfo=timezone.utc)
+    cover = h.order('cover', 'SHORT', 'cover', 50, 'moc')
+    with h.con() as con:
+        con.execute("INSERT INTO corporate_actions VALUES ('SHORT',?,'split',2,'fixture',?)",
+                    [DAY, RECEIVED])
+        actions.reconcile(con)
+    with h.con(h.daily) as con:
+        con.execute("INSERT INTO free_daily_bars VALUES "
+                    "(?,'SHORT',50,50,50,50,200000,50,'fixture',?,'split')",
+                    [DAY, datetime(2026, 10, 7, 21)])
+    assert h.night() == 0
+    assert h.scalar("SELECT qty FROM sim_positions WHERE ticker='SHORT'") == -100
+    assert h.scalar(f"SELECT qty FROM sim_fills WHERE order_id={cover['order_id']}") == 100
+    assert h.scalar("SELECT qty FROM sim_position_lots WHERE instrument_id='SHORT'") == -100
+    assert 49_900 < routes.get_account('acct-a', h.auth)['equity'] < 50_000
+    assert cli.main(['verify', 'acct-a']) == 0
+    assert h.scalar("SELECT COUNT(*) FROM account_reconciliations WHERE status='mismatch'") == 0
