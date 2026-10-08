@@ -246,10 +246,11 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 12
+    assert registration["registration_revision"] == 13
     assert registration["revision_reason"] == (
-        "bounded recovery metadata copying and verification at existing snapshot limit; other artifact caps, "
-        "frozen collector, research runtime, scoring, book, gate, label, schedule and written rows unchanged"
+        "cash-rule SPY reinvestment resize validation against both fill ledgers and nightly maturation "
+        "of existing event-shadow labels before evidence reporting; scoring, book mechanics, gates, "
+        "label values, schedules, registered values and written evidence unchanged"
     )
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()

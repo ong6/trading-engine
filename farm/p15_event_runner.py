@@ -857,6 +857,22 @@ def run_database(
             con.close()
 
 
+def mature_labels_database(
+    database: Path = DEFAULT_DB, *, labeled_at: datetime | None = None,
+) -> dict:
+    """Append event labels made mature by nightly prices, without running a window."""
+    labeled = (labeled_at or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    with advisory_file_lock(LOCK_PATH), advisory_file_lock(NIGHTLY_LOCK):
+        con = db.connect(database, wait_s=DB_WAIT_S)
+        try:
+            with db.transaction(con):
+                p15_event_sources.init_schema(con)
+                labels = label_mature(con, labeled_at=labeled)
+        finally:
+            con.close()
+    return {"status": "complete", "labels": labels}
+
+
 def _sec_names(names: list[str], session_date: date, hour: int, minute: int) -> list[str]:
     if not names:
         return []
@@ -868,9 +884,13 @@ def _sec_names(names: list[str], session_date: date, hour: int, minute: int) -> 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, default=DEFAULT_DB)
-    parser.add_argument("--run", action="store_true", required=True)
+    action = parser.add_mutually_exclusive_group(required=True)
+    action.add_argument("--run", action="store_true")
+    action.add_argument("--mature-labels", action="store_true")
     args = parser.parse_args(argv)
-    print(json.dumps(run_database(args.database), sort_keys=True, default=str))
+    result = (mature_labels_database(args.database) if args.mature_labels
+              else run_database(args.database))
+    print(json.dumps(result, sort_keys=True, default=str))
     return 0
 
 
