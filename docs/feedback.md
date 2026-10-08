@@ -691,3 +691,15 @@ orchestrator owns the P15 re-pin; this lane leaves its revision unchanged.
    routing, reports proposed route changes and requires --allow-routing-change
    before changing any route.
 
+
+## 2026-10-08 — P22 lifecycle round 3 (binding orchestrator rulings)
+
+The third review requires one chronological, corporate-action-aware accounting path for
+settlement, late recovery and results. Existing portfolios retain their fill routes at migration;
+commissions apply through those routes and only new accounts use the account engine. Migration
+breaks read the deployed P15 revision from its registration (revision 14, not yet deployed).
+Financing uses marks observable at its event timestamp and precedes execution checks that see
+its debit. Interest checkpoints advance even when cash is positive. Failed recovery verification
+rolls back the reconstructed state, reports an account error and makes the CLI exit nonzero.
+The lifecycle lane owns these corrections, revision 14 re-pinning, and a complete disposable-store
+deploy/rollback rehearsal for Sunday 2026-10-18, D0 2026-10-19. Live stores and units stay untouched.
