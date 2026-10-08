@@ -703,3 +703,15 @@ its debit. Interest checkpoints advance even when cash is positive. Failed recov
 rolls back the reconstructed state, reports an account error and makes the CLI exit nonzero.
 The lifecycle lane owns these corrections, revision 14 re-pinning, and a complete disposable-store
 deploy/rollback rehearsal for Sunday 2026-10-18, D0 2026-10-19. Live stores and units stay untouched.
+
+## 2026-10-08 — P22 lifecycle round 4 (binding orchestrator rulings)
+
+The fourth review admits consolidation of P15 sizing/cash, dividend entitlement, risk history
+and verification into the shared chronological ledger. P15 validation calls the executor's
+fee-aware sizing with its effective profile and prior fees; pre-D0 behavior stays exact.
+Dividends use signed holdings at the preceding close and historical corporate-action units.
+Resumes and halts replay as ledger events. Verification reconciles lots, cash and source-marked
+equity within $0.005 and durably halts mismatches. FIFO PDT preview, optional whole_shares and
+executable runbook bash blocks are included. Revision 14 is re-pinned while undeployed; scoring,
+labels, gates and schedules stay frozen. Rehearsal must cross D0 for legacy books and roll back
+to origin/main revision 13. Deploy remains October 18, D0 October 19; live state stays untouched.
