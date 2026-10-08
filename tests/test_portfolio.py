@@ -132,7 +132,7 @@ def ca(con):
 
 def test_credit_dividends_pays_held_qty_times_dps(ca, book):
     d = SESSIONS[3]
-    _buy(ca, book, "AAA", 10, 100.0)
+    _record_fill(ca, book, 1, "AAA", "buy", 10, 100.0, SESSIONS[2])
     ca.execute("INSERT INTO corporate_actions VALUES ('AAA', ?, 'dividend', 0.5)", [d])
     ca.execute("INSERT INTO corporate_actions VALUES ('AAA', ?, 'split', 2.0)", [d])
     out = pf.credit_dividends(ca, d)

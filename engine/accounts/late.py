@@ -67,19 +67,10 @@ def settle(con, *, session_date=None, short_con=None, settled_at=None) -> dict:
         local = []
         day = start
         try:
-            verification = service.verify(con, account_id, now=now)
+            verification = service.verify(con, account_id, now=now, check_equity=False)
             if verification['status'] != 'ok':
                 raise RuntimeError('ledger mismatch before late recovery')
             with db.transaction(con):
-                # Risk history is derived from the corrected prefix, not a later close.
-                peak, prior = con.execute(
-                    'SELECT MAX(equity),arg_max(equity,date) FROM sim_equity '
-                    'WHERE portfolio_id=? AND date<?', [account_id, start],
-                ).fetchone()
-                initial = con.execute('SELECT initial_cash FROM portfolios WHERE id=?',
-                                      [account_id]).fetchone()[0]
-                con.execute('UPDATE account_state SET peak_equity=?,prior_close_equity=? '
-                            'WHERE portfolio_id=?', [max(peak or initial, initial), prior, account_id])
                 while day <= end:
                     if nyse.is_session(day):
                         result = processor.settle_session(

@@ -171,29 +171,6 @@ def mark_to_market(con: duckdb.DuckDBPyConnection, pf_id: str, d: date) -> dict:
 DIVIDEND_LOOKBACK_DAYS = 10  # how far back phase a0 looks for late-arriving rows
 
 
-def _position_as_of(con: duckdb.DuckDBPyConnection, pf_id: str, tk: str,
-                    as_of: date, splits: dict[str, list[tuple[date, float]]]) -> float:
-    """Shares of `tk` held by `pf_id` at the close of the session BEFORE `as_of`,
-    reconstructed from sim_fills (fill_date < as_of), on the current post-split
-    scale — the same replay rule rebuild_state uses."""
-    rows = con.execute(
-        "SELECT side, qty, fill_date FROM sim_fills "
-        "WHERE portfolio_id = ? AND ticker = ? AND fill_date < ?",
-        [pf_id, tk, as_of],
-    ).fetchall()
-    qty = 0.0
-    for side, q, fd in rows:
-        factor = 1.0
-        for ex, ratio in splits.get(tk, ()):
-            if fd < ex:
-                factor *= ratio
-        if side in {"buy", "cover"}:
-            qty += float(q) * factor
-        else:
-            qty -= float(q) * factor
-    return qty
-
-
 def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
                      lookback_days: int = DIVIDEND_LOOKBACK_DAYS, *,
                      portfolio_id: str | None = None) -> dict:
@@ -209,10 +186,8 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
     row whenever it lands; the (portfolio, ticker, ex_date) primary key on
     sim_dividends keeps every credit exactly-once.
 
-    Entitlement is the signed position at the close of ex_date − 1. For ex_date == d
-    that is the current sim_positions state (this runs BEFORE the day's fills);
-    for an earlier ex_date it is reconstructed from sim_fills so a name bought
-    after the ex-date is not paid. Cash += qty × dps, one append-only
+    Entitlement is the signed position at the close of ex_date − 1, projected
+    through the shared chronological ledger for both first runs and retries. Cash += qty × dps, one append-only
     sim_dividends row per credit, stamped with the TRUE ex_date so rebuild_state
     replays it at the right point in the cash trajectory. A short position has
     negative entitlement and therefore records and applies a dividend debit.
@@ -236,7 +211,6 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
         "SELECT portfolio_id, ticker, ex_date FROM sim_dividends "
         "WHERE ex_date > ? AND ex_date <= ?", [since, d]
     ).fetchall())
-    splits = _split_factors(con)
 
     clause = "pa.pa_engine<>'account'" if portfolio_id is None else "p.id=?"
     params = [] if portfolio_id is None else [portfolio_id]
@@ -244,29 +218,15 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
         "SELECT p.id FROM portfolios p JOIN portfolio_accounts_v pa ON pa.portfolio_id=p.id "
         f"WHERE p.active AND {clause} ORDER BY p.id", params,
     ).fetchall():
-        account_splits = splits
-        if portfolio_id is not None:
-            from engine.accounts.actions import recorded_splits
-            account_splits = {}
-            for ticker, ex, ratio in recorded_splits(con, pf_id, d):
-                account_splits.setdefault(ticker, []).append((ex, ratio))
-        held_now = {
-            tk: float(q) for tk, q in con.execute(
-                "SELECT ticker, qty FROM sim_positions "
-                "WHERE portfolio_id = ? AND qty <> 0", [pf_id]
-            ).fetchall()
-        }
-        # Any name the book has EVER filled is a candidate for a late credit.
-        ever = {r[0] for r in con.execute(
-            "SELECT DISTINCT ticker FROM sim_fills WHERE portfolio_id = ?", [pf_id]
-        ).fetchall()} | set(held_now)
+        from .ledger import projected_state
+
+        prefixes = {}
         for tk, ex, value in divs:
-            if tk not in ever or (pf_id, tk, ex) in already:
+            if (pf_id, tk, ex) in already:
                 continue
-            if ex == d:
-                qty = held_now.get(tk, 0.0)
-            else:
-                qty = _position_as_of(con, pf_id, tk, ex, account_splits)
+            if ex not in prefixes:
+                prefixes[ex] = projected_state(con, pf_id, through=ex - timedelta(days=1))
+            qty = prefixes[ex]['positions'].get(tk, {}).get('qty', 0.0)
             if abs(qty) < 1e-9:
                 continue
             dps = float(value)
@@ -281,25 +241,6 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
             )
             out["credited"] += 1
             out["amount"] += amount
-    return out
-
-
-def _split_factors(con: duckdb.DuckDBPyConnection) -> dict[str, list[tuple[date, float]]]:
-    """{ticker: [(ex_date, ratio), …]} for splits the reconciler actually APPLIED.
-
-    A fill that happened BEFORE a split's ex-date was executed at pre-split
-    prices, so replaying it verbatim would rebuild a pre-split share count. The
-    boundary here is the ex_date (economics), deliberately NOT the storage
-    break_date the price restatement used (see engine/actions.py).
-    """
-    if not table_exists(con, "split_adjustments"):
-        return {}
-    out: dict[str, list[tuple[date, float]]] = {}
-    for tk, ex, ratio in con.execute(
-        "SELECT ticker, ex_date, ratio FROM split_adjustments "
-        "WHERE outcome = 'applied' AND ratio IS NOT NULL AND ratio > 0"
-    ).fetchall():
-        out.setdefault(tk, []).append((ex, float(ratio)))
     return out
 
 
