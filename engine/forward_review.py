@@ -96,7 +96,7 @@ RUNTIME_CONTRACT_MIGRATION = (
     "; undeployed P22 round 3 shares chronological accounting and preserves existing fill routes"
 )
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "ad848bcf88f223a9d42d2885fc074026be3e346c09b04b545ec0bc3f5c7f6291"
+    "910acd005ccf41d182797c1747b852e894a7ac6e0dba84b9c3ababc814bc754c"
 )
 PRIOR_RUNTIME_CONTRACT_FILES = (
     "engine/forward_review.py",

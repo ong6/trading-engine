@@ -2895,7 +2895,7 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +89, tools +28, product +731; budget ok.
 - **Next:** open the draft PR and require hosted CI before the 2026-10-18 deployment window.
 
-<!-- append-only-tail: insert new verified entries immediately above this line -->
+
 
 ## 2026-10-08 — Reproduce P22 round-3 accounting failures
 
@@ -2948,3 +2948,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** P15 and full-suite identity gates run with the final revision 14 re-pin.
 - **Metrics:** two runtime amendment lines added.
 - **Next:** pin revision 14 to this corrected source commit and run both timezone suites.
+
+## 2026-10-08 — Complete account projection integration checks
+
+- **Why:** round-3 full suites found the account scratch connection outside the required DB factory.
+- **What:** routed the in-memory results replay through the shared connection factory and refreshed
+  undeployed runtime bindings. Restored the BUILDLOG tail marker required by the structural check.
+- **Evidence:** full suites identified this factory violation; focused and both-timezone reruns follow.
+- **Metrics:** production LOC unchanged.
+- **Next:** finalize revision 14 identities, then complete the deployment rehearsal.
+
+<!-- append-only-tail: insert new verified entries immediately above this line -->
