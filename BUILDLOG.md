@@ -2859,4 +2859,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +92, tools unchanged, product +20; budget ok.
 - **Next:** Nothing further admitted; the orchestrator may deploy revision 13 from the pushed branch.
 
+## 2026-10-08 — Refresh integrated forward identities
+
+- **Why:** P22 integration requires the frozen sector, XS and E1 identities to bind the
+  merged lifecycle bytes without changing any registered rule or value.
+- **What:** Refresh the sector and XS runtime digests. E1 recomputed byte-identically, so
+  its existing digest remains unchanged; all three contract versions and rules stay fixed.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_forward_review.py
+  tests/test_xs_forward_review.py tests/test_experiment_runner.py` — exit 0; 94 collected.
+- **Metrics:** server/tools/product LOC unchanged.
+- **Next:** issue P15 registration revision 14 on the frozen integrated source commit.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
