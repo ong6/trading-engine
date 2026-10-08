@@ -235,7 +235,7 @@
     "price_fetch_availability": "after_collection_completion"
   },
   "code_identity": {
-    "source_commit": "ac5cb36fd5aa4be2187a035a75a13ea67ca60664",
+    "source_commit": "6e00f419d256ade563ff57477d81d6fcb7ef765d",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/account_watch.py": "cbda8d47487c8a827f8f5cb7ab22ec916c100055ffaa7ff753ea24759121eb6c",
@@ -292,8 +292,8 @@
       "farm/backtest/stats.py": "994e2147b30fad6c061888f51e6b22238500e185424f007ae96a408df3cdf3c8",
       "farm/capital_sensitivity.py": "90119096f6c31e53427ea8ffa61b8af558b131c0f78ff0841183baa024958244",
       "farm/experiment.py": "bf588f503d4bcec829c8083d5dad3fca0846fa80c726301535cf11a854c82abb",
-      "farm/experiment_runner.py": "d58a52e3d6ff28e99e3a0ccde8da43de095b990ad8b8c519257e847d28ad845c",
-      "farm/p15_event_runner.py": "9a5f5571b7955617fe9915134e8cfe42fb29d118918f494042ea230fa87c410d",
+      "farm/experiment_runner.py": "6b90cf1dc9288ddd0ad7501708659fa01362edfaaedc271e1ddd3e41b3da7f48",
+      "farm/p15_event_runner.py": "adc17266982fa93cb2f25aaff467573a3f5d6594440a9eb17828a0da5b368d8a",
       "farm/stats/__init__.py": "a7e26e929b2d925fd3060ac1af6e20c228479c6552f75dcfcd629b5ff0470b65",
       "farm/stats/equity.py": "f265e3227a4d360d1d89655f6b48557d5ebccce2c5598393e20d418d784e9c3c",
       "farm/stats/inference.py": "f0a4f96e34c4de89005ced5ceecb40c17868d67e7611b193205f5d3b920fdecf",
@@ -308,7 +308,7 @@
       "farm/walkforward/runtime_contract.py": "543e359cc73b297f01cc75a4d1e21f9cef9b5f8252347f831e1c983b3c3dfb24",
       "server/__init__.py": "c462735edca08a01b1bda392e672430ed441aca796251c6adcaf6b5e648ea4b5",
       "server/agent-cadence-registration.json": "cf66040d889662f7ad740f79ce83e2c87528853bafe4f31a0634c7195b5c4b59",
-      "server/agent_evaluation.py": "77ab93c39d165c8818b255224772a12d0c04deff04c041b38d97e78cfd3ca8e7",
+      "server/agent_evaluation.py": "d19b41de2d0a545889519ada4e45f6fc39b82cae7920e8642ef38afcf9d08938",
       "server/agent_evaluation_reporting.py": "4116ca8251bd47d3e589340ebe6bf1a737dae20082120725f4acff0cb4668a7f",
       "server/agent_model_client.py": "3c4fbdfd48aa6e1c32a8fbe7fba18f8c7470aef01a684f7ab2d9d8cadf1394f8",
       "server/daily_opportunity_execution.py": "bfe15b976408ce4ac275761e140d8456ac4527b09610be23f7d1ca72d25c1c0e",
@@ -331,7 +331,7 @@
       "server/p15_price_fetch_attempts.py": "ce871d970af3f50ee61aee4d9ce81196542fb01954cde50168b89edf74805b60",
       "server/p15_scoring_runner.py": "f590551a79d4dcca4c36f073b1503b949e9f30447c388f2170267060a0c626bc",
       "server/p15_scoring_store.py": "4660607b6bb5b18fdb6ee7585b8bdadab9dfa9af9417f0ae51833bc87a695bee",
-      "server/run_p15_scoring.sh": "0a78ab86b3e72ac3b6f9692745acbf79822a462ca4290d7d46cd08bb033a539b",
+      "server/run_p15_scoring.sh": "106237f26600c8c1f06e67d6c3dabd09cc76692527a80ee6e0096803ff3462e2",
       "server/status_validation.py": "538a2b74aa645475cdbb760c14f0ce2f49a2a4417e4c400197b724dd2ff4c770",
       "server/trading-engine-p15-events.service": "0f1434a2576070df5e50573e78556cb13b7a0a2e59b0a17d23c3c5d2a2342630",
       "server/trading-engine-p15-events.timer": "aa5dae3f0a99ba2a3d346dd2758b46fd98d76c12494f06e39b2009bf12c35d3d",
@@ -400,6 +400,6 @@
     }
   },
   "registration_revision": 13,
-  "revision_reason": "owner decision 2026-10-06: ibkr_pro_tiered_v1 commissions from the migration --d0 parameter; book evaluation clocks restart at D0; additive account schema, monotonic order sequence, shared ledger and account engine; pre-D0 league.csv and league.md byte-identical; scoring, labels, gates and schedules unchanged",
-  "registration_sha256": "7b485504579d91fdaf1b199378bc468c209c796d2a39b02592408e4259e3535e"
+  "revision_reason": "cash-rule SPY reinvestment resize validation against both fill ledgers and nightly maturation of existing event-shadow labels before evidence reporting; scoring, book mechanics, gates, label values, schedules, registered values and written evidence unchanged",
+  "registration_sha256": "e0911cc52ce4c206dc55e90f18c3d3df35833cdf92eae7f654552130e507fb52"
 }

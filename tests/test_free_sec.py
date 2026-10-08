@@ -13,6 +13,10 @@ import pytest
 from engine import free_sec, free_sources
 from tools import free_sec as capture
 
+# Fixed entry time: writestr(name, ...) stamps the current time, so two fixtures
+# built across a 2-second tick hash differently.
+FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
+
 ACCESSION = "0000001000-26-000001"
 SECOND_ACCESSION = "0000001000-26-000002"
 ALLOWED = datetime(2026, 10, 1, 8, 0, tzinfo=timezone.utc)
@@ -59,10 +63,10 @@ def _insider_zip(
     )
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("SUBMISSION.tsv", submission)
-        archive.writestr("REPORTINGOWNER.tsv", owner)
-        archive.writestr("NONDERIV_TRANS.tsv", transaction)
-        archive.writestr("README.txt", "recorded fixture")
+        archive.writestr(zipfile.ZipInfo("SUBMISSION.tsv", FIXED_ZIP_TIME), submission)
+        archive.writestr(zipfile.ZipInfo("REPORTINGOWNER.tsv", FIXED_ZIP_TIME), owner)
+        archive.writestr(zipfile.ZipInfo("NONDERIV_TRANS.tsv", FIXED_ZIP_TIME), transaction)
+        archive.writestr(zipfile.ZipInfo("README.txt", FIXED_ZIP_TIME), "recorded fixture")
     return output.getvalue()
 
 
