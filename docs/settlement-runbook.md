@@ -170,8 +170,10 @@ in the ledger row and is the only evidence the number came from anywhere.
   `effective` up to the apply date keep the frozen mark they were written with (the dry
   run tells you how many); they are the point-in-time record of what the league believed.
   Nothing restates them.
-- **Stock conversions carry basis.** The acquirer lot's avg_cost is the dead lot's
-  avg_cost ÷ ratio, merged into any existing acquirer lot; no P&L is realised on the swap.
+- **Signed holdings.** Cash terms credit longs and debit shorts; worthless events remove either
+  signed position without inventing cash. Stock conversions preserve the sign and open lots in
+  the acquirer. The acquirer lot's avg_cost is the dead lot's avg_cost ÷ ratio, merged into any
+  existing same-side acquirer lot; no P&L is realised on the swap.
 - **Re-settling.** A `(portfolio, ticker, effective)` primary key blocks a duplicate row.
   Settling a name a book no longer holds is refused (nothing to do), so re-running an
   applied command exits 2 rather than double-crediting.
