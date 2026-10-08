@@ -43,11 +43,10 @@ product (P12).
 
 [The profitability evidence loop (P15)](plans/p15-profitability-evidence-loop.md) went live on
 2026-09-29 after a verified 90-table recovery bundle. The current source registration is
-revision 13: exact validation of cash-resized SPY reinvestment fills and nightly maturation of
-existing event-shadow labels before reporting, retaining revision 12's bounded complete-metadata
-recovery and earlier verifier, identity, provider-refusal and backup corrections.
-Scoring, book mechanics, gates, label values, registered values, schedules and written evidence
-are unchanged.
+revision 14: P22's `ibkr_pro_tiered_v1` commissions from the migration `--d0`, restarted book
+evaluation clocks and account engine on top of revision 13's exact cash-resized SPY validation
+and nightly event-label maturation. It retains revision 12's bounded complete-metadata recovery
+and earlier corrections. Scoring, labels, statistical gates and schedules are unchanged.
 P15 is `active` and collecting; no performance claim exists before its registered looks.
 Earlier operational revisions introduced stage timings, bounded collection, snapshot throttling,
 cached status projections and queue scratch handling. Revision 10 corrected pending
@@ -195,13 +194,13 @@ Each row has the default that applies until the owner decides.
 
 ## Focus now (in order)
 
-1. **Keep the evidence clean and the revision 13 operating path green.** Use per-stage timings to
+1. **Keep the evidence clean and the revision 14 operating path green.** Use per-stage timings to
    watch the bounded collection, shared snapshots, queue, observers, and status projections. Keep
    scheduled producers green, miss no agent windows, allow no identity drift, and leave no
    uncommitted work on the host. A broken producer beats every item below.
 2. **Finish P22 engine-v2 integration without disturbing pre-D0 evidence.** Merge the account,
    execution and data lanes, rehearse the parameterized cost migration on a store copy, then
-   issue the explicit frozen-contract revisions and P15 revision 13 before Sunday deployment.
+   issue the explicit frozen-contract revisions and P15 revision 14 before Sunday deployment.
 3. **P15 evidence collection.** P15 is active after its scoring, pre-open, event, report, and
    status checks passed. Keep scheduled windows green and never tune a registered value.
 4. **Finish and audit the free survivor-data captures.** Audit the completed grouped-daily window
