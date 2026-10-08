@@ -2845,8 +2845,8 @@ the 42-entry 2026-09-19 C90 complexity series is in
   preserve v1 league routing; migration reports and refuses unacknowledged route changes.
 - **Evidence:** store-copy rehearsal: 42 fills, 2 late fills, flat positions,
   cash/equity $49,991.872499436395, financing booked, reconciliation ok; copy deleted.
-  Both full timezone suites: 4,580 passed / 83 failed; 81 frozen identity failures,
-  two corrected test/document failures proved by an 18-test focused rerun.
+  Both frozen-environment timezone suites: 4,582 passed / 81 failed, all frozen
+  P15/sector/XS identity gates; 50 focused tests passed. Locked-version rehearsal matched.
 - **Metrics:** server +0 LOC, tools +28 LOC, product +218 LOC.
 - **Next:** orchestrator re-pins P15 and frozen runtime identities, then acceptance.
 
