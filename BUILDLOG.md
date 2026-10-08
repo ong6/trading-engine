@@ -2775,4 +2775,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged; product +2; tests +17; docs +2.
 - **Next:** refresh the frozen runtime/source digests on these final source bytes.
 
+## 2026-10-08 — Bind final lifecycle boundary bytes
+
+- **Why:** the accepted zero-mark and contingent-order boundary corrections are dependencies of
+  the frozen sector and XS monitors.
+- **What:** Refresh only those two source digests. E1 is unchanged; all strategy rules, controls,
+  baselines, accumulated evidence and verdict thresholds remain unchanged.
+- **Evidence:** `.venv/bin/python -m pytest -o addopts='' -q -W error` over the six E1,
+  sector and XS runtime/status test files — 136 passed.
+- **Metrics:** server/tools/product unchanged.
+- **Next:** repin P15 revision 13 to the final source commit, then run both full suites.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
