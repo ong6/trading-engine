@@ -221,6 +221,62 @@ def test_book_runtime_rejects_genuinely_different_status(con):
         agent_evaluation.validate_p15_evidence(con, generated_at=NOW)
 
 
+def _book_runtime_quantity_pair(
+    con, *, ticker: str, role: str, intent_qty: float, executed_qty: float,
+) -> None:
+    agent_evaluation.init_schema(con)
+    p15_books.initialize_books(con, date(2026, 9, 24), initialized_at=NOW)
+    book_id = p15_books.BOOK_IDS[0]
+    con.execute(
+        "INSERT INTO p15_order_intents VALUES "
+        "(1,NULL,?,?, 'buy',?,DATE '2026-09-29',?,99,100,NULL,NULL,"
+        "'filled',NULL,7,?)",
+        [book_id, ticker, intent_qty, role, NOW],
+    )
+    con.execute(
+        "INSERT INTO sim_orders VALUES "
+        "(7,?,?, 'buy',?,DATE '2026-09-29',?,NULL)",
+        [book_id, ticker, executed_qty, p15_books.SIM_FILLED_STATUS],
+    )
+    con.execute(
+        "INSERT INTO sim_fills VALUES "
+        "(7,?,?, 'buy',?,DATE '2026-09-30',3000,3000,0,0)",
+        [book_id, ticker, executed_qty],
+    )
+    con.execute(
+        "INSERT INTO p15_book_fills VALUES "
+        "(1,7,?,?, 'buy',?,DATE '2026-09-30',3000,3000,0,0,"
+        "'baseline_v1',100000000,0,0,0)",
+        [book_id, ticker, executed_qty],
+    )
+
+
+def test_book_runtime_accepts_cash_resized_spy_reinvestment(con):
+    _book_runtime_quantity_pair(
+        con, ticker="SPY", role="spy_reinvest", intent_qty=2, executed_qty=3,
+    )
+
+    agent_evaluation.validate_p15_evidence(con, generated_at=NOW)
+
+
+def test_book_runtime_rejects_other_intent_fill_quantity_mismatch(con):
+    _book_runtime_quantity_pair(
+        con, ticker="AAA", role="entry", intent_qty=2, executed_qty=3,
+    )
+
+    with pytest.raises(agent_evaluation.EvaluationError, match="book runtime evidence differs"):
+        agent_evaluation.validate_p15_evidence(con, generated_at=NOW)
+
+
+def test_book_runtime_rejects_spy_resize_that_does_not_match_cash_rule(con):
+    _book_runtime_quantity_pair(
+        con, ticker="SPY", role="spy_reinvest", intent_qty=2, executed_qty=4,
+    )
+
+    with pytest.raises(agent_evaluation.EvaluationError, match="book runtime evidence differs"):
+        agent_evaluation.validate_p15_evidence(con, generated_at=NOW)
+
+
 def _mark_book_window(con, book_id: str, market_date: date) -> None:
     p15_books._mark_exact(con, book_id, market_date, NOW)
 

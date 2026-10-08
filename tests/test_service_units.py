@@ -181,6 +181,8 @@ def test_p15_scoring_unit_is_registered_and_autostarted():
     ) < runner.index(
         '.venv/bin/python -m sim.league --date "${market_date}" --skip-if-done'
     ) < runner.index(
+        ".venv/bin/python -m farm.p15_event_runner --mature-labels"
+    ) < runner.index(
         ".venv/bin/python -m server.agent_evaluation_reporting"
     ) < runner.index("tools.publish_snapshot")
     assert "RestartPreventExitStatus=75" in service
