@@ -397,6 +397,8 @@ def _split_factors(con) -> dict[str, list[tuple[date, float]]]:
 def rebuild_state(
     con: duckdb.DuckDBPyConnection,
     portfolio_ids: Iterable[str] | None = None,
+    *,
+    through: date | None = None,
 ) -> None:
     """Replay ledger state, optionally for only the named portfolios.
 
@@ -491,9 +493,11 @@ def rebuild_state(
     account_splits = {}
     for portfolio_id in target_ids:
         if portfolio_account(con, portfolio_id)['engine'] == 'account':
-            account_splits[portfolio_id] = recorded_splits(con, portfolio_id)
+            account_splits[portfolio_id] = recorded_splits(con, portfolio_id, through)
 
     for _event_date, _phase, _seq, kind, row in events:
+        if through is not None and _event_date > through:
+            continue
         if kind == "dividend":
             con.execute("UPDATE portfolios SET cash=cash+? WHERE id=?", [row[3], row[0]])
             continue
@@ -549,3 +553,43 @@ def rebuild_state(
         )
         if not math.isclose(applied, adjusted, rel_tol=1e-12, abs_tol=1e-12):
             raise ValueError(f"stored fill {order_id} changed quantity during replay")
+
+
+def post_accrual(con, event: Mapping, *, replay: bool = False) -> bool:
+    """Append a financing correction while retaining every previous cash event."""
+    existing = con.execute(
+        'SELECT COUNT(*),COALESCE(SUM(amount),0) FROM sim_cash_events '
+        'WHERE portfolio_id=? AND event_date=? AND kind=? '
+        'AND instrument_id IS NOT DISTINCT FROM ?',
+        [event['portfolio_id'], event['event_date'], event['kind'], event.get('instrument_id')],
+    ).fetchone()
+    if existing[0] and not replay:
+        return False
+    if replay:
+        con.execute('UPDATE portfolios SET cash=cash+? WHERE id=?',
+                    [existing[1], event['portfolio_id']])
+    delta = float(event['amount']) - float(existing[1])
+    if abs(delta) < 1e-10:
+        return False
+    apply_cash_event(con, {**event, 'amount': delta})
+    return True
+
+
+def replay_session_fills(con, portfolio_id: str, day: date) -> list[dict]:
+    """Stored executions for merging with newly available fills in timestamp order."""
+    cursor = con.execute(
+        'SELECT f.*,d.fill_ts,ff.* EXCLUDE(order_id) FROM sim_fills f '
+        'JOIN sim_fill_details d ON d.order_id=f.order_id '
+        'LEFT JOIN sim_fill_fees ff ON ff.order_id=f.order_id '
+        'WHERE f.portfolio_id=? AND f.fill_date=? ORDER BY d.fill_ts,f.order_id',
+        [portfolio_id, day],
+    )
+    names = [column[0] for column in cursor.description]
+    return [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
+
+
+def apply_stored_fill(con, row: dict) -> None:
+    """Replay an immutable execution without writing its fill or fee rows again."""
+    qty = apply_fill(con, row, row if row.get('cost_profile') else None, persist_fees=False)
+    if not math.isclose(qty, row['qty'], rel_tol=1e-12, abs_tol=1e-12):
+        raise ValueError(f"stored fill {row['order_id']} changed quantity during replay")
