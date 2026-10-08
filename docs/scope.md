@@ -19,7 +19,7 @@ owner entry in `feedback.md`.
 | Multi-cadence agent tools (P9): hourly and four-hour shadow observers (`trading-engine-{hourly,four-hour}-opportunity.timer`) | Weekdays 10:15–16:15 hourly and 10:30/13:30 America/New_York | Same; missed windows are not replayed (`Persistent=false`) |
 | Agent data capture and agent-only shadow (`trading-engine-agent-{data-capture,shadow}.timer`) | 01:25 and 01:30 UTC Tue–Sat | Same |
 | Forward agent evaluation (P11) and P15 evaluation (`GET /agent/evaluation/status`, JSON and P15 Markdown reports) | After P8; refreshes after P15 scoring | Same; labels are mechanical and never tune a policy |
-| P15 pre-open check, event triggers, and scoring (`trading-engine-p15-{preopen,events,scoring}.timer`) | Pre-open 09:05 and events at 09:35/09:50 then :05/:20/:35/:50 through 15:50 America/New_York on weekdays; scoring 02:30 UTC Tue–Sat | Same; revision 12 preserves registered values and no tuning is admitted |
+| P15 pre-open check, event triggers, and scoring (`trading-engine-p15-{preopen,events,scoring}.timer`) | Pre-open 09:05 and events at 09:35/09:50 then :05/:20/:35/:50 through 15:50 America/New_York on weekdays; scoring 02:30 UTC Tue–Sat | Same; revision 13 preserves registered values and no tuning is admitted |
 | TradingView historical archive (P14; existing queue, bounded slices) | 03:40, 07:40, 11:40, 21:40 and 23:40 UTC weekdays, six four-hourly slices on weekends (`trading-engine-tradingview-history.timer`); nightly enqueue is a fallback | Same; retrieval-time research only, current-universe survivor bias explicit |
 
 Change a running component only through a plan, as a new registered version. Existing versions
@@ -30,7 +30,7 @@ and their evidence are never edited.
 Plan status lives in one place: the table in [`plans/README.md`](plans/README.md). Only plans
 marked `approved` or `active` there admit work, subject to their stated prerequisites. The
 profitability evidence loop's activation workstream (P15 W8) activated on 2026-09-29;
-source registration revision 12 binds the complete-metadata recovery correction without changing activation.
+source registration revision 13 binds the validator and label-timing corrections without changing activation.
 Completed outputs from agent paper decisions (P5), the alpha experiment (P6), the 2022 replay
 (P10), forward agent evaluation (P11), the agent research product (P12), market-data source
 hardening (P13), and the TradingView historical archive (P14) stay in scope for operation and
