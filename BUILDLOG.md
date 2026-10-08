@@ -2870,4 +2870,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product LOC unchanged.
 - **Next:** issue P15 registration revision 14 on the frozen integrated source commit.
 
+## 2026-10-08 — Register integrated P15 revision 14
+
+- **Why:** P22 integration requires a new registered identity on top of main's revision-13
+  validator and label-timing correction before the 2026-10-18 deployment window.
+- **What:** Bind the 161-file merged dependency closure as revision 14, including the account
+  action and shared valuation modules. Register P22 commissions from migration `--d0`, restarted
+  book clocks and the account engine; scoring, labels, gates and schedules stay unchanged.
+- **Evidence:** `.venv/bin/python -m pytest -o addopts='' -q -W error -rN
+  tests/test_p15_registration.py` — 5 passed, exit 0.
+- **Metrics:** server/tools/product LOC unchanged.
+- **Next:** run every CI static gate and the full suite in both supported timezones.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

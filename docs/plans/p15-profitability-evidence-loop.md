@@ -446,7 +446,7 @@ only** (owner, 2026-09-25). Every other AGENTS.md rule still applies.
 | W5 Event triggers | done | 2026-09-26 |
 | W6 Gates and reporting | done | 2026-09-26 |
 | W7 Cleanup and docs | done | 2026-09-26 |
-| W8 Activation | active; revision 13 binds exact cash-resized SPY reinvestment validation and nightly event-label maturation before reporting; scoring, book mechanics, gates, label values, schedules, registered values and written rows are unchanged | 2026-10-08 |
+| W8 Activation | active; revision 14 binds P22 commissions, restarted book clocks and the account engine on top of revision 13's exact SPY validation and nightly label maturation; scoring, labels, gates and schedules are unchanged | 2026-10-08 |
 
 ## Risks
 
