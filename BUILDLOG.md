@@ -2720,4 +2720,21 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools unchanged; server +2; product +363 (engine +338, sim +25); tests +350.
 - **Next:** add real nightly, late-CLI and account-API end-to-end lifecycle coverage.
 
+## 2026-10-08 — Prove lifecycle behavior through production entry points
+
+- **Why:** P22 acceptance requires the real account API, nightly driver and late-settle CLI,
+  without mocked phase functions, plus exact lifecycle contract wording.
+- **What:** Exercise read-only source attachment, long/short contingent auction pairs, delayed
+  Massive settlement, retirement-to-flat, ledger-mismatch halting and account-safe legacy reruns
+  through production entry points. Make verification itself atomic and document chronological
+  fills, completed-minute timestamps, stale marks, forced closes and resume anchors.
+- **Evidence:** `.venv/bin/python -m pytest -o addopts='' -q -W error
+  tests/test_account_sources.py tests/test_account_entrypoints_e2e.py
+  tests/test_accounts_settle.py tests/test_accounts_service.py tests/test_accounts_api.py
+  tests/test_fills_v2.py tests/test_margin.py tests/test_money.py tests/test_paper_accounts.py
+  tests/test_settle.py tests/test_league_v2.py tests/test_shorts.py tests/test_ledger.py`
+  — 187 passed.
+- **Metrics:** server/tools unchanged; product +8; tests +322; docs +18.
+- **Next:** refresh authorized frozen-runtime identities, then run both full timezone suites.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

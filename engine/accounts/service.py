@@ -360,47 +360,48 @@ def verify(
     manage_transaction: bool = True,
 ) -> dict:
     """Rebuild one account, restore it, and durably halt any mismatch."""
-    init_schema(con)
-    _account(con, account_id)
-    observed = _current_state(con, account_id)
-    positions = con.execute(
-        "SELECT portfolio_id,ticker,qty,avg_cost FROM sim_positions "
-        "WHERE portfolio_id=? ORDER BY ticker", [account_id],
-    ).fetchall()
-    lots = con.execute(
-        "SELECT portfolio_id,instrument_id,opened_session,open_order_id,qty,avg_px "
-        "FROM sim_position_lots WHERE portfolio_id=? "
-        "ORDER BY instrument_id,opened_session,open_order_id", [account_id],
-    ).fetchall()
-    day_trades = con.execute(
-        "SELECT portfolio_id,session_date,instrument_id,open_order_id,close_order_id "
-        "FROM sim_day_trades WHERE portfolio_id=? ORDER BY session_date,close_order_id",
-        [account_id],
-    ).fetchall()
-    try:
-        ledger.rebuild_state(con, [account_id])
-        expected = _current_state(con, account_id)
-    finally:
-        _restore_account_state(
-            con, account_id, observed["cash"], positions, lots, day_trades,
-        )
-    ok = canonical_sha256(expected) == canonical_sha256(observed)
-    result = {
-        "account_id": account_id,
-        "status": "ok" if ok else "mismatch",
-        "expected_sha256": canonical_sha256(expected),
-        "observed_sha256": canonical_sha256(observed),
-    }
-    if ok:
-        return result
-    now = _utc(now)
-    if session_date is None:
-        latest = con.execute(
-            "SELECT MAX(date) FROM sim_equity WHERE portfolio_id=?", [account_id]
-        ).fetchone()[0]
-        session_date = latest or now.date()
+    effective_now = _utc(now)
 
-    def persist() -> None:
+    def run() -> dict:
+        init_schema(con)
+        _account(con, account_id)
+        observed = _current_state(con, account_id)
+        positions = con.execute(
+            "SELECT portfolio_id,ticker,qty,avg_cost FROM sim_positions "
+            "WHERE portfolio_id=? ORDER BY ticker", [account_id],
+        ).fetchall()
+        lots = con.execute(
+            "SELECT portfolio_id,instrument_id,opened_session,open_order_id,qty,avg_px "
+            "FROM sim_position_lots WHERE portfolio_id=? "
+            "ORDER BY instrument_id,opened_session,open_order_id", [account_id],
+        ).fetchall()
+        day_trades = con.execute(
+            "SELECT portfolio_id,session_date,instrument_id,open_order_id,close_order_id "
+            "FROM sim_day_trades WHERE portfolio_id=? ORDER BY session_date,close_order_id",
+            [account_id],
+        ).fetchall()
+        try:
+            ledger.rebuild_state(con, [account_id])
+            expected = _current_state(con, account_id)
+        finally:
+            _restore_account_state(
+                con, account_id, observed["cash"], positions, lots, day_trades,
+            )
+        ok = canonical_sha256(expected) == canonical_sha256(observed)
+        result = {
+            "account_id": account_id,
+            "status": "ok" if ok else "mismatch",
+            "expected_sha256": canonical_sha256(expected),
+            "observed_sha256": canonical_sha256(observed),
+        }
+        if ok:
+            return result
+        effective_session = session_date
+        if effective_session is None:
+            latest = con.execute(
+                "SELECT MAX(date) FROM sim_equity WHERE portfolio_id=?", [account_id]
+            ).fetchone()[0]
+            effective_session = latest or effective_now.date()
         detail = "engine ledger reconstruction differs from stored cash/positions"
         con.execute(
             "INSERT INTO account_reconciliations VALUES (?,?,?,?,?,?,?) "
@@ -408,20 +409,19 @@ def verify(
             "expected_sha256=excluded.expected_sha256,"
             "observed_sha256=excluded.observed_sha256,status='mismatch',"
             "detail=excluded.detail,created_at=excluded.created_at",
-            [account_id, session_date, result["expected_sha256"],
-             result["observed_sha256"], "mismatch", detail, now],
+            [account_id, effective_session, result["expected_sha256"],
+             result["observed_sha256"], "mismatch", detail, effective_now],
         )
         halts.halt_account(
-            con, account_id, "halt_reconciliation", now=now,
-            detail={"session_date": session_date.isoformat(), "detail": detail},
+            con, account_id, "halt_reconciliation", now=effective_now,
+            detail={"session_date": effective_session.isoformat(), "detail": detail},
         )
+        return result
 
     if manage_transaction:
         with db.transaction(con):
-            persist()
-    else:
-        persist()
-    return result
+            return run()
+    return run()
 
 
 def run_alerts(con, session_date: date, *, now: datetime | None = None) -> list[dict]:
