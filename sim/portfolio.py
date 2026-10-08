@@ -296,8 +296,10 @@ def _split_factors(con: duckdb.DuckDBPyConnection) -> dict[str, list[tuple[date,
 # --------------------------------------------------------------------------- #
 # reconstruction (used by --rerun)
 # --------------------------------------------------------------------------- #
-def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
+def rebuild_state(
+    con: duckdb.DuckDBPyConnection, portfolio_ids: list[str] | tuple[str, ...] | None = None,
+) -> None:
     """Delegate all phase-ordered reconstruction to the common ledger."""
     from .ledger import rebuild_state as ledger_rebuild_state
 
-    ledger_rebuild_state(con)
+    ledger_rebuild_state(con, portfolio_ids=portfolio_ids)

@@ -4,8 +4,8 @@ from datetime import date, datetime
 import pytest
 
 from engine.lib.util import table_exists
-from sim import league, portfolio, settle
-from sim.schema import INITIAL_CASH
+from sim import league, ledger, portfolio, settle
+from sim.schema import INITIAL_CASH, set_portfolio_account
 from tests.conftest import insert_bars
 
 D1, D2, D3, D4, D5 = (date(2024, 6, 3), date(2024, 6, 4), date(2024, 6, 5),
@@ -358,6 +358,70 @@ def test_stock_conversion_merges_into_existing_acquirer_lot(con):
     assert pos["ACQ"]["qty"] == pytest.approx(80.0)
     assert pos["ACQ"]["avg_cost"] == pytest.approx((40 * 60 + 40 * 50) / 80)
     assert portfolio.get_cash(con, pf) == pytest.approx(INITIAL_CASH - 2000 - 2400 + 10)
+
+
+@pytest.mark.parametrize(("kind", "price", "expected_cash"), [
+    ("cash", 209.70, INITIAL_CASH + 2_000 - 2_097),
+    ("worthless", 0.0, INITIAL_CASH + 2_000),
+])
+def test_short_cash_and_worthless_settlements_are_signed_and_replay(
+    con, kind, price, expected_cash,
+):
+    pf = _book(con)
+    set_portfolio_account(con, pf, engine="account", account_type="margin", status="active")
+    _dead_name(con)
+    ledger.apply_fill(con, {
+        "order_id": 1, "portfolio_id": pf, "ticker": "EA", "side": "short",
+        "qty": 10, "fill_px": 200, "fill_date": D1,
+    })
+    con.execute(
+        "INSERT INTO sim_fills VALUES (1,?,'EA','short',10,?,200,200,0,0)", [pf, D1]
+    )
+    con.execute(
+        "INSERT INTO sim_fill_details (order_id,fill_ts,fill_kind,price_source,multiplier) "
+        "VALUES (1,'2024-06-03 13:30:00','open_auction','prices',1)"
+    )
+
+    settle.settle(con, _terms(kind=kind, price=price), apply=True)
+
+    assert portfolio.get_cash(con, pf) == pytest.approx(expected_cash)
+    assert "EA" not in portfolio.get_positions(con, pf)
+    live = _state(con, pf)
+    portfolio.rebuild_state(con)
+    assert _state(con, pf) == live
+
+
+def test_short_stock_conversion_creates_short_acquirer_lots_and_replays(con):
+    pf = _book(con)
+    set_portfolio_account(con, pf, engine="account", account_type="margin", status="active")
+    _dead_name(con, "TALK")
+    insert_bars(con, "ACQ", [D1, D2, D3, D4, D5], close=50)
+    ledger.apply_fill(con, {
+        "order_id": 1, "portfolio_id": pf, "ticker": "TALK", "side": "short",
+        "qty": 10, "fill_px": 200, "fill_date": D1,
+    })
+    con.execute(
+        "INSERT INTO sim_fills VALUES (1,?,'TALK','short',10,?,200,200,0,0)", [pf, D1]
+    )
+    con.execute(
+        "INSERT INTO sim_fill_details (order_id,fill_ts,fill_kind,price_source,multiplier) "
+        "VALUES (1,'2024-06-03 13:30:00','open_auction','prices',1)"
+    )
+
+    settle.settle(
+        con,
+        _terms(ticker="TALK", kind="stock", price=0, into_ticker="ACQ", ratio=4),
+        apply=True,
+    )
+
+    assert portfolio.get_positions(con, pf)["ACQ"]["qty"] == pytest.approx(-40)
+    assert con.execute(
+        "SELECT SUM(qty) FROM sim_position_lots WHERE portfolio_id=? AND instrument_id='ACQ'",
+        [pf],
+    ).fetchone() == (pytest.approx(-40),)
+    live = _state(con, pf)
+    portfolio.rebuild_state(con)
+    assert _state(con, pf) == live
 
 
 # CLI ---------------------------------------------------------------------------

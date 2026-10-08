@@ -1,7 +1,5 @@
 """Transactional lifecycle tests for the paper-account service."""
-import sys
 from datetime import date, datetime, timezone
-from types import ModuleType
 
 import pytest
 
@@ -71,7 +69,7 @@ def test_resume_activates_portfolio_only_after_an_accepted_intake(con):
     assert con.execute("SELECT active FROM portfolios WHERE id='acct-a'").fetchone()[0] is True
 
 
-def test_retire_queues_moc_closes_and_deactivates(con):
+def test_retire_queues_moc_closes_and_keeps_account_processing(con):
     _active_account(con)
     con.execute("INSERT INTO sim_positions VALUES ('acct-a','LONG',4,100)")
     con.execute("INSERT INTO sim_positions VALUES ('acct-a','SHORT',-2,100)")
@@ -84,8 +82,8 @@ def test_retire_queues_moc_closes_and_deactivates(con):
                 [NOW, NOW])
     result = service.retire(con, "acct-a", now=NOW)
     assert len(result["queued_order_ids"]) == 2
-    assert con.execute("SELECT active FROM portfolios WHERE id='acct-a'").fetchone()[0] is False
-    assert sim_schema.portfolio_account(con, "acct-a")["status"] == "retired"
+    assert con.execute("SELECT active FROM portfolios WHERE id='acct-a'").fetchone()[0] is True
+    assert sim_schema.portfolio_account(con, "acct-a")["status"] == "retiring"
     assert con.execute(
         "SELECT o.ticker,o.side,o.qty,d.order_type FROM sim_orders o JOIN sim_order_details d "
         "ON o.id=d.order_id WHERE o.status='pending' ORDER BY o.ticker"
@@ -171,17 +169,25 @@ def test_verify_rebuilds_without_mutating_the_account(con):
     _active_account(con)
     assert service.verify(con, "acct-a")["status"] == "ok"
     con.execute("UPDATE portfolios SET cash=9999 WHERE id='acct-a'")
-    assert service.verify(con, "acct-a")["status"] == "mismatch"
+    result = service.verify(con, "acct-a", session_date=date(2026, 10, 5), now=NOW)
+    assert result["status"] == "mismatch"
     assert con.execute("SELECT cash FROM portfolios WHERE id='acct-a'").fetchone()[0] == 9999
+    assert sim_schema.portfolio_account(con, "acct-a")["status"] == "halted"
+    assert con.execute(
+        "SELECT status FROM account_reconciliations "
+        "WHERE portfolio_id='acct-a' AND session_date=DATE '2026-10-05'"
+    ).fetchone() == ("mismatch",)
 
 
-def test_settle_cli_wiring_lazily_calls_l1(monkeypatch, con):
-    stub = ModuleType("engine.accounts.settle")
+def test_settle_cli_calls_real_processor_with_production_sources(monkeypatch, con):
     calls = []
-    stub.settle_session = lambda connection, session_date, *, late: (
-        calls.append((connection, session_date, late)) or {"settled": 2}
-    )
-    monkeypatch.setitem(sys.modules, "engine.accounts.settle", stub)
+    monkeypatch.setattr(cli.account_settle, "settle_session", lambda connection, session_date,
+                        *, late, short_con: (
+        calls.append((connection, session_date, late, short_con)) or {"settled": 2}
+    ))
+    monkeypatch.setattr(cli.account_sources, "production_sources", lambda connection: (
+        __import__("contextlib").nullcontext("short-source")
+    ))
     session_date = date(2026, 10, 5)
     assert cli._settle(con, session_date=session_date, late=True) == {"settled": 2}
-    assert calls == [(con, session_date, True)]
+    assert calls == [(con, session_date, True, "short-source")]

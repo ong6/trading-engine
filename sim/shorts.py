@@ -308,11 +308,17 @@ def queue_buy_ins(
     con: duckdb.DuckDBPyConnection,
     con_short: duckdb.DuckDBPyConnection,
     day: date,
+    *,
+    portfolio_id: str | None = None,
 ) -> list[int]:
     """Queue next-open covers for five-session threshold-list shorts."""
     queued: list[int] = []
     positions = []
-    for settings in account_portfolios(con):
+    for settings in account_portfolios(con, active_only=False):
+        if settings["status"] not in {"active", "halted", "retiring"}:
+            continue
+        if portfolio_id is not None and settings["portfolio_id"] != portfolio_id:
+            continue
         for ticker, qty in con.execute(
             "SELECT ticker,qty FROM sim_positions WHERE portfolio_id=? AND qty<0 "
             "ORDER BY ticker",

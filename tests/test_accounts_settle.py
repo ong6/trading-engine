@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from engine.accounts import service
 from engine.accounts.settle import settle_session
 from sim import costs, ledger, shorts
 from sim.schema import next_order_id, set_portfolio_account
@@ -96,6 +97,22 @@ def _minute_table(con):
     )
 
 
+def _historical_fill(con, account_id, ticker, side, qty, price, day, order_id):
+    ledger.apply_fill(con, {
+        "order_id": order_id, "portfolio_id": account_id, "ticker": ticker,
+        "side": side, "qty": qty, "fill_px": price, "fill_date": day,
+    })
+    con.execute(
+        "INSERT INTO sim_fills VALUES (?,?,?,?,?,?,?,?,0,0)",
+        [order_id, account_id, ticker, side, qty, day, price, price],
+    )
+    con.execute(
+        "INSERT INTO sim_fill_details (order_id,fill_ts,fill_kind,price_source,multiplier) "
+        "VALUES (?,CAST(? AS TIMESTAMP),'open_auction','prices',1)",
+        [order_id, f"{day.isoformat()} 13:30:00"],
+    )
+
+
 def test_every_fill_kind_charges_fee_and_cash(con):
     _account(con, "moo")
     _account(con, "moc")
@@ -111,10 +128,7 @@ def test_every_fill_kind_charges_fee_and_cash(con):
     )
     moo = _order(con, "moo", "AAA", "buy", 2.5, "moo",
                  datetime(2026, 10, 12, 9, 27, tzinfo=NEW_YORK))
-    ledger.apply_fill(con, {
-        "order_id": 90, "portfolio_id": "moc", "ticker": "BBB", "side": "buy",
-        "qty": 2.5, "fill_px": 100, "fill_date": PRIOR,
-    })
+    _historical_fill(con, "moc", "BBB", "buy", 2.5, 100, PRIOR, 90)
     moc = _order(con, "moc", "BBB", "sell", 2.5, "moc",
                  datetime(2026, 10, 12, 15, 49, tzinfo=NEW_YORK))
     market = _order(con, "market", "CCC", "buy", 2.5, "market",
@@ -130,7 +144,7 @@ def test_every_fill_kind_charges_fee_and_cash(con):
 
     assert result["filled"] == 4
     assert con.execute(
-        "SELECT order_id,fill_kind FROM sim_fill_details ORDER BY order_id"
+        "SELECT order_id,fill_kind FROM sim_fill_details WHERE order_id<>90 ORDER BY order_id"
     ).fetchall() == [
         (moo, "open_auction"), (moc, "close_auction"),
         (market, "intraday_bar"), (limit, "limit_touch"),
@@ -212,6 +226,51 @@ def test_contingent_moc_uses_exact_fractional_moo_quantity(con):
     ).fetchone() == (0.0,)
 
 
+def test_execution_time_precedes_receipt_order_for_contingent_pair(con):
+    _account(con, "acct-a")
+    _daily(con, "XYZ", open_=100, close=105)
+    moo = _order(
+        con, "acct-a", "XYZ", "buy", 7.25, "moo",
+        datetime(2026, 10, 12, 9, 27, 2, tzinfo=NEW_YORK),
+    )
+    # The child arrived first, but executes at the close after its opening parent.
+    moc = _order(
+        con, "acct-a", "XYZ", "sell", 7.25, "moc",
+        datetime(2026, 10, 12, 9, 27, 1, tzinfo=NEW_YORK),
+        contingent_on=moo,
+    )
+
+    result = _settle(con)
+
+    assert result["filled"] == 2
+    assert con.execute(
+        "SELECT order_id FROM sim_fill_details ORDER BY fill_ts,order_id"
+    ).fetchall() == [(moo,), (moc,)]
+
+
+def test_global_liquidity_is_allocated_by_execution_window_then_receipt(con):
+    _account(con, "close-order")
+    _account(con, "open-order")
+    _daily(con, "XYZ", mdv=100_000)
+    moc = _order(
+        con, "close-order", "XYZ", "buy", 6, "moc",
+        datetime(2026, 10, 9, 16, 1, tzinfo=NEW_YORK),
+    )
+    moo = _order(
+        con, "open-order", "XYZ", "buy", 6, "moo",
+        datetime(2026, 10, 12, 9, 27, tzinfo=NEW_YORK),
+    )
+
+    _settle(con)
+
+    assert con.execute(
+        "SELECT status,reject_reason FROM sim_orders WHERE id=?", [moo]
+    ).fetchone() == ("filled", None)
+    assert con.execute(
+        "SELECT status,reject_reason FROM sim_orders WHERE id=?", [moc]
+    ).fetchone() == ("rejected", "illiquid_aggregate")
+
+
 def test_contingent_child_keeps_its_received_at_position(con):
     _account(con, "acct-a", capital=10_000)
     _daily(con, "XYZ")
@@ -229,11 +288,11 @@ def test_contingent_child_keeps_its_received_at_position(con):
         datetime(2026, 10, 12, 9, 27, 2, tzinfo=NEW_YORK),
     )
     result = _settle(con)
-    assert result["filled"] == 3
+    assert result["filled"] == 2
     assert con.execute(
         "SELECT id,status FROM sim_orders WHERE id IN (?,?,?) ORDER BY id",
         [parent, child, later],
-    ).fetchall() == [(parent, "filled"), (child, "filled"), (later, "filled")]
+    ).fetchall() == [(parent, "filled"), (child, "filled"), (later, "rejected")]
 
 
 def test_contingent_moc_does_nothing_when_moo_is_refused(con):
@@ -366,10 +425,9 @@ def test_threshold_buy_in_covers_next_open_with_penalty(con):
         "WHERE ticker='XYZ' AND date=?",
         [next_day],
     )
-    ledger.apply_fill(con, {
-        "order_id": 90, "portfolio_id": "acct-a", "ticker": "XYZ", "side": "short",
-        "qty": 2.5, "fill_px": 100, "fill_date": date(2026, 10, 5),
-    })
+    _historical_fill(
+        con, "acct-a", "XYZ", "short", 2.5, 100, date(2026, 10, 5), 90,
+    )
     con.execute(
         "CREATE TABLE regsho_threshold "
         "(ticker VARCHAR,session_date DATE,publication_date DATE)"
@@ -392,7 +450,7 @@ def test_threshold_buy_in_covers_next_open_with_penalty(con):
     ).fetchone()[0]
     assert fill_px == pytest.approx(100 * (1 + 60 / 10_000))
     assert con.execute(
-        "SELECT kind,amount,ref_order_id FROM sim_cash_events"
+        "SELECT kind,amount,ref_order_id FROM sim_cash_events WHERE kind='buy_in_penalty'"
     ).fetchone() == ("buy_in_penalty", 0.0, order_id)
     assert con.execute(
         "SELECT qty FROM sim_positions WHERE portfolio_id='acct-a' AND ticker='XYZ'"
@@ -453,6 +511,9 @@ def test_late_settle_fills_only_missing_bar_account_and_restates_its_equity(con)
     )
     first = _settle(con)
     assert first["pending"] == 1
+    untouched_equity = con.execute(
+        "SELECT equity FROM sim_equity WHERE portfolio_id='untouched' AND date=?", [DAY]
+    ).fetchone()[0]
     insert_bars(con, "XYZ", [DAY], open_=100, close=101, volume=1_000_000)
     con.execute(
         "UPDATE prices SET fetched_at='2026-10-13 07:00:00' "
@@ -475,7 +536,183 @@ def test_late_settle_fills_only_missing_bar_account_and_restates_its_equity(con)
     ).fetchone()[0] != 1
     assert con.execute(
         "SELECT equity FROM sim_equity WHERE portfolio_id='untouched' AND date=?", [DAY]
-    ).fetchone() == (12345.0,)
+    ).fetchone() == (untouched_equity,)
+
+
+def test_account_fill_mark_and_risk_roll_back_together_then_retry(con, monkeypatch):
+    _account(con, "acct-a")
+    _daily(con, "XYZ")
+    order_id = _order(
+        con, "acct-a", "XYZ", "buy", 1, "moo",
+        datetime(2026, 10, 12, 9, 27, tzinfo=NEW_YORK),
+    )
+    from engine.accounts import settle as module
+
+    original = module._mark_account
+    monkeypatch.setattr(
+        module, "_mark_account",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("mark crash")),
+    )
+    failed = _settle(con)
+    assert failed["errors"]["acct-a"]["message"] == "mark crash"
+    assert con.execute("SELECT COUNT(*) FROM sim_fills WHERE order_id=?", [order_id]).fetchone() == (0,)
+    assert con.execute("SELECT status FROM sim_orders WHERE id=?", [order_id]).fetchone() == ("pending",)
+
+    monkeypatch.setattr(module, "_mark_account", original)
+    retried = _settle(con)
+    assert retried["filled"] == 1
+    assert con.execute(
+        "SELECT equity FROM sim_equity WHERE portfolio_id='acct-a' AND date=?", [DAY]
+    ).fetchone() is not None
+
+
+def test_committed_fill_without_mark_is_recovered(con):
+    _account(con, "acct-a")
+    _daily(con, "XYZ")
+    ledger.apply_fill(con, {
+        "order_id": 91, "portfolio_id": "acct-a", "ticker": "XYZ", "side": "buy",
+        "qty": 1, "fill_px": 100, "fill_date": DAY,
+    })
+    con.execute(
+        "INSERT INTO sim_fills VALUES (91,'acct-a','XYZ','buy',1,?,100,100,0,0)", [DAY]
+    )
+    con.execute(
+        "INSERT INTO sim_fill_details (order_id,fill_ts,fill_kind,price_source,multiplier) "
+        "VALUES (91,'2026-10-12 13:30:00','open_auction','prices',1)"
+    )
+
+    result = _settle(con, late=True)
+
+    assert result["recovered_marks"] == ["acct-a"]
+    assert con.execute(
+        "SELECT equity FROM sim_equity WHERE portfolio_id='acct-a' AND date=?", [DAY]
+    ).fetchone() is not None
+
+
+def test_missing_current_mark_carries_short_liability_and_flags_stale(con):
+    _account(con, "acct-a")
+    _historical_fill(con, "acct-a", "XYZ", "short", 10, 100, PRIOR, 90)
+
+    result = _settle(con)
+
+    assert result["carried"] == {"acct-a": ["XYZ"]}
+    equity = con.execute(
+        "SELECT equity FROM sim_equity WHERE portfolio_id='acct-a' AND date=?", [DAY]
+    ).fetchone()[0]
+    assert equity == pytest.approx(50_000)
+    payload = con.execute(
+        "SELECT payload FROM account_events WHERE portfolio_id='acct-a' AND kind='stale_mark'"
+    ).fetchone()[0]
+    assert '"instrument_id":"XYZ"' in payload
+
+
+def test_halted_account_executes_risk_forced_close(con):
+    _account(con, "acct-a")
+    _daily(con, "XYZ")
+    _historical_fill(con, "acct-a", "XYZ", "buy", 10, 100, PRIOR, 90)
+    set_portfolio_account(con, "acct-a", status="halted")
+    forced = _order(
+        con, "acct-a", "XYZ", "sell", 10, "next_open",
+        datetime(2026, 10, 9, 16, tzinfo=NEW_YORK), signal_date=PRIOR,
+    )
+    con.execute(
+        "UPDATE sim_order_details SET state_reason='margin_call' WHERE order_id=?", [forced]
+    )
+
+    result = _settle(con)
+
+    assert result["filled"] == 1
+    assert con.execute("SELECT status FROM sim_orders WHERE id=?", [forced]).fetchone() == ("filled",)
+    assert con.execute(
+        "SELECT qty FROM sim_positions WHERE portfolio_id='acct-a' AND ticker='XYZ'"
+    ).fetchone() == (0.0,)
+
+
+def test_maintenance_breach_queues_reduction_even_when_halt_fires(con):
+    _account(con, "acct-a", capital=10_000)
+    _daily(con, "XYZ", close=20)
+    _historical_fill(con, "acct-a", "XYZ", "buy", 190, 100, PRIOR, 90)
+    con.execute(
+        "INSERT INTO sim_equity VALUES ('acct-a',?,10000,-9000,1)", [PRIOR]
+    )
+
+    _settle(con)
+
+    assert con.execute(
+        "SELECT pa_status FROM portfolio_accounts_v WHERE portfolio_id='acct-a'"
+    ).fetchone() == ("halted",)
+    assert con.execute(
+        "SELECT o.side,d.state_reason FROM sim_orders o JOIN sim_order_details d "
+        "ON d.order_id=o.id WHERE o.portfolio_id='acct-a' AND o.status='pending'"
+    ).fetchone() == ("sell", "margin_call")
+
+
+def test_retirement_liquidates_then_finalizes(con):
+    _account(con, "acct-a")
+    _daily(con, "XYZ")
+    _historical_fill(con, "acct-a", "XYZ", "buy", 10, 100, PRIOR, 90)
+    requested = service.retire(
+        con, "acct-a", now=datetime(2026, 10, 9, 20, 1, tzinfo=timezone.utc),
+    )
+    assert requested["status"] == "retiring"
+
+    result = _settle(con)
+
+    assert result["filled"] == 1
+    assert con.execute(
+        "SELECT pa_status FROM portfolio_accounts_v WHERE portfolio_id='acct-a'"
+    ).fetchone() == ("retired",)
+    assert con.execute("SELECT active FROM portfolios WHERE id='acct-a'").fetchone() == (False,)
+
+
+def test_completion_path_halts_on_five_percent_day_loss(con):
+    _account(con, "acct-a")
+    _daily(con, "XYZ", close=70)
+    _historical_fill(con, "acct-a", "XYZ", "buy", 100, 100, PRIOR, 90)
+    con.execute(
+        "INSERT INTO sim_equity VALUES ('acct-a',?,50000,40000,1)", [PRIOR]
+    )
+
+    _settle(con)
+
+    assert con.execute(
+        "SELECT pa_status FROM portfolio_accounts_v WHERE portfolio_id='acct-a'"
+    ).fetchone() == ("halted",)
+    assert con.execute(
+        "SELECT kind FROM account_events WHERE portfolio_id='acct-a' "
+        "AND kind='halt_daily_loss'"
+    ).fetchone() == ("halt_daily_loss",)
+
+
+def test_execution_rechecks_total_exposure_without_counting_own_reservation_twice(con):
+    _account(con, "acct-a", capital=10_000)
+    _daily(con, "XYZ")
+    order_id = _order(
+        con, "acct-a", "XYZ", "buy", 90, "moo",
+        datetime(2026, 10, 12, 9, 27, tzinfo=NEW_YORK),
+    )
+    result = _settle(con)
+    assert result["filled"] == 1
+    assert con.execute("SELECT status FROM sim_orders WHERE id=?", [order_id]).fetchone() == ("filled",)
+
+
+def test_execution_rejects_aggregate_account_exposure_breach(con):
+    _account(con, "acct-a", capital=10_000)
+    _account(con, "acct-b", capital=10_000)
+    _daily(con, "OLD")
+    _daily(con, "NEW")
+    ledger.apply_fill(con, {
+        "order_id": 90, "portfolio_id": "acct-a", "ticker": "OLD", "side": "buy",
+        "qty": 190, "fill_px": 100, "fill_date": PRIOR,
+    })
+    order_id = _order(
+        con, "acct-b", "NEW", "buy", 20, "moo",
+        datetime(2026, 10, 12, 9, 27, tzinfo=NEW_YORK),
+    )
+    _settle(con)
+    assert con.execute(
+        "SELECT status,reject_reason FROM sim_orders WHERE id=?", [order_id]
+    ).fetchone() == ("rejected", "total_exposure_cap")
 
 
 def test_late_moo_unblocks_and_fills_its_contingent_moc(con):
@@ -573,8 +810,8 @@ def test_fill_and_state_transition_roll_back_together(con, monkeypatch):
         return original(*args, **kwargs)
 
     monkeypatch.setattr(module, "_state", fail_after_persist)
-    with pytest.raises(RuntimeError, match="planted"):
-        _settle(con)
+    result = _settle(con)
+    assert result["errors"]["acct-a"]["message"] == "planted transition failure"
     assert con.execute("SELECT COUNT(*) FROM sim_fills").fetchone() == (0,)
     assert con.execute("SELECT COUNT(*) FROM sim_fill_fees").fetchone() == (0,)
     assert con.execute(

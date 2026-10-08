@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
@@ -394,14 +394,35 @@ def _split_factors(con) -> dict[str, list[tuple[date, float]]]:
     return out
 
 
-def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
-    """Replay dividends → settlements → fills with fees → cash events by date."""
+def rebuild_state(
+    con: duckdb.DuckDBPyConnection,
+    portfolio_ids: Iterable[str] | None = None,
+) -> None:
+    """Replay ledger state, optionally for only the named portfolios.
+
+    Selective replay is what lets a legacy-book rerun repair those books without
+    rewriting account-engine cash, positions, lots, or day-trade state.
+    """
+    selected = None if portfolio_ids is None else tuple(sorted(set(portfolio_ids)))
+    if selected == ():
+        return
+    clause = ""
+    params: list[object] = []
+    if selected is not None:
+        clause = f" WHERE id IN ({','.join('?' for _ in selected)})"
+        params.extend(selected)
     portfolios = con.execute(
-        "SELECT id,COALESCE(initial_cash,?) FROM portfolios", [INITIAL_CASH]
+        "SELECT id,COALESCE(initial_cash,?) FROM portfolios" + clause,
+        [INITIAL_CASH, *params],
     ).fetchall()
-    con.execute("DELETE FROM sim_positions")
-    con.execute("DELETE FROM sim_position_lots")
-    con.execute("DELETE FROM sim_day_trades")
+    if not portfolios:
+        return
+    target_ids = [row[0] for row in portfolios]
+    placeholders = ",".join("?" for _ in target_ids)
+    for table in ("sim_positions", "sim_position_lots", "sim_day_trades"):
+        con.execute(
+            f"DELETE FROM {table} WHERE portfolio_id IN ({placeholders})", target_ids,
+        )
     for portfolio_id, initial_cash in portfolios:
         con.execute(
             "UPDATE portfolios SET cash=? WHERE id=?", [initial_cash, portfolio_id]
@@ -411,13 +432,17 @@ def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
     if table_exists(con, "sim_dividends"):
         for seq, row in enumerate(con.execute(
             "SELECT portfolio_id,ticker,ex_date,amount FROM sim_dividends "
-            "ORDER BY ex_date,portfolio_id,ticker"
+            f"WHERE portfolio_id IN ({placeholders}) "
+            "ORDER BY ex_date,portfolio_id,ticker",
+            target_ids,
         ).fetchall()):
             events.append((row[2], 0, seq, "dividend", row))
     if table_exists(con, "sim_settlements"):
         for seq, row in enumerate(con.execute(
             "SELECT portfolio_id,ticker,kind,qty,price,into_ticker,ratio,effective "
-            "FROM sim_settlements ORDER BY effective,portfolio_id,ticker"
+            f"FROM sim_settlements WHERE portfolio_id IN ({placeholders}) "
+            "ORDER BY effective,portfolio_id,ticker",
+            target_ids,
         ).fetchall()):
             events.append((row[7], 1, seq, "settlement", row))
 
@@ -433,7 +458,9 @@ def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
         "LEFT JOIN sim_fill_details fd ON fd.order_id=f.order_id "
         "LEFT JOIN portfolio_accounts_v pa USING (portfolio_id) "
         "LEFT JOIN sim_fill_fees ff ON ff.order_id=f.order_id "
-        "ORDER BY f.fill_date,f.portfolio_id,f.order_id"
+        f"WHERE f.portfolio_id IN ({placeholders}) "
+        "ORDER BY f.fill_date,f.portfolio_id,f.order_id",
+        target_ids,
     ).fetchall()
     for row in fills:
         order_id, portfolio_id, _ticker, side, *_tail = row
@@ -451,7 +478,9 @@ def rebuild_state(con: duckdb.DuckDBPyConnection) -> None:
     if table_exists(con, "sim_cash_events"):
         for row in con.execute(
             "SELECT portfolio_id,event_date,seq,amount FROM sim_cash_events "
-            "ORDER BY event_date,portfolio_id,seq"
+            f"WHERE portfolio_id IN ({placeholders}) "
+            "ORDER BY event_date,portfolio_id,seq",
+            target_ids,
         ).fetchall():
             events.append((row[1], 3, row[2], "cash", row))
     events.sort(key=lambda item: (item[0], item[1], item[2]))

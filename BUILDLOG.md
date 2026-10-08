@@ -2705,4 +2705,19 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged since the final source and base merges; budget ok.
 - **Next:** nothing admitted.
 
+## 2026-10-08 — Reproduce account lifecycle review blockers
+
+- **Why:** the approved P22 lifecycle review reproduced split and incorrectly ordered account
+  processing across nightly, late settlement, replay, verification and retirement.
+- **What:** Replace optional phase dispatch with one direct account processor. It orders fills
+  by execution time, attaches isolated sources at production entry points, and atomically
+  accrues, fills, marks, verifies, transitions risk, queues forced closes and finalizes retirement.
+  Legacy reruns now rebuild only legacy books; signed corporate actions and completed-minute
+  timestamps preserve short liabilities and prevent look-ahead.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_league_v2.py
+  tests/test_accounts_service.py tests/test_accounts_settle.py` — 14 failures reproduce the
+  reviewed defects before source changes.
+- **Metrics:** tools unchanged; server +2; product +363 (engine +338, sim +25); tests +350.
+- **Next:** add real nightly, late-CLI and account-API end-to-end lifecycle coverage.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

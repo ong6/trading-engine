@@ -101,7 +101,10 @@ def _mark_at(
         bars = bar_sources.minute_bars(
             con, ticker, day, source=minute_source, available_at=available_at,
         )
-        eligible = [bar.close for bar in bars if bar.ts <= stamp]
+        eligible = [
+            bar.close for bar in bars
+            if bar.ts + timedelta(minutes=1) <= stamp
+        ]
         if eligible:
             return eligible[-1]
     return bar_sources.latest_close(
@@ -386,7 +389,7 @@ def accrue_interest(
     con: duckdb.DuckDBPyConnection,
     day: date,
     *,
-    days: int = 1,
+    days: int | None = None,
     portfolio_id: str | None = None,
 ) -> dict:
     """Debit effective-dated margin interest once per account and date."""
@@ -409,16 +412,39 @@ def accrue_interest(
         ).fetchone()
         if exists:
             continue
-        fee = costs.margin_interest(
-            abs(float(cash)), days, session_date=day,
-            profile=settings["cost_profile"],
+        if days is None:
+            last = con.execute(
+                "SELECT MAX(event_date) FROM sim_cash_events WHERE portfolio_id=? "
+                "AND kind='margin_interest' AND event_date<?", [portfolio_id, day],
+            ).fetchone()[0]
+            start = last
+            if start is None:
+                start = day - timedelta(days=1)
+                while not nyse.is_session(start):
+                    start -= timedelta(days=1)
+            accrual_dates = [
+                start + timedelta(days=offset)
+                for offset in range(1, (day - start).days + 1)
+            ]
+        else:
+            if days < 0:
+                raise ValueError("days must be non-negative")
+            accrual_dates = [
+                day - timedelta(days=offset) for offset in reversed(range(days))
+            ]
+        fee = sum(
+            costs.margin_interest(
+                abs(float(cash)), 1, session_date=accrual_date,
+                profile=settings["cost_profile"],
+            )
+            for accrual_date in accrual_dates
         )
         ledger.apply_cash_event(con, {
             "portfolio_id": portfolio_id,
             "event_date": day,
             "kind": "margin_interest",
             "amount": -fee,
-            "note": f"{days} calendar day(s)",
+            "note": f"{len(accrual_dates)} calendar day(s)",
         })
         count += 1
         charged += fee
@@ -494,11 +520,15 @@ def queue_margin_reductions(
 
 
 def check_maintenance(
-    con: duckdb.DuckDBPyConnection, day: date,
+    con: duckdb.DuckDBPyConnection, day: date, *, portfolio_id: str | None = None,
 ) -> dict[str, list[int]]:
-    """Queue reductions for every active margin account below maintenance."""
+    """Queue reductions for every processing margin account below maintenance."""
     out: dict[str, list[int]] = {}
-    for settings in account_portfolios(con):
+    for settings in account_portfolios(con, active_only=False):
+        if settings["status"] not in {"active", "halted", "retiring"}:
+            continue
+        if portfolio_id is not None and settings["portfolio_id"] != portfolio_id:
+            continue
         if settings["account_type"] != "margin":
             continue
         portfolio_id = settings["portfolio_id"]

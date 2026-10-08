@@ -127,10 +127,7 @@ def resume(con, account_id: str, *, resumed_by: str, note: str = "",
         resume_equity = float(equity[0]) if equity is not None else float(con.execute(
             "SELECT cash FROM portfolios WHERE id=?", [account_id]
         ).fetchone()[0])
-        halt_reason = con.execute(
-            "SELECT halt_reason FROM account_state WHERE portfolio_id=?", [account_id]
-        ).fetchone()[0]
-        anchor = resume_equity if halt_reason == "halt_drawdown" else None
+        anchor = resume_equity
         accepted = con.execute(
             "SELECT 1 FROM paper_account_intakes WHERE account_id=? LIMIT 1", [account_id]
         ).fetchone() is not None
@@ -162,6 +159,14 @@ def retire(con, account_id: str, *, now: datetime | None = None) -> dict:
         if row["status"] == "retired":
             return {"account_id": account_id, "status": "retired", "queued_order_ids": [],
                     "replayed": True}
+        if row["status"] == "retiring":
+            queued = [item[0] for item in con.execute(
+                "SELECT o.id FROM sim_orders o JOIN sim_order_details d ON d.order_id=o.id "
+                "WHERE o.portfolio_id=? AND o.status='pending' "
+                "AND d.state_reason LIKE 'retirement%' ORDER BY o.id", [account_id],
+            ).fetchall()]
+            return {"account_id": account_id, "status": "retiring",
+                    "queued_order_ids": queued, "replayed": True}
         session_date = _retirement_session(now)
         opening_ids = [item[0] for item in con.execute(
             "SELECT id FROM sim_orders WHERE portfolio_id=? AND status='pending' "
@@ -198,20 +203,52 @@ def retire(con, account_id: str, *, now: datetime | None = None) -> dict:
                  canonical_sha256({"account_id": account_id, "retired_at": now.isoformat(),
                                    "instrument_id": ticker})],
             )
+            con.execute(
+                "UPDATE sim_order_details SET state_reason='retirement' WHERE order_id=?",
+                [order_id],
+            )
             queued.append(order_id)
-        con.execute("UPDATE portfolios SET active=FALSE WHERE id=?", [account_id])
-        sim_schema.set_portfolio_account(con, account_id, status="retired", updated_at=now)
-        con.execute(
-            "UPDATE account_state SET retired_at=?,updated_at=? WHERE portfolio_id=?",
-            [now, now, account_id],
-        )
+        # Retirement is a lifecycle, not an immediate switch-off.  The account
+        # remains collectable/markable until its risk-forced liquidation fills.
+        status = "retiring" if positions else "retired"
+        con.execute("UPDATE portfolios SET active=? WHERE id=?", [bool(positions), account_id])
+        sim_schema.set_portfolio_account(con, account_id, status=status, updated_at=now)
+        if not positions:
+            con.execute(
+                "UPDATE account_state SET retired_at=?,updated_at=? WHERE portfolio_id=?",
+                [now, now, account_id],
+            )
         halts.record_event(
-            con, account_id, "retired",
+            con, account_id, "retirement_requested" if positions else "retired",
             {"close_session": session_date.isoformat(), "queued_order_ids": queued,
              "cancelled_opening_order_ids": opening_ids}, now=now,
         )
-    return {"account_id": account_id, "status": "retired", "queued_order_ids": queued,
+    return {"account_id": account_id, "status": status, "queued_order_ids": queued,
             "replayed": False}
+
+
+def finalize_retirement(
+    con, account_id: str, *, now: datetime | None = None,
+) -> bool:
+    """Finalize a requested retirement only after every position is flat."""
+    now = _utc(now)
+    settings = sim_schema.portfolio_account(con, account_id)
+    if settings["status"] != "retiring":
+        return False
+    held = con.execute(
+        "SELECT 1 FROM sim_positions WHERE portfolio_id=? AND abs(qty)>=1e-9 LIMIT 1",
+        [account_id],
+    ).fetchone()
+    if held is not None:
+        return False
+    con.execute("UPDATE portfolios SET active=FALSE WHERE id=?", [account_id])
+    sim_schema.set_portfolio_account(con, account_id, status="retired", updated_at=now)
+    con.execute(
+        "UPDATE account_state SET retired_at=?,updated_at=? WHERE portfolio_id=?",
+        [now, now, account_id],
+    )
+    halts.record_event(con, account_id, "retired", {"flat": True}, now=now)
+    return True
 
 
 def reconcile(con, account_id: str, reconciliation: dict, *,
@@ -301,18 +338,90 @@ def _current_state(con, account_id: str) -> dict:
     }
 
 
-def verify(con, account_id: str) -> dict:
-    """Compare current cash/positions with a read-only ledger reconstruction."""
+def _restore_account_state(con, account_id: str, cash: float, positions, lots, day_trades) -> None:
+    con.execute("DELETE FROM sim_positions WHERE portfolio_id=?", [account_id])
+    con.execute("DELETE FROM sim_position_lots WHERE portfolio_id=?", [account_id])
+    con.execute("DELETE FROM sim_day_trades WHERE portfolio_id=?", [account_id])
+    if positions:
+        con.executemany("INSERT INTO sim_positions VALUES (?,?,?,?)", positions)
+    if lots:
+        con.executemany("INSERT INTO sim_position_lots VALUES (?,?,?,?,?,?)", lots)
+    if day_trades:
+        con.executemany("INSERT INTO sim_day_trades VALUES (?,?,?,?,?)", day_trades)
+    con.execute("UPDATE portfolios SET cash=? WHERE id=?", [cash, account_id])
+
+
+def verify(
+    con,
+    account_id: str,
+    *,
+    session_date: date | None = None,
+    now: datetime | None = None,
+    manage_transaction: bool = True,
+) -> dict:
+    """Rebuild one account, restore it, and durably halt any mismatch."""
     init_schema(con)
     _account(con, account_id)
     observed = _current_state(con, account_id)
-    with db.transaction(con, commit=False):
-        ledger.rebuild_state(con)
+    positions = con.execute(
+        "SELECT portfolio_id,ticker,qty,avg_cost FROM sim_positions "
+        "WHERE portfolio_id=? ORDER BY ticker", [account_id],
+    ).fetchall()
+    lots = con.execute(
+        "SELECT portfolio_id,instrument_id,opened_session,open_order_id,qty,avg_px "
+        "FROM sim_position_lots WHERE portfolio_id=? "
+        "ORDER BY instrument_id,opened_session,open_order_id", [account_id],
+    ).fetchall()
+    day_trades = con.execute(
+        "SELECT portfolio_id,session_date,instrument_id,open_order_id,close_order_id "
+        "FROM sim_day_trades WHERE portfolio_id=? ORDER BY session_date,close_order_id",
+        [account_id],
+    ).fetchall()
+    try:
+        ledger.rebuild_state(con, [account_id])
         expected = _current_state(con, account_id)
+    finally:
+        _restore_account_state(
+            con, account_id, observed["cash"], positions, lots, day_trades,
+        )
     ok = canonical_sha256(expected) == canonical_sha256(observed)
-    return {"account_id": account_id, "status": "ok" if ok else "mismatch",
-            "expected_sha256": canonical_sha256(expected),
-            "observed_sha256": canonical_sha256(observed)}
+    result = {
+        "account_id": account_id,
+        "status": "ok" if ok else "mismatch",
+        "expected_sha256": canonical_sha256(expected),
+        "observed_sha256": canonical_sha256(observed),
+    }
+    if ok:
+        return result
+    now = _utc(now)
+    if session_date is None:
+        latest = con.execute(
+            "SELECT MAX(date) FROM sim_equity WHERE portfolio_id=?", [account_id]
+        ).fetchone()[0]
+        session_date = latest or now.date()
+
+    def persist() -> None:
+        detail = "engine ledger reconstruction differs from stored cash/positions"
+        con.execute(
+            "INSERT INTO account_reconciliations VALUES (?,?,?,?,?,?,?) "
+            "ON CONFLICT (portfolio_id,session_date) DO UPDATE SET "
+            "expected_sha256=excluded.expected_sha256,"
+            "observed_sha256=excluded.observed_sha256,status='mismatch',"
+            "detail=excluded.detail,created_at=excluded.created_at",
+            [account_id, session_date, result["expected_sha256"],
+             result["observed_sha256"], "mismatch", detail, now],
+        )
+        halts.halt_account(
+            con, account_id, "halt_reconciliation", now=now,
+            detail={"session_date": session_date.isoformat(), "detail": detail},
+        )
+
+    if manage_transaction:
+        with db.transaction(con):
+            persist()
+    else:
+        persist()
+    return result
 
 
 def run_alerts(con, session_date: date, *, now: datetime | None = None) -> list[dict]:

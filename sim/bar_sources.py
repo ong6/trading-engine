@@ -225,6 +225,23 @@ def latest_close(
     strictly_before: bool = False,
 ) -> float | None:
     """Latest unadjusted close admitted by date and availability time."""
+    observation = latest_close_observation(
+        con, ticker, on_or_before, source=source, available_at=available_at,
+        strictly_before=strictly_before,
+    )
+    return None if observation is None else observation[1]
+
+
+def latest_close_observation(
+    con: duckdb.DuckDBPyConnection,
+    ticker: str,
+    on_or_before: date,
+    *,
+    source: str = "prices",
+    available_at: datetime | None = None,
+    strictly_before: bool = False,
+) -> tuple[date, float] | None:
+    """Return the date and close of the latest admitted daily observation."""
     if source == "prices":
         table, close_col = "prices", "close"
     elif source == "massive_daily":
@@ -247,10 +264,10 @@ def latest_close(
     if source == "massive_daily":
         order += ",fetched_at DESC,source_sha256 DESC"
     row = con.execute(
-        f"SELECT {close_col} FROM {table} WHERE {where} ORDER BY {order} LIMIT 1",
+        f"SELECT date,{close_col} FROM {table} WHERE {where} ORDER BY {order} LIMIT 1",
         params,
     ).fetchone()
-    return None if row is None or row[0] is None else float(row[0])
+    return None if row is None or row[1] is None else (row[0], float(row[1]))
 
 
 def median_dollar_volume(
