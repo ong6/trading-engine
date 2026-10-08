@@ -136,7 +136,7 @@ def test_conservative_locate_filters(con, price, volume, liquid, reason):
 
 def test_borrow_fee_debits_cash_once_with_fractional_short(con, book):
     _set_account(con, book)
-    insert_bars(con, "XYZ", [DAY], open_=20, close=20, volume=1_000_000)
+    insert_bars(con, "XYZ", [date(2026, 10, 9), DAY], open_=20, close=20, volume=1_000_000)
     ledger.apply_fill(con, {
         "order_id": 1, "portfolio_id": book, "ticker": "XYZ", "side": "short",
         "qty": 250.5, "fill_px": 20, "fill_date": date(2026, 10, 9),
@@ -154,7 +154,7 @@ def test_borrow_fee_debits_cash_once_with_fractional_short(con, book):
 
 def test_first_borrow_accrual_starts_at_lot_open_after_prior_accrual(con, book):
     _set_account(con, book)
-    insert_bars(con, "XYZ", [DAY], open_=20, close=20, volume=1_000_000)
+    insert_bars(con, "XYZ", [date(2026, 10, 9), DAY], open_=20, close=20, volume=1_000_000)
     ledger.apply_cash_event(con, {
         "portfolio_id": book, "event_date": date(2026, 10, 8),
         "kind": "borrow_fee", "amount": 0, "instrument_id": "XYZ",

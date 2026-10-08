@@ -152,9 +152,10 @@ def match_lots(con: duckdb.DuckDBPyConnection, portfolio_id: str,
     remaining = qty
     matched = []
     for order_id, stored, opened_session, avg_px in con.execute(
-        "SELECT open_order_id,qty,opened_session,avg_px FROM sim_position_lots "
-        f"WHERE portfolio_id=? AND instrument_id=? AND qty {comparison} "
-        "ORDER BY opened_session,open_order_id",
+        "SELECT l.open_order_id,l.qty,l.opened_session,l.avg_px FROM sim_position_lots l "
+        "LEFT JOIN sim_fill_details d ON d.order_id=l.open_order_id "
+        f"WHERE l.portfolio_id=? AND l.instrument_id=? AND l.qty {comparison} "
+        "ORDER BY l.opened_session,d.fill_ts,l.open_order_id",
         [portfolio_id, instrument_id],
     ).fetchall():
         available = abs(float(stored))
@@ -221,7 +222,7 @@ def assert_lots_match_positions(con: duckdb.DuckDBPyConnection,
 
 
 def apply_fill(con: duckdb.DuckDBPyConnection, fill, fees=None, *,
-               persist_fees: bool = True) -> float:
+               persist_fees: bool = True, on_close=None) -> float:
     """Apply a buy/sell/short/cover and return the positive quantity applied.
 
     ``buy`` and ``sell`` retain the legacy cash-account clamps. ``short`` and
@@ -265,6 +266,7 @@ def apply_fill(con: duckdb.DuckDBPyConnection, fill, fees=None, *,
     current_qty, current_cost = (
         (float(row[0]), float(row[1])) if row else (0.0, 0.0)
     )
+    matched = ()
     charged = _normalise_fees(fees)
     fee = charged.total_usd
     if not math.isfinite(fee) or fee < 0:
@@ -335,6 +337,8 @@ def apply_fill(con: duckdb.DuckDBPyConnection, fill, fees=None, *,
         if settings["engine"] == "account":
             _record_day_trade(con, fill, instrument_id, matched)
 
+    if on_close is not None and matched:
+        on_close(con, matched, side, qty, px, multiplier, fee)
     con.execute("UPDATE portfolios SET cash=cash+? WHERE id=?", [cash_delta, portfolio_id])
     if row:
         con.execute(
@@ -394,165 +398,143 @@ def _split_factors(con) -> dict[str, list[tuple[date, float]]]:
     return out
 
 
-def rebuild_state(
-    con: duckdb.DuckDBPyConnection,
-    portfolio_ids: Iterable[str] | None = None,
-    *,
-    through: date | None = None,
-) -> None:
-    """Replay ledger state, optionally for only the named portfolios.
+@dataclass(frozen=True)
+class LedgerEvent:
+    stamp: datetime
+    phase: int
+    sequence: tuple
+    kind: str
+    row: dict
 
-    Selective replay is what lets a legacy-book rerun repair those books without
-    rewriting account-engine cash, positions, lots, or day-trade state.
+    @property
+    def key(self):
+        return self.stamp, self.phase, self.sequence
+
+
+def _rows(con, sql, params):
+    cursor = con.execute(sql, params)
+    names = [column[0] for column in cursor.description]
+    return [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
+
+
+def events(con, portfolio_ids, *, since=None, through=None) -> list[LedgerEvent]:
+    """The shared chronological sequence for replay, recovery and trade results.
+
+    Splits, dividends and settlements precede opening financing; execution uses
+    authoritative fill timestamps. Legacy adjusted history retains its units.
     """
-    selected = None if portfolio_ids is None else tuple(sorted(set(portfolio_ids)))
-    if selected == ():
-        return
-    clause = ""
-    params: list[object] = []
-    if selected is not None:
-        clause = f" WHERE id IN ({','.join('?' for _ in selected)})"
-        params.extend(selected)
-    portfolios = con.execute(
-        "SELECT id,COALESCE(initial_cash,?) FROM portfolios" + clause,
-        [INITIAL_CASH, *params],
-    ).fetchall()
-    if not portfolios:
-        return
-    target_ids = [row[0] for row in portfolios]
-    placeholders = ",".join("?" for _ in target_ids)
-    for table in ("sim_positions", "sim_position_lots", "sim_day_trades"):
-        con.execute(
-            f"DELETE FROM {table} WHERE portfolio_id IN ({placeholders})", target_ids,
-        )
-    for portfolio_id, initial_cash in portfolios:
-        con.execute(
-            "UPDATE portfolios SET cash=? WHERE id=?", [initial_cash, portfolio_id]
-        )
-
-    events: list[tuple] = []
-    if table_exists(con, "sim_dividends"):
-        for seq, row in enumerate(con.execute(
-            "SELECT portfolio_id,ticker,ex_date,amount FROM sim_dividends "
-            f"WHERE portfolio_id IN ({placeholders}) "
-            "ORDER BY ex_date,portfolio_id,ticker",
-            target_ids,
-        ).fetchall()):
-            events.append((row[2], 0, seq, "dividend", row))
-    if table_exists(con, "sim_settlements"):
-        for seq, row in enumerate(con.execute(
-            "SELECT portfolio_id,ticker,kind,qty,price,into_ticker,ratio,effective "
-            f"FROM sim_settlements WHERE portfolio_id IN ({placeholders}) "
-            "ORDER BY effective,portfolio_id,ticker",
-            target_ids,
-        ).fetchall()):
-            events.append((row[7], 1, seq, "settlement", row))
-
-    fee_columns = (
-        "ff.cost_profile,ff.commission,ff.exchange_fee,ff.clearing_fee,"
-        "ff.pass_through,ff.cat_fee,ff.sec_fee,ff.finra_taf,ff.occ_fee,"
-        "ff.orf_fee,ff.total_usd"
-    )
-    fills = con.execute(
-        "SELECT f.order_id,f.portfolio_id,f.ticker,f.side,f.qty,f.fill_px,f.fill_date,"
-        "COALESCE(fd.multiplier,1),pa.pa_engine,fd.fill_ts," + fee_columns
-        + " FROM sim_fills f "
-        "LEFT JOIN sim_fill_details fd ON fd.order_id=f.order_id "
-        "LEFT JOIN portfolio_accounts_v pa USING (portfolio_id) "
-        "LEFT JOIN sim_fill_fees ff ON ff.order_id=f.order_id "
-        f"WHERE f.portfolio_id IN ({placeholders}) "
-        "ORDER BY f.fill_date,f.portfolio_id,f.order_id",
-        target_ids,
-    ).fetchall()
-    for row in fills:
-        order_id, portfolio_id, _ticker, side, *_tail = row
-        engine, fill_ts = row[8:10]
-        if engine == "account":
-            if fill_ts is None:
-                raise ValueError(
-                    f"account-engine fill {order_id} has no authoritative fill_ts"
-                )
-            replay_order = (portfolio_id, 1, fill_ts, order_id)
-        else:
-            side_priority = 0 if side in {"sell", "cover"} else 1
-            replay_order = (portfolio_id, 0, side_priority, order_id)
-        events.append((row[6], 2, replay_order, "fill", row))
-    if table_exists(con, "sim_cash_events"):
-        for row in con.execute(
-            "SELECT portfolio_id,event_date,seq,amount,kind FROM sim_cash_events "
-            f"WHERE portfolio_id IN ({placeholders}) "
-            "ORDER BY event_date,portfolio_id,seq",
-            target_ids,
-        ).fetchall():
-            phase = 1.5 if row[4] in {"borrow_fee", "margin_interest"} else 3
-            events.append((row[1], phase, row[2], "cash", row))
-    events.sort(key=lambda item: (item[0], item[1], item[2]))
-    splits = _split_factors(con)
     from engine.accounts.actions import recorded_splits
 
-    account_splits = {}
-    for portfolio_id in target_ids:
-        if portfolio_account(con, portfolio_id)['engine'] == 'account':
-            account_splits[portfolio_id] = recorded_splits(con, portfolio_id, through)
+    from . import bar_sources
 
-    for _event_date, _phase, _seq, kind, row in events:
-        if through is not None and _event_date > through:
-            continue
-        if kind == "dividend":
-            con.execute("UPDATE portfolios SET cash=cash+? WHERE id=?", [row[3], row[0]])
-            continue
-        if kind == "settlement":
-            from .settle import apply_settlement_event
+    result = []
+    for account_id in portfolio_ids:
+        account = portfolio_account(con, account_id)['engine'] == 'account'
+        splits = recorded_splits(con, account_id, through) if account else []
+        for ticker, day, ratio in splits:
+            result.append(LedgerEvent(bar_sources.session_bounds(day)[0], 0,
+                (account_id, 1, ticker), 'split', {'portfolio_id': account_id,
+                'ticker': ticker, 'ex_date': day, 'ratio': ratio}))
+        tables = (
+            ('sim_dividends', 'ex_date', 'dividend', 1),
+            ('sim_settlements', 'effective', 'settlement', 2),
+            ('sim_cash_events', 'event_date', 'cash', 5),
+        )
+        for table, day_key, kind, phase in tables:
+            if not table_exists(con, table):
+                continue
+            for row in _rows(con, f'SELECT * FROM {table} WHERE portfolio_id=?', [account_id]):
+                opened, closed = bar_sources.session_bounds(row[day_key])
+                stamp, priority = opened, phase
+                if kind == 'cash':
+                    financing = row['kind'] in {'borrow_fee', 'margin_interest'}
+                    created = row['created_at']
+                    stamp = opened if financing else (
+                        created if created.date() == row[day_key] else closed)
+                    priority = 3 if financing else phase
+                sequence = (account_id, 1, str(row.get('ticker', '')), row.get('seq', 0))
+                result.append(LedgerEvent(stamp, priority, sequence, kind, row))
+        for row in _rows(con,
+            'SELECT f.*,d.fill_ts,COALESCE(d.multiplier,1) AS multiplier,'
+            'ff.* EXCLUDE(order_id) FROM sim_fills f '
+            'LEFT JOIN sim_fill_details d ON d.order_id=f.order_id '
+            'LEFT JOIN sim_fill_fees ff ON ff.order_id=f.order_id '
+            'WHERE f.portfolio_id=?', [account_id]):
+            if account and row['fill_ts'] is None:
+                raise ValueError(f"account-engine fill {row['order_id']} has no authoritative fill_ts")
+            stamp = row['fill_ts'] if account else bar_sources.session_bounds(row['fill_date'])[0]
+            priority = 0 if account or row['side'] in {'sell', 'cover'} else 1
+            if not account:
+                factor = math.prod(ratio for ex, ratio in _split_factors(con).get(row['ticker'], ())
+                                   if row['fill_date'] < ex)
+                row['qty'] *= factor
+                row['fill_px'] /= factor
+            result.append(LedgerEvent(stamp, 4, (account_id, priority, row['order_id']), 'fill', row))
+    return sorted((event for event in result
+                   if (since is None or event.stamp.date() >= since)
+                   and (through is None or event.stamp.date() <= through)), key=lambda event: event.key)
 
-            apply_settlement_event(
-                con, row[0], row[1], row[2], float(row[3]), float(row[4]), row[5],
-                None if row[6] is None else float(row[6]),
-            )
-            continue
-        if kind == "cash":
-            con.execute("UPDATE portfolios SET cash=cash+? WHERE id=?", [row[3], row[0]])
-            continue
-        order_id, portfolio_id, ticker, side, qty, px, fill_date, multiplier = row[:8]
-        factor = 1.0
-        factors = (
-            [(ex, ratio) for name, ex, ratio in account_splits[portfolio_id] if name == ticker]
-            if portfolio_id in account_splits else splits.get(ticker, ())
+
+def apply_split(con, account_id, ticker, ex, ratio):
+    """Change the units of pre-action lots and their signed aggregate position."""
+    old_qty = con.execute(
+        'SELECT COALESCE(SUM(qty),0) FROM sim_position_lots '
+        'WHERE portfolio_id=? AND instrument_id=? AND opened_session<?',
+        [account_id, ticker, ex],
+    ).fetchone()[0]
+    con.execute(
+        'UPDATE sim_position_lots SET qty=qty*?,avg_px=avg_px/? '
+        'WHERE portfolio_id=? AND instrument_id=? AND opened_session<?',
+        [ratio, ratio, account_id, ticker, ex],
+    )
+    if old_qty:
+        con.execute(
+            'UPDATE sim_positions SET qty=qty+?,avg_cost=('
+            'SELECT SUM(ABS(qty)*avg_px)/SUM(ABS(qty)) FROM sim_position_lots '
+            'WHERE portfolio_id=? AND instrument_id=? AND qty<>0) '
+            'WHERE portfolio_id=? AND ticker=?',
+            [float(old_qty) * (ratio - 1), account_id, ticker, account_id, ticker],
         )
-        for ex_date, ratio in factors:
-            if fill_date < ex_date:
-                factor *= ratio
-        fee_row = row[10:]
-        fees = None if fee_row[0] is None else FeeBreakdown(
-            profile_id=fee_row[0],
-            commission=float(fee_row[1] or 0),
-            exchange_fee=float(fee_row[2] or 0),
-            clearing_fee=float(fee_row[3] or 0),
-            pass_through=float(fee_row[4] or 0),
-            cat_fee=float(fee_row[5] or 0),
-            sec_fee=float(fee_row[6] or 0),
-            finra_taf=float(fee_row[7] or 0),
-            occ_fee=float(fee_row[8] or 0),
-            orf_fee=float(fee_row[9] or 0),
-            total_usd=float(fee_row[10] or 0),
-        )
-        adjusted = float(qty) * factor
-        applied = apply_fill(
-            con,
-            {
-                "order_id": order_id,
-                "portfolio_id": portfolio_id,
-                "instrument_id": ticker,
-                "side": side,
-                "qty": adjusted,
-                "fill_px": float(px) / factor,
-                "fill_date": fill_date,
-                "multiplier": float(multiplier),
-            },
-            fees,
-            persist_fees=False,
-        )
-        if not math.isclose(applied, adjusted, rel_tol=1e-12, abs_tol=1e-12):
-            raise ValueError(f"stored fill {order_id} changed quantity during replay")
+
+
+def apply_event(con, event: LedgerEvent, *, on_close=None):
+    """Apply one recorded event using the same mutations as normal settlement."""
+    row = event.row
+    if event.kind == 'operation':
+        row['run']()
+    elif event.kind == 'fill':
+        applied = apply_fill(con, row, row if row.get('cost_profile') else None,
+                             persist_fees=False, on_close=on_close)
+        if not math.isclose(applied, row['qty'], rel_tol=1e-12, abs_tol=1e-12):
+            raise ValueError(f"stored fill {row['order_id']} changed quantity during replay")
+    elif event.kind == 'split':
+        apply_split(con, row['portfolio_id'], row['ticker'], row['ex_date'], row['ratio'])
+    elif event.kind == 'settlement':
+        from .settle import apply_settlement_event
+
+        apply_settlement_event(con, row['portfolio_id'], row['ticker'], row['kind'],
+                               row['qty'], row['price'], row['into_ticker'], row['ratio'],
+                               on_close=on_close)
+    else:
+        con.execute('UPDATE portfolios SET cash=cash+? WHERE id=?',
+                    [row['amount'], row['portfolio_id']])
+
+
+def rebuild_state(con, portfolio_ids: Iterable[str] | None = None, *,
+                  through: date | None = None, on_close=None) -> None:
+    """Rebuild selected accounts from the shared event sequence."""
+    ids = (sorted(set(portfolio_ids)) if portfolio_ids is not None else
+           [row[0] for row in con.execute('SELECT id FROM portfolios ORDER BY id').fetchall()])
+    if not ids:
+        return
+    sequence = events(con, ids, through=through)
+    placeholders = ','.join('?' for _ in ids)
+    for table in ('sim_positions', 'sim_position_lots', 'sim_day_trades'):
+        con.execute(f'DELETE FROM {table} WHERE portfolio_id IN ({placeholders})', ids)
+    con.execute(f'UPDATE portfolios SET cash=COALESCE(initial_cash,?) WHERE id IN ({placeholders})',
+                [INITIAL_CASH, *ids])
+    for event in sequence:
+        apply_event(con, event, on_close=on_close)
 
 
 def post_accrual(con, event: Mapping, *, replay: bool = False) -> bool:
@@ -569,27 +551,61 @@ def post_accrual(con, event: Mapping, *, replay: bool = False) -> bool:
         con.execute('UPDATE portfolios SET cash=cash+? WHERE id=?',
                     [existing[1], event['portfolio_id']])
     delta = float(event['amount']) - float(existing[1])
-    if abs(delta) < 1e-10:
+    if abs(delta) < 1e-10 and existing[0]:
         return False
     apply_cash_event(con, {**event, 'amount': delta})
     return True
 
 
-def replay_session_fills(con, portfolio_id: str, day: date) -> list[dict]:
-    """Stored executions for merging with newly available fills in timestamp order."""
-    cursor = con.execute(
-        'SELECT f.*,d.fill_ts,ff.* EXCLUDE(order_id) FROM sim_fills f '
-        'JOIN sim_fill_details d ON d.order_id=f.order_id '
-        'LEFT JOIN sim_fill_fees ff ON ff.order_id=f.order_id '
-        'WHERE f.portfolio_id=? AND f.fill_date=? ORDER BY d.fill_ts,f.order_id',
-        [portfolio_id, day],
-    )
-    names = [column[0] for column in cursor.description]
-    return [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
+def closed_trades(con, account_id: str) -> list[dict]:
+    """Project matched lots by running the ledger on an isolated in-memory copy.
 
+    The caller may be a read-only API connection. No result query rewrites the
+    real account or maintains its own position/lot arithmetic.
+    """
+    tables = ('portfolios', 'portfolio_accounts', 'sim_positions', 'sim_position_lots',
+              'sim_day_trades', 'sim_fills', 'sim_fill_details', 'sim_fill_fees',
+              'sim_dividends', 'sim_settlements', 'sim_cash_events', 'account_events',
+              'split_adjustments')
+    outcomes = []
 
-def apply_stored_fill(con, row: dict) -> None:
-    """Replay an immutable execution without writing its fill or fee rows again."""
-    qty = apply_fill(con, row, row if row.get('cost_profile') else None, persist_fees=False)
-    if not math.isclose(qty, row['qty'], rel_tol=1e-12, abs_tol=1e-12):
-        raise ValueError(f"stored fill {row['order_id']} changed quantity during replay")
+    def collect(connection, matched, side, qty, px, multiplier, fee):
+        for lot in matched:
+            opening = connection.execute(
+                'SELECT f.qty*f.fill_px*COALESCE(d.multiplier,1),COALESCE(ff.total_usd,0) '
+                'FROM sim_fills f LEFT JOIN sim_fill_details d ON d.order_id=f.order_id '
+                'LEFT JOIN sim_fill_fees ff ON ff.order_id=f.order_id WHERE f.order_id=?',
+                [lot.open_order_id],
+            ).fetchone()
+            basis = lot.qty * lot.avg_px * multiplier
+            opening_fee = float(opening[1]) * basis / float(opening[0])
+            gross = lot.qty * (px - lot.avg_px) * multiplier * (-1 if side == 'cover' else 1)
+            net = gross - opening_fee - fee * lot.qty / qty
+            outcomes.append({'entry_session': lot.opened_session, 'net_bp': net / basis * 10_000})
+
+    with duckdb.connect(':memory:') as target:
+        for table in tables:
+            if not table_exists(con, table):
+                continue
+            ddl = con.execute('SELECT sql FROM duckdb_tables() WHERE table_name=? '
+                              'AND database_name=current_database()', [table]).fetchone()[0]
+            target.execute(ddl)
+            columns = [row[0] for row in con.execute(f'SELECT * FROM {table} LIMIT 0').description]
+            if 'portfolio_id' in columns:
+                clause, params = ' WHERE portfolio_id=?', [account_id]
+            elif table == 'portfolios':
+                clause, params = ' WHERE id=?', [account_id]
+            elif 'order_id' in columns:
+                clause = ' WHERE order_id IN (SELECT order_id FROM sim_fills WHERE portfolio_id=?)'
+                params = [account_id]
+            else:
+                clause, params = '', []
+            rows = con.execute(f'SELECT * FROM {table}' + clause, params).fetchall()
+            if rows:
+                placeholders = ','.join('?' for _ in columns)
+                target.executemany(f'INSERT INTO {table} VALUES ({placeholders})', rows)
+        target.execute(con.execute(
+            "SELECT sql FROM duckdb_views() WHERE view_name='portfolio_accounts_v' "
+            'AND database_name=current_database()').fetchone()[0])
+        rebuild_state(target, [account_id], on_close=collect)
+    return outcomes

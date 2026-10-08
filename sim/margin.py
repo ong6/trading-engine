@@ -361,8 +361,6 @@ def accrue_interest(
     for settings in settings_rows:
         portfolio_id = settings["portfolio_id"]
         cash = portfolio.get_cash(con, portfolio_id)
-        if cash >= 0 and not replay:
-            continue
         exists = con.execute(
             "SELECT 1 FROM sim_cash_events WHERE portfolio_id=? AND event_date=? "
             "AND kind='margin_interest'",
@@ -401,6 +399,7 @@ def accrue_interest(
             "portfolio_id": portfolio_id,
             "event_date": day,
             "kind": "margin_interest",
+            "created_at": bar_sources.session_bounds(day)[0],
             "amount": -fee,
             "note": f"{len(accrual_dates)} calendar day(s)",
         }, replay=replay)
