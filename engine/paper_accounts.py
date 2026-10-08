@@ -17,7 +17,7 @@ from engine.free_massive_minute import session_close
 from engine.instruments import Instrument, ensure
 from engine.lib import db
 from engine.lib.provenance import canonical_sha256
-from sim import calendar, nyse, portfolio
+from sim import nyse, portfolio
 from sim import schema as sim_schema
 from sim.costs import IBKR_PRO_TIERED_V1
 from sim.execution import DEFAULT_PROFILE_ID
@@ -359,63 +359,23 @@ def _reference_date(spec: dict, intent: dict, session_date: date) -> date:
     return previous
 
 
-def _price_row(con, spec: dict, ticker: str, as_of: date):
-    if spec.get("price_source", "prices") == "massive_daily":
-        relation, price_column = "free_daily_bars_adjusted", "c"
-    else:
-        relation, price_column = "prices", "close"
-    exists = con.execute(
-        "SELECT 1 FROM information_schema.tables WHERE table_name=? UNION ALL "
-        "SELECT 1 FROM information_schema.views WHERE table_name=? LIMIT 1",
-        [relation, relation],
-    ).fetchone()
-    if exists is None:
-        return None
-    return con.execute(
-        f"SELECT {price_column},date FROM {relation} WHERE ticker=? AND date<=? "
-        "ORDER BY date DESC LIMIT 1", [ticker, as_of],
-    ).fetchone()
-
-
-def _session_age(con, observed: date, target: date) -> int:
-    age = int(calendar.trading_days_between(con, observed, target))
-    if observed < target and age == 0:
-        cursor = date.fromordinal(observed.toordinal() + 1)
-        while cursor <= target:
-            age += int(nyse.is_session(cursor))
-            cursor = date.fromordinal(cursor.toordinal() + 1)
-    return age
-
-
 def _marked_values(con, spec: dict, positions: dict, as_of: date) -> dict[str, float]:
-    values, stale = {}, []
-    for name, position in positions.items():
-        row = _price_row(con, spec, name, as_of)
-        if row is None or row[0] is None:
-            stale.append(name)
-            continue
-        if _session_age(con, row[1], as_of) > 3:
-            stale.append(name)
-            continue
-        values[name] = float(position["qty"]) * _positive(row[0], "held close")
-    if stale:
-        raise AccountRefused(f"stale account reference marks: {','.join(sorted(stale))}")
-    return values
+    from sim import valuation
+
+    return {name: float(position['qty']) * valuation.mark(
+        con, spec['account_id'], name, as_of, price_source=spec.get('price_source', 'prices'),
+    ).price for name, position in positions.items()}
 
 
 def _reserved_orders(con, spec: dict, pending: list, as_of: date) -> dict[str, float]:
+    from sim import valuation
+
     reserved: dict[str, float] = {}
-    stale = []
     for ticker, side, quantity in pending:
-        if side not in {"buy", "short"}:
-            continue
-        row = _price_row(con, spec, ticker, as_of)
-        if row is None or row[0] is None or _session_age(con, row[1], as_of) > 3:
-            stale.append(ticker)
-            continue
-        reserved[ticker] = reserved.get(ticker, 0.0) + abs(quantity * float(row[0]))
-    if stale:
-        raise AccountRefused(f"stale pending-order reference marks: {','.join(sorted(stale))}")
+        if side in {'buy', 'short'}:
+            observed = valuation.mark(con, spec['account_id'], ticker, as_of,
+                                      price_source=spec.get('price_source', 'prices'))
+            reserved[ticker] = reserved.get(ticker, 0.0) + abs(quantity * observed.price)
     return reserved
 
 
@@ -461,10 +421,10 @@ def _capacity(con, spec: dict, intent: dict, session_date: date, quantity: float
     account = spec["account_id"]
     ticker = intent.get("ticker", intent.get("instrument_id"))
     reference_date = _reference_date(spec, intent, session_date)
-    row = _price_row(con, spec, ticker, reference_date)
-    if row is None or row[0] is None or _session_age(con, row[1], reference_date) > 3:
-        raise AccountRefused(f"no current reference price for {ticker}")
-    price = _positive(row[0], "reference close")
+    from sim import valuation
+
+    price = valuation.mark(con, account, ticker, reference_date,
+                           price_source=spec.get('price_source', 'prices')).price
     positions = portfolio.get_positions(con, account)
     pending = con.execute(
         "SELECT ticker,side,qty FROM sim_orders WHERE portfolio_id=? AND status='pending'",
@@ -501,7 +461,15 @@ def _validate_replayed_order(con, order_id, intent):
                       [order_id]).fetchone()
     ticker = intent.get("ticker", intent.get("instrument_id"))
     session = intent.get("signal_date", intent.get("session_date"))
-    expected = (intent["account_id"], ticker, intent["side"], intent["quantity"],
+    quantity = float(intent['quantity'])
+    for (payload,) in con.execute(
+        "SELECT payload FROM account_events WHERE portfolio_id=? AND kind='split' ORDER BY id",
+        [intent['account_id']],
+    ).fetchall():
+        action = json.loads(payload)
+        if order_id in action.get('adjusted_order_ids', []):
+            quantity *= float(action['ratio'])
+    expected = (intent["account_id"], ticker, intent["side"], quantity,
                 date.fromisoformat(session))
     if row != expected:
         raise AccountRefused("retained intake no longer matches its engine order")
@@ -573,9 +541,10 @@ def submit_intent(con, intent: dict, *, now: datetime) -> dict:
             completed_checkpoint = _activation_checkpoint(con, session_date)
         else:
             reference_date = _reference_date(spec, intent, session_date)
-            latest = _price_row(con, spec, intent["instrument_id"], reference_date)
-            if latest is None:
-                raise AccountRefused("intent has no current stored reference session")
+            from sim import valuation
+
+            valuation.mark(con, spec['account_id'], intent['instrument_id'], reference_date,
+                           price_source=spec['price_source'])
             completed_checkpoint = False
         contingent_order = (
             _contingent_parent(con, intent, session_date, quantity)
