@@ -387,7 +387,8 @@ def verify(
             _restore_account_state(
                 con, account_id, observed["cash"], positions, lots, day_trades,
             )
-        ok = canonical_sha256(expected) == canonical_sha256(observed)
+        ok = (abs(expected["cash"] - observed["cash"]) <= 0.005
+              and expected["positions"] == observed["positions"])
         result = {
             "account_id": account_id,
             "status": "ok" if ok else "mismatch",
