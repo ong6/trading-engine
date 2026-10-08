@@ -41,7 +41,7 @@ V2_SPEC_FIELDS = frozenset({
     "artifact_sha256", "registration_sha256", "instrument_kinds", "capital_usd",
     "account_id", "account_type", "max_position_fraction", "max_gross_fraction",
     "min_trade_usd", "allow_short", "price_source", "benchmark",
-    "day_trades_per_week_expected", "day_trade_rule",
+    "day_trades_per_week_expected", "day_trade_rule", "whole_shares",
 })
 V2_SPEC_OPTIONAL_FIELDS = frozenset({"day_trade_rule", "whole_shares"})
 V1_INTENT_FIELDS = frozenset({
