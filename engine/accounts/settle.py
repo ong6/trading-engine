@@ -10,7 +10,7 @@ from typing import Any
 
 import duckdb
 
-from engine.accounts import account_portfolios
+from engine.accounts import account_portfolios, actions, sources
 from engine.accounts import service as account_service
 from engine.lib import db
 from engine.lib.util import table_exists
@@ -345,16 +345,7 @@ def _due(con, row: dict[str, Any], day: date, late: bool) -> bool:
             return False
     elif row["session_date"] != day:
         return False
-    if not late:
-        return True
-    if _special_reason(row["state_reason"], "bar_missing"):
-        return True
-    return bool(
-        row["contingent_on"] is not None
-        and con.execute(
-            "SELECT 1 FROM sim_fills WHERE order_id=?", [row["contingent_on"]]
-        ).fetchone()
-    )
+    return True
 
 
 def _execution_key(row: dict[str, Any], result: fills.FillResult, day: date) -> tuple:
@@ -608,9 +599,20 @@ def settle_session(
         transaction = db.transaction(con) if manage_transactions else nullcontext()
         try:
             with transaction:
+                sources.require_sources(con, settings, [row for row, _ in by_account[account_id]])
+                actions.apply_splits(con, account_id, day, now, _record_account_event)
+                # Splits can change queued quantities and limits after preparation.
+                for row, _result in by_account[account_id]:
+                    qty, limit_px = con.execute(
+                        'SELECT o.qty,d.limit_px FROM sim_orders o JOIN sim_order_details d '
+                        'ON d.order_id=o.id WHERE o.id=?', [row['order_id']],
+                    ).fetchone()
+                    row['qty'], row['limit_px'] = float(qty), limit_px
+                portfolio.credit_dividends(con, day, portfolio_id=account_id)
                 shorts.accrue_borrow(con, day, portfolio_id=account_id)
                 margin.accrue_interest(con, day, portfolio_id=account_id)
                 for row, result in by_account[account_id]:
+                    result = _fill_attempt(con, row, settings, day, now)
                     state = _settle_order(
                         con, row, result, settings, day, now, late, short_con,
                         liquidity_refusals, execution_keys,

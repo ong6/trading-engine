@@ -486,6 +486,12 @@ def rebuild_state(
             events.append((row[1], phase, row[2], "cash", row))
     events.sort(key=lambda item: (item[0], item[1], item[2]))
     splits = _split_factors(con)
+    from engine.accounts.actions import recorded_splits
+
+    account_splits = {}
+    for portfolio_id in target_ids:
+        if portfolio_account(con, portfolio_id)['engine'] == 'account':
+            account_splits[portfolio_id] = recorded_splits(con, portfolio_id)
 
     for _event_date, _phase, _seq, kind, row in events:
         if kind == "dividend":
@@ -504,7 +510,11 @@ def rebuild_state(
             continue
         order_id, portfolio_id, ticker, side, qty, px, fill_date, multiplier = row[:8]
         factor = 1.0
-        for ex_date, ratio in splits.get(ticker, ()):
+        factors = (
+            [(ex, ratio) for name, ex, ratio in account_splits[portfolio_id] if name == ticker]
+            if portfolio_id in account_splits else splits.get(ticker, ())
+        )
+        for ex_date, ratio in factors:
             if fill_date < ex_date:
                 factor *= ratio
         fee_row = row[10:]

@@ -195,7 +195,8 @@ def _position_as_of(con: duckdb.DuckDBPyConnection, pf_id: str, tk: str,
 
 
 def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
-                     lookback_days: int = DIVIDEND_LOOKBACK_DAYS) -> dict:
+                     lookback_days: int = DIVIDEND_LOOKBACK_DAYS, *,
+                     portfolio_id: str | None = None) -> dict:
     """Phase a0 of the league day-step: pay every cash dividend with an ex-date in
     (d − lookback_days, d] that has not been credited yet.
 
@@ -237,9 +238,18 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
     ).fetchall())
     splits = _split_factors(con)
 
+    clause = "pa.pa_engine<>'account'" if portfolio_id is None else "p.id=?"
+    params = [] if portfolio_id is None else [portfolio_id]
     for (pf_id,) in con.execute(
-        "SELECT id FROM portfolios WHERE active ORDER BY id"
+        "SELECT p.id FROM portfolios p JOIN portfolio_accounts_v pa ON pa.portfolio_id=p.id "
+        f"WHERE p.active AND {clause} ORDER BY p.id", params,
     ).fetchall():
+        account_splits = splits
+        if portfolio_id is not None:
+            from engine.accounts.actions import recorded_splits
+            account_splits = {}
+            for ticker, ex, ratio in recorded_splits(con, pf_id, d):
+                account_splits.setdefault(ticker, []).append((ex, ratio))
         held_now = {
             tk: float(q) for tk, q in con.execute(
                 "SELECT ticker, qty FROM sim_positions "
@@ -256,7 +266,7 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
             if ex == d:
                 qty = held_now.get(tk, 0.0)
             else:
-                qty = _position_as_of(con, pf_id, tk, ex, splits)
+                qty = _position_as_of(con, pf_id, tk, ex, account_splits)
             if abs(qty) < 1e-9:
                 continue
             dps = float(value)

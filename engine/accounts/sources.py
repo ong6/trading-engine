@@ -8,6 +8,7 @@ Unit callers can continue to plant the same tables directly in an in-memory stor
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
@@ -64,39 +65,83 @@ def production_sources(
     con: duckdb.DuckDBPyConnection,
     *,
     environ: Mapping[str, str] = os.environ,
+    tickers: list[str] | None = None,
 ) -> Iterator[duckdb.DuckDBPyConnection | None]:
-    """Attach available account data stores read-only and yield the short source.
+    """Copy required source rows through short-lived read-only attachments.
 
-    Missing stores stay explicit: daily/minute readers return no bar and shorts are
-    refused as ``locate_unavailable``.  No production entry point silently falls
-    back from an account's selected source to the operational ``prices`` table.
+    The source writer may hold its lock throughout collection. Retry briefly;
+    record unavailable stores so settlement can defer only dependent accounts.
+    Temp snapshots release all source locks before account transactions begin.
     """
-    attached: list[str] = []
-    views: list[str] = []
+    snapshots: list[str] = []
+    names = set(tickers or [])
+    for relation in ('sim_positions', 'sim_orders'):
+        if _main_has(con, relation):
+            names.update(row[0] for row in con.execute(
+                f'SELECT DISTINCT r.ticker FROM {relation} r JOIN portfolio_accounts_v pa '
+                "ON pa.portfolio_id=r.portfolio_id WHERE pa.pa_engine='account' AND "
+                + ('r.qty<>0' if relation == 'sim_positions' else "r.status='pending'")
+            ).fetchall())
+    con.execute('CREATE TEMP TABLE account_source_errors (source VARCHAR, reason VARCHAR)')
     try:
         for alias, (environment_name, filename) in SOURCE_PATHS.items():
+            relations = [name for name in SOURCE_TABLES[alias] if not _main_has(con, name)]
             path = _path(environment_name, filename, environ)
-            if not path.is_file():
+            if not relations or not path.is_file():
                 continue
-            con.execute(f"ATTACH {_quote(path)} AS {alias} (READ_ONLY)")
-            attached.append(alias)
-            for relation in SOURCE_TABLES[alias]:
-                if _main_has(con, relation) or not _attached_has(con, alias, relation):
-                    continue
-                con.execute(
-                    f"CREATE TEMP VIEW {relation} AS "
-                    f"SELECT * FROM {alias}.main.{relation}"
-                )
-                views.append(relation)
-        short_ready = all(
-            _main_has(con, relation) for relation in SOURCE_TABLES["account_short"]
-        )
+            attached = False
+            for attempt in range(4):
+                try:
+                    con.execute(f"ATTACH {_quote(path)} AS {alias} (READ_ONLY)")
+                    attached = True
+                    break
+                except duckdb.IOException as exc:
+                    if attempt == 3:
+                        con.execute('INSERT INTO account_source_errors VALUES (?,?)',
+                                    [alias, str(exc)[:1000]])
+                    else:
+                        time.sleep(0.05 * 2 ** attempt)
+            if not attached:
+                continue
+            try:
+                for relation in relations:
+                    if not _attached_has(con, alias, relation):
+                        continue
+                    # Capture only instruments relevant to this request/ledger.
+                    where = 'FALSE' if not names else 'ticker IN (' + ','.join(
+                        _quote(ticker) for ticker in sorted(names)
+                    ) + ')'
+                    con.execute(f'CREATE TEMP TABLE {relation} AS '
+                                f'SELECT * FROM {alias}.main.{relation} WHERE {where}')
+                    snapshots.append(relation)
+            finally:
+                con.execute(f'DETACH {alias}')
+        short_ready = all(_main_has(con, name) for name in SOURCE_TABLES['account_short'])
         yield con if short_ready else None
     finally:
-        for relation in reversed(views):
-            con.execute(f"DROP VIEW IF EXISTS {relation}")
-        for alias in reversed(attached):
-            con.execute(f"DETACH {alias}")
+        for relation in reversed(snapshots):
+            con.execute(f'DROP TABLE IF EXISTS {relation}')
+        con.execute('DROP TABLE account_source_errors')
 
 
-__all__ = ["production_sources"]
+def require_sources(con, settings: dict, rows: list[dict]) -> None:
+    """Refuse only the account session that depends on an unreadable store."""
+    if not _main_has(con, 'account_source_errors'):
+        return
+    needed = set()
+    if settings['price_source'] == 'massive_daily':
+        needed.add('account_daily')
+        if any(row['order_type'] in {'market', 'limit'} for row in rows):
+            needed.add('account_minute')
+    short_held = con.execute(
+        'SELECT 1 FROM sim_positions WHERE portfolio_id=? AND qty<0 LIMIT 1',
+        [settings['portfolio_id']],
+    ).fetchone()
+    if short_held or any(row['side'] == 'short' for row in rows):
+        needed.add('account_short')
+    for source, reason in con.execute('SELECT source,reason FROM account_source_errors').fetchall():
+        if source in needed:
+            raise RuntimeError(f'source_unavailable: {source}: {reason}')
+
+
+__all__ = ['production_sources', 'require_sources']
