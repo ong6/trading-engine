@@ -35,7 +35,6 @@ from farm.replay.sources import (
     wayback_memento_url,
 )
 
-
 # Fixed entry time: writestr(name, ...) stamps the current time, so two fixtures
 # built across a 2-second tick hash differently.
 FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
