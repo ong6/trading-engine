@@ -2850,4 +2850,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +0 LOC, tools +28 LOC, product +218 LOC.
 - **Next:** orchestrator re-pins P15 and frozen runtime identities, then acceptance.
 
+## 2026-10-08 — Issue P15 registration revision 13
+
+- **Why:** The read-only production snapshot rejected a valid 2-to-3-share SPY cash reinvestment, and mature event labels were not refreshed before overnight reporting.
+- **What:** Validate only documented cash-resized SPY reinvestments against both fill ledgers; keep every other mismatch fatal.
+  Run the existing idempotent event-label maturation after nightly prices and before reporting; bind the exact sources as revision 13.
+- **Evidence:** `TZ=<UTC|Asia/Singapore> .venv/bin/python -m pytest -q -W error -n auto` reached 100% in both timezones (4,411 collected), exit 0; the snapshot validator reports `P15 evidence validation: ok`.
+- **Metrics:** server +92, tools unchanged, product +20; budget ok.
+- **Next:** Nothing further admitted; the orchestrator may deploy revision 13 from the pushed branch.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

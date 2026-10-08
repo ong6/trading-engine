@@ -43,10 +43,11 @@ product (P12).
 
 [The profitability evidence loop (P15)](plans/p15-profitability-evidence-loop.md) went live on
 2026-09-29 after a verified 90-table recovery bundle. The current source registration is
-revision 13: the owner's 2026-10-06 commission decision, parameterized D0 break, restarted book
-clocks, additive account schema, monotonic order sequence and shared ledger/account runtime. It
-retains revision 12's bounded complete-metadata recovery and revision 11's verifier receipts.
-Scoring, labels, statistical gates, schedules and pre-D0 written evidence are unchanged.
+revision 13: exact validation of cash-resized SPY reinvestment fills and nightly maturation of
+existing event-shadow labels before reporting, retaining revision 12's bounded complete-metadata
+recovery and earlier verifier, identity, provider-refusal and backup corrections.
+Scoring, book mechanics, gates, label values, registered values, schedules and written evidence
+are unchanged.
 P15 is `active` and collecting; no performance claim exists before its registered looks.
 Earlier operational revisions introduced stage timings, bounded collection, snapshot throttling,
 cached status projections and queue scratch handling. Revision 10 corrected pending

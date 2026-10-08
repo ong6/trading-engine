@@ -1060,6 +1060,87 @@ def _validate_p15_traces(con):
         _validate_p15_trace(con, row)
 
 
+def _cash_before_fill(con, portfolio_id: str, order_id: int) -> float | None:
+    """Replay the documented cash ledger through, but not including, one fill."""
+    row = con.execute(
+        "SELECT initial_cash FROM portfolios WHERE id=?", [portfolio_id]
+    ).fetchone()
+    if row is None or row[0] is None:
+        return None
+    events = []
+    if table_exists(con, "sim_dividends"):
+        events.extend(
+            (day, 0, index, None, float(amount))
+            for index, (day, _ticker, amount) in enumerate(con.execute(
+                "SELECT ex_date,ticker,amount FROM sim_dividends WHERE portfolio_id=? "
+                "ORDER BY ex_date,ticker", [portfolio_id],
+            ).fetchall())
+        )
+    if table_exists(con, "sim_settlements"):
+        events.extend(
+            (day, 1, index, None, float(qty) * float(price))
+            for index, (day, _ticker, qty, price) in enumerate(con.execute(
+                "SELECT effective,ticker,qty,price FROM sim_settlements "
+                "WHERE portfolio_id=? ORDER BY effective,ticker", [portfolio_id],
+            ).fetchall())
+        )
+    events.extend(
+        (day, 2, index, int(fill_order_id),
+         float(qty) * float(fill_px) * (1 if side == "sell" else -1))
+        for index, (day, side, fill_order_id, qty, fill_px) in enumerate(con.execute(
+            "SELECT fill_date,side,order_id,qty,fill_px FROM sim_fills "
+            "WHERE portfolio_id=? ORDER BY fill_date,"
+            "CASE side WHEN 'sell' THEN 0 ELSE 1 END,order_id", [portfolio_id],
+        ).fetchall())
+    )
+    cash = float(row[0])
+    for _day, _phase, _sequence, fill_order_id, cash_delta in sorted(events):
+        if fill_order_id == order_id:
+            return cash
+        cash += cash_delta
+    return None
+
+
+def _spy_reinvestment_resize_matches(
+    con, *, intent_id: int, portfolio_id: str, ticker: str, side: str,
+    order_role: str, intent_status: str, order_id: int, order_qty: float,
+    order_status: str,
+) -> bool:
+    """Accept only the cash-at-fill whole-share resize used by the SPY sleeve."""
+    from sim import p15_books
+
+    if (ticker, side, order_role, intent_status, order_status) != (
+        "SPY", "buy", "spy_reinvest", "filled", p15_books.SIM_FILLED_STATUS,
+    ):
+        return False
+    fills = con.execute(
+        "SELECT b.portfolio_id,b.ticker,b.side,b.qty,b.fill_date,b.fill_px,"
+        "s.portfolio_id,s.ticker,s.side,s.qty,s.fill_date,s.fill_px "
+        "FROM p15_book_fills b JOIN sim_fills s ON s.order_id=b.order_id "
+        "WHERE b.intent_id=? AND b.order_id=?", [intent_id, order_id],
+    ).fetchall()
+    if len(fills) != 1:
+        return False
+    book_portfolio, book_ticker, book_side, book_qty, book_date, book_px, \
+        sim_portfolio, sim_ticker, sim_side, sim_qty, sim_date, sim_px = fills[0]
+    if ((book_portfolio, book_ticker, book_side, book_qty, book_date, book_px)
+            != (sim_portfolio, sim_ticker, sim_side, sim_qty, sim_date, sim_px)
+            or (book_portfolio, book_ticker, book_side) != (portfolio_id, ticker, side)):
+        return False
+    try:
+        quantity, book_quantity, fill_px = (
+            float(order_qty), float(book_qty), float(book_px)
+        )
+        cash = _cash_before_fill(con, portfolio_id, order_id)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return (cash is not None and math.isfinite(cash) and cash >= 0
+            and math.isfinite(quantity) and quantity > 0
+            and math.isfinite(fill_px) and fill_px > 0
+            and book_quantity == quantity
+            and quantity == float(math.floor(cash / fill_px)))
+
+
 def _validate_p15_labels(con, generated_at, label_source_status):
     labels = con.execute(
         "SELECT l.*,d.ticker AS source_ticker,t.market_date AS source_market_date "
@@ -1124,11 +1205,22 @@ def _validate_p15_book_evidence(con, generated_at, label_source_status):
     mismatch += con.execute(
         "SELECT COUNT(*) FROM p15_order_intents i LEFT JOIN sim_orders o ON o.id=i.sim_order_id "
         "WHERE i.sim_order_id IS NOT NULL AND (o.id IS NULL OR "
-        "(i.portfolio_id,i.ticker,i.side,i.qty,i.signal_date,"
+        "(i.portfolio_id,i.ticker,i.side,i.signal_date,"
         "CASE WHEN i.status='filled' THEN ? ELSE i.status END) IS DISTINCT FROM "
-        "(o.portfolio_id,o.ticker,o.side,o.qty,o.signal_date,o.status))",
+        "(o.portfolio_id,o.ticker,o.side,o.signal_date,o.status))",
         [p15_books.SIM_FILLED_STATUS],
     ).fetchone()[0]
+    quantity_mismatches = con.execute(
+        "SELECT i.id,i.portfolio_id,i.ticker,i.side,i.order_role,i.status,o.id,o.qty,o.status "
+        "FROM p15_order_intents i JOIN sim_orders o ON o.id=i.sim_order_id "
+        "WHERE i.qty IS DISTINCT FROM o.qty ORDER BY i.id"
+    ).fetchall()
+    mismatch += sum(not _spy_reinvestment_resize_matches(
+        con, intent_id=intent_id, portfolio_id=portfolio_id, ticker=ticker, side=side,
+        order_role=order_role, intent_status=intent_status, order_id=order_id,
+        order_qty=order_qty, order_status=order_status,
+    ) for (intent_id, portfolio_id, ticker, side, order_role, intent_status,
+           order_id, order_qty, order_status) in quantity_mismatches)
     if mismatch:
         raise EvaluationError("P15 book runtime evidence differs")
     book_window_status = p15_evidence_validation.validate_book_links(con, EvaluationError)
