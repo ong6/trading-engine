@@ -2798,4 +2798,19 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged.
 - **Next:** publish the final metrics snapshot after the completed full suites and rehearsal.
 
+## 2026-10-08 — Close P22 chronological account lifecycle
+
+- **Why:** P22 acceptance requires every reviewed blocker fixed, both CI timezones green and a
+  two-session rehearsal on a migrated snapshot copy.
+- **What:** The final revision-13 closure passed both full suites. A copied 7.9 GB snapshot
+  migrated 33 portfolios with `--d0 2026-10-19`; a generic $50k account then completed ten
+  MOO/MOC pairs on each of 2026-10-06 and 2026-10-07. Cash equalled equity with no positions,
+  zero reconciliation difference and `verify=ok` after each session; late settle was a no-op.
+  The scratch database was deleted.
+- **Evidence:** `TZ=UTC .venv/bin/python -m pytest -o addopts='' -q -W error -n auto &&
+  TZ=Asia/Singapore .venv/bin/python -m pytest -o addopts='' -q -W error -n auto`
+  — 4,644 passed in each timezone, including all five P15 registration tests.
+- **Metrics:** server +2, tools unchanged, product +475; tests +759; budget ok.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
