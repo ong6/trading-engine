@@ -2786,4 +2786,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged.
 - **Next:** repin P15 revision 13 to the final source commit, then run both full suites.
 
+## 2026-10-08 — Repin revision 13 to final lifecycle sources
+
+- **Why:** the final admitted carry-mark and contingent-order boundaries changed registered
+  dependencies after the first lifecycle pin.
+- **What:** Keep P15 at revision 13 and refresh only its source commit, affected file digests and
+  self-hash. Add the two newly imported account modules to its exact dependency closure; no policy,
+  scoring, label, gate, schedule or parameter changed.
+- **Evidence:** `.venv/bin/python -m pytest -o addopts='' -q -W error
+  tests/test_p15_registration.py` — 5 passed.
+- **Metrics:** server/tools/product unchanged.
+- **Next:** publish the final metrics snapshot after the completed full suites and rehearsal.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
