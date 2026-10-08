@@ -62,26 +62,26 @@ or if the acquirer has no stored prices.
 ```bash
 # Cash deal: every holder receives qty × price on the effective date.
 .venv/bin/python -m sim.settle --db store/market.duckdb --ticker EA \
-    --kind cash --price <PRICE> --effective <YYYY-MM-DD> \
+    --kind cash --price "<PRICE>" --effective "<YYYY-MM-DD>" \
     --source "<EDGAR URL of closing 8-K or press release>"
 
 .venv/bin/python -m sim.settle --db store/market.duckdb --ticker TALK \
-    --kind cash --price <PRICE> --effective <YYYY-MM-DD> --source "<URL>"
+    --kind cash --price "<PRICE>" --effective "<YYYY-MM-DD>" --source "<URL>"
 
 .venv/bin/python -m sim.settle --db store/market.duckdb --ticker WBS \
-    --kind cash --price <PRICE> --effective <YYYY-MM-DD> --source "<URL>"
+    --kind cash --price "<PRICE>" --effective "<YYYY-MM-DD>" --source "<URL>"
 
 .venv/bin/python -m sim.settle --db store/market.duckdb --ticker FBRX \
-    --kind cash --price <PRICE> --effective <YYYY-MM-DD> --source "<URL>"
+    --kind cash --price "<PRICE>" --effective "<YYYY-MM-DD>" --source "<URL>"
 ```
 
 Other shapes, same flags otherwise:
 
 ```bash
 # Stock-for-stock: R acquirer shares per held share. Acquirer must have real bars.
-... --kind stock --into <ACQ> --ratio <R>
+... --kind stock --into "<ACQ>" --ratio "<R>"
 # Mixed: R shares plus cash per share.
-... --kind stock --into <ACQ> --ratio <R> --price <CASH_PER_SHARE>
+... --kind stock --into "<ACQ>" --ratio "<R>" --price "<CASH_PER_SHARE>"
 # Cancelled / bankrupt: position to zero, no cash.
 ... --kind worthless
 # Only some books (default is every active holder):
@@ -102,7 +102,7 @@ for 60 s then fails, which is fine.
 
 ```bash
 .venv/bin/python -m sim.settle --db store/market.duckdb --ticker EA \
-    --kind cash --price <PRICE> --effective <YYYY-MM-DD> --source "<URL>" --apply
+    --kind cash --price "<PRICE>" --effective "<YYYY-MM-DD>" --source "<URL>" --apply
 ```
 
 One transaction per command: one `sim_settlements` row per book, cash credited,
