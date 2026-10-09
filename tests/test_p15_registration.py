@@ -28,6 +28,7 @@ REGISTERED_PATHS = {
     "engine/account_watch.py",
     "engine/accounts/__init__.py",
     "engine/accounts/actions.py",
+    "engine/accounts/late.py",
     "engine/accounts/service.py",
     "engine/accounts/settle.py",
     "engine/accounts/sources.py",

@@ -326,6 +326,16 @@ its backup metadata describes that exact snapshot. Paths below are shortened to 
 `$BACKUP`, `$EVIDENCE` and `$XDG_RUNTIME_DIR`. The transcript combines successful backup creation
 with the complete deployment/rollback run using that same verified backup.
 
+Round 4 extended this evidence with two [retained transcripts](history/p22-round4-rehearsals.md).
+`rehearsal-legacy.txt` used a disposable October 2 checkpoint and temporary October 5 D0:
+all 33 routes and pre-D0 equity checkpoints stayed unchanged, pre-D0 fills kept zero fees,
+and the October 5–7 legacy and P15 sessions paid the new fees and passed P15 validation.
+`rehearsal-rollback.txt` restored the complete pre-migration store byte for byte and ran
+revision 13 from `origin/main` (`bc6ff7d`), including HTTP health/meta, restored-store P15
+validation and all five registration tests. It removed its isolated processes and copies.
+The earlier transcript below covers runtime unit installation and writer quiescence; its
+`b3cba65` source check is supplemented by round 4's explicit revision-13 rollback proof.
+
 The rehearsal installed namespaced runtime units with `systemctl --user link --runtime` and
 validated their rendered paths with `systemd-analyze --user verify`. The API listened on
 loopback port 18022; all store paths pointed into the disposable lane directory. A receipt clock
