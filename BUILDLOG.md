@@ -3056,7 +3056,8 @@ the 42-entry 2026-09-19 C90 complexity series is in
   showed recovery overwriting a checkpoint changed by $100 without persisting a mismatch.
 - **What:** Validate the original checkpoint using its recorded carried marks, then
   validate refreshed source marks after recovery; never skip the equity comparison.
-- **Evidence:** the fail-first regression and round-2/3 recovery cases cover the correction.
+- **Evidence:** the 87 account, round-2/3/4 and entrypoint regression cases pass;
+  revision-14 registration and Ruff pass.
 - **Metrics:** refreshed after the correction.
 - **Next:** re-pin revision 14 and finish final CI acceptance.
 
