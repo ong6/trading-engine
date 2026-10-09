@@ -5,6 +5,7 @@ import pytest
 
 from engine.accounts import service
 from engine.money import alerts, halts
+from sim import ledger
 from sim import schema as sim_schema
 from tests.conftest import insert_bars
 
@@ -33,6 +34,15 @@ def _account(con, account_id: str, *, gross=1.0, price_source="prices"):
         con, account_id, status="active", updated_at=NOW,
     )
 
+
+
+def _cash_close(con, day, equity):
+    """Give each synthetic cash-only risk checkpoint its backing ledger event."""
+    cash = con.execute("SELECT cash FROM portfolios WHERE id='acct-a'").fetchone()[0]
+    ledger.apply_cash_event(con, dict(portfolio_id='acct-a', event_date=day,
+        kind='adjustment', amount=equity-cash,
+        created_at=datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)))
+    con.execute("INSERT OR REPLACE INTO sim_equity VALUES ('acct-a',?,?,?,0)", [day, equity, equity])
 
 def _pending(con, account_id: str, order_id: int):
     con.execute(
@@ -106,11 +116,11 @@ def test_resolved_reconciliation_does_not_rehalt_after_resume(con):
 
 def test_resume_rearms_drawdown_from_resume_equity(con):
     _account(con, "acct-a")
-    con.execute("INSERT INTO sim_equity VALUES ('acct-a',DATE '2026-10-02',8000,8000,0)")
+    _cash_close(con, date.fromisoformat('2026-10-02'), 8000)
     assert halts.check(con, "acct-a", date(2026, 10, 2), now=NOW) == "halt_drawdown"
     service.resume(con, "acct-a", resumed_by="owner", now=NOW)
-    con.execute("INSERT INTO sim_equity VALUES ('acct-a',DATE '2026-10-05',6500,6500,0)")
-    con.execute("INSERT INTO sim_equity VALUES ('acct-a',DATE '2026-10-06',6400,6400,0)")
+    _cash_close(con, date.fromisoformat('2026-10-05'), 6500)
+    _cash_close(con, date.fromisoformat('2026-10-06'), 6400)
     later = datetime(2026, 10, 6, 20, tzinfo=timezone.utc)
     assert halts.check(con, "acct-a", date(2026, 10, 6), now=later) == "halt_drawdown"
     assert con.execute(
@@ -120,7 +130,7 @@ def test_resume_rearms_drawdown_from_resume_equity(con):
 
 def test_reconciliation_resume_rearms_drawdown_from_resume_equity(con):
     _account(con, "acct-a")
-    con.execute("INSERT INTO sim_equity VALUES ('acct-a',DATE '2026-10-02',8550,8550,0)")
+    _cash_close(con, date.fromisoformat('2026-10-02'), 8550)
     mismatch = {"session_date": "2026-10-02", "expected_sha256": "d" * 64,
                 "observed_sha256": "e" * 64, "status": "mismatch", "detail": "old"}
     service.reconcile(con, "acct-a", mismatch, now=NOW)
@@ -128,8 +138,8 @@ def test_reconciliation_resume_rearms_drawdown_from_resume_equity(con):
     assert con.execute(
         "SELECT drawdown_anchor_equity FROM account_state WHERE portfolio_id='acct-a'"
     ).fetchone()[0] == 8_550
-    con.execute("INSERT INTO sim_equity VALUES ('acct-a',DATE '2026-10-05',8400,8400,0)")
-    con.execute("INSERT INTO sim_equity VALUES ('acct-a',DATE '2026-10-06',6800,6800,0)")
+    _cash_close(con, date.fromisoformat('2026-10-05'), 8400)
+    _cash_close(con, date.fromisoformat('2026-10-06'), 6800)
     later = datetime(2026, 10, 6, 20, tzinfo=timezone.utc)
     assert halts.check(con, "acct-a", date(2026, 10, 6), now=later) == "halt_drawdown"
 
@@ -137,14 +147,12 @@ def test_reconciliation_resume_rearms_drawdown_from_resume_equity(con):
 def test_same_session_resume_rearms_daily_loss_from_resume_equity(con):
     _account(con, "acct-a")
     con.execute("INSERT INTO sim_equity VALUES ('acct-a',DATE '2026-10-02',10000,10000,0)")
-    con.execute("INSERT INTO sim_equity VALUES ('acct-a',DATE '2026-10-05',9500,9500,0)")
-    service.halt(con, "acct-a", now=NOW)
-    service.resume(con, "acct-a", resumed_by="owner", now=NOW)
-    con.execute(
-        "UPDATE sim_equity SET equity=9000,cash=9000 "
-        "WHERE portfolio_id='acct-a' AND date=DATE '2026-10-05'"
-    )
-    assert halts.check(con, "acct-a", date(2026, 10, 5), now=NOW) == "halt_daily_loss"
+    _cash_close(con, date.fromisoformat('2026-10-05'), 9500)
+    after_close = datetime(2026, 10, 5, 22, tzinfo=timezone.utc)
+    service.halt(con, "acct-a", now=after_close)
+    service.resume(con, "acct-a", resumed_by="owner", now=after_close)
+    _cash_close(con, date(2026, 10, 5), 9000)
+    assert halts.check(con, "acct-a", date(2026, 10, 5), now=after_close) == "halt_daily_loss"
 
 
 def test_three_accounts_create_one_concentration_alert_each(con):
