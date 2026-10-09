@@ -218,15 +218,18 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
         "SELECT p.id FROM portfolios p JOIN portfolio_accounts_v pa ON pa.portfolio_id=p.id "
         f"WHERE p.active AND {clause} ORDER BY p.id", params,
     ).fetchall():
-        from .ledger import projected_state
+        from .ledger import projected_states_at_closes
 
-        prefixes = {}
-        for tk, ex, value in divs:
-            if (pf_id, tk, ex) in already:
-                continue
-            if ex not in prefixes:
-                prefixes[ex] = projected_state(con, pf_id, through=ex - timedelta(days=1))
-            qty = prefixes[ex]['positions'].get(tk, {}).get('qty', 0.0)
+        tickers = {row[0] for row in con.execute(
+            'SELECT ticker FROM sim_fills WHERE portfolio_id=? UNION '
+            'SELECT into_ticker FROM sim_settlements WHERE portfolio_id=?',
+            [pf_id, pf_id]).fetchall()}
+        eligible = [(tk, ex, value) for tk, ex, value in divs
+                    if tk in tickers and (pf_id, tk, ex) not in already]
+        prefixes = projected_states_at_closes(
+            con, pf_id, {ex - timedelta(days=1) for _, ex, _ in eligible})
+        for tk, ex, value in eligible:
+            qty = prefixes[ex - timedelta(days=1)]['positions'].get(tk, {}).get('qty', 0.0)
             if abs(qty) < 1e-9:
                 continue
             dps = float(value)
