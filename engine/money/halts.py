@@ -170,3 +170,20 @@ def check_all(con, session_date: date, *, now: datetime | None = None) -> dict[s
         if reason is not None:
             results[portfolio_id] = reason
     return results
+
+
+def restore_risk(con, portfolio_id: str, at: datetime) -> None:
+    """Restore risk at its effective time, including resumes after the latest close."""
+    from datetime import timedelta
+
+    state = ledger.risk_state(con, portfolio_id, at.date() + timedelta(days=1), now=at)
+    _state(con, portfolio_id, at)
+    con.execute(
+        'UPDATE account_state SET peak_equity=?,prior_close_equity=?,halted_at=?,halt_reason=?,'
+        'resumed_at=?,drawdown_anchor_equity=?,updated_at=? WHERE portfolio_id=?',
+        [state[key] for key in ('peak_equity', 'prior_close_equity', 'halted_at', 'halt_reason',
+                               'resumed_at', 'drawdown_anchor_equity')] + [at, portfolio_id])
+    settings = portfolio_account(con, portfolio_id)
+    if settings['status'] not in {'retired', 'retiring'}:
+        status = 'halted' if state['halted_at'] is not None else 'active'
+        set_portfolio_account(con, portfolio_id, status=status, updated_at=at)

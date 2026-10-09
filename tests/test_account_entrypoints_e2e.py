@@ -264,7 +264,7 @@ def test_verify_cli_persists_mismatch_and_halts(tmp_path, monkeypatch, capsys):
     set_portfolio_account(con, "acct-a", status="active", updated_at=RECEIVED)
     con.close()
 
-    assert account_cli.main(["verify", "acct-a"]) == 0
+    assert account_cli.main(["verify", "acct-a"]) != 0
     capsys.readouterr()
     con = duckdb.connect(str(market), read_only=True)
     try:

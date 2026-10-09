@@ -396,6 +396,7 @@ def test_short_stock_conversion_creates_short_acquirer_lots_and_replays(con):
     set_portfolio_account(con, pf, engine="account", account_type="margin", status="active")
     _dead_name(con, "TALK")
     insert_bars(con, "ACQ", [D1, D2, D3, D4, D5], close=50)
+    con.execute('UPDATE prices SET fetched_at=CAST(date AS TIMESTAMP)')
     ledger.apply_fill(con, {
         "order_id": 1, "portfolio_id": pf, "ticker": "TALK", "side": "short",
         "qty": 10, "fill_px": 200, "fill_date": D1,
