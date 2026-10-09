@@ -3029,4 +3029,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** recorded in the closure snapshot.
 - **Next:** finish the disposable captured-session rehearsal and CI.
 
+## 2026-10-09 — Re-pin undeployed P15 revision 14 for round 4
+
+- **Why:** round-4 source changes require explicit registration before deployment.
+- **What:** Re-pinned revision 14 and its exact self-identity; frozen scoring, labels,
+  statistical gates and schedules are unchanged. Legacy settlement tables remain optional.
+- **Evidence:** `pytest tests/test_p15_registration.py -q -W error` → 5 passed;
+  the 69 dividend, portfolio and round-4 regression cases pass.
+- **Metrics:** refreshed in the closure snapshot.
+- **Next:** complete captured-store rehearsal, full-suite and PR CI acceptance.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
