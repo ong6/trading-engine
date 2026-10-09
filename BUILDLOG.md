@@ -3020,4 +3020,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged production LOC.
 - **Next:** re-pin revision 14, then execute acceptance checks and rehearsal.
 
+## 2026-10-09 — Reuse one ledger pass for dividend entitlement dates
+
+- **Why:** the round-4 snapshot rehearsal exercised many simultaneous late dividends.
+- **What:** Project all eligible entitlement closes in one chronological replay per book;
+  exclude tickers never acquired by fills or stock consideration.
+- **Evidence:** `pytest tests/test_p22_round4.py tests/test_portfolio.py tests/test_regressions.py -q -W error` passes.
+- **Metrics:** recorded in the closure snapshot.
+- **Next:** finish the disposable captured-session rehearsal and CI.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

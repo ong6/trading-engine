@@ -725,3 +725,23 @@ def states_match(expected, observed) -> bool:
     if isinstance(expected, float):
         return isinstance(observed, (float, int)) and abs(expected - observed) <= 0.005
     return expected == observed
+
+
+def projected_states_at_closes(con, account_id: str, days) -> dict:
+    """Project multiple dividend entitlement dates with one chronological replay."""
+    days = sorted(set(days))
+    if not days:
+        return {}
+    snapshots = {}
+    with replay_connection(con, account_id) as target:
+        sequence = iter(events(target, [account_id], through=days[-1]))
+        for table in ('sim_positions', 'sim_position_lots', 'sim_day_trades'):
+            target.execute(f'DELETE FROM {table}')
+        target.execute('UPDATE portfolios SET cash=COALESCE(initial_cash,?)', [INITIAL_CASH])
+        event = next(sequence, None)
+        for day in days:
+            while event is not None and event.stamp.date() <= day:
+                apply_event(target, event)
+                event = next(sequence, None)
+            snapshots[day] = state(target, account_id)
+    return snapshots
