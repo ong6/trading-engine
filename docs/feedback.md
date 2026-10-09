@@ -715,3 +715,13 @@ equity within $0.005 and durably halts mismatches. FIFO PDT preview, optional wh
 executable runbook bash blocks are included. Revision 14 is re-pinned while undeployed; scoring,
 labels, gates and schedules stay frozen. Rehearsal must cross D0 for legacy books and roll back
 to origin/main revision 13. Deploy remains October 18, D0 October 19; live state stays untouched.
+
+## 2026-10-09 — P22 lifecycle round 5 (binding orchestrator ruling)
+
+Every historical event uses one rule: verify retained state, rewind to the last verified
+checkpoint before its effective time, replay fills, actions, financing, marks and risk
+transitions chronologically, verify, and commit atomically. Failure preserves the old state
+and mismatch evidence, halts the account and exits nonzero. Nightly retries verify before
+replacing checkpoints. FIFO matches alone record day trades; elapsed debit interest precedes
+opening cash movements. Revision 14 may be re-pinned while undeployed. Deployment remains
+October 18 with D0 October 19; this lane pushes PR #13 without merging or touching live state.

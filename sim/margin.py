@@ -295,45 +295,6 @@ def pdt_check(
     return PDTResult(True, None, creates, count, rule)
 
 
-def record_day_trade(
-    con: duckdb.DuckDBPyConnection,
-    portfolio_id: str,
-    instrument_id: str,
-    close_order_id: int,
-    side: str,
-    session_date: date,
-    *,
-    open_order_id: int | None = None,
-) -> bool:
-    """Record a filled close against its earliest same-session opening lot."""
-    if side not in {"sell", "cover"}:
-        return False
-    if open_order_id is None:
-        sign = ">0" if side == "sell" else "<0"
-        row = con.execute(
-            "SELECT open_order_id FROM sim_position_lots "
-            f"WHERE portfolio_id=? AND instrument_id=? AND opened_session=? AND qty{sign} "
-            "ORDER BY open_order_id LIMIT 1",
-            [portfolio_id, instrument_id, session_date],
-        ).fetchone()
-        open_order_id = None if row is None else int(row[0])
-    if open_order_id is None:
-        opening_side = "buy" if side == "sell" else "short"
-        row = con.execute(
-            "SELECT order_id FROM sim_fills WHERE portfolio_id=? AND ticker=? "
-            "AND fill_date=? AND side=? ORDER BY order_id LIMIT 1",
-            [portfolio_id, instrument_id, session_date, opening_side],
-        ).fetchone()
-        open_order_id = None if row is None else int(row[0])
-    if open_order_id is None:
-        return False
-    con.execute(
-        "INSERT OR IGNORE INTO sim_day_trades VALUES (?,?,?,?,?)",
-        [portfolio_id, session_date, instrument_id, open_order_id, close_order_id],
-    )
-    return True
-
-
 def accrue_interest(
     con: duckdb.DuckDBPyConnection,
     day: date,

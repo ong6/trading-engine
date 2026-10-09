@@ -103,6 +103,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with db.connect(wait_s=180) as con:
             payload = _execute(args, con, now)
+    except service.VerificationError as exc:
+        print(json.dumps(exc.result, sort_keys=True, default=str))
+        return 1
     except AccountRefused as exc:
         if args.command == "submit":
             payload = {"order_id": None, "state": "refused", "received_at": now.isoformat(),
@@ -112,4 +115,4 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
         return 2
     print(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str))
-    return 1 if args.command == "settle" and payload.get("errors") else 0
+    return int(bool(payload.get("errors")) or payload.get("status") == "mismatch")

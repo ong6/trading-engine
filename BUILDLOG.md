@@ -3061,4 +3061,25 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** refreshed after the correction.
 - **Next:** re-pin revision 14 and finish final CI acceptance.
 
+## 2026-10-09 — Reproduce P22 historical event failures
+
+- **Why:** active P22 and the round-5 orchestrator ruling require one verified replay path.
+- **What:** Added real nightly, settlement and verify CLI regressions for historical resume,
+  split-after-sale, corrupted retry checkpoints, discounted delisting, FIFO and debit interest.
+- **Evidence:** `pytest tests/test_p22_round5.py -q -W error` → 10 failed on the old behavior.
+- **Metrics:** production LOC unchanged.
+- **Next:** implement checkpoint prefix verification and atomic chronological replay.
+
+## 2026-10-09 — Replay historical account events from verified checkpoints
+
+- **Why:** P22 round 5 reproduced four chronological accounting blockers and the related FIFO/interest defects.
+- **What:** Bound checkpoint state and marks to their ledger prefixes, verified before mutation,
+  and unified historical settlement and risk entry points around atomic rewind/replay.
+  Retained mismatch evidence outside rollback; removed inferred day trades and charged
+  elapsed debit interest before opening cash movements. Rebound the undeployed runtime.
+- **Evidence:** `pytest tests/test_p22_round5.py tests/test_settle.py tests/test_accounts_service.py
+  -k 'not randomized' -q -W error -n 6` → 47 passed.
+- **Metrics:** closure snapshot follows complete validation.
+- **Next:** finish randomized delivery checks and revision-14 binding.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
