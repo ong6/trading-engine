@@ -700,14 +700,17 @@ def risk_state(con, account_id: str, session_date: date, *, now: datetime) -> di
     return result
 
 
-def equity_checkpoint(con, account_id: str, day: date, snapshot: dict, *, available_at=None) -> dict:
+def equity_checkpoint(con, account_id: str, day: date, snapshot: dict, *,
+                      available_at=None, carried_marks=None) -> dict:
     """Value a ledger snapshot with the account's source-selected observable marks."""
     from . import valuation
 
     equity = snapshot['cash']
     for ticker, position in snapshot['positions'].items():
-        observed = valuation.mark(con, account_id, ticker, day, available_at=available_at)
-        equity += position['qty'] * observed.price
+        price = (carried_marks or {}).get(ticker)
+        if price is None:
+            price = valuation.mark(con, account_id, ticker, day, available_at=available_at).price
+        equity += position['qty'] * price
     return dict(date=day.isoformat(), cash=snapshot['cash'], equity=equity,
                 n_positions=len(snapshot['positions']))
 
@@ -745,3 +748,20 @@ def projected_states_at_closes(con, account_id: str, days) -> dict:
                 event = next(sequence, None)
             snapshots[day] = state(target, account_id)
     return snapshots
+
+
+def recorded_carried_marks(con, account_id: str, day: date) -> dict:
+    """Original source-selected stale marks, cleared once recovery reconciles that close."""
+    marks = {}
+    for kind, raw in con.execute(
+        "SELECT kind,payload FROM account_events WHERE portfolio_id=? "
+        "AND kind IN ('stale_mark','late_reconciled') ORDER BY created_at,id", [account_id],
+    ).fetchall():
+        payload = json.loads(raw)
+        if payload['session_date'] != day.isoformat():
+            continue
+        if kind == 'late_reconciled':
+            marks.clear()
+        else:
+            marks[payload['instrument_id']] = float(payload['carried_price'])
+    return marks

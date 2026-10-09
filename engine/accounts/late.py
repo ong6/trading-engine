@@ -67,7 +67,7 @@ def settle(con, *, session_date=None, short_con=None, settled_at=None) -> dict:
         local = []
         day = start
         try:
-            verification = service.verify(con, account_id, now=now, check_equity=False)
+            verification = service.verify(con, account_id, now=now, replay_carried=True)
             if verification['status'] != 'ok':
                 raise RuntimeError('ledger mismatch before late recovery')
             with db.transaction(con):

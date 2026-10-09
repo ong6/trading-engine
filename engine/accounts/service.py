@@ -334,12 +334,12 @@ def verify(
     session_date: date | None = None,
     now: datetime | None = None,
     manage_transaction: bool = True,
-    check_equity: bool = True,
+    replay_carried: bool = False,
 ) -> dict:
     """Reconcile persisted lots, cash and equity against isolated ledger replay.
 
-    Recovery defers a stale checkpoint until its marks have been refreshed,
-    but always reconciles cash and lots before rewriting dependent state.
+    Recovery first checks a stale checkpoint against its recorded carried marks,
+    then checks the refreshed checkpoint against the currently available source.
     """
     effective_now = _utc(now)
 
@@ -348,19 +348,22 @@ def verify(
         _account(con, account_id)
         observed = ledger.state(con, account_id)
         expected = ledger.projected_state(con, account_id, through=session_date)
-        if check_equity:
-            checkpoint = con.execute(
-                'SELECT date,equity,cash,n_positions FROM sim_equity WHERE portfolio_id=? '
-                'AND (? IS NULL OR date<=?) ORDER BY date DESC LIMIT 1',
-                [account_id, session_date, session_date],
-            ).fetchone()
-            if checkpoint is not None:
-                day, equity, cash, count = checkpoint
-                prefix = ledger.projected_state(con, account_id, through=day)
-                expected['checkpoint'] = ledger.equity_checkpoint(
-                    con, account_id, day, prefix, available_at=effective_now)
-                observed['checkpoint'] = dict(date=day.isoformat(), equity=float(equity),
-                                              cash=float(cash), n_positions=count)
+        checkpoint = con.execute(
+            'SELECT date,equity,cash,n_positions FROM sim_equity WHERE portfolio_id=? '
+            'AND (? IS NULL OR date<=?) ORDER BY date DESC LIMIT 1',
+            [account_id, session_date, session_date],
+        ).fetchone()
+        if checkpoint is not None:
+            day, equity, cash, count = checkpoint
+            prefix = ledger.projected_state(con, account_id, through=day)
+            valued = ledger.equity_checkpoint(
+                con, account_id, day, prefix, available_at=effective_now,
+                carried_marks=ledger.recorded_carried_marks(con, account_id, day)
+                if replay_carried else None)
+            # A later settlement can change cash/positions while retaining an
+            # earlier equity mark. Current cash/lots are reconciled above.
+            expected['checkpoint'] = dict(date=day.isoformat(), equity=valued['equity'])
+            observed['checkpoint'] = dict(date=day.isoformat(), equity=float(equity))
         ok = ledger.states_match(expected, observed)
         result = {
             "account_id": account_id,

@@ -155,3 +155,14 @@ def test_verify_uses_selected_source_for_equity(h):
     assert h.night() == 0
     assert cli.main(['verify', 'acct-a']) == 0
     assert h.scalar("SELECT COUNT(*) FROM account_reconciliations WHERE status='mismatch'") == 0
+
+
+def test_late_recovery_does_not_hide_equity_corruption(h):
+    h.create()
+    h.history('SHORT', 'buy', 10, 100)
+    assert h.night() == 0
+    with h.con() as con:
+        con.execute('UPDATE sim_equity SET equity=equity+100')
+    assert cli.main(['settle', '--late', '--date', DAY.isoformat()]) != 0
+    assert h.scalar("SELECT pa_status FROM portfolio_accounts_v WHERE portfolio_id='acct-a'") == 'halted'
+    assert h.scalar("SELECT COUNT(*) FROM account_reconciliations WHERE status='mismatch'") == 1
