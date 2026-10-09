@@ -3093,4 +3093,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools unchanged; product +254 versus the initial snapshot.
 - **Next:** full suite, both CI time zones, and PR #13 status.
 
+## 2026-10-09 — Back synthetic risk checkpoints with ledger events
+
+- **Why:** full validation exposed old fixtures that replaced unbacked cash/equity state.
+- **What:** Gave synthetic loss marks real adjustment events and moved the same-session
+  resume after its close. Backed the liquidity short with its immutable fill and made
+  retained retry checkpoints match their independently funded account balances.
+- **Evidence:** `pytest tests/test_accounts_settle.py tests/test_money.py -q -W error -n 6` → 40 passed.
+- **Metrics:** production LOC unchanged.
+- **Next:** finish full-suite and both-timezone CI acceptance.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
