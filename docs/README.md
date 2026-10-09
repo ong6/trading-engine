@@ -71,6 +71,8 @@ Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](sit
   paper-league, agent-service, UI/API, and authority-boundary reference.
 - [`settlement-runbook.md`](settlement-runbook.md) — manual adjudication of dead or
   untradeable positions.
+- [`P22 round-4 rehearsals`](history/p22-round4-rehearsals.md) — captured legacy-D0
+  processing and complete revision-13 rollback transcripts.
 - [`../BUILDLOG.md`](../BUILDLOG.md) — v2 implementation log since 2026-09-18; earlier entries
   are in [`history/buildlog-2026-07-15-to-2026-09-17.md`](history/buildlog-2026-07-15-to-2026-09-17.md),
   and the 42-entry 2026-09-19 C90 series in

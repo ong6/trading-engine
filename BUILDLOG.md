@@ -3103,4 +3103,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** production LOC unchanged.
 - **Next:** finish full-suite and both-timezone CI acceptance.
 
+## 2026-10-09 — Publish round-5 validation corrections and metrics
+
+- **Why:** P22 round 5 requires all acceptance checks and a published metrics snapshot.
+- **What:** Indexed the retained rehearsal evidence and published the final accounting
+  metrics. The initial full run passed 4,720 cases; its six fixture/index failures
+  are corrected without changing production verification.
+- **Evidence:** `pytest tests/test_documentation_integrity.py tests/test_operating_contract.py
+  tests/test_p15_registration.py tests/test_accounts_settle.py tests/test_money.py
+  -q -W error -n 6` → 62 passed; Ruff and the metrics budget pass.
+- **Metrics:** server 0, tools 0, product +254 versus the initial October 9 snapshot.
+- **Next:** confirm both-timezone CI on PR #13 and record the writer verdict in STATUS.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
