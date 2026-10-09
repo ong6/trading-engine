@@ -221,9 +221,10 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
         from .ledger import projected_states_at_closes
 
         tickers = {row[0] for row in con.execute(
-            'SELECT ticker FROM sim_fills WHERE portfolio_id=? UNION '
-            'SELECT into_ticker FROM sim_settlements WHERE portfolio_id=?',
-            [pf_id, pf_id]).fetchall()}
+            'SELECT DISTINCT ticker FROM sim_fills WHERE portfolio_id=?', [pf_id]).fetchall()}
+        if table_exists(con, 'sim_settlements'):
+            tickers.update(row[0] for row in con.execute(
+                'SELECT into_ticker FROM sim_settlements WHERE portfolio_id=?', [pf_id]).fetchall())
         eligible = [(tk, ex, value) for tk, ex, value in divs
                     if tk in tickers and (pf_id, tk, ex) not in already]
         prefixes = projected_states_at_closes(
