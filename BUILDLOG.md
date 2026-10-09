@@ -3050,4 +3050,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server -67, tools 0, product -37, tests +153 versus October 8.
 - **Next:** finish rehearsal cleanup and record the final PR CI verdict in STATUS.
 
+## 2026-10-09 — Preserve the equity check before late recovery
+
+- **Why:** `pytest tests/test_p22_round4.py -k late_recovery_does_not_hide -q -W error`
+  showed recovery overwriting a checkpoint changed by $100 without persisting a mismatch.
+- **What:** Validate the original checkpoint using its recorded carried marks, then
+  validate refreshed source marks after recovery; never skip the equity comparison.
+- **Evidence:** the fail-first regression and round-2/3 recovery cases cover the correction.
+- **Metrics:** refreshed after the correction.
+- **Next:** re-pin revision 14 and finish final CI acceptance.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
