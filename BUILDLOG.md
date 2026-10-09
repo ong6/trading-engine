@@ -3039,4 +3039,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** refreshed in the closure snapshot.
 - **Next:** complete captured-store rehearsal, full-suite and PR CI acceptance.
 
+## 2026-10-09 — Verify round-4 source and publish the metrics snapshot
+
+- **Why:** P22 round 4 requires the full suite, revision 14 and captured-session evidence.
+- **What:** Published the completed source checks and accounting LOC reduction. The
+  disposable rehearsal has preserved all 33 routes and passed P15 validation on two
+  captured post-D0 sessions; final rollback and PR CI evidence is retained in the handoff.
+- **Evidence:** `TZ=UTC .venv/bin/python -m pytest -q -W error -n auto` → 4,701 passed;
+  Ruff and all five P15 registration tests pass.
+- **Metrics:** server -67, tools 0, product -37, tests +153 versus October 8.
+- **Next:** finish rehearsal cleanup and record the final PR CI verdict in STATUS.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
