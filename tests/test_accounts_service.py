@@ -43,8 +43,10 @@ def test_cancel_requires_queued_order_before_auction(con):
 
 
 def test_halted_account_keeps_positions_and_manual_halt_is_idempotent(con):
+    from tests.test_accounts_settle import _historical_fill
+
     _active_account(con)
-    con.execute("INSERT INTO sim_positions VALUES ('acct-a','XYZ',4,100)")
+    _historical_fill(con, 'acct-a', 'XYZ', 'buy', 4, 100, date(2026, 10, 2), 100)
     assert service.halt(con, "acct-a", note="operator", now=NOW)["replayed"] is False
     assert service.halt(con, "acct-a", note="operator", now=NOW)["replayed"] is True
     assert con.execute("SELECT qty FROM sim_positions").fetchone()[0] == 4
