@@ -17,6 +17,7 @@ from engine.lib.util import table_exists
 from engine.money import alerts, halts
 from sim import bar_sources, fills, ledger, margin, portfolio, shorts, valuation
 from sim.costs import charge
+from sim.schema import portfolio_account
 
 MARGIN_CALL_PENALTY_BPS = 25.0
 
@@ -293,6 +294,7 @@ def _mark_account(
     market_value = 0.0
     count = 0
     carried: list[str] = []
+    marks = {}
     for ticker, qty in con.execute(
         "SELECT ticker,qty FROM sim_positions WHERE portfolio_id=? AND qty<>0",
         [portfolio_id],
@@ -302,6 +304,7 @@ def _mark_account(
             available_at=available_at,
         )
         close = observed.price
+        marks[ticker] = close
         if observed.stale:
             carried.append(ticker)
             _record_account_event(
@@ -316,6 +319,7 @@ def _mark_account(
         "INSERT OR REPLACE INTO sim_equity VALUES (?,?,?,?,?)",
         [portfolio_id, day, cash + market_value, cash, count],
     )
+    ledger.record_checkpoint(con, portfolio_id, day, marks, available_at)
     return {"equity": cash + market_value, "cash": cash, "carried": sorted(carried)}
 
 
@@ -470,9 +474,6 @@ def _settle_order(
     if not forced and not pdt.allowed:
         _state(con, row["order_id"], "rejected", pdt.reason, now)
         return "rejected"
-    day_trade_open = margin.matched_day_trade_open(
-        con, row["portfolio_id"], row["ticker"], row["side"], row["qty"], day,
-    )
     fee = charge(
         settings["cost_profile"], side=row["side"], qty=row["qty"],
         price=result.fill_px, fill_kind=result.fill_kind,
@@ -523,10 +524,6 @@ def _settle_order(
     if not math.isclose(applied, row["qty"], rel_tol=1e-12, abs_tol=1e-12):
         raise RuntimeError("ledger changed the prevalidated account fill quantity")
     _state(con, row["order_id"], "filled", row["state_reason"], now)
-    margin.record_day_trade(
-        con, row["portfolio_id"], row["ticker"], row["order_id"], row["side"], day,
-        open_order_id=day_trade_open,
-    )
     if _special_reason(row["state_reason"], "buy_in"):
         ledger.apply_cash_event(con, {
             "portfolio_id": row["portfolio_id"], "event_date": day,
@@ -540,16 +537,18 @@ def _settle_order(
 def _session_accounting(con, account_id, day, now, replay, prepared, settings, late,
                         short_con, liquidity_refusals, execution_keys, counts):
     """Merge recorded events and newly executable work in the ledger's order."""
-    sequence = ledger.events(con, [account_id], since=day, through=day) if replay else []
+    sequence = ledger.events(con, [account_id], since=day, through=day,
+                             include_risk=True) if replay else []
+    sequence = [event for event in sequence if event.kind != 'equity']
     sequence = [event for event in sequence if not (
         event.kind == 'cash' and event.row['kind'] in {'borrow_fee', 'margin_interest'})]
     opened = bar_sources.session_bounds(day)[0]
     operations = [
         (opened, 0, -1, lambda: actions.apply_splits(
             con, account_id, day, now, _record_account_event)),
-        (opened, 1, -1, lambda: portfolio.credit_dividends(con, day, portfolio_id=account_id)),
+        (opened, 1, -1, lambda: actions.credit_dividends(con, account_id, day, now, replay=replay)),
         (opened, 3, 0, lambda: shorts.accrue_borrow(con, day, portfolio_id=account_id, replay=replay)),
-        (opened, 3, 1, lambda: margin.accrue_interest(con, day, portfolio_id=account_id, replay=replay)),
+        (opened, -1, 1, lambda: margin.accrue_interest(con, day, portfolio_id=account_id, replay=replay)),
     ]
 
     def execute(row):
@@ -559,7 +558,8 @@ def _session_accounting(con, account_id, day, now, replay, prepared, settings, l
         ).fetchone()
         row['qty'], row['limit_px'] = float(qty), limit_px
         result = _fill_attempt(con, row, settings, day, now)
-        state = _settle_order(con, row, result, settings, day, now, late, short_con,
+        current = {**settings, 'status': portfolio_account(con, account_id)['status']}
+        state = _settle_order(con, row, result, current, day, now, late, short_con,
                               liquidity_refusals, execution_keys)
         counts[state] += 1
 
@@ -638,10 +638,25 @@ def settle_session(
         ).fetchone())
         transaction = db.transaction(con) if manage_transactions else nullcontext()
         try:
+            if manage_transactions:
+                account_service.require_verified(con, account_id, now=now)
+                from engine.accounts.late import recover_account, recovery_start
+
+                start = recovery_start(con, account_id, day, now)
+                if start is not None:
+                    result = recover_account(con, account_id, start, day, now=now,
+                                             short_con=short_con, verified=True)
+                    for key in counts:
+                        counts[key] += result[key]
+                    affected.update(result['affected_accounts'])
+                    recovered.extend(result['recovered_marks'])
+                    carried.update(result['carried'])
+                    completed.append(account_id)
+                    continue
             with transaction:
                 sources.require_sources(con, settings, [row for row, _ in by_account[account_id]])
                 if replay:
-                    ledger.rebuild_state(con, [account_id], through=day - timedelta(days=1))
+                    halts.restore_risk(con, account_id, bar_sources.session_bounds(day)[0])
                 _session_accounting(con, account_id, day, now, replay,
                                     by_account[account_id], settings, late, short_con,
                                     liquidity_refusals, execution_keys, local)
@@ -658,10 +673,13 @@ def settle_session(
                         con, account_id, session_date=day, now=now,
                         manage_transaction=False,
                     )
-                    if replay and verification["status"] != "ok":
-                        raise RuntimeError('ledger reconstruction failed verification during recovery')
-                    if verification["status"] == "ok" and settings["status"] == "active":
-                        halts.check(con, account_id, day, now=now)
+                    if verification["status"] != "ok":
+                        raise account_service.VerificationError(verification)
+                    # Evaluate this close before folding any later resume.
+                    halts.restore_risk(con, account_id, bar_sources.session_bounds(day)[1])
+                    if portfolio_account(con, account_id)['status'] == 'active':
+                        halts.check(con, account_id, day,
+                                    now=bar_sources.session_bounds(day)[1].replace(tzinfo=timezone.utc))
                     margin.check_maintenance(con, day, portfolio_id=account_id)
                 if short_con is not None:
                     shorts.queue_buy_ins(
@@ -682,6 +700,8 @@ def settle_session(
                 raise
             try:
                 with db.transaction(con):
+                    if isinstance(exc, account_service.VerificationError):
+                        account_service.persist_mismatch(con, account_id, exc.result, now=now)
                     _record_account_event(
                         con, account_id, "settlement_error",
                         {"code": "settlement_error", "session_date": day.isoformat(),

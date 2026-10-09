@@ -109,7 +109,7 @@ def test_verify_halts_persisted_lot_or_equity_mismatch(h, mutation):
     assert h.night() == 0
     with h.con() as con:
         con.execute(mutation)
-    assert cli.main(['verify', 'acct-a']) == 0
+    assert cli.main(['verify', 'acct-a']) != 0
     assert h.scalar("SELECT pa_status FROM portfolio_accounts_v WHERE portfolio_id='acct-a'") == 'halted'
     assert h.scalar("SELECT COUNT(*) FROM account_reconciliations WHERE status='mismatch'") == 1
 
@@ -143,7 +143,7 @@ def test_verify_equity_half_cent_tolerance(h, delta, status):
     assert h.night() == 0
     with h.con() as con:
         con.execute('UPDATE sim_equity SET equity=equity+?', [delta])
-    assert cli.main(['verify', 'acct-a']) == 0
+    assert cli.main(['verify', 'acct-a']) == int(status == 'mismatch')
     assert h.scalar("SELECT COUNT(*) FROM account_reconciliations WHERE status='mismatch'") == int(status == 'mismatch')
 
 

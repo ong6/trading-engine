@@ -163,13 +163,14 @@ def test_intraday_margin_rule_never_count_refuses_but_enforces_reg_t(con, book):
     assert opening.reason == "reg_t_initial"
 
 
-def test_record_day_trade_preserves_fractional_open_lot_identity(con, book):
-    _set_account(con, book, rule="intraday_margin_2026")
+def test_ledger_day_trade_preserves_fractional_open_lot_identity(con, book):
+    from sim import ledger
+
+    _set_account(con, book, rule='intraday_margin_2026')
     _same_day_lot(con, book)
-    assert margin.record_day_trade(con, book, "XYZ", 200, "sell", DAY)
-    assert con.execute("SELECT * FROM sim_day_trades").fetchone() == (
-        book, DAY, "XYZ", 100, 200,
-    )
+    assert ledger.apply_fill(con, dict(portfolio_id=book, ticker='XYZ', side='sell',
+        order_id=200, fill_date=DAY, qty=.5, fill_px=100)) == .5
+    assert con.execute('SELECT * FROM sim_day_trades').fetchone() == (book, DAY, 'XYZ', 100, 200)
 
 
 def test_day_trade_match_prioritises_overnight_lot(con, book):

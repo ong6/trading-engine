@@ -6,7 +6,7 @@ import math
 from collections.abc import Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import duckdb
 
@@ -425,8 +425,8 @@ def _rows(con, sql, params):
 def events(con, portfolio_ids, *, since=None, through=None, include_risk=False) -> list[LedgerEvent]:
     """The shared chronological sequence for replay, recovery and trade results.
 
-    Splits, dividends and settlements precede opening financing; execution uses
-    authoritative fill timestamps. Splits change units only at their ex-date.
+    Elapsed debit interest precedes opening cash movements; borrow follows
+    opening corporate actions. Execution uses authoritative fill timestamps.
     """
     from engine.accounts.actions import recorded_splits
 
@@ -467,7 +467,11 @@ def events(con, portfolio_ids, *, since=None, through=None, include_risk=False) 
                     created = row['created_at']
                     stamp = opened if financing else (
                         created if created.date() == row[day_key] else closed)
-                    priority = 3 if financing else phase
+                    # Interest covers the preceding debit interval; opening
+                    # dividends, settlements and borrow charges cannot reduce it.
+                    priority = (-1 if row['kind'] == 'margin_interest' else 3) if financing else phase
+                    if row['kind'] == 'adjustment' and row['note'] == 'historical dividend entitlement correction':
+                        stamp, priority = opened, 1
                 sequence = (account_id, 1, str(row.get('ticker', '')), row.get('seq', 0))
                 result.append(LedgerEvent(stamp, priority, sequence, kind, row))
         for row in _rows(con,
@@ -513,6 +517,10 @@ def apply_event(con, event: LedgerEvent, *, on_close=None):
     row = event.row
     if event.kind == 'operation':
         row['run']()
+    elif event.kind == 'risk':
+        from engine.money.halts import restore_risk
+
+        restore_risk(con, row['portfolio_id'], event.stamp)
     elif event.kind == 'fill':
         applied = apply_fill(con, row, row if row.get('cost_profile') else None,
                              persist_fees=False, on_close=on_close)
@@ -532,7 +540,7 @@ def apply_event(con, event: LedgerEvent, *, on_close=None):
 
 
 def rebuild_state(con, portfolio_ids: Iterable[str] | None = None, *,
-                  through: date | None = None, on_close=None) -> None:
+                  through: date | None = None, on_close=None, event_ids=None) -> None:
     """Rebuild selected accounts from the shared event sequence."""
     ids = (sorted(set(portfolio_ids)) if portfolio_ids is not None else
            [row[0] for row in con.execute('SELECT id FROM portfolios ORDER BY id').fetchall()])
@@ -545,7 +553,8 @@ def rebuild_state(con, portfolio_ids: Iterable[str] | None = None, *,
     con.execute(f'UPDATE portfolios SET cash=COALESCE(initial_cash,?) WHERE id IN ({placeholders})',
                 [INITIAL_CASH, *ids])
     for event in sequence:
-        apply_event(con, event, on_close=on_close)
+        if event_ids is None or event_identity(event) in event_ids:
+            apply_event(con, event, on_close=on_close)
 
 
 def post_accrual(con, event: Mapping, *, replay: bool = False) -> bool:
@@ -646,11 +655,12 @@ def state(con, account_id: str) -> dict:
     }
 
 
-def projected_state(con, account_id: str, *, through=None, before_order_id=None) -> dict | None:
+def projected_state(con, account_id: str, *, through=None, before_order_id=None,
+                    event_ids=None) -> dict | None:
     """Read a chronological prefix without maintaining a second accounting implementation."""
     with replay_connection(con, account_id) as target:
         if before_order_id is None:
-            rebuild_state(target, [account_id], through=through)
+            rebuild_state(target, [account_id], through=through, event_ids=event_ids)
         else:
             sequence = events(target, [account_id], through=through)
             for table in ('sim_positions', 'sim_position_lots', 'sim_day_trades'):
@@ -680,6 +690,8 @@ def risk_state(con, account_id: str, session_date: date, *, now: datetime) -> di
                   resumed_at=None, halted_at=None, halt_reason=None,
                   drawdown_anchor_equity=initial)
     for event in events(con, [account_id], include_risk=True):
+        if event.stamp > _naive_utc(now):
+            continue
         row = event.row
         if event.kind == 'equity' and row['date'] < session_date:
             value = float(row['equity'])
@@ -687,7 +699,7 @@ def risk_state(con, account_id: str, session_date: date, *, now: datetime) -> di
             if result['halted_at'] is None:
                 result['risk_peak'] = max(result['risk_peak'], value)
                 result['prior_close_equity'] = value
-        elif event.kind == 'risk' and event.stamp <= _naive_utc(now):
+        elif event.kind == 'risk':
             if row['kind'] == 'resumed':
                 anchor = row['payload'].get('anchor_equity')
                 if anchor is None:
@@ -765,3 +777,49 @@ def recorded_carried_marks(con, account_id: str, day: date) -> dict:
         else:
             marks[payload['instrument_id']] = float(payload['carried_price'])
     return marks
+
+
+def event_identity(event: LedgerEvent) -> str:
+    """Stable row identity, independent of event contents and arrival order."""
+    row = event.row
+    if event.kind == 'fill':
+        key = row['order_id']
+    elif event.kind == 'cash':
+        key = row['seq']
+    elif event.kind == 'risk':
+        key = row['id']
+    else:
+        key = f"{row['ticker']}:{row.get('ex_date', row.get('effective'))}"
+    return f'{event.kind}:{key}'
+
+
+def checkpoints(con, account_id: str) -> dict:
+    """Latest verified projection for each close, with its exact ledger prefix."""
+    if not table_exists(con, 'account_events'):
+        return {}
+    return {date.fromisoformat(item['date']): item for (raw,) in con.execute(
+        "SELECT payload FROM account_events WHERE portfolio_id=? "
+        "AND kind='equity_checkpoint' ORDER BY id", [account_id],
+    ).fetchall() for item in [json.loads(raw)]}
+
+
+def record_checkpoint(con, account_id: str, day: date, marks: dict, now) -> None:
+    from engine.money.halts import record_event
+
+    snapshot = state(con, account_id)
+    payload = dict(date=day.isoformat(), snapshot=snapshot, marks=marks,
+                   event_ids=[event_identity(e) for e in events(con, [account_id], through=day)])
+    record_event(con, account_id, 'equity_checkpoint', payload, now=now)
+
+
+def restore_checkpoint(con, account_id: str, before: date) -> date | None:
+    """Restore the last previously verified close strictly before the late event."""
+    prior = {day: item for day, item in checkpoints(con, account_id).items() if day < before}
+    if not prior:
+        rebuild_state(con, [account_id], through=before - timedelta(days=1))
+        return None
+    day = max(prior)
+    # Reconstruct that verified prefix with the same ledger mutations (including
+    # FIFO day trades); do not trust a stored snapshot as an accounting oracle.
+    rebuild_state(con, [account_id], event_ids=set(prior[day]['event_ids']))
+    return day
