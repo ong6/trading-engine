@@ -192,10 +192,7 @@ def test_aggregate_liquidity_combines_buy_with_cover_direction(con):
         "INSERT INTO sim_fills VALUES (900,'league','XYZ','buy',4,?,100,100,0,0)",
         [DAY],
     )
-    ledger.apply_fill(con, {
-        "order_id": 90, "portfolio_id": "acct-a", "ticker": "XYZ", "side": "short",
-        "qty": 7, "fill_px": 100, "fill_date": PRIOR,
-    })
+    _historical_fill(con, 'acct-a', 'XYZ', 'short', 7, 100, PRIOR, 90)
     cover = _order(
         con, "acct-a", "XYZ", "cover", 7, "moc",
         datetime(2026, 10, 12, 15, 49, tzinfo=NEW_YORK),
@@ -501,13 +498,13 @@ def test_r10_settings_diverge_on_fourth_moo_moc_day_trade(con):
 
 def test_late_settle_fills_only_missing_bar_account_and_restates_its_equity(con):
     _account(con, "late")
-    _account(con, "untouched")
+    _account(con, "untouched", capital=12345)
     insert_bars(con, "XYZ", [PRIOR], open_=100, close=100, volume=1_000_000)
     order_id = _order(con, "late", "XYZ", "buy", 1.5, "moo",
                       datetime(2026, 10, 12, 9, 27, tzinfo=NEW_YORK))
     con.executemany(
         "INSERT INTO sim_equity VALUES (?,?,?,?,?)",
-        [("late", DAY, 1, 1, 0), ("untouched", DAY, 12345, 12345, 0)],
+        [("late", DAY, 50000, 50000, 0), ("untouched", DAY, 12345, 12345, 0)],
     )
     first = _settle(con)
     assert first["pending"] == 1
@@ -533,7 +530,7 @@ def test_late_settle_fills_only_missing_bar_account_and_restates_its_equity(con)
     ).fetchone() == (True,)
     assert con.execute(
         "SELECT equity FROM sim_equity WHERE portfolio_id='late' AND date=?", [DAY]
-    ).fetchone()[0] != 1
+    ).fetchone()[0] > 50000
     assert con.execute(
         "SELECT equity FROM sim_equity WHERE portfolio_id='untouched' AND date=?", [DAY]
     ).fetchone() == (untouched_equity,)
