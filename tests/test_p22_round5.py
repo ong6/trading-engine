@@ -1,11 +1,12 @@
 """Historical delivery must equal chronological processing at real entry points."""
-from datetime import datetime, timedelta, timezone
+import random
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
 from engine.accounts import cli, service
 from server import accounts_routes as routes
-from sim import league
+from sim import league, ledger
 from sim import settle as delist
 from tests.test_p22_round2 import DAY, RECEIVED, Harness
 
@@ -34,7 +35,7 @@ def test_recovery_from_loss_date_replays_later_resume(h):
     assert h.night(NEXT) == 0
     with h.con() as con:
         service.resume(con, 'acct-a', resumed_by='owner',
-                       now=datetime.now(timezone.utc) + timedelta(seconds=1))
+                       now=datetime.now(timezone.utc))
     anchor = h.scalar('SELECT drawdown_anchor_equity FROM account_state')
     assert anchor == 9550
     assert cli.main(['settle', '--late', '--date', DAY.isoformat()]) == 0
@@ -95,6 +96,21 @@ def test_discount_cash_delisting_on_checkpoint_date(h):
     assert h.scalar("SELECT COUNT(*) FROM account_reconciliations WHERE status='mismatch'") == 0
 
 
+def test_late_split_replays_prior_cash_delisting(h):
+    h.create()
+    h.history('SHORT', 'buy', 10, 100)
+    assert h.night() == 0
+    assert delist.main(['--db', str(h.market), '--ticker', 'SHORT', '--kind', 'cash',
+                        '--price', '80', '--effective', NEXT.isoformat(),
+                        '--source', 'fixture cash consideration', '--apply']) == 0
+    with h.con() as con:
+        con.execute("INSERT INTO corporate_actions VALUES ('SHORT',?,'split',2,'fixture',?)",
+                    [DAY, RECEIVED])
+    assert cli.main(['settle', '--late']) == 0
+    assert h.scalar("SELECT cash FROM portfolios WHERE id='acct-a'") == 50600
+    assert cli.main(['verify', 'acct-a']) == 0
+
+
 def test_fifo_overnight_close_is_not_a_day_trade(h):
     h.create()
     h.history('LONG', 'buy', 10, 100)
@@ -123,3 +139,126 @@ def test_verify_cli_mismatch_is_nonzero(h):
     with h.con() as con:
         con.execute('UPDATE sim_equity SET equity=equity+100')
     assert cli.main(['verify', 'acct-a']) != 0
+
+
+def test_failed_replay_rolls_back_events_and_preserves_mismatch(h, monkeypatch):
+    h.create()
+    h.history('LONG', 'buy', 10, 100)
+    assert h.night() == 0
+    with h.con() as con:
+        before = ledger.state(con, 'acct-a')
+        equity = con.execute('SELECT * FROM sim_equity').fetchall()
+        con.execute("INSERT INTO corporate_actions VALUES ('LONG',?,'split',2,'fixture',?)",
+                    [DAY, RECEIVED])
+    verify = service.verify
+
+    def mismatch(*args, **kwargs):
+        result = verify(*args, **kwargs)
+        if not kwargs.get('manage_transaction', True):
+            result['status'] = 'mismatch'
+        return result
+
+    monkeypatch.setattr(service, 'verify', mismatch)
+    assert cli.main(['settle', '--late', '--date', DAY.isoformat()]) != 0
+    with h.con() as con:
+        assert ledger.state(con, 'acct-a') == before
+        assert con.execute('SELECT * FROM sim_equity').fetchall() == equity
+        assert con.execute("SELECT COUNT(*) FROM account_events WHERE kind='split'").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM account_events WHERE kind='verification_mismatch'").fetchone()[0] >= 1
+    assert h.scalar("SELECT pa_status FROM portfolio_accounts_v WHERE portfolio_id='acct-a'") == 'halted'
+
+
+PROPERTY_SEEDS = tuple(range(12))
+PROPERTY_DAYS = tuple(date.fromisoformat(day) for day in
+                      ('2026-09-30', '2026-10-01', '2026-10-02', '2026-10-05',
+                       '2026-10-06', '2026-10-07', '2026-10-08'))
+
+
+def _interleaving(root, monkeypatch, seed, delayed):
+    root.mkdir()
+    h = Harness(root, monkeypatch)
+    rng = random.Random(seed)
+    qty, ratio, dps, consideration = rng.randint(10, 20), rng.choice((2, 3)), rng.randint(1, 4), rng.randint(70, 100)
+    arrivals = dict(split=rng.choice((1, 3)), dividend=rng.choice((2, 4)),
+                    delist=rng.choice((3, 5)), halt=rng.choice((4, 6)), resume=6,
+                    fill=rng.choice((0, 1)))
+    if not delayed:
+        arrivals = dict(split=1, dividend=2, delist=3, halt=4, resume=5, fill=0)
+    with h.con(h.daily) as con:
+        con.execute('DELETE FROM free_daily_bars')
+        for prior_day in (23, 24, 25, 28, 29):
+            for ticker in ('LONG', 'SHORT'):
+                con.execute('INSERT INTO free_daily_bars VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                    [date(2026, 9, prior_day), ticker, 100, 100, 100, 100, 1_000_000, 100,
+                     'fixture', datetime(2026, 9, 30), 'prior'])
+        for index, day in enumerate(PROPERTY_DAYS):
+            for ticker in ('LONG', 'SHORT'):
+                price = 100 / ratio if ticker == 'LONG' and index else 100
+                con.execute('INSERT INTO free_daily_bars VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                    [day, ticker, price, price, price, price, 1_000_000, price,
+                     'fixture', datetime(2026, 9, 30), f'{index}-{ticker}'])
+        captured = con.execute("SELECT * FROM free_daily_bars WHERE ticker='LONG' AND date=?",
+                               [PROPERTY_DAYS[0]]).fetchone()
+        if arrivals['fill']:
+            con.execute("DELETE FROM free_daily_bars WHERE ticker='LONG' AND date=?", [PROPERTY_DAYS[0]])
+    with h.con() as con:
+        con.execute('DELETE FROM prices')
+    h.now = datetime(2026, 9, 30, 13, 27, tzinfo=timezone.utc)
+    h.create()
+    for index, day in enumerate(PROPERTY_DAYS):
+        h.session = day
+        h.now = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=13, minutes=27)
+        if index == 0:
+            h.order('open-long', 'LONG', 'buy', qty)
+            h.order('open-dead', 'SHORT', 'buy', 3)
+        if index == 2:
+            h.order('sell-long', 'LONG', 'sell', 3)
+        if arrivals['fill'] == index == 1:
+            with h.con(h.daily) as con:
+                con.execute('INSERT INTO free_daily_bars VALUES (?,?,?,?,?,?,?,?,?,?,?)', captured)
+            assert cli.main(['settle', '--late']) == 0
+        for kind, effective_index, value in (('split', 1, ratio), ('dividend', 2, dps)):
+            if arrivals[kind] == index:
+                with h.con() as con:
+                    con.execute("INSERT INTO corporate_actions VALUES ('LONG',?,?,?,'fixture',?)",
+                                [PROPERTY_DAYS[effective_index], kind, value, h.now])
+        with h.con() as con:
+            from tests.conftest import insert_bars
+
+            insert_bars(con, 'SPY', [day], open_=100, close=100, volume=1_000_000)
+        assert league.run(str(h.market), h.root / 'reports', day.isoformat(), False, False,
+                          skip_if_done=True) == 0
+        if arrivals['delist'] == index:
+            assert delist.main(['--db', str(h.market), '--ticker', 'SHORT', '--kind', 'cash',
+                '--price', str(consideration), '--effective', PROPERTY_DAYS[3].isoformat(),
+                '--source', 'fixture cash consideration', '--apply']) == 0
+        # Risk requests carry their effective clocks even when delivered later.
+        for kind, effective_index in (('halt', 4), ('resume', 5)):
+            if arrivals[kind] == index:
+                at = datetime.combine(PROPERTY_DAYS[effective_index], datetime.min.time(),
+                                      tzinfo=timezone.utc) + timedelta(hours=22)
+                with h.con() as con:
+                    if kind == 'halt':
+                        service.halt(con, 'acct-a', now=at)
+                    else:
+                        service.resume(con, 'acct-a', resumed_by='owner', now=at)
+    assert cli.main(['settle', '--late', '--date', PROPERTY_DAYS[0].isoformat()]) == 0
+    assert cli.main(['verify', 'acct-a']) == 0
+    with h.con() as con:
+        actual = ledger.state(con, 'acct-a')
+        assert ledger.states_match(ledger.projected_state(con, 'acct-a'), actual)
+        equity = con.execute('SELECT date,equity,cash,n_positions FROM sim_equity ORDER BY date').fetchall()
+        risk = con.execute('SELECT prior_close_equity,halted_at,halt_reason,resumed_at,drawdown_anchor_equity '
+                           'FROM account_state').fetchone()
+        day_trades = con.execute('SELECT * FROM sim_day_trades ORDER BY close_order_id').fetchall()
+    return actual, equity, risk, day_trades
+
+
+@pytest.mark.parametrize('seed', PROPERTY_SEEDS)
+def test_randomized_effective_time_delivery_matches_chronological(tmp_path, monkeypatch, seed):
+    with monkeypatch.context() as patch:
+        clean = _interleaving(tmp_path / 'clean', patch, seed, False)
+    with monkeypatch.context() as patch:
+        delivered = _interleaving(tmp_path / 'delivered', patch, seed, True)
+    assert ledger.states_match(clean[0], delivered[0])
+    assert clean[1:] == delivered[1:]

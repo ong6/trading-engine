@@ -3082,4 +3082,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** closure snapshot follows complete validation.
 - **Next:** finish randomized delivery checks and revision-14 binding.
 
+## 2026-10-09 — Bind round-5 replay and delivery regressions to revision 14
+
+- **Why:** round 5 requires randomized real-entrypoint equivalence, rehearsal references and registration.
+- **What:** Added 12 seeded paired chronological/delayed runs over seven sessions, plus
+  rollback evidence and split-before-delisting regressions. Cited both round-4 rehearsals.
+  Re-pinned undeployed revision 14, including the newly reached late-recovery dependency.
+- **Evidence:** `pytest tests/test_p22_round5.py -k randomized -q -W error -n 6` → 12 passed;
+  all five P15 registration checks pass.
+- **Metrics:** server/tools unchanged; product +254 versus the initial snapshot.
+- **Next:** full suite, both CI time zones, and PR #13 status.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
