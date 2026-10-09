@@ -3115,4 +3115,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server 0, tools 0, product +254 versus the initial October 9 snapshot.
 - **Next:** confirm both-timezone CI on PR #13 and record the writer verdict in STATUS.
 
+## 2026-10-09 — Publish the generated metrics index
+
+- **Why:** the required metrics publication updates its index alongside the JSON snapshot.
+- **What:** Included the generated October 9 index row and its source/test LOC deltas.
+- **Evidence:** `python -m tools.metrics_snapshot --check-budget` → budget ok.
+- **Metrics:** unchanged from the published snapshot.
+- **Next:** finish PR #13 CI acceptance and write STATUS.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
