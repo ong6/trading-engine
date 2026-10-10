@@ -3123,4 +3123,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged from the published snapshot.
 - **Next:** finish PR #13 CI acceptance and write STATUS.
 
+## 2026-10-10 — Reproduce round-6 accounting and risk blockers
+
+- **Why:** P22 round 6 replaces case-specific recovery with the complete accounting fold.
+- **What:** Added fail-first regressions for pending orders across splits, cash identities
+  across dates, past resume requests and arbitrary replay exceptions at three entry points.
+  Recorded the superseding accounting/risk rulings and reproduced the list CLI crash.
+- **Evidence:** `pytest -q -W error tests/test_p22_round6.py` → seven failures before fixes.
+- **Metrics:** production LOC unchanged.
+- **Next:** remove checkpoint restoration and historical-risk replay.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
