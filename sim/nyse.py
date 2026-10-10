@@ -22,7 +22,7 @@ needed for history, since the live decision is always about the future.
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 from functools import lru_cache
 
 # Unscheduled full-day closures since 2000 (public record).
@@ -112,6 +112,23 @@ def next_session(d: date) -> date:
     while not is_session(d):
         d += timedelta(days=1)
     return d
+
+
+@lru_cache(maxsize=None)
+def early_closes(year: int) -> frozenset[date]:
+    """Scheduled 13:00 ET closes under the current NYSE calendar rules."""
+    thanksgiving = _nth_weekday(year, 11, 3, 4)
+    candidates = {
+        thanksgiving + timedelta(days=1),
+        date(year, 7, 3),
+        date(year, 12, 24),
+    }
+    return frozenset(day for day in candidates if is_session(day))
+
+
+def session_close(d: date) -> time:
+    """Return the scheduled NYSE close for a date (13:00 on early closes)."""
+    return time(13) if d in early_closes(d.year) else time(16)
 
 
 def is_last_session_of_week(d: date) -> bool:

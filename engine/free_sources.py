@@ -19,6 +19,7 @@ from pathlib import Path
 import duckdb
 
 from engine.lib import db
+from engine.lib.log import get_logger
 from engine.lib.settings import REPO_ROOT
 from sim import nyse
 
@@ -34,10 +35,12 @@ US_STOCK_EXCHANGES = frozenset({
 MAX_ARCHIVE_BYTES = 64_000_000
 MAX_UNCOMPRESSED_BYTES = 128_000_000
 MAX_RESPONSE_BYTES = 32_000_000
+MAX_SPLIT_RESULTS = 1_000
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 MASSIVE_TICKER = re.compile(r"^[A-Z0-9][A-Za-z0-9./^-]{0,31}$")  # lowercase marks preferreds/warrants
 MASSIVE_RATE_LOCK = Path.home() / ".local/state/massive-rate.lock"
 MASSIVE_RATE_INTERVAL_SECONDS = 13.0
+log = get_logger("free_sources")
 
 
 class FreeSourceError(ValueError):
@@ -148,6 +151,62 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         date DATE NOT NULL, row_index BIGINT NOT NULL, ticker VARCHAR, reason VARCHAR NOT NULL,
         raw_item VARCHAR NOT NULL, source VARCHAR NOT NULL, fetched_at TIMESTAMP NOT NULL,
         source_sha256 VARCHAR NOT NULL, PRIMARY KEY(source_sha256, row_index))"""
+    )
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS free_splits (
+        ticker VARCHAR NOT NULL, ex_date DATE NOT NULL,
+        split_from DOUBLE NOT NULL, split_to DOUBLE NOT NULL,
+        fetched_at TIMESTAMP NOT NULL, source_sha256 VARCHAR NOT NULL,
+        status VARCHAR NOT NULL DEFAULT 'active',
+        pending_withdrawal_at TIMESTAMP, pending_withdrawal_source_sha256 VARCHAR,
+        withdrawn_at TIMESTAMP, withdrawn_source_sha256 VARCHAR,
+        PRIMARY KEY(ticker, ex_date))"""
+    )
+    con.execute("ALTER TABLE free_splits ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'active'")
+    con.execute(
+        "ALTER TABLE free_splits ADD COLUMN IF NOT EXISTS pending_withdrawal_at TIMESTAMP"
+    )
+    con.execute(
+        "ALTER TABLE free_splits ADD COLUMN IF NOT EXISTS pending_withdrawal_source_sha256 VARCHAR"
+    )
+    con.execute("ALTER TABLE free_splits ADD COLUMN IF NOT EXISTS withdrawn_at TIMESTAMP")
+    con.execute(
+        "ALTER TABLE free_splits ADD COLUMN IF NOT EXISTS withdrawn_source_sha256 VARCHAR"
+    )
+    con.execute(
+        """CREATE OR REPLACE MACRO free_daily_bars_adjusted_asof(cutoff_date) AS TABLE (
+        WITH canonical AS (
+            SELECT *
+            FROM free_daily_bars
+            QUALIFY ROW_NUMBER() OVER (
+                PARTITION BY date, ticker ORDER BY fetched_at DESC, source_sha256 DESC
+            ) = 1
+        ), adjusted AS (
+            SELECT b.*,
+                   COALESCE((
+                       SELECT PRODUCT(s.split_to / s.split_from)
+                       FROM free_splits s
+                       WHERE s.ticker = b.ticker
+                         AND s.status IN ('active', 'pending_withdrawal')
+                         AND s.ex_date > b.date
+                         AND s.ex_date > CAST(b.fetched_at AS DATE)
+                         AND s.ex_date <= cutoff_date
+                   ), 1.0) AS split_factor
+            FROM canonical b
+        )
+        SELECT date, ticker,
+               o / split_factor AS o, h / split_factor AS h,
+               l / split_factor AS l, c / split_factor AS c,
+               volume * split_factor AS volume,
+               vwap / split_factor AS vwap,
+               source, fetched_at, source_sha256
+        FROM adjusted)"""
+    )
+    con.execute(
+        """CREATE OR REPLACE VIEW free_daily_bars_adjusted AS
+        SELECT * FROM free_daily_bars_adjusted_asof(
+            CAST(CURRENT_TIMESTAMP AT TIME ZONE 'UTC' AS DATE)
+        )"""
     )
 
 
@@ -392,6 +451,194 @@ def load_daily_bars(
     }
 
 
+def parse_massive_splits(body: bytes) -> tuple[list[dict], str | None]:
+    """Validate one Massive reference-splits response page."""
+    if not isinstance(body, bytes) or not 0 < len(body) <= MAX_RESPONSE_BYTES:
+        raise FreeSourceError("Massive splits response size is invalid")
+    try:
+        payload = json.loads(body)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise FreeSourceError("Massive splits response is not valid JSON") from exc
+    results = payload.get("results") if isinstance(payload, dict) else None
+    count = payload.get("resultsCount", payload.get("count")) if isinstance(payload, dict) else None
+    next_url = payload.get("next_url") if isinstance(payload, dict) else None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("status") != "OK"
+        or not isinstance(results, list)
+        or len(results) > MAX_SPLIT_RESULTS
+        or (count is not None and (isinstance(count, bool) or count != len(results)))
+        or (next_url is not None and (not isinstance(next_url, str) or not next_url))
+    ):
+        raise FreeSourceError("Massive splits response envelope is invalid")
+    rows = []
+    for item in results:
+        if not isinstance(item, dict):
+            raise FreeSourceError("Massive split row shape is invalid")
+        ticker = item.get("ticker")
+        ex_date = _iso_date(item.get("execution_date"), "Massive split execution_date")
+        split_from = item.get("split_from")
+        split_to = item.get("split_to")
+        if (
+            not isinstance(ticker, str)
+            or MASSIVE_TICKER.fullmatch(ticker) is None
+            or isinstance(split_from, bool)
+            or not isinstance(split_from, (int, float))
+            or isinstance(split_to, bool)
+            or not isinstance(split_to, (int, float))
+            or not math.isfinite(float(split_from))
+            or not math.isfinite(float(split_to))
+            or float(split_from) <= 0
+            or float(split_to) <= 0
+        ):
+            raise FreeSourceError("Massive split row is invalid")
+        rows.append({
+            "ticker": ticker,
+            "ex_date": ex_date,
+            "split_from": float(split_from),
+            "split_to": float(split_to),
+        })
+    return rows, next_url
+
+
+def load_splits(
+    con: duckdb.DuckDBPyConnection, body: bytes, *, fetched_at: datetime
+) -> dict:
+    """Insert or refresh the latest observed version of each ticker/ex-date split."""
+    fetched = _utc_naive(fetched_at, "Massive split fetched_at")
+    rows, next_url = parse_massive_splits(body)
+    source_sha = hashlib.sha256(body).hexdigest()
+    init_schema(con)
+    before = con.execute("SELECT COUNT(*) FROM free_splits").fetchone()[0]
+    existing = {
+        (ticker, ex_date): (
+            observed_sha, status, observed_at, pending_at, withdrawn_at,
+        )
+        for ticker, ex_date, observed_sha, status, observed_at, pending_at, withdrawn_at
+        in con.execute(
+            """SELECT ticker,ex_date,source_sha256,status,fetched_at,
+                      pending_withdrawal_at,withdrawn_at
+            FROM free_splits
+            WHERE (ticker,ex_date) IN (
+                SELECT UNNEST(?), UNNEST(?)
+            )""",
+            [
+                [row["ticker"] for row in rows],
+                [row["ex_date"] for row in rows],
+            ],
+        ).fetchall()
+    } if rows else {}
+    if rows:
+        con.executemany(
+            """INSERT INTO free_splits
+            (ticker,ex_date,split_from,split_to,fetched_at,source_sha256,status,
+             pending_withdrawal_at,pending_withdrawal_source_sha256,
+             withdrawn_at,withdrawn_source_sha256)
+            VALUES (?, ?, ?, ?, ?, ?, 'active', NULL, NULL, NULL, NULL)
+            ON CONFLICT (ticker,ex_date) DO UPDATE SET
+                split_from=excluded.split_from, split_to=excluded.split_to,
+                fetched_at=excluded.fetched_at, source_sha256=excluded.source_sha256,
+                status='active', pending_withdrawal_at=NULL,
+                pending_withdrawal_source_sha256=NULL,
+                withdrawn_at=NULL, withdrawn_source_sha256=NULL
+            WHERE (
+                free_splits.status='active'
+                AND excluded.fetched_at >= free_splits.fetched_at
+                AND excluded.source_sha256 <> free_splits.source_sha256
+            ) OR (
+                free_splits.status='pending_withdrawal'
+                AND excluded.fetched_at > free_splits.pending_withdrawal_at
+            ) OR (
+                free_splits.status='withdrawn'
+                AND excluded.fetched_at > COALESCE(
+                    free_splits.withdrawn_at, free_splits.fetched_at
+                )
+            )""",
+            [[
+                row["ticker"], row["ex_date"], row["split_from"], row["split_to"],
+                fetched, source_sha,
+            ] for row in rows],
+        )
+    after = con.execute("SELECT COUNT(*) FROM free_splits").fetchone()[0]
+    def eligible(key: tuple[str, date]) -> bool:
+        if key not in existing:
+            return False
+        observed_sha, status, observed_at, pending_at, withdrawn_at = existing[key]
+        if status == "active":
+            return fetched >= observed_at and source_sha != observed_sha
+        if status == "pending_withdrawal":
+            return pending_at is not None and fetched > pending_at
+        return status == "withdrawn" and fetched > (withdrawn_at or observed_at)
+
+    updated = sum(eligible((row["ticker"], row["ex_date"])) for row in rows)
+    return {
+        "source": "massive_reference_splits",
+        "source_sha256": source_sha,
+        "row_count": len(rows),
+        "inserted": after - before,
+        "updated": updated,
+        "next_url": next_url,
+    }
+
+
+def reconcile_splits(
+    con: duckdb.DuckDBPyConnection, *, observed: set[tuple[str, date]],
+    start: date, through: date, fetched_at: datetime, source_sha256: str,
+) -> dict:
+    """Advance safe absences from active to pending, then pending to withdrawn."""
+    start = _date_argument(start, "split reconciliation start")
+    through = _date_argument(through, "split reconciliation through")
+    fetched = _utc_naive(fetched_at, "split reconciliation fetched_at")
+    if start > through or SHA256.fullmatch(source_sha256) is None:
+        raise FreeSourceError("Massive split reconciliation identity is invalid")
+    init_schema(con)
+    current = {
+        (ticker, ex_date): status
+        for ticker, ex_date, status in con.execute(
+            """SELECT ticker,ex_date,status FROM free_splits
+            WHERE status IN ('active','pending_withdrawal')
+              AND ex_date BETWEEN ? AND ?""",
+            [start, through],
+        ).fetchall()
+    }
+    absent = sorted(set(current) - observed)
+    if current and not observed:
+        message = (
+            f"[free-splits] ALARM empty complete response with {len(current)} "
+            "active or pending splits; withdrawal state unchanged"
+        )
+        log.error(message)
+        return {"pending": 0, "withdrawn": 0, "alarm": message}
+    absent_share = len(absent) / len(current) if current else 0.0
+    if len(absent) > 3 or absent_share > 0.20:
+        message = (
+            f"[free-splits] ALARM suspicious absence set {len(absent)}/{len(current)} "
+            "exceeds 3 or 20%; withdrawal state unchanged"
+        )
+        log.error(message)
+        return {"pending": 0, "withdrawn": 0, "alarm": message}
+    pending = [key for key in absent if current[key] == "active"]
+    withdrawn = [key for key in absent if current[key] == "pending_withdrawal"]
+    if pending:
+        con.executemany(
+            """UPDATE free_splits
+            SET status='pending_withdrawal', pending_withdrawal_at=?,
+                pending_withdrawal_source_sha256=?
+            WHERE ticker=? AND ex_date=? AND status='active'""",
+            [[fetched, source_sha256, ticker, ex_date] for ticker, ex_date in pending],
+        )
+    if withdrawn:
+        con.executemany(
+            """UPDATE free_splits
+            SET status='withdrawn', withdrawn_at=?, withdrawn_source_sha256=?
+            WHERE ticker=? AND ex_date=? AND status='pending_withdrawal'""",
+            [[fetched, source_sha256, ticker, ex_date] for ticker, ex_date in withdrawn],
+        )
+    return {
+        "pending": len(pending), "withdrawn": len(withdrawn), "alarm": None,
+    }
+
+
 def _date_argument(value: date, field: str) -> date:
     if not isinstance(value, date) or isinstance(value, datetime):
         raise FreeSourceError(f"{field} must be a date")
@@ -399,22 +646,26 @@ def _date_argument(value: date, field: str) -> date:
 
 
 def daily_panel(
-    con: duckdb.DuckDBPyConnection, start: date, end: date,
+    con: duckdb.DuckDBPyConnection, start: date, end: date, *, as_of: date | None = None,
 ):
     """Return one canonical grouped-daily bar per date and ticker in ``[start, end]``."""
     start = _date_argument(start, "start")
     end = _date_argument(end, "end")
+    as_of = None if as_of is None else _date_argument(as_of, "as_of")
     if start > end:
         raise FreeSourceError("daily panel start is after end")
+    source = (
+        "free_daily_bars_adjusted"
+        if as_of is None
+        else "free_daily_bars_adjusted_asof(?)"
+    )
+    params = [start, end] if as_of is None else [as_of, start, end]
     return con.execute(
-        """SELECT date, ticker, o, h, l, c, volume, vwap
-        FROM free_daily_bars
+        f"""SELECT date, ticker, o, h, l, c, volume, vwap
+        FROM {source}
         WHERE date BETWEEN ? AND ?
-        QUALIFY ROW_NUMBER() OVER (
-            PARTITION BY date, ticker ORDER BY fetched_at DESC, source_sha256 DESC
-        ) = 1
         ORDER BY date, ticker""",
-        [start, end],
+        params,
     ).df()
 
 
@@ -436,15 +687,12 @@ def mdv60(con: duckdb.DuckDBPyConnection, as_of: date):
     return con.execute(
         """WITH canonical AS (
             SELECT date, ticker, c, volume, vwap
-            FROM free_daily_bars
+            FROM free_daily_bars_adjusted_asof(?)
             WHERE date >= ? AND date < ?
-            QUALIFY ROW_NUMBER() OVER (
-                PARTITION BY date, ticker ORDER BY fetched_at DESC, source_sha256 DESC
-            ) = 1
         )
         SELECT ticker, MEDIAN(COALESCE(vwap, c) * volume) AS mdv60
         FROM canonical
         GROUP BY ticker
         ORDER BY ticker""",
-        [window_start, as_of],
+        [as_of, window_start, as_of],
     ).df()

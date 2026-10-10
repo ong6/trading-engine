@@ -56,7 +56,7 @@ from farm.backtest.replay import (
     build_scratch,
 )
 from farm.walkforward import monthly as wf_monthly
-from farm.walkforward import protocol
+from farm.walkforward import protocol, runtime_contract
 from farm.walkforward.controls import declaration as comparison_declaration
 from sim import calendar, execution, league
 from sim import portfolio as _pf
@@ -635,6 +635,7 @@ def run_book(live_con, config_id: str, *,
             # Stamped so results produced under different fill arithmetic can
             # never be silently compared. See sim/portfolio.FILL_MODEL_VERSION.
             "fill_model": _pf.FILL_MODEL_VERSION,
+            "runtime_contract": runtime_contract.payload(),
             "data_floor": floor.isoformat(),
             "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "protocol": protocol.protocol_dict(

@@ -3,7 +3,7 @@
 A paper-only trading research engine with an AI agent in the decision loop, running unattended on
 one always-on Linux host. No broker, no real money, and no broker credentials.
 
-**Status (2026-10-08):** the profitability evidence loop uses registration revision 13;
+**Status (2026-10-08):** the profitability evidence loop uses registration revision 14;
 the shared backtest core and offline market-data auditor are complete. Isolated free grouped-daily,
 minute and SEC archives support research; the operational store and frozen evidence stay separate.
 Current collection coverage and failures come from host evidence, not this dated summary.
@@ -21,7 +21,8 @@ Current collection coverage and failures come from host evidence, not this dated
   prospectively against its paired control.
 - **Profitability evidence loop (P15; live since 2026-09-29).** Candidate-wide scoring, equal-mechanics
   comparator books, a cancel-only pre-open check, shadow event triggers, and coded
-  profitability gates. Registration revision 13 is ready for deployment and evidence collection continues.
+  profitability gates. Registration revision 14 binds the P22 account runtime on top of the
+  revision-13 validator and label-timing corrections; evidence collection continues.
 - **North star:** [`docs/product.md`](docs/product.md) — an engine that runs on its own and
   makes money net of trading and data cost, with AI choosing and deterministic code in control.
 - **Public engine, private strategies.** This repo is the open infrastructure plus the

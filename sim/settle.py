@@ -10,10 +10,11 @@ engine books exactly those terms. Nothing here reads a price for the dead
 ticker and nothing here writes to `prices`.
 
 Kinds
-  cash       every active book holding `ticker` receives qty × price in cash on
-             `effective`; the position goes to 0.
-  worthless  cash settlement at price 0 (bankruptcy / cancellation).
-  stock      the position converts into `into_ticker` at `ratio` acquirer shares
+  cash       every active book with a signed `ticker` holding receives qty × price
+             in cash on `effective`; a short therefore pays the consideration.
+  worthless  cash settlement at price 0 (bankruptcy / cancellation); a short
+             liability disappears without an invented payment.
+  stock      the signed position converts into `into_ticker` at `ratio` acquirer shares
              per held share (optionally plus `price` cash per share for mixed
              deals). Cost basis carries over: the acquirer lot's avg_cost is the
              dead lot's avg_cost ÷ ratio, so no P&L is realised on the swap.
@@ -23,10 +24,11 @@ Ledger
   `portfolio.rebuild_state` replays settlements as an event kind at `effective`,
   phased between dividends and fills, so a settlement is part of the pure
   function state = f(sim_fills, sim_dividends, sim_settlements) and survives
-  `--rerun`. `sim_equity` is never touched: history before `effective` stays as
+  `--rerun`. Legacy `sim_equity` is retained: history before `effective` stays as
   it was, and rows between `effective` and the apply date keep the frozen mark
   they were written with (they are point-in-time records of what the league
-  believed on that day). The next MTM reflects the settlement.
+  believed on that day). The next MTM reflects the settlement. Account-engine
+  books verify their retained checkpoints and replay from before `effective`.
 
 Safety
   Dry-run by default. `--apply` writes in one transaction through
@@ -175,7 +177,7 @@ def holders(con: duckdb.DuckDBPyConnection, t: Terms) -> list[tuple[str, float, 
     rows = con.execute(
         "SELECT p.portfolio_id, p.qty, p.avg_cost FROM sim_positions p "
         "JOIN portfolios pf ON pf.id = p.portfolio_id "
-        "WHERE p.ticker = ? AND p.qty > 0 AND pf.active ORDER BY p.portfolio_id",
+        "WHERE p.ticker = ? AND p.qty <> 0 AND pf.active ORDER BY p.portfolio_id",
         [t.ticker]).fetchall()
     if t.portfolios is not None:
         want = set(t.portfolios)
@@ -228,21 +230,25 @@ def _plan_book(con, t: Terms, pf_id: str, qty: float, avg_cost: float) -> BookPl
 
 def apply_settlement_event(con: duckdb.DuckDBPyConnection, pf_id: str, ticker: str,
                            kind: str, qty: float, price: float,
-                           into_ticker: str | None, ratio: float | None) -> None:
+                           into_ticker: str | None, ratio: float | None, *, on_close=None) -> None:
     """Mutate sim_positions + portfolios.cash for one settlement. Used both by
     `settle(..., apply=True)` and by `portfolio.rebuild_state`'s replay, so the
     live path and the rebuild path are the same arithmetic by construction.
 
-    Replays at the RECORDED qty (the dividend precedent): the settlement is a
-    fact about what was booked, not a function of whatever the rebuilt position
-    happens to be. If the rebuilt position differs from the recorded qty a WARN
-    is printed — that means a fill before `effective` was added or removed
-    after the settlement was booked, and a human should look.
+    Account terms settle the signed holding at the event's effective time, so
+    an earlier late split or fill also corrects the consideration. The recorded
+    quantity remains the original booking evidence. Legacy books retain their
+    recorded quantity and frozen historical marks.
     """
+    from .ledger import add_lot, assert_lots_match_positions, match_lots
+    from .schema import portfolio_account
+
     row = con.execute(
         "SELECT qty, avg_cost FROM sim_positions WHERE portfolio_id = ? AND ticker = ?",
         [pf_id, ticker]).fetchone()
     held, avg_cost = (float(row[0]), float(row[1])) if row else (0.0, 0.0)
+    if portfolio_account(con, pf_id)['engine'] == 'account':
+        qty = held
     if abs(held - qty) > 1e-6:
         log.warning(f"[settle] WARN {pf_id} {ticker}: recorded settlement qty {qty:.6f} "
               f"!= position {held:.6f} at replay — fills before effective changed "
@@ -250,19 +256,37 @@ def apply_settlement_event(con: duckdb.DuckDBPyConnection, pf_id: str, ticker: s
     if price:
         con.execute("UPDATE portfolios SET cash = cash + ? WHERE id = ?",
                     [qty * price, pf_id])
+    matched_lots = match_lots(
+        con, pf_id, ticker, abs(qty), closing_short=qty < 0,
+    )
+    if on_close is not None and kind != 'stock':
+        on_close(con, matched_lots, 'cover' if qty < 0 else 'sell', abs(qty), price, 1.0, 0.0)
     if row:
         con.execute("UPDATE sim_positions SET qty = ? WHERE portfolio_id = ? "
-                    "AND ticker = ?", [max(held - qty, 0.0), pf_id, ticker])
+                    "AND ticker = ?", [held - qty, pf_id, ticker])
     if kind == "stock":
         new_shares = qty * ratio
         basis_per_acq = avg_cost / ratio if ratio else 0.0
+        for lot in matched_lots:
+            add_lot(
+                con, pf_id, into_ticker, lot.opened_session, lot.open_order_id,
+                (-1 if qty < 0 else 1) * lot.qty * ratio, lot.avg_px / ratio,
+            )
         acq = con.execute(
             "SELECT qty, avg_cost FROM sim_positions WHERE portfolio_id = ? AND ticker = ?",
             [pf_id, into_ticker]).fetchone()
         if acq:
             cur_q, cur_c = float(acq[0]), float(acq[1])
             new_q = cur_q + new_shares
-            new_c = ((cur_q * cur_c) + (new_shares * basis_per_acq)) / new_q if new_q else 0.0
+            if cur_q * new_shares >= 0:
+                new_c = (
+                    (abs(cur_q) * cur_c + abs(new_shares) * basis_per_acq) / abs(new_q)
+                    if new_q else 0.0
+                )
+            elif abs(cur_q) > abs(new_shares):
+                new_c = cur_c
+            else:
+                new_c = basis_per_acq if new_q else 0.0
             con.execute("UPDATE sim_positions SET qty = ?, avg_cost = ? "
                         "WHERE portfolio_id = ? AND ticker = ?",
                         [new_q, new_c, pf_id, into_ticker])
@@ -270,6 +294,8 @@ def apply_settlement_event(con: duckdb.DuckDBPyConnection, pf_id: str, ticker: s
             con.execute("INSERT INTO sim_positions (portfolio_id, ticker, qty, avg_cost) "
                         "VALUES (?, ?, ?, ?)",
                         [pf_id, into_ticker, new_shares, basis_per_acq])
+    if portfolio_account(con, pf_id)["engine"] == "account":
+        assert_lots_match_positions(con, pf_id)
 
 
 def settle(con: duckdb.DuckDBPyConnection, t: Terms, apply: bool = False,
@@ -287,14 +313,32 @@ def settle(con: duckdb.DuckDBPyConnection, t: Terms, apply: bool = False,
     ensure_table(con)
     ts = now or datetime.now(timezone.utc).replace(tzinfo=None)
     for p in plans:
-        con.execute(
-            "INSERT INTO sim_settlements (portfolio_id, ticker, kind, qty, price, "
-            "into_ticker, ratio, effective, source, note, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [p.portfolio_id, t.ticker, t.kind, p.qty, t.price, t.into_ticker,
-             t.ratio, t.effective, t.source, t.note, ts])
-        apply_settlement_event(con, p.portfolio_id, t.ticker, t.kind, p.qty,
-                               t.price, t.into_ticker, t.ratio)
+        from engine.accounts import service
+        from engine.accounts.settle import fold_account
+        from sim.schema import portfolio_account
+
+        account = portfolio_account(con, p.portfolio_id)['engine'] == 'account'
+        effective_now = ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts
+        if account:
+            service.require_verified(con, p.portfolio_id, now=effective_now, manage_transaction=False)
+
+        def record(p=p):
+            con.execute(
+                "INSERT INTO sim_settlements (portfolio_id, ticker, kind, qty, price, "
+                "into_ticker, ratio, effective, source, note, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [p.portfolio_id, t.ticker, t.kind, p.qty, t.price, t.into_ticker,
+                 t.ratio, t.effective, t.source, t.note, ts])
+        if account:
+            try:
+                fold_account(con, p.portfolio_id, t.effective, now=effective_now,
+                             mutation=record, manage_transaction=False)
+            except Exception as exc:
+                raise service.VerificationError(service.failure_result(p.portfolio_id, exc)) from exc
+        else:
+            record()
+            apply_settlement_event(con, p.portfolio_id, t.ticker, t.kind, p.qty,
+                                   t.price, t.into_ticker, t.ratio)
         if p.pending_order_ids:
             reason = f"cancelled by settlement effective {t.effective.isoformat()}"
             con.execute(
@@ -433,9 +477,8 @@ def _render(t: Terms, plans: list[BookPlan], applied: bool) -> str:
     lines.append("")
     n_eq = sum(p.equity_rows_after_effective for p in plans)
     if n_eq:
-        lines.append(f"[settle] note: {n_eq} sim_equity row(s) dated >= {t.effective} keep "
-                     "the frozen mark they were written with; equity is not restated. "
-                     "The next MTM reflects the settlement.")
+        lines.append(f"[settle] note: {n_eq} equity row(s) dated >= {t.effective}; "
+                     "account-engine marks are verified and replayed. Legacy marks remain frozen.")
     for p in plans:
         for w in p.warnings:
             lines.append(f"[settle] WARN {w}")
@@ -459,6 +502,8 @@ def _render_reconciliation(plans: list[PendingOrderPlan], applied: bool) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from engine.accounts import service, sources
+
     ap = argparse.ArgumentParser(
         description="Settle a dead position at owner-supplied terms (dry-run by default).")
     ap.add_argument("--db", default=str(db.DEFAULT_DB))
@@ -520,13 +565,20 @@ def main(argv: list[str] | None = None) -> int:
         if not args.apply:
             print(_render(t, settle(con, t, apply=False), applied=False))
             return 0
-        with db.transaction(con):
-            plans = settle(con, t, apply=True)
+        with sources.production_sources(con, tickers=[t.ticker]):
+            with db.transaction(con):
+                plans = settle(con, t, apply=True)
         print(_render(t, plans, applied=True))
         return 0
     except SettlementRefused as e:
         log.error(f"[settle] REFUSED: {e}")
         return 2
+    except service.VerificationError as exc:
+        with db.transaction(con):
+            service.persist_mismatch(con, exc.result['account_id'], exc.result,
+                                     now=datetime.now(timezone.utc))
+        log.error(f'[settle] {exc}')
+        return 1
     finally:
         con.close()
 

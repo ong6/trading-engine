@@ -54,8 +54,9 @@ Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](sit
   [P17 personal-host IBKR paper execution](plans/p17-personal-host-ibkr-paper-execution.md),
   [P18 shared backtest core](plans/p18-backtest-core.md),
   [P19 offline market-data auditor](plans/p19-market-data-auditor.md),
-  [P20 engine and paper dashboard review](plans/p20-engine-and-board-review.md), and
-  [P21 operational issue closure and separate accounts](plans/p21-operational-issues-and-account-isolation.md).
+  [P20 engine and paper dashboard review](plans/p20-engine-and-board-review.md),
+  [P21 operational issue closure and separate accounts](plans/p21-operational-issues-and-account-isolation.md), and
+  [P22 engine v2 accounts and money foundation](plans/p22-engine-v2-accounts.md).
 - [`glossary.md`](glossary.md) — plain names for P1–P18, the P15/P16 workstreams, and research
   terms such as registration, holdout, census, DSR, and walk-forward.
 
@@ -70,6 +71,8 @@ Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](sit
   paper-league, agent-service, UI/API, and authority-boundary reference.
 - [`settlement-runbook.md`](settlement-runbook.md) — manual adjudication of dead or
   untradeable positions.
+- [`P22 round-4 rehearsals`](history/p22-round4-rehearsals.md) — captured legacy-D0
+  processing and complete revision-13 rollback transcripts.
 - [`../BUILDLOG.md`](../BUILDLOG.md) — v2 implementation log since 2026-09-18; earlier entries
   are in [`history/buildlog-2026-07-15-to-2026-09-17.md`](history/buildlog-2026-07-15-to-2026-09-17.md),
   and the 42-entry 2026-09-19 C90 series in

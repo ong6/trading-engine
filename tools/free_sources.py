@@ -13,6 +13,7 @@ from collections.abc import Callable, Iterable
 from datetime import date, datetime, timedelta, timezone
 from datetime import time as day_time
 from pathlib import Path
+from urllib.parse import urlencode, urlparse
 from zoneinfo import ZoneInfo
 
 import requests
@@ -24,6 +25,7 @@ from sim import nyse
 
 TIINGO_URL = "https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip"
 MASSIVE_ENDPOINT = "https://api.massive.com/v2/aggs/grouped/locale/us/market/stocks/{date}"
+MASSIVE_SPLITS_ENDPOINT = "https://api.massive.com/v3/reference/splits"
 MASSIVE_KEY_PATH = Path.home() / ".config/trading-engine/massive.key"
 MASSIVE_INTERVAL_SECONDS = 13.0
 MASSIVE_DAILY_SESSION_CAP = 10
@@ -379,6 +381,132 @@ def capture_massive_daily(
     }
 
 
+def _split_start(database: Path, fallback: date) -> date:
+    if not database.exists():
+        return fallback - timedelta(days=30)
+    con = db.connect(database, read_only=True)
+    try:
+        tables = {
+            row[0]
+            for row in con.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_name IN ('free_splits','free_daily_bars')"
+            ).fetchall()
+        }
+        if "free_splits" in tables:
+            latest = con.execute("SELECT MAX(ex_date) FROM free_splits").fetchone()[0]
+            if latest is not None:
+                return min(latest, fallback) - timedelta(days=30)
+        if "free_daily_bars" in tables:
+            earliest = con.execute("SELECT MIN(date) FROM free_daily_bars").fetchone()[0]
+            if earliest is not None:
+                return earliest
+        return fallback - timedelta(days=30)
+    finally:
+        con.close()
+
+
+def _split_url(start: date) -> str:
+    query = urlencode({
+        "execution_date.gte": start.isoformat(),
+        "limit": free_sources.MAX_SPLIT_RESULTS,
+        "sort": "execution_date",
+        "order": "asc",
+    })
+    return f"{MASSIVE_SPLITS_ENDPOINT}?{query}"
+
+
+def _validate_split_url(url: str) -> None:
+    parsed = urlparse(url)
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc != "api.massive.com"
+        or parsed.path != "/v3/reference/splits"
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise free_sources.FreeSourceError("Massive splits next_url is unsafe")
+
+
+def capture_massive_splits(
+    *, database: Path, data_dir: Path, api_key: str | None = None,
+    session: requests.Session | None = None,
+    now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    rate_limit: Callable[[], object] | None = None,
+    max_pages: int = 2,
+) -> dict:
+    """Capture at most two pages of reference splits through the shared limiter."""
+    if max_pages < 1 or max_pages > 2:
+        raise free_sources.FreeSourceError("Massive splits page limit must be between 1 and 2")
+    instant = now()
+    start = _split_start(database, _aware_utc(instant, "split capture timestamp").date())
+    key = _load_massive_key() if api_key is None else api_key
+    client = session or requests.Session()
+    url = _split_url(start)
+    pages, observed, page_shas = [], set(), []
+    reconciliation_at = instant
+    try:
+        for _page in range(max_pages):
+            _validate_split_url(url)
+            _require_network_window(now())
+            if rate_limit is None:
+                free_sources.wait_for_massive_rate_limit(
+                    check=lambda: _require_network_window(now())
+                )
+            else:
+                rate_limit()
+                _require_network_window(now())
+            try:
+                response = client.get(
+                    url, timeout=HTTP_TIMEOUT_SECONDS, allow_redirects=False,
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "User-Agent": USER_AGENT,
+                        "Accept": "application/json",
+                    },
+                )
+            except requests.RequestException as exc:
+                raise free_sources.FreeSourceError("Massive splits request failed") from exc
+            fetched_at = now()
+            body = _response_body(response, "Massive splits")
+            rows, next_url = free_sources.parse_massive_splits(body)
+            source_sha = hashlib.sha256(body).hexdigest()
+            observed.update((row["ticker"], row["ex_date"]) for row in rows)
+            page_shas.append(source_sha)
+            reconciliation_at = fetched_at
+            _write_private_atomic(data_dir / "massive" / "splits" / f"{source_sha}.json", body)
+            con = db.connect(database, wait_s=0)
+            try:
+                loaded = free_sources.load_splits(con, body, fetched_at=fetched_at)
+            finally:
+                con.close()
+            pages.append({**loaded, "row_count": len(rows)})
+            if next_url is None:
+                if len(rows) == free_sources.MAX_SPLIT_RESULTS:
+                    raise free_sources.FreeSourceError(
+                        "Massive splits full page without next_url is incomplete"
+                    )
+                reconciliation_sha = hashlib.sha256("\n".join(page_shas).encode()).hexdigest()
+                con = db.connect(database, wait_s=0)
+                try:
+                    reconciliation = free_sources.reconcile_splits(
+                        con, observed=observed, start=start,
+                        through=_aware_utc(reconciliation_at, "split fetched_at").date(),
+                        fetched_at=reconciliation_at, source_sha256=reconciliation_sha,
+                    )
+                finally:
+                    con.close()
+                return {
+                    "status": "complete", "start": start.isoformat(),
+                    "pages": pages, **reconciliation,
+                }
+            url = next_url
+    finally:
+        if session is None:
+            client.close()
+    raise free_sources.FreeSourceError("Massive splits response exceeded the two-page daily bound")
+
+
 def _paths(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--database", type=Path, default=free_sources.default_database())
     parser.add_argument("--data-dir", type=Path, default=free_sources.default_data_dir())
@@ -397,14 +525,24 @@ def main(argv: list[str] | None = None) -> int:
         "--daily", action="store_true",
         help="fetch at most ten missing completed sessions, newest first",
     )
+    massive.add_argument(
+        "--splits", action="store_true",
+        help="capture reference splits since the latest stored execution date",
+    )
     args = parser.parse_args(argv)
     try:
         if args.command == "tiingo":
             result: object = capture_tiingo(database=args.database, data_dir=args.data_dir)
         elif args.daily:
+            if args.splits:
+                raise free_sources.FreeSourceError("--daily and --splits are mutually exclusive")
             if args.start is not None or args.end is not None:
                 raise free_sources.FreeSourceError("--daily cannot be combined with --start/--end")
             result = capture_massive_daily(database=args.database, data_dir=args.data_dir)
+        elif args.splits:
+            if args.start is not None or args.end is not None:
+                raise free_sources.FreeSourceError("--splits cannot be combined with --start/--end")
+            result = capture_massive_splits(database=args.database, data_dir=args.data_dir)
         else:
             window = massive_window(datetime.now(timezone.utc))
             start = window[0] if args.start is None else args.start
@@ -417,7 +555,7 @@ def main(argv: list[str] | None = None) -> int:
     except free_sources.FreeSourceError as exc:
         print(json.dumps({"status": "failed", "reason": str(exc)}, sort_keys=True))
         return 2
-    if args.command == "massive" and args.daily:
+    if args.command == "massive" and (args.daily or args.splits):
         print(json.dumps(result, sort_keys=True))
     else:
         print(json.dumps({"status": "complete", "result": result}, sort_keys=True))

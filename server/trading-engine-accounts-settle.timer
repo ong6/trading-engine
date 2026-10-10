@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule late trading-engine account settlement
+
+[Timer]
+OnCalendar=Tue..Sat *-*-* 07:45:00 UTC
+OnCalendar=Tue..Sat *-*-* 11:55:00 UTC
+Persistent=true
+AccuracySec=1min
+Unit=trading-engine-accounts-settle.service
+
+[Install]
+WantedBy=timers.target

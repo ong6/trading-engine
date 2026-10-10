@@ -46,6 +46,8 @@ body() {
   stage universe
   "${PY}" -m engine.universe || echo "WARN: universe refresh failed; continuing with existing universe table"
   stage collect
+  "${PY}" -m engine.account_watch \
+    || echo "WARN: account freshness failed"
   "${PY}" -m server.p15_incremental_collect
 
   # Freeze one breadth-qualified market date for both screen and league. A

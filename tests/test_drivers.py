@@ -150,7 +150,8 @@ def test_daily_fatal_stage_propagates_exit_and_breadcrumb(fake_repo):
     assert "TODO: run_daily failed" in out and "(stage=collect exit 3)" in out
     assert (fake_repo / "logs" / ".last_stage").read_text().strip() == "collect"
     assert argv == [
-        "-m engine.universe", "-m server.p15_incremental_collect",
+        "-m engine.universe", "-m engine.account_watch",
+        "-m server.p15_incremental_collect",
     ], "no stage may run after a fatal one"
     log = next((fake_repo / "logs").glob("run-*.log")).read_text()
     assert log.rstrip().endswith(out.rstrip().splitlines()[-1])  # breadcrumb reaches the log
@@ -167,6 +168,16 @@ def test_daily_warn_stages_continue(fake_repo):
     assert rc == 0
     assert "WARN: universe refresh failed" in out
     assert "-m server.p15_incremental_collect" in argv
+
+
+def test_daily_account_freshness_failure_never_aborts_collect(fake_repo):
+    rc, out, argv = run_driver(
+        fake_repo, "run_daily.sh", fail_match="engine.account_watch"
+    )
+    assert rc == 0
+    assert "WARN: account freshness failed" in out
+    assert "-m server.p15_incremental_collect" in argv
+    assert "-m sim.league --date 2026-09-04 --init --skip-if-done" in argv
 
 
 def test_forward_review_failure_never_fails_or_stops_nightly(fake_repo):
@@ -198,6 +209,7 @@ def test_daily_stage_order(fake_repo):
     mods = [a.split()[1] for a in argv]
     assert mods == [
         "engine.universe",
+        "engine.account_watch",
         "server.p15_incremental_collect",
         "engine.market_date",
         "engine.screen",
@@ -231,7 +243,8 @@ def test_daily_market_date_failure_is_fatal_before_screen(fake_repo):
     assert rc == 3
     assert "(stage=market-date exit 3)" in out
     assert argv == [
-        "-m engine.universe", "-m server.p15_incremental_collect",
+        "-m engine.universe", "-m engine.account_watch",
+        "-m server.p15_incremental_collect",
         "-m engine.market_date",
     ]
 

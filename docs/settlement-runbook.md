@@ -62,26 +62,26 @@ or if the acquirer has no stored prices.
 ```bash
 # Cash deal: every holder receives qty × price on the effective date.
 .venv/bin/python -m sim.settle --db store/market.duckdb --ticker EA \
-    --kind cash --price <PRICE> --effective <YYYY-MM-DD> \
+    --kind cash --price "<PRICE>" --effective "<YYYY-MM-DD>" \
     --source "<EDGAR URL of closing 8-K or press release>"
 
 .venv/bin/python -m sim.settle --db store/market.duckdb --ticker TALK \
-    --kind cash --price <PRICE> --effective <YYYY-MM-DD> --source "<URL>"
+    --kind cash --price "<PRICE>" --effective "<YYYY-MM-DD>" --source "<URL>"
 
 .venv/bin/python -m sim.settle --db store/market.duckdb --ticker WBS \
-    --kind cash --price <PRICE> --effective <YYYY-MM-DD> --source "<URL>"
+    --kind cash --price "<PRICE>" --effective "<YYYY-MM-DD>" --source "<URL>"
 
 .venv/bin/python -m sim.settle --db store/market.duckdb --ticker FBRX \
-    --kind cash --price <PRICE> --effective <YYYY-MM-DD> --source "<URL>"
+    --kind cash --price "<PRICE>" --effective "<YYYY-MM-DD>" --source "<URL>"
 ```
 
 Other shapes, same flags otherwise:
 
 ```bash
 # Stock-for-stock: R acquirer shares per held share. Acquirer must have real bars.
-... --kind stock --into <ACQ> --ratio <R>
+... --kind stock --into "<ACQ>" --ratio "<R>"
 # Mixed: R shares plus cash per share.
-... --kind stock --into <ACQ> --ratio <R> --price <CASH_PER_SHARE>
+... --kind stock --into "<ACQ>" --ratio "<R>" --price "<CASH_PER_SHARE>"
 # Cancelled / bankrupt: position to zero, no cash.
 ... --kind worthless
 # Only some books (default is every active holder):
@@ -102,7 +102,7 @@ for 60 s then fails, which is fine.
 
 ```bash
 .venv/bin/python -m sim.settle --db store/market.duckdb --ticker EA \
-    --kind cash --price <PRICE> --effective <YYYY-MM-DD> --source "<URL>" --apply
+    --kind cash --price "<PRICE>" --effective "<YYYY-MM-DD>" --source "<URL>" --apply
 ```
 
 One transaction per command: one `sim_settlements` row per book, cash credited,
@@ -170,8 +170,10 @@ in the ledger row and is the only evidence the number came from anywhere.
   `effective` up to the apply date keep the frozen mark they were written with (the dry
   run tells you how many); they are the point-in-time record of what the league believed.
   Nothing restates them.
-- **Stock conversions carry basis.** The acquirer lot's avg_cost is the dead lot's
-  avg_cost ÷ ratio, merged into any existing acquirer lot; no P&L is realised on the swap.
+- **Signed holdings.** Cash terms credit longs and debit shorts; worthless events remove either
+  signed position without inventing cash. Stock conversions preserve the sign and open lots in
+  the acquirer. The acquirer lot's avg_cost is the dead lot's avg_cost ÷ ratio, merged into any
+  existing same-side acquirer lot; no P&L is realised on the swap.
 - **Re-settling.** A `(portfolio, ticker, effective)` primary key blocks a duplicate row.
   Settling a name a book no longer holds is refused (nothing to do), so re-running an
   applied command exits 2 rather than double-crediting.
@@ -180,3 +182,262 @@ in the ledger row and is the only evidence the number came from anywhere.
   same transaction because the settled position no longer exists. This is booking-time
   lifecycle work, not settlement replay: `rebuild_state` reconstructs cash and positions
   without retroactively changing an order created after the settlement was booked.
+
+## 2026-10-08 — P22 lifecycle round 2 (binding orchestrator rulings)
+
+Deploy no earlier than Sunday 2026-10-18, with parameterized D0 2026-10-19,
+after lifecycle regressions and the store-copy rehearsal pass. The integration
+orchestrator owns the P15 re-pin; this lane leaves its revision unchanged.
+
+1. Accounts are independently funded. Remove the shared gross exposure cap and
+   its refusal. Keep each account's default 1.0× gross limit (maximum 1.5×),
+   rechecked using marks observable at the fill timestamp. Concentration remains
+   an alert only; aggregate 1%-of-MDV60 liquidity follows global receipt order.
+2. Use one source-aware valuation in settlement, late settlement, margin and API
+   reads. Carry the last observed price, falling back to a fill, and flag it stale.
+   Refuse with a reason only when no price was ever observed; never erase a liability.
+3. Reconcile money within $0.005 per account and align financing/fill event order.
+   Exact floating-point hashes do not decide reconciliation.
+4. Halt/cancel do not attach market stores. Source reads retry writer contention
+   with backoff and defer only dependent accounts with a logged reason.
+5. Captured corporate actions change signed positions, lots, orders and replay,
+   independently of operational prices coverage. Account dividends transact with
+   account settlement; legacy reruns and dividend processing exclude accounts.
+6. Late settlement processes every unresolved session oldest-first, refreshes
+   carried marks without requiring a fill, and recomputes dependent later state,
+   verification, halts and maintenance.
+7. A contingent close cannot exceed its requested quantity, parent fill or holdings.
+   Borrow and margin interest continue during retirement until flat.
+8. The late CLI exits nonzero on any account error. Migration preserves v1 league
+   routing, reports proposed route changes and requires --allow-routing-change
+   before changing any route.
+
+
+## P22 deployment and rollback (revision 14, D0 2026-10-19)
+
+Deploy in the Sunday 2026-10-18 19:00–23:00 UTC window after the accepted revision-14
+checkout and both timezone suites pass. Run these commands in Bash on the deployment host.
+`P22_BACKUP` must be a new directory outside the checkout. Save the pre-deploy source and
+scheduler state before changing anything. The lifecycle development lane runs only the
+isolated rehearsal below; these production commands are for the deployment orchestrator.
+
+```bash
+set -euo pipefail
+P22_ROOT="$(realpath "$HOME/trading-engine")"
+P22_STATE="$HOME/p22-deploy-20261018"
+P22_D0=2026-10-19
+: "${P22_APPROVED_SHA:?Set the full deploy commit approved by the orchestrator}"
+mkdir -m 700 -p "$P22_STATE"
+P22_STATE="$(realpath "$P22_STATE")"
+P22_BACKUP="$P22_STATE/predeploy-bundle"
+cd "$P22_ROOT"
+git rev-parse HEAD > "$P22_STATE/predeploy.sha"
+printf '%s\n' "$P22_APPROVED_SHA" > "$P22_STATE/approved.sha"
+crontab -l > "$P22_STATE/predeploy.crontab"
+cp -a "$HOME/.config/systemd/user" "$P22_STATE/predeploy-units"
+systemctl --user list-units --type=timer --state=active --no-legend --plain \
+  | awk '$1 ~ /^(trading-engine-|massive-)/ {print $1}' > "$P22_STATE/active-timers"
+systemctl --user list-units --type=service --state=running --no-legend --plain \
+  | awk '$1 ~ /^(trading-engine-|massive-)/ {print $1}' > "$P22_STATE/active-services"
+
+# Quiesce every engine/data trigger and writer, including continuous capture.
+crontab -r
+systemctl --user stop 'trading-engine-*.timer' 'massive-*.timer'
+systemctl --user stop 'trading-engine-*.service' 'massive-*.service'
+systemctl --user stop trading-engine-api.service massive-minute-capture.service
+# Existing cron-launched drivers must finish before proceeding. Backup also takes
+# all registered driver locks; a busy lock is a refusal, never permission to continue.
+if fuser store/market.duckdb; then exit 1; fi
+.venv/bin/python -m tools.backup_database create "$P22_BACKUP" --source store/market.duckdb
+.venv/bin/python -m tools.backup_database verify "$P22_BACKUP"
+
+git pull --ff-only origin main
+test "$(git rev-parse HEAD)" = "$(cat "$P22_STATE/approved.sha")"
+.venv/bin/python -c 'import json; assert json.load(open("server/p15-registration.json"))["registration_revision"] == 14'
+.venv/bin/python -m pytest -q -W error tests/test_p15_registration.py
+.venv/bin/python -m tools.migrate_cost_profiles --db store/market.duckdb \
+  --d0 "$P22_D0" --apply
+# Required output: {"routing_changes": []}; every break reads revision 14.
+# No routing-change override exists. Existing P15 and league fill paths stay intact.
+install -m 0644 server/trading-engine-accounts-settle.service \
+  server/trading-engine-accounts-settle.timer server/massive-options-daily.service \
+  server/massive-options-daily.timer "$HOME/.config/systemd/user/"
+systemctl --user daemon-reload
+systemctl --user enable trading-engine-accounts-settle.timer massive-options-daily.timer
+xargs -r systemctl --user start < "$P22_STATE/active-services"
+systemctl --user start trading-engine-api.service massive-minute-capture.service
+xargs -r systemctl --user start < "$P22_STATE/active-timers"
+systemctl --user start trading-engine-accounts-settle.timer massive-options-daily.timer
+crontab "$P22_STATE/predeploy.crontab"
+curl --fail --silent --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8000/health
+curl --fail --silent http://127.0.0.1:8000/meta
+curl --fail --silent http://127.0.0.1:8000/accounts
+```
+
+The unit-install commands install exactly the four new P22 units. The supported whole-host
+installer is `.venv/bin/python -m tools.install_automation --audit` followed by `--apply`;
+`--apply` also reconciles cron, starts autostart units and enables lingering, so it must run only
+after migration in the production window. The isolated rehearsal uses namespaced runtime unit
+links and never invokes the whole-host installer against the running host.
+
+Rollback repeats quiescence after the writers have been restarted. Preserve the post-deploy
+store and logs before restoration; they contain all receipts, events, fills, equity and
+reconciliations. Do not overwrite them with the pre-deploy evidence. The backup's database is a
+checkpointed complete copy; it does not need a WAL from the failed deployment.
+
+```bash
+cd "$P22_ROOT"
+crontab -r
+systemctl --user stop 'trading-engine-*.timer' 'massive-*.timer'
+systemctl --user stop 'trading-engine-*.service' 'massive-*.service'
+systemctl --user stop trading-engine-api.service massive-minute-capture.service \
+  trading-engine-accounts-settle.service massive-options-daily.service
+if fuser store/market.duckdb; then exit 1; fi
+mkdir -m 700 "$P22_STATE/incident"
+cp -a store/market.duckdb logs "$P22_STATE/incident/"
+if test -f store/market.duckdb.wal; then
+  cp -a store/market.duckdb.wal "$P22_STATE/incident/"
+fi
+.venv/bin/python -m tools.backup_database verify "$P22_BACKUP"
+cp "$P22_BACKUP/market.duckdb" store/market.duckdb.restore
+cmp "$P22_BACKUP/market.duckdb" store/market.duckdb.restore
+rm -f store/market.duckdb.wal
+mv store/market.duckdb.restore store/market.duckdb
+cp -a "$P22_BACKUP/evidence/data/." data/
+git checkout --detach "$(cat "$P22_STATE/predeploy.sha")"
+systemctl --user disable trading-engine-accounts-settle.timer massive-options-daily.timer
+rm -f "$HOME/.config/systemd/user/trading-engine-accounts-settle.service" \
+  "$HOME/.config/systemd/user/trading-engine-accounts-settle.timer" \
+  "$HOME/.config/systemd/user/massive-options-daily.service" \
+  "$HOME/.config/systemd/user/massive-options-daily.timer"
+cp -a "$P22_STATE/predeploy-units/." "$HOME/.config/systemd/user/"
+systemctl --user daemon-reload
+cmp "$P22_BACKUP/market.duckdb" store/market.duckdb
+xargs -r systemctl --user start < "$P22_STATE/active-services"
+xargs -r systemctl --user start < "$P22_STATE/active-timers"
+crontab "$P22_STATE/predeploy.crontab"
+curl --fail --silent --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8000/health
+```
+
+Private-alpha account creation and cutover use the private deployment instructions after the
+engine passes these checks. Existing portfolio balances and pre-D0 records are not rerouted.
+
+## P22 deploy/rollback rehearsal — 2026-10-08
+
+The published `market-latest.duckdb` was copied once into the lifecycle lane. The verified
+backup contains 91 tables, nine prospective evidence files and seven operational artifacts.
+The lane's league reports were regenerated from the copy through a read-only connection so
+its backup metadata describes that exact snapshot. Paths below are shortened to `$REHEARSAL_ROOT`,
+`$BACKUP`, `$EVIDENCE` and `$XDG_RUNTIME_DIR`. The transcript combines successful backup creation
+with the complete deployment/rollback run using that same verified backup.
+
+Round 4 extended this evidence with two [retained transcripts](history/p22-round4-rehearsals.md).
+`rehearsal-legacy.txt` used a disposable October 2 checkpoint and temporary October 5 D0:
+all 33 routes and pre-D0 equity checkpoints stayed unchanged, pre-D0 fills kept zero fees,
+and the October 5–7 legacy and P15 sessions paid the new fees and passed P15 validation.
+`rehearsal-rollback.txt` restored the complete pre-migration store byte for byte and ran
+revision 13 from `origin/main` (`bc6ff7d`), including HTTP health/meta, restored-store P15
+validation and all five registration tests. It removed its isolated processes and copies.
+The earlier transcript below covers runtime unit installation and writer quiescence; its
+`b3cba65` source check is supplemented by round 4's explicit revision-13 rollback proof.
+
+The rehearsal installed namespaced runtime units with `systemctl --user link --runtime` and
+validated their rendered paths with `systemd-analyze --user verify`. The API listened on
+loopback port 18022; all store paths pointed into the disposable lane directory. A receipt clock
+selected the captured October 6 and 7 sessions; SPY bars came from the snapshot. D0 remained
+parameterized as October 19. The options unit files were installed and validated; provider
+capture was not invoked. A separate minute-store writer held a real DuckDB writer connection
+under its own systemd unit to exercise rollback quiescence without requesting market data.
+
+Rollback stopped the isolated timers, API, settlement and minute-store writer before copying
+incident evidence or restoring. `fuser` found no remaining owner of either database. The restored
+database passed `cmp` against the backup before and after an API health check running the archived
+pre-deploy source at `b3cba65`. All rehearsal unit links were removed. The live store and live units
+were not changed.
+
+```text
+$ tools.backup_database create BACKUP --source COPY
+{
+  "bundle": "$BACKUP",
+  "database_sha256": "8bb08aa267b37ff73185e009527698bcfa0570a2acdec5cd1a4f524ac06e3a8f",
+  "database_size_bytes": 7015772160,
+  "database_snapshot_sha256": "ba9a7890a47f60b1bd203c0873c8045fb2d0f97ed4a03e2205a8d1ef6b6e653c",
+  "evidence_file_count": 9,
+  "manifest_sha256": "df8c984f520db268f8b8b63b225874ce31466ca9827dd97c2f52ecb1d106cabd",
+  "operational_artifact_count": 7,
+  "operational_control_count": 0,
+  "source_database": {
+    "kind": "repository-relative",
+    "path": "store/p22-rehearsal/market.duckdb"
+  },
+  "status": "ok",
+  "table_count": 91
+}
+resume with the successfully created backup, using its canonical path
+$ tools.backup_database verify BACKUP
+{
+  "bundle": "$BACKUP",
+  "database_sha256": "8bb08aa267b37ff73185e009527698bcfa0570a2acdec5cd1a4f524ac06e3a8f",
+  "database_size_bytes": 7015772160,
+  "database_snapshot_sha256": "ba9a7890a47f60b1bd203c0873c8045fb2d0f97ed4a03e2205a8d1ef6b6e653c",
+  "evidence_file_count": 9,
+  "manifest_sha256": "df8c984f520db268f8b8b63b225874ce31466ca9827dd97c2f52ecb1d106cabd",
+  "operational_artifact_count": 7,
+  "operational_control_count": 0,
+  "source_database": {
+    "kind": "repository-relative",
+    "path": "store/p22-rehearsal/market.duckdb"
+  },
+  "status": "ok",
+  "table_count": 91
+}
+$ tools.migrate_cost_profiles --db COPY --d0 2026-10-19 --apply
+{"routing_changes": []}
+migrated 33 portfolios at D0=2026-10-19; reserved order id 1774
+migration break revisions: [(14, 33)]
+$ systemctl --user start p22-rehearsal-api.service p22-rehearsal-accounts-settle.timer
+{"ok":true,"status":"ok","db_readable":true}$ API receipts, account settlement and verification for two captured sessions
+GET /health: 200
+GET /meta: 200
+POST /accounts: 200
+POST /accounts/rehearsal-account/orders: 200
+receipt 1775 queued
+POST /accounts/rehearsal-account/orders: 200
+receipt 1776 queued
+{"affected_accounts":["rehearsal-account"],"carried":{},"completed":["rehearsal-account"],"errors":{},"expired":0,"filled":2,"late_settled":0,"pending":0,"recovered_marks":[],"rejected":0}
+GET /accounts/rehearsal-account/results: 200
+{"session": "2026-10-06", "fills": 2, "fees": 0.72, "closed_lots": 1}
+{"account_id":"rehearsal-account","expected_sha256":"3754d6a72c9f787153a7433ec008353263efde254d74c0321239994fb23a6629","observed_sha256":"3754d6a72c9f787153a7433ec008353263efde254d74c0321239994fb23a6629","status":"ok"}
+POST /accounts/rehearsal-account/orders: 200
+receipt 1777 queued
+POST /accounts/rehearsal-account/orders: 200
+receipt 1778 queued
+{"affected_accounts":["rehearsal-account"],"carried":{},"completed":["rehearsal-account"],"errors":{},"expired":0,"filled":2,"late_settled":0,"pending":0,"recovered_marks":[],"rejected":0}
+GET /accounts/rehearsal-account/results: 200
+{"session": "2026-10-07", "fills": 4, "fees": 1.44, "closed_lots": 2}
+{"account_id":"rehearsal-account","expected_sha256":"5e417f95a608b83bbb0edff7cd30c78e9f1141725463455a81d273d092585a70","observed_sha256":"5e417f95a608b83bbb0edff7cd30c78e9f1141725463455a81d273d092585a70","status":"ok"}
+$ start isolated minute-store writer to exercise rollback quiescence
+$ rollback: stop every isolated timer and writer before preserving/restoring COPY
+$ tools.backup_database verify BACKUP; restore checkpointed database
+{
+  "bundle": "$BACKUP",
+  "database_sha256": "8bb08aa267b37ff73185e009527698bcfa0570a2acdec5cd1a4f524ac06e3a8f",
+  "database_size_bytes": 7015772160,
+  "database_snapshot_sha256": "ba9a7890a47f60b1bd203c0873c8045fb2d0f97ed4a03e2205a8d1ef6b6e653c",
+  "evidence_file_count": 9,
+  "manifest_sha256": "df8c984f520db268f8b8b63b225874ce31466ca9827dd97c2f52ecb1d106cabd",
+  "operational_artifact_count": 7,
+  "operational_control_count": 0,
+  "source_database": {
+    "kind": "repository-relative",
+    "path": "store/p22-rehearsal/market.duckdb"
+  },
+  "status": "ok",
+  "table_count": 91
+}
+restored database matches backup byte for byte
+$ remove new settlement/options runtime units and restore pre-deploy API source
+Removed $XDG_RUNTIME_DIR/systemd/user/p22-rehearsal-options-daily.timer.
+Removed $XDG_RUNTIME_DIR/systemd/user/p22-rehearsal-accounts-settle.timer.
+{"ok":true,"status":"ok","db_readable":true}rehearsal completed; isolated units removed; live store and units untouched
+```

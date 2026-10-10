@@ -12,6 +12,8 @@ from pathlib import Path
 
 import duckdb
 
+from engine.lib.util import table_exists
+
 from .file_utils import MAX_OPERATIONAL_FILE_BYTES, read_text
 
 _SCREEN_REPORT_HEADER = re.compile(
@@ -33,6 +35,17 @@ _PORTFOLIO_ID = re.compile(r"^[A-Za-z0-9_.-]+$")
 EQUITY_SCAN_BATCH_SIZE = 256
 MAX_REPORT_FILE_BYTES = MAX_OPERATIONAL_FILE_BYTES
 _MISSING_ROW = object()
+
+
+def _public_portfolio_ids(con: duckdb.DuckDBPyConnection) -> list[str]:
+    if not table_exists(con, "portfolio_accounts_v"):
+        return [row[0] for row in con.execute(
+            "SELECT id FROM portfolios ORDER BY id"
+        ).fetchall()]
+    return [row[0] for row in con.execute(
+        "SELECT portfolio_id FROM portfolio_accounts_v "
+        "WHERE pa_visibility='public' ORDER BY portfolio_id"
+    ).fetchall()]
 
 
 class EvidenceState(Exception):
@@ -140,11 +153,12 @@ def _validate_screen(
 
 
 def _expected_league_names(con: duckdb.DuckDBPyConnection, latest: date) -> list[str]:
+    public_ids = set(_public_portfolio_ids(con))
     names = [
-        row[0]
+        row[1]
         for row in con.execute(
             """
-            SELECT p.name
+            SELECT p.id, p.name
             FROM portfolios p
             JOIN sim_equity e ON e.portfolio_id = p.id AND e.date = ?
             WHERE p.active
@@ -152,6 +166,7 @@ def _expected_league_names(con: duckdb.DuckDBPyConnection, latest: date) -> list
             """,
             [latest],
         ).fetchall()
+        if row[0] in public_ids
     ]
     if len(names) != len(set(names)):
         raise ValueError("active portfolio names are not unique")
@@ -161,7 +176,8 @@ def _expected_league_names(con: duckdb.DuckDBPyConnection, latest: date) -> list
 def _expected_stale_positions(
     con: duckdb.DuckDBPyConnection, latest: date
 ) -> list[tuple[str, str]]:
-    return con.execute(
+    public_ids = set(_public_portfolio_ids(con))
+    return [row for row in con.execute(
         """
         SELECT pos.portfolio_id, pos.ticker
         FROM sim_positions pos
@@ -173,7 +189,7 @@ def _expected_stale_positions(
         ORDER BY pos.portfolio_id, pos.ticker
         """,
         [latest],
-    ).fetchall()
+    ).fetchall() if row[0] in public_ids]
 
 
 def _validate_league_markdown(
@@ -196,9 +212,18 @@ def _validate_league_markdown(
 
 
 def _validate_league_csv(con: duckdb.DuckDBPyConnection, data_dir: Path) -> None:
-    cursor = con.execute(
-        "SELECT portfolio_id, date, equity FROM sim_equity ORDER BY portfolio_id, date"
-    )
+    public_ids = _public_portfolio_ids(con)
+    if public_ids:
+        placeholders = ",".join("?" for _ in public_ids)
+        cursor = con.execute(
+            "SELECT portfolio_id,date,equity FROM sim_equity "
+            f"WHERE portfolio_id IN ({placeholders}) ORDER BY portfolio_id,date",
+            public_ids,
+        )
+    else:
+        cursor = con.execute(
+            "SELECT portfolio_id,date,equity FROM sim_equity WHERE FALSE"
+        )
 
     def expected_rows():
         while batch := cursor.fetchmany(EQUITY_SCAN_BATCH_SIZE):

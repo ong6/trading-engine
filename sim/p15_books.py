@@ -15,8 +15,8 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import REPO_ROOT
 from engine.lib.util import table_exists
-from sim import fills, nyse, p15_fills, portfolio
-from sim.schema import init_sim_schema
+from sim import book_breaks, costs, fills, ledger, nyse, p15_fills, portfolio
+from sim.schema import init_sim_schema, next_order_id
 
 BOOK_IDS = ("p15_ai_ranked", "p15_rule_control", "p15_hybrid_veto")
 INITIAL_CASH = 10_000.0
@@ -493,7 +493,7 @@ def queue_orders(
 
 
 def _next_order_id(con: duckdb.DuckDBPyConnection) -> int:
-    return int(con.execute("SELECT COALESCE(MAX(id),0)+1 FROM sim_orders").fetchone()[0])
+    return next_order_id(con)
 
 
 def _split_factor(
@@ -508,6 +508,17 @@ def _split_factor(
     return math.prod(float(row[0]) for row in rows)
 
 
+def spy_reinvestment_quantity(cash: float, fill_px: float, cost_profile: str,
+                              fill_date: date) -> float:
+    """The executor and validator share the exact whole-share cash/fee sizing rule."""
+    candidate = float(math.floor(cash / fill_px))
+    fee = costs.charge(
+        cost_profile, side='buy', qty=candidate, price=fill_px, fill_kind='next_open',
+        instrument={'kind': 'stock', 'multiplier': 1.0}, session_date=fill_date,
+    ).total_usd if candidate > 0 else 0.0
+    return float(math.floor(max(cash - fee, 0.0) / fill_px))
+
+
 def _terminal_order(
     con: duckdb.DuckDBPyConnection, intent: tuple, fill_date: date, result,
 ) -> str:
@@ -516,6 +527,22 @@ def _terminal_order(
     order_id = _next_order_id(con)
     status, reason = result.status, result.reject_reason
     applied = 0.0
+    cost_profile = book_breaks.effective_cost_profile(
+        con, portfolio_id, fill_date
+    )
+    fill_kind = "limit_on_open" if role == "entry" else "next_open"
+
+    def estimate_fees(fill_qty: float, fill_px: float):
+        return costs.charge(
+            cost_profile,
+            side=side,
+            qty=fill_qty,
+            price=fill_px,
+            fill_kind=fill_kind,
+            instrument={"kind": "stock", "multiplier": 1.0},
+            session_date=fill_date,
+        )
+
     if status == "filled":
         if side == "buy" and ticker != "SPY":
             stock_count = int(con.execute(
@@ -533,25 +560,49 @@ def _terminal_order(
                 status, reason = "rejected", "daily_entry_cap"
             elif quarantine_reason(con, ticker) is not None:
                 status, reason = "rejected", "data_quarantine"
-            elif qty * result.fill_px > portfolio.get_cash(con, portfolio_id):
+            elif (
+                qty * result.fill_px
+                + estimate_fees(qty, result.fill_px).total_usd
+                > portfolio.get_cash(con, portfolio_id)
+            ):
                 status, reason = "rejected", "insufficient_cash"
             elif qty * result.fill_px > COMMON_CONFIG["max_name_fraction"] * _signal_equity(
                 con, portfolio_id, signal_date
             ) + 1e-9:
                 status, reason = "rejected", "name_cap"
         if side == "buy" and ticker == "SPY":
-            qty = float(math.floor(portfolio.get_cash(con, portfolio_id) / result.fill_px))
+            cash = portfolio.get_cash(con, portfolio_id)
+            qty = spy_reinvestment_quantity(cash, result.fill_px, cost_profile, fill_date)
             if qty > 0:
                 result = fills.attempt_fill(
                     con, ticker, side, qty, signal_date, fill_date, "baseline_v1"
                 )
-            if qty <= 0 or result.status != "filled":
+            final_fees = (
+                estimate_fees(qty, result.fill_px)
+                if qty > 0 and result.status == "filled"
+                else None
+            )
+            if (
+                qty <= 0
+                or result.status != "filled"
+                or qty * result.fill_px + final_fees.total_usd > cash
+            ):
                 status, reason = "rejected", "insufficient_cash"
         if status == "filled":
-            applied = portfolio.apply_fill(con, {
-                "portfolio_id": portfolio_id, "ticker": ticker,
-                "side": side, "qty": qty, "fill_px": result.fill_px,
-            })
+            fees = estimate_fees(qty, result.fill_px)
+            applied = ledger.apply_fill(
+                con,
+                {
+                    "order_id": order_id,
+                    "portfolio_id": portfolio_id,
+                    "ticker": ticker,
+                    "side": side,
+                    "qty": qty,
+                    "fill_px": result.fill_px,
+                    "fill_date": fill_date,
+                },
+                None if fees.profile_id == book_breaks.BASELINE_COST_PROFILE else fees,
+            )
             if applied <= 0:
                 status, reason = "rejected", (
                     "insufficient_cash" if side == "buy" else "no_position_to_sell"
@@ -699,14 +750,14 @@ def _signal_equity(
 
 def _restore_rerun_evidence(con: duckdb.DuckDBPyConnection) -> int:
     rows = con.execute(
-        "SELECT r.*,i.signal_date FROM p15_book_fills r "
+        "SELECT r.*,i.signal_date,i.order_role FROM p15_book_fills r "
         "JOIN p15_order_intents i ON i.id=r.intent_id ORDER BY r.order_id"
     ).fetchall()
     restored = 0
     for row in rows:
         (_intent_id, order_id, book_id, ticker, side, qty, fill_date, open_px,
          fill_px, slippage, cost, profile, median_dollar_vol, participation,
-         impact, fee, signal_date) = row
+         impact, fee, signal_date, role) = row
         expected_order = (book_id, ticker, side, qty, signal_date, SIM_FILLED_STATUS, None)
         order = con.execute(
             "SELECT portfolio_id,ticker,side,qty,signal_date,status,reject_reason "
@@ -742,6 +793,17 @@ def _restore_rerun_evidence(con: duckdb.DuckDBPyConnection) -> int:
             [order_id, fill_date, profile, qty * open_px, median_dollar_vol, participation,
              "filled", None],
         )
+        fees = costs.charge(
+            book_breaks.effective_cost_profile(con, book_id, fill_date),
+            side=side,
+            qty=qty,
+            price=fill_px,
+            fill_kind="limit_on_open" if role == "entry" else "next_open",
+            instrument={"kind": "stock", "multiplier": 1.0},
+            session_date=fill_date,
+        )
+        if fees.profile_id != book_breaks.BASELINE_COST_PROFILE:
+            ledger._persist_fees(con, order_id, fees)
         restored += 1
     if restored:
         _rebuild_p15_state(con)
@@ -753,49 +815,7 @@ def _restore_rerun_evidence(con: duckdb.DuckDBPyConnection) -> int:
 
 
 def _rebuild_p15_state(con: duckdb.DuckDBPyConnection) -> None:
-    for book_id in BOOK_IDS:
-        con.execute("DELETE FROM sim_positions WHERE portfolio_id=?", [book_id])
-        con.execute("UPDATE portfolios SET cash=initial_cash WHERE id=?", [book_id])
-        dates = {row[0] for row in con.execute(
-            "SELECT fill_date FROM sim_fills WHERE portfolio_id=?", [book_id],
-        ).fetchall()}
-        dates.update(row[0] for row in con.execute(
-            "SELECT ex_date FROM sim_dividends WHERE portfolio_id=?", [book_id],
-        ).fetchall())
-        if table_exists(con, "sim_settlements"):
-            dates.update(row[0] for row in con.execute(
-                "SELECT effective FROM sim_settlements WHERE portfolio_id=?", [book_id],
-            ).fetchall())
-        for event_date in sorted(dates):
-            dividend = con.execute(
-                "SELECT COALESCE(SUM(amount),0) FROM sim_dividends "
-                "WHERE portfolio_id=? AND ex_date=?", [book_id, event_date],
-            ).fetchone()[0]
-            con.execute("UPDATE portfolios SET cash=cash+? WHERE id=?", [dividend, book_id])
-            if table_exists(con, "sim_settlements"):
-                from sim.settle import apply_settlement_event
-                for ticker, kind, qty, price, into, ratio in con.execute(
-                    "SELECT ticker,kind,qty,price,into_ticker,ratio FROM sim_settlements "
-                    "WHERE portfolio_id=? AND effective=? ORDER BY ticker",
-                    [book_id, event_date],
-                ).fetchall():
-                    apply_settlement_event(
-                        con, book_id, ticker, kind, float(qty), float(price), into,
-                        None if ratio is None else float(ratio),
-                    )
-            for ticker, side, qty, fill_px in con.execute(
-                "SELECT ticker,side,qty,fill_px FROM sim_fills WHERE portfolio_id=? "
-                "AND fill_date=? ORDER BY CASE side WHEN 'sell' THEN 0 ELSE 1 END,order_id",
-                [book_id, event_date],
-            ).fetchall():
-                factor = _split_factor(con, ticker, event_date, date.max)
-                adjusted = float(qty) * factor
-                applied = portfolio.apply_fill(con, {
-                    "portfolio_id": book_id, "ticker": ticker, "side": side,
-                    "qty": adjusted, "fill_px": float(fill_px) / factor,
-                })
-                if not math.isclose(applied, adjusted, rel_tol=1e-12, abs_tol=1e-12):
-                    raise P15BookError("P15 fill replay changed applied quantity")
+    ledger.rebuild_state(con, BOOK_IDS)
 
 
 def _mark_exact(

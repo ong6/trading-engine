@@ -58,7 +58,11 @@ def _database():
             close = 100 + slope * index + (0.2 if ticker == "BBB" and index % 2 else 0)
             rows.append((ticker, session, close, close + 1, close - 1, close, 1_000_000,
                          "test", CUTOFF.replace(tzinfo=None)))
-    con.executemany("INSERT INTO prices VALUES (?,?,?,?,?,?,?,?,?)", rows)
+    con.executemany(
+        "INSERT INTO prices "
+        "(ticker,date,open,high,low,close,volume,source,fetched_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)", rows,
+    )
     con.execute("""CREATE TABLE agent_evaluation_traces (
         id BIGINT, policy_id VARCHAR, market_date DATE, terminal_status VARCHAR,
         completed_at TIMESTAMP)""")
@@ -84,7 +88,9 @@ def _database():
     signal_cutoff = datetime(2026, 9, 25, 20, tzinfo=timezone.utc)
     for ticker, open_px in (("SPY", 200.0), ("AAA", 202.0), ("BBB", 198.0), ("CCC", 203.0)):
         con.execute(
-            "INSERT INTO prices VALUES (?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO prices "
+            "(ticker,date,open,high,low,close,volume,source,fetched_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
             [ticker, holding_date, open_px, open_px + 1, open_px - 1, open_px, 1_000_000,
              "test", CUTOFF.replace(tzinfo=None)],
         )
@@ -231,7 +237,9 @@ def test_held_name_without_same_vintage_score_makes_primary_unavailable():
         [canonical_sha256({"cash": 990.0, "positions": positions}), instance, holding_date],
     )
     con.execute(
-        "INSERT INTO prices VALUES ('ZZZ',?,10,11,9,10,100,'test',?)",
+        "INSERT INTO prices "
+        "(ticker,date,open,high,low,close,volume,source,fetched_at) "
+        "VALUES ('ZZZ',?,10,11,9,10,100,'test',?)",
         [holding_date, CUTOFF.replace(tzinfo=None)],
     )
     result = p16_transfer.produce(

@@ -43,11 +43,10 @@ product (P12).
 
 [The profitability evidence loop (P15)](plans/p15-profitability-evidence-loop.md) went live on
 2026-09-29 after a verified 90-table recovery bundle. The current source registration is
-revision 13: exact validation of cash-resized SPY reinvestment fills and nightly maturation of
-existing event-shadow labels before reporting, retaining revision 12's bounded complete-metadata
-recovery and earlier verifier, identity, provider-refusal and backup corrections.
-Scoring, book mechanics, gates, label values, registered values, schedules and written evidence
-are unchanged.
+revision 14: P22's `ibkr_pro_tiered_v1` commissions from the migration `--d0`, restarted book
+evaluation clocks and account engine on top of revision 13's exact cash-resized SPY validation
+and nightly event-label maturation. It retains revision 12's bounded complete-metadata recovery
+and earlier corrections. Scoring, labels, statistical gates and schedules are unchanged.
 P15 is `active` and collecting; no performance claim exists before its registered looks.
 Earlier operational revisions introduced stage timings, bounded collection, snapshot throttling,
 cached status projections and queue scratch handling. Revision 10 corrected pending
@@ -96,6 +95,13 @@ accounts start inactive. Selecting or testing a tier grants no strategy activati
 requests use the existing next-open simulator; options and futures are refused until their
 execution models and authority are separately admitted.
 
+[Engine v2 accounts and money (P22)](plans/p22-engine-v2-accounts.md) is active. It makes the
+public engine the sole executor and ledger for versioned private-alpha accounts, adds auction and
+deferred intraday paper fills, effective-dated commissions, stock shorts, margin/PDT controls,
+account halts and private/public result isolation. Existing books change only at an explicit D0
+cost break with restarted evaluation clocks. Account settings live beside the frozen positional
+`portfolios` table in `portfolio_accounts`; options execution remains refused without quotes.
+
 ## Stages
 
 | Stage | Goal | Exit | Earliest |
@@ -117,6 +123,15 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-10-06 | The engine is the executor and ledger; private alpha submits orders and reads results, with one independently funded account per alpha version | P22; feedback |
+| 2026-10-06 | Every simulator book pays the registered commission profile from parameterized D0, with a recorded break and restarted book-evaluation clock | P22; feedback |
+| 2026-10-06 | Generic paper accounts admit MOO, MOC and deferred-settled intraday fills; legacy books retain their registered fill mechanics | P22; feedback |
+| 2026-10-06 | Margin accounts default to the conservative legacy USD 25k PDT rule while the 2026 intraday-margin rule remains an explicit account setting | P22; feedback |
+| 2026-10-06 | Stock shorting is allowed through explicit short/cover sides, point-in-time locates, borrow costs and margin controls | P22; feedback |
+| 2026-10-06 | An account halts at −20% peak drawdown, −5% daily loss or a ledger/reconciliation mismatch; halted positions remain held and marked | P22; feedback |
+| 2026-10-06 | Options are design-ready and free contract/daily capture is admitted, but execution is refused until bid/ask quote data exists | P22; feedback |
+| 2026-10-06 | Self-learning creates a separately registered version and account only after a passed backtest, then measures versions side by side | P22; feedback |
+| 2026-10-06 | The monthly account review is a kill check only; it never promotes capital or automatically resumes a halted account | P22; feedback |
 | 2026-10-05 | Fix P20 remaining issues and prove independent strategy accounts with isolated holdings, orders, fills, cash and equity | P21; feedback |
 | 2026-10-05 | Review and improve the existing engine and paper dashboard against real host evidence, with independent acceptance and unchanged frozen strategy authority | P20; feedback |
 | 2026-10-03 | Start an offline market-data auditor: independent coverage, explicit unknown evidence and a fictional omission demo, with unchanged evaluator/live behavior | P19; feedback |
@@ -153,9 +168,10 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 | 2026-09-18 | Maintain mode with an admission test and LOC ceilings; build only inside approved plans | `AGENTS.md`, feedback |
 | 2026-09-18 | Repo public; commit dates are never rewritten | feedback |
 
-Standing constraints that every decision above keeps: simulator-only authority, long-only,
-next-open fills, no broker code, credentials, or real capital on this host, and no tuning of a
-frozen rule after seeing its outcome.
+Standing constraints that every decision above keeps: simulator-only authority, deterministic
+account risk and accounting, no broker code, credentials, or real capital on this host, and no
+tuning of a frozen rule after seeing its outcome. New fill types and shorting are generic P22
+paper infrastructure; they grant no private strategy authority by themselves.
 
 ### Open (owner only)
 
@@ -167,7 +183,6 @@ Each row has the default that applies until the owner decides.
 | **Private-strategy paper book** | Activation of separately held research in paper books | P21 generic account intake is implemented; new accounts remain inactive and strategy activation still needs its own admitted gates |
 | **Fill model v5 basis**: keep W6 as non-activating continuous-opening measurement, or authorize a separately registered continuous-session cohort before Stage 2 paper-auction evidence exists | Any pre-Stage-2 use of v5 coefficients | Measurement and report only; `baseline_v1` remains the default and direct paper-auction evidence is required for an auction v5 |
 | **`research-text` dependency group** (`torch`, `transformers` in a separate virtual environment) | P16's time-locked historical text lab | P16 W4 stops after building the corpus |
-| **Simulator short side** | Using the ~half of candidates that are losers | Long-only. P15 filters candidates to upside and trend names |
 | **P8 v1 order authority** once P15 books are live | A single AI book to watch | P8 v1 keeps running unchanged as its own cohort |
 | **P3 data budget**: initial and recurring ceiling for Sharadar (or Norgate) | Survivor-free point-in-time universe and fundamentals before 2024-10; historical stock-selection research | No purchase (decided 2026-10-01); free-source phase 0 only |
 | **Commit metadata rewrite** for 2026-09-18 to 09-23 author and trailer lines that break the public-hygiene rule | Clean public history | Not rewritten (needs a force-push; dates would be kept) |
@@ -179,27 +194,30 @@ Each row has the default that applies until the owner decides.
 
 ## Focus now (in order)
 
-1. **Keep the evidence clean and the revision 13 operating path green.** Use per-stage timings to
+1. **Keep the evidence clean and the revision 14 operating path green.** Use per-stage timings to
    watch the bounded collection, shared snapshots, queue, observers, and status projections. Keep
    scheduled producers green, miss no agent windows, allow no identity drift, and leave no
    uncommitted work on the host. A broken producer beats every item below.
-2. **P15 evidence collection.** P15 is active after its scoring, pre-open, event, report, and
+2. **Finish P22 engine-v2 integration without disturbing pre-D0 evidence.** Merge the account,
+   execution and data lanes, rehearse the parameterized cost migration on a store copy, then
+   issue the explicit frozen-contract revisions and P15 revision 14 before Sunday deployment.
+3. **P15 evidence collection.** P15 is active after its scoring, pre-open, event, report, and
    status checks passed. Keep scheduled windows green and never tune a registered value.
-3. **Finish and audit the free survivor-data captures.** Audit the completed grouped-daily window
+4. **Finish and audit the free survivor-data captures.** Audit the completed grouped-daily window
    and let the resumable Massive minute service fill its frozen small-stock manifest. Paid
    pre-2024-10 data remains blocked on a future spend decision.
-4. **P16 registration, rehearsal, and activation (W9b).** Register and rehearse, then activate
+5. **P16 registration, rehearsal, and activation (W9b).** Register and rehearse, then activate
    only the components whose gates permit it: the challenger lab and weekly digest first, the
    filing reader only after its remaining dispatch and activation gates pass. The final refine
    pass (W10) follows.
-5. **P16 synthetic proving ground (W11) as the power test.** Plant a known edge and pure noise in the synthetic proving
+6. **P16 synthetic proving ground (W11) as the power test.** Plant a known edge and pure noise in the synthetic proving
    ground, and record how long each gate takes to detect the edge and how often it passes the
    noise. Every "earliest verdict" date on this page should come from that measurement.
-6. **Activate P7.** Backup-gated tri-arm schema and initializer, the recorded SGD/USD opening
+7. **Activate P7.** Backup-gated tri-arm schema and initializer, the recorded SGD/USD opening
    observation, then the tri-arm orchestrator and its status panel. It tests whether the AI
    allocates better than the rule at low turnover, which the research verdicts favour.
-7. **League collapse (P2).** Retire books that answer no open question to cut nightly noise.
-8. **First-fill lifecycle rehearsal.** Rehearse backup and restore across the whole order → fill →
+8. **League collapse (P2).** Retire books that answer no open question to cut nightly noise.
+9. **First-fill lifecycle rehearsal.** Rehearse backup and restore across the whole order → fill →
    exit path using the P8 FSLY position.
 
 **Build only what the next verdict needs.** The engine already has more built-but-inert
@@ -217,8 +235,8 @@ for it (the 2026-09-18 failure mode). How a candidate moves from idea to authori
 | Model tournament on identical inputs | Choose the decision-maker on evidence | Trial count |
 | Research agent drafting charters for owner approval | Speeds idea → frozen test | Idea flood; cap at one open charter |
 
-Parked: intraday execution authority (needs quote/trade data and queue modelling), new markets,
-options (premium selling showed no after-cost edge), shorting (open decision above).
+Parked: real-time intraday authority (P22's historical-minute fills settle later), new markets,
+and options execution (contract capture is admitted, but quote data is absent).
 
 ## Stop rules
 

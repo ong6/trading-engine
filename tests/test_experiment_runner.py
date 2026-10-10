@@ -33,6 +33,14 @@ def _append(con, cfg, trade, *, run_at=None):
     return phash
 
 
+def test_forward_registration_documents_runtime_revision():
+    revision = _config()["runtime_revision"]
+    assert revision["version"] == experiment_runner.RUNTIME_CONTRACT_VERSION
+    assert revision["decision_date"] == "2026-10-06"
+    assert "commissions" in revision["reason"]
+    assert "byte-identical" in revision["pre_d0_replay"]
+
+
 def test_compute_trade_stamps_frozen_baseline_profile(con):
     trade_date = date(2024, 6, 3)
     history = [trade_date - timedelta(days=i) for i in range(30, 0, -1)]
@@ -222,7 +230,10 @@ def test_runtime_contract_migration_preserves_legacy_prefix(con, tmp_path, monke
     ) == before
 
 
-def test_runtime_contract_migration_preserves_prior_v3_prefix(con, tmp_path, monkeypatch):
+@pytest.mark.parametrize("config_hash", ["predecessor", "current"])
+def test_runtime_contract_migration_preserves_prior_v3_prefix(
+    con, tmp_path, monkeypatch, config_hash,
+):
     cfg = _config()
     trade = _trade(con)
     phash = _append(con, cfg, trade)
@@ -237,6 +248,11 @@ def test_runtime_contract_migration_preserves_prior_v3_prefix(con, tmp_path, mon
             experiment_runner.PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256
         ),
         runtime_contract_migration=experiment_runner.PRIOR_RUNTIME_CONTRACT_MIGRATION,
+    )
+    prior["forward_config_sha256"] = (
+        experiment_runner.PRIOR_FORWARD_CONFIG_SHA256
+        if config_hash == "predecessor"
+        else experiment_runner.forward_config_hash(cfg)
     )
     monkeypatch.setattr(experiment_runner, "EXPECTED_LEGACY_OBSERVATIONS", 1)
     monkeypatch.setattr(experiment_runner, "EXPECTED_LEGACY_THROUGH", trade["date"].isoformat())
@@ -253,6 +269,7 @@ def test_runtime_contract_migration_preserves_prior_v3_prefix(con, tmp_path, mon
         experiment_runner.PRIOR_RUNTIME_CONTRACT_SHA256
     )
     assert migrated["prefix_sha256"] == prior["prefix_sha256"]
+    assert migrated["forward_config_sha256"] == experiment_runner.forward_config_hash(cfg)
 
 
 def test_runtime_contract_migration_rejects_changed_legacy_prefix(

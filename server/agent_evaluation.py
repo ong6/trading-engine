@@ -1062,43 +1062,12 @@ def _validate_p15_traces(con):
 
 def _cash_before_fill(con, portfolio_id: str, order_id: int) -> float | None:
     """Replay the documented cash ledger through, but not including, one fill."""
-    row = con.execute(
-        "SELECT initial_cash FROM portfolios WHERE id=?", [portfolio_id]
-    ).fetchone()
-    if row is None or row[0] is None:
+    from sim.ledger import projected_state
+
+    if con.execute('SELECT initial_cash FROM portfolios WHERE id=?', [portfolio_id]).fetchone() is None:
         return None
-    events = []
-    if table_exists(con, "sim_dividends"):
-        events.extend(
-            (day, 0, index, None, float(amount))
-            for index, (day, _ticker, amount) in enumerate(con.execute(
-                "SELECT ex_date,ticker,amount FROM sim_dividends WHERE portfolio_id=? "
-                "ORDER BY ex_date,ticker", [portfolio_id],
-            ).fetchall())
-        )
-    if table_exists(con, "sim_settlements"):
-        events.extend(
-            (day, 1, index, None, float(qty) * float(price))
-            for index, (day, _ticker, qty, price) in enumerate(con.execute(
-                "SELECT effective,ticker,qty,price FROM sim_settlements "
-                "WHERE portfolio_id=? ORDER BY effective,ticker", [portfolio_id],
-            ).fetchall())
-        )
-    events.extend(
-        (day, 2, index, int(fill_order_id),
-         float(qty) * float(fill_px) * (1 if side == "sell" else -1))
-        for index, (day, side, fill_order_id, qty, fill_px) in enumerate(con.execute(
-            "SELECT fill_date,side,order_id,qty,fill_px FROM sim_fills "
-            "WHERE portfolio_id=? ORDER BY fill_date,"
-            "CASE side WHEN 'sell' THEN 0 ELSE 1 END,order_id", [portfolio_id],
-        ).fetchall())
-    )
-    cash = float(row[0])
-    for _day, _phase, _sequence, fill_order_id, cash_delta in sorted(events):
-        if fill_order_id == order_id:
-            return cash
-        cash += cash_delta
-    return None
+    prefix = projected_state(con, portfolio_id, before_order_id=order_id)
+    return None if prefix is None else prefix['cash']
 
 
 def _spy_reinvestment_resize_matches(
@@ -1107,7 +1076,7 @@ def _spy_reinvestment_resize_matches(
     order_status: str,
 ) -> bool:
     """Accept only the cash-at-fill whole-share resize used by the SPY sleeve."""
-    from sim import p15_books
+    from sim import book_breaks, p15_books
 
     if (ticker, side, order_role, intent_status, order_status) != (
         "SPY", "buy", "spy_reinvest", "filled", p15_books.SIM_FILLED_STATUS,
@@ -1138,7 +1107,9 @@ def _spy_reinvestment_resize_matches(
             and math.isfinite(quantity) and quantity > 0
             and math.isfinite(fill_px) and fill_px > 0
             and book_quantity == quantity
-            and quantity == float(math.floor(cash / fill_px)))
+            and quantity == p15_books.spy_reinvestment_quantity(
+                cash, fill_px, book_breaks.effective_cost_profile(con, portfolio_id, book_date),
+                book_date))
 
 
 def _validate_p15_labels(con, generated_at, label_source_status):

@@ -188,13 +188,19 @@ def test_liquidity_uses_up_to_60_prior_rows_known_by_selection(tmp_path):
     inserted = 0
     while inserted < 20:
         if p16_fill_capture.nyse.is_session(day):
-            con.execute("INSERT INTO prices VALUES (?,?,?,?,?,?,?,?,?)", [
+            con.execute(
+                "INSERT INTO prices "
+                "(ticker,date,open,high,low,close,volume,source,fetched_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?)", [
                 "AAA", day, 99.0, 101.0, 98.0, 100.0, 1000, "fixture",
                 _at(9, 19).astimezone(timezone.utc).replace(tzinfo=None)])
             inserted += 1
         day += timedelta(days=1)
     late_day = DAY - timedelta(days=1)
-    con.execute("INSERT INTO prices VALUES (?,?,?,?,?,?,?,?,?)", [
+    con.execute(
+        "INSERT INTO prices "
+        "(ticker,date,open,high,low,close,volume,source,fetched_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)", [
         "AAA", late_day, 199.0, 201.0, 198.0, 200.0, 1000, "fixture",
         _at(9, 21).astimezone(timezone.utc).replace(tzinfo=None)])
 
