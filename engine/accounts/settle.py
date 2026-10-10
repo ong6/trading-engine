@@ -617,7 +617,7 @@ def fold_account(con, account_id, end, *, now, short_con=None, late=False,
 
 
 def settle_session(con, day: date, late: bool = False, *, short_con=None,
-                   settled_at: datetime | None = None) -> dict[str, Any]:
+                   settled_at: datetime | None = None, manage_transactions: bool = True) -> dict[str, Any]:
     """Settle every account by a full fold; any failed account is durably halted."""
     now = _utc_aware(settled_at or datetime.now(timezone.utc))
     out = dict(filled=0, rejected=0, expired=0, pending=0, late_settled=0,
@@ -632,7 +632,8 @@ def settle_session(con, day: date, late: bool = False, *, short_con=None,
             continue
         account_id = settings['portfolio_id']
         try:
-            result = fold_account(con, account_id, day, now=now, short_con=short_con, late=late)
+            result = fold_account(con, account_id, day, now=now, short_con=short_con, late=late,
+                                  manage_transaction=manage_transactions)
             for key in ('filled', 'rejected', 'expired', 'pending', 'late_settled'):
                 out[key] += result[key]
             for key in ('affected_accounts', 'recovered_marks'):
@@ -640,6 +641,8 @@ def settle_session(con, day: date, late: bool = False, *, short_con=None,
             out['carried'].update(result['carried'])
             out['completed'].append(account_id)
         except Exception as exc:
+            if not manage_transactions:
+                raise
             out['errors'][account_id] = {'exception_type': type(exc).__name__, 'message': str(exc)[:1000]}
             with db.transaction(con):
                 account_service.persist_mismatch(con, account_id,
