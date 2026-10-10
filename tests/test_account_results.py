@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from engine.accounts import results, service
+from sim import ledger
 from tests.conftest import insert_bars
 
 NOW = datetime(2026, 10, 2, 21, tzinfo=timezone.utc)
@@ -42,19 +43,26 @@ def test_result_payload_and_sha_are_deterministic(con):
         "(order_id,fill_ts,fill_kind,price_source,bar_ref,reference_px,multiplier,late_settled) "
         "VALUES (1,?,'open_auction','prices','first',100,1,FALSE),"
         "(2,?,'close_auction','prices','second',103,1,TRUE)",
-        [NOW, NOW],
+        [NOW.replace(hour=13, minute=30), datetime(2026, 10, 5, 20, tzinfo=timezone.utc)],
     )
     con.execute(
         "INSERT INTO sim_cash_events VALUES ('acct-a',?,1,'borrow_fee',-.25,'XYZ',NULL,NULL,?)",
         [second, NOW],
     )
+    ledger.rebuild_state(con, ['acct-a'])
+    for day, snapshot in ledger.projected_states_at_closes(con, 'acct-a', [first, second]).items():
+        mark = ledger.equity_checkpoint(con, 'acct-a', day, snapshot)
+        con.execute("UPDATE sim_equity SET equity=?,cash=? WHERE portfolio_id='acct-a' AND date=?",
+                    [mark['equity'], mark['cash'], day])
+        con.execute("UPDATE sim_equity SET n_positions=? WHERE portfolio_id='acct-a' AND date=?",
+                    [mark['n_positions'], day])
     first_result = results.build(con, "acct-a")
     second_result = results.build(con, "acct-a")
     assert first_result == second_result
     assert json.dumps(first_result, sort_keys=True, separators=(",", ":")) == json.dumps(
         second_result, sort_keys=True, separators=(",", ":")
     )
-    assert first_result["total_return"] == pytest.approx(0.01)
+    assert first_result["total_return"] == pytest.approx(8.99 / 10000)
     assert first_result["fills"] == {"count": 2, "notional": 2030.0}
     assert first_result["costs_paid"]["total_usd"] == 0.76
     assert first_result["costs_paid"]["borrow"] == 0.25
@@ -79,6 +87,8 @@ def test_empty_account_result_is_stable_and_contains_all_money_signals(con):
 def test_drawdown_is_seeded_with_initial_cash(con):
     service.create(con, _spec(), now=NOW)
     con.execute("INSERT INTO sim_equity VALUES ('acct-a',DATE '2026-10-02',8000,8000,0)")
+    ledger.apply_cash_event(con, dict(portfolio_id='acct-a', event_date=date(2026, 10, 2),
+                                     kind='adjustment', amount=-2000))
     payload = results.build(con, "acct-a")
     assert payload["max_drawdown"] == pytest.approx(-0.20)
     assert payload["daily_loss_worst"] == pytest.approx(-0.20)

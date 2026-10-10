@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime, timezone
 from statistics import mean, stdev
 
+from engine.lib import db
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
 from engine.paper_accounts import AccountRefused
@@ -104,6 +105,23 @@ def _trailing_day_trades(con, account_id: str, end: date | None) -> int:
 
 
 def build(con, account_id: str) -> dict:
+    """Only return results backed by a complete fold; failures halt after rollback."""
+    from engine.accounts import service
+
+    service._account(con, account_id)
+    now = datetime.now(timezone.utc)
+    try:
+        with db.transaction(con):
+            service.require_verified(con, account_id, now=now, manage_transaction=False)
+            return _build(con, account_id)
+    except Exception as exc:
+        result = service.failure_result(account_id, exc)
+        with db.transaction(con):
+            service.persist_mismatch(con, account_id, result, now=now)
+        raise service.VerificationError(result) from exc
+
+
+def _build(con, account_id: str) -> dict:
     """Return metrics plus a hash of the canonical metrics payload."""
     account = con.execute(
         "SELECT created,initial_cash FROM portfolios WHERE id=?", [account_id]

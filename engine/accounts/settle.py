@@ -15,7 +15,7 @@ from engine.accounts import service as account_service
 from engine.lib import db
 from engine.lib.util import table_exists
 from engine.money import alerts, halts
-from sim import bar_sources, fills, ledger, margin, portfolio, shorts, valuation
+from sim import bar_sources, fills, ledger, margin, nyse, portfolio, shorts, valuation
 from sim.costs import charge
 from sim.schema import portfolio_account
 
@@ -345,7 +345,7 @@ def _pending_rows(con: duckdb.DuckDBPyConnection) -> list[dict[str, Any]]:
 
 def _due(con, row: dict[str, Any], day: date, late: bool) -> bool:
     if row["order_type"] == "next_open":
-        if row["signal_date"] >= day:
+        if nyse.next_session(row["signal_date"]) != day:
             return False
     elif row["session_date"] != day:
         return False
@@ -534,40 +534,36 @@ def _settle_order(
     return "filled"
 
 
-def _session_accounting(con, account_id, day, now, replay, prepared, settings, late,
-                        short_con, liquidity_refusals, execution_keys, counts):
-    """Merge recorded events and newly executable work in the ledger's order."""
-    sequence = ledger.events(con, [account_id], since=day, through=day,
-                             include_risk=True) if replay else []
-    sequence = [event for event in sequence if event.kind != 'equity']
-    sequence = [event for event in sequence if not (
-        event.kind == 'cash' and event.row['kind'] in {'borrow_fee', 'margin_interest'})]
-    opened = bar_sources.session_bounds(day)[0]
-    operations = [
-        (opened, 0, -1, lambda: actions.apply_splits(
-            con, account_id, day, now, _record_account_event)),
-        (opened, 1, -1, lambda: actions.credit_dividends(con, account_id, day, now, replay=replay)),
-        (opened, 3, 0, lambda: shorts.accrue_borrow(con, day, portfolio_id=account_id, replay=replay)),
-        (opened, -1, 1, lambda: margin.accrue_interest(con, day, portfolio_id=account_id, replay=replay)),
-    ]
-
-    def execute(row):
-        qty, limit_px = con.execute(
-            'SELECT o.qty,d.limit_px FROM sim_orders o JOIN sim_order_details d '
-            'ON d.order_id=o.id WHERE o.id=?', [row['order_id']],
-        ).fetchone()
-        row['qty'], row['limit_px'] = float(qty), limit_px
-        result = _fill_attempt(con, row, settings, day, now)
-        current = {**settings, 'status': portfolio_account(con, account_id)['status']}
-        state = _settle_order(con, row, result, current, day, now, late, short_con,
-                              liquidity_refusals, execution_keys)
-        counts[state] += 1
-
+def _fold_session(con, account_id, day, now, settings, late, short_con, counts):
+    """Fold recorded events and new executions together in effective-time order."""
     from functools import partial
 
-    for row, _result in prepared:
-        operations.append((execution_keys[row['order_id']][0], 4, row['order_id'],
-                           partial(execute, row)))
+    prepared = []
+    for row in _pending_rows(con):
+        if not _due(con, row, day, late):
+            continue
+        row = actions.prepare_order(con, row, day, now)
+        account = portfolio_account(con, row['portfolio_id'])
+        prepared.append((row, _fill_attempt(con, row, account, day, now)))
+    keys = {row['order_id']: _execution_key(row, result, day) for row, result in prepared}
+    refusals = _liquidity_refusals(con, day, prepared)
+    local = [(row, result) for row, result in prepared if row['portfolio_id'] == account_id]
+    sources.require_sources(con, settings, [row for row, _ in local])
+    sequence = [event for event in ledger.events(con, [account_id], since=day, through=day)
+                if not (event.kind == 'cash' and event.row['kind'] in {'borrow_fee', 'margin_interest'})]
+    opened = bar_sources.session_bounds(day)[0]
+    operations = [
+        (opened, 1, -1, lambda: actions.credit_dividends(con, account_id, day, now)),
+        (opened, 3, 0, lambda: shorts.accrue_borrow(con, day, portfolio_id=account_id, replay=True)),
+        (opened, -1, 1, lambda: margin.accrue_interest(con, day, portfolio_id=account_id, replay=True)),
+    ]
+
+    def execute(row, result):
+        state = _settle_order(con, row, result, settings, day, now, late, short_con, refusals, keys)
+        counts[state] += 1
+
+    for row, result in local:
+        operations.append((keys[row['order_id']][0], 4, row['order_id'], partial(execute, row, result)))
     for stamp, phase, seq, operation in operations:
         sequence.append(ledger.LedgerEvent(stamp, phase, (account_id, 0, seq),
                                           'operation', {'run': operation}))
@@ -575,150 +571,82 @@ def _session_accounting(con, account_id, day, now, replay, prepared, settings, l
         ledger.apply_event(con, event)
 
 
-def settle_session(
-    con: duckdb.DuckDBPyConnection,
-    day: date,
-    late: bool = False,
-    *,
-    short_con: duckdb.DuckDBPyConnection | None = None,
-    settled_at: datetime | None = None,
-    manage_transactions: bool = True,
-    portfolio_id: str | None = None,
-    replay: bool = False,
-) -> dict[str, Any]:
-    """Run one chronological, source-aware, atomic lifecycle per account."""
-    now = settled_at or datetime.now(timezone.utc)
-    if now.utcoffset() is None:
-        now = now.replace(tzinfo=timezone.utc)
-    settings_by_id = {
-        row["portfolio_id"]: row for row in account_portfolios(con, active_only=False)
-        if row["status"] in {"active", "halted", "retiring"}
-    }
-    rows = [
-        actions.prepare_order(con, row, day, now) for row in _pending_rows(con)
-        if row["portfolio_id"] in settings_by_id and _due(con, row, day, late)
-    ]
-    prepared = [
-        (row, _fill_attempt(con, row, settings_by_id[row["portfolio_id"]], day, now))
-        for row in rows
-    ]
-    prepared.sort(key=lambda item: _execution_key(item[0], item[1], day))
-    execution_keys = {
-        row["order_id"]: _execution_key(row, result, day) for row, result in prepared
-    }
-    liquidity_refusals = _liquidity_refusals(con, day, prepared)
-    by_account: dict[str, list[tuple[dict[str, Any], fills.FillResult]]] = {
-        account_id: [] for account_id in settings_by_id
-    }
-    for item in prepared:
-        by_account[item[0]["portfolio_id"]].append(item)
-    account_order = sorted(
-        settings_by_id,
-        key=lambda account_id: (
-            execution_keys[by_account[account_id][0][0]["order_id"]]
-            if by_account[account_id] else (datetime.max, datetime.max, account_id)
-        ),
-    )
-    counts = {"filled": 0, "rejected": 0, "expired": 0, "pending": 0}
-    affected: set[str] = set()
-    completed: list[str] = []
-    errors: dict[str, dict[str, str]] = {}
-    carried: dict[str, list[str]] = {}
-    recovered: list[str] = []
-    for account_id in account_order:
-        if portfolio_id is not None and account_id != portfolio_id:
+def fold_account(con, account_id, end, *, now, short_con=None, late=False,
+                 mutation=None, manage_transaction=True):
+    """Atomically replace the cache by folding the whole account from inception."""
+    counts = dict(filled=0, rejected=0, expired=0, pending=0)
+    with db.transaction(con) if manage_transaction else nullcontext():
+        account_service.require_verified(con, account_id, now=now, manage_transaction=False)
+        if mutation:
+            mutation()
+        created = con.execute('SELECT created FROM portfolios WHERE id=?', [account_id]).fetchone()[0]
+        equity_days = [row[0] for row in con.execute(
+            'SELECT date FROM sim_equity WHERE portfolio_id=?', [account_id]).fetchall()]
+        event_days = [event.stamp.date() for event in ledger.events(con, [account_id])]
+        end = max([end, *equity_days, *event_days])
+        start = min([created, *event_days])
+        actions.capture_splits(con, account_id, end, now, _record_account_event)
+        ledger.rebuild_state(con, [account_id], through=start - timedelta(days=1))
+        settings = {**portfolio_account(con, account_id), 'portfolio_id': account_id}
+        carried = []
+        day = start
+        while day <= end:
+            if nyse.is_session(day):
+                _fold_session(con, account_id, day, now, settings,
+                              late or day < end, short_con, counts)
+                if day >= created or day in equity_days:
+                    mark = _mark_account(con, account_id, day, settings['price_source'], now)
+                    carried = mark['carried']
+                    if not carried:
+                        _record_account_event(con, account_id, 'late_reconciled',
+                                              {'session_date': day.isoformat()}, now)
+            day += timedelta(days=1)
+        account_service.require_verified(con, account_id, now=now, manage_transaction=False)
+        latest = con.execute('SELECT MAX(date) FROM sim_equity WHERE portfolio_id=?', [account_id]).fetchone()[0]
+        if latest is not None:
+            halts.check(con, account_id, latest, now=now)
+            margin.check_maintenance(con, latest, portfolio_id=account_id)
+            if short_con is not None:
+                shorts.queue_buy_ins(con, short_con, latest, portfolio_id=account_id)
+            alerts.concentration(con, latest, now=now, portfolio_id=account_id)
+        account_service.finalize_retirement(con, account_id, now=now)
+    return {**counts, 'late_settled': counts['filled'] if late else 0,
+            'affected_accounts': [account_id] if counts['filled'] else [],
+            'recovered_marks': [account_id] if not counts['filled'] else [],
+            'carried': {account_id: carried} if carried else {}}
+
+
+def settle_session(con, day: date, late: bool = False, *, short_con=None,
+                   settled_at: datetime | None = None) -> dict[str, Any]:
+    """Settle every account by a full fold; any failed account is durably halted."""
+    now = _utc_aware(settled_at or datetime.now(timezone.utc))
+    out = dict(filled=0, rejected=0, expired=0, pending=0, late_settled=0,
+               affected_accounts=[], recovered_marks=[], completed=[], errors={}, carried={})
+    accounts = account_portfolios(con, active_only=False)
+    # Global liquidity uses receipt order, including across independently funded accounts.
+    first = {row['portfolio_id']: (_utc_naive(row['received_at']), row['order_id'])
+             for row in reversed(_pending_rows(con))}
+    accounts.sort(key=lambda row: first.get(row['portfolio_id'], (datetime.max, 0)))
+    for settings in accounts:
+        if settings['status'] not in {'active', 'halted', 'retiring'}:
             continue
-        settings = settings_by_id[account_id]
-        local = {key: 0 for key in counts}
-        has_unmarked_fill = bool(con.execute(
-            "SELECT 1 FROM sim_fills f LEFT JOIN sim_equity e "
-            "ON e.portfolio_id=f.portfolio_id AND e.date=f.fill_date "
-            "WHERE f.portfolio_id=? AND f.fill_date=? AND e.portfolio_id IS NULL LIMIT 1",
-            [account_id, day],
-        ).fetchone())
-        transaction = db.transaction(con) if manage_transactions else nullcontext()
+        account_id = settings['portfolio_id']
         try:
-            if manage_transactions:
-                account_service.require_verified(con, account_id, now=now)
-                from engine.accounts.late import recover_account, recovery_start
-
-                start = recovery_start(con, account_id, day, now)
-                if start is not None:
-                    result = recover_account(con, account_id, start, day, now=now,
-                                             short_con=short_con, verified=True)
-                    for key in counts:
-                        counts[key] += result[key]
-                    affected.update(result['affected_accounts'])
-                    recovered.extend(result['recovered_marks'])
-                    carried.update(result['carried'])
-                    completed.append(account_id)
-                    continue
-            with transaction:
-                sources.require_sources(con, settings, [row for row, _ in by_account[account_id]])
-                if replay:
-                    halts.restore_risk(con, account_id, bar_sources.session_bounds(day)[0])
-                _session_accounting(con, account_id, day, now, replay,
-                                    by_account[account_id], settings, late, short_con,
-                                    liquidity_refusals, execution_keys, local)
-                should_mark = True
-                if should_mark:
-                    mark = _mark_account(
-                        con, account_id, day, settings["price_source"], now,
-                    )
-                    if mark["carried"]:
-                        carried[account_id] = mark["carried"]
-                    if has_unmarked_fill and local["filled"] == 0:
-                        recovered.append(account_id)
-                    verification = account_service.verify(
-                        con, account_id, session_date=day, now=now,
-                        manage_transaction=False,
-                    )
-                    if verification["status"] != "ok":
-                        raise account_service.VerificationError(verification)
-                    # Evaluate this close before folding any later resume.
-                    halts.restore_risk(con, account_id, bar_sources.session_bounds(day)[1])
-                    if portfolio_account(con, account_id)['status'] == 'active':
-                        halts.check(con, account_id, day,
-                                    now=bar_sources.session_bounds(day)[1].replace(tzinfo=timezone.utc))
-                    margin.check_maintenance(con, day, portfolio_id=account_id)
-                if short_con is not None:
-                    shorts.queue_buy_ins(
-                        con, short_con, day, portfolio_id=account_id,
-                    )
-                account_service.finalize_retirement(con, account_id, now=now)
-                alerts.concentration(con, day, now=now, portfolio_id=account_id)
-            for key, value in local.items():
-                counts[key] += value
-            if local["filled"]:
-                affected.add(account_id)
-            completed.append(account_id)
+            result = fold_account(con, account_id, day, now=now, short_con=short_con, late=late)
+            for key in ('filled', 'rejected', 'expired', 'pending', 'late_settled'):
+                out[key] += result[key]
+            for key in ('affected_accounts', 'recovered_marks'):
+                out[key].extend(result[key])
+            out['carried'].update(result['carried'])
+            out['completed'].append(account_id)
         except Exception as exc:
-            errors[account_id] = {
-                "exception_type": type(exc).__name__, "message": str(exc)[:1000],
-            }
-            if not manage_transactions:
-                raise
-            try:
-                with db.transaction(con):
-                    if isinstance(exc, account_service.VerificationError):
-                        account_service.persist_mismatch(con, account_id, exc.result, now=now)
-                    _record_account_event(
-                        con, account_id, "settlement_error",
-                        {"code": "settlement_error", "session_date": day.isoformat(),
-                         "exception_type": type(exc).__name__, "message": str(exc)[:1000]},
-                        now,
-                    )
-            except Exception:
-                pass
-    return {
-        **counts,
-        "late_settled": counts["filled"] if late else 0,
-        "affected_accounts": sorted(affected),
-        "recovered_marks": sorted(recovered),
-        "completed": completed,
-        "errors": errors,
-        "carried": carried,
-    }
+            out['errors'][account_id] = {'exception_type': type(exc).__name__, 'message': str(exc)[:1000]}
+            with db.transaction(con):
+                account_service.persist_mismatch(con, account_id,
+                    account_service.failure_result(account_id, exc), now=now)
+                _record_account_event(con, account_id, 'settlement_error',
+                    {'session_date': day.isoformat(), **out['errors'][account_id]}, now)
+    return out
 
 
-__all__ = ["settle_session"]
+__all__ = ['settle_session']
