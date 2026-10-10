@@ -90,7 +90,7 @@ def test_late_recovery_preserves_resume_anchor(h):
     assert h.night() == 0
     with h.con() as con:
         assert con.execute("SELECT pa_status FROM portfolio_accounts_v WHERE portfolio_id='acct-a'").fetchone()[0] == 'halted'
-        service.resume(con, 'acct-a', resumed_by='owner', now=datetime.combine(DAY, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=22))
+        service.resume(con, 'acct-a', resumed_by='owner', now=datetime.now(timezone.utc))
     anchor = h.scalar("SELECT drawdown_anchor_equity FROM account_state WHERE portfolio_id='acct-a'")
     assert cli.main(['settle', '--late', '--date', DAY.isoformat()]) == 0
     assert h.scalar("SELECT prior_close_equity FROM account_state WHERE portfolio_id='acct-a'") == anchor

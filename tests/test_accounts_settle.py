@@ -372,7 +372,7 @@ def test_missing_short_data_rejects_short_but_other_order_and_mark_complete(con)
         "SELECT status,reject_reason FROM sim_orders WHERE id=?", [short_order]
     ).fetchone() == ("rejected", "locate_unavailable")
     assert con.execute(
-        "SELECT kind FROM account_events WHERE portfolio_id='short'"
+        "SELECT kind FROM account_events WHERE portfolio_id='short' AND kind='locate_unavailable'"
     ).fetchone() == ("locate_unavailable",)
     assert con.execute(
         "SELECT status FROM sim_orders WHERE id=?", [other_order]
@@ -408,7 +408,7 @@ def test_stale_locate_is_recorded_for_results(con):
     result = _settle(con, short_con=con)
     assert result["filled"] == 1
     assert con.execute(
-        "SELECT kind FROM account_events WHERE portfolio_id='acct-a'"
+        "SELECT kind FROM account_events WHERE portfolio_id='acct-a' AND kind='locate_data_stale'"
     ).fetchone() == ("locate_data_stale",)
 
 
@@ -459,14 +459,10 @@ def test_r10_settings_diverge_on_fourth_moo_moc_day_trade(con):
     _account(con, "current", capital=10_000, rule="intraday_margin_2026")
     _daily(con, "XYZ")
     for account in ("legacy", "current"):
-        con.executemany(
-            "INSERT INTO sim_day_trades VALUES (?,?,'OLD',?,?)",
-            [
-                (account, date(2026, 10, 7), 1, 11),
-                (account, date(2026, 10, 8), 2, 12),
-                (account, date(2026, 10, 9), 3, 13),
-            ],
-        )
+        for index, day in enumerate((date(2026, 10, 7), date(2026, 10, 8), date(2026, 10, 9))):
+            base = 100 + (0 if account == 'legacy' else 20) + 2 * index
+            _historical_fill(con, account, 'OLD', 'buy', 1, 100, day, base)
+            _historical_fill(con, account, 'OLD', 'sell', 1, 100, day, base + 1)
     legacy_open = _order(
         con, "legacy", "XYZ", "buy", 1, "moo",
         datetime(2026, 10, 12, 9, 27, tzinfo=NEW_YORK),
@@ -553,11 +549,12 @@ def test_account_fill_mark_and_risk_roll_back_together_then_retry(con, monkeypat
     failed = _settle(con)
     assert failed["errors"]["acct-a"]["message"] == "mark crash"
     assert con.execute("SELECT COUNT(*) FROM sim_fills WHERE order_id=?", [order_id]).fetchone() == (0,)
-    assert con.execute("SELECT status FROM sim_orders WHERE id=?", [order_id]).fetchone() == ("pending",)
+    assert con.execute("SELECT status FROM sim_orders WHERE id=?", [order_id]).fetchone() == ("cancelled",)
 
     monkeypatch.setattr(module, "_mark_account", original)
     retried = _settle(con)
-    assert retried["filled"] == 1
+    assert retried["filled"] == 0
+    assert con.execute("SELECT pa_status FROM portfolio_accounts_v WHERE portfolio_id='acct-a'").fetchone() == ("halted",)
     assert con.execute(
         "SELECT equity FROM sim_equity WHERE portfolio_id='acct-a' AND date=?", [DAY]
     ).fetchone() is not None
@@ -858,5 +855,5 @@ def test_fill_and_state_transition_roll_back_together(con, monkeypatch):
         "SELECT cash FROM portfolios WHERE id='acct-a'"
     ).fetchone() == (before,)
     assert con.execute("SELECT status FROM sim_orders WHERE id=?", [order_id]).fetchone() == (
-        "pending",
+        "cancelled",
     )

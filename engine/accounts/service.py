@@ -104,9 +104,6 @@ def cancel(con, account_id: str, order_id: int, *,
 def halt(con, account_id: str, *, note: str = "", now: datetime | None = None) -> dict:
     now = _utc(now)
     require_verified(con, account_id, now=now)
-    historical = _historical_transition(con, account_id, now, 'halt_manual', {'note': str(note)[:4096]})
-    if historical is not None:
-        return historical
     with db.transaction(con):
         changed = halts.halt_account(
             con, account_id, "halt_manual", now=now, detail={"note": str(note)[:4096]},
@@ -120,17 +117,17 @@ def resume(con, account_id: str, *, resumed_by: str, note: str = "",
     if resumed_by not in {"owner", "monthly-review"}:
         raise paper_accounts.AccountRefused("resumed_by must be owner or monthly-review")
     require_verified(con, account_id, now=now)
-    historical = _historical_transition(con, account_id, now, 'resumed',
-                                       {'resumed_by': resumed_by, 'note': str(note)[:4096]})
-    if historical is not None:
-        return historical
+    latest = con.execute('SELECT updated_at FROM account_state WHERE portfolio_id=?',
+                         [account_id]).fetchone()
+    if latest and latest[0] and latest[0].replace(tzinfo=timezone.utc) > now:
+        raise paper_accounts.AccountRefused('resume effective time is in the past')
     with db.transaction(con):
         init_schema(con)
         row = _account(con, account_id)
         if row["status"] != "halted":
             raise paper_accounts.AccountRefused("only a halted account can resume")
         equity = con.execute(
-            "SELECT equity FROM sim_equity WHERE portfolio_id=? ORDER BY date DESC LIMIT 1",
+            "SELECT equity,date FROM sim_equity WHERE portfolio_id=? ORDER BY date DESC LIMIT 1",
             [account_id],
         ).fetchone()
         resume_equity = float(equity[0]) if equity is not None else float(con.execute(
@@ -150,38 +147,10 @@ def resume(con, account_id: str, *, resumed_by: str, note: str = "",
         )
         halts.record_event(
             con, account_id, "resumed",
-            {"resumed_by": resumed_by, "note": str(note)[:4096], "anchor_equity": anchor}, now=now,
+            {"resumed_by": resumed_by, "note": str(note)[:4096], "anchor_equity": anchor,
+             "anchor_session": equity[1].isoformat() if equity else None}, now=now,
         )
     return {"account_id": account_id, "status": "active", "resumed_by": resumed_by}
-
-
-def _historical_transition(con, account_id, effective, kind, payload):
-    """Risk-only replay uses retained marks and never attaches a market store."""
-    from engine.accounts.late import recover_account
-    from sim.bar_sources import _naive_utc
-
-    timeline = ledger.events(con, [account_id], include_risk=True)
-    if not timeline or max(event.stamp for event in timeline) <= _naive_utc(effective):
-        return None
-    if kind == 'resumed':
-        risk = ledger.risk_state(con, account_id, effective.date() + timedelta(days=1), now=effective)
-        if risk['halted_at'] is None:
-            raise paper_accounts.AccountRefused('only a halted account can resume')
-        closes = [event.row['equity'] for event in timeline
-                  if event.kind == 'equity' and event.stamp <= _naive_utc(effective)]
-        payload['anchor_equity'] = float(closes[-1]) if closes else float(con.execute(
-            'SELECT initial_cash FROM portfolios WHERE id=?', [account_id]).fetchone()[0])
-    now = max(_utc(None), effective, max(event.stamp for event in timeline).replace(tzinfo=timezone.utc))
-    try:
-        recover_account(con, account_id, effective.date(), effective.date(), now=now,
-            verified=True, risk_only=True, mutation=lambda: halts.record_event(
-                con, account_id, kind, payload, now=effective))
-    except VerificationError as exc:
-        with db.transaction(con):
-            persist_mismatch(con, account_id, exc.result, now=now)
-        raise
-    return {'account_id': account_id, 'status': _account(con, account_id)['status'],
-            'replayed': True}
 
 
 def _retirement_session(now: datetime) -> date:
@@ -365,79 +334,55 @@ def account_list(con, *, include_private: bool = False) -> list[dict]:
              "visibility": row[4]} for row in rows]
 
 
-def verify(
-    con,
-    account_id: str,
-    *,
-    session_date: date | None = None,
-    now: datetime | None = None,
-    manage_transaction: bool = True,
-    replay_carried: bool = False,
-) -> dict:
-    """Reconcile persisted lots, cash and equity against isolated ledger replay.
-
-    Recovery first checks a stale checkpoint against its recorded carried marks,
-    then checks the refreshed checkpoint against the currently available source.
-    """
+def verify(con, account_id: str, *, session_date: date | None = None,
+           now: datetime | None = None, manage_transaction: bool = True) -> dict:
+    """Fold the entire retained ledger and compare cash, lots and every cached close."""
     effective_now = _utc(now)
+    _account(con, account_id)
 
-    def run() -> dict:
-        init_schema(con)
-        _account(con, account_id)
+    def run():
         observed = ledger.state(con, account_id)
         expected = ledger.projected_state(con, account_id, through=session_date)
         recorded = ledger.checkpoints(con, account_id)
-        for day, equity, cash, count in con.execute(
+        rows = con.execute(
             'SELECT date,equity,cash,n_positions FROM sim_equity WHERE portfolio_id=? '
             'AND (? IS NULL OR date<=?) ORDER BY date',
             [account_id, session_date, session_date],
-        ).fetchall():
-            checkpoint = recorded.get(day)
-            prefix = ledger.projected_state(con, account_id, through=day,
-                event_ids=set(checkpoint['event_ids']) if checkpoint else None)
-            marks = checkpoint['marks'] if checkpoint else (
-                ledger.recorded_carried_marks(con, account_id, day) if replay_carried else None)
-            valued = ledger.equity_checkpoint(
-                con, account_id, day, prefix, available_at=effective_now, carried_marks=marks)
-            key = f'checkpoint:{day}'
-            expected[key] = valued
+        ).fetchall()
+        prefixes = ledger.projected_states_at_closes(con, account_id, [row[0] for row in rows])
+        for day, equity, cash, count in rows:
+            key = f'close:{day}'
+            expected[key] = ledger.equity_checkpoint(
+                con, account_id, day, prefixes[day], available_at=effective_now,
+                carried_marks=recorded.get(day, {}).get('marks'))
             observed[key] = dict(date=day.isoformat(), equity=float(equity),
                                  cash=float(cash), n_positions=count)
-            if checkpoint:
-                expected[key]['snapshot'] = prefix
-                observed[key]['snapshot'] = checkpoint['snapshot']
         ok = ledger.states_match(expected, observed)
-        result = {
-            "account_id": account_id,
-            "status": "ok" if ok else "mismatch",
-            "expected_sha256": canonical_sha256(expected),
-            "observed_sha256": canonical_sha256(observed),
-        }
-        if ok:
-            return result
-        result['expected'] = expected
-        result['observed'] = observed
-        persist_mismatch(con, account_id, result, now=effective_now,
-                         session_date=session_date, expected=expected, observed=observed)
+        result = dict(account_id=account_id, status='ok' if ok else 'mismatch',
+                      expected_sha256=canonical_sha256(expected),
+                      observed_sha256=canonical_sha256(observed))
+        if not ok:
+            result.update(expected=expected, observed=observed)
         return result
 
-    def checked_run():
-        try:
-            return run()
-        except ValueError as exc:
-            observed = ledger.state(con, account_id)
-            expected = {'replay_error': str(exc)}
-            result = dict(account_id=account_id, status='mismatch', expected=expected,
-                          observed=observed, expected_sha256=canonical_sha256(expected),
-                          observed_sha256=canonical_sha256(observed))
-            persist_mismatch(con, account_id, result, now=effective_now,
-                             session_date=session_date, expected=expected, observed=observed)
-            return result
-
-    if manage_transaction:
+    if not manage_transaction:
+        return run()
+    try:
         with db.transaction(con):
-            return checked_run()
-    return checked_run()
+            result = run()
+            if result['status'] != 'ok':
+                raise VerificationError(result)
+        return result
+    except Exception as exc:
+        result = failure_result(account_id, exc)
+        with db.transaction(con):
+            persist_mismatch(con, account_id, result, now=effective_now, session_date=session_date)
+        return result
+
+
+def failure_result(account_id, exc):
+    return exc.result if isinstance(exc, VerificationError) else dict(
+        account_id=account_id, status='mismatch', exception_type=type(exc).__name__, message=str(exc)[:1000])
 
 
 def run_alerts(con, session_date: date, *, now: datetime | None = None) -> list[dict]:
@@ -453,7 +398,7 @@ class VerificationError(RuntimeError):
 
 def require_verified(con, account_id, *, now, session_date=None, manage_transaction=True):
     result = verify(con, account_id, now=now, session_date=session_date,
-                    manage_transaction=manage_transaction, replay_carried=True)
+                    manage_transaction=manage_transaction)
     if result['status'] != 'ok':
         raise VerificationError(result)
     return result

@@ -23,8 +23,8 @@ def recorded_splits(con, account_id: str, through: date | None = None):
     return sorted(events, key=lambda item: (item[1], item[0]))
 
 
-def apply_splits(con, account_id: str, day: date, now, record_event, *, replay=False) -> None:
-    """Apply captured actions once, independently of price-restatement decisions."""
+def capture_splits(con, account_id: str, day: date, now, record_event) -> None:
+    """Admit captured split facts; orders always retain their receipt quantities."""
     if not table_exists(con, 'corporate_actions'):
         return
     applied = {(ticker, ex) for ticker, ex, _ in recorded_splits(con, account_id)}
@@ -37,41 +37,22 @@ def apply_splits(con, account_id: str, day: date, now, record_event, *, replay=F
         [day, now, account_id, account_id],
     ).fetchall()
     for ticker, ex, ratio in rows:
-        already_applied = (ticker, ex) in applied
-        if already_applied and not (replay and ex == day):
-            continue
-        from sim.ledger import apply_split
-
-        apply_split(con, account_id, ticker, ex, ratio)
-        opened, _ = bar_sources.session_bounds(ex)
-        orders = con.execute(
-            'SELECT o.id FROM sim_orders o JOIN sim_order_details d ON d.order_id=o.id '
-            "WHERE o.portfolio_id=? AND o.ticker=? AND o.status='pending' "
-            'AND d.received_at<?', [account_id, ticker, opened],
-        ).fetchall()
-        for (order_id,) in ([] if already_applied else orders):
-            con.execute('UPDATE sim_orders SET qty=qty*? WHERE id=?', [ratio, order_id])
-            con.execute('UPDATE sim_order_details SET limit_px=limit_px/? WHERE order_id=?',
-                        [ratio, order_id])
-        record_event(con, account_id, 'split',
-                     {'instrument_id': ticker, 'ex_date': ex.isoformat(), 'ratio': ratio,
-                      'adjusted_order_ids': [order_id for (order_id,) in orders]}, now)
+        if (ticker, ex) not in applied:
+            record_event(con, account_id, 'split',
+                         {'instrument_id': ticker, 'ex_date': ex.isoformat(), 'ratio': ratio}, now)
 
 
 def prepare_order(con, row: dict, day: date, now) -> dict:
-    """Preview unapplied split units before pricing and global liquidity allocation."""
+    """Convert immutable receipt units to the execution session inside the fold."""
     if not table_exists(con, 'corporate_actions'):
         return row
     prepared = dict(row)
-    applied = {(ticker, ex) for ticker, ex, _ in recorded_splits(con, row['portfolio_id'])}
     for ex, ratio in con.execute(
         "SELECT ex_date,value FROM corporate_actions WHERE ticker=? AND kind='split' "
         'AND ex_date<=? AND value>0 AND isfinite(value) '
         'AND (fetched_at IS NULL OR fetched_at<=?) ORDER BY ex_date',
         [row['ticker'], day, now],
     ).fetchall():
-        if (row['ticker'], ex) in applied:
-            continue
         if bar_sources._naive_utc(row['received_at']) < bar_sources.session_bounds(ex)[0]:
             prepared['qty'] *= ratio
             if prepared['limit_px'] is not None:

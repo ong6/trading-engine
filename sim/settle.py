@@ -314,7 +314,7 @@ def settle(con: duckdb.DuckDBPyConnection, t: Terms, apply: bool = False,
     ts = now or datetime.now(timezone.utc).replace(tzinfo=None)
     for p in plans:
         from engine.accounts import service
-        from engine.accounts.late import recover_account
+        from engine.accounts.settle import fold_account
         from sim.schema import portfolio_account
 
         account = portfolio_account(con, p.portfolio_id)['engine'] == 'account'
@@ -330,9 +330,11 @@ def settle(con: duckdb.DuckDBPyConnection, t: Terms, apply: bool = False,
                 [p.portfolio_id, t.ticker, t.kind, p.qty, t.price, t.into_ticker,
                  t.ratio, t.effective, t.source, t.note, ts])
         if account:
-            recover_account(con, p.portfolio_id, t.effective, t.effective,
-                            now=effective_now, mutation=record, verified=True,
-                            manage_transaction=False)
+            try:
+                fold_account(con, p.portfolio_id, t.effective, now=effective_now,
+                             mutation=record, manage_transaction=False)
+            except Exception as exc:
+                raise service.VerificationError(service.failure_result(p.portfolio_id, exc)) from exc
         else:
             record()
             apply_settlement_event(con, p.portfolio_id, t.ticker, t.kind, p.qty,

@@ -3133,4 +3133,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** production LOC unchanged.
 - **Next:** remove checkpoint restoration and historical-risk replay.
 
+## 2026-10-10 — Fold complete account history and process risk as-known
+
+- **Why:** P22 round 6 rulings A–D and the four fail-first lifecycle blockers.
+- **What:** Replaced checkpoint recovery with inception folds and immutable receipt units.
+  Removed historical-risk replay; corrected curves drive current drawdown and daily loss.
+  All fold/settlement/verification failures roll back, then durably record a mismatch and halt.
+  Results verify through the account writer; list accepts its list payload.
+- **Evidence:** `pytest -q -W error -n 8 tests/test_p22_round{2,3,4,5}.py
+  tests/test_accounts_settle.py tests/test_money.py tests/test_account_results.py` → 110 passed.
+- **Metrics:** pending final snapshot; accounting paths have a net reduction.
+- **Next:** complete generated-delivery seeds and revision-14 acceptance.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

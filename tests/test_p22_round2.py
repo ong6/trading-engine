@@ -210,7 +210,7 @@ def test_halt_and_cancel_ignore_cross_process_source_writer(h):
     assert h.scalar('SELECT status FROM sim_orders') == 'cancelled'
 
 
-def test_source_writer_defers_only_dependent_accounts_then_recovers(h):
+def test_source_writer_halts_only_dependent_accounts_then_marks_on_retry(h):
     h.create()
     h.order('open', 'LONG', 'buy', 1)
     h.create('acct-b', price_source='prices')
@@ -221,7 +221,9 @@ def test_source_writer_defers_only_dependent_accounts_then_recovers(h):
     assert h.scalar("SELECT COUNT(*) FROM account_events WHERE portfolio_id='acct-a' "
                     "AND kind='settlement_error'") == 1
     assert cli.main(['settle', '--late', '--date', DAY.isoformat()]) == 0
-    assert h.scalar("SELECT COUNT(*) FROM sim_fills WHERE portfolio_id='acct-a'") == 1
+    assert h.scalar("SELECT COUNT(*) FROM sim_fills WHERE portfolio_id='acct-a'") == 0
+    assert h.scalar("SELECT pa_status FROM portfolio_accounts_v WHERE portfolio_id='acct-a'") == 'halted'
+    assert h.scalar("SELECT COUNT(*) FROM sim_equity WHERE portfolio_id='acct-a'") == 1
 
 
 def _dividend(h):
@@ -377,7 +379,7 @@ def test_retiring_margin_debt_keeps_interest_until_flat(h):
     h.now = datetime(2026, 10, 6, 21, tzinfo=timezone.utc)
     assert routes.retire_account('acct-a', h.auth)['status'] == 'retiring'
     assert h.night() == 0
-    assert h.scalar("SELECT COUNT(*) FROM sim_cash_events WHERE kind='margin_interest'") == 1
+    assert h.scalar("SELECT COUNT(*) FROM sim_cash_events WHERE kind='margin_interest' AND amount<0") == 1
     assert h.scalar("SELECT pa_status FROM portfolio_accounts_v WHERE portfolio_id='acct-a'") == 'retired'
 
 
