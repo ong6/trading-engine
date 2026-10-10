@@ -282,6 +282,7 @@ def test_p15_registration_revision_and_self_hash():
         "corporate-action lot results and route-preserving migration (revision 14 undeployed)"
         "; round-4 shared fee-aware sizing, historical dividends, FIFO preview, risk-event replay "
         "and lot/equity verification (revision 14 remains undeployed)"
+        "; round-6 complete inception folds, immutable receipt units and as-known risk replace checkpoint restoration and historical-risk replay (revision 14 remains undeployed)"
     )
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()

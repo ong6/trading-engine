@@ -1,10 +1,6 @@
 {
-  "schema_version": 1,
-  "registration_id": "p15-profitability-evidence-loop-v1",
-  "registered_at": "2026-10-03T02:52:40Z",
   "activated_at": "2026-09-29T00:00:00-04:00",
   "activation_session": "2026-09-29",
-  "status": "registered_inactive",
   "authority": {
     "asset_side": "long_only",
     "broker_access": false,
@@ -13,237 +9,55 @@
     "real_capital": false,
     "scope": "local_simulator_only"
   },
-  "universe": {
-    "version": "p15-universe-v1",
-    "minimum_close": 3.0,
-    "minimum_history_sessions": 21,
-    "maximum_absolute_daily_return": 0.8,
-    "minimum_median_dollar_volume_20d": 20000000.0,
-    "mover_limit": 40,
-    "trend_limit": 20,
-    "held_names_included": true,
-    "held_names_excluded_from_primary_ic": true
-  },
-  "scoring": {
-    "policy_id": "p15-scoring-v1",
-    "chunk_size": 10,
-    "samples_per_chunk": 3,
-    "aggregation": "numeric_median_majority_action_representative_text_v1",
-    "deadline_utc": "12:00:00",
-    "actions": [
-      "ignore",
-      "watch",
-      "buy_candidate",
-      "exit"
-    ],
-    "exit_requires_held": true,
-    "ai_entry_minimum_probability": 0.55,
-    "ai_entry_minimum_expected_excess_bp_5": 50.0,
-    "hybrid_veto_below_expected_excess_bp_5": 0.0,
-    "model": "GPT-5.6-Sol:max",
-    "model_version": "unversioned-catalog-alias",
-    "provider_revision_available": false,
-    "model_identity_sha256": "f2afbed44e9445956f4eed1373e235bc55a5a0ac82c9d498120c0605822763a4",
-    "instructions_sha256": "fa5b287cfd82f2e840f422a3e357a821bfcbdd8f73ca8aa68a73b5fc9912186d",
-    "toolset_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "database_wait_seconds": 60.0,
-    "maximum_event_facts": 120,
-    "admissible_window": "after_market_close_before_next_session_open",
-    "deadline_start_refusal": "persist_failed_run_without_external_calls"
-  },
   "baseline": {
-    "version": "p15-baseline-v1",
+    "missing_rs_rank": "last",
     "ranking": [
       "rs_rank_desc",
       "standout_score_desc",
       "ticker_asc"
     ],
-    "missing_rs_rank": "last"
-  },
-  "labels": {
-    "schema_version": 2,
-    "round_trip_cost_bps": 20.0,
-    "horizons_sessions": [
-      1,
-      5,
-      10,
-      20
-    ],
-    "primary_horizon_sessions": 5,
-    "nightly_basis": "next_session_open",
-    "event_bases": [
-      "next_bar",
-      "next_session_open"
-    ],
-    "missing_bars": "last_available_close_after_confirmation",
-    "missing_bar_grace_sessions": 3,
-    "missing_bar_confirmation": "later_ticker_bar_or_completed_exact_date_fetch",
-    "fetch_attempt_evidence": "batch_bound_liquid_and_exact_open_label_missing_receipts",
-    "spy_net_return_stored": true
+    "version": "p15-baseline-v1"
   },
   "books": {
+    "atr_period": 14,
+    "atr_stop_multiple": 2.5,
+    "config_sha256": {
+      "p15_ai_ranked": "0d0b6a39d87129471247ac586a12c462c8dacafce430d910c38d5b834e28cd71",
+      "p15_hybrid_veto": "8ade3ed05e34089c53fdf62c267780a499b1f59fa5dea3f7aa52acb3aed1c2ed",
+      "p15_rule_control": "1ef39be2e115b2ce273a015e392654aea7b7fdd47c3ae1d01c3f281775f34ad7"
+    },
+    "cost_break_session": "migration --d0 parameter",
+    "cost_profile": "ibkr_pro_tiered_v1",
+    "drawdown_halt": -0.2,
+    "entry_limit": "signal_close*(1+max(0.015,0.5*atr14/signal_close))",
+    "entry_order": "limit_on_open",
+    "execution_profile": "baseline_v1",
+    "hybrid_vetoed_slot_replacement": "next_baseline_ranked_eligible_non_vetoed_name_if_available",
+    "initial_cash_usd_each": 10000.0,
+    "maximum_gross_exposure": 1.0,
+    "maximum_name_fraction": 0.15,
+    "maximum_new_entries_per_session": 2,
+    "maximum_positions": 8,
     "mechanics_version": "p15-book-v1",
     "portfolio_ids": [
       "p15_ai_ranked",
       "p15_rule_control",
       "p15_hybrid_veto"
     ],
-    "initial_cash_usd_each": 10000.0,
-    "execution_profile": "baseline_v1",
     "risk_fraction": 0.01,
-    "atr_period": 14,
-    "atr_stop_multiple": 2.5,
-    "maximum_name_fraction": 0.15,
-    "maximum_new_entries_per_session": 2,
-    "maximum_positions": 8,
-    "maximum_gross_exposure": 1.0,
-    "drawdown_halt": -0.2,
-    "time_exit_sessions": 10,
     "spy_sleeve": "whole_shares",
-    "entry_order": "limit_on_open",
-    "entry_limit": "signal_close*(1+max(0.015,0.5*atr14/signal_close))",
-    "hybrid_vetoed_slot_replacement": "next_baseline_ranked_eligible_non_vetoed_name_if_available",
     "stale_entry_sessions": 1,
-    "config_sha256": {
-      "p15_ai_ranked": "0d0b6a39d87129471247ac586a12c462c8dacafce430d910c38d5b834e28cd71",
-      "p15_hybrid_veto": "8ade3ed05e34089c53fdf62c267780a499b1f59fa5dea3f7aa52acb3aed1c2ed",
-      "p15_rule_control": "1ef39be2e115b2ce273a015e392654aea7b7fdd47c3ae1d01c3f281775f34ad7"
-    },
-    "cost_profile": "ibkr_pro_tiered_v1",
-    "cost_break_session": "migration --d0 parameter"
-  },
-  "preopen": {
-    "policy_id": "p15-preopen-v1",
-    "schedule": "09:05 America/New_York weekdays",
-    "deadline": "09:25:00 America/New_York",
-    "authority": "cancel_only",
-    "model_identity_sha256": "ca48bf04fd84781f6bf7cd33185b5b1f5bf359d9f01afba5fef601f9deb2fd81",
-    "instructions_sha256": "11c3faf0f864ab8ce68deb81a3b08ef261501be9f7a4e0a0596b4e02d2e453a7",
-    "session_only": true
-  },
-  "events": {
-    "policy_id": "p15-events-v1",
-    "schedule": "09:35,09:50,10:05-15:50 at :05/:20/:35/:50 America/New_York",
-    "sources": [
-      "local_rss",
-      "sec_edgar_8k",
-      "intraday_mover"
-    ],
-    "maximum_universe": 300,
-    "maximum_workers": 8,
-    "maximum_decisions_per_session": 60,
-    "chunk_size": 10,
-    "mover_minimum_absolute_return": 0.04,
-    "mover_atr_threshold_multiple": 2.0,
-    "mover_minimum_relative_volume": 2.0,
-    "execution_authority": "none",
-    "latency_target_p95_ms": 600000,
-    "model_identity_sha256": "e8077edeeb46e6a1d4a2b17b14879ad7425c1292eb8612de951b4ee5c2802fe5",
-    "instructions_sha256": "5752e58a0672b5e16476824d2bcfaf672086a6e99392c49250a7588a4ab7324f",
-    "database_released_during_model_calls": true,
-    "first_availability_only": true,
-    "sec_acceptance_after_previous_cik_scan": true
-  },
-  "evaluation": {
-    "primary_statistic": "paired_daily_spearman_champion_minus_rule",
-    "minimum_pairs_per_session": 20,
-    "score_and_label_basis": {
-      "champion_score": "registered champion score on the common P15-eligible candidate set",
-      "rule_score": "-agent_evaluation_decisions.decision_payload.baseline_rank",
-      "label": "registered h5 net excess with the same next-open/fifth-close and cost version for both scores",
-      "mean_champion_ic": "arithmetic mean of raw Spearman(champion_score,label) on exactly the retained origins used by the look"
-    },
-    "primary_sampling": {
-      "calendar": "NYSE_exchange_sessions",
-      "origin_epoch_rule": "first NYSE signal session whose registered scoring cutoff is strictly after activated_at; persist its literal session as index 0 even if predictably skipped",
-      "origin_epoch": "2026-09-29",
-      "stride": 5,
-      "offset": 0,
-      "nominal_look_labels": [
-        60,
-        90,
-        120
-      ],
-      "retained_observations_at_looks": [
-        12,
-        18,
-        24
-      ],
-      "skip_decided_before_forward_outcome": [
-        "fewer_than_20_candidates",
-        "constant_scores"
-      ],
-      "constant_scores_definition": "either champion score or rule score is constant on the common eligible candidate set",
-      "skip_effect": "stay_on_original_offset0_grid_and_delay_until_target_retained_count",
-      "unresolved_or_outcome_dependent_missing": "block_prefix_no_replacement",
-      "other_offsets": "diagnostic_only"
-    },
-    "primary_interval": {
-      "standard_error": "sample_sd_ddof1_divided_by_sqrt_retained_n",
-      "one_sided_alpha_per_look": 0.016666666666666666,
-      "degrees_of_freedom": [
-        11,
-        17,
-        23
-      ],
-      "critical_values": [
-        2.431291192871,
-        2.315573401153,
-        2.263728355255
-      ],
-      "zero_variance": "no_interval_no_pass_and_kill_at_completed_final_look"
-    },
-    "primary_pass": "lower_bound_gt_0_and_mean_champion_IC_on_same_retained_origins_gt_0",
-    "primary_kill": "upper_bound_lt_0_at_any_look_or_no_pass_at_final_24_observation_look",
-    "look_persistence": "immutable_first_evaluation_of_registered_retained_origin_prefix",
-    "lag4_hansen_hodrick": "diagnostic_only_with_nonpositive_Bartlett_lag8_fallback",
-    "retained_lag1_autocorrelation": {
-      "formula": "sum((d[1:]-mean_d)*(d[:-1]-mean_d))/sum((d-mean_d)^2)",
-      "zero_denominator": "unavailable",
-      "role": "diagnostic_only_never_changes_pass_or_kill",
-      "ar1_rho_0_5_seeded_any_crossing": 0.06253
-    },
-    "null_contract": "retained_offset0_d_are_iid_Gaussian_with_nonpositive_mean; eligibility_is_decided_before_and_independent_of_forward_return_innovations",
-    "family_error_argument": "three_fixed_sample_count_looks_each_at_0.05/3; Bonferroni_at_most_0.05",
-    "outside_guarantee": "persistent_AR_dependence_heterogeneous_selected_distributions_or_outcome_dependent_skips",
-    "primary_simulation_validation": {
-      "bit_generator": "PCG64",
-      "draws": 10000,
-      "iid_null_seed": 20260927,
-      "iid_null_pass_count": 353,
-      "maximum_iid_null_false_pass_rate": 0.05
-    },
-    "missing_label_grace_sessions": 3,
-    "book_newey_west_lag": 4,
-    "book_minimum_calendar_days": 90,
-    "book_minimum_closed_trades_each": 30,
-    "book_promotion": "primary_pass_and_challenger_lower_bound_gt_0_and_all_drawdowns_gte_minus_0.20",
-    "p8_review": "90_calendar_days_and_60_completed_sessions; expectancy_after_20_round_trips; confidence_bound_not_a_gate",
-    "book_clock_restart_session": "migration --d0 parameter"
-  },
-  "delivery": {
-    "scoring_timer_persistent": true,
-    "preopen_timer_persistent": false,
-    "events_timer_persistent": false,
-    "report_json": "data/reports/agent-evaluation.json",
-    "report_markdown": "data/reports/agent-eval/p15.md",
-    "scoring_service_restart": "on-failure_after_5min_burst_3_per_30min",
-    "model_call_count": "attempted_calls_including_connector_failures",
-    "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
-    "price_fetch_attempts": "zero_failed_liquid_batch_plus_exact_open_label_receipts",
-    "maximum_open_label_fetches_per_run": 20,
-    "price_fetch_availability": "after_collection_completion"
+    "time_exit_sessions": 10
   },
   "code_identity": {
-    "source_commit": "c1cc14e41b8453be00a8f5d636f4124f9be90959",
     "files": {
       "engine/__init__.py": "565735f764436cada3d379d542609bdd67dc372f8a6ed62ef4d8dadc3e00b3d5",
       "engine/account_watch.py": "cbda8d47487c8a827f8f5cb7ab22ec916c100055ffaa7ff753ea24759121eb6c",
       "engine/accounts/__init__.py": "42ec5fcd2730c9d2efa8dc8bfda6d3c54340268ef64f945f1f19d4097300635e",
-      "engine/accounts/actions.py": "3470af0a1b2a0f4fc4be821e7a4873cc10890b44df3d44e7db5d27b9cfa73440",
-      "engine/accounts/late.py": "e60436f19b5630bc76a3dff510a094f83fb29e119c6f3458c296c891d49cf2f7",
-      "engine/accounts/service.py": "b22c9ab72b1109b6fb49f61814ff005be583cd9b75abbd7a0b32f03202cceb0f",
-      "engine/accounts/settle.py": "28b89df2770b4d29d89f17168b0ddc4f0f964b7766ff07d7062f88b888ce36d6",
+      "engine/accounts/actions.py": "9a498698ebf419bff7d277cc7a7cc979baba6348ceecba40d360ca9ecb25ac45",
+      "engine/accounts/late.py": "5e38637a93b4ef8a8aec276a0478eb53c975f6d2dfb904c7905c2ba6871612f8",
+      "engine/accounts/service.py": "1d8e4eece02971c1de8d47e25c5b349d563a9e67799739051be9e47bdc85359e",
+      "engine/accounts/settle.py": "d6600158bce7b6c0f9ba18bee40a0996f48a9d22cb1797c331ecca9a75b842dd",
       "engine/accounts/sources.py": "5919ce4317e60c87cfb6c3444aa4a160d70836bbea75fa45a123d0903b874d38",
       "engine/actions.py": "6243fe3415b56d2db9c12f6f5f6d1dce11b64c1e64fa9b8160a316aef260ddec",
       "engine/bitemporal_facts.py": "9f593e82da0f65a54b93d0dac5505e6a98fad5d1d4d63ce672b71d527655c8cc",
@@ -270,11 +84,11 @@
       "engine/market_date.py": "a1c1b0e4aa4efd994074f72458bd857a6728d73b7a5f9c22e9bcfa8f0266c667",
       "engine/money/__init__.py": "9f8457e44b6e3be2895cb46a7109c7da333f3026a99b2cdf5bec1afb01024cf6",
       "engine/money/alerts.py": "51f02146748af870a59dbf3bc63f873f7e06be5c420dae3cd048bb40ecb2e722",
-      "engine/money/halts.py": "70e7f329e5d1e4873663391cfc44bb7e2e56bc8dc65975cf4b6c662aa4deafaf",
+      "engine/money/halts.py": "77d9b496b22b88ca7b1f9a54a817bade3df5c2a4278b5f26260fe33d474f6148",
       "engine/money/limits.py": "a6496437d7c3bb98757ae379f41450e3c1d7f277e410bdcc195edc89846b9968",
       "engine/p15_evaluation.py": "c9d65f8f294532c16bea738db77cec88333a7d2ec1349d1970ed866f01398810",
       "engine/p15_event_sources.py": "fb2831a69168d4ffd4dfec0c283601e30d94d017ebaff4103967bd61559df488",
-      "engine/paper_accounts.py": "af9a669594b27a0f9fd3db94438eca9272dca92ed0bf62580d21668d8b887f41",
+      "engine/paper_accounts.py": "70542f8f415e54d414ac42aaff59a18027608636e38c9caaa029ffc67abc725f",
       "engine/queue_runner.py": "041c3cdf8417ddb8cbe96283314c278bbb99bac87903e44227fb4331f729b096",
       "engine/run_daily.sh": "c3a77da9946022aefc6c54b5c3a95c9d30050a5ced15facbc2c6dd438d9123d6",
       "engine/screen.py": "10ad75b95fd8d9f6280365b648105d2eaf5ff26fe6e13966423d0133a43787b3",
@@ -351,8 +165,8 @@
       "sim/costs/profiles.py": "bbd4c25da233957405a3fea96da1787800b113391eb05d48a6ec2c0437c0a4d2",
       "sim/execution.py": "e6e9c36d7ff2c2dfb12eaa3832b5e9e1697bd8cb3dfa9b9126a966ab4d8121ac",
       "sim/fills.py": "5aa2a94be862209d1aa9d7058f8589bc89a988f036d892a16b49928b601c4603",
-      "sim/league.py": "8b23872abe474ca694676021fa67bfa77208ccef71a9fd136cee96a67468425a",
-      "sim/ledger.py": "b39d883a2d396804d4e912a598084d2e4a712bdd46f57b1269964abbc6041613",
+      "sim/league.py": "1fcc806827f5d69dea53e3f749d9f78aa538adfa4fd353158505cfc7d0e44756",
+      "sim/ledger.py": "218b067c02d42e246086e4d235f47055cd16332deeb0462385b12bb6a53c1ac0",
       "sim/margin.py": "714eff5d902b25f9eec0e1bdc8ebbcc9f7488ab67416d499314e0d623be75233",
       "sim/nyse.py": "7911bf0f9c6c0c4be6d43b1e6d23604c2d4a74c18deac41116c5865b11604f5b",
       "sim/order_types.py": "2eefb14ea7ecb88160a9210a0cd488369cba16833e6fd304a6b9f151c3c5e22f",
@@ -360,7 +174,7 @@
       "sim/p15_fills.py": "baf1cf1aa52277ced800908a0f8716d2693499e9c27ef895e1ab6a9a1e2b806e",
       "sim/portfolio.py": "d0f81a28797ac6398520d7e011dc5a966a611fb22eb0ad2d9a1ec943f53209b4",
       "sim/schema.py": "b47342c2dd40340bd7e6332bdf1f7566791807b150bee74e3c4397734c3b6100",
-      "sim/settle.py": "e3674598956ac552cdfc667b80f53b16cb3d3dcccd60078b18874919a0897249",
+      "sim/settle.py": "60f7be0b99eddb89cdaa686514e88308b05200e6a929a7af04893974e17ed768",
       "sim/shorts.py": "2b0f7023fb742c1d9132cfd39f5b03518c99267d5ae35c73a3a339f70e196855",
       "sim/strategies/__init__.py": "adc0f8d4fb826e31222e3f6b7db493bde39fb1abc04d4feef5174fffd8a33182",
       "sim/strategies/agent_only_policy.py": "f745f9d758a6d71ada5db671ff7f8e0bfd77529237ab22f099c4199ed4437996",
@@ -399,9 +213,195 @@
       "tools/publish_snapshot.py": "23c1057ee3524f1a26c54ab814c68cdff127f7b0702fd3f2142ee370091533b5",
       "tools/release_manifest.py": "90b52c70a99d5ccab09d0efd6b453f6ac814243decee68071c7f658b4d96e217",
       "tools/sec_edgar_capture.py": "63dc9eb0b5f6dc2ac910077a07c58e65a95b5ba0961ae2b5cd4d3d5148b4ecab"
+    },
+    "source_commit": "63059455fbff0daf4ef9862471c82a0bd962e5a2"
+  },
+  "delivery": {
+    "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
+    "events_timer_persistent": false,
+    "maximum_open_label_fetches_per_run": 20,
+    "model_call_count": "attempted_calls_including_connector_failures",
+    "preopen_timer_persistent": false,
+    "price_fetch_attempts": "zero_failed_liquid_batch_plus_exact_open_label_receipts",
+    "price_fetch_availability": "after_collection_completion",
+    "report_json": "data/reports/agent-evaluation.json",
+    "report_markdown": "data/reports/agent-eval/p15.md",
+    "scoring_service_restart": "on-failure_after_5min_burst_3_per_30min",
+    "scoring_timer_persistent": true
+  },
+  "evaluation": {
+    "book_clock_restart_session": "migration --d0 parameter",
+    "book_minimum_calendar_days": 90,
+    "book_minimum_closed_trades_each": 30,
+    "book_newey_west_lag": 4,
+    "book_promotion": "primary_pass_and_challenger_lower_bound_gt_0_and_all_drawdowns_gte_minus_0.20",
+    "family_error_argument": "three_fixed_sample_count_looks_each_at_0.05/3; Bonferroni_at_most_0.05",
+    "lag4_hansen_hodrick": "diagnostic_only_with_nonpositive_Bartlett_lag8_fallback",
+    "look_persistence": "immutable_first_evaluation_of_registered_retained_origin_prefix",
+    "minimum_pairs_per_session": 20,
+    "missing_label_grace_sessions": 3,
+    "null_contract": "retained_offset0_d_are_iid_Gaussian_with_nonpositive_mean; eligibility_is_decided_before_and_independent_of_forward_return_innovations",
+    "outside_guarantee": "persistent_AR_dependence_heterogeneous_selected_distributions_or_outcome_dependent_skips",
+    "p8_review": "90_calendar_days_and_60_completed_sessions; expectancy_after_20_round_trips; confidence_bound_not_a_gate",
+    "primary_interval": {
+      "critical_values": [
+        2.431291192871,
+        2.315573401153,
+        2.263728355255
+      ],
+      "degrees_of_freedom": [
+        11,
+        17,
+        23
+      ],
+      "one_sided_alpha_per_look": 0.016666666666666666,
+      "standard_error": "sample_sd_ddof1_divided_by_sqrt_retained_n",
+      "zero_variance": "no_interval_no_pass_and_kill_at_completed_final_look"
+    },
+    "primary_kill": "upper_bound_lt_0_at_any_look_or_no_pass_at_final_24_observation_look",
+    "primary_pass": "lower_bound_gt_0_and_mean_champion_IC_on_same_retained_origins_gt_0",
+    "primary_sampling": {
+      "calendar": "NYSE_exchange_sessions",
+      "constant_scores_definition": "either champion score or rule score is constant on the common eligible candidate set",
+      "nominal_look_labels": [
+        60,
+        90,
+        120
+      ],
+      "offset": 0,
+      "origin_epoch": "2026-09-29",
+      "origin_epoch_rule": "first NYSE signal session whose registered scoring cutoff is strictly after activated_at; persist its literal session as index 0 even if predictably skipped",
+      "other_offsets": "diagnostic_only",
+      "retained_observations_at_looks": [
+        12,
+        18,
+        24
+      ],
+      "skip_decided_before_forward_outcome": [
+        "fewer_than_20_candidates",
+        "constant_scores"
+      ],
+      "skip_effect": "stay_on_original_offset0_grid_and_delay_until_target_retained_count",
+      "stride": 5,
+      "unresolved_or_outcome_dependent_missing": "block_prefix_no_replacement"
+    },
+    "primary_simulation_validation": {
+      "bit_generator": "PCG64",
+      "draws": 10000,
+      "iid_null_pass_count": 353,
+      "iid_null_seed": 20260927,
+      "maximum_iid_null_false_pass_rate": 0.05
+    },
+    "primary_statistic": "paired_daily_spearman_champion_minus_rule",
+    "retained_lag1_autocorrelation": {
+      "ar1_rho_0_5_seeded_any_crossing": 0.06253,
+      "formula": "sum((d[1:]-mean_d)*(d[:-1]-mean_d))/sum((d-mean_d)^2)",
+      "role": "diagnostic_only_never_changes_pass_or_kill",
+      "zero_denominator": "unavailable"
+    },
+    "score_and_label_basis": {
+      "champion_score": "registered champion score on the common P15-eligible candidate set",
+      "label": "registered h5 net excess with the same next-open/fifth-close and cost version for both scores",
+      "mean_champion_ic": "arithmetic mean of raw Spearman(champion_score,label) on exactly the retained origins used by the look",
+      "rule_score": "-agent_evaluation_decisions.decision_payload.baseline_rank"
     }
   },
+  "events": {
+    "chunk_size": 10,
+    "database_released_during_model_calls": true,
+    "execution_authority": "none",
+    "first_availability_only": true,
+    "instructions_sha256": "5752e58a0672b5e16476824d2bcfaf672086a6e99392c49250a7588a4ab7324f",
+    "latency_target_p95_ms": 600000,
+    "maximum_decisions_per_session": 60,
+    "maximum_universe": 300,
+    "maximum_workers": 8,
+    "model_identity_sha256": "e8077edeeb46e6a1d4a2b17b14879ad7425c1292eb8612de951b4ee5c2802fe5",
+    "mover_atr_threshold_multiple": 2.0,
+    "mover_minimum_absolute_return": 0.04,
+    "mover_minimum_relative_volume": 2.0,
+    "policy_id": "p15-events-v1",
+    "schedule": "09:35,09:50,10:05-15:50 at :05/:20/:35/:50 America/New_York",
+    "sec_acceptance_after_previous_cik_scan": true,
+    "sources": [
+      "local_rss",
+      "sec_edgar_8k",
+      "intraday_mover"
+    ]
+  },
+  "labels": {
+    "event_bases": [
+      "next_bar",
+      "next_session_open"
+    ],
+    "fetch_attempt_evidence": "batch_bound_liquid_and_exact_open_label_missing_receipts",
+    "horizons_sessions": [
+      1,
+      5,
+      10,
+      20
+    ],
+    "missing_bar_confirmation": "later_ticker_bar_or_completed_exact_date_fetch",
+    "missing_bar_grace_sessions": 3,
+    "missing_bars": "last_available_close_after_confirmation",
+    "nightly_basis": "next_session_open",
+    "primary_horizon_sessions": 5,
+    "round_trip_cost_bps": 20.0,
+    "schema_version": 2,
+    "spy_net_return_stored": true
+  },
+  "preopen": {
+    "authority": "cancel_only",
+    "deadline": "09:25:00 America/New_York",
+    "instructions_sha256": "11c3faf0f864ab8ce68deb81a3b08ef261501be9f7a4e0a0596b4e02d2e453a7",
+    "model_identity_sha256": "ca48bf04fd84781f6bf7cd33185b5b1f5bf359d9f01afba5fef601f9deb2fd81",
+    "policy_id": "p15-preopen-v1",
+    "schedule": "09:05 America/New_York weekdays",
+    "session_only": true
+  },
+  "registered_at": "2026-10-03T02:52:40Z",
+  "registration_id": "p15-profitability-evidence-loop-v1",
   "registration_revision": 14,
-  "revision_reason": "P22 on top of revision 13's validator and label-timing corrections; owner decision 2026-10-06: ibkr_pro_tiered_v1 commissions from the migration --d0; book evaluation clocks restart at D0; account engine; scoring, labels, gates and schedules unchanged; round-3 chronological accounting, observable opening financing, debit checkpoints, corporate-action lot results and route-preserving migration (revision 14 undeployed); round-4 shared fee-aware sizing, historical dividends, FIFO preview, risk-event replay and lot/equity verification (revision 14 remains undeployed)",
-  "registration_sha256": "b5d59e13e84acfb595036ab5d5d2467963d9bf52dc3c783d72ed7b71577d1f6c"
+  "registration_sha256": "eca42324074ff677357cdd043bd61ebad75405aae8c8246edffca7d971d38a11",
+  "revision_reason": "P22 on top of revision 13's validator and label-timing corrections; owner decision 2026-10-06: ibkr_pro_tiered_v1 commissions from the migration --d0; book evaluation clocks restart at D0; account engine; scoring, labels, gates and schedules unchanged; round-3 chronological accounting, observable opening financing, debit checkpoints, corporate-action lot results and route-preserving migration (revision 14 undeployed); round-4 shared fee-aware sizing, historical dividends, FIFO preview, risk-event replay and lot/equity verification (revision 14 remains undeployed); round-6 complete inception folds, immutable receipt units and as-known risk replace checkpoint restoration and historical-risk replay (revision 14 remains undeployed)",
+  "schema_version": 1,
+  "scoring": {
+    "actions": [
+      "ignore",
+      "watch",
+      "buy_candidate",
+      "exit"
+    ],
+    "admissible_window": "after_market_close_before_next_session_open",
+    "aggregation": "numeric_median_majority_action_representative_text_v1",
+    "ai_entry_minimum_expected_excess_bp_5": 50.0,
+    "ai_entry_minimum_probability": 0.55,
+    "chunk_size": 10,
+    "database_wait_seconds": 60.0,
+    "deadline_start_refusal": "persist_failed_run_without_external_calls",
+    "deadline_utc": "12:00:00",
+    "exit_requires_held": true,
+    "hybrid_veto_below_expected_excess_bp_5": 0.0,
+    "instructions_sha256": "fa5b287cfd82f2e840f422a3e357a821bfcbdd8f73ca8aa68a73b5fc9912186d",
+    "maximum_event_facts": 120,
+    "model": "GPT-5.6-Sol:max",
+    "model_identity_sha256": "f2afbed44e9445956f4eed1373e235bc55a5a0ac82c9d498120c0605822763a4",
+    "model_version": "unversioned-catalog-alias",
+    "policy_id": "p15-scoring-v1",
+    "provider_revision_available": false,
+    "samples_per_chunk": 3,
+    "toolset_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  },
+  "status": "registered_inactive",
+  "universe": {
+    "held_names_excluded_from_primary_ic": true,
+    "held_names_included": true,
+    "maximum_absolute_daily_return": 0.8,
+    "minimum_close": 3.0,
+    "minimum_history_sessions": 21,
+    "minimum_median_dollar_volume_20d": 20000000.0,
+    "mover_limit": 40,
+    "trend_limit": 20,
+    "version": "p15-universe-v1"
+  }
 }
