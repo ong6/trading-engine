@@ -32,6 +32,7 @@ each plan's YAML `status` must match its row.
 | [P19](p19-market-data-auditor.md) | Offline market-data auditor | done | Completed 2026-10-03: independent coverage JSON/Markdown sidecars and fictional native-evaluator reversal; full Linux CI green; real-data adapters deferred |
 | [P20](p20-engine-and-board-review.md) | Engine and paper dashboard correctness review | done | Completed 2026-10-05: generic study and forward-projection fixes, responsive status alerts, setup/design documentation, independent review, both-timezone CI and production browser verification |
 | [P21](p21-operational-issues-and-account-isolation.md) | Operational issue closure and separate paper accounts | done | Complete source evidence, isolated paper-account intake, 18/18 public walk-forward refresh and independently verified private recovery; new strategy activation remains gated |
+| [P23](p23-hourly-ops-digest.md) | Hourly operations digest | active | Hourly collated Markdown digest of runs, stages, probes and log signals, plus a SQLite metrics file and a `--report` summary for agents |
 
 Recommended order: follow [`../product.md`](../product.md) ("Focus now"). P15 comes first, then P7
 activation; P8/P9 keep running untouched; P2 remains admitted; P3's bounded free captures run
