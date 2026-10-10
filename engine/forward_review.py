@@ -93,10 +93,10 @@ RUNTIME_CONTRACT_MIGRATION = (
     "ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a "
     "snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. Sector strategy, "
     "paired control, baseline prefix and kill criterion are unchanged"
-    "; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes"
+    "; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time"
 )
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "702c3354cd220f7f9dffecfaaa2bbe320363cf4ec17eecbdcfc7e165a9523e95"
+    "4ec88c645594f5fde3ba2c94db26933266ed8d515819d2da5b3ab7bd9e5f8e42"
 )
 PRIOR_RUNTIME_CONTRACT_FILES = (
     "engine/forward_review.py",

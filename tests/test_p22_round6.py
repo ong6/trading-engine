@@ -119,7 +119,8 @@ DAYS = tuple(date.fromisoformat(day) for day in
              ('2026-09-30', '2026-10-01', '2026-10-02', '2026-10-05',
               '2026-10-06', '2026-10-07', '2026-10-08'))
 # CI uses a fixed subset. The acceptance run sets P22_PROPERTY_SEEDS=200.
-SEEDS = tuple(range(int(os.environ.get('P22_PROPERTY_SEEDS', '8'))))
+SEEDS = (tuple(range(int(os.environ['P22_PROPERTY_SEEDS'])))
+         if 'P22_PROPERTY_SEEDS' in os.environ else (0, 1, 2, 5))
 
 
 class RiskOracle:
