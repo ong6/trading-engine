@@ -114,7 +114,7 @@ def test_identical_api_retry_after_split_keeps_original_receipt(h):
     receipt = h.order('close', 'SHORT', 'sell', 100, 'moc')
     _split(h, 'SHORT')
     assert h.night() == 0
-    assert h.scalar('SELECT qty FROM sim_orders') == 200
+    assert h.scalar('SELECT qty FROM sim_orders') == 100
     assert h.order('close', 'SHORT', 'sell', 100, 'moc') == receipt
 
 

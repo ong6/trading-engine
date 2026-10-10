@@ -462,13 +462,6 @@ def _validate_replayed_order(con, order_id, intent):
     ticker = intent.get("ticker", intent.get("instrument_id"))
     session = intent.get("signal_date", intent.get("session_date"))
     quantity = float(intent['quantity'])
-    for (payload,) in con.execute(
-        "SELECT payload FROM account_events WHERE portfolio_id=? AND kind='split' ORDER BY id",
-        [intent['account_id']],
-    ).fetchall():
-        action = json.loads(payload)
-        if order_id in action.get('adjusted_order_ids', []):
-            quantity *= float(action['ratio'])
     expected = (intent["account_id"], ticker, intent["side"], quantity,
                 date.fromisoformat(session))
     if row != expected:

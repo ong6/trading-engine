@@ -80,7 +80,7 @@ def run_account_phases(con, d: date, *, verbose: bool = True) -> dict:
     """Run the required, consolidated account processor with production sources."""
     with account_sources.production_sources(con) as short_con:
         result = account_settle.settle_session(
-            con, d, short_con=short_con, manage_transactions=True,
+            con, d, short_con=short_con,
         )
     if result.get("carried") and verbose:
         log.warning(

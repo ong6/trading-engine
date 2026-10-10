@@ -84,7 +84,8 @@ def _execute(args, con, now: datetime):
     if args.command == "list":
         return service.account_list(con, include_private=True)
     if args.command == "results":
-        return results.build(con, args.account_id)
+        with account_sources.production_sources(con):
+            return results.build(con, args.account_id)
     if args.command == "verify":
         with account_sources.production_sources(con):
             return service.verify(con, args.account_id)
@@ -115,4 +116,4 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
         return 2
     print(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str))
-    return int(bool(payload.get("errors")) or payload.get("status") == "mismatch")
+    return int(isinstance(payload, dict) and (bool(payload.get("errors")) or payload.get("status") == "mismatch"))
