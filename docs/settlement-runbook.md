@@ -226,11 +226,13 @@ set -euo pipefail
 P22_ROOT="$(realpath "$HOME/trading-engine")"
 P22_STATE="$HOME/p22-deploy-20261018"
 P22_D0=2026-10-19
+: "${P22_APPROVED_SHA:?Set the full deploy commit approved by the orchestrator}"
 mkdir -m 700 -p "$P22_STATE"
 P22_STATE="$(realpath "$P22_STATE")"
 P22_BACKUP="$P22_STATE/predeploy-bundle"
 cd "$P22_ROOT"
 git rev-parse HEAD > "$P22_STATE/predeploy.sha"
+printf '%s\n' "$P22_APPROVED_SHA" > "$P22_STATE/approved.sha"
 crontab -l > "$P22_STATE/predeploy.crontab"
 cp -a "$HOME/.config/systemd/user" "$P22_STATE/predeploy-units"
 systemctl --user list-units --type=timer --state=active --no-legend --plain \
@@ -250,6 +252,9 @@ if fuser store/market.duckdb; then exit 1; fi
 .venv/bin/python -m tools.backup_database verify "$P22_BACKUP"
 
 git pull --ff-only origin main
+test "$(git rev-parse HEAD)" = "$(cat "$P22_STATE/approved.sha")"
+.venv/bin/python -c 'import json; assert json.load(open("server/p15-registration.json"))["registration_revision"] == 14'
+.venv/bin/python -m pytest -q -W error tests/test_p15_registration.py
 .venv/bin/python -m tools.migrate_cost_profiles --db store/market.duckdb \
   --d0 "$P22_D0" --apply
 # Required output: {"routing_changes": []}; every break reads revision 14.
