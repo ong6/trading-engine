@@ -3166,4 +3166,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +5, tools 0, product -367 versus the initial snapshot.
 - **Next:** finish 200 seeds, full-suite and both-timezone PR #13 CI.
 
+## 2026-10-10 — Close full-suite bindings and generated-delivery acceptance
+
+- **Why:** P22 round 6 full validation found stale undeployed runtime hashes and one caller-contract regression.
+- **What:** Preserved the nightly transaction argument and refreshed the undeployed sector/XS
+  source bindings for complete accounting folds. Their versions, rules and evidence stay frozen.
+  Fixed CI to four representative seeds; the 200-seed local run covers the larger generator.
+- **Evidence:** `P22_PROPERTY_SEEDS=200 pytest -q -W error tests/test_p22_round6.py
+  -k generated -n 16` → 200 passed; the 14-case CI subset took 88.56 seconds with two workers.
+- **Metrics:** server +5, tools 0, product -364 versus the initial snapshot.
+- **Next:** bind the final source commit to revision 14 and require both PR #13 CI time zones green.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
