@@ -146,9 +146,10 @@ five sessions below USD 25,000;
 
 ## Money layer and lifecycle
 
-Nightly and late settlement use the same account processor. For each account, accruals, ordered
-fills, source-selected marking, ledger verification, risk transitions and forced-close generation
-commit in one transaction. The production driver, late CLI and account API attach the isolated
+Nightly and late settlement fold every effective-dated accounting event from inception.
+Cash, lots and the whole equity curve are an atomic cache of that fold. Verification and
+results replay the same complete ledger. Risk checks and forced-close generation run once
+on the corrected latest state, at processing time. The production driver, late CLI and account API attach the isolated
 Massive daily/minute and short-data stores read-only. A missing current mark carries the last
 source mark (or last fill), records `stale_mark`, and never drops a short liability to zero.
 
@@ -157,16 +158,17 @@ drawdown, a 5% close-to-close loss, or a reconciliation mismatch. The durable `a
 is respectively `halt_drawdown`, `halt_daily_loss`, or `halt_reconciliation`; consumers never
 need to match prose. A halt cancels queued orders, refuses new ones, and keeps positions open and
 marked. Engine-generated maintenance, buy-in and retirement closes still execute while halted.
-Every resume records `resumed_by` and re-arms both the −20% drawdown rule and, for a same-session
-resume, the −5% daily-loss rule from equity at resume; results retain all-time drawdown separately.
+Every resume records `resumed_by` and its latest settled session. The −20% drawdown peak
+starts from that session’s corrected equity; the −5% daily-loss check uses the latest
+settled session and its corrected prior close. A correction to the resume session also
+re-measures its anchor. Results retain all-time drawdown separately.
 Retirement enters `retiring`, keeps marks and financing active, queues next-session MOC sell or
 cover orders, and changes to `retired`/inactive only after every position is flat.
 
 Financing is an opening event before execution checks, using only marks observable at that
 opening timestamp. Margin interest records a checkpoint on every processed session, including
-zero-debt sessions, and splits charges at effective-dated rate changes. Verification is part of settlement completion. Normal verification records a mismatch and
-halts the account; failed late reconstruction rolls back the entire recovery and reports an
-account error with a nonzero CLI exit. A retry also repairs an older committed fill whose session equity mark is missing.
+zero-debt sessions, and splits charges at effective-dated rate changes. Verification is part of settlement completion. Every exception during fold, settlement or verification rolls back accounting, then records
+mismatch evidence and halts in a separate transaction. Nightly and late failures exit nonzero. A retry also repairs an older committed fill whose session equity mark is missing.
 
 Accounts have no shared gross exposure cap. Holding the same instrument in three accounts, or aggregate notional above 2% of its
 MDV60, records a non-blocking concentration alert in each affected private result. The watch route
@@ -195,7 +197,8 @@ loss, fill count/notional, itemized fees and financing costs, closed-trade stati
 day trades, halt/alert/PDT/margin-call counts, late fills, and latest reconciliation state. Closed-trade statistics consume the same FIFO lot matches as the ledger, in execution-time
 order. Splits change lot units and basis, stock conversions carry lots into the acquirer, and
 cash delistings close lots. Entry and exit fees are allocated to matched quantities; financing
-and other cash events are reported separately. Results run that ledger on an in-memory copy.
+and other cash events are reported separately. Results verify the cached curve and balances against a complete fold on an in-memory copy.
+Their API entry point uses the account writer so a failed fold can durably halt the account.
 The canonical payload carries its own stable SHA-256. Private results stay in DuckDB and may be copied
 only into the private alpha repository; no command writes them below `data/`.
 

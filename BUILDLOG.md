@@ -3145,4 +3145,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** pending final snapshot; accounting paths have a net reduction.
 - **Next:** complete generated-delivery seeds and revision-14 acceptance.
 
+## 2026-10-10 — Exercise delayed delivery and require the approved deploy identity
+
+- **Why:** P22 round 6 requires generated lifecycle coverage and explicit migration gates.
+- **What:** Replaced the narrow generator with forward/reverse splits, pending and filled
+  orders, late bars, dividends, cash delistings, weekend debit interest and partial recovery.
+  Added an independent as-known risk oracle, post-resume losses and replay failures.
+  The runbook records the approved SHA and checks it, revision 14 and registration before migration.
+- **Evidence:** `pytest -q -W error tests/test_p22_round6.py -k generated -n 8` → 8 passed.
+- **Metrics:** server +5, tools 0, product -343 versus the initial snapshot.
+- **Next:** complete 200 seeds, revision 14 registration, full suite and PR #13 CI.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
