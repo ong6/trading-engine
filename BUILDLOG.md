@@ -3177,4 +3177,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +5, tools 0, product -364 versus the initial snapshot.
 - **Next:** bind the final source commit to revision 14 and require both PR #13 CI time zones green.
 
+## 2026-10-10 — Publish final round-6 registration and metrics
+
+- **Why:** P22 round 6 requires final source registration, budget publication and CI acceptance.
+- **What:** Bound the final source commit to undeployed P15 revision 14 and published the
+  metrics snapshot. Accounting paths removed 548 lines and added 194, a net reduction of 354.
+- **Evidence:** `pytest -q -W error tests/test_p15_registration.py tests/test_p22_round6.py
+  tests/test_documentation_integrity.py tests/test_operating_contract.py -n 8` → 36 passed.
+- **Metrics:** server +5, tools 0, product -364; budget passes.
+- **Next:** require the final full suite and both PR #13 CI time zones green, then write STATUS.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
