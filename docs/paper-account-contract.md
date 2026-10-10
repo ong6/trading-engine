@@ -199,40 +199,29 @@ and other cash events are reported separately. Results run that ledger on an in-
 The canonical payload carries its own stable SHA-256. Private results stay in DuckDB and may be copied
 only into the private alpha repository; no command writes them below `data/`.
 
-## 2026-10-08 — P22 lifecycle round 2 (binding orchestrator rulings)
+## 2026-10-10 — P22 lifecycle round 6 (binding orchestrator rulings)
 
-Deploy no earlier than Sunday 2026-10-18, with parameterized D0 2026-10-19,
-after lifecycle regressions and the store-copy rehearsal pass. The integration
-orchestrator owns the P15 re-pin; this lane leaves its revision unchanged.
+These rulings supersede the earlier checkpoint and historical-risk rules.
+Deploy target remains Sunday 2026-10-18, D0 2026-10-19.
 
-1. Accounts are independently funded. Remove the shared gross exposure cap and
-   its refusal. Keep each account's default 1.0× gross limit (maximum 1.5×),
-   rechecked using marks observable at the fill timestamp. Concentration remains
-   an alert only; aggregate 1%-of-MDV60 liquidity follows global receipt order.
-2. Use one source-aware valuation in settlement, late settlement, margin and API
-   reads. Carry the last observed price, falling back to a fill, and flag it stale.
-   Refuse with a reason only when no price was ever observed; never erase a liability.
-3. Reconcile money within $0.005 per account and align financing/fill event order.
-   Exact floating-point hashes do not decide reconciliation.
-4. Halt/cancel do not attach market stores. Source reads retry writer contention
-   with backoff and defer only dependent accounts with a logged reason.
-5. Captured corporate actions change signed positions, lots, orders and replay,
-   independently of operational prices coverage. Account dividends transact with
-   account settlement; legacy reruns and dividend processing exclude accounts.
-6. Late settlement processes every unresolved session oldest-first, refreshes
-   carried marks without requiring a fill, and recomputes dependent later state,
-   verification, halts and maintenance.
-7. A contingent close cannot exceed its requested quantity, parent fill or holdings.
-   Borrow and margin interest continue during retirement until flat.
-8. The late CLI exits nonzero on any account error. Migration preserves v1 league
-   routing, reports proposed route changes and requires --allow-routing-change
-   before changing any route.
+A. **Accounting is one pure fold from account inception.**
+`state = fold(all effective-dated events of the account)`: fills, corporate actions,
+cash settlements, dividends, financing and fees. Replay the whole account every settle
+(nightly, late, verify and `/results`). Stored cash, lots and equity are a cache written
+atomically from the fold and verified against it. Delete partial checkpoint restoration.
+Every event has a stable identity from its full key, including its date; a per-date
+sequence number alone is never an identity.
 
+B. **Orders keep receipt units.** Store an order in the units in force at receipt and
+convert to its execution session's units inside the fold. A pre-split MOO filled late
+fills its pre-split quantity; the later split applies exactly once.
 
-## Round-3 deployment rule
+C. **Risk acts as-known, never backdated.** Halts and resumes take effect when processed.
+API resume is effective at receipt and rejects a past effective time. After every settle,
+run risk on corrected history as of now: drawdown from the corrected peak re-measured
+from the latest resume, daily loss for the latest settled session, and fold/cache mismatch.
+Late data never un-fills orders already executed while active. Delete historical-risk replay.
 
-The commission migration preserves every existing portfolio setting except its cost profile.
-It reports zero routing changes and reads revision 14 from the deployed P15 registration.
-Only new version-2 accounts select the account engine. Recorded split adjustments also preserve
-identical intake retries: the engine validates immutable receipt evidence and the exact order
-adjustments before returning the original receipt.
+D. **Any failure halts.** Any exception during fold, settle or verify rolls back the
+transaction, then persists mismatch evidence and halts in a separate transaction.
+Nightly and late entry points exit nonzero.
