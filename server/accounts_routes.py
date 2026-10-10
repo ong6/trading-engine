@@ -86,6 +86,8 @@ def _invoke(function, *args, **kwargs):
     except duckdb.TransactionException as exc:
         raise HTTPException(503, "account writer contention; retry",
                             headers={"Retry-After": "1"}) from exc
+    except service.VerificationError as exc:
+        raise HTTPException(409, exc.result) from exc
     except paper_accounts.AccountRefused as exc:
         status = 404 if str(exc) == "unknown account" else 409
         raise HTTPException(status, str(exc)) from exc
@@ -156,9 +158,10 @@ def get_equity(account_id: str, authorization: Annotated[str | None, Header()] =
 
 @router.get("/{account_id}/results")
 def get_results(account_id: str, authorization: Annotated[str | None, Header()] = None):
-    with _connection(server_db.read_con) as con:
+    with _write_connection() as con:
         _invoke(_require_account_access, con, account_id, authorization)
-        return _invoke(account_read_models.result, con, account_id)
+        with account_sources.production_sources(con):
+            return _invoke(account_read_models.result, con, account_id)
 
 
 @router.post("/{account_id}/orders")
@@ -206,6 +209,8 @@ def resume_account(account_id: str, body: dict,
                    authorization: Annotated[str | None, Header()] = None):
     _require_account_mutation(account_id, authorization)
     received_at = datetime.now(timezone.utc)
+    if set(body) - {'by', 'note'}:
+        raise HTTPException(409, 'resume is effective at receipt; a supplied effective time is not accepted')
     with _write_connection() as con:
         return _invoke(service.resume, con, account_id, resumed_by=body.get("by"),
                        note=body.get("note", ""), now=received_at)

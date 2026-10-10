@@ -5,7 +5,6 @@ import json
 from datetime import date, datetime, timezone
 
 from engine.paper_accounts import AccountRefused, init_schema
-from sim import ledger
 from sim.schema import portfolio_account, set_portfolio_account
 
 from .limits import DAILY_LOSS_LIMIT, DRAWDOWN_LIMIT, daily_return, drawdown
@@ -125,11 +124,24 @@ def check(con, portfolio_id: str, session_date: date, *,
         raise AccountRefused("account has no equity mark for halt check")
     equity = float(equity_row[0])
     _state(con, portfolio_id, now)
-    state = ledger.risk_state(con, portfolio_id, session_date, now=now)
-    prior = state['prior_close_equity']
-    resumed_at = state['resumed_at']
-    peak = max(state['peak_equity'], equity)
-    risk_peak = max(state['risk_peak'], equity)
+    initial = float(con.execute('SELECT initial_cash FROM portfolios WHERE id=?', [portfolio_id]).fetchone()[0])
+    curve = con.execute('SELECT date,equity FROM sim_equity WHERE portfolio_id=? AND date<=? '
+                        'ORDER BY date', [portfolio_id, session_date]).fetchall()
+    resume = con.execute("SELECT created_at,payload FROM account_events WHERE portfolio_id=? "
+                         "AND kind='resumed' ORDER BY created_at DESC,id DESC LIMIT 1",
+                         [portfolio_id]).fetchone()
+    resumed_at, anchor_day, anchor = None, None, initial
+    if resume:
+        resumed_at, raw = resume
+        payload = json.loads(raw)
+        anchor_day = date.fromisoformat(payload['anchor_session']) if payload.get('anchor_session') else None
+        anchor = next((float(value) for day, value in curve if day == anchor_day), initial)
+    subsequent = [(day, float(value)) for day, value in curve if anchor_day is None or day > anchor_day]
+    peak = max([initial, *[float(value) for _, value in curve]])
+    risk_peak = max([anchor, *[value for _, value in subsequent]])
+    prior = subsequent[-2][1] if len(subsequent) > 1 else anchor
+    con.execute('UPDATE account_state SET drawdown_anchor_equity=? WHERE portfolio_id=?',
+                [anchor, portfolio_id])
     latest_reconciliation = _latest_reconciliation(con, portfolio_id, session_date)
     reason, detail = None, {}
     fresh_mismatch = (
@@ -170,20 +182,3 @@ def check_all(con, session_date: date, *, now: datetime | None = None) -> dict[s
         if reason is not None:
             results[portfolio_id] = reason
     return results
-
-
-def restore_risk(con, portfolio_id: str, at: datetime) -> None:
-    """Restore risk at its effective time, including resumes after the latest close."""
-    from datetime import timedelta
-
-    state = ledger.risk_state(con, portfolio_id, at.date() + timedelta(days=1), now=at)
-    _state(con, portfolio_id, at)
-    con.execute(
-        'UPDATE account_state SET peak_equity=?,prior_close_equity=?,halted_at=?,halt_reason=?,'
-        'resumed_at=?,drawdown_anchor_equity=?,updated_at=? WHERE portfolio_id=?',
-        [state[key] for key in ('peak_equity', 'prior_close_equity', 'halted_at', 'halt_reason',
-                               'resumed_at', 'drawdown_anchor_equity')] + [at, portfolio_id])
-    settings = portfolio_account(con, portfolio_id)
-    if settings['status'] not in {'retired', 'retiring'}:
-        status = 'halted' if state['halted_at'] is not None else 'active'
-        set_portfolio_account(con, portfolio_id, status=status, updated_at=at)

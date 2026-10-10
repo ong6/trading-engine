@@ -144,7 +144,7 @@ def test_reconciliation_resume_rearms_drawdown_from_resume_equity(con):
     assert halts.check(con, "acct-a", date(2026, 10, 6), now=later) == "halt_drawdown"
 
 
-def test_same_session_resume_rearms_daily_loss_from_resume_equity(con):
+def test_resume_anchor_is_remeasured_and_later_daily_loss_still_halts(con):
     _account(con, "acct-a")
     con.execute("INSERT INTO sim_equity VALUES ('acct-a',DATE '2026-10-02',10000,10000,0)")
     _cash_close(con, date.fromisoformat('2026-10-05'), 9500)
@@ -152,7 +152,10 @@ def test_same_session_resume_rearms_daily_loss_from_resume_equity(con):
     service.halt(con, "acct-a", now=after_close)
     service.resume(con, "acct-a", resumed_by="owner", now=after_close)
     _cash_close(con, date(2026, 10, 5), 9000)
-    assert halts.check(con, "acct-a", date(2026, 10, 5), now=after_close) == "halt_daily_loss"
+    assert halts.check(con, "acct-a", date(2026, 10, 5), now=after_close) is None
+    _cash_close(con, date(2026, 10, 6), 8400)
+    assert halts.check(con, "acct-a", date(2026, 10, 6),
+                       now=datetime(2026, 10, 6, 22, tzinfo=timezone.utc)) == "halt_daily_loss"
 
 
 def test_three_accounts_create_one_concentration_alert_each(con):
