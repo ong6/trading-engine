@@ -3153,7 +3153,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
   Added an independent as-known risk oracle, post-resume losses and replay failures.
   The runbook records the approved SHA and checks it, revision 14 and registration before migration.
 - **Evidence:** `pytest -q -W error tests/test_p22_round6.py -k generated -n 8` → 8 passed.
-- **Metrics:** server +5, tools 0, product -343 versus the initial snapshot.
+- **Metrics:** server +5, tools 0, product -367 versus the initial snapshot.
 - **Next:** complete 200 seeds, revision 14 registration, full suite and PR #13 CI.
+
+## 2026-10-10 — Bind round-6 source to undeployed revision 14
+
+- **Why:** P22 round 6 requires re-pinning changed registered files without revision 15.
+- **What:** Bound the complete-fold source commit and its exact registered file hashes.
+  Kept revision 14 and its frozen scoring, labels, gates and schedules.
+- **Evidence:** `pytest -q -W error tests/test_p15_registration.py
+  tests/test_documentation_integrity.py tests/test_operating_contract.py -n 4` → 22 passed.
+- **Metrics:** server +5, tools 0, product -367 versus the initial snapshot.
+- **Next:** finish 200 seeds, full-suite and both-timezone PR #13 CI.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
