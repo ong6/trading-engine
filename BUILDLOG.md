@@ -2064,4 +2064,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +92, tools unchanged, product +20; budget ok.
 - **Next:** Nothing further admitted; the orchestrator may deploy revision 13 from the pushed branch.
 
+## 2026-10-10 — Add the hourly operations digest (P23)
+
+- **Why:** P23, approved by the owner's 2026-10-10 request after the 10-09 nightly review found failures hidden behind exit 0, an unexplained 1h48m stage and unreadable unit output.
+- **What:** `tools.ops_digest` collates each UTC hour's unit runs (user journal), driver stages, API probes and new log warning/error lines into `logs/ops/hourly/<date>/<HH>.md`, with metrics only in `logs/ops/ops.sqlite`.
+  `--report` summarises non-OK hours, failed and slow runs, loud signatures and log growth; an hourly timer runs it at :05 UTC.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_ops_digest.py` passed 7 tests; a host run produced six hourly digests in 1.7 s.
+- **Metrics:** tools +738 lines, tests +176; server and product unchanged.
+- **Next:** Confirm the next nightly appears in `--report`; registered-file fixes wait for the next registration revision (scope.md).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

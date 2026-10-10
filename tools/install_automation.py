@@ -76,6 +76,12 @@ UNIT_SOURCES = {
     "trading-engine-p15-events.timer": Path(
         "server/trading-engine-p15-events.timer"
     ),
+    "trading-engine-ops-digest.service": Path(
+        "server/trading-engine-ops-digest.service"
+    ),
+    "trading-engine-ops-digest.timer": Path(
+        "server/trading-engine-ops-digest.timer"
+    ),
     "trading-engine-p16-challengers.service": Path(
         "server/trading-engine-p16-challengers.service"
     ),
@@ -94,6 +100,7 @@ AUTOSTART_UNITS = frozenset(
         "trading-engine-p15-scoring.timer",
         "trading-engine-p15-preopen.timer",
         "trading-engine-p15-events.timer",
+        "trading-engine-ops-digest.timer",
         "trading-engine-api.service",
         "trading-engine-ui.service",
     }

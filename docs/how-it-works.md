@@ -24,6 +24,17 @@ curl -fsS http://127.0.0.1:8000/agent/evaluation/status
 systemctl --user list-timers 'trading-engine-*'
 ```
 
+Start with the hourly operations digest, which has already collated these sources:
+`.venv/bin/python -m tools.ops_digest --report --hours 24` lists non-OK hours, failed and slow
+runs (over 3× their 14-day median), the loudest error signatures, log growth and unhealthy
+`/meta` sections. Each UTC hour's detail is in `logs/ops/hourly/<date>/<HH>.md` (newest copy:
+`logs/ops/latest.md`); metrics for SQL are in `logs/ops/ops.sqlite` (tables `hours`,
+`unit_runs`, `stage_runs`, `log_counts`, `signatures`, `probes`, `meta_status`, `footprint`).
+The `trading-engine-ops-digest.timer` collects at :05 UTC from the user journal, new lines of
+`logs/*.log`/`*.jsonl` (plus host-private globs listed one per line in `logs/ops/sources.txt`),
+`logs/stage-timings.jsonl` and the API; it never opens the DuckDB store. Digests are kept 30
+days and metrics 180 days. A missing source shows as a collection gap, never a failure.
+
 Read `GET /meta` before interpreting a log in isolation. It reconciles schedule, log, lock,
 database, report, queue, source-control, and evidence state. A missing or malformed
 `data/_meta.json` is reported separately and does not hide live projections. `GET /health`

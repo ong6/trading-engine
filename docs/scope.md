@@ -74,6 +74,13 @@ Agents append one line here instead of building. The owner promotes a line to a 
 deletes it.
 
 
+- 2026-10-10 · **Registered-file observability defects (next registration revision)**: since
+  `9a37ac0` `engine/verify_prices.py` prints its full evidence JSON (base64 bodies) to stdout,
+  ~13k lines a night and 18 MB a weekly verify; the P15 price-fetch record is withheld every
+  night because ~25 liquid names always fail, with exit 0 and no WARN; fail-soft stages and
+  units exit 0 when they skipped work (TradingView archive under the nightly lock). Fix with
+  P22's revision rather than a separate revision.
+
 - 2026-10-02 · **Activation of separately held research strategies**: P21 implements the generic
   paper-account specification and stock/ETF intake boundary; new accounts start inactive.
   Manual/all/auto tier planning does not grant activation. A private strategy runner or new
