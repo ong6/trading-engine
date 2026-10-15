@@ -76,6 +76,29 @@ function priceVerificationStatusMatches(evidence, latestPricesDate, nightly) {
   return evidence.status === "current" && !Object.hasOwn(evidence, "reason");
 }
 
+function fullVerificationStatusMatches(evidence, latestPricesDate) {
+  // The weekly pass trails the newest session by design; only the server's clock can
+  // tell a future verification or one older than its weekly cadence.
+  if (hasExactReason(evidence, "invalid", "future-verification")) return true;
+  if (latestPricesDate === null) {
+    return hasExactReason(evidence, "unknown", "market-date-unavailable");
+  }
+  if (evidence.as_of > latestPricesDate) {
+    return hasExactReason(evidence, "invalid", "future-market-date");
+  }
+  if (hasExactReason(evidence, "stale", "older-than-weekly-cadence")) return true;
+  if (evidence.names_checked === 0) {
+    return hasExactReason(evidence, "incomplete", "no-names-checked");
+  }
+  if (evidence.n_disagreements > 0 || evidence.n_parse_errors > 0) {
+    return hasExactReason(evidence, "issues", "disagreements-or-parse-errors");
+  }
+  if (evidence.names_not_checked > 0) {
+    return hasExactReason(evidence, "partial", "selected-names-not-checked");
+  }
+  return evidence.status === "current" && !Object.hasOwn(evidence, "reason");
+}
+
 function isMetaSummary(meta) {
   return (
     isRecord(meta) &&
@@ -163,7 +186,7 @@ function isMarketFreshness(market) {
   );
 }
 
-function isPriceVerification(evidence, latestPricesDate, nightly) {
+function isPriceVerification(evidence, statusMatches) {
   if (
     !isRecord(evidence) ||
     !new Set([
@@ -272,7 +295,7 @@ function isPriceVerification(evidence, latestPricesDate, nightly) {
     (evidence.n_disagreements > PRICE_DISAGREEMENT_LIMIT ||
       tickers.size === evidence.names_disagreeing) &&
     listedMaterial === Math.min(evidence.n_material, PRICE_DISAGREEMENT_LIMIT) &&
-    priceVerificationStatusMatches(evidence, latestPricesDate, nightly)
+    statusMatches(evidence)
   );
 }
 
@@ -328,6 +351,11 @@ export function isMetaCore(data) {
     isMarketFreshness(data.market_freshness) &&
     data.latest_prices_date === data.market_freshness.latest_date &&
     data.freshness_days === data.market_freshness.calendar_days &&
-    isPriceVerification(data.price_verification, data.latest_prices_date, data.nightly)
+    isPriceVerification(data.price_verification, (evidence) =>
+      priceVerificationStatusMatches(evidence, data.latest_prices_date, data.nightly),
+    ) &&
+    isPriceVerification(data.full_price_verification, (evidence) =>
+      fullVerificationStatusMatches(evidence, data.latest_prices_date),
+    )
   );
 }

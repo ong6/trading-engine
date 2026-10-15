@@ -74,6 +74,27 @@ function validMeta() {
       disagreements_matching_count: 0,
       disagreements_truncated: false,
     },
+    full_price_verification: {
+      status: "partial",
+      reason: "selected-names-not-checked",
+      as_of: "2026-09-04",
+      verified_at: "2026-09-05T04:41:07+00:00",
+      names_selected: 4048,
+      names_checked: 4031,
+      names_agreeing: 4031,
+      names_disagreeing: 0,
+      names_not_checked: 17,
+      n_disagreements: 0,
+      n_material: 0,
+      n_parse_errors: 0,
+      tolerance_bp: 10,
+      tolerance_abs_usd: 0.01,
+      material_bp: 200,
+      disagreements: [],
+      disagreements_limit: 20,
+      disagreements_matching_count: 0,
+      disagreements_truncated: false,
+    },
     queue: {
       counts: { done: 10, failed: 1 },
       actionable_failure_count: 0,
@@ -1010,6 +1031,41 @@ test("meta projection requires bounded coherent price-quarantine details", () =>
   assert.equal(isMetaProjection(unordered), false);
 });
 
+test("meta projection checks the weekly full price verification on its own cadence", () => {
+  const valid = validMeta();
+  assert.equal(isMetaProjection(valid), true);
+  // The weekly pass trails the newest session by design: an older as_of is not stale.
+  const trailing = clone(valid);
+  trailing.full_price_verification.as_of = "2026-09-02";
+  assert.equal(isMetaProjection(trailing), true);
+  const missing = clone(valid);
+  missing.full_price_verification = { status: "missing" };
+  assert.equal(isMetaProjection(missing), true);
+  const overdue = clone(valid);
+  overdue.full_price_verification.status = "stale";
+  overdue.full_price_verification.reason = "older-than-weekly-cadence";
+  assert.equal(isMetaProjection(overdue), true);
+  for (const mutate of [
+    (value) => delete value.full_price_verification,
+    (value) => {
+      value.full_price_verification.status = "current";
+      delete value.full_price_verification.reason;
+    },
+    (value) => (value.full_price_verification.reason = "market-date-behind"),
+    (value) => {
+      value.full_price_verification.status = "stale";
+      value.full_price_verification.reason = "market-date-behind";
+    },
+    (value) => (value.full_price_verification.as_of = "2026-09-05"),
+    (value) => (value.full_price_verification.names_checked = 4032),
+    (value) => (value.full_price_verification.internal = "not public"),
+  ]) {
+    const changed = clone(valid);
+    mutate(changed);
+    assert.equal(isMetaProjection(changed), false);
+  }
+});
+
 test("meta projection requires bounded coherent price-verification details", () => {
   const valid = validMeta();
   valid.price_verification = {
@@ -1250,6 +1306,7 @@ test("meta projection rejects nested values that could misstate runtime evidence
     next_session: null,
   };
   response.price_verification = { status: "missing" };
+  response.full_price_verification = { status: "missing" };
   response.queue = {
     counts: { failed: 1 },
     actionable_failure_count: 0,
