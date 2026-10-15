@@ -33,6 +33,7 @@ import os
 import re
 import shutil
 import sqlite3
+import stat
 import subprocess
 import time
 import urllib.error
@@ -100,7 +101,7 @@ CREATE TABLE IF NOT EXISTS meta_status (hour TEXT, section TEXT, status TEXT,
   PRIMARY KEY (hour, section));
 CREATE TABLE IF NOT EXISTS footprint (
   hour TEXT PRIMARY KEY, logs_bytes INT, db_bytes INT, disk_free_bytes INT,
-  dirty_files INT, unpushed INT);
+  dirty_files INT, unpushed INT, store_bytes INT);
 CREATE TABLE IF NOT EXISTS file_offsets (path TEXT PRIMARY KEY, inode INT, offset INT);
 """
 
@@ -406,18 +407,30 @@ def probe(fetch: Fetch) -> tuple[list[dict], dict[str, str]]:
     return probes, sections
 
 
+def _tree_bytes(root: Path) -> int:
+    """Apparent size of the regular files under ``root``; symlinks are not followed."""
+    total = 0
+    for base, _dirs, names in os.walk(root):
+        for name in names:
+            try:
+                info = (Path(base) / name).lstat()
+            except OSError:  # removed while walking (snapshot pruning)
+                continue
+            if stat.S_ISREG(info.st_mode):
+                total += info.st_size
+    return total
+
+
 def footprint(run: Runner, logs_dir: Path, db_path: Path) -> dict:
-    logs_bytes = sum(
-        (Path(root) / name).stat().st_size
-        for root, _dirs, names in os.walk(logs_dir) for name in names
-        if (Path(root) / name).is_file()
-    ) if logs_dir.is_dir() else 0
+    logs_bytes = _tree_bytes(logs_dir)
     db_bytes = db_path.stat().st_size if db_path.exists() else 0
+    store_bytes = _tree_bytes(db_path.parent)
     free = shutil.disk_usage(db_path.parent if db_path.parent.exists() else logs_dir).free
     dirty = run(["git", "-C", str(REPO_ROOT), "status", "--porcelain"], 30)
     ahead = run(["git", "-C", str(REPO_ROOT), "rev-list", "--count", "@{u}..HEAD"], 30)
     return {
-        "logs_bytes": logs_bytes, "db_bytes": db_bytes, "disk_free_bytes": free,
+        "logs_bytes": logs_bytes, "db_bytes": db_bytes, "db_name": db_path.name,
+        "store_bytes": store_bytes, "disk_free_bytes": free,
         "dirty_files": len(dirty.splitlines()) if dirty is not None else None,
         "unpushed": int(ahead.strip()) if ahead and ahead.strip().isdigit() else None,
     }
@@ -499,7 +512,8 @@ def render(hour: datetime, data: dict) -> str:
     if data["footprint"]:
         fp = data["footprint"]
         lines += ["", "## Footprint", "",
-                  f"logs {_mb(fp['logs_bytes'])}, store {_mb(fp['db_bytes'])}, disk free "
+                  f"logs {_mb(fp['logs_bytes'])}, store {_mb(fp.get('store_bytes'))} "
+                  f"({fp.get('db_name', 'database')} {_mb(fp['db_bytes'])}), disk free "
                   f"{_mb(fp['disk_free_bytes'])}, repo {fp['dirty_files']} dirty / "
                   f"{fp['unpushed']} unpushed"]
     return "\n".join(lines) + "\n"
@@ -571,9 +585,10 @@ def collect_hour(
     for section, value in sections.items():
         db.execute("INSERT OR REPLACE INTO meta_status VALUES (?,?,?)", (key, section, value))
     if fp:
-        db.execute("INSERT OR REPLACE INTO footprint VALUES (?,?,?,?,?,?)",
+        db.execute("INSERT OR REPLACE INTO footprint (hour, logs_bytes, db_bytes, "
+                   "disk_free_bytes, dirty_files, unpushed, store_bytes) VALUES (?,?,?,?,?,?,?)",
                    (key, fp["logs_bytes"], fp["db_bytes"], fp["disk_free_bytes"],
-                    fp["dirty_files"], fp["unpushed"]))
+                    fp["dirty_files"], fp["unpushed"], fp["store_bytes"]))
     db.execute("INSERT OR REPLACE INTO hours VALUES (?,?,?,?,?,?,?)",
                (key, status, data["failed_runs"], errors, warns, _iso(now),
                 str(digest.relative_to(ops_dir))))
@@ -584,6 +599,8 @@ def open_db(ops_dir: Path) -> sqlite3.Connection:
     ops_dir.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(ops_dir / "ops.sqlite", timeout=30)
     db.executescript(SCHEMA)
+    if "store_bytes" not in {row[1] for row in db.execute("PRAGMA table_info(footprint)")}:
+        db.execute("ALTER TABLE footprint ADD COLUMN store_bytes INT")
     return db
 
 

@@ -2093,4 +2093,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +6, tests +24; tools and product unchanged.
 - **Next:** Nothing admitted; the fold drop waits for revision 14.
 
+## 2026-10-15 — Count the whole store in the digest footprint
+
+- **Why:** The digest's footprint read `store 9,983.6 MB`, the size of `market.duckdb` alone, while `du -sm store` reported 63,536 MB of snapshots and point-in-time stores.
+  The new `test_footprint_counts_the_whole_store_directory` failed with `KeyError: 'store_bytes'`.
+- **What:** The footprint sums every regular file under `store/` without following symlinks and shows the database size beside it.
+  The total goes in a new `store_bytes` column, which an existing metrics file gains when it is opened.
+- **Evidence:** On the host the footprint reads `store 63,212.0 MB (market.duckdb 9,983.5 MB)` and takes 1.0 s; `tests/test_ops_digest.py` passes.
+- **Metrics:** tools +17, tests +20; server and product unchanged.
+- **Next:** Nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

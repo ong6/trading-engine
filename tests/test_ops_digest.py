@@ -184,6 +184,26 @@ def test_backfill_is_bounded_and_lock_skips_concurrent_run(tmp_path):
         assert _collect(tmp_path, {}, now=datetime(2026, 10, 10, 9, 5, tzinfo=UTC)) == []
 
 
+def test_footprint_counts_the_whole_store_directory(tmp_path):
+    # The digest reported "store 9,983.6 MB" (market.duckdb alone) while store/ held 63 GB.
+    store = tmp_path / "store"
+    (store / "snapshots").mkdir(parents=True)
+    with (store / "market.duckdb").open("wb") as handle:
+        handle.truncate(1_048_576)
+    with (store / "snapshots" / "market-1.duckdb").open("wb") as handle:
+        handle.truncate(3 * 1_048_576)
+    (store / "snapshots" / "market-latest.duckdb").symlink_to("market-1.duckdb")
+    logs = tmp_path / "logs"
+    logs.mkdir()
+
+    fp = ops_digest.footprint(_fake_run({}), logs, store / "market.duckdb")
+    ops_digest.collect(now=NOW, run=_fake_run({}), fetch=_fetch, logs_dir=logs,
+                       ops_dir=logs / "ops", db_path=store / "market.duckdb")
+
+    assert (fp["db_bytes"], fp["store_bytes"]) == (1_048_576, 4 * 1_048_576)
+    assert "store 4.0 MB (market.duckdb 1.0 MB)" in (logs / "ops" / "latest.md").read_text()
+
+
 ROOT = Path(__file__).resolve().parents[1]
 DIGEST_TIMER = "trading-engine-ops-digest.timer"
 _SPAN_UNITS = {"s": 1, "sec": 1, "m": 60, "min": 60, "h": 3600}
