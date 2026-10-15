@@ -3393,4 +3393,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** product +1 (driver), tests +1; server and tools unchanged.
 - **Next:** the remaining integrator fixes, then the single revision-14 re-pin.
 
+## 2026-10-16 — Keep a failed run's exit status when its result lands in the next hour
+
+- **Why:** revision-14 fix (j), lane A's open item: when a unit's exit line closes one hour and systemd's `Failed with result` line opens the next, storing the second hour overwrote the stored exit status with NULL.
+  The new `test_failure_whose_result_lands_in_the_next_hour_keeps_its_exit_code` failed: the report read `exit-code, exit None` and the hour's table `exit-code` with no status, for a run that exited 75.
+- **What:** `store_runs` keeps the exit status already stored for that run when the hour it is closing in carries only the result line. The failure is still counted once, in the hour its result lands in.
+- **Evidence:** `.venv/bin/python -m pytest -W error -n 0 tests/test_ops_digest.py` → 15 passed; the report now reads `exit-code, exit 75`.
+- **Metrics:** tools +5, tests +31; server and product unchanged.
+- **Next:** the remaining integrator fixes, then the single revision-14 re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
