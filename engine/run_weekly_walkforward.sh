@@ -57,11 +57,12 @@ body() {
   stage operator_digest
   "${PY}" -m farm.p16_operator_digest || echo "operator_digest failed (non-fatal)" >&2
 
-  # Commit the regenerated reports. Best-effort: the results JSON and the
-  # markdown are already on disk, and the next nightly's sync stages data/
-  # wholesale, so a failure here costs a day of visibility, not evidence.
+  # Commit the regenerated reports under this driver's name, not the nightly
+  # screen's. Best-effort: the results JSON and the markdown are already on
+  # disk, and the next nightly's sync stages data/ wholesale, so a failure
+  # here costs a day of visibility, not evidence.
   stage sync
-  "${PY}" -m engine.sync || echo "WARN: sync failed (exit $?) — reports are on disk; next nightly's sync will stage them"
+  "${PY}" -m engine.sync --driver "${DRIVER_NAME}" || echo "WARN: sync failed (exit $?) — reports are on disk; next nightly's sync will stage them"
 
 }
 
