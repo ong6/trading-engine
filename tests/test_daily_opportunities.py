@@ -21,6 +21,7 @@ from server import (
 )
 from sim import league
 from sim.schema import init_sim_schema
+from tests.test_market_data_sources import held_store_reader
 
 NOW = datetime(2026, 9, 22, 1, 30, tzinfo=timezone.utc)
 MARKET_DATE = date(2026, 9, 21)
@@ -795,4 +796,26 @@ def test_completed_tool_recovery_refuses_retained_id_owned_by_another_order(tmp_
             assessment_id, database=path, now=NOW + timedelta(minutes=2),
             generate=lambda _payload: pytest.fail("completed tool must not call model"),
             lock_path=tmp_path / "tool.lock",
+        )
+
+
+def test_runner_and_trade_tool_wait_out_a_concurrent_store_reader(tmp_path, monkeypatch):
+    # Both opened the store writer once (wait_s=0), so a read connection held by another
+    # process (the API serving /meta or the dashboard) failed them before any work.
+    path = tmp_path / "market.duckdb"
+    _database(path)
+    with held_store_reader(path, monkeypatch):
+        result = daily_opportunity_runner.run(
+            database=path, now=NOW, generate=_connector, fetch_news=_news_response,
+        )
+    assert result["status"] == "completed"
+    con = db.connect(path, read_only=True)
+    assessment_id = con.execute("SELECT id FROM daily_opportunity_assessments").fetchone()[0]
+    con.close()
+    with held_store_reader(path, monkeypatch), pytest.raises(
+        daily_opportunity_tools.ToolCallError, match="swing assessment is unavailable",
+    ):
+        daily_opportunity_tools.submit(
+            assessment_id, database=path, now=NOW, lock_path=tmp_path / "tool.lock",
+            generate=lambda _payload: pytest.fail("a watch assessment must not call the tool"),
         )

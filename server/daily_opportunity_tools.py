@@ -34,7 +34,8 @@ class ToolCallError(RuntimeError):
 
 @contextmanager
 def _connection(path: Path) -> Iterator[duckdb.DuckDBPyConnection]:
-    con = engine_db.connect(path, wait_s=0)
+    # The default lock-retry window: a reader elsewhere refuses writers until it closes.
+    con = engine_db.connect(path)
     try:
         yield con
     finally:
