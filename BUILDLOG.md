@@ -2113,4 +2113,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +321, tests +103; server and product unchanged.
 - **Next:** Close P23 once the live checkout's report shows the same.
 
+## 2026-10-15 — Let the agent-shadow runner wait out a store reader
+
+- **Why:** The pre-open failures showed that a scheduled writer opening the store once (`wait_s=0`) fails while another process holds a read connection.
+  `server/agent_shadow_runner.py`, which is not registered, opens that way before and after its model call; the new `test_store_open_waits_out_a_concurrent_reader` failed with `IOException: ... Conflicting lock is held`.
+- **What:** The runner's connections use the default lock-retry window, like the P15 event and hourly observer writers.
+  The registered daily-opportunity runner and tools and the official-quote source keep their single attempt and are proposed for revision 14 in `scope.md`.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_agent_shadow_runner.py` passes, including the new test.
+- **Metrics:** server +1, tests +20; tools and product unchanged.
+- **Next:** Nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

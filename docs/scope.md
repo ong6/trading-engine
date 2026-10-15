@@ -81,6 +81,12 @@ deletes it.
   stays `invalid`. In revision 14, drop and report a fold whose clamped training window has fewer
   than two sessions, then republish the weekly result.
 
+- 2026-10-15 · **Registered writers open the store in one attempt**: `server/daily_opportunity_runner.py`
+  (`_connection`), `server/daily_opportunity_tools.py` and `server/official_quote_source.py` call
+  `db.connect(..., wait_s=0)`, so a concurrent reader (the API serving `/meta` or the dashboard)
+  fails them as it failed the pre-open; the unregistered agent-shadow runner now waits. Use the
+  default lock-retry window there too in revision 14.
+
 - 2026-10-15 · **P15 pre-open opens the store writer in one attempt**: `server/p15_preopen.py`
   `run_database` calls `db.connect(database, wait_s=0)`, so any concurrent reader fails the run
   (the API serving the digest's `/meta` probe did on 2026-10-13 and 10-14). It writes, so it cannot
