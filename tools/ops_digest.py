@@ -373,14 +373,19 @@ def store_runs(db: sqlite3.Connection, runs: list[UnitRun]) -> list[dict]:
                 datetime.fromisoformat(item.ended) - datetime.fromisoformat(started)
             ).total_seconds()
         result = item.result or ("running" if item.ended is None else "unknown")
+        exit_code = item.exit_code
+        if exit_code is None:  # the exit line was stored with the earlier hour it fell in
+            prior = db.execute("SELECT exit_code FROM unit_runs WHERE unit=? AND started=?",
+                               (item.unit, started)).fetchone()
+            exit_code = prior[0] if prior else None
         db.execute(
             "INSERT INTO unit_runs VALUES (?,?,?,?,?,?) ON CONFLICT(unit, started) DO UPDATE "
             "SET ended=excluded.ended, seconds=excluded.seconds, "
             "exit_code=excluded.exit_code, result=excluded.result",
-            (item.unit, started, item.ended, seconds, item.exit_code, result),
+            (item.unit, started, item.ended, seconds, exit_code, result),
         )
         stored.append({"unit": item.unit, "started": started, "ended": item.ended,
-                       "seconds": seconds, "exit_code": item.exit_code, "result": result})
+                       "seconds": seconds, "exit_code": exit_code, "result": result})
     return stored
 
 

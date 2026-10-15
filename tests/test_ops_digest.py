@@ -197,6 +197,37 @@ def test_clean_stop_that_systemd_reports_as_success_is_not_a_failed_run(tmp_path
     assert "| trading-engine-api | `—` | ? | 1 | 0 | ? |" in report
 
 
+def test_failure_whose_result_lands_in_the_next_hour_keeps_its_exit_code(tmp_path):
+    # The exit line falls in hour 02 and systemd's result line in hour 03. Storing hour 03
+    # overwrote the run's exit status with NULL, so the report said "exit None".
+    unit = "trading-engine-p15-scoring.service"
+    lines = [("2026-10-10T02:30:00+00:00", "Starting Nightly scoring..."),
+             ("2026-10-10T02:59:59+00:00",
+              f"{unit}: Main process exited, code=exited, status=75/n/a"),
+             ("2026-10-10T03:00:01+00:00", f"{unit}: Failed with result 'exit-code'.")]
+    entries = [(datetime.fromisoformat(s).timestamp(), _entry(s, m, "systemd")) for s, m in lines]
+    units = _fake_run({unit: ""})
+
+    def run(args, timeout):
+        if args[0] != "journalctl":
+            return units(args, timeout)
+        since, until = (int(args[args.index(flag) + 1][1:]) for flag in ("--since", "--until"))
+        return "\n".join(entry for when, entry in entries if since <= when < until)
+
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    later = datetime(2026, 10, 10, 4, 5, tzinfo=UTC)
+    paths = {"logs_dir": logs, "ops_dir": logs / "ops", "db_path": tmp_path / "store.duckdb"}
+    [first] = ops_digest.collect(now=NOW, run=run, fetch=_fetch, **paths)
+    [second] = ops_digest.collect(now=later, run=run, fetch=_fetch, **paths)
+    report = ops_digest.report(24, logs / "ops", now=later, run=_fake_run({}))
+
+    assert first["status"] == "OK" and second["status"] == "FAIL"
+    assert "| exit-code (exit 75) |" in second["text"]
+    assert f"{unit} at 2026-10-10T02:30:00Z (30m01s): exit-code, exit 75" in report
+    assert "exit None" not in report
+
+
 def test_backfill_is_bounded_and_lock_skips_concurrent_run(tmp_path):
     first = _collect(tmp_path, {}, now=datetime(2026, 10, 1, 0, 5, tzinfo=UTC))
     assert len(first) == 1
