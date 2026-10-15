@@ -42,18 +42,19 @@ def _fetch_exact(
         try:
             raw = history(provider, market_date, market_date + timedelta(days=1))
         except YFPricesMissingError as exc:
-            normalized_reason = (exc.yahoo_reason or "").strip().casefold()
-            if normalized_reason not in {
-                "no data found, symbol may be delisted",
-                "not found, no data found, symbol may be delisted",
-            }:
+            if not collect.is_no_data(exc):
                 if attempt == 0:
                     sleep(2)
                     continue
                 return None, None
-            response_sha = p15_price_fetch_attempts.open_label_missing_response_sha256()
+            reason = (
+                p15_price_fetch_attempts.OPEN_LABEL_MISSING_REASON
+                if exc.yahoo_reason is not None
+                else p15_price_fetch_attempts.OPEN_LABEL_NO_PRICE_DATA_REASON
+            )
+            response_sha = p15_price_fetch_attempts.open_label_missing_response_sha256(reason)
             return ({**obligation, "status": "missing", "requested_at": requested_at,
-                     "outcome_reason": p15_price_fetch_attempts.OPEN_LABEL_MISSING_REASON,
+                     "outcome_reason": reason,
                      "request_sha256": request_sha, "response_sha256": response_sha}, None)
         except Exception:  # noqa: BLE001 - one bounded retry, then no evidence
             if attempt == 0:
