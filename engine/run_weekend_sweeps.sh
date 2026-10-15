@@ -96,8 +96,9 @@ body() {
   "${PY}" -m engine.queue_runner --run --jobs 8 \
     --run-kind sweep "${RUN_ARGS[@]}"
 
+  # Commit under this driver's name, not the nightly screen's (engine/sync.py --driver).
   stage sync
-  "${PY}" -m engine.sync || echo "WARN: sync failed (exit $?) — reports are on disk; next nightly's sync will stage them"
+  "${PY}" -m engine.sync --driver "${DRIVER_NAME}" || echo "WARN: sync failed (exit $?) — reports are on disk; next nightly's sync will stage them"
 
 }
 
