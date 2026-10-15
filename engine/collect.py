@@ -13,8 +13,8 @@ Four modes:
                      max-history backfill via --backfill's resumable path, and
                      demote names that no longer qualify — flag only, never a
                      row. `--dry-run` reports.
-  (default)          incremental daily pull of the last few sessions for liquid
-                     names, gated on the NYSE trading calendar.
+  (default)          incremental daily pull of the last few sessions for active
+                     liquid names, gated on the NYSE trading calendar.
 
 `liquid` is owned HERE (not universe.py): universe.py mirrors the Nasdaq symbol
 directory — membership and `active` — and never looks at a price; the liquidity
@@ -38,6 +38,7 @@ from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
+from yfinance.exceptions import YFPricesMissingError
 
 from engine.lib import db
 from engine.lib import resources as rsc
@@ -57,6 +58,22 @@ _YF_FIELDS = {"Open": "open", "High": "high", "Low": "low", "Close": "close", "V
 LIQ_MIN_CLOSE = 3.0
 LIQ_MIN_MDV = 5_000_000.0
 LIQ_BARS = 63
+# ...and a bar inside the newest LIQ_FRESH_SESSIONS sessions: a name more than
+# three sessions stale (the `stale_tickers` rule in write_meta) has stopped
+# receiving bars and cannot stay liquid on the old ones still in the window.
+LIQ_FRESH_SESSIONS = 4
+
+# yfinance's answers that the source HAS no bars for a name: Yahoo's own reason,
+# or no reason at all ("possibly delisted; no price data found"). Either is a
+# completed request with a missing outcome; an HTTP status or any other error is
+# a failed request. Case-folded.
+NO_DATA_REASONS = frozenset({
+    "no data found, symbol may be delisted",
+    "not found, no data found, symbol may be delisted",
+})
+# Per-name re-asks for names a batch returned nothing for (a few delisted names
+# a night); past this many, or after one failed re-ask, the rest count as failed.
+MAX_ABSENT_PROBES = 40
 
 
 # --------------------------------------------------------------------------- #
@@ -126,6 +143,38 @@ def _download(
         except Exception as exc2:  # noqa: BLE001
             log.warning(f"[collect] batch retry failed ({exc2}); marking batch failed")
             return pd.DataFrame()
+
+
+def is_no_data(exc: BaseException) -> bool:
+    """True when the source answered that it has no bars, not that it failed."""
+    if not isinstance(exc, YFPricesMissingError):
+        return False
+    if exc.yahoo_reason is not None:
+        return exc.yahoo_reason.strip().casefold() in NO_DATA_REASONS
+    return "status_code" not in str(exc.debug_info)
+
+
+def _probe_history(yf_ticker: str) -> pd.DataFrame:
+    """One name's 5-session pull, raising the source's own error instead of logging it."""
+    return yf.Ticker(yf_ticker).history(
+        period="5d", interval="1d", auto_adjust=False, actions=False,
+        timeout=30, raise_errors=True,
+    )
+
+
+def _probe_absent(yf_ticker: str, canon: str) -> tuple[str, pd.DataFrame | None]:
+    """Re-ask the source about a name its batch returned nothing for.
+
+    Returns ("data", frame) when the source has bars after all, ("no_data", None)
+    when it says it has none, and ("failed", None) for anything else, including
+    an empty answer with no reason (ambiguous, never counted as an absence).
+    """
+    try:
+        raw = _probe_history(yf_ticker)
+    except Exception as exc:  # noqa: BLE001 - classify, never raise mid-collection
+        return ("no_data" if is_no_data(exc) else "failed"), None
+    frame = _frame_from_sub(raw, canon) if raw is not None and not raw.empty else None
+    return ("data", frame) if frame is not None else ("failed", None)
 
 
 def _batches(seq: list, size: int):
@@ -305,10 +354,11 @@ def mode_backfill(db_path: str | Path, limit: int | None) -> tuple[int, int]:
 def liquid_flags(con, as_of: date | None = None) -> pd.DataFrame:
     """Per-ticker liquidity verdict over the trailing LIQ_BARS sessions ending
     at `as_of` (default: MAX(date) in prices). Columns: ticker, last_close,
-    med_dollar_vol, nbars, qualifies. Sessions are the distinct dates present in
-    `prices`, so a name with no bars inside the window has no row here and
-    therefore does not qualify — a name we stopped receiving bars for cannot
-    stay liquid on the strength of old data."""
+    med_dollar_vol, nbars, last_date, qualifies. Sessions are the distinct dates
+    present in `prices`. A name with no bar inside the newest LIQ_FRESH_SESSIONS
+    sessions does not qualify (and a name with no bars in the window has no row
+    at all) — a name we stopped receiving bars for cannot stay liquid on the
+    strength of old data."""
     if as_of is None:
         as_of = con.execute("SELECT MAX(date) FROM prices").fetchone()[0]
     if as_of is None:
@@ -320,12 +370,14 @@ def liquid_flags(con, as_of: date | None = None) -> pd.DataFrame:
         [as_of, LIQ_BARS],
     ).fetchall()
     window_start = days[-1][0]
+    fresh_from = days[min(LIQ_FRESH_SESSIONS, len(days)) - 1][0]
     df = con.execute(
         """
         SELECT ticker,
                arg_max(close, date)   AS last_close,
                median(close * volume) AS med_dollar_vol,
-               COUNT(*)               AS nbars
+               COUNT(*)               AS nbars,
+               MAX(date)              AS last_date
         FROM prices
         WHERE date >= ? AND date <= ?
         GROUP BY ticker
@@ -333,7 +385,11 @@ def liquid_flags(con, as_of: date | None = None) -> pd.DataFrame:
         """,
         [window_start, as_of],
     ).fetch_df()
-    df["qualifies"] = (df["last_close"] >= LIQ_MIN_CLOSE) & (df["med_dollar_vol"] >= LIQ_MIN_MDV)
+    df["qualifies"] = (
+        (df["last_close"] >= LIQ_MIN_CLOSE)
+        & (df["med_dollar_vol"] >= LIQ_MIN_MDV)
+        & (pd.to_datetime(df["last_date"]) >= pd.Timestamp(fresh_from))
+    )
     return df
 
 
@@ -360,7 +416,7 @@ def apply_liquid_flags(con, flags: pd.DataFrame, *, dry_run: bool) -> dict:
     price row is ever deleted, and universe_snapshot is untouched (universe.py
     appends the next snapshot from the refreshed flag, so the forward record
     starts moving). Names an active league book HOLDS are never demoted: the incremental
-    pull only fetches liquid names, so demoting a held name would freeze its
+    pull only fetches active liquid names, so demoting a held name would freeze its
     mark — they are reported under `kept_held` instead."""
     qualifying = set(flags.loc[flags["qualifies"], "ticker"])
     rows = con.execute("SELECT ticker, active, liquid FROM universe").fetchall()
@@ -487,7 +543,13 @@ def mode_incremental(
     force: bool,
     limit: int | None = None,
 ) -> tuple[int, int]:
-    """Daily pull with no DuckDB handle retained during HTTP or sleeps."""
+    """Daily pull of active liquid names, no DuckDB handle retained during HTTP or sleeps.
+
+    Returns (requested, failed). A name its batch returned nothing for is asked
+    again on its own: if the source says it has no bars (delisted), the request
+    completed with a missing outcome and is not a failure. A batch that returned
+    nothing at all is a failed call, so its names are failures, not absences.
+    """
     today = datetime.now(timezone.utc).date()
     if not force and not _is_trading_day(today):
         log.warning(
@@ -495,21 +557,47 @@ def mode_incremental(
         )
         return 0, 0
 
-    yf_to_canon = _universe_map(db_path, "liquid = TRUE", limit)
+    yf_to_canon = _universe_map(db_path, "active = TRUE AND liquid = TRUE", limit)
     all_yf = list(yf_to_canon)
 
     got_all: set[str] = set()
+    no_data: list[str] = []
+    probes_left = MAX_ABSENT_PROBES
     for batch in _batches(all_yf, 200):
         sub_map = {y: yf_to_canon[y] for y in batch}
         raw = _download(batch, period="5d", start=None)
         df, got = _extract_long(raw, sub_map)
+        # Columns mean the source answered per name; none means the call failed.
+        answered = bool(got) or (raw is not None and len(raw.columns) > 0)
+        found = []
+        for yft in [y for y in batch if y not in got] if answered else []:
+            if probes_left <= 0:
+                break
+            probes_left -= 1
+            outcome, frame = _probe_absent(yft, sub_map[yft])
+            if outcome == "data":
+                found.append(frame)
+                got.add(yft)
+            elif outcome == "no_data":
+                no_data.append(sub_map[yft])
+            else:
+                # One failure already withholds the night's fetch record, so
+                # further re-asks cannot change it; stop rather than wait out timeouts.
+                probes_left = 0
+        if found:
+            df = pd.concat([f for f in (df, *found) if not f.empty], ignore_index=True)
         n = _upsert_batch(db_path, df)
         got_all |= got
         log.info(f"[incremental] batch {len(batch)} -> {n} rows ({len(got)} with data)")
         time.sleep(2)
 
-    failed = len(all_yf) - len(got_all)
-    log.info(f"[incremental] liquid={len(all_yf)} with_data={len(got_all)} failed={failed}")
+    failed = len(all_yf) - len(got_all) - len(no_data)
+    log.info(
+        f"[incremental] active_liquid={len(all_yf)} with_data={len(got_all)} "
+        f"no_data={len(no_data)} failed={failed}"
+    )
+    if no_data:
+        log.info(f"[incremental]   no_data (source has no bars): {' '.join(sorted(no_data))}")
     return len(all_yf), failed
 
 

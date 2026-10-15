@@ -117,3 +117,24 @@ def test_no_sim_schema_means_nothing_is_held():
     db.init_schema(c)
     assert collect._held_tickers(c) == set()
     assert collect.liquid_flags(c).empty
+
+
+def test_name_whose_bars_stopped_inside_the_window_does_not_stay_liquid(con):
+    """Rev-14 (e): 27 names with no bar for weeks stayed liquid on old bars
+    inside the 63-session window (NSA's last bar was 07-21, as_of 10-14)."""
+    db.init_schema(con)
+    _row(con, "STAY", liquid=True)
+    insert_bars(con, "STAY", WINDOW, open_=100.0, close=100.0, volume=1_000_000)
+    # Missed the last three sessions (a short halt): still receiving bars.
+    _row(con, "PAUSED", liquid=True)
+    insert_bars(con, "PAUSED", WINDOW[:-3], open_=100.0, close=100.0, volume=1_000_000)
+    # Last bar ten sessions before as_of: we stopped receiving bars for it.
+    _row(con, "STOPPED", liquid=True)
+    insert_bars(con, "STOPPED", WINDOW[:-10], open_=100.0, close=100.0, volume=1_000_000)
+
+    flags = collect.liquid_flags(con).set_index("ticker")
+
+    assert flags.loc["STAY", "qualifies"] and flags.loc["PAUSED", "qualifies"]
+    assert not flags.loc["STOPPED", "qualifies"]
+    out = collect.apply_liquid_flags(con, collect.liquid_flags(con), dry_run=False)
+    assert out["demoted"] == ["STOPPED"] and out["admitted"] == []
