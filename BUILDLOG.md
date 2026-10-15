@@ -3421,4 +3421,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** sim −5, tests +16; server, tools and product unchanged.
 - **Next:** surface the weekly full price verification in `/meta`, then the single revision-14 re-pin.
 
+## 2026-10-16 — Show the weekly full price verification in /meta
+
+- **Why:** revision-14 fix (h), lane C's blocked item: the Saturday full-universe verify now keeps its own `price_verify_full` key and `market_health.full_universe_verification` validates it on its weekly cadence, but `/meta` still projected only the nightly sample.
+  With the meta tests asserting the new field, `test_meta_uses_complete_snapshot_internally_but_returns_only_summary` and `test_meta_keeps_live_status_when_snapshot_is_invalid` failed with `KeyError: 'full_price_verification'`; the UI's new cadence test accepted any value.
+- **What:** `/meta` carries `full_price_verification` beside `price_verification`. The UI's exact-field contract lists it and checks it with the shared evidence shape and the weekly pass's own states: it may trail the newest session, and only the server can call it older than its cadence.
+- **Evidence:** `.venv/bin/python -m pytest -W error -n 4 tests/test_meta_projection.py tests/test_market_health.py tests/test_server_routes.py tests/test_service_units.py tests/test_ops_digest.py` passes; `npm test` → 56 passed; `npm run build` passes.
+- **Metrics:** server +3, tests +4, UI +29 (contract), UI tests +57; tools and product unchanged.
+- **Next:** re-pin revision 14 and the runtime contracts once.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
