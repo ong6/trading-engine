@@ -81,6 +81,17 @@ STEP_MONTHS = 12          # == VALIDATE_MONTHS ⇒ disjoint validate windows
 # rather than silently shortened.
 N_FOLDS = 10
 
+# 2026-10-15 (owner-admitted with P15 revision 14): a fold whose training window,
+# clamped to the book's data floor, holds fewer than MIN_TRAIN_SESSIONS sessions is
+# dropped and disclosed like a validate-floor drop. Two is the smallest window with
+# a return: one session is a base row with no change, so the train return, CAGR,
+# Sharpe and decay are undefined and the result fails validation. An unclamped
+# window spans TRAIN_MONTHS, so only a split within days of the floor falls short
+# (sector momentum anchored 2026-10-09: floor Fri 2016-10-07, split Sun 2016-10-09).
+# Prospective and directional: it removes only folds that have no training
+# measurement, and no retained fold changes.
+MIN_TRAIN_SESSIONS = 2
+
 # Books that cannot be walk-forwarded, with the reason printed in every report.
 # Same shape (and the same two first entries) as the historical-backtest farm's
 # exclusion list — a book is left OUT and said so, never faked to fill a row.
@@ -195,6 +206,19 @@ def make_folds(anchor: date, *, train_months: int = TRAIN_MONTHS,
                           split_date=split_date, validate_end=validate_end))
     folds.reverse()
     return folds
+
+
+def short_training_window(fold: Fold, data_floor: date,
+                          min_train_end: date | None) -> bool:
+    """True when the fold's training window, clamped to `data_floor`, holds fewer
+    than MIN_TRAIN_SESSIONS sessions.
+
+    `min_train_end` is the session on which a window opened at the floor first holds
+    MIN_TRAIN_SESSIONS sessions, or None when the store has fewer after the floor.
+    A fold whose split is at or before the floor is a validate-floor drop instead.
+    """
+    return (fold.train_start < data_floor < fold.split_date
+            and (min_train_end is None or fold.split_date < min_train_end))
 
 
 def protocol_dict(anchor: date, folds: list[Fold], *,

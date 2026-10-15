@@ -322,7 +322,7 @@ def test_walkforward_digest_failure_is_nonfatal_and_still_syncs(fake_repo):
     assert rc == 0
     assert "operator_digest failed (non-fatal)" in out
     assert "-m farm.p16_operator_digest" in argv
-    assert argv[-1] == "-m engine.sync"
+    assert argv[-1] == "-m engine.sync --driver run_weekly_walkforward"
 
 
 def test_verify_is_fail_soft(fake_repo):

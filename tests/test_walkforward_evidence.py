@@ -2,14 +2,17 @@
 
 import json
 import os
+from datetime import date
 
+import duckdb
 import pytest
 
 from engine.lib.provenance import canonical_sha256
 from farm.walkforward import controls as walkforward_controls
+from farm.walkforward import runner as walkforward_runner
 from farm.walkforward import runtime_contract
 from farm.walkforward.runner import summarize as summarize_folds
-from server import walkforward_cohort, walkforward_evidence
+from server import walkforward_artifacts, walkforward_cohort, walkforward_evidence
 from sim import execution
 from tests.walkforward_test_helpers import (
     setup_walkforward_recovery,
@@ -701,15 +704,108 @@ def test_walkforward_evidence_rejects_malformed_dropped_fold(
     assert result["invalid_files"] == ["sector.json"]
 
 
-def test_walkforward_evidence_accepts_nine_retained_and_one_disclosed_drop(
-    con, tmp_path, monkeypatch
-):
+def _sector_floor_then_spy_sessions(con):
+    """Sector ETFs reach their data floor on Friday 2016-10-07; SPY trades on after it."""
     setup_walkforward_recovery(con)
     con.execute(
         "UPDATE prices SET date = date + "
         "CAST(DATE '2016-01-29' - DATE '1993-05-20' AS INTEGER) "
         "WHERE ticker != 'SPY'"
     )
+    con.execute(
+        "INSERT INTO prices (ticker, date, open, high, low, close, volume) "
+        "SELECT 'SPY', DATE '2016-10-10' + i::INTEGER, 100, 100, 100, 100, 1000000 "
+        "FROM range(5) AS sessions(i)"
+    )
+
+
+def _clamp_to_sector_floor(payload, dropped_indices):
+    floor = "2016-10-07"
+    payload["data_floor"] = floor
+    kept, dropped = [], []
+    for fold in payload["protocol"]["folds"]:
+        if fold["index"] in dropped_indices:
+            dropped.append({**fold, "status": "dropped", "reason": "fixture drop"})
+            continue
+        kept.append({**fold, "train_start": max(fold["train_start"], floor)})
+    payload["protocol"].update(folds=kept, n_folds=len(kept))
+    payload["folds"] = [
+        walkforward_fold(fold, clamped=fold["train_start"] == floor) for fold in kept
+    ]
+    payload["dropped_folds"] = dropped
+    payload["summary"] = summarize_folds(payload["folds"])
+
+
+@pytest.mark.parametrize(
+    ("dropped_indices", "reasons"),
+    [
+        ((1,), []),
+        ((), ["sector.json: ValueError: dropped folds do not match data floor"]),
+        ((1, 2), ["sector.json: ValueError: dropped folds do not match data floor"]),
+    ],
+)
+def test_walkforward_evidence_requires_dropping_exactly_the_one_session_training_fold(
+    con, tmp_path, monkeypatch, dropped_indices, reasons
+):
+    # Anchored 2026-10-09, fold 1 splits on Sunday 2016-10-09: clamped to the 2016-10-07
+    # floor, its training window holds one session. Fold 2's clamped window holds many.
+    _sector_floor_then_spy_sessions(con)
+    monkeypatch.setattr(walkforward_evidence, "runtime_source_hash", lambda: ("a" * 64, 99))
+    write_walkforward_result(tmp_path / "spy.json", "spy", anchor="2026-10-09")
+    sector_path = tmp_path / "sector.json"
+    write_walkforward_result(sector_path, "sector", anchor="2026-10-09")
+    _rewrite_result(sector_path, lambda payload: _clamp_to_sector_floor(payload, dropped_indices))
+
+    result = walkforward_evidence.evidence_status(con, tmp_path)
+
+    assert result["invalid_file_reasons"] == reasons
+    assert result["status"] == ("invalid" if reasons else "current")
+
+
+def test_runner_drops_and_discloses_a_one_session_training_fold(con, tmp_path, monkeypatch):
+    # Production 2026-10-15: anchor 2026-10-09 put sector momentum's fold 1 split two days
+    # after its data floor, so the runner kept a one-session training window and the
+    # validator rejected sector_momentum.json (statistic dates do not match fold sessions).
+    _sector_floor_then_spy_sessions(con)
+    monkeypatch.delenv(walkforward_runner.SHARED_RUN_ENV, raising=False)
+    monkeypatch.setattr(walkforward_runner, "_provenance", lambda cfg: {
+        "config": dict(cfg), "config_sha256": canonical_sha256(cfg),
+        "source_sha256": "a" * 64, "source_file_count": 1,
+    })
+    monkeypatch.setattr(walkforward_runner, "data_snapshot", lambda _con: walkforward_snapshot())
+
+    def empty_scratch(_live, scratch_dir, *_args, **_kwargs):
+        path = scratch_dir / "replay.duckdb"
+        duckdb.connect(str(path)).close()
+        return path
+
+    def inert_fold(_con, _book, fold, sessions, *_args, **_kwargs):
+        return {**fold.as_dict(), "status": "inert", "sessions": len(sessions),
+                "reason": "fixture replay"}
+
+    monkeypatch.setattr(walkforward_runner, "build_scratch", empty_scratch)
+    monkeypatch.setattr(walkforward_runner, "run_fold", inert_fold)
+
+    result = walkforward_runner.run_book(
+        con, "sector", anchor=date(2026, 10, 9), scratch_root=tmp_path / "scratch",
+        results_dir=tmp_path, verbose=False, threads=None, mem_mb=None,
+    )
+
+    assert [fold["index"] for fold in result["dropped_folds"]] == [1]
+    assert "holds 1 session" in result["dropped_folds"][0]["reason"]
+    assert [fold["index"] for fold in result["folds"]] == list(range(2, 11))
+    assert result["folds"][0]["train_start"] == "2016-10-07"
+    assert result["folds"][0]["train_start_clamped_to_data_floor"] is True
+    registrations, invalid = walkforward_evidence._eligible_walkforward_configs(con)
+    assert invalid == []
+    walkforward_artifacts.validate_result(
+        json.loads((tmp_path / "sector.json").read_text()), registrations["sector"])
+
+
+def test_walkforward_evidence_accepts_nine_retained_and_one_disclosed_drop(
+    con, tmp_path, monkeypatch
+):
+    _sector_floor_then_spy_sessions(con)
     monkeypatch.setattr(walkforward_evidence, "runtime_source_hash", lambda: ("a" * 64, 99))
     write_walkforward_result(tmp_path / "spy.json", "spy")
     sector_path = tmp_path / "sector.json"

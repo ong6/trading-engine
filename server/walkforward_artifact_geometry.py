@@ -89,12 +89,17 @@ def _validate_fold_geometry(
             raise ValueError(message)
 
 
+def _min_train_end(value: object) -> date | None:
+    return None if value is None else iso_date(value, "invalid minimum training end")
+
+
 def validate_planned_folds(
     protocol: dict,
     protocol_geometry: list[tuple[int, str, str, str]],
     dropped: list,
     data_floor_value: object,
     planned_fold_count: object,
+    min_train_end_value: object,
 ) -> set[int]:
     dropped_geometry = _dropped_geometry(dropped)
     planned_count = _positive_int(planned_fold_count, "invalid planned fold count")
@@ -103,13 +108,19 @@ def validate_planned_folds(
     )
     anchor, months = validated_protocol(protocol)
     data_floor = iso_date(data_floor_value, "invalid data floor")
+    min_train_end = _min_train_end(min_train_end_value)
     planned = walkforward_protocol.make_folds(
         date.fromisoformat(anchor),
         **months,
         n_folds=planned_count,
     )
     planned_by_index = {fold.index: fold for fold in planned}
-    expected_dropped = {fold.index for fold in planned if fold.split_date <= data_floor}
+    expected_dropped = {
+        fold.index
+        for fold in planned
+        if fold.split_date <= data_floor
+        or walkforward_protocol.short_training_window(fold, data_floor, min_train_end)
+    }
     if set(dropped_indices) != expected_dropped:
         raise ValueError("dropped folds do not match data floor")
     _validate_fold_geometry(protocol_geometry, planned_by_index, data_floor, retained=True)

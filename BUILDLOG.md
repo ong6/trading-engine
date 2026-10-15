@@ -3287,4 +3287,35 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools unchanged (7 lines rewritten), tests +19; server and product unchanged.
 - **Next:** Re-pin revision 14 and the runtime contracts once, after the last revision-14 fix lane.
 
+## 2026-10-16 — Title the weekly walk-forward data commit by its driver
+
+- **Why:** revision-14 fix admitted 2026-10-15. On 2026-10-11 the weekly walk-forward committed 43 walk-forward files as `b09d8a8` "screen: 2026-10-09 (496 passing, 60 new)", because `engine/sync.py` always titles a commit from the nightly screen meta.
+  The new `test_driver_data_commit_is_titled_by_its_driver` failed with `sync.py: error: unrecognized arguments: --driver run_weekly_walkforward`, and the driver test saw `-m engine.sync` with no driver.
+- **What:** `engine.sync --driver NAME` titles the commit `NAME: <UTC run date> (<n> data files)`; without it the nightly title is unchanged. `run_weekly_walkforward.sh` passes its `DRIVER_NAME`.
+  The metrics snapshot still counts such a title as a generated-data commit, so the 30-day commit shape is unchanged. The weekend sweep driver still takes the screen title; it is outside this fix.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_sync.py tests/test_drivers.py` passes; the real-git test commits `run_weekly_walkforward: 2026-10-11 (1 data file)`.
+- **Metrics:** product +26, tools +2, tests +33; server unchanged.
+- **Next:** the remaining revision-14 fixes, then the single re-pin.
+
+## 2026-10-16 — Retry exhausted TradingView windows daily and record lasting refusals
+
+- **Why:** revision-14 fix admitted 2026-10-15. Nine archive windows (BLFS, DBRG, DDS, ET, GBTG, SUN, SUNC, USAC, WBD) spent their three attempts within 14 hours and were never requested again, so `unresolved_failed_windows` stayed at 9 and `miner_evidence` at `issues`.
+  The new `test_exhausted_window_retries_after_cooldown_until_refused_on_three_days` failed with `assert 0 == 1` (no request 24 hours later); on the 2026-10-15 snapshot the archive's pending list held none of the nine.
+- **What:** A window that used its attempts is requested again 24 hours after its latest attempt. A provider refusal (`symbol_error`/`series_error`) is appended as a terminal `refused` attempt only when it is the third refusal each at least 24 hours after the previous one; transport errors such as GBTG's are never refused and keep retrying daily.
+  The archive status counts refused windows as `refused_windows`, apart from `unresolved_failed_windows`; the miner monitor accepts `refused_this_run` in its accounting, shows `refused_windows`, and still reports `issues` for any failure or unresolved window.
+  A run fails only when every first-try window failed, so a daily retry failing again is a reported failure, not an outage. Attempts stay append-only.
+- **Evidence:** On the snapshot at 2026-10-16 03:40 UTC all nine windows are pending as cool-down retries; `.venv/bin/python -m pytest -q -W error -n 0 tests/test_tradingview_history_archive.py tests/test_miner_monitor.py` passes.
+- **Metrics:** product +70, server +16, tests +95; tools unchanged.
+- **Next:** the remaining revision-14 fixes, then the single re-pin.
+
+## 2026-10-16 — Drop a walk-forward fold whose clamped training window has one session
+
+- **Why:** revision-14 fix admitted 2026-10-15. Anchored 2026-10-09, sector momentum's fold 1 splits on Sunday 2016-10-09, two days after its 2016-10-07 data floor; the runner clamped its training window to one session and kept it.
+  On the 2026-10-15 snapshot (read only) the pre-fix runner wrote 10 folds and the validator rejected the file: `sector_momentum.json: ValueError: statistic dates do not match fold sessions`. The new runner and evidence tests failed (`assert [] == [1]`, `dropped folds do not match data floor`).
+- **What:** The frozen protocol gains `MIN_TRAIN_SESSIONS = 2`, the smallest training window with a return; the protocol defined no minimum before. A fold whose training window, clamped to the floor, holds fewer sessions is dropped with its planned geometry and a reason, like a validate-floor drop.
+  The validator derives the same drop from the store: its registration carries the session on which a window opened at the floor first holds two sessions. The walk-forward runtime contract (revision 2, undeployed) and the architecture reference now state the rule.
+- **Evidence:** On the snapshot the fixed runner drops fold 1 (`holds 1 session(s) through 2016-10-09`), its nine retained folds are identical to the pre-fix run's, and the validator accepts the file.
+- **Metrics:** product +49, server +29, tests +96; tools unchanged.
+- **Next:** republish the weekly walk-forward on the deployed source; then the single revision-14 re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
