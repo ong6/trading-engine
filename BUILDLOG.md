@@ -3265,4 +3265,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +7, tools +1078, product 0, tests +418 since 2026-10-10 (main's P23 digest); budget ok.
 - **Next:** land the admitted revision-14 fixes on `p22/lifecycle` in file-disjoint lanes, then re-pin revision 14 and the runtime contracts once.
 
+## 2026-10-16 — Record the nightly price-fetch outcome for every name the source can answer (rev-14 e)
+
+- **Why:** P22 revision-14 fix (e). Every nightly since 09-28 withheld the P15 fetch record: on 10-14 the pull requested 4,099 liquid names, 27 inactive ones answered "possibly delisted", and one unanswered name withholds the batch (`"attempt_count": 0, "failed": 27 … collection_incomplete`); 14 of 15 exact-date label fetches failed on the same answer, which carries no Yahoo reason.
+  The weekly liquidity rule kept those names liquid on old bars, against its docstring. Reproductions: `test_incremental_requests_only_active_liquid_names` (`(2, 2) == (1, 0)`), `test_price_fetch_record_covers_active_liquid_names` (`withheld`), the no-reason case of `test_exact_label_fetch_distinguishes_missing_from_ambiguous_empty`, `test_name_whose_bars_stopped_inside_the_window_does_not_stay_liquid`.
+- **What:** The incremental pull and the fetch record cover active liquid names. A name its batch returned nothing for is asked once more on its own: the source's "no data" answer, with or without a Yahoo reason, is a completed request with a missing outcome; an HTTP status or any other error still withholds the batch.
+  Exact-date label fetches record the no-reason answer as `no_price_data_found_possibly_delisted`. A name with no bar in the newest four sessions no longer qualifies as liquid.
+- **Evidence:** On a copy of the 10-15 snapshot, two rolled-back label passes at one `labeled_at` compared the frozen code's evidence with the fixed code's: the fixed 10-14 batch records 4,058 attempts; live exact fetches turn 13 failures into missing receipts.
+  The fixed evidence releases 2 horizon-1 labels (WBD and BLFS, 10-05 decisions), each equal to its ungated outcome; no other label is added, no stored label or decision score changes. The liquidity rule would demote exactly the 27 inactive names.
+- **Metrics:** engine +88, server +8, tests +208; tools unchanged. Registered: `engine/collect.py`, `server/p15_incremental_collect.py`, `server/p15_price_fetch_attempts.py`, and the values `delivery.price_fetch_attempts`, `labels.fetch_attempt_evidence` (integrator re-pins).
+- **Next:** rev-14 fix (f), split-like re-fetch rewrites.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
