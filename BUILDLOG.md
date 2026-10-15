@@ -2083,4 +2083,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +2 (docstring), tests +75; server and product unchanged; budget ok.
 - **Next:** Nothing admitted; the pre-open retry waits for revision 14.
 
+## 2026-10-15 — Say why a walk-forward artifact is invalid
+
+- **Why:** `/meta` reported `walkforward_evidence` `invalid` with `invalid_files: ["sector_momentum.json"]` and no reason, because `scan_results` dropped the validator's exception.
+  The new `test_walkforward_evidence_reports_why_an_artifact_is_invalid` failed with `KeyError: 'invalid_file_reasons'`.
+- **What:** The scan keeps each rejected file's exception text, and the evidence payload lists it as a bounded `invalid_file_reasons` diagnostic. Status rules are unchanged.
+  The production cause is a training window the frozen runner clamped to one session; dropping such folds is proposed for revision 14 in `scope.md`.
+- **Evidence:** On the 2026-10-15 snapshot, `invalid_file_reasons` reads `sector_momentum.json: ValueError: statistic dates do not match fold sessions`; `tests/test_walkforward_evidence.py` passes.
+- **Metrics:** server +6, tests +24; tools and product unchanged.
+- **Next:** Nothing admitted; the fold drop waits for revision 14.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
