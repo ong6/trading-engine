@@ -269,7 +269,8 @@ def test_sweeps_enqueues_each_grid_then_drains(fake_repo):
         '--run-params {"grid": "grid_b", "charter_version": "charter-b-v1"}'
         in argv
     )
-    assert argv[-1] == "-m engine.sync"
+    # The sweep data commit is titled by its driver, like the walk-forward's.
+    assert argv[-1] == "-m engine.sync --driver run_weekend_sweeps"
 
 
 def test_sweeps_empty_allowlist_is_clean_noop(fake_repo):

@@ -3385,4 +3385,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** sim +233, engine +9, tests +181; server and tools unchanged.
 - **Next:** re-pin revision 14 and the runtime contracts once, after the last revision-14 lane.
 
+## 2026-10-16 — Title the weekend sweep data commit by its driver
+
+- **Why:** revision-14 fix (i), lane B's open item: `run_weekend_sweeps.sh` still committed its sweep reports with the nightly screen's title. With the driver test asserting the walk-forward's form, `test_sweeps_enqueues_each_grid_then_drains` failed: `'-m engine.sync' == '-m engine.sync --driver run_weekend_sweeps'`.
+- **What:** The sweep driver passes `--driver "${DRIVER_NAME}"` to `engine.sync`, so its data commit reads `run_weekend_sweeps: <UTC date> (<n> data files)`; the metrics snapshot already counts that title as a generated-data commit.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_drivers.py tests/test_sync.py` → 50 passed.
+- **Metrics:** product +1 (driver), tests +1; server and tools unchanged.
+- **Next:** the remaining integrator fixes, then the single revision-14 re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
