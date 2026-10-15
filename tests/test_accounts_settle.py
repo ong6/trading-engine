@@ -10,7 +10,7 @@ from engine.accounts import service
 from engine.accounts.settle import settle_session
 from sim import costs, ledger, shorts
 from sim.schema import next_order_id, set_portfolio_account
-from tests.conftest import insert_bars
+from tests.conftest import SESSIONS, insert_bars
 
 DAY = date(2026, 10, 12)
 PRIOR = date(2026, 10, 9)
@@ -857,3 +857,30 @@ def test_fill_and_state_transition_roll_back_together(con, monkeypatch):
     assert con.execute("SELECT status FROM sim_orders WHERE id=?", [order_id]).fetchone() == (
         "cancelled",
     )
+
+
+def test_settle_session_closes_out_a_dropped_holding_and_replays_it(con):
+    from tests.test_settle import WBD_QTY, delisted_name
+
+    _account(con, "acct-a")
+    con.execute("UPDATE portfolios SET created=? WHERE id='acct-a'", [SESSIONS[0]])
+    delisted_name(con)
+    con.execute("UPDATE prices SET fetched_at=CAST(date AS TIMESTAMP) + INTERVAL 21 HOUR")
+    _historical_fill(con, "acct-a", "WBD", "buy", WBD_QTY, 30.9, SESSIONS[0], 90)
+    cash = con.execute("SELECT cash FROM portfolios WHERE id='acct-a'").fetchone()[0]
+    now = datetime(2024, 6, 25, 8, tzinfo=timezone.utc)
+
+    result = settle_session(con, SESSIONS[14], settled_at=now)
+
+    assert result["errors"] == {} and result["completed"] == ["acct-a"]
+    assert con.execute(
+        "SELECT COUNT(*) FROM sim_positions WHERE portfolio_id='acct-a' AND qty<>0"
+    ).fetchone() == (0,)
+    assert con.execute(
+        "SELECT kind,price,effective FROM sim_settlements WHERE portfolio_id='acct-a'"
+    ).fetchone() == ("cash", pytest.approx(30.94), SESSIONS[10])
+    assert con.execute(
+        "SELECT equity FROM sim_equity WHERE portfolio_id='acct-a' AND date=?", [SESSIONS[10]]
+    ).fetchone() == (pytest.approx(cash + WBD_QTY * 30.94),)
+    assert service.verify(con, "acct-a", now=now)["status"] == "ok"
+    assert ledger.projected_state(con, "acct-a") == ledger.state(con, "acct-a")
