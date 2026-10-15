@@ -3298,4 +3298,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +5, tests +22; server and tools unchanged. Registered: `engine/lib/db.py` (integrator re-pins).
 - **Next:** rev-14 fix (h), price verification keys.
 
+## 2026-10-16 — Keep the weekly full price verify and say when the newest session went unchecked (rev-14 h)
+
+- **Why:** P22 revision-14 fix (h). The Saturday full-universe verify (4,048 names, as of 10-09) and the nightly sample shared the `price_verify` key, so the 10-12 nightly replaced it.
+  `volume_median_abs_diff_pct_latest_session` was null every nightly since 09-08 while the note said the newest close is checked on every name. Mechanism confirmed from the ten nightly receipts 10-05..10-14: at about 22:35 UTC the source's newest row is the previous session for every name, while the Saturday 02:00 pass has the Friday session.
+  Reproductions: `test_weekly_full_verify_keeps_its_own_metadata_key` (no such key), `test_newest_session_reports_source_lag_rather_than_a_silent_gap` (`KeyError: 'newest_session'`).
+- **What:** The weekly driver writes `price_verify_full` (`--meta-key`), so the nightly no longer overwrites it. Every run reports `newest_session`: names compared, the source's latest session, and `source_lag` when the source has not published it; the note says the close was not compared that night instead of claiming it was.
+  `market_health.full_universe_verification` validates the weekly key on its own cadence (stale after 8 days). Showing it in `/meta` also needs `server/meta_projection.py` and the UI's exact-field contract, outside this lane: blocked, for the integrator.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 tests/test_verify_prices.py tests/test_market_health.py tests/test_meta_projection.py tests/test_drivers.py` passes.
+- **Metrics:** engine +50, server +56, tests +119; tools unchanged. Registered: `engine/verify_prices.py` (integrator re-pins); `/meta` shape unchanged.
+- **Next:** integrator: wire `price_verify_full` into `/meta`, then re-pin revision 14 and the runtime contracts once.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
