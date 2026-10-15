@@ -2123,4 +2123,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +1, tests +20; tools and product unchanged.
 - **Next:** Nothing admitted.
 
+## 2026-10-15 — Close the hourly operations digest (P23)
+
+- **Why:** P23's "Done when": the digest timer is active and, after a nightly, `--report --hours 24` lists every unit run and driver stage with durations and outcomes.
+- **What:** P23 moves from active to done in the plan and the plans index. The run list landed in the previous entry; no code changes here.
+- **Evidence:** On the live checkout, `--report --hours 24` printed `run_daily 10-14 22:30Z, 53m39s: universe 8s · collect 3m06s · … · snapshot 1m12s` and a row for every scheduled job.
+- **Metrics:** unchanged.
+- **Next:** Nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

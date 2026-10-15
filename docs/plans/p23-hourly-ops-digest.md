@@ -1,7 +1,7 @@
 ---
 plan: P23
 title: Hourly operations digest
-status: active
+status: done
 opened: 2026-10-10
 owner_decision: approved by the owner's 2026-10-10 request to review last night's run and improve logging and observability with an hourly collated log and a small SQLite metrics store
 ---
@@ -45,6 +45,10 @@ raw log text in SQLite; new API endpoints or UI.
 `systemctl --user list-timers trading-engine-ops-digest.timer` shows it active, and after the
 next nightly `.venv/bin/python -m tools.ops_digest --report --hours 24` lists every unit run and
 driver stage of the window with durations and outcomes.
+
+Met 2026-10-15: the timer is active, and `--report --hours 24` on the host listed every scheduled
+job's runs against the timers and crontab and the 10-14 nightly's 13 stages with durations and
+outcomes. Frequent pollers (store sync, autopush) are summarised by count, median and maximum.
 
 ## Budget
 
