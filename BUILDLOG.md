@@ -3254,4 +3254,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** Nothing admitted.
 
+## 2026-10-15 — Merge main into P22 and record the owner's acceptance
+
+- **Why:** P22 plan (active); the owner accepted engine v2 on 2026-10-15 and admitted the revision-14 fixes before the Sunday deployment.
+- **What:** Merged `origin/main` (P23 hourly digest at :08 UTC, its report and footprint, walk-forward invalid reasons, agent-shadow connect window) into `p22/lifecycle`.
+  Kept both sides' units in `tools/install_automation.py`, both plan and docs index rows, and both BUILDLOG histories; the 2026-10-10 metrics snapshot keeps the branch copy.
+  No revision-14 registered file or runtime-contract file changed, so revision 14 and the E1, sector and XS contracts stand unchanged.
+  Recorded the acceptance, the admitted fixes and the delisted-holding close-out decision in `feedback.md`, `product.md`, `scope.md` and the P22 plan.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto` → 4,743 passed, exit 0; whole-repository Ruff clean.
+- **Metrics:** server +7, tools +1078, product 0, tests +418 since 2026-10-10 (main's P23 digest); budget ok.
+- **Next:** land the admitted revision-14 fixes on `p22/lifecycle` in file-disjoint lanes, then re-pin revision 14 and the runtime contracts once.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
