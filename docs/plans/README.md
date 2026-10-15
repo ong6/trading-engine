@@ -33,6 +33,7 @@ each plan's YAML `status` must match its row.
 | [P20](p20-engine-and-board-review.md) | Engine and paper dashboard correctness review | done | Completed 2026-10-05: generic study and forward-projection fixes, responsive status alerts, setup/design documentation, independent review, both-timezone CI and production browser verification |
 | [P21](p21-operational-issues-and-account-isolation.md) | Operational issue closure and separate paper accounts | done | Complete source evidence, isolated paper-account intake, 18/18 public walk-forward refresh and independently verified private recovery; new strategy activation remains gated |
 | [P22](p22-engine-v2-accounts.md) | Engine v2 accounts and money foundation | active | Phase A routes books, commissions and private results; Phase B integrates lanes, rehearses D0 and explicitly rebinds every frozen runtime contract |
+| [P23](p23-hourly-ops-digest.md) | Hourly operations digest | done | Completed 2026-10-15: hourly digest at :08 UTC with SQLite metrics; `--report` checks every scheduled run and driver stage against the timers and crontab |
 
 Recommended order: follow [`../product.md`](../product.md) ("Focus now"). Complete P22 without
 disturbing the revision-14 evidence path, then continue P15 and P7 activation; P8/P9 keep running

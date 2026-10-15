@@ -159,7 +159,8 @@ def _result(
 
 def _connect_factory(database: Path) -> ConnectionFactory:
     def connect() -> duckdb.DuckDBPyConnection:
-        return engine_db.connect(database, wait_s=0)
+        # The default lock-retry window: a reader elsewhere refuses writers until it closes.
+        return engine_db.connect(database)
 
     return connect
 

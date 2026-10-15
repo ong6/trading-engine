@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
+import duckdb
 import pytest
 
+from engine.lib import db as engine_db
 from engine.lib.provenance import canonical_sha256
 from server import (
     agent_model_client,
@@ -816,3 +820,19 @@ def test_shadow_store_records_exact_request_and_usage(con, runner):
     )
     response_payload = agent_shadow_store.events(con, result["attempt_id"])[1][2]
     assert '"total_tokens":120' in response_payload
+
+
+def test_store_open_waits_out_a_concurrent_reader(tmp_path, monkeypatch):
+    # A read-only connection in another process (the API serving /meta) refuses every
+    # writer; the runner's single attempt (wait_s=0) failed instead of waiting.
+    store = tmp_path / "market.duckdb"
+    duckdb.connect(str(store)).close()
+    monkeypatch.setattr(engine_db, "_LOCK_RETRY_S", 0.2)
+    monkeypatch.setenv("TRADING_ENGINE_LOCK_WAIT_S", "30")
+    hold = ("import sys, time, duckdb; con = duckdb.connect(sys.argv[1], read_only=True); "
+            "print('open', flush=True); time.sleep(1.0)")
+    with subprocess.Popen([sys.executable, "-c", hold, str(store)], stdout=subprocess.PIPE,
+                          text=True) as reader:
+        assert reader.stdout.readline().strip() == "open"
+        agent_shadow_runner._connect_factory(store)().close()
+        reader.communicate()
