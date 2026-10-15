@@ -1,8 +1,8 @@
 # Experiment e1-spy-monday — FORWARD (out-of-sample) record
 
-*Forward phase registered 2026-07-29 · report generated 2026-10-07 22:34 UTC · params hash `5dc40ff465de67a9` · forward-config hash `399ce03bee8bab4e`*
+*Forward phase registered 2026-07-29 · report generated 2026-10-14 22:35 UTC · params hash `5dc40ff465de67a9` · forward-config hash `399ce03bee8bab4e`*
 
-> **NO RESULT YET — 11 of 40 out-of-sample Mondays.** This experiment is not evaluated until the pre-registered sample is complete. Anything below is an accumulating record, **not** a verdict: reading a mean or a t-stat at n=11 and calling it a finding is exactly the peeking the §12.3 protocol exists to prevent. **29 Mondays to go.**
+> **NO RESULT YET — 12 of 40 out-of-sample Mondays.** This experiment is not evaluated until the pre-registered sample is complete. Anything below is an accumulating record, **not** a verdict: reading a mean or a t-stat at n=12 and calling it a finding is exactly the peeking the §12.3 protocol exists to prevent. **28 Mondays to go.**
 
 ## Frozen registration
 
@@ -35,6 +35,7 @@ Registration source: `farm/experiments/e1-spy-monday.yaml` (pre-registered 2026-
 | 9 | 2026-09-21 | 766.25 | 773.50 | +0.9460% | +0.7443% | +0.2240% | -1.5639% |
 | 10 | 2026-09-28 | 768.35 | 765.61 | -0.3566% | -0.5557% | -0.1334% | -2.1109% |
 | 11 | 2026-10-05 | 769.69 | 774.83 | +0.6678% | +0.4667% | +0.5335% | -1.6541% |
+| 12 | 2026-10-12 | 778.78 | 778.10 | -0.0873% | -0.2869% | +0.4457% | -1.9363% |
 
 _Every row is one real stored SPY daily bar; holiday Mondays have no bar and are simply absent (no trade that week). Rows are append-only — a Monday is written once, after its session has settled, and never revised. The published machine-readable checkpoint hashes the complete stored prefix._
 
@@ -42,12 +43,12 @@ _Every row is one real stored SPY daily bar; holiday Mondays have no bar and are
 
 | Series | n | mean/Monday | sd | t-stat | cumulative | win rate |
 |---|--:|--:|--:|--:|--:|--:|
-| gross | 11 | +0.0502% | 0.6324% | 0.26 | +0.534% | 5/11 |
-| **net — 20bp r/t (kill series)** | 11 | -0.1497% | 0.6311% | -0.79 | -1.654% | 4/11 |
-| net — 3bp r/t (registered) | 11 | +0.0202% | 0.6322% | 0.11 | +0.202% | 5/11 |
+| gross | 12 | +0.0387% | 0.6043% | 0.22 | +0.446% | 5/12 |
+| **net — 20bp r/t (kill series)** | 12 | -0.1611% | 0.6030% | -0.93 | -1.936% | 4/12 |
+| net — 3bp r/t (registered) | 12 | +0.0087% | 0.6041% | 0.05 | +0.085% | 5/12 |
 
-- **Mondays recorded:** 11 / 40 · **Mondays to kill-evaluation:** **29**.
-- **Kill test (runs once, at n = 40):** kill if `mean <= 0` **or** `t < 0.5` on the net series. Current standing — mean -0.1497%, t -0.79 — **would KILL** if the criterion were applied today, which it is **not**.
+- **Mondays recorded:** 12 / 40 · **Mondays to kill-evaluation:** **28**.
+- **Kill test (runs once, at n = 40):** kill if `mean <= 0` **or** `t < 0.5` on the net series. Current standing — mean -0.1611%, t -0.93 — **would KILL** if the criterion were applied today, which it is **not**.
 - **Frozen cost sensitivity:** net uses compatibility profile `baseline_v1` (`6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db`), 20bp round-trip for SPY's liquidity tier — 6.7× stricter than the 3bp the backtest registered. The registered-cost row is shown so the forward record can also be read against the original pre-registration.
 
 ## Backtest context — NOT part of the out-of-sample record
