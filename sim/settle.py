@@ -61,11 +61,6 @@ from . import nyse, portfolio
 log = get_logger("settle")
 
 KINDS = ("cash", "worthless", "stock")
-# A bar the name actually traded on. yfinance keeps writing a dead quote after a
-# name stops trading, and REAL_BAR_SQL alone still admits one with a zero open
-# and a few shares (WBD 2026-10-05: open 0, volume 40). Bare column names, so it
-# composes into any query with `prices` in scope.
-TRADED_BAR_SQL = f"({db.REAL_BAR_SQL}) AND open > 0 AND high > 0 AND low > 0"
 # Sessions without a traded bar before a dropped name is closed out. Measured on
 # the 2026-10-15 store copy (universe snapshots 2026-07-16..10-14): of ~713 names
 # the directory dropped on or after their last traded bar, none traded again
@@ -168,7 +163,7 @@ def validate(con: duckdb.DuckDBPyConnection, t: Terms) -> None:
             raise SettlementRefused("--into must differ from --ticker")
         n_bars = con.execute(
             "SELECT COUNT(*) FROM prices WHERE ticker = ? AND date >= ? "
-            f"AND {TRADED_BAR_SQL}", [t.into_ticker, t.effective]).fetchone()[0]
+            f"AND {db.REAL_BAR_SQL}", [t.into_ticker, t.effective]).fetchone()[0]
         if n_bars == 0:
             raise SettlementRefused(
                 f"acquirer {t.into_ticker} has no real bar in prices on/after "
@@ -180,7 +175,7 @@ def validate(con: duckdb.DuckDBPyConnection, t: Terms) -> None:
 
     traded = con.execute(
         "SELECT MAX(date), COUNT(*) FROM prices WHERE ticker = ? AND date >= ? "
-        f"AND {TRADED_BAR_SQL}", [t.ticker, t.effective]).fetchone()
+        f"AND {db.REAL_BAR_SQL}", [t.ticker, t.effective]).fetchone()
     if traded and traded[1] > 0:
         raise SettlementRefused(
             f"{t.ticker} traded on/after {t.effective} (last traded bar: "
@@ -446,7 +441,7 @@ def delistings(con: duckdb.DuckDBPyConnection, d: date,
         traded AS (
             SELECT p.ticker, MAX(p.date) AS last_traded FROM prices p
             JOIN held h ON h.ticker = p.ticker
-            WHERE p.date <= ? AND {TRADED_BAR_SQL} GROUP BY p.ticker)
+            WHERE p.date <= ? AND {db.REAL_BAR_SQL} GROUP BY p.ticker)
         SELECT d.ticker, t.last_traded, p.close, d.dropped_on
         FROM dropped d JOIN traded t ON t.ticker = d.ticker
         JOIN prices p ON p.ticker = d.ticker AND p.date = t.last_traded
