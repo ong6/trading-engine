@@ -346,6 +346,28 @@ def test_nightly_records_fetch_attempts_despite_inactive_and_delisted_names(
     ]
 
 
+def test_bar_with_a_non_positive_open_high_or_low_is_not_a_real_bar(con):
+    """Rev-14 (g): WBD 2026-10-05 (open 0, volume 40) counted as WBD's last
+    traded bar; WSLS 10-09 carried high = low = 0."""
+    insert_bars(con, "WBD", [SESSIONS[0]], open_=30.95, close=30.94, high=30.96,
+                low=30.93, volume=59_649_600)
+    con.executemany(
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume) VALUES (?,?,?,?,?,?,?)",
+        [
+            ("WBD", SESSIONS[1], 0.0, 30.99, 30.94, 30.95, 40),
+            ("HIGH0", SESSIONS[1], 24.94, 0.0, 24.70, 24.80, 10),
+            ("LOWNEG", SESSIONS[1], 24.94, 25.00, -1.0, 24.80, 10),
+        ],
+    )
+
+    real = con.execute(
+        f"SELECT ticker, MAX(date) FROM prices WHERE {db.REAL_BAR_SQL} GROUP BY 1 ORDER BY 1"
+    ).fetchall()
+
+    assert real == [("WBD", SESSIONS[0])]
+    assert db.latest_real_prices_date(con) == SESSIONS[0]
+
+
 def test_demoted_p15_ticker_keeps_exact_date_fetch_obligations_until_labeled(con):
     db.init_schema(con)
     p15_price_fetch_attempts.init_schema(con)
