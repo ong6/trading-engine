@@ -3402,4 +3402,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +5, tests +31; server and product unchanged.
 - **Next:** the remaining integrator fixes, then the single revision-14 re-pin.
 
+## 2026-10-16 — Say in the API when a P15 book is marked through its last window
+
+- **Why:** revision-14 fix (d), lane D's open item: the league no longer writes a provisional P15 mark, so from the nightly until the 02:30 P15 window `/league` showed the three P15 books as plain "stale" rows, while `league.md` explains them with a ‡ "marked through" note.
+  The new `test_league_says_a_p15_book_is_marked_through_its_last_window` failed with `KeyError: 'mark_note'`; the UI contract test's P15 case failed the same way.
+- **What:** Each `/league` row carries `mark_note`: league.md's ‡ sentence with the marked-through date for a P15 book behind the operational date, null otherwise; the producer and the UI's exact-field contract both reject a note on any other row.
+  The standings show "‡ marked through <date>" and the note instead of "stale" for such a book; it stays unranked, as before. The architecture reference says so.
+- **Evidence:** `.venv/bin/python -m pytest -W error -n 4 tests/test_league_read_models.py tests/test_read_model_integration.py tests/test_server_routes.py tests/test_service_units.py` passes; `npm test` → 55 passed.
+- **Metrics:** server +15, tests +29, UI +16; tools and product unchanged.
+- **Next:** the remaining integrator fixes, then the single revision-14 re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
