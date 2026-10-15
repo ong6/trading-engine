@@ -596,6 +596,28 @@ def test_split_like_rewrite_is_recorded_once_per_ticker_and_ordinary_restatement
     assert body["replaced_fetched_at"] == FETCHED_BEFORE_EX.isoformat()
 
 
+def test_rewrite_evidence_is_recorded_in_a_store_without_the_sim_schema(tmp_path):
+    db_path = tmp_path / "market.duckdb"
+    con = db.connect(db_path)
+    db.init_schema(con)
+    insert_bars(con, "AAA", SESSIONS[:2], open_=90.0, close=90.0, high=91.0, low=89.0)
+    con.close()
+
+    collect._upsert_batch(db_path, pd.DataFrame({
+        "ticker": ["AAA"], "date": [SESSIONS[1]], "open": [30.0], "high": [30.3],
+        "low": [29.7], "close": [30.0], "volume": [3_000_000],
+    }))
+
+    con = db.connect(db_path, read_only=True)
+    try:
+        assert [r["ticker"] for r in actions._rewrites(con)] == ["AAA"]
+        assert con.execute(
+            "SELECT close FROM prices WHERE ticker = 'AAA' ORDER BY date").fetchall() == [
+            (90.0,), (30.0,)]
+    finally:
+        con.close()
+
+
 def test_late_restatement_without_rewrite_evidence_stays_skipped(monkeypatch, tmp_path):
     """The reconciler still never guesses: without the recorded rewrite the same
     stored series is `skipped_already_adjusted`, as before."""
