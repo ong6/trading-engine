@@ -4,8 +4,12 @@
 For a given date d the step runs in this fixed order:
   a0. Credit cash dividends going ex on d (portfolio.credit_dividends). Runs
       FIRST so entitlement is the position held at the close of d−1.
+  a1. Close out delisted holdings at their last real traded close
+      (settle.close_out_delisted), so no order is attempted on a dead name.
   a. Fill pending orders at d's OPEN (fills.py; t+1-open, slippage, guards).
-  b. Mark every portfolio to market at d's CLOSE → append sim_equity.
+  b. Mark every portfolio to market at d's CLOSE → append sim_equity. P15
+     books are marked by their own window (sim/p15_books.run_window) after
+     d's P15 fills, so the league never writes a provisional P15 mark.
   c. Generate new orders from d's close signals, per each strategy's cadence.
   d. Render data/reports/league.md and league.csv.
 
@@ -33,7 +37,7 @@ from engine.lib.settings import DATA_DIR as DEFAULT_DATA_DIR
 from engine.lib.settings import REPO_ROOT  # noqa: F401
 from engine.lib.util import table_exists
 
-from . import book_breaks, calendar, costs, fills, ledger, portfolio
+from . import book_breaks, calendar, costs, fills, ledger, p15_books, portfolio, settle
 from .execution import DEFAULT_PROFILE_ID
 from .schema import INITIAL_CASH, init_sim_schema, next_order_id, portfolio_account
 from .strategies import PortfolioView, get_strategy
@@ -93,6 +97,22 @@ def run_account_phases(con, d: date, *, verbose: bool = True) -> dict:
 # --------------------------------------------------------------------------- #
 # day-step phases
 # --------------------------------------------------------------------------- #
+def close_out_delisted(con, d: date) -> int:
+    """Phase a1. Close out the delisted holdings of active league books.
+
+    P15 books are closed out by their own window and account books inside
+    their fold, so each book's state keeps one writer. Returns #tickers.
+    """
+    ids = [
+        pf_id for (pf_id,) in con.execute(
+            "SELECT id FROM portfolios WHERE active ORDER BY id"
+        ).fetchall()
+        if pf_id not in p15_books.BOOK_IDS
+        and portfolio_account(con, pf_id)["engine"] == "league"
+    ]
+    return len(settle.close_out_delisted(con, d, ids))
+
+
 def fill_pending(con, d: date) -> dict:
     """Phase a. Attempt every pending order at d's open. Sells first so freed
     cash funds same-day buys. Returns {'filled','rejected','pending'} counts."""
@@ -298,6 +318,12 @@ def mtm_all(
 ) -> dict:
     """Phase b. Mark every active portfolio to market → append sim_equity.
 
+    P15 books are skipped. Their fills for `d` are applied only by
+    `p15_books.run_window`, which runs after this step and writes their
+    equity for `d`. A league mark here valued the pre-fill book and was then
+    restated (p15_rule_control 2026-10-13: 9474.13 published, 9458.45 after
+    the window), so the window is the only writer of a P15 mark.
+
     Returns {"carried": {pf_id: [ticker, ...]}} — the positions valued at a
     CARRIED close because the name printed no bar on `d`.
 
@@ -312,13 +338,16 @@ def mtm_all(
     That is the same defect this codebase keeps producing — the honest
     computation happens and then the result goes nowhere — so the flag is now
     surfaced at the only place that can act on it. A carried mark is not an
-    error and must not fail the run: a halted name resumes, and a genuinely
-    delisted one needs a human decision about the position, not an exception.
+    error and must not fail the run: a halted name resumes, and a delisted one
+    is closed out by phase a1 at its last real traded close (owner decision
+    2026-10-15) once the evidence holds.
     """
     carried: dict[str, list[str]] = {}
     for (pf_id,) in con.execute(
         "SELECT id FROM portfolios WHERE active ORDER BY id"
     ).fetchall():
+        if pf_id in p15_books.BOOK_IDS:
+            continue
         if not include_accounts and portfolio_account(con, pf_id)["engine"] == "account":
             continue
         res = portfolio.mark_to_market(con, pf_id, d)
@@ -489,6 +518,7 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
         break_date = book_breaks.latest_break(con, pf_id)
         rows.append({
             "id": pf_id, "name": name, "inception": created, "equity": equity,
+            "marked": eq[-1][0],
             "initial_cash": float(initial_cash), "total_ret": total_ret,
             "vs_spy": vs_spy, "mdd": mdd,
             "n_open": n_open, "n_fills": n_fills, "last5": last5,
@@ -510,9 +540,10 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for i, r in enumerate(rows, 1):
+        earlier = " ‡" if r["marked"] < d else ""
         lines.append(
             f"| {i} | {r['name']} | {r['inception']} | "
-            f"${r['equity']:,.0f} | {_fmt_pct(r['total_ret'])} | "
+            f"${r['equity']:,.0f}{earlier} | {_fmt_pct(r['total_ret'])} | "
             f"{_fmt_pct(r['vs_spy'])} | {_fmt_pct(r['mdd'])} | "
             f"{r['n_open']} | {r['n_fills']} | {_fmt_pct(r['last5'])} |"
         )
@@ -522,6 +553,16 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
         f"persisted starting capital · as of {d.isoformat()}._",
         "",
     ]
+    # A P15 book's mark for d is written by its own window after d's P15 fills,
+    # which runs after this report. Its row is its last completed mark, said so.
+    for marked in sorted({r["marked"] for r in rows if r["marked"] < d}):
+        names = ", ".join(r["name"] for r in rows if r["marked"] == marked)
+        lines += [
+            f"_‡ marked through {marked.isoformat()}: {names}. A P15 book is marked "
+            "by its own window after that session's P15 fills, never "
+            "provisionally by the league._",
+            "",
+        ]
     broken_rows = [
         row for row in rows
         if row["break_date"] is not None and row["break_date"] <= d
@@ -560,15 +601,15 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
     # phantom bars made a dead position look fresher than it was, and
     # `mark_to_market` saw a bar and did not flag a carried price at all.
     stale = con.execute(
-        """
+        f"""
         SELECT p.portfolio_id, p.ticker, p.qty,
-               MAX(pr.date) FILTER (WHERE pr.volume > 0) AS last_traded
+               MAX(pr.date) FILTER (WHERE {settle.TRADED_BAR_SQL}) AS last_traded
         FROM sim_positions p
         JOIN portfolios pf ON pf.id = p.portfolio_id
         JOIN prices pr ON pr.ticker = p.ticker
         WHERE pf.active AND p.qty > 0
         GROUP BY p.portfolio_id, p.ticker, p.qty
-        HAVING MAX(pr.date) FILTER (WHERE pr.volume > 0) < ?
+        HAVING MAX(pr.date) FILTER (WHERE {settle.TRADED_BAR_SQL}) < ?
         ORDER BY last_traded, p.portfolio_id, p.ticker
         """, [d]).fetchall()
     standings_ids = {row["id"] for row in rows}
@@ -582,8 +623,10 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
             "**Sessions stale counts from the last bar with real volume, not "
             "the last bar on file** — yfinance keeps emitting a dead quote as a "
             "zero-volume bar after a name stops trading, which makes a dead "
-            "position look fresher than it is. A halt resolves itself; a "
-            "delisting or acquisition needs the position settled by hand. "
+            "position look fresher than it is. A halt resolves itself. A name "
+            "the exchange directory has dropped is closed out at its last real "
+            f"traded close after {settle.DELISTED_AFTER_SESSIONS} sessions "
+            "without a traded bar, or at sourced terms booked with `sim.settle`. "
             "**The equity above includes these marks.**",
             "",
             "| Book | Ticker | Qty | Last traded | Sessions stale | Frozen value | % of equity |",
@@ -834,6 +877,7 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
             if verbose:
                 log.info(f"[league] --rerun: cleared {d} sim rows, rebuilt state")
         dv = portfolio.credit_dividends(con, d)
+        closed = close_out_delisted(con, d)
         fc = fill_pending(con, d)
         # verbose is threaded through so a walk-forward replay (thousands of
         # sessions, verbose=False) does not print a carried-mark line per day,
@@ -852,9 +896,10 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
                     if dv["credited"] else "")
         n_carried = sum(len(v) for v in mm["carried"].values())
         carry_note = f" carried_marks={n_carried}" if n_carried else ""
+        close_note = f" delisted_closed_out={closed}" if closed else ""
         log.info(f"[league] {d}: fills={fc['filled']} rejected={fc['rejected']} "
               f"still_pending={fc['pending']} new_orders={nn}{div_note}"
-              f"{carry_note} → {md_path}")
+              f"{carry_note}{close_note} → {md_path}")
     return 1 if account_result["errors"] else 0
 
 
