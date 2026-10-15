@@ -178,6 +178,25 @@ def test_failed_run_marks_hour_and_report_lists_it(tmp_path):
     assert "price_verification=issues" in report
 
 
+def test_clean_stop_that_systemd_reports_as_success_is_not_a_failed_run(tmp_path):
+    # A restart of the API on 2026-10-15: SIGTERM is a clean exit for systemd, which logs the
+    # signal as status=15 and then "Succeeded."; the digest counted the exit status as a failure.
+    unit = "trading-engine-api.service"
+    stop = [("Stopping Trading engine paper API...", "systemd"),
+            (f"{unit}: Main process exited, code=killed, status=15/TERM", "systemd"),
+            (f"{unit}: Succeeded.", "systemd"), ("Stopped Trading engine paper API.", "systemd")]
+    journal = {unit: "\n".join(_entry("2026-10-10T02:46:54+00:00", *line) for line in stop)}
+
+    [hour] = _collect(tmp_path, journal)
+    report = ops_digest.report(24, tmp_path / "logs" / "ops", now=NOW, run=_fake_run(journal))
+
+    assert hour["status"] == "OK" and "0 failed run(s)" in hour["text"]
+    assert "| trading-engine-api | 02:46:54 | 02:46:54 | 0s | — | success (exit 15) |" in (
+        hour["text"])
+    assert "1 OK" in report and "Failed runs" not in report
+    assert "| trading-engine-api | `—` | ? | 1 | 0 | ? |" in report
+
+
 def test_backfill_is_bounded_and_lock_skips_concurrent_run(tmp_path):
     first = _collect(tmp_path, {}, now=datetime(2026, 10, 1, 0, 5, tzinfo=UTC))
     assert len(first) == 1
