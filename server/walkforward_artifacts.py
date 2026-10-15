@@ -44,6 +44,7 @@ def validate_result(payload: dict, registration: dict) -> None:
         dropped,
         registration["data_floor"],
         registration.get("planned_fold_count"),
+        registration["min_train_end"],
     )
 
     artifact_initial_cash = positive_number(payload.get("initial_cash"), "invalid initial cash")

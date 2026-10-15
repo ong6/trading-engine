@@ -3286,4 +3286,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** product +70, server +16, tests +95; tools unchanged.
 - **Next:** the remaining revision-14 fixes, then the single re-pin.
 
+## 2026-10-16 — Drop a walk-forward fold whose clamped training window has one session
+
+- **Why:** revision-14 fix admitted 2026-10-15. Anchored 2026-10-09, sector momentum's fold 1 splits on Sunday 2016-10-09, two days after its 2016-10-07 data floor; the runner clamped its training window to one session and kept it.
+  On the 2026-10-15 snapshot (read only) the pre-fix runner wrote 10 folds and the validator rejected the file: `sector_momentum.json: ValueError: statistic dates do not match fold sessions`. The new runner and evidence tests failed (`assert [] == [1]`, `dropped folds do not match data floor`).
+- **What:** The frozen protocol gains `MIN_TRAIN_SESSIONS = 2`, the smallest training window with a return; the protocol defined no minimum before. A fold whose training window, clamped to the floor, holds fewer sessions is dropped with its planned geometry and a reason, like a validate-floor drop.
+  The validator derives the same drop from the store: its registration carries the session on which a window opened at the floor first holds two sessions. The walk-forward runtime contract (revision 2, undeployed) and the architecture reference now state the rule.
+- **Evidence:** On the snapshot the fixed runner drops fold 1 (`holds 1 session(s) through 2016-10-09`), its nine retained folds are identical to the pre-fix run's, and the validator accepts the file.
+- **Metrics:** product +49, server +29, tests +96; tools unchanged.
+- **Next:** republish the weekly walk-forward on the deployed source; then the single revision-14 re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
