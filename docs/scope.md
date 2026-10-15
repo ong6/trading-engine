@@ -74,6 +74,13 @@ Agents append one line here instead of building. The owner promotes a line to a 
 deletes it.
 
 
+- 2026-10-15 · **Walk-forward keeps a one-session training fold**: `farm/walkforward/runner.py`
+  clamps a fold whose training window opens before the book's data floor instead of dropping it.
+  Sector momentum's fold 1 (floor 2016-10-07, split 2016-10-09) trains on one session, so its
+  result fails validation (`statistic dates do not match fold sessions`) and `walkforward_evidence`
+  stays `invalid`. In revision 14, drop and report a fold whose clamped training window has fewer
+  than two sessions, then republish the weekly result.
+
 - 2026-10-15 · **P15 pre-open opens the store writer in one attempt**: `server/p15_preopen.py`
   `run_database` calls `db.connect(database, wait_s=0)`, so any concurrent reader fails the run
   (the API serving the digest's `/meta` probe did on 2026-10-13 and 10-14). It writes, so it cannot
