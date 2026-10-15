@@ -280,6 +280,7 @@ def test_meta_uses_complete_snapshot_internally_but_returns_only_summary(
     monkeypatch.setattr(driver_monitor, "driver_statuses", lambda: drivers)
     monkeypatch.setattr(market_read_models, "latest_prices_date", lambda actual: None)
     monkeypatch.setattr(market_health, "price_verification", observe)
+    monkeypatch.setattr(market_health, "full_universe_verification", observe)
     monkeypatch.setattr(nightly_monitor, "evidence_status", observe)
     monkeypatch.setattr(miner_monitor, "evidence_status", observe)
     monkeypatch.setattr(liquidity_monitor, "evidence_status", observe)
@@ -315,7 +316,9 @@ def test_meta_uses_complete_snapshot_internally_but_returns_only_summary(
     }
     assert result["meta_file"] == {"status": "ok"}
     assert tuple(result) == meta_projection.PUBLIC_META_FIELDS
-    assert len(observed) == 4
+    # Rev-14 (h): the weekly full-universe pass (`price_verify_full`) is projected too.
+    assert result["full_price_verification"] == {"status": "missing"}
+    assert len(observed) == 5
     assert all(meta["private_marker"] == {"rows": [1, 2, 3]} for meta in observed)
 
 
@@ -486,6 +489,7 @@ def test_meta_keeps_live_status_when_snapshot_is_invalid(tmp_path, monkeypatch):
     }
     assert result["market_freshness"]["status"] == "unknown"
     assert result["price_verification"] == {"status": "missing"}
+    assert result["full_price_verification"] == {"status": "missing"}
     assert result["queue"] == {"counts": {}}
     assert result["scheduler"]["status"] == "ok"
     assert result["source_control"]["status"] == "local-only"
