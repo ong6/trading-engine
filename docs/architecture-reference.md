@@ -637,6 +637,8 @@ authentication or authorization.
 Current League standings are capped at the response's breadth-qualified `as_of` date; each row
 declares its own `equity_as_of` and `current` state, while
 return, drawdown, and rank calculations still use complete active-book history through that date.
+A P15 book behind that date carries `mark_note`, league.md's ‡ "marked through" note: only its
+own window writes its mark, after that session's P15 fills; every other row's note is null.
 The producer requires canonical portfolio IDs, nonblank names and optional execution-profile IDs,
 exact inception/equity dates, positive finite persisted initial capital when present, finite equity,
 safe position/fill counts, and a recognized regime. Total return, SPY-relative return, drawdown,
