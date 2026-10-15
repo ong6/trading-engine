@@ -15,7 +15,7 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import REPO_ROOT
 from engine.lib.util import table_exists
-from sim import book_breaks, costs, fills, ledger, nyse, p15_fills, portfolio
+from sim import book_breaks, costs, fills, ledger, nyse, p15_fills, portfolio, settle
 from sim.schema import init_sim_schema, next_order_id
 
 BOOK_IDS = ("p15_ai_ranked", "p15_rule_control", "p15_hybrid_veto")
@@ -859,6 +859,33 @@ def _mark_exact(
     return result
 
 
+def _close_out_delisted(
+    con: duckdb.DuckDBPyConnection, session: date, observed_at: datetime,
+) -> int:
+    """Close out delisted P15 holdings before the session's fills, with their rules.
+
+    The settlement removes the position, so its open rule closes and any pending
+    intent for the name is cancelled rather than retried against a dead ticker.
+    """
+    now = (observed_at if observed_at.tzinfo is None
+           else observed_at.astimezone(timezone.utc).replace(tzinfo=None))
+    booked = settle.close_out_delisted(con, session, BOOK_IDS, now=now)
+    for terms, plans in booked:
+        for plan in plans:
+            con.execute(
+                "UPDATE p15_position_rules SET status='closed' "
+                "WHERE portfolio_id=? AND ticker=? AND status='open'",
+                [plan.portfolio_id, terms.ticker],
+            )
+            con.execute(
+                "UPDATE p15_order_intents SET status='cancelled',reason=? "
+                "WHERE portfolio_id=? AND ticker=? AND status='pending'",
+                [f"settled effective {terms.effective.isoformat()}",
+                 plan.portfolio_id, terms.ticker],
+            )
+    return len(booked)
+
+
 def label_limit_counterfactuals(
     con: duckdb.DuckDBPyConnection, *, labeled_at: datetime,
 ) -> int:
@@ -953,7 +980,10 @@ def run_window(
                 sessions.append(cursor)
         processed = {"filled": 0, "rejected": 0, "pending": 0}
         queued_count, marks = 0, {}
+        retained = market_date if latest_rows and market_date == last_window else None
         for session in sessions:
+            if session != retained:
+                _close_out_delisted(con, session, observed_at)
             current = process_pending(con, session)
             processed["filled"] += current["filled"]
             processed["rejected"] += current["rejected"]
