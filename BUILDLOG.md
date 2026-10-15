@@ -3275,4 +3275,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** sim +22, tests +38; server, tools and product unchanged.
 - **Next:** fix (k), the delisted-holding close-out.
 
+## 2026-10-16 — Close out a delisted holding at its last real traded close
+
+- **Why:** Revision-14 fix (k), owner decision 2026-10-15. On the 2026-10-15 store copy `high_52wk` carries 42.922218 WBD at the 10-05 bar's close (open 0, volume 40), though WBD last traded on 2026-10-02 (close 30.94) and left the exchange directory on 10-07.
+  New tests failed: the league step, the account fold and the P15 window all kept such a holding (`test_league_closes_out_a_dropped_name_at_its_last_traded_close` and siblings), and `sim.settle` refused owner terms because the zero-open quote counted as a trade.
+- **What:** A held name is delisted on session d when its latest universe snapshot is inactive, that omission began on or after its last traded bar (`REAL_BAR_SQL` plus a positive open, high and low), and it has no traded bar for 5 sessions.
+  It is booked as a `cash` settlement at that close, effective the next session, through `sim_settlements` and the shared replay; a sourced settlement booked for the ticker after its last trade supplies the terms instead.
+  The league closes out before fills (phase a1), each P15 window before that session's fills (closing the rule, cancelling pending intents), each account inside its fold; retired books are untouched. The runbook and the stale-mark text say so.
+  Five sessions: on the store copy no name the directory dropped after its last trade traded again after 3 silent sessions (the longest that did: AVB, 2); the booked amount does not depend on it.
+- **Evidence:** On a copy of the 2026-10-15 snapshot as of 10-14 the only close-out is WBD in high_52wk, 42.922218 × $30.94 = +$1,328.01 effective 2026-10-05, and the rebuild reproduces it.
+  Full suite with this and the previous entry: 4,668 passed; the 79 failures are the E1, sector and XS runtime-contract pins (`test_forward_review.py`, `test_sector_forward_status.py`, `test_xs_forward_review.py`, `test_xs_forward_status.py`) and `test_p15_registration.py` is deselected, all for the single re-pin.
+- **Metrics:** sim +233, engine +9, tests +181; server and tools unchanged.
+- **Next:** re-pin revision 14 and the runtime contracts once, after the last revision-14 lane.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
