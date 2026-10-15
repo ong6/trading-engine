@@ -123,6 +123,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-10-15 | Engine v2 (P22) is accepted; the pending revision-14 fixes land in v2 before the Sunday 2026-10-18 deployment (D0 2026-10-19) | P22; feedback |
 | 2026-10-06 | The engine is the executor and ledger; private alpha submits orders and reads results, with one independently funded account per alpha version | P22; feedback |
 | 2026-10-06 | Every simulator book pays the registered commission profile from parameterized D0, with a recorded break and restarted book-evaluation clock | P22; feedback |
 | 2026-10-06 | Generic paper accounts admit MOO, MOC and deferred-settled intraday fills; legacy books retain their registered fill mechanics | P22; feedback |
@@ -198,9 +199,10 @@ Each row has the default that applies until the owner decides.
    watch the bounded collection, shared snapshots, queue, observers, and status projections. Keep
    scheduled producers green, miss no agent windows, allow no identity drift, and leave no
    uncommitted work on the host. A broken producer beats every item below.
-2. **Finish P22 engine-v2 integration without disturbing pre-D0 evidence.** Merge the account,
-   execution and data lanes, rehearse the parameterized cost migration on a store copy, then
-   issue the explicit frozen-contract revisions and P15 revision 14 before Sunday deployment.
+2. **Finish P22 engine-v2 integration without disturbing pre-D0 evidence.** The owner accepted
+   v2 on 2026-10-15. Land the admitted revision-14 fixes, re-pin revision 14 and the frozen
+   runtime contracts once, rehearse the migration on a store copy, then deploy on Sunday
+   2026-10-18 (D0 2026-10-19).
 3. **P15 evidence collection.** P15 is active after its scoring, pre-open, event, report, and
    status checks passed. Keep scheduled windows green and never tune a registered value.
 4. **Finish and audit the free survivor-data captures.** Audit the completed grouped-daily window
