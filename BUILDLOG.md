@@ -3265,4 +3265,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +7, tools +1078, product 0, tests +418 since 2026-10-10 (main's P23 digest); budget ok.
 - **Next:** land the admitted revision-14 fixes on `p22/lifecycle` in file-disjoint lanes, then re-pin revision 14 and the runtime contracts once.
 
+## 2026-10-16 — Title the weekly walk-forward data commit by its driver
+
+- **Why:** revision-14 fix admitted 2026-10-15. On 2026-10-11 the weekly walk-forward committed 43 walk-forward files as `b09d8a8` "screen: 2026-10-09 (496 passing, 60 new)", because `engine/sync.py` always titles a commit from the nightly screen meta.
+  The new `test_driver_data_commit_is_titled_by_its_driver` failed with `sync.py: error: unrecognized arguments: --driver run_weekly_walkforward`, and the driver test saw `-m engine.sync` with no driver.
+- **What:** `engine.sync --driver NAME` titles the commit `NAME: <UTC run date> (<n> data files)`; without it the nightly title is unchanged. `run_weekly_walkforward.sh` passes its `DRIVER_NAME`.
+  The metrics snapshot still counts such a title as a generated-data commit, so the 30-day commit shape is unchanged. The weekend sweep driver still takes the screen title; it is outside this fix.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_sync.py tests/test_drivers.py` passes; the real-git test commits `run_weekly_walkforward: 2026-10-11 (1 data file)`.
+- **Metrics:** product +26, tools +2, tests +33; server unchanged.
+- **Next:** the remaining revision-14 fixes, then the single re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
