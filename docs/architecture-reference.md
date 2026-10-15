@@ -393,8 +393,9 @@ this integrity check requires disclosed evidence, not a profitable outcome.
 The validator also reconstructs all ten calendar windows from the declared anchor and
 train/validate/step lengths. It independently derives each book's `data_floor` from the live
 required-ticker history and requires the artifact to match. A fold is dropped exactly when its
-validation window opens at or before that floor; otherwise only its training start may be clamped
-up to the floor. Missing required history, self-consistent but shifted dates, an undisclosed
+validation window opens at or before that floor, or when its training window, clamped up to the
+floor, holds fewer than two stored sessions; otherwise only its training start may be clamped up to
+the floor. Missing required history, self-consistent but shifted dates, an undisclosed
 floor-driven drop, or any other geometry that the producer could not have emitted is invalid.
 The declared window lengths must also equal the frozen live protocol—24 months train, 12 months
 validate, and 12 months step—so a uniformly altered cohort cannot redefine the experiment and
