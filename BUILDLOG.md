@@ -3362,4 +3362,27 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +50, server +56, tests +119; tools unchanged. Registered: `engine/verify_prices.py` (integrator re-pins); `/meta` shape unchanged.
 - **Next:** integrator: wire `price_verify_full` into `/meta`, then re-pin revision 14 and the runtime contracts once.
 
+## 2026-10-16 — Stop the nightly league from publishing a P15 mark before its fills
+
+- **Why:** Revision-14 fix (d), admitted into P22 (owner, 2026-10-15). The 10-13 nightly's `league.csv` published p15_rule_control 2026-10-13 at 9474.13; the 10-14 nightly showed 9458.45 for the same date, after P15's window applied that session's fills (10-14: 9166.18, then 9224.78).
+  The new `test_nightly_league_never_publishes_p15_equity_before_its_fills` failed: the league step wrote three P15 rows for the fill session before `run_window` filled it.
+- **What:** `mtm_all` skips the three P15 books, so `p15_books.run_window`, which applies their fills, is the only writer of a P15 mark. A "provisional" flag was rejected: the row would still be a second `sim_equity` writer read by the API, the P15 evidence checks and the activation checkpoint, and it values the pre-fill book, not an estimate of the right one.
+  `league.md` shows a P15 book's last completed mark with ‡ and the date it is marked through.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_p15_books.py tests/test_league_v2.py` passes, including the new test.
+- **Metrics:** sim +22, tests +38; server, tools and product unchanged.
+- **Next:** fix (k), the delisted-holding close-out.
+
+## 2026-10-16 — Close out a delisted holding at its last real traded close
+
+- **Why:** Revision-14 fix (k), owner decision 2026-10-15. On the 2026-10-15 store copy `high_52wk` carries 42.922218 WBD at the 10-05 bar's close (open 0, volume 40), though WBD last traded on 2026-10-02 (close 30.94) and left the exchange directory on 10-07.
+  New tests failed: the league step, the account fold and the P15 window all kept such a holding (`test_league_closes_out_a_dropped_name_at_its_last_traded_close` and siblings), and `sim.settle` refused owner terms because the zero-open quote counted as a trade.
+- **What:** A held name is delisted on session d when its latest universe snapshot is inactive, that omission began on or after its last traded bar (`REAL_BAR_SQL` plus a positive open, high and low), and it has no traded bar for 5 sessions.
+  It is booked as a `cash` settlement at that close, effective the next session, through `sim_settlements` and the shared replay; a sourced settlement booked for the ticker after its last trade supplies the terms instead.
+  The league closes out before fills (phase a1), each P15 window before that session's fills (closing the rule, cancelling pending intents), each account inside its fold; retired books are untouched. The runbook and the stale-mark text say so.
+  Five sessions: on the store copy no name the directory dropped after its last trade traded again after 3 silent sessions (the longest that did: AVB, 2); the booked amount does not depend on it.
+- **Evidence:** On a copy of the 2026-10-15 snapshot as of 10-14 the only close-out is WBD in high_52wk, 42.922218 × $30.94 = +$1,328.01 effective 2026-10-05, and the rebuild reproduces it.
+  Full suite with this and the previous entry: 4,668 passed; the 79 failures are the E1, sector and XS runtime-contract pins (`test_forward_review.py`, `test_sector_forward_status.py`, `test_xs_forward_review.py`, `test_xs_forward_status.py`) and `test_p15_registration.py` is deselected, all for the single re-pin.
+- **Metrics:** sim +233, engine +9, tests +181; server and tools unchanged.
+- **Next:** re-pin revision 14 and the runtime contracts once, after the last revision-14 lane.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
