@@ -39,7 +39,9 @@ RESEARCH_PREFIXES = (
     "data/reports/forward/",
 )
 SHA256 = re.compile(r"\b[0-9a-f]{64}\b")
-SCREEN_COMMIT = re.compile(r"^screen: \d{4}-\d{2}-\d{2}")
+# Generated-data commits: the nightly screen, and weekly drivers that title their
+# data commit by driver name (engine/sync.py --driver).
+SCREEN_COMMIT = re.compile(r"^(?:screen|run_[a-z0-9_]+): \d{4}-\d{2}-\d{2}")
 ENTRY_HEADER = re.compile(r"^## \d{4}-\d{2}-\d{2}", re.MULTILINE)
 COMMIT_WINDOW_DAYS = 30
 RECENT_ENTRIES = 10
