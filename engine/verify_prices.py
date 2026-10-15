@@ -46,9 +46,11 @@ WHAT IS COMPARED, AND WHAT IS DELIBERATELY NOT
 
 HARD RULES
   * This module NEVER writes a price row. It opens the store read-only and its
-    only write anywhere is the `price_verify` key in data/_meta.json (merged,
-    never clobbered). If the two sources disagree the honest output is a flagged
-    disagreement, not a silent correction — we do not know which one is right.
+    only write anywhere is one key in data/_meta.json (merged, never clobbered):
+    `price_verify` for the nightly sample, `price_verify_full` for the weekly
+    full-universe pass, so neither overwrites the other. If the two sources
+    disagree the honest output is a flagged disagreement, not a silent
+    correction — we do not know which one is right.
   * It NEVER invents a number. A name the source does not return, cannot be
     parsed, or that shares no session with the store is `not_checked` with a
     reason. It is never counted as agreeing. (BUILDLOG 2026-08-20: in this
@@ -91,7 +93,8 @@ from engine.lib.settings import META_PATH as DEFAULT_META
 from engine.lib.util import median
 
 log = get_logger("verify")
-META_KEY = "price_verify"
+META_KEY = "price_verify"            # nightly sample (run_daily.sh)
+FULL_META_KEY = "price_verify_full"  # weekly full universe (run_weekly_verify.sh)
 
 API_URL = "https://api.nasdaq.com/api/quote/{sym}/historical"
 SOURCE_LABEL = "api.nasdaq.com/api/quote/{ticker}/historical"
@@ -444,7 +447,11 @@ FIELDS = ("open", "high", "low", "close")
 # consolidated figures. So the same discipline the audit demanded for volume
 # applies to same-day O/H/L: measure it, report it, never alarm on it. The
 # newest session's CLOSE is still checked on every name, because that is the
-# number the league marks its books against tonight.
+# number the league marks its books against tonight — when the source has it.
+# At the nightly's ~22:35 UTC the source's newest row is still the previous
+# session (every nightly receipt 10-05..10-14; the Saturday 02:00 pass has it),
+# so the run reports `newest_session` as `not_checked: source_lag` rather than
+# leaving a null; that close is compared one night later as a settled session.
 PROVISIONAL_FIELDS = ("open", "high", "low")
 
 
@@ -485,6 +492,9 @@ def compare_bars(ticker: str, store_bars: dict, src_bars: dict,
         "store_missing": missing,
         "volume_diffs_pct": [],
         "prov": [],          # (field, bp) on the provisional session — never alarmed on
+        "newest_in_store": as_of in store_bars,
+        "newest_compared": as_of in common,
+        "source_latest_session": max(src_bars).isoformat() if src_bars else None,
     }
     if not common:
         out["status"] = "not_checked"
@@ -750,6 +760,7 @@ def run(
         by_field[d["field"]] = by_field.get(d["field"], 0) + 1
         by_date[d["date"]] = by_date.get(d["date"], 0) + 1
     checked = agreeing + disagreeing
+    newest = _newest_session(as_of, checked)
     worsts = [r["worst"] for r in checked if r.get("worst")]
     worst_overall = max(worsts, key=lambda w: w["diff_bp"]) if worsts else None
     store_missing = {r["ticker"]: r["store_missing"] for r in checked if r.get("store_missing")}
@@ -826,9 +837,15 @@ def run(
         # open/high/low are provisional in the store and are NOT counted as
         # disagreements. Reported so the exemption stays visible and auditable —
         # if this median ever collapses to ~0, the exemption can be dropped.
-        "provisional_note": (f"on {as_of.isoformat()} (newest stored session) "
-                             "open/high/low are measured but never flagged; the "
-                             "close IS checked on every name"),
+        "newest_session": newest,
+        "provisional_note": (
+            f"on {as_of.isoformat()} (newest stored session) open/high/low are "
+            "measured but never flagged; the close IS checked on every name"
+            if newest["status"] == "checked" else
+            f"on {as_of.isoformat()} (newest stored session) the source had a bar "
+            f"for {newest['names_compared']} of {newest['names_with_store_bar']} "
+            f"names ({newest['reason']}): the rest were not compared tonight and are "
+            "compared on a later run as settled sessions"),
         "provisional_ohl_median_bp": (round(median([bp for _, bp in prov_diffs]), 2)
                                       if prov_diffs else None),
         "provisional_ohl_max_bp": (round(max(bp for _, bp in prov_diffs), 2)
@@ -844,6 +861,35 @@ def run(
         accounting["self_test"] = ("SYNTHETIC: one stored close was corrupted in "
                                    "memory to exercise the detector — not a real run")
     return accounting
+
+
+def _newest_session(as_of: date, checked: list[dict]) -> dict:
+    """Whether the newest stored session was compared at all, and why not.
+
+    `source_lag`: every checked name the store has a bar for on `as_of` came back
+    without that session (the source has not published it yet). Anything else
+    uncompared is `source_missing_session`. Never inferred as agreement.
+    """
+    in_store = [r for r in checked if r.get("newest_in_store")]
+    compared = [r for r in in_store if r.get("newest_compared")]
+    uncompared = [r for r in in_store if not r.get("newest_compared")]
+    latest = [r["source_latest_session"] for r in checked if r.get("source_latest_session")]
+    lagging = all(
+        r.get("source_latest_session") and r["source_latest_session"] < as_of.isoformat()
+        for r in uncompared
+    )
+    if not in_store:
+        status, reason = "not_checked", "no_store_bar"
+    elif not uncompared:
+        status, reason = "checked", None
+    else:
+        status = "partial" if compared else "not_checked"
+        reason = "source_lag" if lagging else "source_missing_session"
+    return {
+        "session": as_of.isoformat(), "status": status, "reason": reason,
+        "names_with_store_bar": len(in_store), "names_compared": len(compared),
+        "source_latest_session": max(latest) if latest else None,
+    }
 
 
 def retain_evidence(accounting: dict, directory: Path) -> dict:
@@ -935,6 +981,8 @@ def main() -> int:
                          "basis points to prove the detector fires; implies "
                          "--no-meta")
     ap.add_argument("--no-meta", action="store_true", help="print only, write nothing")
+    ap.add_argument("--meta-key", default=META_KEY, choices=(META_KEY, FULL_META_KEY),
+                    help="_meta.json key: the nightly sample or the weekly full pass")
     ap.add_argument("--release-lock-fd", type=int, default=None, help=argparse.SUPPRESS)
     args = ap.parse_args()
     # Redirected to a log, stdout is block-buffered and a multi-minute run looks
@@ -969,8 +1017,8 @@ def main() -> int:
         return 0
     try:
         acc = retain_evidence(acc, Path(args.meta).parent / "price-verify")
-        rsc.merge_meta(args.meta, {META_KEY: acc})
-        log.info(f"[verify] merged '{META_KEY}' into {args.meta}")
+        rsc.merge_meta(args.meta, {args.meta_key: acc})
+        log.info(f"[verify] merged '{args.meta_key}' into {args.meta}")
     except Exception as exc:
         log.error(f"TODO: price verify could not write _meta.json ({exc}) — result above only")
     return 0
