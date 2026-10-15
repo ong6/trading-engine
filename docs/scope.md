@@ -48,6 +48,9 @@ P22 admits the generic simulator account, auction/intraday fill, commission, sho
 halt, result-isolation and data-capture foundation described by its active plan. It also admits
 the one-shot D0 migration and explicit frozen-contract revisions. It does not admit a private
 strategy, a broker connection, real capital, or options execution without bid/ask data.
+The owner accepted P22 on 2026-10-15 and admitted the revision-14 defect fixes proposed below
+(2026-10-10 and 2026-10-15) and in the P22 plan progress; each line leaves this ledger when its
+fix lands on `p22/lifecycle`.
 
 ## Not yet — frozen until its trigger fires
 

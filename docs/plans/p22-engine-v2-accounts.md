@@ -113,3 +113,28 @@ every legacy id, effective dates must select the exact fee rule, and replay phas
 match live accounting. The nightly account-freshness read is fail-soft; settlement and ledger
 failures are not. Any migration, replay, privacy, rehearsal or frozen-identity mismatch blocks
 deployment; rollback restores the pre-migration database backup and source revision.
+
+## Progress
+
+- L0–L4 accepted and integrated; the private-alpha lane (L5) is accepted against the account
+  contract and its merge is held for the post-deploy cutover.
+- Integration (PR #13, `p22/lifecycle`) completed 2026-10-08; lifecycle review rounds 2–6
+  followed. On 2026-10-15 the orchestrator accepted round 6 (`42083c4`: CI green in both
+  timezones, 4,728 tests) and the owner accepted engine v2.
+- 2026-10-15: `origin/main` (P23 hourly digest at :08 UTC, walk-forward invalid reasons,
+  agent-shadow connect window) merged into `p22/lifecycle`. No revision-14 registered file
+  changed.
+- Admitted before deployment (owner, 2026-10-15), each with a reproduction first:
+  single-attempt writer opens use the default lock-retry window; walk-forward drops a fold
+  with fewer than two training sessions and says so; the TradingView archive retries an
+  exhausted window after a cool-down; the nightly league mark no longer publishes P15 equity
+  before that session's P15 fills; the P15 price-fetch record covers only names it can fetch;
+  a split-like re-fetch triggers the action fetch and back-adjustment; phantom bars with a
+  non-positive open, high or low are not real bars; the weekly full price verify keeps its
+  own result and the nightly check says when the newest session was not checked; the weekly
+  walk-forward data commit is titled as such; the ops digest trusts the systemd result for a
+  clean stop; a delisted holding is closed out at its last real traded close.
+- Remaining gates: re-pin revision 14 and the frozen runtime contracts once after the last
+  fix, both timezone suites, the store-copy rehearsal on the final source, then deployment on
+  Sunday 2026-10-18 19:00–23:00 UTC with D0 2026-10-19 (`P22_APPROVED_SHA` is that final
+  source).

@@ -752,3 +752,23 @@ Late data never un-fills orders already executed while active. Delete historical
 D. **Any failure halts.** Any exception during fold, settle or verify rolls back the
 transaction, then persists mismatch evidence and halts in a separate transaction.
 Nightly and late entry points exit nonzero.
+
+## 2026-10-15 — Accept engine v2; land the revision-14 fixes before the Sunday deployment
+
+**Verdict.** The owner accepted engine v2 (P22): "we support the v2, I accept it." The pending
+revision-14 fixes go into v2 before the planned deployment on Sunday 2026-10-18.
+
+**Orchestrator acceptance.** P22 lifecycle round 6 (`42083c4`, PR #13 on `p22/lifecycle`) is
+accepted: CI green under both supported timezones with 4,728 tests. Lanes L0–L4 were accepted
+earlier; the private-alpha lane stays held for the post-deploy cutover.
+
+**Rule changes.**
+
+1. P22 deploys in the Sunday 2026-10-18 19:00–23:00 UTC window with D0 2026-10-19, using the
+   deployment and rollback commands in `settlement-runbook.md`, after the final revision-14
+   source passes both timezone suites and the store-copy rehearsal. → P22 plan progress.
+2. The revision-14 defect fixes are admitted into P22: the "Proposed, not approved" lines of
+   2026-10-10 and 2026-10-15 in `scope.md` and the further defects listed in the P22 plan
+   progress. Each lands on `p22/lifecycle` with its reproduction in BUILDLOG. Revision 14 and the
+   frozen runtime contracts are re-pinned once, while still undeployed, after the last fix.
+   → `scope.md`, P22 plan progress.
