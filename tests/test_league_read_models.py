@@ -306,6 +306,36 @@ def test_league_keeps_stale_active_book_visible_but_unranked(con, monkeypatch):
     assert comparison_dates == [operational, stale]
 
 
+def test_league_says_a_p15_book_is_marked_through_its_last_window(con, monkeypatch):
+    # The league no longer writes a provisional P15 mark (revision-14 fix d): from the nightly
+    # until the P15 window, a P15 book's latest mark is the previous session's, as league.md's
+    # ‡ note says. The API showed it as a plain stale book.
+    marked, operational = date(2026, 9, 3), date(2026, 9, 4)
+    for portfolio_id in ("league_book", "p15_rule_control", "stale_book"):
+        portfolio(con, portfolio_id)
+    con.execute(
+        "INSERT INTO sim_equity VALUES ('league_book', ?, 39000, 39000, 0), "
+        "('p15_rule_control', ?, 10000, 10000, 0), ('stale_book', ?, 39000, 39000, 0)",
+        [operational, marked, marked],
+    )
+    monkeypatch.setattr(league_read_models, "latest_prices_date", lambda _con: operational)
+    monkeypatch.setattr(league_read_models, "_spy_return", lambda _con, _created, _as_of: 0.0)
+
+    payload = league_read_models.league(con)
+    notes = {row["id"]: row["mark_note"] for row in payload["rows"]}
+
+    assert notes == {
+        "league_book": None,
+        "p15_rule_control": "‡ marked through 2026-09-03: a P15 book is marked by its own "
+        "window after that session's P15 fills, never provisionally by the league.",
+        "stale_book": None,
+    }
+    current = {**payload, "rows": [{**row, "mark_note": "‡ invented"} if row["current"] else row
+                                   for row in payload["rows"]]}
+    with pytest.raises(ValueError, match="mark note"):
+        league_read_models._validate_league_projection(current)
+
+
 def test_league_streams_complete_history_into_bounded_statistics(con, monkeypatch):
     days = [date(2026, 8, day) for day in range(1, 8)]
     equities = [100.0, 120.0, 90.0, 95.0, 80.0, 100.0, 110.0]
