@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 import pytest
+from yfinance.exceptions import YFPricesMissingError
 
 from engine import collect
 from engine.lib import db
@@ -44,6 +45,34 @@ def _read(path, sql: str):
     con = db.connect(path, read_only=True, wait_s=0)
     try:
         return con.execute(sql).fetchall()
+    finally:
+        con.close()
+
+
+def _probe_raises(error: Exception, calls: list[str] | None = None):
+    """A per-name source probe that records the name and raises `error`."""
+
+    def probe(yf_ticker):
+        if calls is not None:
+            calls.append(yf_ticker)
+        raise error
+
+    return probe
+
+
+def _no_price_data(ticker: str) -> Exception:
+    # yfinance's "possibly delisted; no price data found  (period=5d)": no Yahoo reason.
+    return YFPricesMissingError(ticker, " (period=5d)")
+
+
+def _add_universe(path, *rows: tuple[str, bool, bool]) -> None:
+    con = db.connect(path)
+    try:
+        con.executemany(
+            "INSERT INTO universe (ticker,yf_ticker,active,liquid,backfill_done) "
+            "VALUES (?,?,?,?,TRUE)",
+            [[ticker, ticker, active, liquid] for ticker, active, liquid in rows],
+        )
     finally:
         con.close()
 
@@ -93,6 +122,7 @@ def test_incremental_records_append_only_price_fetch_attempts(monkeypatch, tmp_p
     raw = pd.concat({"AAA": _raw_frame(market_date.isoformat())}, axis=1)
     monkeypatch.setattr(collect, "_download", lambda *_args, **_kwargs: raw)
     monkeypatch.setattr(collect.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(collect, "_probe_history", _probe_raises(TimeoutError("read timed out")))
 
     assert collect.mode_incremental(db_path, force=True) == (2, 1)
     first_attempt = collect.datetime(2026, 9, 26, 1, tzinfo=collect.timezone.utc)
@@ -189,6 +219,155 @@ def test_p15_incremental_wrapper_withholds_failed_or_misdated_attempts(monkeypat
     ]
 
 
+def test_incremental_requests_only_active_liquid_names(monkeypatch, tmp_path):
+    """Rev-14 (e): the 10-14 nightly requested 27 inactive names still flagged liquid."""
+    db_path = tmp_path / "market.duckdb"
+    _setup_store(db_path, liquid=True)
+    _add_universe(db_path, ("GONE", False, True), ("THIN", True, False))
+    requested: list[str] = []
+
+    def download(tickers, *, period, start):
+        requested.extend(tickers)
+        return _raw_frame()
+
+    monkeypatch.setattr(collect, "_download", download)
+    monkeypatch.setattr(collect.time, "sleep", lambda _seconds: None)
+
+    assert collect.mode_incremental(db_path, force=True) == (1, 0)
+    assert requested == ["AAA"]
+
+
+def test_incremental_counts_source_no_data_as_completed(monkeypatch, tmp_path):
+    """A name the source answers with "no data" is a completed request, not a failure."""
+    db_path = tmp_path / "market.duckdb"
+    _setup_store(db_path, liquid=True)
+    _add_universe(
+        db_path, ("BBB", True, True), ("CCC", True, True), ("DDD", True, True),
+        ("EEE", True, True), ("FFF", True, True),
+    )
+    raw = pd.concat({"AAA": _raw_frame()}, axis=1)
+    monkeypatch.setattr(collect, "_download", lambda *_args, **_kwargs: raw)
+    monkeypatch.setattr(collect.time, "sleep", lambda _seconds: None)
+    probed: list[str] = []
+    outcomes = {
+        "BBB": _no_price_data("BBB"),
+        "CCC": YFPricesMissingError(
+            "CCC", " (period=5d)", "No data found, symbol may be delisted",
+        ),
+        "DDD": None,
+        "EEE": YFPricesMissingError("EEE", " (period=5d)(Yahoo status_code = 500)"),
+    }
+
+    def probe(yf_ticker):
+        probed.append(yf_ticker)
+        if outcomes[yf_ticker] is None:
+            return _raw_frame()
+        raise outcomes[yf_ticker]
+
+    monkeypatch.setattr(collect, "_probe_history", probe)
+
+    # BBB and CCC: no data (completed). DDD: the batch missed it but the source
+    # has it, so its bar is stored. EEE: an HTTP status (failed), after which
+    # FFF is not re-asked and counts as failed too.
+    assert collect.mode_incremental(db_path, force=True) == (6, 2)
+    assert probed == ["BBB", "CCC", "DDD", "EEE"]
+    assert _read(db_path, "SELECT ticker FROM prices ORDER BY ticker") == [("AAA",), ("DDD",)]
+
+
+def test_incremental_does_not_probe_names_of_an_empty_batch(monkeypatch, tmp_path):
+    db_path = tmp_path / "market.duckdb"
+    _setup_store(db_path, liquid=True)
+    _add_universe(db_path, ("BBB", True, True))
+    monkeypatch.setattr(collect, "_download", lambda *_args, **_kwargs: pd.DataFrame())
+    monkeypatch.setattr(collect.time, "sleep", lambda _seconds: None)
+    probed: list[str] = []
+    monkeypatch.setattr(collect, "_probe_history", _probe_raises(_no_price_data("X"), probed))
+
+    assert collect.mode_incremental(db_path, force=True) == (2, 2)
+    assert probed == []
+
+
+def test_price_fetch_record_covers_active_liquid_names(con):
+    db.init_schema(con)
+    con.executemany(
+        "INSERT INTO universe (ticker,yf_ticker,active,liquid,backfill_done) "
+        "VALUES (?,?,?,TRUE,TRUE)",
+        [["AAA", "AAA", True], ["BBB", "BBB", True], ["GONE", "GONE", False]],
+    )
+    market_date = date(2026, 9, 28)
+    insert_bars(con, "AAA", [market_date], open_=100, close=101, high=102, low=99)
+    attempted_at = datetime(2026, 9, 28, 22, 33, tzinfo=timezone.utc)
+
+    result = p15_price_fetch_attempts.record(
+        con, market_date=market_date, attempted_at=attempted_at,
+        requested_count=2, failed_count=0,
+    )
+
+    assert result == {
+        "status": "complete", "market_date": "2026-09-28", "attempt_count": 2,
+        "present_count": 1, "missing_count": 1,
+    }
+    assert con.execute("SELECT ticker,status FROM price_fetch_attempts").fetchall() == [
+        ("BBB", "missing")
+    ]
+    p15_price_fetch_attempts.validate(con, ValueError)
+
+
+def test_nightly_records_fetch_attempts_despite_inactive_and_delisted_names(
+    monkeypatch, tmp_path,
+):
+    """The 10-14 nightly shape: inactive liquid names and a delisted active name
+    withheld the whole batch (`attempt_count: 0 ... collection_incomplete`)."""
+    db_path = tmp_path / "market.duckdb"
+    _setup_store(db_path, liquid=True)
+    _add_universe(db_path, ("GONE", False, True), ("DLST", True, True))
+    market_date = date(2026, 9, 28)
+    raw = pd.concat({"AAA": _raw_frame(market_date.isoformat())}, axis=1)
+    monkeypatch.setattr(collect, "_download", lambda *_args, **_kwargs: raw)
+    monkeypatch.setattr(collect.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(collect, "_probe_history", _probe_raises(_no_price_data("DLST")))
+    monkeypatch.setattr(collect, "write_meta", lambda *_args: None)
+    monkeypatch.setattr(collect, "_is_trading_day", lambda _day: True)
+    # A two-name store cannot meet the 90%-breadth market-date rule with one name
+    # delisted; the production store resolves 10-14 with 4,072 of 4,099 names.
+    monkeypatch.setattr(
+        p15_incremental_collect.db, "latest_operational_market_date", lambda _con: market_date,
+    )
+
+    result = p15_incremental_collect.run(
+        db_path, now=datetime(2026, 9, 28, 22, 33, tzinfo=timezone.utc),
+    )
+
+    assert result["status"] == "complete"
+    assert (result["requested"], result["failed"], result["attempt_count"]) == (2, 0, 2)
+    assert (result["present_count"], result["missing_count"]) == (1, 1)
+    assert _read(db_path, "SELECT ticker,status FROM price_fetch_attempts") == [
+        ("DLST", "missing")
+    ]
+
+
+def test_bar_with_a_non_positive_open_high_or_low_is_not_a_real_bar(con):
+    """Rev-14 (g): WBD 2026-10-05 (open 0, volume 40) counted as WBD's last
+    traded bar; WSLS 10-09 carried high = low = 0."""
+    insert_bars(con, "WBD", [SESSIONS[0]], open_=30.95, close=30.94, high=30.96,
+                low=30.93, volume=59_649_600)
+    con.executemany(
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume) VALUES (?,?,?,?,?,?,?)",
+        [
+            ("WBD", SESSIONS[1], 0.0, 30.99, 30.94, 30.95, 40),
+            ("HIGH0", SESSIONS[1], 24.94, 0.0, 24.70, 24.80, 10),
+            ("LOWNEG", SESSIONS[1], 24.94, 25.00, -1.0, 24.80, 10),
+        ],
+    )
+
+    real = con.execute(
+        f"SELECT ticker, MAX(date) FROM prices WHERE {db.REAL_BAR_SQL} GROUP BY 1 ORDER BY 1"
+    ).fetchall()
+
+    assert real == [("WBD", SESSIONS[0])]
+    assert db.latest_real_prices_date(con) == SESSIONS[0]
+
+
 def test_demoted_p15_ticker_keeps_exact_date_fetch_obligations_until_labeled(con):
     db.init_schema(con)
     p15_price_fetch_attempts.init_schema(con)
@@ -267,7 +446,7 @@ def test_demoted_p15_ticker_keeps_exact_date_fetch_obligations_until_labeled(con
         p15_price_fetch_attempts.validate(con, ValueError)
 
 
-def test_exact_label_fetch_distinguishes_missing_from_ambiguous_empty():
+def test_exact_label_fetch_distinguishes_missing_from_ambiguous_empty(con):
     obligation = {
         "ticker": "AAA", "provider_ticker": "AAA", "market_date": date(2026, 9, 25),
     }
@@ -286,6 +465,36 @@ def test_exact_label_fetch_distinguishes_missing_from_ambiguous_empty():
     assert receipt["outcome_reason"] == (
         p15_price_fetch_attempts.OPEN_LABEL_MISSING_REASON
     )
+
+    # Rev-14 (e): yfinance's "possibly delisted; no price data found" carries no
+    # Yahoo reason; the 10-14 nightly failed 14 of 15 exact fetches on it.
+    def no_price_data(*_args):
+        raise _no_price_data("AAA")
+
+    receipt, frame = p15_incremental_collect._fetch_exact(
+        obligation, requested_at=requested_at, history=no_price_data,
+        sleep=lambda _seconds: None,
+    )
+    assert receipt["status"] == "missing" and frame is None
+    assert receipt["outcome_reason"] == (
+        p15_price_fetch_attempts.OPEN_LABEL_NO_PRICE_DATA_REASON
+    )
+    p15_price_fetch_attempts.record_open_label_receipt(
+        con, completed_at=requested_at + timedelta(seconds=1), **receipt,
+    )
+    p15_price_fetch_attempts.validate(con, ValueError)
+    con.execute("UPDATE p15_open_label_fetch_receipts SET outcome_reason=?",
+                [p15_price_fetch_attempts.OPEN_LABEL_MISSING_REASON])
+    with pytest.raises(ValueError, match="open-label fetch receipt differs"):
+        p15_price_fetch_attempts.validate(con, ValueError)
+
+    def http_status(*_args):
+        raise YFPricesMissingError("AAA", " (1d 2026-09-25)(Yahoo status_code = 404)")
+
+    assert p15_incremental_collect._fetch_exact(
+        obligation, requested_at=requested_at, history=http_status,
+        sleep=lambda _seconds: None,
+    ) == (None, None)
 
     calls = 0
 

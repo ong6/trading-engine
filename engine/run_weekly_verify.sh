@@ -38,9 +38,11 @@ body() {
   # --sample large enough to reach the whole liquid universe; --max-names is the
   # hard ceiling and --max-secs the wall-clock stop. Both are deliberate: a run
   # that cannot finish must stop and SAY it checked fewer names, never silently
-  # report the subset it managed as if it were the universe.
+  # report the subset it managed as if it were the universe. Its own _meta.json
+  # key, so the next nightly sample does not overwrite the full-universe result.
   "${PY}" -m engine.verify_prices \
     --sample 5000 --max-names 5000 --max-secs 10800 --sessions 5 \
+    --meta-key price_verify_full \
     || echo "WARN: verification exited non-zero — it is fail-soft by design; see the log"
 }
 

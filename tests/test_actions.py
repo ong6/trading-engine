@@ -8,6 +8,7 @@ ex-date (the declared truth in sim/portfolio.rebuild_state).
 """
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from datetime import datetime, time, timedelta, timezone
@@ -17,10 +18,10 @@ import pandas as pd
 import pytest
 from conftest import SESSIONS, insert_bars
 
-from engine import actions
+from engine import actions, collect
 from engine.lib import db
 from sim import corp_actions_shakedown, portfolio
-from sim.schema import INITIAL_CASH
+from sim.schema import INITIAL_CASH, init_sim_schema
 
 TK = "AAA"
 RATIO = 1.5
@@ -482,3 +483,163 @@ def test_restate_leaves_post_ex_position_unscaled(con, book):
     for pf in pos:
         assert pos2[pf][0] == pytest.approx(pos[pf][0]) and pos2[pf][1] == pytest.approx(pos[pf][1])
     assert dict(con.execute("SELECT id, cash FROM portfolios").fetchall())[book] == pytest.approx(cash[book])
+
+
+# --------------------------------------------------------------------------- #
+# rev-14 (f): a split Yahoo restates late (DXJ, 3:1, ex 2026-10-09)
+# --------------------------------------------------------------------------- #
+SPLIT = 3.0
+LATE_EX_IDX = 20
+LATE_EX = SESSIONS[LATE_EX_IDX]
+
+
+def _yahoo_bars(ticker: str, days: list, closes: list[float]) -> pd.DataFrame:
+    """A yf.download(group_by='ticker') frame for one name: real (traded) bars."""
+    frame = pd.DataFrame(
+        {"Open": closes, "High": [c * 1.01 for c in closes],
+         "Low": [c * 0.99 for c in closes], "Close": closes,
+         "Volume": [1_000_000] * len(closes)},
+        index=pd.DatetimeIndex([pd.Timestamp(d) for d in days], name="Date"),
+    )
+    return pd.concat({ticker: frame}, axis=1)
+
+
+def _late_split_store(tmp_path, monkeypatch):
+    """Store DXJ's mixed bases: the ex-date evening pull is not yet restated, the
+    next night's 5-session re-fetch is, so the stored break sits 3 sessions early."""
+    db_path = tmp_path / "market.duckdb"
+    con = db.connect(db_path)
+    db.init_schema(con)
+    db.init_actions_schema(con)
+    init_sim_schema(con)
+    con.execute(
+        "INSERT INTO universe (ticker, yf_ticker, active, liquid, backfill_done) "
+        "VALUES ('DXJ', 'DXJ', TRUE, TRUE, TRUE)"
+    )
+    insert_bars(con, "DXJ", SESSIONS[:LATE_EX_IDX - 4], open_=180.0, close=180.0,
+                high=182.0, low=178.0)
+    con.execute("UPDATE prices SET fetched_at = ?", [FETCHED_BEFORE_EX])
+    con.close()
+    nights = iter([
+        # ex-date evening: Yahoo still serves the old scale before the ex-date
+        _yahoo_bars("DXJ", SESSIONS[LATE_EX_IDX - 4:LATE_EX_IDX + 1], [180.0] * 4 + [60.0]),
+        # next night: Yahoo has restated, the re-fetch rewrites three stored bars
+        _yahoo_bars("DXJ", SESSIONS[LATE_EX_IDX - 3:LATE_EX_IDX + 2], [60.0] * 5),
+    ])
+    monkeypatch.setattr(collect, "_download", lambda *_args, **_kwargs: next(nights))
+    monkeypatch.setattr(collect.time, "sleep", lambda _seconds: None)
+    assert collect.mode_incremental(db_path, force=True) == (1, 0)
+    assert collect.mode_incremental(db_path, force=True) == (1, 0)
+    monkeypatch.setattr(actions, "PER_NAME_SLEEP", 0)
+    monkeypatch.setattr(actions.rsc, "dir_size_gb", lambda _path: 0.0)
+    return db_path
+
+
+def _split_actions(_yf_ticker):
+    return pd.DataFrame(
+        {"Dividends": [0.0], "Stock Splits": [SPLIT]},
+        index=[pd.Timestamp(LATE_EX).tz_localize("America/New_York")],
+    )
+
+
+def test_refetch_rewrite_by_split_ratio_triggers_actions_fetch_and_restatement(
+    monkeypatch, tmp_path,
+):
+    """DXJ is not held, pending, a core ETF or a screen leader, so the nightly
+    actions fetch never asked about it; once asked, the late restatement put
+    pre-break bars stored on the ex-date, so the reconciler skipped the split."""
+    db_path = _late_split_store(tmp_path, monkeypatch)
+    asked: list[str] = []
+    monkeypatch.setattr(
+        actions, "_fetch_actions", lambda yft: asked.append(yft) or _split_actions(yft)
+    )
+
+    actions.run_connection_narrowed(
+        {"mode": "incremental", "top_n": 0}, db_path=db_path, meta_path=tmp_path / "m.json"
+    )
+    actions.run_connection_narrowed(
+        {"mode": "reconcile"}, db_path=db_path, meta_path=tmp_path / "m.json"
+    )
+
+    assert asked == ["DXJ"]
+    con = db.connect(db_path, read_only=True)
+    try:
+        assert con.execute(
+            "SELECT outcome, break_date FROM split_adjustments WHERE ticker = 'DXJ'"
+        ).fetchall() == [("applied", SESSIONS[LATE_EX_IDX - 3])]
+        closes = [r[0] for r in con.execute(
+            "SELECT close FROM prices WHERE ticker = 'DXJ' ORDER BY date").fetchall()]
+    finally:
+        con.close()
+    assert closes == pytest.approx([60.0] * len(closes))
+
+
+def test_split_like_rewrite_is_recorded_once_per_ticker_and_ordinary_restatements_are_not(con):
+    db.init_actions_schema(con)
+    insert_bars(con, "AAA", SESSIONS[:3], open_=90.0, close=90.0, high=91.0, low=89.0)
+    insert_bars(con, "BBB", SESSIONS[:3], open_=50.0, close=50.0, high=51.0, low=49.0)
+    con.execute("UPDATE prices SET fetched_at = ?", [FETCHED_BEFORE_EX])
+    incoming = pd.DataFrame({
+        "ticker": ["AAA", "AAA", "BBB"], "date": [SESSIONS[1], SESSIONS[2], SESSIONS[2]],
+        "close": [30.0, 30.3, 51.0],
+    })
+
+    assert actions.record_split_like_rewrites(con, incoming) == ["AAA"]
+
+    (payload,) = con.execute(
+        "SELECT payload FROM audit_log WHERE actor = 'collect' "
+        "AND action = 'split_like_rewrite'").fetchone()
+    body = json.loads(payload)
+    assert body["ticker"] == "AAA"
+    assert body["dates"] == [SESSIONS[1].isoformat(), SESSIONS[2].isoformat()]
+    assert body["ratio"] == pytest.approx((3.0 + 90.0 / 30.3) / 2)
+    assert body["replaced_fetched_at"] == FETCHED_BEFORE_EX.isoformat()
+
+
+def test_rewrite_evidence_is_recorded_in_a_store_without_the_sim_schema(tmp_path):
+    db_path = tmp_path / "market.duckdb"
+    con = db.connect(db_path)
+    db.init_schema(con)
+    insert_bars(con, "AAA", SESSIONS[:2], open_=90.0, close=90.0, high=91.0, low=89.0)
+    con.close()
+
+    collect._upsert_batch(db_path, pd.DataFrame({
+        "ticker": ["AAA"], "date": [SESSIONS[1]], "open": [30.0], "high": [30.3],
+        "low": [29.7], "close": [30.0], "volume": [3_000_000],
+    }))
+
+    con = db.connect(db_path, read_only=True)
+    try:
+        assert [r["ticker"] for r in actions._rewrites(con)] == ["AAA"]
+        assert con.execute(
+            "SELECT close FROM prices WHERE ticker = 'AAA' ORDER BY date").fetchall() == [
+            (90.0,), (30.0,)]
+    finally:
+        con.close()
+
+
+def test_late_restatement_without_rewrite_evidence_stays_skipped(monkeypatch, tmp_path):
+    """The reconciler still never guesses: without the recorded rewrite the same
+    stored series is `skipped_already_adjusted`, as before."""
+    db_path = _late_split_store(tmp_path, monkeypatch)
+    con = db.connect(db_path)
+    try:
+        con.execute("DELETE FROM audit_log WHERE action = 'split_like_rewrite'")
+        con.execute("INSERT INTO corporate_actions VALUES ('DXJ', ?, 'split', ?, 'yfinance', now())",
+                    [LATE_EX, SPLIT])
+        actions.reconcile(con)
+        assert con.execute(
+            "SELECT outcome FROM split_adjustments WHERE ticker = 'DXJ'"
+        ).fetchall() == [("skipped_already_adjusted",)]
+    finally:
+        con.close()
+
+
+def test_rewrite_with_no_split_row_is_surfaced_for_a_human(monkeypatch, tmp_path):
+    db_path = _late_split_store(tmp_path, monkeypatch)
+    con = db.connect(db_path)
+    try:
+        summary = actions.reconcile(con)
+    finally:
+        con.close()
+    assert summary["warnings"] == 1
