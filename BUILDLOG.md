@@ -3277,4 +3277,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +4 (comments), tests +112; tools and product unchanged.
 - **Next:** Re-pin revision 14 and the runtime contracts once, after the last revision-14 fix lane.
 
+## 2026-10-15 — Trust systemd's result for a clean stop in the ops digest (revision-14 fix)
+
+- **Why:** Admitted revision-14 fix (owner, 2026-10-15; P22 progress): the 10-15 API restart logged `Main process exited, code=killed, status=15/TERM` and then `Succeeded.`, and the digest counted the exit status as a failed run.
+  The new `test_clean_stop_that_systemd_reports_as_success_is_not_a_failed_run` replays that journal; the hour was `FAIL` with "1 failed run(s)", and the report listed `success, exit 15` under "Failed runs" and as a failed API run in the per-job table.
+- **What:** A run fails only when systemd's result is neither `success` nor still running, in the hour status, the report's failed list and the per-job failed count; the exit status is still shown beside the result.
+  A failure whose result line lands in the next hour is counted there, once, instead of in both hours.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect tests/test_p15_registration.py` → 4,747 passed, exit 0 (the registration-identity test fails until revision 14 is re-pinned); Ruff clean.
+- **Metrics:** tools unchanged (7 lines rewritten), tests +19; server and product unchanged.
+- **Next:** Re-pin revision 14 and the runtime contracts once, after the last revision-14 fix lane.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
