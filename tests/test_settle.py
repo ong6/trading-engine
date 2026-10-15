@@ -3,6 +3,7 @@ from datetime import date, datetime
 
 import pytest
 
+from engine.lib import db
 from engine.lib.util import table_exists
 from sim import league, ledger, portfolio, settle
 from sim.schema import INITIAL_CASH, set_portfolio_account
@@ -567,3 +568,18 @@ def test_zero_open_quote_does_not_block_owner_terms(con):
     settle.settle(con, _terms(ticker="WBD", price=31.0, effective=SESSIONS[10]), apply=True)
 
     assert "WBD" not in portfolio.get_positions(con, pf)
+
+
+def test_delisting_and_owner_terms_key_on_the_one_real_bar_predicate(con, monkeypatch):
+    # The store has one definition of a traded bar (engine.lib.db.REAL_BAR_SQL); a stricter
+    # one must reach the close-out and the owner-terms check, not a private copy.
+    pf = _league_book(con)
+    delisted_name(con)
+    monkeypatch.setattr(db, "REAL_BAR_SQL", f"({db.REAL_BAR_SQL}) AND close > 31")
+
+    assert settle.delistings(con, SESSIONS[20], ["WBD"]) == []      # it never traded
+    assert settle.close_out_delisted(con, SESSIONS[20], [pf]) == []
+    insert_bars(con, "ACQ", SESSIONS[10:12], open_=20, close=20, high=21, low=19)
+    with pytest.raises(settle.SettlementRefused, match="no real bar"):
+        settle.settle(con, _terms(ticker="WBD", kind="stock", price=0, into_ticker="ACQ",
+                                  ratio=1.0, effective=SESSIONS[10]), apply=False)

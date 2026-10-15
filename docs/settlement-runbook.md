@@ -18,8 +18,8 @@ session `d` when both hold, using only data dated on or before `d`:
 1. The exchange directory dropped it: its latest `universe_snapshot` row is inactive, and
    that omission began on or after its last traded bar. A name dropped while it still
    traded is never closed out automatically (BURU and ISSC were, and traded again).
-2. It has printed no traded bar (`REAL_BAR_SQL` with a positive open, high and low; a
-   zero-open quote like WBD's 40 shares on 2026-10-05 is not one) for 5 sessions.
+2. It has printed no traded bar (the store's `REAL_BAR_SQL`, which needs a positive open, high
+   and low; a zero-open quote like WBD's 40 shares on 2026-10-05 is not one) for 5 sessions.
 
 The settlement is `cash` at that last traded close, effective the next session, with a
 `source` beginning `delisting close-out:` that records the evidence. If a sourced

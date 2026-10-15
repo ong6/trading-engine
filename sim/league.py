@@ -603,13 +603,13 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
     stale = con.execute(
         f"""
         SELECT p.portfolio_id, p.ticker, p.qty,
-               MAX(pr.date) FILTER (WHERE {settle.TRADED_BAR_SQL}) AS last_traded
+               MAX(pr.date) FILTER (WHERE {db.REAL_BAR_SQL}) AS last_traded
         FROM sim_positions p
         JOIN portfolios pf ON pf.id = p.portfolio_id
         JOIN prices pr ON pr.ticker = p.ticker
         WHERE pf.active AND p.qty > 0
         GROUP BY p.portfolio_id, p.ticker, p.qty
-        HAVING MAX(pr.date) FILTER (WHERE {settle.TRADED_BAR_SQL}) < ?
+        HAVING MAX(pr.date) FILTER (WHERE {db.REAL_BAR_SQL}) < ?
         ORDER BY last_traded, p.portfolio_id, p.ticker
         """, [d]).fetchall()
     standings_ids = {row["id"] for row in rows}
