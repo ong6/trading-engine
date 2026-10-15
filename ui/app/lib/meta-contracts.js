@@ -15,6 +15,7 @@ const META_FIELDS = [
   "freshness_days",
   "market_freshness",
   "price_verification",
+  "full_price_verification",
   "queue",
   "nightly_evidence",
   "miner_evidence",
