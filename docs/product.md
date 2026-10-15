@@ -123,6 +123,7 @@ Newest first. Full wording and ceiling changes are in [`feedback.md`](feedback.m
 
 | Date | Decision | Where |
 |---|---|---|
+| 2026-10-15 | A delisted holding is removed: closed out at its last real traded close | P22; feedback |
 | 2026-10-15 | Engine v2 (P22) is accepted; the pending revision-14 fixes land in v2 before the Sunday 2026-10-18 deployment (D0 2026-10-19) | P22; feedback |
 | 2026-10-06 | The engine is the executor and ledger; private alpha submits orders and reads results, with one independently funded account per alpha version | P22; feedback |
 | 2026-10-06 | Every simulator book pays the registered commission profile from parameterized D0, with a recorded break and restarted book-evaluation clock | P22; feedback |

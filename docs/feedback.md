@@ -772,3 +772,15 @@ earlier; the private-alpha lane stays held for the post-deploy cutover.
    progress. Each lands on `p22/lifecycle` with its reproduction in BUILDLOG. Revision 14 and the
    frozen runtime contracts are re-pinned once, while still undeployed, after the last fix.
    → `scope.md`, P22 plan progress.
+
+## 2026-10-15 — Close out a delisted holding at its last real traded close
+
+**Verdict.** "A delisted holding is removed: closed out at its last real traded close."
+
+**Rule change.** A held name that has stopped trading is no longer carried at its last close
+until someone supplies settlement terms. The engine removes the position, crediting or debiting
+it at the name's last real traded close, for every book type through the v2 ledger and settlement
+path so replay reproduces it. This replaces the "needs a human decision" carried mark in
+`sim/league.py` and the settlement runbook's "the position stays open and stale". How a delisting
+is detected is a technical decision for the orchestrator. → `product.md`; a P22 fix lane implements it
+before deployment and updates the runbook in the same change.
