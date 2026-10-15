@@ -40,6 +40,7 @@ import pandas as pd
 import yfinance as yf
 from yfinance.exceptions import YFPricesMissingError
 
+from engine import actions
 from engine.lib import db
 from engine.lib import resources as rsc
 from engine.lib.log import get_logger
@@ -208,12 +209,19 @@ def _universe_map(
 
 
 def _upsert_batch(db_path: str | Path, frame: pd.DataFrame) -> int:
-    """Persist one completed network batch under a bounded writer lease."""
+    """Persist one completed network batch under a bounded writer lease.
+
+    A stored bar the batch rewrites by a split-sized ratio is recorded first
+    (engine.actions: the nightly actions fetch then asks about that name and the
+    reconciler back-adjusts through its audited path), in the same transaction.
+    """
     if frame is None or frame.empty:
         return 0
     con = db.connect(db_path)
     try:
-        return db.upsert_prices(con, frame)
+        with db.transaction(con):
+            actions.record_split_like_rewrites(con, frame)
+            return db.upsert_prices(con, frame)
     finally:
         con.close()
 

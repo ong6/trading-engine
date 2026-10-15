@@ -3276,4 +3276,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +88, server +8, tests +208; tools unchanged. Registered: `engine/collect.py`, `server/p15_incremental_collect.py`, `server/p15_price_fetch_attempts.py`, and the values `delivery.price_fetch_attempts`, `labels.fetch_attempt_evidence` (integrator re-pins).
 - **Next:** rev-14 fix (f), split-like re-fetch rewrites.
 
+## 2026-10-16 — Back-adjust a split that the source restated late (rev-14 f)
+
+- **Why:** P22 revision-14 fix (f). DXJ's stored series mixes bases: 10-05 close 183.48 (stored 10-09), 10-06 61.29 (stored 10-12); Yahoo reports a 3:1 split ex 10-09 that the store never fetched (DXJ is not held, pending, core or a screen leader).
+  Yahoo restated a night late, so the 5-session re-fetch rewrote three stored bars by 3 and left the bar before them on the old scale. Asked directly on a snapshot copy, the reconciler still answers `skipped_already_adjusted`: that bar was stored on the ex-date. Reproduction: `test_refetch_rewrite_by_split_ratio_triggers_actions_fetch_and_restatement` (`[] == ['DXJ']`: never asked).
+- **What:** How the store handles splits is unchanged: `prices` is a cache of Yahoo's adjusted view, restated only by the reconciler with a `split_adjustments` watermark and books rebuilt from fills; `corporate_actions` stays append-only.
+  Before an upsert overwrites a stored close by a split-sized ratio (outside the 1.44 ambiguity band), collect appends a `split_like_rewrite` audit_log row (dates, ratio, when the replaced bars were stored) in the same transaction.
+  The nightly actions fetch adds names rewritten in the last 14 days. Rule 3 accepts a rewrite by the split's ratio that starts at the stored break and replaced bars stored no earlier than the pre-break bars. A rewrite with no split row near it is a reconcile TODO.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_actions.py` passes: the DXJ shape is fetched and restated to one scale, the same series without the rewrite row stays `skipped_already_adjusted`, and an unexplained rewrite raises one warning.
+- **Metrics:** engine +131, tests +139; server and tools unchanged. Registered: `engine/actions.py`, `engine/collect.py` (integrator re-pins).
+- **Next:** DXJ's existing break predates the rewrite record, so it needs the one-off `engine.refetch_ticker` repair (not held, no fills); then rev-14 fix (g).
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
