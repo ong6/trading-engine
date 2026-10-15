@@ -3265,4 +3265,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +7, tools +1078, product 0, tests +418 since 2026-10-10 (main's P23 digest); budget ok.
 - **Next:** land the admitted revision-14 fixes on `p22/lifecycle` in file-disjoint lanes, then re-pin revision 14 and the runtime contracts once.
 
+## 2026-10-16 — Stop the nightly league from publishing a P15 mark before its fills
+
+- **Why:** Revision-14 fix (d), admitted into P22 (owner, 2026-10-15). The 10-13 nightly's `league.csv` published p15_rule_control 2026-10-13 at 9474.13; the 10-14 nightly showed 9458.45 for the same date, after P15's window applied that session's fills (10-14: 9166.18, then 9224.78).
+  The new `test_nightly_league_never_publishes_p15_equity_before_its_fills` failed: the league step wrote three P15 rows for the fill session before `run_window` filled it.
+- **What:** `mtm_all` skips the three P15 books, so `p15_books.run_window`, which applies their fills, is the only writer of a P15 mark. A "provisional" flag was rejected: the row would still be a second `sim_equity` writer read by the API, the P15 evidence checks and the activation checkpoint, and it values the pre-fill book, not an estimate of the right one.
+  `league.md` shows a P15 book's last completed mark with ‡ and the date it is marked through.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error tests/test_p15_books.py tests/test_league_v2.py` passes, including the new test.
+- **Metrics:** sim +22, tests +38; server, tools and product unchanged.
+- **Next:** fix (k), the delisted-holding close-out.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
