@@ -3318,4 +3318,48 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** product +49, server +29, tests +96; tools unchanged.
 - **Next:** republish the weekly walk-forward on the deployed source; then the single revision-14 re-pin.
 
+## 2026-10-16 — Record the nightly price-fetch outcome for every name the source can answer (rev-14 e)
+
+- **Why:** P22 revision-14 fix (e). Every nightly since 09-28 withheld the P15 fetch record: on 10-14 the pull requested 4,099 liquid names, 27 inactive ones answered "possibly delisted", and one unanswered name withholds the batch (`"attempt_count": 0, "failed": 27 … collection_incomplete`); 14 of 15 exact-date label fetches failed on the same answer, which carries no Yahoo reason.
+  The weekly liquidity rule kept those names liquid on old bars, against its docstring. Reproductions: `test_incremental_requests_only_active_liquid_names` (`(2, 2) == (1, 0)`), `test_price_fetch_record_covers_active_liquid_names` (`withheld`), the no-reason case of `test_exact_label_fetch_distinguishes_missing_from_ambiguous_empty`, `test_name_whose_bars_stopped_inside_the_window_does_not_stay_liquid`.
+- **What:** The incremental pull and the fetch record cover active liquid names. A name its batch returned nothing for is asked once more on its own: the source's "no data" answer, with or without a Yahoo reason, is a completed request with a missing outcome; an HTTP status or any other error still withholds the batch.
+  Exact-date label fetches record the no-reason answer as `no_price_data_found_possibly_delisted`. A name with no bar in the newest four sessions no longer qualifies as liquid.
+- **Evidence:** On a copy of the 10-15 snapshot, two rolled-back label passes at one `labeled_at` compared the frozen code's evidence with the fixed code's: the fixed 10-14 batch records 4,058 attempts; live exact fetches turn 13 failures into missing receipts.
+  The fixed evidence releases 2 horizon-1 labels (WBD and BLFS, 10-05 decisions), each equal to its ungated outcome; no other label is added, no stored label or decision score changes. The liquidity rule would demote exactly the 27 inactive names.
+- **Metrics:** engine +88, server +8, tests +208; tools unchanged. Registered: `engine/collect.py`, `server/p15_incremental_collect.py`, `server/p15_price_fetch_attempts.py`, and the values `delivery.price_fetch_attempts`, `labels.fetch_attempt_evidence` (integrator re-pins).
+- **Next:** rev-14 fix (f), split-like re-fetch rewrites.
+
+## 2026-10-16 — Back-adjust a split that the source restated late (rev-14 f)
+
+- **Why:** P22 revision-14 fix (f). DXJ's stored series mixes bases: 10-05 close 183.48 (stored 10-09), 10-06 61.29 (stored 10-12); Yahoo reports a 3:1 split ex 10-09 that the store never fetched (DXJ is not held, pending, core or a screen leader).
+  Yahoo restated a night late, so the 5-session re-fetch rewrote three stored bars by 3 and left the bar before them on the old scale. Asked directly on a snapshot copy, the reconciler still answers `skipped_already_adjusted`: that bar was stored on the ex-date. Reproduction: `test_refetch_rewrite_by_split_ratio_triggers_actions_fetch_and_restatement` (`[] == ['DXJ']`: never asked).
+- **What:** How the store handles splits is unchanged: `prices` is a cache of Yahoo's adjusted view, restated only by the reconciler with a `split_adjustments` watermark and books rebuilt from fills; `corporate_actions` stays append-only.
+  Before an upsert overwrites a stored close by a split-sized ratio (outside the 1.44 ambiguity band), collect appends a `split_like_rewrite` audit_log row (dates, ratio, when the replaced bars were stored) in the same transaction.
+  The nightly actions fetch adds names rewritten in the last 14 days. Rule 3 accepts a rewrite by the split's ratio that starts at the stored break and replaced bars stored no earlier than the pre-break bars. A rewrite with no split row near it is a reconcile TODO.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_actions.py` passes: the DXJ shape is fetched and restated to one scale, the same series without the rewrite row stays `skipped_already_adjusted`, and an unexplained rewrite raises one warning.
+- **Metrics:** engine +131, tests +139; server and tools unchanged. Registered: `engine/actions.py`, `engine/collect.py` (integrator re-pins).
+- **Next:** DXJ's existing break predates the rewrite record, so it needs the one-off `engine.refetch_ticker` repair (not held, no fills); then rev-14 fix (g).
+
+## 2026-10-16 — Phantom bars with a non-positive open, high or low are not real bars (rev-14 g)
+
+- **Why:** P22 revision-14 fix (g). `REAL_BAR_SQL` accepted WBD's 2026-10-05 bar (open 0, volume 40) as WBD's last traded bar; reproduction `test_bar_with_a_non_positive_open_high_or_low_is_not_a_real_bar` (`HIGH0`, `LOWNEG` and WBD 10-05 counted as real).
+  BLFS 10-05, SVA 10-06, MMEDV 10-02 and WSLS 10-09 carry volume 0 and were already excluded.
+- **What:** A real bar also needs open, high and low above zero. Every consumer (screen, P15 evaluation and events, daily opportunities, books, market date) shares the one predicate.
+- **Evidence:** Impact on a copy of the 10-15 snapshot, the same read-only script on the code before and after this change. 8 of 21,133,980 rows become phantom: WBD 10-05, ACAAW 07-15 and 09-11, PTACW 09-09, and four RCAT bars from 2008–2010.
+  As-of real bars move only for WBD (10-05 → 10-02), ACAAW and PTACW (none; neither is liquid). Unchanged: latest real and operational market date (10-14), the stale list, stored labels, and the screen classification, daily-opportunity and P15 universes for all 27 sessions 09-08..10-14.
+  Of 1,360 P15 decision-horizon outcomes, 2 change, both still unlabeled: WBD decision 575 (10-05, horizons 1 and 5), whose missing-entry label moves from the 10-05 close 30.95 to the 10-02 close 30.94; its returns stay 0. Book high_52wk holds 42.92 WBD, so its last real close is now 30.94 (−$0.43).
+- **Metrics:** engine +5, tests +22; server and tools unchanged. Registered: `engine/lib/db.py` (integrator re-pins).
+- **Next:** rev-14 fix (h), price verification keys.
+
+## 2026-10-16 — Keep the weekly full price verify and say when the newest session went unchecked (rev-14 h)
+
+- **Why:** P22 revision-14 fix (h). The Saturday full-universe verify (4,048 names, as of 10-09) and the nightly sample shared the `price_verify` key, so the 10-12 nightly replaced it.
+  `volume_median_abs_diff_pct_latest_session` was null every nightly since 09-08 while the note said the newest close is checked on every name. Mechanism confirmed from the ten nightly receipts 10-05..10-14: at about 22:35 UTC the source's newest row is the previous session for every name, while the Saturday 02:00 pass has the Friday session.
+  Reproductions: `test_weekly_full_verify_keeps_its_own_metadata_key` (no such key), `test_newest_session_reports_source_lag_rather_than_a_silent_gap` (`KeyError: 'newest_session'`).
+- **What:** The weekly driver writes `price_verify_full` (`--meta-key`), so the nightly no longer overwrites it. Every run reports `newest_session`: names compared, the source's latest session, and `source_lag` when the source has not published it; the note says the close was not compared that night instead of claiming it was.
+  `market_health.full_universe_verification` validates the weekly key on its own cadence (stale after 8 days). Showing it in `/meta` also needs `server/meta_projection.py` and the UI's exact-field contract, outside this lane: blocked, for the integrator.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 4 tests/test_verify_prices.py tests/test_market_health.py tests/test_meta_projection.py tests/test_drivers.py` passes.
+- **Metrics:** engine +50, server +56, tests +119; tools unchanged. Registered: `engine/verify_prices.py` (integrator re-pins); `/meta` shape unchanged.
+- **Next:** integrator: wire `price_verify_full` into `/meta`, then re-pin revision 14 and the runtime contracts once.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

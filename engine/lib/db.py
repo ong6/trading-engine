@@ -35,9 +35,14 @@ DEFAULT_DB = settings.DEFAULT_DB
 # the league's stale-mark detector) keys on this predicate, not on MAX(date).
 # `volume = 0` alone is not proof of a phantom (thin names have legitimate
 # zero-volume days), so a zero-volume bar is excluded as an AS-OF bar but never
-# deleted from the series. Column names are bare so it composes into any query
-# whose FROM has `prices` in scope.
-REAL_BAR_SQL = "volume > 0 AND NOT (open = high AND high = low AND low = close)"
+# deleted from the series. A bar with a non-positive open, high or low is a
+# phantom too, whatever its volume (rev-14: WBD 2026-10-05 open 0, volume 40).
+# Column names are bare so it composes into any query whose FROM has `prices`
+# in scope.
+REAL_BAR_SQL = (
+    "volume > 0 AND open > 0 AND high > 0 AND low > 0 "
+    "AND NOT (open = high AND high = low AND low = close)"
+)
 MARKET_DATE_MIN_NAMES = 1_000
 MARKET_DATE_MIN_COVERAGE = 0.90
 

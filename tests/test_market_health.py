@@ -453,3 +453,56 @@ def test_price_verification_status_fails_closed(meta, latest, nightly, status, r
         assert result["reason"] == reason
     if reason == "malformed-evidence":
         assert "detail" not in result
+
+
+def _full_meta(**overrides):
+    weekly = {
+        "as_of": "2026-10-09", "last_run": "2026-10-10T02:41:07+00:00",
+        "names_selected": 4048, "names_checked": 4031, "names_agreeing": 4031,
+        "names_not_checked": 17, **overrides,
+    }
+    return {"price_verify_full": _price_verify_meta(**weekly)["price_verify"],
+            **_price_verify_meta()}
+
+
+def test_weekly_full_verification_is_projected_from_its_own_key():
+    """Rev-14 (h): the Saturday full-universe pass shared the nightly key, so the
+    next nightly sample replaced it; it now has its own key and weekly cadence."""
+    meta = _full_meta()
+
+    result = market_health.full_universe_verification(
+        meta, date(2026, 10, 14), now=datetime(2026, 10, 15, tzinfo=timezone.utc),
+    )
+
+    assert result["status"] == "partial"
+    assert result["reason"] == "selected-names-not-checked"
+    assert result["as_of"] == date(2026, 10, 9)
+    assert result["names_checked"] == 4031
+    assert market_health.price_verification(
+        meta, date(2026, 9, 4), None, now=datetime(2026, 9, 8, tzinfo=timezone.utc),
+    )["names_selected"] == 40
+
+
+@pytest.mark.parametrize(
+    ("meta", "latest", "now", "status", "reason"),
+    [
+        ({}, date(2026, 10, 14), datetime(2026, 10, 15), "missing", None),
+        (_full_meta(), date(2026, 10, 16), datetime(2026, 10, 18, 2, 41, 7), "partial",
+         "selected-names-not-checked"),
+        (_full_meta(), date(2026, 10, 19), datetime(2026, 10, 18, 2, 41, 8), "stale",
+         "older-than-weekly-cadence"),
+        (_full_meta(), date(2026, 10, 8), datetime(2026, 10, 15), "invalid",
+         "future-market-date"),
+        (_full_meta(), None, datetime(2026, 10, 15), "unknown", "market-date-unavailable"),
+        (_full_meta(names_checked=4048, names_agreeing=4048, names_not_checked=0),
+         date(2026, 10, 14), datetime(2026, 10, 15), "current", None),
+        (_full_meta(tolerance_bp="bad"), date(2026, 10, 14), datetime(2026, 10, 15),
+         "invalid", "malformed-evidence"),
+    ],
+)
+def test_weekly_full_verification_status(meta, latest, now, status, reason):
+    result = market_health.full_universe_verification(
+        meta, latest, now=now.replace(tzinfo=timezone.utc),
+    )
+    assert result["status"] == status
+    assert result.get("reason") == reason
