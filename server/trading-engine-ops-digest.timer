@@ -2,7 +2,7 @@
 Description=Collate the past hour's runs, log signals and probes
 
 [Timer]
-OnCalendar=*-*-* *:05:00 UTC
+OnCalendar=*-*-* *:08:00 UTC
 Persistent=true
 AccuracySec=1min
 Unit=trading-engine-ops-digest.service

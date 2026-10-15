@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
+import subprocess
+import sys
 from contextlib import closing
 from datetime import UTC, datetime
+from pathlib import Path
 
+import duckdb
+import pytest
+
+from engine.lib import db as engine_db
 from tools import ops_digest
 
 NOW = datetime(2026, 10, 10, 3, 5, tzinfo=UTC)
@@ -174,3 +182,70 @@ def test_backfill_is_bounded_and_lock_skips_concurrent_run(tmp_path):
     with (ops / ".lock").open("w") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         assert _collect(tmp_path, {}, now=datetime(2026, 10, 10, 9, 5, tzinfo=UTC)) == []
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DIGEST_TIMER = "trading-engine-ops-digest.timer"
+_SPAN_UNITS = {"s": 1, "sec": 1, "m": 60, "min": 60, "h": 3600}
+
+
+def _span(value: str) -> int:
+    match = re.fullmatch(r"(\d+)\s*(s|sec|m|min|h)?", value.strip())
+    assert match, value
+    return int(match[1]) * _SPAN_UNITS[match[2] or "s"]
+
+
+def _start_windows(timer: Path, *, runtime_s: int = 0) -> list[tuple[int, int]]:
+    """Seconds-of-the-hour windows in which a timer can fire (whole-hour time zones only)."""
+    settings: dict[str, list[str]] = {}
+    for line in timer.read_text().splitlines():
+        key, sep, value = line.partition("=")
+        if sep:
+            settings.setdefault(key.strip(), []).append(value.strip())
+    slack = (_span(settings.get("AccuracySec", ["1min"])[-1])
+             + _span(settings.get("RandomizedDelaySec", ["0"])[-1]) + runtime_s)
+    windows = []
+    for spec in settings.get("OnCalendar", []):
+        field = next(token for token in spec.split() if ":" in token).split(":")[1]
+        minutes = range(60) if field == "*" else [
+            minute for part in field.split(",")
+            for minute in range(int(part.split("..")[0]), int(part.split("..")[-1]) + 1)
+        ]
+        windows += [(minute * 60, minute * 60 + slack) for minute in minutes]
+    return windows
+
+
+def _overlaps(first: tuple[int, int], second: tuple[int, int]) -> bool:
+    return any(first[0] < second[1] + shift and second[0] + shift < first[1]
+               for shift in (-3600, 0, 3600))
+
+
+def test_a_held_reader_refuses_a_fail_fast_writer(tmp_path):
+    # The digest's /meta probe makes the API hold a read-only store connection; the P15
+    # pre-open then opened the writer once (wait_s=0) and failed on 2026-10-13 and 10-14.
+    store = tmp_path / "market.duckdb"
+    duckdb.connect(str(store)).close()
+    hold = ("import sys, duckdb; con = duckdb.connect(sys.argv[1], read_only=True); "
+            "print('open', flush=True); sys.stdin.read()")
+    with subprocess.Popen([sys.executable, "-c", hold, str(store)], stdin=subprocess.PIPE,
+                          stdout=subprocess.PIPE, text=True) as reader:
+        try:
+            assert reader.stdout.readline().strip() == "open"
+            with pytest.raises(duckdb.IOException) as refused:
+                engine_db.connect(store, wait_s=0)
+        finally:
+            reader.communicate("")
+    assert engine_db.is_lock_error(refused.value)
+    assert "read-only mode" in str(refused.value)  # the holder is a reader, not a writer
+    engine_db.connect(store, wait_s=0).close()
+
+
+def test_digest_timer_never_fires_with_another_timer():
+    digest = _start_windows(ROOT / "server" / DIGEST_TIMER, runtime_s=60)
+    assert digest
+    for timer in sorted((ROOT / "server").glob("*.timer")):
+        if timer.name == DIGEST_TIMER:
+            continue
+        clashes = [(ours, theirs) for ours in digest for theirs in _start_windows(timer)
+                   if _overlaps(ours, theirs)]
+        assert not clashes, f"{DIGEST_TIMER} can fire with {timer.name}: {clashes[:3]}"

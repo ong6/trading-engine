@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Hourly operations digest: collate the past hour's runs, log signals and probes.
 
-Every hour (``trading-engine-ops-digest.timer``, :05 UTC) this reads what the scheduled work
+Every hour (``trading-engine-ops-digest.timer``, :08 UTC) this reads what the scheduled work
 left behind and writes two things under ``logs/ops/``:
 
 - ``hourly/YYYY-MM-DD/HH.md``: one collated, human- and agent-readable digest per UTC hour
@@ -13,9 +13,11 @@ left behind and writes two things under ``logs/ops/``:
 
 Sources: the user journal of every timer-activated or running user service, new bytes of the
 text logs in ``logs/`` (plus host-private globs listed in ``logs/ops/sources.txt``), the
-nightly ``stage-timings.jsonl``, and the local API. It never opens the DuckDB store, so it
-cannot contend with the single writer. Collection is best effort: a missing source is noted
-in the digest, never fatal.
+nightly ``stage-timings.jsonl``, and the local API. It never opens the DuckDB store itself,
+but its ``/meta`` probe makes the API hold a read-only connection for about a second, and
+DuckDB refuses every writer meanwhile; the timer therefore fires outside every other timer's
+start window (``tests/test_ops_digest.py``). Collection is best effort: a missing source is
+noted in the digest, never fatal.
 
 ``python -m tools.ops_digest --report [--hours 24]`` prints a summary for an agent to start
 from: hour statuses, failed and slow runs, the loudest error signatures and log growth.

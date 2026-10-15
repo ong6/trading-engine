@@ -74,6 +74,11 @@ Agents append one line here instead of building. The owner promotes a line to a 
 deletes it.
 
 
+- 2026-10-15 · **P15 pre-open opens the store writer in one attempt**: `server/p15_preopen.py`
+  `run_database` calls `db.connect(database, wait_s=0)`, so any concurrent reader fails the run
+  (the API serving the digest's `/meta` probe did on 2026-10-13 and 10-14). It writes, so it cannot
+  open read-only; use the default lock-retry window (`db.connect(database)`, 60 s) in revision 14.
+
 - 2026-10-10 · **Registered-file observability defects (next registration revision)**: since
   `9a37ac0` `engine/verify_prices.py` prints its full evidence JSON (base64 bodies) to stdout,
   ~13k lines a night and 18 MB a weekly verify; the P15 price-fetch record is withheld every
