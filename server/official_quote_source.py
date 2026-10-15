@@ -195,7 +195,7 @@ def capture_realtime(symbol: str, *, database: Path = DEFAULT_DB, observed_at: d
     endpoint, request = realtime_request(symbol)
     response = (fetch or (lambda s, n: _request("snapshots", request, environ)))(
         symbol, observed_at or datetime.now(timezone.utc))
-    con = db.connect(database, wait_s=0)
+    con = db.connect(database)
     try:
         receipt = market_data_sources.retain_response(
             con, source_id=SOURCE_ID, dataset="realtime_snapshot", endpoint=endpoint,
@@ -227,7 +227,7 @@ def capture_realtime_many(symbols: list[str], *, database: Path = DEFAULT_DB,
     endpoint = f"{ENDPOINT}/snapshots?{urlencode(request)}"
     response = (fetch or (lambda items, now: _request("snapshots", request, environ)))(
         symbols, observed_at or datetime.now(timezone.utc))
-    con = db.connect(database, wait_s=0)
+    con = db.connect(database)
     try:
         receipt = market_data_sources.retain_response(
             con, source_id=SOURCE_ID, dataset="realtime_snapshot", endpoint=endpoint,
@@ -253,7 +253,7 @@ def capture_history(symbol: str, start: date, end: date, *, database: Path = DEF
     endpoint, request = history_request(symbol, start, end)
     response = (fetch or (lambda s, a, b: _request(f"{s}/bars", request, environ)))(
         symbol, start, end)
-    con = db.connect(database, wait_s=0)
+    con = db.connect(database)
     try:
         receipt = market_data_sources.retain_response(
             con, source_id=SOURCE_ID, dataset="historical_daily_bars", endpoint=endpoint,
@@ -282,7 +282,7 @@ def capture_tradingview_realtime(
         transcript.requested_at, transcript.received_at)
     request = {"provider_symbol": provider_symbol, "mode": "realtime",
                "protocol_version": tradingview_source.SOURCE_VERSION}
-    con = connection or db.connect(database, wait_s=0)
+    con = connection or db.connect(database)
     try:
         receipt = market_data_sources.retain_response(
             con, source_id=market_data_sources.TRADINGVIEW, dataset="realtime_snapshot",
@@ -336,7 +336,7 @@ def capture_tradingview_history(
                "reference": reference,
                "timeframe": "1D", "adjustment": "splits",
                "protocol_version": tradingview_source.SOURCE_VERSION}
-    con = db.connect(database, wait_s=0)
+    con = db.connect(database)
     try:
         receipt = market_data_sources.retain_response(
             con, source_id=market_data_sources.TRADINGVIEW, dataset="historical_daily_bars",

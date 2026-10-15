@@ -3265,4 +3265,26 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +7, tools +1078, product 0, tests +418 since 2026-10-10 (main's P23 digest); budget ok.
 - **Next:** land the admitted revision-14 fixes on `p22/lifecycle` in file-disjoint lanes, then re-pin revision 14 and the runtime contracts once.
 
+## 2026-10-15 — Let the registered store writers wait out a reader (revision-14 fix)
+
+- **Why:** Admitted revision-14 fix (owner, 2026-10-15; `scope.md`): the P15 pre-open, the daily-opportunity runner and trade tool, and the official-quote captures open the store writer in one attempt (`wait_s=0`).
+  New tests hold a read-only connection in another process for a second, as the API serving `/meta` does. `test_run_database_waits_out_a_concurrent_store_reader`, `test_runner_and_trade_tool_wait_out_a_concurrent_store_reader` (runner, then tool) and all five `test_capture_waits_out_a_concurrent_store_reader` cases failed with `IOException: ... Conflicting lock is held`.
+- **What:** Those eight opens use the default lock-retry window (60 s unless `TRADING_ENGINE_LOCK_WAIT_S` is set).
+  The pre-open's worst case before the model answers (timer accuracy, the window, four status requests, the 240 s generation timeout) is 6m20s of its 20-minute deadline and `TimeoutStartSec`, now checked by a test; lateness is judged on the clock after the open, so a wait cannot cancel late.
+  The daily-opportunity unit is `Type=exec`, so `TimeoutStartSec` does not bound its run. The hourly observers pass their own connection to the TradingView capture and are unchanged. The TradingView archive's capture now waits its unit's 900 s window, as its checkpoint opens already did, instead of failing the chunk.
+  Registered files changed: `server/p15_preopen.py`, `server/daily_opportunity_runner.py`, `server/daily_opportunity_tools.py`, `server/official_quote_source.py`. `tests/test_p15_registration.py` fails on their source identities until revision 14 is re-pinned.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto tests/test_p15_preopen.py tests/test_daily_opportunities.py tests/test_market_data_sources.py` → 56 passed.
+- **Metrics:** server +4 (comments), tests +112; tools and product unchanged.
+- **Next:** Re-pin revision 14 and the runtime contracts once, after the last revision-14 fix lane.
+
+## 2026-10-15 — Trust systemd's result for a clean stop in the ops digest (revision-14 fix)
+
+- **Why:** Admitted revision-14 fix (owner, 2026-10-15; P22 progress): the 10-15 API restart logged `Main process exited, code=killed, status=15/TERM` and then `Succeeded.`, and the digest counted the exit status as a failed run.
+  The new `test_clean_stop_that_systemd_reports_as_success_is_not_a_failed_run` replays that journal; the hour was `FAIL` with "1 failed run(s)", and the report listed `success, exit 15` under "Failed runs" and as a failed API run in the per-job table.
+- **What:** A run fails only when systemd's result is neither `success` nor still running, in the hour status, the report's failed list and the per-job failed count; the exit status is still shown beside the result.
+  A failure whose result line lands in the next hour is counted there, once, instead of in both hours.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto --deselect tests/test_p15_registration.py` → 4,747 passed, exit 0 (the registration-identity test fails until revision 14 is re-pinned); Ruff clean.
+- **Metrics:** tools unchanged (7 lines rewritten), tests +19; server and product unchanged.
+- **Next:** Re-pin revision 14 and the runtime contracts once, after the last revision-14 fix lane.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
