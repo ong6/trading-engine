@@ -16,6 +16,7 @@ from engine.lib import db
 from engine.lib.util import table_exists
 from engine.money import alerts, halts
 from sim import bar_sources, fills, ledger, margin, nyse, portfolio, shorts, valuation
+from sim import settle as settlements
 from sim.costs import charge
 from sim.schema import portfolio_account
 
@@ -618,7 +619,11 @@ def fold_account(con, account_id, end, *, now, short_con=None, late=False,
 
 def settle_session(con, day: date, late: bool = False, *, short_con=None,
                    settled_at: datetime | None = None, manage_transactions: bool = True) -> dict[str, Any]:
-    """Settle every account by a full fold; any failed account is durably halted."""
+    """Settle every account by a full fold; any failed account is durably halted.
+
+    A delisted holding is closed out inside the account's own fold, so the
+    settlement row, its replay and verification commit or roll back together.
+    """
     now = _utc_aware(settled_at or datetime.now(timezone.utc))
     out = dict(filled=0, rejected=0, expired=0, pending=0, late_settled=0,
                affected_accounts=[], recovered_marks=[], completed=[], errors={}, carried={})
@@ -631,9 +636,13 @@ def settle_session(con, day: date, late: bool = False, *, short_con=None,
         if settings['status'] not in {'active', 'halted', 'retiring'}:
             continue
         account_id = settings['portfolio_id']
+
+        def close_out(account_id=account_id):
+            settlements.close_out_delisted(con, day, [account_id], now=_utc_naive(now), fold=False)
+
         try:
             result = fold_account(con, account_id, day, now=now, short_con=short_con, late=late,
-                                  manage_transaction=manage_transactions)
+                                  mutation=close_out, manage_transaction=manage_transactions)
             for key in ('filled', 'rejected', 'expired', 'pending', 'late_settled'):
                 out[key] += result[key]
             for key in ('affected_accounts', 'recovered_marks'):
