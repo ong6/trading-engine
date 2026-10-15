@@ -2103,4 +2103,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +17, tests +20; server and product unchanged.
 - **Next:** Nothing admitted.
 
+## 2026-10-15 — List every scheduled run and driver stage in the digest report
+
+- **Why:** P23 is done when `--report --hours 24` lists every unit run and driver stage. On the host it listed only non-OK hours, failures, slow runs and signals.
+  The 10-14 nightly's 13 successful stages and every successful unit run were absent, and an installed service started without a timer was never collected.
+- **What:** `--report` checks the current timers (`systemctl show`) and crontab against collected runs. A per-job table shows due, ran, failed and missing counts with each run (frequent pollers summarised), and a "Missing runs" list and each driver run's stages follow.
+  Cron drivers are matched through their stage timings and other cron jobs through their output file; collection also reads every installed user service.
+- **Evidence:** On the host, `--report --hours 24` lists 18 scheduled jobs and `run_daily 10-14 22:30Z, 53m39s: universe 8s · collect 3m06s · … · snapshot 1m12s`.
+- **Metrics:** tools +321, tests +103; server and product unchanged.
+- **Next:** Close P23 once the live checkout's report shows the same.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

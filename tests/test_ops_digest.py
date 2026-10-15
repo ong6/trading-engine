@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import subprocess
@@ -16,6 +17,11 @@ from engine.lib import db as engine_db
 from tools import ops_digest
 
 NOW = datetime(2026, 10, 10, 3, 5, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _no_host_units(tmp_path, monkeypatch):
+    monkeypatch.setattr(ops_digest, "USER_UNIT_DIR", tmp_path / "no-units")
 
 
 def _entry(stamp: str, message: str, ident: str = "python") -> str:
@@ -165,7 +171,7 @@ def test_failed_run_marks_hour_and_report_lists_it(tmp_path):
     unit = "trading-engine-p15-scoring"
     _collect(tmp_path, {f"{unit}.service": _journal(f"{unit}.service", exit_code=75)})
 
-    report = ops_digest.report(24, tmp_path / "logs" / "ops", now=NOW)
+    report = ops_digest.report(24, tmp_path / "logs" / "ops", now=NOW, run=_fake_run({}))
 
     assert "1 FAIL" in report
     assert f"{unit}.service at 2026-10-10T02:30:00Z (10m00s): exit-code, exit 75" in report
@@ -182,6 +188,103 @@ def test_backfill_is_bounded_and_lock_skips_concurrent_run(tmp_path):
     with (ops / ".lock").open("w") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         assert _collect(tmp_path, {}, now=datetime(2026, 10, 10, 9, 5, tzinfo=UTC)) == []
+
+
+def test_calendar_and_cron_specs_expand_to_due_starts():
+    preopen = ops_digest.calendar_matcher("Mon..Fri *-*-* 09:05:00 America/New_York")
+    events = ops_digest.calendar_matcher("Mon..Fri *-*-* 10..15:05,20,35,50:00 America/New_York")
+    monthly = ops_digest.calendar_matcher("*-*-03 06:30:00 UTC")
+    nightly = ops_digest.cron_matcher("30 22 * * 1-5".split())
+    saturday = ops_digest.cron_matcher("15 5 * * 6".split())
+    week = (datetime(2026, 10, 14, tzinfo=UTC), datetime(2026, 10, 18, tzinfo=UTC))
+
+    assert ops_digest.expected_times(preopen, *week) == [
+        datetime(2026, 10, day, 13, 5, tzinfo=UTC) for day in (14, 15, 16)]
+    assert ops_digest.expected_times(  # New York leaves daylight time on 2026-11-01
+        preopen, datetime(2026, 11, 2, tzinfo=UTC), datetime(2026, 11, 3, tzinfo=UTC)) == [
+        datetime(2026, 11, 2, 14, 5, tzinfo=UTC)]
+    assert len(ops_digest.expected_times(events, *week)) == 72
+    assert ops_digest.expected_times(
+        monthly, datetime(2026, 11, 1, tzinfo=UTC), datetime(2026, 12, 1, tzinfo=UTC)) == [
+        datetime(2026, 11, 3, 6, 30, tzinfo=UTC)]
+    assert ops_digest.expected_times(nightly, *week) == [
+        datetime(2026, 10, day, 22, 30, tzinfo=UTC) for day in (14, 15, 16)]
+    assert ops_digest.expected_times(saturday, *week) == [
+        datetime(2026, 10, 17, 5, 15, tzinfo=UTC)]
+
+
+def _schedule_run(tmp_path):
+    preopen = "trading-engine-p15-preopen"
+    shown = (
+        f"Unit={preopen}.service\nTimersCalendar={{ OnCalendar=Mon..Fri *-*-* 09:05:00 "
+        "America/New_York ; next_elapse=Mon 2026-10-19 13:05:00 UTC }\nAccuracyUSec=1min\n"
+        "RandomizedDelayUSec=0\n\nUnit=store-sync.service\nTimersMonotonic={ "
+        "OnUnitActiveUSec=15min ; next_elapse=5min }\nAccuracyUSec=1min\nRandomizedDelayUSec=0\n")
+    crontab = (
+        "MAILTO=nobody\n@reboot /x/ensure.sh\n"
+        "30 22 * * 1-5 /x/engine/run_daily.sh >> /x/logs/cron.log 2>&1\n"
+        f"15 5 * * 6 cd /x && python -m tools.postflight > {tmp_path}/friday-postflight.log 2>&1\n")
+
+    def run(args, _timeout):
+        if args[:3] == ["systemctl", "--user", "list-timers"]:
+            return (f"n/a n/a n/a n/a {preopen}.timer {preopen}.service\n"
+                    "n/a n/a n/a n/a store-sync.timer store-sync.service\n")
+        if args[:3] == ["systemctl", "--user", "show"]:
+            return shown
+        return crontab if args == ["crontab", "-l"] else None
+    return run
+
+
+def test_report_lists_every_run_and_stage_against_the_schedules(tmp_path):
+    ops = tmp_path / "ops"
+    with closing(ops_digest.open_db(ops)) as db:
+        db.executemany("INSERT INTO hours (hour, status) VALUES (?, 'OK')",
+                       [(f"2026-10-17T{hour:02}",) for hour in range(12)])
+        db.executemany("INSERT INTO unit_runs VALUES (?,?,?,?,?,?)", [
+            ("trading-engine-p15-preopen.service", "2026-10-14T13:05:58Z",
+             "2026-10-14T13:05:59Z", 1.0, 1, "exit-code"),
+            ("trading-engine-p15-preopen.service", "2026-10-16T13:05:07Z",
+             "2026-10-16T13:05:17Z", 10.0, 0, "success"),
+            ("store-sync.service", "2026-10-16T13:00:00Z", "2026-10-16T13:00:03Z", 3.0, 0,
+             "success")])
+        db.executemany("INSERT INTO stage_runs VALUES (?,?,?,?,?,?,?)", [
+            ("run_daily-20261014T223001.1Z-7", "collect", "run_daily", "2026-10-14T22:30:03Z",
+             "2026-10-14T22:34:03Z", 240.0, 0),
+            ("run_daily-20261014T223001.1Z-7", "snapshot", "run_daily", "2026-10-14T23:22:01Z",
+             "2026-10-14T23:23:01Z", 60.0, 0),
+            ("run_daily-20261016T223001.1Z-8", "collect", "run_daily", "2026-10-16T22:30:03Z",
+             "2026-10-16T22:31:03Z", 60.0, 1)])
+        db.commit()
+    postflight = tmp_path / "friday-postflight.log"
+    postflight.write_text("")
+    stamp = datetime(2026, 10, 17, 5, 16, tzinfo=UTC).timestamp()
+    os.utime(postflight, (stamp, stamp))
+
+    report = ops_digest.report(72, ops, now=datetime(2026, 10, 17, 12, 30, tzinfo=UTC),
+                               run=_schedule_run(tmp_path))
+
+    missing = report[report.index("## Missing runs"):report.index("## Runs")]
+    assert "- trading-engine-p15-preopen: due 10-15 13:05Z" in missing
+    assert "- run_daily: due 10-15 22:30Z" in missing
+    assert missing.count("\n- ") == 2
+    assert ("| trading-engine-p15-preopen | `timer Mon..Fri *-*-* 09:05:00 America/New_York` "
+            "| 3 | 2 | 1 | 1 | 10-14 13:05Z exit-code 1s; 10-16 13:05Z success 10s |") in report
+    assert "| run_daily | `cron 30 22 * * 1-5` | 3 | 2 | 1 | 1 |" in report
+    assert ("| friday-postflight | `cron 15 5 * * 6` | 1 | 1 | 0 | 0 | "
+            "10-17 05:16Z output written |") in report
+    assert "| store-sync | `timer OnUnitActiveUSec=15min` | ? | 1 | 0 | ? |" in report
+    assert "- run_daily 10-14 22:30Z, 53m00s: collect 4m00s · snapshot 1m00s" in report
+    assert "- run_daily 10-16 22:30Z, 1m02s: collect 1m00s exit 1" in report
+
+
+def test_installed_services_are_discovered_without_a_timer(tmp_path, monkeypatch):
+    units = tmp_path / "units"
+    units.mkdir()
+    (units / "report-after-settle.service").write_text("[Service]\n")
+    (units / "template@.service").write_text("[Service]\n")
+    monkeypatch.setattr(ops_digest, "USER_UNIT_DIR", units)
+
+    assert ops_digest.discover_units(_fake_run({})) == ["report-after-settle.service"]
 
 
 def test_footprint_counts_the_whole_store_directory(tmp_path):
