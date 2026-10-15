@@ -3412,4 +3412,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +15, tests +29, UI +16; tools and product unchanged.
 - **Next:** the remaining integrator fixes, then the single revision-14 re-pin.
 
+## 2026-10-16 — Key the delisting close-out on the store's one real-bar predicate
+
+- **Why:** revision-14 fixes (g) and (k) landed separately: lane D's `sim/settle.py` defined its own `TRADED_BAR_SQL` (`REAL_BAR_SQL` plus a positive open, high and low) while lane C added that same condition to `engine.lib.db.REAL_BAR_SQL`, leaving two definitions of a traded bar.
+  The new `test_delisting_and_owner_terms_key_on_the_one_real_bar_predicate` failed: with a stricter shared predicate the close-out still found `Delisting(ticker='WBD', … close=30.94 …)`.
+- **What:** The close-out detector, the owner-terms checks in `sim.settle` and the league's stale-mark list use `db.REAL_BAR_SQL`; the private copy is gone. The predicates were identical after the merge, so no outcome changes. The runbook names the shared predicate.
+- **Evidence:** On a copy of the 2026-10-15 16:22 snapshot as of 10-14 the only close-out is still WBD in `high_52wk`: 42.922218 × $30.94 (last traded 10-02) = +$1,328.01 effective 10-05, and the rebuild reproduces it.
+- **Metrics:** sim −5, tests +16; server, tools and product unchanged.
+- **Next:** surface the weekly full price verification in `/meta`, then the single revision-14 re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
