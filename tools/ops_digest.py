@@ -274,8 +274,8 @@ def _log_sources(logs_dir: Path, ops_dir: Path) -> list[Path]:
     ] if logs_dir.is_dir() else []
     extra = ops_dir / "sources.txt"
     if extra.is_file():
-        for pattern in extra.read_text().splitlines():
-            pattern = pattern.strip()
+        for line in extra.read_text().splitlines():
+            pattern = line.strip()
             if pattern and not pattern.startswith("#"):
                 paths.extend(Path(item) for item in sorted(glob.glob(os.path.expanduser(pattern))))
     return paths
