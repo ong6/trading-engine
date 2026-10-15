@@ -3275,4 +3275,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** product +26, tools +2, tests +33; server unchanged.
 - **Next:** the remaining revision-14 fixes, then the single re-pin.
 
+## 2026-10-16 — Retry exhausted TradingView windows daily and record lasting refusals
+
+- **Why:** revision-14 fix admitted 2026-10-15. Nine archive windows (BLFS, DBRG, DDS, ET, GBTG, SUN, SUNC, USAC, WBD) spent their three attempts within 14 hours and were never requested again, so `unresolved_failed_windows` stayed at 9 and `miner_evidence` at `issues`.
+  The new `test_exhausted_window_retries_after_cooldown_until_refused_on_three_days` failed with `assert 0 == 1` (no request 24 hours later); on the 2026-10-15 snapshot the archive's pending list held none of the nine.
+- **What:** A window that used its attempts is requested again 24 hours after its latest attempt. A provider refusal (`symbol_error`/`series_error`) is appended as a terminal `refused` attempt only when it is the third refusal each at least 24 hours after the previous one; transport errors such as GBTG's are never refused and keep retrying daily.
+  The archive status counts refused windows as `refused_windows`, apart from `unresolved_failed_windows`; the miner monitor accepts `refused_this_run` in its accounting, shows `refused_windows`, and still reports `issues` for any failure or unresolved window.
+  A run fails only when every first-try window failed, so a daily retry failing again is a reported failure, not an outage. Attempts stay append-only.
+- **Evidence:** On the snapshot at 2026-10-16 03:40 UTC all nine windows are pending as cool-down retries; `.venv/bin/python -m pytest -q -W error -n 0 tests/test_tradingview_history_archive.py tests/test_miner_monitor.py` passes.
+- **Metrics:** product +70, server +16, tests +95; tools unchanged.
+- **Next:** the remaining revision-14 fixes, then the single re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

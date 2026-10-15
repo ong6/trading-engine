@@ -187,6 +187,35 @@ def test_miner_evidence_status_fails_closed_on_bad_evidence(
     assert affected[0]["reason"] == expected_reason
 
 
+def test_tradingview_refusals_are_reported_apart_from_failures(con):
+    # Windows the provider refused on three separate days are resolved, not failures.
+    _setup_miner_jobs(con)
+    meta = _miner_meta()
+    meta["tradingview_history"].update(
+        attempted_this_run=3, refused_this_run=1, refused_windows=9)
+
+    result = miner_monitor.evidence_status(meta, con)
+
+    assert result["status"] == "current"
+    assert result["miners"]["tradingview_history"]["status"] == "current"
+    assert result["miners"]["tradingview_history"]["refused_windows"] == 9
+
+
+@pytest.mark.parametrize("failure", [{"failed_this_run": 1, "attempted_this_run": 4},
+                                     {"unresolved_failed_windows": 1}])
+def test_tradingview_failures_still_show_beside_refusals(con, failure):
+    _setup_miner_jobs(con)
+    meta = _miner_meta()
+    meta["tradingview_history"].update(
+        attempted_this_run=3, refused_this_run=1, refused_windows=9)
+    meta["tradingview_history"].update(failure)
+
+    result = miner_monitor.evidence_status(meta, con)
+
+    assert result["status"] == "issues"
+    assert result["miners"]["tradingview_history"]["reason"] == "miner-reported-failures"
+
+
 def test_miner_evidence_status_prioritizes_nonterminal_queue_state(con):
     _setup_miner_jobs(con)
     con.execute("UPDATE jobs SET state='running', progress='25/100' WHERE kind='earnings'")
