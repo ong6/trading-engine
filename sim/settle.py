@@ -1,13 +1,15 @@
 #!/usr/bin/env python
-"""Settle a dead position at OWNER-SUPPLIED terms.
+"""Settle a dead position at owner-supplied terms, or close out a delisting.
 
 The engine never invents a price (docs/how-it-works.md, rule 1). When a held
 name stops trading — acquisition, delisting, bankruptcy — the fill model can
-never sell it (no tradeable bar) and `mark_to_market` carries its last close
-forever, which `league.md` flags in the stale-marks table. This module is the
-only sanctioned way out: the owner looks up the terms, cites them, and the
-engine books exactly those terms. Nothing here reads a price for the dead
-ticker and nothing here writes to `prices`.
+never sell it (no tradeable bar). The owner can look up the terms, cite them,
+and the engine books exactly those terms. Otherwise (owner decision
+2026-10-15) a holding the exchange directory has dropped is closed out at its
+last real traded close once it has printed no traded bar for
+DELISTED_AFTER_SESSIONS sessions (`close_out_delisted`); a sourced settlement
+already booked for the ticker supplies the terms instead. Nothing here writes
+to `prices`.
 
 Kinds
   cash       every active book with a signed `ticker` holding receives qty × price
@@ -33,9 +35,9 @@ Ledger
 Safety
   Dry-run by default. `--apply` writes in one transaction through
   engine/lib/db.connect (the project's single-writer path). Refused when the
-  ticker has a bar with volume > 0 on/after `effective` (it is still trading),
-  when `--source` is missing, when the acquirer has no stored prices, or when
-  no active book holds the name.
+  ticker has a traded bar on/after `effective` (it is still trading), when
+  `--source` is missing, when the acquirer has no stored prices, or when no
+  active book holds the name.
 
     python -m sim.settle --db store/market.duckdb --ticker EA --kind cash \\
         --price 209.70 --effective 2026-08-05 --source "<URL>"          # dry run
@@ -45,7 +47,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
 
 import duckdb
@@ -54,11 +56,25 @@ from engine.lib import db
 from engine.lib.log import get_logger
 from engine.lib.util import table_exists
 
-from . import portfolio
+from . import nyse, portfolio
 
 log = get_logger("settle")
 
 KINDS = ("cash", "worthless", "stock")
+# A bar the name actually traded on. yfinance keeps writing a dead quote after a
+# name stops trading, and REAL_BAR_SQL alone still admits one with a zero open
+# and a few shares (WBD 2026-10-05: open 0, volume 40). Bare column names, so it
+# composes into any query with `prices` in scope.
+TRADED_BAR_SQL = f"({db.REAL_BAR_SQL}) AND open > 0 AND high > 0 AND low > 0"
+# Sessions without a traded bar before a dropped name is closed out. Measured on
+# the 2026-10-15 store copy (universe snapshots 2026-07-16..10-14): of ~713 names
+# the directory dropped on or after their last traded bar, none traded again
+# after a silence of 3+ sessions; the longest silence that did resume was 2
+# (AVB). One trading week keeps a margin over that and gives the owner a week to
+# book sourced deal terms first. The booked economics do not depend on N: the
+# settlement is effective the session after the last traded bar, at its close.
+DELISTED_AFTER_SESSIONS = 5
+AUTO_SOURCE_PREFIX = "delisting close-out:"
 
 SETTLEMENTS_DDL = """
 CREATE TABLE IF NOT EXISTS sim_settlements (
@@ -152,7 +168,7 @@ def validate(con: duckdb.DuckDBPyConnection, t: Terms) -> None:
             raise SettlementRefused("--into must differ from --ticker")
         n_bars = con.execute(
             "SELECT COUNT(*) FROM prices WHERE ticker = ? AND date >= ? "
-            f"AND {db.REAL_BAR_SQL}", [t.into_ticker, t.effective]).fetchone()[0]
+            f"AND {TRADED_BAR_SQL}", [t.into_ticker, t.effective]).fetchone()[0]
         if n_bars == 0:
             raise SettlementRefused(
                 f"acquirer {t.into_ticker} has no real bar in prices on/after "
@@ -164,10 +180,10 @@ def validate(con: duckdb.DuckDBPyConnection, t: Terms) -> None:
 
     traded = con.execute(
         "SELECT MAX(date), COUNT(*) FROM prices WHERE ticker = ? AND date >= ? "
-        "AND volume > 0", [t.ticker, t.effective]).fetchone()
+        f"AND {TRADED_BAR_SQL}", [t.ticker, t.effective]).fetchone()
     if traded and traded[1] > 0:
         raise SettlementRefused(
-            f"{t.ticker} traded on/after {t.effective} (last bar with volume > 0: "
+            f"{t.ticker} traded on/after {t.effective} (last traded bar: "
             f"{traded[0]}). A name that still prints is not dead; if it is a halt, "
             "wait; if the effective date is wrong, fix it.")
 
@@ -299,12 +315,14 @@ def apply_settlement_event(con: duckdb.DuckDBPyConnection, pf_id: str, ticker: s
 
 
 def settle(con: duckdb.DuckDBPyConnection, t: Terms, apply: bool = False,
-           now: datetime | None = None) -> list[BookPlan]:
+           now: datetime | None = None, *, fold: bool = True) -> list[BookPlan]:
     """Validate, plan per book, and (if `apply`) write. Returns the plans.
 
     The caller owns the transaction: `settle` issues no BEGIN/COMMIT so it can
     run inside an enclosing one (the CLI wraps it; tests run autocommit). A dry
-    run works on a read-only connection (nothing is created).
+    run works on a read-only connection (nothing is created). `fold=False` only
+    records an account book's row, for a caller already inside that account's
+    fold (the account settle run), which replays it.
     """
     validate(con, t)
     plans = [_plan_book(con, t, pf, q, c) for pf, q, c in holders(con, t)]
@@ -319,7 +337,7 @@ def settle(con: duckdb.DuckDBPyConnection, t: Terms, apply: bool = False,
 
         account = portfolio_account(con, p.portfolio_id)['engine'] == 'account'
         effective_now = ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts
-        if account:
+        if account and fold:
             service.require_verified(con, p.portfolio_id, now=effective_now, manage_transaction=False)
 
         def record(p=p):
@@ -329,7 +347,7 @@ def settle(con: duckdb.DuckDBPyConnection, t: Terms, apply: bool = False,
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [p.portfolio_id, t.ticker, t.kind, p.qty, t.price, t.into_ticker,
                  t.ratio, t.effective, t.source, t.note, ts])
-        if account:
+        if account and fold:
             try:
                 fold_account(con, p.portfolio_id, t.effective, now=effective_now,
                              mutation=record, manage_transaction=False)
@@ -337,8 +355,9 @@ def settle(con: duckdb.DuckDBPyConnection, t: Terms, apply: bool = False,
                 raise service.VerificationError(service.failure_result(p.portfolio_id, exc)) from exc
         else:
             record()
-            apply_settlement_event(con, p.portfolio_id, t.ticker, t.kind, p.qty,
-                                   t.price, t.into_ticker, t.ratio)
+            if not account:
+                apply_settlement_event(con, p.portfolio_id, t.ticker, t.kind, p.qty,
+                                       t.price, t.into_ticker, t.ratio)
         if p.pending_order_ids:
             reason = f"cancelled by settlement effective {t.effective.isoformat()}"
             con.execute(
@@ -346,6 +365,14 @@ def settle(con: duckdb.DuckDBPyConnection, t: Terms, apply: bool = False,
                 "WHERE portfolio_id = ? AND ticker = ? AND status = 'pending'",
                 [reason, p.portfolio_id, t.ticker],
             )
+            if table_exists(con, "sim_order_details"):
+                con.execute(
+                    "UPDATE sim_order_details SET state = 'cancelled', state_reason = ?, "
+                    "state_at = ? WHERE order_id IN (SELECT UNNEST(?::BIGINT[])) "
+                    "AND state = 'queued'",
+                    [reason, effective_now.astimezone(timezone.utc).replace(tzinfo=None),
+                     p.pending_order_ids],
+                )
             if table_exists(con, "disc_tickets"):
                 con.execute(
                     "UPDATE disc_tickets SET status = 'cancelled' "
@@ -368,6 +395,159 @@ def settle(con: duckdb.DuckDBPyConnection, t: Terms, apply: bool = False,
             }, sort_keys=True)],
         )
     return plans
+
+
+# --------------------------------------------------------------------------- #
+# delisting close-out
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class Delisting:
+    ticker: str
+    last_traded: date      # the last session the name traded
+    close: float           # that session's close: the close-out price
+    dropped_on: date       # first snapshot of the directory's current omission
+    silent_sessions: int   # sessions after last_traded through the check date
+
+    @property
+    def effective(self) -> date:
+        return nyse.next_session(self.last_traded)
+
+
+def delistings(con: duckdb.DuckDBPyConnection, d: date,
+               tickers) -> list[Delisting]:
+    """Held names the evidence through `d` shows delisted.
+
+    Both must hold, point-in-time as of `d`: (1) the exchange directory dropped
+    the name — its latest universe snapshot is inactive and that omission began
+    on or after its last traded bar (a name dropped while it still traded, like
+    BURU and ISSC in 2026, traded again later); (2) it has printed no traded bar
+    for DELISTED_AFTER_SESSIONS sessions. A name that never traded is not listed
+    (there is no real close to book). Without snapshots nothing is detected.
+    """
+    tickers = sorted(set(tickers))
+    if not tickers or not table_exists(con, "universe_snapshot"):
+        return []
+    rows = con.execute(
+        f"""
+        WITH held AS (SELECT UNNEST(?::VARCHAR[]) AS ticker),
+        snap AS (
+            SELECT s.ticker, s.snapshot_date, s.active FROM universe_snapshot s
+            JOIN held h ON h.ticker = s.ticker WHERE s.snapshot_date <= ?),
+        listed AS (SELECT ticker, MAX(snapshot_date) AS listed_on FROM snap
+                   WHERE active GROUP BY ticker),
+        latest AS (SELECT ticker, MAX(snapshot_date) AS latest FROM snap GROUP BY ticker),
+        dropped AS (
+            SELECT s.ticker, MIN(s.snapshot_date) AS dropped_on FROM snap s
+            JOIN latest l ON l.ticker = s.ticker
+            LEFT JOIN listed x ON x.ticker = s.ticker
+            WHERE NOT s.active AND (x.listed_on IS NULL OR x.listed_on < l.latest)
+              AND s.snapshot_date > COALESCE(x.listed_on, DATE '0001-01-01')
+            GROUP BY s.ticker),
+        traded AS (
+            SELECT p.ticker, MAX(p.date) AS last_traded FROM prices p
+            JOIN held h ON h.ticker = p.ticker
+            WHERE p.date <= ? AND {TRADED_BAR_SQL} GROUP BY p.ticker)
+        SELECT d.ticker, t.last_traded, p.close, d.dropped_on
+        FROM dropped d JOIN traded t ON t.ticker = d.ticker
+        JOIN prices p ON p.ticker = d.ticker AND p.date = t.last_traded
+        WHERE d.dropped_on >= t.last_traded ORDER BY d.ticker
+        """,
+        [tickers, d, d],
+    ).fetchall()
+    out = []
+    for ticker, last_traded, close, dropped_on in rows:
+        silent, day = 0, nyse.next_session(last_traded)
+        while day <= d:
+            silent, day = silent + 1, nyse.next_session(day)
+        if silent >= DELISTED_AFTER_SESSIONS and close is not None and close > 0:
+            out.append(Delisting(ticker, last_traded, float(close), dropped_on, silent))
+    return out
+
+
+def _sourced_terms(con: duckdb.DuckDBPyConnection, item: Delisting):
+    """The latest owner-sourced settlement booked for this delisting, if any."""
+    if not table_exists(con, "sim_settlements"):
+        return None
+    return con.execute(
+        "SELECT kind, price, into_ticker, ratio, effective, source FROM sim_settlements "
+        "WHERE ticker = ? AND effective > ? AND NOT starts_with(source, ?) "
+        "ORDER BY created_at DESC LIMIT 1",
+        [item.ticker, item.last_traded, AUTO_SOURCE_PREFIX]).fetchone()
+
+
+def delisting_terms(con: duckdb.DuckDBPyConnection, d: date,
+                    portfolio_ids) -> list[Terms]:
+    """Settlement terms for every delisted holding of the given active books.
+
+    A sourced settlement already booked for the ticker (the owner cited a deal)
+    supplies the terms; otherwise the holding is closed out in cash at its last
+    real traded close, effective the session after it.
+    """
+    ids = sorted(set(portfolio_ids))
+    if not ids:
+        return []
+    marks = ",".join("?" for _ in ids)
+    held: dict[str, list[str]] = {}
+    for pf_id, ticker in con.execute(
+        "SELECT p.portfolio_id, p.ticker FROM sim_positions p "
+        "JOIN portfolios f ON f.id = p.portfolio_id "
+        f"WHERE f.active AND p.qty <> 0 AND p.portfolio_id IN ({marks}) "
+        "ORDER BY p.ticker, p.portfolio_id", ids,
+    ).fetchall():
+        held.setdefault(ticker, []).append(pf_id)
+    out = []
+    for item in delistings(con, d, held):
+        sourced = _sourced_terms(con, item)
+        if sourced is not None:
+            kind, price, into_ticker, ratio, effective, source = sourced
+            terms = Terms(item.ticker, kind, effective, source, float(price or 0.0),
+                          into_ticker, ratio,
+                          note=f"terms of the sourced {item.ticker} settlement; "
+                               f"delisting detected {d.isoformat()}")
+        else:
+            terms = Terms(
+                item.ticker, "cash", item.effective,
+                f"{AUTO_SOURCE_PREFIX} dropped from the exchange directory from "
+                f"{item.dropped_on.isoformat()}; last traded "
+                f"{item.last_traded.isoformat()}, no traded bar in the "
+                f"{item.silent_sessions} sessions through {d.isoformat()}",
+                item.close,
+                note="closed out at the last real traded close (owner decision 2026-10-15)")
+        booked = set()
+        if table_exists(con, "sim_settlements"):
+            booked = {row[0] for row in con.execute(
+                "SELECT portfolio_id FROM sim_settlements WHERE ticker = ? AND effective = ?",
+                [terms.ticker, terms.effective]).fetchall()}
+        books = tuple(pf for pf in held[item.ticker] if pf not in booked)
+        for pf_id in sorted(set(held[item.ticker]) - set(books)):
+            log.warning(f"[settle] WARN {pf_id} holds {item.ticker} again after its "
+                        f"{terms.effective} settlement; left for review")
+        if books:
+            out.append(replace(terms, portfolios=books))
+    return out
+
+
+def close_out_delisted(con: duckdb.DuckDBPyConnection, d: date, portfolio_ids, *,
+                       now: datetime | None = None,
+                       fold: bool = True) -> list[tuple[Terms, list[BookPlan]]]:
+    """Book every delisting detected on `d` for the given active books.
+
+    Legacy books settle directly; an account book folds (or, with
+    `fold=False`, only records for the caller's fold). Terms that cannot be
+    booked (an acquirer without bars) are logged and the holding stays carried.
+    """
+    booked = []
+    for terms in delisting_terms(con, d, portfolio_ids):
+        try:
+            plans = settle(con, terms, apply=True, now=now, fold=fold)
+        except SettlementRefused as exc:
+            log.warning(f"[settle] WARN {terms.ticker} delisting not closed out: {exc}")
+            continue
+        log.info(f"[settle] closed out {terms.ticker} in "
+                 f"{', '.join(p.portfolio_id for p in plans)} at "
+                 f"{terms.kind} {terms.price:g} effective {terms.effective}")
+        booked.append((terms, plans))
+    return booked
 
 
 def settled_pending_orders(con: duckdb.DuckDBPyConnection,
