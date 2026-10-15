@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
 from engine.lib import db
 from server import market_data_sources, official_quote_source
+from tests.test_tradingview_source import SYMBOL, _history_transcript, _quote_transcript
 from tools import market_data_source as source_cli
 
 NOW = datetime(2026, 9, 24, 10, 0, tzinfo=timezone.utc)
@@ -286,3 +290,53 @@ def test_credential_file_is_owner_only_and_allowlisted(tmp_path, monkeypatch):
     path.write_text("PYTHONPATH=/tmp/evil\n")
     with pytest.raises(ValueError, match="invalid entry"):
         source_cli._load_environment(path)
+
+
+@contextmanager
+def held_store_reader(store, monkeypatch, seconds: float = 1.0):
+    """Hold a read-only store connection in another process for ``seconds``.
+
+    The API serving ``/meta`` or the dashboard does this, and DuckDB refuses every writer
+    meanwhile. The lock-retry interval is shortened so a writer that waits gets in quickly.
+    """
+    monkeypatch.setattr(db, "_LOCK_RETRY_S", 0.2)
+    monkeypatch.setenv("TRADING_ENGINE_LOCK_WAIT_S", "30")
+    hold = ("import sys, time, duckdb; con = duckdb.connect(sys.argv[1], read_only=True); "
+            "print('open', flush=True); time.sleep(float(sys.argv[2]))")
+    with subprocess.Popen([sys.executable, "-c", hold, str(store), str(seconds)],
+                          stdout=subprocess.PIPE, text=True) as reader:
+        assert reader.stdout.readline().strip() == "open"
+        yield
+
+
+_BAR = {"t": "2022-09-01T04:00:00Z", "o": 156.64, "h": 158.42, "l": 154.67, "c": 157.96,
+        "v": 74229900}
+_CAPTURES = {
+    "realtime": lambda database: official_quote_source.capture_realtime(
+        "AAPL", database=database, environ=ADMITTED, fetch=lambda *_: _response(_snapshot())),
+    "realtime_many": lambda database: official_quote_source.capture_realtime_many(
+        ["AAPL"], database=database, environ=ADMITTED, fetch=lambda *_: _response(_snapshot())),
+    "history": lambda database: official_quote_source.capture_history(
+        "AAPL", date(2022, 9, 1), date(2022, 9, 2), database=database, environ=ADMITTED,
+        fetch=lambda *_: _response({"symbol": "AAPL", "next_page_token": None, "bars": [_BAR]})),
+    "tradingview_realtime": lambda database: official_quote_source.capture_tradingview_realtime(
+        SYMBOL, database=database, fetch=lambda *_args, **_kwargs: _quote_transcript()),
+    "tradingview_history": lambda database: official_quote_source.capture_tradingview_history(
+        SYMBOL, date(2026, 9, 24), date(2026, 9, 24), database=database,
+        fetch=lambda *_args, **_kwargs: _history_transcript()),
+}
+
+
+@pytest.mark.parametrize("capture", sorted(_CAPTURES))
+def test_capture_waits_out_a_concurrent_store_reader(tmp_path, monkeypatch, capture):
+    # Every capture opened the store writer once (wait_s=0), so a read connection held by
+    # another process failed it, as it failed the P15 pre-open on 2026-10-13 and 10-14.
+    database = tmp_path / "market.duckdb"
+    _secure_database(database)
+    with held_store_reader(database, monkeypatch):
+        _CAPTURES[capture](database)
+    con = db.connect(database, read_only=True)
+    try:
+        assert con.execute("SELECT COUNT(*) FROM source_response_receipts").fetchone() == (1,)
+    finally:
+        con.close()
