@@ -36,6 +36,7 @@ const LEAGUE_ROW_KEYS = [
   "inception",
   "initial_cash",
   "last5",
+  "mark_note",
   "mdd",
   "n_fills",
   "n_open",
@@ -123,6 +124,7 @@ export function isLeagueProjection(data) {
       data.as_of === null ||
       row.equity_as_of > data.as_of ||
       row.current !== (row.equity_as_of === data.as_of) ||
+      !(row.mark_note === null || (!row.current && isNonEmptyString(row.mark_note))) ||
       (index > 0 && compareLeagueRows(rows[index - 1], row) > 0) ||
       (row.current ? row.rank !== expectedRank : row.rank !== null)
     ) {

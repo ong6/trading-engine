@@ -9,6 +9,7 @@ import duckdb
 
 from engine.lib.util import table_exists
 from sim.league import _spy_return, regime_label
+from sim.p15_books import BOOK_IDS as P15_BOOK_IDS
 from sim.schema import INITIAL_CASH, portfolio_account
 
 from . import league_equity_read_models
@@ -64,9 +65,20 @@ LEAGUE_ROW_FIELDS = frozenset(
         "n_open",
         "n_fills",
         "last5",
+        "mark_note",
         "rank",
     }
 )
+
+
+def _mark_note(portfolio_id: str, equity_as_of: date, *, current: bool) -> str | None:
+    """league.md's ‡ note: a P15 book's mark is written only by its own window."""
+    if current or portfolio_id not in P15_BOOK_IDS:
+        return None
+    return (
+        f"‡ marked through {equity_as_of.isoformat()}: a P15 book is marked by its own "
+        "window after that session's P15 fills, never provisionally by the league."
+    )
 
 
 def _public_portfolio_ids(con: duckdb.DuckDBPyConnection) -> frozenset[str]:
@@ -225,6 +237,7 @@ def _league_row(
         "n_open": require_public_nonnegative_integer(open_positions.get(portfolio_id, 0)),
         "n_fills": require_public_nonnegative_integer(fills.get(portfolio_id, 0)),
         "last5": last_five,
+        "mark_note": _mark_note(portfolio_id, equity_as_of, current=current),
     }
 
 
@@ -337,6 +350,8 @@ def _validate_league_row_state(
         raise ValueError("public league equity state is invalid")
     if row["current"] != (equity_as_of == as_of):
         raise ValueError("public league current state is inconsistent")
+    if row["mark_note"] != _mark_note(row["id"], equity_as_of, current=row["current"]):
+        raise ValueError("public league mark note is invalid")
     require_public_finite_number(row["equity"], "league equity")
     for field in ("total_ret", "vs_spy", "mdd", "last5"):
         if row[field] is not None:
