@@ -1,20 +1,20 @@
 # XS Momentum 12-1 (unscreened control) — walk-forward re-validation
 
-_`xs_momentum_12_1` · xs_momentum_12_1 · monthly cadence · verdict **PASS** · generated 2026-10-05T17:37:21+00:00_
+_`xs_momentum_12_1` · xs_momentum_12_1 · monthly cadence · verdict **PASS** · generated 2026-10-11T07:05:20+00:00_
 
-**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-10-02. Each fold is an independent replay starting at $39,000. Span 2014-10-02 → 2026-10-02 (3018 sessions); data floor 1994-01-27; screen source `not-used`.
+**Protocol.** train 24mo → validate 12mo, step 12mo, 10 fold(s), anchored 2026-10-09. Each fold is an independent replay starting at $39,000. Span 2014-10-09 → 2026-10-09 (3018 sessions); data floor 1994-01-27; screen source `not-used`.
 
-**Provenance.** Source `e533fb3b2cbb71a883fdb88ff4af0b6257676575c4e7bc0bfb80df4cf0373c4e`; config `fb5a0f0e3472f14ed9b0a5d5bac05a081ec0284f200db91663b11d5d47ab9214`.
+**Provenance.** Source `63f0126debbdf7f1f4d1b5a53d3bc3937d356acaa12e131d1d18c8292a7d939f`; config `fb5a0f0e3472f14ed9b0a5d5bac05a081ec0284f200db91663b11d5d47ab9214`.
 
-**Evidence and execution.** Data quality `current_universe_survivor_biased`; execution profile `baseline_v1`; data snapshot `0affd34308e8ca5132398cb1f228225beb8f46edd2d68291a7428c94d2e3fca8`; comparison protocol `wf-controls-2026-09-07-v1`.
+**Evidence and execution.** Data quality `current_universe_survivor_biased`; execution profile `baseline_v1`; data snapshot `700dbccad7fb0abbbd708b6a689d1ec632d4df83d43d756735652a0d065a6be5`; comparison protocol `wf-controls-2026-09-07-v1`.
 
 **Pre-registered expectation.** Market-beating in trending years with deep momentum crashes (2009-style, 2020-11, 2022). If the screen adds value beyond momentum, ew_benchmark beats this book on median excess AND drawdown across the 10 folds; the honest prior is that most of ew_benchmark's edge is plain momentum and the two are INDISTINGUISHABLE.
 
 **Pre-registered kill criterion.** Control: retired only once its question is answered. Kill if ew_benchmark beats it in >= 70% of walk-forward folds with a 90% CI on median excess that excludes 0 AND a lower worst-fold drawdown (screen shown to add value), or if any fold is inert, or if live max drawdown exceeds 55%.
 
-**Measured against `ew_benchmark` on the same folds:** beats it in 90% of 10 window(s), mean excess +7.29%, latest +7.77% → **PASS**.
+**Measured against `ew_benchmark` on the same folds:** beats it in 90% of 10 window(s), mean excess +7.99%, latest +4.43% → **PASS**.
 
-**90% CI on mean excess vs `ew_benchmark`:** [−2.57%, +14.90%] → **INDISTINGUISHABLE**. The verdict above is unchanged by this interval — see the note below the fold table.
+**90% CI on mean excess vs `ew_benchmark`:** [−1.36%, +15.37%] → **INDISTINGUISHABLE**. The verdict above is unchanged by this interval — see the note below the fold table.
 
 ## Disclosures — read before any number below
 
@@ -64,25 +64,25 @@ _`xs_momentum_12_1` · xs_momentum_12_1 · monthly cadence · verdict **PASS** �
 
 | Fold | Train window | Train ret | Train CAGR | Validate window | Validate ret | CAGR | Vol | Sharpe | Max DD | vs EW | vs SPY | Fills | Universe |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 2014-10-02→2016-09-30 | +27.68% | +13.02% | 2016-09-30→2017-10-02 | **+21.18%** | +21.07% | +21.09% | +1.02 | −9.33% | +4.14% | · | 718 | 2,779 |
-| 2 | 2015-10-02→2017-10-02 | +35.78% | +16.51% | 2017-10-02→2018-10-02 | **+40.31%** | +40.35% | +21.86% | +1.66 | −10.96% | +6.99% | · | 656 | 2,931 |
-| 3 | 2016-10-03→2018-10-02 | +78.86% | +33.82% | 2018-10-02→2019-10-02 | **−3.06%** | −3.06% | +29.71% | +0.04 | −30.27% | +13.17% | · | 665 | 3,048 |
-| 4 | 2017-10-02→2019-10-02 | +38.08% | +17.52% | 2019-10-02→2020-10-02 | **+81.09%** | +80.87% | +42.16% | +1.62 | −42.66% | +18.34% | · | 684 | 3,178 |
-| 5 | 2018-10-02→2020-10-02 | +99.06% | +41.05% | 2020-10-02→2021-10-01 | **+76.74%** | +77.08% | +44.96% | +1.50 | −32.68% | −41.18% | · | 713 | 3,441 |
-| 6 | 2019-10-02→2021-10-01 | +202.49% | +73.99% | 2021-10-01→2022-09-30 | **−12.89%** | −12.93% | +40.39% | −0.14 | −34.78% | +5.11% | · | 639 | 3,583 |
-| 7 | 2020-10-02→2022-09-30 | +56.31% | +25.12% | 2022-09-30→2023-10-02 | **+21.26%** | +21.15% | +25.47% | +0.89 | −15.72% | +22.84% | · | 770 | 3,706 |
-| 8 | 2021-10-04→2023-10-02 | −3.47% | −1.76% | 2023-10-02→2024-10-02 | **+39.58%** | +39.49% | +32.26% | +1.20 | −17.90% | +14.96% | · | 685 | 3,874 |
-| 9 | 2022-10-03→2024-10-02 | +45.05% | +20.45% | 2024-10-02→2025-10-02 | **+55.35%** | +55.40% | +46.89% | +1.18 | −38.38% | +20.80% | · | 738 | 4,089 |
-| 10 ◈ | 2023-10-02→2025-10-02 | +137.56% | +54.08% | 2025-10-02→2026-10-02 | **+17.61%** | +17.62% | +52.57% | +0.57 | −31.42% | +7.77% | · | 743 | 12,643 |
+| 1 | 2014-10-09→2016-10-07 | +21.64% | +10.31% | 2016-10-07→2017-10-09 | **+27.86%** | +27.71% | +20.67% | +1.29 | −9.33% | +8.70% | · | 666 | 2,791 |
+| 2 | 2015-10-09→2017-10-09 | +36.45% | +16.80% | 2017-10-09→2018-10-09 | **+25.03%** | +25.05% | +22.38% | +1.11 | −11.59% | +2.34% | · | 662 | 2,945 |
+| 3 | 2016-10-10→2018-10-09 | +60.06% | +26.58% | 2018-10-09→2019-10-09 | **+7.29%** | +7.30% | +29.37% | +0.39 | −25.40% | +16.53% | · | 660 | 3,059 |
+| 4 | 2017-10-09→2019-10-09 | +37.31% | +17.19% | 2019-10-09→2020-10-09 | **+93.75%** | +93.49% | +42.13% | +1.78 | −42.49% | +22.22% | · | 685 | 3,194 |
+| 5 | 2018-10-09→2020-10-09 | +117.63% | +47.48% | 2020-10-09→2021-10-08 | **+65.28%** | +65.57% | +44.81% | +1.35 | −33.18% | −37.92% | · | 716 | 3,456 |
+| 6 | 2019-10-09→2021-10-08 | +210.54% | +76.29% | 2021-10-08→2022-10-07 | **−9.35%** | −9.38% | +40.55% | −0.04 | −34.96% | +7.50% | · | 691 | 3,598 |
+| 7 | 2020-10-09→2022-10-07 | +67.41% | +29.50% | 2022-10-07→2023-10-09 | **+13.12%** | +13.06% | +25.22% | +0.62 | −15.89% | +16.08% | · | 723 | 3,723 |
+| 8 | 2021-10-11→2023-10-09 | −4.32% | −2.19% | 2023-10-09→2024-10-09 | **+42.94%** | +42.83% | +32.19% | +1.27 | −17.96% | +18.52% | · | 689 | 3,896 |
+| 9 | 2022-10-10→2024-10-09 | +47.22% | +21.35% | 2024-10-09→2025-10-09 | **+64.71%** | +64.77% | +46.91% | +1.31 | −38.59% | +21.50% | · | 737 | 4,113 |
+| 10 ◈ | 2023-10-09→2025-10-09 | +155.62% | +59.83% | 2025-10-09→2026-10-09 | **+6.29%** | +6.29% | +52.65% | +0.38 | −31.47% | +4.43% | · | 743 | 12,674 |
 
 ## Summary
 
-* validate windows: **10**, win rate **80%**
-* mean validate return **+33.72%** (median +30.42%, worst −12.89%, best +81.09%)
-* mean validate CAGR **+33.70%** vs mean train CAGR +29.38% → decay **+4.32%**
-* mean validate Sharpe +0.95, worst validate max drawdown −42.66%
-* 7011 fill(s) inside validate windows
-* runtime 2362.3s (scratch 0.1s, screen 0.0s)
+* validate windows: **10**, win rate **90%**
+* mean validate return **+33.69%** (median +26.44%, worst −9.35%, best +93.75%)
+* mean validate CAGR **+33.67%** vs mean train CAGR +30.31% → decay **+3.35%**
+* mean validate Sharpe +0.95, worst validate max drawdown −42.49%
+* 6972 fill(s) inside validate windows
+* runtime 2338.8s (scratch 0.1s, screen 0.0s)
 
 **Verdict rule (mechanical exploratory triage, NOT an automatic kill).** For
 each book, against the versioned comparison declared in its result artifact:

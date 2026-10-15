@@ -55,8 +55,9 @@ Published pages: [`The daily cycle`](site/daily-cycle.md), [`Data and time`](sit
   [P18 shared backtest core](plans/p18-backtest-core.md),
   [P19 offline market-data auditor](plans/p19-market-data-auditor.md),
   [P20 engine and paper dashboard review](plans/p20-engine-and-board-review.md),
-  [P21 operational issue closure and separate accounts](plans/p21-operational-issues-and-account-isolation.md), and
-  [P22 engine v2 accounts and money foundation](plans/p22-engine-v2-accounts.md).
+  [P21 operational issue closure and separate accounts](plans/p21-operational-issues-and-account-isolation.md),
+  [P22 engine v2 accounts and money foundation](plans/p22-engine-v2-accounts.md), and
+  [P23 hourly operations digest](plans/p23-hourly-ops-digest.md).
 - [`glossary.md`](glossary.md) — plain names for P1–P18, the P15/P16 workstreams, and research
   terms such as registration, holdout, census, DSR, and walk-forward.
 
