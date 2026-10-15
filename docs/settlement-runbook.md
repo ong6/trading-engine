@@ -2,8 +2,36 @@
 
 When a held name stops trading, the engine cannot sell it (there is no tradeable bar) and
 marks it at its last close; `data/reports/league.md` lists it under "Stale marks". The
-engine does not know, and must not guess, what happened (honesty rule 1: never invent a
-price). **You look up the terms; `sim/settle.py` books exactly what you cite.**
+engine does not know, and must not guess, a deal price (honesty rule 1: never invent a
+price). **You look up the terms; `sim/settle.py` books exactly what you cite.** If nobody
+does, the engine closes the holding out at its last real traded close (owner decision
+2026-10-15; next section).
+
+## Automatic close-out of a delisted holding
+
+Every active book type closes out a delisted holding through the same `sim_settlements`
+row and replay path: the league day-step (phase a1, before fills), each P15 window (before
+that session's P15 fills; the open rule closes and pending intents for the name are
+cancelled) and each account fold. Retired books are not touched. A holding is delisted on
+session `d` when both hold, using only data dated on or before `d`:
+
+1. The exchange directory dropped it: its latest `universe_snapshot` row is inactive, and
+   that omission began on or after its last traded bar. A name dropped while it still
+   traded is never closed out automatically (BURU and ISSC were, and traded again).
+2. It has printed no traded bar (`REAL_BAR_SQL` with a positive open, high and low; a
+   zero-open quote like WBD's 40 shares on 2026-10-05 is not one) for 5 sessions.
+
+The settlement is `cash` at that last traded close, effective the next session, with a
+`source` beginning `delisting close-out:` that records the evidence. If a sourced
+settlement for the ticker effective after its last trade already exists (you booked the
+deal for other books), its terms are used instead. A name that never traded is left
+carried. Five sessions: on the 2026-10-15 store copy no dropped name traded again after
+3 silent sessions (the longest that did was AVB, 2), and it gives you a trading week to
+book sourced terms first; the booked amount does not depend on it.
+
+On the 2026-10-15 snapshot this closes out WBD in `high_52wk`: 42.922218 shares at
+$30.94 (last traded 2026-10-02), effective 2026-10-05, +$1,328.01 cash against a frozen
+mark of $1,328.44 at the zero-open quote's close.
 
 The table below is the original 2026-09-02 snapshot retained as incident history. All four
 were subsequently settled from primary filings.
@@ -51,13 +79,13 @@ Where to look, in order of authority:
 4. Bankruptcy docket / plan confirmation for a cancellation (`--kind worthless`).
 
 News articles and Yahoo quote pages are not sources. If you cannot find a primary
-document, the position stays open and stale; that is the honest state.
+document, book nothing: the automatic close-out above settles it at its last traded close.
 
 ## 2. Dry-run (default; opens the store read-only)
 
 Run from the repo root. The dry run prints a before/after table per book and refuses if
-the ticker has a bar with volume > 0 on or after `--effective`, if `--source` is missing,
-or if the acquirer has no stored prices.
+the ticker has a traded bar on or after `--effective`, if `--source` is missing, or if
+the acquirer has no stored prices.
 
 ```bash
 # Cash deal: every holder receives qty × price on the effective date.
@@ -91,7 +119,7 @@ Other shapes, same flags otherwise:
 ```
 
 `--effective` is the date the terms took effect. The engine checks the ticker printed no
-volume on or after it. For EA the last real trade was 2026-08-04, so `--effective` must
+traded bar on or after it. For EA the last real trade was 2026-08-04, so `--effective` must
 be 2026-08-05 or later; use the date from the filing, not the last-trade date.
 
 ## 3. Apply

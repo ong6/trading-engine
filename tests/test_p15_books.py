@@ -630,6 +630,48 @@ def test_nightly_league_never_publishes_p15_equity_before_its_fills(con, tmp_pat
     assert f"‡ marked through {signal_date.isoformat()}" in report
 
 
+def test_window_closes_out_a_dropped_holding_with_its_rule_and_exit(con):
+    from tests.test_settle import delisted_name
+
+    delisted_name(con, "AAA")                          # last traded SESSIONS[9]
+    checkpoint, day = SESSIONS[13:15]
+    _activate(con, checkpoint)
+    for index, book_id in enumerate(p15_books.BOOK_IDS, start=1):
+        con.execute("UPDATE portfolios SET cash=0 WHERE id=?", [book_id])
+        con.execute("INSERT INTO sim_positions VALUES (?, 'AAA', 10, 30)", [book_id])
+        con.execute(
+            "INSERT INTO p15_position_rules VALUES (?, 'AAA', ?, ?, ?, 2, 1, 'open')",
+            [book_id, index, index, SESSIONS[5]],
+        )
+        con.execute(
+            "INSERT INTO p15_order_intents VALUES "
+            "(?,NULL,?,'AAA','sell',10,?,'time_exit',0,30.94,NULL,NULL,'pending',NULL,NULL,?)",
+            [100 + index, book_id, checkpoint, datetime(2024, 6, 20)],
+        )
+
+    p15_books.run_window(con, day, observed_at=datetime(2024, 6, 21, tzinfo=timezone.utc))
+
+    assert con.execute(
+        "SELECT COUNT(*) FROM sim_positions WHERE ticker='AAA' AND qty<>0"
+    ).fetchone() == (0,)
+    assert con.execute(
+        "SELECT COUNT(*),MIN(price),MIN(effective) FROM sim_settlements"
+    ).fetchone() == (3, pytest.approx(30.94), SESSIONS[10])
+    assert con.execute(
+        "SELECT DISTINCT status FROM p15_position_rules WHERE ticker='AAA'"
+    ).fetchall() == [("closed",)]
+    assert con.execute(
+        "SELECT DISTINCT status FROM p15_order_intents WHERE ticker='AAA'"
+    ).fetchall() == [("cancelled",)]
+    assert con.execute(
+        "SELECT DISTINCT equity FROM p15_book_windows WHERE market_date=?", [day]
+    ).fetchall() == [(pytest.approx(309.4),)]
+    replay = p15_books.run_window(
+        con, day, observed_at=datetime(2024, 6, 22, tzinfo=timezone.utc)
+    )
+    assert replay["status"] == "completed"
+
+
 def test_fill_time_position_cap_handles_a_pending_exit(con):
     signal_date, fill_date = SESSIONS[29:31]
     for ticker in ("SPY", "NEW", *(f"H{i}" for i in range(1, 8))):
