@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 
 from sim import nyse
@@ -28,6 +29,8 @@ _PRICE_COUNT_FIELDS = (
     "n_parse_errors",
 )
 PRICE_DISAGREEMENT_LIMIT = 20
+# The weekly full-universe pass runs Saturday 02:00 UTC; a day's slack.
+FULL_VERIFICATION_MAX_AGE = timedelta(days=8)
 PRICE_DIFF_BP_ROUNDING_TOLERANCE = 0.005_2
 _PRICE_FIELDS = frozenset({"open", "high", "low", "close"})
 _PRICE_DISAGREEMENT_FIELDS = frozenset(
@@ -314,15 +317,36 @@ def _price_verification_result(
     return result
 
 
-def price_verification(
-    meta: dict,
+def _full_evidence_state(
+    verified_at: datetime,
+    as_of: date,
+    counts: dict[str, int],
     latest: date | None,
-    nightly: dict | None,
-    *,
-    now: datetime | None = None,
+    checked_at: datetime,
+) -> tuple[str, str | None]:
+    """The weekly pass trails the latest market date by design; it is stale only
+    once it is older than its weekly cadence."""
+    if verified_at > checked_at:
+        return "invalid", "future-verification"
+    if latest is None:
+        return "unknown", "market-date-unavailable"
+    if as_of > latest:
+        return "invalid", "future-market-date"
+    if checked_at - verified_at > FULL_VERIFICATION_MAX_AGE:
+        return "stale", "older-than-weekly-cadence"
+    if counts["names_checked"] == 0:
+        return "incomplete", "no-names-checked"
+    if counts["n_disagreements"] or counts["n_parse_errors"]:
+        return "issues", "disagreements-or-parse-errors"
+    if counts["names_not_checked"]:
+        return "partial", "selected-names-not-checked"
+    return "current", None
+
+
+def _verification(
+    raw: object,
+    state: Callable[[datetime, date, dict[str, int]], tuple[str, str | None]],
 ) -> dict:
-    """Validate the latest independent-price evidence, not just its shell run."""
-    raw = meta.get("price_verify")
     if raw is None:
         return {"status": "missing"}
     if not isinstance(raw, dict):
@@ -338,14 +362,11 @@ def price_verification(
             tolerance_bp,
             tolerance_abs_usd,
         ) = _price_evidence(raw)
-        nightly_started = _successful_driver_start(nightly)
+        status, reason = state(verified_at, as_of, counts)
     except (KeyError, TypeError, ValueError) as exc:
         log.warning("price-verification evidence validation failed", exc_info=exc)
         return {"status": "invalid", "reason": "malformed-evidence"}
 
-    status, reason = _price_evidence_state(
-        verified_at, as_of, counts, latest, nightly_started, _checked_at(now)
-    )
     return _price_verification_result(
         status,
         reason,
@@ -356,4 +377,39 @@ def price_verification(
         material_bp,
         tolerance_bp,
         tolerance_abs_usd,
+    )
+
+
+def price_verification(
+    meta: dict,
+    latest: date | None,
+    nightly: dict | None,
+    *,
+    now: datetime | None = None,
+) -> dict:
+    """Validate the latest nightly independent-price evidence, not just its shell run."""
+
+    def state(verified_at, as_of, counts):
+        return _price_evidence_state(
+            verified_at, as_of, counts, latest, _successful_driver_start(nightly),
+            _checked_at(now),
+        )
+
+    return _verification(meta.get("price_verify"), state)
+
+
+def full_universe_verification(
+    meta: dict,
+    latest: date | None,
+    *,
+    now: datetime | None = None,
+) -> dict:
+    """Validate the weekly full-universe pass (`price_verify_full`), which the
+    nightly sample no longer overwrites, on its own weekly cadence."""
+    checked_at = _checked_at(now)
+    return _verification(
+        meta.get("price_verify_full"),
+        lambda verified_at, as_of, counts: _full_evidence_state(
+            verified_at, as_of, counts, latest, checked_at
+        ),
     )

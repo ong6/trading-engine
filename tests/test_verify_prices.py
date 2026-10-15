@@ -340,3 +340,69 @@ def test_nonfinite_or_nonpositive_store_price_is_never_agreement():
         assert result["invalid_fields"][0]["side"] == "store"
     with pytest.raises(ValueError):
         verify_prices._num("inf", "close")
+
+
+def _source_with(days):
+    def fetch(ticker, **_kw):
+        return {"symbol": ticker, "bars": {d: {"open": 10, "high": 11, "low": 9,
+                                                "close": 10, "volume": 100} for d in days},
+                "parse_errors": [], "rows": len(days)}
+    return fetch
+
+
+def test_newest_session_reports_source_lag_rather_than_a_silent_gap(monkeypatch, con, tmp_path):
+    """Rev-14 (h): `volume_median_abs_diff_pct_latest_session` was null every night
+    since 09-08 while the note said the newest close is checked on every name: at
+    22:35 UTC the source's newest row is still the previous session."""
+    db.init_schema(con)
+    days = [date(2026, 10, 12), date(2026, 10, 13), date(2026, 10, 14)]
+    for ticker in ("AAA", "BBB"):
+        con.execute("INSERT INTO universe(ticker,etf) VALUES (?,FALSE)", [ticker])
+        for day in days:
+            con.execute("INSERT INTO prices(ticker,date,open,high,low,close,volume) "
+                        "VALUES (?,?,10,11,9,10,100)", [ticker, day])
+    monkeypatch.setattr(verify_prices, "PER_NAME_SLEEP", 0)
+    monkeypatch.setattr(verify_prices, "fetch_nasdaq_history", _source_with(days[:-1]))
+    params = {"tickers": ["AAA", "BBB"], "sessions": 3}
+
+    nightly = verify_prices.run(params, con, tmp_path / "meta.json")
+
+    assert nightly["newest_session"] == {
+        "session": "2026-10-14", "status": "not_checked", "reason": "source_lag",
+        "names_with_store_bar": 2, "names_compared": 0,
+        "source_latest_session": "2026-10-13",
+    }
+    assert nightly["volume_median_abs_diff_pct_latest_session"] is None
+    assert "not compared" in nightly["provisional_note"]
+
+    monkeypatch.setattr(verify_prices, "fetch_nasdaq_history", _source_with(days))
+    weekly = verify_prices.run(params, con, tmp_path / "meta.json")
+
+    assert weekly["newest_session"] == {
+        "session": "2026-10-14", "status": "checked", "reason": None,
+        "names_with_store_bar": 2, "names_compared": 2,
+        "source_latest_session": "2026-10-14",
+    }
+    assert "close IS checked" in weekly["provisional_note"]
+
+
+def test_weekly_full_verify_keeps_its_own_metadata_key(monkeypatch, tmp_path):
+    """Rev-14 (h): the Saturday full-universe result was overwritten by the next
+    nightly sample under the shared `price_verify` key."""
+    import json
+    import sys
+
+    meta = tmp_path / "data" / "_meta.json"
+    meta.parent.mkdir()
+    monkeypatch.setattr(
+        verify_prices, "run_connection_narrowed",
+        lambda params, **_kw: {"as_of": "2026-10-09", "sample": params["sample"]},
+    )
+    for argv in (["--sample", "5000", "--meta-key", verify_prices.FULL_META_KEY],
+                 ["--sample", "40"]):
+        monkeypatch.setattr(sys, "argv", ["verify_prices", "--meta", str(meta), *argv])
+        assert verify_prices.main() == 0
+
+    stored = json.loads(meta.read_text())
+    assert stored[verify_prices.FULL_META_KEY]["sample"] == 5000
+    assert stored[verify_prices.META_KEY]["sample"] == 40
