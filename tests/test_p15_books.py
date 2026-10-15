@@ -592,6 +592,44 @@ def test_complete_window_is_replay_safe_and_does_not_touch_other_book(con, tmp_p
         )
 
 
+def test_nightly_league_never_publishes_p15_equity_before_its_fills(con, tmp_path):
+    """Revision-14 fix d: p15_rule_control 2026-10-13 was published at 9474.13 by
+    the nightly league mark, then restated to 9458.45 when P15's window applied
+    that session's fills."""
+    signal_date, fill_date = SESSIONS[29:31]
+    for ticker in ("SPY", "AAA"):
+        insert_bars(con, ticker, SESSIONS[:31], open_=100, close=100, high=101, low=99)
+    _activate(con, signal_date)
+    _seed_decisions(con, signal_date, [_decision("AAA", 1, 100)])
+    p15_books.run_window(
+        con, signal_date, observed_at=datetime(2026, 9, 25, tzinfo=timezone.utc)
+    )
+
+    assert league.step(con, fill_date, tmp_path, rerun=False, verbose=False,
+                       no_accounts=True) == 0
+    published = con.execute(
+        "SELECT COUNT(*) FROM sim_equity WHERE portfolio_id IN (?,?,?) AND date=?",
+        [*p15_books.BOOK_IDS, fill_date],
+    ).fetchone()
+    report = (tmp_path / "reports" / "league.md").read_text()
+    p15_books.run_window(
+        con, fill_date, observed_at=datetime(2026, 9, 26, tzinfo=timezone.utc)
+    )
+
+    assert published == (0,)
+    assert con.execute(
+        "SELECT COUNT(*) FROM sim_equity WHERE portfolio_id IN (?,?,?) AND date=?",
+        [*p15_books.BOOK_IDS, fill_date],
+    ).fetchone() == (3,)
+    assert con.execute(
+        "SELECT COUNT(*) FROM sim_equity WHERE portfolio_id='control' AND date=?",
+        [fill_date],
+    ).fetchone() == (1,)
+    row = next(line for line in report.splitlines() if "| p15_rule_control |" in line)
+    assert "‡" in row
+    assert f"‡ marked through {signal_date.isoformat()}" in report
+
+
 def test_fill_time_position_cap_handles_a_pending_exit(con):
     signal_date, fill_date = SESSIONS[29:31]
     for ticker in ("SPY", "NEW", *(f"H{i}" for i in range(1, 8))):
