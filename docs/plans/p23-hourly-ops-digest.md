@@ -48,7 +48,9 @@ driver stage of the window with durations and outcomes.
 
 ## Budget
 
-Two commits, under 900 lines; one session.
+Two commits, under 900 lines; one session. Orchestrator follow-up, 2026-10-15: up to five more
+commits and 700 lines for the timer move, the CI lint fix, the store footprint, the scheduled-run
+list and closure.
 
 ## Risks
 

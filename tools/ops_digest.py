@@ -20,7 +20,8 @@ start window (``tests/test_ops_digest.py``). Collection is best effort: a missin
 noted in the digest, never fatal.
 
 ``python -m tools.ops_digest --report [--hours 24]`` prints a summary for an agent to start
-from: hour statuses, failed and slow runs, the loudest error signatures and log growth.
+from: hour statuses, failed, missing and slow runs, every scheduled job's runs checked against
+the timers and crontab, each driver's stages, the loudest error signatures and log growth.
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from statistics import median
 from typing import Callable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from engine.lib.resources import write_text_atomic
 from engine.lib.settings import DEFAULT_DB, LOGS_DIR, REPO_ROOT
@@ -59,6 +61,7 @@ SAMPLES_PER_LEVEL = 5
 SLOW_FACTOR = 3.0
 SLOW_PROBE_MS = 10_000
 API_URL = os.environ.get("TRADING_ENGINE_API_URL", "http://127.0.0.1:8000")
+USER_UNIT_DIR = Path.home() / ".config" / "systemd" / "user"
 HEALTHY_META = {"ok", "current", "idle", "accumulating", "collecting"}
 
 ERROR_RE = re.compile(
@@ -189,8 +192,9 @@ def _fetch(url: str, timeout: float) -> tuple[int, int, bytes]:
 
 
 def discover_units(run: Runner) -> list[str]:
-    """Timer-activated services plus running services of this user's manager."""
-    units: set[str] = set()
+    """This user's installed, timer-activated and running services."""
+    units: set[str] = {path.name for path in USER_UNIT_DIR.glob("*.service")
+                       if "@" not in path.name}
     timers = run(["systemctl", "--user", "list-timers", "--all", "--no-legend"], 30) or ""
     for line in timers.splitlines():
         parts = line.split()
@@ -660,7 +664,319 @@ def collect(
             db.close()
 
 
-def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None) -> str:
+# --------------------------------------------------------------------------- #
+# scheduled runs: what the timers and crontab expected versus what ran
+# --------------------------------------------------------------------------- #
+CRON_TZ = UTC  # cron uses the host zone, which install_automation requires to be UTC
+RUN_GRACE_S = 300
+LISTED_RUNS = 4
+_WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+_CRON_WEEKDAYS = ("sun", "mon", "tue", "wed", "thu", "fri", "sat")
+_SPAN_RE = re.compile(r"(\d+)\s*(us|ms|min|s|h|d)")
+_SPAN_S = {"us": 1e-6, "ms": 1e-3, "s": 1.0, "min": 60.0, "h": 3600.0, "d": 86400.0}
+CRON_LINE_RE = re.compile(r"^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.+)$")
+DRIVER_RE = re.compile(r"/engine/(run_\w+)\.sh\b")
+REDIRECT_RE = re.compile(r"(?<![0-9&])>>?\s*(\S+)")
+RUN_ID_TIME_RE = re.compile(r"-(\d{8}T\d{6})")
+Matcher = Callable[[datetime], bool]
+
+
+@dataclass
+class Schedule:
+    job: str
+    spec: str
+    matcher: Matcher | None  # None: interval timer or unsupported expression
+    slack_s: float = 60.0
+    unit: str | None = None
+    driver: str | None = None
+    output: Path | None = None
+    appends: bool = False  # ``>>`` output: a silent run leaves no trace, so absence is unknown
+
+
+@dataclass
+class JobRun:
+    start: datetime
+    seconds: float | None
+    ok: bool | None
+    label: str
+
+
+def _span_seconds(text: str) -> float:
+    return sum(int(number) * _SPAN_S[unit] for number, unit in _SPAN_RE.findall(text))
+
+
+def _field(text: str, low: int, high: int,
+           names: tuple[str, ...] = ()) -> frozenset[int] | None:
+    """Values a cron or systemd calendar field allows; ``None`` means any."""
+    if text == "*":
+        return None
+
+    def value(token: str) -> int:
+        token = token.lower()[:3]
+        return names.index(token) if token in names else int(token)
+
+    allowed: set[int] = set()
+    for item in text.split(","):
+        part, _, step = item.partition("/")
+        bounds = [low, high] if part == "*" else [value(b) for b in re.split(r"\.\.|-", part)]
+        last = high if step and len(bounds) == 1 else bounds[-1]
+        allowed.update(range(bounds[0], last + 1, int(step or 1)))
+    return frozenset(allowed)
+
+
+def _allows(allowed: frozenset[int] | None, value: int) -> bool:
+    return allowed is None or value in allowed
+
+
+def calendar_matcher(spec: str) -> Matcher:
+    """Match minutes against a normalized ``OnCalendar`` spec: ``[DOW] Y-M-D H:M:S [TZ]``."""
+    tokens = spec.split()
+    at = next(index for index, token in enumerate(tokens) if ":" in token)
+    if at not in (1, 2) or len(tokens) > at + 2:
+        raise ValueError(f"unsupported calendar {spec!r}")
+    weekdays = _field(tokens[0], 0, 6, _WEEKDAYS) if at == 2 else None
+    year, month, day = (_field(text, low, high) for text, low, high in zip(
+        tokens[at - 1].split("-"), (1970, 1, 1), (2199, 12, 31), strict=True))
+    hour, minute = (_field(text, low, high) for text, low, high in zip(
+        tokens[at].split(":")[:2], (0, 0), (23, 59), strict=True))
+    zone = ZoneInfo(tokens[at + 1]) if len(tokens) == at + 2 else UTC
+
+    def matcher(moment: datetime) -> bool:
+        local = moment.astimezone(zone)
+        return (_allows(weekdays, local.weekday()) and _allows(year, local.year)
+                and _allows(month, local.month) and _allows(day, local.day)
+                and _allows(hour, local.hour) and _allows(minute, local.minute))
+    return matcher
+
+
+def cron_matcher(fields: list[str]) -> Matcher:
+    minute, hour = _field(fields[0], 0, 59), _field(fields[1], 0, 23)
+    day, month = _field(fields[2], 1, 31), _field(fields[3], 1, 12)
+    cron_days = _field(fields[4], 0, 7, _CRON_WEEKDAYS)
+    weekdays = None if cron_days is None else frozenset((d + 6) % 7 for d in cron_days)
+
+    def matcher(moment: datetime) -> bool:
+        local = moment.astimezone(CRON_TZ)
+        if not (_allows(minute, local.minute) and _allows(hour, local.hour)
+                and _allows(month, local.month)):
+            return False
+        on_day, on_weekday = _allows(day, local.day), _allows(weekdays, local.weekday())
+        if day is not None and weekdays is not None:  # cron ORs two restricted day fields
+            return on_day or on_weekday
+        return on_day and on_weekday
+    return matcher
+
+
+def _any_of(matchers: list[Matcher]) -> Matcher:
+    return lambda moment: any(matcher(moment) for matcher in matchers)
+
+
+def _show_blocks(text: str) -> list[dict[str, list[str]]]:
+    blocks: list[dict[str, list[str]]] = []
+    current: dict[str, list[str]] = {}
+    for line in [*text.splitlines(), ""]:
+        if not line.strip():
+            if current:
+                blocks.append(current)
+            current = {}
+            continue
+        key, _, value = line.partition("=")
+        current.setdefault(key, []).append(value)
+    return blocks
+
+
+def _timer_schedule(block: dict[str, list[str]]) -> Schedule | None:
+    unit = (block.get("Unit") or [""])[0]
+    if not unit or IGNORED_UNIT_RE.match(unit):
+        return None
+    specs = [spec for value in block.get("TimersCalendar", [])
+             for spec in re.findall(r"OnCalendar=(.+?) ;", value)]
+    intervals = [spec for value in block.get("TimersMonotonic", [])
+                 for spec in re.findall(r"(On\w+=\S+)", value)]
+    slack = (_span_seconds((block.get("AccuracyUSec") or ["1min"])[0])
+             + _span_seconds((block.get("RandomizedDelayUSec") or ["0"])[0]))
+    matcher = None
+    if specs and not intervals:
+        try:
+            matcher = _any_of([calendar_matcher(spec) for spec in specs])
+        except (StopIteration, ValueError, ZoneInfoNotFoundError):
+            matcher = None
+    return Schedule(unit.removesuffix(".service"), "timer " + "; ".join(specs + intervals),
+                    matcher, slack, unit=unit)
+
+
+def timer_schedules(run: Runner) -> list[Schedule]:
+    listed = run(["systemctl", "--user", "list-timers", "--no-legend"], 30) or ""
+    timers = sorted({part for line in listed.splitlines() for part in line.split()
+                     if part.endswith(".timer")})
+    if not timers:
+        return []
+    shown = run(["systemctl", "--user", "show", *timers, "-p", "Unit", "-p", "TimersCalendar",
+                 "-p", "TimersMonotonic", "-p", "AccuracyUSec", "-p", "RandomizedDelayUSec"],
+                30) or ""
+    return [item for item in map(_timer_schedule, _show_blocks(shown)) if item is not None]
+
+
+def cron_schedules(run: Runner) -> list[Schedule]:
+    schedules = []
+    for raw in (run(["crontab", "-l"], 30) or "").splitlines():
+        line = raw.strip()
+        match = CRON_LINE_RE.match(line)
+        if match is None or line.startswith(("#", "@")) or "=" in line.split()[0]:
+            continue
+        *fields, command = match.groups()
+        driver = DRIVER_RE.search(command)
+        output = REDIRECT_RE.search(command)
+        try:
+            matcher = cron_matcher(fields)
+        except ValueError:
+            matcher = None
+        job = (driver[1] if driver else Path(output[1]).stem if output
+               else Path(command.split()[0]).name)
+        schedules.append(Schedule(
+            job, "cron " + " ".join(fields), matcher, 60.0, driver=driver[1] if driver else None,
+            output=Path(output[1]) if output and not driver else None,
+            appends=bool(output and output[0].startswith(">>"))))
+    return schedules
+
+
+def expected_times(matcher: Matcher, start: datetime, end: datetime) -> list[datetime]:
+    moment = start.replace(second=0, microsecond=0)
+    if moment < start:
+        moment += timedelta(minutes=1)
+    found = []
+    while moment < end:
+        if matcher(moment):
+            found.append(moment)
+        moment += timedelta(minutes=1)
+    return found
+
+
+def _utc(stamp: str) -> datetime:
+    return datetime.fromisoformat(stamp[:19]).replace(tzinfo=UTC)
+
+
+def _driver_runs(db: sqlite3.Connection, since: str, until: str) -> dict[str, list[tuple]]:
+    """Driver runs started in the window: ``driver -> [(start, end, stages)]``."""
+    grouped: dict[tuple[str, str], list[tuple]] = defaultdict(list)
+    for run_id, driver, stage, started, ended, seconds, code in db.execute(
+            "SELECT run_id, driver, stage, started, ended, seconds, exit_code FROM stage_runs "
+            "WHERE ended>=? ORDER BY started, ended", (since,)):
+        grouped[(driver, run_id)].append((stage, started, ended, seconds, code))
+    runs: dict[str, list[tuple]] = defaultdict(list)
+    for (driver, run_id), stages in grouped.items():
+        stamp = RUN_ID_TIME_RE.search(run_id)
+        start = (datetime.strptime(stamp[1], "%Y%m%dT%H%M%S").replace(tzinfo=UTC) if stamp
+                 else min(_utc(row[1] or row[2]) for row in stages))
+        if _iso(start) < since or _iso(start) >= until:
+            continue
+        runs[driver].append((start, max(_utc(row[2]) for row in stages), stages))
+    return runs
+
+
+def _job_runs(db: sqlite3.Connection, schedule: Schedule, drivers: dict[str, list[tuple]],
+              since: str, until: str) -> list[JobRun]:
+    if schedule.driver:
+        return [JobRun(start, (end - start).total_seconds(),
+                       all(row[4] == 0 for row in stages),
+                       "ok" if all(row[4] == 0 for row in stages) else "failed")
+                for start, end, stages in drivers.get(schedule.driver, [])]
+    if schedule.output:
+        try:
+            written = datetime.fromtimestamp(schedule.output.stat().st_mtime, UTC)
+        except OSError:
+            return []
+        inside = since <= _iso(written) < until
+        return [JobRun(written, None, None, "output written")] if inside else []
+    rows = db.execute("SELECT started, seconds, result, exit_code FROM unit_runs WHERE unit=? "
+                      "AND started>=? AND started<? ORDER BY started",
+                      (schedule.unit, since, until)).fetchall()
+    return [JobRun(_utc(started), seconds,
+                   None if result == "running" else (result == "success" and code in (0, None)),
+                   result)
+            for started, seconds, result, code in rows]
+
+
+def _due(schedule: Schedule, start: datetime, end: datetime) -> list[datetime] | None:
+    """Scheduled starts whose latest allowed start is before ``end``; None if unknown."""
+    if schedule.matcher is None:
+        return None
+    due = expected_times(schedule.matcher, start,
+                         end - timedelta(seconds=schedule.slack_s + RUN_GRACE_S))
+    return due[-1:] if schedule.output else due  # one output file proves only the latest run
+
+
+def _unmatched(schedule: Schedule, due: list[datetime], runs: list[JobRun]) -> list[datetime]:
+    late = timedelta(seconds=schedule.slack_s + RUN_GRACE_S)
+    return [moment for moment in due if not any(
+        moment - timedelta(minutes=1) <= item.start <= moment + late for item in runs)]
+
+
+def _stamp(moment: datetime) -> str:
+    return f"{moment:%m-%d %H:%M}Z"
+
+
+def _runs_cell(runs: list[JobRun]) -> str:
+    def one(item: JobRun) -> str:
+        return f"{_stamp(item.start)} {item.label} {_duration(item.seconds)}".rstrip(" —")
+    if len(runs) <= LISTED_RUNS:
+        return "; ".join(map(one, runs)) or "—"
+    timed = [item.seconds for item in runs if item.seconds is not None]
+    spread = f"; median {_duration(median(timed))}, max {_duration(max(timed))}" if timed else ""
+    return f"last {one(runs[-1])}{spread}"
+
+
+def runs_lines(db: sqlite3.Connection, run: Runner, start: datetime,
+               end: datetime) -> tuple[list[str], list[str]]:
+    """Missing-run bullets, then the per-job run table and every driver's stages."""
+    since, until = _iso(start), _iso(end)
+    schedules = timer_schedules(run) + cron_schedules(run)
+    known = {item.unit for item in schedules if item.unit}
+    schedules += [Schedule(unit.removesuffix(".service"), "—", None, unit=unit) for (unit,) in
+                  db.execute("SELECT DISTINCT unit FROM unit_runs WHERE started>=? AND "
+                             "started<?", (since, until)) if unit not in known]
+    drivers = _driver_runs(db, since, until)
+    missing, table = [], []
+    for schedule in sorted(schedules, key=lambda item: item.job):
+        runs = _job_runs(db, schedule, drivers, since, until)
+        due = _due(schedule, start, end)
+        if not runs and due == []:
+            continue
+        absent = None if due is None else _unmatched(schedule, due, runs)
+        if absent and schedule.output and schedule.appends:
+            absent = None
+        missing += [f"- {schedule.job}: due {_stamp(moment)} (`{schedule.spec}`), no run"
+                    for moment in absent or []]
+        failed = sum(item.ok is False for item in runs)
+        due_cell = "?" if due is None else len(due)
+        absent_cell = "?" if absent is None else len(absent)
+        table.append(f"| {schedule.job} | `{schedule.spec}` | {due_cell} | {len(runs)} | "
+                     f"{failed} | {absent_cell} | {_runs_cell(runs)} |")
+    lines = ["", "## Runs", "", f"Current timers and crontab checked against collected runs through "
+             f"{until}; a start may lag its schedule by the timer's accuracy and delay plus "
+             f"{RUN_GRACE_S // 60} minutes.", "",
+             "| job | schedule | due | ran | failed | missing | runs |",
+             "|---|---|---|---|---|---|---|", *table]
+    stage_lines = [
+        f"- {driver} {_stamp(begin)}, {_duration((finish - begin).total_seconds())}: " + " · ".join(
+            f"{stage} {_duration(seconds)}" + (f" exit {code}" if code else "")
+            for stage, _s, _e, seconds, code in stages)
+        for driver, items in sorted(drivers.items()) for begin, finish, stages in items]
+    if stage_lines:
+        lines += ["", "## Driver stages", "", *stage_lines]
+    return missing, lines
+
+
+def _collected_until(db: sqlite3.Connection, now: datetime, start: datetime) -> datetime:
+    latest = db.execute("SELECT MAX(hour) FROM hours").fetchone()[0]
+    if latest is None:
+        return start
+    return min(now, datetime.strptime(latest, "%Y-%m-%dT%H").replace(tzinfo=UTC)
+               + timedelta(hours=1))
+
+
+def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
+           run: Runner = _run) -> str:
     """Summarise the last ``hours`` of collected metrics as Markdown."""
     path = ops_dir / "ops.sqlite"
     if not path.exists():
@@ -694,6 +1010,11 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None) -> 
             out += ["", "## Failed runs", ""]
             out += [f"- {u} at {s} ({_duration(sec)}): {res}, exit {code}"
                     for u, s, sec, code, res in failed]
+        start = floor_hour(now) - timedelta(hours=hours)
+        missing, run_lines = runs_lines(db, run, start, _collected_until(db, now, start))
+        if missing:
+            out += ["", "## Missing runs", "", *missing]
+        out += run_lines
         runs = db.execute("SELECT unit, started, seconds FROM unit_runs WHERE started>=? "
                           "AND result='success' AND seconds IS NOT NULL", (since_iso,)).fetchall()
         slow = []

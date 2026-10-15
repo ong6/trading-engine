@@ -25,9 +25,10 @@ systemctl --user list-timers 'trading-engine-*'
 ```
 
 Start with the hourly operations digest, which has already collated these sources:
-`.venv/bin/python -m tools.ops_digest --report --hours 24` lists non-OK hours, failed and slow
-runs (over 3× their 14-day median), the loudest error signatures, log growth and unhealthy
-`/meta` sections. Each UTC hour's detail is in `logs/ops/hourly/<date>/<HH>.md` (newest copy:
+`.venv/bin/python -m tools.ops_digest --report --hours 24` lists non-OK hours, failed, missing
+and slow runs (over 3× their 14-day median), every scheduled job's runs checked against the
+current timers and crontab, each driver run's stages, the loudest error signatures, log growth
+and unhealthy `/meta` sections. Each UTC hour's detail is in `logs/ops/hourly/<date>/<HH>.md` (newest copy:
 `logs/ops/latest.md`); metrics for SQL are in `logs/ops/ops.sqlite` (tables `hours`,
 `unit_runs`, `stage_runs`, `log_counts`, `signatures`, `probes`, `meta_status`, `footprint`).
 The `trading-engine-ops-digest.timer` collects at :08 UTC from the user journal, new lines of
