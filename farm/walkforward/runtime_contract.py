@@ -12,7 +12,9 @@ MIGRATION = (
     "parameterized D0 and restarts its evaluation clock. Additive account schema, "
     "monotonic order sequence and shared ledger/replay replace the prior runtime; a "
     "snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. "
-    "Walk-forward protocol geometry, comparisons and gates are unchanged."
+    "Walk-forward comparisons and gates are unchanged; fold geometry changes only in "
+    "that a fold whose training window, clamped to the data floor, holds fewer than "
+    "two sessions is dropped and disclosed (admitted 2026-10-15)."
 )
 
 

@@ -237,6 +237,18 @@ def data_floor(live_con, strategy: str,
     return max(floors)
 
 
+def min_train_end(live_con, floor: date) -> date | None:
+    """The session on which a training window opened at `floor` (itself a session)
+    first holds protocol.MIN_TRAIN_SESSIONS sessions; None if the store ends first."""
+    session = floor
+    for _ in range(protocol.MIN_TRAIN_SESSIONS - 1):
+        session = live_con.execute(
+            "SELECT MIN(date) FROM prices WHERE date > ?", [session]).fetchone()[0]
+        if session is None:
+            return None
+    return session
+
+
 # --------------------------------------------------------------------------- #
 # per-fold replay
 # --------------------------------------------------------------------------- #
@@ -519,6 +531,7 @@ def run_book(live_con, config_id: str, *,
 
     floor = data_floor(
         live_con, book["strategy"], tuple(book.get("required_tickers") or ()))
+    train_end = min_train_end(live_con, floor)
     kept: list[protocol.Fold] = []
     dropped: list[dict] = []
     clamped_ids: set[int] = set()
@@ -530,6 +543,16 @@ def run_book(live_con, config_id: str, *,
             dropped.append({**f.as_dict(), "status": "dropped",
                             "reason": f"validate window opens {f.split_date}, at "
                                       f"or before this book's data floor {floor}"})
+            continue
+        # A train window clamped below MIN_TRAIN_SESSIONS has no baseline at all:
+        # dropped and said so, with the planned geometry like the drop above.
+        if protocol.short_training_window(f, floor, train_end):
+            n_train = len(hist_screen.sessions_between(live_con, floor, f.split_date))
+            dropped.append({**f.as_dict(), "status": "dropped",
+                            "reason": f"train window clamped to this book's data floor "
+                                      f"{floor} holds {n_train} session(s) through "
+                                      f"{f.split_date}, fewer than the protocol minimum "
+                                      f"of {protocol.MIN_TRAIN_SESSIONS}"})
             continue
         # A short TRAIN window is a weaker baseline, not a wrong one: clamp and label.
         if f.train_start < floor:
