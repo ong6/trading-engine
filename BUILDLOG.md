@@ -2073,4 +2073,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tools +738 lines, tests +176; server and product unchanged.
 - **Next:** Confirm the next nightly appears in `--report`; registered-file fixes wait for the next registration revision (scope.md).
 
+## 2026-10-15 — Move the hourly digest off the P15 pre-open minute
+
+- **Why:** The P15 pre-open failed on 2026-10-13 and 10-14 with "Conflicting lock is held" by the API. The digest timer (:05 UTC) fired in the same second, and its `/meta` probe held an API read connection while the pre-open made its single writer attempt.
+  `.venv/bin/python -m pytest -q -W error -n 0 tests/test_ops_digest.py` reproduced both halves: a held reader refuses a `wait_s=0` writer, and the digest can fire with the P15 event and pre-open timers.
+- **What:** The digest timer fires at :08 UTC, outside every other timer's start window; the new test fails if any timer in `server/` can fire with it.
+  The docstring, runbook and P23 scope say the `/meta` probe blocks writers. The pre-open's single-attempt open is in a registered file and is proposed for revision 14 in `scope.md`.
+- **Evidence:** Before the move, `FAILED tests/test_ops_digest.py::test_digest_timer_never_fires_with_another_timer` (`((300, 420), (300, 360))`); after it, 9 passed.
+- **Metrics:** tools +2 (docstring), tests +75; server and product unchanged; budget ok.
+- **Next:** Nothing admitted; the pre-open retry waits for revision 14.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

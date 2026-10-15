@@ -26,7 +26,8 @@ nightly log from ~600 to ~13,900 lines; nothing rotates in `logs/`.
 ## Scope
 
 - `tools/ops_digest.py`: hourly collector and `--report` summary; writes only under `logs/ops/`.
-- `server/trading-engine-ops-digest.{service,timer}` (:05 UTC hourly), registered in
+- `server/trading-engine-ops-digest.{service,timer}` (:08 UTC hourly; moved from :05 on
+  2026-10-15 because its `/meta` probe blocked the P15 pre-open writer), registered in
   `tools/install_automation.py` and enabled with the other timers.
 - `tests/test_ops_digest.py`; runbook section in `docs/how-it-works.md`.
 - Host (outside the repo): persistent journald storage (30 days, 2 GB cap) so `journalctl --user`

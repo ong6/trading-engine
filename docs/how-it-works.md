@@ -30,10 +30,11 @@ runs (over 3× their 14-day median), the loudest error signatures, log growth an
 `/meta` sections. Each UTC hour's detail is in `logs/ops/hourly/<date>/<HH>.md` (newest copy:
 `logs/ops/latest.md`); metrics for SQL are in `logs/ops/ops.sqlite` (tables `hours`,
 `unit_runs`, `stage_runs`, `log_counts`, `signatures`, `probes`, `meta_status`, `footprint`).
-The `trading-engine-ops-digest.timer` collects at :05 UTC from the user journal, new lines of
+The `trading-engine-ops-digest.timer` collects at :08 UTC from the user journal, new lines of
 `logs/*.log`/`*.jsonl` (plus host-private globs listed one per line in `logs/ops/sources.txt`),
-`logs/stage-timings.jsonl` and the API; it never opens the DuckDB store. Digests are kept 30
-days and metrics 180 days. A missing source shows as a collection gap, never a failure.
+`logs/stage-timings.jsonl` and the API. It never opens the DuckDB store itself, but its `/meta`
+probe holds an API read connection that refuses writers, so it runs clear of every other
+timer's start minute. Digests are kept 30 days and metrics 180 days. A missing source shows as a collection gap, never a failure.
 
 Read `GET /meta` before interpreting a log in isolation. It reconciles schedule, log, lock,
 database, report, queue, source-control, and evidence state. A missing or malformed
