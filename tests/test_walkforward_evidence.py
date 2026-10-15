@@ -77,6 +77,10 @@ def test_walkforward_evidence_status_is_current_for_complete_matching_cohort(
         "invalid_files_count": 0,
         "invalid_files_truncated": False,
         "invalid_files_values_truncated": False,
+        "invalid_file_reasons": [],
+        "invalid_file_reasons_count": 0,
+        "invalid_file_reasons_truncated": False,
+        "invalid_file_reasons_values_truncated": False,
         "config_mismatches": [],
         "config_mismatches_count": 0,
         "config_mismatches_truncated": False,
@@ -570,6 +574,26 @@ def test_walkforward_evidence_rejects_self_consistent_shifted_fold_dates(
 
     assert result["status"] == "invalid"
     assert result["invalid_files"] == ["sector.json"]
+
+
+def test_walkforward_evidence_reports_why_an_artifact_is_invalid(con, tmp_path, monkeypatch):
+    # Production 2026-10-15: a training window clamped to one session made /meta report
+    # sector_momentum.json as invalid with no reason.
+    setup_walkforward_recovery(con)
+    monkeypatch.setattr(walkforward_evidence, "runtime_source_hash", lambda: ("a" * 64, 99))
+    write_walkforward_result(tmp_path / "spy.json", "spy")
+    sector_path = tmp_path / "sector.json"
+    write_walkforward_result(sector_path, "sector")
+    _rewrite_fold(sector_path, lambda fold: fold["train"].update(
+        end_date=fold["train"]["start_date"]))
+
+    result = walkforward_evidence.evidence_status(con, tmp_path)
+
+    assert result["status"] == "invalid"
+    assert result["invalid_files"] == ["sector.json"]
+    assert result["invalid_file_reasons"] == [
+        "sector.json: ValueError: statistic dates do not match fold sessions"]
+    assert result["invalid_file_reasons_count"] == 1
 
 
 @pytest.mark.parametrize(

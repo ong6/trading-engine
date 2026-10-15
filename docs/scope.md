@@ -79,6 +79,41 @@ Agents append one line here instead of building. The owner promotes a line to a 
 deletes it.
 
 
+- 2026-10-15 · **TradingView archive never retries an exhausted window**:
+  `engine/tradingview_history_archive.py` `_pending_chunks` skips a window after three failed
+  attempts and never advances that symbol, so `unresolved_failed_windows` (9 on 2026-10-15: BLFS,
+  DBRG, DDS, ET, GBTG, SUN, SUNC, USAC, WBD) cannot clear and `miner_evidence` stays `issues`.
+  Each window used its attempts within 14 hours. Eight say `symbol_error`, yet BLFS, DBRG, DDS and
+  ET completed an earlier window, so the refusal is not shown to be terminal; GBTG's error is
+  generic. Counting them as refusals in `server/miner_monitor.py` would hide failures. In
+  revision 14, retry an exhausted window after a cool-down and record a terminal refusal only
+  after attempts spread over several days; the monitor can then report refusals separately.
+
+- 2026-10-15 · **Walk-forward keeps a one-session training fold**: `farm/walkforward/runner.py`
+  clamps a fold whose training window opens before the book's data floor instead of dropping it.
+  Sector momentum's fold 1 (floor 2016-10-07, split 2016-10-09) trains on one session, so its
+  result fails validation (`statistic dates do not match fold sessions`) and `walkforward_evidence`
+  stays `invalid`. In revision 14, drop and report a fold whose clamped training window has fewer
+  than two sessions, then republish the weekly result.
+
+- 2026-10-15 · **Registered writers open the store in one attempt**: `server/daily_opportunity_runner.py`
+  (`_connection`), `server/daily_opportunity_tools.py` and `server/official_quote_source.py` call
+  `db.connect(..., wait_s=0)`, so a concurrent reader (the API serving `/meta` or the dashboard)
+  fails them as it failed the pre-open; the unregistered agent-shadow runner now waits. Use the
+  default lock-retry window there too in revision 14.
+
+- 2026-10-15 · **P15 pre-open opens the store writer in one attempt**: `server/p15_preopen.py`
+  `run_database` calls `db.connect(database, wait_s=0)`, so any concurrent reader fails the run
+  (the API serving the digest's `/meta` probe did on 2026-10-13 and 10-14). It writes, so it cannot
+  open read-only; use the default lock-retry window (`db.connect(database)`, 60 s) in revision 14.
+
+- 2026-10-10 · **Registered-file observability defects (next registration revision)**: since
+  `9a37ac0` `engine/verify_prices.py` prints its full evidence JSON (base64 bodies) to stdout,
+  ~13k lines a night and 18 MB a weekly verify; the P15 price-fetch record is withheld every
+  night because ~25 liquid names always fail, with exit 0 and no WARN; fail-soft stages and
+  units exit 0 when they skipped work (TradingView archive under the nightly lock). Fix with
+  P22's revision rather than a separate revision.
+
 - 2026-10-02 · **Activation of separately held research strategies**: P21 implements the generic
   paper-account specification and stock/ETF intake boundary; new accounts start inactive.
   Manual/all/auto tier planning does not grant activation. A private strategy runner or new

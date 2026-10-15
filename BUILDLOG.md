@@ -3187,4 +3187,71 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +5, tools 0, product -364; budget passes.
 - **Next:** require the final full suite and both PR #13 CI time zones green, then write STATUS.
 
+## 2026-10-10 — Add the hourly operations digest (P23)
+
+- **Why:** P23, approved by the owner's 2026-10-10 request after the 10-09 nightly review found failures hidden behind exit 0, an unexplained 1h48m stage and unreadable unit output.
+- **What:** `tools.ops_digest` collates each UTC hour's unit runs (user journal), driver stages, API probes and new log warning/error lines into `logs/ops/hourly/<date>/<HH>.md`, with metrics only in `logs/ops/ops.sqlite`.
+  `--report` summarises non-OK hours, failed and slow runs, loud signatures and log growth; an hourly timer runs it at :05 UTC.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_ops_digest.py` passed 7 tests; a host run produced six hourly digests in 1.7 s.
+- **Metrics:** tools +738 lines, tests +176; server and product unchanged.
+- **Next:** Confirm the next nightly appears in `--report`; registered-file fixes wait for the next registration revision (scope.md).
+
+## 2026-10-15 — Move the hourly digest off the P15 pre-open minute
+
+- **Why:** The P15 pre-open failed on 2026-10-13 and 10-14 with "Conflicting lock is held" by the API. The digest timer (:05 UTC) fired in the same second, and its `/meta` probe held an API read connection while the pre-open made its single writer attempt.
+  `.venv/bin/python -m pytest -q -W error -n 0 tests/test_ops_digest.py` reproduced both halves: a held reader refuses a `wait_s=0` writer, and the digest can fire with the P15 event and pre-open timers.
+- **What:** The digest timer fires at :08 UTC, outside every other timer's start window; the new test fails if any timer in `server/` can fire with it.
+  The docstring, runbook and P23 scope say the `/meta` probe blocks writers. The pre-open's single-attempt open is in a registered file and is proposed for revision 14 in `scope.md`.
+- **Evidence:** Before the move, `FAILED tests/test_ops_digest.py::test_digest_timer_never_fires_with_another_timer` (`((300, 420), (300, 360))`); after it, 9 passed.
+- **Metrics:** tools +2 (docstring), tests +75; server and product unchanged; budget ok.
+- **Next:** Nothing admitted; the pre-open retry waits for revision 14.
+
+## 2026-10-15 — Say why a walk-forward artifact is invalid
+
+- **Why:** `/meta` reported `walkforward_evidence` `invalid` with `invalid_files: ["sector_momentum.json"]` and no reason, because `scan_results` dropped the validator's exception.
+  The new `test_walkforward_evidence_reports_why_an_artifact_is_invalid` failed with `KeyError: 'invalid_file_reasons'`.
+- **What:** The scan keeps each rejected file's exception text, and the evidence payload lists it as a bounded `invalid_file_reasons` diagnostic. Status rules are unchanged.
+  The production cause is a training window the frozen runner clamped to one session; dropping such folds is proposed for revision 14 in `scope.md`.
+- **Evidence:** On the 2026-10-15 snapshot, `invalid_file_reasons` reads `sector_momentum.json: ValueError: statistic dates do not match fold sessions`; `tests/test_walkforward_evidence.py` passes.
+- **Metrics:** server +6, tests +24; tools and product unchanged.
+- **Next:** Nothing admitted; the fold drop waits for revision 14.
+
+## 2026-10-15 — Count the whole store in the digest footprint
+
+- **Why:** The digest's footprint read `store 9,983.6 MB`, the size of `market.duckdb` alone, while `du -sm store` reported 63,536 MB of snapshots and point-in-time stores.
+  The new `test_footprint_counts_the_whole_store_directory` failed with `KeyError: 'store_bytes'`.
+- **What:** The footprint sums every regular file under `store/` without following symlinks and shows the database size beside it.
+  The total goes in a new `store_bytes` column, which an existing metrics file gains when it is opened.
+- **Evidence:** On the host the footprint reads `store 63,212.0 MB (market.duckdb 9,983.5 MB)` and takes 1.0 s; `tests/test_ops_digest.py` passes.
+- **Metrics:** tools +17, tests +20; server and product unchanged.
+- **Next:** Nothing admitted.
+
+## 2026-10-15 — List every scheduled run and driver stage in the digest report
+
+- **Why:** P23 is done when `--report --hours 24` lists every unit run and driver stage. On the host it listed only non-OK hours, failures, slow runs and signals.
+  The 10-14 nightly's 13 successful stages and every successful unit run were absent, and an installed service started without a timer was never collected.
+- **What:** `--report` checks the current timers (`systemctl show`) and crontab against collected runs. A per-job table shows due, ran, failed and missing counts with each run (frequent pollers summarised), and a "Missing runs" list and each driver run's stages follow.
+  Cron drivers are matched through their stage timings and other cron jobs through their output file; collection also reads every installed user service.
+- **Evidence:** On the host, `--report --hours 24` lists 18 scheduled jobs and `run_daily 10-14 22:30Z, 53m39s: universe 8s · collect 3m06s · … · snapshot 1m12s`.
+- **Metrics:** tools +321, tests +103; server and product unchanged.
+- **Next:** Close P23 once the live checkout's report shows the same.
+
+## 2026-10-15 — Let the agent-shadow runner wait out a store reader
+
+- **Why:** The pre-open failures showed that a scheduled writer opening the store once (`wait_s=0`) fails while another process holds a read connection.
+  `server/agent_shadow_runner.py`, which is not registered, opens that way before and after its model call; the new `test_store_open_waits_out_a_concurrent_reader` failed with `IOException: ... Conflicting lock is held`.
+- **What:** The runner's connections use the default lock-retry window, like the P15 event and hourly observer writers.
+  The registered daily-opportunity runner and tools and the official-quote source keep their single attempt and are proposed for revision 14 in `scope.md`.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_agent_shadow_runner.py` passes, including the new test.
+- **Metrics:** server +1, tests +20; tools and product unchanged.
+- **Next:** Nothing admitted.
+
+## 2026-10-15 — Close the hourly operations digest (P23)
+
+- **Why:** P23's "Done when": the digest timer is active and, after a nightly, `--report --hours 24` lists every unit run and driver stage with durations and outcomes.
+- **What:** P23 moves from active to done in the plan and the plans index. The run list landed in the previous entry; no code changes here.
+- **Evidence:** On the live checkout, `--report --hours 24` printed `run_daily 10-14 22:30Z, 53m39s: universe 8s · collect 3m06s · … · snapshot 1m12s` and a row for every scheduled job.
+- **Metrics:** unchanged.
+- **Next:** Nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

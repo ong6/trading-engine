@@ -13,6 +13,7 @@ DIAGNOSTIC_VALUE_MAX_CHARS = 256
 DIAGNOSTIC_FIELDS = (
     "missing_results",
     "invalid_files",
+    "invalid_file_reasons",
     "config_mismatches",
     "registration_mismatches",
     "duplicate_config_ids",
@@ -25,6 +26,7 @@ def empty_scan() -> dict:
     return {
         "rows": {},
         "invalid_files": [],
+        "invalid_reasons": {},
         "config_mismatches": set(),
         "registration_mismatches": set(),
         "duplicate_config_ids": set(),
@@ -68,8 +70,9 @@ def scan_results(root: Path, registrations: dict[str, dict]) -> dict:
     for path in sorted(root.glob("*.json")):
         try:
             _scan_result_file(path, registrations, scan)
-        except (OSError, KeyError, TypeError, ValueError):
+        except (OSError, KeyError, TypeError, ValueError) as exc:
             scan["invalid_files"].append(path.name)
+            scan["invalid_reasons"][path.name] = f"{type(exc).__name__}: {exc}"
     return scan
 
 
@@ -144,6 +147,9 @@ def _scan_payload(expected: set[str], scan: dict, invalid_registrations: list[st
     diagnostics = {
         "missing_results": sorted(expected - rows.keys()),
         "invalid_files": sorted(set(scan["invalid_files"])),
+        "invalid_file_reasons": sorted(
+            f"{name}: {reason}" for name, reason in scan.get("invalid_reasons", {}).items()
+        ),
         "config_mismatches": sorted(scan["config_mismatches"]),
         "registration_mismatches": sorted(scan["registration_mismatches"]),
         "duplicate_config_ids": sorted(scan["duplicate_config_ids"]),
