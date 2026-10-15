@@ -3287,4 +3287,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** engine +131, tests +139; server and tools unchanged. Registered: `engine/actions.py`, `engine/collect.py` (integrator re-pins).
 - **Next:** DXJ's existing break predates the rewrite record, so it needs the one-off `engine.refetch_ticker` repair (not held, no fills); then rev-14 fix (g).
 
+## 2026-10-16 — Phantom bars with a non-positive open, high or low are not real bars (rev-14 g)
+
+- **Why:** P22 revision-14 fix (g). `REAL_BAR_SQL` accepted WBD's 2026-10-05 bar (open 0, volume 40) as WBD's last traded bar; reproduction `test_bar_with_a_non_positive_open_high_or_low_is_not_a_real_bar` (`HIGH0`, `LOWNEG` and WBD 10-05 counted as real).
+  BLFS 10-05, SVA 10-06, MMEDV 10-02 and WSLS 10-09 carry volume 0 and were already excluded.
+- **What:** A real bar also needs open, high and low above zero. Every consumer (screen, P15 evaluation and events, daily opportunities, books, market date) shares the one predicate.
+- **Evidence:** Impact on a copy of the 10-15 snapshot, the same read-only script on the code before and after this change. 8 of 21,133,980 rows become phantom: WBD 10-05, ACAAW 07-15 and 09-11, PTACW 09-09, and four RCAT bars from 2008–2010.
+  As-of real bars move only for WBD (10-05 → 10-02), ACAAW and PTACW (none; neither is liquid). Unchanged: latest real and operational market date (10-14), the stale list, stored labels, and the screen classification, daily-opportunity and P15 universes for all 27 sessions 09-08..10-14.
+  Of 1,360 P15 decision-horizon outcomes, 2 change, both still unlabeled: WBD decision 575 (10-05, horizons 1 and 5), whose missing-entry label moves from the 10-05 close 30.95 to the 10-02 close 30.94; its returns stay 0. Book high_52wk holds 42.92 WBD, so its last real close is now 30.94 (−$0.43).
+- **Metrics:** engine +5, tests +22; server and tools unchanged. Registered: `engine/lib/db.py` (integrator re-pins).
+- **Next:** rev-14 fix (h), price verification keys.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
