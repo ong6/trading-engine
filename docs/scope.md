@@ -74,6 +74,16 @@ Agents append one line here instead of building. The owner promotes a line to a 
 deletes it.
 
 
+- 2026-10-15 · **TradingView archive never retries an exhausted window**:
+  `engine/tradingview_history_archive.py` `_pending_chunks` skips a window after three failed
+  attempts and never advances that symbol, so `unresolved_failed_windows` (9 on 2026-10-15: BLFS,
+  DBRG, DDS, ET, GBTG, SUN, SUNC, USAC, WBD) cannot clear and `miner_evidence` stays `issues`.
+  Each window used its attempts within 14 hours. Eight say `symbol_error`, yet BLFS, DBRG, DDS and
+  ET completed an earlier window, so the refusal is not shown to be terminal; GBTG's error is
+  generic. Counting them as refusals in `server/miner_monitor.py` would hide failures. In
+  revision 14, retry an exhausted window after a cool-down and record a terminal refusal only
+  after attempts spread over several days; the monitor can then report refusals separately.
+
 - 2026-10-15 · **Walk-forward keeps a one-session training fold**: `farm/walkforward/runner.py`
   clamps a fold whose training window opens before the book's data floor instead of dropping it.
   Sector momentum's fold 1 (floor 2016-10-07, split 2016-10-09) trains on one session, so its
