@@ -173,6 +173,72 @@ def test_failed_window_retries_then_all_failure_is_visible(tmp_path):
     assert result["unresolved_failed_windows"] == 1
 
 
+def _failing_window(tmp_path, error):
+    """A one-window archive whose every request fails with `error`, run at NOW+hours."""
+    path = tmp_path / "market.duckdb"
+    _database(path)
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError(error)
+
+    params = {"cohort_id": "retry-v1", "start": "2022-01-01", "through": "2022-01-31",
+              "max_chunks": 1, "pause_seconds": 0, "symbols": ["IBM"]}
+
+    def run(hours, capture=fail):
+        return archive.run_connection_narrowed(
+            params, path, capture=capture, clock=lambda: NOW + timedelta(hours=hours))
+
+    for hours in (0, 4, 8):
+        with pytest.raises(archive.ArchiveError, match="all 1"):
+            run(hours)
+    return path, run
+
+
+def test_exhausted_window_retries_after_cooldown_until_refused_on_three_days(tmp_path):
+    # Production 2026-10-15: nine windows spent their three attempts within 14 hours and
+    # were never tried again, so unresolved_failed_windows stayed at 9 and the miner at issues.
+    path, run = _failing_window(tmp_path, "TradingView provider unavailable: symbol_error")
+
+    assert run(31)["attempted_this_run"] == 0
+    retry = run(32)
+    assert retry["attempted_this_run"] == retry["failed_this_run"] == 1
+    assert retry["unresolved_failed_windows"] == 1 and retry["refused_windows"] == 0
+    assert run(55)["attempted_this_run"] == 0
+    refused = run(56)
+    assert refused["attempted_this_run"] == refused["refused_this_run"] == 1
+    assert refused["failed_this_run"] == 0
+    assert refused["unresolved_failed_windows"] == 0 and refused["refused_windows"] == 1
+    assert refused["attempts"] == {"complete": 0, "empty": 0, "failed": 4, "refused": 1}
+    assert run(200)["attempted_this_run"] == 0
+    con = db.connect(path, read_only=True)
+    try:
+        rows = con.execute(
+            "SELECT id,status,started_at FROM tradingview_history_attempts ORDER BY id"
+        ).fetchall()
+    finally:
+        con.close()
+    assert [status for _id, status, _at in rows] == ["failed"] * 4 + ["refused"]
+    assert [at for _id, _status, at in rows] == [
+        (NOW + timedelta(hours=hours)).replace(tzinfo=None) for hours in (0, 4, 8, 32, 56)]
+
+
+def test_transport_failures_keep_retrying_daily_and_are_never_refused(tmp_path):
+    _path, run = _failing_window(tmp_path, "TradingView request failed")
+
+    for hours in (32, 56, 80):
+        retry = run(hours)
+        assert retry["attempted_this_run"] == retry["failed_this_run"] == 1
+        assert retry["unresolved_failed_windows"] == 1 and retry["refused_windows"] == 0
+
+
+def test_exhausted_window_that_succeeds_after_cooldown_resolves(tmp_path):
+    _path, run = _failing_window(tmp_path, "TradingView provider unavailable: symbol_error")
+
+    result = run(32, capture=_success)
+    assert result["completed_this_run"] == 1
+    assert result["unresolved_failed_windows"] == result["refused_windows"] == 0
+
+
 def test_queue_registers_bounded_archive_after_core_miners():
     spec = queue_runner.JOB_TYPES["tradingview_history"]
     assert spec["archive"] is True and spec["releases_writer"] is True
