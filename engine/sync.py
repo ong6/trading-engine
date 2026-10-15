@@ -2,27 +2,33 @@
 """Commit (and push, if an upstream exists) the day's screen outputs.
 
 Stages data/ from the repo root, commits with a message summarising the run
-(passing / new counts read from data/_meta.json), and pushes only when the
+(passing / new counts read from data/_meta.json, or the calling driver's name
+and the staged file count under ``--driver``), and pushes only when the
 current branch has an upstream — otherwise it says so and leaves the commit
 local. A stale remote name is not enough: ``git push`` cannot target it safely.
 The command refuses to run when the index already contains staged work, and
 the commit is path-limited to ``data/`` as a second containment boundary.
 
   --dry-run   print the staged files + the would-be message; commit nothing.
+  --driver    title the commit by this driver (e.g. run_weekly_walkforward)
+              instead of by the nightly screen it did not produce.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import NamedTuple
 
 from engine.lib.log import get_logger
 from engine.lib.settings import META_PATH, REPO_ROOT
 
 log = get_logger("sync")
+
+DRIVER_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}")
 
 
 def _git(*args: str) -> subprocess.CompletedProcess:
@@ -79,9 +85,24 @@ def _upstream() -> Upstream | None:
     return Upstream(remote, target_branch, tracking_ref)
 
 
-def _commit_message() -> str:
+def _utc_today() -> date:
+    return datetime.now(timezone.utc).date()
+
+
+def _driver_name(value: str) -> str:
+    if DRIVER_NAME.fullmatch(value) is None:
+        raise argparse.ArgumentTypeError(f"invalid driver name: {value!r}")
+    return value
+
+
+def _commit_message(driver: str | None = None, file_count: int = 0) -> str:
+    if driver is not None:
+        # A weekly driver's data is not the nightly screen: name the driver and
+        # the day it ran instead of reusing the last screen's counts.
+        files = "file" if file_count == 1 else "files"
+        return f"{driver}: {_utc_today().isoformat()} ({file_count} data {files})"
     n = m = 0
-    run_date = datetime.now(timezone.utc).date().isoformat()
+    run_date = _utc_today().isoformat()
     if META_PATH.exists():
         try:
             meta = json.loads(META_PATH.read_text())
@@ -137,6 +158,10 @@ def main() -> int:
     ap.add_argument(
         "--dry-run", action="store_true", help="show staged files + message without committing"
     )
+    ap.add_argument(
+        "--driver", type=_driver_name, default=None,
+        help="title the commit by this driver instead of the nightly screen",
+    )
     args = ap.parse_args()
 
     # Never commit mid-rebase/merge — that would silently bury an unresolved
@@ -178,13 +203,13 @@ def main() -> int:
         log.error(f"[sync] cannot inspect staged data/:\n{staged_result.stderr.strip()}")
         return 1
     staged = staged_result.stdout.strip()
-    message = _commit_message()
 
     if not staged:
         log.info("[sync] nothing staged — data/ is clean; nothing to commit")
         return 0
 
     files = staged.splitlines()
+    message = _commit_message(args.driver, len(files))
     log.info(f"[sync] {len(files)} staged file(s):")
     for f in files:
         log.info(f"    {f}")

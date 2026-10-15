@@ -3,6 +3,10 @@
 The cohort is a frozen snapshot of today's liquid universe, not point-in-time
 historical membership. Each completed symbol/date window is an append-only
 checkpoint. Network work happens without a DuckDB connection.
+
+A window that used its attempts is retried once a day. A provider refusal
+(``symbol_error``/``series_error``) is recorded as terminal only when it recurs
+on three attempts each at least a day apart; transport failures never are.
 """
 from __future__ import annotations
 
@@ -31,6 +35,13 @@ INCREMENTAL_WINDOW_DAYS = 14
 MAX_CHUNKS_PER_RUN = 100
 DEFAULT_MAX_CHUNKS = 50
 DEFAULT_MAX_ATTEMPTS = 3
+# An exhausted window is retried RETRY_COOLDOWN after its latest attempt. A
+# refusal becomes terminal on the REFUSAL_DAYS-th refusal at least RETRY_COOLDOWN
+# after the previous counted one, i.e. on three separate days over >= 48 hours.
+RETRY_COOLDOWN = timedelta(hours=24)
+REFUSAL_DAYS = 3
+PROVIDER_REFUSAL = "TradingView provider unavailable:"
+ATTEMPT_STATUSES = ("complete", "empty", "failed", "refused")
 DEFAULT_START = date(2022, 1, 1)
 LIMITATION = ("current-liquid-universe snapshot; survivor-biased and retrieval-time-only; "
               "not historical membership or promotion-quality stock-selection evidence")
@@ -133,10 +144,32 @@ def ensure_cohort(
             "symbol_count": len(selection), "replayed": False}
 
 
+def _due_chunk(
+    con: duckdb.DuckDBPyConnection, cohort_id: str, chunk: dict, max_attempts: int,
+    current: datetime,
+) -> dict | None:
+    """The chunk if its window may be requested now; None while refused or cooling down."""
+    failures, last_attempt, refused = con.execute(
+        "SELECT COUNT(*) FILTER (WHERE status='failed'),MAX(started_at),"
+        "COUNT(*) FILTER (WHERE status='refused') FROM tradingview_history_attempts "
+        "WHERE cohort_id=? AND ticker=? AND start_date=? AND end_date=? "
+        "AND status IN ('failed','refused')",
+        [cohort_id, chunk["ticker"], chunk["start"], chunk["end"]],
+    ).fetchone()
+    if refused:
+        return None
+    if failures < max_attempts:
+        return chunk
+    if current - last_attempt < RETRY_COOLDOWN:
+        return None
+    return {**chunk, "cooldown_retry": True}
+
+
 def _pending_chunks(
     con: duckdb.DuckDBPyConnection, cohort_id: str, through: date,
-    limit: int, max_attempts: int,
+    limit: int, max_attempts: int, now: datetime | None = None,
 ) -> list[dict]:
+    current = _utc_naive(now or datetime.now(timezone.utc))
     cohort = con.execute(
         "SELECT start_date FROM tradingview_history_cohorts WHERE cohort_id=?",
         [cohort_id],
@@ -173,18 +206,33 @@ def _pending_chunks(
             if len(remaining) < INCREMENTAL_MIN_SESSIONS:
                 continue
             end = remaining[min(len(remaining), INCREMENTAL_MAX_SESSIONS) - 1]
-        failures = int(con.execute(
-            "SELECT COUNT(*) FROM tradingview_history_attempts WHERE cohort_id=? "
-            "AND ticker=? AND start_date=? AND end_date=? AND status='failed'",
-            [cohort_id, ticker, start, end],
-        ).fetchone()[0])
-        if failures >= max_attempts:
+        chunk = _due_chunk(con, cohort_id, {"ticker": ticker, "provider_symbol": provider_symbol,
+                                            "start": start, "end": end}, max_attempts, current)
+        if chunk is None:
             continue
-        pending.append({"ticker": ticker, "provider_symbol": provider_symbol,
-                        "start": start, "end": end})
+        pending.append(chunk)
         if len(pending) == limit:
             break
     return pending
+
+
+def _terminal_refusal(
+    con: duckdb.DuckDBPyConnection, cohort_id: str, chunk: dict, error: str,
+    started_at: datetime,
+) -> bool:
+    """True when this provider refusal is the window's REFUSAL_DAYS-th on separate days."""
+    if not error.startswith(PROVIDER_REFUSAL):
+        return False
+    prior = [row[0] for row in con.execute(
+        "SELECT started_at FROM tradingview_history_attempts WHERE cohort_id=? AND ticker=? "
+        "AND start_date=? AND end_date=? AND status='failed' AND starts_with(error,?)",
+        [cohort_id, chunk["ticker"], chunk["start"], chunk["end"], PROVIDER_REFUSAL],
+    ).fetchall()]
+    days: list[datetime] = []
+    for attempted in sorted([*prior, _utc_naive(started_at)]):
+        if not days or attempted - days[-1] >= RETRY_COOLDOWN:
+            days.append(attempted)
+    return len(days) >= REFUSAL_DAYS
 
 
 def _record_attempt(
@@ -192,7 +240,7 @@ def _record_attempt(
     fact_count: int, receipt_sha256: str | None, error: str | None,
     started_at: datetime, completed_at: datetime,
 ) -> None:
-    if status not in {"complete", "empty", "failed"}:
+    if status not in ATTEMPT_STATUSES:
         raise ArchiveError("archive attempt status is invalid")
     started, completed = _utc_naive(started_at), _utc_naive(completed_at)
     attempt_number = int(con.execute(
@@ -217,6 +265,26 @@ def _record_attempt(
          chunk["start"], chunk["end"], status, fact_count, receipt_sha256, error,
          started, completed, canonical_sha256(identity)],
     )
+
+
+def _checkpoint(
+    path: Path, cohort_id: str, chunk: dict, status: str, *, fact_count: int,
+    receipt_sha256: str | None, error: str | None, started_at: datetime,
+    completed_at: datetime,
+) -> str:
+    """Append one attempt, classifying a recurring provider refusal; return its status."""
+    con = db.connect(path)
+    try:
+        init_schema(con)
+        with db.transaction(con):
+            if status == "failed" and _terminal_refusal(con, cohort_id, chunk, error, started_at):
+                status = "refused"
+            _record_attempt(con, cohort_id=cohort_id, chunk=chunk, status=status,
+                            fact_count=fact_count, receipt_sha256=receipt_sha256,
+                            error=error, started_at=started_at, completed_at=completed_at)
+    finally:
+        con.close()
+    return status
 
 
 def archive_status(con: duckdb.DuckDBPyConnection, cohort_id: str) -> dict:
@@ -262,15 +330,19 @@ def archive_status(con: duckdb.DuckDBPyConnection, cohort_id: str) -> dict:
         "AND a.status='failed' AND NOT EXISTS (SELECT 1 FROM tradingview_history_attempts b "
         "WHERE b.cohort_id=a.cohort_id AND b.ticker=a.ticker "
         "AND b.start_date=a.start_date AND b.end_date=a.end_date "
-        "AND b.status IN ('complete','empty'))", [cohort_id],
+        "AND b.status IN ('complete','empty','refused'))", [cohort_id],
+    ).fetchone()[0])
+    refused = int(con.execute(
+        "SELECT COUNT(DISTINCT (ticker,start_date,end_date)) FROM tradingview_history_attempts "
+        "WHERE cohort_id=? AND status='refused'", [cohort_id],
     ).fetchone()[0])
     return {"status": "active", "cohort_id": cohort_id,
             "selected_at": cohort[0].isoformat() + "Z",
             "start_date": cohort[1].isoformat(), "selection_sha256": cohort[2],
             "target_symbols": int(cohort[3]), "limitation": cohort[4],
-            "attempts": {key: int(counts.get(key, 0)) for key in
-                         ("complete", "empty", "failed")},
-            "unresolved_failed_windows": unresolved, "fact_count": int(facts[0]),
+            "attempts": {key: int(counts.get(key, 0)) for key in ATTEMPT_STATUSES},
+            "unresolved_failed_windows": unresolved, "refused_windows": refused,
+            "fact_count": int(facts[0]),
             "symbols_with_facts": int(facts[1]),
             "symbols_checkpointed": int(progress[0]),
             "symbols_unstarted": int(cohort[3]) - int(progress[0]),
@@ -320,13 +392,14 @@ def run_connection_narrowed(
             through = db.latest_operational_market_date(con)
             if through is None:
                 raise ArchiveError("archive has no breadth-qualified through date")
-        chunks = _pending_chunks(con, cohort_id, through, limit, max_attempts)
+        chunks = _pending_chunks(con, cohort_id, through, limit, max_attempts, now())
     finally:
         con.close()
     if capture is None:
         from server.official_quote_source import capture_tradingview_history
         capture = capture_tradingview_history
-    completed = empty = failed = 0
+    counts = dict.fromkeys(ATTEMPT_STATUSES, 0)
+    failed_first_tries = 0
     for index, chunk in enumerate(chunks):
         if index and pause:
             time.sleep(pause)
@@ -336,32 +409,29 @@ def run_connection_narrowed(
                              database=path)
             status = "empty" if result["fact_count"] == 0 else "complete"
             fact_count, receipt, error = int(result["fact_count"]), result["receipt_sha256"], None
-            completed += status == "complete"
-            empty += status == "empty"
         except Exception as exc:  # noqa: BLE001 - one symbol cannot abort checkpointing others
             status, fact_count, receipt, error = "failed", 0, None, str(exc)[:500]
-            failed += 1
-        con = db.connect(path)
-        try:
-            init_schema(con)
-            with db.transaction(con):
-                _record_attempt(con, cohort_id=cohort_id, chunk=chunk, status=status,
-                                fact_count=fact_count, receipt_sha256=receipt, error=error,
-                                started_at=begun, completed_at=now())
-        finally:
-            con.close()
+        status = _checkpoint(path, cohort_id, chunk, status, fact_count=fact_count,
+                             receipt_sha256=receipt, error=error, started_at=begun,
+                             completed_at=now())
+        counts[status] += 1
+        failed_first_tries += status == "failed" and not chunk.get("cooldown_retry")
     con = db.connect(path, read_only=True)
     try:
         result = archive_status(con, cohort_id)
     finally:
         con.close()
-    result.update(attempted_this_run=len(chunks), completed_this_run=completed,
-                  empty_this_run=empty, failed_this_run=failed, through=through.isoformat())
+    result.update(attempted_this_run=len(chunks), completed_this_run=counts["complete"],
+                  empty_this_run=counts["empty"], failed_this_run=counts["failed"],
+                  refused_this_run=counts["refused"], through=through.isoformat())
     result["last_run"] = now().isoformat()
     if meta_path is not None:
         merge_meta(meta_path, {"tradingview_history": result})
-    if chunks and failed == len(chunks):
-        raise ArchiveError(f"all {failed} TradingView history chunks failed")
+    # A daily retry of a known-bad window failing again is reported as a failure,
+    # not as an outage; the run fails only when every first-try window failed.
+    first_tries = sum(not chunk.get("cooldown_retry") for chunk in chunks)
+    if first_tries and failed_first_tries == first_tries:
+        raise ArchiveError(f"all {first_tries} TradingView history chunks failed")
     print(json.dumps(result, sort_keys=True))
     return result
 
