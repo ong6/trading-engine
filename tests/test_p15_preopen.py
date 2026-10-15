@@ -2,15 +2,19 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime, timedelta, timezone
 
+import duckdb
 import pytest
 
 from engine import bitemporal_facts
+from engine.lib import settings
 from engine.lib.provenance import canonical_sha256
 from server import agent_model_client, daily_opportunity_news, p15_preopen
 from sim import p15_books
 from tests.conftest import SESSIONS, insert_bars
+from tests.test_market_data_sources import held_store_reader
 from tests.test_p15_books import _activate, _decision, _seed_decisions
 
 
@@ -494,3 +498,34 @@ def test_carried_intent_is_reassessed_and_cancel_capture_backfills_sessions(con)
         ("p15_hybrid_veto", second_session, "cancelled_would_fill"),
     ]
     assert con.execute("SELECT COUNT(*) FROM p15_preopen_runs").fetchone() == (2,)
+
+
+def test_run_database_waits_out_a_concurrent_store_reader(tmp_path, monkeypatch):
+    # The pre-open opened the store writer once (wait_s=0), so the API's read connection for
+    # the digest's /meta probe failed it on 2026-10-13 and 10-14.
+    store = tmp_path / "market.duckdb"
+    duckdb.connect(str(store)).close()
+    monkeypatch.setattr(p15_preopen, "LOCK_PATH", tmp_path / "preopen.lock")
+    monkeypatch.setattr(p15_preopen, "NIGHTLY_LOCK", tmp_path / "nightly.lock")
+    with held_store_reader(store, monkeypatch):
+        result = p15_preopen.run_database(
+            store, now=datetime(2024, 7, 17, 13, 10, tzinfo=timezone.utc),
+        )
+    assert result == {"status": "inactive", "decision_count": 0, "cancelled": 0}
+
+
+def test_store_wait_leaves_the_preopen_inside_its_deadline_and_unit_timeout():
+    # Worst case before the model answers: the timer's default one-minute accuracy, the whole
+    # lock-retry window, two proxy status checks of two requests each and the generation
+    # timeout. Slow news cannot cancel late: the run records "late" and keeps every intent.
+    unit = settings.REPO_ROOT / "server" / "trading-engine-p15-preopen"
+    timer = unit.with_suffix(".timer").read_text()
+    assert f"OnCalendar=Mon..Fri *-*-* {p15_preopen.START:%H:%M:%S} America/New_York" in timer
+    assert "AccuracySec" not in timer
+    service = unit.with_suffix(".service").read_text()
+    timeout_s = 60 * int(re.search(r"^TimeoutStartSec=(\d+)min$", service, re.M)[1])
+    worst_s = (60 + settings.LOCK_WAIT_DEFAULT_S + 4 * agent_model_client.STATUS_TIMEOUT_SECONDS
+               + agent_model_client.GENERATION_TIMEOUT_SECONDS)
+    window_s = (datetime.combine(date.min, p15_preopen.DEADLINE)
+                - datetime.combine(date.min, p15_preopen.START)).total_seconds()
+    assert worst_s < window_s and worst_s < timeout_s
