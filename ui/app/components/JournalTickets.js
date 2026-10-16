@@ -42,7 +42,7 @@ export default function JournalTickets({ discretionary }) {
       {tickets.length === 0 ? (
         <div className="empty">No discretionary tickets yet.</div>
       ) : (
-        <div className="grid">
+        <div className="grid journal-tickets">
           {tickets.map((ticket) => (
             <details
               key={ticket.id}
