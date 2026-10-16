@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { candidateHref } from "../lib/candidate-route";
-import { fmtDate, fmtInt, fmtPrice, fmtR } from "../lib/format";
+import { fmtDate, fmtInt, fmtPrice, fmtQty, fmtR } from "../lib/format";
 
 export default function JournalRoundTrips({ discretionary }) {
   const roundTrips = discretionary.round_trips || [];
@@ -38,7 +38,12 @@ export default function JournalRoundTrips({ discretionary }) {
                       {roundTrip.ticker}
                     </Link>
                   </td>
-                  <td className="num">{fmtInt(roundTrip.qty)}</td>
+                  <td
+                    className="num"
+                    title={Number.isFinite(roundTrip.qty) ? String(roundTrip.qty) : undefined}
+                  >
+                    {fmtQty(roundTrip.qty)}
+                  </td>
                   <td className="num">{fmtPrice(roundTrip.entry_px)}</td>
                   <td className="num">{fmtPrice(roundTrip.exit_px)}</td>
                   <td>{fmtDate(roundTrip.exit_date)}</td>
