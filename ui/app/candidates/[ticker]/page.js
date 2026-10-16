@@ -68,8 +68,8 @@ export default async function CandidatePage({ params }) {
       <PriceChart bars={data.bars} />
 
       <div
-        className="grid"
-        style={{ gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", marginTop: 8 }}
+        className="grid candidate-panels"
+        style={{ marginTop: 8 }}
       >
         <CandidateTemplateChecks screen={screen} />
         <CandidateTicketPanel
