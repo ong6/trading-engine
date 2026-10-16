@@ -121,10 +121,15 @@ RUNTIME_CONTRACT_MIGRATION = (
     "snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. XS strategy, "
     "signal boundary, paired control and statistical verdict rules are unchanged"
     "; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time"
+    "; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, "
+    "high and low, a delisted holding closes at its last real traded close, the league leaves "
+    "P15 marks to their window, collection audits a split-like re-fetch and triggers "
+    "back-adjustment, and this migration compares the deployed report's fill model, "
+    "signal-boundary runtime pin and clock fields as published"
 )
 # Filled after the file list was frozen; tests verify this against current bytes.
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "65ce5fbffe0b967d23a693a05cfb409f8e3f4f6017c7a3db93b73fef09447dab"
+    "de76d3860d5da4088378cfcea46b4041fe5daef1f2349d873fb6d986f29d40f6"
 )
 
 PRIOR_RUNTIME_CONTRACT_VERSION = 21

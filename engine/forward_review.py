@@ -100,9 +100,13 @@ RUNTIME_CONTRACT_MIGRATION = (
     "snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. Sector strategy, "
     "paired control, baseline prefix and kill criterion are unchanged"
     "; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time"
+    "; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, "
+    "high and low, a delisted holding closes at its last real traded close, the league leaves "
+    "P15 marks to their window, a split-like re-fetch triggers back-adjustment, and this "
+    "migration compares the deployed report's fill model and clock fields as published"
 )
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "4ec88c645594f5fde3ba2c94db26933266ed8d515819d2da5b3ab7bd9e5f8e42"
+    "dbfc3f8a0c9e1c3a804849d78443ce71fbe5c02eb549a0e13f6e954b8a1d98d5"
 )
 PRIOR_RUNTIME_CONTRACT_FILES = (
     "engine/forward_review.py",
