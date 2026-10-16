@@ -268,9 +268,10 @@ systemctl --user list-units --type=timer --state=active --no-legend --plain \
 systemctl --user list-units --type=service --state=running --no-legend --plain \
   | awk '$1 ~ /^(trading-engine-|massive-)/ {print $1}' > "$P22_STATE/active-services"
 
-# Quiesce every engine/data trigger and writer, including continuous capture.
+# Quiesce every engine/data trigger and writer, including continuous capture, and the
+# repository auto-push (it rebases and pushes this checkout).
 crontab -r
-systemctl --user stop 'trading-engine-*.timer' 'massive-*.timer'
+systemctl --user stop te-autopush.timer 'trading-engine-*.timer' 'massive-*.timer'
 systemctl --user stop 'trading-engine-*.service' 'massive-*.service'
 systemctl --user stop trading-engine-api.service massive-minute-capture.service
 # Existing cron-launched drivers must finish before proceeding. Backup also takes
@@ -283,6 +284,11 @@ git pull --ff-only origin main
 test "$(git rev-parse HEAD)" = "$(cat "$P22_STATE/approved.sha")"
 .venv/bin/python -c 'import json; assert json.load(open("server/p15-registration.json"))["registration_revision"] == 14'
 .venv/bin/python -m pytest -q -W error tests/test_p15_registration.py
+# The E1, sector and XS records still carry their predecessor runtime contracts. Migrate each
+# before the cost-profile break: each refuses (exit 1) unless the deployed record reproduces.
+.venv/bin/python -m farm.experiment_runner --migrate-runtime-contract
+.venv/bin/python -m engine.forward_review --migrate-runtime-contract
+.venv/bin/python -m engine.xs_forward_review --migrate-runtime-contract
 .venv/bin/python -m tools.migrate_cost_profiles --db store/market.duckdb \
   --d0 "$P22_D0" --apply
 # Required output: {"routing_changes": []}; every break reads revision 14.
@@ -297,6 +303,7 @@ systemctl --user start trading-engine-api.service massive-minute-capture.service
 xargs -r systemctl --user start < "$P22_STATE/active-timers"
 systemctl --user start trading-engine-accounts-settle.timer massive-options-daily.timer
 crontab "$P22_STATE/predeploy.crontab"
+systemctl --user start te-autopush.timer
 curl --fail --silent --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8000/health
 curl --fail --silent http://127.0.0.1:8000/meta
 curl --fail --silent http://127.0.0.1:8000/accounts
@@ -316,7 +323,7 @@ checkpointed complete copy; it does not need a WAL from the failed deployment.
 ```bash
 cd "$P22_ROOT"
 crontab -r
-systemctl --user stop 'trading-engine-*.timer' 'massive-*.timer'
+systemctl --user stop te-autopush.timer 'trading-engine-*.timer' 'massive-*.timer'
 systemctl --user stop 'trading-engine-*.service' 'massive-*.service'
 systemctl --user stop trading-engine-api.service massive-minute-capture.service \
   trading-engine-accounts-settle.service massive-options-daily.service
@@ -344,6 +351,7 @@ cmp "$P22_BACKUP/market.duckdb" store/market.duckdb
 xargs -r systemctl --user start < "$P22_STATE/active-services"
 xargs -r systemctl --user start < "$P22_STATE/active-timers"
 crontab "$P22_STATE/predeploy.crontab"
+systemctl --user start te-autopush.timer
 curl --fail --silent --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8000/health
 ```
 
