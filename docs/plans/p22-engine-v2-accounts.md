@@ -134,7 +134,25 @@ deployment; rollback restores the pre-migration database backup and source revis
   own result and the nightly check says when the newest session was not checked; the weekly
   walk-forward data commit is titled as such; the ops digest trusts the systemd result for a
   clean stop; a delisted holding is closed out at its last real traded close.
-- Remaining gates: re-pin revision 14 and the frozen runtime contracts once after the last
-  fix, both timezone suites, the store-copy rehearsal on the final source, then deployment on
-  Sunday 2026-10-18 19:00–23:00 UTC with D0 2026-10-19 (`P22_APPROVED_SHA` is that final
-  source).
+- 2026-10-16: lanes A–D (fixes a–k) merged with the integrator's follow-ups: the weekend sweep
+  commit title, the digest's exit status across an hour, the close-out on the shared real-bar
+  predicate (WBD still closes at 30.94), the `/league` "marked through" note for P15 books and
+  `/meta` `full_price_verification`. Against the deployed reports on a 2026-10-15 snapshot copy
+  the E1, sector and XS runtime migrations all refused the live records (E1 rows under the
+  predecessor forward config and a seven-row legacy prefix; sector and XS compared only P22's
+  new fill-model and clock fields; the XS signal boundary pins its runtime); fixed, and each
+  migrated record reproduces the deployed one exactly.
+- Revision 14 and the runtime contracts re-pinned once (`ec079ed`). Every change is a defect
+  fix that moves no frozen rule's outcome: E1 v7 `09d654b4…`→`5269d235…` (only `db.py`'s
+  real-bar predicate, which E1 does not read, and its migration); sector v11 `4ec88c64…`→
+  `dbfc3f8a…` and XS v22 `65ce5fbf…`→`de76d386…` (fixes d, f, g, k and their migrations;
+  rerunning 2026-10-12..15 on a 2026-10-16 snapshot copy reproduces the deployed source's
+  fills and equity for every book except `high_52wk`'s WBD close-out). Registration `9c895ab8…`→`584bca4b…` over
+  22 changed files, with `delivery.price_fetch_attempts` and `labels.fetch_attempt_evidence`
+  revised for fix (e) (two horizon-1 labels released, each equal to its ungated outcome; no
+  stored label or score changes) and fixes a–k disclosed in `revision_reason`.
+- Deployment runs the three runtime migrations after the pull and before
+  `migrate_cost_profiles`; each refuses once a cost break exists (`settlement-runbook.md`).
+- Remaining gates: both timezone suites and the store-copy rehearsal on the final source, then
+  deployment on Sunday 2026-10-18 19:00–23:00 UTC with D0 2026-10-19 (`P22_APPROVED_SHA` is
+  main's merge of that source).
