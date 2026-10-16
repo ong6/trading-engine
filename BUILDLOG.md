@@ -3467,4 +3467,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** deploy on Sunday 2026-10-18 19:00–23:00 UTC with D0 2026-10-19 per `settlement-runbook.md`.
 
+## 2026-10-16 — Take a late restatement's break from its recorded rewrite (rev-14 f follow-up)
+
+- **Why:** On a copy of the 10-16 12:04 snapshot, fetching Yahoo's split rows for the 20 names with an unreconciled split-sized jump since 08-15 and reconciling restates 2 (SFBS, RUSHA) and skips 16.
+  10 are `skipped_already_adjusted`: Yahoo restated a night late, as with DXJ. 6 leveraged ETFs (IONZ, SMCZ, AXTX, NBIZ, QBTX, SMU) are `skipped_sanity`: the break session's own move pushes the one-session ratio past the ±8% match, so fix (f)'s rewrite record could not have helped. Reproduction: `test_rewrite_locates_a_late_break_that_a_large_move_hides` (`skipped_sanity`).
+- **What:** Before the scan, the ticker's latest recorded rewrite gives the break directly when its ratio, measured on the same sessions on both scales and so free of that day's move, matches the split. Rule 2's location still applies, and no bar before the rewrite may have been stored after the bars it replaced. This replaces fix (f)'s rule-3 exception.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n 0 tests/test_actions.py` passes, including the DXJ shape and a re-pulled series that stays `skipped_sanity`.
+- **Metrics:** engine +19, tests +53; server and tools unchanged. Registered: `engine/actions.py` (re-pin before this lands).
+- **Next:** the 16 existing breaks predate any rewrite record. On the copy, `engine.refetch_ticker --apply` repairs 17 names (the 16 minus AVB, which Yahoo now returns as one row, plus CRWU and ETHA, skipped earlier); none is held and no stored P15 label window changes. It writes the live store, so it is an owner-approved ops step.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
