@@ -69,7 +69,7 @@ function isXsForward(evidence) {
     isIsoDate(evidence.eligible_after) &&
     evidence.signal_date <= evidence.eligible_after &&
     (evidence.status !== "WAITING" || evidence.paired_complete_months === 0) &&
-    (!["INCONCLUSIVE", "PASS-FORWARD", "REVIEW-KILL"].includes(evidence.status) ||
+    (!["INCONCLUSIVE", "PASS-FORWARD"].includes(evidence.status) ||
       evidence.paired_complete_months >= evidence.minimum_paired_months)
   );
 }
