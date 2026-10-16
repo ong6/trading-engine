@@ -283,6 +283,21 @@ def test_p15_registration_revision_and_self_hash():
         "; round-4 shared fee-aware sizing, historical dividends, FIFO preview, risk-event replay "
         "and lot/equity verification (revision 14 remains undeployed)"
         "; round-6 complete inception folds, immutable receipt units and as-known risk replace checkpoint restoration and historical-risk replay (revision 14 remains undeployed)"
+        "; revision-14 defect fixes before deployment, each reproduced first in BUILDLOG: (a)"
+        " registered store writers wait out a reader; (b) walk-forward drops a fold with "
+        "fewer than two training sessions; (c) TradingView windows retry after a cool-down "
+        "and record lasting refusals; (d) the nightly league leaves P15 marks to their "
+        "window; (e) the price-fetch record covers active liquid names and records the "
+        "source's no-data answer as missing, revising delivery.price_fetch_attempts and "
+        "labels.fetch_attempt_evidence (on the 2026-10-15 copy it releases two horizon-1 "
+        "labels, WBD and BLFS, each equal to its ungated outcome, and changes no stored label"
+        " or score); (f) a split-like re-fetch triggers the actions fetch and "
+        "back-adjustment; (g) a real bar needs a positive open, high and low (8 of 21.1M "
+        "rows; no stored label, screen or P15 universe changes); (h) the weekly full price "
+        "verify keeps its own key; (i) driver data commits are titled by their driver; (j) "
+        "the ops digest trusts systemd's result; (k) a delisted holding closes at its last "
+        "real traded close (WBD in high_52wk at 30.94); and the E1, sector and XS runtime "
+        "migrations accept the deployed records (revision 14 remains undeployed)"
     )
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
@@ -348,7 +363,7 @@ def test_p15_registered_constants_match_runtime():
         "missing_bar_grace_sessions": agent_evaluation.MISSING_BAR_GRACE_SESSIONS,
         "missing_bar_confirmation": "later_ticker_bar_or_completed_exact_date_fetch",
         "fetch_attempt_evidence": (
-            "batch_bound_liquid_and_exact_open_label_missing_receipts"
+            "batch_bound_active_liquid_and_exact_open_label_missing_or_no_price_data_receipts"
         ),
         "spy_net_return_stored": True,
     }
@@ -507,7 +522,7 @@ def test_p15_registered_constants_match_runtime():
         "model_call_count": "attempted_calls_including_connector_failures",
         "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
         "price_fetch_attempts": (
-            "zero_failed_liquid_batch_plus_exact_open_label_receipts"
+            "zero_failed_active_liquid_batch_no_data_as_missing_plus_exact_open_label_receipts"
         ),
         "maximum_open_label_fetches_per_run": (
             p15_incremental_collect.MAX_OPEN_LABEL_FETCHES
