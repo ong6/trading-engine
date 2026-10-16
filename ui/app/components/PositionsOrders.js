@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { candidateHref } from "../lib/candidate-route";
-import { fmtDate, fmtInt, fmtPrice } from "../lib/format";
+import { fmtDate, fmtInt, fmtPrice, fmtQty } from "../lib/format";
 import CancelButton from "./CancelButton";
 import FilterSelect from "./FilterSelect";
 import StateNotice from "./StateNotice";
@@ -72,7 +72,12 @@ export default function PositionsOrders({ ordersRes, orders, status, statusOptio
                         <Link href={candidateHref(order.ticker)}>{order.ticker}</Link>
                       </td>
                       <td>{order.side}</td>
-                      <td className="num">{fmtInt(order.qty)}</td>
+                      <td
+                        className="num"
+                        title={Number.isFinite(order.qty) ? String(order.qty) : undefined}
+                      >
+                        {fmtQty(order.qty)}
+                      </td>
                       <td>{fmtDate(order.signal_date)}</td>
                       <td>{order.status}</td>
                       <td>{order.playbook || "—"}</td>
