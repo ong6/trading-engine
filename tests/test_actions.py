@@ -504,9 +504,12 @@ def _yahoo_bars(ticker: str, days: list, closes: list[float]) -> pd.DataFrame:
     return pd.concat({ticker: frame}, axis=1)
 
 
-def _late_split_store(tmp_path, monkeypatch):
+def _late_split_store(tmp_path, monkeypatch, *, pre=180.0, night1=None, night2=None,
+                      ticker="DXJ"):
     """Store DXJ's mixed bases: the ex-date evening pull is not yet restated, the
     next night's 5-session re-fetch is, so the stored break sits 3 sessions early."""
+    night1 = night1 or [180.0] * 4 + [60.0]
+    night2 = night2 or [60.0] * 5
     db_path = tmp_path / "market.duckdb"
     con = db.connect(db_path)
     db.init_schema(con)
@@ -514,17 +517,17 @@ def _late_split_store(tmp_path, monkeypatch):
     init_sim_schema(con)
     con.execute(
         "INSERT INTO universe (ticker, yf_ticker, active, liquid, backfill_done) "
-        "VALUES ('DXJ', 'DXJ', TRUE, TRUE, TRUE)"
+        "VALUES (?, ?, TRUE, TRUE, TRUE)", [ticker, ticker]
     )
-    insert_bars(con, "DXJ", SESSIONS[:LATE_EX_IDX - 4], open_=180.0, close=180.0,
-                high=182.0, low=178.0)
+    insert_bars(con, ticker, SESSIONS[:LATE_EX_IDX - 4], open_=pre, close=pre,
+                high=pre * 1.01, low=pre * 0.99)
     con.execute("UPDATE prices SET fetched_at = ?", [FETCHED_BEFORE_EX])
     con.close()
     nights = iter([
         # ex-date evening: Yahoo still serves the old scale before the ex-date
-        _yahoo_bars("DXJ", SESSIONS[LATE_EX_IDX - 4:LATE_EX_IDX + 1], [180.0] * 4 + [60.0]),
+        _yahoo_bars(ticker, SESSIONS[LATE_EX_IDX - 4:LATE_EX_IDX + 1], night1),
         # next night: Yahoo has restated, the re-fetch rewrites three stored bars
-        _yahoo_bars("DXJ", SESSIONS[LATE_EX_IDX - 3:LATE_EX_IDX + 2], [60.0] * 5),
+        _yahoo_bars(ticker, SESSIONS[LATE_EX_IDX - 3:LATE_EX_IDX + 2], night2),
     ])
     monkeypatch.setattr(collect, "_download", lambda *_args, **_kwargs: next(nights))
     monkeypatch.setattr(collect.time, "sleep", lambda _seconds: None)
@@ -614,6 +617,56 @@ def test_rewrite_evidence_is_recorded_in_a_store_without_the_sim_schema(tmp_path
         assert con.execute(
             "SELECT close FROM prices WHERE ticker = 'AAA' ORDER BY date").fetchall() == [
             (90.0,), (30.0,)]
+    finally:
+        con.close()
+
+
+def test_rewrite_locates_a_late_break_that_a_large_move_hides(monkeypatch, tmp_path):
+    """A 1:5 reverse split on a leveraged ETF restated a night late (RKLZ, IONZ,
+    SMU ... 2026-09): the break session also moved 12%, so the stored one-session
+    ratio (4.00 -> 22.40) misses the 0.2 split by more than 8% and the reconciler
+    answers skipped_sanity. The recorded rewrite measures the same session on both
+    scales (4.48 -> 22.40, exactly 0.2), which is the break's own evidence."""
+    db_path = _late_split_store(
+        tmp_path, monkeypatch, pre=4.0, night1=[4.0] + [4.48] * 3 + [22.4],
+        night2=[22.4] * 5, ticker="LEVZ",
+    )
+    con = db.connect(db_path)
+    try:
+        con.execute("INSERT INTO corporate_actions VALUES ('LEVZ', ?, 'split', 0.2, "
+                    "'yfinance', now())", [LATE_EX])
+        actions.reconcile(con)
+        verdict = con.execute(
+            "SELECT outcome, break_date FROM split_adjustments WHERE ticker = 'LEVZ'"
+        ).fetchall()
+        closes = dict(con.execute(
+            "SELECT date, close FROM prices WHERE ticker = 'LEVZ'").fetchall())
+    finally:
+        con.close()
+    assert verdict == [("applied", SESSIONS[LATE_EX_IDX - 3])]
+    assert [closes[d] for d in SESSIONS[:LATE_EX_IDX - 3]] == pytest.approx(
+        [20.0] * (LATE_EX_IDX - 3))
+    assert [closes[d] for d in SESSIONS[LATE_EX_IDX - 3:LATE_EX_IDX + 2]] == pytest.approx(
+        [22.4] * 5)
+
+
+def test_rewrite_is_not_evidence_once_the_old_bars_are_refetched(monkeypatch, tmp_path):
+    """The rewrite only proves the scale of bars stored before it: a later pull
+    of the pre-break bars (e.g. a refetch) leaves nothing proven, so no guess."""
+    db_path = _late_split_store(
+        tmp_path, monkeypatch, pre=4.0, night1=[4.0] + [4.48] * 3 + [22.4],
+        night2=[22.4] * 5, ticker="LEVZ",
+    )
+    con = db.connect(db_path)
+    try:
+        con.execute("UPDATE prices SET fetched_at = now() + INTERVAL 1 DAY "
+                    "WHERE ticker = 'LEVZ' AND date < ?", [SESSIONS[LATE_EX_IDX - 3]])
+        con.execute("INSERT INTO corporate_actions VALUES ('LEVZ', ?, 'split', 0.2, "
+                    "'yfinance', now())", [LATE_EX])
+        actions.reconcile(con)
+        assert con.execute(
+            "SELECT outcome FROM split_adjustments WHERE ticker = 'LEVZ'"
+        ).fetchall() == [("skipped_sanity",)]
     finally:
         con.close()
 

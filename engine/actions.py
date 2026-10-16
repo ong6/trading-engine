@@ -53,8 +53,9 @@ ex-date evening and restated a night later, so the 5d re-fetch rewrote three
 stored bars by the ratio and left the bar before them, stored ON the ex-date, on
 the old scale. collect records each such rewrite (`record_split_like_rewrites`,
 an append-only audit_log row) before overwriting; the nightly fetch then asks
-about that name, and rule 3 accepts the rewrite as proof the pre-break bars were
-stored on the old scale. Without that record the reconciler still never guesses.
+about that name, and the reconciler takes the break from the rewrite, which
+measured the same sessions on both scales (`_rewrite_break`). Without that
+record the reconciler still never guesses.
 
 Why the break is searched for rather than assumed to sit at the ex-date: the
 nightly 5-day re-fetch restates the last few sessions too, so a split spotted
@@ -240,20 +241,32 @@ def _rewrites(con, ticker: str | None = None, *, recent: bool = False) -> list[d
     return [json.loads(row[0]) for row in con.execute(sql + " ORDER BY ts", args).fetchall()]
 
 
-def _rewrite_shows_old_scale(con, ticker: str, ratio: float, break_date: date,
-                             stored_at: datetime) -> bool:
-    """Rule 3's evidence for a late restatement: a recorded re-fetch rewrite by
-    this split's ratio that starts exactly at the stored break and replaced bars
-    stored no earlier than the pre-break bars, so those were stored on the old
-    scale whatever their fetch date."""
-    lr = math.log(ratio)
-    return any(
-        r.get("dates") and r.get("replaced_fetched_at") and r.get("ratio", 0) > 0
-        and abs(math.log(r["ratio"]) - lr) <= TOL_LOG
-        and date.fromisoformat(r["dates"][0]) == break_date
-        and datetime.fromisoformat(r["replaced_fetched_at"]) >= stored_at
-        for r in _rewrites(con, ticker)
-    )
+def _rewrite_break(con, ticker: str, ratio: float) -> date | None:
+    """Rule 0: the stored break of a late restatement, from its recorded rewrite.
+
+    The ticker's latest rewrite measured the same sessions on both scales, so its
+    ratio is the restatement factor itself, free of the break session's own move
+    (a leveraged ETF can move 10% that day, past the one-session ±8% match). It
+    is this split's break when the ratio matches and no bar before its first
+    date was stored after the bars it replaced: those were on the old scale then
+    and have not been pulled since. Returns that first date, else None."""
+    rewrites = _rewrites(con, ticker)
+    if not rewrites:
+        return None
+    r = rewrites[-1]
+    if not (r.get("dates") and r.get("replaced_fetched_at") and r.get("ratio", 0) > 0
+            and abs(math.log(r["ratio"]) - math.log(ratio)) <= TOL_LOG):
+        return None
+    first = date.fromisoformat(r["dates"][0])
+    stored_before = con.execute(
+        "SELECT COUNT(*), MAX(fetched_at) FROM prices WHERE ticker = ? AND date < ?",
+        [ticker, first]).fetchone()
+    if not stored_before[0] or (
+        stored_before[1] is not None
+        and stored_before[1] > datetime.fromisoformat(r["replaced_fetched_at"])
+    ):
+        return None
+    return first
 
 
 def _unexplained_rewrites(con) -> list[str]:
@@ -504,9 +517,10 @@ def _adjudicate(con, ticker: str, ex_date: date, ratio: float) -> dict:
          across the split — there is nothing to restate, and the jump we found
          is either a real move or Yahoo's own unadjusted data (gh#2174). Either
          way: `skipped_already_adjusted`, hands off. (Rows with no fetched_at,
-         e.g. old copies, cannot fail this check.) The one exception is a
-         recorded re-fetch rewrite proving Yahoo restated late
-         (`_rewrite_shows_old_scale`, module docstring).
+         e.g. old copies, cannot fail this check.)
+      0. Before the scan: a recorded re-fetch rewrite that measured this split's
+         ratio locates a late restatement's break directly (`_rewrite_break`,
+         module docstring), still subject to rule 2's location.
       4. No candidate at all: a large unexplained move by the ex-date ->
          `skipped_sanity`; otherwise the store already matches the post-split
          scale -> `noop_restated`.
@@ -556,6 +570,15 @@ def _adjudicate(con, ticker: str, ex_date: date, ratio: float) -> dict:
         [ticker, ex_date, latest_bar]).fetchone()[0]
     recent = n_after_ex <= RECENT_EX_SESSIONS
 
+    # Rule 0: a late restatement whose rewrite was recorded.
+    rewrite_break = _rewrite_break(con, ticker, ratio)
+    dates = [d for d, _c, _f in win]
+    if rewrite_break in dates[1:]:
+        dist = dates.index(rewrite_break) - ex_idx
+        if abs(dist) <= BREAK_NEAR_EX_SESSIONS or (recent and dist > 0):
+            return {"outcome": "applied_pending", "break_date": rewrite_break,
+                    "observed": _rewrites(con, ticker)[-1]["ratio"]}
+
     # One-session close ratios: r[i] = close(i-1) / close(i). At the scale break
     # r == ratio (old scale over new scale), for a forward AND a reverse split.
     near = None       # (|sessions from ex|, i, break_date, observed) — rule 2 ok
@@ -583,14 +606,10 @@ def _adjudicate(con, ticker: str, ex_date: date, ratio: float) -> dict:
 
     if near is not None:
         _dist, i, break_date, obs = near
-        # Rule 3: the bars before the break must predate the ex-date in storage,
-        # unless a recorded rewrite shows they were stored on the old scale.
-        stored = [f for _d, _c, f in win[:i] if f is not None]
-        fetched = [_fetched_on(f) for f in stored]
-        if fetched and max(fetched) >= ex_date and not (
-            isinstance(max(stored), datetime)
-            and _rewrite_shows_old_scale(con, ticker, ratio, break_date, max(stored))
-        ):
+        # Rule 3: the bars before the break must predate the ex-date in storage.
+        fetched = [_fetched_on(f) for _d, _c, f in win[:i]]
+        fetched = [f for f in fetched if f is not None]
+        if fetched and max(fetched) >= ex_date:
             return {"outcome": "skipped_already_adjusted", "break_date": break_date,
                     "observed": obs}
         return {"outcome": "applied_pending", "break_date": break_date,
