@@ -3448,4 +3448,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** product +68, tests +24; server and tools unchanged.
 - **Next:** re-pin revision 14 and the runtime contracts once; the deploy runs the three runtime migrations before the cost-profile migration.
 
+## 2026-10-16 — Re-pin revision 14 and the frozen runtime contracts once
+
+- **Why:** P22 plan Phase B and owner decision 2026-10-15: re-pin revision 14 and the E1, sector and XS runtime contracts once, after the last revision-14 fix. Before it, 90 tests failed on the stale pins (`tests/test_p15_registration.py`, the E1, sector and XS review and status tests).
+- **What:** The three contracts keep their undeployed versions (E1 v7, sector v11, XS v22), append the revision-14 changes to their migration notes and bind the new digests (`ec079ed`). Registration revision 14 re-hashes 22 changed files, revises `delivery.price_fetch_attempts` and `labels.fetch_attempt_evidence` for fix (e), as the orchestrator approved, and discloses fixes a–k with their proofs in `revision_reason`.
+  Each change is a defect fix with no frozen-rule outcome change: on snapshot copies with the deployed reports the three migrations reproduce the deployed records exactly, and rerunning 2026-10-12..15 reproduces the deployed source's fills and equity for 24 of 25 books (the 25th is `high_52wk`'s WBD close-out, fix k).
+  The runbook runs the three migrations between the pull and the cost-profile migration and quiesces the repository auto-push; `scope.md` drops the fixed proposals; the P22 plan progress records each contract change.
+- **Evidence:** `.venv/bin/python -m pytest -W error -n 0 tests/test_p15_registration.py` → 5 passed; the E1, sector and XS review and status tests → 138 passed.
+- **Metrics:** since 2026-10-15: server +131, tools +7, product +771, tests +1,252; budget ok.
+- **Next:** both timezone suites on the pushed head, then the store-copy rehearsal on that final source.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
