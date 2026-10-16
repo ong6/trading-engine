@@ -2131,4 +2131,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** Nothing admitted.
 
+## 2026-10-16 — Verify the paper board on an isolated snapshot
+
+- **Why:** Requested board debugging lane: record all checks before fixing only reproduced defects.
+- **What:** Verified the locked UI and Python environments, board routes/read models, and CI gates.
+  All five pages, pagination and filter variants, ticker boundaries, and browser API proxy passed
+  GET-only smoke checks against a read-only copy of a published snapshot on separate loopback ports.
+  No board defect reproduced; no runtime files changed. Four pre-existing advisory C90 findings
+  in the operations digest remain outside this lane; no parallel probe findings were supplied.
+- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto` completed all 4,426 tests, exit 0.
+- **Metrics:** server/tools/product LOC unchanged; UI and test source unchanged.
+- **Next:** Nothing admitted; the orchestrator reviews the lane verification report.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
