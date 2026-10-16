@@ -2131,16 +2131,20 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** Nothing admitted.
 
-## 2026-10-16 — Verify the paper board on an isolated snapshot
+## 2026-10-16 — Debug the paper board against retained invalid prices
 
-- **Why:** Requested board debugging lane: record all checks before fixing only reproduced defects.
-- **What:** Verified the locked UI and Python environments, board routes/read models, and CI gates.
-  All five pages, pagination and filter variants, ticker boundaries, and browser API proxy passed
-  GET-only smoke checks against a read-only copy of a published snapshot on separate loopback ports.
-  No board defect reproduced; no runtime files changed. Four pre-existing advisory C90 findings
-  in the operations digest remain outside this lane; no parallel probe findings were supplied.
-- **Evidence:** `.venv/bin/python -m pytest -q -W error -n auto` completed all 4,426 tests, exit 0.
-- **Metrics:** server/tools/product LOC unchanged; UI and test source unchanged.
-- **Next:** Nothing admitted; the orchestrator reviews the lane verification report.
+- **Why:** Round 2 probe reproduced 41 candidate HTTP 500s (VLO high below open; WBD zero open),
+  fractional shares displayed as zero, mobile journal overflow and clipped candidate inputs.
+  Its offline contract check also rejected early XS REVIEW-KILL and nightly incomplete evidence,
+  while sparse invalid evidence rendered invented counts and `vundefined`.
+- **What:** Candidate reads return typed 422 evidence with dates/reasons, never a chart or ticket.
+  Fractional quantities retain four decimals and exact tooltips; narrow journal gates wrap and
+  candidate ticket panels stack. Early XS kills and incomplete nightly evidence remain visible;
+  sparse invalid evidence uses only supplied counts/versions. Retained data and OHLC checks stay intact.
+- **Evidence:** `BOARD_OUTPUT=final-browser node browser.mjs` passed ten isolated views at 1440/390:
+  no overflowing elements, VLO's dated notice visible, and SPY's mobile entry grew from 78 to 350 px.
+  UI tests: 66 passed; board Python tests: 844 passed; production build and mandatory Ruff gates pass.
+- **Metrics:** server +33, tools/product unchanged, tests +48, UI +94; budget ok.
+- **Next:** Nothing admitted; ingestion quarantine and live dependency deployment belong to other lanes.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
