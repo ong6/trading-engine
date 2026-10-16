@@ -54,6 +54,12 @@ OBSERVATION_START = date(2026, 9, 4)
 EXPECTED_INITIAL_CASH = 39_000.0
 EXPECTED_EXECUTION_PROFILE = "baseline_v1"
 EXPECTED_FILL_MODEL_VERSION = "v5"
+# The predecessor runtime's published fill model, and the observation fields P22 added for
+# the cost-break clock (they hold no-break values until a break is recorded).
+PRIOR_FILL_MODEL_VERSION = "v4"
+PRE_BREAK_OBSERVATION_FIELDS = (
+    "evaluation_clock_start", "cost_break_session", "pre_break_shared_sessions",
+)
 EXPECTED_PROFILE_SHA256 = "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db"
 EXPECTED_BASELINE_EQUITY = {
     CANDIDATE_ID: 41_742.09372396311,
@@ -706,6 +712,21 @@ def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
             "runtime_contract_files": list(PRIOR_RUNTIME_CONTRACT_FILES),
         }
     )
+    # The deployed v10 report predates P22: it publishes fill model v4 and its observation
+    # has no cost-break clock. Compare each such field in the form it was published in.
+    if (prior_result.get("frozen_runtime") or {}).get("fill_model") == PRIOR_FILL_MODEL_VERSION:
+        expected_prior["frozen_runtime"]["fill_model"] = PRIOR_FILL_MODEL_VERSION
+    observation = expected_prior["observation"]
+    added = [field for field in PRE_BREAK_OBSERVATION_FIELDS
+             if field not in (prior_result.get("observation") or {})]
+    if added and (
+        observation["cost_break_session"] is not None
+        or observation["pre_break_shared_sessions"] != 0
+        or observation["evaluation_clock_start"] != OBSERVATION_START.isoformat()
+    ):
+        raise ValueError("sector runtime migration must run before the cost-profile break")
+    for field in added:
+        del observation[field]
     prior_json = json.loads(json.dumps(prior_result, default=str))
     expected_json = json.loads(json.dumps(expected_prior, default=str))
     if prior_json != expected_json:
