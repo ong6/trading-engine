@@ -3430,4 +3430,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +3, tests +4, UI +29 (contract), UI tests +57; tools and product unchanged.
 - **Next:** re-pin revision 14 and the runtime contracts once.
 
+## 2026-10-16 — Let the E1 runtime migration carry the deployed record
+
+- **Why:** P22 Phase B deploy gate (explicit runtime revision). On a copy of the 2026-10-15 16:22 snapshot with the deployed `data/` (E1 checkpoint: runtime v6, twelve Mondays through 10-12), `python -m farm.experiment_runner --migrate-runtime-contract` refused with `E1 forward row is inconsistent with its frozen registration`, while the deployed source reports the same record cleanly; after deployment the nightly E1 stage would have stopped.
+  Two causes: the v7 forward config added `runtime_revision`, so rows recorded under the predecessor config no longer matched, and the migration still demanded the seven-row 2026-08-31 legacy prefix. The new `test_runtime_contract_migration_carries_the_deployed_record` failed the same way.
+- **What:** Rows carrying the predecessor forward-config hash are accepted as a prefix; one after a current-config row is refused. A prior-contract (v6) checkpoint migrates when the stored rows reproduce its own published count, end date and prefix hash; the schema-v1 path keeps the audited seven-row constants.
+- **Evidence:** With the contracts re-pinned in a scratch tree, the migration on the snapshot copy wrote v7 with prefix `27542d2e…` and twelve observations unchanged; the regenerated report differs from the deployed source's only in its runtime-contract lines and forward-config hash. `tests/test_experiment_runner.py tests/test_e1_forward_status.py` → 27 passed there.
+- **Metrics:** product (farm) +14, tests +47; server and tools unchanged.
+- **Next:** the same migration check for the sector and XS reports, then the single re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
