@@ -80,6 +80,9 @@ RUNTIME_CONTRACT_MIGRATION = (
     "order sequence and shared ledger/replay replace the legacy runtime. Snapshot-copy rehearsal "
     "proved pre-D0 league.csv and league.md byte-identical. E1 keeps its frozen 20 bp compatibility "
     "cost, seven-observation prefix, strategy and verdict rule unchanged"
+    "; undeployed revision-14 fixes keep the frozen rule: the store's real-bar predicate also "
+    "needs a positive open, high and low (E1 reads only its connection and frame helpers), and "
+    "the migration carries the published record written under the predecessor forward config"
 )
 RUNTIME_CONTRACT_FILES = (
     "engine/lib/db.py",
@@ -95,7 +98,7 @@ RUNTIME_CONTRACT_FILES = (
 # Filled after the dependency list was frozen. The self-file digest normalizes
 # this literal so the contract can cover its own validation and verdict code.
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "09d654b490cc40a708bce96113aa12e560203cfc7b2933c27f1e597c05c6ef2a"
+    "5269d2359abcd0d39b21d013785eb5313702d16d97c14345dc6a2aa4bd3fc280"
 )
 PRIOR_RUNTIME_CONTRACT_VERSION = 6
 PRIOR_RUNTIME_CONTRACT_SHA256 = SUPERSEDED_RUNTIME_CONTRACT_SHA256
