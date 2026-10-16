@@ -153,6 +153,18 @@ deployment; rollback restores the pre-migration database backup and source revis
   stored label or score changes) and fixes a–k disclosed in `revision_reason`.
 - Deployment runs the three runtime migrations after the pull and before
   `migrate_cost_profiles`; each refuses once a cost break exists (`settlement-runbook.md`).
-- Remaining gates: both timezone suites and the store-copy rehearsal on the final source, then
-  deployment on Sunday 2026-10-18 19:00–23:00 UTC with D0 2026-10-19 (`P22_APPROVED_SHA` is
-  main's merge of that source).
+- Final source `389c36e`: full suite 4,803 passed with nothing deselected; PR #13 CI green under
+  UTC and Asia/Singapore, UI build green.
+- Store-copy rehearsal of `389c36e` on the 2026-10-16 02:49 snapshot, with disposable stores
+  and namespaced runtime units only. Legacy across D0 (checkpoint 10-09, D0 10-12, sessions
+  10-12..15): 33 books migrated with no route change, pre-D0 equity unchanged and pre-D0 fees
+  zero; post-D0 fills paid fees in 11 books (P15: $6.58, $4.84, $5.21); clocks restart at D0;
+  WBD closed out in `high_52wk` at $30.94 effective 10-05; P15 validation passed each session.
+  With D0 10-19 the same sessions reproduce the deployed source's fills and equity in 24 of 25
+  books (not `high_52wk`, by the close-out). Deploy path (D0 10-19): verified 91-table backup,
+  the three runtime migrations, cost migration, ordinary reviews ACCUMULATING, P15 report,
+  isolated API and settlement unit with two settled, verified account sessions, then rollback:
+  writers quiesced, store restored byte for byte, revision 13 (`origin/main`) served `/health`
+  and `/meta`, validated P15 evidence and passed its registration tests.
+- Remaining gate: deployment on Sunday 2026-10-18 19:00–23:00 UTC with D0 2026-10-19
+  (`P22_APPROVED_SHA` is main's merge of PR #13).

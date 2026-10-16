@@ -3458,4 +3458,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** since 2026-10-15: server +131, tools +7, product +771, tests +1,252; budget ok.
 - **Next:** both timezone suites on the pushed head, then the store-copy rehearsal on that final source.
 
+## 2026-10-16 — Rehearse the final revision-14 source on a store copy
+
+- **Why:** P22 plan "Done when" and owner decision 2026-10-15: the store-copy rehearsal on the final source gates the Sunday deployment.
+- **What:** On the 2026-10-16 02:49 snapshot (`389c36e`, disposable stores, namespaced runtime units): legacy books across a 10-12 D0 and back-to-back with the deployed source, then the deploy path at the production D0 and a rollback to revision 13.
+  The rewind restores a P15 rule a later re-entry had replaced (`p15_position_rules` keeps one row per book and ticker); no code changed.
+- **Evidence:** D0 10-12: 33 books migrated, no route change, pre-D0 fees 0, post-D0 fees in 11 books, WBD closed at $30.94; with D0 10-19, 24 of 25 books reproduce the deployed source's fills and equity exactly (`high_52wk` differs by the close-out); rollback store `cmp` identical and revision 13's registration tests pass.
+- **Metrics:** unchanged.
+- **Next:** deploy on Sunday 2026-10-18 19:00–23:00 UTC with D0 2026-10-19 per `settlement-runbook.md`.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
