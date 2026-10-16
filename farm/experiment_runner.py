@@ -419,6 +419,10 @@ def load_oos_series(con, cfg: dict, phash: str) -> list[dict]:
         [cfg["id"], OOS_PREFIX + "%"],
     ).fetchall()
     expected_fhash = forward_config_hash(cfg)
+    # Rows recorded before the runtime-v7 forward-config revision carry the predecessor's
+    # hash. They are a prefix: none may follow a row recorded under the current config.
+    accepted_fhashes = {expected_fhash, PRIOR_FORWARD_CONFIG_SHA256}
+    current_config_seen = False
     expected_start = date.fromisoformat(cfg["oos_start"])
     expected_weekday = WEEKDAY[str(cfg["params"]["weekday"]).lower()]
     expected_rt = float(cfg["cost_model"]["roundtrip_bps"])
@@ -453,7 +457,7 @@ def load_oos_series(con, cfg: dict, phash: str) -> list[dict]:
             or float(m["median_dollar_vol"]) <= 0
             or m.get("phase") != "forward"
             or m.get("oos_start") != cfg["oos_start"]
-            or m.get("forward_config_hash") != expected_fhash
+            or m.get("forward_config_hash") not in accepted_fhashes
             or m.get("cost_model") != cfg["cost_model"]["source"]
             or not math.isclose(float(rt), expected_rt, abs_tol=1e-12)
             or not math.isclose(
@@ -476,6 +480,10 @@ def load_oos_series(con, cfg: dict, phash: str) -> list[dict]:
             )
         ):
             raise ValueError("E1 forward row is inconsistent with its frozen registration")
+        if m["forward_config_hash"] == expected_fhash:
+            current_config_seen = True
+        elif current_config_seen:
+            raise ValueError("E1 forward row predates its forward-config revision out of order")
         profile = m.get("execution_profile")
         profile_hash = m.get("execution_profile_sha256")
         if (profile is None) != (profile_hash is None) or (
@@ -609,7 +617,6 @@ def migrate_runtime_contract(con, cfg: dict) -> dict:
             not in {forward_config_hash(cfg), PRIOR_FORWARD_CONFIG_SHA256}
             or not isinstance(count, int)
             or isinstance(count, bool)
-            or count != EXPECTED_LEGACY_OBSERVATIONS
             or count != len(oos)
         )
         is_legacy = checkpoint["schema_version"] == LEGACY_CHECKPOINT_SCHEMA_VERSION
@@ -624,15 +631,23 @@ def migrate_runtime_contract(con, cfg: dict) -> dict:
             and checkpoint.get("runtime_contract_migration")
             == PRIOR_RUNTIME_CONTRACT_MIGRATION
         )
-        if common_invalid or not (is_legacy or is_prior_contract):
+        if (
+            common_invalid
+            or not (is_legacy or is_prior_contract)
+            or (is_legacy and count != EXPECTED_LEGACY_OBSERVATIONS)
+        ):
             raise ValueError("prior E1 checkpoint is invalid")
         prefix = _oos_payload(oos)
         through = prefix[-1]["date"] if prefix else None
+        # A schema-v1 checkpoint is the audited seven-row prefix. A prior-contract
+        # checkpoint anchors the record as published, which the stored rows must match.
         if (
-            checkpoint["through"] != EXPECTED_LEGACY_THROUGH
-            or checkpoint["through"] != through
-            or checkpoint["prefix_sha256"] != EXPECTED_LEGACY_PREFIX_SHA256
+            checkpoint["through"] != through
             or checkpoint["prefix_sha256"] != canonical_sha256(prefix)
+            or (is_legacy and (
+                checkpoint["through"] != EXPECTED_LEGACY_THROUGH
+                or checkpoint["prefix_sha256"] != EXPECTED_LEGACY_PREFIX_SHA256
+            ))
         ):
             raise ValueError("previously published E1 forward prefix changed")
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
