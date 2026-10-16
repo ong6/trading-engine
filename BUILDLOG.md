@@ -3439,4 +3439,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** product (farm) +14, tests +47; server and tools unchanged.
 - **Next:** the same migration check for the sector and XS reports, then the single re-pin.
 
+## 2026-10-16 — Let the sector and XS runtime migrations accept the deployed reports
+
+- **Why:** P22 Phase B deploy gate. On a copy of the 2026-10-15 16:22 snapshot with the deployed `data/`, `--migrate-runtime-contract` refused both reports the deployed source still evaluates cleanly: sector `published sector v8 report is not the exact migration checkpoint`, XS `frozen XS protocol contract changed`. After deployment both nightly reviews would have stopped.
+  The deployed reports predate P22: fill model v4, an XS signal boundary pinning v4 and the predecessor runtime, and no cost-break clock fields. The migrations compared against the new form only; with the test priors in the deployed form, `test_runtime_contract_migration_preserves_complete_prior_result` and `test_runtime_contract_migration_preserves_accumulated_prefix` failed with those messages.
+- **What:** Each migration compares every P22-changed field in the form the prior published it: fill model v4, the boundary's pinned fill model and runtime hash (state, inputs and ledgers unchanged), and the three observation fields, which must hold their no-break values. A migration after the cost-profile break is refused, so it runs before `migrate_cost_profiles`.
+- **Evidence:** With the contracts re-pinned in a scratch tree, both migrations succeed on the snapshot copy and the next ordinary runs report ACCUMULATING; against the deployed source's reports only the runtime metadata, fill model and the three added fields differ.
+- **Metrics:** product +68, tests +24; server and tools unchanged.
+- **Next:** re-pin revision 14 and the runtime contracts once; the deploy runs the three runtime migrations before the cost-profile migration.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

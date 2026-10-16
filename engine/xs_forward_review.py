@@ -56,6 +56,12 @@ BOOTSTRAP_SEED = 20260907
 EXPECTED_INITIAL_CASH = 39_000.0
 EXPECTED_EXECUTION_PROFILE = "baseline_v1"
 EXPECTED_FILL_MODEL_VERSION = "v5"
+# The predecessor runtime's published fill model, and the observation fields P22 added for
+# the cost-break clock (they hold no-break values until a break is recorded).
+PRIOR_FILL_MODEL_VERSION = "v4"
+PRE_BREAK_OBSERVATION_FIELDS = (
+    "evaluation_clock_start", "cost_break_session", "pre_break_shared_sessions",
+)
 EXPECTED_PROFILE_SHA256 = "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db"
 EXPECTED_CONFIG_SHA256 = {
     CANDIDATE_ID: "fb5a0f0e3472f14ed9b0a5d5bac05a081ec0284f200db91663b11d5d47ab9214",
@@ -811,6 +817,7 @@ def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
             "runtime_contract_files": list(RUNTIME_CONTRACT_FILES),
         }
     )
+    _p22_published_forms(current_prior, prior_result, current=True)
     current = evaluate(con, prior_result=current_prior)
     expected_prior = copy.deepcopy(current)
     expected_prior["frozen_runtime"].update(
@@ -824,11 +831,52 @@ def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
             "runtime_contract_files": list(PRIOR_RUNTIME_CONTRACT_FILES),
         }
     )
+    _p22_published_forms(expected_prior, prior_result, current=False)
     prior_json = json.loads(json.dumps(prior_result, default=str))
     expected_json = json.loads(json.dumps(expected_prior, default=str))
     if prior_json != expected_json:
         raise ValueError("published XS v21 report is not the exact migration checkpoint")
     return current
+
+
+def _p22_published_forms(result: dict, prior: dict, *, current: bool) -> None:
+    """Restate P22's changed published fields in the current or the predecessor form.
+
+    The deployed v21 report predates P22: it publishes fill model v4, its signal boundary
+    pins v4 and the predecessor runtime, and its observation has no cost-break clock. Each
+    such field moves to the current form for evaluation and back for the exact comparison;
+    the boundary's state, inputs and ledgers are compared unchanged.
+    """
+    published = prior.get("frozen_runtime") or {}
+    if published.get("fill_model") == PRIOR_FILL_MODEL_VERSION:
+        result["frozen_runtime"]["fill_model"] = (
+            EXPECTED_FILL_MODEL_VERSION if current else PRIOR_FILL_MODEL_VERSION
+        )
+    boundary = result["frozen_runtime"].get("signal_boundary")
+    pinned = ((published.get("signal_boundary") or {}).get("protocol_contract") or {})
+    if boundary is not None and pinned.get("fill_model") == PRIOR_FILL_MODEL_VERSION and (
+        pinned.get("runtime_contract_sha256") == PRIOR_RUNTIME_CONTRACT_SHA256
+    ):
+        boundary["protocol_contract"].update(
+            fill_model=EXPECTED_FILL_MODEL_VERSION if current else PRIOR_FILL_MODEL_VERSION,
+            runtime_contract_sha256=(
+                EXPECTED_RUNTIME_CONTRACT_SHA256 if current else PRIOR_RUNTIME_CONTRACT_SHA256
+            ),
+        )
+    if current:
+        return
+    observation, published_observation = result["observation"], prior.get("observation") or {}
+    added = [field for field in PRE_BREAK_OBSERVATION_FIELDS
+             if field in observation and field not in published_observation]
+    if added and (
+        observation.get("cost_break_session") is not None
+        or observation.get("pre_break_shared_sessions", 0) != 0
+        or observation.get("evaluation_clock_start", OBSERVATION_START.isoformat())
+        != OBSERVATION_START.isoformat()
+    ):
+        raise ValueError("XS runtime migration must run before the cost-profile break")
+    for field in added:
+        del observation[field]
 
 
 def _validate_prior(

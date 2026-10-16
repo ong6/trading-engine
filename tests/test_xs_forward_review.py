@@ -570,6 +570,8 @@ def test_runtime_contract_migration_preserves_accumulated_prefix(con):
     waiting = _freeze(con)
     _transition(con)
     current = review.evaluate(con, prior_result=waiting)
+    # The deployed report's shape (2026-10-15 snapshot, contract v21): its signal boundary
+    # pins fill model v4 and the predecessor runtime, and it has no cost-break fields.
     prior = copy.deepcopy(current)
     prior["frozen_runtime"].update(
         {
@@ -580,24 +582,25 @@ def test_runtime_contract_migration_preserves_accumulated_prefix(con):
             ),
             "runtime_contract_migration": review.PRIOR_RUNTIME_CONTRACT_MIGRATION,
             "runtime_contract_files": list(review.PRIOR_RUNTIME_CONTRACT_FILES),
+            "fill_model": "v4",
         }
     )
+    prior["frozen_runtime"]["signal_boundary"]["protocol_contract"].update(
+        fill_model="v4", runtime_contract_sha256=review.PRIOR_RUNTIME_CONTRACT_SHA256)
+    for field in ("evaluation_clock_start", "cost_break_session", "pre_break_shared_sessions"):
+        del prior["observation"][field]
 
     migrated = review.migrate_runtime_contract(con, prior)
 
-    expected = copy.deepcopy(prior)
-    expected["frozen_runtime"].update(
-        {
-            "runtime_contract_version": review.RUNTIME_CONTRACT_VERSION,
-            "runtime_contract_sha256": review.EXPECTED_RUNTIME_CONTRACT_SHA256,
-            "superseded_runtime_contract_sha256": (
-                review.SUPERSEDED_RUNTIME_CONTRACT_SHA256
-            ),
-            "runtime_contract_migration": review.RUNTIME_CONTRACT_MIGRATION,
-            "runtime_contract_files": list(review.RUNTIME_CONTRACT_FILES),
-        }
-    )
-    assert migrated == expected
+    assert migrated == current
+    for section in ("status", "candidate", "control", "criterion", "metrics"):
+        assert migrated[section] == prior[section]
+    boundary = migrated["frozen_runtime"]["signal_boundary"]
+    assert boundary["protocol_contract"]["runtime_contract_sha256"] == (
+        review.EXPECTED_RUNTIME_CONTRACT_SHA256)
+    assert {key: value for key, value in boundary.items() if key != "protocol_contract"} == {
+        key: value for key, value in prior["frozen_runtime"]["signal_boundary"].items()
+        if key != "protocol_contract"}
 
 
 def test_invalid_result_is_safe():
