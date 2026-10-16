@@ -5,7 +5,7 @@ import PriceChart from "../../components/PriceChart";
 import StateNotice from "../../components/StateNotice";
 import { apiFetch, validateApiResponse } from "../../lib/api";
 import { decodeCandidateSegment } from "../../lib/candidate-route";
-import { isCandidateProjection } from "../../lib/market-contracts";
+import { isCandidateProjection, isInadmissiblePriceData } from "../../lib/market-contracts";
 import { isTicketContextProjection } from "../../lib/mutation-contracts";
 import { notFound } from "next/navigation";
 
@@ -36,7 +36,17 @@ export default async function CandidatePage({ params }) {
     return (
       <div>
         <h1>{tk}</h1>
-        {res.status === 404 ? (
+        {res.status === 422 && isInadmissiblePriceData(res.data, tk) ? (
+          <div className="notice error" role="alert">
+            <strong>Inadmissible price data for {tk}.</strong>
+            <p>Retained bars failed validation. Chart and trading ticket are unavailable.</p>
+            <ul>
+              {res.data.detail.bars.map((bar) => (
+                <li key={bar.date}>{bar.date}: {bar.reason}</li>
+              ))}
+            </ul>
+          </div>
+        ) : res.status === 404 ? (
           <div className="empty">No price bars for {tk}.</div>
         ) : (
           <StateNotice res={res} />

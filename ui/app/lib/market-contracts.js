@@ -155,6 +155,30 @@ export function isScreenProjection(data) {
   });
 }
 
+export function isInadmissiblePriceData(data, expectedTicker) {
+  if (
+    !isRecord(data) || !hasExactKeys(data, ["detail"]) ||
+    !isRecord(data.detail) || !hasExactKeys(data.detail, ["code", "ticker", "bars"]) ||
+    data.detail.code !== "inadmissible_price_data" ||
+    !isCandidateTicker(data.detail.ticker) || data.detail.ticker !== expectedTicker ||
+    !Array.isArray(data.detail.bars) || data.detail.bars.length < 1 || data.detail.bars.length > 250
+  ) return false;
+  const reasons = ["open", "high", "low", "close", "volume"]
+    .map((field) => `public candidate ${field} is invalid`);
+  reasons.push("public candidate OHLC geometry is invalid");
+  let priorDate = null;
+  return data.detail.bars.every((bar) => {
+    const valid = isRecord(bar) &&
+      hasExactKeys(bar, ["date", "open", "high", "low", "close", "reason"]) &&
+      isIsoDate(bar.date) && (priorDate === null || bar.date > priorDate) &&
+      ["open", "high", "low", "close"].every((field) =>
+        bar[field] === null || Number.isFinite(bar[field])) &&
+      reasons.includes(bar.reason);
+    priorDate = bar?.date;
+    return valid;
+  });
+}
+
 export function isCandidateProjection(data, expectedTicker) {
   if (
     !isRecord(data) ||

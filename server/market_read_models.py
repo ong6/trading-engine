@@ -367,6 +367,41 @@ def _candidate_bars(
     )
 
 
+class InadmissiblePriceData(ValueError):
+    """Retained price evidence cannot be admitted for charting or trading."""
+
+    def __init__(self, ticker: str, bars: list[dict]) -> None:
+        super().__init__("inadmissible_price_data")
+        self.detail = {"code": "inadmissible_price_data", "ticker": ticker, "bars": bars}
+
+
+def _validate_candidate_prices(bar: dict) -> None:
+    open_price = require_public_positive_number(bar["open"], "candidate open")
+    high = require_public_positive_number(bar["high"], "candidate high")
+    low = require_public_positive_number(bar["low"], "candidate low")
+    close = require_public_positive_number(bar["close"], "candidate close")
+    require_public_nonnegative_number(bar["volume"], "candidate volume")
+    if high < max(open_price, close, low) or low > min(open_price, close, high):
+        raise ValueError("public candidate OHLC geometry is invalid")
+
+
+def _reject_inadmissible_prices(ticker: str, bars: list[dict]) -> None:
+    rejected = []
+    for bar in bars:
+        try:
+            _validate_candidate_prices(bar)
+        except ValueError as exc:
+            # JSON cannot represent NaN/Infinity. Null means unavailable, never a repaired price.
+            prices = {
+                field: value if value is not None and math.isfinite(value) else None
+                for field in ("open", "high", "low", "close")
+                for value in (bar[field],)
+            }
+            rejected.append({"date": bar["date"].isoformat(), **prices, "reason": str(exc)})
+    if rejected:
+        raise InadmissiblePriceData(ticker, rejected)
+
+
 def _validate_candidate_bars(bars: list[dict], market_date: date) -> None:
     previous_date = None
     for bar in bars:
@@ -379,13 +414,7 @@ def _validate_candidate_bars(bars: list[dict], market_date: date) -> None:
             or (previous_date is not None and bar_date <= previous_date)
         ):
             raise ValueError("public candidate bar date is invalid")
-        open_price = require_public_positive_number(bar["open"], "candidate open")
-        high = require_public_positive_number(bar["high"], "candidate high")
-        low = require_public_positive_number(bar["low"], "candidate low")
-        close = require_public_positive_number(bar["close"], "candidate close")
-        require_public_nonnegative_number(bar["volume"], "candidate volume")
-        if high < max(open_price, close, low) or low > min(open_price, close, high):
-            raise ValueError("public candidate OHLC geometry is invalid")
+        _validate_candidate_prices(bar)
         previous_date = bar_date
 
 
@@ -469,6 +498,7 @@ def candidate(con: duckdb.DuckDBPyConnection, ticker: str) -> dict | None:
     bars = _candidate_bars(con, ticker, market_date, bars_limit)
     if not bars:
         return None
+    _reject_inadmissible_prices(ticker, bars)
     _validate_candidate_bars(bars, market_date)
     latest_quote = con.execute(
         f"SELECT date, close FROM prices WHERE ticker = ? AND date <= ? AND {REAL_BAR_SQL} "
