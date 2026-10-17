@@ -3492,4 +3492,33 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** since 2026-10-16: server +33, tools 0, product 0, tests +49, UI +94; budget ok.
 - **Next:** separate retained XS prefix continuity from its restarted evaluation count, then validate the sector/XS cost-break clock.
 
+## 2026-10-17 — Reduce repeated intraday windows using completed coverage
+
+- **Why:** Orchestrator revision 15 M9, flow finding rank 1; post-v2 integration only.
+- **What:** Save successful per-session response counts in existing metadata after insertion.
+  Validate resident counts before grouped incremental windows; missing sessions, new names and
+  failed/partial requests use full retention windows. First captured values and dates stay exact.
+- **Evidence:** `python -m pytest tests/test_intraday.py -W error` → six passed, including full-path row equality with gaps, failed batches, new symbols and provider revisions.
+- **Metrics:** product +112; server/tools unchanged for this step.
+- **Next:** Finish the full offline corpus comparison and integration evidence.
+
+## 2026-10-17 — Aggregate held positions' latest real close
+
+- **Why:** Orchestrator revision 15 M9, flow finding rank 6.
+- **What:** Replace the per-ticker window sort with arg_max over the same date and real-bar filter.
+  Empty inputs, absent names, future rows and phantom/null sentinels retain the same results.
+- **Evidence:** `python -m pytest tests/test_position_read_models.py -W error` → all projection tests pass; seven snapshot pairs match 151 held symbols, median 457.1 → 437.2 ms.
+- **Metrics:** server -2; product/tools unchanged.
+- **Next:** Finish offline report and telemetry acceptance.
+
+## 2026-10-17 — Share recent history publications under an explicit age budget
+
+- **Why:** Orchestrator revision 15 M9, flow finding rank 3 near-term only.
+- **What:** History slices reuse authentic snapshots younger than 120 minutes at completion.
+  The original as_of stays visible; publication failure reaches the scheduler. The existing
+  schedule/timeout gives a conservative 16h20m between-slice history fallback bound.
+- **Evidence:** `python -m pytest tests/test_stage_timings.py tests/test_service_units.py -W error` → shell failure and age argument tests pass; fixture 9,187,328 → 0 published bytes, 386.0 → 0.42 ms.
+- **Metrics:** unchanged; shell lines are outside Python LOC.
+- **Next:** Integrate after v2; delta format remains design only in the lane deliverables.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
