@@ -3521,4 +3521,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged; shell lines are outside Python LOC.
 - **Next:** Integrate after v2; delta format remains design only in the lane deliverables.
 
+## 2026-10-17 — Defer offline rendering and measure movement in existing stage records
+
+- **Why:** Orchestrator revision 15 M9, flow findings ranks 2 and 8; post-v2 integration only.
+- **What:** Live league steps retain session reports; walk-forward/replay emit one final report per fold/window.
+  Existing stage records aggregate input/output rows and bytes plus measured writer hold and retry wait;
+  unknown fields remain null. Buffered deltas and shell aggregation avoid per-event file overhead.
+- **Evidence:** `python -m pytest tests/test_stage_timings.py tests/test_league_v2.py tests/test_result_provenance.py -W error` passes; nine paired telemetry trials measured +0.78% CPU, with no measured wall increase.
+- **Metrics:** product +14, tools +113 for this step; server unchanged.
+- **Next:** Complete all 18 books' registered corpus pairs, publish lane STATUS and stop.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

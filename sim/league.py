@@ -671,6 +671,9 @@ def write_reports(con, d: date, data_dir: Path) -> Path:
     resources.write_text_atomic(
         reports_dir / "league.csv", csv_df.to_csv(index=False)
     )
+    from tools.stage_timings import record_flow
+    record_flow(input_rows=len(csv_df), output_rows=len(csv_df),
+                output_bytes=md_path.stat().st_size + (reports_dir / "league.csv").stat().st_size)
     return md_path
 
 
@@ -832,7 +835,11 @@ def _log_account_status(result: dict, *, verbose: bool) -> None:
 
 
 def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
-         skip_if_done: bool = False, no_accounts: bool = False) -> int:
+         skip_if_done: bool = False, no_accounts: bool = False,
+         report_policy: str = "session") -> int:
+    """Step accounting; offline callers may defer reports until the fold ends."""
+    if report_policy not in {"session", "deferred"}:
+        raise ValueError(f"unknown report policy: {report_policy!r}")
     existing = con.execute(
         "SELECT COUNT(*) FROM sim_equity WHERE date = ?", [d]
     ).fetchone()[0]
@@ -858,7 +865,8 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
                 account_result = _safe_account_phases(
                     con, d, no_accounts=no_accounts, verbose=verbose,
                 )
-                write_reports(con, d, data_dir)
+                if report_policy == "session":
+                    write_reports(con, d, data_dir)
                 _log_account_status(account_result, verbose=verbose)
                 if verbose:
                     log.info(f"[league] {d} already stepped ({existing} equity rows); "
@@ -889,7 +897,8 @@ def step(con, d: date, data_dir: Path, rerun: bool, verbose: bool = True,
         con, d, no_accounts=no_accounts or rerun, verbose=verbose,
         reason="legacy rerun" if rerun else None,
     )
-    md_path = write_reports(con, d, data_dir)
+    md_path = (write_reports(con, d, data_dir)
+               if report_policy == "session" else "reports deferred")
     _log_account_status(account_result, verbose=verbose)
     if verbose:
         div_note = (f" divs={dv['credited']}/${dv['amount']:,.2f}"

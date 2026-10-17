@@ -4,13 +4,126 @@
 from __future__ import annotations
 
 import argparse
+import atexit
+import fcntl
 import json
 import math
+import os
+import time
 from collections import defaultdict
+from contextlib import contextmanager
 from pathlib import Path
 from statistics import median
 
 from engine.lib.settings import LOGS_DIR
+
+# Components append small counter deltas to the current stage's temporary file.
+# The driver folds these into its existing completed-stage record. Uninstrumented
+# stages have null counters; a measured no-op has zero counters.
+FLOW_FIELDS = ("input_rows", "output_rows", "input_bytes", "output_bytes",
+               "writer_hold_seconds", "lock_wait_seconds")
+
+
+_FLOW_PENDING = {}
+_FLOW_PATH = None
+_FLOW_PID = os.getpid()
+_FLOW_EVENTS = 0
+
+
+def _flush_flow() -> None:
+    global _FLOW_PENDING, _FLOW_EVENTS
+    if not _FLOW_PENDING or _FLOW_PID != os.getpid():
+        return
+    try:
+        with open(_FLOW_PATH, "a") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            handle.write(json.dumps(_FLOW_PENDING, separators=(",", ":")) + "\n")
+    except OSError:
+        pass  # Observability never changes a producer's exit semantics.
+    _FLOW_PENDING = {}
+    _FLOW_EVENTS = 0
+
+
+atexit.register(_flush_flow)
+
+
+def record_flow(**values) -> None:
+    """Accumulate deltas; flush every 32 events and at normal process exit.
+
+    Exceptions and nonzero Python exits flush through atexit. Abruptly killed
+    processes may lose the last 31 events; missing measurements remain unknown.
+    Buffering avoids an open/flock/JSON write for each writer-lease fragment.
+    """
+    global _FLOW_PATH, _FLOW_PID, _FLOW_PENDING, _FLOW_EVENTS
+    path = os.environ.get("TRADING_ENGINE_STAGE_METRICS")
+    if _FLOW_PID != os.getpid():
+        _FLOW_PENDING = {}
+        _FLOW_EVENTS = 0
+        _FLOW_PID = os.getpid()
+    if path != _FLOW_PATH:
+        _flush_flow()
+        _FLOW_PATH = path
+    if not path:
+        return
+    clean = {k: v for k, v in values.items() if k in FLOW_FIELDS and v is not None}
+    if any(isinstance(v, bool) or not isinstance(v, (int, float))
+           or not math.isfinite(v) or v < 0 for v in clean.values()):
+        raise ValueError("stage counters must be finite and nonnegative")
+    for key, value in clean.items():
+        _FLOW_PENDING[key] = _FLOW_PENDING.get(key, 0) + value
+    _FLOW_EVENTS += 1
+    if _FLOW_EVENTS >= 32:
+        _flush_flow()
+
+
+def flow_totals(path: Path) -> dict:
+    if str(path) == _FLOW_PATH:
+        _flush_flow()
+    totals = dict.fromkeys(FLOW_FIELDS)
+    try:
+        for line in path.read_text().splitlines():
+            try:
+                row = json.loads(line)
+                for key in FLOW_FIELDS:
+                    v = row.get(key)
+                    if (not isinstance(v, bool) and isinstance(v, (int, float))
+                            and math.isfinite(v) and v >= 0):
+                        totals[key] = (totals[key] or 0) + v
+            except (ValueError, TypeError, AttributeError):
+                continue
+    except OSError:
+        pass
+    return totals
+
+
+@contextmanager
+def writer_connection(path):
+    """Measure a writer lease and retry wait using the existing DB opener.
+
+    The db logger records each five-second retry before sleeping. Count these
+    separately from connection setup; hold covers open success through close.
+    """
+    import logging
+
+    from engine.lib import db
+    waits = []
+    class RetryCounter(logging.Handler):
+        def emit(self, record):
+            if "[db] store locked (attempt" in record.getMessage():
+                waits.append(db._LOCK_RETRY_S)
+    handler = RetryCounter()
+    db.log.addHandler(handler)
+    try:
+        con = db.connect(path)
+    finally:
+        db.log.removeHandler(handler)
+        record_flow(lock_wait_seconds=sum(waits))
+    opened = time.perf_counter()
+    try:
+        yield con
+    finally:
+        con.close()
+        record_flow(writer_hold_seconds=time.perf_counter() - opened)
 
 
 def _percentile(values: list[float], fraction: float) -> float:

@@ -322,7 +322,9 @@ def run_fold(con, book: dict, fold: protocol.Fold, sessions: list[date],
         fold_prepare(con, book, fold, sessions)
     _insert_book(con, book, sessions[0], initial_cash, execution_profile)
     for d in sessions:
-        league.step(con, d, data_dir, rerun=False, verbose=False)
+        league.step(con, d, data_dir, rerun=False, verbose=False,
+                    report_policy="deferred")
+    league.write_reports(con, sessions[-1], data_dir)
 
     eq = con.execute(
         "SELECT date, equity FROM sim_equity WHERE portfolio_id = ? ORDER BY date",

@@ -446,10 +446,13 @@ def run_replay(live_con, config_id: str, window: str, *,
 
         t_step = time.time()
         for i, d in enumerate(sessions):
-            league.step(con, d, scratch_dir, rerun=False, verbose=False)
+            league.step(con, d, scratch_dir, rerun=False, verbose=False,
+                        report_policy="deferred")
             if verbose and (i + 1) % 250 == 0:
                 log.info(f"[replay]   {i + 1}/{len(sessions)} sessions "
                       f"({time.time() - t_step:.0f}s)")
+        if sessions:
+            league.write_reports(con, sessions[-1], scratch_dir)
         step_s = time.time() - t_step
 
         eq = con.execute(

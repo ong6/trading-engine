@@ -221,6 +221,7 @@ def test_backtest_result_keeps_provenance_captured_before_work(monkeypatch, tmp_
     monkeypatch.setattr(replay, "build_scratch", begin_work)
     monkeypatch.setattr(replay.db, "connect", lambda *_args, **_kwargs: _ScratchCon())
     monkeypatch.setattr(replay.league, "step", lambda *args, **kwargs: None)
+    monkeypatch.setattr(replay.league, "write_reports", lambda *args, **kwargs: None)
     monkeypatch.setattr(replay.stats, "bil_daily_returns", lambda *_: [])
     monkeypatch.setattr(replay.stats, "equity_stats", lambda *_: {"cagr": 0.01})
     result = replay.run_replay(
