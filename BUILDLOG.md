@@ -3501,4 +3501,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** product +9; tests +53; server and tools unchanged.
 - **Next:** authoritative sector/XS API clock validators, then the single revision-14 re-pin.
 
+## 2026-10-17 — Project restarted sector and XS evaluation clocks
+
+- **Why:** P22 deploy-readiness rank 2; real cost-migration output is refused by sector (`invalid forward observation counts`) and XS (`eligibility date does not match frozen experiment`) before D0.
+- **What:** Both API validators check the reported clock and break against the store, derive eligibility and maturity from that clock, and accept zero accrued sessions only before D0.
+  Full producer/report reconciliation remains; generated runtime and cost migration output projects before and after D0, while a manipulated clock is refused.
+- **Evidence:** `tests/test_sector_forward_status.py tests/test_xs_forward_status.py` → 36 passed with the isolated provisional XS digest; both generated-migration regressions failed before the fix. Ruff passes.
+- **Metrics:** server +43, tests +80; tools/product unchanged.
+- **Next:** re-pin revision 14 once after the admitted XS continuity change.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

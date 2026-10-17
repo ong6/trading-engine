@@ -269,3 +269,42 @@ def test_forward_review_status_fails_closed_for_deep_live_evaluation(monkeypatch
         "paper_only": True,
         "automatic_action": "none",
     }
+
+
+def test_migrated_sector_cost_clock_projects_before_and_after_d0(con, tmp_path):
+    from engine import forward_review as monitor
+    from tools.migrate_cost_profiles import migrate
+
+    _setup_live_sector_forward(con)
+    prior = monitor.evaluate(con)
+    prior["frozen_runtime"].update(
+        runtime_contract_version=monitor.PRIOR_RUNTIME_CONTRACT_VERSION,
+        runtime_contract_sha256=monitor.PRIOR_RUNTIME_CONTRACT_SHA256,
+        superseded_runtime_contract_sha256=monitor.PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256,
+        runtime_contract_migration=monitor.PRIOR_RUNTIME_CONTRACT_MIGRATION,
+        runtime_contract_files=list(monitor.PRIOR_RUNTIME_CONTRACT_FILES), fill_model="v4")
+    for field in ("evaluation_clock_start", "cost_break_session", "pre_break_shared_sessions"):
+        del prior["observation"][field]
+    migrated = monitor.migrate_runtime_contract(con, prior)
+    d0 = date(2026, 10, 19)
+    assert migrate(con, d0)["routing_changes"] == []
+    path = tmp_path / "sector.json"
+    for day, expected_count in ((monitor.OBSERVATION_START, 0), (d0, 1)):
+        if day == d0:
+            for book, state in monitor.EXPECTED_BASELINE_STATE.items():
+                con.execute("INSERT INTO sim_equity VALUES (?, ?, ?, ?, ?)",
+                            [book, day, state["equity"], state["cash"], state["n_positions"]])
+        payload = monitor.evaluate(con, prior_result=migrated)
+        original = json.dumps(payload, default=str)
+        path.write_text(original)
+        projected = sector_forward_status.status(path, day, con)
+        assert projected["status"] == "ACCUMULATING"
+        assert projected["shared_sessions"] == expected_count
+        assert projected["eligible_after"] == "2027-10-19"
+        assert projected["mature"] is False
+        assert path.read_text() == original
+        for clock in ("2026-10-20", "2026-09-04"):
+            payload["observation"].update(evaluation_clock_start=clock, cost_break_session=clock,
+                                        eligible_after=monitor._plus_months(date.fromisoformat(clock), 12).isoformat())
+            path.write_text(json.dumps(payload, default=str))
+            assert sector_forward_status.status(path, day, con)["status"] == "INVALID"

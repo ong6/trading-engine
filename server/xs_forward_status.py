@@ -12,6 +12,7 @@ from engine import xs_forward_review as xs_forward_monitor
 from engine.lib.provenance import canonical_sha256
 
 from .forward_contracts import (
+    evaluation_clock,
     finite_metric,
     invalid_status,
     require_expected_fields,
@@ -86,7 +87,7 @@ def _signal_boundary_frozen(payload: dict) -> bool:
     return True
 
 
-def _validate_observation(payload: dict, latest_date: date | None) -> dict:
+def _validate_observation(payload: dict, latest_date: date | None, con=None) -> dict:
     result_status = payload["status"]
     observation = payload["observation"]
     paired_months = observation["paired_complete_months"]
@@ -103,9 +104,10 @@ def _validate_observation(payload: dict, latest_date: date | None) -> dict:
         and isinstance(boundary_frozen, bool)
     ):
         raise ValueError("invalid XS forward observation counts")
-    expected_eligible_after = xs_forward_monitor._plus_months(
-        xs_forward_monitor.OBSERVATION_START, xs_forward_monitor.WINDOW_MONTHS
-    )
+    clock = evaluation_clock(observation, con,
+                             (xs_forward_monitor.CANDIDATE_ID, xs_forward_monitor.CONTROL_ID),
+                             xs_forward_monitor.OBSERVATION_START)
+    expected_eligible_after = xs_forward_monitor._plus_months(clock, xs_forward_monitor.WINDOW_MONTHS)
     if eligible_after != expected_eligible_after:
         raise ValueError("XS forward eligibility date does not match frozen experiment")
     if result_status == "WAITING":
@@ -113,8 +115,11 @@ def _validate_observation(payload: dict, latest_date: date | None) -> dict:
             raise ValueError("XS waiting status has accrued observations")
         return observation
     as_of = iso_date(observation["as_of"], "XS as_of must be YYYY-MM-DD")
+    if shared_sessions == 0 and as_of >= clock:
+        raise ValueError("XS accrued clock has no shared sessions")
     derived_mature = (
-        as_of >= eligible_after and paired_months >= xs_forward_monitor.MIN_PAIRED_MONTHS
+        shared_sessions > 0 and as_of >= eligible_after
+        and paired_months >= xs_forward_monitor.MIN_PAIRED_MONTHS
     )
     if (mature != derived_mature
             or (result_status == "ACCUMULATING" and mature)
@@ -182,7 +187,7 @@ def _validated_projection(
     )
     _validate_registration(payload)
     frozen = _validate_runtime(payload)
-    _validate_observation(payload, latest_date)
+    _validate_observation(payload, latest_date, con)
     payload = _reconcile_payload(payload, latest_date, con)
     return _project(payload, frozen)
 
