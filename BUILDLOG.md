@@ -3506,4 +3506,15 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +84, tools/product unchanged; budget ok.
 - **Next:** orchestrator authorizes the position read-model edit or assigns its wiring to its owner.
 
+## 2026-10-17 — Join measured retained-bar warnings into positions
+
+- **Why:** Board round 2 reproduces 18 held rows with invalid retained bars and zero
+  warnings; the orchestrator authorizes a separate quality-only join into positions.
+- **What:** Join the existing per-ticker retained-bar quality after assembling position
+  values; preserve the close query and all recorded position arithmetic.
+- **Evidence:** `python positions-acceptance.py` → 1,064 checks, zero failures at 1440/390;
+  all 18 affected holding rows warn while the 350 recorded position rows retain their values.
+- **Metrics:** server +15, tests +64, tools/product/UI unchanged; budget ok.
+- **Next:** nothing admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
