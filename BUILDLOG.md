@@ -3510,4 +3510,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +43, tests +80; tools/product unchanged.
 - **Next:** re-pin revision 14 once after the admitted XS continuity change.
 
+## 2026-10-17 — Amend the undeployed XS runtime contract for revision 14
+
+- **Why:** P22 deploy-readiness and orchestrator D1 authorize the pre-deploy XS continuity amendment and one revision-14 re-pin after the fixes.
+- **What:** XS keeps undeployed runtime v22, deployed predecessor v21 and every frozen strategy/verdict rule; its migration note and digest bind the retained-prefix correction. E1 v7 and sector v11 are unchanged.
+  The P22 progress records the amendment and why retained equity, signal, baseline and ledger checks preserve frozen outcomes. Registration binds this source in the following commit, preserving its history-sensitive source assertion.
+- **Evidence:** The repeated-review regression and existing XS gates passed provisionally (40 tests); the next registered-source commit runs without the provisional harness.
+- **Metrics:** product +4; docs +12; server/tools unchanged.
+- **Next:** issue the single revision-14 registration amendment over this committed runtime source.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

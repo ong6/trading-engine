@@ -126,10 +126,13 @@ RUNTIME_CONTRACT_MIGRATION = (
     "P15 marks to their window, collection audits a split-like re-fetch and triggers "
     "back-adjustment, and this migration compares the deployed report's fill model, "
     "signal-boundary runtime pin and clock fields as published"
+    "; undeployed pre-deploy amendment 2026-10-17 separates retained prefix continuity "
+    "from restarted evaluation sessions and validates their partition without changing "
+    "equity, signal, baseline, ledger or verdict rules"
 )
 # Filled after the file list was frozen; tests verify this against current bytes.
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "de76d3860d5da4088378cfcea46b4041fe5daef1f2349d873fb6d986f29d40f6"
+    "c34a2b0dfc1b0f70a4871b065fcf5216790ffb9dd35405c9d6d941435b81bc70"
 )
 
 PRIOR_RUNTIME_CONTRACT_VERSION = 21
