@@ -179,3 +179,24 @@ deployment; rollback restores the pre-migration database backup and source revis
   E1 v7 and sector v11 source and runtime digests are unchanged. No frozen strategy, parameter,
   retained outcome or statistical rule changes. Final store-copy deployment/rollback and both
   timezone suites remain the acceptance gates.
+
+- Fresh readiness rehearsal 2026-10-17 exposed an additional sector continuity blocker:
+  the second unchanged ordinary review after the cost break compares the retained prefix
+  with restarted sessions and refuses. This is the same count mismatch as XS, now reproduced
+  in `test_cost_break_retains_complete_prefix_across_repeated_reviews`; both final suites
+  report 4,809 passed and that one failure, UI 67 passed, build/Ruff/registration pass.
+  The completed single revision-14 binding is not silently changed: the orchestrator must
+  authorize the sector runtime amendment and follow-up binding. No frozen strategy change
+  is needed. The deployment remains no-go until it passes repeated reviews and both suites.
+- The newest October 17 12:01 published snapshot was rehearsed with current-main revision 13
+  saved. Verified backup: 91 tables, nine evidence files, seven operational artifacts and one
+  control. Migrations preserve predecessor outcomes, all 33 routes and pre-D0 balances/equity;
+  the cost migration is one-shot. Two private example accounts settle two captured sessions
+  (eight fills total), verify and retry with public lists empty. Pre-D0 legacy fills all match
+  the same-checkpoint deployed source; 24 of 25 equity books match within $0.005, with the
+  admitted high_52wk WBD close-out. Earlier D0 October 12 produces fees in 12 books, zero
+  pre-D0 fees and five valid P15 sessions; XS accepts two reviews with the correct prefix.
+  The amended quiescence stops real activating/autopush and continuous-writer simulations.
+  Rollback restores all 17 manifest records and byte-identical revision-13 DB, replaces the
+  snapshot pointer, and serves accumulating sector v10/XS v21/E1 v6 on primary and forced
+  snapshot fallback. All copied stores, snapshots, WALs and runtime unit links were removed.

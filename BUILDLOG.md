@@ -3571,4 +3571,30 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** same-checkpoint legacy comparison and final-head suites; sector continuity still needs the orchestrator's runtime amendment decision.
 
+## 2026-10-17 — Run both final timezone suites with the reproduced blocker visible
+
+- **Why:** P22 deploy-readiness step 7 requires both full suites and UI acceptance on the final source, without weakening gates or excluding the fresh sector regression.
+- **What:** Both full suites retain every test; the new sector cost-break regression fails exactly as the fresh ordinary review does. UI tests/build, Ruff and all 162 registration hashes pass.
+- **Evidence:** UTC and Asia/Singapore each report 4,809 passed, 1 failed (`test_cost_break_retains_complete_prefix_across_repeated_reviews`), no errors/skips; UI 67 passed and production build passes.
+- **Metrics:** since the step-1 checkpoint: server +32, tools 0, product +11, tests +143; budget ok.
+- **Next:** finish captured-session comparison and cleanup; sector needs the orchestrator's runtime/re-pin decision before go.
+
+## 2026-10-17 — Compare v2 with the deployed-source captured checkpoint
+
+- **Why:** P22 fresh rehearsal requires the same-checkpoint deployed-source baseline at $0.005 per-book tolerance, with only admitted close-out and commission differences.
+- **What:** Reused the same working store for revision-13 and v2 replay of captured October 12–16 sessions from October 9. With production D0 October 19, all fill paths and 24 of 25 equity paths agree; only high_52wk differs by the admitted WBD close-out.
+  Completed snapshot copies and test fixtures were deleted after their checks, leaving the predeploy bundle, working store and incident DB under the orchestrator's three-file disk rule.
+- **Evidence:** Same-checkpoint comparison: equity 24 matched, high_52wk admitted; all 12 books with fills match within $0.005. Current-head registration 5 passed.
+- **Metrics:** unchanged.
+- **Next:** finish earlier-D0 replay, delete all copies and hand off the sector blocker with final check results.
+
+## 2026-10-17 — Close the readiness rehearsal with sector explicitly blocked
+
+- **Why:** P22 fresh deploy/rollback acceptance; the second sector review is a reproduced runtime defect requiring the orchestrator's exception to the completed single re-pin.
+- **What:** Earlier D0 replay completes five captured sessions with zero pre-D0 fees, fees in 12 books and valid P15 evidence; XS repeated reviews accept five evaluated and seven retained sessions. Sector repeats its count failure.
+  Retained complete rollback/account/parity transcripts and deleted every copied DB/WAL/snapshot plus isolated runtime links before the status handoff. The P22 plan records no-go and the exact outstanding runtime decision.
+- **Evidence:** UTC/Singapore each 4,809 passed, 1 sector regression failed; fresh revision-13 rollback byte-identical and primary/fallback semantics pass; all copied DB files removed, disk free 146 GiB.
+- **Metrics:** since step 1: server +32, tools 0, product +11, tests +143; budget ok.
+- **Next:** orchestrator authorizes the sector continuity amendment and follow-up revision-14 binding, then repeat the blocked deploy and suite gates.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
