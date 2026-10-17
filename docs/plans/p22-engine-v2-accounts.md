@@ -168,3 +168,14 @@ deployment; rollback restores the pre-migration database backup and source revis
   and `/meta`, validated P15 evidence and passed its registration tests.
 - Remaining gate: deployment on Sunday 2026-10-18 19:00–23:00 UTC with D0 2026-10-19
   (`P22_APPROVED_SHA` is main's merge of PR #13).
+
+- 2026-10-17 pre-deploy amendment (orchestrator D1): fixed the second XS review after the
+  cost break by keeping complete retained-prefix continuity separate from evaluation sessions.
+  The prior count partition is validated and the full equity hash, signal boundary, baseline,
+  transition and ledger gates remain. Generated sector/XS migration output is accepted by the
+  API at zero accrued sessions before D0 and after D0; a manipulated clock is refused.
+  Revision 14 is re-pinned once after these fixes. As with the 2026-10-16 re-pin, the undeployed
+  XS runtime remains v22, superseding deployed v21; its migration note and source digest change.
+  E1 v7 and sector v11 source and runtime digests are unchanged. No frozen strategy, parameter,
+  retained outcome or statistical rule changes. Final store-copy deployment/rollback and both
+  timezone suites remain the acceptance gates.
