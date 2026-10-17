@@ -22,6 +22,7 @@ NOW = datetime(2026, 10, 10, 3, 5, tzinfo=UTC)
 @pytest.fixture(autouse=True)
 def _no_host_units(tmp_path, monkeypatch):
     monkeypatch.setattr(ops_digest, "USER_UNIT_DIR", tmp_path / "no-units")
+    monkeypatch.setattr(ops_digest, "HOST_LOG_GLOBS", ())
 
 
 def _entry(stamp: str, message: str, ident: str = "python") -> str:
@@ -216,7 +217,7 @@ def test_clean_stop_that_systemd_reports_as_success_is_not_a_failed_run(tmp_path
     assert "| trading-engine-api | — | 02:46:54 | — | — | success (exit 15) [killed] |" in (
         hour["text"])
     assert "1 OK" in report and "Failed runs" not in report
-    assert "| trading-engine-api | `—` | ? | 1 | 0 | ? | schedule unknown |" in report
+    assert "| trading-engine-api | `—` | ? | 1 | 0 | 0 | ? | schedule unknown |" in report
 
 
 def test_failure_whose_result_lands_in_the_next_hour_keeps_its_exit_code(tmp_path):
@@ -349,11 +350,11 @@ def test_report_lists_every_run_and_stage_against_the_schedules(tmp_path):
     assert "- run_daily: due 10-15 22:30Z" in missing
     assert missing.count("\n- ") == 2
     assert ("| trading-engine-p15-preopen | `timer Mon..Fri *-*-* 09:05:00 America/New_York` "
-            "| 3 | 2 | 1 | 1 | 0 | 10-14 13:05Z exit-code 1s; 10-16 13:05Z success 10s |") in report
-    assert "| run_daily | `cron 30 22 * * 1-5` | 3 | 2 | 1 | 1 | 0 |" in report
-    assert ("| friday-postflight | `cron 15 5 * * 6` | 1 | 1 | 0 | 0 | "
+            "| 3 | 2 | 1 | 0 | 1 | 0 | 10-14 13:05Z exit-code 1s; 10-16 13:05Z success 10s |") in report
+    assert "| run_daily | `cron 30 22 * * 1-5` | 3 | 2 | 1 | 0 | 1 | 0 |" in report
+    assert ("| friday-postflight | `cron 15 5 * * 6` | 1 | 1 | 0 | 0 | 0 | "
             "0 | 10-17 05:16Z output written |") in report
-    assert "| store-sync | `timer OnUnitActiveUSec=15min` | ? | 1 | 0 | ? | schedule unknown |" in report
+    assert "| store-sync | `timer OnUnitActiveUSec=15min` | ? | 1 | 0 | 0 | ? | schedule unknown |" in report
     assert "- run_daily 10-14 22:30Z, 53m00s: collect 4m00s · snapshot 1m00s" in report
     assert "- run_daily 10-16 22:30Z, 1m02s: collect 1m00s exit 1" in report
 
@@ -406,7 +407,7 @@ def test_fourteen_day_schedule_change_short_journal_and_dated_receipts(tmp_path)
     assert len(missing) == 1 and "10-11 08:08Z" in missing[0]
     table = "\n".join(lines)
     assert table.count(f"| {job} |") == 1
-    assert "| 336 | 335 | 0 | 1 |" in table
+    assert "| 336 | 335 | 0 | 0 | 1 |" in table
     assert "schedule unknown" in table  # transition interval is never backdated
 
 
@@ -422,7 +423,7 @@ def test_missing_requires_coverage_of_entire_start_window(tmp_path):
                                    begin + timedelta(hours=13, minutes=6))
         missing, lines = ops_digest.runs_lines(db, runner, begin, finish)
     assert missing == []
-    assert "| 1 | 0 | 0 | 0 | 1 |" in "\n".join(lines)
+    assert "| 1 | 0 | 0 | 0 | 0 | 1 |" in "\n".join(lines)
 
 
 def test_work_receipts_read_only_from_resolved_snapshot(tmp_path, monkeypatch):
@@ -444,6 +445,117 @@ def test_work_receipts_read_only_from_resolved_snapshot(tmp_path, monkeypatch):
     assert row.ok is None and row.seconds is None and row.label.endswith("exit unknown")
     assert len(gaps) == 3 and before == published.read_bytes()
     assert not (tmp_path / "absent-primary.duckdb").exists()
+
+
+def test_dated_observer_receipts_are_used_before_text_tail_coverage(tmp_path):
+    log = tmp_path / "hourly_market_watch_v5.jsonl"
+    log.write_text("\n".join(json.dumps({"observed_at": f"2026-10-0{day}T14:15:00+00:00",
+                    "completed_at": f"2026-10-0{day}T14:16:00+00:00", "unavailable_count": 1})
+                    for day in (5, 6)))
+    receipts, gaps = ops_digest.work_receipts(tmp_path / "absent.duckdb",
+                datetime(2026, 10, 3, tzinfo=UTC), NOW, tmp_path)
+    rows = receipts["trading-engine-hourly-opportunity"]
+    assert len(rows) == 2 and all(r.degraded and r.ok is None for r in rows)
+    assert "no published snapshot" in gaps[0]
+
+
+@pytest.mark.parametrize("line,level", [
+    ("fetch failed", "error"), ("push failed", "error"),
+    ("operator_digest failed (non-fatal)", "error"),
+    ("[agent-data-capture] status=failed failed_steps=price_observations", "error"),
+    ("fatal: could not read from remote repository", "error"),
+    ("rebase conflict: left for a session to resolve", "warn"),
+    ("ERROR: python interpreter missing — cannot start", "error"),
+    ("ERROR: relaunch did not come up", "error"),
+    ('{"status": "unavailable", "reason": "pre-open evidence is invalid"}', "warn"),
+    ('{"status": "late"}', "warn"),
+    ("[backfill] processed=20 with_data=19 failed=1", "warn"),
+    ('{"backfill": {"processed": 20, "failed": 1}}', "warn"),
+    ("[queue] job 1 (archive) refused: memory exceeds budget", "warn"),
+    ("[queue] disk watchdog: refusing archive job 1", "warn"),
+    ("[queue] resource guard tripped; leaving 2 jobs pending", "warn"),
+    ("[queue] drain budget exhausted; leaving 2 pending jobs", "warn"),
+    ("[queue] job 1 failed: bad params JSON", "error"),
+    ("active process holds .nightly.lock; backup not started", "warn"),
+    ("[backfill] processed=20 with_data=20 failed=0", None),
+    ("[queue] no pending jobs; nothing to do", None),
+    ("no open recurring sweep grids", None),
+    ("snapshot younger than 120 minutes; publication skipped", None),
+    ("skip: not on main", None), ("SKIP: another ensure_scraper is running", None),
+    ('{"status": "no_session"}', None),
+    ("already successfully backed up today", None)])
+def test_host_failure_and_fail_soft_messages(line, level):
+    assert ops_digest.classify(line) == level
+
+
+def test_structured_snapshot_throttle_is_a_valid_noop():
+    assert ops_digest.classify(json.dumps({"status": "skipped", "reason":
+        "latest snapshot is 55.1 minutes old; minimum age is 120 minutes"})) is None
+
+
+@pytest.mark.parametrize("code,kind", [(15, "killed"), (75, "exited")])
+def test_success_in_next_hour_preserves_actual_termination(tmp_path, code, kind):
+    unit = "sample.service"
+    with closing(ops_digest.open_db(tmp_path)) as db:
+        ops_digest.store_runs(db, [ops_digest.UnitRun(unit, "2026-10-10T02:01:00Z",
+                                                    exit_code=code, termination_kind=kind)])
+        [row] = ops_digest.store_runs(db, ops_digest.parse_journal(unit, _entry(
+            "2026-10-10T03:01:00Z", f"{unit}: Succeeded.", "systemd"),
+            ops_digest.SourceSignals()))
+    assert (row["exit_code"], row["termination_kind"], row["result"]) == (code, kind, "success")
+
+
+def test_host_sources_expand_home_globs_and_are_counted_once(tmp_path, monkeypatch):
+    host = tmp_path / "host"
+    state = host / ".local" / "state"
+    state.mkdir(parents=True)
+    log = state / "store-sync.log"
+    log.write_text("old history\n")
+    logs = tmp_path / "logs"
+    ops = logs / "ops"
+    ops.mkdir(parents=True)
+    (ops / "sources.txt").write_text("# existing sources\n$HOME/.local/state/*.log\n"
+                                     "~/.local/state/store-sync.log\n")
+    monkeypatch.setenv("HOME", str(host))
+    monkeypatch.setattr(ops_digest, "HOST_LOG_GLOBS", ("~/.local/state/*.log",))
+    assert ops_digest._log_sources(logs, ops) == [log]
+    _collect(tmp_path, {})
+    log.write_text("old history\nfetch failed\npush failed\n")
+    [hour] = _collect(tmp_path, {}, now=NOW + timedelta(hours=1))
+    assert hour["status"] == "WARN"
+    with closing(sqlite3.connect(ops / "ops.sqlite")) as db:
+        assert db.execute("SELECT SUM(errors) FROM log_counts").fetchone()[0] == 2
+
+
+def test_warning_only_hour_is_degraded_and_noops_stay_ok(tmp_path):
+    journal = {"sample.service": _entry("2026-10-10T02:10:00Z",
+                "[backfill] processed=20 with_data=19 failed=1")}
+    [hour] = _collect(tmp_path, journal)
+    assert hour["status"] == "WARN" and "1 warning line(s)" in hour["text"]
+    journal = {"sample.service": _entry("2026-10-10T03:10:00Z", "no open recurring sweep grids")}
+    [hour] = _collect(tmp_path, journal, now=NOW + timedelta(hours=1))
+    assert hour["status"] == "OK"
+
+
+def test_unavailable_preopen_receipt_degrades_successful_exit(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    published = tmp_path / "published.duckdb"
+    with duckdb.connect(str(published)) as con:
+        con.execute("CREATE TABLE p15_preopen_runs (started_at TIMESTAMP, "
+                    "completed_at TIMESTAMP, status VARCHAR, reason VARCHAR)")
+        con.execute("INSERT INTO p15_preopen_runs VALUES ('2026-10-10 02:30:05', "
+                    "'2026-10-10 02:31:00', 'unavailable', 'pre-open evidence is invalid')")
+    monkeypatch.setattr(ops_digest, "latest_snapshot", lambda database:
+                        SimpleNamespace(path=published))
+    unit = "trading-engine-p15-preopen.service"
+    [hour] = _collect(tmp_path, {unit: _journal(unit)})
+    report = ops_digest.report(24, tmp_path / "logs" / "ops", now=NOW,
+                               run=_fake_run({unit: ""}))
+    assert hour["status"] == "WARN" and "0 failed run(s)" in hour["text"]
+    assert "Degraded work receipts" in hour["text"]
+    assert "[WARN] trading-engine-p15-preopen" in report
+    assert "| 1 | 0 | 1 | ? |" in report  # one run, lifecycle failure 0, degradation 1
 
 
 def test_footprint_counts_the_whole_store_directory(tmp_path):

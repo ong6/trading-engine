@@ -73,8 +73,22 @@ ERROR_RE = re.compile(
 )
 WARN_RE = re.compile(
     r"\bWARN(ING)?\b|\bwithheld\b|\bnot_ready\b|\bretry(ing)?\b|\bstale\b"
-    r'|"status":\s*"(degraded|skipped|partial|invalid)"',
+    r'|"status":\s*"(degraded|skipped|partial|invalid|unavailable|late)"'
+    r"|\bstatus=(unavailable|late|partial|degraded)\b"
+    r"|\brebase conflict\b|\brefus(ed|ing|al)\b"
+    r"|\b(drain budget exhausted|resource guard tripped)\b"
+    r"|active process holds .*backup not started",
     re.IGNORECASE,
+)
+HOST_FAILURE_RE = re.compile(
+    r"\b(fetch|push) failed\b|\b\w+ failed \(non-fatal\)"
+    r"|\bstatus=(failed|error)\b|\bfatal:|\bTIMEOUT\b"
+    r"|\[queue[^]]*\].*\bfailed\b", re.IGNORECASE)
+FAILED_COUNT_RE = re.compile(
+    r'\b(failed(?:_this_run)?|unavailable_count)["\s]*[:=]\s*([1-9]\d*)\b')
+HOST_LOG_GLOBS = (
+    "~/.local/state/te-autopush.log", "~/.local/state/store-sync.log",
+    "~/news-scraper/logs/ensure_scraper.log", "~/news-scraper/logs/*.log",
 )
 IGNORED_UNIT_RE = re.compile(r"^(at-spi|dbus|gvfs|pulseaudio|xdg-|app-)")
 SYSTEMD_START_RE = re.compile(r"^Starting .*\.\.\.$")
@@ -130,9 +144,20 @@ def floor_hour(moment: datetime) -> datetime:
 
 def classify(line: str) -> str | None:
     head = line[:CLASSIFY_CHARS]
-    if ERROR_RE.search(head):
+    # These producers print a structured, justified skip for a fresh snapshot, same-day
+    # successful backup or a non-session tick. They are completed no-ops.
+    try:
+        payload = json.loads(head)
+    except (ValueError, TypeError):
+        payload = None
+    if isinstance(payload, dict) and payload.get("status") == "skipped" and any(
+            phrase in str(payload.get("reason", "")).lower() for phrase in (
+                "latest snapshot is", "already successfully", "already successful",
+                "not a trading session", "no session")):
+        return None
+    if ERROR_RE.search(head) or HOST_FAILURE_RE.search(head):
         return "error"
-    if WARN_RE.search(head):
+    if WARN_RE.search(head) or FAILED_COUNT_RE.search(head):
         return "warn"
     return None
 
@@ -284,12 +309,19 @@ def _log_sources(logs_dir: Path, ops_dir: Path) -> list[Path]:
         and path.name != "stage-timings.jsonl"
     ] if logs_dir.is_dir() else []
     extra = ops_dir / "sources.txt"
+    patterns = list(HOST_LOG_GLOBS)
     if extra.is_file():
         for line in extra.read_text().splitlines():
             pattern = line.strip()
             if pattern and not pattern.startswith("#"):
-                paths.extend(Path(item) for item in sorted(glob.glob(os.path.expanduser(pattern))))
-    return paths
+                patterns.append(pattern)
+    for pattern in patterns:
+        # sources.txt accepts both common home forms, and relative globs mean logs/ops/.
+        expanded = os.path.expandvars(os.path.expanduser(pattern))
+        if not Path(expanded).is_absolute():
+            expanded = str(ops_dir / expanded)
+        paths.extend(Path(item) for item in sorted(glob.glob(expanded)))
+    return list(dict.fromkeys(path.resolve() for path in paths if path.is_file()))
 
 
 def read_new_lines(
@@ -384,7 +416,10 @@ def store_runs(db: sqlite3.Connection, runs: list[UnitRun]) -> list[dict]:
             "SELECT rowid, exit_code, termination_kind FROM unit_runs WHERE unit=? "
             "AND started IS ? AND (started IS NOT NULL OR ended IS ?)",
             (item.unit, started, item.ended)).fetchone()
-        exit_code = item.exit_code if item.exit_code is not None else prior[1] if prior else None
+        # A bare Succeeded message has a synthetic zero; don't replace the actual termination
+        # stored in the preceding hour with that zero.
+        exit_code = (prior[1] if prior and prior[1] is not None and
+                     item.termination_kind is None else item.exit_code)
         kind = item.termination_kind or (prior[2] if prior else None)
         values = (item.unit, started, item.ended, seconds, exit_code, result, kind)
         if prior:
@@ -501,6 +536,10 @@ def render(hour: datetime, data: dict) -> str:
             lines.append(
                 f"| {row['driver']} | {row['stage']} | {_clock(row['ended'])} | "
                 f"{_duration(float(row['seconds']))} | {row['exit']} |")
+    if data.get("work"):
+        lines += ["", "## Degraded work receipts", ""]
+        for job, receipt in data["work"]:
+            lines.append(f"- {job} at {_iso(receipt.start)}: {receipt.label}")
     if data["probes"]:
         lines += ["", "## API", ""]
         lines.append(", ".join(
@@ -570,13 +609,16 @@ def collect_hour(
             item["typical"] = typical_seconds(db, item["unit"], item["started"])
             item["slow"] = bool(item["typical"] and item["seconds"] > SLOW_FACTOR * item["typical"])
     stages = collect_stages(db, logs_dir, since) if since is not None else []
-    probes, sections, fp = [], {}, {}
+    probes, sections, fp, degraded = [], {}, {}, []
     if last:
         collect_files(db, logs_dir, ops_dir, signals)
         first_seen = db.execute("SELECT value FROM meta WHERE key='stages_seen'").fetchone()
         if first_seen and (logs_dir / "stage-timings.jsonl").is_file():
             record_coverage(db, "stages", _utc(first_seen[0]), now)
         db.execute("INSERT OR REPLACE INTO meta VALUES ('stages_seen', ?)", (_iso(now),))
+        receipts, receipt_gaps = work_receipts(db_path, since, end, logs_dir)
+        gaps.extend(receipt_gaps)
+        degraded = [(job, r) for job, rows in receipts.items() for r in rows if r.degraded]
         probes, sections = probe(fetch)
         fp = footprint(run, logs_dir, db_path)
     previous = dict(db.execute(
@@ -592,7 +634,7 @@ def collect_hour(
     health = next((p for p in probes if p["target"] == "/health"), None)
     if failed or failed_stages or (health and health["http_status"] != 200):
         status = "FAIL"
-    elif errors or any(r.get("slow") for r in runs) or any(
+    elif errors or warns or degraded or any(r.get("slow") for r in runs) or any(
             p["ms"] > SLOW_PROBE_MS for p in probes):
         status = "WARN"
     else:
@@ -601,7 +643,7 @@ def collect_hour(
         "status": status, "collected_at": _iso(now), "failed_runs": len(failed) + len(
             failed_stages), "error_lines": errors, "warn_lines": warns, "gaps": gaps,
         "runs": runs, "stages": stages, "probes": probes, "sections": sections,
-        "section_changes": changes, "signals": signals, "footprint": fp,
+        "section_changes": changes, "signals": signals, "footprint": fp, "work": degraded,
     }
     digest = ops_dir / "hourly" / f"{hour:%Y-%m-%d}" / f"{hour:%H}.md"
     text = render(hour, data)
@@ -731,11 +773,12 @@ class JobRun:
     seconds: float | None
     ok: bool | None
     label: str
+    degraded: bool = False
 
 
 def journal_start(run: Runner) -> datetime | None:
     """Retained coverage starts at the latest boot; earlier reboot gaps stay unknown."""
-    raw = run(["journalctl", "--user", "--list-boots", "--no-pager"], 30) or ""
+    raw = run(["journalctl", "--user", "--list-boots", "--utc", "--no-pager"], 30) or ""
     stamps = re.findall(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC", raw)
     return max(_utc(s) for s in stamps[::2]) if stamps else None
 
@@ -806,20 +849,45 @@ def _schedule_intervals(db: sqlite3.Connection, schedule: Schedule,
     return intervals
 
 
-def work_receipts(database: Path, start: datetime, end: datetime
+def work_receipts(database: Path, start: datetime, end: datetime, logs_dir: Path = LOGS_DIR
                   ) -> tuple[dict[str, list[JobRun]], list[str]]:
     """Read dated work from one resolved immutable snapshot; never infer a process exit."""
     snapshot = latest_snapshot(database)
     receipts: dict[str, list[JobRun]] = defaultdict(list)
+    gaps = []
+    # These are dated producer receipts, read independently of text-log tail offsets.
+    for job, name in (("trading-engine-hourly-opportunity", "hourly_market_watch_v5.jsonl"),
+                      ("trading-engine-four-hour-opportunity", "four_hour_opportunity_review_v5.jsonl")):
+        path = logs_dir / name
+        try:
+            with path.open("rb") as handle:
+                size = path.stat().st_size
+                if size > MAX_READ_BYTES:
+                    handle.seek(size - MAX_READ_BYTES)
+                    handle.readline()  # discard a partial first row
+                    gaps.append(f"older work receipts outside read limit for {job}")
+                lines = handle.read().decode("utf-8", "replace").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                row = json.loads(line)
+                began = datetime.fromisoformat(row["observed_at"]).astimezone(UTC)
+                count = int(row.get("unavailable_count", 0))
+            except (ValueError, TypeError, KeyError):
+                gaps.append(f"malformed work receipt for {job}")
+                continue
+            if start <= began < end:
+                receipts[job].append(JobRun(began, None, None,
+                    f"receipt observation; unavailable={count}; exit unknown", count > 0))
     if snapshot is None:
-        return receipts, ["work receipts unavailable: no published snapshot"]
+        return receipts, [*gaps, "work receipts unavailable: no published snapshot"]
     sources = {
         "trading-engine-p15-events": ("p15_event_windows", "observed_at"),
         "trading-engine-p15-preopen": ("p15_preopen_runs", "started_at"),
         "trading-engine-p15-scoring": ("p15_scoring_runs", "started_at"),
         "trading-engine-daily-opportunity": ("daily_opportunity_runs", "started_at"),
     }
-    gaps = []
     try:
         with duckdb.connect(str(snapshot.path), read_only=True) as con:
             for job, (table, stamp) in sources.items():
@@ -835,7 +903,10 @@ def work_receipts(database: Path, start: datetime, end: datetime
                     label = f"receipt {status}; exit unknown"
                     if reason:
                         label += f" ({reason})"
-                    receipts[job].append(JobRun(began.replace(tzinfo=UTC), None, None, label))
+                    degraded = status in {"unavailable", "late", "partial", "degraded",
+                                          "failed", "error", "invalid"}
+                    receipts[job].append(JobRun(began.replace(tzinfo=UTC), None, None, label,
+                                               degraded))
     except duckdb.Error:
         gaps.append("work receipts unreadable: published snapshot could not be opened")
     return receipts, gaps
@@ -1097,6 +1168,7 @@ def runs_lines(db: sqlite3.Connection, run: Runner, start: datetime,
                          and abs((r.start - receipt.start).total_seconds()) <= 60), None)
             if peer:
                 peer.label += "; " + receipt.label
+                peer.degraded |= receipt.degraded
             else:
                 runs.append(receipt)
         runs.sort(key=lambda r: r.start or end)
@@ -1127,15 +1199,16 @@ def runs_lines(db: sqlite3.Connection, run: Runner, start: datetime,
         due_cell = len(due) if known_calendar else "?"
         absent_cell = len(observable) if known_calendar else "?"
         table.append(f"| {job} | `{spec}` | {due_cell} | {len(runs)} | "
-                     f"{sum(r.ok is False for r in runs)} | {absent_cell} | {unknown_cell} | "
+                     f"{sum(r.ok is False for r in runs)} | {sum(r.degraded for r in runs)} | "
+                     f"{absent_cell} | {unknown_cell} | "
                      f"{_runs_cell(runs)} |")
     lines = ["", "## Runs", "", f"Requested interval {since} through {until}. Due counts cover "
              "only intervals bracketed by identical installed schedule observations; transitions "
              "and earlier history are unknown. Missing requires readable coverage across the "
              f"allowed start window (timer delay plus {RUN_GRACE_S // 60} minutes). "
              "Receipts prove work; they do not prove process exit. Unknown is never missing.", "",
-             "| job | schedule | known due | ran | failed | missing | unknown | runs |",
-             "|---|---|---|---|---|---|---|---|", *table]
+             "| job | schedule | known due | ran | failed | degraded | missing | unknown | runs |",
+             "|---|---|---|---|---|---|---|---|---|", *table]
     stage_lines = [
         f"- {driver} {_stamp(begin)}, {_duration((finish - begin).total_seconds())}: " + " · ".join(
             f"{stage} {_duration(seconds)}" + (f" exit {code}" if code else "")
@@ -1186,9 +1259,13 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
             out += [f"- {u} at {s or 'unknown start'} ({_duration(sec)}): {res}, exit {code}"
                     for u, s, sec, code, res in failed]
         start = floor_hour(now) - timedelta(hours=hours)
-        receipts, receipt_gaps = work_receipts(db_path, start, now)
+        receipts, receipt_gaps = work_receipts(db_path, start, now, ops_dir.parent)
         if receipt_gaps:
             out += ["", "Work coverage: " + "; ".join(receipt_gaps)]
+        degraded = [f"- [WARN] {job} at {_iso(r.start)}: {r.label}" for job, items in
+                    receipts.items() for r in items if r.degraded]
+        if degraded:
+            out += ["", "## Degraded work", "", *degraded]
         missing, run_lines = runs_lines(db, run, start, now, receipts)
         if missing:
             out += ["", "## Missing runs", "", *missing]

@@ -3510,4 +3510,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/product unchanged; tools +183 LOC.
 - **Next:** Classify host failures and producer degradation, then move the Sunday history slot.
 
+## 2026-10-17 — Surface host failures and recorded producer degradation
+
+- **Why:** Revision-15 ops ranks 7/9; baseline classification returns nothing for fetch/push/non-fatal failure messages, unavailable pre-open JSON, failed backfill counts and queue refusals.
+- **What:** Recognize existing host messages and partial/deferred producer output; warning lines make the hour WARN.
+  Include existing host log sources, deduplicate configured paths, and project degraded dated receipts without changing producers.
+- **Evidence:** `python -m pytest tests/test_ops_digest.py -q -W error -n 0` → 56 passed; warning-only hours and exit-zero unavailable receipts are WARN, benign no-ops stay OK.
+- **Metrics:** server/product unchanged; tools +57 LOC.
+- **Next:** Move the Sunday TradingView history slot and run both full timezone suites.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
