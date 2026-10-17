@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import date, datetime
 
 from engine.lib.util import table_exists
@@ -10,6 +11,25 @@ from engine.lib.util import table_exists
 FIXED_ETF_HISTORY = "fixed_etf_history"
 CURRENT_UNIVERSE_SURVIVOR_BIASED = "current_universe_survivor_biased"
 STATIC_FUNDAMENTAL_LOOKAHEAD = "static_fundamental_lookahead"
+
+
+def trusted_bar_sql(open_col="open", high_col="high", low_col="low",
+                    close_col="close", volume_col="volume") -> str:
+    """One execution/mark rule: finite positive OHLCV and valid geometry."""
+    o, h, lo, c, v = open_col, high_col, low_col, close_col, volume_col
+    finite = " AND ".join(f"isfinite({col}) AND {col}>0" for col in (o, h, lo, c, v))
+    return (f"({finite} AND {h}>={o} AND {h}>={c} AND {h}>={lo} "
+            f"AND {lo}<={o} AND {lo}<={c})")
+
+
+def trusted_bar(values) -> bool:
+    """Python equivalent for a single source OHLCV tuple."""
+    if values is None or len(values) != 5:
+        return False
+    if any(value is None or not math.isfinite(value) or value <= 0 for value in values):
+        return False
+    o, h, lo, c, _v = values
+    return h >= max(o, lo, c) and lo <= min(o, c)
 
 FIXED_ETF_STRATEGIES = frozenset({
     "spy_benchmark", "dual_momentum", "dual_momentum_gated",

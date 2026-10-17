@@ -873,3 +873,92 @@ def test_p15_scoring_discards_complete_samples_if_finalization_crosses_noon(tmp_
         assert con.execute("SELECT COUNT(*) FROM agent_evaluation_traces").fetchone() == (0,)
     finally:
         con.close()
+
+
+@pytest.mark.parametrize('crossing', ['before_sample', 'after_response', 'between_samples'])
+def test_p15_deadline_crossings_keep_attempts_and_publish_no_entries(tmp_path, monkeypatch, crossing):
+    database = tmp_path / 'market.duckdb'
+    _p15_database(database)
+    start = datetime(2026, 9, 22, 11, 59, tzinfo=timezone.utc)
+    current = start
+    calls = []
+    original = p15_scoring_runner.store.create_run
+
+    def create(*args, **kwargs):
+        nonlocal current
+        result = original(*args, **kwargs)
+        if crossing == 'before_sample':
+            current = start.replace(hour=12, minute=0)
+        return result
+
+    def generate(payload):
+        nonlocal current
+        calls.append(payload['sample_index'])
+        if crossing == 'after_response':
+            current = start.replace(hour=12, minute=0)
+        return _scoring_result(payload)
+
+    complete = p15_scoring_runner.store.complete_sample
+
+    def completed(*args, **kwargs):
+        nonlocal current
+        complete(*args, **kwargs)
+        if crossing == 'between_samples':
+            current = start.replace(hour=12, minute=0)
+
+    monkeypatch.setattr(p15_scoring_runner.store, 'create_run', create)
+    monkeypatch.setattr(p15_scoring_runner.store, 'complete_sample', completed)
+    result = p15_scoring_runner._run(database=database, now=start, generate=generate,
+                                   fetch_news=_news_response, clock=lambda: current)
+    assert result['status'] == 'failed' and result['reason'] == 'deadline_exceeded'
+    assert calls == ([] if crossing == 'before_sample' else [0])
+    con = db.connect(database, read_only=True)
+    try:
+        assert con.execute('SELECT COUNT(*) FROM agent_evaluation_decisions').fetchone() == (0,)
+        retained = con.execute('SELECT status,response_payload FROM p15_scoring_samples').fetchall()
+        assert len(retained) == len(calls)
+        if retained:
+            assert retained[0][0] == ('failed' if crossing == 'after_response' else 'completed')
+            assert retained[0][1] is not None
+    finally:
+        con.close()
+
+
+def test_p15_request_identity_mismatch_is_unavailable_and_retained(tmp_path):
+    from dataclasses import replace
+
+    database = tmp_path / 'market.duckdb'
+    _p15_database(database)
+    result = p15_scoring_runner._run(database=database, now=P15_NOW,
+             generate=lambda payload: replace(_scoring_result(payload), request_sha256='0'*64),
+             fetch_news=_news_response, clock=lambda: P15_NOW)
+    assert result['status'] == 'completed' and result['unavailable_count'] == 2
+    con = db.connect(database, read_only=True)
+    try:
+        assert con.execute("SELECT COUNT(*) FROM p15_scoring_samples WHERE status='failed' AND error='P15 scoring request identity differs' AND response_payload IS NOT NULL").fetchone() == (3,)
+        assert con.execute("SELECT COUNT(*) FROM agent_evaluation_decisions WHERE decision='buy'").fetchone() == (0,)
+    finally:
+        con.close()
+
+
+def test_p15_completed_sample_recovery_makes_no_duplicate_calls(tmp_path, monkeypatch):
+    database = tmp_path / 'market.duckdb'
+    _p15_database(database)
+    complete = p15_scoring_runner.store.complete_run
+    monkeypatch.setattr(p15_scoring_runner.store, 'complete_run',
+                        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError('interrupted finalization')))
+    with pytest.raises(RuntimeError, match='interrupted finalization'):
+        p15_scoring_runner._run(database=database, now=P15_NOW, generate=_scoring_result,
+                               fetch_news=_news_response, clock=lambda: P15_NOW)
+    monkeypatch.setattr(p15_scoring_runner.store, 'complete_run', complete)
+    def forbidden(*args, **kwargs):
+        raise AssertionError('recovery called an external source')
+    result = p15_scoring_runner._run(database=database, now=P15_NOW, generate=forbidden,
+                                   fetch_news=forbidden, clock=lambda: P15_NOW)
+    assert result['status'] == 'completed' and result['model_call_count'] == 0
+    con = db.connect(database, read_only=True)
+    try:
+        assert con.execute('SELECT COUNT(*) FROM p15_scoring_samples').fetchone() == (3,)
+        assert con.execute('SELECT COUNT(*) FROM agent_evaluation_traces').fetchone() == (1,)
+    finally:
+        con.close()

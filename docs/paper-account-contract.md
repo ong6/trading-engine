@@ -46,6 +46,11 @@ performs the state-dependent checks and accepts an exact v1 request:
 `instrument_kind`, `ticker`, `side`, `quantity`, `signal_date`, `created_at`, `source_sha256`.
 
 Quantity is a finite positive number of shares fixed by the prospective specification.
+Execution rejects malformed retained quantities, prices, limits, stops and fees before
+changing money. Every fill requires finite positive OHLC, valid geometry and positive
+volume. An invalid bar follows the existing missing-bar waiting deadline; its reason is
+retained. Marks carry the last trusted close with its date and stale flag when the exact
+session is unavailable or invalid; zero close is never a mark.
 A notional-only frozen request cannot be silently converted using a premarket quote or a
 future official open. Historical private paper fills are not replayed through this interface.
 The engine admits only requests observed after the signal session's exchange close (including

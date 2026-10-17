@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 
 import duckdb
 
+from engine.lib.data_quality import trusted_bar, trusted_bar_sql
+
 from . import order_types
 
 NEW_YORK = ZoneInfo("America/New_York")
@@ -92,7 +94,7 @@ def daily_bar(
     if not columns:
         return None
     open_col, high_col, low_col, close_col, volume_col, vwap_col = names
-    if not {"ticker", "date", open_col, close_col, volume_col} <= columns:
+    if not {"ticker", "date", open_col, high_col, low_col, close_col, volume_col} <= columns:
         return None
     high_expr = high_col if high_col in columns else open_col
     low_expr = low_col if low_col in columns else close_col
@@ -118,7 +120,7 @@ def daily_bar(
     if row is None or any(row[index] is None for index in range(5)):
         return None
     values = [float(row[index]) for index in range(5)]
-    if any(value <= 0 for value in values):
+    if not trusted_bar(values):
         return None
     return DailyBar(
         ticker=ticker,
@@ -181,7 +183,7 @@ def minute_bars(
         if any(row[index] is None for index in range(1, 6)):
             continue
         values = [float(row[index]) for index in range(1, 6)]
-        if any(value <= 0 for value in values):
+        if not trusted_bar(values):
             continue
         stamp = _naive_utc(row[0])
         out.append(MinuteBar(
@@ -252,7 +254,7 @@ def latest_close_observation(
     if not columns:
         return None
     operator = "<" if strictly_before else "<="
-    where = f"ticker=? AND date{operator}? AND {close_col}>0"
+    where = f"ticker=? AND date{operator}?"
     params: list[object] = [ticker, on_or_before]
     stamp = "first_fetched_at" if "first_fetched_at" in columns else (
         "fetched_at" if "fetched_at" in columns else None
@@ -263,8 +265,13 @@ def latest_close_observation(
     order = "date DESC"
     if source == "massive_daily":
         order += ",fetched_at DESC,source_sha256 DESC"
+    names = ("open", "high", "low", "close", "volume") if source == "prices" else ("o", "h", "l", "c", "volume")
+    if not set(names) <= columns:
+        return None
+    canonical = (" QUALIFY ROW_NUMBER() OVER (PARTITION BY date ORDER BY fetched_at DESC,source_sha256 DESC)=1" if source == "massive_daily" else "")
     row = con.execute(
-        f"SELECT date,{close_col} FROM {table} WHERE {where} ORDER BY {order} LIMIT 1",
+        f"SELECT date,{close_col} FROM (SELECT * FROM {table} WHERE {where}{canonical}) "
+        f"WHERE {trusted_bar_sql(*names)} ORDER BY {order} LIMIT 1",
         params,
     ).fetchone()
     return None if row is None or row[1] is None else (row[0], float(row[1]))

@@ -28,7 +28,7 @@ def test_recovery_from_loss_date_replays_later_resume(h):
     h.create(capital_usd=10000)
     h.history('LONG', 'buy', 90, 100)
     with h.con(h.daily) as con:
-        con.execute("UPDATE free_daily_bars SET c=50 WHERE ticker='LONG' AND date=?", [DAY])
+        con.execute("UPDATE free_daily_bars SET l=50,c=50 WHERE ticker='LONG' AND date=?", [DAY])
     assert h.night() == 0
     add_day(h, NEXT, price=95)
     assert h.night(NEXT) == 0

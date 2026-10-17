@@ -6,6 +6,7 @@ from datetime import date, timedelta
 
 from engine.lib.util import table_exists
 from sim import bar_sources
+from sim.money_inputs import finite_number
 
 
 def recorded_splits(con, account_id: str, through: date | None = None):
@@ -68,15 +69,22 @@ def credit_dividends(con, account_id, day, now, *, replay=False):
         return
     rows = con.execute(
         "SELECT ticker,value FROM corporate_actions WHERE kind='dividend' AND ex_date=? "
-        'AND value>0 AND isfinite(value) AND (fetched_at IS NULL OR fetched_at<=?)',
+        'AND (fetched_at IS NULL OR fetched_at<=?)',
         [day, now],
     ).fetchall()
     if not rows:
         return
+    for _ticker, dps in rows:
+        finite_number(dps, 'dividend per share', positive=True)
     prefix = ledger.projected_state(con, account_id, through=day - timedelta(days=1))
+    payments = []
+    planned_cash = prefix['cash']
     for ticker, dps in rows:
         qty = prefix['positions'].get(ticker, {}).get('qty', 0.)
-        amount = qty * float(dps)
+        amount = finite_number(qty * float(dps), 'dividend amount')
+        planned_cash = finite_number(planned_cash + amount, 'cash after dividend')
+        payments.append((ticker, dps, qty, amount))
+    for ticker, dps, qty, amount in payments:
         old = con.execute('SELECT amount FROM sim_dividends WHERE portfolio_id=? AND ticker=? '
                           'AND ex_date=?', [account_id, ticker, day]).fetchone()
         if old is None:

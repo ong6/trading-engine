@@ -1,0 +1,49 @@
+{
+  "budget": {
+    "ok": true,
+    "violations": []
+  },
+  "code_size": {
+    "buildlog": 3479,
+    "docs_md": 28555,
+    "engine": 24217,
+    "farm": 26594,
+    "product": 63385,
+    "server": 65000,
+    "sim": 12574,
+    "tests": 93108,
+    "tools": 12546,
+    "ui_app": 6700
+  },
+  "commit_shape": {
+    "largest_insertions": 70934,
+    "largest_sha": "2d4a8eb",
+    "largest_subject": "Publish reviewed alpha evidence and safety closure",
+    "non_screen_commits": 693,
+    "product_touching": 280,
+    "research_touching": 248,
+    "support_only": 413,
+    "window_days": 30
+  },
+  "date": "2026-10-17",
+  "ledger": {
+    "entries_total": 304,
+    "recent_entries": 10,
+    "recent_max_lines": 9,
+    "recent_mean_lines": 8.1,
+    "recent_sha256_mentions": 0,
+    "v2_entries": 304,
+    "v2_max_lines": 19,
+    "v2_max_sha256": 0
+  },
+  "previous_date": "2026-10-16",
+  "research": {
+    "active_books": 25,
+    "e1_observations": 12,
+    "league_date": "2026-10-15",
+    "league_stale_days": 2,
+    "sector_shared_sessions": 29,
+    "sector_status": "ACCUMULATING",
+    "xs_status": "ACCUMULATING"
+  }
+}

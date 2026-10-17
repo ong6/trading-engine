@@ -209,6 +209,17 @@ def fill_pending(con, d: date) -> dict:
         counts["filled"] += 1
 
     for oid, pf_id, tk, side, qty, sig, profile_id in pend:
+        from .money_inputs import order_refusal
+
+        malformed = order_refusal(side, qty, sides=("buy", "sell"))
+        if malformed:
+            con.execute(
+                "INSERT OR REPLACE INTO sim_execution_attempts "
+                "(order_id,attempt_date,execution_profile,outcome,reject_reason) "
+                "VALUES (?,?,?,'rejected',?)", [oid, d, profile_id, malformed],
+            )
+            reject(oid, malformed)
+            continue
         quarantine = quarantine_reason(con, tk) if side == "buy" else None
         if quarantine:
             reason = f"data_quarantine: {quarantine}"
