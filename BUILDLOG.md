@@ -3528,4 +3528,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** product unchanged from the runtime source commit; tests +1; server/tools unchanged.
 - **Next:** amend the deployment runbook, then rehearse the registered source on one fresh store copy.
 
+## 2026-10-17 — Complete P22 publication, quiescence and rollback instructions
+
+- **Why:** P22 deploy-readiness ranks 4–6: report refresh and semantic checks were missing, active/activating consumers were omitted, and rollback omitted incident data, artifacts and the snapshot pointer.
+- **What:** The runbook refreshes E1, sector and XS twice plus P15, checks semantic runtime/status/clock before triggers reopen, and inventories/stops timers and current services including autopush, backup, store-sync, private-alpha and minute capture.
+  Saved enabled/active/activating state governs restoration. Rollback archives post-deploy data and snapshot identity, restores every backup manifest artifact/control, and publishes a compatible restored snapshot before readers resume.
+- **Evidence:** Both amended Bash blocks pass `bash -n`; all six embedded Python blocks parse. The fresh-store rehearsal executes this sequence and proves restoration before acceptance.
+- **Metrics:** docs only; server/tools/product unchanged.
+- **Next:** fresh one-store deployment/rollback rehearsal, then both final-head timezone suites and UI checks.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

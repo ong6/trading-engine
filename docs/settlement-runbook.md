@@ -243,103 +243,227 @@ orchestrator owns the P15 re-pin; this lane leaves its revision unchanged.
 
 ## P22 deployment and rollback (revision 14, D0 2026-10-19)
 
-Deploy in the Sunday 2026-10-18 19:00–23:00 UTC window after the accepted revision-14
-checkout and both timezone suites pass. Run these commands in Bash on the deployment host.
-`P22_BACKUP` must be a new directory outside the checkout. Save the pre-deploy source and
-scheduler state before changing anything. The lifecycle development lane runs only the
-isolated rehearsal below; these production commands are for the deployment orchestrator.
+Deploy Sunday 2026-10-18 from 19:10 UTC, after the 16:00 go/no-go accepts the exact source,
+both timezone suites and the fresh-store rehearsal. Run the blocks below in one Bash shell.
+The development lane executes them only in its isolated rehearsal; the orchestrator owns the
+production checkout and services. Reserve space for the verified backup, incident DB/WAL/data
+and published snapshot before starting. Recheck Sunday's source, snapshot and writer state.
 
 ```bash
 set -euo pipefail
 P22_ROOT="$(realpath "$HOME/trading-engine")"
 P22_STATE="$HOME/p22-deploy-20261018"
 P22_D0=2026-10-19
-: "${P22_APPROVED_SHA:?Set the full deploy commit approved by the orchestrator}"
+: "${P22_APPROVED_SHA:?Set the full deploy commit accepted by the orchestrator}"
 mkdir -m 700 -p "$P22_STATE"
 P22_STATE="$(realpath "$P22_STATE")"
 P22_BACKUP="$P22_STATE/predeploy-bundle"
+export P22_ROOT P22_STATE P22_BACKUP P22_D0
 cd "$P22_ROOT"
 git rev-parse HEAD > "$P22_STATE/predeploy.sha"
-printf '%s\n' "$P22_APPROVED_SHA" > "$P22_STATE/approved.sha"
-crontab -l > "$P22_STATE/predeploy.crontab"
+git status --porcelain=v1 > "$P22_STATE/predeploy.git-status"
+git diff --binary > "$P22_STATE/predeploy.diff"
+git show HEAD:server/p15-registration.json > "$P22_STATE/predeploy-registration.json"
+.venv/bin/python --version > "$P22_STATE/predeploy-python.txt"
+node --version > "$P22_STATE/predeploy-node.txt"
+cp -a uv.lock pyproject.toml engine/requirements.txt ui/package.json ui/package-lock.json \
+  "$P22_STATE/"
+if crontab -l > "$P22_STATE/predeploy.crontab"; then
+  touch "$P22_STATE/had-crontab"
+fi
 cp -a "$HOME/.config/systemd/user" "$P22_STATE/predeploy-units"
-systemctl --user list-units --type=timer --state=active --no-legend --plain \
-  | awk '$1 ~ /^(trading-engine-|massive-)/ {print $1}' > "$P22_STATE/active-timers"
-systemctl --user list-units --type=service --state=running --no-legend --plain \
-  | awk '$1 ~ /^(trading-engine-|massive-)/ {print $1}' > "$P22_STATE/active-services"
+# Include installed inactive units and loaded activating oneshots. Private-alpha timers
+# are discovered through their triggered service's ExecStart, without naming a strategy.
+.venv/bin/python - <<'PY'
+import json, os, subprocess
+from pathlib import Path
+state = Path(os.environ['P22_STATE'])
+def output(*args):
+    return subprocess.check_output(['systemctl', '--user', *args], text=True)
+names = set()
+for cmd in ('list-unit-files', 'list-units'):
+    for line in output(cmd, '--all', '--no-legend', '--plain', '--no-pager').splitlines():
+        fields = line.split()
+        if fields and fields[0].endswith(('.service', '.timer')):
+            names.add(fields[0])
+properties = {}
+for name in sorted(names):
+    raw = output('show', name, '--property=Id,LoadState,ActiveState,SubState,UnitFileState,ExecStart,Triggers,MainPID,ControlGroup')
+    properties[name] = dict(line.split('=', 1) for line in raw.splitlines() if '=' in line)
+managed = {name for name, p in properties.items() if
+           name.startswith(('trading-engine-', 'massive-')) or
+           name in {'te-autopush.service', 'te-autopush.timer', 'trading-data-backup.service',
+                    'trading-data-backup.timer', 'store-sync.service', 'store-sync.timer'} or
+           '/trading-alpha/' in p.get('ExecStart', '')}
+managed |= {name for name, p in properties.items()
+            if set(p.get('Triggers', '').split()) & managed}
+records = {name: properties[name] for name in sorted(managed)}
+(state / 'unit-state.json').write_text(json.dumps(records, indent=2) + '\n')
+for kind in ('timer', 'service'):
+    selected = [n for n in records if n.endswith('.' + kind)]
+    (state / ('managed-' + kind + 's')).write_text(''.join(n + '\n' for n in selected))
+    active = [n for n in selected if records[n]['ActiveState'] in {'active', 'activating', 'reloading'}]
+    (state / ('resume-' + kind + 's')).write_text(''.join(n + '\n' for n in active))
+PY
 
-# Quiesce every engine/data trigger and writer, including continuous capture, and the
-# repository auto-push (it rebases and pushes this checkout).
-crontab -r
-systemctl --user stop te-autopush.timer 'trading-engine-*.timer' 'massive-*.timer'
-systemctl --user stop 'trading-engine-*.service' 'massive-*.service'
-systemctl --user stop trading-engine-api.service massive-minute-capture.service
-# Existing cron-launched drivers must finish before proceeding. Backup also takes
-# all registered driver locks; a busy lock is a refusal, never permission to continue.
-if fuser store/market.duckdb; then exit 1; fi
+p22_quiesce() {
+  crontab -r 2>/dev/null || test ! -f "$P22_STATE/had-crontab"
+  # Stop current services as well as their timers: autopush can rebase without opening DB.
+  xargs -r systemctl --user stop < "$P22_STATE/managed-timers"
+  xargs -r systemctl --user stop < "$P22_STATE/managed-services"
+  for P22_UNIT in trading-engine-accounts-settle.timer massive-options-daily.timer \
+      trading-engine-accounts-settle.service massive-options-daily.service; do
+    if test "$(systemctl --user show "$P22_UNIT" --property=LoadState --value)" != not-found; then
+      systemctl --user stop "$P22_UNIT"
+    fi
+  done
+  .venv/bin/python - <<'PY'
+import json, os, subprocess
+from pathlib import Path
+records = json.loads((Path(os.environ['P22_STATE']) / 'unit-state.json').read_text())
+for name in records:
+    raw = subprocess.check_output(['systemctl', '--user', 'show', name,
+                                  '--property=ActiveState,MainPID,ControlGroup'], text=True)
+    p = dict(line.split('=', 1) for line in raw.splitlines())
+    assert p['ActiveState'] in {'inactive', 'failed'} and p['MainPID'] == '0', (name, p)
+    group = p.get('ControlGroup', '')
+    procs = Path('/sys/fs/cgroup' + group) / 'cgroup.procs' if group else None
+    assert procs is None or not procs.exists() or not procs.read_text().strip(), name
+jobs = subprocess.check_output(['systemctl', '--user', 'list-jobs', '--no-legend', '--no-pager'], text=True)
+assert not any(name in jobs for name in records), jobs
+PY
+  # Inventory cron-launched drivers and their child groups. A survivor means defer the
+  # deploy; do not kill arbitrary processes or infer idleness from a closed DB handle.
+  ps -eo pid,ppid,args > "$P22_STATE/quiesced-processes.txt"
+  if pgrep -af 'run_daily\.sh|run_weekly_walkforward\.sh|run_weekly_liquidity\.sh|run_weekend_sweep\.sh|engine\.queue_runner|engine\.sync|trading-alpha/|te-autopush|tools\.free_massive_options|engine\.free_massive_minute' \
+      | awk '$0 !~ /pgrep -af/ {found=1; print} END {exit !found}'; then
+    return 1
+  fi
+  # Include the continuous Massive minute store, options/PIT stores and every WAL.
+  mapfile -d '' P22_STORES < <(find store -type f \( -name '*.duckdb' -o -name '*.duckdb.wal' \) -print0)
+  if ((${#P22_STORES[@]})) && fuser "${P22_STORES[@]}"; then return 1; fi
+}
+p22_quiesce
+# Save source-dependent outputs and controls even when they are untracked/generated.
+mkdir -m 700 "$P22_STATE/predeploy-artifacts"
+cp -a data logs "$P22_STATE/predeploy-artifacts/"
+mkdir -m 700 "$P22_STATE/predeploy-snapshot-identity"
+readlink store/snapshots/market-latest.duckdb > "$P22_STATE/predeploy-snapshot-identity/latest-link"
+cp -a store/snapshots/*.json "$P22_STATE/predeploy-snapshot-identity/"
 .venv/bin/python -m tools.backup_database create "$P22_BACKUP" --source store/market.duckdb
 .venv/bin/python -m tools.backup_database verify "$P22_BACKUP"
 
 git pull --ff-only origin main
-test "$(git rev-parse HEAD)" = "$(cat "$P22_STATE/approved.sha")"
+test "$(git rev-parse HEAD)" = "$P22_APPROVED_SHA"
 .venv/bin/python -c 'import json; assert json.load(open("server/p15-registration.json"))["registration_revision"] == 14'
 .venv/bin/python -m pytest -q -W error tests/test_p15_registration.py
-# The E1, sector and XS records still carry their predecessor runtime contracts. Migrate each
-# before the cost-profile break: each refuses (exit 1) unless the deployed record reproduces.
+# Migrations reproduce their deployed predecessor records and must precede any cost break.
 .venv/bin/python -m farm.experiment_runner --migrate-runtime-contract
 .venv/bin/python -m engine.forward_review --migrate-runtime-contract
 .venv/bin/python -m engine.xs_forward_review --migrate-runtime-contract
-.venv/bin/python -m tools.migrate_cost_profiles --db store/market.duckdb \
-  --d0 "$P22_D0" --apply
-# Required output: {"routing_changes": []}; every break reads revision 14.
-# No routing-change override exists. Existing P15 and league fill paths stay intact.
+.venv/bin/python -m tools.migrate_cost_profiles --db store/market.duckdb --d0 "$P22_D0" --apply
+# Required: routing_changes [], one revision-14 break for every old portfolio, no D0 equity.
+# Refresh ordinary evidence twice while readers and triggers remain stopped.
+for P22_REVIEW in 1 2; do
+  .venv/bin/python -m farm.experiment_runner --report-only
+  .venv/bin/python -m engine.forward_review
+  .venv/bin/python -m engine.xs_forward_review
+done
+.venv/bin/python -m server.agent_evaluation_reporting
+.venv/bin/python -m tools.publish_snapshot --source store/market.duckdb
 install -m 0644 server/trading-engine-accounts-settle.service \
   server/trading-engine-accounts-settle.timer server/massive-options-daily.service \
   server/massive-options-daily.timer "$HOME/.config/systemd/user/"
 systemctl --user daemon-reload
-systemctl --user enable trading-engine-accounts-settle.timer massive-options-daily.timer
-xargs -r systemctl --user start < "$P22_STATE/active-services"
-systemctl --user start trading-engine-api.service massive-minute-capture.service
-xargs -r systemctl --user start < "$P22_STATE/active-timers"
-systemctl --user start trading-engine-accounts-settle.timer massive-options-daily.timer
-crontab "$P22_STATE/predeploy.crontab"
-systemctl --user start te-autopush.timer
+# Reopen saved API/UI readers first (UI builds on start), then verify semantics before writers.
+awk '$0 ~ /^trading-engine-(api|ui)\.service$/' "$P22_STATE/resume-services" \
+  | xargs -r systemctl --user start
 curl --fail --silent --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8000/health
-curl --fail --silent http://127.0.0.1:8000/meta
-curl --fail --silent http://127.0.0.1:8000/accounts
+curl --fail --silent http://127.0.0.1:8000/meta > "$P22_STATE/deployed-meta.json"
+.venv/bin/python - <<'PY'
+import json, os
+from pathlib import Path
+from engine import forward_review, xs_forward_review
+from engine.lib import db
+from farm import experiment_runner
+p = json.loads((Path(os.environ['P22_STATE']) / 'deployed-meta.json').read_text())
+d0 = os.environ['P22_D0']
+for key, monitor, years in [('forward_review', forward_review, 1), ('xs_forward_review', xs_forward_review, 5)]:
+    status = p[key]
+    assert status['status'] == 'ACCUMULATING' and status['shared_sessions'] == 0 and not status['mature'], status
+    assert status['runtime_contract_version'] == monitor.RUNTIME_CONTRACT_VERSION, status
+    assert status['runtime_contract_sha256'] == monitor.EXPECTED_RUNTIME_CONTRACT_SHA256, status
+    assert status['eligible_after'] == str(int(d0[:4]) + years) + d0[4:], status
+assert p['e1_forward']['status'] == 'ACCUMULATING', p['e1_forward']
+assert p['e1_forward']['runtime_contract_version'] == experiment_runner.RUNTIME_CONTRACT_VERSION
+with db.connect(read_only=True) as con:
+    breaks = con.execute("SELECT portfolio_id,break_date,registration_revision FROM sim_book_breaks WHERE kind='cost_profile'").fetchall()
+    assert len(breaks) == con.execute('SELECT COUNT(*) FROM portfolios').fetchone()[0]
+    assert all(str(day) == d0 and revision == 14 for _, day, revision in breaks)
+    assert con.execute("SELECT COUNT(*) FROM portfolio_accounts_v WHERE pa_engine<>'league'").fetchone()[0] == 0
+    assert con.execute('SELECT COUNT(*) FROM sim_equity WHERE date>=?', [d0]).fetchone()[0] == 0
+print('semantic status, runtime, cost clock and legacy routing accepted')
+PY
+curl --fail --silent http://127.0.0.1:8000/accounts > "$P22_STATE/deployed-accounts.json"
+.venv/bin/python -c 'import json,os; from pathlib import Path; assert json.loads((Path(os.environ["P22_STATE"])/"deployed-accounts.json").read_text()) == []'
+awk '$0 !~ /^trading-engine-(api|ui)\.service$/ && $0 != "te-autopush.service"' \
+  "$P22_STATE/resume-services" | xargs -r systemctl --user start
+xargs -r systemctl --user start < "$P22_STATE/resume-timers"
+systemctl --user enable --now trading-engine-accounts-settle.timer massive-options-daily.timer
+if test -f "$P22_STATE/had-crontab"; then crontab "$P22_STATE/predeploy.crontab"; fi
+# Restart autopush only if it was active; its saved timer will fire normally otherwise.
+if grep -qx te-autopush.service "$P22_STATE/resume-services"; then systemctl --user start te-autopush.service; fi
 ```
 
-The unit-install commands install exactly the four new P22 units. The supported whole-host
-installer is `.venv/bin/python -m tools.install_automation --audit` followed by `--apply`;
-`--apply` also reconciles cron, starts autostart units and enables lingering, so it must run only
-after migration in the production window. The isolated rehearsal uses namespaced runtime unit
-links and never invokes the whole-host installer against the running host.
+Persistent new timers can run immediately; account for those writers before reopening triggers.
+A failed semantic assertion keeps the deployment closed. The ordinary refresh does not change
+old outcomes. Missing/invalid research evidence remains visible and is not an acceptance waiver.
+Authenticated private-alpha account creation and cutover follow the private instructions only
+after engine acceptance; the rehearsal uses synthetic accounts on captured bars.
 
-Rollback repeats quiescence after the writers have been restarted. Preserve the post-deploy
-store and logs before restoration; they contain all receipts, events, fills, equity and
-reconciliations. Do not overwrite them with the pre-deploy evidence. The backup's database is a
-checkpointed complete copy; it does not need a WAL from the failed deployment.
+Rollback repeats the same quiescence and archives the entire failed deployment before replacing
+anything. Keep post-deploy receipts, fills, reports, controls and snapshot identity for incident
+reconciliation. Source rollback does not rewind separate PIT capture stores; preserve them if
+this deployment changed them. If no verified backup exists, do not enter the restore block.
 
 ```bash
 cd "$P22_ROOT"
-crontab -r
-systemctl --user stop te-autopush.timer 'trading-engine-*.timer' 'massive-*.timer'
-systemctl --user stop 'trading-engine-*.service' 'massive-*.service'
-systemctl --user stop trading-engine-api.service massive-minute-capture.service \
-  trading-engine-accounts-settle.service massive-options-daily.service
-if fuser store/market.duckdb; then exit 1; fi
+p22_quiesce
 mkdir -m 700 "$P22_STATE/incident"
-cp -a store/market.duckdb logs "$P22_STATE/incident/"
-if test -f store/market.duckdb.wal; then
-  cp -a store/market.duckdb.wal "$P22_STATE/incident/"
-fi
+cp -a store/market.duckdb data logs "$P22_STATE/incident/"
+if test -f store/market.duckdb.wal; then cp -a store/market.duckdb.wal "$P22_STATE/incident/"; fi
+mkdir -m 700 "$P22_STATE/incident/snapshot-identity"
+readlink store/snapshots/market-latest.duckdb > "$P22_STATE/incident/snapshot-identity/latest-link"
+cp -a store/snapshots/*.json "$P22_STATE/incident/snapshot-identity/"
+if test -f store/agent-shadow-control.json; then cp -a store/agent-shadow-control.json "$P22_STATE/incident/"; fi
 .venv/bin/python -m tools.backup_database verify "$P22_BACKUP"
 cp "$P22_BACKUP/market.duckdb" store/market.duckdb.restore
 cmp "$P22_BACKUP/market.duckdb" store/market.duckdb.restore
 rm -f store/market.duckdb.wal
 mv store/market.duckdb.restore store/market.duckdb
-cp -a "$P22_BACKUP/evidence/data/." data/
+# Generated paths can obstruct checkout. Their full bytes are now in the incident archive;
+# inspect the saved status/diff, remove only these generated directories, and refuse any
+# unexplained source edit. Never reset unarchived source or unknown untracked files.
+rm -rf data logs
+mkdir data logs
+# Restore tracked generated paths to the deployed HEAD solely to permit the source checkout.
+git restore --source=HEAD --worktree -- data
 git checkout --detach "$(cat "$P22_STATE/predeploy.sha")"
+cp -a "$P22_STATE/predeploy-artifacts/data/." data/
+cp -a "$P22_STATE/predeploy-artifacts/logs/." logs/
+# Restore every manifest record, including logs/friday-postflight.json and optional controls.
+.venv/bin/python - <<'PY'
+import hashlib, json, os, shutil
+from pathlib import Path
+root, bundle = Path(os.environ['P22_ROOT']), Path(os.environ['P22_BACKUP'])
+manifest = json.loads((bundle / 'manifest.json').read_text())
+for section in ('prospective_evidence', 'operational_artifacts', 'operational_controls'):
+    for relative, record in manifest.get(section, {}).items():
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(bundle / record['bundle_path'], target)
+        assert hashlib.sha256(target.read_bytes()).hexdigest() == record['sha256'], relative
+PY
 systemctl --user disable trading-engine-accounts-settle.timer massive-options-daily.timer
 rm -f "$HOME/.config/systemd/user/trading-engine-accounts-settle.service" \
   "$HOME/.config/systemd/user/trading-engine-accounts-settle.timer" \
@@ -348,15 +472,48 @@ rm -f "$HOME/.config/systemd/user/trading-engine-accounts-settle.service" \
 cp -a "$P22_STATE/predeploy-units/." "$HOME/.config/systemd/user/"
 systemctl --user daemon-reload
 cmp "$P22_BACKUP/market.duckdb" store/market.duckdb
-xargs -r systemctl --user start < "$P22_STATE/active-services"
-xargs -r systemctl --user start < "$P22_STATE/active-timers"
-crontab "$P22_STATE/predeploy.crontab"
-systemctl --user start te-autopush.timer
+# Quarantine the v2 pointer and publish a verified restored-schema snapshot before readers.
+mv store/snapshots "$P22_STATE/incident/quarantined-snapshots"
+.venv/bin/python -m tools.publish_snapshot --source store/market.duckdb
+.venv/bin/python - <<'PY'
+import json
+from engine.lib import db
+from engine.lib.snapshots import latest_snapshot
+from server import agent_evaluation
+from datetime import datetime, timezone
+assert json.load(open('server/p15-registration.json'))['registration_revision'] == 13
+assert latest_snapshot(db.DEFAULT_DB, newer_than_database=True) is not None
+with db.connect(read_only=True) as con:
+    agent_evaluation.validate_p15_evidence(con, generated_at=datetime.now(timezone.utc))
+PY
+.venv/bin/python -m pytest -q -W error tests/test_p15_registration.py
+awk '$0 ~ /^trading-engine-(api|ui)\.service$/' "$P22_STATE/resume-services" \
+  | xargs -r systemctl --user start
 curl --fail --silent --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8000/health
+curl --fail --silent http://127.0.0.1:8000/meta > "$P22_STATE/restored-meta.json"
+.venv/bin/python - <<'PY'
+import json, os
+from pathlib import Path
+p = json.loads((Path(os.environ['P22_STATE']) / 'restored-meta.json').read_text())
+assert all(p[key]['status'] == 'ACCUMULATING' for key in ('forward_review', 'xs_forward_review', 'e1_forward'))
+assert [p[k]['runtime_contract_version'] for k in ('forward_review', 'xs_forward_review', 'e1_forward')] == [10, 21, 6]
+PY
+cmp "$P22_BACKUP/market.duckdb" store/market.duckdb
+awk '$0 !~ /^trading-engine-(api|ui)\.service$/ && $0 != "te-autopush.service"' \
+  "$P22_STATE/resume-services" | xargs -r systemctl --user start
+# Restore saved active/activating services and timers; inactive/disabled units stay so.
+xargs -r systemctl --user start < "$P22_STATE/resume-timers"
+if test -f "$P22_STATE/had-crontab"; then crontab "$P22_STATE/predeploy.crontab"; fi
 ```
 
-Private-alpha account creation and cutover use the private deployment instructions after the
-engine passes these checks. Existing portfolio balances and pre-D0 records are not rerouted.
+The saved unit configuration restores prior enabled/disabled links; `unit-state.json` retains
+active, activating, substate and enabled state for comparison after restoration. An interrupted
+activating oneshot is restarted from its own unit entrypoint. Check every saved active target
+and enabled state before closing the incident. Keep autopush stopped after a detached emergency
+rollback until the orchestrator reconciles `main` or fixes forward; this is the one intentional
+exception to immediate prior-state restoration. A forced writer-contention API probe in the
+isolated rehearsal must use the restored snapshot and v13 forward records before producers
+resume. Production does not create a contention writer as part of the deployment.
 
 ## P22 deploy/rollback rehearsal — 2026-10-08
 
