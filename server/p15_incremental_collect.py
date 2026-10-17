@@ -12,6 +12,7 @@ from yfinance.exceptions import YFPricesMissingError
 
 from engine import collect
 from engine.lib import db
+from engine.lib.data_quality import observation_reasons
 from engine.lib.provenance import canonical_sha256
 from engine.lib.settings import DEFAULT_DB
 
@@ -64,6 +65,9 @@ def _fetch_exact(
         frame = collect._frame_from_sub(raw, ticker)
         if frame is not None:
             exact = frame.loc[frame["date"] == market_date]
+            if not exact.empty and (len(exact) != 1 or any(
+                    observation_reasons(row) for row in exact.to_dict("records"))):
+                return None, exact
             if len(exact) == 1:
                 response_sha = canonical_sha256([
                     {
@@ -116,10 +120,14 @@ def run(
             obligation, requested_at=attempted_at, history=history, sleep=sleep,
         )
         if receipt is None:
+            if frame is not None:
+                collect._upsert_batch(database, frame)
             exact_failed += 1
             continue
         if frame is not None:
-            collect._upsert_batch(database, frame)
+            if collect._upsert_batch(database, frame) != len(frame):
+                exact_failed += 1
+                continue
         else:
             receipts.append(receipt)
         exact_completed += 1

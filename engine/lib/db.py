@@ -1,7 +1,7 @@
 """DuckDB storage layer for the trading engine.
 
 One connection factory (`connect`), one schema initializer, and a price upsert
-that never stores a fabricated bar (rows with a NaN close are dropped).
+that rejects impossible observations before promoting them into the cache.
 
 `connect` is THE way to open the store — read-write or read-only — so the
 single-writer discipline (§12.7) lives in one function instead of nine
@@ -10,16 +10,19 @@ fails the suite if `duckdb.connect(` appears anywhere else in the packages.
 """
 from __future__ import annotations
 
+import json
 import math
 import time
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 import duckdb
 import pandas as pd
 
 from engine.lib import settings
+from engine.lib.data_quality import PRICE_VALIDATOR_VERSION, observation_reasons, split_like_factor
 from engine.lib.log import get_logger
 
 log = get_logger("db")
@@ -58,13 +61,22 @@ def registered_frame(con: duckdb.DuckDBPyConnection, name: str, frame: pd.DataFr
 
 
 @contextmanager
-def transaction(con: duckdb.DuckDBPyConnection, *, commit: bool = True):
+def transaction(con: duckdb.DuckDBPyConnection, *, commit: bool = True,
+                join_existing: bool = False):
     """Commit atomically and leave a borrowed connection reusable on failure.
 
     Process-level interruptions receive the same cleanup as ordinary errors.
     If rollback itself fails, preserve the original body/commit exception and
     attach the cleanup failure as a diagnostic note.
     """
+    if join_existing:
+        # DuckDB has no savepoints. An explicit transaction keeps the same ID
+        # across statements; autocommit allocates a fresh ID for each one.
+        first = con.execute("SELECT current_transaction_id()").fetchone()[0]
+        second = con.execute("SELECT current_transaction_id()").fetchone()[0]
+        if first == second:
+            yield
+            return
     con.execute("BEGIN TRANSACTION")
     try:
         yield
@@ -200,6 +212,7 @@ def connect(path: str | Path | None = None, *,
 
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     """Create all tables IF NOT EXISTS. Safe to call on every run."""
+    init_price_rejects_schema(con)
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS prices (
@@ -925,103 +938,280 @@ def insert_earnings_fetch_log(
     return len(values)
 
 
-def insert_intraday(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
-    """Append-only insert into intraday_prices via anti-join.
+def init_price_rejects_schema(con) -> None:
+    """The sole revision-15 append-only evidence table (also archives predecessors)."""
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS price_observation_rejects (
+            observation_id VARCHAR PRIMARY KEY,
+            batch_id VARCHAR NOT NULL,
+            ticker VARCHAR,
+            date DATE,
+            ts TIMESTAMP,
+            interval VARCHAR NOT NULL,
+            open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE,
+            volume VARCHAR,
+            source VARCHAR,
+            fetched_at TIMESTAMP,
+            first_fetched_at TIMESTAMP,
+            recorded_at TIMESTAMP NOT NULL,
+            reason VARCHAR NOT NULL,
+            validator_version VARCHAR NOT NULL,
+            observation_json VARCHAR NOT NULL
+        )
+    """)
 
-    df must have columns: ticker, ts, interval, open, high, low, close, volume.
-    ts must already be UTC (tz-naive). Only (ticker, ts, interval) keys not
-    already stored are inserted — existing rows are NEVER touched. Rows with a
-    NaN close are dropped (never store a fabricated bar). Returns rows inserted.
-    """
-    cols = ["ticker", "ts", "interval", "open", "high", "low", "close", "volume"]
+
+def _observation_json(row) -> str:
+    # Repr strings distinguish NULL, NaN and infinities without emitting
+    # nonstandard JSON, and retain unrepresentable incoming volume/date values.
+    return json.dumps({key: (None if value is None else repr(value))
+                       for key, value in row.items()}, sort_keys=True)
+
+
+def observation_rows(cursor) -> list[dict]:
+    """Retain SQL NULLs and BIGINTs exactly, without DataFrame float coercion."""
+    columns = [item[0] for item in cursor.description]
+    return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+
+
+def append_price_observations(con, rows, *, reason: str, batch_id: str,
+                              recorded_at=None) -> None:
+    """Append originals, never update or delete evidence; caller owns transaction."""
+    if not rows:
+        return
+    init_price_rejects_schema(con)
+    now = recorded_at if recorded_at is not None else datetime.now(timezone.utc)
+    values = []
+    for row in rows:
+        def timestamp(key, row=row):
+            try:
+                value = pd.Timestamp(row.get(key))
+                if pd.isna(value):
+                    return None
+                return value.tz_convert("UTC").tz_localize(None) if value.tzinfo else value
+            except (TypeError, ValueError, OverflowError):
+                return None
+
+        def number(key, row=row):
+            try:
+                return float(row.get(key))
+            except (TypeError, ValueError, OverflowError):
+                return None
+
+        day = timestamp("date")
+        values.append([
+            str(uuid4()), batch_id, str(row.get("ticker")),
+            None if day is None else day.date(), timestamp("ts"),
+            row.get("interval", "1d"), *(number(f) for f in ("open", "high", "low", "close")),
+            None if row.get("volume") is None else str(row["volume"]),
+            row.get("source", "yfinance"), timestamp("fetched_at"),
+            timestamp("first_fetched_at"), now, reason, PRICE_VALIDATOR_VERSION,
+            _observation_json(row),
+        ])
+    con.executemany(
+        "INSERT INTO price_observation_rejects VALUES (" + ",".join(["?"] * 18) + ")",
+        values,
+    )
+
+
+def _comparison_value(value):
+    if value is None or value is pd.NA:
+        return None
+    if isinstance(value, int):
+        return value
+    try:
+        number = float(value)
+        return number if math.isfinite(number) else repr(number)
+    except (TypeError, ValueError, OverflowError):
+        return repr(value)
+
+
+def _validated_observations(con, df, *, intraday: bool, now, batch_id: str):
+    frame = df.copy()
+    if "source" not in frame:
+        frame["source"] = "yfinance"
+    if "fetched_at" not in frame:
+        frame["fetched_at"] = now
+    rows = frame.to_dict("records")
+    reasons = [observation_reasons(row, intraday=intraday) for row in rows]
+    groups = {}
+    for i, row in enumerate(rows):
+        try:
+            stamp = pd.Timestamp(row.get("ts" if intraday else "date"))
+            canonical_time = (stamp.tz_localize("UTC") if stamp.tzinfo is None
+                              else stamp.tz_convert("UTC")) if intraday else stamp.date()
+        except (TypeError, ValueError, OverflowError):
+            canonical_time = str(row.get("ts" if intraday else "date"))
+        coordinate = (str(row.get("ticker")), str(canonical_time))
+        if intraday:
+            coordinate += (str(row.get("interval")),)
+        groups.setdefault(coordinate, []).append(i)
+    for indexes in groups.values():
+        if len(indexes) < 2:
+            continue
+        tuples = {tuple(_comparison_value(rows[i].get(f))
+                        for f in ("open", "high", "low", "close", "volume"))
+                  for i in indexes}
+        if len(tuples) > 1:
+            for i in indexes:
+                reasons[i].append("conflicting_duplicate")
+        else:
+            for i in indexes[1:]:
+                reasons[i].append("identical_duplicate")
+    for row, invalid in zip(rows, reasons, strict=True):
+        if invalid:
+            append_price_observations(con, [row], reason=",".join(invalid),
+                                      batch_id=batch_id, recorded_at=now)
+    df.attrs["rejected_tickers"] = {
+        row["ticker"] for row, invalid in zip(rows, reasons, strict=True)
+        if invalid and invalid != ["identical_duplicate"]
+    }
+    return frame.iloc[[i for i, r in enumerate(reasons) if not r]].copy()
+
+
+def _basis_unverified(con, frame) -> set[str]:
+    """Check overlap revisions and both edges of each affected daily window."""
+    if frame.empty:
+        return set()
+    with registered_frame(con, "_basis_incoming", frame[["ticker", "date", "close"]]):
+        stored = con.execute("""
+            WITH bounds AS (SELECT ticker, MIN(date) lo, MAX(date) hi
+                            FROM _basis_incoming GROUP BY ticker)
+            SELECT p.ticker, p.date, p.close FROM prices p JOIN bounds b USING(ticker)
+            WHERE p.date BETWEEN b.lo AND b.hi
+               OR p.date = (SELECT MAX(q.date) FROM prices q
+                            WHERE q.ticker=b.ticker AND q.date < b.lo)
+               OR p.date = (SELECT MIN(q.date) FROM prices q
+                            WHERE q.ticker=b.ticker AND q.date > b.hi)
+        """).fetchall()
+    actions = {}
+    if con.execute("SELECT 1 FROM information_schema.tables WHERE table_name='corporate_actions'").fetchone():
+        with registered_frame(con, "_basis_names", frame[["ticker"]].drop_duplicates()):
+            for ticker, day, ratio in con.execute(
+                "SELECT c.ticker,c.ex_date,c.value FROM corporate_actions c "
+                "JOIN _basis_names n USING(ticker) WHERE c.kind='split'"
+            ).fetchall():
+                actions.setdefault(ticker, []).append((day, ratio))
+    retained = {}
+    for ticker, day, close in stored:
+        if close is not None and math.isfinite(close) and close > 0:
+            retained.setdefault(ticker, {})[day] = close
+    held = set()
+    for ticker, incoming in frame.groupby("ticker", sort=False):
+        old = retained.get(ticker, {})
+        new = {pd.Timestamp(day).date(): float(close)
+               for day, close in zip(incoming.date, incoming.close, strict=True)}
+        merged = {**old, **new}
+
+        def unexplained(ratio, day, ticker=ticker):
+            if split_like_factor(ratio) is None:
+                return False
+            return not any(abs((ex - day).days) <= 7 and value > 0
+                           and (abs(math.log(ratio / value)) <= math.log(1.08)
+                                or abs(math.log(ratio * value)) <= math.log(1.08))
+                           for ex, value in actions.get(ticker, []))
+
+        if any(day in old and unexplained(close / old[day], day)
+               for day, close in new.items()):
+            held.add(ticker)
+            continue
+        ordered = sorted(merged)
+        for previous, day in zip(ordered, ordered[1:], strict=False):
+            if previous not in new and day not in new:
+                continue
+            ratio = merged[day] / merged[previous]
+            if previous in old and day in old and math.isclose(
+                    ratio, old[day] / old[previous], rel_tol=1e-6):
+                continue
+            if unexplained(ratio, day):
+                held.add(ticker)
+                break
+    return held
+
+
+def insert_intraday(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
+    """Append admissible UTC session bars; rejected originals remain evidence."""
     if df is None or df.empty:
         return 0
-
-    df = df[cols].copy()
-    df = df.dropna(subset=["close"])
-    # Guard the primary key against dupes within a single incoming batch.
-    df = df.drop_duplicates(subset=["ticker", "ts", "interval"])
-    if df.empty:
-        return 0
-
-    df["source"] = "yfinance"
-    df["as_of"] = datetime.now(timezone.utc).date()
-
-    before = con.execute("SELECT COUNT(*) FROM intraday_prices").fetchone()[0]
-    with registered_frame(con, "_incoming_intraday", df):
-        con.execute(
-            """
-            INSERT INTO intraday_prices
-                (ticker, ts, interval, open, high, low, close, volume, source, as_of)
-            SELECT i.ticker, i.ts, i.interval, i.open, i.high, i.low, i.close,
-                   i.volume, i.source, i.as_of
-            FROM _incoming_intraday i
-            LEFT JOIN intraday_prices p
-                   ON p.ticker = i.ticker AND p.ts = i.ts AND p.interval = i.interval
-            WHERE p.ticker IS NULL
-            """
-        )
-    after = con.execute("SELECT COUNT(*) FROM intraday_prices").fetchone()[0]
-    return after - before
+    now = datetime.now(timezone.utc)
+    batch_id = str(uuid4())
+    with transaction(con, join_existing=True):
+        init_price_rejects_schema(con)
+        frame = _validated_observations(con, df, intraday=True, now=now, batch_id=batch_id)
+        if frame.empty:
+            return 0
+        frame["as_of"] = now.date()
+        frame["ts"] = pd.to_datetime(frame["ts"], utc=True).dt.tz_localize(None)
+        with registered_frame(con, "_incoming_intraday", frame):
+            repeats = observation_rows(con.execute(
+                "SELECT i.* FROM _incoming_intraday i JOIN intraday_prices p "
+                "ON p.ticker=i.ticker AND p.ts=i.ts AND p.interval=i.interval"
+            ))
+            append_price_observations(con, repeats, reason="intraday_existing_key",
+                                      batch_id=batch_id, recorded_at=now)
+            return len(con.execute("""
+                INSERT INTO intraday_prices
+                    (ticker,ts,interval,open,high,low,close,volume,source,as_of)
+                SELECT i.ticker,i.ts,i.interval,i.open,i.high,i.low,i.close,
+                       i.volume,i.source,i.as_of FROM _incoming_intraday i
+                ANTI JOIN intraday_prices p
+                ON p.ticker=i.ticker AND p.ts=i.ts AND p.interval=i.interval
+                RETURNING ticker
+            """).fetchall())
 
 
 def upsert_prices(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> int:
-    """Upsert price bars while preserving their first availability timestamp.
+    """Promote valid coherent daily bars, atomically retaining rejected originals.
 
-    df must have columns: ticker, date, open, high, low, close, volume.
-    Rows with a NaN close are dropped — we never store an empty/fabricated bar.
-    Returns the number of rows written.
+    Invalid replacements leave trusted values AND both availability stamps alone.
+    The return count covers promoted keys only, never rejected observations.
     """
-    cols = ["ticker", "date", "open", "high", "low", "close", "volume"]
     if df is None or df.empty:
         return 0
-
-    df = df[cols].copy()
-    df = df.dropna(subset=["close"])
-    if df.empty:
-        return 0
-
-    df["source"] = "yfinance"
-    df["fetched_at"] = datetime.now(timezone.utc)
-    df["first_fetched_at"] = df["fetched_at"]
-
-    with registered_frame(con, "_incoming_prices", df):
-        try:
-            con.execute(
-                """
-            INSERT INTO prices
-                (ticker, date, open, high, low, close, volume, source,
-                 fetched_at, first_fetched_at)
-            SELECT ticker, date, open, high, low, close, volume, source,
-                   fetched_at, first_fetched_at
-            FROM _incoming_prices
-            ON CONFLICT (ticker, date) DO UPDATE SET
-                open = excluded.open,
-                high = excluded.high,
-                low = excluded.low,
-                close = excluded.close,
-                volume = excluded.volume,
-                source = excluded.source,
-                fetched_at = excluded.fetched_at,
-                first_fetched_at = COALESCE(
-                    prices.first_fetched_at, prices.fetched_at, excluded.first_fetched_at
-                )
-                """
-            )
-        except duckdb.BinderException:
-            has_first_fetch = con.execute(
-                """SELECT COUNT(*) FROM information_schema.columns
-                WHERE table_name='prices' AND column_name='first_fetched_at'"""
-            ).fetchone()[0]
-            if has_first_fetch:
-                raise
-            con.execute(
-                """INSERT OR REPLACE INTO prices
-                (ticker, date, open, high, low, close, volume, source, fetched_at)
-                SELECT ticker, date, open, high, low, close, volume, source, fetched_at
-                FROM _incoming_prices"""
-            )
-    return len(df)
+    now = datetime.now(timezone.utc)
+    batch_id = str(uuid4())
+    with transaction(con, join_existing=True):
+        init_price_rejects_schema(con)
+        frame = _validated_observations(con, df, intraday=False, now=now, batch_id=batch_id)
+        frame["date"] = pd.to_datetime(frame["date"]).dt.date
+        held = _basis_unverified(con, frame)
+        df.attrs["rejected_tickers"].update(held)
+        append_price_observations(con, frame[frame.ticker.isin(held)].to_dict("records"),
+                                  reason="basis_unverified", batch_id=batch_id, recorded_at=now)
+        frame = frame[~frame.ticker.isin(held)]
+        if frame.empty:
+            return 0
+        frame["date"] = pd.to_datetime(frame["date"]).dt.date
+        frame["first_fetched_at"] = frame["fetched_at"]
+        from engine import actions
+        actions.record_split_like_rewrites(con, frame)
+        with registered_frame(con, "_incoming_prices", frame):
+            previous = observation_rows(con.execute(
+                "SELECT p.* FROM prices p JOIN _incoming_prices i "
+                "ON p.ticker=i.ticker AND p.date=i.date"
+            ))
+            append_price_observations(con, previous, reason="replacement_predecessor",
+                                      batch_id=batch_id, recorded_at=now)
+            has_first = con.execute(
+                "SELECT 1 FROM information_schema.columns WHERE table_name='prices' "
+                "AND column_name='first_fetched_at'"
+            ).fetchone()
+            availability = (", first_fetched_at" if has_first else "")
+            update_availability = """
+                ,first_fetched_at=COALESCE(prices.first_fetched_at,prices.fetched_at,
+                                          excluded.first_fetched_at)
+            """ if has_first else ""
+            con.execute(f"""
+                INSERT INTO prices
+                    (ticker,date,open,high,low,close,volume,source,fetched_at{availability})
+                SELECT ticker,date,open,high,low,close,volume,source,fetched_at{availability}
+                FROM _incoming_prices
+                ON CONFLICT(ticker,date) DO UPDATE SET
+                    open=excluded.open,high=excluded.high,low=excluded.low,
+                    close=excluded.close,volume=excluded.volume,source=excluded.source,
+                    fetched_at=excluded.fetched_at{update_availability}
+            """)
+        return len(frame)
 
 
 def backfill_first_fetched_at(con: duckdb.DuckDBPyConnection) -> int:

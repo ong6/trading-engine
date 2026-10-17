@@ -199,6 +199,51 @@ actions in `corporate_actions` /
 `split_adjustments` / `actions_fetch_log`, research in `experiment_results`, signals in
 `macro_signals`.
 
+**Revision 15 price admission (deploy after v2).** `db.upsert_prices` and
+`db.insert_intraday` validate every canonical observation before cache promotion.
+NULL, nonfinite or nonpositive OHLC, impossible ranges, negative/unrepresentable
+volume, off-calendar sessions and conflicting response duplicates are rejected;
+no prices are clamped or repaired. Daily dates use the historical NYSE calendar;
+intraday timestamps use UTC and the regular session, including early closes and
+interval alignment. Flat trades and zero volume remain admissible; `REAL_BAR_SQL`
+retains its existing use-eligibility meaning. A rejected replacement leaves the
+trusted tuple and its availability stamps untouched, and a rejected first bar
+leaves a gap. Collectors report rejected names as failures, never source-confirmed
+absence. Screen and history read the admitted cache without additional row filters.
+
+The sole new table, `price_observation_rejects`, is append-only. Its columns are
+`observation_id VARCHAR PRIMARY KEY`, `batch_id VARCHAR NOT NULL`, nullable
+`ticker VARCHAR`, `date DATE`, `ts TIMESTAMP`, `interval VARCHAR NOT NULL`, nullable
+`open/high/low/close DOUBLE`, `volume VARCHAR`, `source VARCHAR`,
+`fetched_at/first_fetched_at TIMESTAMP`, and non-null `recorded_at TIMESTAMP`,
+`reason VARCHAR`, `validator_version VARCHAR`, `observation_json VARCHAR`.
+Volume is text so rejected overflow, fractional and nonfinite values survive.
+The JSON stores original scalar representations, distinguishing NULL, NaN and
+infinity; typed fields support inspection. Original rejected observations,
+identical duplicates, intraday existing-key observations, accepted replacement
+predecessors and split-restatement predecessors share this table. Evidence and
+cache writes transact together. `replacement_predecessor` and
+`split_restatement_predecessor` are archive reasons, not invalidity claims.
+
+Before promoting a daily ticker batch, retained overlaps and both window boundaries
+are compared for a newly introduced common split factor within the existing 8% log
+band. A matching recorded split keeps the existing reconciler path; an unexplained
+step holds the entire affected incoming ticker batch as `basis_unverified`, without
+applying a factor. Recent held candidates join the action-fetch universe. Existing
+unchanged retained returns are not new basis revisions. Action reconciliation runs
+before screen, and verifies scalar invariants before any split restatement.
+
+**Post-deploy one-off:** with producers quiescent and the normal single writer
+lease held, the orchestrator opens the deployed store through `engine.lib.db.connect`
+and calls `engine.price_quarantine.cleanup_hard_invalid_prices(con)` to inspect its
+dry-run report. Review `invalid_rows`, `tickers`, `by_date` and `by_reason`, then call
+the same function with `dry_run=False` once. It appends each original hard-invalid
+daily tuple and reason, then deletes precisely those cache keys in one transaction.
+It does not adjudicate basis candidates or delete valid flat/zero-volume bars.
+Call the default dry-run again and require zero hard-invalid rows before resuming
+consumers; close the connection. No cleanup CLI is added. Revision-15 registration
+and the consumer changes owned by the money lane must accompany deployment.
+
 ## The nightly pipeline (cron, 22:30 UTC weekdays)
 
 `run_daily.sh`, under `set -euo pipefail`, with an `flock` overlap guard and bounded
@@ -208,10 +253,10 @@ DB-lock retries. Stage order and failure semantics matter:
 |---|---|---|
 | 1 | universe refresh | WARN, continue (transient Nasdaq hiccup must not kill the night) |
 | 2 | collect (incremental EOD, calendar-gated) | **fatal** |
-| 3 | resolve breadth-qualified market date | **fatal** |
-| 4 | screen that exact date (`--skip-if-done`) | **fatal** |
-| 5 | actions fetch (incremental: active-held ∪ active-pending ∪ core ETFs ∪ screen-top-50) | WARN, continue |
-| 6 | actions **reconcile** | **fatal — deliberately.** If we can't verify the price scale, trading on it is worse than skipping a night |
+| 3 | actions fetch (incremental: active-held ∪ active-pending ∪ core ETFs ∪ prior screen-top-50 ∪ recent basis holds) | WARN, continue |
+| 4 | actions **reconcile** | **fatal — deliberately.** If we can't verify the price scale, trading on it is worse than skipping a night |
+| 5 | resolve breadth-qualified market date | **fatal** |
+| 6 | screen that exact date (`--skip-if-done`) | **fatal** |
 | 7 | league step on that exact date (one transaction per day — no half-done sessions) | **fatal** |
 | 8 | frozen sector-momentum forward review | WARN, continue; stale output is replaced with `INVALID` |
 | 9 | frozen `xs_momentum_12_1` forward review | WARN, continue; stale output is replaced with `INVALID` |
