@@ -3615,4 +3615,21 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** tests +1; server/tools/product unchanged from the source commit.
 - **Next:** fresh-store repeated reviews, semantic primary/forced-fallback meta, and both final timezone suites.
 
+## 2026-10-17 — Pass both timezone suites after the second continuity amendment
+
+- **Why:** P22 go/no-go requires the authorized second pre-deploy amendment to pass every normal registered and full-suite gate.
+- **What:** The final sector/XS shared cadence regression and E1 checkpoint audit run with all existing tests and ordinary hash gates. No tests are excluded and schema-v1 behavior remains exact.
+- **Evidence:** UTC 4,812 passed; Asia/Singapore 4,812 passed; no failures/errors/skips. UI 67 passed, production build and Ruff pass; registration/forward focused 149 passed.
+- **Metrics:** since prior readiness head: server +0, tools +0, product +13, tests +97; budget ok.
+- **Next:** complete fresh primary/forced-snapshot semantic assertions, delete its copy and hand off go/no-go.
+
+## 2026-10-17 — Complete fresh semantic readiness after the sector amendment
+
+- **Why:** P22 and orchestrator D1 require two ordinary reviews per forward family plus semantic primary and forced-snapshot meta after the second pre-deploy continuity amendment.
+- **What:** Fresh runtime/cost migration preserves historical equity/balances and all 33 routes; E1, sector and XS each pass two reviews and P15 publishes 185 traces. Primary and real writer-contention snapshot responses show accumulating v7/v11/v22 with correct eligibility from D0.
+  The P22 progress records the resolved blocker and green suites. All copied DBs/WALs and completed test fixtures are deleted before STATUS; no live state changed.
+- **Evidence:** Fresh primary/fallback semantic assertions pass, revision-14 registration 5 passed; both full suites 4,812 passed, UI 67 passed, build/Ruff pass. Disk free 144 GiB after cleanup.
+- **Metrics:** since prior readiness head: server +0, tools +0, product +13, tests +97; budget ok.
+- **Next:** orchestrator go/no-go, push and Sunday deployment using the amended runbook.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
