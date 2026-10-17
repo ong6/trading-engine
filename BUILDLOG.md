@@ -3519,4 +3519,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/product unchanged; tools +57 LOC.
 - **Next:** Move the Sunday TradingView history slot and run both full timezone suites.
 
+## 2026-10-17 — Move the Sunday history slice ahead of weekly readers
+
+- **Why:** Revision-15 flow rank 5; October 11's 07:40 history enqueue collided with the 06:00 weekly readers, spent 895 seconds retrying and failed.
+- **What:** Move only Sunday's 07:40 slice to 01:40 in the existing timer; retain six Sunday slices.
+  Document observed digest coverage, source handling, degraded work and the moved invocation's 05:51 timeout boundary before weekly readers.
+- **Evidence:** `python -m pytest tests/test_ops_digest.py -q -W error -n 0` → 57 passed, including timer collision windows and the moved slot's existing timeout/jitter bound.
+- **Metrics:** server/product unchanged; tools +1 LOC from source documentation.
+- **Next:** Run the full UTC and Asia/Singapore suites and deliver the revision-15 lane status.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

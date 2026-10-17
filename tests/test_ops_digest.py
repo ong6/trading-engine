@@ -643,3 +643,23 @@ def test_digest_timer_never_fires_with_another_timer():
         clashes = [(ours, theirs) for ours in digest for theirs in _start_windows(timer)
                    if _overlaps(ours, theirs)]
         assert not clashes, f"{DIGEST_TIMER} can fire with {timer.name}: {clashes[:3]}"
+
+
+def test_moved_sunday_history_slot_finishes_before_weekly_readers():
+    timer = ROOT / "server" / "trading-engine-tradingview-history.timer"
+    specs = [line.split("=", 1)[1] for line in timer.read_text().splitlines()
+             if line.startswith("OnCalendar=")]
+    matcher = ops_digest._any_of([ops_digest.calendar_matcher(s) for s in specs])
+    sunday = datetime(2026, 10, 18, tzinfo=UTC)
+    slots = ops_digest.expected_times(matcher, sunday, sunday + timedelta(days=1))
+    assert [s.hour for s in slots] == [1, 3, 11, 15, 19, 23]
+    saturday = sunday - timedelta(days=1)
+    assert [s.hour for s in ops_digest.expected_times(matcher, saturday, sunday)] == [
+        3, 7, 11, 15, 19, 23]
+    service = ROOT / "server" / "trading-engine-tradingview-history.service"
+    timeout = next(line.split("=", 1)[1] for line in service.read_text().splitlines()
+                   if line.startswith("TimeoutStartSec="))
+    delay = next(line.split("=", 1)[1] for line in timer.read_text().splitlines()
+                 if line.startswith("RandomizedDelaySec="))
+    latest_end = slots[0] + timedelta(seconds=_span(timeout) + _span(delay) + 60)
+    assert latest_end < sunday + timedelta(hours=6)

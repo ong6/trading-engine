@@ -13,15 +13,16 @@ left behind and writes two things under ``logs/ops/``:
 
 Sources: the user journal of every timer-activated or running user service, new bytes of the
 text logs in ``logs/`` (plus host-private globs listed in ``logs/ops/sources.txt``), the
-nightly ``stage-timings.jsonl``, and the local API. It never opens the DuckDB store itself,
+nightly ``stage-timings.jsonl``, dated work receipts from one immutable published snapshot and
+observer JSONL files, and the local API. It never opens the primary DuckDB store,
 but its ``/meta`` probe makes the API hold a read-only connection for about a second, and
 DuckDB refuses every writer meanwhile; the timer therefore fires outside every other timer's
 start window (``tests/test_ops_digest.py``). Collection is best effort: a missing source is
 noted in the digest, never fatal.
 
 ``python -m tools.ops_digest --report [--hours 24]`` prints a summary for an agent to start
-from: hour statuses, failed, missing and slow runs, every scheduled job's runs checked against
-the timers and crontab, each driver's stages, the loudest error signatures and log growth.
+from: hour statuses, failed, degraded, missing, unknown and slow runs, scheduled work checked
+only against observed installed schedule intervals, each driver's stages, log signals and growth.
 """
 
 from __future__ import annotations
