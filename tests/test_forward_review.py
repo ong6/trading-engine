@@ -604,3 +604,29 @@ def test_main_preserves_last_valid_checkpoint_through_invalid_report(
     restored = json.loads(report_path.read_text())
     assert restored["status"] == "ACCUMULATING"
     assert restored["observation"] == valid["observation"]
+
+
+def test_cost_break_retains_complete_prefix_across_repeated_reviews(con):
+    prior = _prior_v6_result(con)
+    migrated = forward_review.migrate_runtime_contract(con, prior)
+    for book in (forward_review.CANDIDATE_ID, forward_review.CONTROL_ID):
+        con.execute(
+            "INSERT INTO sim_book_breaks VALUES (?, DATE '2026-10-19', 'cost_profile', "
+            "'baseline_v1', 'ibkr_pro_tiered_v1', 14, 'D0', TIMESTAMP '2026-10-18 20:00')",
+            [book])
+    result = forward_review.evaluate(con, prior_result=migrated)
+    assert result["observation"]["shared_sessions_available"] == 0
+    assert result["observation"]["pre_break_shared_sessions"] == 2
+    assert result["observation"]["equity_sha256"] == migrated["observation"]["equity_sha256"]
+    assert forward_review.evaluate(con, prior_result=result) == result
+    for day in (date(2026, 10, 19), date(2026, 10, 20)):
+        for book in (forward_review.CANDIDATE_ID, forward_review.CONTROL_ID):
+            con.execute("INSERT INTO sim_equity VALUES (?, ?, 101, 0, 1)", [book, day])
+        result = forward_review.evaluate(con, prior_result=result)
+        assert result["observation"]["pre_break_shared_sessions"] == 2
+        assert result["observation"]["shared_sessions_available"] == day.day - 18
+        assert forward_review.evaluate(con, prior_result=result) == result
+    con.execute("UPDATE sim_equity SET equity=equity+1 WHERE portfolio_id=? AND date=?",
+                [forward_review.CANDIDATE_ID, forward_review.OBSERVATION_START])
+    with pytest.raises(ValueError, match="previously published forward equity window changed"):
+        forward_review.evaluate(con, prior_result=result)

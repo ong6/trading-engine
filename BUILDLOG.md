@@ -3537,4 +3537,20 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** docs only; server/tools/product unchanged.
 - **Next:** fresh one-store deployment/rollback rehearsal, then both final-head timezone suites and UI checks.
 
+## 2026-10-17 — Record sector continuity failure found by the fresh rehearsal
+
+- **Why:** Fresh P22 rehearsal: after successful migration and first ordinary review, a second unchanged sector review exits 1 with `previously published forward equity window changed`; complete retained prefix is compared with zero post-D0 sessions.
+- **What:** Recorded the reproduction and a repeated-review regression. The sector runtime fix needs the orchestrator's exception to the completed single revision-14 re-pin.
+- **Evidence:** Fresh `engine.forward_review` second invocation → exit 1; the identical retained rows and balances were verified before the reviews.
+- **Metrics:** tests +28; server/tools/product unchanged.
+- **Next:** resolve the sector runtime/re-pin question with the orchestrator while completing independent rehearsal checks.
+
+## 2026-10-17 — Handle timer state during P22 quiescence verification
+
+- **Why:** Running the amended quiescence probe against an isolated timer showed `systemctl show --property=MainPID` omits that service-only property; indexing it would abort before backup.
+- **What:** The runbook treats an absent timer MainPID as zero while still requiring stopped ActiveState and empty process groups. No service or writer check is skipped.
+- **Evidence:** The isolated timer probe emits only `ActiveState` and `UnitFileState`; the documented check now accepts its stopped form. Fresh runtime quiescence remains required.
+- **Metrics:** docs only; server/tools/product unchanged.
+- **Next:** complete the isolated account, quiescence and rollback checks; resolve the reproduced sector continuity blocker.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

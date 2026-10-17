@@ -325,7 +325,7 @@ for name in records:
     raw = subprocess.check_output(['systemctl', '--user', 'show', name,
                                   '--property=ActiveState,MainPID,ControlGroup'], text=True)
     p = dict(line.split('=', 1) for line in raw.splitlines())
-    assert p['ActiveState'] in {'inactive', 'failed'} and p['MainPID'] == '0', (name, p)
+    assert p['ActiveState'] in {'inactive', 'failed'} and p.get('MainPID', '0') == '0', (name, p)
     group = p.get('ControlGroup', '')
     procs = Path('/sys/fs/cgroup' + group) / 'cgroup.procs' if group else None
     assert procs is None or not procs.exists() or not procs.read_text().strip(), name
