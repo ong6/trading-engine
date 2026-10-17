@@ -1,5 +1,5 @@
 import { fmtDate, fmtTime } from "../lib/format";
-import { driverAlert, fridayPostflightAlert, schedulerLabel } from "../lib/header-status";
+import { driverAlert, fridayPostflightAlert, nightlyEvidenceAlert, schedulerLabel } from "../lib/header-status";
 import RegimeBadge from "./RegimeBadge";
 
 export default function HeaderOperationalStatus({ res, data }) {
@@ -83,7 +83,7 @@ export default function HeaderOperationalStatus({ res, data }) {
       {data.nightly_evidence ? (
         <span
           className={
-            !["updating", "current"].includes(data.nightly_evidence.status)
+            nightlyEvidenceAlert(data.nightly_evidence)
               ? "research-fail"
               : ""
           }

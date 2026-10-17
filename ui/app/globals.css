@@ -283,6 +283,33 @@ th.num {
   display: grid;
   gap: 14px;
 }
+.journal-tickets {
+  grid-template-columns: minmax(0, 1fr);
+}
+.journal-tickets > .card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.candidate-panels {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+@media (max-width: 600px) {
+  .journal-tickets .gate {
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .journal-tickets .gate .gname {
+    min-width: 0;
+  }
+  .journal-tickets .gate .gdetail {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+  .candidate-panels,
+  .candidate-panels .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .strip {
   display: flex;
   gap: 14px;

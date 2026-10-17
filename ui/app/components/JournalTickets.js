@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { candidateHref } from "../lib/candidate-route";
-import { fmtDate, fmtInt, fmtPrice, fmtTime } from "../lib/format";
+import { fmtDate, fmtInt, fmtPrice, fmtQty, fmtTime } from "../lib/format";
 import GateList from "./GateList";
 
 function gateSummary(gates) {
@@ -42,7 +42,7 @@ export default function JournalTickets({ discretionary }) {
       {tickets.length === 0 ? (
         <div className="empty">No discretionary tickets yet.</div>
       ) : (
-        <div className="grid">
+        <div className="grid journal-tickets">
           {tickets.map((ticket) => (
             <details
               key={ticket.id}
@@ -53,7 +53,11 @@ export default function JournalTickets({ discretionary }) {
                 <strong>
                   <Link href={candidateHref(ticket.ticker)}>{ticket.ticker}</Link>
                 </strong>{" "}
-                {ticket.side} {fmtInt(ticket.qty)} @ ref {fmtPrice(ticket.entry_ref)} · stop{" "}
+                {ticket.side}{" "}
+                <span title={Number.isFinite(ticket.qty) ? String(ticket.qty) : undefined}>
+                  {fmtQty(ticket.qty)}
+                </span>{" "}
+                @ ref {fmtPrice(ticket.entry_ref)} · stop{" "}
                 {fmtPrice(ticket.stop)} · target {fmtPrice(ticket.target)}{" "}
                 <span
                   className={
@@ -89,7 +93,11 @@ export default function JournalTickets({ discretionary }) {
                     <span className="faint">Fills: </span>
                     {ticket.fills.map((fill, index) => (
                       <span key={index} className="mono">
-                        {fill.side} {fmtInt(fill.qty)} @ {fmtPrice(fill.fill_px)} (
+                        {fill.side}{" "}
+                        <span title={Number.isFinite(fill.qty) ? String(fill.qty) : undefined}>
+                          {fmtQty(fill.qty)}
+                        </span>{" "}
+                        @ {fmtPrice(fill.fill_px)} (
                         {fmtDate(fill.fill_date)})
                         {index < ticket.fills.length - 1 ? ", " : ""}
                       </span>

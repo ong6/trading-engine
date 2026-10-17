@@ -416,7 +416,10 @@ def candidate(
 ):
     ticker = _validated_ticker(ticker)
     with _connection(read_con) as con:
-        payload = market_read_models.candidate(con, ticker)
+        try:
+            payload = market_read_models.candidate(con, ticker)
+        except market_read_models.InadmissiblePriceData as exc:
+            raise HTTPException(422, detail=exc.detail) from exc
         if payload is None:
             raise HTTPException(404, f"no price bars for {ticker}")
         return payload

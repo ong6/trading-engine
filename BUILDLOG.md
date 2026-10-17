@@ -3466,5 +3466,30 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** D0 10-12: 33 books migrated, no route change, pre-D0 fees 0, post-D0 fees in 11 books, WBD closed at $30.94; with D0 10-19, 24 of 25 books reproduce the deployed source's fills and equity exactly (`high_52wk` differs by the close-out); rollback store `cmp` identical and revision 13's registration tests pass.
 - **Metrics:** unchanged.
 - **Next:** deploy on Sunday 2026-10-18 19:00–23:00 UTC with D0 2026-10-19 per `settlement-runbook.md`.
+## 2026-10-16 — Debug the paper board against retained invalid prices
+
+- **Why:** Round 2 probe reproduced 41 candidate HTTP 500s (VLO high below open; WBD zero open),
+  fractional shares displayed as zero, mobile journal overflow and clipped candidate inputs.
+  Its offline contract check also rejected early XS REVIEW-KILL and nightly incomplete evidence,
+  while sparse invalid evidence rendered invented counts and `vundefined`.
+- **What:** Candidate reads return typed 422 evidence with dates/reasons, never a chart or ticket.
+  Fractional quantities retain four decimals and exact tooltips; narrow journal gates wrap and
+  candidate ticket panels stack. Early XS kills and incomplete nightly evidence remain visible;
+  sparse invalid evidence uses only supplied counts/versions. Retained data and OHLC checks stay intact.
+- **Evidence:** `BOARD_OUTPUT=final-browser node browser.mjs` passed ten isolated views at 1440/390:
+  no overflowing elements, VLO's dated notice visible, and SPY's mobile entry grew from 78 to 350 px.
+  UI tests: 66 passed; board Python tests: 844 passed; production build and mandatory Ruff gates pass.
+- **Metrics:** server +33, tools/product unchanged, tests +48, UI +94; budget ok.
+- **Next:** Nothing admitted; ingestion quarantine and live dependency deployment belong to other lanes.
+
+## 2026-10-17 — Merge main into P22 and repair the invalid-price test fixture
+
+- **Why:** P22 deploy-readiness checkpoint; the merged candidate test reproduces rank 3: `tests/test_candidate_price_rejection.py` gives 1 failed, 2 passed because zero-open BAD prevents a qualified market date (`404 != 422`).
+- **What:** Merged the seven main commits through `a1c9d47` into `p22/lifecycle`, retaining both BUILDLOG histories in order.
+  SPY alone establishes the fixture's qualified market date; all three rejection expectations and the valid SPY/context checks remain.
+  All 162 registered hashes, registration revision 14 and the three runtime pins are unchanged.
+- **Evidence:** `TZ=UTC .venv/bin/python -m pytest -o addopts= -q -W error -n auto` → 4,806 passed; Asia/Singapore also 4,806 passed. UI 67 passed; build and Ruff pass; focused registration/fixture tests 8 passed.
+- **Metrics:** since 2026-10-16: server +33, tools 0, product 0, tests +49, UI +94; budget ok.
+- **Next:** separate retained XS prefix continuity from its restarted evaluation count, then validate the sector/XS cost-break clock.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
