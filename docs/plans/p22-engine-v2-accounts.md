@@ -213,3 +213,16 @@ deployment; rollback restores the pre-migration database backup and source revis
   to 13 on the next captured Monday and passes two repeated reports; tampering is refused.
   E1 v7 and XS v22 source contracts are unchanged. Final fresh-copy semantic primary/fallback
   checks and both timezone suites supersede the earlier no-go evidence only after they pass.
+
+- Second-amendment acceptance 2026-10-17: sector v11 digest `c7c868a9…`, source `c5d3483`,
+  follow-up revision-14 binding `300619c` (`f9682cad…`). Ordinary registration/forward checks
+  149 passed; full UTC and Singapore suites each 4,812 passed with no failures/errors/skips;
+  UI 67 passed, build and Ruff pass. On a fresh copy of the newest published snapshot,
+  E1/sector/XS runtime migrations precede the one-shot D0 October 19 cost migration; all
+  historical equity/balances and 33 league routes remain unchanged. Each family passes two
+  ordinary reviews; P15 reports 185 traces. Actual primary and forced writer-contention
+  snapshot `/meta` both show sector v11, XS v22 and E1 v7 ACCUMULATING with the correct
+  cost-clock eligibility. The copied store and checked snapshot are deleted. This resolves
+  the earlier sector no-go; the existing account/legacy/quiescence/revision-13 byte-identical
+  rollback proofs remain, and Sunday's source, snapshot, writers and backup still need the
+  runbook's execution-time checks. The orchestrator owns the go/no-go and deployment.
