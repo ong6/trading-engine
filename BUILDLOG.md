@@ -3553,4 +3553,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** docs only; server/tools/product unchanged.
 - **Next:** complete the isolated account, quiescence and rollback checks; resolve the reproduced sector continuity blocker.
 
+## 2026-10-17 — Exercise the current-store account and migration path
+
+- **Why:** P22 deploy-readiness requires a fresh store-copy rehearsal before Sunday's go/no-go.
+- **What:** The newest published snapshot was copied once for writing; a verified current-main revision-13 backup includes 91 tables, nine evidence files, seven artifacts and one control. Runtime migration preserves predecessor outcomes, and 33 cost breaks preserve routes and historical rows/balances.
+  Two isolated private accounts settle two captured SPY sessions (eight fills total, $1.44 fees per account), verify and retry late settlement; public account lists remain empty. The second sector review exposes a blocker recorded above.
+- **Evidence:** Isolated account receipts, MOO/contingent MOC fills, results and four verification calls pass; migration rerun refuses exit 2. Fresh source registration passes five tests.
+- **Metrics:** unchanged.
+- **Next:** prove snapshot fallback and complete revision-13 rollback, then final-head suites; sector runtime amendment needs the orchestrator's decision.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
