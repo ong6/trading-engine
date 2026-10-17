@@ -51,6 +51,7 @@ SCREEN_RESULT_KEYS = frozenset(
         "vol_dryup",
         "new_today",
         "universe_policy",
+        "retained_bar_quality",
     }
 )
 SCREEN_PROJECTION_KEYS = frozenset(
@@ -200,6 +201,7 @@ def _validate_screen_result(
         require_public_finite_number(result[field], f"screen {field}")
     if result["universe_policy"] not in SCREEN_UNIVERSE_POLICIES:
         raise ValueError("public screen universe policy is invalid")
+    validate_retained_bar_quality(result["retained_bar_quality"])
 
 
 def _screen_page(
@@ -216,7 +218,9 @@ def _screen_page(
             [run_date, limit, offset],
         )
     )
+    qualities = retained_bar_quality(con, [row["ticker"] for row in results], run_date)
     for result in results:
+        result["retained_bar_quality"] = qualities[result["ticker"]]
         _validate_screen_result(result, expected_run_date=run_date, passing_only=True)
     return results
 
@@ -385,19 +389,98 @@ def _validate_candidate_prices(bar: dict) -> None:
         raise ValueError("public candidate OHLC geometry is invalid")
 
 
+def _candidate_price_reason(bar: dict) -> str | None:
+    try:
+        _validate_candidate_prices(bar)
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
+def validate_retained_bar_quality(quality: dict) -> None:
+    if not isinstance(quality, dict) or set(quality) != {
+        "as_of", "retained_count", "invalid_count", "latest_invalid_date", "reason"
+    }:
+        raise ValueError("public retained-bar quality shape is invalid")
+    as_of = quality["as_of"]
+    retained = require_public_nonnegative_integer(quality["retained_count"])
+    invalid = require_public_nonnegative_integer(quality["invalid_count"])
+    latest, reason = quality["latest_invalid_date"], quality["reason"]
+    if retained > CANDIDATE_BARS_LIMIT or invalid > retained:
+        raise ValueError("public retained-bar quality count is invalid")
+    if as_of is None:
+        if retained or invalid or latest is not None or reason is not None:
+            raise ValueError("public retained-bar quality is unknown")
+    elif type(as_of) is not date:
+        raise ValueError("public retained-bar quality date is invalid")
+    if invalid:
+        if (type(latest) is not date or latest > as_of or not isinstance(reason, str)
+                or not reason.strip() or len(reason) > 240 or not reason.isprintable()):
+            raise ValueError("public retained-bar quality rejection is invalid")
+    elif latest is not None or reason is not None:
+        raise ValueError("public retained-bar quality rejection is inconsistent")
+
+
+def retained_bar_quality(
+    con: duckdb.DuckDBPyConnection, tickers: list[str], as_of: date | None
+) -> dict[str, dict]:
+    """Latest 250 daily observation dates, including revision-15 rejected originals.
+
+    Replacement predecessors are an archive of valid observations, not rejects.
+    Count each invalid date once even when several rejected receipts survive.
+    Validate retained prices too, so a partially migrated store cannot look clean.
+    """
+    result = {ticker: {"as_of": as_of, "retained_count": 0, "invalid_count": 0,
+                       "latest_invalid_date": None, "reason": None} for ticker in tickers}
+    if as_of is None or not tickers or not table_exists(con, "prices"):
+        return result
+    rejected = ""
+    if table_exists(con, "price_observation_rejects"):
+        rejected = (
+            " UNION ALL SELECT ticker, date, NULL, NULL, NULL, NULL, NULL, MIN(reason) "
+            "FROM price_observation_rejects WHERE ticker = ANY(?) AND date <= ? "
+            "AND interval = '1d' AND reason NOT IN "
+            "('replacement_predecessor', 'intraday_existing_key') GROUP BY ticker, date"
+        )
+    observations = rows(con.execute(
+        "WITH observations AS (SELECT ticker, date, open, high, low, close, volume, "
+        "NULL::VARCHAR AS reason FROM prices WHERE ticker = ANY(?) AND date <= ?"
+        + rejected + ") SELECT * EXCLUDE (recency) FROM (SELECT *, "
+        "DENSE_RANK() OVER (PARTITION BY ticker ORDER BY date DESC) AS recency "
+        "FROM observations) WHERE recency <= ? ORDER BY ticker, date, reason NULLS FIRST",
+        [tickers, as_of, *([tickers, as_of] if rejected else []), CANDIDATE_BARS_LIMIT],
+    ))
+    dates: dict[str, set[date]] = {ticker: set() for ticker in tickers}
+    invalid: dict[str, dict[date, str]] = {ticker: {} for ticker in tickers}
+    for bar in observations:
+        ticker = require_public_ticker(bar["ticker"])
+        dates[ticker].add(bar["date"])
+        reason = bar["reason"] or _candidate_price_reason(bar)
+        if reason is not None:
+            invalid[ticker][bar["date"]] = reason
+    for ticker, quality in result.items():
+        quality["retained_count"] = len(dates[ticker])
+        quality["invalid_count"] = len(invalid[ticker])
+        if invalid[ticker]:
+            latest = max(invalid[ticker])
+            quality["latest_invalid_date"] = latest
+            quality["reason"] = invalid[ticker][latest]
+        validate_retained_bar_quality(quality)
+    return result
+
+
 def _reject_inadmissible_prices(ticker: str, bars: list[dict]) -> None:
     rejected = []
     for bar in bars:
-        try:
-            _validate_candidate_prices(bar)
-        except ValueError as exc:
+        reason = _candidate_price_reason(bar)
+        if reason is not None:
             # JSON cannot represent NaN/Infinity. Null means unavailable, never a repaired price.
             prices = {
                 field: value if value is not None and math.isfinite(value) else None
                 for field in ("open", "high", "low", "close")
                 for value in (bar[field],)
             }
-            rejected.append({"date": bar["date"].isoformat(), **prices, "reason": str(exc)})
+            rejected.append({"date": bar["date"].isoformat(), **prices, "reason": reason})
     if rejected:
         raise InadmissiblePriceData(ticker, rejected)
 
@@ -434,6 +517,7 @@ def _candidate_screen(
     if not screen_rows:
         return None
     result = screen_rows[0]
+    result["retained_bar_quality"] = retained_bar_quality(con, [ticker], market_date)[ticker]
     _validate_screen_result(result, expected_ticker=ticker, through=market_date)
     return result
 

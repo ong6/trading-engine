@@ -10,6 +10,7 @@ import {
 } from "../lib/format";
 import FilterSelect from "./FilterSelect";
 import StateNotice from "./StateNotice";
+import RetainedBarWarning from "./RetainedBarWarning";
 
 const DISC = "discretionary";
 
@@ -82,6 +83,7 @@ export default function PositionsOpenPositions({
                       <Link href={candidateHref(position.ticker)}>
                         <strong>{position.ticker}</strong>
                       </Link>
+                      <RetainedBarWarning quality={position.retained_bar_quality} />
                     </td>
                     <td
                       className="num"

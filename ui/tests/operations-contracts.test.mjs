@@ -34,6 +34,13 @@ test("positions projection enforces filter identity and quote-dependent fields",
   assert.equal(isPositionsProjection(valid, "discretionary"), true);
   assert.equal(isPositionsProjection(valid, "another-book"), false);
 
+  const warned = clone(valid);
+  warned.positions[0].retained_bar_quality = { as_of: "2026-10-16", retained_count: 250,
+    invalid_count: 1, latest_invalid_date: "2026-10-16", reason: "high_geometry" };
+  assert.equal(isPositionsProjection(warned, "discretionary"), true);
+  warned.positions[0].retained_bar_quality.invalid_count = 251;
+  assert.equal(isPositionsProjection(warned, "discretionary"), false);
+
   const extraEnvelope = clone(valid);
   extraEnvelope.internal = "not public";
   assert.equal(isPositionsProjection(extraEnvelope, "discretionary"), false);

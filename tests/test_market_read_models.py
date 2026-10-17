@@ -81,6 +81,8 @@ def test_screen_projection_rejects_duplicate_or_unordered_rows():
         "vol_dryup": False,
         "new_today": False,
         "universe_policy": "all",
+        "retained_bar_quality": {"as_of": date(2026, 9, 4), "retained_count": 0,
+                                 "invalid_count": 0, "latest_invalid_date": None, "reason": None},
     }
     payload = market_read_models._screen_payload(
         date(2026, 9, 4), 1, (2, 2, 0), [row, {**row, "ticker": "BBB"}]
@@ -208,6 +210,7 @@ def test_screen_projects_explicit_columns_and_legacy_policy_default(con):
         "vol_dryup",
         "new_today",
         "universe_policy",
+        "retained_bar_quality",
     }
     assert row["universe_policy"] == "all"
     assert "internal_secret" not in row
@@ -285,6 +288,8 @@ def test_screen_result_rejects_values_outside_the_browser_contract(field, value,
         "vol_dryup": False,
         "new_today": True,
         "universe_policy": "all",
+        "retained_bar_quality": {"as_of": date(2026, 9, 4), "retained_count": 0,
+                                 "invalid_count": 0, "latest_invalid_date": None, "reason": None},
     }
     result[field] = value
 
@@ -438,3 +443,68 @@ def test_candidate_rejects_invalid_bar_limit_before_database_access(monkeypatch,
     monkeypatch.setattr(market_read_models, "CANDIDATE_BARS_LIMIT", limit)
     with pytest.raises(ValueError, match="candidate bar limit|public identifier"):
         market_read_models.candidate(NoDatabase(), "AAA")
+
+
+def test_retained_quality_matches_candidate_rejection_and_preserves_screen(con):
+    from tests.conftest import insert_bars
+    from tests.read_model_helpers import liquid_universe
+
+    day = date(2026, 10, 16)
+    liquid_universe(con, ('DELL', 'VLO'))
+    insert_bars(con, 'DELL', [day], open_=473.37, high=473.18, low=440, close=451.71)
+    insert_bars(con, 'LPG', [day], open_=0, high=20, low=19, close=20)
+    insert_bars(con, 'VLO', [day], open_=440, high=450, low=430, close=444.71)
+    screen_table(con)
+    for ticker, close in [('DELL', 451.71), ('LPG', 20), ('VLO', 444.71)]:
+        con.execute('INSERT INTO screen_results VALUES (?, ?, ?, 90, 8, TRUE, '
+                    '.1, .2, .3, -.1, FALSE, FALSE, FALSE)', [day, ticker, close])
+    projected = {r['ticker']: r for r in market_read_models.screen(con)['results']}
+    for ticker in ('DELL', 'LPG'):
+        with pytest.raises(market_read_models.InadmissiblePriceData) as exc:
+            market_read_models.candidate(con, ticker)
+        quality = projected[ticker]['retained_bar_quality']
+        assert quality == {'as_of': day, 'retained_count': 1, 'invalid_count': 1,
+                           'latest_invalid_date': day, 'reason': exc.value.detail['bars'][0]['reason']}
+    assert projected['DELL']['close'] == 451.71
+    assert projected['LPG']['template_score'] == 8
+    assert projected['VLO']['retained_bar_quality']['invalid_count'] == 0
+    assert market_read_models.candidate(con, 'VLO')['screen']['retained_bar_quality']['invalid_count'] == 0
+
+
+def test_retained_quality_includes_daily_rejects_and_bounds_distinct_dates(con):
+    from datetime import timedelta
+
+    from tests.conftest import insert_bars
+
+    day = date(2026, 10, 16)
+    days = [day - timedelta(days=i) for i in range(251)]
+    insert_bars(con, 'DELL', days, open_=20, high=21, low=19, close=20)
+    con.execute('CREATE TABLE price_observation_rejects '
+                '(ticker VARCHAR, date DATE, interval VARCHAR, reason VARCHAR)')
+    con.executemany('INSERT INTO price_observation_rejects VALUES (?, ?, ?, ?)', [
+        ('DELL', day, '1d', 'high_geometry'),
+        ('DELL', day, '1d', 'high_geometry'),
+        ('DELL', days[-1], '1d', 'open_nonpositive'),
+        ('DELL', day + timedelta(days=1), '1d', 'high_geometry'),
+        ('DELL', days[1], '1m', 'high_geometry'),
+        ('DELL', days[2], '1d', 'replacement_predecessor'),
+    ])
+    # The invalid original left prices; its rejected receipts still warn once.
+    con.execute('DELETE FROM prices WHERE ticker = ? AND date = ?', ['DELL', day])
+    quality = market_read_models.retained_bar_quality(con, ['DELL'], day)['DELL']
+    assert quality == {'as_of': day, 'retained_count': 250, 'invalid_count': 1,
+                       'latest_invalid_date': day, 'reason': 'high_geometry'}
+    # A partially migrated store still exposes invalid retained rows.
+    con.execute('UPDATE prices SET open = 0 WHERE ticker = ? AND date = ?', ['DELL', days[3]])
+    assert market_read_models.retained_bar_quality(con, ['DELL'], day)['DELL']['invalid_count'] == 2
+
+
+@pytest.mark.parametrize('change', [
+    {'invalid_count': 2}, {'retained_count': 251}, {'latest_invalid_date': date(2026, 10, 17)},
+    {'reason': ''}, {'reason': 'bad\nreason'}, {'as_of': None},
+])
+def test_retained_quality_rejects_inconsistent_measurements(change):
+    quality = {'as_of': date(2026, 10, 16), 'retained_count': 1, 'invalid_count': 1,
+               'latest_invalid_date': date(2026, 10, 16), 'reason': 'high_geometry'}
+    with pytest.raises(ValueError):
+        market_read_models.validate_retained_bar_quality({**quality, **change})

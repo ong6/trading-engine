@@ -2,6 +2,7 @@ import Link from "next/link";
 import { candidateHref } from "../lib/candidate-route";
 import { fmtDate, fmtInt, fmtMoney, fmtPct, fmtPrice } from "../lib/format";
 import StateNotice from "./StateNotice";
+import RetainedBarWarning from "./RetainedBarWarning";
 
 function EmptyScreen({ screen }) {
   return (
@@ -68,6 +69,7 @@ function ScreenRows({ screen, rows }) {
                     <strong>{row.ticker}</strong>
                   </Link>{" "}
                   {row.new_today ? <span className="tag new">new</span> : null}
+                  <RetainedBarWarning quality={row.retained_bar_quality} />
                 </td>
                 <td className="num">{fmtPrice(row.close)}</td>
                 <td className="num">{fmtInt(row.rs_rank)}</td>
