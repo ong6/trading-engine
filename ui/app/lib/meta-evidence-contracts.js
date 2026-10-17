@@ -17,6 +17,7 @@ import {
 
 const NIGHTLY_EVIDENCE_STATUSES = new Set([
   "current",
+  "incomplete",
   "failed",
   "interrupted",
   "invalid",

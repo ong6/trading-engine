@@ -24,6 +24,14 @@ export function fmtPct(v) {
   return `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
 }
 
+// Quantities: up to 4 decimal places, trimmed; tiny positives never become zero.
+export function fmtQty(v) {
+  if (!isNum(v)) return DASH;
+  if (v > 0 && v < 0.0001) return "<0.0001";
+  if (v === 0) return "0";
+  return v.toLocaleString("en-US", { maximumFractionDigits: 4 });
+}
+
 // Plain integer / count.
 export function fmtInt(v) {
   return isNum(v) ? Math.round(v).toLocaleString("en-US") : DASH;

@@ -1,4 +1,4 @@
-import { driverAlert, walkforwardLabel } from "../lib/header-status";
+import { countedEvidenceLabel, driverAlert, e1EvidenceLabel, walkforwardLabel } from "../lib/header-status";
 
 export default function HeaderResearchStatus({ res, data }) {
   const weeklySweeps = data.weekly_sweeps || null;
@@ -47,7 +47,7 @@ export default function HeaderResearchStatus({ res, data }) {
           <span className="k">sweep evidence </span>
           {sweepEvidence.status === "idle"
             ? "idle (no open charter)"
-            : `${sweepEvidence.status} (${sweepEvidence.current_charters || 0}/${sweepEvidence.open_charters || 0})`}
+            : countedEvidenceLabel(sweepEvidence, "current_charters", "open_charters")}
         </span>
       ) : null}
       <span className={researchAlert ? "research-fail" : ""}>
@@ -95,7 +95,7 @@ export default function HeaderResearchStatus({ res, data }) {
         {res.busy
           ? "db busy"
           : e1Forward
-            ? `${e1Forward.status.toLowerCase()} (${e1Forward.observations || 0}/${e1Forward.target_observations || 40}, v${e1Forward.runtime_contract_version})`
+            ? e1EvidenceLabel(e1Forward)
             : "unknown"}
       </span>
       {queueCounts.pending || queueCounts.running || actionableQueueFailures ? (
@@ -108,7 +108,7 @@ export default function HeaderResearchStatus({ res, data }) {
       {minerEvidence && minerEvidence.status !== "current" ? (
         <span className="research-fail">
           <span className="k">miner evidence </span>
-          {`${minerEvidence.status} (${minerEvidence.current || 0}/${minerEvidence.expected || 0})`}
+          {countedEvidenceLabel(minerEvidence, "current", "expected")}
         </span>
       ) : null}
       {staleExposure.position_count || staleExposure.pending_order_count ? (
