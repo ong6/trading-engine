@@ -3531,4 +3531,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** product +14, tools +113 for this step; server unchanged.
 - **Next:** Complete all 18 books' registered corpus pairs, publish lane STATUS and stop.
 
+## 2026-10-17 — Preserve a latest null close in the aggregate projection
+
+- **Why:** Rank 6 sentinel acceptance reproduced plain arg_max skipping a latest null close while the old row-number path omitted the ticker.
+- **What:** Aggregate a struct containing close, then extract close, so a null latest value retains the old selection and omission behavior.
+- **Evidence:** `python -m pytest tests/test_position_read_models.py -W error` → 27 passed including latest-null-close equality against the old query.
+- **Metrics:** unchanged.
+- **Next:** Complete the full corpus comparison and lane STATUS.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

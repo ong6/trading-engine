@@ -50,7 +50,7 @@ def _position_closes(
         return {}
     result = {}
     for raw_ticker, close in con.execute(
-        "SELECT px.ticker, arg_max(px.close, px.date) "
+        "SELECT px.ticker, arg_max(struct_pack(close := px.close), px.date).close "
         "  FROM prices px WHERE px.date <= ? "
         f"  AND {REAL_BAR_SQL} "
         "  AND px.ticker = ANY(?)"
