@@ -628,5 +628,5 @@ def test_cost_break_retains_complete_prefix_across_repeated_reviews(con):
         assert forward_review.evaluate(con, prior_result=result) == result
     con.execute("UPDATE sim_equity SET equity=equity+1 WHERE portfolio_id=? AND date=?",
                 [forward_review.CANDIDATE_ID, forward_review.OBSERVATION_START])
-    with pytest.raises(ValueError, match="previously published forward equity window changed"):
+    with pytest.raises(ValueError, match="baseline equity changed|previously published forward equity window changed"):
         forward_review.evaluate(con, prior_result=result)

@@ -3597,4 +3597,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** since step 1: server +32, tools 0, product +11, tests +143; budget ok.
 - **Next:** orchestrator authorizes the sector continuity amendment and follow-up revision-14 binding, then repeat the blocked deploy and suite gates.
 
+## 2026-10-17 — Amend sector continuity after the fresh readiness failure
+
+- **Why:** Orchestrator D1 authorizes a second pre-deploy amendment for the same continuity defect class found in the fresh rehearsal: unchanged sector reviews compare retained rows with restarted counts and fail.
+- **What:** Applied the reviewed evaluated/retained count partition check; schema-v1 behavior and all equity hash, baseline and ledger gates stay exact. Sector remains undeployed v11 with an amended digest note.
+  One test repeats both sector/XS reviews before and after D0 and refuses changed partitions/equity; E1's complete checkpoint passes the same cadence and refuses tampering, so E1 source is unchanged.
+- **Evidence:** Sector/XS/E1 monitor/status plus shared-family regressions → 144 passed with ordinary hash gates; before the fix, the shared-family test fails on the second sector review while E1 passes.
+- **Metrics:** product +13; tests +97; server/tools unchanged.
+- **Next:** follow-up revision-14 binding under D1, then fresh primary/fallback and full-suite acceptance.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
