@@ -3547,4 +3547,14 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** Complete the registered offline corpus acceptance and STATUS.
 
+## 2026-10-17 — Prove revision-15 flow equivalence on the full league corpus
+
+- **Why:** Orchestrator M9 acceptance: all 18 current books under the registered ten-fold walk-forward geometry.
+- **What:** Completed 180 old/new fold pairs on one shared disposable input with fresh sim state.
+  Every sim/portfolio row, fold statistic and final Markdown/CSV hash matched; deleted the sole store copy.
+  Coverage gap/new/failed/provider-revision fixtures preserve captured values and dates; live report default remains session-based.
+- **Evidence:** `python benchmark_corpus.py` via isolated acceptance harness → 180/180 exact pairs; 135,174 → 180 report calls and 2,326,328,369 → 6,121,846 report bytes. UTC/Singapore suites each 4,733 passed plus 81 expected integration pin failures.
+- **Metrics:** server -2, tools +113, product +126, tests +242; hygiene budget passes.
+- **Next:** Orchestrator integration after v2, with revision-15 re-pinning; no further lane work admitted.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
