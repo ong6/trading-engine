@@ -3497,8 +3497,17 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Why:** Revision-15 ops rank 6; the baseline parser stores successful TERM as exit 15 without its termination kind, and a completion-only journal row gets an invented start and zero duration.
 - **What:** Carry the systemd termination kind through storage and rendering; systemd's final result decides failure.
   Preserve unknown starts and durations, including when completion arrives in a later hour.
-- **Evidence:** `python -m pytest tests/test_ops_digest.py -q -W error -n 0` (validation recorded before commit).
-- **Metrics:** server/product unchanged; tools delta recorded after validation.
+- **Evidence:** `python -m pytest tests/test_ops_digest.py -q -W error -n 0` → 19 passed, including successful TERM, failed TERM, exit 1 and accepted exit 75.
+- **Metrics:** server/product unchanged; tools +16 LOC.
 - **Next:** Delimit observed schedule and journal coverage and consume dated work receipts.
+
+## 2026-10-17 — Separate observed work from unknown schedule history
+
+- **Why:** Revision-15 ops rank 5; the cited 14-day report says 130 event windows are missing despite 260 dated receipts, applies today's :08 timer to old :05 runs, and counts history before journal retention as missed.
+- **What:** Delimit sampled installed schedules and readable source intervals; absence outside those intervals is unknown.
+  Read existing work receipts from one immutable published snapshot, keeping process exit unknown when only work is observed.
+- **Evidence:** `python -m pytest tests/test_ops_digest.py -q -W error -n 0` → 23 passed; the 336-hour fixture retains one covered miss and no false historical misses.
+- **Metrics:** server/product unchanged; tools +183 LOC.
+- **Next:** Classify host failures and producer degradation, then move the Sunday history slot.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->

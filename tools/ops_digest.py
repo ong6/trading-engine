@@ -47,8 +47,11 @@ from statistics import median
 from typing import Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import duckdb
+
 from engine.lib.resources import write_text_atomic
 from engine.lib.settings import DEFAULT_DB, LOGS_DIR, REPO_ROOT
+from engine.lib.snapshots import latest_snapshot
 from tools.stage_timings import load_timings
 
 OPS_DIR = LOGS_DIR / "ops"
@@ -555,6 +558,13 @@ def collect_hour(
     if not units:
         gaps.append("no user units discovered")
     runs = store_runs(db, raw_runs)
+    retained = journal_start(run)
+    if retained is None:
+        gaps.append("journal retention boundary unknown; absence cannot prove a missed run")
+    else:
+        for unit in units:
+            if f"journal unreadable for {unit}" not in gaps and max(hour, retained) < end:
+                record_coverage(db, unit, max(hour, retained), end)
     for item in runs:
         if item["started"] and item["seconds"] is not None:
             item["typical"] = typical_seconds(db, item["unit"], item["started"])
@@ -563,6 +573,10 @@ def collect_hour(
     probes, sections, fp = [], {}, {}
     if last:
         collect_files(db, logs_dir, ops_dir, signals)
+        first_seen = db.execute("SELECT value FROM meta WHERE key='stages_seen'").fetchone()
+        if first_seen and (logs_dir / "stage-timings.jsonl").is_file():
+            record_coverage(db, "stages", _utc(first_seen[0]), now)
+        db.execute("INSERT OR REPLACE INTO meta VALUES ('stages_seen', ?)", (_iso(now),))
         probes, sections = probe(fetch)
         fp = footprint(run, logs_dir, db_path)
     previous = dict(db.execute(
@@ -655,6 +669,7 @@ def collect(
             return []
         db = open_db(ops_dir)
         try:
+            sample_schedules(db, run, now)
             row = db.execute("SELECT value FROM meta WHERE key='next_hour'").fetchone()
             first = datetime.fromisoformat(row[0]) if row else current - timedelta(hours=1)
             first = max(first, current - timedelta(hours=MAX_BACKFILL_HOURS))
@@ -716,6 +731,114 @@ class JobRun:
     seconds: float | None
     ok: bool | None
     label: str
+
+
+def journal_start(run: Runner) -> datetime | None:
+    """Retained coverage starts at the latest boot; earlier reboot gaps stay unknown."""
+    raw = run(["journalctl", "--user", "--list-boots", "--no-pager"], 30) or ""
+    stamps = re.findall(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC", raw)
+    return max(_utc(s) for s in stamps[::2]) if stamps else None
+
+
+def _meta_json(db: sqlite3.Connection, key: str, default):
+    row = db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+    return json.loads(row[0]) if row else default
+
+
+def record_coverage(db: sqlite3.Connection, source: str, start: datetime, end: datetime) -> None:
+    key = "coverage:" + source
+    ranges = sorted([*_meta_json(db, key, []), [_iso(start), _iso(end)]])
+    merged: list[list[str]] = []
+    for begin, finish in ranges:
+        if merged and begin <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], finish)
+        else:
+            merged.append([begin, finish])
+    db.execute("INSERT OR REPLACE INTO meta VALUES (?,?)", (key, json.dumps(merged)))
+
+
+def _schedule_data(item: Schedule) -> dict:
+    return {"job": item.job, "spec": item.spec, "slack_s": item.slack_s,
+            "unit": item.unit, "driver": item.driver,
+            "output": str(item.output) if item.output else None, "appends": item.appends}
+
+
+def _saved_schedule(item: dict) -> Schedule:
+    matcher = None
+    try:
+        if item["spec"].startswith("timer "):
+            matcher = _any_of([calendar_matcher(s) for s in item["spec"][6:].split("; ")])
+        elif item["spec"].startswith("cron "):
+            matcher = cron_matcher(item["spec"][5:].split())
+    except (StopIteration, ValueError, ZoneInfoNotFoundError):
+        pass
+    return Schedule(**{**item, "output": Path(item["output"]) if item["output"] else None},
+                    matcher=matcher)
+
+
+def sample_schedules(db: sqlite3.Connection, run: Runner, now: datetime) -> None:
+    samples = _meta_json(db, "schedule_samples", [])
+    items = [_schedule_data(s) for s in timer_schedules(run) + cron_schedules(run)]
+    samples.append({"at": _iso(now), "items": items})
+    cutoff = _iso(now - timedelta(days=METRIC_RETENTION_DAYS))
+    db.execute("INSERT OR REPLACE INTO meta VALUES ('schedule_samples', ?)",
+               (json.dumps([s for s in samples if s["at"] >= cutoff]),))
+
+
+def _schedule_intervals(db: sqlite3.Connection, schedule: Schedule,
+                        start: datetime, end: datetime) -> list[tuple[datetime, datetime]]:
+    """Only intervals bracketed by matching installed observations are known.
+
+    A changed schedule has an unknown transition interval. The current schedule is never
+    backdated into history before collection began.
+    """
+    samples = _meta_json(db, "schedule_samples", [])
+    expected = _schedule_data(schedule)
+    intervals = []
+    for first, second in zip(samples, samples[1:], strict=False):
+        if expected in first["items"] and expected in second["items"]:
+            begin, finish = max(start, _utc(first["at"])), min(end, _utc(second["at"]))
+            if begin < finish:
+                if intervals and begin <= intervals[-1][1]:
+                    intervals[-1] = (intervals[-1][0], max(finish, intervals[-1][1]))
+                else:
+                    intervals.append((begin, finish))
+    return intervals
+
+
+def work_receipts(database: Path, start: datetime, end: datetime
+                  ) -> tuple[dict[str, list[JobRun]], list[str]]:
+    """Read dated work from one resolved immutable snapshot; never infer a process exit."""
+    snapshot = latest_snapshot(database)
+    receipts: dict[str, list[JobRun]] = defaultdict(list)
+    if snapshot is None:
+        return receipts, ["work receipts unavailable: no published snapshot"]
+    sources = {
+        "trading-engine-p15-events": ("p15_event_windows", "observed_at"),
+        "trading-engine-p15-preopen": ("p15_preopen_runs", "started_at"),
+        "trading-engine-p15-scoring": ("p15_scoring_runs", "started_at"),
+        "trading-engine-daily-opportunity": ("daily_opportunity_runs", "started_at"),
+    }
+    gaps = []
+    try:
+        with duckdb.connect(str(snapshot.path), read_only=True) as con:
+            for job, (table, stamp) in sources.items():
+                try:
+                    rows = con.execute(
+                        f"SELECT {stamp}, completed_at, status, reason FROM {table} "
+                        f"WHERE {stamp}>=? AND {stamp}<? ORDER BY {stamp}",  # noqa: S608
+                        [start.replace(tzinfo=None), end.replace(tzinfo=None)]).fetchall()
+                except duckdb.Error:
+                    gaps.append(f"work receipts unavailable for {job}")
+                    continue
+                for began, _finished, status, reason in rows:
+                    label = f"receipt {status}; exit unknown"
+                    if reason:
+                        label += f" ({reason})"
+                    receipts[job].append(JobRun(began.replace(tzinfo=UTC), None, None, label))
+    except duckdb.Error:
+        gaps.append("work receipts unreadable: published snapshot could not be opened")
+    return receipts, gaps
 
 
 def _span_seconds(text: str) -> float:
@@ -947,36 +1070,72 @@ def _runs_cell(runs: list[JobRun]) -> str:
 
 
 def runs_lines(db: sqlite3.Connection, run: Runner, start: datetime,
-               end: datetime) -> tuple[list[str], list[str]]:
+               end: datetime, receipts: dict[str, list[JobRun]] | None = None
+               ) -> tuple[list[str], list[str]]:
     """Missing-run bullets, then the per-job run table and every driver's stages."""
     since, until = _iso(start), _iso(end)
     schedules = timer_schedules(run) + cron_schedules(run)
+    for sample in _meta_json(db, "schedule_samples", []):
+        for item in sample["items"]:
+            if item not in [_schedule_data(s) for s in schedules]:
+                schedules.append(_saved_schedule(item))
     known = {item.unit for item in schedules if item.unit}
     schedules += [Schedule(unit.removesuffix(".service"), "—", None, unit=unit) for (unit,) in
                   db.execute("SELECT DISTINCT unit FROM unit_runs WHERE COALESCE(started, ended)>=? "
                              "AND COALESCE(started, ended)<?", (since, until)) if unit not in known]
     drivers = _driver_runs(db, since, until)
+    grouped: dict[str, list[Schedule]] = defaultdict(list)
+    for schedule in schedules:
+        grouped[schedule.job].append(schedule)
     missing, table = [], []
-    for schedule in sorted(schedules, key=lambda item: item.job):
+    for job, versions in sorted(grouped.items()):
+        schedule = versions[0]
         runs = _job_runs(db, schedule, drivers, since, until)
-        due = _due(schedule, start, end)
-        if not runs and due == []:
-            continue
-        absent = None if due is None else _unmatched(schedule, due, runs)
-        if absent and schedule.output and schedule.appends:
-            absent = None
-        missing += [f"- {schedule.job}: due {_stamp(moment)} (`{schedule.spec}`), no run"
-                    for moment in absent or []]
-        failed = sum(item.ok is False for item in runs)
-        due_cell = "?" if due is None else len(due)
-        absent_cell = "?" if absent is None else len(absent)
-        table.append(f"| {schedule.job} | `{schedule.spec}` | {due_cell} | {len(runs)} | "
-                     f"{failed} | {absent_cell} | {_runs_cell(runs)} |")
-    lines = ["", "## Runs", "", f"Current timers and crontab checked against collected runs through "
-             f"{until}; a start may lag its schedule by the timer's accuracy and delay plus "
-             f"{RUN_GRACE_S // 60} minutes.", "",
-             "| job | schedule | due | ran | failed | missing | runs |",
-             "|---|---|---|---|---|---|---|", *table]
+        # A receipt proves work, not lifecycle. Merge the same invocation's evidence.
+        for receipt in (receipts or {}).get(job, []):
+            peer = next((r for r in runs if r.start is not None and receipt.start is not None
+                         and abs((r.start - receipt.start).total_seconds()) <= 60), None)
+            if peer:
+                peer.label += "; " + receipt.label
+            else:
+                runs.append(receipt)
+        runs.sort(key=lambda r: r.start or end)
+        due, observable, unknown = [], [], 0
+        intervals = []
+        for version in versions:
+            observed = _schedule_intervals(db, version, start, end)
+            intervals.extend(observed)
+            for begin, finish in observed:
+                slots = _due(version, begin, finish) or []
+                due.extend(slots)
+                coverage = _meta_json(db, "coverage:" + (version.unit or "stages"), [])
+                for moment in _unmatched(version, slots, runs):
+                    covered = any(low <= _iso(moment) and high >= _iso(moment + timedelta(
+                        seconds=version.slack_s + RUN_GRACE_S)) for low, high in coverage)
+                    if covered and not (version.output and version.appends):
+                        observable.append(moment)
+                        missing.append(f"- {job}: due {_stamp(moment)} (`{version.spec}`), no run")
+                    else:
+                        unknown += 1
+        known_seconds = sum((finish - begin).total_seconds() for begin, finish in intervals)
+        unknown_history = known_seconds < max(0, (end - start).total_seconds())
+        known_calendar = any(v.matcher is not None for v in versions)
+        unknown_cell = f"{unknown} slots; schedule unknown" if unknown_history else str(unknown)
+        if not known_calendar:
+            unknown_cell = "schedule unknown"
+        spec = "; ".join(dict.fromkeys(v.spec for v in versions))
+        due_cell = len(due) if known_calendar else "?"
+        absent_cell = len(observable) if known_calendar else "?"
+        table.append(f"| {job} | `{spec}` | {due_cell} | {len(runs)} | "
+                     f"{sum(r.ok is False for r in runs)} | {absent_cell} | {unknown_cell} | "
+                     f"{_runs_cell(runs)} |")
+    lines = ["", "## Runs", "", f"Requested interval {since} through {until}. Due counts cover "
+             "only intervals bracketed by identical installed schedule observations; transitions "
+             "and earlier history are unknown. Missing requires readable coverage across the "
+             f"allowed start window (timer delay plus {RUN_GRACE_S // 60} minutes). "
+             "Receipts prove work; they do not prove process exit. Unknown is never missing.", "",
+             "| job | schedule | known due | ran | failed | missing | unknown | runs |",
+             "|---|---|---|---|---|---|---|---|", *table]
     stage_lines = [
         f"- {driver} {_stamp(begin)}, {_duration((finish - begin).total_seconds())}: " + " · ".join(
             f"{stage} {_duration(seconds)}" + (f" exit {code}" if code else "")
@@ -987,16 +1146,8 @@ def runs_lines(db: sqlite3.Connection, run: Runner, start: datetime,
     return missing, lines
 
 
-def _collected_until(db: sqlite3.Connection, now: datetime, start: datetime) -> datetime:
-    latest = db.execute("SELECT MAX(hour) FROM hours").fetchone()[0]
-    if latest is None:
-        return start
-    return min(now, datetime.strptime(latest, "%Y-%m-%dT%H").replace(tzinfo=UTC)
-               + timedelta(hours=1))
-
-
 def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
-           run: Runner = _run) -> str:
+           run: Runner = _run, db_path: Path = DEFAULT_DB) -> str:
     """Summarise the last ``hours`` of collected metrics as Markdown."""
     path = ops_dir / "ops.sqlite"
     if not path.exists():
@@ -1014,6 +1165,9 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
             tally[row[1]] += 1
         out.append(f"{len(rows)} hour(s) collected: " + ", ".join(
             f"{count} {status}" for status, count in sorted(tally.items())) + ".")
+        missing_hours = max(0, hours - len(rows))
+        out.append(f"{missing_hours} requested hour(s) have no digest coverage; their outcomes "
+                   "are unknown. Log history before each file's first offset is unknown.")
         bad = [row for row in rows if row[1] != "OK"]
         if bad:
             out += ["", "| hour | status | failed | errors | warns | digest |",
@@ -1022,7 +1176,7 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
         failed = db.execute(
             "SELECT unit, started, seconds, exit_code, result FROM unit_runs "
             "WHERE COALESCE(started, ended)>=? "
-            "AND result NOT IN ('success','running') ORDER BY started",
+            "AND result NOT IN ('success','running','unknown') ORDER BY started",
             (since_iso,)).fetchall()
         failed += db.execute(
             "SELECT driver || ':' || stage, started, seconds, exit_code, 'failed' FROM stage_runs "
@@ -1032,7 +1186,10 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
             out += [f"- {u} at {s or 'unknown start'} ({_duration(sec)}): {res}, exit {code}"
                     for u, s, sec, code, res in failed]
         start = floor_hour(now) - timedelta(hours=hours)
-        missing, run_lines = runs_lines(db, run, start, _collected_until(db, now, start))
+        receipts, receipt_gaps = work_receipts(db_path, start, now)
+        if receipt_gaps:
+            out += ["", "Work coverage: " + "; ".join(receipt_gaps)]
+        missing, run_lines = runs_lines(db, run, start, now, receipts)
         if missing:
             out += ["", "## Missing runs", "", *missing]
         out += run_lines

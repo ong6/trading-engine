@@ -7,7 +7,7 @@ import sqlite3
 import subprocess
 import sys
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import duckdb
@@ -56,6 +56,8 @@ def _fake_run(journal: dict[str, str]):
         if args[:3] == ["systemctl", "--user", "list-units"]:
             return "dbus.service loaded active running D-Bus\n"
         if args[0] == "journalctl":
+            if "--list-boots" in args:
+                return "0 boot Sat 2026-10-10 00:00:00 UTC—Sat 2026-10-10 03:00:00 UTC"
             return journal.get(args[args.index("-u") + 1], "")
         if args[0] == "git":
             return "0\n" if "rev-list" in args else " M data/reports/league.md\n"
@@ -214,7 +216,7 @@ def test_clean_stop_that_systemd_reports_as_success_is_not_a_failed_run(tmp_path
     assert "| trading-engine-api | — | 02:46:54 | — | — | success (exit 15) [killed] |" in (
         hour["text"])
     assert "1 OK" in report and "Failed runs" not in report
-    assert "| trading-engine-api | `—` | ? | 1 | 0 | ? |" in report
+    assert "| trading-engine-api | `—` | ? | 1 | 0 | ? | schedule unknown |" in report
 
 
 def test_failure_whose_result_lands_in_the_next_hour_keeps_its_exit_code(tmp_path):
@@ -230,6 +232,8 @@ def test_failure_whose_result_lands_in_the_next_hour_keeps_its_exit_code(tmp_pat
 
     def run(args, timeout):
         if args[0] != "journalctl":
+            return units(args, timeout)
+        if "--list-boots" in args:
             return units(args, timeout)
         since, until = (int(args[args.index(flag) + 1][1:]) for flag in ("--since", "--until"))
         return "\n".join(entry for when, entry in entries if since <= when < until)
@@ -308,6 +312,12 @@ def _schedule_run(tmp_path):
 def test_report_lists_every_run_and_stage_against_the_schedules(tmp_path):
     ops = tmp_path / "ops"
     with closing(ops_digest.open_db(ops)) as db:
+        begin = datetime(2026, 10, 14, 12, tzinfo=UTC)
+        finish = datetime(2026, 10, 17, 12, 30, tzinfo=UTC)
+        for moment in (begin, finish):
+            ops_digest.sample_schedules(db, _schedule_run(tmp_path), moment)
+        for source in ("trading-engine-p15-preopen.service", "stages"):
+            ops_digest.record_coverage(db, source, begin, finish)
         db.executemany("INSERT INTO hours (hour, status) VALUES (?, 'OK')",
                        [(f"2026-10-17T{hour:02}",) for hour in range(12)])
         db.executemany("INSERT INTO unit_runs (unit, started, ended, seconds, exit_code, result) "
@@ -339,11 +349,11 @@ def test_report_lists_every_run_and_stage_against_the_schedules(tmp_path):
     assert "- run_daily: due 10-15 22:30Z" in missing
     assert missing.count("\n- ") == 2
     assert ("| trading-engine-p15-preopen | `timer Mon..Fri *-*-* 09:05:00 America/New_York` "
-            "| 3 | 2 | 1 | 1 | 10-14 13:05Z exit-code 1s; 10-16 13:05Z success 10s |") in report
-    assert "| run_daily | `cron 30 22 * * 1-5` | 3 | 2 | 1 | 1 |" in report
+            "| 3 | 2 | 1 | 1 | 0 | 10-14 13:05Z exit-code 1s; 10-16 13:05Z success 10s |") in report
+    assert "| run_daily | `cron 30 22 * * 1-5` | 3 | 2 | 1 | 1 | 0 |" in report
     assert ("| friday-postflight | `cron 15 5 * * 6` | 1 | 1 | 0 | 0 | "
-            "10-17 05:16Z output written |") in report
-    assert "| store-sync | `timer OnUnitActiveUSec=15min` | ? | 1 | 0 | ? |" in report
+            "0 | 10-17 05:16Z output written |") in report
+    assert "| store-sync | `timer OnUnitActiveUSec=15min` | ? | 1 | 0 | ? | schedule unknown |" in report
     assert "- run_daily 10-14 22:30Z, 53m00s: collect 4m00s · snapshot 1m00s" in report
     assert "- run_daily 10-16 22:30Z, 1m02s: collect 1m00s exit 1" in report
 
@@ -356,6 +366,84 @@ def test_installed_services_are_discovered_without_a_timer(tmp_path, monkeypatch
     monkeypatch.setattr(ops_digest, "USER_UNIT_DIR", units)
 
     assert ops_digest.discover_units(_fake_run({})) == ["report-after-settle.service"]
+
+
+def test_current_schedule_does_not_invent_missing_unobserved_history(tmp_path):
+    with closing(ops_digest.open_db(tmp_path)) as db:
+        missing, lines = ops_digest.runs_lines(
+            db, _schedule_run(tmp_path), datetime(2026, 10, 3, tzinfo=UTC),
+            datetime(2026, 10, 17, tzinfo=UTC))
+    assert missing == []
+    assert "unknown" in "\n".join(lines).lower()
+
+
+def test_fourteen_day_schedule_change_short_journal_and_dated_receipts(tmp_path):
+    start = datetime(2026, 10, 3, tzinfo=UTC)
+    end = start + timedelta(days=14)
+    change = start + timedelta(days=7)
+    job = "trading-engine-ops-digest"
+
+    def installed(minute):
+        def run(args, _timeout):
+            if "list-timers" in args:
+                return f"x {job}.timer {job}.service"
+            if "show" in args:
+                return (f"Unit={job}.service\nTimersCalendar={{ OnCalendar=*-*-* "
+                        f"*:0{minute}:00 UTC ; }}\nAccuracyUSec=1min\nRandomizedDelayUSec=0\n")
+            return ""
+        return run
+
+    old, new = installed(5), installed(8)
+    receipts = {job: [ops_digest.JobRun(start + timedelta(hours=h, minutes=5 if h < 168 else 8),
+                                       None, None, "receipt completed; exit unknown")
+                      for h in range(336) if h != 200]}
+    with closing(ops_digest.open_db(tmp_path)) as db:
+        for moment, runner in ((start, old), (change - timedelta(minutes=1), old),
+                               (change, new), (end, new)):
+            ops_digest.sample_schedules(db, runner, moment)
+        ops_digest.record_coverage(db, f"{job}.service", change, end)
+        missing, lines = ops_digest.runs_lines(db, new, start, end, receipts)
+    assert len(missing) == 1 and "10-11 08:08Z" in missing[0]
+    table = "\n".join(lines)
+    assert table.count(f"| {job} |") == 1
+    assert "| 336 | 335 | 0 | 1 |" in table
+    assert "schedule unknown" in table  # transition interval is never backdated
+
+
+def test_missing_requires_coverage_of_entire_start_window(tmp_path):
+    begin = datetime(2026, 10, 14, tzinfo=UTC)
+    finish = begin + timedelta(days=1)
+    runner = _schedule_run(tmp_path)
+    with closing(ops_digest.open_db(tmp_path)) as db:
+        for moment in (begin, finish):
+            ops_digest.sample_schedules(db, runner, moment)
+        # The journal stops during the six-minute allowed pre-open start window.
+        ops_digest.record_coverage(db, "trading-engine-p15-preopen.service", begin,
+                                   begin + timedelta(hours=13, minutes=6))
+        missing, lines = ops_digest.runs_lines(db, runner, begin, finish)
+    assert missing == []
+    assert "| 1 | 0 | 0 | 0 | 1 |" in "\n".join(lines)
+
+
+def test_work_receipts_read_only_from_resolved_snapshot(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    published = tmp_path / "published.duckdb"
+    with duckdb.connect(str(published)) as con:
+        con.execute("CREATE TABLE p15_event_windows (observed_at TIMESTAMP, "
+                    "completed_at TIMESTAMP, status VARCHAR, reason VARCHAR)")
+        con.execute("INSERT INTO p15_event_windows VALUES ('2026-10-05 13:35:59', "
+                    "'2026-10-05 13:37:27', 'completed', NULL)")
+    before = published.read_bytes()
+    monkeypatch.setattr(ops_digest, "latest_snapshot", lambda database:
+                        SimpleNamespace(path=published))
+    receipts, gaps = ops_digest.work_receipts(tmp_path / "absent-primary.duckdb",
+                                             datetime(2026, 10, 3, tzinfo=UTC), NOW)
+    [row] = receipts["trading-engine-p15-events"]
+    assert row.start == datetime(2026, 10, 5, 13, 35, 59, tzinfo=UTC)
+    assert row.ok is None and row.seconds is None and row.label.endswith("exit unknown")
+    assert len(gaps) == 3 and before == published.read_bytes()
+    assert not (tmp_path / "absent-primary.duckdb").exists()
 
 
 def test_footprint_counts_the_whole_store_directory(tmp_path):
