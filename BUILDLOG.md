@@ -3539,4 +3539,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** Complete the full corpus comparison and lane STATUS.
 
+## 2026-10-17 — Use native null-preserving latest-close aggregation
+
+- **Why:** Rank 6 latest-null sentinel acceptance; native arg_max_null is equivalent to the preserving struct and avoids its allocation.
+- **What:** Select arg_max_null(close, date) with the same admitted-bar filter, preserving a latest null close and the old ticker omission.
+- **Evidence:** `python -m pytest tests/test_position_read_models.py -W error` → 27 passed; seven paired queries equal including absent/future/phantom/latest-null cases.
+- **Metrics:** unchanged.
+- **Next:** Complete the registered offline corpus acceptance and STATUS.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
