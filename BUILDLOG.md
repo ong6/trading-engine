@@ -3519,4 +3519,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** product +4; docs +12; server/tools unchanged.
 - **Next:** issue the single revision-14 registration amendment over this committed runtime source.
 
+## 2026-10-17 — Re-pin revision 14 once over the deploy-readiness amendment
+
+- **Why:** P22 and orchestrator D1: revision 14 is undeployed; the XS continuity blocker must be repaired and registered before deployment.
+- **What:** Re-hashed the one changed registered file, bound the committed runtime source and disclosed the amendment in the registration reason and registration test. The existing source-commit assertion remains intact.
+  XS remains undeployed v22 with its amended migration note; E1 v7 and sector v11 remain unchanged. No frozen equity, signal, strategy, baseline, ledger or verdict rule changes.
+- **Evidence:** Registration plus E1/sector/XS monitor and status tests → 146 passed with the issued registration and ordinary hash gates; no provisional harness used.
+- **Metrics:** product unchanged from the runtime source commit; tests +1; server/tools unchanged.
+- **Next:** amend the deployment runbook, then rehearse the registered source on one fresh store copy.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
