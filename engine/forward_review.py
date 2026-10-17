@@ -104,9 +104,13 @@ RUNTIME_CONTRACT_MIGRATION = (
     "high and low, a delisted holding closes at its last real traded close, the league leaves "
     "P15 marks to their window, a split-like re-fetch triggers back-adjustment, and this "
     "migration compares the deployed report's fill model and clock fields as published"
+    "; second pre-deploy amendment 2026-10-17 under D1 fixes the same retained-prefix "
+    "continuity defect class found by the fresh rehearsal: evaluated and retained counts "
+    "are partitioned at the prior clock, with schema-v1 behavior, complete equity hashes, "
+    "baselines and forward ledgers unchanged"
 )
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "dbfc3f8a0c9e1c3a804849d78443ce71fbe5c02eb549a0e13f6e954b8a1d98d5"
+    "c7c868a9176172eafab99427723ce7edf5bdb7326693cb9f351ff29ab52d9168"
 )
 PRIOR_RUNTIME_CONTRACT_FILES = (
     "engine/forward_review.py",
@@ -637,12 +641,21 @@ def _validate_prior_equity(
             raise ValueError("legacy forward report is not the frozen migration checkpoint")
     elif prior_result.get("schema_version") == 2:
         prior_start = date.fromisoformat(observation["first_shared_date"])
-        expected_count = int(observation["shared_sessions_available"])
+        evaluated_count = observation["shared_sessions_available"]
+        retained_count = observation.get("pre_break_shared_sessions", 0)
+        prior_clock = date.fromisoformat(
+            observation.get("evaluation_clock_start", OBSERVATION_START.isoformat())
+        )
+        if any(type(count) is not int or count < 0 for count in (evaluated_count, retained_count)):
+            raise ValueError("prior forward report has invalid continuity metadata")
+        expected_count = evaluated_count + retained_count
     else:
         raise ValueError("prior forward report has unsupported schema")
     prior_rows = [row for row in shared if prior_start <= row[0] <= prior_as_of]
     if (
         len(prior_rows) != expected_count
+        or (prior_result.get("schema_version") == 2
+            and sum(row[0] < prior_clock for row in prior_rows) != retained_count)
         or not prior_rows
         or prior_rows[0][0] != prior_start
         or prior_rows[-1][0] != prior_as_of

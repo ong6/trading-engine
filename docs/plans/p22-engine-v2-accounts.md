@@ -200,3 +200,16 @@ deployment; rollback restores the pre-migration database backup and source revis
   Rollback restores all 17 manifest records and byte-identical revision-13 DB, replaces the
   snapshot pointer, and serves accumulating sector v10/XS v21/E1 v6 on primary and forced
   snapshot fallback. All copied stores, snapshots, WALs and runtime unit links were removed.
+
+- 2026-10-17 second pre-deploy amendment authorized by the orchestrator under D1, while
+  revision 14 remains undeployed: the fresh rehearsal found sector's same retained-prefix
+  continuity defect class after the first XS amendment. Apply the reviewed partition check,
+  retain schema-v1 behavior exactly, keep sector runtime v11 and update its migration note
+  and normalized source digest. A follow-up revision-14 binding uses the committed-source
+  then registration pattern; all complete equity hashes, baselines and forward ledgers remain.
+  A single regression runs both sector and XS through two unchanged reviews before and after
+  D0, rejects a manipulated count partition and tampered equity. E1's corresponding audit
+  passes: its 12-observation complete checkpoint is unchanged across the book break, grows
+  to 13 on the next captured Monday and passes two repeated reports; tampering is refused.
+  E1 v7 and XS v22 source contracts are unchanged. Final fresh-copy semantic primary/fallback
+  checks and both timezone suites supersede the earlier no-go evidence only after they pass.

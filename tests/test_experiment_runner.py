@@ -389,3 +389,34 @@ def test_frozen_sample_end_is_the_fortieth_nyse_monday():
     assert end == date(2027, 5, 10)
     assert end.weekday() == 0
     assert experiment_runner.nyse.is_session(end)
+
+
+def test_e1_complete_checkpoint_survives_repeated_reports_across_book_cost_break(con, tmp_path, monkeypatch):
+    cfg = _config()
+    monkeypatch.setattr(experiment_runner, "REPORTS_DIR", tmp_path)
+    days = [date(2026, 4, 1) + timedelta(days=i) for i in range(199)]
+    days = [day for day in days if experiment_runner.nyse.is_session(day)]
+    insert_bars(con, "SPY", days, open_=100.0, close=101.0, volume=1_000_000)
+    before = datetime(2026, 10, 17, 22, tzinfo=timezone.utc)
+    result = experiment_runner.run(con, cfg, now=before)
+    assert result["n_oos"] == 12
+    checkpoint = experiment_runner.checkpoint_path(cfg).read_bytes()
+    # E1's observations are experiment rows, not the simulator book's restarted clock.
+    con.execute("INSERT INTO sim_book_breaks VALUES ('spy_benchmark', DATE '2026-10-19', "
+                "'cost_profile', 'baseline_v1', 'ibkr_pro_tiered_v1', 14, 'D0', "
+                "TIMESTAMP '2026-10-18 20:00')")
+    for _ in range(2):
+        assert experiment_runner.run(con, cfg, now=before, read_only=True)["n_oos"] == 12
+        assert experiment_runner.checkpoint_path(cfg).read_bytes() == checkpoint
+    day = date(2026, 10, 19)
+    insert_bars(con, "SPY", [day], open_=100.0, close=101.0, volume=1_000_000)
+    after = datetime(2026, 10, 19, 22, tzinfo=timezone.utc)
+    assert experiment_runner.run(con, cfg, now=after)["n_oos"] == 13
+    checkpoint = experiment_runner.checkpoint_path(cfg).read_bytes()
+    for _ in range(2):
+        assert experiment_runner.run(con, cfg, now=after, read_only=True)["n_oos"] == 13
+        assert experiment_runner.checkpoint_path(cfg).read_bytes() == checkpoint
+    con.execute("UPDATE experiment_results SET net_ret=net_ret+0.01 WHERE experiment_id=? "
+                "AND trade_date=DATE '2026-07-20'", [cfg["id"]])
+    with pytest.raises(ValueError, match="inconsistent with its frozen registration"):
+        experiment_runner.run(con, cfg, now=after, read_only=True)
