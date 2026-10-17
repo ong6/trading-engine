@@ -3546,4 +3546,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/tools/product unchanged; tests +2 LOC.
 - **Next:** Run the full UTC and Asia/Singapore suites and finish the lane status.
 
+## 2026-10-17 — Complete revision-15 ops timezone validation
+
+- **Why:** The orchestrator authorized the timer-test correction and required both full suites before closing the lane.
+- **What:** Validated the final digest and Sunday calendar with the corrected existing assertions.
+  The prior blocker is resolved; no producer/runner assertion, registered source or runtime pin changed in this follow-up.
+- **Evidence:** `TZ=UTC python -m pytest -o addopts= -q -W error -n auto` → 4,848 passed in 625.47 seconds; Asia/Singapore → 4,848 passed in 645.94 seconds. Targeted digest/calendar tests: 58 passed.
+- **Metrics:** server/product unchanged; tools +251 LOC, tests +243 LOC since the lane base; budget ok.
+- **Next:** Nothing admitted; deliver the completed lane status for post-v2 integration.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
