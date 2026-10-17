@@ -661,3 +661,126 @@ commit and lands with closure as commit 21. The existing source-commit assertion
 no hash bypass or self-referential identity is introduced. Both commits are published together.
 Scope, trading authority, the 4,500 test/documentation-line budget and the 1,500-insertion
 per-commit limit are unchanged.
+
+## 2026-10-08 — P22 lifecycle round 2 (binding orchestrator rulings)
+
+Deploy no earlier than Sunday 2026-10-18, with parameterized D0 2026-10-19,
+after lifecycle regressions and the store-copy rehearsal pass. The integration
+orchestrator owns the P15 re-pin; this lane leaves its revision unchanged.
+
+1. Accounts are independently funded. Remove the shared gross exposure cap and
+   its refusal. Keep each account's default 1.0× gross limit (maximum 1.5×),
+   rechecked using marks observable at the fill timestamp. Concentration remains
+   an alert only; aggregate 1%-of-MDV60 liquidity follows global receipt order.
+2. Use one source-aware valuation in settlement, late settlement, margin and API
+   reads. Carry the last observed price, falling back to a fill, and flag it stale.
+   Refuse with a reason only when no price was ever observed; never erase a liability.
+3. Reconcile money within $0.005 per account and align financing/fill event order.
+   Exact floating-point hashes do not decide reconciliation.
+4. Halt/cancel do not attach market stores. Source reads retry writer contention
+   with backoff and defer only dependent accounts with a logged reason.
+5. Captured corporate actions change signed positions, lots, orders and replay,
+   independently of operational prices coverage. Account dividends transact with
+   account settlement; legacy reruns and dividend processing exclude accounts.
+6. Late settlement processes every unresolved session oldest-first, refreshes
+   carried marks without requiring a fill, and recomputes dependent later state,
+   verification, halts and maintenance.
+7. A contingent close cannot exceed its requested quantity, parent fill or holdings.
+   Borrow and margin interest continue during retirement until flat.
+8. The late CLI exits nonzero on any account error. Migration preserves v1 league
+   routing, reports proposed route changes and requires --allow-routing-change
+   before changing any route.
+
+
+## 2026-10-08 — P22 lifecycle round 3 (binding orchestrator rulings)
+
+The third review requires one chronological, corporate-action-aware accounting path for
+settlement, late recovery and results. Existing portfolios retain their fill routes at migration;
+commissions apply through those routes and only new accounts use the account engine. Migration
+breaks read the deployed P15 revision from its registration (revision 14, not yet deployed).
+Financing uses marks observable at its event timestamp and precedes execution checks that see
+its debit. Interest checkpoints advance even when cash is positive. Failed recovery verification
+rolls back the reconstructed state, reports an account error and makes the CLI exit nonzero.
+The lifecycle lane owns these corrections, revision 14 re-pinning, and a complete disposable-store
+deploy/rollback rehearsal for Sunday 2026-10-18, D0 2026-10-19. Live stores and units stay untouched.
+
+## 2026-10-08 — P22 lifecycle round 4 (binding orchestrator rulings)
+
+The fourth review admits consolidation of P15 sizing/cash, dividend entitlement, risk history
+and verification into the shared chronological ledger. P15 validation calls the executor's
+fee-aware sizing with its effective profile and prior fees; pre-D0 behavior stays exact.
+Dividends use signed holdings at the preceding close and historical corporate-action units.
+Resumes and halts replay as ledger events. Verification reconciles lots, cash and source-marked
+equity within $0.005 and durably halts mismatches. FIFO PDT preview, optional whole_shares and
+executable runbook bash blocks are included. Revision 14 is re-pinned while undeployed; scoring,
+labels, gates and schedules stay frozen. Rehearsal must cross D0 for legacy books and roll back
+to origin/main revision 13. Deploy remains October 18, D0 October 19; live state stays untouched.
+
+## 2026-10-09 — P22 lifecycle round 5 (binding orchestrator ruling)
+
+Every historical event uses one rule: verify retained state, rewind to the last verified
+checkpoint before its effective time, replay fills, actions, financing, marks and risk
+transitions chronologically, verify, and commit atomically. Failure preserves the old state
+and mismatch evidence, halts the account and exits nonzero. Nightly retries verify before
+replacing checkpoints. FIFO matches alone record day trades; elapsed debit interest precedes
+opening cash movements. Revision 14 may be re-pinned while undeployed. Deployment remains
+October 18 with D0 October 19; this lane pushes PR #13 without merging or touching live state.
+
+## 2026-10-10 — P22 lifecycle round 6 (binding orchestrator rulings)
+
+These rulings supersede the earlier checkpoint and historical-risk rules.
+Deploy target remains Sunday 2026-10-18, D0 2026-10-19.
+
+A. **Accounting is one pure fold from account inception.**
+`state = fold(all effective-dated events of the account)`: fills, corporate actions,
+cash settlements, dividends, financing and fees. Replay the whole account every settle
+(nightly, late, verify and `/results`). Stored cash, lots and equity are a cache written
+atomically from the fold and verified against it. Delete partial checkpoint restoration.
+Every event has a stable identity from its full key, including its date; a per-date
+sequence number alone is never an identity.
+
+B. **Orders keep receipt units.** Store an order in the units in force at receipt and
+convert to its execution session's units inside the fold. A pre-split MOO filled late
+fills its pre-split quantity; the later split applies exactly once.
+
+C. **Risk acts as-known, never backdated.** Halts and resumes take effect when processed.
+API resume is effective at receipt and rejects a past effective time. After every settle,
+run risk on corrected history as of now: drawdown from the corrected peak re-measured
+from the latest resume, daily loss for the latest settled session, and fold/cache mismatch.
+Late data never un-fills orders already executed while active. Delete historical-risk replay.
+
+D. **Any failure halts.** Any exception during fold, settle or verify rolls back the
+transaction, then persists mismatch evidence and halts in a separate transaction.
+Nightly and late entry points exit nonzero.
+
+## 2026-10-15 — Accept engine v2; land the revision-14 fixes before the Sunday deployment
+
+**Verdict.** The owner accepted engine v2 (P22): "we support the v2, I accept it." The pending
+revision-14 fixes go into v2 before the planned deployment on Sunday 2026-10-18.
+
+**Orchestrator acceptance.** P22 lifecycle round 6 (`42083c4`, PR #13 on `p22/lifecycle`) is
+accepted: CI green under both supported timezones with 4,728 tests. Lanes L0–L4 were accepted
+earlier; the private-alpha lane stays held for the post-deploy cutover.
+
+**Rule changes.**
+
+1. P22 deploys in the Sunday 2026-10-18 19:00–23:00 UTC window with D0 2026-10-19, using the
+   deployment and rollback commands in `settlement-runbook.md`, after the final revision-14
+   source passes both timezone suites and the store-copy rehearsal. → P22 plan progress.
+2. The revision-14 defect fixes are admitted into P22: the "Proposed, not approved" lines of
+   2026-10-10 and 2026-10-15 in `scope.md` and the further defects listed in the P22 plan
+   progress. Each lands on `p22/lifecycle` with its reproduction in BUILDLOG. Revision 14 and the
+   frozen runtime contracts are re-pinned once, while still undeployed, after the last fix.
+   → `scope.md`, P22 plan progress.
+
+## 2026-10-15 — Close out a delisted holding at its last real traded close
+
+**Verdict.** "A delisted holding is removed: closed out at its last real traded close."
+
+**Rule change.** A held name that has stopped trading is no longer carried at its last close
+until someone supplies settlement terms. The engine removes the position, crediting or debiting
+it at the name's last real traded close, for every book type through the v2 ledger and settlement
+path so replay reproduces it. This replaces the "needs a human decision" carried mark in
+`sim/league.py` and the settlement runbook's "the position stays open and stale". How a delisting
+is detected is a technical decision for the orchestrator. → `product.md`; a P22 fix lane implements it
+before deployment and updates the runbook in the same change.

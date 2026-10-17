@@ -19,7 +19,7 @@ owner entry in `feedback.md`.
 | Multi-cadence agent tools (P9): hourly and four-hour shadow observers (`trading-engine-{hourly,four-hour}-opportunity.timer`) | Weekdays 10:15–16:15 hourly and 10:30/13:30 America/New_York | Same; missed windows are not replayed (`Persistent=false`) |
 | Agent data capture and agent-only shadow (`trading-engine-agent-{data-capture,shadow}.timer`) | 01:25 and 01:30 UTC Tue–Sat | Same |
 | Forward agent evaluation (P11) and P15 evaluation (`GET /agent/evaluation/status`, JSON and P15 Markdown reports) | After P8; refreshes after P15 scoring | Same; labels are mechanical and never tune a policy |
-| P15 pre-open check, event triggers, and scoring (`trading-engine-p15-{preopen,events,scoring}.timer`) | Pre-open 09:05 and events at 09:35/09:50 then :05/:20/:35/:50 through 15:50 America/New_York on weekdays; scoring 02:30 UTC Tue–Sat | Same; revision 13 preserves registered values and no tuning is admitted |
+| P15 pre-open check, event triggers, and scoring (`trading-engine-p15-{preopen,events,scoring}.timer`) | Pre-open 09:05 and events at 09:35/09:50 then :05/:20/:35/:50 through 15:50 America/New_York on weekdays; scoring 02:30 UTC Tue–Sat | Same; revision 14 binds P22 on top of revision 13 while preserving scoring, labels, gates and schedules |
 | TradingView historical archive (P14; existing queue, bounded slices) | 03:40, 07:40, 11:40, 21:40 and 23:40 UTC weekdays, six four-hourly slices on weekends (`trading-engine-tradingview-history.timer`); nightly enqueue is a fallback | Same; retrieval-time research only, current-universe survivor bias explicit |
 
 Change a running component only through a plan, as a new registered version. Existing versions
@@ -30,7 +30,8 @@ and their evidence are never edited.
 Plan status lives in one place: the table in [`plans/README.md`](plans/README.md). Only plans
 marked `approved` or `active` there admit work, subject to their stated prerequisites. The
 profitability evidence loop's activation workstream (P15 W8) activated on 2026-09-29;
-source registration revision 13 binds the validator and label-timing corrections without changing activation.
+source registration revision 14 binds P22 commissions, clocks and the account engine on top of
+revision 13's validator and label-timing corrections without changing activation.
 Completed outputs from agent paper decisions (P5), the alpha experiment (P6), the 2022 replay
 (P10), forward agent evaluation (P11), the agent research product (P12), market-data source
 hardening (P13), and the TradingView historical archive (P14) stay in scope for operation and
@@ -43,6 +44,15 @@ The challenger lab's evaluation through broker-paper design workstreams (P16 W1�
 half of activation (W9a) are built but inactive: evaluation v2, challenger and filing paths, historical
 labs, construction books, fill measurement, and the weekly digest have no authority until their
 W9b registration, rehearsal, and activation gates. The Stage 2 output is design only.
+P22 admits the generic simulator account, auction/intraday fill, commission, short/margin/PDT,
+halt, result-isolation and data-capture foundation described by its active plan. It also admits
+the one-shot D0 migration and explicit frozen-contract revisions. It does not admit a private
+strategy, a broker connection, real capital, or options execution without bid/ask data.
+The owner accepted P22 on 2026-10-15 and admitted the revision-14 defect fixes proposed below
+(2026-10-10 and 2026-10-15) and in the P22 plan progress; each line leaves this ledger when its
+fix lands on `p22/lifecycle`. Fixes a–k landed on 2026-10-16 with the integrator's
+follow-ups, and revision 14 and the E1, sector and XS runtime contracts were re-pinned once;
+the P22 plan progress records each contract change and why no frozen rule's outcome moves.
 
 ## Not yet — frozen until its trigger fires
 
@@ -56,7 +66,7 @@ W9b registration, rehearsal, and activation gates. The Stage 2 output is design 
 | Parameter sweeps and grids | `OPEN_RECURRING_GRIDS` empty | P6 permits one pre-registered fixed-instrument experiment, not a grid | No sweep or nearby variant |
 | Stock-selection or fundamentals research | Gated | 756 qualifying dates / 156 snapshots, or an audited point-in-time data (P3) dataset | None |
 | Intraday research | Gated | 252 qualifying sessions over 365 days in both resolutions | None, except P15's shadow mover scan and `next_bar` labels, which are evidence collection, not research verdicts |
-| New API endpoints, dashboard cards, operator CLIs, migrations | P15 extends the existing evaluation status with a bounded `p15` section | P7/P8 name bounded status and isolated-book changes; P15 names its tables and status section | Nothing else |
+| New API endpoints, dashboard cards, operator CLIs, migrations | P15 extends the existing evaluation status with a bounded `p15` section; P22 account APIs and its one-shot D0 migration are active-plan work | P7/P8 name bounded status and isolated-book changes; P15 and P22 name their bounded surfaces | Nothing else |
 | Daily opportunity agent | P8 deployed and live (02:00 UTC timer) | P8's bounded simulator-only scope | No broker path, real capital, retrospective trades, or P7 evidence pooling |
 | Multi-cadence and tool-call agents | P9 deployed: nightly locked simulator tool plus v5 hourly/four-hour shadow observers; P15 event triggers run in shadow since 2026-09-29 | P9's locked, attributed simulator-only scope; P15's observer fixes and shadow event triggers | No order authority for intraday variants or event triggers, and no broker path |
 | Additional market-data sources | P13 deployed; TradingView active for internal research | Owner-asserted TradingView rights; Alpaca credential-gated | No operational-price overwrite, fill pricing, or execution authority |
@@ -74,40 +84,11 @@ Agents append one line here instead of building. The owner promotes a line to a 
 deletes it.
 
 
-- 2026-10-15 · **TradingView archive never retries an exhausted window**:
-  `engine/tradingview_history_archive.py` `_pending_chunks` skips a window after three failed
-  attempts and never advances that symbol, so `unresolved_failed_windows` (9 on 2026-10-15: BLFS,
-  DBRG, DDS, ET, GBTG, SUN, SUNC, USAC, WBD) cannot clear and `miner_evidence` stays `issues`.
-  Each window used its attempts within 14 hours. Eight say `symbol_error`, yet BLFS, DBRG, DDS and
-  ET completed an earlier window, so the refusal is not shown to be terminal; GBTG's error is
-  generic. Counting them as refusals in `server/miner_monitor.py` would hide failures. In
-  revision 14, retry an exhausted window after a cool-down and record a terminal refusal only
-  after attempts spread over several days; the monitor can then report refusals separately.
-
-- 2026-10-15 · **Walk-forward keeps a one-session training fold**: `farm/walkforward/runner.py`
-  clamps a fold whose training window opens before the book's data floor instead of dropping it.
-  Sector momentum's fold 1 (floor 2016-10-07, split 2016-10-09) trains on one session, so its
-  result fails validation (`statistic dates do not match fold sessions`) and `walkforward_evidence`
-  stays `invalid`. In revision 14, drop and report a fold whose clamped training window has fewer
-  than two sessions, then republish the weekly result.
-
-- 2026-10-15 · **Registered writers open the store in one attempt**: `server/daily_opportunity_runner.py`
-  (`_connection`), `server/daily_opportunity_tools.py` and `server/official_quote_source.py` call
-  `db.connect(..., wait_s=0)`, so a concurrent reader (the API serving `/meta` or the dashboard)
-  fails them as it failed the pre-open; the unregistered agent-shadow runner now waits. Use the
-  default lock-retry window there too in revision 14.
-
-- 2026-10-15 · **P15 pre-open opens the store writer in one attempt**: `server/p15_preopen.py`
-  `run_database` calls `db.connect(database, wait_s=0)`, so any concurrent reader fails the run
-  (the API serving the digest's `/meta` probe did on 2026-10-13 and 10-14). It writes, so it cannot
-  open read-only; use the default lock-retry window (`db.connect(database)`, 60 s) in revision 14.
-
 - 2026-10-10 · **Registered-file observability defects (next registration revision)**: since
   `9a37ac0` `engine/verify_prices.py` prints its full evidence JSON (base64 bodies) to stdout,
-  ~13k lines a night and 18 MB a weekly verify; the P15 price-fetch record is withheld every
-  night because ~25 liquid names always fail, with exit 0 and no WARN; fail-soft stages and
-  units exit 0 when they skipped work (TradingView archive under the nightly lock). Fix with
-  P22's revision rather than a separate revision.
+  ~13k lines a night and 18 MB a weekly verify; fail-soft stages and units exit 0 when they
+  skipped work (TradingView archive under the nightly lock). Outside the revision-14 fix set
+  (a–k); its third item, the withheld P15 price-fetch record, was fix (e).
 
 - 2026-10-02 · **Activation of separately held research strategies**: P21 implements the generic
   paper-account specification and stock/ETF intake boundary; new accounts start inactive.
@@ -119,8 +100,8 @@ deletes it.
 [P21](plans/p21-operational-issues-and-account-isolation.md) completed the owner-requested
 operational fixes, complete independent-source evidence, queue-resolution audit, capture
 reliability, separate-account proof and behavior-preserving advisory-complexity work. The
-complete metadata snapshot is supported by the narrow recovery-bundle limit correction in
-P15 revision 12. Registered source identity changes require a properly rehearsed new revision
+complete metadata snapshot is supported by P15 revision 12's narrow recovery-bundle limit
+correction, retained by revisions 13 and 14. Registered source identity changes require a properly rehearsed new revision
 before deployment; policies and the research runtime remain unchanged.
 
 ## Completed review

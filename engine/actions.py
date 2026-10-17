@@ -7,8 +7,9 @@ Three modes, one module:
                        A §12.7 job-queue citizen (job kind `actions`): batched,
                        progress-logged, resumable via `actions_fetch_log`.
   --mode incremental   nightly; the small set that actually matters — held names,
-                       names with pending orders, the benchmark/sector ETFs, and
-                       the latest screen's top-N. Seconds, not hours.
+                       names with pending orders, the benchmark/sector ETFs, the
+                       latest screen's top-N, and any name whose re-fetch just
+                       rewrote stored bars by a split-sized ratio. Seconds, not hours.
   --mode reconcile     nightly; make the stored price series and the sim books
                        coherent with each newly-discovered split. FATAL on error.
 
@@ -47,6 +48,14 @@ Yahoo occasionally failing to restate past prices at all):
       held-or-pending name whose latest one-session close move exceeds 40% with
       no corporate_actions row nearby is WARNed loudly (possible missed split).
 
+A LATE RESTATEMENT (DXJ 3:1, ex 2026-10-09): Yahoo served the old scale on the
+ex-date evening and restated a night later, so the 5d re-fetch rewrote three
+stored bars by the ratio and left the bar before them, stored ON the ex-date, on
+the old scale. collect records each such rewrite (`record_split_like_rewrites`,
+an append-only audit_log row) before overwriting; the nightly fetch then asks
+about that name, and rule 3 accepts the rewrite as proof the pre-break bars were
+stored on the old scale. Without that record the reconciler still never guesses.
+
 Why the break is searched for rather than assumed to sit at the ex-date: the
 nightly 5-day re-fetch restates the last few sessions too, so a split spotted
 2–3 sessions late has its scale break at the EDGE OF THE REFETCH WINDOW, not at
@@ -62,8 +71,9 @@ from __future__ import annotations
 
 import json
 import math
+import statistics
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -75,6 +85,7 @@ from engine.lib import resources as rsc
 from engine.lib.log import get_logger
 from engine.lib.settings import META_PATH as DEFAULT_META
 from engine.lib.settings import STORE_DIR
+from engine.lib.util import table_exists
 
 log = get_logger("actions")
 
@@ -115,6 +126,11 @@ RECENT_EX_SESSIONS = 10
 TRIPWIRE_MOVE = 0.40
 TRIPWIRE_NEAR_DAYS = 7     # a corporate_actions row within ±N days explains it
 TODO_LOG_CAP = 20          # TODO breadcrumbs printed per run (audit_log has all)
+# Re-fetch rewrite evidence (audit_log rows written by collect before an overwrite):
+# a stored close replaced by one at least the ambiguity band away is split-like.
+REWRITE_ACTOR = "collect"
+REWRITE_ACTION = "split_like_rewrite"
+REWRITE_RECENT_DAYS = 14   # how long a rewrite keeps its name in the nightly fetch
 
 
 # --------------------------------------------------------------------------- #
@@ -164,6 +180,104 @@ def _rows_from_actions(canon: str, act: pd.DataFrame | None) -> list[dict]:
 
 
 # --------------------------------------------------------------------------- #
+# re-fetch rewrite evidence
+# --------------------------------------------------------------------------- #
+def record_split_like_rewrites(con, frame: pd.DataFrame) -> list[str]:
+    """Before `frame` overwrites stored bars, append one audit_log row per ticker
+    whose stored close it replaces by a split-sized ratio (|ln r| >= the
+    ambiguity band). Payload: the rewritten dates, the median stored/incoming
+    close ratio, and the latest fetched_at of the replaced bars — the source was
+    still serving the old scale when they were stored. Returns the tickers."""
+    if frame is None or frame.empty or not table_exists(con, "prices"):
+        return []
+    incoming = frame[["ticker", "date", "close"]].dropna()
+    with db.registered_frame(con, "_incoming_split_check", incoming):
+        rows = con.execute(
+            "SELECT i.ticker, i.date, p.close, i.close, p.fetched_at "
+            "FROM _incoming_split_check i JOIN prices p "
+            "ON p.ticker = i.ticker AND p.date = i.date "
+            "WHERE p.close > 0 AND i.close > 0 AND abs(ln(p.close / i.close)) >= ? "
+            "ORDER BY i.ticker, i.date",
+            [MIN_SEPARATION_LOG],
+        ).fetchall()
+    by_ticker: dict[str, list[tuple]] = {}
+    for ticker, day, old, new, stored_at in rows:
+        by_ticker.setdefault(ticker, []).append((day, float(old) / float(new), stored_at))
+    if not by_ticker:
+        return []
+    if not table_exists(con, "audit_log"):
+        from sim.schema import init_sim_schema
+        init_sim_schema(con)
+    for ticker, items in by_ticker.items():
+        stored = [s for _d, _r, s in items if s is not None]
+        payload = {
+            "ticker": ticker,
+            "dates": [d.isoformat() for d, _r, _s in items],
+            "ratio": statistics.median(r for _d, r, _s in items),
+            "replaced_fetched_at": max(stored).isoformat() if stored else None,
+        }
+        con.execute(
+            "INSERT INTO audit_log (ts, actor, action, payload) VALUES (?, ?, ?, ?)",
+            [datetime.now(timezone.utc), REWRITE_ACTOR, REWRITE_ACTION,
+             json.dumps(payload, sort_keys=True)],
+        )
+        log.info(f"[actions] split-like rewrite: {ticker} {payload['dates'][0]}.."
+                 f"{payload['dates'][-1]} stored/new {payload['ratio']:.4f}")
+    return sorted(by_ticker)
+
+
+def _rewrites(con, ticker: str | None = None, *, recent: bool = False) -> list[dict]:
+    if not table_exists(con, "audit_log"):
+        return []
+    sql = "SELECT payload FROM audit_log WHERE actor = ? AND action = ?"
+    args: list = [REWRITE_ACTOR, REWRITE_ACTION]
+    if ticker is not None:
+        sql += " AND json_extract_string(payload, '$.ticker') = ?"
+        args.append(ticker)
+    if recent:
+        sql += " AND ts >= ?"
+        args.append(datetime.now(timezone.utc) - timedelta(days=REWRITE_RECENT_DAYS))
+    return [json.loads(row[0]) for row in con.execute(sql + " ORDER BY ts", args).fetchall()]
+
+
+def _rewrite_shows_old_scale(con, ticker: str, ratio: float, break_date: date,
+                             stored_at: datetime) -> bool:
+    """Rule 3's evidence for a late restatement: a recorded re-fetch rewrite by
+    this split's ratio that starts exactly at the stored break and replaced bars
+    stored no earlier than the pre-break bars, so those were stored on the old
+    scale whatever their fetch date."""
+    lr = math.log(ratio)
+    return any(
+        r.get("dates") and r.get("replaced_fetched_at") and r.get("ratio", 0) > 0
+        and abs(math.log(r["ratio"]) - lr) <= TOL_LOG
+        and date.fromisoformat(r["dates"][0]) == break_date
+        and datetime.fromisoformat(r["replaced_fetched_at"]) >= stored_at
+        for r in _rewrites(con, ticker)
+    )
+
+
+def _unexplained_rewrites(con) -> list[str]:
+    """Recent split-like rewrites with no split row near them: Yahoo restated a
+    name's history but its actions feed has not reported the split (yet)."""
+    warns = []
+    for r in _rewrites(con, recent=True):
+        first, last = date.fromisoformat(r["dates"][0]), date.fromisoformat(r["dates"][-1])
+        near = con.execute(
+            "SELECT COUNT(*) FROM corporate_actions WHERE ticker = ? AND kind = 'split' "
+            "AND ex_date BETWEEN ? AND ?",
+            [r["ticker"], first - timedelta(days=TRIPWIRE_NEAR_DAYS),
+             last + timedelta(days=TRIPWIRE_NEAR_DAYS)],
+        ).fetchone()[0]
+        if not near:
+            line = (f"WARN split-like rewrite: {r['ticker']} {first}..{last} re-fetched "
+                    f"at stored/new {r['ratio']:.4f} with no split row within "
+                    f"{TRIPWIRE_NEAR_DAYS}d — not restated, needs a human")
+            warns.append(line)
+            log.info(f"[actions] {line}")
+    return warns
+
+
+# --------------------------------------------------------------------------- #
 # universe selection
 # --------------------------------------------------------------------------- #
 def _yf_map(con, canon: set[str]) -> list[tuple[str, str]]:
@@ -206,11 +320,13 @@ def _select_universe(con, params: dict, mode: str) -> tuple[list[tuple[str, str]
         canon |= {r[0] for r in con.execute(
             "SELECT ticker FROM screen_results WHERE run_date = ? AND passes_template "
             "ORDER BY rs_rank DESC, ticker LIMIT ?", [max_run, top_n]).fetchall()}
+    canon |= {r["ticker"] for r in _rewrites(con, recent=True)}
     # Never ask Yahoo about a name we hold no bars for.
     have = {r[0] for r in con.execute(
         "SELECT DISTINCT ticker FROM prices WHERE ticker IN "
         f"({','.join(['?'] * len(canon))})", list(canon)).fetchall()} if canon else set()
-    return _yf_map(con, canon & have), "active-held ∪ active-pending ∪ core-ETFs ∪ screen-top-N"
+    return _yf_map(con, canon & have), (
+        "active-held ∪ active-pending ∪ core-ETFs ∪ screen-top-N ∪ split-like-rewrites")
 
 
 def _already_done(con, on: date) -> set[str]:
@@ -388,7 +504,9 @@ def _adjudicate(con, ticker: str, ex_date: date, ratio: float) -> dict:
          across the split — there is nothing to restate, and the jump we found
          is either a real move or Yahoo's own unadjusted data (gh#2174). Either
          way: `skipped_already_adjusted`, hands off. (Rows with no fetched_at,
-         e.g. old copies, cannot fail this check.)
+         e.g. old copies, cannot fail this check.) The one exception is a
+         recorded re-fetch rewrite proving Yahoo restated late
+         (`_rewrite_shows_old_scale`, module docstring).
       4. No candidate at all: a large unexplained move by the ex-date ->
          `skipped_sanity`; otherwise the store already matches the post-split
          scale -> `noop_restated`.
@@ -465,10 +583,14 @@ def _adjudicate(con, ticker: str, ex_date: date, ratio: float) -> dict:
 
     if near is not None:
         _dist, i, break_date, obs = near
-        # Rule 3: the bars before the break must predate the ex-date in storage.
-        fetched = [_fetched_on(f) for _d, _c, f in win[:i]]
-        fetched = [f for f in fetched if f is not None]
-        if fetched and max(fetched) >= ex_date:
+        # Rule 3: the bars before the break must predate the ex-date in storage,
+        # unless a recorded rewrite shows they were stored on the old scale.
+        stored = [f for _d, _c, f in win[:i] if f is not None]
+        fetched = [_fetched_on(f) for f in stored]
+        if fetched and max(fetched) >= ex_date and not (
+            isinstance(max(stored), datetime)
+            and _rewrite_shows_old_scale(con, ticker, ratio, break_date, max(stored))
+        ):
             return {"outcome": "skipped_already_adjusted", "break_date": break_date,
                     "observed": obs}
         return {"outcome": "applied_pending", "break_date": break_date,
@@ -500,7 +622,10 @@ def _rebuild_sim_state(con) -> None:
     module keeps working from the queue and from `python -m engine.actions`.
     """
     from sim import portfolio
-    portfolio.rebuild_state(con)
+    ids = [row[0] for row in con.execute(
+        "SELECT portfolio_id FROM portfolio_accounts_v WHERE pa_engine<>'account'"
+    ).fetchall()]
+    portfolio.rebuild_state(con, ids)
 
 
 def _restate(con, ticker: str, ex_date: date, ratio: float, break_date: date) -> int:
@@ -531,7 +656,9 @@ def _restate(con, ticker: str, ex_date: date, ratio: float, break_date: date) ->
         )
         con.execute(
             "UPDATE sim_orders SET qty = qty * ? WHERE ticker = ? "
-            "AND status = 'pending' AND signal_date < ?",
+            "AND status = 'pending' AND signal_date < ? "
+            "AND portfolio_id IN (SELECT portfolio_id FROM portfolio_accounts_v "
+            "WHERE pa_engine<>'account')",
             [ratio, ticker, ex_date],
         )
         con.execute(
@@ -653,6 +780,7 @@ def reconcile(con) -> dict:
         counts[outcome] = counts.get(outcome, 0) + 1
 
     todos += tripwire(con)
+    todos += _unexplained_rewrites(con)
     summary = {"candidates": len(cands), "rows_restated": restated_rows,
                "outcomes": counts, "warnings": len(todos)}
     log.info(f"[actions] reconcile DONE: {counts or '{}'} rows_restated={restated_rows}")

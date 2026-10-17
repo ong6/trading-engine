@@ -70,15 +70,19 @@ EXPECTED_LEGACY_THROUGH = "2026-08-31"
 EXPECTED_LEGACY_PREFIX_SHA256 = (
     "e2603b7c85f5e24e3b019a4ee7058c6732a792647b0c1c2e62a0d111fdf360ad"
 )
-RUNTIME_CONTRACT_VERSION = 6
+RUNTIME_CONTRACT_VERSION = 7
 SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "31ff0e06dad3ee1063dc25210cf049df5dffba1662621bc6a97de30e535420a2"
+    "5a665966f7bad78474dab9367618aab4016ea847fec8bba9a92966e7706e5612"
 )
 RUNTIME_CONTRACT_MIGRATION = (
-    "2026-09-13 interruption-safe transaction cleanup: every explicit DuckDB transaction now "
-    "rolls back process-level interruptions, preserves the original failure if cleanup also "
-    "fails, and leaves borrowed connections reusable; the frozen seven-observation E1 prefix, "
-    "strategy, execution economics, and verdict rules are unchanged"
+    "Owner decision 2026-10-06: engine books charge ibkr_pro_tiered_v1 commissions from the "
+    "parameterized D0 and restart book evaluation clocks; additive account schema, monotonic "
+    "order sequence and shared ledger/replay replace the legacy runtime. Snapshot-copy rehearsal "
+    "proved pre-D0 league.csv and league.md byte-identical. E1 keeps its frozen 20 bp compatibility "
+    "cost, seven-observation prefix, strategy and verdict rule unchanged"
+    "; undeployed revision-14 fixes keep the frozen rule: the store's real-bar predicate also "
+    "needs a positive open, high and low (E1 reads only its connection and frame helpers), and "
+    "the migration carries the published record written under the predecessor forward config"
 )
 RUNTIME_CONTRACT_FILES = (
     "engine/lib/db.py",
@@ -94,19 +98,23 @@ RUNTIME_CONTRACT_FILES = (
 # Filled after the dependency list was frozen. The self-file digest normalizes
 # this literal so the contract can cover its own validation and verdict code.
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "5a665966f7bad78474dab9367618aab4016ea847fec8bba9a92966e7706e5612"
+    "5269d2359abcd0d39b21d013785eb5313702d16d97c14345dc6a2aa4bd3fc280"
 )
-PRIOR_RUNTIME_CONTRACT_VERSION = 5
+PRIOR_RUNTIME_CONTRACT_VERSION = 6
 PRIOR_RUNTIME_CONTRACT_SHA256 = SUPERSEDED_RUNTIME_CONTRACT_SHA256
 PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "da752d28c1b9bb18e3520139bbce71c885b89b192a47d00d5cd8fbfa0f1399ae"
+    "31ff0e06dad3ee1063dc25210cf049df5dffba1662621bc6a97de30e535420a2"
 )
 PRIOR_RUNTIME_CONTRACT_MIGRATION = (
-    "2026-09-13 exception-safe temporary DataFrame registration cleanup: transient DuckDB views "
-    "are now unregistered after failed statements; the frozen seven-observation E1 prefix, "
+    "2026-09-13 interruption-safe transaction cleanup: every explicit DuckDB transaction now "
+    "rolls back process-level interruptions, preserves the original failure if cleanup also "
+    "fails, and leaves borrowed connections reusable; the frozen seven-observation E1 prefix, "
     "strategy, execution economics, and verdict rules are unchanged"
 )
 PRIOR_RUNTIME_CONTRACT_FILES = RUNTIME_CONTRACT_FILES
+PRIOR_FORWARD_CONFIG_SHA256 = (
+    "399ce03bee8bab4ec592bca71438c6041766311f9610b73ee86921c4930f93b3"
+)
 
 # A Monday's daily bar is trusted only after its session has closed. 16:00 ET is
 # 20:00 UTC under EDT and 21:00 UTC under EST; 21:15 UTC clears both with margin
@@ -136,7 +144,10 @@ def load_forward_config(cfg_id: str | None, cfg_path: str | None) -> tuple[dict,
     if not p.exists():
         raise SystemExit(f"[e1] forward config not found: {p}")
     cfg = json.loads(p.read_text())
-    for key in ("id", "oos_start", "params", "kill_criterion", "parent_config_hash"):
+    for key in (
+        "id", "oos_start", "params", "kill_criterion", "parent_config_hash",
+        "runtime_revision",
+    ):
         if key not in cfg:
             raise SystemExit(f"[e1] forward config {p} is missing '{key}'")
     return cfg, p
@@ -411,6 +422,10 @@ def load_oos_series(con, cfg: dict, phash: str) -> list[dict]:
         [cfg["id"], OOS_PREFIX + "%"],
     ).fetchall()
     expected_fhash = forward_config_hash(cfg)
+    # Rows recorded before the runtime-v7 forward-config revision carry the predecessor's
+    # hash. They are a prefix: none may follow a row recorded under the current config.
+    accepted_fhashes = {expected_fhash, PRIOR_FORWARD_CONFIG_SHA256}
+    current_config_seen = False
     expected_start = date.fromisoformat(cfg["oos_start"])
     expected_weekday = WEEKDAY[str(cfg["params"]["weekday"]).lower()]
     expected_rt = float(cfg["cost_model"]["roundtrip_bps"])
@@ -445,7 +460,7 @@ def load_oos_series(con, cfg: dict, phash: str) -> list[dict]:
             or float(m["median_dollar_vol"]) <= 0
             or m.get("phase") != "forward"
             or m.get("oos_start") != cfg["oos_start"]
-            or m.get("forward_config_hash") != expected_fhash
+            or m.get("forward_config_hash") not in accepted_fhashes
             or m.get("cost_model") != cfg["cost_model"]["source"]
             or not math.isclose(float(rt), expected_rt, abs_tol=1e-12)
             or not math.isclose(
@@ -468,6 +483,10 @@ def load_oos_series(con, cfg: dict, phash: str) -> list[dict]:
             )
         ):
             raise ValueError("E1 forward row is inconsistent with its frozen registration")
+        if m["forward_config_hash"] == expected_fhash:
+            current_config_seen = True
+        elif current_config_seen:
+            raise ValueError("E1 forward row predates its forward-config revision out of order")
         profile = m.get("execution_profile")
         profile_hash = m.get("execution_profile_sha256")
         if (profile is None) != (profile_hash is None) or (
@@ -597,10 +616,10 @@ def migrate_runtime_contract(con, cfg: dict) -> dict:
             or checkpoint["paper_only"] is not True
             or checkpoint["automatic_action"] != "none"
             or checkpoint["parent_config_sha256"] != phash
-            or checkpoint["forward_config_sha256"] != forward_config_hash(cfg)
+            or checkpoint["forward_config_sha256"]
+            not in {forward_config_hash(cfg), PRIOR_FORWARD_CONFIG_SHA256}
             or not isinstance(count, int)
             or isinstance(count, bool)
-            or count != EXPECTED_LEGACY_OBSERVATIONS
             or count != len(oos)
         )
         is_legacy = checkpoint["schema_version"] == LEGACY_CHECKPOINT_SCHEMA_VERSION
@@ -615,15 +634,23 @@ def migrate_runtime_contract(con, cfg: dict) -> dict:
             and checkpoint.get("runtime_contract_migration")
             == PRIOR_RUNTIME_CONTRACT_MIGRATION
         )
-        if common_invalid or not (is_legacy or is_prior_contract):
+        if (
+            common_invalid
+            or not (is_legacy or is_prior_contract)
+            or (is_legacy and count != EXPECTED_LEGACY_OBSERVATIONS)
+        ):
             raise ValueError("prior E1 checkpoint is invalid")
         prefix = _oos_payload(oos)
         through = prefix[-1]["date"] if prefix else None
+        # A schema-v1 checkpoint is the audited seven-row prefix. A prior-contract
+        # checkpoint anchors the record as published, which the stored rows must match.
         if (
-            checkpoint["through"] != EXPECTED_LEGACY_THROUGH
-            or checkpoint["through"] != through
-            or checkpoint["prefix_sha256"] != EXPECTED_LEGACY_PREFIX_SHA256
+            checkpoint["through"] != through
             or checkpoint["prefix_sha256"] != canonical_sha256(prefix)
+            or (is_legacy and (
+                checkpoint["through"] != EXPECTED_LEGACY_THROUGH
+                or checkpoint["prefix_sha256"] != EXPECTED_LEGACY_PREFIX_SHA256
+            ))
         ):
             raise ValueError("previously published E1 forward prefix changed")
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:

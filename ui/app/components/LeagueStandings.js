@@ -39,7 +39,14 @@ export default function LeagueStandings({ rows, equityByPortfolio, curvesAvailab
                 <td>
                   <strong>{row.name}</strong>{" "}
                   {dormant ? <span className="tag dead">dormant</span> : null}
-                  {!row.current ? (
+                  {row.mark_note ? (
+                    <>
+                      {" "}
+                      <span className="tag" title={row.mark_note}>
+                        ‡ marked through {fmtDate(row.equity_as_of)}
+                      </span>
+                    </>
+                  ) : !row.current ? (
                     <>
                       {" "}
                       <span className="tag dead">
@@ -50,6 +57,11 @@ export default function LeagueStandings({ rows, equityByPortfolio, curvesAvailab
                   <div className="faint" style={{ fontSize: 11 }}>
                     {row.id} · since {fmtDate(row.inception)}
                   </div>
+                  {row.mark_note ? (
+                    <div className="faint" style={{ fontSize: 11 }}>
+                      {row.mark_note}
+                    </div>
+                  ) : null}
                 </td>
                 <td className="num">{fmtMoney(row.equity)}</td>
                 <td className={`num ${row.total_ret >= 0 ? "pos" : "neg"}`}>

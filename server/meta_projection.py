@@ -50,6 +50,7 @@ PUBLIC_META_FIELDS = (
     "freshness_days",
     "market_freshness",
     "price_verification",
+    "full_price_verification",
     "queue",
     "nightly_evidence",
     "miner_evidence",
@@ -324,6 +325,8 @@ def project(con: duckdb.DuckDBPyConnection, *, meta_path: Path, data_dir: Path) 
         "price_verification": market_health.price_verification(
             meta_json, latest, drivers["nightly"]
         ),
+        # The Saturday full-universe pass, on its own key and weekly cadence.
+        "full_price_verification": market_health.full_universe_verification(meta_json, latest),
         "queue": queue_monitor.status(con),
         **_nightly_evidence(con, meta_json, drivers, latest),
         "stale_exposure": exposure_monitor.status(con, latest),

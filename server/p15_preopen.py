@@ -494,7 +494,9 @@ def run(
 def run_database(database: Path = DEFAULT_DB, *, now: datetime | None = None, **kwargs) -> dict:
     observed = _utc(now or datetime.now(timezone.utc))
     with advisory_file_lock(LOCK_PATH), advisory_file_lock(NIGHTLY_LOCK):
-        con = db.connect(database, wait_s=0)
+        # The default lock-retry window (60 s): a reader elsewhere refuses writers until it
+        # closes. Lateness is judged on the clock after it, so a wait cannot cancel late.
+        con = db.connect(database)
         try:
             p15_books.init_schema(con)
             init_schema(con)

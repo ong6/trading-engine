@@ -22,7 +22,8 @@ from tests.test_server_routes import _request_messages
 )
 def test_candidate_route_reports_invalid_retained_bar(con, monkeypatch, field, value, reason, public_value):
     day = date(2026, 10, 15)
-    liquid_universe(con, ["SPY", "BAD"])
+    # SPY establishes market breadth independently of the invalid candidate bar.
+    liquid_universe(con, ["SPY"])
     for ticker in ("SPY", "BAD"):
         insert_bars(con, ticker, [day], open_=10.0, high=11.0, low=9.5, close=10.0, volume=100)
     con.execute(f"UPDATE prices SET {field} = ? WHERE ticker = 'BAD'", [value])

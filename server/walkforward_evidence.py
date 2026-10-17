@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from datetime import date
 from pathlib import Path
 
 import duckdb
@@ -15,6 +16,8 @@ from engine.lib.util import table_exists
 from farm.backtest.replay import DEFAULT_REQUIRED, REQUIRED, REQUIRED_LOOKBACK
 from farm.walkforward import controls as walkforward_controls
 from farm.walkforward import protocol as walkforward_protocol
+from farm.walkforward import runtime_contract as walkforward_runtime_contract
+from farm.walkforward.runner import min_train_end
 from server import walkforward_cohort
 from server.json_utils import loads_object
 from sim import execution, portfolio
@@ -54,6 +57,16 @@ def _data_floor(strategy: str, floors_by_ticker: dict[str, object] | None) -> st
     return max(floors_by_ticker[ticker] for ticker in required).isoformat()
 
 
+def _min_train_end(
+    con: duckdb.DuckDBPyConnection, floor: str, resolved: dict[str, str | None]
+) -> str | None:
+    """Resolve each distinct data floor's minimum training end once."""
+    if floor not in resolved:
+        session = min_train_end(con, date.fromisoformat(floor))
+        resolved[floor] = None if session is None else session.isoformat()
+    return resolved[floor]
+
+
 def _universe_policy() -> str:
     try:
         return leverage.resolve_policy(None)
@@ -88,6 +101,7 @@ def _registration(row: tuple, floors_by_ticker: dict[str, object] | None) -> dic
             "step_months": walkforward_protocol.STEP_MONTHS,
         },
         "data_floor": _data_floor(strategy, floors_by_ticker),
+        "runtime_contract": walkforward_runtime_contract.payload(),
     }
 
 
@@ -105,10 +119,15 @@ def _eligible_walkforward_configs(
     floors_by_ticker = _required_data_floors(con, {row[1] for row in eligible})
     registrations: dict[str, dict] = {}
     invalid: list[str] = []
+    train_ends: dict[str, str | None] = {}
     for row in eligible:
         portfolio_id = row[0]
         try:
-            registrations[portfolio_id] = _registration(row, floors_by_ticker)
+            registration = _registration(row, floors_by_ticker)
+            registration["min_train_end"] = _min_train_end(
+                con, registration["data_floor"], train_ends
+            )
+            registrations[portfolio_id] = registration
         except (duckdb.Error, TypeError, ValueError):
             invalid.append(str(portfolio_id))
     return registrations, invalid

@@ -373,14 +373,19 @@ def store_runs(db: sqlite3.Connection, runs: list[UnitRun]) -> list[dict]:
                 datetime.fromisoformat(item.ended) - datetime.fromisoformat(started)
             ).total_seconds()
         result = item.result or ("running" if item.ended is None else "unknown")
+        exit_code = item.exit_code
+        if exit_code is None:  # the exit line was stored with the earlier hour it fell in
+            prior = db.execute("SELECT exit_code FROM unit_runs WHERE unit=? AND started=?",
+                               (item.unit, started)).fetchone()
+            exit_code = prior[0] if prior else None
         db.execute(
             "INSERT INTO unit_runs VALUES (?,?,?,?,?,?) ON CONFLICT(unit, started) DO UPDATE "
             "SET ended=excluded.ended, seconds=excluded.seconds, "
             "exit_code=excluded.exit_code, result=excluded.result",
-            (item.unit, started, item.ended, seconds, item.exit_code, result),
+            (item.unit, started, item.ended, seconds, exit_code, result),
         )
         stored.append({"unit": item.unit, "started": started, "ended": item.ended,
-                       "seconds": seconds, "exit_code": item.exit_code, "result": result})
+                       "seconds": seconds, "exit_code": exit_code, "result": result})
     return stored
 
 
@@ -555,8 +560,9 @@ def collect_hour(
         "SELECT section, status FROM meta_status WHERE hour=("
         "SELECT MAX(hour) FROM meta_status WHERE hour<?)", (key,)).fetchall())
     changes = {k for k, v in sections.items() if previous and previous.get(k) != v}
-    failed = [r for r in runs if r["result"] not in ("success", "running")
-              or r["exit_code"] not in (None, 0)]
+    # systemd's result decides, not the exit status: a SIGTERM stop logs status=15, then
+    # "Succeeded.", and a failure's result follows its exit line even across an hour.
+    failed = [r for r in runs if r["result"] not in ("success", "running")]
     failed_stages = [row for row in stages if row["exit"] != 0]
     errors = sum(sig.counts["error"] for sig in signals.values())
     warns = sum(sig.counts["warn"] for sig in signals.values())
@@ -888,13 +894,12 @@ def _job_runs(db: sqlite3.Connection, schedule: Schedule, drivers: dict[str, lis
             return []
         inside = since <= _iso(written) < until
         return [JobRun(written, None, None, "output written")] if inside else []
-    rows = db.execute("SELECT started, seconds, result, exit_code FROM unit_runs WHERE unit=? "
+    rows = db.execute("SELECT started, seconds, result FROM unit_runs WHERE unit=? "
                       "AND started>=? AND started<? ORDER BY started",
                       (schedule.unit, since, until)).fetchall()
-    return [JobRun(_utc(started), seconds,
-                   None if result == "running" else (result == "success" and code in (0, None)),
+    return [JobRun(_utc(started), seconds, None if result == "running" else result == "success",
                    result)
-            for started, seconds, result, code in rows]
+            for started, seconds, result in rows]
 
 
 def _due(schedule: Schedule, start: datetime, end: datetime) -> list[datetime] | None:
@@ -1001,7 +1006,7 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
             out += [f"| {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]} | {r[5]} |" for r in bad]
         failed = db.execute(
             "SELECT unit, started, seconds, exit_code, result FROM unit_runs WHERE started>=? "
-            "AND (result NOT IN ('success','running') OR exit_code NOT IN (0)) ORDER BY started",
+            "AND result NOT IN ('success','running') ORDER BY started",
             (since_iso,)).fetchall()
         failed += db.execute(
             "SELECT driver || ':' || stage, started, seconds, exit_code, 'failed' FROM stage_runs "

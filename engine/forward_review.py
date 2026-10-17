@@ -34,6 +34,7 @@ from engine.lib.settings import DATA_DIR, REPO_ROOT
 from engine.lib.util import table_exists
 from farm.stats.equity import max_drawdown
 from farm.walkforward.protocol import minus_months
+from sim import book_breaks
 from sim.execution import resolve_profile
 from sim.portfolio import FILL_MODEL_VERSION
 from sim.strategies import REGISTRY
@@ -52,7 +53,13 @@ MAX_TRAIL = 0.10
 OBSERVATION_START = date(2026, 9, 4)
 EXPECTED_INITIAL_CASH = 39_000.0
 EXPECTED_EXECUTION_PROFILE = "baseline_v1"
-EXPECTED_FILL_MODEL_VERSION = "v4"
+EXPECTED_FILL_MODEL_VERSION = "v5"
+# The predecessor runtime's published fill model, and the observation fields P22 added for
+# the cost-break clock (they hold no-break values until a break is recorded).
+PRIOR_FILL_MODEL_VERSION = "v4"
+PRE_BREAK_OBSERVATION_FIELDS = (
+    "evaluation_clock_start", "cost_break_session", "pre_break_shared_sessions",
+)
 EXPECTED_PROFILE_SHA256 = "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db"
 EXPECTED_BASELINE_EQUITY = {
     CANDIDATE_ID: 41_742.09372396311,
@@ -82,20 +89,26 @@ EXPECTED_BASELINE_STATE_SHA256 = (
 EXPECTED_LEGACY_BASELINE_EQUITY_SHA256 = (
     "1fb07940da9d3a310b9d63ccf3829184edd68175a81cac30b78344f3913a88cb"
 )
-RUNTIME_CONTRACT_VERSION = 10
+RUNTIME_CONTRACT_VERSION = 11
 SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "c430b451ee510c858705ba4235f81b68f9d7443745a60b4716035acb32741788"
-)
-RUNTIME_CONTRACT_MIGRATION = (
-    "2026-09-18 isolated agent-paper lifecycle after interruption-safe transaction cleanup: "
-    "attributed agent orders survive same-date "
-    "reruns and the no-op agent book uses the ordinary simulator lifecycle; sector strategy, "
-    "execution economics, baseline, and evidence-continuity rules are unchanged"
-)
-EXPECTED_RUNTIME_CONTRACT_SHA256 = (
     "8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce"
 )
-RUNTIME_CONTRACT_FILES = (
+RUNTIME_CONTRACT_MIGRATION = (
+    "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized "
+    "D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared "
+    "ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a "
+    "snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. Sector strategy, "
+    "paired control, baseline prefix and kill criterion are unchanged"
+    "; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time"
+    "; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, "
+    "high and low, a delisted holding closes at its last real traded close, the league leaves "
+    "P15 marks to their window, a split-like re-fetch triggers back-adjustment, and this "
+    "migration compares the deployed report's fill model and clock fields as published"
+)
+EXPECTED_RUNTIME_CONTRACT_SHA256 = (
+    "dbfc3f8a0c9e1c3a804849d78443ce71fbe5c02eb549a0e13f6e954b8a1d98d5"
+)
+PRIOR_RUNTIME_CONTRACT_FILES = (
     "engine/forward_review.py",
     "engine/actions.py",
     "engine/lib/data_quality.py",
@@ -113,18 +126,32 @@ RUNTIME_CONTRACT_FILES = (
     "sim/strategies/sector_momentum.py",
     "sim/strategies/spy_benchmark.py",
 )
-PRIOR_RUNTIME_CONTRACT_VERSION = 9
+RUNTIME_CONTRACT_FILES = (*PRIOR_RUNTIME_CONTRACT_FILES,
+    "engine/accounts/__init__.py",
+    "engine/accounts/settle.py",
+    "engine/money/alerts.py",
+    "engine/money/halts.py",
+    "sim/bar_sources.py",
+    "sim/book_breaks.py",
+    "sim/costs/__init__.py",
+    "sim/costs/baseline_v1.py",
+    "sim/costs/ibkr_pro_tiered_v1.py",
+    "sim/costs/profiles.py",
+    "sim/ledger.py",
+    "sim/margin.py",
+    "sim/shorts.py",
+)
+PRIOR_RUNTIME_CONTRACT_VERSION = 10
 PRIOR_RUNTIME_CONTRACT_SHA256 = SUPERSEDED_RUNTIME_CONTRACT_SHA256
 PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "c0788167bf63f734c6c9b3428b425a0054f1cead1754048aa00a6cc48eb5662f"
+    "c430b451ee510c858705ba4235f81b68f9d7443745a60b4716035acb32741788"
 )
 PRIOR_RUNTIME_CONTRACT_MIGRATION = (
-    "2026-09-13 interruption-safe transaction cleanup: every explicit DuckDB transaction now "
-    "rolls back process-level interruptions, preserves the original failure if cleanup also "
-    "fails, and leaves borrowed connections reusable; strategy, execution economics, baseline, "
-    "and evidence-continuity rules are unchanged"
+    "2026-09-18 isolated agent-paper lifecycle after interruption-safe transaction cleanup: "
+    "attributed agent orders survive same-date reruns and the no-op agent book uses the ordinary "
+    "simulator lifecycle; sector strategy, execution economics, baseline, and evidence-continuity "
+    "rules are unchanged"
 )
-PRIOR_RUNTIME_CONTRACT_FILES = RUNTIME_CONTRACT_FILES
 EXPECTED_STRATEGY_TYPES = {
     CANDIDATE_ID: SectorMomentum,
     CONTROL_ID: SpyBenchmark,
@@ -689,6 +716,21 @@ def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
             "runtime_contract_files": list(PRIOR_RUNTIME_CONTRACT_FILES),
         }
     )
+    # The deployed v10 report predates P22: it publishes fill model v4 and its observation
+    # has no cost-break clock. Compare each such field in the form it was published in.
+    if (prior_result.get("frozen_runtime") or {}).get("fill_model") == PRIOR_FILL_MODEL_VERSION:
+        expected_prior["frozen_runtime"]["fill_model"] = PRIOR_FILL_MODEL_VERSION
+    observation = expected_prior["observation"]
+    added = [field for field in PRE_BREAK_OBSERVATION_FIELDS
+             if field not in (prior_result.get("observation") or {})]
+    if added and (
+        observation["cost_break_session"] is not None
+        or observation["pre_break_shared_sessions"] != 0
+        or observation["evaluation_clock_start"] != OBSERVATION_START.isoformat()
+    ):
+        raise ValueError("sector runtime migration must run before the cost-profile break")
+    for field in added:
+        del observation[field]
     prior_json = json.loads(json.dumps(prior_result, default=str))
     expected_json = json.loads(json.dumps(expected_prior, default=str))
     if prior_json != expected_json:
@@ -736,13 +778,20 @@ def evaluate(con, prior_result: dict | None = None) -> dict:
     as_of = shared[-1][0]
     forward_ledger = _forward_ledger(con, as_of)
     forward_ledger_sha256 = canonical_sha256(_ledger_checkpoint(forward_ledger))
+    clock_start = book_breaks.evaluation_start(
+        con, (CANDIDATE_ID, CONTROL_ID), OBSERVATION_START
+    )
+    clocked = [row for row in shared if row[0] >= clock_start]
+    evaluation_rows = clocked or [shared[-1]]
     cutoff = minus_months(as_of, WINDOW_MONTHS)
-    full_calendar_window = first_date <= cutoff
+    full_calendar_window = bool(clocked) and clock_start <= cutoff
     if full_calendar_window:
-        start_index = max(i for i, row in enumerate(shared) if row[0] <= cutoff)
+        start_index = max(
+            i for i, row in enumerate(evaluation_rows) if row[0] <= cutoff
+        )
     else:
         start_index = 0
-    window = shared[start_index:]
+    window = evaluation_rows[start_index:]
 
     candidate_metrics = _book_metrics(window, 1)
     control_metrics = _book_metrics(window, 2)
@@ -787,11 +836,16 @@ def evaluate(con, prior_result: dict | None = None) -> dict:
             "first_shared_date": first_date.isoformat(),
             "window_start": window[0][0].isoformat(),
             "as_of": as_of.isoformat(),
-            "calendar_days_available": (as_of - first_date).days,
-            "shared_sessions_available": len(shared),
+            "evaluation_clock_start": clock_start.isoformat(),
+            "cost_break_session": (
+                clock_start.isoformat() if clock_start > OBSERVATION_START else None
+            ),
+            "calendar_days_available": max(0, (as_of - clock_start).days),
+            "shared_sessions_available": len(clocked),
+            "pre_break_shared_sessions": len(shared) - len(clocked),
             "shared_sessions_in_window": len(window),
             "minimum_shared_sessions": MIN_SHARED_SESSIONS,
-            "eligible_after": _plus_months(first_date, WINDOW_MONTHS).isoformat(),
+            "eligible_after": _plus_months(clock_start, WINDOW_MONTHS).isoformat(),
             "mature": mature,
             "equity_sha256": canonical_sha256(equity_payload),
             "forward_ledger_sha256": forward_ledger_sha256,
@@ -850,6 +904,15 @@ def render(result: dict) -> str:
         "CONTINUE": "The kill condition did not fire; this does not establish positive alpha.",
         "REVIEW-KILL": "The frozen kill condition fired; a human should review retirement.",
     }[result["status"]]
+    break_lines = (
+        [
+            "Commissions and this evaluation clock restart at the recorded break "
+            f"**{obs['cost_break_session']}**.",
+            "",
+        ]
+        if obs.get("cost_break_session")
+        else []
+    )
     return "\n".join(
         [
             "# Sector momentum — forward paper review",
@@ -868,6 +931,7 @@ def render(result: dict) -> str:
             "",
             result["frozen_runtime"]["baseline_note"],
             "",
+            *break_lines,
             f"{mature_note} {interpretation}",
             "",
             "| Measure | `sector_momentum` | `spy_benchmark` | Difference |",

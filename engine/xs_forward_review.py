@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import calendar as month_calendar
+import copy
 import hashlib
 import json
 import sys
@@ -32,7 +33,7 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.settings import DATA_DIR, REPO_ROOT
 from farm.stats.equity import max_drawdown
 from farm.walkforward.monthly import block_bootstrap_ci
-from sim import nyse
+from sim import book_breaks, nyse
 from sim.execution import resolve_profile
 from sim.portfolio import FILL_MODEL_VERSION
 from sim.strategies import REGISTRY
@@ -54,7 +55,13 @@ BOOTSTRAP_MEAN_BLOCK = 4
 BOOTSTRAP_SEED = 20260907
 EXPECTED_INITIAL_CASH = 39_000.0
 EXPECTED_EXECUTION_PROFILE = "baseline_v1"
-EXPECTED_FILL_MODEL_VERSION = "v4"
+EXPECTED_FILL_MODEL_VERSION = "v5"
+# The predecessor runtime's published fill model, and the observation fields P22 added for
+# the cost-break clock (they hold no-break values until a break is recorded).
+PRIOR_FILL_MODEL_VERSION = "v4"
+PRE_BREAK_OBSERVATION_FIELDS = (
+    "evaluation_clock_start", "cost_break_session", "pre_break_shared_sessions",
+)
 EXPECTED_PROFILE_SHA256 = "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db"
 EXPECTED_CONFIG_SHA256 = {
     CANDIDATE_ID: "fb5a0f0e3472f14ed9b0a5d5bac05a081ec0284f200db91663b11d5d47ab9214",
@@ -64,7 +71,7 @@ EXPECTED_STRATEGY_TYPES = {
     CANDIDATE_ID: XsMomentum121,
     CONTROL_ID: EwBenchmark,
 }
-RUNTIME_CONTRACT_FILES = (
+PRIOR_RUNTIME_CONTRACT_FILES = (
     "engine/xs_forward_review.py",
     "engine/actions.py",
     "engine/collect.py",
@@ -88,33 +95,54 @@ RUNTIME_CONTRACT_FILES = (
     "sim/strategies/xs_common.py",
     "sim/strategies/xs_momentum_12_1.py",
 )
-RUNTIME_CONTRACT_VERSION = 21
+RUNTIME_CONTRACT_FILES = (*PRIOR_RUNTIME_CONTRACT_FILES,
+    "engine/accounts/__init__.py",
+    "engine/accounts/settle.py",
+    "engine/money/alerts.py",
+    "engine/money/halts.py",
+    "sim/bar_sources.py",
+    "sim/book_breaks.py",
+    "sim/costs/__init__.py",
+    "sim/costs/baseline_v1.py",
+    "sim/costs/ibkr_pro_tiered_v1.py",
+    "sim/costs/profiles.py",
+    "sim/ledger.py",
+    "sim/margin.py",
+    "sim/shorts.py",
+)
+RUNTIME_CONTRACT_VERSION = 22
 SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e"
+    "f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac"
 )
 RUNTIME_CONTRACT_MIGRATION = (
-    "2026-09-18 isolated agent-paper lifecycle after interruption-safe transaction cleanup and "
-    "before the first signal: attributed agent orders "
-    "survive same-date reruns and the no-op agent book uses the ordinary simulator lifecycle; "
-    "XS strategy, signal, execution economics, and statistical rules are unchanged"
+    "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized "
+    "D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared "
+    "ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a "
+    "snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. XS strategy, "
+    "signal boundary, paired control and statistical verdict rules are unchanged"
+    "; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time"
+    "; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, "
+    "high and low, a delisted holding closes at its last real traded close, the league leaves "
+    "P15 marks to their window, collection audits a split-like re-fetch and triggers "
+    "back-adjustment, and this migration compares the deployed report's fill model, "
+    "signal-boundary runtime pin and clock fields as published"
 )
 # Filled after the file list was frozen; tests verify this against current bytes.
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac"
+    "de76d3860d5da4088378cfcea46b4041fe5daef1f2349d873fb6d986f29d40f6"
 )
 
-PRIOR_RUNTIME_CONTRACT_VERSION = 20
+PRIOR_RUNTIME_CONTRACT_VERSION = 21
 PRIOR_RUNTIME_CONTRACT_SHA256 = SUPERSEDED_RUNTIME_CONTRACT_SHA256
 PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "7f4085fca17872a9ef1125c64ed03f58b2191abe68286e9720441df74f8f06f3"
+    "8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e"
 )
 PRIOR_RUNTIME_CONTRACT_MIGRATION = (
-    "2026-09-13 interruption-safe transaction cleanup before the first signal: every explicit "
-    "DuckDB transaction now rolls back process-level interruptions, preserves the original "
-    "failure if cleanup also fails, and leaves borrowed connections reusable; strategy, signal, "
-    "execution economics, and statistical rules are unchanged"
+    "2026-09-18 isolated agent-paper lifecycle after interruption-safe transaction cleanup and "
+    "before the first signal: attributed agent orders survive same-date reruns and the no-op "
+    "agent book uses the ordinary simulator lifecycle; XS strategy, signal, execution economics, "
+    "and statistical rules are unchanged"
 )
-PRIOR_RUNTIME_CONTRACT_FILES = RUNTIME_CONTRACT_FILES
 
 
 @dataclass(frozen=True)
@@ -760,75 +788,100 @@ def _validate_published_runtime(prior_result: dict | None) -> None:
 
 
 def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
-    """Move the waiting XS record from v19 to v20 before any signal boundary exists."""
+    """Replace only predecessor metadata on an otherwise exact XS checkpoint."""
     prior_result = _last_valid_result(prior_result)
     if prior_result is None:
         raise ValueError("published XS forward report is required for migration")
-    candidate = _registration(con, CANDIDATE_ID)
-    control = _registration(con, CONTROL_ID)
-    _validate_runtime(candidate, control)
-    try:
-        frozen = prior_result["frozen_runtime"]
-        observation = prior_result["observation"]
-    except (KeyError, TypeError) as exc:
-        raise ValueError("prior XS forward report has invalid migration metadata") from exc
-    if (
-        prior_result.get("schema_version") != 2
-        or prior_result.get("status") != "WAITING"
-        or prior_result.get("paper_only") is not True
-        or prior_result.get("automatic_action") != "none"
-        or prior_result.get("candidate") != asdict(candidate)
-        or prior_result.get("control") != asdict(control)
-        or prior_result.get("criterion") != _criterion()
-        or frozen.get("signal_date") != SIGNAL_DATE.isoformat()
-        or frozen.get("observation_start") != OBSERVATION_START.isoformat()
-        or frozen.get("fill_model") != EXPECTED_FILL_MODEL_VERSION
-        or frozen.get("execution_profile_sha256") != EXPECTED_PROFILE_SHA256
-        or frozen.get("runtime_contract_version") != PRIOR_RUNTIME_CONTRACT_VERSION
-        or frozen.get("runtime_contract_sha256") != PRIOR_RUNTIME_CONTRACT_SHA256
-        or frozen.get("superseded_runtime_contract_sha256")
-        != PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256
-        or frozen.get("runtime_contract_migration") != PRIOR_RUNTIME_CONTRACT_MIGRATION
-        or frozen.get("runtime_contract_files") != list(PRIOR_RUNTIME_CONTRACT_FILES)
-        or any(
-            frozen.get(key) is not None
-            for key in (
-                "baseline_equity",
-                "baseline_state",
-                "baseline_state_sha256",
-                "signal_boundary",
-                "initial_transition_sha256",
-                "baseline_ledger_sha256",
+    boundary = (prior_result.get("frozen_runtime") or {}).get("signal_boundary")
+    if boundary is None:
+        latest = con.execute(
+            "SELECT MAX(date) FROM sim_equity WHERE portfolio_id IN (?, ?)",
+            [CANDIDATE_ID, CONTROL_ID],
+        ).fetchone()[0]
+        future_orders = con.execute(
+            "SELECT COUNT(*) FROM sim_orders WHERE portfolio_id IN (?, ?) "
+            "AND signal_date>=?",
+            [CANDIDATE_ID, CONTROL_ID, SIGNAL_DATE],
+        ).fetchone()[0]
+        future_fills = con.execute(
+            "SELECT COUNT(*) FROM sim_fills WHERE portfolio_id IN (?, ?) "
+            "AND fill_date>=?",
+            [CANDIDATE_ID, CONTROL_ID, OBSERVATION_START],
+        ).fetchone()[0]
+        if latest is None or latest >= SIGNAL_DATE or future_orders or future_fills:
+            raise ValueError(
+                "published XS v21 report is not the exact migration checkpoint"
             )
-        )
-        or observation
-        != {
-            "signal_date": SIGNAL_DATE.isoformat(),
-            "observation_start": OBSERVATION_START.isoformat(),
-            "eligible_after": _plus_months(OBSERVATION_START, WINDOW_MONTHS).isoformat(),
-            "shared_sessions": 0,
-            "paired_complete_months": 0,
-            "mature": False,
-            "signal_boundary_frozen": False,
+    current_prior = copy.deepcopy(prior_result)
+    current_prior["frozen_runtime"].update(
+        {
+            "runtime_contract_version": RUNTIME_CONTRACT_VERSION,
+            "runtime_contract_sha256": EXPECTED_RUNTIME_CONTRACT_SHA256,
+            "superseded_runtime_contract_sha256": SUPERSEDED_RUNTIME_CONTRACT_SHA256,
+            "runtime_contract_migration": RUNTIME_CONTRACT_MIGRATION,
+            "runtime_contract_files": list(RUNTIME_CONTRACT_FILES),
         }
-    ):
-        raise ValueError("published XS v19 record is not the exact pre-signal checkpoint")
+    )
+    _p22_published_forms(current_prior, prior_result, current=True)
+    current = evaluate(con, prior_result=current_prior)
+    expected_prior = copy.deepcopy(current)
+    expected_prior["frozen_runtime"].update(
+        {
+            "runtime_contract_version": PRIOR_RUNTIME_CONTRACT_VERSION,
+            "runtime_contract_sha256": PRIOR_RUNTIME_CONTRACT_SHA256,
+            "superseded_runtime_contract_sha256": (
+                PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256
+            ),
+            "runtime_contract_migration": PRIOR_RUNTIME_CONTRACT_MIGRATION,
+            "runtime_contract_files": list(PRIOR_RUNTIME_CONTRACT_FILES),
+        }
+    )
+    _p22_published_forms(expected_prior, prior_result, current=False)
+    prior_json = json.loads(json.dumps(prior_result, default=str))
+    expected_json = json.loads(json.dumps(expected_prior, default=str))
+    if prior_json != expected_json:
+        raise ValueError("published XS v21 report is not the exact migration checkpoint")
+    return current
 
-    latest = con.execute(
-        "SELECT MAX(date) FROM sim_equity WHERE portfolio_id IN (?, ?)",
-        [CANDIDATE_ID, CONTROL_ID],
-    ).fetchone()[0]
-    future_orders = con.execute(
-        "SELECT COUNT(*) FROM sim_orders WHERE portfolio_id IN (?, ?) AND signal_date >= ?",
-        [CANDIDATE_ID, CONTROL_ID, SIGNAL_DATE],
-    ).fetchone()[0]
-    future_fills = con.execute(
-        "SELECT COUNT(*) FROM sim_fills WHERE portfolio_id IN (?, ?) AND fill_date >= ?",
-        [CANDIDATE_ID, CONTROL_ID, OBSERVATION_START],
-    ).fetchone()[0]
-    if latest is None or latest >= SIGNAL_DATE or future_orders or future_fills:
-        raise ValueError("XS runtime migration is permitted only before its first signal")
-    return _waiting_result(candidate, control)
+
+def _p22_published_forms(result: dict, prior: dict, *, current: bool) -> None:
+    """Restate P22's changed published fields in the current or the predecessor form.
+
+    The deployed v21 report predates P22: it publishes fill model v4, its signal boundary
+    pins v4 and the predecessor runtime, and its observation has no cost-break clock. Each
+    such field moves to the current form for evaluation and back for the exact comparison;
+    the boundary's state, inputs and ledgers are compared unchanged.
+    """
+    published = prior.get("frozen_runtime") or {}
+    if published.get("fill_model") == PRIOR_FILL_MODEL_VERSION:
+        result["frozen_runtime"]["fill_model"] = (
+            EXPECTED_FILL_MODEL_VERSION if current else PRIOR_FILL_MODEL_VERSION
+        )
+    boundary = result["frozen_runtime"].get("signal_boundary")
+    pinned = ((published.get("signal_boundary") or {}).get("protocol_contract") or {})
+    if boundary is not None and pinned.get("fill_model") == PRIOR_FILL_MODEL_VERSION and (
+        pinned.get("runtime_contract_sha256") == PRIOR_RUNTIME_CONTRACT_SHA256
+    ):
+        boundary["protocol_contract"].update(
+            fill_model=EXPECTED_FILL_MODEL_VERSION if current else PRIOR_FILL_MODEL_VERSION,
+            runtime_contract_sha256=(
+                EXPECTED_RUNTIME_CONTRACT_SHA256 if current else PRIOR_RUNTIME_CONTRACT_SHA256
+            ),
+        )
+    if current:
+        return
+    observation, published_observation = result["observation"], prior.get("observation") or {}
+    added = [field for field in PRE_BREAK_OBSERVATION_FIELDS
+             if field in observation and field not in published_observation]
+    if added and (
+        observation.get("cost_break_session") is not None
+        or observation.get("pre_break_shared_sessions", 0) != 0
+        or observation.get("evaluation_clock_start", OBSERVATION_START.isoformat())
+        != OBSERVATION_START.isoformat()
+    ):
+        raise ValueError("XS runtime migration must run before the cost-profile break")
+    for field in added:
+        del observation[field]
 
 
 def _validate_prior(
@@ -1003,9 +1056,14 @@ def evaluate(con, prior_result: dict | None = None) -> dict:
     execution = _execution_audit(con, shared[-1][0])
     if execution[CANDIDATE_ID]["filled"] == 0:
         raise ValueError("XS forward candidate has no fills from the frozen signal")
-    candidate_metrics = _metrics(shared, 1)
-    control_metrics = _metrics(shared, 2)
-    monthly = _completed_monthly_excess(shared)
+    clock_start = book_breaks.evaluation_start(
+        con, (CANDIDATE_ID, CONTROL_ID), OBSERVATION_START
+    )
+    clocked = [row for row in shared if row[0] >= clock_start]
+    evaluation_rows = clocked or [shared[-1]]
+    candidate_metrics = _metrics(evaluation_rows, 1)
+    control_metrics = _metrics(evaluation_rows, 2)
+    monthly = _completed_monthly_excess(evaluation_rows)
     excess = [row[3] for row in monthly]
     mean_ci = block_bootstrap_ci(
         excess,
@@ -1016,8 +1074,12 @@ def evaluate(con, prior_result: dict | None = None) -> dict:
         seed=BOOTSTRAP_SEED,
     )
     cumulative_excess = candidate_metrics["total_return"] - control_metrics["total_return"]
-    eligible_after = _plus_months(OBSERVATION_START, WINDOW_MONTHS)
-    mature = shared[-1][0] >= eligible_after and len(monthly) >= MIN_PAIRED_MONTHS
+    eligible_after = _plus_months(clock_start, WINDOW_MONTHS)
+    mature = (
+        bool(clocked)
+        and shared[-1][0] >= eligible_after
+        and len(monthly) >= MIN_PAIRED_MONTHS
+    )
     execution_clean = all(
         values["rejected"] == 0 and values["stale_pending"] == 0 for values in execution.values()
     )
@@ -1055,9 +1117,14 @@ def evaluate(con, prior_result: dict | None = None) -> dict:
         "observation": {
             "signal_date": SIGNAL_DATE.isoformat(),
             "observation_start": OBSERVATION_START.isoformat(),
+            "evaluation_clock_start": clock_start.isoformat(),
+            "cost_break_session": (
+                clock_start.isoformat() if clock_start > OBSERVATION_START else None
+            ),
             "as_of": shared[-1][0].isoformat(),
             "eligible_after": eligible_after.isoformat(),
-            "shared_sessions": len(shared),
+            "shared_sessions": len(clocked),
+            "pre_break_shared_sessions": len(shared) - len(clocked),
             "paired_complete_months": len(monthly),
             "mature": mature,
             "equity_sha256": canonical_sha256(_equity_payload(shared)),
@@ -1120,6 +1187,15 @@ def render(result: dict) -> str:
     control = metrics[CONTROL_ID]
     ci = metrics["mean_monthly_excess_ci"]
     ci_text = "·" if ci is None else f"[{_pct(ci['lo'])}, {_pct(ci['hi'])}]"
+    break_lines = (
+        [
+            "Commissions and this evaluation clock restart at the recorded break "
+            f"**{obs['cost_break_session']}**.",
+            "",
+        ]
+        if obs.get("cost_break_session")
+        else []
+    )
     return "\n".join(
         [
             "# XS momentum 12-1 — prospective paper review",
@@ -1128,6 +1204,7 @@ def render(result: dict) -> str:
             "",
             result["frozen_runtime"]["baseline_note"],
             "",
+            *break_lines,
             f"The test cannot mature before **{obs['eligible_after']}** and requires at least "
             f"**{MIN_PAIRED_MONTHS}** complete paired months. It currently has "
             f"**{obs['paired_complete_months']}**.",

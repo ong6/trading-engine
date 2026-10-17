@@ -33,6 +33,14 @@ def _append(con, cfg, trade, *, run_at=None):
     return phash
 
 
+def test_forward_registration_documents_runtime_revision():
+    revision = _config()["runtime_revision"]
+    assert revision["version"] == experiment_runner.RUNTIME_CONTRACT_VERSION
+    assert revision["decision_date"] == "2026-10-06"
+    assert "commissions" in revision["reason"]
+    assert "byte-identical" in revision["pre_d0_replay"]
+
+
 def test_compute_trade_stamps_frozen_baseline_profile(con):
     trade_date = date(2024, 6, 3)
     history = [trade_date - timedelta(days=i) for i in range(30, 0, -1)]
@@ -222,7 +230,10 @@ def test_runtime_contract_migration_preserves_legacy_prefix(con, tmp_path, monke
     ) == before
 
 
-def test_runtime_contract_migration_preserves_prior_v3_prefix(con, tmp_path, monkeypatch):
+@pytest.mark.parametrize("config_hash", ["predecessor", "current"])
+def test_runtime_contract_migration_preserves_prior_v3_prefix(
+    con, tmp_path, monkeypatch, config_hash,
+):
     cfg = _config()
     trade = _trade(con)
     phash = _append(con, cfg, trade)
@@ -237,6 +248,11 @@ def test_runtime_contract_migration_preserves_prior_v3_prefix(con, tmp_path, mon
             experiment_runner.PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256
         ),
         runtime_contract_migration=experiment_runner.PRIOR_RUNTIME_CONTRACT_MIGRATION,
+    )
+    prior["forward_config_sha256"] = (
+        experiment_runner.PRIOR_FORWARD_CONFIG_SHA256
+        if config_hash == "predecessor"
+        else experiment_runner.forward_config_hash(cfg)
     )
     monkeypatch.setattr(experiment_runner, "EXPECTED_LEGACY_OBSERVATIONS", 1)
     monkeypatch.setattr(experiment_runner, "EXPECTED_LEGACY_THROUGH", trade["date"].isoformat())
@@ -253,6 +269,55 @@ def test_runtime_contract_migration_preserves_prior_v3_prefix(con, tmp_path, mon
         experiment_runner.PRIOR_RUNTIME_CONTRACT_SHA256
     )
     assert migrated["prefix_sha256"] == prior["prefix_sha256"]
+    assert migrated["forward_config_sha256"] == experiment_runner.forward_config_hash(cfg)
+
+
+def test_runtime_contract_migration_carries_the_deployed_record(con, tmp_path, monkeypatch):
+    # The deployed record (2026-10-15: twelve Mondays under runtime v6) was written under the
+    # predecessor forward config. The v7 migration demanded the seven-row legacy prefix and the
+    # current forward-config hash on every row, so it refused the live checkpoint.
+    cfg = _config()
+    prior_cfg = {key: value for key, value in cfg.items() if key != "runtime_revision"}
+    prior_hash = experiment_runner.PRIOR_FORWARD_CONFIG_SHA256
+    assert experiment_runner.forward_config_hash(prior_cfg) == prior_hash
+    days = [date(2026, 4, 1) + timedelta(days=i) for i in range(140)]
+    insert_bars(con, "SPY", [d for d in days if d.weekday() < 5], open_=100.0, close=101.0,
+                volume=1_000_000)
+    monkeypatch.setattr(experiment_runner, "REPORTS_DIR", tmp_path)
+    experiment_runner.E.ensure_results_table(con)
+    experiment_runner.ensure_forward_columns(con)
+    phash = experiment_runner.params_hash_for(cfg)
+    trades = [experiment_runner.compute_trade(con, "SPY", d, 100.0, 101.0)
+              for d in (date(2026, 7, 20), date(2026, 7, 27))]
+    experiment_runner.append_oos_rows(
+        con, prior_cfg, phash, trades, datetime(2026, 7, 28, 22, tzinfo=timezone.utc))
+    deployed = experiment_runner._checkpoint_payload(
+        prior_cfg, phash, experiment_runner.load_oos_series(con, prior_cfg, phash))
+    deployed.update(
+        runtime_contract_version=experiment_runner.PRIOR_RUNTIME_CONTRACT_VERSION,
+        runtime_contract_sha256=experiment_runner.PRIOR_RUNTIME_CONTRACT_SHA256,
+        runtime_contract_files=list(experiment_runner.PRIOR_RUNTIME_CONTRACT_FILES),
+        superseded_runtime_contract_sha256=(
+            experiment_runner.PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256
+        ),
+        runtime_contract_migration=experiment_runner.PRIOR_RUNTIME_CONTRACT_MIGRATION,
+    )
+    experiment_runner.checkpoint_path(cfg).write_text(json.dumps(deployed))
+
+    migrated = experiment_runner.migrate_runtime_contract(con, cfg)
+    result = experiment_runner.run(con, cfg, now=datetime(2026, 8, 4, 22, tzinfo=timezone.utc))
+
+    assert (migrated["observations"], migrated["prefix_sha256"]) == (
+        2, deployed["prefix_sha256"])
+    assert migrated["runtime_contract_version"] == experiment_runner.RUNTIME_CONTRACT_VERSION
+    assert result["appended"] == 1
+    assert [row["meta"]["forward_config_hash"] for row in experiment_runner.load_oos_series(
+        con, cfg, phash)] == [prior_hash, prior_hash, experiment_runner.forward_config_hash(cfg)]
+    late = experiment_runner.compute_trade(con, "SPY", date(2026, 8, 10), 100.0, 101.0)
+    experiment_runner.append_oos_rows(
+        con, prior_cfg, phash, [late], datetime(2026, 8, 11, 22, tzinfo=timezone.utc))
+    with pytest.raises(ValueError, match="forward-config revision"):
+        experiment_runner.load_oos_series(con, cfg, phash)
 
 
 def test_runtime_contract_migration_rejects_changed_legacy_prefix(

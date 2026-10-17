@@ -178,6 +178,56 @@ def test_failed_run_marks_hour_and_report_lists_it(tmp_path):
     assert "price_verification=issues" in report
 
 
+def test_clean_stop_that_systemd_reports_as_success_is_not_a_failed_run(tmp_path):
+    # A restart of the API on 2026-10-15: SIGTERM is a clean exit for systemd, which logs the
+    # signal as status=15 and then "Succeeded."; the digest counted the exit status as a failure.
+    unit = "trading-engine-api.service"
+    stop = [("Stopping Trading engine paper API...", "systemd"),
+            (f"{unit}: Main process exited, code=killed, status=15/TERM", "systemd"),
+            (f"{unit}: Succeeded.", "systemd"), ("Stopped Trading engine paper API.", "systemd")]
+    journal = {unit: "\n".join(_entry("2026-10-10T02:46:54+00:00", *line) for line in stop)}
+
+    [hour] = _collect(tmp_path, journal)
+    report = ops_digest.report(24, tmp_path / "logs" / "ops", now=NOW, run=_fake_run(journal))
+
+    assert hour["status"] == "OK" and "0 failed run(s)" in hour["text"]
+    assert "| trading-engine-api | 02:46:54 | 02:46:54 | 0s | — | success (exit 15) |" in (
+        hour["text"])
+    assert "1 OK" in report and "Failed runs" not in report
+    assert "| trading-engine-api | `—` | ? | 1 | 0 | ? |" in report
+
+
+def test_failure_whose_result_lands_in_the_next_hour_keeps_its_exit_code(tmp_path):
+    # The exit line falls in hour 02 and systemd's result line in hour 03. Storing hour 03
+    # overwrote the run's exit status with NULL, so the report said "exit None".
+    unit = "trading-engine-p15-scoring.service"
+    lines = [("2026-10-10T02:30:00+00:00", "Starting Nightly scoring..."),
+             ("2026-10-10T02:59:59+00:00",
+              f"{unit}: Main process exited, code=exited, status=75/n/a"),
+             ("2026-10-10T03:00:01+00:00", f"{unit}: Failed with result 'exit-code'.")]
+    entries = [(datetime.fromisoformat(s).timestamp(), _entry(s, m, "systemd")) for s, m in lines]
+    units = _fake_run({unit: ""})
+
+    def run(args, timeout):
+        if args[0] != "journalctl":
+            return units(args, timeout)
+        since, until = (int(args[args.index(flag) + 1][1:]) for flag in ("--since", "--until"))
+        return "\n".join(entry for when, entry in entries if since <= when < until)
+
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    later = datetime(2026, 10, 10, 4, 5, tzinfo=UTC)
+    paths = {"logs_dir": logs, "ops_dir": logs / "ops", "db_path": tmp_path / "store.duckdb"}
+    [first] = ops_digest.collect(now=NOW, run=run, fetch=_fetch, **paths)
+    [second] = ops_digest.collect(now=later, run=run, fetch=_fetch, **paths)
+    report = ops_digest.report(24, logs / "ops", now=later, run=_fake_run({}))
+
+    assert first["status"] == "OK" and second["status"] == "FAIL"
+    assert "| exit-code (exit 75) |" in second["text"]
+    assert f"{unit} at 2026-10-10T02:30:00Z (30m01s): exit-code, exit 75" in report
+    assert "exit None" not in report
+
+
 def test_backfill_is_bounded_and_lock_skips_concurrent_run(tmp_path):
     first = _collect(tmp_path, {}, now=datetime(2026, 10, 1, 0, 5, tzinfo=UTC))
     assert len(first) == 1

@@ -2,9 +2,13 @@
 
 import json
 import subprocess
+from datetime import date
 from subprocess import CompletedProcess
 
+import pytest
+
 from engine import sync
+from tools import metrics_snapshot
 
 
 def test_commit_message_prefers_explicit_screen_date(monkeypatch, tmp_path):
@@ -22,6 +26,35 @@ def test_commit_message_prefers_explicit_screen_date(monkeypatch, tmp_path):
     monkeypatch.setattr(sync, "META_PATH", meta)
 
     assert sync._commit_message() == "screen: 2026-09-04 (588 passing, 59 new)"
+
+
+def test_driver_data_commit_is_titled_by_its_driver(monkeypatch, tmp_path):
+    # Production 2026-10-11: the weekly walk-forward's data commit (43 walk-forward files)
+    # was titled "screen: 2026-10-09 (496 passing, 60 new)" from the nightly's screen meta.
+    repo = _git_repo(tmp_path)
+    (repo / "data" / "report.json").write_text('{"version": 2}\n')
+    meta = tmp_path / "_meta.json"
+    meta.write_text(json.dumps({"screen_date": "2026-10-09", "passing_count": 496,
+                                "new_today_count": 60}))
+    monkeypatch.setattr(sync, "REPO_ROOT", repo)
+    monkeypatch.setattr(sync, "META_PATH", meta)
+    monkeypatch.setattr(sync, "_utc_today", lambda: date(2026, 10, 11), raising=False)
+    monkeypatch.setattr("sys.argv", ["sync.py", "--driver", "run_weekly_walkforward"])
+
+    assert sync.main() == 0
+    title = _git(repo, "log", "-1", "--format=%s")
+    assert title == "run_weekly_walkforward: 2026-10-11 (1 data file)"
+    # Still a generated-data commit, so it stays out of the metrics' commit shape.
+    assert metrics_snapshot.SCREEN_COMMIT.match(title)
+
+
+@pytest.mark.parametrize("driver", ["", "Run Daily", "screen: 2026-10-09", "x" * 65])
+def test_sync_rejects_a_malformed_driver_name(monkeypatch, driver):
+    monkeypatch.setattr("sys.argv", ["sync.py", "--driver", driver])
+
+    with pytest.raises(SystemExit) as exc:
+        sync.main()
+    assert exc.value.code == 2
 
 
 def _git(repo, *args):

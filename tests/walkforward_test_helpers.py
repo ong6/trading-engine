@@ -7,8 +7,9 @@ from engine.lib.data_quality import quality_class
 from engine.lib.provenance import canonical_sha256
 from farm.walkforward import controls as walkforward_controls
 from farm.walkforward import protocol as walkforward_protocol_definition
+from farm.walkforward import runtime_contract
 from farm.walkforward.runner import summarize as summarize_folds
-from sim import execution
+from sim import execution, portfolio
 
 
 def walkforward_snapshot(tables=None):
@@ -155,7 +156,8 @@ def write_walkforward_result(
         "config_sha256": canonical_sha256({}),
         "source_sha256": source,
         "protocol": protocol,
-        "fill_model": "v4",
+        "fill_model": portfolio.FILL_MODEL_VERSION,
+        "runtime_contract": runtime_contract.payload(),
         "data_quality_class": quality_class(strategy),
         "data_floor": "1994-01-27",
         "universe_policy": "all",
