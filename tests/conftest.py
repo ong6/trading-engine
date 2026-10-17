@@ -15,6 +15,8 @@ if str(REPO_ROOT) not in sys.path:
 
 from sim.schema import INITIAL_CASH, init_sim_schema  # noqa: E402
 
+pytest_plugins = ["tests.speed_plugin"]
+
 PRICES_DDL = """
 CREATE TABLE IF NOT EXISTS prices (
     ticker VARCHAR NOT NULL, date DATE NOT NULL,
