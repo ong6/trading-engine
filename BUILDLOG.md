@@ -3507,7 +3507,7 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **What:** Delimit sampled installed schedules and readable source intervals; absence outside those intervals is unknown.
   Read existing work receipts from one immutable published snapshot, keeping process exit unknown when only work is observed.
 - **Evidence:** `python -m pytest tests/test_ops_digest.py -q -W error -n 0` → 23 passed; the 336-hour fixture retains one covered miss and no false historical misses.
-- **Metrics:** server/product unchanged; tools +183 LOC.
+- **Metrics:** server/product unchanged; tools +157 LOC.
 - **Next:** Classify host failures and producer degradation, then move the Sunday history slot.
 
 ## 2026-10-17 — Surface host failures and recorded producer degradation
@@ -3516,7 +3516,7 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **What:** Recognize existing host messages and partial/deferred producer output; warning lines make the hour WARN.
   Include existing host log sources, deduplicate configured paths, and project degraded dated receipts without changing producers.
 - **Evidence:** `python -m pytest tests/test_ops_digest.py -q -W error -n 0` → 56 passed; warning-only hours and exit-zero unavailable receipts are WARN, benign no-ops stay OK.
-- **Metrics:** server/product unchanged; tools +57 LOC.
+- **Metrics:** server/product unchanged; tools +77 LOC.
 - **Next:** Move the Sunday TradingView history slot and run both full timezone suites.
 
 ## 2026-10-17 — Move the Sunday history slice ahead of weekly readers
