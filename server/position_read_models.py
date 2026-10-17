@@ -50,13 +50,11 @@ def _position_closes(
         return {}
     result = {}
     for raw_ticker, close in con.execute(
-        "SELECT ticker, close FROM ("
-        "  SELECT px.ticker, px.close, "
-        "  ROW_NUMBER() OVER (PARTITION BY px.ticker ORDER BY px.date DESC) AS recency "
+        "SELECT px.ticker, arg_max(px.close, px.date) "
         "  FROM prices px WHERE px.date <= ? "
         f"  AND {REAL_BAR_SQL} "
         "  AND px.ticker = ANY(?)"
-        ") WHERE recency = 1",
+        " GROUP BY px.ticker",
         [as_of, tickers],
     ).fetchall():
         ticker = require_public_ticker(raw_ticker)
