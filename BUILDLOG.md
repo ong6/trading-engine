@@ -3492,4 +3492,18 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** since 2026-10-16: server +33, tools 0, product 0, tests +49, UI +94; budget ok.
 - **Next:** separate retained XS prefix continuity from its restarted evaluation count, then validate the sector/XS cost-break clock.
 
+## 2026-10-17 — Explain retained-bar warnings and prospective board gates
+
+- **Why:** Board round 2's retained-bar probe reproduces inadmissible candidate bars
+  on 19 screen and 18 holding rows without warnings; the date conflicts with early REVIEW-KILL,
+  and the template checklist mixes supplemental context with scored criteria.
+- **What:** Screen rows now expose measured retained-bar quality, including rejected daily
+  originals. UI supports holding warnings; its producer wiring awaits cross-lane authorization.
+  Prospective cards separate statistical eligibility from early review; all eight criteria
+  are listed, with unrecorded SMA results explicit and supplemental context labeled unscored.
+- **Evidence:** `python acceptance-check.py` → 976 checks, zero failures in completed scope
+  at 1440/390; screen warnings 0 → 19, stored screen and position values unchanged.
+- **Metrics:** server +84, tools/product unchanged; budget ok.
+- **Next:** orchestrator authorizes the position read-model edit or assigns its wiring to its owner.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
