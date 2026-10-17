@@ -3562,4 +3562,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** unchanged.
 - **Next:** prove snapshot fallback and complete revision-13 rollback, then final-head suites; sector runtime amendment needs the orchestrator's decision.
 
+## 2026-10-17 — Prove P22 recovery with restored snapshot fallback
+
+- **Why:** P22 fresh deploy/rollback acceptance requires complete artifact restoration and byte-identical revision-13 recovery before readers resume.
+- **What:** Executed the amended quiescence function in an isolated runtime namespace; all 11 targets stopped, including real activating/autopush and continuous writer processes. Archived post-deploy data and snapshot identity and restored all 17 manifest evidence/artifact/control records.
+  Revision 13 at current main serves primary and forced snapshot fallback with sector v10, XS v21 and E1 v6 accumulating. Saved enabled/activation states restore; all rehearsal units are then removed.
+- **Evidence:** Restored DB matches the verified backup byte for byte before and after API checks; revision-13 registration 5 passed and P15 validation passed. No live state changed.
+- **Metrics:** unchanged.
+- **Next:** same-checkpoint legacy comparison and final-head suites; sector continuity still needs the orchestrator's runtime amendment decision.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
