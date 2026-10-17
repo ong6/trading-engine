@@ -109,6 +109,26 @@ def test_parse_journal_closes_run_started_in_earlier_hour():
         None, "2026-10-10T03:10:00Z", "success")
 
 
+@pytest.mark.parametrize("kind,code,result", [
+    ("killed", 15, "success"), ("killed", 15, "signal"),
+    ("exited", 1, "exit-code"), ("exited", 75, "success")])
+def test_systemd_result_and_termination_survive_storage(tmp_path, kind, code, result):
+    unit = "sample.service"
+    finish = (f"{unit}: Succeeded." if result == "success" else
+              f"{unit}: Failed with result '{result}'.")
+    raw = "\n".join([
+        _entry("2026-10-10T02:40:00Z",
+               f"{unit}: Main process exited, code={kind}, status={code}/n/a", "systemd"),
+        _entry("2026-10-10T02:40:01Z", finish, "systemd")])
+    with closing(ops_digest.open_db(tmp_path)) as db:
+        for _ in range(2):
+            [row] = ops_digest.store_runs(db, ops_digest.parse_journal(
+                unit, raw, ops_digest.SourceSignals()))
+        assert (row["started"], row["seconds"], row["termination_kind"], row["exit_code"],
+                row["result"]) == (None, None, kind, code, result)
+        assert db.execute("SELECT COUNT(*) FROM unit_runs").fetchone()[0] == 1
+
+
 def test_read_new_lines_starts_at_end_then_follows_and_resets(tmp_path):
     with closing(sqlite3.connect(":memory:")) as db:
         _follow_log(db, tmp_path / "x.log")
@@ -191,7 +211,7 @@ def test_clean_stop_that_systemd_reports_as_success_is_not_a_failed_run(tmp_path
     report = ops_digest.report(24, tmp_path / "logs" / "ops", now=NOW, run=_fake_run(journal))
 
     assert hour["status"] == "OK" and "0 failed run(s)" in hour["text"]
-    assert "| trading-engine-api | 02:46:54 | 02:46:54 | 0s | — | success (exit 15) |" in (
+    assert "| trading-engine-api | — | 02:46:54 | — | — | success (exit 15) [killed] |" in (
         hour["text"])
     assert "1 OK" in report and "Failed runs" not in report
     assert "| trading-engine-api | `—` | ? | 1 | 0 | ? |" in report
@@ -223,7 +243,7 @@ def test_failure_whose_result_lands_in_the_next_hour_keeps_its_exit_code(tmp_pat
     report = ops_digest.report(24, logs / "ops", now=later, run=_fake_run({}))
 
     assert first["status"] == "OK" and second["status"] == "FAIL"
-    assert "| exit-code (exit 75) |" in second["text"]
+    assert "| exit-code (exit 75) [exited] |" in second["text"]
     assert f"{unit} at 2026-10-10T02:30:00Z (30m01s): exit-code, exit 75" in report
     assert "exit None" not in report
 
@@ -290,7 +310,8 @@ def test_report_lists_every_run_and_stage_against_the_schedules(tmp_path):
     with closing(ops_digest.open_db(ops)) as db:
         db.executemany("INSERT INTO hours (hour, status) VALUES (?, 'OK')",
                        [(f"2026-10-17T{hour:02}",) for hour in range(12)])
-        db.executemany("INSERT INTO unit_runs VALUES (?,?,?,?,?,?)", [
+        db.executemany("INSERT INTO unit_runs (unit, started, ended, seconds, exit_code, result) "
+                       "VALUES (?,?,?,?,?,?)", [
             ("trading-engine-p15-preopen.service", "2026-10-14T13:05:58Z",
              "2026-10-14T13:05:59Z", 1.0, 1, "exit-code"),
             ("trading-engine-p15-preopen.service", "2026-10-16T13:05:07Z",

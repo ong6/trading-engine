@@ -77,7 +77,7 @@ IGNORED_UNIT_RE = re.compile(r"^(at-spi|dbus|gvfs|pulseaudio|xdg-|app-)")
 SYSTEMD_START_RE = re.compile(r"^Starting .*\.\.\.$")
 SYSTEMD_OK_RE = re.compile(r"^(?P<unit>\S+): Succeeded\.$")
 SYSTEMD_EXIT_RE = re.compile(
-    r"^(?P<unit>\S+): Main process exited, code=\w+, status=(?P<status>\d+)"
+    r"^(?P<unit>\S+): Main process exited, code=(?P<kind>\w+), status=(?P<status>\d+)"
 )
 SYSTEMD_FAIL_RE = re.compile(r"^(?P<unit>\S+): Failed with result '(?P<result>[^']+)'")
 
@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS hours (
   collected_at TEXT, digest TEXT);
 CREATE TABLE IF NOT EXISTS unit_runs (
   unit TEXT, started TEXT, ended TEXT, seconds REAL, exit_code INT, result TEXT,
+  termination_kind TEXT,
   PRIMARY KEY (unit, started));
 CREATE TABLE IF NOT EXISTS stage_runs (
   run_id TEXT, stage TEXT, driver TEXT, started TEXT, ended TEXT, seconds REAL,
@@ -168,6 +169,7 @@ class UnitRun:
     ended: str | None = None
     exit_code: int | None = None
     result: str | None = None
+    termination_kind: str | None = None
 
 
 def _run(args: list[str], timeout: float) -> str | None:
@@ -241,6 +243,7 @@ def parse_journal(
             current = UnitRun(unit, None)
         if exited:
             current.exit_code = int(exited["status"])
+            current.termination_kind = exited["kind"]
             continue
         current.result = failed["result"] if failed else "success"
         if current.exit_code is None and not failed:
@@ -366,26 +369,30 @@ def store_runs(db: sqlite3.Connection, runs: list[UnitRun]) -> list[dict]:
             open_row = db.execute(
                 "SELECT started FROM unit_runs WHERE unit=? AND ended IS NULL "
                 "ORDER BY started DESC LIMIT 1", (item.unit,)).fetchone()
-            started = open_row[0] if open_row else item.ended
+            started = open_row[0] if open_row else None
         seconds = None
         if started and item.ended:
             seconds = (
                 datetime.fromisoformat(item.ended) - datetime.fromisoformat(started)
             ).total_seconds()
         result = item.result or ("running" if item.ended is None else "unknown")
-        exit_code = item.exit_code
-        if exit_code is None:  # the exit line was stored with the earlier hour it fell in
-            prior = db.execute("SELECT exit_code FROM unit_runs WHERE unit=? AND started=?",
-                               (item.unit, started)).fetchone()
-            exit_code = prior[0] if prior else None
-        db.execute(
-            "INSERT INTO unit_runs VALUES (?,?,?,?,?,?) ON CONFLICT(unit, started) DO UPDATE "
-            "SET ended=excluded.ended, seconds=excluded.seconds, "
-            "exit_code=excluded.exit_code, result=excluded.result",
-            (item.unit, started, item.ended, seconds, exit_code, result),
-        )
+        # SQLite permits duplicate NULL keys: match completion-only rows by their end.
+        prior = db.execute(
+            "SELECT rowid, exit_code, termination_kind FROM unit_runs WHERE unit=? "
+            "AND started IS ? AND (started IS NOT NULL OR ended IS ?)",
+            (item.unit, started, item.ended)).fetchone()
+        exit_code = item.exit_code if item.exit_code is not None else prior[1] if prior else None
+        kind = item.termination_kind or (prior[2] if prior else None)
+        values = (item.unit, started, item.ended, seconds, exit_code, result, kind)
+        if prior:
+            db.execute("UPDATE unit_runs SET unit=?, started=?, ended=?, seconds=?, "
+                       "exit_code=?, result=?, termination_kind=? WHERE rowid=?",
+                       (*values, prior[0]))
+        else:
+            db.execute("INSERT INTO unit_runs VALUES (?,?,?,?,?,?,?)", values)
         stored.append({"unit": item.unit, "started": started, "ended": item.ended,
-                       "seconds": seconds, "exit_code": exit_code, "result": result})
+                       "seconds": seconds, "exit_code": exit_code, "result": result,
+                       "termination_kind": kind})
     return stored
 
 
@@ -478,6 +485,8 @@ def render(hour: datetime, data: dict) -> str:
             flag = " ⚠ slow" if item.get("slow") else ""
             result = item["result"] + (
                 f" (exit {item['exit_code']})" if item["exit_code"] not in (None, 0) else "")
+            if item.get("termination_kind"):
+                result += f" [{item['termination_kind']}]"
             lines.append(
                 f"| {item['unit'].removesuffix('.service')} | {_clock(item['started'])} | "
                 f"{_clock(item['ended'])} | {_duration(item['seconds'])}{flag} | {typical} | "
@@ -611,6 +620,8 @@ def open_db(ops_dir: Path) -> sqlite3.Connection:
     db.executescript(SCHEMA)
     if "store_bytes" not in {row[1] for row in db.execute("PRAGMA table_info(footprint)")}:
         db.execute("ALTER TABLE footprint ADD COLUMN store_bytes INT")
+    if "termination_kind" not in {row[1] for row in db.execute("PRAGMA table_info(unit_runs)")}:
+        db.execute("ALTER TABLE unit_runs ADD COLUMN termination_kind TEXT")
     return db
 
 
@@ -625,7 +636,7 @@ def prune(db: sqlite3.Connection, ops_dir: Path, now: datetime) -> None:
     for table in ("hours", "log_counts", "signatures", "probes", "meta_status", "footprint"):
         db.execute(f"DELETE FROM {table} WHERE hour < ?", (metric_cutoff,))  # noqa: S608
     started_cutoff = _iso(now - timedelta(days=METRIC_RETENTION_DAYS))
-    db.execute("DELETE FROM unit_runs WHERE started < ?", (started_cutoff,))
+    db.execute("DELETE FROM unit_runs WHERE COALESCE(started, ended) < ?", (started_cutoff,))
     db.execute("DELETE FROM stage_runs WHERE ended < ?", (started_cutoff,))
 
 
@@ -701,7 +712,7 @@ class Schedule:
 
 @dataclass
 class JobRun:
-    start: datetime
+    start: datetime | None
     seconds: float | None
     ok: bool | None
     label: str
@@ -895,9 +906,11 @@ def _job_runs(db: sqlite3.Connection, schedule: Schedule, drivers: dict[str, lis
         inside = since <= _iso(written) < until
         return [JobRun(written, None, None, "output written")] if inside else []
     rows = db.execute("SELECT started, seconds, result FROM unit_runs WHERE unit=? "
-                      "AND started>=? AND started<? ORDER BY started",
+                      "AND COALESCE(started, ended)>=? AND COALESCE(started, ended)<? "
+                      "ORDER BY COALESCE(started, ended)",
                       (schedule.unit, since, until)).fetchall()
-    return [JobRun(_utc(started), seconds, None if result == "running" else result == "success",
+    return [JobRun(_utc(started) if started else None, seconds,
+                   None if result in {"running", "unknown"} else result == "success",
                    result)
             for started, seconds, result in rows]
 
@@ -914,7 +927,8 @@ def _due(schedule: Schedule, start: datetime, end: datetime) -> list[datetime] |
 def _unmatched(schedule: Schedule, due: list[datetime], runs: list[JobRun]) -> list[datetime]:
     late = timedelta(seconds=schedule.slack_s + RUN_GRACE_S)
     return [moment for moment in due if not any(
-        moment - timedelta(minutes=1) <= item.start <= moment + late for item in runs)]
+        item.start is not None and moment - timedelta(minutes=1) <= item.start <= moment + late
+        for item in runs)]
 
 
 def _stamp(moment: datetime) -> str:
@@ -923,7 +937,8 @@ def _stamp(moment: datetime) -> str:
 
 def _runs_cell(runs: list[JobRun]) -> str:
     def one(item: JobRun) -> str:
-        return f"{_stamp(item.start)} {item.label} {_duration(item.seconds)}".rstrip(" —")
+        stamp = _stamp(item.start) if item.start else "unknown start"
+        return f"{stamp} {item.label} {_duration(item.seconds)}".rstrip(" —")
     if len(runs) <= LISTED_RUNS:
         return "; ".join(map(one, runs)) or "—"
     timed = [item.seconds for item in runs if item.seconds is not None]
@@ -938,8 +953,8 @@ def runs_lines(db: sqlite3.Connection, run: Runner, start: datetime,
     schedules = timer_schedules(run) + cron_schedules(run)
     known = {item.unit for item in schedules if item.unit}
     schedules += [Schedule(unit.removesuffix(".service"), "—", None, unit=unit) for (unit,) in
-                  db.execute("SELECT DISTINCT unit FROM unit_runs WHERE started>=? AND "
-                             "started<?", (since, until)) if unit not in known]
+                  db.execute("SELECT DISTINCT unit FROM unit_runs WHERE COALESCE(started, ended)>=? "
+                             "AND COALESCE(started, ended)<?", (since, until)) if unit not in known]
     drivers = _driver_runs(db, since, until)
     missing, table = [], []
     for schedule in sorted(schedules, key=lambda item: item.job):
@@ -1005,7 +1020,8 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
                     "|---|---|---|---|---|---|"]
             out += [f"| {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]} | {r[5]} |" for r in bad]
         failed = db.execute(
-            "SELECT unit, started, seconds, exit_code, result FROM unit_runs WHERE started>=? "
+            "SELECT unit, started, seconds, exit_code, result FROM unit_runs "
+            "WHERE COALESCE(started, ended)>=? "
             "AND result NOT IN ('success','running') ORDER BY started",
             (since_iso,)).fetchall()
         failed += db.execute(
@@ -1013,7 +1029,7 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
             "WHERE ended>=? AND exit_code<>0", (since_iso,)).fetchall()
         if failed:
             out += ["", "## Failed runs", ""]
-            out += [f"- {u} at {s} ({_duration(sec)}): {res}, exit {code}"
+            out += [f"- {u} at {s or 'unknown start'} ({_duration(sec)}): {res}, exit {code}"
                     for u, s, sec, code, res in failed]
         start = floor_hour(now) - timedelta(hours=hours)
         missing, run_lines = runs_lines(db, run, start, _collected_until(db, now, start))

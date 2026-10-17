@@ -3492,4 +3492,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** since 2026-10-16: server +33, tools 0, product 0, tests +49, UI +94; budget ok.
 - **Next:** separate retained XS prefix continuity from its restarted evaluation count, then validate the sector/XS cost-break clock.
 
+## 2026-10-17 — Preserve systemd termination and unknown starts in the ops digest
+
+- **Why:** Revision-15 ops rank 6; the baseline parser stores successful TERM as exit 15 without its termination kind, and a completion-only journal row gets an invented start and zero duration.
+- **What:** Carry the systemd termination kind through storage and rendering; systemd's final result decides failure.
+  Preserve unknown starts and durations, including when completion arrives in a later hour.
+- **Evidence:** `python -m pytest tests/test_ops_digest.py -q -W error -n 0` (validation recorded before commit).
+- **Metrics:** server/product unchanged; tools delta recorded after validation.
+- **Next:** Delimit observed schedule and journal coverage and consume dated work receipts.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
