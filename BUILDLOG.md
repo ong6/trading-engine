@@ -3606,4 +3606,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** product +13; tests +97; server/tools unchanged.
 - **Next:** follow-up revision-14 binding under D1, then fresh primary/fallback and full-suite acceptance.
 
+## 2026-10-17 — Bind the second pre-deploy continuity amendment to revision 14
+
+- **Why:** Orchestrator D1 explicitly authorizes one follow-up source binding for sector's same retained-prefix defect class discovered by the fresh rehearsal, while revision 14 is undeployed.
+- **What:** Re-hashed the changed sector monitor and bound its committed source using the established history-sensitive source assertion. The registration reason/test and P22 progress disclose the second amendment.
+  Sector remains undeployed v11; E1 v7 and XS v22 remain unchanged. Shared repeated-review and E1 audit regressions keep complete hashes, baselines, ledgers and schema-v1 behavior intact.
+- **Evidence:** Registration plus sector/XS/E1 monitor/status and shared-family regressions → 149 passed with the issued binding and ordinary gates.
+- **Metrics:** tests +1; server/tools/product unchanged from the source commit.
+- **Next:** fresh-store repeated reviews, semantic primary/forced-fallback meta, and both final timezone suites.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
