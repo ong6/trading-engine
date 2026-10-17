@@ -3528,4 +3528,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/product unchanged; tools +1 LOC from source documentation.
 - **Next:** Run the full UTC and Asia/Singapore suites and deliver the revision-15 lane status.
 
+## 2026-10-17 — Record the revision-15 ops acceptance boundary
+
+- **Why:** Revision-15 ops validation requires both full timezone suites; the existing service-unit test pins the former Sunday calendar and is outside this lane's claim.
+- **What:** Finished the digest and timer fixtures and recorded the exact test-only correction needed from the orchestrator.
+  Corrected the local test-environment link; all other full-suite cases pass, with no registration/runtime-pin failures.
+- **Evidence:** `TZ=UTC python -m pytest -o addopts= -q -W error -n auto` → 4,847 passed, 1 failed; Asia/Singapore also 4,847 passed, with only the stale timer assertion at `tests/test_service_units.py:155` failing.
+- **Metrics:** server/product unchanged; tools +251 LOC, tests +241 LOC since the lane base; budget ok.
+- **Next:** Blocked until the orchestrator extends the claim for the existing timer assertion or supplies its correction.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
