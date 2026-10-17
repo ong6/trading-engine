@@ -3632,4 +3632,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** since prior readiness head: server +0, tools +0, product +13, tests +97; budget ok.
 - **Next:** orchestrator go/no-go, push and Sunday deployment using the amended runbook.
 
+## 2026-10-17 — Repair the literal engine-v2 deployment and recovery procedure
+
+- **Why:** Independent M4 review reproduces Git 2.20 rejecting `git restore`, three installed cron drivers escaping detection and setup overwriting the rollback identity; the orchestrator admits review issues 1–5.
+- **What:** Use compatible source checkout before DB restoration, immutable recovery inventory and a fresh-shell initializer. Detect all installed drivers/descendants and hold producer locks through incident restoration.
+  Gate the UI and both new timers before trigger release; hold both autopush units until the explicit final step. Add a manual isolated runbook harness.
+- **Evidence:** Literal isolated deploy and fresh-shell rollback pass; controlled first-activation failure exits to recovery; repeated setup and all five cron names refuse. Full pytest: 4,812 passed; registration/contract: 17 passed; six Bash blocks pass syntax checks.
+- **Metrics:** server/tools/product unchanged; documentation and manual-harness lines only, budget ok.
+- **Next:** orchestrator acceptance of the runbook and Sunday execution-time gates.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
