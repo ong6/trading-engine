@@ -3492,4 +3492,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** since 2026-10-16: server +33, tools 0, product 0, tests +49, UI +94; budget ok.
 - **Next:** separate retained XS prefix continuity from its restarted evaluation count, then validate the sector/XS cost-break clock.
 
+## 2026-10-17 — Preserve the retained XS prefix when the evaluation clock restarts
+
+- **Why:** P22 deploy-readiness rank 1; the second unchanged review after D0 migration refuses with `previously published XS forward equity window changed`: retained equity has 12 sessions but the restarted evaluation count is zero.
+- **What:** Prior continuity sums evaluated and retained sessions and verifies their partition at the published clock; the complete equity hash, baseline, signal boundary, initial transition and ledger checks remain.
+  The regression migrates a populated v21 prefix, inserts D0, repeats unchanged reviews before and after D0, then refuses a tampered retained row.
+- **Evidence:** `tests/test_xs_forward_review.py` → 40 passed with an isolated provisional runtime digest; the new lifecycle test failed on the second pre-D0 review before the fix. The committed hash gate remains stale until the single step-4 re-pin.
+- **Metrics:** product +9; tests +53; server and tools unchanged.
+- **Next:** authoritative sector/XS API clock validators, then the single revision-14 re-pin.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

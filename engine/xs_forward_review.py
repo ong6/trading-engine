@@ -903,7 +903,14 @@ def _validate_prior(
     try:
         observation = prior_result["observation"]
         prior_as_of = date.fromisoformat(observation["as_of"])
-        expected_count = int(observation["shared_sessions"])
+        evaluated_count = observation["shared_sessions"]
+        retained_count = observation.get("pre_break_shared_sessions", 0)
+        prior_clock = date.fromisoformat(
+            observation.get("evaluation_clock_start", OBSERVATION_START.isoformat())
+        )
+        if any(type(count) is not int or count < 0 for count in (evaluated_count, retained_count)):
+            raise ValueError("invalid shared session counts")
+        expected_count = evaluated_count + retained_count
         expected_hash = observation["equity_sha256"]
         frozen = prior_result["frozen_runtime"]
         expected_baseline = frozen["baseline_equity"]
@@ -916,6 +923,7 @@ def _validate_prior(
     prefix = [row for row in rows if row[0] <= prior_as_of]
     if (
         len(prefix) != expected_count
+        or sum(row[0] < prior_clock for row in prefix) != retained_count
         or not prefix
         or prefix[-1][0] != prior_as_of
         or canonical_sha256(_equity_payload(prefix)) != expected_hash
