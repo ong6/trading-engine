@@ -298,6 +298,7 @@ def test_p15_registration_revision_and_self_hash():
         "the ops digest trusts systemd's result; (k) a delisted holding closes at its last "
         "real traded close (WBD in high_52wk at 30.94); and the E1, sector and XS runtime "
         "migrations accept the deployed records (revision 14 remains undeployed)"
+        "; pre-deploy amendment 2026-10-17 under orchestrator D1: XS complete retained-prefix continuity is separate from restarted evaluation counts, with the count partition, equity hash, signal boundary, baseline and ledger gates preserved; undeployed XS v22 source re-pinned once, with E1 v7 and sector v11 unchanged and no frozen outcome or verdict-rule change"
     )
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
