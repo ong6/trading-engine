@@ -2,6 +2,28 @@
 
 const DRIVER_OK = new Set(["ok", "running", "updating", "recovered"]);
 
+export function nightlyEvidenceAlert(evidence) {
+  return evidence ? !["updating", "current"].includes(evidence.status) : false;
+}
+
+export function countedEvidenceLabel(evidence, currentKey, expectedKey) {
+  const counts = Number.isSafeInteger(evidence[currentKey]) &&
+    Number.isSafeInteger(evidence[expectedKey])
+    ? ` (${evidence[currentKey]}/${evidence[expectedKey]})` : "";
+  return `${evidence.status}${counts}`;
+}
+
+export function e1EvidenceLabel(evidence) {
+  const details = [];
+  if (Number.isSafeInteger(evidence.observations) && Number.isSafeInteger(evidence.target_observations)) {
+    details.push(`${evidence.observations}/${evidence.target_observations}`);
+  }
+  if (Number.isSafeInteger(evidence.runtime_contract_version)) {
+    details.push(`v${evidence.runtime_contract_version}`);
+  }
+  return `${evidence.status.toLowerCase()}${details.length ? ` (${details.join(", ")})` : ""}`;
+}
+
 export function driverAlert(driver) {
   return driver ? !DRIVER_OK.has(driver.status) : false;
 }

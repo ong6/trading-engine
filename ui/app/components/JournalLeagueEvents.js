@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { candidateHref } from "../lib/candidate-route";
-import { fmtDate, fmtInt, fmtPrice } from "../lib/format";
+import { fmtDate, fmtInt, fmtPrice, fmtQty } from "../lib/format";
 
 export default function JournalLeagueEvents({ journal }) {
   const leagueEvents = Array.isArray(journal.league_events) ? journal.league_events : [];
@@ -50,7 +50,12 @@ export default function JournalLeagueEvents({ journal }) {
                     <Link href={candidateHref(event.ticker)}>{event.ticker}</Link>
                   </td>
                   <td>{event.side}</td>
-                  <td className="num">{fmtInt(event.qty)}</td>
+                  <td
+                    className="num"
+                    title={Number.isFinite(event.qty) ? String(event.qty) : undefined}
+                  >
+                    {fmtQty(event.qty)}
+                  </td>
                   <td className="num">{fmtPrice(event.fill_px)}</td>
                   <td className="num">{fmtInt(event.order_id)}</td>
                 </tr>

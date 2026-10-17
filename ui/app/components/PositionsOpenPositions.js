@@ -5,6 +5,7 @@ import {
   fmtMoney,
   fmtPct,
   fmtPrice,
+  fmtQty,
   fmtR,
 } from "../lib/format";
 import FilterSelect from "./FilterSelect";
@@ -82,7 +83,12 @@ export default function PositionsOpenPositions({
                         <strong>{position.ticker}</strong>
                       </Link>
                     </td>
-                    <td className="num">{fmtInt(position.qty)}</td>
+                    <td
+                      className="num"
+                      title={Number.isFinite(position.qty) ? String(position.qty) : undefined}
+                    >
+                      {fmtQty(position.qty)}
+                    </td>
                     <td className="num">{fmtPrice(position.avg_cost)}</td>
                     <td className="num">{fmtPrice(position.close)}</td>
                     <td className="num">{fmtMoney(position.market_value)}</td>
