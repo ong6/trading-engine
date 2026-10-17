@@ -3537,4 +3537,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server/product unchanged; tools +251 LOC, tests +241 LOC since the lane base; budget ok.
 - **Next:** Blocked until the orchestrator extends the claim for the existing timer assertion or supplies its correction.
 
+## 2026-10-17 — Align the existing timer test with Sunday's moved history slice
+
+- **Why:** The orchestrator extended the ops claim for the failing calendar assertions in the existing service-unit test; its old combined Saturday/Sunday line contradicts the requested Sunday move.
+- **What:** Assert the retained Saturday calendar, Sunday's 01:40 slice and absence of Sunday's old 07:40 calendar.
+  Every other service and runner assertion remains unchanged.
+- **Evidence:** `python -m pytest tests/test_service_units.py::test_tradingview_archive_timer_is_bounded_and_queue_owned tests/test_ops_digest.py -q -W error -n 0` → 58 passed.
+- **Metrics:** server/tools/product unchanged; tests +2 LOC.
+- **Next:** Run the full UTC and Asia/Singapore suites and finish the lane status.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
