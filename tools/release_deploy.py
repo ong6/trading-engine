@@ -1431,17 +1431,11 @@ print(json.dumps({'versions': [forward_review.RUNTIME_CONTRACT_VERSION,
                 raise DeployError("API did not use the forced snapshot")
             return {"header": headers["x-data-source"]}
         finally:
-            if process.stdin is not None:
-                try:
-                    process.stdin.write("x")
-                    process.stdin.flush()
-                except BrokenPipeError:
-                    pass
             try:
-                process.wait(timeout=15)
+                process.communicate(input="x", timeout=15)
             except subprocess.TimeoutExpired:
                 process.kill()
-                process.wait(timeout=5)
+                process.communicate(timeout=5)
 
     def semantic_verify(self, state: ReleaseState, *, rolled_back: bool) -> dict[str, Any]:
         self._start_readers()
