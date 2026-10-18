@@ -64,7 +64,7 @@
       "engine/collect.py": "4f764b897d6ba260fce979422d394d3abbceed73808093c1be325d18540c8c20",
       "engine/daily_opportunities.py": "d8d8cd884183f10055204b606af3a748198d7c9686342b5fad091a24ab71292b",
       "engine/earnings.py": "2d3b702f523b1a88c12b48bc62e4bba78deefb09122e65d0bb934460072483d2",
-      "engine/forward_review.py": "dd130d5115ed20d0b1abc4c33f1c1ed6700442685885869f5bd63872dd750786",
+      "engine/forward_review.py": "cf7100f203a09e79fabc872a8214f1cc9899ff6dd6f22bcd5d045af4cde3dfe8",
       "engine/free_massive_minute.py": "ee1bc0120836e264b52fc016dbc446233f7bff160b7976ee2c697c69e02a1b1d",
       "engine/free_sources.py": "414af6dcd99bba91ea96cd2340f40680a74b39d0dab31aed194aaaca93a49126",
       "engine/fundamentals.py": "7a50a1762e2df25aa9ebb37b11b45592c287bb4a8fb438aa6ded4ae3eb079192",
@@ -86,7 +86,8 @@
       "engine/money/alerts.py": "51f02146748af870a59dbf3bc63f873f7e06be5c420dae3cd048bb40ecb2e722",
       "engine/money/halts.py": "77d9b496b22b88ca7b1f9a54a817bade3df5c2a4278b5f26260fe33d474f6148",
       "engine/money/limits.py": "a6496437d7c3bb98757ae379f41450e3c1d7f277e410bdcc195edc89846b9968",
-      "engine/p15_evaluation.py": "c9d65f8f294532c16bea738db77cec88333a7d2ec1349d1970ed866f01398810",
+      "engine/p15_calendar.py": "de7fba7e914f1fb73d866aed27c44092ba9f0eca477904d8a51330dc8d077e0a",
+      "engine/p15_evaluation.py": "badcad966209fe1aaad2fa461decf9088a4ba91ceb99c349185ad6cd82e9a3a4",
       "engine/p15_event_sources.py": "fb2831a69168d4ffd4dfec0c283601e30d94d017ebaff4103967bd61559df488",
       "engine/paper_accounts.py": "70542f8f415e54d414ac42aaff59a18027608636e38c9caaa029ffc67abc725f",
       "engine/queue_runner.py": "041c3cdf8417ddb8cbe96283314c278bbb99bac87903e44227fb4331f729b096",
@@ -97,7 +98,7 @@
       "engine/tradingview_history_archive.py": "640f5346798a7ae9ecf5cfcecb4bbb1bbeb9d3575076b4bf23514f4a8555b155",
       "engine/universe.py": "ad3cf5f62730767081ee7718006ce4f78f4c6bfdbb80ab90caeef118abc276a7",
       "engine/verify_prices.py": "5a7aad53b9c2e7202a11ddb97502019780811d807513d9d86ac9c1554e35fd07",
-      "engine/xs_forward_review.py": "4d94b80be6901035227733ba10475ed493a2aef6937f3dc0bc2277bb0908f766",
+      "engine/xs_forward_review.py": "0b143153e820a2eeffb32580d7e4b4051d553445a1de2ebbb2faa523dfa553df",
       "farm/__init__.py": "bf84aec09336388f858d7c1e7c28cab3da1d8d18096ed36ef460ea49114f11e0",
       "farm/agent_evaluation_analysis.py": "67ba119bd1974a184e03c64852b22f42d0ae654e2844f60974082b66c1159ab8",
       "farm/backtest/__init__.py": "b65d882bc9e7d1ba6e704fc93be8aa4188775ead4cf4028a3da7141c298427b7",
@@ -108,7 +109,7 @@
       "farm/capital_sensitivity.py": "90119096f6c31e53427ea8ffa61b8af558b131c0f78ff0841183baa024958244",
       "farm/experiment.py": "bf588f503d4bcec829c8083d5dad3fca0846fa80c726301535cf11a854c82abb",
       "farm/experiment_runner.py": "0c29bd62ff6a03aafe7cebc875920437e117d9858c5f53fff7914a01a2815a5e",
-      "farm/p15_event_runner.py": "adc17266982fa93cb2f25aaff467573a3f5d6594440a9eb17828a0da5b368d8a",
+      "farm/p15_event_runner.py": "6eb5a05f54e70e92a36aa2418a231bc0c3291c258bece654f45a66fcbb8c20b7",
       "farm/stats/__init__.py": "a7e26e929b2d925fd3060ac1af6e20c228479c6552f75dcfcd629b5ff0470b65",
       "farm/stats/equity.py": "f265e3227a4d360d1d89655f6b48557d5ebccce2c5598393e20d418d784e9c3c",
       "farm/stats/inference.py": "f0a4f96e34c4de89005ced5ceecb40c17868d67e7611b193205f5d3b920fdecf",
@@ -123,7 +124,7 @@
       "farm/walkforward/runtime_contract.py": "0719e6086dd265d1a26076a41ce01f0ec99b7805322b84f8ed6bfbf35897fe92",
       "server/__init__.py": "c462735edca08a01b1bda392e672430ed441aca796251c6adcaf6b5e648ea4b5",
       "server/agent-cadence-registration.json": "cf66040d889662f7ad740f79ce83e2c87528853bafe4f31a0634c7195b5c4b59",
-      "server/agent_evaluation.py": "d4263cf04e79ca7133b1a5411c6aff5870d20f6718f315e8d60de0cb27e5acf7",
+      "server/agent_evaluation.py": "e0fabd501ede2ed7ffa5706c46bb04d125a26e480d5f900ff5317289e475c070",
       "server/agent_evaluation_reporting.py": "4116ca8251bd47d3e589340ebe6bf1a737dae20082120725f4acff0cb4668a7f",
       "server/agent_model_client.py": "3c4fbdfd48aa6e1c32a8fbe7fba18f8c7470aef01a684f7ab2d9d8cadf1394f8",
       "server/daily_opportunity_execution.py": "bfe15b976408ce4ac275761e140d8456ac4527b09610be23f7d1ca72d25c1c0e",
@@ -142,8 +143,8 @@
       "server/nightly_reports.py": "937ad06d18e7421d6419fa6adf0b1e957674fb46595bc0e92457e5607e8f1e6c",
       "server/official_quote_source.py": "7f677708903aba388d2e6fd3d0f564bdc4a309bd9e3627655b9901e214b9b31b",
       "server/p15_incremental_collect.py": "76b64b6c190a3a69b4cac62efeb3a7eea119546726e75e7f523bcb7368309e66",
-      "server/p15_preopen.py": "bcc7010e791e579e96e8d3888b36042672b85d4c53ffecbafb6f00b186f2bce9",
-      "server/p15_price_fetch_attempts.py": "6f48a0821f151783b63f1d33dc1ee7a8a50512485c37484804d790b5c06edae0",
+      "server/p15_preopen.py": "4f0dde12b7f96bf3aa3dc4afb48229efe58b5aea34282135b1f3331b30d29f2f",
+      "server/p15_price_fetch_attempts.py": "bea009a446f472418a151acc27d2fe511e0fb1cc4d9d00d62652bd1466aed4b4",
       "server/p15_scoring_runner.py": "f590551a79d4dcca4c36f073b1503b949e9f30447c388f2170267060a0c626bc",
       "server/p15_scoring_store.py": "4660607b6bb5b18fdb6ee7585b8bdadab9dfa9af9417f0ae51833bc87a695bee",
       "server/run_p15_scoring.sh": "106237f26600c8c1f06e67d6c3dabd09cc76692527a80ee6e0096803ff3462e2",
@@ -171,7 +172,7 @@
       "sim/money_inputs.py": "2a5bcae2a99dc430b6b4b58248830c1e1143060b43efd8b7920565fc12c3fd9c",
       "sim/nyse.py": "7911bf0f9c6c0c4be6d43b1e6d23604c2d4a74c18deac41116c5865b11604f5b",
       "sim/order_types.py": "2eefb14ea7ecb88160a9210a0cd488369cba16833e6fd304a6b9f151c3c5e22f",
-      "sim/p15_books.py": "6ef8edc49d69d1fb96b5cae863a6a5bce37c58d22e2e58dc5e810f29130e4601",
+      "sim/p15_books.py": "74c70fbafe3dddad88aa810ea345ecb69e424b9c7bf66fd68c493d3325830675",
       "sim/p15_fills.py": "27ae29ba0bf6bb8a476fa469e12c5f2f55c1bcfb6466271db159a397eb3d3caa",
       "sim/portfolio.py": "149a7ce339a170969c9e16f4ddcef2fbe533b219ba88bc3b3797488f6fbc2732",
       "sim/schema.py": "b47342c2dd40340bd7e6332bdf1f7566791807b150bee74e3c4397734c3b6100",
@@ -210,13 +211,13 @@
       "tools/__init__.py": "1f23b3f78a32b5567d64752ddc564b1182bdfe50616b87bca6a3a603b597d927",
       "tools/agent_trial_register.py": "6cd235435466a0a18ec8bcb4c1618f9228e2b3f994583a905ff2da3ed9c7d84d",
       "tools/backup_database.py": "44bd1bbc1c001ca2f42f0bfb6e61d0f83ea4c1528aba808aaaed756c61de1a46",
-      "tools/p15_evidence_validation.py": "fe8c1bd3c6f319cdf144755437350559bacd0c1d5ea02a29dcda64645f879b2e",
+      "tools/p15_evidence_validation.py": "d1f86ee86197ca8db7e51df347cbf92b3c0c7fafbf8059b71929e215ab13b0a6",
       "tools/publish_snapshot.py": "23c1057ee3524f1a26c54ab814c68cdff127f7b0702fd3f2142ee370091533b5",
       "tools/release_manifest.py": "90b52c70a99d5ccab09d0efd6b453f6ac814243decee68071c7f658b4d96e217",
       "tools/sec_edgar_capture.py": "63dc9eb0b5f6dc2ac910077a07c58e65a95b5ba0961ae2b5cd4d3d5148b4ecab",
       "tools/stage_timings.py": "277ea358aafebc45490a83d7a97fec9bc94c5c2a8c15d609d9cd2aca6d5c3418"
     },
-    "source_commit": "cc387e6d58192eede8548424aa56f95e2bd9b6b8"
+    "source_commit": "6cb2e87e4e6edf888d2d438f82247a4b2b814e2a"
   },
   "delivery": {
     "dry_run_lock_scope": "production_lock_only_during_source_snapshot",
@@ -364,7 +365,7 @@
   "registered_at": "2026-10-03T02:52:40Z",
   "registration_id": "p15-profitability-evidence-loop-v1",
   "registration_revision": 15,
-  "revision_reason": "Revision 15 after verified v2: r15-data rejects scalar/calendar/interval and unverified basis observations, retains originals and cleans hard-invalid bars; r15-money refuses nonfinite/overflow money and uses shared trusted bars for fills, marks, settlement and P15 recovery; r15-flow reduces repeated intraday windows, offline report rendering, latest-close scans and history snapshot copies; r15-ops reports recorded process/work outcomes and moves Sunday history 07:40 to 01:40; board-2 joins dated rejected-bar quality and separates prospective eligibility from early review with eight scored criteria; r15-tests reuses private fixture templates, caps native threads, work-steals and caches CI setup. E1 v8, sector v12 and XS v23 migrate exact revision-14 checkpoints after the v2 break. Verdict rules, scores, labels, gates, strategy schedules and frozen valid-data outcomes are unchanged.",
+  "revision_reason": "Revision 15 after verified v2: r15-data rejects scalar/calendar/interval and unverified basis observations, retains originals and cleans hard-invalid bars; r15-money refuses nonfinite/overflow money and uses shared trusted bars for fills, marks, settlement and P15 recovery; r15-flow reduces repeated intraday windows, offline report rendering, latest-close scans and history snapshot copies; r15-ops reports recorded process/work outcomes and moves Sunday history 07:40 to 01:40; board-2 joins dated rejected-bar quality and separates prospective eligibility from early review with eight scored criteria; r15-tests reuses private fixture templates, caps native threads, work-steals and caches CI setup. E1 v8, sector v12 and XS v23 migrate exact revision-14 checkpoints after the v2 break. Verdict rules, scores, labels, gates, strategy schedules and frozen valid-data outcomes are unchanged. Binding orchestrator follow-up 2026-10-18: P15 session calendar is SPY stored price dates UNION hard-invalid daily rejected dates; basis_unverified dates count only when they are XNYS sessions. All P15 label/horizon paths share captured session evidence without a synthetic calendar or rewriting/re-hashing stored labels. Missing trusted execution/sleeve bars wait with audited untrusted_bar; run_window completes, no price repair or alternative-source promotion. Acceptance requires all 108 intact-hash labels and all other labels unchanged, no-reject-store equivalence, every book money replay within 0.005 except invalid-bar days, literal post-v2 deploy and rollback, and a bounded five-minute cold-UI readiness wait. Undeployed revision 15 amended once by committed source then registration binding; frozen verdict rules, scores, labels, gates, schedules and valid-data outcomes remain unchanged.",
   "schema_version": 1,
   "scoring": {
     "actions": [
@@ -405,5 +406,5 @@
     "trend_limit": 20,
     "version": "p15-universe-v1"
   },
-  "registration_sha256": "af03360b5355de50e921bc4bd7db213dbc0c1caf8fceda15102c366613a69f15"
+  "registration_sha256": "fb3dd8e59558c22666d526e1247be4cf8dbee1499a4a34038cfd30558a87032d"
 }
