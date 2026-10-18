@@ -3724,5 +3724,67 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** `python benchmark_corpus.py` via isolated acceptance harness → 180/180 exact pairs; 135,174 → 180 report calls and 2,326,328,369 → 6,121,846 report bytes. UTC/Singapore suites each 4,733 passed plus 81 expected integration pin failures.
 - **Metrics:** server -2, tools +113, product +126, tests +242; hygiene budget passes.
 - **Next:** Orchestrator integration after v2, with revision-15 re-pinning; no further lane work admitted.
+## 2026-10-17 — Preserve systemd termination and unknown starts in the ops digest
+
+- **Why:** Revision-15 ops rank 6; the baseline parser stores successful TERM as exit 15 without its termination kind, and a completion-only journal row gets an invented start and zero duration.
+- **What:** Carry the systemd termination kind through storage and rendering; systemd's final result decides failure.
+  Preserve unknown starts and durations, including when completion arrives in a later hour.
+- **Evidence:** `python -m pytest tests/test_ops_digest.py -q -W error -n 0` → 19 passed, including successful TERM, failed TERM, exit 1 and accepted exit 75.
+- **Metrics:** server/product unchanged; tools +16 LOC.
+- **Next:** Delimit observed schedule and journal coverage and consume dated work receipts.
+
+## 2026-10-17 — Separate observed work from unknown schedule history
+
+- **Why:** Revision-15 ops rank 5; the cited 14-day report says 130 event windows are missing despite 260 dated receipts, applies today's :08 timer to old :05 runs, and counts history before journal retention as missed.
+- **What:** Delimit sampled installed schedules and readable source intervals; absence outside those intervals is unknown.
+  Read existing work receipts from one immutable published snapshot, keeping process exit unknown when only work is observed.
+- **Evidence:** `python -m pytest tests/test_ops_digest.py -q -W error -n 0` → 23 passed; the 336-hour fixture retains one covered miss and no false historical misses.
+- **Metrics:** server/product unchanged; tools +157 LOC.
+- **Next:** Classify host failures and producer degradation, then move the Sunday history slot.
+
+## 2026-10-17 — Surface host failures and recorded producer degradation
+
+- **Why:** Revision-15 ops ranks 7/9; baseline classification returns nothing for fetch/push/non-fatal failure messages, unavailable pre-open JSON, failed backfill counts and queue refusals.
+- **What:** Recognize existing host messages and partial/deferred producer output; warning lines make the hour WARN.
+  Include existing host log sources, deduplicate configured paths, and project degraded dated receipts without changing producers.
+- **Evidence:** `python -m pytest tests/test_ops_digest.py -q -W error -n 0` → 56 passed; warning-only hours and exit-zero unavailable receipts are WARN, benign no-ops stay OK.
+- **Metrics:** server/product unchanged; tools +77 LOC.
+- **Next:** Move the Sunday TradingView history slot and run both full timezone suites.
+
+## 2026-10-17 — Move the Sunday history slice ahead of weekly readers
+
+- **Why:** Revision-15 flow rank 5; October 11's 07:40 history enqueue collided with the 06:00 weekly readers, spent 895 seconds retrying and failed.
+- **What:** Move only Sunday's 07:40 slice to 01:40 in the existing timer; retain six Sunday slices.
+  Document observed digest coverage, source handling, degraded work and the moved invocation's 05:51 timeout boundary before weekly readers.
+- **Evidence:** `python -m pytest tests/test_ops_digest.py -q -W error -n 0` → 57 passed, including timer collision windows and the moved slot's existing timeout/jitter bound.
+- **Metrics:** server/product unchanged; tools +1 LOC from source documentation.
+- **Next:** Run the full UTC and Asia/Singapore suites and deliver the revision-15 lane status.
+
+## 2026-10-17 — Record the revision-15 ops acceptance boundary
+
+- **Why:** Revision-15 ops validation requires both full timezone suites; the existing service-unit test pins the former Sunday calendar and is outside this lane's claim.
+- **What:** Finished the digest and timer fixtures and recorded the exact test-only correction needed from the orchestrator.
+  Corrected the local test-environment link; all other full-suite cases pass, with no registration/runtime-pin failures.
+- **Evidence:** `TZ=UTC python -m pytest -o addopts= -q -W error -n auto` → 4,847 passed, 1 failed; Asia/Singapore also 4,847 passed, with only the stale timer assertion at `tests/test_service_units.py:155` failing.
+- **Metrics:** server/product unchanged; tools +251 LOC, tests +241 LOC since the lane base; budget ok.
+- **Next:** Blocked until the orchestrator extends the claim for the existing timer assertion or supplies its correction.
+
+## 2026-10-17 — Align the existing timer test with Sunday's moved history slice
+
+- **Why:** The orchestrator extended the ops claim for the failing calendar assertions in the existing service-unit test; its old combined Saturday/Sunday line contradicts the requested Sunday move.
+- **What:** Assert the retained Saturday calendar, Sunday's 01:40 slice and absence of Sunday's old 07:40 calendar.
+  Every other service and runner assertion remains unchanged.
+- **Evidence:** `python -m pytest tests/test_service_units.py::test_tradingview_archive_timer_is_bounded_and_queue_owned tests/test_ops_digest.py -q -W error -n 0` → 58 passed.
+- **Metrics:** server/tools/product unchanged; tests +2 LOC.
+- **Next:** Run the full UTC and Asia/Singapore suites and finish the lane status.
+
+## 2026-10-17 — Complete revision-15 ops timezone validation
+
+- **Why:** The orchestrator authorized the timer-test correction and required both full suites before closing the lane.
+- **What:** Validated the final digest and Sunday calendar with the corrected existing assertions.
+  The prior blocker is resolved; no producer/runner assertion, registered source or runtime pin changed in this follow-up.
+- **Evidence:** `TZ=UTC python -m pytest -o addopts= -q -W error -n auto` → 4,848 passed in 625.47 seconds; Asia/Singapore → 4,848 passed in 645.94 seconds. Targeted digest/calendar tests: 58 passed.
+- **Metrics:** server/product unchanged; tools +251 LOC, tests +243 LOC since the lane base; budget ok.
+- **Next:** Nothing admitted; deliver the completed lane status for post-v2 integration.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->

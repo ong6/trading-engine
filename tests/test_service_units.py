@@ -152,7 +152,9 @@ def test_tradingview_archive_timer_is_bounded_and_queue_owned():
     _assert_common_service_hardening(service)
     assert "TimeoutStartSec=4h" in service and "Nice=19" in service
     assert "Mon..Fri *-*-* 03,07,11,21,23:40:00 UTC" in timer
-    assert "Sat,Sun *-*-* 03,07,11,15,19,23:40:00 UTC" in timer
+    assert "Sat *-*-* 03,07,11,15,19,23:40:00 UTC" in timer
+    assert "Sun *-*-* 01,03,11,15,19,23:40:00 UTC" in timer
+    assert "Sun *-*-* 03,07,11,15,19,23:40:00 UTC" not in timer
     assert "Persistent=true" in timer
     assert "Mon..Fri *-*-* 03,07,11,15,19,23:40:00 UTC" not in timer
     assert (
