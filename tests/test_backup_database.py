@@ -13,7 +13,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from engine import p15_evaluation
+from engine import p15_evaluation, schema_migrations
 from engine.lib import db as engine_db
 from tools import backup_database, publish_snapshot
 
@@ -70,6 +70,23 @@ def _source_database(path: Path) -> None:
         "('2026-09-10', 'QQQ', FALSE, FALSE, 'all')"
     )
     connection.execute("CREATE INDEX jobs_state_idx ON jobs(state)")
+    connection.close()
+
+
+def _stamp_schema(database: Path) -> None:
+    connection = duckdb.connect(str(database))
+    catalog_hash = schema_migrations.catalog_sha256(connection)
+    migration = schema_migrations.migrations()[0]
+    connection.execute(
+        "CREATE TABLE schema_migrations (migration_id INTEGER PRIMARY KEY, "
+        "migration_sha256 VARCHAR, source_commit VARCHAR, applied_at TIMESTAMPTZ, "
+        "pre_catalog_sha256 VARCHAR, post_catalog_sha256 VARCHAR, "
+        "recovery_manifest_sha256 VARCHAR)"
+    )
+    connection.execute(
+        "INSERT INTO schema_migrations VALUES (0, ?, ?, now(), ?, ?, ?)",
+        [migration.sha256, "a" * 40, catalog_hash, catalog_hash, "b" * 64],
+    )
     connection.close()
 
 
@@ -202,6 +219,7 @@ def test_create_and_verify_transactional_bundle(tmp_path):
 
 def test_create_uses_fresh_latest_snapshot_instead_of_live_store(tmp_path):
     root, source = _repo(tmp_path)
+    _stamp_schema(source)
     published = publish_snapshot.publish_snapshot(root, source)
     destination = tmp_path / "outside" / "snapshot"
 
@@ -212,6 +230,84 @@ def test_create_uses_fresh_latest_snapshot_instead_of_live_store(tmp_path):
         "kind": "repository-relative",
         "path": f"store/snapshots/{published['snapshot']}",
     }
+    assert manifest["schema_version"] == 4
+    assert manifest["generation"]["manifest_sha256"] == published["manifest_sha256"]
+
+
+def test_generation_backup_avoids_primary_and_restores_cold_rows(
+    tmp_path, monkeypatch,
+):
+    root, source = _repo(tmp_path)
+    connection = duckdb.connect(str(source))
+    connection.execute(
+        "CREATE TABLE intraday_prices (ticker VARCHAR, ts TIMESTAMP, interval VARCHAR, "
+        "open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE, volume BIGINT, "
+        "source VARCHAR, as_of DATE, PRIMARY KEY(ticker, ts, interval))"
+    )
+    connection.execute(
+        "INSERT INTO intraday_prices VALUES "
+        "('SPY','2026-09-10 14:30:00','1m',1,2,1,2,10,'fixture','2026-09-10')"
+    )
+    connection.close()
+    _stamp_schema(source)
+    published = publish_snapshot.publish_snapshot(root, source)
+    monkeypatch.setattr(
+        backup_database,
+        "_exclusive_backup_window",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("generation backup acquired producer locks")
+        ),
+    )
+    destination = tmp_path / "outside" / "generation-backup"
+    held_writer = duckdb.connect(str(source))
+    try:
+        created = backup_database.create_backup(root, source, destination)
+        primary_rows = held_writer.execute(
+            "SELECT * FROM intraday_prices ORDER BY ticker, ts, interval"
+        ).fetchall()
+        primary_snapshot = backup_database.database_snapshot(
+            held_writer, held_writer.execute("SELECT current_database()").fetchone()[0]
+        )
+    finally:
+        held_writer.close()
+
+    restored = duckdb.connect(
+        str(destination / backup_database.DATABASE_FILENAME), read_only=True
+    )
+    try:
+        assert restored.execute(
+            "SELECT * FROM intraday_prices ORDER BY ticker, ts, interval"
+        ).fetchall() == primary_rows
+        restored_snapshot = backup_database.database_snapshot(
+            restored, restored.execute("SELECT current_database()").fetchone()[0]
+        )
+    finally:
+        restored.close()
+    assert restored_snapshot == primary_snapshot
+    assert created["status"] == "ok"
+    manifest = json.loads((destination / backup_database.MANIFEST_FILENAME).read_text())
+    assert manifest["generation"]["manifest_sha256"] == published["manifest_sha256"]
+
+
+def test_versioned_database_without_generation_refuses_primary_fallback(tmp_path):
+    root, source = _repo(tmp_path)
+    _stamp_schema(source)
+
+    with pytest.raises(backup_database.BackupError, match="no valid published generation"):
+        backup_database.create_backup(
+            root, source, tmp_path / "outside" / "missing-generation",
+        )
+
+
+def test_remote_restore_interface_binds_generation_and_full_restore_checks():
+    interface = backup_database.REMOTE_RESTORE_INTERFACE
+    assert interface["rpo"] == {"config_key": "rpo_hours", "default": 24, "minimum": 1}
+    assert interface["input_manifest_schema_version"] == 4
+    assert "remote_commit" in interface["required_restore_receipt_fields"]
+    assert "generation_manifest_sha256" in interface["required_restore_receipt_fields"]
+    assert "semantic_health_sha256" in interface["required_restore_receipt_fields"]
+    assert "full logical checksum" in interface["partition_contract"]["restore"]
+    assert "no new timer" in interface["scheduler"]
 
 
 def test_backup_restores_persisted_p15_look_with_external_anchor(tmp_path):
@@ -1354,7 +1450,7 @@ def test_source_database_location_accepts_producer_forms(source):
         ("update", "message"),
     [
         (lambda payload: payload.update(schema_version=True), "unsupported.*schema"),
-        (lambda payload: payload.update(schema_version=4), "unsupported.*schema"),
+        (lambda payload: payload.update(schema_version=5), "unsupported.*schema"),
         (
             lambda payload: payload["database"].update(size_bytes=True),
             "database size_bytes.*non-negative integer",
