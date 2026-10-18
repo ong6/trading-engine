@@ -77,8 +77,9 @@ def insert_bars(con, ticker, dates, *, open_=100.0, close=100.0, volume=1_000_00
         strict=True,
     ))
     con.executemany(
-        "INSERT INTO prices (ticker, date, open, high, low, close, volume) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
+        "INSERT INTO prices "
+        "(ticker, date, open, high, low, close, volume, first_fetched_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, TIMESTAMP '2000-01-01')", rows)
 
 
 def record_p16_calibration(con, registration, recorded_at, *, cost=0.0005):
