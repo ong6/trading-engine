@@ -172,6 +172,8 @@ def test_same_lock_reuses_keyed_environment(tmp_path):
 
     assert first["environment"]["lock_sha256"] == second["environment"]["lock_sha256"]
     assert first["environment"]["registry_key"] == second["environment"]["registry_key"]
+    assert first["environment"]["selection"] == "built"
+    assert second["environment"]["selection"] == "reused"
     assert (fixture["root"] / "lane-one" / ".venv").resolve() == (
         fixture["root"] / "lane-two" / ".venv"
     ).resolve()

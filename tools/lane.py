@@ -888,7 +888,9 @@ def _select_environment(
     shared_key = registry / target_hash
     if shared_key.is_symlink():
         raise LaneError("shared lock environment cannot be a symlink")
+    selection = "reused"
     if not shared_key.exists():
+        selection = "built"
         building = registry / f".{target_hash}.building-{os.getpid()}"
         if building.exists() or building.is_symlink():
             _regular_directory(building, "partial shared environment build")
@@ -947,6 +949,7 @@ def _select_environment(
         "lock_sha256": target_hash,
         "receipt_sha256": hashlib.sha256(receipt_bytes).hexdigest(),
         "registry_key": str(shared_key),
+        "selection": selection,
         "venv": str(shared_key),
     }
     if not _shared_environment_valid(root, target, target_hash, record):
