@@ -14,6 +14,7 @@ import sys
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
+from engine import raw_payload
 from engine.lib.settings import REPO_ROOT
 from server import scheduler_monitor
 
@@ -691,6 +692,10 @@ def plan(repo_root: Path = REPO_ROOT, home: Path | None = None) -> tuple[dict, s
     repo_root = repo_root.resolve()
     home = (home or Path.home()).resolve()
     errors = _validate_checkout(repo_root, home)
+    try:
+        raw_payload.codec_version_number()
+    except Exception as exc:  # noqa: BLE001 - installation must report any codec startup defect
+        errors.append(f"raw-zstd-codec-unavailable:{type(exc).__name__}:{exc}")
     launch_sources, launch_errors = _launch_sources(repo_root)
     errors.extend(launch_errors)
     host = _host_continuity(repo_root)

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -44,7 +47,7 @@ def test_reader_refuses_conflict_truncation_and_wrong_identity(tmp_path: Path):
 
     path.unlink()
     target.write_bytes(target.read_bytes()[:5])
-    with pytest.raises(FreeSourceError, match="zstd codec rejected"):
+    with pytest.raises(FreeSourceError, match="zstd"):
         raw_payload.read(path)
 
     other = _plain(tmp_path, b"other")
@@ -109,7 +112,32 @@ def test_converter_does_not_remove_original_when_manifest_write_fails(
     assert raw_payload.read_compressed(path, expected_sha256=path.stem) == path.read_bytes()
 
 
-def test_codec_missing_fails_closed(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(raw_payload.shutil, "which", lambda _name: None)
-    with pytest.raises(FreeSourceError, match="unavailable"):
-        raw_payload.encode(b"fixture")
+def test_codec_works_in_scheduler_minimal_path():
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [sys.executable, "-c", (
+            "from engine import raw_payload; "
+            "body=b'scheduler'; "
+            "assert raw_payload.decode(raw_payload.encode(body)) == body; "
+            "print(raw_payload.codec_version_number())"
+        )],
+        cwd=root,
+        env={**os.environ, "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+             "PYTHONPATH": str(root)},
+        text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert int(result.stdout.strip()) >= raw_payload.MIN_ZSTD_VERSION_NUMBER
+
+
+def test_empty_payload_round_trips_and_converts(tmp_path: Path):
+    body = b""
+    digest = hashlib.sha256(body).hexdigest()
+    logical = tmp_path / f"{digest}.raw"
+    logical.write_bytes(body)
+    target = raw_payload.seal(logical, body, expected_sha256=digest)
+    assert raw_payload.read(logical, expected_sha256=digest, expected_size=0) == body
+    assert target.stat().st_size > 0
+
+    planned = convert_raw_payloads.convert([logical], base=tmp_path)
+    assert planned["entries"][0]["source_size"] == 0

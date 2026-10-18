@@ -154,6 +154,19 @@ def test_p22_data_and_account_units_are_registered_with_required_schedules():
     assert "OnCalendar=Tue..Sat *-*-* 11:55:00 UTC" in account_timer
 
 
+def test_plan_fails_closed_when_raw_codec_preflight_fails(tmp_path, monkeypatch):
+    root, home = _repo(tmp_path)
+    monkeypatch.setattr(
+        install_automation.raw_payload,
+        "codec_version_number",
+        lambda: (_ for _ in ()).throw(RuntimeError("codec unavailable")),
+    )
+    monkeypatch.setattr(install_automation, "_read_crontab", lambda: "")
+    summary, _desired = install_automation.plan(root, home)
+    assert summary["status"] == "invalid"
+    assert any("raw-zstd-codec-unavailable" in item for item in summary["errors"])
+
+
 def test_plan_is_ok_when_units_and_managed_cron_match(tmp_path, monkeypatch):
     root, home = _repo(tmp_path)
     unit_dir = home / ".config" / "systemd" / "user"

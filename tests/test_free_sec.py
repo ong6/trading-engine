@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import zipfile
 from datetime import date, datetime, timezone
@@ -164,10 +165,9 @@ class _Clock:
 
 
 class _Response:
-    status_code = 200
-
-    def __init__(self, body: bytes):
+    def __init__(self, body: bytes, status_code: int = 200):
         self.content = body
+        self.status_code = status_code
 
 
 class _Session:
@@ -181,6 +181,35 @@ class _Session:
         self.started.append(self.clock.monotonic())
         self.headers.append(kwargs["headers"])
         return _Response(self.bodies[url])
+
+
+class _ResponseSession:
+    def __init__(self, responses):
+        self.responses = iter(responses)
+        self.started = 0
+
+    def get(self, _url: str, **_kwargs):
+        self.started += 1
+        return next(self.responses)
+
+
+def test_sec_empty_retryable_response_is_sealed_then_retried(tmp_path: Path):
+    clock = _Clock()
+    session = _ResponseSession([_Response(b"", 429), _Response(b"valid", 200)])
+    client = capture.SecClient(
+        "Fixture Contact fixture@example.com", tmp_path, session=session,
+        now=lambda: ALLOWED, monotonic=clock.monotonic, sleep=clock.sleep,
+    )
+    response = client.get("https://www.sec.gov/retry")
+    assert response.body == b"valid" and response.resumed is False
+    assert session.started == 2
+    assert clock.sleeps == [1.0]
+    empty_sha = hashlib.sha256(b"").hexdigest()
+    compressed = next(tmp_path.rglob(f"{empty_sha}.raw.zst"))
+    logical = compressed.with_suffix("")
+    assert raw_payload.read(
+        logical, expected_sha256=empty_sha, expected_size=0,
+    ) == b""
 
 
 def test_sec_client_paces_parallel_requests_and_resumes_by_url_and_hash(tmp_path: Path):
