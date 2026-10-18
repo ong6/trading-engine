@@ -201,9 +201,11 @@ Each row has the default that applies until the owner decides.
    scheduled producers green, miss no agent windows, allow no identity drift, and leave no
    uncommitted work on the host. A broken producer beats every item below.
 2. **Finish P22 engine-v2 integration without disturbing pre-D0 evidence.** The owner accepted
-   v2 on 2026-10-15. Land the admitted revision-14 fixes, re-pin revision 14 and the frozen
-   runtime contracts once, rehearse the migration on a store copy, then deploy on Sunday
-   2026-10-18 (D0 2026-10-19).
+   v2 on 2026-10-15. Deployed 2026-10-18 at registration revision 14 (main `b0b75c9`); D0 is
+   2026-10-19. Still to do: the private alpha's move onto its engine-owned account, and the
+   commit-identity rewrite of the older public history, which lands with revision 15 because the
+   registration pins a commit SHA. The Massive options capture is paused after its first run
+   failed on provider responses.
 3. **P15 evidence collection.** P15 is active after its scoring, pre-open, event, report, and
    status checks passed. Keep scheduled windows green and never tune a registered value.
 4. **Finish and audit the free survivor-data captures.** Audit the completed grouped-daily window
