@@ -138,10 +138,11 @@ REGISTERED_PATHS = {
     "sim/costs/ibkr_pro_tiered_v1.py",
     "sim/costs/profiles.py",
     "sim/ledger.py",
+    "sim/money_inputs.py",
+    "sim/order_types.py",
     "sim/league.py",
     "sim/nyse.py",
     "sim/margin.py",
-    "sim/order_types.py",
     "sim/p15_books.py",
     "sim/p15_fills.py",
     "sim/portfolio.py",
@@ -185,6 +186,7 @@ REGISTERED_PATHS = {
     "tools/publish_snapshot.py",
     "tools/release_manifest.py",
     "tools/sec_edgar_capture.py",
+    "tools/stage_timings.py",
 }
 
 

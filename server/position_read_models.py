@@ -6,6 +6,7 @@ from datetime import date
 
 import duckdb
 
+from engine.lib.data_quality import trusted_bar_sql
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.util import table_exists
 
@@ -52,7 +53,7 @@ def _position_closes(
     for raw_ticker, close in con.execute(
         "SELECT px.ticker, arg_max_null(px.close, px.date) "
         "  FROM prices px WHERE px.date <= ? "
-        f"  AND {REAL_BAR_SQL} "
+        f"  AND {REAL_BAR_SQL} AND {trusted_bar_sql()} "
         "  AND px.ticker = ANY(?)"
         " GROUP BY px.ticker",
         [as_of, tickers],

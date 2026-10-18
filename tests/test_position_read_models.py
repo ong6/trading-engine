@@ -298,6 +298,7 @@ def test_positions_follow_unicode_code_point_order(con):
 
 
 def test_latest_close_aggregate_matches_sort_with_sentinels(con):
+    from engine.lib.data_quality import trusted_bar_sql
     from engine.lib.db import REAL_BAR_SQL
     con.execute("INSERT INTO prices (ticker,date,open,high,low,close,volume) VALUES "
                 "('AAA','2026-10-12',10,11,9,10,100),"
@@ -312,13 +313,14 @@ def test_latest_close_aggregate_matches_sort_with_sentinels(con):
         old = dict(con.execute(
             'SELECT ticker,close FROM (SELECT ticker,close,row_number() OVER '
             '(PARTITION BY ticker ORDER BY date DESC) AS rn FROM prices WHERE date<=? '
-            f'AND {REAL_BAR_SQL} AND ticker=ANY(?)) WHERE rn=1', [day,names]).fetchall())
+            f'AND {REAL_BAR_SQL} AND {trusted_bar_sql()} AND ticker=ANY(?)) WHERE rn=1', [day,names]).fetchall())
         assert position_read_models._position_closes(con,day,names)=={k:v for k,v in old.items() if v is not None}
     assert position_read_models._position_closes(con,None,['AAA'])=={}
     assert position_read_models._position_closes(con,date(2026,10,14),[])=={}
 def test_positions_join_retained_quality_without_changing_marks_or_risk(con):
     day = date(2026, 10, 16)
     liquid_universe(con, ('DELL', 'VLO'))
+    insert_bars(con, 'DELL', [date(2026, 10, 15)], open_=451, high=452, low=450, close=451.71)
     insert_bars(con, 'DELL', [day], open_=473.37, high=473.18, low=440, close=451.71)
     insert_bars(con, 'VLO', [day], open_=440, high=450, low=430, close=444.71)
     for book in ('discretionary', 'other'):
@@ -337,7 +339,7 @@ def test_positions_join_retained_quality_without_changing_marks_or_risk(con):
         assert {k: v for k, v in item.items() if k != 'retained_bar_quality'} == expected
     with pytest.raises(market_read_models.InadmissiblePriceData) as exc:
         market_read_models.candidate(con, 'DELL')
-    expected_quality = {'as_of': day, 'retained_count': 1, 'invalid_count': 1,
+    expected_quality = {'as_of': day, 'retained_count': 2, 'invalid_count': 1,
                         'latest_invalid_date': day, 'reason': exc.value.detail['bars'][0]['reason']}
     assert payload['positions'][0]['retained_bar_quality'] == expected_quality
     assert payload['positions'][1]['retained_bar_quality'] == expected_quality

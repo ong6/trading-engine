@@ -89,73 +89,82 @@ EXPECTED_BASELINE_STATE_SHA256 = (
 EXPECTED_LEGACY_BASELINE_EQUITY_SHA256 = (
     "1fb07940da9d3a310b9d63ccf3829184edd68175a81cac30b78344f3913a88cb"
 )
-RUNTIME_CONTRACT_VERSION = 11
-SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce"
-)
-RUNTIME_CONTRACT_MIGRATION = (
-    "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized "
-    "D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared "
-    "ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a "
-    "snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. Sector strategy, "
-    "paired control, baseline prefix and kill criterion are unchanged"
-    "; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time"
-    "; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, "
-    "high and low, a delisted holding closes at its last real traded close, the league leaves "
-    "P15 marks to their window, a split-like re-fetch triggers back-adjustment, and this "
-    "migration compares the deployed report's fill model and clock fields as published"
-    "; second pre-deploy amendment 2026-10-17 under D1 fixes the same retained-prefix "
-    "continuity defect class found by the fresh rehearsal: evaluated and retained counts "
-    "are partitioned at the prior clock, with schema-v1 behavior, complete equity hashes, "
-    "baselines and forward ledgers unchanged"
-)
+RUNTIME_CONTRACT_VERSION = 12
+SUPERSEDED_RUNTIME_CONTRACT_SHA256 = 'c7c868a9176172eafab99427723ce7edf5bdb7326693cb9f351ff29ab52d9168'
+RUNTIME_CONTRACT_MIGRATION = "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. Sector strategy, paired control, baseline prefix and kill criterion are unchanged; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, high and low, a delisted holding closes at its last real traded close, the league leaves P15 marks to their window, a split-like re-fetch triggers back-adjustment, and this migration compares the deployed report's fill model and clock fields as published; second pre-deploy amendment 2026-10-17 under D1 fixes the same retained-prefix continuity defect class found by the fresh rehearsal: evaluated and retained counts are partitioned at the prior clock, with schema-v1 behavior, complete equity hashes, baselines and forward ledgers unchanged; revision 15 after v2: r15-data preserves rejected observations and gates scalar/calendar/basis admission; r15-money refuses malformed arithmetic and shares trusted fill/mark bars; r15-flow reduces repeated fetches, offline reports and history copies; r15-ops reports recorded outcomes and moves the Sunday history slot; board-2 shows dated quality and prospective gates; r15-tests reuses private fixtures and caps native threads. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged"
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "c7c868a9176172eafab99427723ce7edf5bdb7326693cb9f351ff29ab52d9168"
+    "ae9c57c0d8d4bd67c2cc9a18b0dc97f21ba44cf6847bdc0eb97f8029915e7505"
 )
 PRIOR_RUNTIME_CONTRACT_FILES = (
-    "engine/forward_review.py",
-    "engine/actions.py",
-    "engine/lib/data_quality.py",
-    "engine/lib/db.py",
-    "engine/lib/util.py",
-    "sim/calendar.py",
-    "sim/execution.py",
-    "sim/fills.py",
-    "sim/league.py",
-    "sim/nyse.py",
-    "sim/portfolio.py",
-    "sim/schema.py",
-    "sim/settle.py",
-    "sim/strategies/base.py",
-    "sim/strategies/sector_momentum.py",
-    "sim/strategies/spy_benchmark.py",
+    'engine/forward_review.py',
+    'engine/actions.py',
+    'engine/lib/data_quality.py',
+    'engine/lib/db.py',
+    'engine/lib/util.py',
+    'sim/calendar.py',
+    'sim/execution.py',
+    'sim/fills.py',
+    'sim/league.py',
+    'sim/nyse.py',
+    'sim/portfolio.py',
+    'sim/schema.py',
+    'sim/settle.py',
+    'sim/strategies/base.py',
+    'sim/strategies/sector_momentum.py',
+    'sim/strategies/spy_benchmark.py',
+    'engine/accounts/__init__.py',
+    'engine/accounts/settle.py',
+    'engine/money/alerts.py',
+    'engine/money/halts.py',
+    'sim/bar_sources.py',
+    'sim/book_breaks.py',
+    'sim/costs/__init__.py',
+    'sim/costs/baseline_v1.py',
+    'sim/costs/ibkr_pro_tiered_v1.py',
+    'sim/costs/profiles.py',
+    'sim/ledger.py',
+    'sim/margin.py',
+    'sim/shorts.py',
 )
-RUNTIME_CONTRACT_FILES = (*PRIOR_RUNTIME_CONTRACT_FILES,
-    "engine/accounts/__init__.py",
-    "engine/accounts/settle.py",
-    "engine/money/alerts.py",
-    "engine/money/halts.py",
-    "sim/bar_sources.py",
-    "sim/book_breaks.py",
-    "sim/costs/__init__.py",
-    "sim/costs/baseline_v1.py",
-    "sim/costs/ibkr_pro_tiered_v1.py",
-    "sim/costs/profiles.py",
-    "sim/ledger.py",
-    "sim/margin.py",
-    "sim/shorts.py",
+RUNTIME_CONTRACT_FILES = (
+    'engine/accounts/__init__.py',
+    'engine/accounts/actions.py',
+    'engine/accounts/settle.py',
+    'engine/actions.py',
+    'engine/forward_review.py',
+    'engine/lib/data_quality.py',
+    'engine/lib/db.py',
+    'engine/lib/util.py',
+    'engine/money/alerts.py',
+    'engine/money/halts.py',
+    'sim/bar_sources.py',
+    'sim/book_breaks.py',
+    'sim/calendar.py',
+    'sim/costs/__init__.py',
+    'sim/costs/baseline_v1.py',
+    'sim/costs/ibkr_pro_tiered_v1.py',
+    'sim/costs/profiles.py',
+    'sim/execution.py',
+    'sim/fills.py',
+    'sim/league.py',
+    'sim/ledger.py',
+    'sim/margin.py',
+    'sim/money_inputs.py',
+    'sim/nyse.py',
+    'sim/order_types.py',
+    'sim/portfolio.py',
+    'sim/schema.py',
+    'sim/settle.py',
+    'sim/shorts.py',
+    'sim/strategies/base.py',
+    'sim/strategies/sector_momentum.py',
+    'sim/strategies/spy_benchmark.py',
+    'sim/valuation.py',
 )
-PRIOR_RUNTIME_CONTRACT_VERSION = 10
-PRIOR_RUNTIME_CONTRACT_SHA256 = SUPERSEDED_RUNTIME_CONTRACT_SHA256
-PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "c430b451ee510c858705ba4235f81b68f9d7443745a60b4716035acb32741788"
-)
-PRIOR_RUNTIME_CONTRACT_MIGRATION = (
-    "2026-09-18 isolated agent-paper lifecycle after interruption-safe transaction cleanup: "
-    "attributed agent orders survive same-date reruns and the no-op agent book uses the ordinary "
-    "simulator lifecycle; sector strategy, execution economics, baseline, and evidence-continuity "
-    "rules are unchanged"
-)
+PRIOR_RUNTIME_CONTRACT_VERSION = 11
+PRIOR_RUNTIME_CONTRACT_SHA256 = 'c7c868a9176172eafab99427723ce7edf5bdb7326693cb9f351ff29ab52d9168'
+PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = '8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce'
+PRIOR_RUNTIME_CONTRACT_MIGRATION = "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. Sector strategy, paired control, baseline prefix and kill criterion are unchanged; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, high and low, a delisted holding closes at its last real traded close, the league leaves P15 marks to their window, a split-like re-fetch triggers back-adjustment, and this migration compares the deployed report's fill model and clock fields as published; second pre-deploy amendment 2026-10-17 under D1 fixes the same retained-prefix continuity defect class found by the fresh rehearsal: evaluated and retained counts are partitioned at the prior clock, with schema-v1 behavior, complete equity hashes, baselines and forward ledgers unchanged"
 EXPECTED_STRATEGY_TYPES = {
     CANDIDATE_ID: SectorMomentum,
     CONTROL_ID: SpyBenchmark,
@@ -747,7 +756,7 @@ def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
     prior_json = json.loads(json.dumps(prior_result, default=str))
     expected_json = json.loads(json.dumps(expected_prior, default=str))
     if prior_json != expected_json:
-        raise ValueError("published sector v8 report is not the exact migration checkpoint")
+        raise ValueError("published sector predecessor report is not the exact migration checkpoint")
     return current
 
 

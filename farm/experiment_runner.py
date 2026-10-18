@@ -70,48 +70,46 @@ EXPECTED_LEGACY_THROUGH = "2026-08-31"
 EXPECTED_LEGACY_PREFIX_SHA256 = (
     "e2603b7c85f5e24e3b019a4ee7058c6732a792647b0c1c2e62a0d111fdf360ad"
 )
-RUNTIME_CONTRACT_VERSION = 7
-SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "5a665966f7bad78474dab9367618aab4016ea847fec8bba9a92966e7706e5612"
-)
-RUNTIME_CONTRACT_MIGRATION = (
-    "Owner decision 2026-10-06: engine books charge ibkr_pro_tiered_v1 commissions from the "
-    "parameterized D0 and restart book evaluation clocks; additive account schema, monotonic "
-    "order sequence and shared ledger/replay replace the legacy runtime. Snapshot-copy rehearsal "
-    "proved pre-D0 league.csv and league.md byte-identical. E1 keeps its frozen 20 bp compatibility "
-    "cost, seven-observation prefix, strategy and verdict rule unchanged"
-    "; undeployed revision-14 fixes keep the frozen rule: the store's real-bar predicate also "
-    "needs a positive open, high and low (E1 reads only its connection and frame helpers), and "
-    "the migration carries the published record written under the predecessor forward config"
-)
+RUNTIME_CONTRACT_VERSION = 8
+SUPERSEDED_RUNTIME_CONTRACT_SHA256 = '5269d2359abcd0d39b21d013785eb5313702d16d97c14345dc6a2aa4bd3fc280'
+RUNTIME_CONTRACT_MIGRATION = "Owner decision 2026-10-06: engine books charge ibkr_pro_tiered_v1 commissions from the parameterized D0 and restart book evaluation clocks; additive account schema, monotonic order sequence and shared ledger/replay replace the legacy runtime. Snapshot-copy rehearsal proved pre-D0 league.csv and league.md byte-identical. E1 keeps its frozen 20 bp compatibility cost, seven-observation prefix, strategy and verdict rule unchanged; undeployed revision-14 fixes keep the frozen rule: the store's real-bar predicate also needs a positive open, high and low (E1 reads only its connection and frame helpers), and the migration carries the published record written under the predecessor forward config; revision 15 after v2: r15-data preserves rejected observations and gates scalar/calendar/basis admission; r15-money refuses malformed arithmetic and shares trusted fill/mark bars; r15-flow reduces repeated fetches, offline reports and history copies; r15-ops reports recorded outcomes and moves the Sunday history slot; board-2 shows dated quality and prospective gates; r15-tests reuses private fixtures and caps native threads. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged"
 RUNTIME_CONTRACT_FILES = (
-    "engine/lib/db.py",
-    "engine/lib/provenance.py",
-    "engine/lib/resources.py",
-    "farm/experiment.py",
-    "farm/experiment_runner.py",
-    "sim/calendar.py",
-    "sim/execution.py",
-    "sim/fills.py",
-    "sim/nyse.py",
+    'engine/lib/data_quality.py',
+    'engine/lib/db.py',
+    'engine/lib/provenance.py',
+    'engine/lib/resources.py',
+    'engine/lib/util.py',
+    'farm/experiment.py',
+    'farm/experiment_runner.py',
+    'sim/bar_sources.py',
+    'sim/calendar.py',
+    'sim/execution.py',
+    'sim/fills.py',
+    'sim/money_inputs.py',
+    'sim/nyse.py',
+    'sim/order_types.py',
 )
 # Filled after the dependency list was frozen. The self-file digest normalizes
 # this literal so the contract can cover its own validation and verdict code.
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "5269d2359abcd0d39b21d013785eb5313702d16d97c14345dc6a2aa4bd3fc280"
+    "93dc4e109df19c5a6dcf2924e516403f40defbe8dd3973888e95582ee3c477cf"
 )
-PRIOR_RUNTIME_CONTRACT_VERSION = 6
-PRIOR_RUNTIME_CONTRACT_SHA256 = SUPERSEDED_RUNTIME_CONTRACT_SHA256
-PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "31ff0e06dad3ee1063dc25210cf049df5dffba1662621bc6a97de30e535420a2"
+PRIOR_RUNTIME_CONTRACT_VERSION = 7
+PRIOR_RUNTIME_CONTRACT_SHA256 = '5269d2359abcd0d39b21d013785eb5313702d16d97c14345dc6a2aa4bd3fc280'
+PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = '5a665966f7bad78474dab9367618aab4016ea847fec8bba9a92966e7706e5612'
+PRIOR_RUNTIME_CONTRACT_MIGRATION = "Owner decision 2026-10-06: engine books charge ibkr_pro_tiered_v1 commissions from the parameterized D0 and restart book evaluation clocks; additive account schema, monotonic order sequence and shared ledger/replay replace the legacy runtime. Snapshot-copy rehearsal proved pre-D0 league.csv and league.md byte-identical. E1 keeps its frozen 20 bp compatibility cost, seven-observation prefix, strategy and verdict rule unchanged; undeployed revision-14 fixes keep the frozen rule: the store's real-bar predicate also needs a positive open, high and low (E1 reads only its connection and frame helpers), and the migration carries the published record written under the predecessor forward config"
+PRIOR_RUNTIME_CONTRACT_FILES = (
+    'engine/lib/db.py',
+    'engine/lib/provenance.py',
+    'engine/lib/resources.py',
+    'farm/experiment.py',
+    'farm/experiment_runner.py',
+    'sim/calendar.py',
+    'sim/execution.py',
+    'sim/fills.py',
+    'sim/nyse.py',
 )
-PRIOR_RUNTIME_CONTRACT_MIGRATION = (
-    "2026-09-13 interruption-safe transaction cleanup: every explicit DuckDB transaction now "
-    "rolls back process-level interruptions, preserves the original failure if cleanup also "
-    "fails, and leaves borrowed connections reusable; the frozen seven-observation E1 prefix, "
-    "strategy, execution economics, and verdict rules are unchanged"
-)
-PRIOR_RUNTIME_CONTRACT_FILES = RUNTIME_CONTRACT_FILES
+PRIOR_V7_FORWARD_CONFIG_SHA256 = "6d0006f70558813b9376619682d9684f9943d1d4be8c4a4c8b2b1acc83897408"
 PRIOR_FORWARD_CONFIG_SHA256 = (
     "399ce03bee8bab4ec592bca71438c6041766311f9610b73ee86921c4930f93b3"
 )
@@ -424,8 +422,9 @@ def load_oos_series(con, cfg: dict, phash: str) -> list[dict]:
     expected_fhash = forward_config_hash(cfg)
     # Rows recorded before the runtime-v7 forward-config revision carry the predecessor's
     # hash. They are a prefix: none may follow a row recorded under the current config.
-    accepted_fhashes = {expected_fhash, PRIOR_FORWARD_CONFIG_SHA256}
-    current_config_seen = False
+    accepted_fhashes = {expected_fhash, PRIOR_V7_FORWARD_CONFIG_SHA256, PRIOR_FORWARD_CONFIG_SHA256}
+    config_generation = -1
+    config_order = {PRIOR_FORWARD_CONFIG_SHA256: 0, PRIOR_V7_FORWARD_CONFIG_SHA256: 1, expected_fhash: 2}
     expected_start = date.fromisoformat(cfg["oos_start"])
     expected_weekday = WEEKDAY[str(cfg["params"]["weekday"]).lower()]
     expected_rt = float(cfg["cost_model"]["roundtrip_bps"])
@@ -483,10 +482,10 @@ def load_oos_series(con, cfg: dict, phash: str) -> list[dict]:
             )
         ):
             raise ValueError("E1 forward row is inconsistent with its frozen registration")
-        if m["forward_config_hash"] == expected_fhash:
-            current_config_seen = True
-        elif current_config_seen:
+        generation = config_order[m["forward_config_hash"]]
+        if generation < config_generation:
             raise ValueError("E1 forward row predates its forward-config revision out of order")
+        config_generation = generation
         profile = m.get("execution_profile")
         profile_hash = m.get("execution_profile_sha256")
         if (profile is None) != (profile_hash is None) or (
@@ -617,7 +616,7 @@ def migrate_runtime_contract(con, cfg: dict) -> dict:
             or checkpoint["automatic_action"] != "none"
             or checkpoint["parent_config_sha256"] != phash
             or checkpoint["forward_config_sha256"]
-            not in {forward_config_hash(cfg), PRIOR_FORWARD_CONFIG_SHA256}
+            not in {forward_config_hash(cfg), PRIOR_V7_FORWARD_CONFIG_SHA256, PRIOR_FORWARD_CONFIG_SHA256}
             or not isinstance(count, int)
             or isinstance(count, bool)
             or count != len(oos)

@@ -3811,4 +3811,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +15, tests +64, tools/product/UI unchanged; budget ok.
 - **Next:** nothing admitted.
 
+## 2026-10-18 — Integrate revision-15 admission and board evidence
+
+- **Why:** The orchestrator's revision-15 integration goal admits the six lanes and their consumer agreement; `tests/test_r15_integration.py` reproduces a valid duplicate/split predecessor counted as an invalid board date.
+- **What:** Merge the six accepted lanes in order, retaining each lane's tests and both BUILDLOG histories.
+  Admission and money share scalar geometry; execution additionally requires positive volume. Board closes use that money predicate and valid archive receipts do not warn.
+- **Evidence:** `TZ=UTC .venv/bin/python -m pytest -q -W error -n 0 tests/test_r15_integration.py` → 4 passed; 461 consumer cases and 135 forward cases pass.
+- **Metrics:** combined snapshot is published at closure.
+- **Next:** bind the committed source as registration revision 15 and advance changed forward contracts.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

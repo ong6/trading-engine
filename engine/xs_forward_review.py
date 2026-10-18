@@ -72,80 +72,95 @@ EXPECTED_STRATEGY_TYPES = {
     CONTROL_ID: EwBenchmark,
 }
 PRIOR_RUNTIME_CONTRACT_FILES = (
-    "engine/xs_forward_review.py",
-    "engine/actions.py",
-    "engine/collect.py",
-    "engine/lib/data_quality.py",
-    "engine/lib/db.py",
-    "engine/lib/resources.py",
-    "engine/lib/util.py",
-    "engine/screen.py",
-    "engine/universe.py",
-    "farm/walkforward/monthly.py",
-    "sim/calendar.py",
-    "sim/execution.py",
-    "sim/fills.py",
-    "sim/league.py",
-    "sim/nyse.py",
-    "sim/portfolio.py",
-    "sim/schema.py",
-    "sim/settle.py",
-    "sim/strategies/base.py",
-    "sim/strategies/ew_benchmark.py",
-    "sim/strategies/xs_common.py",
-    "sim/strategies/xs_momentum_12_1.py",
+    'engine/xs_forward_review.py',
+    'engine/actions.py',
+    'engine/collect.py',
+    'engine/lib/data_quality.py',
+    'engine/lib/db.py',
+    'engine/lib/resources.py',
+    'engine/lib/util.py',
+    'engine/screen.py',
+    'engine/universe.py',
+    'farm/walkforward/monthly.py',
+    'sim/calendar.py',
+    'sim/execution.py',
+    'sim/fills.py',
+    'sim/league.py',
+    'sim/nyse.py',
+    'sim/portfolio.py',
+    'sim/schema.py',
+    'sim/settle.py',
+    'sim/strategies/base.py',
+    'sim/strategies/ew_benchmark.py',
+    'sim/strategies/xs_common.py',
+    'sim/strategies/xs_momentum_12_1.py',
+    'engine/accounts/__init__.py',
+    'engine/accounts/settle.py',
+    'engine/money/alerts.py',
+    'engine/money/halts.py',
+    'sim/bar_sources.py',
+    'sim/book_breaks.py',
+    'sim/costs/__init__.py',
+    'sim/costs/baseline_v1.py',
+    'sim/costs/ibkr_pro_tiered_v1.py',
+    'sim/costs/profiles.py',
+    'sim/ledger.py',
+    'sim/margin.py',
+    'sim/shorts.py',
 )
-RUNTIME_CONTRACT_FILES = (*PRIOR_RUNTIME_CONTRACT_FILES,
-    "engine/accounts/__init__.py",
-    "engine/accounts/settle.py",
-    "engine/money/alerts.py",
-    "engine/money/halts.py",
-    "sim/bar_sources.py",
-    "sim/book_breaks.py",
-    "sim/costs/__init__.py",
-    "sim/costs/baseline_v1.py",
-    "sim/costs/ibkr_pro_tiered_v1.py",
-    "sim/costs/profiles.py",
-    "sim/ledger.py",
-    "sim/margin.py",
-    "sim/shorts.py",
+RUNTIME_CONTRACT_FILES = (
+    'engine/accounts/__init__.py',
+    'engine/accounts/actions.py',
+    'engine/accounts/settle.py',
+    'engine/actions.py',
+    'engine/collect.py',
+    'engine/lib/data_quality.py',
+    'engine/lib/db.py',
+    'engine/lib/resources.py',
+    'engine/lib/util.py',
+    'engine/money/alerts.py',
+    'engine/money/halts.py',
+    'engine/screen.py',
+    'engine/universe.py',
+    'engine/xs_forward_review.py',
+    'farm/walkforward/monthly.py',
+    'sim/bar_sources.py',
+    'sim/book_breaks.py',
+    'sim/calendar.py',
+    'sim/costs/__init__.py',
+    'sim/costs/baseline_v1.py',
+    'sim/costs/ibkr_pro_tiered_v1.py',
+    'sim/costs/profiles.py',
+    'sim/execution.py',
+    'sim/fills.py',
+    'sim/league.py',
+    'sim/ledger.py',
+    'sim/margin.py',
+    'sim/money_inputs.py',
+    'sim/nyse.py',
+    'sim/order_types.py',
+    'sim/portfolio.py',
+    'sim/schema.py',
+    'sim/settle.py',
+    'sim/shorts.py',
+    'sim/strategies/base.py',
+    'sim/strategies/ew_benchmark.py',
+    'sim/strategies/xs_common.py',
+    'sim/strategies/xs_momentum_12_1.py',
+    'sim/valuation.py',
 )
-RUNTIME_CONTRACT_VERSION = 22
-SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac"
-)
-RUNTIME_CONTRACT_MIGRATION = (
-    "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized "
-    "D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared "
-    "ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a "
-    "snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. XS strategy, "
-    "signal boundary, paired control and statistical verdict rules are unchanged"
-    "; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time"
-    "; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, "
-    "high and low, a delisted holding closes at its last real traded close, the league leaves "
-    "P15 marks to their window, collection audits a split-like re-fetch and triggers "
-    "back-adjustment, and this migration compares the deployed report's fill model, "
-    "signal-boundary runtime pin and clock fields as published"
-    "; undeployed pre-deploy amendment 2026-10-17 separates retained prefix continuity "
-    "from restarted evaluation sessions and validates their partition without changing "
-    "equity, signal, baseline, ledger or verdict rules"
-)
+RUNTIME_CONTRACT_VERSION = 23
+SUPERSEDED_RUNTIME_CONTRACT_SHA256 = 'c34a2b0dfc1b0f70a4871b065fcf5216790ffb9dd35405c9d6d941435b81bc70'
+RUNTIME_CONTRACT_MIGRATION = "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. XS strategy, signal boundary, paired control and statistical verdict rules are unchanged; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, high and low, a delisted holding closes at its last real traded close, the league leaves P15 marks to their window, collection audits a split-like re-fetch and triggers back-adjustment, and this migration compares the deployed report's fill model, signal-boundary runtime pin and clock fields as published; undeployed pre-deploy amendment 2026-10-17 separates retained prefix continuity from restarted evaluation sessions and validates their partition without changing equity, signal, baseline, ledger or verdict rules; revision 15 after v2: r15-data preserves rejected observations and gates scalar/calendar/basis admission; r15-money refuses malformed arithmetic and shares trusted fill/mark bars; r15-flow reduces repeated fetches, offline reports and history copies; r15-ops reports recorded outcomes and moves the Sunday history slot; board-2 shows dated quality and prospective gates; r15-tests reuses private fixtures and caps native threads. Frozen strategies, scores, labels, verdicts, gates, schedules and retained outcomes stay unchanged"
 # Filled after the file list was frozen; tests verify this against current bytes.
 EXPECTED_RUNTIME_CONTRACT_SHA256 = (
-    "c34a2b0dfc1b0f70a4871b065fcf5216790ffb9dd35405c9d6d941435b81bc70"
+    "ba47116b84ea04753175d692920b1d9b44c0f66ac101b1511fde285a1dc457a3"
 )
 
-PRIOR_RUNTIME_CONTRACT_VERSION = 21
-PRIOR_RUNTIME_CONTRACT_SHA256 = SUPERSEDED_RUNTIME_CONTRACT_SHA256
-PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = (
-    "8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e"
-)
-PRIOR_RUNTIME_CONTRACT_MIGRATION = (
-    "2026-09-18 isolated agent-paper lifecycle after interruption-safe transaction cleanup and "
-    "before the first signal: attributed agent orders survive same-date reruns and the no-op "
-    "agent book uses the ordinary simulator lifecycle; XS strategy, signal, execution economics, "
-    "and statistical rules are unchanged"
-)
+PRIOR_RUNTIME_CONTRACT_VERSION = 22
+PRIOR_RUNTIME_CONTRACT_SHA256 = 'c34a2b0dfc1b0f70a4871b065fcf5216790ffb9dd35405c9d6d941435b81bc70'
+PRIOR_SUPERSEDED_RUNTIME_CONTRACT_SHA256 = 'f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac'
+PRIOR_RUNTIME_CONTRACT_MIGRATION = "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. XS strategy, signal boundary, paired control and statistical verdict rules are unchanged; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, high and low, a delisted holding closes at its last real traded close, the league leaves P15 marks to their window, collection audits a split-like re-fetch and triggers back-adjustment, and this migration compares the deployed report's fill model, signal-boundary runtime pin and clock fields as published; undeployed pre-deploy amendment 2026-10-17 separates retained prefix continuity from restarted evaluation sessions and validates their partition without changing equity, signal, baseline, ledger or verdict rules"
 
 
 @dataclass(frozen=True)
@@ -813,7 +828,7 @@ def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
         ).fetchone()[0]
         if latest is None or latest >= SIGNAL_DATE or future_orders or future_fills:
             raise ValueError(
-                "published XS v21 report is not the exact migration checkpoint"
+                "published XS predecessor report is not the exact migration checkpoint"
             )
     current_prior = copy.deepcopy(prior_result)
     current_prior["frozen_runtime"].update(
@@ -843,7 +858,7 @@ def migrate_runtime_contract(con, prior_result: dict | None) -> dict:
     prior_json = json.loads(json.dumps(prior_result, default=str))
     expected_json = json.loads(json.dumps(expected_prior, default=str))
     if prior_json != expected_json:
-        raise ValueError("published XS v21 report is not the exact migration checkpoint")
+        raise ValueError("published XS predecessor report is not the exact migration checkpoint")
     return current
 
 
@@ -862,11 +877,9 @@ def _p22_published_forms(result: dict, prior: dict, *, current: bool) -> None:
         )
     boundary = result["frozen_runtime"].get("signal_boundary")
     pinned = ((published.get("signal_boundary") or {}).get("protocol_contract") or {})
-    if boundary is not None and pinned.get("fill_model") == PRIOR_FILL_MODEL_VERSION and (
-        pinned.get("runtime_contract_sha256") == PRIOR_RUNTIME_CONTRACT_SHA256
-    ):
+    if boundary is not None and pinned.get("runtime_contract_sha256") == PRIOR_RUNTIME_CONTRACT_SHA256:
         boundary["protocol_contract"].update(
-            fill_model=EXPECTED_FILL_MODEL_VERSION if current else PRIOR_FILL_MODEL_VERSION,
+            fill_model=(EXPECTED_FILL_MODEL_VERSION if current else pinned.get("fill_model")),
             runtime_contract_sha256=(
                 EXPECTED_RUNTIME_CONTRACT_SHA256 if current else PRIOR_RUNTIME_CONTRACT_SHA256
             ),

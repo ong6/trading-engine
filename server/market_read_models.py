@@ -7,6 +7,7 @@ from datetime import date
 
 import duckdb
 
+from engine.lib.data_quality import price_bar_reasons
 from engine.lib.db import (
     MARKET_DATE_MIN_COVERAGE,
     MARKET_DATE_MIN_NAMES,
@@ -380,13 +381,16 @@ class InadmissiblePriceData(ValueError):
 
 
 def _validate_candidate_prices(bar: dict) -> None:
-    open_price = require_public_positive_number(bar["open"], "candidate open")
-    high = require_public_positive_number(bar["high"], "candidate high")
-    low = require_public_positive_number(bar["low"], "candidate low")
-    close = require_public_positive_number(bar["close"], "candidate close")
+    require_public_positive_number(bar["open"], "candidate open")
+    require_public_positive_number(bar["high"], "candidate high")
+    require_public_positive_number(bar["low"], "candidate low")
+    require_public_positive_number(bar["close"], "candidate close")
     require_public_nonnegative_number(bar["volume"], "candidate volume")
-    if high < max(open_price, close, low) or low > min(open_price, close, high):
+    reasons = price_bar_reasons(bar)
+    if any(reason.endswith("geometry") for reason in reasons):
         raise ValueError("public candidate OHLC geometry is invalid")
+    if reasons:
+        raise ValueError("public candidate volume is invalid")
 
 
 def _candidate_price_reason(bar: dict) -> str | None:
@@ -440,7 +444,7 @@ def retained_bar_quality(
             " UNION ALL SELECT ticker, date, NULL, NULL, NULL, NULL, NULL, MIN(reason) "
             "FROM price_observation_rejects WHERE ticker = ANY(?) AND date <= ? "
             "AND interval = '1d' AND reason NOT IN "
-            "('replacement_predecessor', 'intraday_existing_key') GROUP BY ticker, date"
+            "('replacement_predecessor', 'split_restatement_predecessor', 'intraday_existing_key', 'identical_duplicate') GROUP BY ticker, date"
         )
     observations = rows(con.execute(
         "WITH observations AS (SELECT ticker, date, open, high, low, close, volume, "
