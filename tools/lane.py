@@ -129,10 +129,12 @@ def _full_base(source: Path, base: str) -> str:
     return base
 
 
-def _valid_branch(source: Path, branch: str) -> None:
+def _valid_branch(source: Path, branch: str, *, require_absent: bool = True) -> None:
     if branch.startswith("-") or not branch:
         raise LaneError("unsafe branch name")
     _git(source, "check-ref-format", "--branch", branch)
+    if not require_absent:
+        return
     exists = _git(
         source,
         "show-ref",
@@ -280,7 +282,12 @@ def _parse_claim_document(content: str) -> tuple[list[dict], dict | None]:
             "session",
             "state",
         }
-        if not required <= row.keys() or row["state"] not in {"active", "released"}:
+        if not required <= row.keys() or row["state"] not in {
+            "aborted",
+            "active",
+            "creating",
+            "released",
+        }:
             raise LaneError("CLAIMS.md contains an incomplete claim row")
         rows.append(row)
     lanes = [row["lane"] for row in rows]
@@ -430,7 +437,7 @@ def _claims(root: Path) -> tuple[Path, str, list[dict], dict | None]:
 
 def _refuse_overlap(rows: list[dict], claims: tuple[str, ...]) -> None:
     for row in rows:
-        if row["state"] != "active":
+        if row["state"] not in {"active", "creating"}:
             continue
         for existing in row["claim_globs"]:
             for requested in claims:
@@ -570,6 +577,7 @@ def _select_environment(
     target: Path,
     *,
     uv: str,
+    phase_hook: Callable[[str], None] | None = None,
 ) -> dict:
     target_lock = target / "uv.lock"
     target_hash = _lock_hash(target_lock)
@@ -584,11 +592,14 @@ def _select_environment(
     if not shared_key.exists():
         building = registry / f".{target_hash}.building-{os.getpid()}"
         if building.exists() or building.is_symlink():
-            raise LaneError("partial shared environment build requires audited recovery")
-        building.mkdir(mode=0o700)
+            _regular_directory(building, "partial shared environment build")
+        else:
+            building.mkdir(mode=0o700)
         environment = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(building)}
         command = [uv, "sync", "--extra", "dev", "--frozen", "--no-install-project"]
         _run(target, command, env=environment)
+        if phase_hook is not None:
+            phase_hook("environment_building")
         interpreter = building / "bin" / "python"
         try:
             interpreter_details = interpreter.resolve(strict=True).stat()
@@ -749,6 +760,105 @@ def _refuse_existing(target: Path) -> None:
     raise LaneError(f"lane target already exists{suffix}")
 
 
+def _branch_sha(source: Path, branch: str) -> str | None:
+    result = _git(
+        source,
+        "show-ref",
+        "--verify",
+        "--quiet",
+        f"refs/heads/{branch}",
+        allowed=(0, 1),
+    )
+    if result.returncode == 1:
+        return None
+    return _git_value(source, "rev-parse", f"refs/heads/{branch}")
+
+
+def _ensure_worktree(source: Path, target: Path, branch: str, base: str) -> None:
+    if target.exists() or target.is_symlink():
+        if target.is_symlink() or not target.is_dir():
+            raise LaneError("reserved lane target is not a real directory")
+        if Path(_git_value(target, "rev-parse", "--show-toplevel")).resolve() != target.resolve():
+            raise LaneError("reserved lane target is not its recorded worktree")
+    else:
+        existing_branch = _branch_sha(source, branch)
+        if existing_branch is None:
+            _git(source, "worktree", "add", "-b", branch, str(target), base)
+        elif existing_branch == base:
+            _git(source, "worktree", "add", str(target), branch)
+        else:
+            raise LaneError("reserved branch no longer points at the exact base")
+    if _git_value(target, "symbolic-ref", "--quiet", "--short", "HEAD") != branch:
+        raise LaneError("reserved worktree branch does not match")
+    if _git_value(target, "rev-parse", "HEAD") != base:
+        raise LaneError("reserved worktree has moved beyond its exact base")
+
+
+def _reservation_matches(
+    row: dict,
+    *,
+    branch: str,
+    base: str,
+    claims: tuple[str, ...],
+    owner: str,
+    session: str,
+) -> bool:
+    return (
+        row.get("branch") == branch
+        and row.get("base_sha") == base
+        and row.get("claim_globs") == list(claims)
+        and row.get("owner") == owner
+        and row.get("session") == session
+    )
+
+
+def _write_claim_rows(
+    path: Path,
+    original_content: str,
+    rows: list[dict],
+    migration: dict | None,
+) -> None:
+    _atomic_text(
+        path,
+        _render_claims(original_content, rows, migration),
+        path.stat().st_mode & 0o777,
+    )
+
+
+def _bootstrap_artifacts(
+    root: Path,
+    source: Path,
+    target: Path,
+    branch: str,
+    base: str,
+    public_name: str,
+    public_email: str,
+) -> tuple[dict, dict]:
+    _ensure_worktree(source, target, branch, base)
+    state = _worktree_state(target)
+    if state["dirty"] or state["stash_count"]:
+        raise LaneError("reserved worktree changed during bootstrap")
+    if _protected_stores(target) or _running_pids(target):
+        raise LaneError("reserved worktree has a process or protected store")
+    if _git_value(target, "config", "--worktree", "--get", "user.name") != public_name:
+        raise LaneError("reserved worktree public name changed")
+    if _git_value(target, "config", "--worktree", "--get", "user.email") != public_email:
+        raise LaneError("reserved worktree public email changed")
+    hook_path = Path(_git_value(target, "config", "--worktree", "--get", "core.hooksPath"))
+    hook = hook_path / "pre-push"
+    template_bytes = HOOK_TEMPLATE.read_bytes()
+    if hook.read_bytes() != template_bytes or not os.access(hook, os.X_OK):
+        raise LaneError("reserved worktree hook changed")
+    environment = _read_environment(target)
+    lock_sha256 = _lock_hash(target / "uv.lock")
+    if not environment or not _shared_environment_valid(root, target, lock_sha256, environment):
+        raise LaneError("reserved worktree environment changed")
+    return environment, {
+        "path": str(hook),
+        "sha256": hashlib.sha256(template_bytes).hexdigest(),
+    }
+
+
 def create_lane(
     *,
     lanes_root: Path,
@@ -764,24 +874,72 @@ def create_lane(
     email: str | None = None,
     uv: str = "uv",
     clock: Callable[[], datetime] = _now,
+    phase_hook: Callable[[str], None] | None = None,
 ) -> dict:
     root = _validated_root(lanes_root, home)
     target = _target(root, lane, home)
     source = _source(root, source, home)
-    _refuse_existing(target)
     base = _full_base(source, base)
-    _valid_branch(source, branch)
+    _valid_branch(source, branch, require_absent=False)
     claims = tuple(dict.fromkeys(_normalize_claim(value) for value in claim_globs))
     if not claims:
         raise LaneError("at least one claim glob is required")
     if not owner.strip() or not session.strip():
         raise LaneError("owner and session are required")
     public_name, public_email = _public_identity(source, name, email)
+    notify = phase_hook or (lambda _phase: None)
 
     with _claims_lock(root):
         claims_path, content, rows, migration = _claims(root)
-        _refuse_overlap(rows, claims)
-        _git(source, "worktree", "add", "-b", branch, str(target), base)
+        matching = [item for item in rows if item["lane"] == lane]
+        if matching:
+            row = matching[0]
+            if not _reservation_matches(
+                row,
+                branch=branch,
+                base=base,
+                claims=claims,
+                owner=owner,
+                session=session,
+            ):
+                raise LaneError("existing lane reservation does not match this request")
+            if row["state"] == "active":
+                environment, hook = _bootstrap_artifacts(
+                    root, source, target, branch, base, public_name, public_email
+                )
+                return {
+                    "claim": row,
+                    "environment": environment,
+                    "hook": hook,
+                    "target": str(target),
+                }
+            if row["state"] != "creating":
+                raise LaneError(f"lane reservation is {row['state']} and cannot resume")
+        else:
+            _refuse_existing(target)
+            _valid_branch(source, branch)
+            _refuse_overlap(rows, claims)
+            row = {
+                "base_sha": base,
+                "branch": branch,
+                "claim_globs": list(claims),
+                "claimed_at": _timestamp(clock),
+                "lane": lane,
+                "owner": owner,
+                "phase": "reserved",
+                "schema_version": SCHEMA_VERSION,
+                "session": session,
+                "source": source.relative_to(root).as_posix(),
+                "state": "creating",
+            }
+            rows.append(row)
+            _write_claim_rows(claims_path, content, rows, migration)
+            notify("reserved")
+
+        _ensure_worktree(source, target, branch, base)
+        row["phase"] = "worktree"
+        _write_claim_rows(claims_path, content, rows, migration)
+        notify("worktree")
         try:
             _git(target, "config", "--worktree", "user.name", public_name)
         except LaneError:
@@ -790,31 +948,83 @@ def create_lane(
         _git(target, "config", "--worktree", "user.email", public_email)
         hook = _install_hook(target)
         _install_excludes(target)
-        environment = _select_environment(root, source, target, uv=uv)
-        if _protected_stores(target):
-            raise LaneError("new lane contains a protected store; partial lane retained")
-        if _running_pids(target):
-            raise LaneError("new lane has a running process; partial lane retained")
-        if _worktree_state(target)["dirty"]:
-            raise LaneError("new lane is dirty after bootstrap; partial lane retained")
-        row = {
-            "base_sha": base,
-            "branch": branch,
-            "claim_globs": list(claims),
-            "claimed_at": _timestamp(clock),
-            "lane": lane,
-            "owner": owner,
-            "schema_version": SCHEMA_VERSION,
-            "session": session,
-            "state": "active",
-        }
-        rows.append(row)
-        _atomic_text(
-            claims_path,
-            _render_claims(content, rows, migration),
-            claims_path.stat().st_mode & 0o777,
+        notify("before_environment")
+        environment = _select_environment(
+            root, source, target, uv=uv, phase_hook=phase_hook
         )
+        row["phase"] = "environment"
+        _write_claim_rows(claims_path, content, rows, migration)
+        notify("environment")
+        if _protected_stores(target):
+            raise LaneError("new lane contains a protected store; reservation retained")
+        if _running_pids(target):
+            raise LaneError("new lane has a running process; reservation retained")
+        if _worktree_state(target)["dirty"]:
+            raise LaneError("new lane is dirty after bootstrap; reservation retained")
+        notify("before_activate")
+        row.update(
+            {
+                "activated_at": _timestamp(clock),
+                "phase": "active",
+                "state": "active",
+            }
+        )
+        _write_claim_rows(claims_path, content, rows, migration)
+        notify("active")
     return {"claim": row, "environment": environment, "hook": hook, "target": str(target)}
+
+
+def abort_lane(
+    *,
+    lanes_root: Path,
+    home: Path,
+    lane: str,
+    reason: str,
+    clock: Callable[[], datetime] = _now,
+) -> dict:
+    root = _validated_root(lanes_root, home)
+    target = _target(root, lane, home)
+    if not reason.strip() or any(character in reason for character in "\r\n\0"):
+        raise LaneError("abort reason is required and must be one line")
+    with _claims_lock(root):
+        path, content, rows, migration = _claims(root)
+        matching = [item for item in rows if item["lane"] == lane]
+        if not matching or matching[0]["state"] != "creating":
+            raise LaneError("only a creating lane reservation can be aborted")
+        row = matching[0]
+        if target.exists() or target.is_symlink():
+            if target.is_symlink() or not target.is_dir():
+                raise LaneError("reserved target is not an auditable worktree")
+            state = _worktree_state(target)
+            head = _git_value(target, "rev-parse", "HEAD")
+            if (
+                state["branch"] != row["branch"]
+                or head != row["base_sha"]
+                or state["dirty"]
+                or state["stash_count"]
+                or state["unpushed_commit_count"]
+                or _protected_stores(target)
+                or _running_pids(target)
+            ):
+                raise LaneError("reserved worktree is not safe to abandon")
+        else:
+            source_value = row.get("source")
+            if not isinstance(source_value, str):
+                raise LaneError("reservation lacks its source repository")
+            source = _source(root, root / source_value, home)
+            branch_sha = _branch_sha(source, row["branch"])
+            if branch_sha not in {None, row["base_sha"]}:
+                raise LaneError("reserved branch moved beyond its exact base")
+        row.update(
+            {
+                "abort_reason": reason.strip(),
+                "aborted_at": _timestamp(clock),
+                "phase": "aborted",
+                "state": "aborted",
+            }
+        )
+        _write_claim_rows(path, content, rows, migration)
+    return {"claim": row, "target_retained": target.exists() or target.is_symlink()}
 
 
 def _status_fields(path: Path) -> tuple[bool, dict[str, str]]:
@@ -981,6 +1191,9 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--name")
     create.add_argument("--email")
     create.add_argument("--uv", default="uv")
+    abort = subparsers.add_parser("abort")
+    abort.add_argument("lane")
+    abort.add_argument("--reason", required=True)
     for command in (subparsers.add_parser("audit"), subparsers.add_parser("release")):
         command.add_argument("lane")
         command.add_argument("--status", type=Path)
@@ -1006,6 +1219,13 @@ def main(argv: list[str] | None = None) -> int:
                 name=args.name,
                 email=args.email,
                 uv=args.uv,
+            )
+        elif args.command == "abort":
+            result = abort_lane(
+                lanes_root=lanes_root,
+                home=home,
+                lane=args.lane,
+                reason=args.reason,
             )
         elif args.command == "audit":
             result = audit_lane(

@@ -315,8 +315,9 @@ def test_existing_target_state_is_never_reused(tmp_path, kind):
     assert kind in str(error.value)
 
 
-def test_partial_bootstrap_is_retained_without_claim(tmp_path, monkeypatch):
+def test_partial_bootstrap_keeps_claim_and_resumes(tmp_path, monkeypatch):
     fixture = _fixture(tmp_path)
+    original = lane._select_environment
 
     def fail_environment(*_args, **_kwargs):
         raise lane.LaneError("injected environment failure")
@@ -327,7 +328,73 @@ def test_partial_bootstrap_is_retained_without_claim(tmp_path, monkeypatch):
         _create(fixture)
 
     assert (fixture["root"] / "lane-one").is_dir()
-    assert _claims(fixture) == []
+    assert _claims(fixture)[0]["state"] == "creating"
+    with pytest.raises(lane.LaneError, match="overlaps active lane lane-one"):
+        _create(fixture, "lane-two", claim_globs=("tools/lane-one.py",))
+
+    monkeypatch.setattr(lane, "_select_environment", original)
+    result = _create(fixture)
+
+    assert result["claim"]["state"] == "active"
+    assert _claims(fixture)[0]["state"] == "active"
+
+
+@pytest.mark.parametrize(
+    "crash_phase",
+    ["reserved", "worktree", "environment_building", "before_activate", "active"],
+)
+def test_abrupt_create_termination_is_reserved_and_resumable(tmp_path, crash_phase):
+    fixture = _fixture(tmp_path)
+
+    class AbruptStop(BaseException):
+        pass
+
+    def stop_at(phase):
+        if phase == crash_phase:
+            raise AbruptStop(phase)
+
+    with pytest.raises(AbruptStop, match=crash_phase):
+        _create(fixture, phase_hook=stop_at)
+
+    row = _claims(fixture)[0]
+    assert row["state"] == ("active" if crash_phase == "active" else "creating")
+
+    result = _create(fixture)
+
+    assert result["claim"]["state"] == "active"
+    assert _git(fixture["root"] / "lane-one", "rev-parse", "HEAD").stdout.strip() == (
+        fixture["base"]
+    )
+
+
+def test_abort_marks_safe_creating_reservation_without_deleting_target(tmp_path):
+    fixture = _fixture(tmp_path)
+
+    class AbruptStop(BaseException):
+        pass
+
+    def stop_after_worktree(phase):
+        if phase == "worktree":
+            raise AbruptStop
+
+    with pytest.raises(AbruptStop):
+        _create(fixture, phase_hook=stop_after_worktree)
+    target = fixture["root"] / "lane-one"
+
+    result = lane.abort_lane(
+        lanes_root=fixture["root"],
+        home=fixture["home"],
+        lane="lane-one",
+        reason="fixture operator abort",
+        clock=lambda: FIXED_NOW,
+    )
+
+    assert result["target_retained"] is True
+    assert target.is_dir()
+    assert _git(target, "rev-parse", "HEAD").stdout.strip() == fixture["base"]
+    assert _claims(fixture)[0]["state"] == "aborted"
+    with pytest.raises(lane.LaneError, match="aborted and cannot resume"):
+        _create(fixture)
 
 
 def test_concurrent_cli_creators_are_serialized_by_claim_lock(tmp_path):
