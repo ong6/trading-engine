@@ -3820,4 +3820,12 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** combined snapshot is published at closure.
 - **Next:** bind the committed source as registration revision 15 and advance changed forward contracts.
 
+## 2026-10-18 — Publish revision-15 deploy and registration checks
+
+- **Why:** The revision-15 integration goal requires literal post-v2 deployment and rollback; full-suite reproduction found three tests hard-coded to revision 14 although migration correctly reads deployed revision 15.
+- **What:** Keep the deployed-registration assertions on revision 15 and document a separate post-v2 backup, exact runtime migration, reviewed cleanup, history timer reinstall and revision-14 rollback.
+- **Evidence:** `tests/test_migrate_cost_profiles.py tests/test_p22_round3.py` → 15 passed; no migration code or retained break changed.
+- **Metrics:** combined snapshot is published at closure.
+- **Next:** rehearse the literal sequence on one snapshot copy, then complete the requested suite measurements.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

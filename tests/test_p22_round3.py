@@ -135,13 +135,13 @@ def test_migration_cli_preserves_existing_routes_and_uses_deployed_revision(h):
                     "VALUES ('p15_ai_ranked','Example','none','{}',?,TRUE,10000,10000)", [PRIOR])
     assert migrate_cost_profiles.main(['--db', str(h.market), '--d0', '2026-10-19', '--apply']) == 0
     assert h.scalar("SELECT pa_engine FROM portfolio_accounts_v WHERE portfolio_id='p15_ai_ranked'") == 'league'
-    assert h.scalar('SELECT registration_revision FROM sim_book_breaks') == 14
+    assert h.scalar('SELECT registration_revision FROM sim_book_breaks') == 15
 
 
 def test_migration_revision_is_read_from_registration(h):
     h.create()
     assert migrate_cost_profiles.main(['--db', str(h.market), '--d0', '2026-10-19', '--apply']) == 0
-    assert h.scalar('SELECT registration_revision FROM sim_book_breaks') == 14
+    assert h.scalar('SELECT registration_revision FROM sim_book_breaks') == 15
 
 
 def test_p15_pending_order_keeps_legacy_fill_with_commission(h):
