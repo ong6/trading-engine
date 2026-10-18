@@ -6,11 +6,12 @@ import hashlib
 import json
 import os
 import re
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import BinaryIO
 
+from engine import migrations as schema_registry
 from engine.lib.provenance import canonical_sha256
 from engine.lib.settings import DEFAULT_DB
 
@@ -19,8 +20,8 @@ SNAPSHOT_PATTERN = re.compile(r"market-\d{8}T\d{12}Z(?:-\d+)?\.duckdb")
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 GENERATION_MANIFEST_SCHEMA_VERSION = 2
-MINIMUM_DATABASE_SCHEMA_ID = 0
-CURRENT_DATABASE_SCHEMA_ID = 0
+MINIMUM_DATABASE_SCHEMA_ID = schema_registry.MINIMUM_SCHEMA_ID
+CURRENT_DATABASE_SCHEMA_ID = schema_registry.CURRENT_SCHEMA_ID
 _VERIFIED_CACHE_LIMIT = 16
 _verified_generations: dict[tuple, dict[Path, tuple[int, ...]]] = {}
 
@@ -47,6 +48,7 @@ class SnapshotInfo:
     cohort: dict[str, dict[str, dict]] = field(default_factory=dict)
     source_snapshot: dict | None = None
     manifest_sha256: str | None = None
+    _lifetime_pin: object | None = field(default=None, compare=False, repr=False)
 
 
 class SnapshotPin:
@@ -185,6 +187,11 @@ def _generation_info(
         <= CURRENT_DATABASE_SCHEMA_ID
     ):
         return None
+    expected_catalog = getattr(
+        schema_registry.migrations()[schema_id].module, "EXPECTED_CATALOG_SHA256", None,
+    )
+    if expected_catalog is not None and catalog_hash != expected_catalog:
+        return None
     parts: list[dict] = []
     for record in body["parts"]:
         if not isinstance(record, dict):
@@ -194,7 +201,8 @@ def _generation_info(
             return None
         required = {
             "table", "partition", "path", "size_bytes", "sha256", "row_count",
-            "availability_column",
+            "source_bytes", "availability_column", "availability_min",
+            "availability_max", "key_min", "key_max", "fingerprint_sha256",
         }
         if (
             set(record) != required
@@ -203,6 +211,12 @@ def _generation_info(
             or not isinstance(record.get("availability_column"), str)
             or type(record.get("row_count")) is not int
             or record["row_count"] < 0
+            or type(record.get("source_bytes")) is not int
+            or record["source_bytes"] < 0
+            or not isinstance(record.get("fingerprint_sha256"), str)
+            or SHA256_PATTERN.fullmatch(record["fingerprint_sha256"]) is None
+            or not isinstance(record.get("key_min"), list)
+            or not isinstance(record.get("key_max"), list)
         ):
             return None
         parts.append(record)
@@ -240,6 +254,7 @@ def _generation_info(
         set(metrics) != {
             "wall_seconds", "writer_lock_seconds", "hot_size_bytes",
             "cold_part_bytes", "new_cold_part_bytes",
+            "cold_bytes_read", "cold_bytes_serialized", "cold_copy_operations",
         }
         or any(
             isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0
@@ -340,6 +355,14 @@ def latest_snapshot(
             return None
         if info.as_of <= last_write:
             return None
+    if info.manifest_schema_version == GENERATION_MANIFEST_SCHEMA_VERSION:
+        try:
+            pin = pin_latest_generation(
+                database, newer_than_database=newer_than_database,
+            )
+        except GenerationError:
+            return None
+        return replace(pin.info, _lifetime_pin=pin)
     return info
 
 
@@ -388,7 +411,10 @@ def _verify_files(info: SnapshotInfo) -> None:
 
 
 def pin_latest_generation(
-    database: Path = DEFAULT_DB, *, newer_than_database: bool = False,
+    database: Path = DEFAULT_DB,
+    *,
+    newer_than_database: bool = False,
+    max_age: timedelta | None = None,
 ) -> SnapshotPin:
     """Resolve once, acquire a process-held pin, and verify every referenced byte."""
     database = Path(database).absolute()
@@ -398,6 +424,11 @@ def pin_latest_generation(
             raise GenerationError("no valid published generation")
         if info.manifest_schema_version != GENERATION_MANIFEST_SCHEMA_VERSION:
             raise GenerationError("latest snapshot is not a revision-16 generation")
+        if max_age is not None and (
+            max_age.total_seconds() < 0
+            or info.as_of < datetime.now(timezone.utc) - max_age
+        ):
+            raise GenerationError("published generation exceeds its freshness budget")
         if newer_than_database:
             try:
                 last_write = datetime.fromtimestamp(

@@ -8,20 +8,28 @@ import hashlib
 import json
 import math
 import os
+import re
 import secrets
-import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime, timedelta, timezone
+from contextlib import contextmanager
+from contextvars import ContextVar
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import duckdb
 
 from engine.lib import db as engine_db
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
-from engine.lib.snapshots import LATEST_NAME, latest_snapshot, snapshot_directory
+from engine.lib.snapshots import (
+    LATEST_NAME,
+    GenerationError,
+    pin_latest_generation,
+    snapshot_directory,
+)
 from tools import backup_database
 
 KEEP_SNAPSHOTS = 2
@@ -30,10 +38,32 @@ COLD_TABLES = {
     "main.bitemporal_facts": ("ingested_at", ("id",)),
     "main.source_response_receipts": ("received_at", ("id",)),
 }
+_PUBLICATION_LOCK_HELD: ContextVar[bool] = ContextVar(
+    "generation_publication_lock_held", default=False,
+)
 
 
 class SnapshotError(RuntimeError):
     """The snapshot could not be published without disturbing the prior one."""
+
+
+@contextmanager
+def _publication_window(directory: Path):
+    """Serialize install, pointer publication, verification, and garbage collection."""
+    lock_path = directory / ".generation-publish.lock"
+    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(lock_path, flags, 0o600)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise SnapshotError("generation publication lock is not a regular file")
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        token = _PUBLICATION_LOCK_HELD.set(True)
+        try:
+            yield
+        finally:
+            _PUBLICATION_LOCK_HELD.reset(token)
+    finally:
+        os.close(descriptor)
 
 
 def _sha256(path: Path) -> str:
@@ -60,26 +90,18 @@ def _sync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
-def _database_invariants(path: Path, alias: str) -> dict:
-    """Read restore invariants through a read-only DuckDB attachment."""
-    connection = duckdb.connect()
-    try:
-        connection.execute(
-            f"ATTACH {backup_database._sql_string(str(path))} "
-            f"AS {backup_database._identifier(alias)} (READ_ONLY)"
-        )
-        return backup_database.database_snapshot(connection, alias)
-    except duckdb.Error as exc:
-        raise SnapshotError(f"DuckDB snapshot verification failed: {exc}") from exc
-    finally:
-        connection.close()
-
-
-def _copy_file_durable(source: Path, destination: Path) -> None:
-    """Copy a checkpointed DuckDB file and durably flush its contents."""
-    shutil.copyfile(source, destination)
-    os.chmod(destination, 0o600)
-    _sync_file(destination)
+def _mkdir_durable(root: Path, directory: Path) -> None:
+    """Create and fsync every directory entry from root through directory."""
+    relative = directory.relative_to(root)
+    current = root
+    for part in relative.parts:
+        child = current / part
+        created = not child.exists()
+        child.mkdir(mode=0o700, exist_ok=True)
+        if created:
+            _sync_directory(child)
+            _sync_directory(current)
+        current = child
 
 
 def _identifier(value: str) -> str:
@@ -89,14 +111,6 @@ def _identifier(value: str) -> str:
 def _qualified(schema: str, table: str, *, database: str | None = None) -> str:
     names = (schema, table) if database is None else (database, schema, table)
     return ".".join(_identifier(name) for name in names)
-
-
-def _schema_identity(path: Path) -> dict:
-    connection = duckdb.connect(str(path), read_only=True)
-    try:
-        return engine_db.require_compatible_database_schema(connection)
-    finally:
-        connection.close()
 
 
 def _capture_cohort(repo_root: Path, snapshot: dict) -> dict[str, dict[str, bytes]]:
@@ -128,11 +142,14 @@ def _install_bytes(directory: Path, content: bytes) -> dict:
     digest = hashlib.sha256(content).hexdigest()
     relative = Path("blobs") / digest[:2] / digest
     destination = directory / relative
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.exists():
-        if destination.is_symlink() or destination.stat().st_size != len(content) or _sha256(destination) != digest:
-            raise SnapshotError(f"content-addressed generation blob conflicts: {digest}")
-    else:
+    _mkdir_durable(directory, destination.parent)
+    valid = (
+        destination.exists()
+        and not destination.is_symlink()
+        and destination.stat().st_size == len(content)
+        and _sha256(destination) == digest
+    )
+    if not valid:
         descriptor, temporary_name = tempfile.mkstemp(
             dir=destination.parent, prefix=f".{destination.name}.", suffix=".tmp",
         )
@@ -224,64 +241,132 @@ def _partition_where(spec: dict, partition: str) -> str:
     return f"CAST({column} AS DATE) = DATE {backup_database._sql_string(partition)}"
 
 
+def _fingerprint_value(value: object) -> object:
+    if value is None or isinstance(value, (str, int, bool)):
+        return [type(value).__name__, value]
+    if isinstance(value, float):
+        return ["float", value.hex()]
+    if isinstance(value, bytes):
+        return ["bytes", value.hex()]
+    if isinstance(value, (date, datetime)):
+        return [type(value).__name__, value.isoformat()]
+    return [type(value).__name__, str(value)]
+
+
+def _partition_fingerprint(
+    connection: duckdb.DuckDBPyConnection, spec: dict, where: str,
+) -> tuple[str, int, int, list | None, list | None]:
+    table = _qualified(spec["schema"], spec["table"])
+    order = ", ".join(_identifier(name) for name in spec["key_columns"])
+    cursor = connection.execute(f"SELECT * FROM {table} WHERE {where} ORDER BY {order}")
+    digest = hashlib.sha256()
+    row_count = 0
+    bytes_read = 0
+    key_indexes = [
+        index for index, description in enumerate(cursor.description)
+        if description[0] in spec["key_columns"]
+    ]
+    key_min = key_max = None
+    while rows := cursor.fetchmany(10_000):
+        for row in rows:
+            encoded = json.dumps(
+                [_fingerprint_value(value) for value in row],
+                separators=(",", ":"), sort_keys=False,
+            ).encode()
+            digest.update(len(encoded).to_bytes(8, "big"))
+            digest.update(encoded)
+            bytes_read += len(encoded)
+            key = [_fingerprint_value(row[index]) for index in key_indexes]
+            key_min = key if key_min is None else key_min
+            key_max = key
+            row_count += 1
+    return digest.hexdigest(), row_count, bytes_read, key_min, key_max
+
+
 def _install_cold_parts(
-    capture: Path, directory: Path,
-) -> tuple[list[dict], dict[str, dict], int]:
-    connection = duckdb.connect(str(capture), read_only=True)
+    connection: duckdb.DuckDBPyConnection,
+    directory: Path,
+    previous_parts: tuple[dict, ...],
+) -> tuple[list[dict], dict[str, dict], dict[str, int]]:
     installed: list[dict] = []
-    new_bytes = 0
-    try:
-        specs = _cold_specs(connection)
-        for qualified_name, spec in specs.items():
-            table = _qualified(spec["schema"], spec["table"])
-            order = ", ".join(_identifier(name) for name in spec["key_columns"])
-            for partition in _partition_values(connection, spec):
-                temporary_dir = directory / ".parts"
-                temporary_dir.mkdir(parents=True, exist_ok=True)
-                descriptor, temporary_name = tempfile.mkstemp(
-                    dir=temporary_dir, prefix=f".{spec['table']}.", suffix=".parquet.tmp",
+    metrics = {"new_bytes": 0, "read_bytes": 0, "serialized_bytes": 0, "copy_operations": 0}
+    previous = {
+        (record["table"], record["partition"]): record for record in previous_parts
+        if "fingerprint_sha256" in record
+    }
+    specs = _cold_specs(connection)
+    for qualified_name, spec in specs.items():
+        table = _qualified(spec["schema"], spec["table"])
+        order = ", ".join(_identifier(name) for name in spec["key_columns"])
+        for partition in _partition_values(connection, spec):
+            where = _partition_where(spec, partition)
+            fingerprint, row_count, bytes_read, key_min, key_max = _partition_fingerprint(
+                connection, spec, where,
+            )
+            metrics["read_bytes"] += bytes_read
+            prior = previous.get((qualified_name, partition))
+            if prior is not None and prior["fingerprint_sha256"] == fingerprint:
+                prior_path = directory / prior["path"]
+                if (
+                    prior_path.is_file()
+                    and not prior_path.is_symlink()
+                    and prior_path.stat().st_size == prior["size_bytes"]
+                    and _sha256(prior_path) == prior["sha256"]
+                ):
+                    installed.append(dict(prior))
+                    continue
+            temporary_dir = directory / ".parts"
+            _mkdir_durable(directory, temporary_dir)
+            descriptor, temporary_name = tempfile.mkstemp(
+                dir=temporary_dir, prefix=f".{spec['table']}.", suffix=".parquet.tmp",
+            )
+            os.close(descriptor)
+            temporary = Path(temporary_name)
+            temporary.unlink()
+            try:
+                connection.execute(
+                    f"COPY (SELECT * FROM {table} WHERE {where} ORDER BY {order}) "
+                    f"TO {backup_database._sql_string(str(temporary))} "
+                    "(FORMAT PARQUET, COMPRESSION ZSTD, COMPRESSION_LEVEL 3)"
                 )
-                os.close(descriptor)
-                temporary = Path(temporary_name)
-                temporary.unlink()
-                where = _partition_where(spec, partition)
-                try:
-                    connection.execute(
-                        f"COPY (SELECT * FROM {table} WHERE {where} ORDER BY {order}) "
-                        f"TO {backup_database._sql_string(str(temporary))} "
-                        "(FORMAT PARQUET, COMPRESSION ZSTD, COMPRESSION_LEVEL 3)"
-                    )
-                    digest = _sha256(temporary)
-                    relative = Path("parts") / spec["table"] / f"{partition}-{digest}.parquet"
-                    destination = directory / relative
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    if destination.exists():
-                        if destination.is_symlink() or _sha256(destination) != digest:
-                            raise SnapshotError(f"content-addressed cold part conflicts: {relative}")
-                        temporary.unlink()
-                    else:
-                        os.chmod(temporary, 0o400)
-                        _sync_file(temporary)
-                        os.replace(temporary, destination)
-                        _sync_directory(destination.parent)
-                        new_bytes += destination.stat().st_size
-                    row_count = connection.execute(
-                        f"SELECT COUNT(*) FROM {table} WHERE {where}"
-                    ).fetchone()[0]
-                    installed.append({
-                        "table": qualified_name,
-                        "partition": partition,
-                        "path": relative.as_posix(),
-                        "size_bytes": destination.stat().st_size,
-                        "sha256": digest,
-                        "row_count": int(row_count),
-                        "availability_column": spec["availability_column"],
-                    })
-                finally:
-                    temporary.unlink(missing_ok=True)
-        return installed, specs, new_bytes
-    finally:
-        connection.close()
+                metrics["copy_operations"] += 1
+                metrics["serialized_bytes"] += temporary.stat().st_size
+                digest = _sha256(temporary)
+                relative = Path("parts") / spec["table"] / f"{partition}-{digest}.parquet"
+                destination = directory / relative
+                _mkdir_durable(directory, destination.parent)
+                valid = (
+                    destination.exists()
+                    and not destination.is_symlink()
+                    and destination.stat().st_size == temporary.stat().st_size
+                    and _sha256(destination) == digest
+                )
+                if valid:
+                    temporary.unlink()
+                else:
+                    os.chmod(temporary, 0o400)
+                    _sync_file(temporary)
+                    os.replace(temporary, destination)
+                    _sync_directory(destination.parent)
+                    metrics["new_bytes"] += destination.stat().st_size
+                installed.append({
+                    "table": qualified_name,
+                    "partition": partition,
+                    "path": relative.as_posix(),
+                    "size_bytes": destination.stat().st_size,
+                    "sha256": digest,
+                    "fingerprint_sha256": fingerprint,
+                    "row_count": row_count,
+                    "source_bytes": bytes_read,
+                    "availability_column": spec["availability_column"],
+                    "availability_min": None if partition == "__null__" else partition,
+                    "availability_max": None if partition == "__null__" else partition,
+                    "key_min": key_min,
+                    "key_max": key_max,
+                })
+            finally:
+                temporary.unlink(missing_ok=True)
+    return installed, specs, metrics
 
 
 def _empty_relation(spec: dict) -> str:
@@ -313,11 +398,22 @@ def _build_hot_database(
         for schema in sorted(object_schemas - {"main"}):
             connection.execute(f"CREATE SCHEMA {_identifier(schema)}")
         sequences = connection.execute(
-            "SELECT sql FROM duckdb_sequences() WHERE database_name=? AND NOT temporary "
-            "ORDER BY schema_name, sequence_name", [database],
+            "SELECT schema_name, sequence_name, min_value, max_value, increment_by, "
+            "cycle, sql FROM duckdb_sequences() "
+            "WHERE database_name=? AND NOT temporary ORDER BY schema_name, sequence_name",
+            [database],
         ).fetchall()
-        for (sql,) in sequences:
-            connection.execute(sql)
+        for schema, name, minimum, maximum, increment, cycle, sql in sequences:
+            qualified_sequence = _qualified(schema, name)
+            start_match = re.search(r"\bSTART\s+(-?\d+)\b", sql)
+            if start_match is None:
+                raise SnapshotError(f"sequence next value is unavailable: {schema}.{name}")
+            next_value = int(start_match.group(1))
+            connection.execute(
+                f"CREATE SEQUENCE {qualified_sequence} INCREMENT BY {increment} "
+                f"MINVALUE {minimum} MAXVALUE {maximum} START {next_value} "
+                f"{'CYCLE' if cycle else 'NO CYCLE'}"
+            )
         tables = connection.execute(
             "SELECT schema_name, table_name, sql FROM duckdb_tables() "
             "WHERE database_name=? AND NOT internal AND NOT temporary "
@@ -397,10 +493,6 @@ def _verify_semantic_equality(capture: Path, hot: Path, row_counts: dict[str, in
         connection.close()
 
 
-def _wal_path(source: Path) -> Path:
-    return source.with_name(f"{source.name}.wal")
-
-
 def _data_commit(repo_root: Path) -> str | None:
     result = subprocess.run(
         ["git", "rev-list", "-1", "HEAD", "--", "data/"],
@@ -456,6 +548,24 @@ def _swap_latest(directory: Path, destination: Path) -> None:
             pass
 
 
+def _restore_latest(directory: Path, previous: str | None) -> None:
+    latest = directory / LATEST_NAME
+    if previous is None:
+        latest.unlink(missing_ok=True)
+        _sync_directory(directory)
+        return
+    target = directory / previous
+    if not target.is_file() or target.is_symlink():
+        raise SnapshotError("cannot restore the previous generation pointer")
+    temporary = directory / f".{LATEST_NAME}.{secrets.token_hex(8)}.rollback"
+    try:
+        os.symlink(previous, temporary)
+        os.replace(temporary, latest)
+        _sync_directory(directory)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _reachable_payloads(directory: Path) -> set[Path]:
     reachable: set[Path] = set()
     for manifest_path in directory.glob("market-*.json"):
@@ -477,6 +587,10 @@ def _reachable_payloads(directory: Path) -> set[Path]:
 
 
 def _prune_unreachable_payloads(directory: Path) -> None:
+    if not _PUBLICATION_LOCK_HELD.get():
+        with _publication_window(directory):
+            _prune_unreachable_payloads(directory)
+        return
     reachable = _reachable_payloads(directory)
     for root_name in ("parts", "blobs"):
         root = directory / root_name
@@ -499,7 +613,7 @@ def _retain_newest(directory: Path) -> None:
     )
     for old in snapshots[:-KEEP_SNAPSHOTS]:
         pin_path = directory / "pins" / f"{old.stem}.lock"
-        pin_path.parent.mkdir(mode=0o700, exist_ok=True)
+        _mkdir_durable(directory, pin_path.parent)
         with pin_path.open("a+b") as pin:
             try:
                 fcntl.flock(pin.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -523,15 +637,41 @@ def publish_snapshot(
     """Publish a verified hot/cold generation and retain two unpinned generations."""
     repo_root = repo_root.resolve()
     source = source.resolve(strict=True)
+    directory = snapshot_directory(source)
+    directory.mkdir(parents=True, exist_ok=True)
+    with _publication_window(directory):
+        return _publish_locked(
+            repo_root, source, directory, now=now, held_locks=held_locks,
+            min_age_minutes=min_age_minutes,
+        )
+
+
+def _publish_locked(
+    repo_root: Path,
+    source: Path,
+    directory: Path,
+    *,
+    now: datetime | None,
+    held_locks: frozenset[str],
+    min_age_minutes: float | None,
+) -> dict:
     checked_at = datetime.now(timezone.utc)
     started = time.monotonic()
+    previous_pin = None
+    try:
+        previous_pin = pin_latest_generation(source)
+    except GenerationError:
+        pass
     if min_age_minutes is not None:
         if not math.isfinite(min_age_minutes) or min_age_minutes < 0:
+            if previous_pin is not None:
+                previous_pin.close()
             raise SnapshotError("minimum snapshot age must be a non-negative number")
-        latest = latest_snapshot(source)
-        if latest is not None and latest.as_of > checked_at - timedelta(
+        if previous_pin is not None and previous_pin.info.as_of > checked_at - timedelta(
             minutes=min_age_minutes
         ):
+            latest = previous_pin.info
+            previous_pin.close()
             age_minutes = max(0.0, (checked_at - latest.as_of).total_seconds() / 60)
             return {
                 "status": "skipped",
@@ -542,38 +682,38 @@ def publish_snapshot(
                 "snapshot": latest.path.name,
                 "as_of": latest.as_of.isoformat(),
             }
-    directory = snapshot_directory(source)
-    directory.mkdir(parents=True, exist_ok=True)
+    previous_target = None
+    try:
+        previous_target = os.readlink(directory / LATEST_NAME)
+    except OSError:
+        pass
     destination = _unique_destination(directory, now or datetime.now(timezone.utc))
-    capture = directory / f".{destination.name}.{secrets.token_hex(8)}.capture"
     temporary = directory / f".{destination.name}.{secrets.token_hex(8)}.tmp"
     manifest_path = destination.with_suffix(".json")
-    published = False
+    published = pointer_advanced = False
     try:
-        fast_path = False
         lock_started = time.monotonic()
         with backup_database._exclusive_backup_window(repo_root, skip_locks=held_locks):
-            if _wal_path(source).exists():
-                snapshot = backup_database._copy_database(source, capture)
-                os.chmod(capture, 0o600)
-                _sync_file(capture)
-            else:
-                snapshot = _database_invariants(source, "snapshot_source")
-                _copy_file_durable(source, capture)
-                fast_path = True
-            schema_identity = _schema_identity(capture)
-            captured_cohort = _capture_cohort(repo_root, snapshot)
-            as_of = datetime.now(timezone.utc)
-        writer_lock_seconds = time.monotonic() - lock_started
-        if fast_path:
-            copied = _database_invariants(capture, "snapshot_copy")
-            if copied != snapshot:
-                raise SnapshotError(
-                    "file-copy database invariants do not match the source snapshot"
+            source_connection = duckdb.connect(str(source), read_only=True)
+            try:
+                source_database = source_connection.execute(
+                    "SELECT current_database()"
+                ).fetchone()[0]
+                snapshot = backup_database.database_snapshot(
+                    source_connection, source_database,
                 )
-        parts, cold_specs, new_cold_bytes = _install_cold_parts(capture, directory)
-        _build_hot_database(capture, temporary, parts, cold_specs)
-        _verify_semantic_equality(capture, temporary, snapshot["row_counts"])
+                schema_identity = engine_db.require_compatible_database_schema(source_connection)
+                captured_cohort = _capture_cohort(repo_root, snapshot)
+                previous_parts = () if previous_pin is None else previous_pin.info.parts
+                parts, cold_specs, cold_metrics = _install_cold_parts(
+                    source_connection, directory, previous_parts,
+                )
+                _build_hot_database(source, temporary, parts, cold_specs)
+                _verify_semantic_equality(source, temporary, snapshot["row_counts"])
+                as_of = datetime.now(timezone.utc)
+            finally:
+                source_connection.close()
+        writer_lock_seconds = time.monotonic() - lock_started
         cohort = _install_cohort(directory, captured_cohort)
         body = {
             "manifest_schema_version": 2,
@@ -598,7 +738,10 @@ def publish_snapshot(
                 "writer_lock_seconds": writer_lock_seconds,
                 "hot_size_bytes": temporary.stat().st_size,
                 "cold_part_bytes": sum(record["size_bytes"] for record in parts),
-                "new_cold_part_bytes": new_cold_bytes,
+                "new_cold_part_bytes": cold_metrics["new_bytes"],
+                "cold_bytes_read": cold_metrics["read_bytes"],
+                "cold_bytes_serialized": cold_metrics["serialized_bytes"],
+                "cold_copy_operations": cold_metrics["copy_operations"],
             },
         }
         manifest = {**body, "manifest_sha256": backup_database.canonical_sha256(body)}
@@ -606,16 +749,29 @@ def publish_snapshot(
         _write_manifest(manifest_path, manifest)
         _sync_directory(directory)
         _swap_latest(directory, destination)
+        pointer_advanced = True
+        final_pin = pin_latest_generation(source)
+        try:
+            if final_pin.info.generation_id != destination.stem:
+                raise SnapshotError("published pointer did not resolve to the new generation")
+        finally:
+            final_pin.close()
         published = True
+        if previous_pin is not None:
+            previous_pin.close()
+            previous_pin = None
         _retain_newest(directory)
         return manifest
     except (
-        OSError, ValueError, backup_database.BackupError,
+        OSError, ValueError, GenerationError, backup_database.BackupError,
         engine_db.SchemaMigrationRequired,
     ) as exc:
+        if pointer_advanced:
+            _restore_latest(directory, previous_target)
         raise SnapshotError(str(exc)) from exc
     finally:
-        capture.unlink(missing_ok=True)
+        if previous_pin is not None:
+            previous_pin.close()
         temporary.unlink(missing_ok=True)
         if not published:
             destination.unlink(missing_ok=True)

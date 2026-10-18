@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -12,6 +12,7 @@ import duckdb
 import pytest
 
 from engine import schema_migrations
+from engine.lib import db as engine_db
 from engine.lib import snapshots
 from tools import backup_database, publish_snapshot
 
@@ -20,52 +21,39 @@ NOW = datetime(2026, 10, 2, 12, tzinfo=timezone.utc)
 
 def _database(path: Path, *, cold: bool = False) -> None:
     con = duckdb.connect(str(path))
-    con.execute("CREATE TABLE prices (date DATE, ticker VARCHAR, volume BIGINT)")
-    con.execute("INSERT INTO prices VALUES ('2026-10-01', 'SPY', 1)")
-    con.execute("CREATE TABLE jobs (id INTEGER, state VARCHAR)")
+    migration = schema_migrations.migrations()[0]
+    migration.module.bootstrap(con)
     con.execute(
-        "CREATE TABLE portfolios (id VARCHAR, name VARCHAR, strategy VARCHAR, "
-        "config VARCHAR, created DATE, active BOOLEAN, cash DOUBLE, initial_cash DOUBLE, "
-        "execution_profile VARCHAR)"
-    )
-    con.execute("CREATE TABLE sim_orders (id INTEGER)")
-    con.execute("CREATE TABLE sim_fills (id INTEGER)")
-    con.execute(
-        "CREATE TABLE sim_equity (portfolio_id VARCHAR, date DATE, equity DOUBLE, "
-        "cash DOUBLE, n_positions INTEGER)"
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume,first_fetched_at) "
+        "VALUES ('SPY','2026-10-01',1,1,1,1,1,'2026-10-01')"
     )
     if cold:
-        con.execute(
-            "CREATE TABLE intraday_prices (ticker VARCHAR, ts TIMESTAMP, interval VARCHAR, "
-            "open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE, volume BIGINT, "
-            "source VARCHAR, as_of DATE, PRIMARY KEY(ticker, ts, interval))"
-        )
         con.execute(
             "INSERT INTO intraday_prices VALUES "
             "('SPY','2026-10-01 14:30:00','1m',1,2,1,2,10,'fixture','2026-10-01')"
         )
         con.execute(
-            "CREATE TABLE source_response_receipts (id BIGINT PRIMARY KEY, "
-            "received_at TIMESTAMP NOT NULL, response_body BLOB NOT NULL)"
-        )
-        con.execute(
             "INSERT INTO source_response_receipts VALUES "
-            "(1, '2026-10-01 12:00:00', from_base64('AAEC'))"
-        )
-        con.execute(
-            "CREATE TABLE bitemporal_facts (id BIGINT PRIMARY KEY, event_at TIMESTAMP, "
-            "available_at TIMESTAMP, ingested_at TIMESTAMP NOT NULL, revision INTEGER, "
-            "payload VARCHAR)"
+            "(1,1,'fixture','fixture','fixture','{}',?,TIMESTAMP '2026-10-01 11:00:00',"
+            "TIMESTAMP '2026-10-01 12:00:00',200,'application/json',3,?,"
+            "from_base64('AAEC'),'internal',?)",
+            ["a" * 64, "b" * 64, "c" * 64],
         )
         con.execute(
             "INSERT INTO bitemporal_facts VALUES "
-            "(1, '2020-01-01', '2026-10-01', '2026-10-01', 1, 'old event')"
+            "(1,1,'SPY','SPY','fixture',TIMESTAMP '2020-01-01',NULL,"
+            "TIMESTAMP '2026-10-01',TIMESTAMP '2026-10-01',1,'{}',?,"
+            "'fixture','v1',?,NULL,?)",
+            ["d" * 64, "c" * 64, "e" * 64],
         )
-        con.execute("CREATE TABLE duplicate_events (value INTEGER)")
-        con.execute("INSERT INTO duplicate_events VALUES (7), (7)")
-        con.execute("INSERT INTO jobs VALUES (1, 'running')")
+        con.execute(
+            "INSERT INTO actions_fetch_log VALUES "
+            "('DUP','2026-10-01',0,0,'empty','fixture','2026-10-01'),"
+            "('DUP','2026-10-01',0,0,'empty','fixture','2026-10-01')"
+        )
+        con.execute("INSERT INTO jobs (id,state) VALUES (1, 'running')")
     catalog_hash = schema_migrations.catalog_sha256(con)
-    migration = schema_migrations.migrations()[0]
+    assert catalog_hash == migration.module.EXPECTED_CATALOG_SHA256
     con.execute(
         "CREATE TABLE schema_migrations (migration_id INTEGER PRIMARY KEY, "
         "migration_sha256 VARCHAR, source_commit VARCHAR, applied_at TIMESTAMPTZ, "
@@ -122,98 +110,38 @@ def test_publish_is_atomic_retains_two_and_records_manifest(tmp_path):
     con.close()
 
 
-def test_publish_uses_file_copy_fast_path_without_wal(tmp_path, monkeypatch):
+@pytest.mark.parametrize("wal", [False, True])
+def test_publish_never_copies_the_whole_primary(tmp_path, monkeypatch, wal):
     root, source = _repo(tmp_path)
-    copied = []
-    events = []
-    original_copyfile = publish_snapshot.shutil.copyfile
-    original_invariants = publish_snapshot._database_invariants
-    original_window = backup_database._exclusive_backup_window
-
-    @contextmanager
-    def window(*args, **kwargs):
-        events.append("lock-enter")
-        with original_window(*args, **kwargs):
-            yield
-        events.append("lock-exit")
-
-    def copyfile(source_path, destination_path):
-        events.append("file-copy")
-        copied.append((source_path, destination_path))
-        return original_copyfile(source_path, destination_path)
-
-    def invariants(path, alias):
-        events.append(alias)
-        return original_invariants(path, alias)
-
-    monkeypatch.setattr(backup_database, "_exclusive_backup_window", window)
-    monkeypatch.setattr(publish_snapshot.shutil, "copyfile", copyfile)
-    monkeypatch.setattr(publish_snapshot, "_database_invariants", invariants)
+    if wal:
+        source.with_name(f"{source.name}.wal").touch()
     monkeypatch.setattr(
         backup_database,
         "_copy_database",
-        lambda *_args: (_ for _ in ()).throw(AssertionError("COPY fallback used")),
+        lambda *_args: (_ for _ in ()).throw(AssertionError("whole database copy used")),
     )
 
     manifest = publish_snapshot.publish_snapshot(root, source, now=NOW)
 
-    assert len(copied) == 1
-    assert manifest["row_counts"]["main.prices"] == 1
-    assert events == [
-        "lock-enter",
-        "snapshot_source",
-        "file-copy",
-        "lock-exit",
-        "snapshot_copy",
-    ]
-
-
-def test_publish_falls_back_to_duckdb_copy_when_wal_exists(tmp_path, monkeypatch):
-    root, source = _repo(tmp_path)
-    source.with_name(f"{source.name}.wal").touch()
-    calls = []
-    original_copy_database = backup_database._copy_database
-
-    def copy_database(source_path, destination_path):
-        calls.append((source_path, destination_path))
-        return original_copy_database(source_path, destination_path)
-
-    monkeypatch.setattr(backup_database, "_copy_database", copy_database)
-    monkeypatch.setattr(
-        publish_snapshot,
-        "_copy_file_durable",
-        lambda *_args: (_ for _ in ()).throw(AssertionError("fast path used")),
-    )
-    monkeypatch.setattr(
-        publish_snapshot,
-        "_database_invariants",
-        lambda *_args: (_ for _ in ()).throw(AssertionError("fast verification used")),
-    )
-
-    manifest = publish_snapshot.publish_snapshot(root, source, now=NOW)
-
-    assert len(calls) == 1
     assert manifest["row_counts"]["main.prices"] == 1
 
 
-def test_fast_path_invariant_mismatch_discards_copy(tmp_path, monkeypatch):
+def test_semantic_mismatch_discards_generation(tmp_path, monkeypatch):
     root, source = _repo(tmp_path)
-    original_invariants = publish_snapshot._database_invariants
+    monkeypatch.setattr(
+        publish_snapshot, "_verify_semantic_equality",
+        lambda *_args: (_ for _ in ()).throw(
+            publish_snapshot.SnapshotError("generation differs from source")
+        ),
+    )
 
-    def mismatched(path, alias):
-        result = original_invariants(path, alias)
-        if alias == "snapshot_copy":
-            result = {**result, "table_count": result["table_count"] + 1}
-        return result
-
-    monkeypatch.setattr(publish_snapshot, "_database_invariants", mismatched)
-
-    with pytest.raises(publish_snapshot.SnapshotError, match="invariants do not match"):
+    with pytest.raises(publish_snapshot.SnapshotError, match="differs from source"):
         publish_snapshot.publish_snapshot(root, source, now=NOW)
 
     directory = source.parent / "snapshots"
     assert not (directory / snapshots.LATEST_NAME).exists()
-    assert list(directory.iterdir()) == []
+    assert not list(directory.glob("market-*.duckdb"))
+    assert not list(directory.glob("market-*.json"))
 
 
 def test_failed_publication_preserves_previous_latest(tmp_path, monkeypatch):
@@ -223,10 +151,10 @@ def test_failed_publication_preserves_previous_latest(tmp_path, monkeypatch):
 
     monkeypatch.setattr(
         publish_snapshot,
-        "_copy_file_durable",
-        lambda *_args: (_ for _ in ()).throw(OSError("copy failed")),
+        "_build_hot_database",
+        lambda *_args: (_ for _ in ()).throw(OSError("hot build failed")),
     )
-    with pytest.raises(publish_snapshot.SnapshotError, match="copy failed"):
+    with pytest.raises(publish_snapshot.SnapshotError, match="hot build failed"):
         publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=1))
 
     assert os.readlink(latest) == first["snapshot"]
@@ -270,8 +198,8 @@ def test_latest_snapshot_requires_publication_after_database_write(tmp_path):
 def test_delta_generations_preserve_rows_share_parts_and_respect_reader_pins(tmp_path):
     root, source = _repo(tmp_path, cold=True)
     publish_snapshot.publish_snapshot(root, source, now=NOW)
-    first_info = snapshots.latest_snapshot(source)
-    assert first_info is not None
+    pin = snapshots.pin_latest_generation(source)
+    first_info = pin.info
     assert first_info.manifest_schema_version == 2
     assert {record["table"] for record in first_info.parts} == {
         "main.intraday_prices", "main.bitemporal_facts", "main.source_response_receipts",
@@ -281,13 +209,17 @@ def test_delta_generations_preserve_rows_share_parts_and_respect_reader_pins(tmp
         assert con.execute("SELECT response_body FROM source_response_receipts").fetchone() == (
             b"\x00\x01\x02",
         )
-        assert con.execute("SELECT COUNT(*) FROM duplicate_events").fetchone() == (2,)
+        assert con.execute(
+            "SELECT COUNT(*) FROM actions_fetch_log WHERE ticker='DUP'"
+        ).fetchone() == (2,)
 
-    pin = snapshots.pin_latest_generation(source)
     writer = duckdb.connect(str(source))
     writer.execute(
         "INSERT INTO bitemporal_facts VALUES "
-        "(2, '2019-01-01', '2026-10-02', '2026-10-02', 2, 'late old event')"
+        "(2,1,'SPY','SPY','fixture',TIMESTAMP '2019-01-01',NULL,"
+        "TIMESTAMP '2026-10-02',TIMESTAMP '2026-10-02',2,'{}',?,"
+        "'fixture','v1',?, ?, ?)",
+        ["f" * 64, "c" * 64, "e" * 64, "1" * 64],
     )
     writer.execute("UPDATE prices SET volume=NULL")
     writer.execute("DELETE FROM jobs WHERE id=1")
@@ -300,6 +232,10 @@ def test_delta_generations_preserve_rows_share_parts_and_respect_reader_pins(tmp
     assert first_part_paths & second_part_paths
     assert len({record["partition"] for record in second["parts"]
                 if record["table"] == "main.bitemporal_facts"}) == 2
+    assert second["metrics"]["cold_copy_operations"] == 1
+    assert third["metrics"]["cold_copy_operations"] == 0
+    assert third["metrics"]["cold_bytes_serialized"] == 0
+    assert all(record["key_min"] and record["key_max"] for record in third["parts"])
     latest = snapshots.pin_latest_generation(source)
     try:
         assert latest.info.generation_id == Path(third["snapshot"]).stem
@@ -312,7 +248,9 @@ def test_delta_generations_preserve_rows_share_parts_and_respect_reader_pins(tmp
             ]
             assert con.execute("SELECT volume FROM prices").fetchone() == (None,)
             assert con.execute("SELECT COUNT(*) FROM jobs").fetchone() == (0,)
-            assert con.execute("SELECT COUNT(*) FROM duplicate_events").fetchone() == (2,)
+            assert con.execute(
+                "SELECT COUNT(*) FROM actions_fetch_log WHERE ticker='DUP'"
+            ).fetchone() == (2,)
     finally:
         latest.close()
     pin.close()
@@ -331,20 +269,17 @@ def test_generation_pin_refuses_a_corrupt_cold_part(tmp_path):
         snapshots.pin_latest_generation(source)
 
 
-def test_eight_generation_readers_do_not_contend_with_primary_writer(tmp_path):
+def test_eight_generation_readers_do_not_contend_with_primary_writer(tmp_path, monkeypatch):
     root, source = _repo(tmp_path, cold=True)
     publish_snapshot.publish_snapshot(root, source, now=NOW)
     writer = duckdb.connect(str(source))
+    monkeypatch.setattr(engine_db.settings, "DEFAULT_DB", source)
 
     def read_generation(_index):
-        pin = snapshots.pin_latest_generation(source)
-        try:
-            with duckdb.connect(str(pin.info.path), read_only=True) as con:
-                return con.execute(
-                    "SELECT COUNT(*), MIN(event_at) FROM bitemporal_facts"
-                ).fetchone()
-        finally:
-            pin.close()
+        with engine_db.connect(source, read_only=True, wait_s=0) as con:
+            return con.execute(
+                "SELECT COUNT(*), MIN(event_at) FROM bitemporal_facts"
+            ).fetchone()
 
     try:
         with ThreadPoolExecutor(max_workers=8) as pool:
@@ -364,7 +299,10 @@ def test_failed_pointer_swap_keeps_prior_generation_and_prunes_new_parts(
     con = duckdb.connect(str(source))
     con.execute(
         "INSERT INTO bitemporal_facts VALUES "
-        "(2, '2019-01-01', '2026-10-02', '2026-10-02', 2, 'late')"
+        "(2,1,'SPY','SPY','fixture',TIMESTAMP '2019-01-01',NULL,"
+        "TIMESTAMP '2026-10-02',TIMESTAMP '2026-10-02',2,'{}',?,"
+        "'fixture','v1',?, ?, ?)",
+        ["f" * 64, "c" * 64, "e" * 64, "1" * 64],
     )
     con.close()
     monkeypatch.setattr(
@@ -391,8 +329,114 @@ def test_reader_refuses_generation_from_newer_database_schema(tmp_path):
     manifest_path = source.parent / "snapshots" / Path(manifest["snapshot"]).with_suffix(".json")
     payload = json.loads(manifest_path.read_text())
     payload.pop("manifest_sha256")
-    payload["database_schema_id"] = 1
+    payload["database_schema_id"] = 2
     payload["manifest_sha256"] = backup_database.canonical_sha256(payload)
     manifest_path.write_text(json.dumps(payload))
 
     assert snapshots.latest_snapshot(source) is None
+
+
+@pytest.mark.parametrize(
+    ("column", "value", "message"),
+    [
+        ("migration_sha256", "f" * 64, "hash does not match source"),
+        ("source_commit", "not-a-git-commit", "source commit is invalid"),
+    ],
+)
+def test_publisher_uses_exact_shared_schema_verifier(
+    tmp_path, column, value, message,
+):
+    root, source = _repo(tmp_path)
+    con = duckdb.connect(str(source))
+    con.execute(f"UPDATE schema_migrations SET {column}=?", [value])
+    con.close()
+
+    with pytest.raises(publish_snapshot.SnapshotError, match=message):
+        publish_snapshot.publish_snapshot(root, source, now=NOW)
+
+
+def test_corrupt_recent_generation_is_republished_not_throttled(tmp_path):
+    root, source = _repo(tmp_path, cold=True)
+    first = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    part = source.parent / "snapshots" / first["parts"][0]["path"]
+    content = bytearray(part.read_bytes())
+    content[len(content) // 2] ^= 1
+    part.chmod(0o600)
+    part.write_bytes(content)
+
+    replacement = publish_snapshot.publish_snapshot(
+        root, source, now=NOW + timedelta(seconds=1), min_age_minutes=120,
+    )
+
+    assert replacement.get("status") != "skipped"
+    with snapshots.pin_latest_generation(source) as info:
+        assert info.generation_id == Path(replacement["snapshot"]).stem
+
+
+def test_publication_and_failure_pruning_are_serialized(tmp_path, monkeypatch):
+    root, source = _repo(tmp_path, cold=True)
+    reached_manifest = threading.Event()
+    release_manifest = threading.Event()
+    second_started = threading.Event()
+    original_write = publish_snapshot._write_manifest
+    original_build = publish_snapshot._build_hot_database
+
+    def paused_write(path, manifest):
+        if threading.current_thread().name == "publisher-a":
+            reached_manifest.set()
+            assert release_manifest.wait(10)
+        return original_write(path, manifest)
+
+    def failing_second(*args, **kwargs):
+        if threading.current_thread().name == "publisher-b":
+            raise OSError("second publisher failed")
+        return original_build(*args, **kwargs)
+
+    monkeypatch.setattr(publish_snapshot, "_write_manifest", paused_write)
+    monkeypatch.setattr(publish_snapshot, "_build_hot_database", failing_second)
+    results = {}
+
+    def run_a():
+        results["a"] = publish_snapshot.publish_snapshot(root, source, now=NOW)
+
+    def run_b():
+        second_started.set()
+        try:
+            publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=1))
+        except publish_snapshot.SnapshotError as exc:
+            results["b"] = str(exc)
+
+    first_thread = threading.Thread(target=run_a, name="publisher-a")
+    second_thread = threading.Thread(target=run_b, name="publisher-b")
+    first_thread.start()
+    assert reached_manifest.wait(10)
+    second_thread.start()
+    assert second_started.wait(10)
+    second_thread.join(0.1)
+    assert second_thread.is_alive(), "second publisher did not wait for publication lock"
+    release_manifest.set()
+    first_thread.join(20)
+    second_thread.join(20)
+
+    assert results["b"] == "second publisher failed"
+    with snapshots.pin_latest_generation(source) as info:
+        assert info.generation_id == Path(results["a"]["snapshot"]).stem
+
+
+def test_new_payload_directory_chain_is_synced_before_pointer(tmp_path, monkeypatch):
+    root, source = _repo(tmp_path, cold=True)
+    synced = []
+    original_sync = publish_snapshot._sync_directory
+
+    def recording_sync(path):
+        synced.append(path.relative_to(source.parent / "snapshots").as_posix() or ".")
+        original_sync(path)
+
+    monkeypatch.setattr(publish_snapshot, "_sync_directory", recording_sync)
+    publish_snapshot.publish_snapshot(root, source, now=NOW)
+
+    assert "parts" in synced
+    assert "parts/intraday_prices" in synced
+    assert "blobs" in synced
+    assert any(value.startswith("blobs/") for value in synced)
+    assert synced[-1] == "."
