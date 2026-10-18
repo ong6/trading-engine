@@ -93,6 +93,13 @@ def test_converter_dry_run_apply_manifest_and_verified_removal(tmp_path: Path):
     assert applied["manifest_sha256"] == convert_raw_payloads._manifest_identity(applied)
     assert before_mtime > 0
 
+    repeated = convert_raw_payloads.convert(
+        [path.parent], base=tmp_path, apply=True, remove_originals=True,
+        manifest_path=manifest_path,
+    )
+    assert repeated == applied
+    assert json.loads(manifest_path.read_text()) == applied
+
 
 def test_converter_does_not_remove_original_when_manifest_write_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
@@ -110,6 +117,58 @@ def test_converter_does_not_remove_original_when_manifest_write_fails(
         )
     assert path.exists()
     assert raw_payload.read_compressed(path, expected_sha256=path.stem) == path.read_bytes()
+
+
+def test_converter_resumes_after_crash_during_original_removal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    first = _plain(tmp_path, b"first")
+    second = _plain(tmp_path, b"second")
+    manifest_path = tmp_path / "manifest.json"
+    original_remove = convert_raw_payloads._remove_original
+    calls = 0
+
+    def interrupt_second(entry, base):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("injected unlink interruption")
+        original_remove(entry, base)
+
+    monkeypatch.setattr(convert_raw_payloads, "_remove_original", interrupt_second)
+    with pytest.raises(OSError, match="injected unlink"):
+        convert_raw_payloads.convert(
+            [first.parent], base=tmp_path, apply=True, remove_originals=True,
+            manifest_path=manifest_path,
+        )
+    persisted = json.loads(manifest_path.read_text())
+    assert len(persisted["entries"]) == 2
+    assert sum(path.exists() for path in (first, second)) == 1
+
+    monkeypatch.setattr(convert_raw_payloads, "_remove_original", original_remove)
+    resumed = convert_raw_payloads.convert(
+        [first.parent], base=tmp_path, apply=True, remove_originals=True,
+        manifest_path=manifest_path,
+    )
+    assert resumed == persisted
+    assert not first.exists() and not second.exists()
+
+
+def test_converter_refuses_validly_hashed_manifest_that_differs_from_payload(tmp_path: Path):
+    path = _plain(tmp_path)
+    manifest_path = tmp_path / "manifest.json"
+    convert_raw_payloads.convert(
+        [path], base=tmp_path, apply=True, manifest_path=manifest_path,
+    )
+    manifest = json.loads(manifest_path.read_text())
+    manifest["entries"][0]["compressed_size"] += 1
+    manifest["manifest_sha256"] = convert_raw_payloads._manifest_identity(manifest)
+    manifest_path.write_text(json.dumps(manifest))
+
+    with pytest.raises(FreeSourceError, match="differs from conversion manifest"):
+        convert_raw_payloads.convert(
+            [path], base=tmp_path, apply=True, manifest_path=manifest_path,
+        )
 
 
 def test_codec_works_in_scheduler_minimal_path():
