@@ -48,7 +48,10 @@ _PATH_RULES = (
     ),
     (
         "absolute_windows_home",
-        re.compile(r"(?i)(?<![A-Za-z0-9])[A-Z]:[\\/]users[\\/][^\\/:\s]+[\\/]"),
+        re.compile(
+            r"(?i)(?<![A-Za-z0-9])[A-Z]:[\\/]+users[\\/]+"
+            r"[^\\/:\s\"']+(?=$|[\\/]+|[\s\"'`,;:)\]}])"
+        ),
     ),
     ("absolute_data_mount", re.compile(r"(?<![A-Za-z0-9])/data[0-9]{2}(?:/|\b)")),
     (

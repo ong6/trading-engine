@@ -181,6 +181,36 @@ def test_added_home_and_data_paths_are_redacted(tmp_path, capsys):
     assert private_mount not in output.out + output.err
 
 
+def test_windows_home_boundaries_escaped_text_filenames_and_symlinks(tmp_path, capsys):
+    root, _remote = _repository(tmp_path)
+    base = _git(root, "rev-parse", "HEAD").stdout.strip()
+    separator = "\\"
+    terminal = "C:" + separator + "Users" + separator + "private-user"
+    child = terminal + separator + "project"
+    escaped = "C:" + separator * 2 + "Users" + separator * 2 + "private-user"
+    (root / "windows.txt").write_text(f"{terminal}\n{child}\n{escaped}\n")
+    (root / escaped).write_text("safe filename fixture\n")
+    (root / "terminal-link").symlink_to(terminal)
+    head = _commit(root)
+    scanner = public_hygiene.RepositoryScanner(root)
+
+    committed = scanner.scan_range(f"{base}..{head}")
+    worktree = scanner.scan_worktree()
+    result = public_hygiene.main(
+        ["--repo-root", str(root), "--range", f"{base}..{head}", "--worktree"]
+    )
+    output = capsys.readouterr()
+
+    committed_windows = [item for item in committed if item.rule == "absolute_windows_home"]
+    worktree_windows = [item for item in worktree if item.rule == "absolute_windows_home"]
+    assert len(committed_windows) >= 4
+    assert len(worktree_windows) >= 4
+    assert any(item.path == "terminal-link" for item in committed_windows)
+    assert any(item.path == "<redacted-path>" for item in committed_windows)
+    assert result == 1
+    assert not any(candidate in output.out + output.err for candidate in (terminal, child, escaped))
+
+
 def test_secret_content_and_filename_never_print_candidate(tmp_path, capsys):
     root, _remote = _repository(tmp_path)
     base = _git(root, "rev-parse", "HEAD").stdout.strip()
