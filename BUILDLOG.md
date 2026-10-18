@@ -3843,7 +3843,16 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **What:** Session evidence is stored SPY dates union hard-invalid rejected SPY dates; basis holds count only on an XNYS session. Every P15 label/horizon path shares that observed calendar, without generated dates or stored-label rewrites.
   Missing trusted P15 execution/sleeve bars wait with audited `untrusted_bar`; windows complete without repaired prices or promotion of another source. Cold UI readiness has a bounded wait covering the measured build.
 - **Evidence:** `tests/test_p15_cleanup_rulings.py` and the touched P15 suites → 309 passed; forward/integration suites → 139 passed. The real-store acceptance follows the single source binding.
-- **Metrics:** pending final snapshot.
+- **Metrics:** amendment server −17, tools −14, product +70; final snapshot budget passes.
 - **Next:** amend the undeployed revision-15 source, bind once, and finish full acceptance.
+
+## 2026-10-18 — Complete the amended revision-15 acceptance checks
+
+- **Why:** The binding orchestrator cleanup rulings require unchanged labels, audited waits, complete money replay and literal post-v2 deployment before landing.
+- **What:** The amended source and revision-15 binding preserve the exact revision-14 predecessor contracts. All 108 previously blocked labels validate and all four stored label tables remain unchanged.
+  Literal apply, P15 reporting, 3,862-name nightly fixture pass, history timer reinstall, forward reviews and 12 board views pass. Replay matches 152 of 165 book-days; all 13 October-16 differences name invalid held bars, including SPY in all three P15 books.
+- **Evidence:** Full UTC and Singapore suites → 5,376 passed each, no failures/errors/skips; UTC 172.45s, Singapore 155.38s. Money replay across 33 books and five dates uses the $0.005 tolerance without valid-data differences.
+- **Metrics:** amendment server −17, tools −14, product +70; hygiene budget passes.
+- **Next:** complete revision-14 rollback and delete the sole rehearsal copy, then hand the exact landing SHA to the orchestrator.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->

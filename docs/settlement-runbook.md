@@ -1251,3 +1251,31 @@ p22_autopush_held
 printf 'P22 rollback complete; autopush timer and service held for reconciliation\n'
 ```
 
+
+## Revision-15 cleanup rehearsal — October 18 amendment
+
+The amended source and registration were rehearsed after literal v2 deployment on the
+October 18 published snapshot, with D0 October 19 unchanged. Cleanup moved 355 original
+rows from 327 tickers (202 rows on October 16), preserved every tuple in the rejection
+table, and changed no valid price row. All 108 formerly blocked common-entry labels
+validate; every stored label tuple and hash in the four label tables is unchanged.
+
+The post-cleanup P15 report exits zero. Ordinary E1/sector/XS reviews pass twice per
+family, the existing history timer is reinstalled, and API/UI checks pass with runtime
+versions 8/12/23. A fixture-backed nightly collect of 3,862 names has zero failures;
+normal screen/league idempotency and P15 verification pass. Twelve board views at
+1440 and 390 pass, with 18 held-row warnings at each width matching rejected evidence.
+
+The money replay covers 33 books over October 12–16: 152 of 165 book-days agree in
+cash, positions and equity within $0.005. All 13 differences are on October 16 and have
+an invalid held-bar cause: HAE in the opportunity book, DELL in discretionary, DELL/UMC
+in three equal-weight books, AGL/DELL in XS, and SPY in the benchmark, dual-momentum,
+macro and three P15 books. Missing SPY execution remains pending with `untrusted_bar`;
+no replacement price was introduced. Stored historical money and labels are not restated
+by deployment. Rollback restores the original revision-14 v2-migrated backup and evidence.
+
+The cold UI build exceeded the former 60-second readiness wait; the helper now waits
+at most 300 seconds, matching the bounded UI build timeout. The full UTC and Singapore
+suites each pass 5,376 tests, UI 70 tests and build pass, and the registered source and
+required lint checks pass. The orchestrator still accepts the exact landing SHA and
+executes the production blocks; development rehearsal grants no live-service authority.
