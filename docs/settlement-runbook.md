@@ -890,6 +890,16 @@ Removed $XDG_RUNTIME_DIR/systemd/user/p22-rehearsal-accounts-settle.timer.
 
 ## Revision-15 deploy addendum — only after v2 is verified
 
+**Landing gate: NO-GO pending P15 label-calendar reconciliation.** The October 18
+snapshot rehearsal applied cleanup successfully, then the P15 report exited 75 with
+`common-entry label evidence differs`: removing the invalid October-16 SPY bar leaves
+nine price-derived sessions for 108 retained ten-session labels (first: label 2448,
+ACN decision 352, October 5–16). Their stored hashes are intact. The orchestrator must
+resolve that calendar dependency and repeat this addendum before production use; no
+label, score, outcome or gate may be rewritten to bypass it. The October-16 P15
+window also refuses `SPY sleeve price is unavailable` after cleanup; the full money replay
+is incomplete until that missing-bar behavior is resolved.
+
 The orchestrator runs this immediately after the revision-14 deployment passes, with D0
 2026-10-19 retained. It changes admission and operational source identities; it does not create
 a new cost break or rewrite historical evidence. Paste blocks R15.1–R15.3 in the same Bash

@@ -3828,4 +3828,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** combined snapshot is published at closure.
 - **Next:** rehearse the literal sequence on one snapshot copy, then complete the requested suite measurements.
 
+## 2026-10-18 — Record revision-15 rehearsal no-go
+
+- **Why:** The orchestrator's revision-15 integration goal requires the post-v2 snapshot rehearsal and a passing P15 gate after cleanup.
+- **What:** Integrated six lanes, bound source then registration once, and executed literal v2 deployment on the single copied snapshot.
+  Cleanup archived 355 originals from 327 tickers with zero valid rows changed. Revision-15 forward reviews and 12 board views pass; P15 refuses 108 labels after the invalid SPY October-16 bar leaves its price-derived calendar, and that day's sleeve replay also refuses.
+- **Evidence:** `server.agent_evaluation_reporting` after cleanup → exit 75, `common-entry label evidence differs`; first case label 2448, ACN decision 352, October 5–16 (nine retained SPY sessions versus ten registered). Full UTC three runs and Singapore: 5,370 passed each; median UTC 192.50s.
+- **Metrics:** server +112, tools +364, product +747 from baseline; budget passes.
+- **Next:** orchestrator resolves the P15 calendar/missing-SPY interaction and authorizes affected source scope; landing remains NO-GO.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->
