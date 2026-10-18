@@ -638,6 +638,7 @@ def test_backfill_validates_parameters_and_builds_a_bounded_transient_unit(tmp_p
     values = run_job.validate_backfill_parameters(
         spec, "2026-10-01", "2026-10-02", "incident-1"
     )
+    assert run_job.backfill_scheduled_for(values) == datetime(2026, 10, 1, tzinfo=UTC)
     command = run_job._backfill_command(
         spec, repo_root=repo, logs_dir=tmp_path / "logs", scheduled_for=SLOT,
         idempotency_key="backfill-1", parameters=values,

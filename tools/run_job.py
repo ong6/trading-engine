@@ -412,6 +412,14 @@ def validate_backfill_parameters(
     return parameters
 
 
+def backfill_scheduled_for(parameters: Mapping[str, Any]) -> datetime:
+    """Use the registered backfill start date as its stable one-off scope slot."""
+    try:
+        return datetime.fromisoformat(str(parameters["from"])).replace(tzinfo=UTC)
+    except (KeyError, ValueError) as exc:
+        raise JobRunError("backfill parameters have no valid start date") from exc
+
+
 def child_argv(spec: JobSpec, repo_root: Path, parameters: Mapping[str, Any]) -> list[str]:
     argv = [
         value.replace("{repo}", str(repo_root)).replace("%h/trading-engine", str(repo_root))
@@ -995,7 +1003,7 @@ def main(argv: list[str] | None = None) -> int:
             parameters = validate_backfill_parameters(
                 spec, args.from_date, args.through, args.reason
             )
-            scheduled_for = datetime.now(UTC)
+            scheduled_for = backfill_scheduled_for(parameters)
             command = _backfill_command(
                 spec, repo_root=repo_root, logs_dir=args.logs_dir.resolve(),
                 scheduled_for=scheduled_for, idempotency_key=args.idempotency_key,
