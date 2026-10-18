@@ -618,11 +618,7 @@ class ReleaseOperations:
         )
         if ancestor.returncode != 0:
             raise DeployError("approved source is not a fast-forward of the current source")
-        registration_source_commit = (
-            self._registration_source_commit(repo_root, approved_sha)
-            if adapter_set == "revision-15"
-            else None
-        )
+        registration_source_commit = self._registration_source_commit(repo_root, approved_sha)
         lock_hashes = {}
         for relative in ("uv.lock", "ui/package-lock.json"):
             content = self.runner.run(
@@ -1251,6 +1247,7 @@ print(json.dumps(applied, sort_keys=True))
             {
                 "optional_failures": optional_failures,
                 "apply_exit": applied.returncode,
+                "apply_errors": [str(value) for value in first.get("errors", [])],
                 "result_sha256": _digest(first),
                 "post_audit_sha256": _digest(after),
             }
@@ -1681,7 +1678,10 @@ print(json.dumps({'versions': [forward_review.RUNTIME_CONTRACT_VERSION,
         for name in sorted(enablement):
             values = state.inventory["units"][name]
             prior = values.get("UnitFileState")
-            if values.get("LoadState") == "not-found":
+            if (
+                values.get("LoadState") == "not-found"
+                and state.inventory["unit_files"][name]["kind"] == "absent"
+            ):
                 continue
             if prior == "enabled":
                 self._systemctl("enable", name)

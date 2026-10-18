@@ -942,7 +942,8 @@ def test_required_unit_that_does_not_converge_is_refused(tmp_path):
                 "crontab": False,
                 "enable_linger": False,
             }
-            payload = {"status": "changes-required", "errors": [], "changes": changes}
+            errors = ["provider response refused"] if self.index == 1 else []
+            payload = {"status": "changes-required", "errors": errors, "changes": changes}
             returncode = 1 if self.index == 1 else 0
             self.index += 1
             return subprocess.CompletedProcess([], returncode, json.dumps(payload), "")
@@ -996,7 +997,8 @@ def test_optional_provider_unit_failure_is_classified_without_release_failure(tm
                 "crontab": False,
                 "enable_linger": False,
             }
-            payload = {"status": "changes-required", "errors": [], "changes": changes}
+            errors = ["provider response refused"] if self.index == 1 else []
+            payload = {"status": "changes-required", "errors": errors, "changes": changes}
             returncode = 1 if self.index == 1 else 0
             self.index += 1
             return subprocess.CompletedProcess([], returncode, json.dumps(payload), "")
@@ -1036,6 +1038,7 @@ def test_optional_provider_unit_failure_is_classified_without_release_failure(tm
     result = operations.install_automation(state)
     assert result["status"] == "optional-failures"
     assert result["optional_failures"] == ["massive-options-daily.service"]
+    assert result["apply_errors"] == ["provider response refused"]
 
 
 def test_prepared_dependency_without_executable_environment_is_refused(transaction):
