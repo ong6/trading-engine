@@ -42,7 +42,10 @@ _PATH_RULES = (
         "absolute_home_path",
         re.compile(r"(?i)(?<![A-Za-z0-9])/(?:home|users)/[A-Za-z0-9._-]+(?:/|\b)"),
     ),
-    ("absolute_root_home", re.compile(r"(?<![A-Za-z0-9])/root(?:/|\b)")),
+    (
+        "absolute_root_home",
+        re.compile(r"(?<![A-Za-z0-9])/" + r"root(?:/|\b)"),
+    ),
     (
         "absolute_windows_home",
         re.compile(r"(?i)(?<![A-Za-z0-9])[A-Z]:[\\/]users[\\/][^\\/:\s]+[\\/]"),

@@ -74,6 +74,16 @@ def test_safe_public_fixture_and_binary_commit_pass(tmp_path):
     assert scanner.scan_range(f"{base}..{head}") == set()
 
 
+def test_checker_source_does_not_trigger_its_path_rules():
+    source = Path(public_hygiene.__file__).read_text()
+
+    findings = public_hygiene._scan_value(
+        "tools/public_hygiene.py", source, denylist=()
+    )
+
+    assert not (_rules(findings) & {rule for rule, _pattern in public_hygiene._PATH_RULES})
+
+
 def test_added_home_and_data_paths_are_redacted(tmp_path, capsys):
     root, _remote = _repository(tmp_path)
     base = _git(root, "rev-parse", "HEAD").stdout.strip()
