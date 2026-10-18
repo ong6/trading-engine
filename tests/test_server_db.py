@@ -41,16 +41,18 @@ def test_unrelated_connection_failure_is_not_mislabeled_busy(monkeypatch):
         db.read_con()
 
 
-def test_unversioned_store_keeps_transition_read_path(tmp_path, monkeypatch):
+def test_missing_generation_never_opens_unversioned_primary(tmp_path, monkeypatch):
     database = tmp_path / "legacy.duckdb"
     duckdb.connect(str(database)).close()
     monkeypatch.setattr(db, "DEFAULT_DB", database)
+    opened = []
+    monkeypatch.setattr(
+        db.engine_db, "connect", lambda *_args, **_kwargs: opened.append(True),
+    )
 
-    connection = db.read_con()
-    try:
-        assert connection.execute("SELECT current_database()").fetchone()
-    finally:
-        connection.close()
+    with pytest.raises(DBBusyError, match="no valid published generation"):
+        db.read_con()
+    assert opened == []
 
 
 def test_versioned_store_without_generation_fails_closed(tmp_path, monkeypatch):

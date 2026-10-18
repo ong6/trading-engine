@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import timedelta
 from pathlib import Path
 from typing import Iterator
 
@@ -28,6 +29,12 @@ _DATA_SOURCE_STATE: ContextVar[dict[str, str | None] | None] = ContextVar(
 _EVIDENCE_SNAPSHOT_REQUIRED: ContextVar[bool] = ContextVar(
     "evidence_snapshot_required", default=False
 )
+GENERAL_GENERATION_MAX_AGE = timedelta(hours=24)
+DATASET_GENERATION_MAX_AGE = {
+    "board": GENERAL_GENERATION_MAX_AGE,
+    "evidence": timedelta(minutes=5),
+}
+_DATASET_CLASS: ContextVar[str] = ContextVar("api_dataset_class", default="board")
 
 
 def db_path() -> Path:
@@ -75,20 +82,9 @@ def read_con() -> duckdb.DuckDBPyConnection:
     try:
         pin = pin_latest_generation(
             db_path(), newer_than_database=_EVIDENCE_SNAPSHOT_REQUIRED.get(),
+            max_age=DATASET_GENERATION_MAX_AGE[_DATASET_CLASS.get()],
         )
     except GenerationError as exc:
-        # Before schema ID 0 is installed, preserve compatibility for old and
-        # synthetic stores. A revision-16 store is never allowed this fallback.
-        try:
-            legacy = _connect(read_only=True)
-        except Exception:
-            raise DBBusyError(str(exc)) from exc
-        try:
-            if engine_db.recorded_schema_id(legacy) is None:
-                return legacy
-        except engine_db.SchemaMigrationRequired:
-            pass
-        legacy.close()
         raise DBBusyError(str(exc)) from exc
     try:
         connection = engine_db.connect(pin.info.path, read_only=True, wait_s=0)
@@ -101,6 +97,7 @@ def read_con() -> duckdb.DuckDBPyConnection:
             state.update(
                 source="snapshot",
                 snapshot_as_of=pin.info.as_of.isoformat(),
+                generation_id=pin.info.generation_id,
             )
         return _PinnedConnection(connection, pin)
     except BaseException:
@@ -117,7 +114,7 @@ def write_con() -> duckdb.DuckDBPyConnection:
 @contextmanager
 def response_data_source() -> Iterator[dict[str, str | None]]:
     """Track the source selected by a request for response-header middleware."""
-    state = {"source": "primary", "snapshot_as_of": None}
+    state = {"source": "generation", "snapshot_as_of": None, "generation_id": None}
     token = _DATA_SOURCE_STATE.set(state)
     try:
         yield state
@@ -129,7 +126,9 @@ def response_data_source() -> Iterator[dict[str, str | None]]:
 def require_fresh_evidence_snapshot() -> Iterator[None]:
     """Allow snapshot fallback only if publication followed the last DB write."""
     token = _EVIDENCE_SNAPSHOT_REQUIRED.set(True)
+    dataset_token = _DATASET_CLASS.set("evidence")
     try:
         yield
     finally:
+        _DATASET_CLASS.reset(dataset_token)
         _EVIDENCE_SNAPSHOT_REQUIRED.reset(token)

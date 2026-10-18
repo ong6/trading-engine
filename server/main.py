@@ -178,6 +178,9 @@ class DataSourceHeaderMiddleware:
                     headers.append(
                         (b"x-snapshot-as-of", str(state["snapshot_as_of"]).encode("ascii"))
                     )
+                    headers.append(
+                        (b"x-generation-id", str(state["generation_id"]).encode("ascii"))
+                    )
                     message = {**message, "headers": headers}
                 await send(message)
 

@@ -111,22 +111,14 @@ async def _request_messages(path: str) -> list[dict]:
 
 def _snapshot_source(path: FilePath) -> None:
     con = duckdb.connect(str(path))
-    con.execute("CREATE TABLE prices (date DATE, ticker VARCHAR, volume BIGINT)")
-    con.execute("INSERT INTO prices VALUES ('2026-10-01', 'SPY', 1)")
-    con.execute("CREATE TABLE jobs (id INTEGER, state VARCHAR)")
+    migration = schema_migrations.migrations()[0]
+    migration.module.bootstrap(con)
     con.execute(
-        "CREATE TABLE portfolios (id VARCHAR, name VARCHAR, strategy VARCHAR, "
-        "config VARCHAR, created DATE, active BOOLEAN, cash DOUBLE, initial_cash DOUBLE, "
-        "execution_profile VARCHAR)"
-    )
-    con.execute("CREATE TABLE sim_orders (id INTEGER)")
-    con.execute("CREATE TABLE sim_fills (id INTEGER)")
-    con.execute(
-        "CREATE TABLE sim_equity (portfolio_id VARCHAR, date DATE, equity DOUBLE, "
-        "cash DOUBLE, n_positions INTEGER)"
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume,first_fetched_at) "
+        "VALUES ('SPY','2026-10-01',1,1,1,1,1,'2026-10-01')"
     )
     catalog_hash = schema_migrations.catalog_sha256(con)
-    migration = schema_migrations.migrations()[0]
+    assert catalog_hash == migration.module.EXPECTED_CATALOG_SHA256
     con.execute(
         "CREATE TABLE schema_migrations (migration_id INTEGER PRIMARY KEY, "
         "migration_sha256 VARCHAR, source_commit VARCHAR, applied_at TIMESTAMPTZ, "
@@ -602,8 +594,9 @@ def test_locked_get_uses_snapshot_header_but_stale_evidence_get_stays_503(
         assert health_start["status"] == 200
         assert headers[b"x-data-source"] == b"snapshot"
         assert b"x-snapshot-as-of" in headers
+        assert headers[b"x-generation-id"].startswith(b"market-")
 
-        writer.execute("INSERT INTO jobs VALUES (1, 'running')")
+        writer.execute("INSERT INTO jobs (id,state) VALUES (1, 'running')")
         stale_at = datetime.fromisoformat(headers[b"x-snapshot-as-of"].decode()) + timedelta(
             seconds=1
         )
