@@ -46,6 +46,7 @@ import argparse
 import fcntl
 import glob
 import json
+import math
 import os
 import re
 import shutil
@@ -61,11 +62,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from statistics import median
-from typing import Callable
+from typing import Callable, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import duckdb
 
+from engine import job_contract
 from engine.lib import db
 from engine.lib.resources import write_text_atomic
 from engine.lib.settings import DEFAULT_DB, LOGS_DIR, REPO_ROOT
@@ -73,7 +75,7 @@ from engine.lib.snapshots import latest_snapshot
 from server import agent_model_client, schedule_contract
 from server.json_utils import loads_object
 from tools import log_retention, model_gateway_check
-from tools.stage_timings import load_timings
+from tools.stage_timings import FLOW_FIELDS, load_timings
 
 OPS_DIR = LOGS_DIR / "ops"
 DIGEST_RETENTION_DAYS = 30
@@ -140,7 +142,14 @@ CREATE TABLE IF NOT EXISTS unit_runs (
   PRIMARY KEY (unit, started));
 CREATE TABLE IF NOT EXISTS stage_runs (
   run_id TEXT, stage TEXT, driver TEXT, started TEXT, ended TEXT, seconds REAL,
-  exit_code INT, PRIMARY KEY (run_id, stage, started));
+  exit_code INT, input_rows REAL, output_rows REAL, input_bytes REAL, output_bytes REAL,
+  writer_hold_seconds REAL, lock_wait_seconds REAL,
+  PRIMARY KEY (run_id, stage, started));
+CREATE TABLE IF NOT EXISTS job_runs (
+  run_id TEXT, attempt INT, job_id TEXT, spec_version INT, spec_sha256 TEXT,
+  idempotency_key TEXT, scheduled_for TEXT, started TEXT, ended TEXT, seconds REAL,
+  process_exit INT, work_status TEXT, reason TEXT, retry_disposition TEXT,
+  catch_up_disposition TEXT, receipt_path TEXT, PRIMARY KEY (run_id, attempt));
 CREATE TABLE IF NOT EXISTS log_counts (
   hour TEXT, source TEXT, lines INT, bytes INT, errors INT, warns INT,
   PRIMARY KEY (hour, source));
@@ -428,14 +437,116 @@ def collect_stages(db: sqlite3.Connection, logs_dir: Path, start: datetime) -> l
     """Store every stage row; return the newly stored ones that ended at or after ``start``."""
     fresh = []
     for row in load_timings(logs_dir / "stage-timings.jsonl"):
+        flow = {
+            field: (
+                float(row[field])
+                if field in row
+                and not isinstance(row[field], bool)
+                and isinstance(row[field], (int, float))
+                and math.isfinite(row[field])
+                and row[field] >= 0
+                else None
+            )
+            for field in FLOW_FIELDS
+        }
         cursor = db.execute(
-            "INSERT OR IGNORE INTO stage_runs VALUES (?,?,?,?,?,?,?)",
+            "INSERT OR IGNORE INTO stage_runs (run_id, stage, driver, started, ended, seconds, "
+            "exit_code, input_rows, output_rows, input_bytes, output_bytes, "
+            "writer_hold_seconds, lock_wait_seconds) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (row["run_id"], row["stage"], row["driver"], row.get("started", ""),
-             row["ended"], float(row["seconds"]), row["exit"]),
+             row["ended"], float(row["seconds"]), row["exit"],
+             *(flow[field] for field in FLOW_FIELDS)),
         )
+        row = {**row, **flow}
         if cursor.rowcount and row["ended"][:19] >= _iso(start)[:19]:
             fresh.append(row)
     return fresh
+
+
+def _job_receipt_row(receipt: Mapping[str, object], receipt_path: str = "") -> tuple:
+    statuses = {
+        "success", "noop", "degraded", "retryable_failure", "terminal_failure",
+        "interrupted", "superseded",
+    }
+    required = ("run_id", "job_id", "spec_sha256", "idempotency_key", "scheduled_for",
+                "started_at", "ended_at", "work_status", "reason")
+    if receipt.get("schema_version") != 1 or any(
+        not isinstance(receipt.get(field), str) or not receipt[field] for field in required
+    ):
+        raise ValueError("malformed registered job receipt")
+    if receipt["work_status"] not in statuses:
+        raise ValueError("unknown registered job status")
+    attempt = receipt.get("attempt")
+    version = receipt.get("spec_version")
+    process_exit = receipt.get("process_exit")
+    if (isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1
+            or isinstance(version, bool) or not isinstance(version, int) or version < 1
+            or process_exit is not None
+            and (isinstance(process_exit, bool) or not isinstance(process_exit, int))):
+        raise ValueError("malformed registered job receipt numbers")
+    began = datetime.fromisoformat(str(receipt["started_at"]).replace("Z", "+00:00"))
+    ended = datetime.fromisoformat(str(receipt["ended_at"]).replace("Z", "+00:00"))
+    seconds = max(0.0, (ended - began).total_seconds())
+    reason = str(receipt["reason"])
+    if len(reason) > 2000:
+        raise ValueError("registered job reason is too long")
+    return (
+        receipt["run_id"], attempt, receipt["job_id"], version, receipt["spec_sha256"],
+        receipt["idempotency_key"], receipt["scheduled_for"], receipt["started_at"],
+        receipt["ended_at"], seconds, process_exit, receipt["work_status"], reason,
+        str(receipt.get("retry_disposition", "none")),
+        str(receipt.get("catch_up_disposition", "scheduled")), receipt_path,
+    )
+
+
+def store_job_receipt(
+    db: sqlite3.Connection, receipt: Mapping[str, object], receipt_path: str = ""
+) -> bool:
+    row = _job_receipt_row(receipt, receipt_path)
+    cursor = db.execute(
+        "INSERT OR IGNORE INTO job_runs (run_id, attempt, job_id, spec_version, spec_sha256, "
+        "idempotency_key, scheduled_for, started, ended, seconds, process_exit, work_status, "
+        "reason, retry_disposition, catch_up_disposition, receipt_path) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        row,
+    )
+    return bool(cursor.rowcount)
+
+
+def project_job_receipt(receipt: Mapping[str, object], ops_dir: Path = OPS_DIR) -> None:
+    """Project one immutable runner receipt into the existing operations database."""
+    db = open_db(ops_dir)
+    try:
+        store_job_receipt(db, receipt)
+        db.commit()
+    finally:
+        db.close()
+
+
+def collect_job_receipts(
+    db: sqlite3.Connection, logs_dir: Path, start: datetime
+) -> tuple[list[dict], list[str]]:
+    fresh, gaps = [], []
+    root = logs_dir / "job-runs"
+    if not root.is_dir():
+        return fresh, gaps
+    for path in sorted(root.glob("*/*/*.json")):
+        if path.name.endswith(".running.json"):
+            continue
+        try:
+            if path.stat().st_size > 1_048_576:
+                raise ValueError("receipt exceeds size bound")
+            receipt = json.loads(path.read_text())
+            if not isinstance(receipt, dict):
+                raise ValueError("receipt is not an object")
+            store_job_receipt(db, receipt, str(path.relative_to(logs_dir)))
+            ended = datetime.fromisoformat(receipt["ended_at"].replace("Z", "+00:00"))
+        except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+            gaps.append(f"malformed registered job receipt: {path.name}")
+            continue
+        if ended >= start:
+            fresh.append(receipt)
+    return fresh, gaps
 
 
 def store_runs(db: sqlite3.Connection, runs: list[UnitRun]) -> list[dict]:
@@ -593,6 +704,34 @@ def _mb(value: int | None) -> str:
     return "?" if value is None else f"{value / 1_048_576:,.1f} MB"
 
 
+def _flow_value(value: float | int | None, field: str) -> str:
+    if value is None:
+        return "—"
+    value = float(value)
+    if field.endswith("_seconds"):
+        return "0s" if value == 0 else f"{value:.3f}s"
+    if field.endswith("_bytes"):
+        for divisor, suffix in ((1_073_741_824, "GiB"), (1_048_576, "MiB"), (1024, "KiB")):
+            if value >= divisor:
+                return f"{value / divisor:,.1f}{suffix}"
+        return f"{value:,.0f}B"
+    return f"{value:,.0f}" if value.is_integer() else f"{value:,.3f}"
+
+
+def _flow_pair(row: Mapping[str, object], first: str, second: str) -> str:
+    return f"{_flow_value(row.get(first), first)} → {_flow_value(row.get(second), second)}"
+
+
+def _receipt_seconds(row: Mapping[str, object]) -> float:
+    began = datetime.fromisoformat(str(row["started_at"]).replace("Z", "+00:00"))
+    ended = datetime.fromisoformat(str(row["ended_at"]).replace("Z", "+00:00"))
+    return max(0.0, (ended - began).total_seconds())
+
+
+def _markdown_cell(value: object) -> str:
+    return str(value).replace("|", "\\|").replace("\n", " ")
+
+
 def _clock(stamp: str | None) -> str:
     return stamp[11:19] if stamp else "—"
 
@@ -664,12 +803,32 @@ def render(hour: datetime, data: dict) -> str:
                 f"{_clock(item['ended'])} | {_duration(item['seconds'])}{flag} | {typical} | "
                 f"{result} |")
     if data["stages"]:
-        lines += ["", "## Driver stages", "", "| driver | stage | end | duration | exit |",
-                  "|---|---|---|---|---|"]
+        lines += [
+            "", "## Driver stages", "",
+            "| driver | stage | end | duration | exit | rows in → out | bytes in → out | "
+            "writer hold / lock wait |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
         for row in data["stages"]:
             lines.append(
                 f"| {row['driver']} | {row['stage']} | {_clock(row['ended'])} | "
-                f"{_duration(float(row['seconds']))} | {row['exit']} |")
+                f"{_duration(float(row['seconds']))} | {row['exit']} | "
+                f"{_flow_pair(row, 'input_rows', 'output_rows')} | "
+                f"{_flow_pair(row, 'input_bytes', 'output_bytes')} | "
+                f"{_flow_pair(row, 'writer_hold_seconds', 'lock_wait_seconds')} |"
+            )
+    if data.get("job_receipts"):
+        lines += [
+            "", "## Registered job receipts", "",
+            "| job | scheduled | attempt | duration | work status | process exit | reason |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for row in data["job_receipts"]:
+            lines.append(
+                f"| {row['job_id']} | {row['scheduled_for']} | {row['attempt']} | "
+                f"{_duration(_receipt_seconds(row))} | {row['work_status']} | "
+                f"{row.get('process_exit')} | {_markdown_cell(row['reason'])} |"
+            )
     if data.get("work"):
         lines += ["", "## Degraded work receipts", ""]
         for job, receipt in data["work"]:
@@ -761,8 +920,13 @@ def collect_hour(
     stages = collect_stages(db, logs_dir, since) if since is not None else []
     probes, sections, fp, degraded, contract, invariants, gateway_report = (
         [], {}, {}, [], None, None, None)
+    job_receipts, config_errors = [], []
     if last:
         collect_files(db, logs_dir, ops_dir, signals)
+        job_receipts, receipt_projection_gaps = collect_job_receipts(db, logs_dir, since)
+        gaps.extend(receipt_projection_gaps)
+        config_errors = registry_schedule_audit(run)
+        gaps.extend(f"job registry config error: {item}" for item in config_errors)
         first_seen = db.execute("SELECT value FROM meta WHERE key='stages_seen'").fetchone()
         if first_seen and (logs_dir / "stage-timings.jsonl").is_file():
             record_coverage(db, "stages", _utc(first_seen[0]), now)
@@ -790,14 +954,24 @@ def collect_hour(
     # "Succeeded.", and a failure's result follows its exit line even across an hour.
     failed = [r for r in runs if r["result"] not in ("success", "running", SKIPPED_RESULT)]
     failed_stages = [row for row in stages if row["exit"] != 0]
+    failed_job_receipts = [
+        row for row in job_receipts
+        if row["work_status"] in {"retryable_failure", "terminal_failure", "interrupted"}
+        and row.get("retry_disposition") != "retry"
+    ]
+    warned_job_receipts = [
+        row for row in job_receipts
+        if row["work_status"] in {"degraded", "superseded"}
+        or row.get("retry_disposition") == "retry"
+    ]
     errors = sum(sig.counts["error"] for sig in signals.values())
     warns = sum(sig.counts["warn"] for sig in signals.values())
     health = next((p for p in probes if p["target"] == "/health"), None)
     gateway_status = gateway_report["status"] if gateway_report else "ok"
-    if failed or failed_stages or (health and health["http_status"] != 200) or (
-            gateway_status == "fail"):
+    if (failed or failed_stages or failed_job_receipts or config_errors
+            or (health and health["http_status"] != 200) or gateway_status == "fail"):
         status = "FAIL"
-    elif errors or warns or degraded or gateway_status == "warn" or any(
+    elif errors or warns or degraded or warned_job_receipts or gateway_status == "warn" or any(
             r.get("slow") or r["result"] == SKIPPED_RESULT for r in runs) or any(
             p["ms"] > SLOW_PROBE_MS for p in probes) or (
             contract is not None and contract["status"] != "ok"):
@@ -806,10 +980,12 @@ def collect_hour(
         status = "OK"
     data = {
         "status": status, "collected_at": _iso(now), "failed_runs": len(failed) + len(
-            failed_stages), "error_lines": errors, "warn_lines": warns, "gaps": gaps,
+            failed_stages) + len(failed_job_receipts) + len(config_errors),
+        "error_lines": errors, "warn_lines": warns, "gaps": gaps,
         "runs": runs, "stages": stages, "probes": probes, "sections": sections,
         "section_changes": changes, "signals": signals, "footprint": fp, "work": degraded,
         "contract": contract, "invariants": invariants, "gateway": gateway_report,
+        "job_receipts": job_receipts,
     }
     digest = ops_dir / "hourly" / f"{hour:%Y-%m-%d}" / f"{hour:%H}.md"
     text = render(hour, data)
@@ -844,6 +1020,10 @@ def open_db(ops_dir: Path) -> sqlite3.Connection:
         db.execute("ALTER TABLE footprint ADD COLUMN store_bytes INT")
     if "termination_kind" not in {row[1] for row in db.execute("PRAGMA table_info(unit_runs)")}:
         db.execute("ALTER TABLE unit_runs ADD COLUMN termination_kind TEXT")
+    stage_columns = {row[1] for row in db.execute("PRAGMA table_info(stage_runs)")}
+    for column in FLOW_FIELDS:
+        if column not in stage_columns:
+            db.execute(f"ALTER TABLE stage_runs ADD COLUMN {column} REAL")  # noqa: S608
     return db
 
 
@@ -860,6 +1040,7 @@ def prune(db: sqlite3.Connection, ops_dir: Path, now: datetime) -> None:
     started_cutoff = _iso(now - timedelta(days=METRIC_RETENTION_DAYS))
     db.execute("DELETE FROM unit_runs WHERE COALESCE(started, ended) < ?", (started_cutoff,))
     db.execute("DELETE FROM stage_runs WHERE ended < ?", (started_cutoff,))
+    db.execute("DELETE FROM job_runs WHERE ended < ?", (started_cutoff,))
 
 
 def daily_log_retention(
@@ -1246,6 +1427,35 @@ def cron_schedules(run: Runner) -> list[Schedule]:
     return schedules
 
 
+def registry_schedule_audit(run: Runner, repo_root: Path = REPO_ROOT) -> list[str]:
+    """Report installed public-engine schedules absent from the audit-only registry."""
+    try:
+        registry = job_contract.load_registry(repo_root)
+    except job_contract.JobContractError as exc:
+        return [f"invalid-registry:{exc}"]
+    registered_units = {
+        job.service_unit for job in registry.jobs if job.timer_unit and job.service_unit
+    }
+    registered_cron = {
+        name.replace("_", "-")
+        for name in job_contract.render_cron_entries(registry, repo_root)
+    }
+    errors = []
+    for schedule in timer_schedules(run):
+        unit = schedule.unit
+        public = bool(
+            unit
+            and (unit.startswith("trading-engine-") or unit == "massive-options-daily.service")
+        )
+        if public and unit not in registered_units:
+            errors.append(f"undocumented-installed-timer:{unit}")
+    for schedule in cron_schedules(run):
+        name = (schedule.driver or schedule.job).replace("_", "-")
+        if (schedule.driver or name == "friday-postflight") and name not in registered_cron:
+            errors.append(f"undocumented-installed-cron:{name}")
+    return sorted(set(errors))
+
+
 def expected_times(matcher: Matcher, start: datetime, end: datetime) -> list[datetime]:
     moment = start.replace(second=0, microsecond=0)
     if moment < start:
@@ -1414,6 +1624,38 @@ def runs_lines(db: sqlite3.Connection, run: Runner, start: datetime,
     return missing, lines
 
 
+def stage_flow_statistics(db: sqlite3.Connection, since: str) -> list[dict]:
+    """Return per-driver flow medians/p90s, omitting counters that were never measured."""
+    columns = ", ".join(FLOW_FIELDS)
+    grouped: dict[str, dict[str, list[float]]] = defaultdict(
+        lambda: {field: [] for field in FLOW_FIELDS}
+    )
+    for row in db.execute(
+        f"SELECT driver, {columns} FROM stage_runs WHERE ended>=?", (since,)  # noqa: S608
+    ):
+        driver, *values = row
+        for metric, value in zip(FLOW_FIELDS, values, strict=True):
+            if value is not None:
+                grouped[driver][metric].append(float(value))
+    result = []
+    for driver, metrics in sorted(grouped.items()):
+        for metric, values in metrics.items():
+            if not values:
+                continue
+            ordered = sorted(values)
+            p90 = ordered[max(0, math.ceil(len(ordered) * 0.9) - 1)]
+            result.append(
+                {
+                    "driver": driver,
+                    "field": metric,
+                    "samples": len(values),
+                    "median": median(values),
+                    "p90": p90,
+                }
+            )
+    return result
+
+
 def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
            run: Runner = _run, db_path: Path = DEFAULT_DB) -> str:
     """Summarise the last ``hours`` of collected metrics as Markdown."""
@@ -1453,6 +1695,22 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
             out += ["", "## Failed runs", ""]
             out += [f"- {u} at {s or 'unknown start'} ({_duration(sec)}): {res}, exit {code}"
                     for u, s, sec, code, res in failed]
+        registered = db.execute(
+            "SELECT job_id, scheduled_for, attempt, seconds, work_status, process_exit, reason, "
+            "retry_disposition FROM job_runs WHERE ended>=? ORDER BY ended, attempt",
+            (since_iso,),
+        ).fetchall()
+        if registered:
+            out += [
+                "", "## Registered job receipts", "",
+                "| job | scheduled | attempt | duration | status | exit | retry | reason |",
+                "|---|---|---|---|---|---|---|---|",
+            ]
+            out += [
+                f"| {job} | {scheduled} | {attempt} | {_duration(seconds)} | {status} | "
+                f"{code} | {retry} | {_markdown_cell(reason)} |"
+                for job, scheduled, attempt, seconds, status, code, reason, retry in registered
+            ]
         start = floor_hour(now) - timedelta(hours=hours)
         receipts, receipt_gaps = work_receipts(db_path, start, now, ops_dir.parent)
         if receipt_gaps:
@@ -1465,6 +1723,19 @@ def report(hours: int, ops_dir: Path = OPS_DIR, now: datetime | None = None,
         if missing:
             out += ["", "## Missing runs", "", *missing]
         out += run_lines
+        flow = stage_flow_statistics(db, since_iso)
+        if flow:
+            out += [
+                "", "## Stage flow", "",
+                "| driver | metric | samples | median | p90 |",
+                "|---|---|---:|---:|---:|",
+            ]
+            out += [
+                f"| {row['driver']} | {row['field']} | {row['samples']} | "
+                f"{_flow_value(row['median'], row['field'])} | "
+                f"{_flow_value(row['p90'], row['field'])} |"
+                for row in flow
+            ]
         runs = db.execute("SELECT unit, started, seconds FROM unit_runs WHERE started>=? "
                           "AND result='success' AND seconds IS NOT NULL", (since_iso,)).fetchall()
         slow = []

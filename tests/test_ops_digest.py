@@ -200,7 +200,9 @@ def test_collect_writes_digest_and_metrics(tmp_path):
     (logs / "stage-timings.jsonl").write_text(json.dumps({
         "driver": "run_daily", "run_id": "r1", "stage": "collect",
         "started": "2026-10-10T02:00:00Z", "ended": "2026-10-10T02:02:30Z",
-        "seconds": 150.0, "exit": 0}) + "\n")
+        "seconds": 150.0, "exit": 0, "input_rows": 10, "output_rows": 0,
+        "input_bytes": 2048, "output_bytes": 0, "writer_hold_seconds": 1.25,
+        "lock_wait_seconds": 0}) + "\n")
 
     results = _collect(tmp_path, {f"{unit}.service": _journal(f"{unit}.service")})
 
@@ -209,10 +211,15 @@ def test_collect_writes_digest_and_metrics(tmp_path):
     assert "Ops digest 2026-10-10 02:00–03:00 UTC — WARN" in text
     assert f"| {unit} | 02:30:00 | 02:48:20 | 18m20s |" in text
     assert "| run_daily | collect | 02:02:30 | 2m30s | 0 |" in text
+    assert "10 → 0 | 2.0KiB → 0B | 1.250s → 0s" in text
     assert "price_verification=issues" in text
     assert "dbus" not in text
     with closing(sqlite3.connect(logs / "ops" / "ops.sqlite")) as db:
         _check_metrics(db)
+    report = ops_digest.report(24, logs / "ops", now=NOW, run=_fake_run({}))
+    assert "## Stage flow" in report
+    assert "| run_daily | input_rows | 1 | 10 | 10 |" in report
+    assert "| run_daily | output_rows | 1 | 0 | 0 |" in report
 
 
 def _check_metrics(db):
@@ -224,6 +231,120 @@ def _check_metrics(db):
     assert db.execute("SELECT result, seconds FROM unit_runs").fetchall() == [
         ("success", 1100.0)]
     assert "ERROR" not in json.dumps(db.execute("SELECT * FROM log_counts").fetchall())
+
+
+def test_stage_flow_schema_migrates_old_rows_to_unknown(tmp_path):
+    ops = tmp_path / "ops"
+    ops.mkdir()
+    with closing(sqlite3.connect(ops / "ops.sqlite")) as db:
+        db.execute(
+            "CREATE TABLE stage_runs (run_id TEXT, stage TEXT, driver TEXT, started TEXT, "
+            "ended TEXT, seconds REAL, exit_code INT, PRIMARY KEY (run_id, stage, started))"
+        )
+        db.execute(
+            "INSERT INTO stage_runs VALUES ('old', 'collect', 'run_daily', '2026-10-01T00:00:00Z', "
+            "'2026-10-01T00:00:01Z', 1, 0)"
+        )
+        db.commit()
+
+    with closing(ops_digest.open_db(ops)) as db:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(stage_runs)")}
+        flow = db.execute(
+            "SELECT input_rows, output_rows, input_bytes, output_bytes, "
+            "writer_hold_seconds, lock_wait_seconds FROM stage_runs"
+        ).fetchone()
+
+    assert set(ops_digest.FLOW_FIELDS) <= columns
+    assert flow == (None,) * 6
+
+
+def test_stage_flow_preserves_zero_ignores_malformed_and_deduplicates(tmp_path):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    rows = [
+        {
+            "driver": "run_daily", "run_id": "flow-1", "stage": "collect",
+            "started": "2026-10-10T02:00:00Z", "ended": "2026-10-10T02:01:00Z",
+            "seconds": 60, "exit": 0, "input_rows": 0, "output_rows": 5,
+            "input_bytes": "bad", "writer_hold_seconds": -1,
+        },
+        {
+            "driver": "run_daily", "run_id": "flow-2", "stage": "publish",
+            "started": "2026-10-10T02:01:00Z", "ended": "2026-10-10T02:02:00Z",
+            "seconds": 60, "exit": 0, "input_rows": 10, "output_rows": 15,
+            "input_bytes": 1024, "output_bytes": 2048, "writer_hold_seconds": 2,
+            "lock_wait_seconds": 0,
+        },
+    ]
+    (logs / "stage-timings.jsonl").write_text("\n".join(map(json.dumps, rows)) + "\n")
+    with closing(ops_digest.open_db(tmp_path / "ops")) as db:
+        assert len(ops_digest.collect_stages(db, logs, datetime(2026, 10, 10, tzinfo=UTC))) == 2
+        assert ops_digest.collect_stages(db, logs, datetime(2026, 10, 10, tzinfo=UTC)) == []
+        stored = db.execute(
+            "SELECT input_rows, output_rows, input_bytes, output_bytes, writer_hold_seconds, "
+            "lock_wait_seconds FROM stage_runs ORDER BY stage"
+        ).fetchall()
+        statistics = ops_digest.stage_flow_statistics(db, "2026-10-10T00:00:00Z")
+
+    assert stored == [(0.0, 5.0, None, None, None, None),
+                      (10.0, 15.0, 1024.0, 2048.0, 2.0, 0.0)]
+    input_rows = next(row for row in statistics if row["field"] == "input_rows")
+    assert input_rows == {
+        "driver": "run_daily", "field": "input_rows", "samples": 2,
+        "median": 5.0, "p90": 10.0,
+    }
+
+
+def _registered_receipt(**changes):
+    receipt = {
+        "schema_version": 1,
+        "run_id": "run-1",
+        "job_id": "registry-audit",
+        "spec_version": 1,
+        "spec_sha256": "a" * 64,
+        "idempotency_key": "registry-audit:1:2026-10-10T02:00:00Z",
+        "scheduled_for": "2026-10-10T02:00:00Z",
+        "started_at": "2026-10-10T02:10:00Z",
+        "ended_at": "2026-10-10T02:10:02Z",
+        "attempt": 1,
+        "process_exit": 0,
+        "work_status": "success",
+        "reason": "process-exit-0",
+        "retry_disposition": "none",
+        "catch_up_disposition": "scheduled",
+    }
+    receipt.update(changes)
+    return receipt
+
+
+def test_registered_job_receipts_project_and_fail_the_digest_visibly(tmp_path):
+    logs = tmp_path / "logs"
+    receipt_dir = logs / "job-runs" / "registry-audit" / "20261010T020000Z"
+    receipt_dir.mkdir(parents=True)
+    failed = _registered_receipt(process_exit=2, work_status="terminal_failure",
+                                 reason="terminal-exit-2")
+    (receipt_dir / "1.json").write_text(json.dumps(failed))
+    (receipt_dir / "2.json").write_text("not json")
+
+    [hour] = _collect(tmp_path, {})
+    report = ops_digest.report(24, logs / "ops", now=NOW, run=_fake_run({}))
+
+    assert hour["status"] == "FAIL"
+    assert "terminal_failure" in hour["text"] and "terminal-exit-2" in hour["text"]
+    assert "malformed registered job receipt: 2.json" in hour["text"]
+    assert "## Registered job receipts" in report
+    with closing(sqlite3.connect(logs / "ops/ops.sqlite")) as db:
+        assert db.execute(
+            "SELECT job_id, process_exit, work_status, reason FROM job_runs"
+        ).fetchall() == [("registry-audit", 2, "terminal_failure", "terminal-exit-2")]
+
+
+def test_direct_receipt_projection_is_idempotent(tmp_path):
+    receipt = _registered_receipt()
+    ops_digest.project_job_receipt(receipt, tmp_path / "ops")
+    ops_digest.project_job_receipt(receipt, tmp_path / "ops")
+    with closing(sqlite3.connect(tmp_path / "ops/ops.sqlite")) as db:
+        assert db.execute("SELECT COUNT(*), MIN(seconds) FROM job_runs").fetchone() == (1, 2.0)
 
 
 def test_failed_run_marks_hour_and_report_lists_it(tmp_path):
@@ -400,7 +521,9 @@ def test_report_lists_every_run_and_stage_against_the_schedules(tmp_path):
              "2026-10-16T13:05:17Z", 10.0, 0, "success"),
             ("store-sync.service", "2026-10-16T13:00:00Z", "2026-10-16T13:00:03Z", 3.0, 0,
              "success")])
-        db.executemany("INSERT INTO stage_runs VALUES (?,?,?,?,?,?,?)", [
+        db.executemany(
+            "INSERT INTO stage_runs (run_id, stage, driver, started, ended, seconds, exit_code) "
+            "VALUES (?,?,?,?,?,?,?)", [
             ("run_daily-20261014T223001.1Z-7", "collect", "run_daily", "2026-10-14T22:30:03Z",
              "2026-10-14T22:34:03Z", 240.0, 0),
             ("run_daily-20261014T223001.1Z-7", "snapshot", "run_daily", "2026-10-14T23:22:01Z",
@@ -447,6 +570,29 @@ def test_current_schedule_does_not_invent_missing_unobserved_history(tmp_path):
             datetime(2026, 10, 17, tzinfo=UTC))
     assert missing == []
     assert "unknown" in "\n".join(lines).lower()
+
+
+def test_registry_schedule_audit_flags_only_undocumented_engine_schedules():
+    def run(args, _timeout):
+        if args[:3] == ["systemctl", "--user", "list-timers"]:
+            return ("x trading-engine-rogue.timer trading-engine-rogue.service\n"
+                    "x store-sync.timer store-sync.service\n")
+        if args[:3] == ["systemctl", "--user", "show"]:
+            return (
+                "Unit=trading-engine-rogue.service\n"
+                "TimersCalendar={ OnCalendar=*-*-* 00:00:00 UTC ; }\n"
+                "AccuracyUSec=1min\nRandomizedDelayUSec=0\n\n"
+                "Unit=store-sync.service\nTimersMonotonic={ OnUnitActiveUSec=15min ; }\n"
+                "AccuracyUSec=1min\nRandomizedDelayUSec=0\n"
+            )
+        if args == ["crontab", "-l"]:
+            return "0 0 * * * /x/engine/run_rogue.sh >> /x/logs/rogue.log 2>&1\n"
+        return ""
+
+    assert ops_digest.registry_schedule_audit(run) == [
+        "undocumented-installed-cron:run-rogue",
+        "undocumented-installed-timer:trading-engine-rogue.service",
+    ]
 
 
 def test_fourteen_day_schedule_change_short_journal_and_dated_receipts(tmp_path):

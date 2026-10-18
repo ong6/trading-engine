@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import fcntl
 import json
+import sqlite3
 import sys
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -297,6 +299,22 @@ def test_projection_outage_is_fail_soft_and_receipts_prune_at_180_days(tmp_path,
     run_job._atomic_json(keep, boundary)
     assert run_job.prune_receipts(tmp_path / "old" / "job-runs", 180, SLOT) == 1
     assert not old_path.exists() and keep.exists()
+
+
+def test_terminal_receipt_projects_into_existing_ops_database(tmp_path):
+    spec, repo = _spec(tmp_path, "pass\n")
+    logs = tmp_path / "logs"
+    result = run_job.execute_job(
+        spec, scheduled_for=SLOT, repo_root=repo, logs_dir=logs, ops_dir=logs / "ops"
+    )
+
+    with closing(sqlite3.connect(logs / "ops/ops.sqlite")) as db:
+        projected = db.execute(
+            "SELECT run_id, attempt, job_id, work_status, process_exit FROM job_runs"
+        ).fetchall()
+    assert projected == [
+        (result.final["run_id"], 1, "synthetic-job", "success", 0)
+    ]
 
 
 @pytest.mark.parametrize(
