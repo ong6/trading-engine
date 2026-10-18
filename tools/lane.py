@@ -13,6 +13,7 @@ import re
 import stat
 import subprocess
 import sys
+import time
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -875,7 +876,9 @@ def create_lane(
     uv: str = "uv",
     clock: Callable[[], datetime] = _now,
     phase_hook: Callable[[str], None] | None = None,
+    timer: Callable[[], float] = time.monotonic,
 ) -> dict:
+    started = timer()
     root = _validated_root(lanes_root, home)
     target = _target(root, lane, home)
     source = _source(root, source, home)
@@ -907,12 +910,14 @@ def create_lane(
                 environment, hook = _bootstrap_artifacts(
                     root, source, target, branch, base, public_name, public_email
                 )
-                return {
+                result = {
                     "claim": row,
                     "environment": environment,
                     "hook": hook,
                     "target": str(target),
                 }
+                result["elapsed_seconds"] = round(max(0.0, timer() - started), 6)
+                return result
             if row["state"] != "creating":
                 raise LaneError(f"lane reservation is {row['state']} and cannot resume")
         else:
@@ -971,7 +976,13 @@ def create_lane(
         )
         _write_claim_rows(claims_path, content, rows, migration)
         notify("active")
-    return {"claim": row, "environment": environment, "hook": hook, "target": str(target)}
+    return {
+        "claim": row,
+        "elapsed_seconds": round(max(0.0, timer() - started), 6),
+        "environment": environment,
+        "hook": hook,
+        "target": str(target),
+    }
 
 
 def abort_lane(

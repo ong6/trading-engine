@@ -150,6 +150,16 @@ def test_create_uses_exact_base_public_identity_shared_environment_and_hook(tmp_
     assert result["claim"]["claimed_at"] == "2026-10-18T18:05:00Z"
 
 
+def test_create_reports_monotonic_setup_wall_time(tmp_path):
+    fixture = _fixture(tmp_path)
+    ticks = iter((100.0, 102.75))
+
+    result = _create(fixture, timer=lambda: next(ticks))
+
+    assert result["elapsed_seconds"] == 2.75
+    assert result["environment"]["kind"] == "shared-read-only"
+
+
 def test_same_lock_reuses_keyed_environment(tmp_path):
     fixture = _fixture(tmp_path)
     first = _create(fixture, "lane-one")
