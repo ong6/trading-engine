@@ -13,10 +13,11 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Sequence
 
-import duckdb
 import numpy as np
 import pandas as pd
 
+from engine.lib import db
+from engine.lib.resources import write_text_atomic
 from farm.study.data import DataDeclaration, Dividend, PriceSource
 from farm.study.panel import FIELDS, Panel, PanelBars
 from farm.study.universe import ListingInterval, Universe
@@ -96,7 +97,7 @@ class CacheObject:
         paths = self.parquet_files()
         if not paths:
             raise CacheCorruption("cache table has no Parquet parts")
-        connection = duckdb.connect(":memory:")
+        connection = db.connect(":memory:", wait_s=0)
         try:
             return connection.execute(
                 "SELECT * FROM read_parquet(?, hive_partitioning = true) ORDER BY ALL",
@@ -243,7 +244,9 @@ class ResearchCache:
                 "content_sha256": canonical_sha256(files),
                 "metadata": metadata,
             }
-            (temporary / "manifest.json").write_bytes(canonical_bytes(manifest, newline=True))
+            write_text_atomic(
+                temporary / "manifest.json", canonical_bytes(manifest, newline=True).decode()
+            )
             fsync_tree(temporary)
             for path in temporary.rglob("*"):
                 if path.is_file():
@@ -310,7 +313,9 @@ class ResearchCache:
             "intraday": intraday,
             "dividends": [row.canonical() for row in source.dividends],
         }
-        (data_root / "panel.json").write_bytes(canonical_bytes(metadata, newline=True))
+        write_text_atomic(
+            data_root / "panel.json", canonical_bytes(metadata, newline=True).decode()
+        )
         return {"format": metadata["format"], "bar_count": panel.bar_count}
 
     def panel(
@@ -421,14 +426,14 @@ class ResearchCache:
                     "listed_from": row.listed_from.isoformat(),
                     "listed_through": row.listed_through.isoformat() if row.listed_through else None,
                 } for row in universe.listings]
-                (data_root / "universe.json").write_bytes(canonical_bytes({
+                write_text_atomic(data_root / "universe.json", canonical_bytes({
                     "format": "study-universe-v1",
                     "source_sha256": source.declaration.snapshot_sha256,
                     "delisting_return": universe.delisting_return,
                     "listings": rows,
                     "exclusions": {key: sorted(set(value))
                                    for key, value in sorted((exclusions or {}).items())},
-                }, newline=True))
+                }, newline=True).decode())
                 coverage = self._coverage(universe)
                 np.save(data_root / "coverage.npy", coverage, allow_pickle=False)
                 return {"format": "study-universe-v1", "listing_count": len(rows)}
@@ -482,23 +487,22 @@ class ResearchCache:
             if len(columns) != len(set(columns)):
                 raise CacheError("table columns must be unique")
             days = pd.to_datetime(frame[date_column], errors="raise").dt.date
-            connection = duckdb.connect(":memory:")
+            connection = db.connect(":memory:", wait_s=0)
             try:
                 for day in sorted(set(days)):
                     partition = data_root / f"family={family_name}" / f"date={day.isoformat()}"
                     partition.mkdir(parents=True)
                     selected = frame.loc[days == day].copy()
-                    connection.register("selected_rows", selected)
-                    connection.execute(
-                        "COPY selected_rows TO ? (FORMAT PARQUET, COMPRESSION ZSTD)",
-                        [str(partition / "part-00000.parquet")],
-                    )
-                    connection.unregister("selected_rows")
+                    with db.registered_frame(connection, "selected_rows", selected):
+                        connection.execute(
+                            "COPY selected_rows TO ? (FORMAT PARQUET, COMPRESSION ZSTD)",
+                            [str(partition / "part-00000.parquet")],
+                        )
             finally:
                 connection.close()
             schema = [{"name": str(name), "dtype": str(dtype)}
                       for name, dtype in frame.dtypes.items()]
-            (data_root / "table.json").write_bytes(canonical_bytes({
+            write_text_atomic(data_root / "table.json", canonical_bytes({
                 "format": "study-table-parquet-v1",
                 "kind": kind,
                 "family": family_name,
@@ -507,7 +511,7 @@ class ResearchCache:
                 "schema": schema,
                 "rows": len(frame),
                 "partitions": len(set(days)),
-            }, newline=True))
+            }, newline=True).decode())
             return {"format": "study-table-parquet-v1", "rows": len(frame), "columns": columns}
 
         return self.build(kind, identity, write)

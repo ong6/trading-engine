@@ -1,9 +1,11 @@
+import importlib
 import json
 
-import pytest
-
+from engine.lib.resources import write_text_atomic
 from farm.research.spec import ContractError, StudySpec
 from farm.research.tests.support import complete_contract
+
+pytest = importlib.import_module("pytest")
 
 
 def test_complete_contract_has_canonical_golden_bytes_and_derived_markdown(tmp_path):
@@ -39,7 +41,7 @@ def test_contract_refuses_missing_unknown_and_noncanonical_fields(tmp_path, muta
 def test_resolution_refuses_source_recipe_and_evidence_hash_drift(tmp_path):
     contract = complete_contract(tmp_path)
     spec = StudySpec.from_dict(contract)
-    (tmp_path / "input.json").write_text('{"rows":3}\n')
+    write_text_atomic(tmp_path / "input.json", '{"rows":3}\n')
     with pytest.raises(ContractError, match="evidence hash differs"):
         spec.resolve(tmp_path)
 

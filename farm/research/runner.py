@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from engine.lib.resources import write_text_atomic
+
 from .cache import CacheObject, ResearchCache
 from .canonical import canonical_bytes, file_sha256, fsync_tree
 from .mounts import ReadOnlyMount
@@ -196,7 +198,7 @@ class StudyRunner:
                 "mode": phase,
                 "memory_mb": execution["memory_mb"],
             }
-            request_path.write_bytes(canonical_bytes(request, newline=True))
+            write_text_atomic(request_path, canonical_bytes(request, newline=True).decode())
             environment = {
                 "PATH": os.environ.get("PATH", ""),
                 "PYTHONPATH": os.pathsep.join((str(_repo_root()), str(self.resolved.base_dir))),
@@ -234,7 +236,7 @@ class StudyRunner:
                     self.resolved.spec.as_dict()["evaluation"],
                 )
                 result_path = run_directory / "result.json"
-                result_path.write_bytes(canonical_bytes(result, newline=True))
+                write_text_atomic(result_path, canonical_bytes(result, newline=True).decode())
                 result_path.chmod(0o444)
                 result_sha = file_sha256(result_path)
                 outcome_accessed = True
@@ -250,7 +252,7 @@ class StudyRunner:
                 "trial_id": trial,
             }
             receipt_path = run_directory / "receipt.json"
-            receipt_path.write_bytes(canonical_bytes(receipt, newline=True))
+            write_text_atomic(receipt_path, canonical_bytes(receipt, newline=True).decode())
             receipt_path.chmod(0o444)
             fsync_tree(run_directory)
             self.ledger.append(

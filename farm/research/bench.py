@@ -12,6 +12,7 @@ from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import patch
 
+from engine.lib.resources import write_text_atomic
 from farm.study import bench as panel_bench
 from farm.study.costs import CostSelection
 from farm.study.data import DerivedInput, MarketData
@@ -116,7 +117,7 @@ def _write_candidates(path: Path, data: MarketData) -> dict:
         "event": list(row["event"]),
         "portfolio": list(row["portfolio"]),
     } for row in selected.records]
-    (path / "candidates.json").write_bytes(canonical_bytes(rows, newline=True))
+    write_text_atomic(path / "candidates.json", canonical_bytes(rows, newline=True).decode())
     return {"format": "study-benchmark-candidates-v1", "rows": len(rows)}
 
 

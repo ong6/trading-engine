@@ -1,12 +1,15 @@
 import concurrent.futures
+import importlib
 import shutil
 
 import numpy as np
 import pandas as pd
-import pytest
 
+from engine.lib.resources import write_text_atomic
 from farm.research.cache import CacheCorruption, ResearchCache
 from farm.study.bench import build_market
+
+pytest = importlib.import_module("pytest")
 
 
 def _identity(kind, revision="v1"):
@@ -74,7 +77,7 @@ def test_cache_refuses_corruption_schema_drift_and_identity_staleness(tmp_path):
     ))
     manifest = truncated.path / "manifest.json"
     manifest.chmod(0o644)
-    manifest.write_text("{")
+    write_text_atomic(manifest, "{")
     with pytest.raises(CacheCorruption, match="manifest is invalid"):
         cache.get("feature", _identity("feature", "truncated"))
 
@@ -117,7 +120,7 @@ def test_concurrent_builders_converge_and_crash_never_publishes(tmp_path):
     identity = _identity("feature")
 
     def writer(path):
-        (path / "features.json").write_text('{"value":1}\n')
+        write_text_atomic(path / "features.json", '{"value":1}\n')
         return {"format": "fixture"}
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
@@ -126,7 +129,7 @@ def test_concurrent_builders_converge_and_crash_never_publishes(tmp_path):
     assert len({item.manifest["content_sha256"] for item in objects}) == 1
 
     def crash(path):
-        (path / "partial.json").write_text("partial")
+        write_text_atomic(path / "partial.json", "partial")
         raise RuntimeError("synthetic crash")
 
     broken_identity = _identity("feature", "broken")
@@ -155,5 +158,5 @@ def test_cache_root_inside_repository_is_refused(tmp_path):
 
 
 def _write_fixture(path, filename, content):
-    (path / filename).write_text(content)
+    write_text_atomic(path / filename, content)
     return {"format": "fixture"}

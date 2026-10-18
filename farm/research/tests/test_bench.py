@@ -1,8 +1,4 @@
-import pytest
-
 from farm.research.bench import panel_benchmark, synthetic_benchmark
-
-pytestmark = pytest.mark.slow
 
 
 def test_synthetic_cache_preserves_report_bytes(tmp_path):

@@ -1,15 +1,17 @@
+import importlib
 import json
 import os
 from copy import deepcopy
 
-import pytest
-
+from engine.lib.resources import write_text_atomic
 from farm.research.cache import ResearchCache
 from farm.research.canonical import file_sha256
 from farm.research.runner import StudyRunError, StudyRunner
 from farm.research.spec import StudySpec
 from farm.research.tests.support import complete_contract
 from farm.research.trials import JsonlTrialLedger, trial_id
+
+pytest = importlib.import_module("pytest")
 
 
 def _setup(tmp_path, *, phase="development", callback="strategy", workers=1):
@@ -30,11 +32,11 @@ def _setup(tmp_path, *, phase="development", callback="strategy", workers=1):
     cache = ResearchCache(tmp_path / "cache")
 
     def feature_writer(path):
-        (path / "features.json").write_text('{"scores":[1,2,3]}\n')
+        write_text_atomic(path / "features.json", '{"scores":[1,2,3]}\n')
         return {"schema": "fixture-feature-v1"}
 
     def label_writer(path):
-        (path / "labels.json").write_text('{"returns":[0.1,-0.1,0.2]}\n')
+        write_text_atomic(path / "labels.json", '{"returns":[0.1,-0.1,0.2]}\n')
         return {"schema": "fixture-label-v1"}
 
     features = cache.build("feature", spec.cache_identity("feature"), feature_writer)
@@ -97,7 +99,7 @@ def test_wrong_feature_or_late_label_identity_refuses_before_evaluation(tmp_path
     cache = ResearchCache(tmp_path / "other-cache")
 
     def wrong_writer(path):
-        (path / "features.json").write_text("{}\n")
+        write_text_atomic(path / "features.json", "{}\n")
         return {"schema": "wrong"}
 
     wrong = cache.build("feature", {"wrong": True}, wrong_writer)
@@ -108,7 +110,7 @@ def test_wrong_feature_or_late_label_identity_refuses_before_evaluation(tmp_path
     changed = deepcopy(spec.cache_identity("label"))
     changed["source"]["generation_sha256"] = "9" * 64
     def late_writer(path):
-        (path / "labels.json").write_text("{}\n")
+        write_text_atomic(path / "labels.json", "{}\n")
         return {"schema": "late"}
 
     late = cache.build("label", changed, late_writer)

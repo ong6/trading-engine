@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 
+from engine.lib.resources import write_text_atomic
 from farm.research.canonical import file_sha256
 
 
@@ -13,10 +14,10 @@ def complete_contract(root: Path) -> dict:
     membership_path = root / "membership.json"
     quality_path = root / "quality.json"
     census_path = root / "census.jsonl"
-    input_path.write_text('{"rows":2}\n')
-    membership_path.write_text('{"point_in_time":true}\n')
-    quality_path.write_text('{"status":"accepted"}\n')
-    census_path.write_text('{"selection_n":140}\n')
+    write_text_atomic(input_path, '{"rows":2}\n')
+    write_text_atomic(membership_path, '{"point_in_time":true}\n')
+    write_text_atomic(quality_path, '{"status":"accepted"}\n')
+    write_text_atomic(census_path, '{"selection_n":140}\n')
     callback_path = Path(__file__).with_name("fixture_callbacks.py")
     callback = {
         "module": "farm.research.tests.fixture_callbacks",

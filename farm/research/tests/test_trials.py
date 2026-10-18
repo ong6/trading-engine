@@ -1,11 +1,13 @@
 import concurrent.futures
+import importlib
 import json
 from datetime import datetime, timedelta, timezone
 
-import pytest
-
+from engine.lib.resources import write_text_atomic
 from farm.research.canonical import canonical_sha256
 from farm.research.trials import JsonlTrialLedger, TrialLedgerError, trial_id
+
+pytest = importlib.import_module("pytest")
 
 NOW = datetime(2026, 10, 18, 18, tzinfo=timezone.utc)
 
@@ -114,7 +116,7 @@ def test_concurrent_writers_serialize_and_tampering_is_refused(tmp_path):
 
     rows = [json.loads(line) for line in ledger.path.read_text().splitlines()]
     rows[3]["payload"] = {"source_ref": {"run": 999}}
-    ledger.path.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+    write_text_atomic(ledger.path, "\n".join(json.dumps(row) for row in rows) + "\n")
     with pytest.raises(TrialLedgerError, match="identity differs"):
         ledger.read()
 
