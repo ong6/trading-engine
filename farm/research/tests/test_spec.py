@@ -12,6 +12,7 @@ def test_complete_contract_has_canonical_golden_bytes_and_derived_markdown(tmp_p
     second = StudySpec.from_dict(json.loads(first.canonical_bytes))
     assert first.canonical_bytes == second.canonical_bytes
     assert first.sha256 == second.sha256
+    assert first.sha256 == "e6a8a524a6b1ceb4f8e645d8260ce7f2b293a2d0fd76ceec719529893077f8d9"
     assert first.resolve(tmp_path).spec == first
     markdown = first.to_markdown()
     assert f"Contract SHA-256: `{first.sha256}`" in markdown
@@ -45,6 +46,11 @@ def test_resolution_refuses_source_recipe_and_evidence_hash_drift(tmp_path):
     contract = complete_contract(tmp_path)
     contract["strategy"]["callback"]["sha256"] = "f" * 64
     with pytest.raises(ContractError, match="callback module hash differs"):
+        StudySpec.from_dict(contract).resolve(tmp_path)
+
+    contract = complete_contract(tmp_path)
+    contract["strategy"]["callback"]["function"] = "not_defined"
+    with pytest.raises(ContractError, match="not defined at module scope"):
         StudySpec.from_dict(contract).resolve(tmp_path)
 
 

@@ -69,6 +69,21 @@ def test_cache_refuses_corruption_schema_drift_and_identity_staleness(tmp_path):
     fresh = cache.panel(_identity("panel", "quality-v2"), lambda: market.primary)
     assert fresh.object.digest != cached.object.digest
 
+    truncated = cache.build("feature", _identity("feature", "truncated"), lambda path: (
+        _write_fixture(path, "features.json", "{}\n")
+    ))
+    manifest = truncated.path / "manifest.json"
+    manifest.chmod(0o644)
+    manifest.write_text("{")
+    with pytest.raises(CacheCorruption, match="manifest is invalid"):
+        cache.get("feature", _identity("feature", "truncated"))
+
+    wrong_panel = cache.build("panel", _identity("panel", "wrong-schema"), lambda path: (
+        _write_fixture(path, "panel.json", '{"format":"unknown"}\n')
+    ))
+    with pytest.raises(CacheCorruption, match="metadata schema"):
+        cache.load_panel(wrong_panel)
+
 
 def test_feature_and_label_tables_use_separate_namespaces_and_partitioned_parquet(tmp_path):
     cache = ResearchCache(tmp_path / "cache")
@@ -137,3 +152,8 @@ def test_cache_root_inside_repository_is_refused(tmp_path):
     (repository / ".git").mkdir()
     with pytest.raises(ValueError, match="outside"):
         ResearchCache(repository / "cache", repository_root=repository)
+
+
+def _write_fixture(path, filename, content):
+    (path / filename).write_text(content)
+    return {"format": "fixture"}

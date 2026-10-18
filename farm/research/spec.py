@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib.util
 import json
@@ -430,6 +431,17 @@ def _module_path(module: str) -> Path:
     return path
 
 
+def _function_defined(path: Path, function: str) -> bool:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError, UnicodeDecodeError) as exc:
+        raise ContractError(f"callback module source cannot be parsed: {path.name}") from exc
+    return any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == function
+        for node in tree.body
+    )
+
+
 @dataclass(frozen=True)
 class ResolvedStudy:
     spec: "StudySpec"
@@ -521,6 +533,12 @@ class StudySpec:
                 previous = resolved_callbacks.setdefault(module, path)
                 if previous != path:
                     raise ContractError(f"callback module resolved inconsistently: {module}")
+            callback_path = resolved_callbacks[callback["module"]]
+            if not _function_defined(callback_path, callback["function"]):
+                raise ContractError(
+                    f"callback function is not defined at module scope: "
+                    f"{callback['module']}:{callback['function']}"
+                )
         return ResolvedStudy(
             self,
             base,
