@@ -94,6 +94,15 @@ h3 {
   white-space: nowrap;
 }
 
+.retained-bar-warning {
+  display: block;
+  color: var(--warn);
+  font-size: 11px;
+  white-space: normal;
+  width: 180px;
+  overflow-wrap: anywhere;
+}
+
 /* ---- MOCK banner + header ---- */
 .mock-banner {
   background: repeating-linear-gradient(

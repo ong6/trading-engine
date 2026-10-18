@@ -25,7 +25,12 @@ export default function DashboardProspectiveEvidence({ res }) {
                 shared sessions · {sectorForward?.status || "UNKNOWN"}
               </div>
               <div className="faint">
-                no verdict before {fmtDate(sectorForward?.eligible_after)}
+                Statistical eligibility {fmtDate(sectorForward?.eligible_after)}
+              </div>
+              <div className={sectorForward?.status === "REVIEW-KILL" ? "neg" : "faint"}>
+                {sectorForward?.status === "REVIEW-KILL"
+                  ? "Early paper review/kill is actionable now."
+                  : "Early paper review/kill can precede statistical eligibility."}
               </div>
             </div>
             <div className="stat">
@@ -38,8 +43,13 @@ export default function DashboardProspectiveEvidence({ res }) {
                 complete paired months · {xsForward?.status || "UNKNOWN"}
               </div>
               <div className="faint">
-                first signal {fmtDate(xsForward?.signal_date)} · no verdict before{" "}
+                first signal {fmtDate(xsForward?.signal_date)} · statistical eligibility{" "}
                 {fmtDate(xsForward?.eligible_after)}
+              </div>
+              <div className={xsForward?.status === "REVIEW-KILL" ? "neg" : "faint"}>
+                {xsForward?.status === "REVIEW-KILL"
+                  ? "Early paper review/kill is actionable now."
+                  : "Early paper review/kill can precede statistical eligibility."}
               </div>
             </div>
             <div className="stat">

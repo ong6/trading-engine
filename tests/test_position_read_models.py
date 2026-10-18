@@ -202,6 +202,8 @@ def test_positions_are_bounded_with_complete_matching_count(con, monkeypatch):
                 "qty": 1.0,
                 "avg_cost": 10.0,
                 "close": None,
+                "retained_bar_quality": {"as_of": None, "retained_count": 0, "invalid_count": 0,
+                                         "latest_invalid_date": None, "reason": None},
             },
             {
                 "portfolio_id": "book",
@@ -209,6 +211,8 @@ def test_positions_are_bounded_with_complete_matching_count(con, monkeypatch):
                 "qty": 1.0,
                 "avg_cost": 20.0,
                 "close": None,
+                "retained_bar_quality": {"as_of": None, "retained_count": 0, "invalid_count": 0,
+                                         "latest_invalid_date": None, "reason": None},
             },
         ],
     }
@@ -312,3 +316,61 @@ def test_latest_close_aggregate_matches_sort_with_sentinels(con):
         assert position_read_models._position_closes(con,day,names)=={k:v for k,v in old.items() if v is not None}
     assert position_read_models._position_closes(con,None,['AAA'])=={}
     assert position_read_models._position_closes(con,date(2026,10,14),[])=={}
+def test_positions_join_retained_quality_without_changing_marks_or_risk(con):
+    day = date(2026, 10, 16)
+    liquid_universe(con, ('DELL', 'VLO'))
+    insert_bars(con, 'DELL', [day], open_=473.37, high=473.18, low=440, close=451.71)
+    insert_bars(con, 'VLO', [day], open_=440, high=450, low=430, close=444.71)
+    for book in ('discretionary', 'other'):
+        portfolio(con, book)
+    con.execute("INSERT INTO sim_positions VALUES "
+                "('discretionary', 'DELL', 9, 400.69), "
+                "('other', 'DELL', .5, 400.69), ('other', 'VLO', .25, 440)")
+    items = [position_read_models._position_item(row, close) for row, close in [
+        (('discretionary', 'DELL', 9, 400.69, 3), 451.71),
+        (('other', 'DELL', .5, 400.69, 3), 451.71),
+        (('other', 'VLO', .25, 440, 3), 444.71),
+    ]]
+    position_read_models._add_discretionary_risk(items[0], None)
+    payload = position_read_models.positions(con, None, discretionary_id='discretionary')
+    for item, expected in zip(payload['positions'], items, strict=True):
+        assert {k: v for k, v in item.items() if k != 'retained_bar_quality'} == expected
+    with pytest.raises(market_read_models.InadmissiblePriceData) as exc:
+        market_read_models.candidate(con, 'DELL')
+    expected_quality = {'as_of': day, 'retained_count': 1, 'invalid_count': 1,
+                        'latest_invalid_date': day, 'reason': exc.value.detail['bars'][0]['reason']}
+    assert payload['positions'][0]['retained_bar_quality'] == expected_quality
+    assert payload['positions'][1]['retained_bar_quality'] == expected_quality
+    assert payload['positions'][2]['retained_bar_quality']['invalid_count'] == 0
+
+
+def test_positions_keep_rejected_daily_original_warning_after_admission_migration(con):
+    day = date(2026, 10, 16)
+    old = date(2026, 10, 15)
+    liquid_universe(con, ('VLO',))
+    insert_bars(con, 'VLO', [day], open_=440, high=450, low=430, close=444.71)
+    insert_bars(con, 'DELL', [old], open_=445, high=460, low=440, close=451.71)
+    portfolio(con, 'book')
+    con.execute("INSERT INTO sim_positions VALUES ('book', 'DELL', 9, 400.69)")
+    con.execute('CREATE TABLE price_observation_rejects '
+                '(ticker VARCHAR, date DATE, interval VARCHAR, reason VARCHAR)')
+    con.execute("INSERT INTO price_observation_rejects VALUES ('DELL', ?, '1d', 'high_geometry')", [day])
+    item = position_read_models.positions(con, 'book', discretionary_id='discretionary')['positions'][0]
+    assert item['close'] == 451.71
+    assert item['market_value'] == 9 * 451.71
+    assert item['retained_bar_quality'] == {
+        'as_of': day, 'retained_count': 2, 'invalid_count': 1,
+        'latest_invalid_date': day, 'reason': 'high_geometry',
+    }
+
+
+def test_positions_validate_joined_quality_and_preserve_unknown_date(con):
+    portfolio(con, 'book')
+    con.execute("INSERT INTO sim_positions VALUES ('book', 'DELL', 9, 400.69)")
+    payload = position_read_models.positions(con, 'book', discretionary_id='discretionary')
+    quality = payload['positions'][0]['retained_bar_quality']
+    assert quality == {'as_of': None, 'retained_count': 0, 'invalid_count': 0,
+                       'latest_invalid_date': None, 'reason': None}
+    quality['invalid_count'] = 1
+    with pytest.raises(ValueError, match='retained-bar quality'):
+        position_read_models._validate_positions_projection(payload, discretionary_id='discretionary')

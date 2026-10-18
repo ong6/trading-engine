@@ -22,6 +22,7 @@ const SCREEN_RESULT_KEYS = [
   "off_52w_low",
   "passes_template",
   "rs_rank",
+  "retained_bar_quality",
   "run_date",
   "template_score",
   "ticker",
@@ -85,6 +86,7 @@ export function isScreenResult(
     Number.isSafeInteger(row.template_score) &&
     row.template_score >= 0 &&
     row.template_score <= 8 &&
+    isRetainedBarQuality(row.retained_bar_quality) &&
     typeof row.passes_template === "boolean" &&
     (!passingOnly || row.passes_template) &&
     Number.isFinite(row.dist_50d) &&
@@ -96,6 +98,22 @@ export function isScreenResult(
     typeof row.new_today === "boolean" &&
     ["all", "ex-leveraged"].includes(row.universe_policy)
   );
+}
+
+export function isRetainedBarQuality(value) {
+  if (!isRecord(value) || !hasExactKeys(value,
+    ["as_of", "retained_count", "invalid_count", "latest_invalid_date", "reason"]) ||
+    !isNonnegativeInteger(value.retained_count) || value.retained_count > 250 ||
+    !isNonnegativeInteger(value.invalid_count) || value.invalid_count > value.retained_count
+  ) return false;
+  if (value.as_of === null) return value.retained_count === 0 && value.invalid_count === 0 &&
+    value.latest_invalid_date === null && value.reason === null;
+  if (!isIsoDate(value.as_of)) return false;
+  return value.invalid_count === 0
+    ? value.latest_invalid_date === null && value.reason === null
+    : isIsoDate(value.latest_invalid_date) && value.latest_invalid_date <= value.as_of &&
+      isNonEmptyString(value.reason) && value.reason.length <= 240 &&
+      !/[\u0000-\u001f\u007f-\u009f]/u.test(value.reason);
 }
 
 export function isScreenProjection(data) {
