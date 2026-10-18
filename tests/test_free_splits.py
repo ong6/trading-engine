@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 import duckdb
 import pytest
 
-from engine import free_sources
+from engine import free_sources, raw_payload
 from tools import free_sources as capture
 
 FETCHED_BEFORE = datetime(2026, 1, 2, 12, tzinfo=timezone.utc)
@@ -177,7 +177,9 @@ def test_split_capture_uses_shared_limiter_and_retains_exact_body(tmp_path):
     assert result["status"] == "complete"
     assert calls == ["reserved"]
     assert len(session.urls) == 1
-    assert (tmp_path / "raw" / "massive" / "splits" / f"{digest}.json").read_bytes() == SPLIT_BODY
+    logical = tmp_path / "raw" / "massive" / "splits" / f"{digest}.json"
+    assert not logical.exists()
+    assert raw_payload.read(logical, expected_sha256=digest) == SPLIT_BODY
 
 
 def _capture_splits(database, data_dir, body, day, *, status_code=200, max_pages=2):
