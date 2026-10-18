@@ -5,6 +5,8 @@ from pathlib import Path
 
 import yaml
 
+from engine.accounts.sources import SOURCE_PATHS, SOURCE_TABLES
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOGUE_PATH = ROOT / "schemas" / "datasets.yaml"
@@ -134,6 +136,11 @@ def _declared_objects(sources: list[Path]) -> set[str]:
             if name.lower() not in FALSE_DDL_NAMES:
                 objects.add(f"{kind.lower()}:{name}")
         objects.update(_dynamic_objects(tree, path))
+    named = {item.split(":", 1)[1] for item in objects}
+    for relations in SOURCE_TABLES.values():
+        objects.update(
+            f"table:{relation}" for relation in relations if relation not in named
+        )
     return objects
 
 
@@ -245,3 +252,23 @@ def test_unknown_table_and_managed_raw_family_are_detected(tmp_path):
         for reference in _path_references([source])
         if not _covered_path(reference, _location_patterns(catalogue))
     }
+
+
+def test_account_source_databases_and_tables_are_catalogued():
+    catalogue = _load_catalogue()
+    datasets = catalogue["datasets"]
+
+    for source, (_environment_name, filename) in SOURCE_PATHS.items():
+        database = f"store/pit/{filename}"
+        records = [dataset for dataset in datasets if dataset["location"] == database]
+        assert records, f"account source database is uncatalogued: {database}"
+        catalogued = {
+            item.split(":", 1)[1]
+            for dataset in records
+            for item in dataset.get("objects", [])
+            if item.startswith(("table:", "view:"))
+        }
+        assert set(SOURCE_TABLES[source]) <= catalogued, {
+            "database": database,
+            "missing": sorted(set(SOURCE_TABLES[source]) - catalogued),
+        }

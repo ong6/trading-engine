@@ -608,6 +608,22 @@ datasets:
     registration: Research-only; no execution authority
     quality_gate: Receipt hash and contract/session identity
 
+  - id: remote.short_data_database
+    kind: duckdb_objects
+    location: store/pit/short-data.duckdb
+    deployment: remote_only
+    objects: [table:regsho_threshold, table:finra_short_interest]
+    schema_owner: Retired short-data loader; current contract in engine/accounts/sources.py
+    producer: Retired Reg SHO and FINRA short-interest collectors
+    readers: [engine.accounts.sources, sim.shorts, account settlement]
+    semantics: append_only_evidence
+    clock_and_key: Ticker plus session or settlement date and publication date
+    retention: Local database retired after exact off-host proof; retain this recovery identity while account shorting can request it.
+    backup: Release research-evidence-20261005-f7d4f695396c-52da75c8; manifest SHA-256 f7d4f695396c6eb013a1238d612920748ba2d153c6cbf071da577f90ec755e06.
+    rebuild: Restore docs/history/retired-pit-restore-2026-10-18.md target M4; require database SHA-256 59406972cdcd82f316a0034e699113be682768328fb8aeb4aadb54829f99fa66.
+    registration: P22 paper-account short locate and buy-in input; no broker or live authority
+    quality_gate: Exact release manifest, restored database digest, both required tables, and read-only account attachment
+
   - id: files.retired_pit_archives
     kind: file_set
     location: store/pit/{sec-bulk,short-data,frozen-archive}/**
