@@ -5,7 +5,7 @@
   },
   "code_size": {
     "buildlog": 3858,
-    "docs_md": 29482,
+    "docs_md": 29484,
     "engine": 24802,
     "farm": 26594,
     "product": 63997,
@@ -19,10 +19,10 @@
     "largest_insertions": 70934,
     "largest_sha": "2d4a8eb",
     "largest_subject": "Publish reviewed alpha evidence and safety closure",
-    "non_screen_commits": 746,
+    "non_screen_commits": 747,
     "product_touching": 288,
     "research_touching": 255,
-    "support_only": 458,
+    "support_only": 459,
     "window_days": 30
   },
   "date": "2026-10-18",

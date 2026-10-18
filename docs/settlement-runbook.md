@@ -1272,7 +1272,9 @@ an invalid held-bar cause: HAE in the opportunity book, DELL in discretionary, D
 in three equal-weight books, AGL/DELL in XS, and SPY in the benchmark, dual-momentum,
 macro and three P15 books. Missing SPY execution remains pending with `untrusted_bar`;
 no replacement price was introduced. Stored historical money and labels are not restated
-by deployment. Rollback restores the original revision-14 v2-migrated backup and evidence.
+by deployment. The literal rollback passed: revision-14 source, database and evidence
+were restored byte for byte, P15 and registration checks passed, and API/UI served
+ACCUMULATING sector v11, XS v22 and E1 v7. All rehearsal stores and units were deleted.
 
 The cold UI build exceeded the former 60-second readiness wait; the helper now waits
 at most 300 seconds, matching the bounded UI build timeout. The full UTC and Singapore

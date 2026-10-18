@@ -3853,6 +3853,6 @@ the 42-entry 2026-09-19 C90 complexity series is in
   Literal apply, P15 reporting, 3,862-name nightly fixture pass, history timer reinstall, forward reviews and 12 board views pass. Replay matches 152 of 165 book-days; all 13 October-16 differences name invalid held bars, including SPY in all three P15 books.
 - **Evidence:** Full UTC and Singapore suites → 5,376 passed each, no failures/errors/skips; UTC 172.45s, Singapore 155.38s. Money replay across 33 books and five dates uses the $0.005 tolerance without valid-data differences.
 - **Metrics:** amendment server −17, tools −14, product +70; hygiene budget passes.
-- **Next:** complete revision-14 rollback and delete the sole rehearsal copy, then hand the exact landing SHA to the orchestrator.
+- **Next:** hand the exact landing SHA to the orchestrator after v2 verification; revision-14 rollback passed and all copied stores and isolated units were deleted.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->
