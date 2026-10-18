@@ -73,9 +73,10 @@ DRIVER_RUN_ID="${DRIVER_NAME}-$(date -u +%Y%m%dT%H%M%S.%NZ)-$$"
 _DRIVER_STAGE_NAME=""
 _DRIVER_STAGE_STARTED=""
 _DRIVER_STAGE_STARTED_NS=""
+export TRADING_ENGINE_STAGE_METRICS=""
 
 _finish_stage() {
-  local exit_code="${1:-0}" ended ended_ns elapsed whole nanos seconds
+  local exit_code="${1:-0}" ended ended_ns elapsed whole nanos seconds counters
   [ -n "${_DRIVER_STAGE_NAME}" ] || return 0
   ended="$(date -u +%FT%T.%NZ 2>/dev/null || true)"
   ended_ns="$(date -u +%s%N 2>/dev/null || true)"
@@ -90,18 +91,37 @@ _finish_stage() {
   printf 'STAGE driver=%s run_id=%s stage=%s started=%s ended=%s seconds=%s exit=%s\n' \
     "${DRIVER_NAME}" "${DRIVER_RUN_ID}" "${_DRIVER_STAGE_NAME}" \
     "${_DRIVER_STAGE_STARTED}" "${ended}" "${seconds}" "${exit_code}"
+  counters='"input_rows":null,"output_rows":null,"input_bytes":null,"output_bytes":null,"writer_hold_seconds":null,"lock_wait_seconds":null'
+  if [ -s "${TRADING_ENGINE_STAGE_METRICS}" ]; then
+    counters="$(awk '
+      BEGIN { n=split("input_rows output_rows input_bytes output_bytes writer_hold_seconds lock_wait_seconds", fields, " ") }
+      { count=split($0, parts, ","); for (i=1; i<=count; i++) {
+          split(parts[i], pair, ":"); gsub(/[{}" ]/, "", pair[1]); gsub(/[{} ]/, "", pair[2]);
+          if (pair[2] ~ /^[0-9]+([.][0-9]+)?([eE][+-]?[0-9]+)?$/) {
+            totals[pair[1]]+=pair[2]; seen[pair[1]]=1
+          }
+        }
+      }
+      END { for (i=1; i<=n; i++) printf "%s\"%s\":%s", (i>1 ? "," : ""), fields[i], (seen[fields[i]] ? sprintf("%.12g", totals[fields[i]]) : "null") }
+    ' "${TRADING_ENGINE_STAGE_METRICS}" 2>/dev/null)" || counters='"input_rows":null,"output_rows":null,"input_bytes":null,"output_bytes":null,"writer_hold_seconds":null,"lock_wait_seconds":null'
+  fi
   (
     flock -x 8
-    printf '{"driver":"%s","run_id":"%s","stage":"%s","started":"%s","ended":"%s","seconds":%s,"exit":%s}\n' \
+    printf '{"driver":"%s","run_id":"%s","stage":"%s","started":"%s","ended":"%s","seconds":%s,"exit":%s,%s}\n' \
       "${DRIVER_NAME}" "${DRIVER_RUN_ID}" "${_DRIVER_STAGE_NAME}" \
-      "${_DRIVER_STAGE_STARTED}" "${ended}" "${seconds}" "${exit_code}" >&8
+      "${_DRIVER_STAGE_STARTED}" "${ended}" "${seconds}" "${exit_code}" "${counters}" >&8
   ) 8>>"${STAGE_TIMINGS_PATH}" 2>/dev/null || true
+  if [ -f "${TRADING_ENGINE_STAGE_METRICS}" ]; then
+    rm -f -- "${TRADING_ENGINE_STAGE_METRICS}" || true
+  fi
+  TRADING_ENGINE_STAGE_METRICS=""
   _DRIVER_STAGE_NAME=""
 }
 
 stage() {
   _finish_stage 0
   _DRIVER_STAGE_NAME="$1"
+  TRADING_ENGINE_STAGE_METRICS="${REPO_ROOT}/logs/.stage-flow.${DRIVER_RUN_ID}"
   _DRIVER_STAGE_STARTED="$(date -u +%FT%T.%NZ)"
   _DRIVER_STAGE_STARTED_NS="$(date -u +%s%N)"
   if [ -n "${DRIVER_STAGE_FILE}" ]; then

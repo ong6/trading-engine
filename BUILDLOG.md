@@ -3660,5 +3660,69 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Evidence:** Both full timezone suites: 5,093 passed / 92 stale-pin failures each; one snapshot-copy replay of 25 books over October 12–16: 112/125 book-days match within $0.005, all differences on invalid October 16 bars, copy deleted. Input, bar and P15 regressions pass.
 - **Metrics:** server +2, tools unchanged, product +229, tests +556; budget ok.
 - **Next:** integration orchestrator issues revision 15 and forward-runtime pins, then closes the full-suite gate; lane is blocked on that technical integration step.
+## 2026-10-17 — Reduce repeated intraday windows using completed coverage
+
+- **Why:** Orchestrator revision 15 M9, flow finding rank 1; post-v2 integration only.
+- **What:** Save successful per-session response counts in existing metadata after insertion.
+  Validate resident counts before grouped incremental windows; missing sessions, new names and
+  failed/partial requests use full retention windows. First captured values and dates stay exact.
+- **Evidence:** `python -m pytest tests/test_intraday.py -W error` → six passed, including full-path row equality with gaps, failed batches, new symbols and provider revisions.
+- **Metrics:** product +112; server/tools unchanged for this step.
+- **Next:** Finish the full offline corpus comparison and integration evidence.
+
+## 2026-10-17 — Aggregate held positions' latest real close
+
+- **Why:** Orchestrator revision 15 M9, flow finding rank 6.
+- **What:** Replace the per-ticker window sort with arg_max over the same date and real-bar filter.
+  Empty inputs, absent names, future rows and phantom/null sentinels retain the same results.
+- **Evidence:** `python -m pytest tests/test_position_read_models.py -W error` → all projection tests pass; seven snapshot pairs match 151 held symbols, median 457.1 → 437.2 ms.
+- **Metrics:** server -2; product/tools unchanged.
+- **Next:** Finish offline report and telemetry acceptance.
+
+## 2026-10-17 — Share recent history publications under an explicit age budget
+
+- **Why:** Orchestrator revision 15 M9, flow finding rank 3 near-term only.
+- **What:** History slices reuse authentic snapshots younger than 120 minutes at completion.
+  The original as_of stays visible; publication failure reaches the scheduler. The existing
+  schedule/timeout gives a conservative 16h20m between-slice history fallback bound.
+- **Evidence:** `python -m pytest tests/test_stage_timings.py tests/test_service_units.py -W error` → shell failure and age argument tests pass; fixture 9,187,328 → 0 published bytes, 386.0 → 0.42 ms.
+- **Metrics:** unchanged; shell lines are outside Python LOC.
+- **Next:** Integrate after v2; delta format remains design only in the lane deliverables.
+
+## 2026-10-17 — Defer offline rendering and measure movement in existing stage records
+
+- **Why:** Orchestrator revision 15 M9, flow findings ranks 2 and 8; post-v2 integration only.
+- **What:** Live league steps retain session reports; walk-forward/replay emit one final report per fold/window.
+  Existing stage records aggregate input/output rows and bytes plus measured writer hold and retry wait;
+  unknown fields remain null. Buffered deltas and shell aggregation avoid per-event file overhead.
+- **Evidence:** `python -m pytest tests/test_stage_timings.py tests/test_league_v2.py tests/test_result_provenance.py -W error` passes; nine paired telemetry trials measured +0.78% CPU, with no measured wall increase.
+- **Metrics:** product +14, tools +113 for this step; server unchanged.
+- **Next:** Complete all 18 books' registered corpus pairs, publish lane STATUS and stop.
+
+## 2026-10-17 — Preserve a latest null close in the aggregate projection
+
+- **Why:** Rank 6 sentinel acceptance reproduced plain arg_max skipping a latest null close while the old row-number path omitted the ticker.
+- **What:** Aggregate a struct containing close, then extract close, so a null latest value retains the old selection and omission behavior.
+- **Evidence:** `python -m pytest tests/test_position_read_models.py -W error` → 27 passed including latest-null-close equality against the old query.
+- **Metrics:** unchanged.
+- **Next:** Complete the full corpus comparison and lane STATUS.
+
+## 2026-10-17 — Use native null-preserving latest-close aggregation
+
+- **Why:** Rank 6 latest-null sentinel acceptance; native arg_max_null is equivalent to the preserving struct and avoids its allocation.
+- **What:** Select arg_max_null(close, date) with the same admitted-bar filter, preserving a latest null close and the old ticker omission.
+- **Evidence:** `python -m pytest tests/test_position_read_models.py -W error` → 27 passed; seven paired queries equal including absent/future/phantom/latest-null cases.
+- **Metrics:** unchanged.
+- **Next:** Complete the registered offline corpus acceptance and STATUS.
+
+## 2026-10-17 — Prove revision-15 flow equivalence on the full league corpus
+
+- **Why:** Orchestrator M9 acceptance: all 18 current books under the registered ten-fold walk-forward geometry.
+- **What:** Completed 180 old/new fold pairs on one shared disposable input with fresh sim state.
+  Every sim/portfolio row, fold statistic and final Markdown/CSV hash matched; deleted the sole store copy.
+  Coverage gap/new/failed/provider-revision fixtures preserve captured values and dates; live report default remains session-based.
+- **Evidence:** `python benchmark_corpus.py` via isolated acceptance harness → 180/180 exact pairs; 135,174 → 180 report calls and 2,326,328,369 → 6,121,846 report bytes. UTC/Singapore suites each 4,733 passed plus 81 expected integration pin failures.
+- **Metrics:** server -2, tools +113, product +126, tests +242; hygiene budget passes.
+- **Next:** Orchestrator integration after v2, with revision-15 re-pinning; no further lane work admitted.
 
 <!-- append-only-tail: insert new verified entries immediately above this line -->

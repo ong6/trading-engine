@@ -291,3 +291,24 @@ def test_positions_follow_unicode_code_point_order(con):
             payload,
             discretionary_id="discretionary",
         )
+
+
+def test_latest_close_aggregate_matches_sort_with_sentinels(con):
+    from engine.lib.db import REAL_BAR_SQL
+    con.execute("INSERT INTO prices (ticker,date,open,high,low,close,volume) VALUES "
+                "('AAA','2026-10-12',10,11,9,10,100),"
+                "('AAA','2026-10-13',0,0,0,0,0),"
+                "('AAA','2026-10-14',20,21,19,20,100),"
+                "('MISSING','2026-10-12',NULL,NULL,NULL,NULL,NULL),"
+                "('ZERO','2026-10-12',1,1,1,1,0),"
+                "('NULLLAST','2026-10-12',10,11,9,10,100),"
+                "('NULLLAST','2026-10-13',10,11,9,NULL,100)")
+    for day in [date(2026,10,11),date(2026,10,12),date(2026,10,13),date(2026,10,14)]:
+        names = ['AAA','MISSING','ZERO','ABSENT','NULLLAST']
+        old = dict(con.execute(
+            'SELECT ticker,close FROM (SELECT ticker,close,row_number() OVER '
+            '(PARTITION BY ticker ORDER BY date DESC) AS rn FROM prices WHERE date<=? '
+            f'AND {REAL_BAR_SQL} AND ticker=ANY(?)) WHERE rn=1', [day,names]).fetchall())
+        assert position_read_models._position_closes(con,day,names)=={k:v for k,v in old.items() if v is not None}
+    assert position_read_models._position_closes(con,None,['AAA'])=={}
+    assert position_read_models._position_closes(con,date(2026,10,14),[])=={}

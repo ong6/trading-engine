@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -32,6 +32,8 @@ from engine.lib import resources as rsc
 from engine.lib.log import get_logger
 from engine.lib.settings import META_PATH as DEFAULT_META
 from engine.lib.settings import STORE_DIR
+from sim import nyse
+from tools.stage_timings import record_flow, writer_connection
 
 log = get_logger("intraday")
 
@@ -163,11 +165,13 @@ def _extract_long(raw: pd.DataFrame, yf_to_canon: dict[str, str], interval: str
     return pd.concat(frames, ignore_index=True), got
 
 
-def _download(yf_tickers: list[str], *, interval: str, period: str) -> pd.DataFrame:
+def _download(yf_tickers: list[str], *, interval: str, period: str | None = None,
+              start: datetime | None = None, end: datetime | None = None) -> pd.DataFrame:
     """One yf.download intraday call with a single backoff retry on exception.
     An empty frame is returned on double-failure — the caller records the gap."""
-    kwargs = dict(interval=interval, period=period, group_by="ticker",
+    kwargs = dict(interval=interval, group_by="ticker",
                   auto_adjust=False, threads=True, progress=False)
+    kwargs.update(period=period) if start is None else kwargs.update(start=start, end=end)
     try:
         return yf.download(yf_tickers, **kwargs)
     except Exception as exc:  # noqa: BLE001 - be resilient, retry once
@@ -178,6 +182,68 @@ def _download(yf_tickers: list[str], *, interval: str, period: str) -> pd.DataFr
         except Exception as exc2:  # noqa: BLE001
             log.warning(f"[intraday] {interval} batch retry failed ({exc2}); recording gap")
             return pd.DataFrame()
+
+
+def _coverage(con, mapping: dict[str, str], meta_path, now: datetime) -> dict:
+    """Validate completed response coverage against resident per-session counts.
+
+    A high watermark alone cannot detect a deleted interior session. Counts are
+    saved only after insertion; legacy state and incomplete responses fetch full.
+    """
+    saved = rsc.read_meta(meta_path).get("intraday", {}).get("coverage", {})
+    if not mapping or not isinstance(saved, dict) or not saved:
+        return {}
+    rows = con.execute(
+        "SELECT ticker, interval, CAST(ts AS DATE), count(*) "
+        "FROM intraday_prices WHERE ticker = ANY(?) AND ts >= ? "
+        "GROUP BY ticker, interval, CAST(ts AS DATE)",
+        [list(mapping.values()), datetime.combine(
+            (now - timedelta(days=60)).date(), datetime.min.time())],
+    ).fetchall()
+    resident = {(tk, iv, day.isoformat()): n for tk, iv, day, n in rows}
+    valid = {}
+    for iv, period in INTERVALS.items():
+        floor = (now - timedelta(days=int(period[:-1]))).date().isoformat()
+        for tk, item in saved.get(iv, {}).items():
+            try:
+                through = datetime.fromisoformat(item["through"])
+                days = {d: n for d, n in item["days"].items() if d >= floor}
+                if (days and through.date().isoformat() >= floor
+                        and all(resident.get((tk, iv, d)) == n
+                                for d, n in days.items())):
+                    valid.setdefault(iv, {})[tk] = item
+            except (KeyError, TypeError, ValueError):
+                continue
+    return valid
+
+
+def _completed_coverage(frame, interval, start, now, previous):
+    """Trust only responses spanning every completed exchange session requested."""
+    days = dict(previous.get("days", {})) if previous else {}
+    if not frame.empty:
+        days.update({d.isoformat(): int(n) for d, n in
+                     frame.groupby(frame.ts.dt.date).size().items()})
+    last = now.date()
+    # session_close includes early closes, and UTC conversion includes DST.
+    from zoneinfo import ZoneInfo
+    def close(day):
+        return datetime.combine(day, nyse.session_close(day), ZoneInfo("America/New_York")).astimezone(timezone.utc)
+    while not nyse.is_session(last) or close(last) > now:
+        last -= timedelta(days=1)
+    expected = []
+    day = start.date()
+    while day <= last:
+        if nyse.is_session(day) and start < close(day):
+            expected.append(day.isoformat())
+        day += timedelta(days=1)
+    if not expected or any(not days.get(d) for d in expected) or frame.empty:
+        return None
+    end = frame.ts.max().to_pydatetime().replace(tzinfo=timezone.utc)
+    if end < close(last) - timedelta(minutes=int(interval[:-1])):
+        return None
+    floor = (now - timedelta(days=int(INTERVALS[interval][:-1]))).date().isoformat()
+    return {"through": datetime.combine(last, datetime.min.time()).isoformat(),
+            "days": {d: n for d, n in days.items() if d >= floor}}
 
 
 # --------------------------------------------------------------------------- #
@@ -201,6 +267,8 @@ def _pull_batches(
     yf_to_canon_full: dict[str, str],
     insert_batch: Callable[[pd.DataFrame], int],
     meta_path: str | Path,
+    coverage: dict | None = None,
+    now: datetime | None = None,
 ) -> dict:
     """Download, parse, and checkpoint batches without retaining a DB handle."""
     all_yf = list(yf_to_canon_full)
@@ -209,24 +277,67 @@ def _pull_batches(
     got_all: set[str] = set()
     failed_batches = 0
 
+    now = now or datetime.now(timezone.utc)
+    coverage = coverage or {}
+    completed = {iv: dict(items) for iv, items in coverage.items()}
+    fetched_rows = 0
+    payload_bytes = 0
     for interval, period in INTERVALS.items():
-        log.info(f"[intraday] === {interval} bars, period={period} ===")
-        got_iv: set[str] = set()
-        for batch in _batches(all_yf, BATCH_SIZE):
-            sub_map = {y: yf_to_canon_full[y] for y in batch}
-            raw = _download(batch, interval=interval, period=period)
-            if raw is None or raw.empty:
-                failed_batches += 1
-            df, got = _extract_long(raw, sub_map, interval)
-            n = insert_batch(df)
-            new_rows[interval] += n
-            got_iv |= got
-            log.info(f"[intraday] {interval} batch {len(batch)} -> {n} new rows "
-                  f"({len(got)} with data)")
-            time.sleep(BATCH_SLEEP)
+        floor = now - timedelta(days=int(period[:-1]))
+        groups = {}
+        for yft in all_yf:
+            tk = yf_to_canon_full[yft]
+            item = coverage.get(interval, {}).get(tk)
+            start = datetime.fromisoformat(item["through"]).replace(tzinfo=timezone.utc) if item else None
+            groups.setdefault(start, []).append(yft)
+        got_iv = set()
+        for start, names in groups.items():
+            for batch in _batches(names, BATCH_SIZE):
+                sub_map = {y: yf_to_canon_full[y] for y in batch}
+                raw = (_download(batch, interval=interval, period=period) if start is None
+                       else _download(batch, interval=interval, start=start, end=now))
+                df, got = _extract_long(raw, sub_map, interval)
+                # A failed/partial incremental batch retries missing symbols with
+                # the full provider window, rather than claiming gap completion.
+                attempts = [(df, got, start)]
+                missing = [y for y in batch if y not in got or (
+                    start is not None and _completed_coverage(
+                        df[df.ticker == sub_map[y]], interval, start, now,
+                        coverage.get(interval, {}).get(sub_map[y])) is None)]
+                if missing:
+                    failed_batches += 1
+                    if start is not None:
+                        full, full_got = _extract_long(
+                            _download(missing, interval=interval, period=period),
+                            {y: sub_map[y] for y in missing}, interval)
+                        attempts.append((full, full_got, None))
+                for frame, received, request_start in attempts:
+                    fetched_rows += len(frame)
+                    size = int(frame.memory_usage(index=True, deep=True).sum())
+                    payload_bytes += size
+                    n = insert_batch(frame)
+                    record_flow(input_rows=len(frame), output_rows=n, input_bytes=size)
+                    new_rows[interval] += n
+                    got_iv |= received
+                    for y in batch:
+                        tk = sub_map[y]
+                        if y not in received:
+                            if y in missing:
+                                completed.setdefault(interval, {}).pop(tk, None)
+                            continue
+                        sub = frame[frame.ticker == tk]
+                        item = _completed_coverage(sub, interval, request_start or floor, now,
+                                                   coverage.get(interval, {}).get(tk) if request_start else None)
+                        if item:
+                            completed.setdefault(interval, {})[tk] = item
+                        else:
+                            completed.setdefault(interval, {}).pop(tk, None)
+                    # Save after the DB commit. A crash before this leaves old
+                    # coverage, which conservatively repeats the overlap.
+                    prior = rsc.read_meta(meta_path).get("intraday", {})
+                    rsc.merge_meta(meta_path, {"intraday": {**prior, "coverage": completed}})
+                time.sleep(BATCH_SLEEP)
         got_all |= {yf_to_canon_full[y] for y in got_iv}
-        log.info(f"[intraday] {interval} done: {new_rows[interval]} new rows, "
-              f"{len(got_iv)} tickers with data")
 
     requested = len(all_yf)
     with_data = len(got_all)
@@ -243,6 +354,9 @@ def _pull_batches(
         "failed_tickers": failed,
         "failed_batches": failed_batches,
         "store_gb": round(store_gb, 2),
+        "coverage": completed,
+        "fetched_rows": fetched_rows,
+        "payload_bytes": payload_bytes,
     }
     rsc.merge_meta(meta_path, {"intraday": accounting})
     # keep the top-level disk_warning honest on every intraday run too
@@ -264,10 +378,12 @@ def run(params: dict | None, con, meta_path: str | Path = DEFAULT_META) -> dict:
     CLI execution use :func:`run_connection_narrowed` below.
     """
     prepared = _prepare_run(con, params or {})
+    now = datetime.now(timezone.utc)
+    coverage = _coverage(con, prepared, meta_path, now)
     return _pull_batches(
         prepared,
         lambda frame: db.insert_intraday(con, frame),
-        meta_path,
+        meta_path, coverage, now,
     )
 
 
@@ -283,24 +399,20 @@ def run_connection_narrowed(
     lets API/UI readers reconnect throughout the network-bound collection.
     """
     path = Path(db_path) if db_path is not None else db.DEFAULT_DB
-    con = db.connect(path)
-    try:
+    with writer_connection(path) as con:
         db.init_schema(con)
         db.init_queue_schema(con)
         prepared = _prepare_run(con, params or {})
-    finally:
-        con.close()
+        now = datetime.now(timezone.utc)
+        coverage = _coverage(con, prepared, meta_path, now)
 
     def insert_batch(frame: pd.DataFrame) -> int:
         if frame is None or frame.empty:
             return 0
-        write_con = db.connect(path)
-        try:
+        with writer_connection(path) as write_con:
             return db.insert_intraday(write_con, frame)
-        finally:
-            write_con.close()
 
-    return _pull_batches(prepared, insert_batch, meta_path)
+    return _pull_batches(prepared, insert_batch, meta_path, coverage, now)
 
 
 # --------------------------------------------------------------------------- #

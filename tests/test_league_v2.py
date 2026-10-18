@@ -422,3 +422,42 @@ def test_post_break_p15_spy_sizing_reserves_estimated_fee(con, monkeypatch):
     assert qty == 9.0
     assert cash == pytest.approx(1_000.0 - qty * 100.0 - fee)
     assert cash >= 0
+
+
+def test_report_policy_defers_only_rendering(con, tmp_path):
+    import hashlib
+    from datetime import date
+
+    import pytest
+
+    from engine.lib import db
+    from sim import league
+    from tests.conftest import insert_bars
+
+    db.init_schema(con)
+    db.init_actions_schema(con)
+    dates=[date(2024,6,3),date(2024,6,4),date(2024,6,5)]
+    insert_bars(con,'SPY',dates,close=100.)
+    con.execute("INSERT INTO portfolios VALUES ('spy_benchmark','Toy SPY','spy_benchmark','{}',?,true,39000,39000,'baseline_v1')",[dates[0]])
+    for d in dates:
+        assert league.step(con,d,tmp_path/'old',False,verbose=False)==0
+    tables=[r[0] for r in con.execute("SELECT table_name FROM duckdb_tables() WHERE table_name LIKE 'sim_%' OR table_name='portfolios'").fetchall()]
+    old={t:con.execute(f'SELECT * FROM {t} ORDER BY ALL').fetchall() for t in tables}
+    hashes={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in (tmp_path/'old/reports').iterdir()}
+    import duckdb
+    con = duckdb.connect()
+    db.init_schema(con)
+    db.init_actions_schema(con)
+    from sim.schema import init_sim_schema
+    init_sim_schema(con)
+    insert_bars(con,'SPY',dates,close=100.)
+    con.execute("INSERT INTO portfolios VALUES ('spy_benchmark','Toy SPY','spy_benchmark','{}',?,true,39000,39000,'baseline_v1')",[dates[0]])
+    for d in dates:
+        assert league.step(con,d,tmp_path/'new',False,verbose=False,report_policy='deferred')==0
+    assert not (tmp_path/'new/reports').exists()
+    league.write_reports(con,dates[-1],tmp_path/'new')
+    assert old=={t:con.execute(f'SELECT * FROM {t} ORDER BY ALL').fetchall() for t in tables}
+    assert hashes=={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in (tmp_path/'new/reports').iterdir()}
+    with pytest.raises(ValueError,match='report policy'):
+        league.step(con,dates[-1],tmp_path,False,report_policy='invalid')
+    con.close()
