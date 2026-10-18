@@ -280,6 +280,18 @@ def _add_intent(
     role: str, priority: int, signal_close: float, entry_atr: float | None,
     limit_px: float | None, created_at: datetime,
 ) -> bool:
+    from .money_inputs import finite_number, order_refusal
+
+    refusal = order_refusal(side, qty, signal_price=signal_close, limit_price=limit_px)
+    if refusal:
+        raise P15BookError(refusal)
+    try:
+        finite_number(signal_close, "signal price", positive=True)
+        if role == "entry":
+            finite_number(limit_px, "limit price", positive=True)
+            finite_number(entry_atr, "entry ATR", positive=True)
+    except ValueError as exc:
+        raise P15BookError(str(exc)) from exc
     duplicate = con.execute(
         "SELECT decision_id,qty,priority,signal_close,entry_atr,limit_px "
         "FROM p15_order_intents WHERE portfolio_id=? AND ticker=? AND side=? "
@@ -543,6 +555,19 @@ def _terminal_order(
             session_date=fill_date,
         )
 
+    from .money_inputs import finite_number, order_refusal
+
+    if status == "filled":
+        malformed = order_refusal(side, qty, fill_price=result.fill_px, limit_price=_limit_px)
+        if role == "entry":
+            try:
+                finite_number(entry_atr, "entry ATR", positive=True)
+                finite_number(result.fill_px - COMMON_CONFIG["atr_multiple"] * entry_atr,
+                              "stop price", positive=True)
+            except (ValueError, TypeError) as exc:
+                malformed = f"invalid_order: {exc}"
+        if malformed:
+            status, reason = "rejected", malformed
     if status == "filled":
         if side == "buy" and ticker != "SPY":
             stock_count = int(con.execute(
@@ -692,11 +717,17 @@ def process_pending(con: duckdb.DuckDBPyConnection, fill_date: date) -> dict:
             intent[9] = float(intent[9]) / factor
         if limit_px is not None:
             intent[10] = limit_px = float(limit_px) / factor
+        from .money_inputs import order_refusal
+
+        malformed = order_refusal(side, qty, signal_price=intent[8], limit_price=limit_px,
+                                  atr=intent[9])
         stale = role == "entry" and fill_date > nyse.next_session(signal_date)
         halted = role == "entry" and bool(con.execute(
             "SELECT entry_halted FROM p15_book_state WHERE portfolio_id=?", [intent[1]]
         ).fetchone()[0])
         result = p15_fills.LimitFillResult(
+            status="rejected", reject_reason=malformed
+        ) if malformed else p15_fills.LimitFillResult(
             status="rejected", reject_reason="stale_signal"
         ) if stale else p15_fills.LimitFillResult(
             status="rejected", reject_reason="drawdown_halt"
@@ -719,7 +750,8 @@ def process_pending(con: duckdb.DuckDBPyConnection, fill_date: date) -> dict:
                 "FROM p15_limit_attempts WHERE intent_id=? AND attempt_date=?",
                 [intent_id, fill_date],
             ).fetchone()
-            if prior is not None and prior != expected:
+            if (prior is not None and prior != expected
+                    and not (prior[3] == "pending" and result.status != "pending")):
                 raise P15BookError("P15 limit-attempt replay differs from retained evidence")
             if prior is None:
                 con.execute(
@@ -727,6 +759,8 @@ def process_pending(con: duckdb.DuckDBPyConnection, fill_date: date) -> dict:
                     [intent_id, fill_date, *expected],
                 )
         if result.status == "pending":
+            con.execute("UPDATE p15_order_intents SET reason=? WHERE id=?",
+                        [result.reject_reason, intent_id])
             counts["pending"] += 1
             continue
         counts[_terminal_order(con, tuple(intent), fill_date, result)] += 1
@@ -758,6 +792,11 @@ def _restore_rerun_evidence(con: duckdb.DuckDBPyConnection) -> int:
         (_intent_id, order_id, book_id, ticker, side, qty, fill_date, open_px,
          fill_px, slippage, cost, profile, median_dollar_vol, participation,
          impact, fee, signal_date, role) = row
+        from .money_inputs import order_refusal
+
+        malformed = order_refusal(side, qty, open_price=open_px, fill_price=fill_px)
+        if malformed:
+            raise P15BookError(malformed)
         expected_order = (book_id, ticker, side, qty, signal_date, SIM_FILLED_STATUS, None)
         order = con.execute(
             "SELECT portfolio_id,ticker,side,qty,signal_date,status,reject_reason "

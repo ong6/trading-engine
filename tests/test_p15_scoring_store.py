@@ -85,3 +85,63 @@ def test_started_sample_is_not_recreated_and_failure_is_terminal(tmp_path):
         "failed", "interrupted"
     )
     con.close()
+
+
+def test_store_refuses_snapshot_sample_response_and_trace_replacements(con):
+    import pytest
+
+    store.init_schema(con)
+    kwargs = dict(market_date=date(2026, 9, 24), universe={'id': 1}, context={'id': 2},
+                  information_cutoff_at=NOW, started_at=NOW, news_receipts=[])
+    run = store.create_run(con, **kwargs)['run_id']
+    sample_kwargs = dict(run_id=run, chunk_index=0, sample_index=0, permutation_seed=7,
+                         ticker_order=['AAA'], request_payload={'sample': 1}, started_at=NOW)
+    sample = store.start_sample(con, **sample_kwargs)['sample_id']
+    before = con.execute('SELECT * FROM p15_scoring_runs').fetchall(), con.execute('SELECT * FROM p15_scoring_samples').fetchall()
+    for changed in ({'universe': {'id': 3}}, {'context': {'id': 4}}):
+        with pytest.raises(store.ScoringStoreError, match='snapshot'):
+            store.create_run(con, **(kwargs | changed))
+    for changed in ({'permutation_seed': 8}, {'ticker_order': ['BBB']}, {'request_payload': {'sample': 2}}):
+        with pytest.raises(store.ScoringStoreError, match='sample replay'):
+            store.start_sample(con, **(sample_kwargs | changed))
+    assert before == (con.execute('SELECT * FROM p15_scoring_runs').fetchall(), con.execute('SELECT * FROM p15_scoring_samples').fetchall())
+    with pytest.raises(store.ScoringStoreError, match='nonterminal'):
+        store.complete_run(con, run, trace_sha256='a'*64, completed_at=NOW)
+    store.complete_sample(con, sample, response=_result(), completed_at=NOW)
+    retained = con.execute('SELECT * FROM p15_scoring_samples').fetchall()
+    with pytest.raises(store.ScoringStoreError, match='response replay'):
+        store.complete_sample(con, sample, response=_result() | {'response_id': 'different'}, completed_at=NOW)
+    with pytest.raises(store.ScoringStoreError, match='cannot fail'):
+        store.fail_sample(con, sample, reason='replace completed', completed_at=NOW)
+    assert con.execute('SELECT * FROM p15_scoring_samples').fetchall() == retained
+    store.complete_run(con, run, trace_sha256='a'*64, completed_at=NOW)
+    with pytest.raises(store.ScoringStoreError, match='completion differs'):
+        store.complete_run(con, run, trace_sha256='b'*64, completed_at=NOW)
+    with pytest.raises(store.ScoringStoreError, match='failure differs'):
+        store.fail_run(con, run, reason='replace completed', completed_at=NOW)
+    assert con.execute('SELECT aggregate_trace_sha256 FROM p15_scoring_runs').fetchone() == ('a'*64,)
+
+
+def test_store_failed_and_missing_samples_and_runs_are_terminal(con):
+    import pytest
+
+    store.init_schema(con)
+    run = store.create_run(con, market_date=date(2026, 9, 24), universe={}, context={},
+                           information_cutoff_at=NOW, started_at=NOW, news_receipts=[])['run_id']
+    sample = store.start_sample(con, run_id=run, chunk_index=0, sample_index=0,
+                               permutation_seed=1, ticker_order=[], request_payload={}, started_at=NOW)['sample_id']
+    with pytest.raises(store.ScoringStoreError, match='empty'):
+        store.fail_sample(con, sample, reason=' ', completed_at=NOW)
+    store.fail_sample(con, sample, reason='failed', completed_at=NOW)
+    store.fail_run(con, run, reason='failed', completed_at=NOW)
+    before = con.execute('SELECT * FROM p15_scoring_samples').fetchall(), con.execute('SELECT * FROM p15_scoring_runs').fetchall()
+    for sample_id, message in ((sample, 'terminal'), (999, 'missing')):
+        with pytest.raises(store.ScoringStoreError, match=message):
+            store.complete_sample(con, sample_id, response=_result(), completed_at=NOW)
+    with pytest.raises(store.ScoringStoreError, match='cannot fail'):
+        store.fail_sample(con, 999, reason='failed', completed_at=NOW)
+    with pytest.raises(store.ScoringStoreError, match='failure differs'):
+        store.fail_run(con, run, reason='different', completed_at=NOW)
+    with pytest.raises(store.ScoringStoreError, match='completion differs'):
+        store.complete_run(con, run, trace_sha256='a'*64, completed_at=NOW)
+    assert before == (con.execute('SELECT * FROM p15_scoring_samples').fetchall(), con.execute('SELECT * FROM p15_scoring_runs').fetchall())

@@ -111,6 +111,31 @@ def split_like_factor(ratio: float) -> float | None:
                                        *(1 / f for f in COMMON_SPLIT_FACTORS))
                  if abs(math.log(ratio / factor)) <= math.log(1.08)), None)
 
+def price_bar_sql(open_col="open", high_col="high", low_col="low",
+                  close_col="close", volume_col="volume") -> str:
+    """SQL counterpart of scalar admission; zero-volume observations are valid."""
+    o, h, lo, c, v = open_col, high_col, low_col, close_col, volume_col
+    finite = " AND ".join(f"isfinite({col}) AND {col}>0" for col in (o, h, lo, c))
+    return (f"({finite} AND isfinite({v}) AND {v}>=0 AND {v}=trunc({v}) "
+            f"AND {v}<=9223372036854775807 AND {h}>={o} AND {h}>={c} "
+            f"AND {h}>={lo} AND {lo}<={o} AND {lo}<={c})")
+
+
+def trusted_bar_sql(open_col="open", high_col="high", low_col="low",
+                    close_col="close", volume_col="volume") -> str:
+    """Admission geometry plus the money path's existing traded-volume gate."""
+    scalar = price_bar_sql(open_col, high_col, low_col, close_col, volume_col)
+    return f"({scalar} AND {volume_col}>0)"
+
+
+def trusted_bar(values) -> bool:
+    """Use admission's scalar rule before requiring a traded money observation."""
+    if values is None or len(values) != 5:
+        return False
+    bar = dict(zip((*OHLC, "volume"), values, strict=True))
+    return not price_bar_reasons(bar) and bar["volume"] > 0
+
+
 FIXED_ETF_STRATEGIES = frozenset({
     "spy_benchmark", "dual_momentum", "dual_momentum_gated",
     "sector_momentum", "multi_asset_trend", "sleeve_alloc",

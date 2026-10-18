@@ -48,6 +48,7 @@ def mark(con, account_id: str, ticker: str, day: date, *,
         'FROM sim_fills f LEFT JOIN sim_fill_details d ON d.order_id=f.order_id '
         'WHERE f.portfolio_id=? AND f.ticker=? AND f.fill_date<=? '
         'AND COALESCE(d.fill_ts,CAST(f.fill_date AS TIMESTAMP))<=? '
+        'AND isfinite(f.fill_px) AND f.fill_px>0 '
         'ORDER BY stamp DESC,f.order_id DESC LIMIT 1',
         [account_id, ticker, day, stamp],
     ).fetchone()

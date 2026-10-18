@@ -3652,4 +3652,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +8, tools unchanged, product +366.
 - **Next:** orchestrator integrates revision-15 source registrations; full-suite hash gates remain blocked.
 
+## 2026-10-17 — Refuse invalid money inputs and execution bars
+
+- **Why:** Revision 15 money-path goal; pre-fix synthetic settlement accepts cash infinity, stock cash NaN and infinite conversion shares; NaN orders are mislabeled insufficient cash. Full-suite replay also reproduces a pending partial-bar attempt preventing a trusted completion.
+- **What:** Validate order, settlement, dividend and fee numbers and overflow before money writes; share finite positive OHLCV and valid geometry across fills, marks and settlement evidence. Invalid execution bars wait with an audited reason; marks carry the last trusted close and date through stale exposure.
+  P15 recovery, deadline and terminal tests cover the requested branches; a pending partial bar can complete with its original attempt retained. Valid sizing and timing stay unchanged.
+- **Evidence:** Both full timezone suites: 5,093 passed / 92 stale-pin failures each; one snapshot-copy replay of 25 books over October 12–16: 112/125 book-days match within $0.005, all differences on invalid October 16 bars, copy deleted. Input, bar and P15 regressions pass.
+- **Metrics:** server +2, tools unchanged, product +229, tests +556; budget ok.
+- **Next:** integration orchestrator issues revision 15 and forward-runtime pins, then closes the full-suite gate; lane is blocked on that technical integration step.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

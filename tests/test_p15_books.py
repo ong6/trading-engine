@@ -794,3 +794,59 @@ def test_complete_dry_run_window_uses_copy_and_leaves_source_unchanged(tmp_path)
         "WHERE table_name='p15_book_contracts'"
     ).fetchone() == (0,)
     source.close()
+
+
+@pytest.mark.parametrize('reason', ['daily_entry_cap', 'data_quarantine', 'insufficient_cash', 'spy_dust', 'apply_refusal'])
+def test_terminal_money_protections_leave_no_fill(con, monkeypatch, reason):
+    from sim import fills, ledger
+
+    signal, day = SESSIONS[:2]
+    insert_bars(con, 'AAA', SESSIONS[:2])
+    insert_bars(con, 'SPY', SESSIONS[:2])
+    _activate(con, signal)
+    book = p15_books.BOOK_IDS[0]
+    ticker = 'SPY' if reason == 'spy_dust' else 'AAA'
+    role = 'spy_reinvest' if ticker == 'SPY' else 'entry'
+    if reason == 'daily_entry_cap':
+        for index in range(2):
+            name = f'FILLED{index}'
+            p15_books._add_intent(con, decision_id=None, portfolio_id=book, ticker=name,
+                                 side='buy', qty=1, signal_date=signal, role='entry', priority=index,
+                                 signal_close=100, entry_atr=2, limit_px=103, created_at=datetime(2024, 6, 4))
+            con.execute('UPDATE p15_order_intents SET sim_order_id=? WHERE ticker=?', [index + 100, name])
+            con.execute('INSERT INTO sim_fills VALUES (?,?,?,\'buy\',1,?,100,100,0,0)', [index + 100, book, name, day])
+    if reason == 'data_quarantine':
+        monkeypatch.setattr(p15_books, 'quarantine_reason', lambda *_: 'quarantined after queue')
+    if reason in ('insufficient_cash', 'spy_dust'):
+        con.execute('UPDATE portfolios SET cash=0.1 WHERE id=?', [book])
+    if reason == 'apply_refusal':
+        monkeypatch.setattr(ledger, 'apply_fill', lambda *_args, **_kwargs: 0.)
+    p15_books._add_intent(con, decision_id=None, portfolio_id=book, ticker=ticker,
+                         side='buy', qty=1, signal_date=signal, role=role, priority=3,
+                         signal_close=100, entry_atr=2 if role == 'entry' else None,
+                         limit_px=103 if role == 'entry' else None, created_at=datetime(2024, 6, 4))
+    intent = con.execute('SELECT id,portfolio_id,ticker,side,qty,signal_date,order_role,priority,signal_close,entry_atr,limit_px FROM p15_order_intents WHERE ticker=?', [ticker]).fetchone()
+    before = portfolio.get_cash(con, book), portfolio.get_positions(con, book)
+    fill_count = con.execute('SELECT COUNT(*) FROM sim_fills').fetchone()[0]
+    candidate = fills.attempt_fill(con, ticker, 'buy', 1, signal, day)
+    assert p15_books._terminal_order(con, intent, day, candidate) == 'rejected'
+    expected = 'insufficient_cash' if reason in ('spy_dust', 'apply_refusal') else reason
+    assert con.execute('SELECT reason FROM p15_order_intents WHERE ticker=?', [ticker]).fetchone() == (expected,)
+    assert (portfolio.get_cash(con, book), portfolio.get_positions(con, book)) == before
+    assert con.execute('SELECT COUNT(*) FROM sim_fills').fetchone() == (fill_count,)
+    assert portfolio.get_cash(con, 'control') == 100
+
+
+@pytest.mark.parametrize('missing', ['equity', 'book_state'])
+def test_missing_p15_money_state_refuses_without_write(con, missing):
+    signal = SESSIONS[0]
+    _activate(con, signal)
+    book = p15_books.BOOK_IDS[0]
+    if missing == 'equity':
+        con.execute('DELETE FROM sim_equity WHERE portfolio_id=?', [book])
+    else:
+        con.execute('DELETE FROM p15_book_state WHERE portfolio_id=?', [book])
+    before = con.execute('SELECT * FROM p15_book_state ORDER BY portfolio_id').fetchall()
+    with pytest.raises(p15_books.P15BookError, match='unavailable'):
+        p15_books._equity_and_halt(con, book, signal, datetime(2024, 6, 4))
+    assert con.execute('SELECT * FROM p15_book_state ORDER BY portfolio_id').fetchall() == before

@@ -110,22 +110,21 @@ def position_open_since(con: duckdb.DuckDBPyConnection, pf_id: str, ticker: str)
     return row[0] if row else None
 
 
+def close_observation(con: duckdb.DuckDBPyConnection, ticker: str, d: date):
+    """Latest trusted close with its actual session date."""
+    from .bar_sources import latest_close_observation
+
+    return latest_close_observation(con, ticker, d)
+
+
 def close_on(con: duckdb.DuckDBPyConnection, ticker: str, d: date):
     """(close, is_carried): the close on/last-known before d. Carried if the
     exact date's bar is missing (never fabricated — the last real close stands)."""
-    exact = con.execute(
-        "SELECT close FROM prices WHERE ticker = ? AND date = ?", [ticker, d]
-    ).fetchone()
-    if exact is not None and exact[0] is not None:
-        return float(exact[0]), False
-    row = con.execute(
-        "SELECT close FROM prices WHERE ticker = ? AND date <= ? "
-        "ORDER BY date DESC LIMIT 1",
-        [ticker, d],
-    ).fetchone()
-    if row is None or row[0] is None:
+    observation = close_observation(con, ticker, d)
+    if observation is None:
         return None, True
-    return float(row[0]), True
+    observed_date, close = observation
+    return close, observed_date != d
 
 
 # --------------------------------------------------------------------------- #
@@ -155,7 +154,9 @@ def mark_to_market(con: duckdb.DuckDBPyConnection, pf_id: str, d: date) -> dict:
         if is_carried:
             carried.append(tk)
         mkt += p["qty"] * close
-    equity = cash + mkt
+    from .money_inputs import finite_number
+
+    equity = finite_number(cash + mkt, "marked equity")
     n_pos = len(positions)
     con.execute(
         "INSERT OR REPLACE INTO sim_equity "
@@ -195,6 +196,8 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
     Returns {'credited': n_rows, 'amount': total_cash}. A store without a
     corporate_actions table (an old copy) credits nothing rather than failing.
     """
+    from .money_inputs import finite_number
+
     out = {"credited": 0, "amount": 0.0}
     if not table_exists(con, "corporate_actions"):
         return out
@@ -202,11 +205,15 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
     divs = con.execute(
         "SELECT ticker, ex_date, value FROM corporate_actions "
         "WHERE kind = 'dividend' AND ex_date > ? AND ex_date <= ? "
-        "AND value IS NOT NULL AND value > 0 ORDER BY ex_date, ticker",
+        "ORDER BY ex_date, ticker",
         [since, d],
     ).fetchall()
     if not divs:
         return out
+    for _tk, _ex, dps in divs:
+        finite_number(dps, "dividend per share", positive=True)
+    credits = []
+    planned_cash = {}
     already = set(con.execute(
         "SELECT portfolio_id, ticker, ex_date FROM sim_dividends "
         "WHERE ex_date > ? AND ex_date <= ?", [since, d]
@@ -234,17 +241,21 @@ def credit_dividends(con: duckdb.DuckDBPyConnection, d: date,
             if abs(qty) < 1e-9:
                 continue
             dps = float(value)
-            amount = qty * dps
-            con.execute("UPDATE portfolios SET cash = cash + ? WHERE id = ?",
-                        [amount, pf_id])
-            con.execute(
-                "INSERT INTO sim_dividends "
-                "(portfolio_id, ticker, ex_date, qty, dps, amount) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                [pf_id, tk, ex, qty, dps, amount],
-            )
-            out["credited"] += 1
-            out["amount"] += amount
+            amount = finite_number(qty * dps, "dividend amount")
+            cash = planned_cash.get(pf_id, get_cash(con, pf_id))
+            planned_cash[pf_id] = finite_number(cash + amount, "cash after dividend")
+            credits.append((pf_id, tk, ex, qty, dps, amount))
+    for pf_id, tk, ex, qty, dps, amount in credits:
+        con.execute("UPDATE portfolios SET cash = cash + ? WHERE id = ?",
+                    [amount, pf_id])
+        con.execute(
+            "INSERT INTO sim_dividends "
+            "(portfolio_id, ticker, ex_date, qty, dps, amount) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [pf_id, tk, ex, qty, dps, amount],
+        )
+        out["credited"] += 1
+        out["amount"] += amount
     return out
 
 

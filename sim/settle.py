@@ -53,10 +53,13 @@ from datetime import date, datetime, timezone
 import duckdb
 
 from engine.lib import db
+from engine.lib.data_quality import trusted_bar_sql
 from engine.lib.log import get_logger
 from engine.lib.util import table_exists
 
-from . import nyse, portfolio
+from . import money_inputs, nyse, portfolio
+
+TRUSTED_BAR_SQL = trusted_bar_sql()
 
 log = get_logger("settle")
 
@@ -143,7 +146,51 @@ class PendingOrderPlan:
 # --------------------------------------------------------------------------- #
 # validation
 # --------------------------------------------------------------------------- #
+def _numeric_terms(kind, price, ratio):
+    try:
+        money_inputs.finite_number(price, "settlement price", nonnegative=True)
+        if kind == "cash":
+            money_inputs.finite_number(price, "cash price", positive=True)
+        if kind == "worthless" and price != 0:
+            raise ValueError("worthless price must be zero")
+        if kind == "stock":
+            money_inputs.finite_number(ratio, "stock ratio", positive=True)
+    except ValueError as exc:
+        raise SettlementRefused(str(exc)) from exc
+
+
+def _check_application(con, pf_id, ticker, kind, qty, price, into_ticker, ratio):
+    """Check all consideration and basis arithmetic before the first write."""
+    _numeric_terms(kind, price, ratio)
+    try:
+        cash = money_inputs.finite_number(portfolio.get_cash(con, pf_id), "cash")
+        money_inputs.finite_number(qty, "settlement quantity")
+        money_inputs.finite_number(cash + qty * price, "settled cash")
+        position = portfolio.get_positions(con, pf_id).get(ticker, {})
+        held = position.get("qty", 0.)
+        basis = position.get("avg_cost", 0.)
+        money_inputs.finite_number(held - qty, "remaining quantity")
+        money_inputs.finite_number(basis, "basis", nonnegative=True)
+        if kind == "stock":
+            shares = qty * ratio
+            money_inputs.finite_number(shares, "conversion shares")
+            converted_basis = money_inputs.finite_number(basis / ratio, "converted basis")
+            acq = portfolio.get_positions(con, pf_id).get(into_ticker, {})
+            current = acq.get("qty", 0.)
+            money_inputs.finite_number(current + shares, "acquirer quantity")
+            money_inputs.finite_number(abs(current) * acq.get("avg_cost", 0.) + abs(shares) * converted_basis, "acquirer basis value")
+            for lot_qty, lot_px in con.execute(
+                "SELECT qty,avg_px FROM sim_position_lots WHERE portfolio_id=? AND instrument_id=?",
+                [pf_id, ticker],
+            ).fetchall():
+                money_inputs.finite_number(lot_qty * ratio, "converted lot quantity")
+                money_inputs.finite_number(lot_px / ratio, "converted lot basis")
+    except ValueError as exc:
+        raise SettlementRefused(str(exc)) from exc
+
+
 def validate(con: duckdb.DuckDBPyConnection, t: Terms) -> None:
+    _numeric_terms(t.kind, t.price, t.ratio)
     if t.kind not in KINDS:
         raise SettlementRefused(f"unknown kind {t.kind!r}; expected one of {KINDS}")
     if not t.source or not t.source.strip():
@@ -163,7 +210,7 @@ def validate(con: duckdb.DuckDBPyConnection, t: Terms) -> None:
             raise SettlementRefused("--into must differ from --ticker")
         n_bars = con.execute(
             "SELECT COUNT(*) FROM prices WHERE ticker = ? AND date >= ? "
-            f"AND {db.REAL_BAR_SQL}", [t.into_ticker, t.effective]).fetchone()[0]
+            f"AND {TRUSTED_BAR_SQL}", [t.into_ticker, t.effective]).fetchone()[0]
         if n_bars == 0:
             raise SettlementRefused(
                 f"acquirer {t.into_ticker} has no real bar in prices on/after "
@@ -175,7 +222,7 @@ def validate(con: duckdb.DuckDBPyConnection, t: Terms) -> None:
 
     traded = con.execute(
         "SELECT MAX(date), COUNT(*) FROM prices WHERE ticker = ? AND date >= ? "
-        f"AND {db.REAL_BAR_SQL}", [t.ticker, t.effective]).fetchone()
+        f"AND {TRUSTED_BAR_SQL}", [t.ticker, t.effective]).fetchone()
     if traded and traded[1] > 0:
         raise SettlementRefused(
             f"{t.ticker} traded on/after {t.effective} (last traded bar: "
@@ -236,6 +283,7 @@ def _plan_book(con, t: Terms, pf_id: str, qty: float, avg_cost: float) -> BookPl
         plan.warnings.append(f"{pf_id} already has {already} settlement row(s) for "
                              f"{t.ticker}; a position re-opened after a settlement "
                              "is unusual — check the ledger")
+    _check_application(con, pf_id, t.ticker, t.kind, qty, t.price, t.into_ticker, t.ratio)
     return plan
 
 
@@ -260,6 +308,7 @@ def apply_settlement_event(con: duckdb.DuckDBPyConnection, pf_id: str, ticker: s
     held, avg_cost = (float(row[0]), float(row[1])) if row else (0.0, 0.0)
     if portfolio_account(con, pf_id)['engine'] == 'account':
         qty = held
+    _check_application(con, pf_id, ticker, kind, qty, price, into_ticker, ratio)
     if abs(held - qty) > 1e-6:
         log.warning(f"[settle] WARN {pf_id} {ticker}: recorded settlement qty {qty:.6f} "
               f"!= position {held:.6f} at replay — fills before effective changed "
@@ -441,7 +490,7 @@ def delistings(con: duckdb.DuckDBPyConnection, d: date,
         traded AS (
             SELECT p.ticker, MAX(p.date) AS last_traded FROM prices p
             JOIN held h ON h.ticker = p.ticker
-            WHERE p.date <= ? AND {db.REAL_BAR_SQL} GROUP BY p.ticker)
+            WHERE p.date <= ? AND {TRUSTED_BAR_SQL} GROUP BY p.ticker)
         SELECT d.ticker, t.last_traded, p.close, d.dropped_on
         FROM dropped d JOIN traded t ON t.ticker = d.ticker
         JOIN prices p ON p.ticker = d.ticker AND p.date = t.last_traded

@@ -77,6 +77,11 @@ def _fill_attempt(
     day: date,
     available_at: datetime,
 ) -> fills.FillResult:
+    from sim.money_inputs import order_refusal
+
+    malformed = order_refusal(row["side"], row["qty"], limit_price=row["limit_px"])
+    if malformed:
+        return fills.FillResult(status="rejected", reject_reason=malformed)
     order_type = row["order_type"]
     received = _utc_aware(row["received_at"])
     execution_profile = row["execution_profile"] or "baseline_v1"
@@ -311,7 +316,8 @@ def _mark_account(
             _record_account_event(
                 con, portfolio_id, "stale_mark",
                 {"instrument_id": ticker, "session_date": day.isoformat(),
-                 "price_source": price_source, "carried_price": close},
+                 "price_source": price_source, "carried_price": close,
+                 "observed_at": observed.observed_at.isoformat()},
                 available_at,
             )
         market_value += float(qty) * close
@@ -403,6 +409,12 @@ def _settle_order(
     liquidity_refusals: set[int],
     execution_keys: dict[int, tuple],
 ) -> str:
+    from sim.money_inputs import order_refusal
+
+    malformed = order_refusal(row["side"], row["qty"], limit_price=row["limit_px"])
+    if malformed:
+        _state(con, row["order_id"], "rejected", malformed, now)
+        return "rejected"
     if (
         row["instrument_kind"] not in {"stock", "etf"}
         or row["parent_order_id"] is not None
