@@ -1073,6 +1073,408 @@ print(json.dumps(applied, sort_keys=True))
             Path(state.repo_root), Path(state.database), held_locks=held_locks
         )
 
+    def request_json(self, url: str) -> tuple[dict[str, Any], dict[str, str]]:
+        try:
+            with urllib.request.urlopen(url, timeout=60) as response:
+                body = response.read()
+                headers = {name.lower(): value for name, value in response.headers.items()}
+        except (OSError, urllib.error.URLError) as exc:
+            raise DeployError(f"semantic request failed for {url}: {exc}") from exc
+        try:
+            payload = json.loads(body)
+        except ValueError as exc:
+            raise DeployError(f"semantic request returned invalid JSON: {url}") from exc
+        if not isinstance(payload, dict):
+            raise DeployError(f"semantic request returned a non-object: {url}")
+        return payload, headers
+
+    def request_route(self, url: str) -> dict[str, Any]:
+        try:
+            with urllib.request.urlopen(url, timeout=60) as response:
+                body = response.read()
+                status_code = response.status
+        except (OSError, urllib.error.URLError) as exc:
+            raise DeployError(f"route request failed for {url}: {exc}") from exc
+        if status_code != 200 or not body:
+            raise DeployError(f"route is not semantically readable: {url}")
+        return {"status": status_code, "body_sha256": hashlib.sha256(body).hexdigest()}
+
+    def _start_readers(self) -> None:
+        self._systemctl(
+            "start",
+            "--no-block",
+            "trading-engine-api.service",
+            "trading-engine-ui.service",
+        )
+
+    def _wait_health(self) -> tuple[dict[str, Any], dict[str, str]]:
+        last_error = "unavailable"
+        for _attempt in range(60):
+            try:
+                health, headers = self.request_json(f"{self.api_url}/health")
+                if health == {"ok": True, "status": "ok", "db_readable": True}:
+                    if headers.get("x-data-source") == "snapshot":
+                        raise DeployError("primary API check unexpectedly used a snapshot")
+                    return health, headers
+                last_error = f"unexpected payload: {health}"
+            except DeployError as exc:
+                last_error = str(exc)
+            time.sleep(1)
+        raise DeployError(f"API did not become semantically healthy: {last_error}")
+
+    def _verify_runtime(self, state: ReleaseState, rolled_back: bool) -> dict[str, Any]:
+        root = Path(state.repo_root)
+        if rolled_back:
+            for relative, prior in state.prior_runtimes.items():
+                live = root / relative
+                if prior["kind"] == "absent" and os.path.lexists(live):
+                    raise DeployError(f"rollback did not restore absent runtime: {relative}")
+                if prior["kind"] == "symlink" and (
+                    not live.is_symlink() or os.readlink(live) != prior["target"]
+                ):
+                    raise DeployError(f"rollback did not restore runtime target: {relative}")
+                if prior["kind"] == "directory" and not live.is_dir():
+                    raise DeployError(f"rollback did not restore runtime directory: {relative}")
+            python = root / ".venv/bin/python"
+            if not python.is_file():
+                raise DeployError("rollback did not restore an executable Python runtime")
+            runtime = self._python_json(
+                state,
+                "import json,sys; print(json.dumps({'prefix':sys.prefix}))",
+                python=python,
+            )
+            return {"status": "restored", "python_prefix": runtime["prefix"]}
+        for relative, key in RUNTIME_LINKS.items():
+            live = root / relative
+            if (
+                not live.is_symlink()
+                or Path(os.path.realpath(live)) != Path(state.prepared[key]).resolve()
+            ):
+                raise DeployError(f"selected runtime identity changed: {relative}")
+        code = "import json,sys; print(json.dumps({'prefix':sys.prefix}))"
+        runtime = self._python_json(state, code)
+        if (
+            Path(runtime["prefix"]).resolve()
+            != Path(state.prepared["python_environment"]).resolve()
+        ):
+            raise DeployError("running Python does not match the prepared environment")
+        return {"status": "selected", "python_prefix": runtime["prefix"]}
+
+    def _adapter_semantics(
+        self, state: ReleaseState, meta: dict[str, Any], rolled_back: bool
+    ) -> dict[str, Any]:
+        if state.adapter_set == "none":
+            return {"adapter_set": "none"}
+        expected_revision = 14 if rolled_back else 15
+        registration = json.loads(
+            (Path(state.repo_root) / "server/p15-registration.json").read_text()
+        )["registration_revision"]
+        if registration != expected_revision:
+            raise DeployError(f"unexpected P15 registration revision: {registration}")
+        keys = ("forward_review", "xs_forward_review", "e1_forward")
+        if any(meta.get(key, {}).get("status") != "ACCUMULATING" for key in keys):
+            raise DeployError("forward evidence is not accumulating")
+        code = """
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from engine import forward_review, xs_forward_review
+from engine.lib import db
+from farm import experiment_runner
+from server import agent_evaluation
+with db.connect(Path(__import__('os').environ['TRADING_ENGINE_DB']), read_only=True) as con:
+ agent_evaluation.validate_p15_evidence(con, generated_at=datetime.now(timezone.utc))
+ breaks=con.execute("SELECT DISTINCT registration_revision FROM sim_book_breaks WHERE kind='cost_profile'").fetchall()
+assert breaks == [(14,)], breaks
+print(json.dumps({'versions': [forward_review.RUNTIME_CONTRACT_VERSION,
+ xs_forward_review.RUNTIME_CONTRACT_VERSION, experiment_runner.RUNTIME_CONTRACT_VERSION]}))
+"""
+        python = Path(state.repo_root) / ".venv/bin/python" if rolled_back else None
+        checked = self._python_json(state, code, python=python)
+        observed = [meta[key].get("runtime_contract_version") for key in keys]
+        if observed != checked["versions"]:
+            raise DeployError("runtime contract versions do not match the semantic API")
+        if rolled_back:
+            saved = state.inventory.get("predeploy_meta", {})
+            saved_versions = [saved.get(key, {}).get("runtime_contract_version") for key in keys]
+            if observed != saved_versions:
+                raise DeployError("rollback did not restore predeploy runtime versions")
+        return {"registration_revision": registration, "runtime_versions": observed}
+
+    def _forced_snapshot(self, state: ReleaseState, *, rolled_back: bool) -> dict[str, Any]:
+        code = (
+            "import duckdb,sys; c=duckdb.connect(sys.argv[1]); "
+            "print('ready',flush=True); sys.stdin.read(1); c.close()"
+        )
+        python = (
+            Path(state.repo_root) / ".venv/bin/python"
+            if rolled_back
+            else Path(state.prepared["python_environment"]) / "bin/python"
+        )
+        process = subprocess.Popen(
+            [str(python), "-c", code, state.database],
+            cwd=state.repo_root,
+            env=self.runner.environment({"PYTHONPATH": state.repo_root}),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            if process.stdout is None or process.stdout.readline().strip() != "ready":
+                raise DeployError("could not acquire the forced-snapshot writer")
+            health, headers = self.request_json(f"{self.api_url}/health")
+            if health.get("status") != "ok" or headers.get("x-data-source") != "snapshot":
+                raise DeployError("API did not use the forced snapshot")
+            return {"header": headers["x-data-source"]}
+        finally:
+            if process.stdin is not None:
+                try:
+                    process.stdin.write("x")
+                    process.stdin.flush()
+                except BrokenPipeError:
+                    pass
+            try:
+                process.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+
+    def semantic_verify(self, state: ReleaseState, *, rolled_back: bool) -> dict[str, Any]:
+        self._start_readers()
+        health, _health_headers = self._wait_health()
+        meta, _headers = self.request_json(f"{self.api_url}/meta")
+        routes = {
+            path: self.request_route(f"{self.ui_url}{path}")
+            for path in ("/", "/positions", "/league")
+        }
+        runtime = self._verify_runtime(state, rolled_back)
+        adapter = self._adapter_semantics(state, meta, rolled_back)
+        forced = self._forced_snapshot(state, rolled_back=rolled_back)
+        return {
+            "health": health,
+            "meta_sha256": _digest(meta),
+            "routes": routes,
+            "runtime": runtime,
+            "adapter": adapter,
+            "forced_snapshot": forced,
+        }
+
+    def _restore_crontab(self, saved: dict[str, Any]) -> None:
+        if saved["present"]:
+            self.runner.run(
+                [self.runner.host("crontab"), "-"], input_text=saved["content"], timeout=30
+            )
+        else:
+            self.runner.run([self.runner.host("crontab"), "-r"], check=False, timeout=30)
+
+    def release_producers(self, state: ReleaseState, *, include_autopush: bool) -> dict[str, Any]:
+        units = state.inventory["units"]
+        if not isinstance(units, dict) or any(UNIT_NAME.fullmatch(name) is None for name in units):
+            raise DeployError("saved unit inventory is invalid")
+        desired = {
+            name
+            for name, values in units.items()
+            if values.get("ActiveState") in ACTIVE_STATES
+            and (include_autopush or name not in AUTOPUSH_UNITS)
+        }
+        loaded = {
+            name
+            for name in self._unit_names()
+            if self._unit_properties(name).get("LoadState") != "not-found"
+        }
+        unexpected_active = {
+            name
+            for name in loaded - desired
+            if self._unit_properties(name).get("ActiveState") in ACTIVE_STATES
+        }
+        self._stop_units(unexpected_active)
+        services = [
+            name
+            for name, values in units.items()
+            if name.endswith(".service")
+            and values.get("ActiveState") in ACTIVE_STATES
+            and (include_autopush or name not in AUTOPUSH_UNITS)
+            and name not in {"trading-engine-api.service", "trading-engine-ui.service"}
+        ]
+        timers = [
+            name
+            for name, values in units.items()
+            if name.endswith(".timer")
+            and values.get("ActiveState") in ACTIVE_STATES
+            and (include_autopush or name not in AUTOPUSH_UNITS)
+        ]
+        if services:
+            self._systemctl("start", "--no-block", *sorted(services))
+        if timers:
+            self._systemctl("start", *sorted(timers))
+        self._restore_crontab(state.inventory["crontab"])
+        for name in sorted(loaded):
+            active = self._unit_properties(name).get("ActiveState") in ACTIVE_STATES
+            if active != (name in desired):
+                raise DeployError(f"saved activation state was not restored: {name}")
+        if self._read_crontab() != state.inventory["crontab"]:
+            raise DeployError("saved crontab was not restored exactly")
+        return {
+            "services_started": sorted(services),
+            "timers_started": sorted(timers),
+            "autopush_held": not include_autopush,
+        }
+
+    def capture_incident(self, state: ReleaseState) -> dict[str, Any]:
+        self._check_workspace(state, copies=2)
+        incident = self.store.directory / "incident"
+        if incident.exists():
+            raise DeployError("incident directory already exists without a completed receipt")
+        temporary = self.store.directory / "incident.partial"
+        temporary.mkdir(mode=0o700, exist_ok=True)
+        database = Path(state.database)
+        shutil.copy2(database, temporary / database.name)
+        wal = database.with_name(f"{database.name}.wal")
+        if wal.is_file():
+            shutil.copy2(wal, temporary / wal.name)
+        for name in ("data", "logs"):
+            source = Path(state.repo_root) / name
+            if source.is_dir():
+                shutil.copytree(
+                    source,
+                    temporary / name,
+                    ignore=shutil.ignore_patterns("*.lock"),
+                    dirs_exist_ok=True,
+                )
+        snapshots = database.parent / "snapshots"
+        if snapshots.is_dir():
+            shutil.copytree(
+                snapshots,
+                temporary / "snapshot-identity",
+                symlinks=True,
+                dirs_exist_ok=True,
+            )
+        os.replace(temporary, incident)
+        return {
+            "path": str(incident),
+            "database_sha256": _sha256(incident / database.name),
+        }
+
+    def restore_source(self, state: ReleaseState) -> dict[str, Any]:
+        root = Path(state.repo_root)
+        current = self._head(root)
+        if current not in {state.approved_sha, state.original_sha}:
+            raise DeployError("cannot roll back an unrecognized source SHA")
+        if current != state.original_sha:
+            if (root / "data").exists():
+                self.runner.run(["git", "checkout", "HEAD", "--", "data"], cwd=root)
+            self.runner.run(["git", "checkout", "--detach", state.original_sha], cwd=root)
+        artifacts = Path(state.inventory["artifacts"])
+        for name in ("data", "logs"):
+            saved = artifacts / name
+            if saved.is_dir():
+                shutil.copytree(saved, root / name, dirs_exist_ok=True)
+        return {"git_sha": self._head(root)}
+
+    def restore_runtimes(self, state: ReleaseState) -> dict[str, Any]:
+        root = Path(state.repo_root)
+        for relative, prior in state.prior_runtimes.items():
+            live = root / relative
+            prepared_key = RUNTIME_LINKS[relative]
+            selected = (
+                live.is_symlink()
+                and Path(os.path.realpath(live)) == Path(state.prepared[prepared_key]).resolve()
+            )
+            if prior["kind"] == "absent":
+                if selected:
+                    live.unlink()
+                elif os.path.lexists(live):
+                    raise DeployError(f"selected runtime changed before rollback: {relative}")
+            elif prior["kind"] == "symlink":
+                if live.is_symlink() and os.readlink(live) == prior["target"]:
+                    continue
+                if not selected:
+                    raise DeployError(f"selected runtime changed before rollback: {relative}")
+                live.unlink()
+                os.symlink(prior["target"], live)
+            elif prior["kind"] == "directory":
+                saved = Path(prior["saved"])
+                if live.is_dir() and not live.is_symlink() and not saved.exists():
+                    continue
+                if not selected or not saved.is_dir():
+                    raise DeployError(f"selected runtime changed before rollback: {relative}")
+                live.unlink()
+                os.replace(saved, live)
+        return {"restored": sorted(state.prior_runtimes)}
+
+    def restore_database(self, state: ReleaseState) -> dict[str, Any]:
+        bundle = self.store.directory / "recovery"
+        verified = backup_database.verify_backup(bundle)
+        if verified["manifest_sha256"] != state.backup.get("manifest_sha256"):
+            raise DeployError("recovery bundle no longer matches release state")
+        manifest = _regular_json(bundle / backup_database.MANIFEST_FILENAME)
+        if manifest.get("release_identity", {}).get("git_sha") != state.original_sha:
+            raise DeployError("recovery bundle source identity changed")
+        source = bundle / backup_database.DATABASE_FILENAME
+        target = Path(state.database)
+        temporary = target.with_name(f".{target.name}.restore-{secrets.token_hex(6)}")
+        shutil.copyfile(source, temporary)
+        os.chmod(temporary, 0o600)
+        if _sha256(temporary) != manifest["database"]["sha256"]:
+            temporary.unlink(missing_ok=True)
+            raise DeployError("restored database copy does not match the recovery bundle")
+        target.with_name(f"{target.name}.wal").unlink(missing_ok=True)
+        os.replace(temporary, target)
+        for section in ("prospective_evidence", "operational_artifacts", "operational_controls"):
+            for relative, record in manifest.get(section, {}).items():
+                relative_path = Path(relative)
+                if relative_path.is_absolute() or ".." in relative_path.parts:
+                    raise DeployError("recovery bundle contains an unsafe evidence path")
+                root = Path(state.repo_root).resolve()
+                parent = root
+                for part in relative_path.parts[:-1]:
+                    parent /= part
+                    if parent.is_symlink() or (parent.exists() and not parent.is_dir()):
+                        raise DeployError("recovery evidence destination is unsafe")
+                parent.mkdir(parents=True, exist_ok=True)
+                destination = root / relative_path
+                if destination.is_symlink():
+                    raise DeployError("recovery evidence destination is unsafe")
+                shutil.copyfile(bundle / record["bundle_path"], destination)
+                if _sha256(destination) != record["sha256"]:
+                    raise DeployError(f"restored evidence identity mismatch: {relative}")
+        snapshots = target.parent / "snapshots"
+        quarantine = self.store.directory / "incident" / "quarantined-snapshots"
+        if snapshots.exists() and not quarantine.exists():
+            os.replace(snapshots, quarantine)
+        return {"database_sha256": _sha256(target), "manifest_sha256": verified["manifest_sha256"]}
+
+    def restore_units(self, state: ReleaseState) -> dict[str, Any]:
+        unit_root = self.home / ".config/systemd/user"
+        unit_root.mkdir(parents=True, exist_ok=True)
+        for name, saved in state.inventory["unit_files"].items():
+            if UNIT_NAME.fullmatch(name) is None:
+                raise DeployError("saved unit inventory is invalid")
+            target = unit_root / name
+            if target.exists() or target.is_symlink():
+                if target.is_dir() and not target.is_symlink():
+                    raise DeployError(f"installed unit became a directory: {name}")
+                target.unlink()
+            if saved["kind"] == "file":
+                source = Path(saved["saved"])
+                if _sha256(source) != saved["sha256"]:
+                    raise DeployError(f"saved unit changed: {name}")
+                shutil.copy2(source, target)
+            elif saved["kind"] == "symlink":
+                os.symlink(saved["target"], target)
+        self._systemctl("daemon-reload")
+        for name, values in state.inventory["units"].items():
+            prior = values.get("UnitFileState")
+            if values.get("LoadState") == "not-found":
+                continue
+            if prior == "enabled":
+                self._systemctl("enable", name)
+            elif prior == "disabled":
+                self._systemctl("disable", name)
+        return {"restored": sorted(state.inventory["unit_files"])}
+
+
 class ReleaseDeployment:
     def __init__(
         self,
@@ -1325,3 +1727,244 @@ class ReleaseDeployment:
         except BaseException as exc:
             self._save_failure(state, exc)
             raise
+
+    def verify(self, *, execute: bool) -> dict[str, Any]:
+        state = self._load_prepared()
+        actions = ["semantic-verify", "release-producers"]
+        if not execute:
+            return self._plan_existing(state, "verify", actions)
+        if state.phase not in {"applied", "verifying"}:
+            raise DeployError(f"verify is not allowed from phase {state.phase}")
+        self.operations.validate_state_source(state, state.approved_sha)
+        state.phase = "verifying"
+        self.store.save(state)
+        try:
+            self.journal.run(
+                "semantic-verify",
+                {"approved_sha": state.approved_sha, "backup": _digest(state.backup)},
+                lambda: self.operations.semantic_verify(state, rolled_back=False),
+            )
+            self._fault("semantic-verify")
+            self.journal.run(
+                "release-producers",
+                {"inventory": _digest(state.inventory), "include_autopush": True},
+                lambda: self.operations.release_producers(state, include_autopush=True),
+            )
+            self._fault("release-producers")
+            state.phase = "verified"
+            state.last_failure = None
+            self.store.save(state)
+            return {"status": "verified", "state": asdict(state)}
+        except BaseException as exc:
+            self._save_failure(state, exc)
+            raise
+
+    def rollback(self, *, execute: bool) -> dict[str, Any]:
+        state = self._load_prepared()
+        actions = [
+            "rollback-quiesce",
+            "capture-incident",
+            "restore-source",
+            "restore-runtimes",
+            "restore-database",
+            "restore-units",
+            "rollback-snapshot",
+            "rollback-semantic-verify",
+            "rollback-release-producers",
+        ]
+        if not execute:
+            return self._plan_existing(state, "rollback", actions)
+        if not self.journal.completed("create-backup"):
+            raise DeployError("rollback has no completed recovery bundle")
+        if state.phase == "resumed":
+            raise DeployError(f"rollback is not allowed from phase {state.phase}")
+        if state.phase == "rolled-back":
+            return {"status": "rolled-back", "idempotent": True, "state": asdict(state)}
+        state.phase = "rolling-back"
+        self.store.save(state)
+        try:
+            self.journal.run(
+                "rollback-quiesce",
+                {"inventory": _digest(state.inventory)},
+                lambda: self.operations.quiesce(state),
+            )
+            with self.operations.producer_locks(state) as held_locks:
+                self.journal.run(
+                    "capture-incident",
+                    {"approved_sha": state.approved_sha, "database": state.database},
+                    lambda: self.operations.capture_incident(state),
+                )
+                self.journal.run(
+                    "restore-source",
+                    {"original_sha": state.original_sha},
+                    lambda: self.operations.restore_source(state),
+                )
+                self.journal.run(
+                    "restore-runtimes",
+                    {"prior": state.prior_runtimes},
+                    lambda: self.operations.restore_runtimes(state),
+                )
+                self.journal.run(
+                    "restore-database",
+                    {"backup": _digest(state.backup)},
+                    lambda: self.operations.restore_database(state),
+                )
+                self.journal.run(
+                    "restore-units",
+                    {"unit_files": state.inventory["unit_files"]},
+                    lambda: self.operations.restore_units(state),
+                )
+                self.journal.run(
+                    "rollback-snapshot",
+                    {"original_sha": state.original_sha, "database": state.database},
+                    lambda: self.operations.publish_snapshot(state, held_locks),
+                )
+            self.journal.run(
+                "rollback-semantic-verify",
+                {"original_sha": state.original_sha, "backup": _digest(state.backup)},
+                lambda: self.operations.semantic_verify(state, rolled_back=True),
+            )
+            self.journal.run(
+                "rollback-release-producers",
+                {"inventory": _digest(state.inventory), "include_autopush": False},
+                lambda: self.operations.release_producers(state, include_autopush=False),
+            )
+            state.phase = "rolled-back"
+            state.last_failure = None
+            self.store.save(state)
+            return {"status": "rolled-back", "state": asdict(state)}
+        except BaseException as exc:
+            self._save_failure(state, exc)
+            raise
+
+    def resume(self, *, reconciled_sha: str, execute: bool) -> dict[str, Any]:
+        state = self._load_prepared()
+        if FULL_SHA.fullmatch(reconciled_sha) is None:
+            raise DeployError("reconciled SHA must be 40 lowercase hexadecimal characters")
+        actions = ["validate-reconciled-source", "resume-autopush"]
+        if not execute:
+            return self._plan_existing(state, "resume", actions)
+        if state.phase not in {"rolled-back", "resuming"}:
+            raise DeployError(f"resume is not allowed from phase {state.phase}")
+        if self.operations._head(Path(state.repo_root)) != reconciled_sha:
+            raise DeployError("current source does not match the reconciled SHA")
+        self.operations._source_status(Path(state.repo_root))
+        state.phase = "resuming"
+        self.store.save(state)
+        try:
+            self.journal.run(
+                "resume-autopush",
+                {"reconciled_sha": reconciled_sha, "inventory": _digest(state.inventory)},
+                lambda: self.operations.release_producers(state, include_autopush=True),
+            )
+            state.phase = "resumed"
+            state.last_failure = None
+            self.store.save(state)
+            return {"status": "resumed", "reconciled_sha": reconciled_sha, "state": asdict(state)}
+        except BaseException as exc:
+            self._save_failure(state, exc)
+            raise
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--repo-root", type=Path, default=REPO_ROOT)
+    parser.add_argument("--database", type=Path, default=DEFAULT_DB)
+    parser.add_argument("--home", type=Path, default=Path.home())
+    parser.add_argument("--host-command-dir", type=Path)
+    parser.add_argument("--api-url", default="http://127.0.0.1:8000")
+    parser.add_argument("--ui-url", default="http://127.0.0.1:3000")
+    parser.add_argument(
+        "--minimum-free-bytes",
+        type=int,
+        default=70 * 1024**3,
+        help="free bytes that must remain after reserved database copies",
+    )
+    parser.add_argument(
+        "--fail-after",
+        help="test-only fault injection; requires RELEASE_DEPLOY_FAULT_INJECTION=1",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    prepare = subparsers.add_parser("prepare")
+    prepare.add_argument("state_dir", type=Path)
+    prepare.add_argument("--approved-sha", required=True)
+    prepare.add_argument("--adapter-set", choices=sorted(ADAPTERS), default="none")
+    prepare.add_argument("--d0")
+    prepare.add_argument("--execute", action="store_true")
+    apply = subparsers.add_parser("apply")
+    apply.add_argument("state_dir", type=Path)
+    apply.add_argument("--approve-plan")
+    apply.add_argument("--execute", action="store_true")
+    for name in ("verify", "rollback"):
+        command = subparsers.add_parser(name)
+        command.add_argument("state_dir", type=Path)
+        command.add_argument("--execute", action="store_true")
+    resume = subparsers.add_parser("resume")
+    resume.add_argument("state_dir", type=Path)
+    resume.add_argument("--reconciled-sha", required=True)
+    resume.add_argument("--execute", action="store_true")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    if args.minimum_free_bytes < 0:
+        print(json.dumps({"status": "failed", "reason": "minimum free bytes must be non-negative"}))
+        return 1
+    if args.fail_after and os.environ.get("RELEASE_DEPLOY_FAULT_INJECTION") != "1":
+        print(json.dumps({"status": "failed", "reason": "fault injection is not enabled"}))
+        return 1
+    store = StateStore(args.state_dir)
+    runner = CommandRunner(args.host_command_dir)
+    operations = ReleaseOperations(
+        store,
+        home=args.home,
+        command_runner=runner,
+        api_url=args.api_url,
+        ui_url=args.ui_url,
+        minimum_free_bytes=args.minimum_free_bytes,
+    )
+    deployment = ReleaseDeployment(store, operations, fail_after=args.fail_after)
+    repo_root = args.repo_root.resolve()
+    database = args.database if args.database.is_absolute() else repo_root / args.database
+    try:
+        if args.command == "prepare":
+            result = deployment.prepare(
+                repo_root=repo_root,
+                database=database,
+                approved_sha=args.approved_sha,
+                adapter_set=args.adapter_set,
+                d0=args.d0,
+                execute=args.execute,
+            )
+        elif args.command == "apply":
+            result = deployment.apply(execute=args.execute, approve_plan=args.approve_plan)
+        elif args.command == "verify":
+            result = deployment.verify(execute=args.execute)
+        elif args.command == "rollback":
+            result = deployment.rollback(execute=args.execute)
+        else:
+            result = deployment.resume(reconciled_sha=args.reconciled_sha, execute=args.execute)
+    except ApprovalRequired as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "awaiting-migration-approval",
+                    "migration": exc.migration,
+                    "plan_sha256": exc.digest,
+                    "plan": exc.plan,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+    except (DeployError, OSError, subprocess.SubprocessError) as exc:
+        print(json.dumps({"status": "failed", "reason": str(exc)}, sort_keys=True))
+        return 1
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
