@@ -117,6 +117,40 @@ def test_fixture_word_outside_test_path_does_not_exempt_credential(tmp_path):
     assert "credential_assignment" in _rules(findings)
 
 
+def test_namespaced_json_and_punctuated_credentials_are_redacted(tmp_path, capsys):
+    root, _remote = _repository(tmp_path)
+    base = _git(root, "rev-parse", "HEAD").stdout.strip()
+    candidates = [
+        "T" * 28 + "Key9",
+        "D" * 24 + "!Pass9",
+        "A" * 20 + "!Secret$Access#9",
+        "J" * 24 + "_Json9",
+    ]
+    content = "\n".join(
+        (
+            f"TIINGO_API_KEY={candidates[0]}",
+            f"database_password: {candidates[1]}",
+            f'AWS_SECRET_ACCESS_KEY = "{candidates[2]}"',
+            "{" + f'\"api_key\": \"{candidates[3]}\"' + "}",
+        )
+    )
+    (root / "credentials.conf").write_text(content + "\n")
+    head = _commit(root)
+    scanner = public_hygiene.RepositoryScanner(root)
+
+    committed = scanner.scan_range(f"{base}..{head}")
+    worktree = scanner.scan_worktree()
+    result = public_hygiene.main(
+        ["--repo-root", str(root), "--range", f"{base}..{head}", "--worktree"]
+    )
+    output = capsys.readouterr()
+
+    assert len([item for item in committed if item.rule == "credential_assignment"]) == 4
+    assert len([item for item in worktree if item.rule == "credential_assignment"]) == 4
+    assert result == 1
+    assert not any(candidate in output.out + output.err for candidate in candidates)
+
+
 def test_checker_source_does_not_trigger_its_path_rules():
     source = Path(public_hygiene.__file__).read_text()
 

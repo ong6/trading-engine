@@ -70,12 +70,14 @@ _SECRET_RULES = (
     (
         "credential_assignment",
         re.compile(
-            r"(?im)^[ \t]*(?:export[ \t]+)?"
-            r"(?:api[_-]?key|access[_-]?token|client[_-]?secret|password)"
-            r"[ \t]*[:=][ \t]*([\"']?)([A-Za-z0-9_./+=:@-]{24,})\1"
-            r"[ \t]*(?:#.*)?$"
+            r"(?im)^[ \t]*(?:\{[ \t]*)?(?:export[ \t]+)?[\"']?"
+            r"(?:[A-Za-z][A-Za-z0-9]{0,31}[_-]){0,3}"
+            r"(?:api[_-]?key|access[_-]?token|client[_-]?secret|password|"
+            r"secret[_-]?access[_-]?key)[\"']?[ \t]*[:=][ \t]*"
+            r"(?:\"([^\"\r\n]{20,})\"|'([^'\r\n]{20,})'|"
+            r"([^\s#\"'`,}{]{24,}))[ \t]*(?:[,}]|#.*)?$"
         ),
-        2,
+        (1, 2, 3),
     ),
 )
 _TOOL_COAUTHOR_RE = re.compile(
@@ -161,6 +163,12 @@ def _public_fixture(path: str, value: str) -> bool:
     )
 
 
+def _matched_candidate(match: re.Match[str], group: int | tuple[int, ...]) -> str:
+    if isinstance(group, int):
+        return match.group(group)
+    return next(value for index in group if (value := match.group(index)) is not None)
+
+
 def _sensitive_path(path: str, denylist: tuple[str, ...]) -> bool:
     if any(pattern.search(path) for _, pattern in _PATH_RULES) or any(
         item.casefold() in path.casefold() for item in denylist
@@ -168,7 +176,7 @@ def _sensitive_path(path: str, denylist: tuple[str, ...]) -> bool:
         return True
     for rule, pattern, group in _SECRET_RULES:
         for match in pattern.finditer(path):
-            candidate = match.group(group)
+            candidate = _matched_candidate(match, group)
             if rule != "credential_assignment" or not _public_fixture(path, candidate):
                 return True
     return False
@@ -195,7 +203,7 @@ def _scan_value(
     if include_secrets:
         for rule, pattern, group in _SECRET_RULES:
             for match in pattern.finditer(value):
-                candidate = match.group(group)
+                candidate = _matched_candidate(match, group)
                 if rule == "credential_assignment" and _public_fixture(path, candidate):
                     continue
                 findings.add(_finding(path, rule, candidate, redact_path=redact_path))
