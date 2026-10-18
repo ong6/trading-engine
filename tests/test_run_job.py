@@ -1,0 +1,350 @@
+from __future__ import annotations
+
+import fcntl
+import json
+import sys
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from engine import job_contract
+from tools import run_job
+
+ROOT = Path(__file__).resolve().parents[1]
+SLOT = datetime(2026, 10, 18, 12, tzinfo=UTC)
+
+
+def _spec(
+    tmp_path: Path,
+    code: str,
+    *,
+    job_id: str = "synthetic-job",
+    parameters: str = "{}",
+    locks: str | None = None,
+    attempt_seconds: float = 5,
+    term_grace_seconds: float = 1,
+    max_attempts: int = 1,
+    retry_codes: tuple[int, ...] = (),
+    backoffs: tuple[float, ...] = (),
+    catch_up: tuple[str, int, int] = ("none", 0, 0),
+    memory_required: int = 0,
+    min_free_bytes: int = 0,
+) -> tuple[job_contract.JobSpec, Path]:
+    repo = tmp_path / "repo"
+    repo.mkdir(parents=True)
+    script = repo / "synthetic_job.py"
+    script.write_text(code)
+    manifest = repo / "jobs.toml"
+    lock_text = locks or (
+        f'[{{ name = "job:{job_id}", mode = "exclusive", wait_seconds = 0, '
+        'timeout_status = "superseded" }]'
+    )
+    manifest.write_text(
+        f"""schema_version = 1
+maximum_receipt_retention_days = 180
+[[jobs]]
+job_id = "{job_id}"
+owner = "test"
+repository = "fixture"
+version = 1
+argv = ["{sys.executable}", "{{repo}}/synthetic_job.py"]
+parameters = {parameters}
+authority = "data"
+enabled = true
+schedules = []
+calendar = "always"
+locks = {lock_text}
+idempotency = {{ template = "{{job_id}}:{{version}}:{{scheduled_for}}" }}
+run_record = {{ retention_days = 180 }}
+timeout = {{ attempt_seconds = {attempt_seconds}, term_grace_seconds = {term_grace_seconds}, overall_seconds = 20 }}
+retry = {{ max_attempts = {max_attempts}, exit_codes = {list(retry_codes)}, backoff_seconds = {list(backoffs)}, deadline_seconds = 20 }}
+alert = {{ severity = "FAIL", grace_seconds = 0 }}
+catch_up = {{ mode = "{catch_up[0]}", max_age_seconds = {catch_up[1]}, max_count = {catch_up[2]} }}
+[jobs.resources]
+nice = 0
+io_scheduling_class = "best-effort"
+cpu_quota_percent = 50
+memory_high_bytes = 1048576
+memory_max_bytes = 2097152
+minimum_available_memory_bytes = {memory_required}
+tasks_max = 8
+scratch_bytes = 0
+output_bytes = 0
+min_free_bytes = {min_free_bytes}
+unlimited_reason = "synthetic fixture"
+"""
+    )
+    registry = job_contract.load_registry(repo, paths=[manifest])
+    return registry.get(job_id), repo
+
+
+def _execute(spec, repo, tmp_path, **kwargs):
+    return run_job.execute_job(
+        spec,
+        scheduled_for=SLOT,
+        repo_root=repo,
+        logs_dir=tmp_path / "logs",
+        projector=kwargs.pop("projector", lambda receipt, ops: None),
+        **kwargs,
+    )
+
+
+def test_success_receipt_environment_and_completed_key_noop(tmp_path):
+    state = tmp_path / "state.json"
+    parameters = ('{ state = { type = "string", option = "--state", required = true } }')
+    spec, repo = _spec(
+        tmp_path,
+        """import argparse, json, os
+p=argparse.ArgumentParser(); p.add_argument('--state'); a=p.parse_args()
+path=__import__('pathlib').Path(a.state)
+count=int(path.read_text())+1 if path.exists() else 1
+path.write_text(str(count))
+path.with_suffix('.env').write_text(json.dumps({k: os.environ[k] for k in (
+ 'ENGINE_JOB_RUN_ID','ENGINE_JOB_SCHEDULED_FOR','ENGINE_JOB_IDEMPOTENCY_KEY',
+ 'ENGINE_JOB_RECEIPT_PATH','ENGINE_JOB_PARAMETERS_SHA256','PYTHONPATH')}))
+""",
+        parameters=parameters,
+    )
+
+    first = _execute(spec, repo, tmp_path, parameters={"state": str(state)})
+    second = _execute(spec, repo, tmp_path, parameters={"state": str(state)})
+
+    assert first.exit_code == 0 and first.final["work_status"] == "success"
+    assert second.exit_code == 0 and second.final["work_status"] == "noop"
+    assert second.final["reason"] == "completed-idempotency-key"
+    assert state.read_text() == "1"
+    environment = json.loads(state.with_suffix(".env").read_text())
+    assert environment["ENGINE_JOB_SCHEDULED_FOR"] == "2026-10-18T12:00:00Z"
+    assert environment["PYTHONPATH"] == str(repo)
+    assert Path(environment["ENGINE_JOB_RECEIPT_PATH"]) == first.receipts[-1]
+    assert len(first.final["parameter_sha256"]) == 64
+    assert str(state) not in json.dumps(first.final)
+
+
+def test_live_idempotency_key_refuses_a_concurrent_child(tmp_path):
+    spec, repo = _spec(tmp_path, "pass\n")
+    key = "same-key"
+    lock = run_job._lock_path(tmp_path / "logs", "idempotency", key)
+    lock.parent.mkdir(parents=True)
+    with lock.open("a+") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(run_job.JobRunError, match="live run"):
+            _execute(spec, repo, tmp_path, idempotency_key=key)
+
+
+def test_stale_running_attempt_is_interrupted_then_resumed(tmp_path):
+    state = tmp_path / "side-effect"
+    parameters = ('{ state = { type = "string", option = "--state", required = true } }')
+    spec, repo = _spec(
+        tmp_path,
+        """import argparse
+from pathlib import Path
+p=argparse.ArgumentParser(); p.add_argument('--state'); a=p.parse_args()
+path=Path(a.state); path.write_text(str(int(path.read_text())+1 if path.exists() else 1))
+""",
+        parameters=parameters,
+    )
+    destination = run_job._receipt_directory(tmp_path / "logs", spec, SLOT)
+    stale = {
+        "schema_version": 1,
+        "run_id": "old",
+        "job_id": spec.job_id,
+        "spec_version": 1,
+        "spec_sha256": spec.spec_sha256,
+        "idempotency_key": "resume-key",
+        "scheduled_for": "2026-10-18T12:00:00Z",
+        "started_at": "2026-10-18T11:59:00Z",
+        "attempt": 1,
+        "argv": list(spec.argv),
+        "parameter_sha256": "0" * 64,
+        "source_sha": "unknown",
+        "state": "running",
+    }
+    run_job._atomic_json(destination / "1.running.json", stale)
+
+    result = _execute(
+        spec, repo, tmp_path, idempotency_key="resume-key", parameters={"state": str(state)}
+    )
+
+    assert [json.loads(path.read_text())["work_status"] for path in result.receipts] == [
+        "interrupted", "success"
+    ]
+    assert result.final["attempt"] == 2 and state.read_text() == "1"
+    assert not list(destination.glob("*.running.json"))
+
+
+@pytest.mark.parametrize(("fail_until", "statuses"), [(1, ["retryable_failure", "success"]),
+                                                        (9, ["retryable_failure"] * 3)])
+def test_bounded_retry_then_success_or_exhaustion(tmp_path, fail_until, statuses):
+    state = tmp_path / "attempts"
+    parameters = (
+        '{ state = { type = "string", option = "--state", required = true }, '
+        'fail_until = { type = "integer", option = "--fail-until", required = true } }'
+    )
+    spec, repo = _spec(
+        tmp_path,
+        """import argparse, sys
+from pathlib import Path
+p=argparse.ArgumentParser(); p.add_argument('--state'); p.add_argument('--fail-until', type=int)
+a=p.parse_args(); path=Path(a.state); n=int(path.read_text())+1 if path.exists() else 1
+path.write_text(str(n)); sys.exit(9 if n <= a.fail_until else 0)
+""",
+        parameters=parameters,
+        max_attempts=3,
+        retry_codes=(9,),
+        backoffs=(0, 0),
+    )
+    result = _execute(
+        spec, repo, tmp_path, parameters={"state": str(state), "fail_until": fail_until}
+    )
+
+    assert [json.loads(path.read_text())["work_status"] for path in result.receipts] == statuses
+    assert int(state.read_text()) == len(statuses)
+    assert result.exit_code == (0 if fail_until == 1 else 1)
+    assert result.final["retry_disposition"] == ("none" if fail_until == 1 else "exhausted")
+
+
+@pytest.mark.parametrize(("ignore_term", "termination"), [(False, "TERM"), (True, "KILL")])
+def test_attempt_timeout_escalates_from_term_to_kill(tmp_path, ignore_term, termination):
+    setup = "signal.signal(signal.SIGTERM, signal.SIG_IGN)" if ignore_term else ""
+    spec, repo = _spec(
+        tmp_path,
+        f"import signal, time\n{setup}\ntime.sleep(10)\n",
+        attempt_seconds=0.05,
+        term_grace_seconds=0.05,
+    )
+
+    result = _execute(spec, repo, tmp_path)
+
+    assert result.exit_code == 1
+    assert result.final["work_status"] == "retryable_failure"
+    assert result.final["termination"] == termination
+    assert not list((tmp_path / "logs").glob("job-runs/*/*/*.running.json"))
+
+
+def test_lock_timeout_and_resource_refusal_never_launch_child(tmp_path, monkeypatch):
+    marker = tmp_path / "launched"
+    locks = (
+        '[{ name = "job:synthetic-job", mode = "exclusive", wait_seconds = 0, '
+        'timeout_status = "superseded" }, { name = "market-writer", mode = "exclusive", '
+        'wait_seconds = 0, timeout_status = "terminal_failure" }]'
+    )
+    spec, repo = _spec(tmp_path, f"from pathlib import Path\nPath({str(marker)!r}).touch()\n",
+                       locks=locks)
+    held = run_job._lock_path(tmp_path / "logs", "domains", "market-writer")
+    held.parent.mkdir(parents=True)
+    with held.open("a+") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        locked = _execute(spec, repo, tmp_path)
+    assert locked.final["reason"] == "lock-timeout:market-writer"
+    assert locked.final["work_status"] == "terminal_failure" and not marker.exists()
+
+    spec2, repo2 = _spec(tmp_path / "memory", "raise AssertionError('launched')\n",
+                         memory_required=1024)
+    monkeypatch.setattr(run_job, "_available_memory_bytes", lambda: 0)
+    refused = _execute(spec2, repo2, tmp_path / "memory")
+    assert refused.final["reason"] == "resource-refusal:memory-reserve"
+
+    spec3, repo3 = _spec(tmp_path / "disk", "raise AssertionError('launched')\n",
+                         min_free_bytes=1)
+    monkeypatch.setattr(run_job.shutil, "disk_usage", lambda root: SimpleNamespace(free=0))
+    refused = _execute(spec3, repo3, tmp_path / "disk")
+    assert refused.final["reason"] == "resource-refusal:disk-reserve"
+
+
+@pytest.mark.parametrize(("code", "status", "runner_exit"),
+                         [(0, "success", 0), (75, "degraded", 75), (2, "terminal_failure", 1)])
+def test_status_and_process_exit_are_distinct(tmp_path, code, status, runner_exit):
+    spec, repo = _spec(tmp_path, f"raise SystemExit({code})\n")
+    result = _execute(spec, repo, tmp_path)
+    assert (result.final["process_exit"], result.final["work_status"], result.exit_code) == (
+        code, status, runner_exit
+    )
+
+
+def test_malformed_and_immutable_receipts_fail_closed(tmp_path):
+    spec, repo = _spec(tmp_path, "pass\n")
+    broken = run_job._receipt_directory(tmp_path / "logs", spec, SLOT) / "1.json"
+    broken.parent.mkdir(parents=True)
+    broken.write_text("not json")
+    with pytest.raises(run_job.JobRunError, match="malformed"):
+        _execute(spec, repo, tmp_path)
+
+    target = tmp_path / "receipt.json"
+    run_job._atomic_json(target, {"schema_version": 1, "value": 1})
+    with pytest.raises(run_job.JobRunError, match="already exists"):
+        run_job._atomic_json(target, {"schema_version": 1, "value": 2})
+    assert json.loads(target.read_text())["value"] == 1
+
+
+def test_projection_outage_is_fail_soft_and_receipts_prune_at_180_days(tmp_path, capsys):
+    spec, repo = _spec(tmp_path, "pass\n")
+    result = _execute(
+        spec, repo, tmp_path,
+        projector=lambda receipt, ops: (_ for _ in ()).throw(OSError("down")),
+    )
+    assert result.exit_code == 0
+    assert "projection unavailable: OSError" in capsys.readouterr().err
+    old = dict(result.final)
+    old["ended_at"] = "2026-04-20T11:59:59Z"
+    old_path = tmp_path / "old" / "job-runs" / spec.job_id / "slot" / "1.json"
+    run_job._atomic_json(old_path, old)
+    boundary = dict(old)
+    boundary["ended_at"] = "2026-04-21T12:00:00Z"
+    keep = old_path.with_name("2.json")
+    run_job._atomic_json(keep, boundary)
+    assert run_job.prune_receipts(tmp_path / "old" / "job-runs", 180, SLOT) == 1
+    assert not old_path.exists() and keep.exists()
+
+
+@pytest.mark.parametrize(
+    ("policy", "expected"),
+    [(('none', 0, 0), []), (('latest', 86400, 1), [3]), (('all_bounded', 86400, 2), [2, 3])],
+)
+def test_catch_up_is_age_and_count_bounded(tmp_path, policy, expected):
+    spec, _repo = _spec(tmp_path, "pass\n", catch_up=policy)
+    slots = [SLOT - timedelta(hours=value) for value in (30, 3, 2, 1)]
+    plan = run_job.plan_catch_up(spec, slots, SLOT)
+    assert list(plan.execute) == [slots[index] for index in expected]
+    assert set(plan.execute).isdisjoint(plan.skipped)
+
+
+def test_backfill_validates_parameters_and_builds_a_bounded_transient_unit(tmp_path):
+    parameters = (
+        '{ from = { type = "date", option = "--from", required = true }, '
+        'through = { type = "date", option = "--through", required = true }, '
+        'reason = { type = "string", option = "--reason", required = true } }'
+    )
+    spec, repo = _spec(tmp_path, "pass\n", parameters=parameters)
+    values = run_job.validate_parameters(
+        spec, {"from": "2026-10-01", "through": "2026-10-02", "reason": "incident-1"}
+    )
+    command = run_job._backfill_command(
+        spec, repo_root=repo, logs_dir=tmp_path / "logs", scheduled_for=SLOT,
+        idempotency_key="backfill-1", parameters=values,
+    )
+
+    assert command[:5] == ["systemd-run", "--user", "--wait", "--collect", "--quiet"]
+    assert f"--working-directory={repo}" in command
+    assert f"--setenv=PYTHONPATH={repo}" in command
+    assert "--property=TimeoutStartSec=20s" in command
+    assert "--property=CPUQuota=50%" in command
+    assert "--property=MemoryMax=2097152" in command
+    assert command[-1] == json.dumps(values, sort_keys=True, separators=(",", ":"))
+    with pytest.raises(run_job.JobRunError, match="missing required"):
+        run_job.validate_parameters(spec, {"from": "2026-10-01"})
+
+
+def test_public_read_only_registry_audit_runs_through_common_runner(tmp_path):
+    spec = job_contract.load_registry(ROOT).get("registry-audit")
+    result = run_job.execute_job(
+        spec,
+        scheduled_for=SLOT,
+        repo_root=ROOT,
+        logs_dir=tmp_path / "logs",
+        projector=lambda receipt, ops: None,
+    )
+    assert result.exit_code == 0 and result.final["work_status"] == "success"
+    assert json.loads(result.receipts[-1].read_text())["job_id"] == "registry-audit"
