@@ -29,6 +29,7 @@ MARKET_DATE = date(2026, 9, 21)
 
 def _database(path):
     con = db.connect(path)
+    con.execute("BEGIN TRANSACTION")
     db.init_schema(con)
     db.init_screen_policy_schema(con)
     db.init_mining_schema(con)
@@ -62,6 +63,7 @@ def _database(path):
         "INSERT INTO earnings_calendar VALUES ('FAST', ?, ?, FALSE, 'test', ?)",
         [MARKET_DATE + timedelta(days=10), MARKET_DATE, NOW.replace(tzinfo=None)],
     )
+    con.execute("COMMIT")
     con.close()
 
 

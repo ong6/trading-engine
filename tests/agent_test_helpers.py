@@ -46,6 +46,13 @@ def fixed_etf_market(con, ticker: str = "SPY") -> None:
 
 def complete_dual_momentum_history(con) -> date:
     """Replace fixture prices with complete, liquid dual-momentum evidence."""
+    from tests.speed_plugin import dual_momentum_seed, seed_dual_momentum_history
+
+    return seed_dual_momentum_history(con, dual_momentum_seed())
+
+
+def _build_dual_momentum_history(con) -> date:
+    """Build the original rows once, including every action and fetch receipt."""
     con.execute("DELETE FROM prices")
     con.execute("DELETE FROM universe")
     end = date(2026, 9, 11)

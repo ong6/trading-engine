@@ -2,12 +2,18 @@
 from __future__ import annotations
 
 import json
+import math
+import os
 import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-import duckdb
-import pytest
+# Match CI: xdist supplies process parallelism for native numerical libraries.
+for _thread_env in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_thread_env, "1")
+
+import duckdb  # noqa: E402
+import pytest  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -75,9 +81,22 @@ def insert_bars(con, ticker, dates, *, open_=100.0, close=100.0, volume=1_000_00
         seq(volume),
         strict=True,
     ))
-    con.executemany(
-        "INSERT INTO prices (ticker, date, open, high, low, close, volume) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
+    columns = "ticker, date, open, high, low, close, volume"
+    # Vectorized inserts avoid one prepared-statement execution per bar. Keep
+    # DuckDB's parameter conversion for tiny inputs and NaN (frames map it to NULL).
+    if n <= 16 or any(
+        isinstance(value, float) and math.isnan(value)
+        for row in rows for value in row[2:]
+    ):
+        con.executemany(f"INSERT INTO prices ({columns}) VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
+        return
+    import pandas as pd
+
+    con.register("test_bar_rows", pd.DataFrame(rows, columns=columns.split(", ")))
+    try:
+        con.execute(f"INSERT INTO prices ({columns}) SELECT * FROM test_bar_rows")
+    finally:
+        con.unregister("test_bar_rows")
 
 
 def record_p16_calibration(con, registration, recorded_at, *, cost=0.0005):
