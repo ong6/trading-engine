@@ -320,6 +320,22 @@ NIGHTLY_PLAN = (
 NIGHTLY_FRIDAY_PLAN = (
     ("fundamentals", 120, "{}"),
 )
+COLLECTION_POLICY_PATH = REPO_ROOT / "server/collection-policy.json"
+
+
+def _tradingview_history_collection_enabled(
+    policy_path: Path = COLLECTION_POLICY_PATH,
+) -> bool:
+    try:
+        policy = json.loads(policy_path.read_text())
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("collection policy is unreadable") from exc
+    if (not isinstance(policy, dict)
+            or set(policy) != {"schema_version", "tradingview_history"}
+            or policy["schema_version"] != 1
+            or not isinstance(policy["tradingview_history"], bool)):
+        raise RuntimeError("collection policy is invalid")
+    return policy["tradingview_history"]
 
 
 def nightly_plan(day: date | None = None, *, weekday: int | None = None
@@ -333,10 +349,9 @@ def nightly_plan(day: date | None = None, *, weekday: int | None = None
         weekday = (day or datetime.now(timezone.utc).date()).isoweekday()
     if not 1 <= int(weekday) <= 7:
         raise ValueError(f"weekday must be 1..7 (ISO), got {weekday}")
-    from engine import tradingview_history_archive
     plan = [item for item in NIGHTLY_PLAN
             if item[0] != "tradingview_history"
-            or tradingview_history_archive.COLLECTION_ENABLED]
+            or _tradingview_history_collection_enabled()]
     if int(weekday) == 5:
         plan += list(NIGHTLY_FRIDAY_PLAN)
     return plan

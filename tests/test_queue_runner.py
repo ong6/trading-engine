@@ -8,6 +8,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
+import builtins
 from datetime import date
 
 import duckdb
@@ -82,6 +83,21 @@ def test_nightly_plan_weekday_override_beats_date():
 def test_nightly_plan_rejects_bad_weekday():
     with pytest.raises(ValueError):
         qr.nightly_plan(weekday=0)
+
+
+def test_paused_nightly_plan_does_not_import_tradingview_collector(monkeypatch):
+    monkeypatch.setattr(qr, "_tradingview_history_collection_enabled", lambda: False)
+    original_import = builtins.__import__
+
+    def refuse_collector(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "engine" and "tradingview_history_archive" in fromlist:
+            raise ImportError("injected stopped collector import failure")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", refuse_collector)
+    assert [kind for kind, _priority, _params in qr.nightly_plan(weekday=2)] == [
+        "intraday", "signals", "earnings",
+    ]
 
 
 def test_nightly_plan_priorities_precede_every_research_kind():

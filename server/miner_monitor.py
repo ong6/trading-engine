@@ -107,6 +107,20 @@ def _tradingview_history_details(raw: dict) -> dict:
     return {"refused_windows": _tradingview_refusal_count(raw, "refused_windows")}
 
 
+def _tradingview_paused_status(raw: object) -> dict | None:
+    if not isinstance(raw, dict) or raw.get("status") != "paused":
+        return None
+    if (raw.get("reason") != "no_registered_reader"
+            or raw.get("collection_enabled") is not False
+            or raw.get("cohort_id") != "liquid-current-v1"):
+        raise ValueError("TradingView pause evidence is invalid")
+    evidence_at = metadata_timestamp(raw)
+    return {
+        "status": "paused", "reason": "intentionally-paused",
+        "evidence_at": evidence_at.isoformat(),
+    }
+
+
 _ISSUE_CHECKS = {
     "intraday": _intraday_has_issues,
     "signals": _signals_has_issues,
@@ -195,7 +209,7 @@ def _job_status(kind: str, meta_key: str, row: tuple, meta: dict) -> dict:
 
 def _overall_status(miners: dict[str, dict]) -> str:
     statuses = {item["status"] for item in miners.values()}
-    if statuses == {"current"}:
+    if statuses <= {"current", "paused"}:
         return "current"
     for status in ("invalid", "failed"):
         if status in statuses:
@@ -225,13 +239,22 @@ def evidence_status(meta: dict, con: duckdb.DuckDBPyConnection) -> dict:
     latest_jobs = _latest_scheduled_jobs(con)
 
     for kind, meta_key in _MINER_META_KEYS.items():
+        if kind == "tradingview_history":
+            try:
+                paused = _tradingview_paused_status(meta.get(meta_key))
+            except (KeyError, TypeError, ValueError):
+                miners[kind] = {"status": "invalid", "reason": "evidence-invalid"}
+                continue
+            if paused is not None:
+                miners[kind] = paused
+                continue
         row = latest_jobs.get(kind)
         if row is None:
             miners[kind] = {"status": "missing", "reason": "job-missing"}
             continue
         miners[kind] = _job_status(kind, meta_key, row, meta)
 
-    current = sum(item["status"] == "current" for item in miners.values())
+    current = sum(item["status"] in {"current", "paused"} for item in miners.values())
     return {
         "status": _overall_status(miners),
         "current": current,

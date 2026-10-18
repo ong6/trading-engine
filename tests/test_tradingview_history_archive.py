@@ -14,7 +14,7 @@ NOW = datetime(2026, 9, 25, 12, tzinfo=timezone.utc)
 
 @pytest.fixture(autouse=True)
 def enable_collection_for_archive_tests(monkeypatch):
-    monkeypatch.setattr(archive, "COLLECTION_ENABLED", True)
+    monkeypatch.setattr(archive, "collection_enabled", lambda: True)
 
 
 def _database(path):
@@ -247,19 +247,21 @@ def test_exhausted_window_that_succeeds_after_cooldown_resolves(tmp_path):
 def test_queue_registers_bounded_archive_after_core_miners():
     spec = queue_runner.JOB_TYPES["tradingview_history"]
     assert spec["archive"] is True and spec["releases_writer"] is True
-    archive.COLLECTION_ENABLED = False
+    original = queue_runner._tradingview_history_collection_enabled
+    queue_runner._tradingview_history_collection_enabled = lambda: False
     assert [kind for kind, _priority, _params in queue_runner.nightly_plan(weekday=2)] == [
         "intraday", "signals", "earnings"]
-    archive.COLLECTION_ENABLED = True
+    queue_runner._tradingview_history_collection_enabled = lambda: True
     plan = queue_runner.nightly_plan(weekday=2)
     assert [kind for kind, _priority, _params in plan] == [
         "intraday", "signals", "earnings", "tradingview_history"]
     params = next(value for kind, _priority, value in plan if kind == "tradingview_history")
     assert queue_runner._parse_params(params)["max_chunks"] == 50
+    queue_runner._tradingview_history_collection_enabled = original
 
 
 def test_paused_collection_records_status_without_store_or_network(tmp_path, monkeypatch):
-    monkeypatch.setattr(archive, "COLLECTION_ENABLED", False)
+    monkeypatch.setattr(archive, "collection_enabled", lambda: False)
     path = tmp_path / "market.duckdb"
     meta = tmp_path / "meta.json"
     result = archive.run_connection_narrowed(
@@ -270,6 +272,33 @@ def test_paused_collection_records_status_without_store_or_network(tmp_path, mon
     assert result["status"] == "paused" and result["reason"] == "no_registered_reader"
     assert not path.exists()
     assert __import__("json").loads(meta.read_text())["tradingview_history"] == result
+
+
+def test_publish_paused_writes_monitorable_evidence_without_store(tmp_path, monkeypatch):
+    monkeypatch.setattr(archive, "collection_enabled", lambda: False)
+    meta = tmp_path / "meta.json"
+    result = archive.publish_paused(meta, clock=lambda: NOW)
+    assert result == {
+        "status": "paused", "reason": "no_registered_reader",
+        "collection_enabled": False, "cohort_id": "liquid-current-v1",
+        "last_run": NOW.isoformat(),
+    }
+    assert __import__("json").loads(meta.read_text())["tradingview_history"] == result
+
+
+def test_publish_paused_cli_writes_meta_without_opening_database(
+    tmp_path, monkeypatch, capsys,
+):
+    monkeypatch.setattr(archive, "collection_enabled", lambda: False)
+    meta = tmp_path / "meta.json"
+    database = tmp_path / "must-not-open.duckdb"
+    assert archive.main([
+        "--publish-paused", "--meta", str(meta), "--db", str(database),
+    ]) == 0
+    output = __import__("json").loads(capsys.readouterr().out)
+    assert output["status"] == "paused"
+    assert __import__("json").loads(meta.read_text())["tradingview_history"] == output
+    assert not database.exists()
 
 
 def test_production_cohort_cannot_be_accidentally_frozen_as_subset(tmp_path):

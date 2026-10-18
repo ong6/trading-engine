@@ -216,6 +216,24 @@ def test_tradingview_failures_still_show_beside_refusals(con, failure):
     assert result["miners"]["tradingview_history"]["reason"] == "miner-reported-failures"
 
 
+def test_tradingview_intentional_pause_is_current_without_a_queue_job(con):
+    _setup_miner_jobs(con)
+    con.execute("DELETE FROM jobs WHERE kind='tradingview_history'")
+    meta = _miner_meta()
+    meta["tradingview_history"] = {
+        "status": "paused", "reason": "no_registered_reader",
+        "collection_enabled": False, "cohort_id": "liquid-current-v1",
+        "last_run": "2026-09-07T23:00:00+00:00",
+    }
+    result = miner_monitor.evidence_status(meta, con)
+    assert result["status"] == "current"
+    assert result["current"] == result["expected"] == 5
+    assert result["miners"]["tradingview_history"] == {
+        "status": "paused", "reason": "intentionally-paused",
+        "evidence_at": "2026-09-07T23:00:00+00:00",
+    }
+
+
 def test_miner_evidence_status_prioritizes_nonterminal_queue_state(con):
     _setup_miner_jobs(con)
     con.execute("UPDATE jobs SET state='running', progress='25/100' WHERE kind='earnings'")
