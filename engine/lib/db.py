@@ -435,13 +435,10 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
 
 
 def init_queue_schema(con: duckdb.DuckDBPyConnection) -> None:
-    """M4 additions: extend the minimal `jobs` table with the §12.7 queue
-    columns and create the append-only `intraday_prices` table.
+    """Assert the current `jobs` shape and create `intraday_prices` if absent.
 
-    Kept SEPARATE from init_schema so the nightly collect path is untouched;
-    every statement is ADD COLUMN IF NOT EXISTS / CREATE TABLE IF NOT EXISTS so
-    it is safe to run against the live single-writer DB. Assumes `jobs` already
-    exists (call init_schema first).
+    Existing jobs tables are never upgraded during producer startup. Legacy
+    shapes must pass through the explicit migration runner first.
     """
     _require_columns(
         con, "jobs", frozenset({"priority", "mem_mb", "last_error"})
@@ -484,10 +481,8 @@ def init_screen_policy_schema(con: duckdb.DuckDBPyConnection) -> None:
     screen stored before 2026-08-20 ran with no exclusions, so backfilling them
     as 'all' states a fact rather than guessing one.
 
-    Kept SEPARATE from init_schema (same reasoning as init_queue_schema) and
-    written as ADD COLUMN IF NOT EXISTS so it is safe against the live
-    single-writer store. Assumes `screen_results` exists — call init_schema
-    first.
+    Existing screen tables are never upgraded during producer startup. Legacy
+    shapes must pass through the explicit migration runner first.
     """
     _require_columns(con, "screen_results", frozenset({"universe_policy"}))
 
