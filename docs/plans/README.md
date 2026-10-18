@@ -37,9 +37,10 @@ each plan's YAML `status` must match its row.
 | [P24](p24-quant-review-and-speed.md) | Senior-quant review, pipeline fixes, speed and new research lanes | active | Parallel lanes: producer audit, invariant fixes, nightly/simulator/test speed, quant audit, wave-1 landing, and four new pre-registered studies |
 
 Recommended order: follow [`../product.md`](../product.md) ("Focus now"). Keep the revision-15
-registered evidence path green; production deployment and D0 remain orchestrator-owned operations,
-not another feature-build workstream. Continue P15 and P7 activation; P8/P9 keep running untouched;
-P2 remains admitted; P3's bounded free captures run while paid data waits.
+registered evidence path green. This pre-integration branch does not state whether deployment,
+D0, or the public-history rewrite completed; refresh the order from accepted E7/E8 receipts after
+integration. Continue P15 and P7 activation; P8/P9 keep running untouched; P2 remains admitted;
+P3's bounded free captures run while paid data waits.
 
 ## Plan template
 
