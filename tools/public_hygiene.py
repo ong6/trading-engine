@@ -380,8 +380,6 @@ class RepositoryScanner:
         for path in sorted(changed):
             findings.update(_scan_value(path, path, denylist=self.denylist))
             mode, object_id = current_tree[path]
-            if mode == "120000":
-                continue
             current = self._blob_lines(object_id)
             if current is _TEXT_LIMIT:
                 findings.add(_finding(path, "text_size_limit", object_id))
@@ -392,7 +390,7 @@ class RepositoryScanner:
             limited = False
             for tree in parent_trees:
                 prior = tree.get(path)
-                if prior is None or prior[0] == "120000":
+                if prior is None:
                     prior_lines.append(())
                     continue
                 lines = self._blob_lines(prior[1])
@@ -447,6 +445,13 @@ class RepositoryScanner:
                 continue
             except OSError as exc:
                 raise HygieneError(f"cannot inspect worktree path: {exc}") from exc
+            if stat.S_ISLNK(details.st_mode):
+                try:
+                    target = os.readlink(absolute)
+                except OSError as exc:
+                    raise HygieneError(f"cannot read worktree symlink: {exc}") from exc
+                findings.update(_scan_value(path, target, denylist=self.denylist))
+                continue
             if not stat.S_ISREG(details.st_mode):
                 continue
             if details.st_size > MAX_TEXT_BYTES:

@@ -164,6 +164,53 @@ def test_secret_content_and_filename_never_print_candidate(tmp_path, capsys):
     assert secret not in output.out + output.err
 
 
+def test_symlink_targets_are_scanned_without_following_and_redacted(tmp_path, capsys):
+    root, _remote = _repository(tmp_path)
+    base = _git(root, "rev-parse", "HEAD").stdout.strip()
+    home_target = "/" + "home" + "/private-user/missing"
+    data_target = "/" + "data" + "00/missing"
+    secret_target = "gh" + "p_" + "S" * 36
+    denied_target = "private-host-" + "symlink"
+    targets = {
+        "home-link": home_target,
+        "data-link": data_target,
+        "secret-link": secret_target,
+        "host-link": denied_target,
+    }
+    for name, target in targets.items():
+        (root / name).symlink_to(target)
+    head = _commit(root)
+    denylist = tmp_path / "denylist"
+    denylist.write_text(denied_target + "\n")
+    denylist.chmod(0o600)
+    scanner = public_hygiene.RepositoryScanner(root, (denied_target,))
+
+    committed = scanner.scan_range(f"{base}..{head}")
+    worktree = scanner.scan_worktree()
+    result = public_hygiene.main(
+        [
+            "--repo-root",
+            str(root),
+            "--range",
+            f"{base}..{head}",
+            "--denylist",
+            str(denylist),
+        ]
+    )
+    output = capsys.readouterr()
+
+    expected = {
+        "absolute_home_path",
+        "absolute_data_mount",
+        "github_token",
+        "host_private_denylist",
+    }
+    assert expected <= _rules(committed)
+    assert expected <= _rules(worktree)
+    assert result == 1
+    assert not any(target in output.out + output.err for target in targets.values())
+
+
 def test_only_added_lines_are_scanned(tmp_path):
     root, _remote = _repository(tmp_path)
     old_private_path = "/" + "home" + "/legacy-user/project"
