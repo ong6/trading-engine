@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -12,6 +14,7 @@ import pytest
 from engine import raw_payload
 from engine.free_sources import FreeSourceError
 from tools import convert_raw_payloads
+from tools import free_sources as free_capture
 
 
 def _plain(tmp_path: Path, body: bytes = b'{"fixture":true}\n') -> Path:
@@ -82,6 +85,8 @@ def test_converter_dry_run_apply_manifest_and_verified_removal(tmp_path: Path):
     assert path.exists() and not raw_payload.compressed_path(path).exists()
     assert planned["entries"][0]["path"] == f"raw/{path.name}"
     assert "mtime" not in json.dumps(planned)
+    os.utime(path, ns=(before_mtime + 1_000_000, before_mtime + 1_000_000))
+    assert convert_raw_payloads.convert([path.parent], base=tmp_path) == planned
 
     applied = convert_raw_payloads.convert(
         [path.parent], base=tmp_path, apply=True, remove_originals=True,
@@ -200,3 +205,103 @@ def test_empty_payload_round_trips_and_converts(tmp_path: Path):
 
     planned = convert_raw_payloads.convert([logical], base=tmp_path)
     assert planned["entries"][0]["source_size"] == 0
+
+
+@pytest.mark.parametrize("failure_point", ["encode", "file_fsync", "replace", "dir_fsync"])
+def test_seal_atomic_failure_matrix_retains_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure_point: str,
+):
+    logical = _plain(tmp_path)
+    body = logical.read_bytes()
+    original_encode = raw_payload.encode
+    original_fsync = raw_payload.os.fsync
+    original_replace = raw_payload.os.replace
+    original_dir_fsync = raw_payload.fsync_directory
+
+    if failure_point == "encode":
+        monkeypatch.setattr(
+            raw_payload, "encode",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("encode crash")),
+        )
+    elif failure_point == "file_fsync":
+        monkeypatch.setattr(
+            raw_payload.os, "fsync",
+            lambda _fd: (_ for _ in ()).throw(OSError("file fsync crash")),
+        )
+    elif failure_point == "replace":
+        monkeypatch.setattr(
+            raw_payload.os, "replace",
+            lambda *_args: (_ for _ in ()).throw(OSError("replace crash")),
+        )
+    else:
+        monkeypatch.setattr(
+            raw_payload, "fsync_directory",
+            lambda _path: (_ for _ in ()).throw(OSError("directory fsync crash")),
+        )
+
+    with pytest.raises(OSError, match="crash"):
+        raw_payload.seal(logical, body)
+    assert logical.read_bytes() == body
+    assert not list(logical.parent.glob(".*.zst.*"))
+    target = raw_payload.compressed_path(logical)
+    if target.exists():
+        assert raw_payload.read(logical, expected_sha256=logical.stem) == body
+
+    monkeypatch.setattr(raw_payload, "encode", original_encode)
+    monkeypatch.setattr(raw_payload.os, "fsync", original_fsync)
+    monkeypatch.setattr(raw_payload.os, "replace", original_replace)
+    monkeypatch.setattr(raw_payload, "fsync_directory", original_dir_fsync)
+    assert raw_payload.read(
+        logical, expected_sha256=logical.stem,
+    ) == body
+
+
+def test_fetched_checkpoint_restores_through_manifest_and_real_loader(tmp_path: Path):
+    session_date = date(2026, 9, 29)
+    timestamp = int(datetime(2026, 9, 29, tzinfo=timezone.utc).timestamp() * 1000)
+    body = json.dumps({
+        "status": "OK", "adjusted": True, "resultsCount": 1,
+        "results": [{
+            "T": "ABC", "t": timestamp, "o": 10, "h": 11,
+            "l": 9, "c": 10.5, "v": 1000, "vw": 10.2,
+        }],
+    }, separators=(",", ":")).encode()
+    digest = hashlib.sha256(body).hexdigest()
+    checkpoint = tmp_path / "off-host-checkpoint"
+    raw_dir = checkpoint / "massive" / session_date.isoformat()
+    raw_dir.mkdir(parents=True)
+    logical = raw_dir / f"{digest}.json"
+    logical.write_bytes(body)
+    logical.chmod(0o640)
+    (raw_dir / "receipt.json").write_text(json.dumps({
+        "date": session_date.isoformat(), "fetched_at": "2026-10-01T07:00:00+00:00",
+        "raw_file": logical.name, "source_sha256": digest,
+    }))
+    manifest_path = checkpoint / "raw-conversion-manifest.json"
+    converted = convert_raw_payloads.convert(
+        [checkpoint / "massive"], base=checkpoint, apply=True, remove_originals=True,
+        manifest_path=manifest_path,
+    )
+    assert len(converted["entries"]) == 1 and not logical.exists()
+
+    fetched = tmp_path / "fetched-checkpoint"
+    shutil.copytree(checkpoint, fetched)
+    verified = convert_raw_payloads.verify_manifest(
+        fetched / manifest_path.name, base=fetched,
+    )
+    assert verified == converted
+    restored = free_capture._massive_cache(fetched, session_date)
+    assert restored is not None and restored[0] == body
+    database = tmp_path / "restored.duckdb"
+    loaded = free_capture._load_massive_response(
+        database, session_date, restored[0], restored[1],
+    )
+    assert loaded["inserted"] == 1
+    import duckdb
+    con = duckdb.connect(str(database), read_only=True)
+    try:
+        assert con.execute(
+            "SELECT ticker,source_sha256 FROM free_daily_bars"
+        ).fetchall() == [("ABC", digest)]
+    finally:
+        con.close()

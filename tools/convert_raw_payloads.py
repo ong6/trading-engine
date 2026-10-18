@@ -150,6 +150,16 @@ def _remove_original(entry: dict, base: Path) -> None:
         raw_payload.fsync_directory(path.parent)
 
 
+def verify_manifest(manifest_path: Path, *, base: Path) -> dict:
+    """Verify every compressed member named by a durable conversion manifest."""
+    manifest = _load_manifest(manifest_path)
+    if manifest is None:
+        raise FreeSourceError("conversion manifest is missing")
+    for entry in manifest["entries"]:
+        _verify_manifest_entry(entry, base)
+    return manifest
+
+
 def convert(
     roots: list[Path], *, base: Path, apply: bool = False,
     remove_originals: bool = False, manifest_path: Path | None = None,
