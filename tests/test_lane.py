@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import os
 import subprocess
 import sys
+import zlib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -14,6 +18,7 @@ from tools import lane
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 FIXED_NOW = datetime(2026, 10, 18, 18, 5, tzinfo=UTC)
+CURRENT_CLAIMS_ZLIB_B64 = "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"
 
 
 def _run(root: Path, *command: str, check: bool = True, env=None):
@@ -267,35 +272,103 @@ def test_legacy_claim_table_requires_complete_migration_and_blocks_overlap(tmp_p
     legacy_rows = lane._legacy_claim_rows(legacy)
     by_label = {label: digest for digest, label in legacy_rows.items()}
     active_digest = by_label["Active platform lane"]
-    migrated_claim = {
-        "base_sha": fixture["base"],
-        "branch": "build/active",
-        "claim_globs": ["tools/**"],
-        "claimed_at": "2026-10-18T18:00:00Z",
-        "lane": "active-platform",
-        "legacy_row_sha256": active_digest,
-        "owner": "orchestrator",
-        "schema_version": lane.SCHEMA_VERSION,
-        "session": "legacy-migration",
-        "state": "active",
-    }
-    migration = {
+    manifest = {
         "legacy_sha256": lane._legacy_digest(legacy),
-        "record_type": "legacy-migration",
         "reviewed_rows": [
-            {"row_sha256": by_label["Historical lane (released)"], "state": "released"},
-            {"row_sha256": active_digest, "state": "active"},
+            {
+                "claims": [],
+                "expected_lane_count": 0,
+                "row_label": "Historical lane (released)",
+                "row_sha256": by_label["Historical lane (released)"],
+                "state": "released",
+            },
+            {
+                "claims": [
+                    {
+                        "base_sha": fixture["base"],
+                        "branch": "build/active",
+                        "claim_globs": ["tools/**"],
+                        "lane": "active-platform",
+                        "owner": "orchestrator",
+                        "session": "legacy-migration",
+                        "source": "source",
+                    }
+                ],
+                "expected_lane_count": 1,
+                "row_label": "Active platform lane",
+                "row_sha256": active_digest,
+                "state": "active",
+            },
         ],
         "schema_version": lane.SCHEMA_VERSION,
-        "state": "complete",
     }
-    fixture["claims"].write_text(
-        lane._render_claims(legacy, [migrated_claim], migration)
+    manifest_path = tmp_path / "migration.json"
+    manifest_path.write_text(json.dumps(manifest))
+
+    result = lane.migrate_claims(
+        lanes_root=fixture["root"],
+        home=fixture["home"],
+        manifest_path=manifest_path,
+        clock=lambda: FIXED_NOW,
     )
+
+    assert result == {"claim_count": 1, "legacy_row_count": 2, "migrated": True}
 
     with pytest.raises(lane.LaneError, match="overlaps active lane active-platform"):
         _create(fixture, claim_globs=("tools/lane.py",))
     assert not (fixture["root"] / "lane-one").exists()
+
+    created = _create(fixture, "lane-two", claim_globs=("scratch/new.py",))
+
+    assert created["claim"]["state"] == "active"
+
+
+def test_reviewed_current_ledger_migration_expands_both_aggregate_rows(tmp_path):
+    fixture = _fixture(tmp_path)
+    snapshot = zlib.decompress(base64.b64decode(CURRENT_CLAIMS_ZLIB_B64))
+    assert hashlib.sha256(snapshot).hexdigest() == lane.CURRENT_LEGACY_SHA256
+    fixture["claims"].write_bytes(snapshot)
+    _git(
+        fixture["source"],
+        "fetch",
+        str(REPOSITORY_ROOT),
+        lane.CURRENT_LEGACY_BASE,
+    )
+    migrated_lanes = {
+        "b-platform",
+        "b-release",
+        "b-jobs",
+        "b-catalog",
+        "b-study",
+        "r16-gen",
+        "r16-raw",
+    }
+    for lane_name in migrated_lanes:
+        (fixture["root"] / lane_name).symlink_to(
+            fixture["source"], target_is_directory=True
+        )
+
+    result = lane.migrate_claims(
+        lanes_root=fixture["root"],
+        home=fixture["home"],
+        current_ledger=True,
+        clock=lambda: FIXED_NOW,
+    )
+
+    assert result == {"claim_count": 7, "legacy_row_count": 31, "migrated": True}
+    rows = _claims(fixture)
+    assert {row["lane"] for row in rows} == migrated_lanes
+    counts = {}
+    for row in rows:
+        counts[row["legacy_row_sha256"]] = counts.get(row["legacy_row_sha256"], 0) + 1
+    assert counts[lane.CURRENT_LEGACY_ROWS[-2][0]] == 5
+    assert counts[lane.CURRENT_LEGACY_ROWS[-1][0]] == 2
+    with pytest.raises(lane.LaneError, match="overlaps active lane b-platform"):
+        _create(fixture, claim_globs=("tools/lane.py",))
+
+    created = _create(fixture, "lane-new", claim_globs=("scratch/new.py",))
+
+    assert created["claim"]["state"] == "active"
 
 
 @pytest.mark.parametrize("kind", ["dirty", "unpushed", "stash"])

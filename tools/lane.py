@@ -29,10 +29,153 @@ LANE_NAME_RE = re.compile(r"[a-z0-9][a-z0-9._-]*\Z")
 FULL_SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 STATUS_FIELDS = frozenset({"lane", "branch", "base", "head"})
 GLOB_MAGIC = frozenset("*?[")
+CURRENT_LEGACY_SHA256 = "fdb5b81bce5029223b8acbed63f2b94d4a6c7781e0865d79a523f3005335fd98"
+CURRENT_LEGACY_BASE = "c3f5c0b13e8107b9e9e68c8afeca0a7e4701f85b"
+CURRENT_LEGACY_ROWS = (
+    ("eca970eb495930feec9c040bb8c657bb49994ef3069e432c6b5daa5708cc3999", "P18 backtest core"),
+    ("71112b69ce466b3d00ad8f5a385ac8e17cc0543eaf2ec1d3a57c88bdc2e50193", "P3 phase 0, free sources"),
+    ("abd502cef12b5676312d0296c4079a5d2fd1c019753d1862da60e6a9ee1de7e2", "Infra rev 9"),
+    ("17e4bcd3dbcebaa5818c4680e978d2c684cf1cac2360f8a69d10ba4dbafda4a8", "Collect speed"),
+    ("1271d3e0dfd6c7fafbdccfe96a2cd3e1daec0a9af28c2e53ac72bb96050402be", "Intraday dedupe"),
+    ("44fd333ce8cad9b7dfabfc2a652d62d5e65c3f629dc70a72c157639278969509", "Farm/queue"),
+    ("8fba487ce6d02d7819bb09664bfe4d786e9004e7a18b89848b0102ee52c137dc", "SEC bulk"),
+    ("6e660a69007727454843521e63f48ca283ac9739c5f7af0fb0ef16b7a9b20491", "Massive minute"),
+    ("e9a2800cdc31bc78b8f62fe1c0c3e01bf78f81744e1a38c2d6da248aafbe12f7", "Frozen archive"),
+    ("d6ba4c4bc3ebffd41e384b9369c5a7a8c75dd83bb557b77a5aed07c0caa4103b", "Short data"),
+    ("8cb253eba4a2ec8f302946b865574e5d24450de795a5aa99ac013cf4cfba012b", "Ops fix 2026-10-15 (store lock at :05)"),
+    ("3055979091fecf8cbd407691e366d961f04d4603f43ec47705d4712a96c84450", "Ops follow-up 2026-10-15 (reviewer items 1-5)"),
+    ("63850895f9392764eea7d94c8dc7841da0eb0b3d1068ce0e58d05eb8dbea578a", "P22 final merge 2026-10-15 (orchestrator step 1 of 3)"),
+    ("b886262450ec51e83b9893b17c89a06914cb7db95f15dc1c40d6f23a1905df08", "Rev-14 fix lane B (fixes b, c, i)"),
+    ("da315ac789bcf2dc9ef8c0e157c17d2989d0cf0dce230c57569902ac0ffd2ddd", "Rev-14 fix lane A (fixes a, j)"),
+    ("cc18380848a41dfd4f3903b8d8e252229bd64c6c644e99d6a849fbab31c59851", "Rev-14 lane C, price data (fixes e-h)"),
+    ("d3f4aa4a2d246f0c035f26aec9d956cbb68191dbe85974f8389fa9b519a59e8d", "Rev-14 fix lane D (fixes d, k: books and delisting)"),
+    ("4b2c6ca79dc24ff590deca7354a5fa2a26114bc5dbdef24f1f19035e28bb1441", "P22 integrate rev 14 (orchestrator step 3 of 3)"),
+    ("b9c54640c1fe57148bd9dee113f7bedcac368c8d566053cc1ce9c05fba814c35", "Rev-14 lane C follow-up (split break from rewrite evidence)"),
+    ("51e91930e602dc7397361bbee10e313603df2ee3cec694bb3b47f24c3218f1a7", "Board debug 2026-10-17"),
+    ("ec4f59be4a35429cd688b4f8223a7fc65ed930a9969b55c788fb57f914b996c6", "v2-ready 2026-10-17 (quality push D1)"),
+    ("14a4ac8fb02341aebaee3c93b3272ca9543e70a4ecd6eade2ddfce41952ccac9", "Rev-15 price admission (quality push D3)"),
+    ("ffaf4723be1d776798bace6fd8cdad7aa81d22272a261514a923629e52cfa1b5", "Rev-15 money guards (quality push)"),
+    ("38eb2878051ccff232e2187bd791f5468540854e8ac417ef6649336b8090b5ca", "Rev-15 data flow (quality push)"),
+    ("b1953e4d4cd1743c2558b3ddfe7cb9101d790b2dc7e96257efc3a79033e14abd", "Rev-15 test speed (quality push)"),
+    ("2ef0a09f7bca5e82bbe29c715fef663488919b2c4499e0b042862ea983ded08f", "Rev-15 ops truthfulness (quality push)"),
+    ("1308bb2fd9461309c24a0622d49873b9ad6eb8860b700eafc550c7c8ffb7edee", "Board round 2 (quality push)"),
+    ("fac6ca192ff1b7bf90bec2c9a3b7a2ea9a0162bde3cd1ffa04e5a754d923db78", "Rev-15 integration (quality push)"),
+    ("a2eb1cacce0bff13856a469bfdb409acebe88028c0be5a5fc5200e1801a992b2", "Test speed round 2 (quality push)"),
+    ("2ad8d2b9082ccdd56bdf5f5481be28c18660201f6c4aa6e38b82f5f5c8d2144d", "Infra wave 1: b-platform, b-release, b-jobs, b-catalog, b-study (infra push 2026-10-19)"),
+    ("543b0d663f16383cba66741407c729a870c3d8ae3274a17dff450eebd8ad7ebb", "Revision 16 lanes: r16-gen, r16-raw (infra push 2026-10-19)"),
+)
 
 
 class LaneError(RuntimeError):
     """A lane operation was unsafe or inconsistent."""
+
+
+def _current_claim(lane: str, claim_globs: list[str]) -> dict:
+    return {
+        "base_sha": CURRENT_LEGACY_BASE,
+        "branch": f"build/{lane}",
+        "claim_globs": claim_globs,
+        "handoff_ref": f"refs/heads/build/{lane}",
+        "handoff_remote": "origin",
+        "lane": lane,
+        "owner": "orchestrator",
+        "session": "infra-2026-10-19",
+        "source": lane,
+    }
+
+
+def current_legacy_manifest() -> dict:
+    """Return the reviewed one-time migration for the pre-P5 host ledger."""
+    active = {
+        CURRENT_LEGACY_ROWS[-2][0]: [
+            _current_claim(
+                "b-platform",
+                [
+                    ".github/workflows/ci.yml",
+                    "tests/test_lane.py",
+                    "tests/test_public_hygiene.py",
+                    "tools/lane.py",
+                    "tools/public_hygiene.py",
+                    "tools/public_hygiene_pre_push.sh",
+                ],
+            ),
+            _current_claim(
+                "b-release",
+                [
+                    "tests/manual/p22_runbook_rehearsal.py",
+                    "tests/test_release_deploy.py",
+                    "tools/release_deploy.py",
+                ],
+            ),
+            _current_claim(
+                "b-jobs",
+                [
+                    "engine/job_contract.py",
+                    "ops/jobs.toml",
+                    "server/driver_monitor.py",
+                    "server/scheduler_monitor.py",
+                    "tests/test_job_contract.py",
+                    "tests/test_run_job.py",
+                    "tools/install_automation.py",
+                    "tools/ops_digest.py",
+                    "tools/run_job.py",
+                ],
+            ),
+            _current_claim(
+                "b-catalog",
+                [
+                    "data/dataset-catalogue.json",
+                    "docs/**",
+                    "engine/backfill_dividends.py",
+                    "engine/repair_restatements.py",
+                    "tests/test_resources.py",
+                ],
+            ),
+            _current_claim(
+                "b-study", ["farm/research/**", "tests/test_research_runner.py"]
+            ),
+        ],
+        CURRENT_LEGACY_ROWS[-1][0]: [
+            _current_claim(
+                "r16-gen",
+                [
+                    "engine/lib/db.py",
+                    "engine/lib/snapshots.py",
+                    "server/*snapshot*.py",
+                    "tests/test_backup_database.py",
+                    "tests/test_db.py",
+                    "tests/test_publish_snapshot.py",
+                    "tests/test_snapshots.py",
+                    "tools/backup_database.py",
+                    "tools/publish_snapshot.py",
+                ],
+            ),
+            _current_claim(
+                "r16-raw",
+                [
+                    "engine/free_*.py",
+                    "engine/tradingview_history_archive.py",
+                    "tests/test_free_*.py",
+                    "tests/test_tradingview_history_archive.py",
+                    "tools/free_*.py",
+                ],
+            ),
+        ],
+    }
+    return {
+        "legacy_sha256": CURRENT_LEGACY_SHA256,
+        "reviewed_rows": [
+            {
+                "claims": active.get(digest, []),
+                "expected_lane_count": len(active.get(digest, [])),
+                "row_label": label,
+                "row_sha256": digest,
+                "state": "active" if digest in active else "released",
+            }
+            for digest, label in CURRENT_LEGACY_ROWS
+        ],
+        "schema_version": SCHEMA_VERSION,
+    }
 
 
 def _run(
@@ -434,6 +577,159 @@ def _claims(root: Path) -> tuple[Path, str, list[dict], dict | None]:
     rows, migration = _parse_claim_document(content)
     _validate_legacy_migration(content, rows, migration)
     return path, content, rows, migration
+
+
+def _read_json_file(path: Path, label: str) -> tuple[dict, bytes]:
+    try:
+        details = path.lstat()
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise LaneError(f"cannot read {label}: {exc}") from exc
+    if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
+        raise LaneError(f"{label} must be a regular non-symlink file")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise LaneError(f"{label} is not valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise LaneError(f"{label} must contain a JSON object")
+    return payload, raw
+
+
+def migrate_claims(
+    *,
+    lanes_root: Path,
+    home: Path,
+    manifest_path: Path | None = None,
+    current_ledger: bool = False,
+    clock: Callable[[], datetime] = _now,
+) -> dict:
+    root = _validated_root(lanes_root, home)
+    if current_ledger == (manifest_path is not None):
+        raise LaneError("select exactly one reviewed migration manifest")
+    if current_ledger:
+        manifest = current_legacy_manifest()
+        manifest_bytes = json.dumps(
+            manifest, sort_keys=True, separators=(",", ":")
+        ).encode()
+    else:
+        assert manifest_path is not None
+        manifest, manifest_bytes = _read_json_file(manifest_path, "migration manifest")
+    with _claims_lock(root):
+        claims_path = root / "CLAIMS.md"
+        try:
+            content = claims_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise LaneError(f"cannot read CLAIMS.md: {exc}") from exc
+        existing_rows, existing_migration = _parse_claim_document(content)
+        if existing_migration is not None:
+            _validate_legacy_migration(content, existing_rows, existing_migration)
+            return {
+                "claim_count": len(existing_rows),
+                "legacy_row_count": len(_legacy_claim_rows(content)),
+                "migrated": False,
+            }
+        if existing_rows:
+            raise LaneError("structured claims exist without a migration record")
+        legacy_rows = _legacy_claim_rows(content)
+        reviewed_rows = manifest.get("reviewed_rows")
+        if (
+            manifest.get("schema_version") != SCHEMA_VERSION
+            or manifest.get("legacy_sha256") != _legacy_digest(content)
+            or not isinstance(reviewed_rows, list)
+        ):
+            raise LaneError("migration manifest does not match this legacy ledger")
+        reviewed_by_digest = {}
+        structured_rows = []
+        claimed_at = _timestamp(clock)
+        for reviewed in reviewed_rows:
+            if not isinstance(reviewed, dict):
+                raise LaneError("migration review row must be an object")
+            digest = reviewed.get("row_sha256")
+            state = reviewed.get("state")
+            label = reviewed.get("row_label")
+            claims = reviewed.get("claims", [])
+            expected = reviewed.get("expected_lane_count")
+            if (
+                digest not in legacy_rows
+                or label != legacy_rows[digest]
+                or state not in {"active", "released"}
+                or digest in reviewed_by_digest
+                or not isinstance(claims, list)
+                or expected != len(claims)
+                or (state == "active" and expected < 1)
+                or (state == "released" and expected != 0)
+            ):
+                raise LaneError("migration review row is incomplete or inconsistent")
+            reviewed_by_digest[digest] = state
+            for claim in claims:
+                if not isinstance(claim, dict):
+                    raise LaneError("migrated claim must be an object")
+                required = {
+                    "base_sha",
+                    "branch",
+                    "claim_globs",
+                    "lane",
+                    "owner",
+                    "session",
+                    "source",
+                }
+                if not required <= claim.keys() or state != "active":
+                    raise LaneError("migrated active claim is incomplete")
+                source = _source(root, root / claim["source"], home)
+                base = _full_base(source, claim["base_sha"])
+                _valid_branch(source, claim["branch"], require_absent=False)
+                globs = tuple(
+                    dict.fromkeys(_normalize_claim(value) for value in claim["claim_globs"])
+                )
+                if not globs:
+                    raise LaneError("migrated active claim has no paths")
+                _refuse_overlap(structured_rows, globs)
+                structured_rows.append(
+                    {
+                        "base_sha": base,
+                        "branch": claim["branch"],
+                        "claim_globs": list(globs),
+                        "claimed_at": claimed_at,
+                        "handoff_ref": claim.get(
+                            "handoff_ref", f"refs/heads/{claim['branch']}"
+                        ),
+                        "handoff_remote": claim.get("handoff_remote", "origin"),
+                        "lane": claim["lane"],
+                        "legacy_row_sha256": digest,
+                        "owner": claim["owner"],
+                        "schema_version": SCHEMA_VERSION,
+                        "session": claim["session"],
+                        "source": claim["source"],
+                        "state": "active",
+                    }
+                )
+        if set(reviewed_by_digest) != set(legacy_rows):
+            raise LaneError("migration manifest must review every legacy row")
+        lanes = [row["lane"] for row in structured_rows]
+        if len(lanes) != len(set(lanes)):
+            raise LaneError("migration manifest contains duplicate lanes")
+        migration = {
+            "legacy_sha256": _legacy_digest(content),
+            "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+            "migrated_at": claimed_at,
+            "record_type": "legacy-migration",
+            "reviewed_rows": [
+                {"row_sha256": digest, "state": state}
+                for digest, state in sorted(reviewed_by_digest.items())
+            ],
+            "schema_version": SCHEMA_VERSION,
+            "state": "complete",
+        }
+        rendered = _render_claims(content, structured_rows, migration)
+        parsed_rows, parsed_migration = _parse_claim_document(rendered)
+        _validate_legacy_migration(rendered, parsed_rows, parsed_migration)
+        _atomic_text(claims_path, rendered, claims_path.stat().st_mode & 0o777)
+    return {
+        "claim_count": len(structured_rows),
+        "legacy_row_count": len(legacy_rows),
+        "migrated": True,
+    }
 
 
 def _refuse_overlap(rows: list[dict], claims: tuple[str, ...]) -> None:
@@ -1205,6 +1501,10 @@ def _parser() -> argparse.ArgumentParser:
     abort = subparsers.add_parser("abort")
     abort.add_argument("lane")
     abort.add_argument("--reason", required=True)
+    migrate = subparsers.add_parser("migrate-claims")
+    migrate_source = migrate.add_mutually_exclusive_group(required=True)
+    migrate_source.add_argument("--manifest", type=Path)
+    migrate_source.add_argument("--current-ledger", action="store_true")
     for command in (subparsers.add_parser("audit"), subparsers.add_parser("release")):
         command.add_argument("lane")
         command.add_argument("--status", type=Path)
@@ -1237,6 +1537,13 @@ def main(argv: list[str] | None = None) -> int:
                 home=home,
                 lane=args.lane,
                 reason=args.reason,
+            )
+        elif args.command == "migrate-claims":
+            result = migrate_claims(
+                lanes_root=lanes_root,
+                home=home,
+                manifest_path=args.manifest,
+                current_ledger=args.current_ledger,
             )
         elif args.command == "audit":
             result = audit_lane(
