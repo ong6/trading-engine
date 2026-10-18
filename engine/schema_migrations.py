@@ -259,11 +259,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "plan":
-            con = engine_db.connect(args.database, read_only=True, wait_s=0)
-            try:
-                result = plan(con)
-            finally:
-                con.close()
+            with engine_db.schema_change_authority():
+                con = engine_db.connect(args.database, read_only=True, wait_s=0)
+                try:
+                    result = plan(con)
+                finally:
+                    con.close()
         else:
             result = apply(
                 args.database, args.backup_bundle,

@@ -354,15 +354,10 @@ def test_remote_restore_drill_fetches_exact_commit_and_cleans_databases(
     con.execute("CREATE TABLE facts (id INTEGER, value VARCHAR)")
     con.execute("INSERT INTO facts VALUES (1, 'verified')")
     con.close()
-    (remote / backup_database.REMOTE_RESTORE_PLAN).write_text(json.dumps({
-        "schema_version": 1,
-        "engine_bundle": "engine-bundle",
-        "research_databases": [{
-            "path": "research.duckdb",
-            "size_bytes": research.stat().st_size,
-            "sha256": backup_database._sha256(research),
-        }],
-    }))
+    plan = backup_database.write_remote_restore_plan(
+        remote, remote / "engine-bundle", [research],
+    )
+    assert plan["research_databases"][0]["sha256"] == backup_database._sha256(research)
     subprocess.run(("git", "init", "-q"), cwd=remote, check=True)
     subprocess.run(("git", "add", "."), cwd=remote, check=True)
     subprocess.run(

@@ -464,3 +464,19 @@ def test_directory_fsync_failure_never_advances_pointer(tmp_path, monkeypatch, f
     with pytest.raises(publish_snapshot.SnapshotError, match="fsync failed"):
         publish_snapshot.publish_snapshot(root, source, now=NOW)
     assert not (source.parent / "snapshots" / snapshots.LATEST_NAME).exists()
+
+
+def test_metadata_resolver_holds_generation_pin_for_direct_snapshot_reader(tmp_path):
+    root, source = _repo(tmp_path, cold=True)
+    first = publish_snapshot.publish_snapshot(root, source, now=NOW)
+    resolved = snapshots.latest_snapshot(source)
+    assert resolved is not None and resolved._lifetime_pin is not None
+
+    publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=1))
+    publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=2))
+    first_path = source.parent / "snapshots" / first["snapshot"]
+    assert first_path.exists()
+
+    resolved._lifetime_pin.close()
+    publish_snapshot.publish_snapshot(root, source, now=NOW + timedelta(seconds=3))
+    assert not first_path.exists()

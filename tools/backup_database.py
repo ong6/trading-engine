@@ -191,6 +191,43 @@ def _research_database_health(path: Path) -> dict:
         connection.close()
 
 
+def write_remote_restore_plan(
+    repository: Path,
+    engine_bundle: Path,
+    research_databases: list[Path],
+) -> dict:
+    """Publish the versioned handoff consumed by :func:`remote_restore_drill`."""
+    repository = repository.resolve(strict=True)
+
+    def relative(path: Path, label: str) -> str:
+        try:
+            return path.resolve(strict=True).relative_to(repository).as_posix()
+        except (OSError, ValueError) as exc:
+            raise BackupError(f"remote restore {label} must be inside its repository") from exc
+
+    bundle_relative = relative(engine_bundle, "engine bundle")
+    verify_backup(engine_bundle)
+    research = []
+    for database in research_databases:
+        path = database.resolve(strict=True)
+        _research_database_health(path)
+        research.append({
+            "path": relative(path, "research database"),
+            "size_bytes": path.stat().st_size,
+            "sha256": _sha256(path),
+        })
+    plan = {
+        "schema_version": REMOTE_RESTORE_INTERFACE["schema_version"],
+        "engine_bundle": bundle_relative,
+        "research_databases": research,
+    }
+    write_text_atomic(
+        repository / REMOTE_RESTORE_PLAN,
+        json.dumps(plan, indent=2, sort_keys=True) + "\n",
+    )
+    return plan
+
+
 def remote_restore_drill(
     remote: str,
     commit: str,
