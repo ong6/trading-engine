@@ -595,7 +595,7 @@
     },
     "baseline_state_sha256": "3c32c032dc2f84b105c9fbb1d155b1c5ea4dd22b3bdb158c2cc5ffc55ff44d2a",
     "execution_profile_sha256": "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db",
-    "fill_model": "v4",
+    "fill_model": "v5",
     "initial_transition_sha256": "3b3d4483d9bd9d9e570a87a23cf950cd5983fd1fbc75325585f41284927a3c30",
     "observation_start": "2026-10-01",
     "runtime_contract_files": [
@@ -620,11 +620,24 @@
       "sim/strategies/base.py",
       "sim/strategies/ew_benchmark.py",
       "sim/strategies/xs_common.py",
-      "sim/strategies/xs_momentum_12_1.py"
+      "sim/strategies/xs_momentum_12_1.py",
+      "engine/accounts/__init__.py",
+      "engine/accounts/settle.py",
+      "engine/money/alerts.py",
+      "engine/money/halts.py",
+      "sim/bar_sources.py",
+      "sim/book_breaks.py",
+      "sim/costs/__init__.py",
+      "sim/costs/baseline_v1.py",
+      "sim/costs/ibkr_pro_tiered_v1.py",
+      "sim/costs/profiles.py",
+      "sim/ledger.py",
+      "sim/margin.py",
+      "sim/shorts.py"
     ],
-    "runtime_contract_migration": "2026-09-18 isolated agent-paper lifecycle after interruption-safe transaction cleanup and before the first signal: attributed agent orders survive same-date reruns and the no-op agent book uses the ordinary simulator lifecycle; XS strategy, signal, execution economics, and statistical rules are unchanged",
-    "runtime_contract_sha256": "f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac",
-    "runtime_contract_version": 21,
+    "runtime_contract_migration": "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. XS strategy, signal boundary, paired control and statistical verdict rules are unchanged; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, high and low, a delisted holding closes at its last real traded close, the league leaves P15 marks to their window, collection audits a split-like re-fetch and triggers back-adjustment, and this migration compares the deployed report's fill model, signal-boundary runtime pin and clock fields as published; undeployed pre-deploy amendment 2026-10-17 separates retained prefix continuity from restarted evaluation sessions and validates their partition without changing equity, signal, baseline, ledger or verdict rules",
+    "runtime_contract_sha256": "c34a2b0dfc1b0f70a4871b065fcf5216790ffb9dd35405c9d6d941435b81bc70",
+    "runtime_contract_version": 22,
     "signal_boundary": {
       "control_signal_noop": false,
       "initial_orders_sha256": "fcbf2d5a202ec53425bbda0ed5b3a50053a5b6610069c111f4a75c7ad543c52e",
@@ -633,8 +646,8 @@
         "control_config_sha256": "692d49494298d2e840c98ab78cb8e4a4829516b6049d7d24253eb3e28fe1318e",
         "criterion_sha256": "834510b6773419be2bfcc5a5b20e1b9aa10026c2d2003c7e740d8bf6af94bb6d",
         "execution_profile_sha256": "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db",
-        "fill_model": "v4",
-        "runtime_contract_sha256": "f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac"
+        "fill_model": "v5",
+        "runtime_contract_sha256": "c34a2b0dfc1b0f70a4871b065fcf5216790ffb9dd35405c9d6d941435b81bc70"
       },
       "signal_input_hashes": {
         "candidate_signal_rows_sha256": "1cde4cb14258948f00ee378bb1edc80fba2959489617c2013b58813b6e78cbde",
@@ -897,33 +910,36 @@
       "signal_state_sha256": "6b448bee4f0e86598795686c0ffba9d9cd47a0160d37e9cbc1838e94c56b37a8"
     },
     "signal_date": "2026-09-30",
-    "superseded_runtime_contract_sha256": "8bdfdf2ce028964de6c49d10a95132ac66d66e5a900b4173109355e1945d781e"
+    "superseded_runtime_contract_sha256": "f7a8a048eb79643f244f08a40dbd328e299644452c03ef95907b6cf5db6c7fac"
   },
   "metrics": {
-    "cumulative_excess": -0.014162686900455523,
+    "cumulative_excess": 0.0,
     "ew_benchmark": {
       "end_equity": 35448.24149954747,
-      "max_drawdown": -0.17942847224409675,
-      "start_equity": 41657.29244981528,
-      "total_return": -0.14905075642512966
+      "max_drawdown": 0.0,
+      "start_equity": 35448.24149954747,
+      "total_return": 0.0
     },
     "mean_monthly_excess": null,
     "mean_monthly_excess_ci": null,
     "xs_momentum_12_1": {
       "end_equity": 32462.697685490108,
-      "max_drawdown": -0.1730603564582306,
-      "start_equity": 38794.478026158125,
-      "total_return": -0.16321344332558518
+      "max_drawdown": 0.0,
+      "start_equity": 32462.697685490108,
+      "total_return": 0.0
     }
   },
   "observation": {
     "as_of": "2026-10-16",
-    "eligible_after": "2031-10-01",
+    "cost_break_session": "2026-10-19",
+    "eligible_after": "2031-10-19",
     "equity_sha256": "9a532664e3fd83dfd12058f1b262fb8c563f94a4a61662b1db127e4c435d88b4",
+    "evaluation_clock_start": "2026-10-19",
     "mature": false,
     "observation_start": "2026-10-01",
     "paired_complete_months": 0,
-    "shared_sessions": 12,
+    "pre_break_shared_sessions": 12,
+    "shared_sessions": 0,
     "signal_date": "2026-09-30"
   },
   "paper_only": true,

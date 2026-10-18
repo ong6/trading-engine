@@ -4,12 +4,14 @@ _Status **ACCUMULATING** · through 2026-10-16 · paper only · no automatic act
 
 The first shared close after the frozen 2026-09-30 signal and next-open execution is the baseline. This excludes legacy EW performance and the initial transition; later monthly rebalances retain their realized costs.
 
-The test cannot mature before **2031-10-01** and requires at least **48** complete paired months. It currently has **0**.
+Commissions and this evaluation clock restart at the recorded break **2026-10-19**.
+
+The test cannot mature before **2031-10-19** and requires at least **48** complete paired months. It currently has **0**.
 
 | Measure | `xs_momentum_12_1` | `ew_benchmark` | Difference |
 |---|---:|---:|---:|
-| Return | -16.32% | -14.91% | -1.42% |
-| Max drawdown | -17.31% | -17.94% | +0.64% |
+| Return | +0.00% | +0.00% | +0.00% |
+| Max drawdown | +0.00% | +0.00% | +0.00% |
 | Mean monthly excess | · | · | · (90% CI) |
 
 A positive verdict is evidence for continued paper observation only. It cannot authorize live capital or automatic promotion.

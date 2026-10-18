@@ -40,7 +40,7 @@
     "strategy": "sector_momentum"
   },
   "checks": {
-    "has_lower_drawdown": true,
+    "has_lower_drawdown": false,
     "kill_triggered": false,
     "trails_control_by_more_than_10pp": false
   },
@@ -133,7 +133,7 @@
     },
     "baseline_state_sha256": "6009bf5f765b8f28e41636d60666af5d9319c121aa0668f214ba7a647cc0a902",
     "execution_profile_sha256": "6340e47066716dbc6d3d221007033fb67069faf9cc9ec04aa95c89ec4de574db",
-    "fill_model": "v4",
+    "fill_model": "v5",
     "observation_start": "2026-09-04",
     "runtime_contract_files": [
       "engine/forward_review.py",
@@ -151,41 +151,57 @@
       "sim/settle.py",
       "sim/strategies/base.py",
       "sim/strategies/sector_momentum.py",
-      "sim/strategies/spy_benchmark.py"
+      "sim/strategies/spy_benchmark.py",
+      "engine/accounts/__init__.py",
+      "engine/accounts/settle.py",
+      "engine/money/alerts.py",
+      "engine/money/halts.py",
+      "sim/bar_sources.py",
+      "sim/book_breaks.py",
+      "sim/costs/__init__.py",
+      "sim/costs/baseline_v1.py",
+      "sim/costs/ibkr_pro_tiered_v1.py",
+      "sim/costs/profiles.py",
+      "sim/ledger.py",
+      "sim/margin.py",
+      "sim/shorts.py"
     ],
-    "runtime_contract_migration": "2026-09-18 isolated agent-paper lifecycle after interruption-safe transaction cleanup: attributed agent orders survive same-date reruns and the no-op agent book uses the ordinary simulator lifecycle; sector strategy, execution economics, baseline, and evidence-continuity rules are unchanged",
-    "runtime_contract_sha256": "8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce",
-    "runtime_contract_version": 10,
-    "superseded_runtime_contract_sha256": "c430b451ee510c858705ba4235f81b68f9d7443745a60b4716035acb32741788"
+    "runtime_contract_migration": "Owner decision 2026-10-06: every engine book pays ibkr_pro_tiered_v1 from the parameterized D0 and restarts its evaluation clock. Additive account schema, monotonic sequence, shared ledger, account settlement, accrual, halt and alert phases replace the legacy runtime; a snapshot-copy pre-D0 rerun proved league.csv and league.md byte-identical. Sector strategy, paired control, baseline prefix and kill criterion are unchanged; undeployed P22 rounds 3 and 4 share chronological accounting, historical dividends, fee-aware sizing and resume events while preserving existing fill routes; undeployed round 6 folds accounting from inception and evaluates corrected risk at processing time; undeployed revision-14 fixes keep the frozen rules: a real bar needs a positive open, high and low, a delisted holding closes at its last real traded close, the league leaves P15 marks to their window, a split-like re-fetch triggers back-adjustment, and this migration compares the deployed report's fill model and clock fields as published; second pre-deploy amendment 2026-10-17 under D1 fixes the same retained-prefix continuity defect class found by the fresh rehearsal: evaluated and retained counts are partitioned at the prior clock, with schema-v1 behavior, complete equity hashes, baselines and forward ledgers unchanged",
+    "runtime_contract_sha256": "c7c868a9176172eafab99427723ce7edf5bdb7326693cb9f351ff29ab52d9168",
+    "runtime_contract_version": 11,
+    "superseded_runtime_contract_sha256": "8a91b71295afd533c1d508645daad2b62e9dc80deab506f2b422b095b1b8a2ce"
   },
   "metrics": {
-    "drawdown_improvement": 0.00762406398676585,
-    "excess_return": 0.03814971267551526,
+    "drawdown_improvement": 0.0,
+    "excess_return": 0.0,
     "sector_momentum": {
       "end_equity": 43061.56995855855,
-      "max_drawdown": -0.013272325239999438,
-      "start_equity": 41742.09372396311,
-      "total_return": 0.03161020727232877
+      "max_drawdown": 0.0,
+      "start_equity": 43061.56995855855,
+      "total_return": 0.0
     },
     "spy_benchmark": {
       "end_equity": 39901.26100708009,
-      "max_drawdown": -0.02089638922676529,
-      "start_equity": 40163.91313403321,
-      "total_return": -0.006539505403186485
+      "max_drawdown": 0.0,
+      "start_equity": 39901.26100708009,
+      "total_return": 0.0
     }
   },
   "observation": {
     "as_of": "2026-10-16",
-    "calendar_days_available": 42,
-    "eligible_after": "2027-09-04",
+    "calendar_days_available": 0,
+    "cost_break_session": "2026-10-19",
+    "eligible_after": "2027-10-19",
     "equity_sha256": "9b5ba1d42b2f9b986826a0d05acfd13728b92a2e9fdbe9e6f50b0f148ec165a9",
+    "evaluation_clock_start": "2026-10-19",
     "first_shared_date": "2026-09-04",
     "forward_ledger_sha256": "b27c225b0b919f20e2ee8d4365e192c9484d9488bfad7a33d1028d68f3f1ab34",
     "mature": false,
     "minimum_shared_sessions": 200,
-    "shared_sessions_available": 30,
-    "shared_sessions_in_window": 30,
-    "window_start": "2026-09-04"
+    "pre_break_shared_sessions": 30,
+    "shared_sessions_available": 0,
+    "shared_sessions_in_window": 1,
+    "window_start": "2026-10-16"
   },
   "paper_only": true,
   "schema_version": 2,

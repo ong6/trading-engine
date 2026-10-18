@@ -161,11 +161,11 @@
     "unavailable_decision_count": 71
   },
   "data_provenance": {
-    "fact_count": 5400764,
+    "fact_count": 5530558,
     "historical_membership_authority": false,
     "pit_import_batch_count": 0,
     "pit_import_row_count": 0,
-    "receipt_count": 117292,
+    "receipt_count": 117692,
     "sec_current_mapping_fact_count": 1451,
     "sec_filing_fact_count": 3415
   },
@@ -191,7 +191,7 @@
     "turnover_notional": 10293.22254414784,
     "turnover_over_initial_cash": 1.029322254414784
   },
-  "generated_at": "2026-10-17T02:47:24.680193+00:00",
+  "generated_at": "2026-10-18T19:44:23.343266+00:00",
   "horizons": [
     1,
     5,
@@ -1906,39 +1906,42 @@
       "books": [
         {
           "active": true,
-          "calendar_days": 17,
-          "closed_trade_count": 19,
+          "calendar_days": 0,
+          "closed_trade_count": 0,
           "comparison_eligible": false,
-          "end_date": "2026-10-16",
-          "maximum_drawdown": -0.08480828769459137,
+          "end_date": null,
+          "evaluation_clock_start": "2026-10-19",
+          "maximum_drawdown": null,
           "portfolio_id": "p15_ai_ranked",
-          "start_date": "2026-09-29",
-          "turnover_notional": 58398.45332972698,
-          "turnover_over_initial_cash": 5.839845332972698
+          "start_date": null,
+          "turnover_notional": 0.0,
+          "turnover_over_initial_cash": 0.0
         },
         {
           "active": true,
-          "calendar_days": 17,
-          "closed_trade_count": 9,
+          "calendar_days": 0,
+          "closed_trade_count": 0,
           "comparison_eligible": false,
-          "end_date": "2026-10-16",
-          "maximum_drawdown": -0.11427280738094003,
+          "end_date": null,
+          "evaluation_clock_start": "2026-10-19",
+          "maximum_drawdown": null,
           "portfolio_id": "p15_hybrid_veto",
-          "start_date": "2026-09-29",
-          "turnover_notional": 33964.06842311389,
-          "turnover_over_initial_cash": 3.396406842311389
+          "start_date": null,
+          "turnover_notional": 0.0,
+          "turnover_over_initial_cash": 0.0
         },
         {
           "active": true,
-          "calendar_days": 17,
-          "closed_trade_count": 10,
+          "calendar_days": 0,
+          "closed_trade_count": 0,
           "comparison_eligible": false,
-          "end_date": "2026-10-16",
-          "maximum_drawdown": -0.12538388635874154,
+          "end_date": null,
+          "evaluation_clock_start": "2026-10-19",
+          "maximum_drawdown": null,
           "portfolio_id": "p15_rule_control",
-          "start_date": "2026-09-29",
-          "turnover_notional": 36802.62172775836,
-          "turnover_over_initial_cash": 3.680262172775836
+          "start_date": null,
+          "turnover_notional": 0.0,
+          "turnover_over_initial_cash": 0.0
         }
       ],
       "comparisons": [
@@ -2022,7 +2025,7 @@
       "unavailable_count": 0,
       "window_count": 364
     },
-    "generated_at": "2026-10-17T02:47:24.680193+00:00",
+    "generated_at": "2026-10-18T19:44:23.343266+00:00",
     "observer_pairing": {
       "four_hour_opportunity_review_v5": 100,
       "hourly_market_watch_v5": 216
@@ -2132,13 +2135,13 @@
     "status": "collecting"
   },
   "p8_evaluation": {
-    "cohort_start": "2026-09-23",
-    "completed_round_trip_count": 3,
-    "completed_session_count": 18,
-    "elapsed_calendar_days": 24,
+    "cohort_start": "2026-10-19",
+    "completed_round_trip_count": 0,
+    "completed_session_count": 0,
+    "elapsed_calendar_days": 0,
     "lower_bound_is_gate": false,
-    "lower_confidence_bound": -0.13558484104234125,
-    "mean_net_round_trip_return": -0.09238097381821579,
+    "lower_confidence_bound": null,
+    "mean_net_round_trip_return": null,
     "minimum_calendar_days": 90,
     "minimum_completed_sessions": 60,
     "promotion_authority": "none",
