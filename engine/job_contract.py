@@ -269,7 +269,11 @@ def _validate_job(raw: Mapping[str, Any], manifest: Path, retention_limit: int) 
     alert = _mapping(raw.get("alert"), f"{label}.alert")
     if alert.get("severity") not in {"ignore", "WARN", "FAIL"}:
         raise JobContractError(f"{label}: invalid alert severity")
-    _positive_number(alert.get("grace_seconds"), f"{label}.alert.grace_seconds", allow_zero=True)
+    alert_grace = _positive_number(
+        alert.get("grace_seconds"), f"{label}.alert.grace_seconds", allow_zero=True
+    )
+    if alert_grace > retention * 86400:
+        raise JobContractError(f"{label}: alert grace exceeds receipt retention")
     catch_up = _mapping(raw.get("catch_up"), f"{label}.catch_up")
     mode = catch_up.get("mode")
     count = catch_up.get("max_count")

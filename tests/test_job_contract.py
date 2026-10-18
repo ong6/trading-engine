@@ -151,6 +151,12 @@ def test_schema_v1_refuses_self_declared_paper_or_shadow_one_off(tmp_path, autho
         _load(tmp_path, manifest)
 
 
+def test_alert_grace_cannot_outlive_immutable_receipt_retention(tmp_path):
+    manifest = _manifest(_job_block()).replace("grace_seconds = 0", "grace_seconds = 15552001")
+    with pytest.raises(job_contract.JobContractError, match="grace exceeds"):
+        _load(tmp_path, manifest)
+
+
 def test_registry_rejects_duplicate_ids_across_manifests(tmp_path):
     first = tmp_path / "first.toml"
     second = tmp_path / "second.toml"

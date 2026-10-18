@@ -1128,7 +1128,7 @@ def prune_receipts(root: Path, retention_days: int, now: datetime) -> int:
 def transient_properties(spec: JobSpec) -> list[str]:
     resources = spec.resources
     properties = [
-        f"TimeoutStartSec={int(spec.timeout['overall_seconds'])}s",
+        f"TimeoutStartSec={float(spec.timeout['overall_seconds']):g}s",
         f"RuntimeMaxSec={float(spec.timeout['overall_seconds']):g}s",
         "KillMode=control-group",
         f"Nice={int(resources['nice'])}",
