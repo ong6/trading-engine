@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 import duckdb
 import pytest
@@ -53,6 +54,35 @@ class Session:
             CONTRACTS if "/v3/reference/" in url else DAILY,
             status_code=self.status_code,
         )
+
+
+@pytest.fixture(autouse=True)
+def enable_collection_for_capture_tests(monkeypatch):
+    monkeypatch.setattr(capture, "COLLECTION_ENABLED", True)
+
+
+def test_collection_is_paused_by_default_config_without_io(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(capture, "COLLECTION_ENABLED", False)
+    database = tmp_path / "options.duckdb"
+    result = capture.capture(
+        database=database, data_dir=tmp_path / "raw",
+        daily_database=tmp_path / "daily.duckdb", session=Session(fail=True),
+    )
+    assert result == {
+        "status": "paused", "reason": "no_registered_reader",
+        "collection_enabled": False,
+    }
+    assert not database.exists()
+    assert capture.main(["--check-enabled"]) == 1
+    assert capsys.readouterr().out == ""
+
+
+def test_service_condition_prevents_the_split_request_when_paused():
+    service = Path(capture.__file__).parents[1] / "server/massive-options-daily.service"
+    condition = next(
+        line for line in service.read_text().splitlines() if line.startswith("ExecCondition=")
+    )
+    assert "COLLECTION_ENABLED" in condition and "free_massive_options" in condition
 
 
 def test_recorded_contract_and_daily_pages_load_through_shared_limiter(tmp_path):

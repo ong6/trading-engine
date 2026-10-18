@@ -39,13 +39,13 @@ nightly path cannot reach it (the queue params ignore it unless explicitly set,
 and every run prints loudly which stamping it used).
 
 Sources (verified 2026-07-31 from this box):
-  dix, gex                 SqueezeMetrics DIX.csv (2011-05 →)
+  dix                      SqueezeMetrics DIX.csv (2011-05 →)
   vix, vix3m               CBOE VIX_History.csv / VIX3M_History.csv (1990 / 2009 →)
   t10y2y, icsa, nfci,      FRED keyless fredgraph.csv
   hy_oas                   ... hy_oas is hard-capped by FRED to a trailing ~3y
                            window regardless of cosd (ICE licensing) — we take
                            what it gives and WARN once, never fabricate the rest.
-  pc_total, pc_equity      CBOE, TWO ERAS: the archived era-1 CSVs (2006-11 →
+  pc_equity                CBOE, TWO ERAS: the archived era-1 CSVs (2006-11 →
                            2019-10-04) and the era-2 per-day JSON, backfilled
                            from PC_ERA2_BACKFILL_START. GAP 2019-10-05 →
                            2022-12-31: the data EXISTS (era-2 files were spot-
@@ -54,13 +54,13 @@ Sources (verified 2026-07-31 from this box):
                            PC_ERA2_BACKFILL_START to close it.
   naaim_exposure           RETIRED 2026-08-18 - never loaded a row, no readers.
                            Was: NAAIM weekly (Wednesday) exposure index, .xlsx
-  aaii_bull, aaii_bear     AAII weekly sentiment survey, legacy .xls (1987 →)
-  margin_debt, free_credit FINRA monthly margin statistics .xlsx (1997 →)
+  aaii_bear                AAII weekly sentiment survey, legacy .xls (1987 →)
+  margin_debt              FINRA monthly margin statistics .xlsx (1997 →)
   short_interest_dtc       FINRA consolidated short interest, aggregated to one
                            market-wide days-to-cover per settlement date
-  cot_es_lev_net           CFTC TFF, E-mini S&P leveraged-money net. CONTEXT
-                           ONLY — the strategy never reads it (see the research
-                           note: COT positioning is a weak, much-abused signal).
+  gex, pc_total, aaii_bull, free_credit, cot_es_lev_net
+                           Paused unread series; flip the one collection flag
+                           only after each has a named consumer.
   breadth_pct_200,         INTERNAL, computed from `prices` — no network.
   breadth_nh_nl,           Survivor-bias disclosure: the ticker set is TODAY's
   zweig_ratio              liquid universe_snapshot, so delisted names are absent
@@ -89,6 +89,11 @@ log = get_logger("signals")
 HTTP_TIMEOUT = 120         # seconds; the FRED/AAII files are big and slow
 HOST_SLEEP = 0.3           # politeness pause between requests to the SAME host
 RETRY_SLEEP = 10           # one backoff before giving up on a request
+# One-line re-enable: set True only after every paused series has a named consumer.
+UNREAD_MACRO_COLLECTION_ENABLED = False
+UNREAD_MACRO_SERIES = frozenset({
+    "gex", "pc_total", "aaii_bull", "free_credit", "cot_es_lev_net",
+})
 
 # Real-world publication delay per series, in CALENDAR days. Not used by the live
 # strategy (which gates on fetch_as_of); it exists so a future backtest can shift
@@ -108,6 +113,27 @@ LAG_DAYS: dict[str, int] = {
     "cot_es_lev_net": 3,
     "breadth_pct_200": 0, "breadth_nh_nl": 0, "zweig_ratio": 0,
 }
+COLLECTED_MACRO_SERIES = frozenset(LAG_DAYS) - UNREAD_MACRO_SERIES - {"naaim_exposure"}
+SERIES_PURPOSES = {
+    "dix": "sim.strategies.macro_composite",
+    "vix": "sim.strategies.macro_composite",
+    "vix3m": "sim.strategies.macro_composite",
+    "t10y2y": "sim.strategies.macro_composite",
+    "icsa": "sim.strategies.macro_composite",
+    "nfci": "sim.strategies.macro_composite",
+    "hy_oas": "sim.strategies.macro_composite",
+    "pc_equity": "sim.strategies.macro_composite",
+    "aaii_bear": "sim.strategies.macro_composite",
+    "margin_debt": "sim.strategies.macro_composite",
+    "short_interest_dtc": "sim.strategies.macro_composite",
+    "breadth_pct_200": "sim.strategies.macro_composite",
+    "zweig_ratio": "sim.strategies.macro_composite",
+    "breadth_nh_nl": "frozen_evidence:breadth_archive",
+}
+
+
+def _series_enabled(series: str) -> bool:
+    return UNREAD_MACRO_COLLECTION_ENABLED or series not in UNREAD_MACRO_SERIES
 
 # Era-2 put/call backfill bound: one GET per weekday, so ~935 polite requests
 # from 2023-01-01. Declared here and logged at run time rather than silently
@@ -239,7 +265,7 @@ def src_squeezemetrics(con, mode: str) -> list[tuple]:
             continue
         for series, col in (("dix", "dix"), ("gex", "gex")):
             v = _num(parts[ix[col]]) if col in ix else None
-            if v is not None:
+            if v is not None and _series_enabled(series):
                 out.append((series, d, v))
     return out
 
@@ -321,12 +347,13 @@ def _pc_era1() -> list[tuple]:
     """The archived CBOE ratio CSVs, 2006-11-01 → 2019-10-04. Four lines of
     disclaimer/product junk sit above the real header, so find the DATE row."""
     out = []
-    for url, series in (
+    sources = (
         ("https://cdn.cboe.com/resources/options/volume_and_call_put_ratios/"
          "totalpc.csv", "pc_total"),
         ("https://cdn.cboe.com/resources/options/volume_and_call_put_ratios/"
          "equitypc.csv", "pc_equity"),
-    ):
+    )
+    for url, series in (item for item in sources if _series_enabled(item[1])):
         r = _get(url)
         lines = r.text.splitlines()
         start = None
@@ -368,7 +395,7 @@ def _pc_era2_day(d: date) -> list[tuple]:
     for item in payload.get("ratios", []):
         series = _PC_ERA2_NAMES.get(str(item.get("name", "")).strip().upper())
         v = _num(item.get("value"))
-        if series and v is not None:
+        if series and v is not None and _series_enabled(series):
             out.append((series, d, v))
     return out
 
@@ -500,7 +527,7 @@ def src_aaii(con, mode: str) -> list[tuple]:
             continue
         for col, series in ((1, "aaii_bull"), (3, "aaii_bear")):
             v = _num(vals[col])
-            if v is None or v <= 0:
+            if v is None or v <= 0 or not _series_enabled(series):
                 continue
             out.append((series, d, v * 100.0 if v <= 1.0 else v))
     return out
@@ -544,7 +571,8 @@ def src_finra_margin(con, mode: str) -> list[tuple]:
         fc_marg = _num(row[3] if len(row) > 3 else None)
         if debit is not None:
             out.append(("margin_debt", d, debit))
-        if fc_cash is not None and fc_marg is not None:
+        if (fc_cash is not None and fc_marg is not None
+                and _series_enabled("free_credit")):
             out.append(("free_credit", d, fc_cash + fc_marg))
     wb.close()
     return out
@@ -810,9 +838,10 @@ SOURCES: dict[str, callable] = {
     "aaii": src_aaii,
     "finra_margin": src_finra_margin,
     "short_interest": src_short_interest,
-    "cot": src_cot,
     "breadth": src_breadth,
 }
+if UNREAD_MACRO_COLLECTION_ENABLED:
+    SOURCES["cot"] = src_cot
 DB_READ_SOURCES = frozenset({"breadth"})
 
 

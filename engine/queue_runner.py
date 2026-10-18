@@ -333,7 +333,10 @@ def nightly_plan(day: date | None = None, *, weekday: int | None = None
         weekday = (day or datetime.now(timezone.utc).date()).isoweekday()
     if not 1 <= int(weekday) <= 7:
         raise ValueError(f"weekday must be 1..7 (ISO), got {weekday}")
-    plan = list(NIGHTLY_PLAN)
+    from engine import tradingview_history_archive
+    plan = [item for item in NIGHTLY_PLAN
+            if item[0] != "tradingview_history"
+            or tradingview_history_archive.COLLECTION_ENABLED]
     if int(weekday) == 5:
         plan += list(NIGHTLY_FRIDAY_PLAN)
     return plan

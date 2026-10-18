@@ -35,6 +35,8 @@ INCREMENTAL_WINDOW_DAYS = 14
 MAX_CHUNKS_PER_RUN = 100
 DEFAULT_MAX_CHUNKS = 50
 DEFAULT_MAX_ATTEMPTS = 3
+# One-line re-enable: set True only after a named study reads the daily archive.
+COLLECTION_ENABLED = False
 # An exhausted window is retried RETRY_COOLDOWN after its latest attempt. A
 # refusal becomes terminal on the REFUSAL_DAYS-th refusal at least RETRY_COOLDOWN
 # after the previous counted one, i.e. on three separate days over >= 48 hours.
@@ -381,6 +383,16 @@ def run_connection_narrowed(
     if cohort_id == "liquid-current-v1" and symbols is not None:
         raise ArchiveError("production liquid cohort cannot use an explicit symbol subset")
     now = clock or (lambda: datetime.now(timezone.utc))
+    if not COLLECTION_ENABLED:
+        result = {
+            "status": "paused", "reason": "no_registered_reader",
+            "collection_enabled": False, "cohort_id": cohort_id,
+            "last_run": now().isoformat(),
+        }
+        if meta_path is not None:
+            merge_meta(meta_path, {"tradingview_history": result})
+        print(json.dumps(result, sort_keys=True))
+        return result
     path = Path(db_path) if db_path is not None else DEFAULT_DB
     con = db.connect(path)
     try:

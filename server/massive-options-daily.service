@@ -6,6 +6,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=%h/trading-engine
+ExecCondition=%h/trading-engine/.venv/bin/python -c "from tools import free_massive_options as m; raise SystemExit(not m.COLLECTION_ENABLED)"
 # Split refresh is fail-soft: options still use the prior as-of-correct split view.
 ExecStart=-%h/trading-engine/.venv/bin/python -m tools.free_sources massive --splits
 ExecStart=%h/trading-engine/.venv/bin/python -m tools.free_massive_options

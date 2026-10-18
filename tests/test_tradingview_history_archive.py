@@ -12,6 +12,11 @@ from engine.lib import db
 NOW = datetime(2026, 9, 25, 12, tzinfo=timezone.utc)
 
 
+@pytest.fixture(autouse=True)
+def enable_collection_for_archive_tests(monkeypatch):
+    monkeypatch.setattr(archive, "COLLECTION_ENABLED", True)
+
+
 def _database(path):
     con = db.connect(path)
     db.init_schema(con)
@@ -242,11 +247,29 @@ def test_exhausted_window_that_succeeds_after_cooldown_resolves(tmp_path):
 def test_queue_registers_bounded_archive_after_core_miners():
     spec = queue_runner.JOB_TYPES["tradingview_history"]
     assert spec["archive"] is True and spec["releases_writer"] is True
+    archive.COLLECTION_ENABLED = False
+    assert [kind for kind, _priority, _params in queue_runner.nightly_plan(weekday=2)] == [
+        "intraday", "signals", "earnings"]
+    archive.COLLECTION_ENABLED = True
     plan = queue_runner.nightly_plan(weekday=2)
     assert [kind for kind, _priority, _params in plan] == [
         "intraday", "signals", "earnings", "tradingview_history"]
     params = next(value for kind, _priority, value in plan if kind == "tradingview_history")
     assert queue_runner._parse_params(params)["max_chunks"] == 50
+
+
+def test_paused_collection_records_status_without_store_or_network(tmp_path, monkeypatch):
+    monkeypatch.setattr(archive, "COLLECTION_ENABLED", False)
+    path = tmp_path / "market.duckdb"
+    meta = tmp_path / "meta.json"
+    result = archive.run_connection_narrowed(
+        {"cohort_id": "liquid-current-v1", "start": "2022-01-01"},
+        path, meta, capture=lambda *_args, **_kwargs: pytest.fail("network capture called"),
+        clock=lambda: NOW,
+    )
+    assert result["status"] == "paused" and result["reason"] == "no_registered_reader"
+    assert not path.exists()
+    assert __import__("json").loads(meta.read_text())["tradingview_history"] == result
 
 
 def test_production_cohort_cannot_be_accidentally_frozen_as_subset(tmp_path):

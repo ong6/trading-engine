@@ -23,6 +23,8 @@ CONTRACTS_ENDPOINT = "https://api.massive.com/v3/reference/options/contracts"
 DAILY_ENDPOINT = "https://api.massive.com/v2/aggs/ticker/O:{occ}/range/1/day/{start}/{end}"
 MANIFEST_PATH = REPO_ROOT / "server/options-capture-manifest.json"
 HTTP_TIMEOUT_SECONDS = 60
+# One-line re-enable: set True only after a registered study reads the archive.
+COLLECTION_ENABLED = False
 
 
 def _manifest_identity(payload: dict) -> str:
@@ -294,6 +296,9 @@ def capture(
     rate_limit: Callable[[], object] | None = None,
     close_overrides: Mapping[str, float] | None = None,
 ) -> dict:
+    if not COLLECTION_ENABLED:
+        return {"status": "paused", "reason": "no_registered_reader",
+                "collection_enabled": False}
     manifest = load_manifest(manifest_path)
     capture_date = now().astimezone(timezone.utc).date() if as_of is None else as_of
     underlyings = list(selected_underlyings or manifest["underlyings"])
@@ -399,11 +404,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--underlying", action="append")
     parser.add_argument("--limit-pages", type=int)
     parser.add_argument("--contracts-only", action="store_true")
+    parser.add_argument("--check-enabled", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
         "--prior-close", action="append",
         help="verified TICKER=PRICE override for an isolated contracts smoke run",
     )
     args = parser.parse_args(argv)
+    if args.check_enabled:
+        return 0 if COLLECTION_ENABLED else 1
     try:
         result = capture(
             database=args.database, data_dir=args.data_dir,
@@ -416,7 +424,8 @@ def main(argv: list[str] | None = None) -> int:
     except free_sources.FreeSourceError as exc:
         print(json.dumps({"status": "failed", "reason": str(exc)}, sort_keys=True))
         return 2
-    print(json.dumps({"status": "complete", "result": result}, sort_keys=True))
+    status = "paused" if result.get("status") == "paused" else "complete"
+    print(json.dumps({"status": status, "result": result}, sort_keys=True))
     return 0
 
 
