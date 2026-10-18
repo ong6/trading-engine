@@ -48,7 +48,9 @@ def complete_contract(root: Path) -> dict:
         },
         "inputs": {
             "generation_sha256": "1" * 64,
-            "parts": [{"path": "input.json", "sha256": file_sha256(input_path)}],
+            "parts": [{
+                "path": "input.json", "sha256": file_sha256(input_path), "format": "rows_json",
+            }],
             "schema": [
                 {"name": "session", "dtype": "date", "nullable": False},
                 {"name": "close", "dtype": "float64", "nullable": False},

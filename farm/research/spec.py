@@ -114,6 +114,18 @@ def _relative_path(value: object, path: str) -> str:
 
 
 def _file_ref(value: object, path: str) -> dict[str, str]:
+    row = _mapping(value, path, ("path", "sha256", "format"))
+    format_ = _string(row["format"], f"{path}.format")
+    if format_ not in {"rows_json", "opaque"}:
+        raise ContractError(f"{path}.format must be rows_json or opaque")
+    return {
+        "path": _relative_path(row["path"], f"{path}.path"),
+        "sha256": _sha(row["sha256"], f"{path}.sha256"),
+        "format": format_,
+    }
+
+
+def _evidence_ref(value: object, path: str) -> dict[str, str]:
     row = _mapping(value, path, ("path", "sha256"))
     return {
         "path": _relative_path(row["path"], f"{path}.path"),
@@ -239,7 +251,7 @@ def _inputs(value: object) -> dict[str, Any]:
         },
         "membership": {
             "point_in_time": membership["point_in_time"],
-            "evidence": _file_ref(membership["evidence"], f"{path}.membership.evidence"),
+            "evidence": _evidence_ref(membership["evidence"], f"{path}.membership.evidence"),
         },
         "coverage": {
             "minimum": minimum,
@@ -249,7 +261,7 @@ def _inputs(value: object) -> dict[str, Any]:
         "quality": {
             "version": _string(quality["version"], f"{path}.quality.version"),
             "policy": _string(quality["policy"], f"{path}.quality.policy"),
-            "evidence": _file_ref(quality["evidence"], f"{path}.quality.evidence"),
+            "evidence": _evidence_ref(quality["evidence"], f"{path}.quality.evidence"),
         },
     }
 

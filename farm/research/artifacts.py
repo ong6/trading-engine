@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -117,7 +118,10 @@ def _input_mount(resolved: ResolvedStudy, execution_root: Path) -> tuple[Path, l
     for index, reference in enumerate(resolved.spec.document["inputs"]["parts"]):
         source = resolved.evidence_paths[reference["path"]]
         target = parts_root / f"{index}{source.suffix.lower()}"
-        shutil.copyfile(source, target)
+        try:
+            os.link(source, target)
+        except OSError:
+            shutil.copyfile(source, target)
         if file_sha256(target) != reference["sha256"]:
             raise ArtifactValidationError("input part changed while mounting")
         manifest.append({
@@ -125,8 +129,10 @@ def _input_mount(resolved: ResolvedStudy, execution_root: Path) -> tuple[Path, l
             "mounted_path": target.relative_to(mount).as_posix(),
             "sha256": reference["sha256"],
         })
+        if reference["format"] == "opaque":
+            continue
         if source.suffix.lower() != ".json":
-            raise ArtifactValidationError("StudySpec input validation currently requires JSON parts")
+            raise ArtifactValidationError("rows_json input parts must use .json")
         try:
             payload = json.loads(target.read_text())
         except json.JSONDecodeError as exc:
@@ -136,6 +142,8 @@ def _input_mount(resolved: ResolvedStudy, execution_root: Path) -> tuple[Path, l
             resolved.spec.document["inputs"]["schema"],
             allow_input_availability=True,
         ))
+    if not declared_rows:
+        raise ArtifactValidationError("StudySpec requires at least one declared rows_json input")
     availability = {
         item["field"]: item["known_at"]
         for item in resolved.spec.document["inputs"]["availability"]
