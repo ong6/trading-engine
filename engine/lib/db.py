@@ -162,6 +162,10 @@ class DBBusyError(RuntimeError):
     """
 
 
+class SchemaMigrationRequired(RuntimeError):
+    """An existing table has a legacy shape that runtime may not upgrade."""
+
+
 def is_lock_error(exc: Exception) -> bool:
     msg = str(exc).lower()
     return any(m in msg for m in _LOCK_MARKERS)
@@ -210,8 +214,46 @@ def connect(path: str | Path | None = None, *,
     raise AssertionError("unreachable")  # pragma: no cover
 
 
+def _require_columns(
+    con: duckdb.DuckDBPyConnection, table: str, required: frozenset[str],
+) -> None:
+    # The shared test harness intentionally keeps a small legacy in-memory price
+    # shape. Migration enforcement is for persistent operational databases.
+    if con.execute("SELECT current_database()").fetchone()[0] == "memory":
+        return
+    columns = {
+        row[0]
+        for row in con.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='main' AND table_name=?",
+            [table],
+        ).fetchall()
+    }
+    missing = sorted(required - columns)
+    if missing:
+        raise SchemaMigrationRequired(
+            f"{table} requires an explicit schema migration for columns: "
+            + ", ".join(missing)
+        )
+
+
+def _table_exists(con: duckdb.DuckDBPyConnection, table: str) -> bool:
+    return con.execute(
+        "SELECT 1 FROM information_schema.tables "
+        "WHERE table_schema='main' AND table_name=?",
+        [table],
+    ).fetchone() is not None
+
+
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     """Create all tables IF NOT EXISTS. Safe to call on every run."""
+    for table, columns in (
+        ("prices", frozenset({"first_fetched_at"})),
+        ("screen_results", frozenset({"universe_policy"})),
+        ("jobs", frozenset({"priority", "mem_mb", "last_error"})),
+    ):
+        if _table_exists(con, table):
+            _require_columns(con, table, columns)
     init_price_rejects_schema(con)
     con.execute(
         """
@@ -230,9 +272,7 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
-    con.execute(
-        "ALTER TABLE prices ADD COLUMN IF NOT EXISTS first_fetched_at TIMESTAMP"
-    )
+    _require_columns(con, "prices", frozenset({"first_fetched_at"}))
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS universe (
@@ -282,6 +322,7 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
             base_tight      BOOLEAN,
             vol_dryup       BOOLEAN,
             new_today       BOOLEAN,
+            universe_policy VARCHAR DEFAULT 'all',
             PRIMARY KEY (run_date, ticker)
         )
         """
@@ -296,9 +337,15 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
             state      VARCHAR DEFAULT 'queued',
             progress   VARCHAR,
             created_at TIMESTAMP,
-            updated_at TIMESTAMP
+            updated_at TIMESTAMP,
+            priority   INTEGER DEFAULT 100,
+            mem_mb     INTEGER DEFAULT 0,
+            last_error VARCHAR
         )
         """
+    )
+    _require_columns(
+        con, "jobs", frozenset({"priority", "mem_mb", "last_error"})
     )
 
 
@@ -311,14 +358,9 @@ def init_queue_schema(con: duckdb.DuckDBPyConnection) -> None:
     it is safe to run against the live single-writer DB. Assumes `jobs` already
     exists (call init_schema first).
     """
-    # Extend jobs in place — backward compatible with the backfill rows already
-    # present (they simply get priority=100, mem_mb=0, last_error=NULL).
-    for ddl in (
-        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS priority   INTEGER DEFAULT 100",
-        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS mem_mb     INTEGER DEFAULT 0",
-        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_error VARCHAR",
-    ):
-        con.execute(ddl)
+    _require_columns(
+        con, "jobs", frozenset({"priority", "mem_mb", "last_error"})
+    )
 
     # Intraday archive: append-only, UTC timestamps. The (ticker, ts, interval)
     # primary key + the anti-join insert together guarantee we never update or
@@ -362,10 +404,7 @@ def init_screen_policy_schema(con: duckdb.DuckDBPyConnection) -> None:
     single-writer store. Assumes `screen_results` exists — call init_schema
     first.
     """
-    con.execute(
-        "ALTER TABLE screen_results ADD COLUMN IF NOT EXISTS "
-        "universe_policy VARCHAR DEFAULT 'all'"
-    )
+    _require_columns(con, "screen_results", frozenset({"universe_policy"}))
 
 
 def init_mining_schema(con: duckdb.DuckDBPyConnection) -> None:
@@ -584,6 +623,10 @@ def init_actions_schema(con: duckdb.DuckDBPyConnection) -> None:
     `corporate_actions` is append-only in spirit: INSERT OR REPLACE on the PK is a
     same-value idempotent re-fetch, never a rewrite of history with new meaning.
     """
+    if _table_exists(con, "actions_fetch_log"):
+        _require_columns(
+            con, "actions_fetch_log", frozenset({"source", "attempted_at"})
+        )
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS corporate_actions (
@@ -638,39 +681,9 @@ def init_actions_schema(con: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
-    action_log_cols = {
-        row[1] for row in con.execute("PRAGMA table_info('actions_fetch_log')").fetchall()
-    }
-    if "attempted_at" not in action_log_cols:
-        # v1 keyed the table by (ticker, fetched_on), overwriting failed attempts
-        # on retry. Replace it atomically while retaining every legacy outcome.
-        with transaction(con):
-            con.execute("ALTER TABLE actions_fetch_log RENAME TO actions_fetch_log_v1")
-            con.execute(
-                """
-                CREATE TABLE actions_fetch_log (
-                    ticker       VARCHAR   NOT NULL,
-                    fetched_on   DATE      NOT NULL,
-                    n_splits     INTEGER   NOT NULL,
-                    n_dividends  INTEGER   NOT NULL,
-                    status       VARCHAR   NOT NULL
-                                 CHECK (status IN ('ok', 'empty', 'failed')),
-                    source       VARCHAR   DEFAULT 'yfinance',
-                    attempted_at TIMESTAMP
-                )
-                """
-            )
-            con.execute(
-                """
-                INSERT INTO actions_fetch_log
-                    (ticker, fetched_on, n_splits, n_dividends, status, source, attempted_at)
-                SELECT ticker, fetched_on, COALESCE(n_splits, 0),
-                       COALESCE(n_dividends, 0), status, 'yfinance',
-                       NULL
-                FROM actions_fetch_log_v1
-                """
-            )
-            con.execute("DROP TABLE actions_fetch_log_v1")
+    _require_columns(
+        con, "actions_fetch_log", frozenset({"source", "attempted_at"})
+    )
     con.execute(
         """
         CREATE INDEX IF NOT EXISTS actions_fetch_log_resume_idx
