@@ -15,11 +15,29 @@ jobs:
       fail-fast: false
       matrix:
         tz: [UTC, Asia/Singapore]
+        shard: [0, 1, 2, 3]
     env:
       TZ: ${{ matrix.tz }}
       OPENBLAS_NUM_THREADS: "1"
       OMP_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # registration tests read git history for the last registered change
+      - run: ln -sfn "$GITHUB_WORKSPACE" "$HOME/trading-engine"  # service units use %h/trading-engine
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.29"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - run: uv sync --extra dev --frozen
+      - run: .venv/bin/python -m pytest -q -W error -n auto --test-shards=4 --test-shard=${{ matrix.shard }}
+  checks:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,7 +64,6 @@ jobs:
       - run: .venv/bin/python -m compileall -q engine sim server tests farm tools
       - run: find engine -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
       - run: bash -n server/run_server.sh ui/run_ui.sh
-      - run: .venv/bin/python -m pytest -q -W error -n auto
   ui-build:
     runs-on: ubuntu-latest
     defaults:
