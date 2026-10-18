@@ -10,11 +10,12 @@ from pathlib import Path
 import duckdb
 
 from engine.lib import db
-from engine.lib.data_quality import quarantine_reason
+from engine.lib.data_quality import quarantine_reason, trusted_bar_sql
 from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import REPO_ROOT
 from engine.lib.util import table_exists
+from engine.p15_calendar import observed_sessions
 from sim import book_breaks, costs, fills, ledger, nyse, p15_fills, portfolio, settle
 from sim.schema import init_sim_schema, next_order_id
 
@@ -382,6 +383,19 @@ def _equity_and_halt(
     return equity, halted
 
 
+def _wait_for_bar(con, portfolio_id: str, ticker: str, market_date: date,
+                  created_at: datetime, role: str) -> None:
+    payload = json.dumps({"portfolio_id": portfolio_id, "ticker": ticker,
+                          "market_date": market_date.isoformat(), "role": role,
+                          "reason": "untrusted_bar"}, sort_keys=True)
+    if not con.execute(
+        "SELECT 1 FROM audit_log WHERE actor='p15_books' AND action='waiting_bar' "
+        "AND payload=?", [payload],
+    ).fetchone():
+        con.execute("INSERT INTO audit_log VALUES (?,?,?,?)",
+                    [created_at, "p15_books", "waiting_bar", payload])
+
+
 def queue_orders(
     con: duckdb.DuckDBPyConnection, market_date: date, *, created_at: datetime
 ) -> dict:
@@ -407,17 +421,18 @@ def queue_orders(
             if rule is None:
                 raise P15BookError("P15 open position has no deterministic rule")
             close = con.execute(
-                "SELECT close FROM prices WHERE ticker=? AND date=?", [ticker, market_date]
+                f"SELECT close FROM prices WHERE ticker=? AND date=? AND {trusted_bar_sql()}",
+                [ticker, market_date],
             ).fetchone()
             if close is None or close[0] is None:
+                _wait_for_bar(con, book_id, ticker, market_date, created_at, "position_exit")
                 continue
             adjusted_stop = float(rule[1]) / _split_factor(
                 con, ticker, rule[0], market_date
             )
-            sessions = int(con.execute(
-                "SELECT COUNT(DISTINCT date) FROM prices WHERE ticker='SPY' "
-                "AND date>=? AND date<=? AND volume>0", [rule[0], market_date],
-            ).fetchone()[0])
+            sessions = len(observed_sessions(
+                con, after=rule[0], include_after=True, through=market_date,
+            ))
             decision = by_ticker.get(ticker)
             ai_exit = book_id == "p15_ai_ranked" and decision is not None and (
                 decision.get("decision") == "exit" or (
@@ -480,10 +495,12 @@ def queue_orders(
         cash = portfolio.get_cash(con, book_id)
         spy = positions.get("SPY", {}).get("qty", 0.0)
         spy_close = con.execute(
-            "SELECT close FROM prices WHERE ticker='SPY' AND date=?", [market_date]
+            f"SELECT close FROM prices WHERE ticker='SPY' AND date=? AND {trusted_bar_sql()}",
+            [market_date],
         ).fetchone()
         if spy_close is None or spy_close[0] is None or spy_close[0] <= 0:
-            raise P15BookError("SPY sleeve price is unavailable")
+            _wait_for_bar(con, book_id, "SPY", market_date, created_at, "spy_sleeve")
+            continue
         if desired > cash and spy > 0:
             qty = min(float(spy), math.ceil((desired - cash) / float(spy_close[0])))
             created += _add_intent(
@@ -761,6 +778,8 @@ def process_pending(con: duckdb.DuckDBPyConnection, fill_date: date) -> dict:
         if result.status == "pending":
             con.execute("UPDATE p15_order_intents SET reason=? WHERE id=?",
                         [result.reject_reason, intent_id])
+            if result.reject_reason == "untrusted_bar":
+                _wait_for_bar(con, intent[1], ticker, fill_date, datetime.now(timezone.utc), role)
             counts["pending"] += 1
             continue
         counts[_terminal_order(con, tuple(intent), fill_date, result)] += 1
@@ -931,7 +950,8 @@ def label_limit_counterfactuals(
     """Append h5 outcomes from each missed attempt's actual opening session."""
     from server import agent_evaluation
 
-    latest = con.execute("SELECT MAX(date) FROM prices WHERE ticker='SPY'").fetchone()[0]
+    dates = observed_sessions(con)
+    latest = dates[-1] if dates else None
     if latest is None:
         return 0
     rows = con.execute(
@@ -944,10 +964,8 @@ def label_limit_counterfactuals(
     ).fetchall()
     inserted = 0
     for intent_id, ticker, attempt_date, entry_px in rows:
-        sessions = [row[0] for row in con.execute(
-            "SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>=? AND date<=? "
-            "ORDER BY date LIMIT 5", [attempt_date, latest],
-        ).fetchall()]
+        sessions = observed_sessions(con, after=attempt_date, include_after=True,
+                                     through=latest, limit=5)
         if len(sessions) < 5:
             continue
         outcome = agent_evaluation._label_outcome_when_ready(

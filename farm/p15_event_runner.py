@@ -19,6 +19,7 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 from engine.lib.util import table_exists
+from engine.p15_calendar import observed_sessions
 from server import agent_evaluation, agent_model_client
 from tools import sec_edgar_capture
 
@@ -501,11 +502,9 @@ def _missing_next_bar_ready(
         p15_event_sources.ET
     ).date()
     labeled_day = labeled_at.astimezone(p15_event_sources.ET).date()
-    later_sessions = int(con.execute(
-        f"SELECT COUNT(DISTINCT date) FROM prices WHERE ticker='SPY' AND date>? AND date<=? "
-        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL}",
-        [decision_day, labeled_day, cutoff],
-    ).fetchone()[0])
+    later_sessions = len(observed_sessions(
+        con, after=decision_day, through=labeled_day, known_at=labeled_at,
+    ))
     if later_sessions < agent_evaluation.MISSING_BAR_GRACE_SESSIONS:
         return False
     later_intraday = table_exists(con, "bitemporal_facts") and con.execute(
@@ -524,7 +523,8 @@ def _missing_next_bar_ready(
 
 def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> int:
     """Append next-bar and next-session labels without changing prior outcomes."""
-    latest = con.execute("SELECT MAX(date) FROM prices WHERE ticker='SPY'").fetchone()[0]
+    dates = observed_sessions(con)
+    latest = dates[-1] if dates else None
     if latest is None:
         return 0
     inserted = 0
@@ -539,10 +539,7 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> int
             decision_day, p15_event_sources.session_close(decision_day),
             p15_event_sources.ET,
         ).astimezone(timezone.utc).replace(tzinfo=None)
-        sessions = [row[0] for row in con.execute(
-            "SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>? AND date<=? "
-            "ORDER BY date LIMIT 20", [decision_at.date(), latest],
-        ).fetchall()]
+        sessions = observed_sessions(con, after=decision_at.date(), through=latest, limit=20)
         intraday = None
         if table_exists(con, "bitemporal_facts"):
             intraday = con.execute(
@@ -559,10 +556,9 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> int
                 [decision_at, decision_session_end, labeled_at.replace(tzinfo=None),
                  labeled_at.replace(tzinfo=None), ticker],
             ).fetchone()
-        same_day_sessions = [row[0] for row in con.execute(
-            "SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>=? AND date<=? "
-            "ORDER BY date LIMIT 20", [decision_at.date(), latest],
-        ).fetchall()]
+        same_day_sessions = observed_sessions(
+            con, after=decision_at.date(), include_after=True, through=latest, limit=20,
+        )
         labeled_local = labeled_at.astimezone(p15_event_sources.ET)
         session_closed = (labeled_local.date() > decision_day or (
             labeled_local.date() == decision_day

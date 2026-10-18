@@ -59,6 +59,7 @@ REGISTERED_PATHS = {
     "engine/money/halts.py",
     "engine/money/limits.py",
     "engine/p15_evaluation.py",
+    "engine/p15_calendar.py",
     "engine/p15_event_sources.py",
     "engine/paper_accounts.py",
     "engine/queue_runner.py",

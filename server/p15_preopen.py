@@ -17,6 +17,7 @@ from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import advisory_file_lock
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 from engine.lib.util import table_exists
+from engine.p15_calendar import observed_sessions
 from sim import nyse, p15_books, p15_fills
 
 from . import agent_model_client, daily_opportunity_news
@@ -589,10 +590,7 @@ def capture_execution_quality(
         )
         gap = None if open_px is None else direction * (float(open_px) / arrival - 1) * 1e4
         total = None if fill_px is None else direction * (float(fill_px) / arrival - 1) * 1e4
-        sessions = int(con.execute(
-            "SELECT COUNT(DISTINCT date) FROM prices WHERE ticker='SPY' "
-            "AND date>? AND date<=? AND volume>0", [signal_date, attempt_date],
-        ).fetchone()[0])
+        sessions = len(observed_sessions(con, after=signal_date, through=attempt_date))
         effective_decision_at = decision_at or order_at
         if order_at < effective_decision_at:
             raise PreopenError("P15 decision-to-order time is negative")

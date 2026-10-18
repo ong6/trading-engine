@@ -420,8 +420,8 @@ p22_unlock() {
   P22_LOCK_FDS=()
 }
 p22_http_200() {
-  timeout 60 bash -c '
-    for attempt in {1..30}; do
+  timeout 300 bash -c '
+    for attempt in {1..150}; do
       code=$(curl --silent --output /dev/null --write-out "%{http_code}" --connect-timeout 2 --max-time 3 "$1") || code=000
       if test "$code" = 200; then printf "%s HTTP 200\n" "$1"; exit 0; fi
       sleep 1
@@ -890,15 +890,12 @@ Removed $XDG_RUNTIME_DIR/systemd/user/p22-rehearsal-accounts-settle.timer.
 
 ## Revision-15 deploy addendum — only after v2 is verified
 
-**Landing gate: NO-GO pending P15 label-calendar reconciliation.** The October 18
-snapshot rehearsal applied cleanup successfully, then the P15 report exited 75 with
-`common-entry label evidence differs`: removing the invalid October-16 SPY bar leaves
-nine price-derived sessions for 108 retained ten-session labels (first: label 2448,
-ACN decision 352, October 5–16). Their stored hashes are intact. The orchestrator must
-resolve that calendar dependency and repeat this addendum before production use; no
-label, score, outcome or gate may be rewritten to bypass it. The October-16 P15
-window also refuses `SPY sleeve price is unavailable` after cleanup; the full money replay
-is incomplete until that missing-bar behavior is resolved.
+The binding October 18 cleanup rulings preserve the P15 calendar as captured SPY dates
+union hard-invalid reject dates. Basis holds add a date only when it is an XNYS session;
+no synthetic session or stored-label hash is introduced. Missing trusted P15 bars wait
+with the audited `untrusted_bar` reason, including the SPY sleeve. Deployment requires
+the amended revision-15 source, unchanged stored labels, completed money replay and this
+literal rehearsal. No alternative-source observation is promoted by this revision.
 
 The orchestrator runs this immediately after the revision-14 deployment passes, with D0
 2026-10-19 retained. It changes admission and operational source identities; it does not create
@@ -965,6 +962,16 @@ PYCODE
 export P22_UNIT_RECORDS P22_PROCESS_BEFORE
 # Reuse the reviewed quiescence/lock/readiness functions; new inventory lives here.
 cp "$P22_V2_STATE/functions.bash" "$P22_STATE/functions.bash"
+# Preserve all reviewed helpers; cold Next builds measured longer than 60 seconds.
+# A 300-second deadline is bounded by the UI service's five-minute build timeout.
+.venv/bin/python - <<'PYCODE'
+import os
+from pathlib import Path
+p = Path(os.environ['P22_STATE']) / 'functions.bash'
+s = p.read_text().replace("timeout 60 bash -c", "timeout 300 bash -c")
+s = s.replace("for attempt in {1..30}; do", "for attempt in {1..150}; do")
+p.write_text(s)
+PYCODE
 source "$P22_STATE/functions.bash"
 p22_clean_source
 p22_quiesce

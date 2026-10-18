@@ -3837,4 +3837,13 @@ the 42-entry 2026-09-19 C90 complexity series is in
 - **Metrics:** server +112, tools +364, product +747 from baseline; budget passes.
 - **Next:** orchestrator resolves the P15 calendar/missing-SPY interaction and authorizes affected source scope; landing remains NO-GO.
 
+## 2026-10-18 — Apply the revision-15 P15 cleanup rulings
+
+- **Why:** Binding orchestrator follow-up to the reproduced cleanup blockers: 108 intact-hash labels lose October 16 from the SPY calendar, and that day's P15 sleeve raises `SPY sleeve price is unavailable`.
+- **What:** Session evidence is stored SPY dates union hard-invalid rejected SPY dates; basis holds count only on an XNYS session. Every P15 label/horizon path shares that observed calendar, without generated dates or stored-label rewrites.
+  Missing trusted P15 execution/sleeve bars wait with audited `untrusted_bar`; windows complete without repaired prices or promotion of another source. Cold UI readiness has a bounded wait covering the measured build.
+- **Evidence:** `tests/test_p15_cleanup_rulings.py` and the touched P15 suites → 309 passed; forward/integration suites → 139 passed. The real-store acceptance follows the single source binding.
+- **Metrics:** pending final snapshot.
+- **Next:** amend the undeployed revision-15 source, bind once, and finish full acceptance.
+
 <!-- append-only-tail: insert new verified entries immediately above this line -->

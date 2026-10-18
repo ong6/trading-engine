@@ -222,7 +222,7 @@ def test_queue_orders_applies_three_policies_and_shared_atr_sizing(con):
     assert p15_books.queue_orders(
         con, market_date, created_at=datetime(2026, 9, 25, tzinfo=timezone.utc)
     ) == {"status": "queued", "created": 0}
-    con.execute("UPDATE prices SET close=50 WHERE ticker='SPY' AND date=?", [market_date])
+    con.execute("UPDATE prices SET close=50,low=49 WHERE ticker='SPY' AND date=?", [market_date])
     with pytest.raises(p15_books.P15BookError, match="intent replay differs"):
         p15_books.queue_orders(
             con, market_date, created_at=datetime(2026, 9, 26, tzinfo=timezone.utc)

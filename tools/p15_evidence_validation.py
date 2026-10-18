@@ -10,6 +10,7 @@ import duckdb
 from engine import p15_event_sources
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
+from engine.p15_calendar import observed_sessions
 
 MAX_AUDIT_ROWS = 100_000
 
@@ -20,21 +21,10 @@ def validation_sessions(
     include_source_date: bool = False, missing_bar_status: str = "complete",
 ) -> list[date]:
     """Return a stored label's current date-only SPY session calendar."""
-    comparison = ">=" if include_source_date else ">"
     if missing_bar_status == "complete":
-        rows = con.execute(
-            f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' "
-            f"AND date{comparison}? AND date>=? AND date<=? AND {REAL_BAR_SQL} "
-            "ORDER BY date",
-            [source_market_date, entry_date, exit_date],
-        ).fetchall()
-    else:
-        rows = con.execute(
-            f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' "
-            f"AND date{comparison}? AND {REAL_BAR_SQL} ORDER BY date LIMIT ?",
-            [source_market_date, horizon_sessions],
-        ).fetchall()
-    return [row[0] for row in rows]
+        return observed_sessions(con, after=entry_date, through=exit_date, include_after=True)
+    return observed_sessions(con, after=source_market_date, include_after=include_source_date,
+                             limit=horizon_sessions)
 
 
 def daily_label_source_revised(
@@ -418,11 +408,7 @@ def _event_label_expected(con, row: dict, label_outcome, event_runner, generated
             p15_event_sources.ET
         ).date()
         labeled_day = labeled_at.astimezone(p15_event_sources.ET).date()
-        later_sessions = int(con.execute(
-            f"SELECT COUNT(DISTINCT date) FROM prices WHERE ticker='SPY' "
-            f"AND date>? AND date<=? AND {REAL_BAR_SQL}",
-            [decision_day, labeled_day],
-        ).fetchone()[0])
+        later_sessions = len(observed_sessions(con, after=decision_day, through=labeled_day))
         last = con.execute(
             f"SELECT date,close FROM prices WHERE ticker=? AND date<? AND {REAL_BAR_SQL} "
             "ORDER BY date DESC LIMIT 1", [ticker, decision_at.date()],

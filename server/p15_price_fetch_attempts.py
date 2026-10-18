@@ -9,6 +9,7 @@ import duckdb
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
+from engine.p15_calendar import observed_sessions
 from sim import nyse
 
 SOURCE = "yfinance"
@@ -72,12 +73,8 @@ def _missing_dates(
     labeled: set[tuple[int, str]], through_date: date, known_at: datetime,
 ) -> set[date]:
     cutoff = known_at.astimezone(timezone.utc).replace(tzinfo=None)
-    sessions = [row[0] for row in con.execute(
-        f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>? AND date<=? "
-        f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
-        "ORDER BY date LIMIT 20",
-        [boundary, through_date, cutoff],
-    ).fetchall()]
+    sessions = observed_sessions(con, after=boundary, through=through_date,
+                                 known_at=known_at, limit=20)
     missing = set()
     for horizon in HORIZONS:
         if len(sessions) < horizon or any(

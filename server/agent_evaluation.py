@@ -11,6 +11,7 @@ import duckdb
 from engine.lib.db import REAL_BAR_SQL
 from engine.lib.provenance import canonical_sha256
 from engine.lib.util import table_exists
+from engine.p15_calendar import observed_sessions
 from tools import p15_evidence_validation
 
 from . import agent_model_client
@@ -557,12 +558,9 @@ def _label_outcome_when_ready(
     if not missing_dates:
         return outcome
     grace_limit = grace_through or labeled_at.astimezone(timezone.utc).date()
-    later_sessions = int(con.execute(
-        f"SELECT COUNT(DISTINCT date) FROM prices WHERE ticker='SPY' "
-        f"AND date>? AND date<=? AND fetched_at IS NOT NULL AND fetched_at<=? "
-        f"AND {REAL_BAR_SQL}",
-        [sessions[-1], grace_limit, cutoff],
-    ).fetchone()[0])
+    later_sessions = len(observed_sessions(
+        con, after=sessions[-1], through=grace_limit, known_at=labeled_at,
+    ))
     if later_sessions < MISSING_BAR_GRACE_SESSIONS:
         return None
     later_ticker_bar = con.execute(
@@ -684,12 +682,8 @@ def _label_common_entries(
         if not in_evaluation_cohort(policy_id, observed_at):
             continue
         boundary = max(market_date, observed_at.date())
-        sessions = [item[0] for item in con.execute(
-            f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>? AND date<=? "
-            f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
-            "ORDER BY date LIMIT 20",
-            [boundary, latest, labeled_at],
-        ).fetchall()]
+        sessions = observed_sessions(con, after=boundary, through=latest,
+                                     known_at=labeled_at, limit=20)
         for horizon in HORIZONS:
             if len(sessions) < horizon:
                 continue
@@ -718,12 +712,8 @@ def _label_p15_entries(
     ).fetchall()
     inserted = 0
     for decision_id, ticker, market_date in rows:
-        sessions = [item[0] for item in con.execute(
-            f"SELECT DISTINCT date FROM prices WHERE ticker='SPY' AND date>? AND date<=? "
-            f"AND fetched_at IS NOT NULL AND fetched_at<=? AND {REAL_BAR_SQL} "
-            "ORDER BY date LIMIT 20",
-            [market_date, latest, labeled_at],
-        ).fetchall()]
+        sessions = observed_sessions(con, after=market_date, through=latest,
+                                     known_at=labeled_at, limit=20)
         for horizon in HORIZONS:
             if len(sessions) < horizon:
                 continue
@@ -743,7 +733,8 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> dic
     """Append every newly mature price label; never expose or rewrite immature horizons."""
     init_schema(con)
     inserted = 0
-    latest = con.execute("SELECT MAX(date) FROM prices WHERE ticker = 'SPY'").fetchone()[0]
+    dates = observed_sessions(con)
+    latest = dates[-1] if dates else None
     if latest is None:
         return {"inserted": 0, "latest_market_date": None}
     rows = con.execute(
@@ -759,10 +750,7 @@ def label_mature(con: duckdb.DuckDBPyConnection, *, labeled_at: datetime) -> dic
         ):
             continue
         label_after = market_date if cadence == "nightly" else observed_at.date()
-        sessions = [item[0] for item in con.execute(
-            "SELECT DISTINCT date FROM prices WHERE ticker = 'SPY' AND date > ? "
-            "AND date <= ? ORDER BY date LIMIT 20", [label_after, latest]
-        ).fetchall()]
+        sessions = observed_sessions(con, after=label_after, through=latest, limit=20)
         for horizon in HORIZONS:
             if len(sessions) < horizon:
                 continue
