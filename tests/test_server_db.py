@@ -1,5 +1,7 @@
 """API database connections fail closed on transient DuckDB contention."""
 
+from types import SimpleNamespace
+
 import duckdb
 import pytest
 
@@ -25,6 +27,13 @@ def test_unrelated_connection_failure_is_not_mislabeled_busy(monkeypatch):
         raise duckdb.ConnectionException("corrupt database header")
 
     monkeypatch.setattr(db.engine_db, "connect", broken)
+    monkeypatch.setattr(
+        db,
+        "pin_latest_generation",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            info=SimpleNamespace(path="generation.duckdb"), close=lambda: None,
+        ),
+    )
 
     with pytest.raises(duckdb.ConnectionException, match="corrupt database header"):
         db.read_con()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import math
@@ -12,16 +13,23 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import duckdb
 
+from engine import schema_migrations
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 from engine.lib.snapshots import LATEST_NAME, latest_snapshot, snapshot_directory
 from tools import backup_database
 
 KEEP_SNAPSHOTS = 2
+COLD_TABLES = {
+    "main.intraday_prices": ("as_of", ("ticker", "ts", "interval")),
+    "main.bitemporal_facts": ("ingested_at", ("id",)),
+    "main.source_response_receipts": ("received_at", ("id",)),
+}
 
 
 class SnapshotError(RuntimeError):
@@ -72,6 +80,321 @@ def _copy_file_durable(source: Path, destination: Path) -> None:
     shutil.copyfile(source, destination)
     os.chmod(destination, 0o600)
     _sync_file(destination)
+
+
+def _identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def _qualified(schema: str, table: str, *, database: str | None = None) -> str:
+    names = (schema, table) if database is None else (database, schema, table)
+    return ".".join(_identifier(name) for name in names)
+
+
+def _schema_identity(path: Path) -> dict:
+    connection = duckdb.connect(str(path), read_only=True)
+    try:
+        return schema_migrations.require_compatible_schema(connection)
+    finally:
+        connection.close()
+
+
+def _capture_cohort(repo_root: Path, snapshot: dict) -> dict[str, dict[str, bytes]]:
+    sections: dict[str, dict[str, bytes]] = {
+        "prospective_evidence": {},
+        "operational_artifacts": {},
+        "operational_controls": {},
+    }
+    for relative in backup_database.EVIDENCE_FILES:
+        sections["prospective_evidence"][relative] = backup_database._read_source_file(
+            repo_root, relative, "prospective evidence", data_dir=repo_root / "data",
+        )
+    for relative in backup_database._operational_files(snapshot["latest_price_date"]):
+        sections["operational_artifacts"][relative] = backup_database._read_source_file(
+            repo_root, relative, "operational artifact", data_dir=repo_root / "data",
+        )
+    for relative in backup_database.OPTIONAL_OPERATIONAL_CONTROL_FILES:
+        try:
+            content = backup_database._read_source_file(
+                repo_root, relative, "operational control", data_dir=repo_root / "data",
+            )
+        except backup_database.SourceFileMissing:
+            continue
+        sections["operational_controls"][relative] = content
+    return sections
+
+
+def _install_bytes(directory: Path, content: bytes) -> dict:
+    digest = hashlib.sha256(content).hexdigest()
+    relative = Path("blobs") / digest[:2] / digest
+    destination = directory / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        if destination.is_symlink() or destination.stat().st_size != len(content) or _sha256(destination) != digest:
+            raise SnapshotError(f"content-addressed generation blob conflicts: {digest}")
+    else:
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=destination.parent, prefix=f".{destination.name}.", suffix=".tmp",
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                os.fchmod(handle.fileno(), 0o400)
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, destination)
+            _sync_directory(destination.parent)
+        finally:
+            temporary.unlink(missing_ok=True)
+    return {"path": relative.as_posix(), "size_bytes": len(content), "sha256": digest}
+
+
+def _install_cohort(directory: Path, captured: dict[str, dict[str, bytes]]) -> dict:
+    return {
+        section: {
+            relative: _install_bytes(directory, content)
+            for relative, content in sorted(records.items())
+        }
+        for section, records in captured.items()
+    }
+
+
+def _cold_specs(connection: duckdb.DuckDBPyConnection) -> dict[str, dict]:
+    database = connection.execute("SELECT current_database()").fetchone()[0]
+    available = {
+        f"{schema}.{table}": sql
+        for schema, table, sql in connection.execute(
+            "SELECT schema_name, table_name, sql FROM duckdb_tables() "
+            "WHERE database_name=? AND NOT internal AND NOT temporary",
+            [database],
+        ).fetchall()
+    }
+    specs = {}
+    for qualified_name, (availability, keys) in COLD_TABLES.items():
+        if qualified_name not in available:
+            continue
+        schema, table = qualified_name.split(".", 1)
+        columns = [
+            {"name": name, "type": data_type}
+            for name, data_type in connection.execute(
+                "SELECT column_name, data_type FROM duckdb_columns() "
+                "WHERE database_name=? AND schema_name=? AND table_name=? "
+                "ORDER BY column_index",
+                [database, schema, table],
+            ).fetchall()
+        ]
+        if availability not in {column["name"] for column in columns}:
+            raise SnapshotError(f"cold table lacks availability column: {qualified_name}")
+        specs[qualified_name] = {
+            "schema": schema,
+            "table": table,
+            "availability_column": availability,
+            "key_columns": list(keys),
+            "create_sql": available[qualified_name],
+            "columns": columns,
+            "indexes": [
+                sql
+                for (sql,) in connection.execute(
+                    "SELECT sql FROM duckdb_indexes() WHERE database_name=? "
+                    "AND schema_name=? AND table_name=? ORDER BY index_name",
+                    [database, schema, table],
+                ).fetchall()
+            ],
+        }
+    return specs
+
+
+def _partition_values(
+    connection: duckdb.DuckDBPyConnection, spec: dict,
+) -> list[str]:
+    table = _qualified(spec["schema"], spec["table"])
+    column = _identifier(spec["availability_column"])
+    rows = connection.execute(
+        f"SELECT DISTINCT COALESCE(CAST(CAST({column} AS DATE) AS VARCHAR), '__null__') "
+        f"FROM {table} ORDER BY 1"
+    ).fetchall()
+    return [str(row[0]) for row in rows]
+
+
+def _partition_where(spec: dict, partition: str) -> str:
+    column = _identifier(spec["availability_column"])
+    if partition == "__null__":
+        return f"{column} IS NULL"
+    return f"CAST({column} AS DATE) = DATE {backup_database._sql_string(partition)}"
+
+
+def _install_cold_parts(
+    capture: Path, directory: Path,
+) -> tuple[list[dict], dict[str, dict], int]:
+    connection = duckdb.connect(str(capture), read_only=True)
+    installed: list[dict] = []
+    new_bytes = 0
+    try:
+        specs = _cold_specs(connection)
+        for qualified_name, spec in specs.items():
+            table = _qualified(spec["schema"], spec["table"])
+            order = ", ".join(_identifier(name) for name in spec["key_columns"])
+            for partition in _partition_values(connection, spec):
+                temporary_dir = directory / ".parts"
+                temporary_dir.mkdir(parents=True, exist_ok=True)
+                descriptor, temporary_name = tempfile.mkstemp(
+                    dir=temporary_dir, prefix=f".{spec['table']}.", suffix=".parquet.tmp",
+                )
+                os.close(descriptor)
+                temporary = Path(temporary_name)
+                temporary.unlink()
+                where = _partition_where(spec, partition)
+                try:
+                    connection.execute(
+                        f"COPY (SELECT * FROM {table} WHERE {where} ORDER BY {order}) "
+                        f"TO {backup_database._sql_string(str(temporary))} "
+                        "(FORMAT PARQUET, COMPRESSION ZSTD, COMPRESSION_LEVEL 3)"
+                    )
+                    digest = _sha256(temporary)
+                    relative = Path("parts") / spec["table"] / f"{partition}-{digest}.parquet"
+                    destination = directory / relative
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    if destination.exists():
+                        if destination.is_symlink() or _sha256(destination) != digest:
+                            raise SnapshotError(f"content-addressed cold part conflicts: {relative}")
+                        temporary.unlink()
+                    else:
+                        os.chmod(temporary, 0o400)
+                        _sync_file(temporary)
+                        os.replace(temporary, destination)
+                        _sync_directory(destination.parent)
+                        new_bytes += destination.stat().st_size
+                    row_count = connection.execute(
+                        f"SELECT COUNT(*) FROM {table} WHERE {where}"
+                    ).fetchone()[0]
+                    installed.append({
+                        "table": qualified_name,
+                        "partition": partition,
+                        "path": relative.as_posix(),
+                        "size_bytes": destination.stat().st_size,
+                        "sha256": digest,
+                        "row_count": int(row_count),
+                        "availability_column": spec["availability_column"],
+                    })
+                finally:
+                    temporary.unlink(missing_ok=True)
+        return installed, specs, new_bytes
+    finally:
+        connection.close()
+
+
+def _empty_relation(spec: dict) -> str:
+    columns = ", ".join(
+        f"CAST(NULL AS {column['type']}) AS {_identifier(column['name'])}"
+        for column in spec["columns"]
+    )
+    return f"SELECT {columns} WHERE FALSE"
+
+
+def _build_hot_database(
+    capture: Path, destination: Path, parts: list[dict], cold_specs: dict[str, dict],
+) -> None:
+    connection = duckdb.connect(str(destination))
+    try:
+        connection.execute(
+            f"ATTACH {backup_database._sql_string(str(capture))} AS generation_source (READ_ONLY)"
+        )
+        database = "generation_source"
+        object_schemas = {
+            row[0]
+            for query in (
+                "SELECT schema_name FROM duckdb_tables() WHERE database_name=? AND NOT internal",
+                "SELECT schema_name FROM duckdb_views() WHERE database_name=? AND NOT internal",
+                "SELECT schema_name FROM duckdb_sequences() WHERE database_name=? AND NOT temporary",
+            )
+            for row in connection.execute(query, [database]).fetchall()
+        }
+        for schema in sorted(object_schemas - {"main"}):
+            connection.execute(f"CREATE SCHEMA {_identifier(schema)}")
+        sequences = connection.execute(
+            "SELECT sql FROM duckdb_sequences() WHERE database_name=? AND NOT temporary "
+            "ORDER BY schema_name, sequence_name", [database],
+        ).fetchall()
+        for (sql,) in sequences:
+            connection.execute(sql)
+        tables = connection.execute(
+            "SELECT schema_name, table_name, sql FROM duckdb_tables() "
+            "WHERE database_name=? AND NOT internal AND NOT temporary "
+            "ORDER BY schema_name, table_name", [database],
+        ).fetchall()
+        for schema, table, sql in tables:
+            connection.execute(sql)
+            if f"{schema}.{table}" not in cold_specs:
+                connection.execute(
+                    f"INSERT INTO {_qualified(schema, table)} SELECT * FROM "
+                    f"{_qualified(schema, table, database=database)}"
+                )
+        for qualified_name, spec in cold_specs.items():
+            connection.execute(f"DROP TABLE {_qualified(spec['schema'], spec['table'])}")
+            paths = [
+                str(destination.parent / record["path"])
+                for record in parts if record["table"] == qualified_name
+            ]
+            relation = _empty_relation(spec) if not paths else (
+                "SELECT * FROM read_parquet(["
+                + ", ".join(backup_database._sql_string(path) for path in paths)
+                + "])"
+            )
+            connection.execute(
+                f"CREATE VIEW {_qualified(spec['schema'], spec['table'])} AS {relation}"
+            )
+        indexes = connection.execute(
+            "SELECT table_name, sql FROM duckdb_indexes() WHERE database_name=? "
+            "ORDER BY schema_name, index_name", [database],
+        ).fetchall()
+        cold_names = {spec["table"] for spec in cold_specs.values()}
+        for table, sql in indexes:
+            if table not in cold_names:
+                connection.execute(sql)
+        views = connection.execute(
+            "SELECT sql FROM duckdb_views() WHERE database_name=? AND NOT internal "
+            "ORDER BY schema_name, view_name", [database],
+        ).fetchall()
+        for (sql,) in views:
+            connection.execute(sql)
+        connection.execute("DETACH generation_source")
+        connection.execute("CHECKPOINT")
+    except duckdb.Error as exc:
+        raise SnapshotError(f"hot generation build failed: {exc}") from exc
+    finally:
+        connection.close()
+    os.chmod(destination, 0o400)
+    _sync_file(destination)
+
+
+def _verify_semantic_equality(capture: Path, hot: Path, row_counts: dict[str, int]) -> None:
+    connection = duckdb.connect()
+    try:
+        connection.execute(
+            f"ATTACH {backup_database._sql_string(str(capture))} AS original (READ_ONLY)"
+        )
+        connection.execute(
+            f"ATTACH {backup_database._sql_string(str(hot))} AS generation (READ_ONLY)"
+        )
+        for qualified_name in sorted(row_counts):
+            schema, table = qualified_name.split(".", 1)
+            original = _qualified(schema, table, database="original")
+            generation = _qualified(schema, table, database="generation")
+            missing = connection.execute(
+                f"SELECT COUNT(*) FROM ((SELECT * FROM {original}) EXCEPT ALL "
+                f"(SELECT * FROM {generation}))"
+            ).fetchone()[0]
+            extra = connection.execute(
+                f"SELECT COUNT(*) FROM ((SELECT * FROM {generation}) EXCEPT ALL "
+                f"(SELECT * FROM {original}))"
+            ).fetchone()[0]
+            if missing or extra:
+                raise SnapshotError(f"generation differs from source table: {qualified_name}")
+    except duckdb.Error as exc:
+        raise SnapshotError(f"generation equality verification failed: {exc}") from exc
+    finally:
+        connection.close()
 
 
 def _wal_path(source: Path) -> Path:
@@ -133,14 +456,59 @@ def _swap_latest(directory: Path, destination: Path) -> None:
             pass
 
 
+def _reachable_payloads(directory: Path) -> set[Path]:
+    reachable: set[Path] = set()
+    for manifest_path in directory.glob("market-*.json"):
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if manifest.get("manifest_schema_version") != 2:
+            continue
+        for record in manifest.get("parts", []):
+            if isinstance(record, dict) and isinstance(record.get("path"), str):
+                reachable.add(directory / record["path"])
+        for records in manifest.get("cohort", {}).values():
+            if isinstance(records, dict):
+                for record in records.values():
+                    if isinstance(record, dict) and isinstance(record.get("path"), str):
+                        reachable.add(directory / record["path"])
+    return reachable
+
+
+def _prune_unreachable_payloads(directory: Path) -> None:
+    reachable = _reachable_payloads(directory)
+    for root_name in ("parts", "blobs"):
+        root = directory / root_name
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*"), reverse=True):
+            if path.is_file() and not path.is_symlink() and path not in reachable:
+                path.unlink()
+            elif path.is_dir():
+                try:
+                    path.rmdir()
+                except OSError:
+                    pass
+
+
 def _retain_newest(directory: Path) -> None:
     snapshots = sorted(
         path for path in directory.glob("market-*.duckdb")
         if path.name != LATEST_NAME and not path.is_symlink()
     )
     for old in snapshots[:-KEEP_SNAPSHOTS]:
-        old.unlink(missing_ok=True)
-        old.with_suffix(".json").unlink(missing_ok=True)
+        pin_path = directory / "pins" / f"{old.stem}.lock"
+        pin_path.parent.mkdir(mode=0o700, exist_ok=True)
+        with pin_path.open("a+b") as pin:
+            try:
+                fcntl.flock(pin.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                continue
+            old.unlink(missing_ok=True)
+            old.with_suffix(".json").unlink(missing_ok=True)
+        pin_path.unlink(missing_ok=True)
+    _prune_unreachable_payloads(directory)
     _sync_directory(directory)
 
 
@@ -152,10 +520,11 @@ def publish_snapshot(
     held_locks: frozenset[str] = frozenset(),
     min_age_minutes: float | None = None,
 ) -> dict:
-    """Copy, fsync, atomically publish, and retain two database snapshots."""
+    """Publish a verified hot/cold generation and retain two unpinned generations."""
     repo_root = repo_root.resolve()
     source = source.resolve(strict=True)
     checked_at = datetime.now(timezone.utc)
+    started = time.monotonic()
     if min_age_minutes is not None:
         if not math.isfinite(min_age_minutes) or min_age_minutes < 0:
             raise SnapshotError("minimum snapshot age must be a non-negative number")
@@ -176,37 +545,63 @@ def publish_snapshot(
     directory = snapshot_directory(source)
     directory.mkdir(parents=True, exist_ok=True)
     destination = _unique_destination(directory, now or datetime.now(timezone.utc))
+    capture = directory / f".{destination.name}.{secrets.token_hex(8)}.capture"
     temporary = directory / f".{destination.name}.{secrets.token_hex(8)}.tmp"
     manifest_path = destination.with_suffix(".json")
     published = False
     try:
         fast_path = False
+        lock_started = time.monotonic()
         with backup_database._exclusive_backup_window(repo_root, skip_locks=held_locks):
             if _wal_path(source).exists():
-                snapshot = backup_database._copy_database(source, temporary)
-                os.chmod(temporary, 0o600)
-                _sync_file(temporary)
+                snapshot = backup_database._copy_database(source, capture)
+                os.chmod(capture, 0o600)
+                _sync_file(capture)
             else:
                 snapshot = _database_invariants(source, "snapshot_source")
-                _copy_file_durable(source, temporary)
+                _copy_file_durable(source, capture)
                 fast_path = True
+            schema_identity = _schema_identity(capture)
+            captured_cohort = _capture_cohort(repo_root, snapshot)
             as_of = datetime.now(timezone.utc)
+        writer_lock_seconds = time.monotonic() - lock_started
         if fast_path:
-            copied = _database_invariants(temporary, "snapshot_copy")
+            copied = _database_invariants(capture, "snapshot_copy")
             if copied != snapshot:
                 raise SnapshotError(
                     "file-copy database invariants do not match the source snapshot"
                 )
-        manifest = {
-            "schema_version": 1,
+        parts, cold_specs, new_cold_bytes = _install_cold_parts(capture, directory)
+        _build_hot_database(capture, temporary, parts, cold_specs)
+        _verify_semantic_equality(capture, temporary, snapshot["row_counts"])
+        cohort = _install_cohort(directory, captured_cohort)
+        body = {
+            "manifest_schema_version": 2,
+            "generation_id": destination.stem,
             "snapshot": destination.name,
             "source_database": str(source.relative_to(repo_root)),
             "source_data_commit": _data_commit(repo_root),
             "as_of": as_of.isoformat(),
-            "size_bytes": temporary.stat().st_size,
-            "sha256": _sha256(temporary),
+            **schema_identity,
+            "hot_database": {
+                "path": destination.name,
+                "size_bytes": temporary.stat().st_size,
+                "sha256": _sha256(temporary),
+            },
             "row_counts": snapshot["row_counts"],
+            "source_snapshot": snapshot,
+            "parts": parts,
+            "cold_tables": cold_specs,
+            "cohort": cohort,
+            "metrics": {
+                "wall_seconds": time.monotonic() - started,
+                "writer_lock_seconds": writer_lock_seconds,
+                "hot_size_bytes": temporary.stat().st_size,
+                "cold_part_bytes": sum(record["size_bytes"] for record in parts),
+                "new_cold_part_bytes": new_cold_bytes,
+            },
         }
+        manifest = {**body, "manifest_sha256": backup_database.canonical_sha256(body)}
         os.replace(temporary, destination)
         _write_manifest(manifest_path, manifest)
         _sync_directory(directory)
@@ -214,13 +609,18 @@ def publish_snapshot(
         published = True
         _retain_newest(directory)
         return manifest
-    except (OSError, ValueError, backup_database.BackupError) as exc:
+    except (
+        OSError, ValueError, backup_database.BackupError,
+        schema_migrations.SchemaMigrationError,
+    ) as exc:
         raise SnapshotError(str(exc)) from exc
     finally:
+        capture.unlink(missing_ok=True)
         temporary.unlink(missing_ok=True)
         if not published:
             destination.unlink(missing_ok=True)
             manifest_path.unlink(missing_ok=True)
+            _prune_unreachable_payloads(directory)
 
 
 def main(argv: list[str] | None = None) -> int:

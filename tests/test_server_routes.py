@@ -12,6 +12,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
+from engine import schema_migrations
 from engine.lib.db import DBBusyError
 from server import (
     db as server_db,
@@ -124,7 +125,30 @@ def _snapshot_source(path: FilePath) -> None:
         "CREATE TABLE sim_equity (portfolio_id VARCHAR, date DATE, equity DOUBLE, "
         "cash DOUBLE, n_positions INTEGER)"
     )
+    catalog_hash = schema_migrations.catalog_sha256(con)
+    migration = schema_migrations.migrations()[0]
+    con.execute(
+        "CREATE TABLE schema_migrations (migration_id INTEGER PRIMARY KEY, "
+        "migration_sha256 VARCHAR, source_commit VARCHAR, applied_at TIMESTAMPTZ, "
+        "pre_catalog_sha256 VARCHAR, post_catalog_sha256 VARCHAR, "
+        "recovery_manifest_sha256 VARCHAR)"
+    )
+    con.execute(
+        "INSERT INTO schema_migrations VALUES (0, ?, ?, now(), ?, ?, ?)",
+        [migration.sha256, "a" * 40, catalog_hash, catalog_hash, "b" * 64],
+    )
     con.close()
+
+
+def _snapshot_cohort(root: FilePath) -> None:
+    from tools import backup_database
+
+    relatives = set(backup_database.EVIDENCE_FILES)
+    relatives.update(backup_database._operational_files("2026-10-01"))
+    for relative in relatives:
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"path": relative}) + "\n")
 
 
 @pytest.mark.parametrize(
@@ -565,6 +589,7 @@ def test_locked_get_uses_snapshot_header_but_stale_evidence_get_stays_503(
     source = root / "store" / "market.duckdb"
     source.parent.mkdir(parents=True)
     _snapshot_source(source)
+    _snapshot_cohort(root)
     publish_snapshot.publish_snapshot(root, source)
     monkeypatch.setattr(server_db, "DEFAULT_DB", source)
     writer = duckdb.connect(str(source))

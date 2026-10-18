@@ -1,12 +1,9 @@
 """Per-request DuckDB connection helpers for the local paper-trading API.
 
-`read_con()` opens read-only; `write_con()` opens read-write. Both go through
-the one connection factory (`engine.lib.db.connect`, which honours env
-`TRADING_ENGINE_DB`, default `store/market.duckdb` under the repo root) with
-`wait_s=0`: when the DB file is held by another process's write lock, read-only
-requests may use the latest valid immutable snapshot while writes still raise
-`DBBusyError`. Evidence-validation callers additionally require a snapshot
-published after the live database's last write.
+`read_con()` pins and opens only the current immutable generation. `write_con()`
+alone opens the primary through the one connection factory. Evidence-validation
+callers additionally require a generation published after the primary's last
+committed write marker.
 
 Thin wrappers only (refactor step 2, 2026-09-03): server/main.py and the tests
 depend on these names.
@@ -23,7 +20,7 @@ import duckdb
 from engine.lib import db as engine_db
 from engine.lib.db import DBBusyError
 from engine.lib.settings import DEFAULT_DB
-from engine.lib.snapshots import latest_snapshot
+from engine.lib.snapshots import GenerationError, SnapshotPin, pin_latest_generation
 
 _DATA_SOURCE_STATE: ContextVar[dict[str, str | None] | None] = ContextVar(
     "api_data_source_state", default=None
@@ -50,27 +47,54 @@ def _connect(read_only: bool) -> duckdb.DuckDBPyConnection:
         raise
 
 
-def read_con() -> duckdb.DuckDBPyConnection:
-    """Open the primary read-only, falling back only on lock contention."""
-    try:
-        return _connect(read_only=True)
-    except DBBusyError as primary_error:
-        snapshot = latest_snapshot(
-            db_path(), newer_than_database=_EVIDENCE_SNAPSHOT_REQUIRED.get()
-        )
-        if snapshot is None:
-            raise
+class _PinnedConnection:
+    """DuckDB connection proxy that holds its generation pin until close."""
+
+    def __init__(self, connection: duckdb.DuckDBPyConnection, pin: SnapshotPin):
+        self._connection = connection
+        self._pin = pin
+
+    def __getattr__(self, name: str):
+        return getattr(self._connection, name)
+
+    def close(self) -> None:
         try:
-            connection = engine_db.connect(snapshot.path, read_only=True, wait_s=0)
-        except Exception as snapshot_error:
-            raise primary_error from snapshot_error
+            self._connection.close()
+        finally:
+            self._pin.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+
+def read_con() -> duckdb.DuckDBPyConnection:
+    """Pin and open the current immutable generation; never open the primary."""
+    try:
+        pin = pin_latest_generation(
+            db_path(), newer_than_database=_EVIDENCE_SNAPSHOT_REQUIRED.get(),
+        )
+    except GenerationError as exc:
+        raise DBBusyError(str(exc)) from exc
+    try:
+        connection = engine_db.connect(pin.info.path, read_only=True, wait_s=0)
+    except Exception:
+        pin.close()
+        raise
+    try:
         state = _DATA_SOURCE_STATE.get()
         if state is not None:
             state.update(
                 source="snapshot",
-                snapshot_as_of=snapshot.as_of.isoformat(),
+                snapshot_as_of=pin.info.as_of.isoformat(),
             )
-        return connection
+        return _PinnedConnection(connection, pin)
+    except BaseException:
+        connection.close()
+        pin.close()
+        raise
 
 
 def write_con() -> duckdb.DuckDBPyConnection:
