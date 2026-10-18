@@ -38,21 +38,16 @@ class ReadOnlyMount:
         return result
 
     def read_parquet(self, pattern: str = "**/*.parquet") -> Any:
-        from engine.lib import db
+        import duckdb
 
         if Path(pattern).is_absolute() or ".." in Path(pattern).parts:
             raise ValueError("Parquet pattern must remain within the mount")
         paths = tuple(sorted(path for path in self._root.glob(pattern) if path.is_file()))
         if not paths:
             raise ValueError("read-only mount has no matching Parquet files")
-        connection = db.connect(":memory:", wait_s=0)
-        try:
-            return connection.execute(
-                "SELECT * FROM read_parquet(?, hive_partitioning = true) ORDER BY ALL",
-                [[str(path) for path in paths]],
-            ).fetchdf()
-        finally:
-            connection.close()
+        return duckdb.read_parquet(
+            [str(path) for path in paths], hive_partitioning=True
+        ).order("ALL").fetchdf()
 
 
 class OutcomeAccessSentinel:

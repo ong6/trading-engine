@@ -3,23 +3,18 @@
 from __future__ import annotations
 
 import argparse
-import importlib
-import inspect
-import json
+import hashlib
 import os
-import subprocess
-import sys
-import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from engine.lib.resources import write_text_atomic
 
 from .cache import CacheObject, ResearchCache
 from .canonical import canonical_bytes, file_sha256, fsync_tree
-from .mounts import ReadOnlyMount
-from .spec import ContractError, ResolvedStudy, StudySpec
+from .sandbox import build_callback_package, prepare_sandbox_runtime, run_sandboxed
+from .spec import ResolvedStudy, StudySpec
 from .trials import JsonlTrialLedger, TrialLedgerError
 
 
@@ -41,48 +36,30 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def _import_callback(reference: dict[str, Any], expected_path: Path):
-    module = importlib.import_module(reference["module"])
-    path = Path(module.__file__ or "").resolve()
-    if path != expected_path or file_sha256(path) != reference["sha256"]:
-        raise ContractError(f"callback module changed after resolution: {reference['module']}")
-    function = getattr(module, reference["function"], None)
-    if (not inspect.isfunction(function) or function.__closure__
-            or "<locals>" in function.__qualname__):
-        raise ContractError("callback must be an importable function without a closure")
-    return function
-
-
-def _link_tree(source: Path, target: Path) -> None:
-    target.mkdir()
-    for path in sorted(source.rglob("*")):
-        relative = path.relative_to(source)
-        destination = target / relative
-        if path.is_symlink():
-            raise StudyRunError("cache object contains a symbolic link")
-        if path.is_dir():
-            destination.mkdir()
-        elif path.is_file():
-            os.link(path, destination)
-    for path in sorted(target.rglob("*"), reverse=True):
-        path.chmod(0o555 if path.is_dir() else 0o444)
-    target.chmod(0o555)
-
-
-def _seal_json(source: Path, target: Path) -> tuple[dict[str, Any], str]:
-    try:
-        value = json.loads(source.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise StudyRunError("worker did not produce canonical JSON") from exc
-    encoded = canonical_bytes(value, newline=True)
-    if source.read_bytes() != encoded:
-        raise StudyRunError("worker output is not canonical JSON")
-    digest = file_sha256(source)
-    os.replace(source, target)
+def _seal_json(value, target: Path) -> str:
+    write_text_atomic(target, canonical_bytes(value, newline=True).decode())
     target.chmod(0o444)
     with target.open("rb") as stream:
         os.fsync(stream.fileno())
-    return value, digest
+    return file_sha256(target)
+
+
+def _seed(master: int, variant: str, fold: str) -> int:
+    material = f"{master}\0{variant}\0{fold}".encode()
+    return int.from_bytes(hashlib.sha256(material).digest()[:8], "big")
+
+
+def _max_concurrency(executions: list[dict]) -> int:
+    points = sorted(
+        [(row["started_ns"], 1) for row in executions]
+        + [(row["finished_ns"], -1) for row in executions],
+        key=lambda item: (item[0], item[1]),
+    )
+    current = peak = 0
+    for _, change in points:
+        current += change
+        peak = max(peak, current)
+    return peak
 
 
 class StudyRunner:
@@ -184,57 +161,88 @@ class StudyRunner:
             if phase == "holdout":
                 self._open_holdout(trial, run_directory)
 
-            feature_mount = run_directory / "features"
-            _link_tree(features.data_path, feature_mount)
-            child_output = run_directory / f"predictions.{uuid.uuid4().hex}.tmp"
-            request_path = run_directory / "worker-request.json"
             execution = self.resolved.spec.document["execution"]
             strategy = self.resolved.spec.document["strategy"]
-            request = {
-                "callback": strategy["callback"],
-                "feature_root": str(feature_mount),
-                "parameters": strategy["parameters"],
-                "seed": execution["seed"],
-                "mode": phase,
-                "memory_mb": execution["memory_mb"],
-            }
-            write_text_atomic(request_path, canonical_bytes(request, newline=True).decode())
-            environment = {
-                "PATH": os.environ.get("PATH", ""),
-                "PYTHONPATH": os.pathsep.join((str(_repo_root()), str(self.resolved.base_dir))),
-                "PYTHONNOUSERSITE": "1",
-                "PYTHONDONTWRITEBYTECODE": "1",
-                "TMPDIR": str(run_directory),
-                "OMP_NUM_THREADS": "1",
-                "OPENBLAS_NUM_THREADS": "1",
-                "MKL_NUM_THREADS": "1",
-            }
-            subprocess.run(
-                [sys.executable, "-m", "farm.research.worker", "--request", str(request_path),
-                 "--output", str(child_output)],
-                cwd=run_directory,
-                env=environment,
-                check=True,
-                timeout=execution["expected_seconds"],
-                capture_output=True,
-                text=True,
+            package = build_callback_package(
+                self.resolved, strategy["callback"], run_directory,
             )
+            prepare_sandbox_runtime(run_directory)
+            jobs = [
+                {
+                    "variant": variant["name"],
+                    "fold": fold["name"],
+                    "parameters": {
+                        **strategy["parameters"],
+                        **variant["parameters"],
+                        "_study_job": {
+                            "variant": variant["name"],
+                            "fold": dict(fold),
+                        },
+                    },
+                    "seed": _seed(execution["seed"], variant["name"], fold["name"]),
+                }
+                for variant in self.resolved.spec.document["evaluation"]["variants"]
+                for fold in self.resolved.spec.document["evaluation"]["folds"]
+            ]
+
+            def execute_job(job):
+                response = run_sandboxed(
+                    package,
+                    {
+                        "callback": strategy["callback"],
+                        "package_sha256": package.digest,
+                        "parameters": job["parameters"],
+                        "seed": job["seed"],
+                        "phase": phase,
+                        "mode": "strategy",
+                        "memory_mb": execution["memory_mb"],
+                    },
+                    feature_root=features.data_path,
+                    label_root=None,
+                    runtime_root=run_directory,
+                    timeout=execution["expected_seconds"],
+                )
+                return job, response
+
+            worker_count = min(execution["workers"], len(jobs))
+            with ThreadPoolExecutor(max_workers=worker_count) as pool:
+                evaluated = list(pool.map(execute_job, jobs))
+            executions = [response for _, response in evaluated]
+            predictions = {"jobs": [
+                {
+                    "variant": job["variant"],
+                    "fold": job["fold"],
+                    "seed": job["seed"],
+                    "prediction": response["payload"],
+                }
+                for job, response in evaluated
+            ]}
             predictions_path = run_directory / "predictions.json"
-            predictions, predictions_sha = _seal_json(child_output, predictions_path)
+            predictions_sha = _seal_json(predictions, predictions_path)
             result_path, result_sha, outcome_accessed = None, None, False
             if phase != "pilot":
                 assert outcomes is not None
                 self._cache_object(outcomes, "label")
                 outcome_reference = self.resolved.spec.document["outcomes"]["callback"]
-                outcome_callback = _import_callback(
-                    outcome_reference,
-                    self.resolved.callback_paths[outcome_reference["module"]],
+                outcome_package = build_callback_package(
+                    self.resolved, outcome_reference, run_directory,
                 )
-                result = outcome_callback(
-                    predictions,
-                    ReadOnlyMount(outcomes.data_path),
-                    self.resolved.spec.as_dict()["evaluation"],
+                outcome_response = run_sandboxed(
+                    outcome_package,
+                    {
+                        "callback": outcome_reference,
+                        "package_sha256": outcome_package.digest,
+                        "predictions": predictions,
+                        "evaluation": self.resolved.spec.as_dict()["evaluation"],
+                        "mode": "evaluation",
+                        "memory_mb": execution["memory_mb"],
+                    },
+                    feature_root=None,
+                    label_root=outcomes.data_path,
+                    runtime_root=run_directory,
+                    timeout=execution["expected_seconds"],
                 )
+                result = outcome_response["payload"]
                 result_path = run_directory / "result.json"
                 write_text_atomic(result_path, canonical_bytes(result, newline=True).decode())
                 result_path.chmod(0o444)
@@ -250,6 +258,16 @@ class StudyRunner:
                 "result_sha256": result_sha,
                 "study_sha256": self.resolved.spec.sha256,
                 "trial_id": trial,
+                "strategy_workers": {
+                    "requested": execution["workers"],
+                    "used": worker_count,
+                    "max_concurrent": _max_concurrency(executions),
+                    "pids": [row["host_pid"] for row in executions],
+                },
+                "worker_pids": [
+                    *[row["host_pid"] for row in executions],
+                    *([outcome_response["host_pid"]] if outcome_accessed else []),
+                ],
             }
             receipt_path = run_directory / "receipt.json"
             write_text_atomic(receipt_path, canonical_bytes(receipt, newline=True).decode())
