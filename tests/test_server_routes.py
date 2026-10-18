@@ -595,6 +595,12 @@ def test_locked_get_uses_snapshot_header_but_stale_evidence_get_stays_503(
         assert headers[b"x-data-source"] == b"snapshot"
         assert b"x-snapshot-as-of" in headers
         assert headers[b"x-generation-id"].startswith(b"market-")
+        board_messages = asyncio.run(_request_messages("/league"))
+        board_start = next(
+            message for message in board_messages if message["type"] == "http.response.start"
+        )
+        assert board_start["status"] == 200
+        assert dict(board_start["headers"])[b"x-generation-id"] == headers[b"x-generation-id"]
 
         writer.execute("INSERT INTO jobs (id,state) VALUES (1, 'running')")
         stale_at = datetime.fromisoformat(headers[b"x-snapshot-as-of"].decode()) + timedelta(
