@@ -537,7 +537,7 @@ def collect_job_receipts(
     root = logs_dir / "job-runs"
     if not root.is_dir():
         return fresh, gaps
-    for path in sorted(root.glob("*/*/*.json")):
+    for path in sorted(root.glob("**/*.json")):
         if path.name.endswith(".running.json"):
             continue
         try:

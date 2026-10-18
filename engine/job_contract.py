@@ -299,6 +299,8 @@ def _validate_job(raw: Mapping[str, Any], manifest: Path, retention_limit: int) 
     if runner_enabled:
         if runner_mode not in {"read_only", "synthetic"}:
             raise JobContractError(f"{label}: admitted runner needs a bounded runner_mode")
+        if runner_mode == "synthetic" and completion_probe["kind"] != "command":
+            raise JobContractError(f"{label}: mutable synthetic runner needs a task-side probe")
         if schedules or catch_up["mode"] != "none":
             raise JobContractError(
                 f"{label}: scheduled/catch-up runner execution requires a later migration"

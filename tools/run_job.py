@@ -12,6 +12,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from contextlib import ExitStack, contextmanager
@@ -113,6 +114,36 @@ def _atomic_json(path: Path, payload: Mapping[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _replace_json(path: Path, payload: Mapping[str, Any]) -> None:
+    """Atomically replace only a non-terminal running marker."""
+    if not path.name.endswith(".running.json"):
+        raise JobRunError("only running markers are mutable")
+    encoded = (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    if len(encoded) > MAX_RECEIPT_BYTES:
+        raise JobRunError("job running marker exceeds the size bound")
+    temporary = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        view = memoryview(encoded)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise OSError("short running-marker write")
+            view = view[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    try:
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     try:
         if path.stat().st_size > MAX_RECEIPT_BYTES:
@@ -125,9 +156,12 @@ def _read_json(path: Path) -> dict[str, Any]:
     return value
 
 
-def _receipt_directory(logs_dir: Path, spec: JobSpec, scheduled_for: datetime) -> Path:
+def _receipt_directory(
+    logs_dir: Path, spec: JobSpec, scheduled_for: datetime, idempotency_key: str
+) -> Path:
     slot = scheduled_for.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
-    return logs_dir / "job-runs" / spec.job_id / slot
+    key_hash = hashlib.sha256(idempotency_key.encode()).hexdigest()
+    return logs_dir / "job-runs" / spec.job_id / slot / key_hash
 
 
 def _job_receipts(logs_dir: Path, spec: JobSpec) -> list[tuple[Path, dict[str, Any]]]:
@@ -135,7 +169,7 @@ def _job_receipts(logs_dir: Path, spec: JobSpec) -> list[tuple[Path, dict[str, A
     if not root.exists():
         return []
     rows = []
-    for path in sorted(root.glob("*/*.json")):
+    for path in sorted(root.glob("**/*.json")):
         if path.name.endswith(".running.json"):
             continue
         rows.append((path, _read_json(path)))
@@ -146,7 +180,7 @@ def _running_receipts(logs_dir: Path, spec: JobSpec) -> list[tuple[Path, dict[st
     root = logs_dir / "job-runs" / spec.job_id
     if not root.exists():
         return []
-    return [(path, _read_json(path)) for path in sorted(root.glob("*/*.running.json"))]
+    return [(path, _read_json(path)) for path in sorted(root.glob("**/*.running.json"))]
 
 
 def _source_sha(repo_root: Path) -> str:
@@ -169,6 +203,8 @@ def _base_receipt(
     *,
     scheduled_for: datetime,
     idempotency_key: str,
+    operator_idempotency_key: str,
+    scope_sha256: str,
     attempt: int,
     run_id: str,
     started: datetime,
@@ -182,6 +218,8 @@ def _base_receipt(
         "spec_version": spec.version,
         "spec_sha256": spec.spec_sha256,
         "idempotency_key": idempotency_key,
+        "operator_idempotency_key": operator_idempotency_key,
+        "idempotency_scope_sha256": scope_sha256,
         "scheduled_for": _iso(scheduled_for),
         "started_at": _iso(started),
         "attempt": attempt,
@@ -200,7 +238,9 @@ def _finish_receipt(
     process_exit: int | None,
     locks: Iterable[Mapping[str, Any]],
     child_pid: int | None = None,
+    child_process_identity: str | None = None,
     termination: str | None = None,
+    forwarded_signal: int | None = None,
     retry_disposition: str = "none",
     catch_up_disposition: str = "not-applicable",
     evidence: Iterable[str] = (),
@@ -213,8 +253,10 @@ def _finish_receipt(
         "process_exit": process_exit,
         "locks": list(locks),
         "child_pid": child_pid,
+        "child_process_identity": child_process_identity,
         "systemd_invocation": os.environ.get("INVOCATION_ID"),
         "termination": termination,
+        "forwarded_signal": forwarded_signal,
         "retry_disposition": retry_disposition,
         "catch_up_disposition": catch_up_disposition,
         "counters": {},
@@ -241,7 +283,7 @@ def _idempotency_lock(logs_dir: Path, key: str):
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise JobRunError("idempotency key already has a live run") from exc
-        yield
+        yield handle.fileno()
 
 
 def _acquire_domain_locks(
@@ -250,14 +292,16 @@ def _acquire_domain_locks(
     *,
     monotonic: Callable[[], float],
     sleep: Callable[[float], None],
-) -> tuple[ExitStack, list[dict[str, Any]], LockSpec | None]:
+) -> tuple[ExitStack, list[dict[str, Any]], LockSpec | None, tuple[int, ...]]:
     stack = ExitStack()
     observations = []
+    descriptors = []
     try:
         for lock in locks:
             path = _lock_path(logs_dir, "domains", lock.name)
             path.parent.mkdir(parents=True, exist_ok=True)
             handle = stack.enter_context(path.open("a+"))
+            descriptors.append(handle.fileno())
             flag = fcntl.LOCK_SH if lock.mode == "shared" else fcntl.LOCK_EX
             began = monotonic()
             acquired = False
@@ -277,8 +321,8 @@ def _acquire_domain_locks(
                  "acquired": acquired}
             )
             if not acquired:
-                return stack, observations, lock
-        return stack, observations, None
+                return stack, observations, lock, tuple()
+        return stack, observations, None, tuple(descriptors)
     except BaseException:
         stack.close()
         raise
@@ -390,6 +434,16 @@ def completion_probe_argv(
     return argv
 
 
+def _process_identity(pid: int) -> str | None:
+    try:
+        boot_id = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        suffix = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+        start_ticks = suffix[19]
+    except (OSError, IndexError):
+        return None
+    return f"{boot_id}:{start_ticks}"
+
+
 def _wait_child(
     argv: list[str],
     *,
@@ -398,30 +452,78 @@ def _wait_child(
     timeout_seconds: float,
     term_grace_seconds: float,
     popen: Callable[..., subprocess.Popen] = subprocess.Popen,
-) -> tuple[int | None, int, str | None]:
-    process = popen(argv, cwd=cwd, env=dict(env), start_new_session=True)
-    termination = None
-    try:
-        return process.wait(timeout=timeout_seconds), process.pid, termination
-    except subprocess.TimeoutExpired:
-        termination = "TERM"
+    pass_fds: tuple[int, ...] = (),
+    on_started: Callable[[int, str], None] | None = None,
+) -> tuple[int | None, int, str | None, str | None, int | None]:
+    process = popen(
+        argv, cwd=cwd, env=dict(env), start_new_session=True, pass_fds=pass_fds
+    )
+    process_identity = _process_identity(process.pid)
+    if process_identity is None:
         try:
-            os.killpg(process.pid, signal.SIGTERM)
+            os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+        process.wait()
+        raise JobRunError("could not establish child process identity")
+    if on_started is not None:
         try:
-            code = process.wait(timeout=term_grace_seconds)
-        except subprocess.TimeoutExpired:
-            termination = "KILL"
+            on_started(process.pid, process_identity)
+        except BaseException:
             try:
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            code = process.wait()
-        return code, process.pid, termination
+            process.wait()
+            raise
+    termination = None
+    forwarded: int | None = None
+    previous_handlers: dict[int, Any] = {}
+
+    def forward(signum, _frame):
+        nonlocal forwarded
+        forwarded = signum
+        try:
+            os.killpg(process.pid, signum)
+        except ProcessLookupError:
+            pass
+
+    if threading.current_thread() is threading.main_thread():
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            previous_handlers[signum] = signal.getsignal(signum)
+            signal.signal(signum, forward)
+    try:
+        try:
+            code = process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            termination = "TERM"
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                code = process.wait(timeout=term_grace_seconds)
+            except subprocess.TimeoutExpired:
+                termination = "KILL"
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                code = process.wait()
+        return code, process.pid, process_identity, termination, forwarded
+    finally:
+        for signum, handler in previous_handlers.items():
+            signal.signal(signum, handler)
 
 
-def _status_for_exit(code: int | None, termination: str | None, retry_codes: set[int]) -> tuple[str, str]:
+def _status_for_exit(
+    code: int | None,
+    termination: str | None,
+    retry_codes: set[int],
+    forwarded_signal: int | None = None,
+) -> tuple[str, str]:
+    if forwarded_signal is not None:
+        return "interrupted", f"wrapper-forwarded-signal-{forwarded_signal}"
     if termination is not None:
         return "retryable_failure", f"attempt-timeout-{termination.lower()}"
     if code == 0:
@@ -441,6 +543,35 @@ def _project(receipt: Mapping[str, Any], ops_dir: Path) -> None:
     ops_digest.project_job_receipt(receipt, ops_dir)
 
 
+def _invocation_keys(
+    spec: JobSpec,
+    scheduled_for: datetime,
+    parameter_hash: str,
+    explicit_key: str | None,
+) -> tuple[str, str, str]:
+    operator_key = explicit_key or spec.idempotency_template.format(
+        job_id=spec.job_id, version=spec.version, scheduled_for=_iso(scheduled_for)
+    )
+    if (not operator_key or len(operator_key) > 400
+            or any(value in operator_key for value in ("\0", "\n"))):
+        raise JobRunError("invalid idempotency key")
+    scope_sha256 = _hash_json(
+        {
+            "job_id": spec.job_id,
+            "spec_version": spec.version,
+            "spec_sha256": spec.spec_sha256,
+            "scheduled_for": _iso(scheduled_for),
+            "parameter_sha256": parameter_hash,
+        }
+    )
+    canonical_key = f"{operator_key}:{scope_sha256}"
+    return operator_key, canonical_key, scope_sha256
+
+
+def _receipt_operator_key(receipt: Mapping[str, Any]) -> object:
+    return receipt.get("operator_idempotency_key", receipt.get("idempotency_key"))
+
+
 def execute_job(
     spec: JobSpec,
     *,
@@ -457,7 +588,7 @@ def execute_job(
     projector: Callable[[Mapping[str, Any], Path], None] = _project,
     executor_verified: bool = False,
 ) -> RunResult:
-    """Execute one registered invocation; scheduled production paths do not call this yet."""
+    """Execute one admitted one-off inside a verified transient resource boundary."""
     require_runner_admission(spec)
     if not executor_verified:
         raise JobRunError("direct execution lacks the registered transient resource boundary")
@@ -466,221 +597,240 @@ def execute_job(
     scheduled_for = scheduled_for.astimezone(UTC)
     clean_parameters = validate_parameters(spec, parameters or {})
     parameter_hash = _hash_json(clean_parameters)
-    key = idempotency_key or spec.idempotency_template.format(
-        job_id=spec.job_id, version=spec.version, scheduled_for=_iso(scheduled_for)
+    operator_key, key, scope_sha256 = _invocation_keys(
+        spec, scheduled_for, parameter_hash, idempotency_key
     )
-    if not key or len(key) > 512 or any(value in key for value in ("\0", "\n")):
-        raise JobRunError("invalid idempotency key")
-    destination = _receipt_directory(logs_dir, spec, scheduled_for)
+    destination = _receipt_directory(logs_dir, spec, scheduled_for, key)
     ops_dir = ops_dir or logs_dir / "ops"
     receipt_paths: list[Path] = []
     source_sha = _source_sha(repo_root)
+    run_id = str(uuid.uuid4())
 
-    with _idempotency_lock(logs_dir, key):
+    def base_receipt(attempt: int, started: datetime) -> dict[str, Any]:
+        return _base_receipt(
+            spec, scheduled_for=scheduled_for, idempotency_key=key,
+            operator_idempotency_key=operator_key, scope_sha256=scope_sha256,
+            attempt=attempt, run_id=run_id, started=started,
+            parameter_hash=parameter_hash, source_sha=source_sha,
+        )
+
+    def publish(receipt: Mapping[str, Any], final: Path, running: Path | None = None) -> None:
+        if running is None:
+            _atomic_json(final, receipt)
+        else:
+            _write_final(running, final, receipt)
+        receipt_paths.append(final)
+        try:
+            projector(receipt, ops_dir)
+        except Exception as exc:  # observability never changes the job result
+            print(
+                f"[run-job] receipt projection unavailable: {type(exc).__name__}",
+                file=sys.stderr,
+            )
+
+    def finish(result: Mapping[str, Any]) -> RunResult:
+        prune_receipts(
+            logs_dir / "job-runs" / spec.job_id, spec.retention_days, now()
+        )
+        return RunResult(STATUS_EXIT[str(result["work_status"])], tuple(receipt_paths), result)
+
+    lock_identity = f"{spec.job_id}:{operator_key}"
+    with _idempotency_lock(logs_dir, lock_identity) as idempotency_fd:
         completed = _job_receipts(logs_dir, spec)
         running = _running_receipts(logs_dir, spec)
+        same_operator = [
+            (path, row) for path, row in completed + running
+            if _receipt_operator_key(row) == operator_key
+        ]
+        mismatch = next(
+            ((path, row) for path, row in same_operator
+             if row.get("idempotency_scope_sha256") != scope_sha256),
+            None,
+        )
+        if mismatch is not None:
+            began = now()
+            mismatch_attempt = max(
+                (row.get("attempt", 0) for _path, row in completed + running
+                 if row.get("idempotency_key") == key),
+                default=0,
+            ) + 1
+            receipt = _finish_receipt(
+                base_receipt(mismatch_attempt, began), ended=now(),
+                work_status="terminal_failure",
+                reason="idempotency-scope-mismatch", process_exit=None, locks=[],
+                evidence=[str(mismatch[0])],
+            )
+            publish(receipt, destination / f"{mismatch_attempt}.json")
+            return finish(receipt)
         attempts = [row.get("attempt", 0) for _path, row in completed + running
                     if row.get("idempotency_key") == key]
         for stale_path, stale in running:
             if stale.get("idempotency_key") != key:
                 continue
+            child_pid = stale.get("child_pid")
+            child_identity = stale.get("child_process_identity")
+            if (isinstance(child_pid, bool) or not isinstance(child_pid, int)
+                    or not isinstance(child_identity, str) or not child_identity):
+                raise JobRunError("running attempt lacks a verifiable child identity")
+            if _process_identity(child_pid) == child_identity:
+                raise JobRunError("prior child for idempotency key is still running")
             final_path = stale_path.with_name(stale_path.name.replace(".running.json", ".json"))
             receipt = _finish_receipt(
                 stale, ended=now(), work_status="interrupted", reason="stale-interrupted-attempt",
-                process_exit=None, locks=[], retry_disposition="resume",
+                process_exit=None, locks=stale.get("locks", []), retry_disposition="resume",
             )
-            _write_final(stale_path, final_path, receipt)
+            publish(receipt, final_path, stale_path)
             completed.append((final_path, receipt))
-            receipt_paths.append(final_path)
         prior_success = next(
             ((path, row) for path, row in reversed(completed)
              if row.get("idempotency_key") == key and row.get("work_status") in {"success", "noop"}),
             None,
         )
         next_attempt = max(attempts, default=0) + 1
-        run_id = str(uuid.uuid4())
         if prior_success:
             began = now()
-            base = _base_receipt(
-                spec, scheduled_for=scheduled_for, idempotency_key=key, attempt=next_attempt,
-                run_id=run_id, started=began, parameter_hash=parameter_hash, source_sha=source_sha,
-            )
             final = destination / f"{next_attempt}.json"
             receipt = _finish_receipt(
-                base, ended=now(), work_status="noop", reason="completed-idempotency-key",
+                base_receipt(next_attempt, began), ended=now(), work_status="noop",
+                reason="completed-idempotency-key",
                 process_exit=None, locks=[], evidence=[str(prior_success[0])],
             )
-            _atomic_json(final, receipt)
-            receipt_paths.append(final)
-            try:
-                projector(receipt, ops_dir)
-            except Exception as exc:  # observability never changes the job result
-                print(f"[run-job] receipt projection unavailable: {type(exc).__name__}", file=sys.stderr)
-            prune_receipts(logs_dir / "job-runs", spec.retention_days, now())
-            return RunResult(0, tuple(receipt_paths), receipt)
+            publish(receipt, final)
+            return finish(receipt)
 
-        began = now()
-        preflight = resource_refusal(spec, logs_dir)
-        stack, lock_rows, refused = _acquire_domain_locks(
-            logs_dir, spec.locks, monotonic=monotonic, sleep=sleep
-        )
-        with stack:
-            if preflight or refused:
-                base = _base_receipt(
-                    spec, scheduled_for=scheduled_for, idempotency_key=key, attempt=next_attempt,
-                    run_id=run_id, started=began, parameter_hash=parameter_hash,
-                    source_sha=source_sha,
-                )
-                status = refused.timeout_status if refused else "terminal_failure"
-                reason = f"lock-timeout:{refused.name}" if refused else f"resource-refusal:{preflight}"
-                receipt = _finish_receipt(
-                    base, ended=now(), work_status=status, reason=reason, process_exit=None,
-                    locks=lock_rows,
-                )
-                final = destination / f"{next_attempt}.json"
-                _atomic_json(final, receipt)
-                receipt_paths.append(final)
-                try:
-                    projector(receipt, ops_dir)
-                except Exception as exc:
-                    print(f"[run-job] receipt projection unavailable: {type(exc).__name__}",
-                          file=sys.stderr)
-                return RunResult(STATUS_EXIT[status], tuple(receipt_paths), receipt)
-
-            started_monotonic = monotonic()
-            maximum = int(spec.retry["max_attempts"])
-            retry_codes = set(spec.retry["exit_codes"])
-            argv = child_argv(spec, repo_root, clean_parameters)
-            probe_argv = completion_probe_argv(spec, repo_root, clean_parameters)
-            if probe_argv is not None:
-                probe_env = dict(os.environ)
-                probe_env.update(
-                    {
+        started_monotonic = monotonic()
+        maximum = int(spec.retry["max_attempts"])
+        retry_codes = set(spec.retry["exit_codes"])
+        argv = child_argv(spec, repo_root, clean_parameters)
+        probe_argv = completion_probe_argv(spec, repo_root, clean_parameters)
+        final_receipt: Mapping[str, Any] = {}
+        for retry_index in range(maximum):
+            attempt = next_attempt + retry_index
+            attempt_started = now()
+            base = base_receipt(attempt, attempt_started)
+            final_path = destination / f"{attempt}.json"
+            preflight = resource_refusal(spec, logs_dir)
+            stack, lock_rows, refused, domain_fds = _acquire_domain_locks(
+                logs_dir, spec.locks, monotonic=monotonic, sleep=sleep
+            )
+            with stack:
+                status: str
+                reason: str
+                process_exit: int | None = None
+                child_pid: int | None = None
+                child_identity: str | None = None
+                termination: str | None = None
+                forwarded: int | None = None
+                if preflight or refused:
+                    status = refused.timeout_status if refused else "retryable_failure"
+                    reason = (
+                        f"lock-timeout:{refused.name}"
+                        if refused else f"resource-refusal:{preflight}"
+                    )
+                else:
+                    pass_fds = (idempotency_fd, *domain_fds)
+                    common_env = {
+                        **os.environ,
                         "PYTHONPATH": str(repo_root),
                         "ENGINE_JOB_RUN_ID": run_id,
                         "ENGINE_JOB_SCHEDULED_FOR": _iso(scheduled_for),
                         "ENGINE_JOB_IDEMPOTENCY_KEY": key,
                         "ENGINE_JOB_PARAMETERS_SHA256": parameter_hash,
                     }
-                )
-                probe_exit, probe_pid, probe_termination = _wait_child(
-                    probe_argv, env=probe_env, cwd=repo_root,
-                    timeout_seconds=float(spec.completion_probe["timeout_seconds"]),
-                    term_grace_seconds=float(spec.timeout["term_grace_seconds"]), popen=popen,
-                )
-                if probe_exit == 0 and probe_termination is None:
-                    base = _base_receipt(
-                        spec, scheduled_for=scheduled_for, idempotency_key=key,
-                        attempt=next_attempt, run_id=run_id, started=began,
-                        parameter_hash=parameter_hash, source_sha=source_sha,
-                    )
-                    receipt = _finish_receipt(
-                        base, ended=now(), work_status="noop", reason="task-completion-probe",
-                        process_exit=0, locks=lock_rows, child_pid=probe_pid,
-                        evidence=["registered-completion-probe"],
-                    )
-                    final = destination / f"{next_attempt}.json"
-                    _atomic_json(final, receipt)
-                    receipt_paths.append(final)
-                    try:
-                        projector(receipt, ops_dir)
-                    except Exception as exc:
-                        print(
-                            f"[run-job] receipt projection unavailable: {type(exc).__name__}",
-                            file=sys.stderr,
+                    if probe_argv is not None:
+                        (probe_exit, probe_pid, probe_identity, probe_termination,
+                         probe_forwarded) = _wait_child(
+                            probe_argv, env=common_env, cwd=repo_root,
+                            timeout_seconds=float(spec.completion_probe["timeout_seconds"]),
+                            term_grace_seconds=float(spec.timeout["term_grace_seconds"]),
+                            popen=popen, pass_fds=pass_fds,
                         )
-                    prune_receipts(logs_dir / "job-runs", spec.retention_days, now())
-                    return RunResult(0, tuple(receipt_paths), receipt)
-                if probe_exit != 1 or probe_termination is not None:
-                    base = _base_receipt(
-                        spec, scheduled_for=scheduled_for, idempotency_key=key,
-                        attempt=next_attempt, run_id=run_id, started=began,
-                        parameter_hash=parameter_hash, source_sha=source_sha,
-                    )
-                    receipt = _finish_receipt(
-                        base, ended=now(), work_status="terminal_failure",
-                        reason="completion-probe-failed", process_exit=probe_exit,
-                        locks=lock_rows, child_pid=probe_pid, termination=probe_termination,
-                    )
-                    final = destination / f"{next_attempt}.json"
-                    _atomic_json(final, receipt)
-                    receipt_paths.append(final)
-                    try:
-                        projector(receipt, ops_dir)
-                    except Exception as exc:
-                        print(
-                            f"[run-job] receipt projection unavailable: {type(exc).__name__}",
-                            file=sys.stderr,
+                        if probe_exit == 0 and probe_termination is None and probe_forwarded is None:
+                            receipt = _finish_receipt(
+                                base, ended=now(), work_status="noop",
+                                reason="task-completion-probe", process_exit=0,
+                                locks=lock_rows, child_pid=probe_pid,
+                                child_process_identity=probe_identity,
+                                evidence=["registered-completion-probe"],
+                            )
+                            publish(receipt, final_path)
+                            return finish(receipt)
+                        if probe_exit != 1 or probe_termination is not None or probe_forwarded is not None:
+                            receipt = _finish_receipt(
+                                base, ended=now(), work_status="terminal_failure",
+                                reason="completion-probe-failed", process_exit=probe_exit,
+                                locks=lock_rows, child_pid=probe_pid,
+                                child_process_identity=probe_identity,
+                                termination=probe_termination, forwarded_signal=probe_forwarded,
+                            )
+                            publish(receipt, final_path)
+                            return finish(receipt)
+                    running_path = destination / f"{attempt}.running.json"
+                    running_row = {
+                        **base, "state": "running", "wrapper_pid": os.getpid(),
+                        "locks": lock_rows,
+                    }
+                    _atomic_json(running_path, running_row)
+
+                    def child_started(
+                        pid: int,
+                        identity: str,
+                        marker: Path = running_path,
+                        row: dict[str, Any] = running_row,
+                    ) -> None:
+                        row.update(
+                            {"child_pid": pid, "child_process_identity": identity}
                         )
-                    return RunResult(1, tuple(receipt_paths), receipt)
-            final_receipt: Mapping[str, Any] = {}
-            for retry_index in range(maximum):
-                attempt = next_attempt + retry_index
-                attempt_started = now()
-                base = _base_receipt(
-                    spec, scheduled_for=scheduled_for, idempotency_key=key, attempt=attempt,
-                    run_id=run_id, started=attempt_started, parameter_hash=parameter_hash,
-                    source_sha=source_sha,
-                )
-                running_path = destination / f"{attempt}.running.json"
-                final_path = destination / f"{attempt}.json"
-                running_row = {**base, "state": "running", "wrapper_pid": os.getpid()}
-                _atomic_json(running_path, running_row)
-                env = dict(os.environ)
-                env.update(
-                    {
-                        "PYTHONPATH": str(repo_root),
-                        "ENGINE_JOB_RUN_ID": run_id,
-                        "ENGINE_JOB_SCHEDULED_FOR": _iso(scheduled_for),
-                        "ENGINE_JOB_IDEMPOTENCY_KEY": key,
+                        _replace_json(marker, row)
+
+                    child_env = {
+                        **common_env,
                         "ENGINE_JOB_RECEIPT_PATH": str(final_path),
-                        "ENGINE_JOB_PARAMETERS_SHA256": parameter_hash,
                     }
-                )
-                elapsed = monotonic() - started_monotonic
-                remaining = min(
-                    float(spec.timeout["overall_seconds"]),
-                    float(spec.retry["deadline_seconds"]),
-                ) - elapsed
-                code, child_pid, termination = _wait_child(
-                    argv, env=env, cwd=repo_root,
-                    timeout_seconds=max(0.001, min(float(spec.timeout["attempt_seconds"]), remaining)),
-                    term_grace_seconds=float(spec.timeout["term_grace_seconds"]), popen=popen,
-                )
-                status, reason = _status_for_exit(code, termination, retry_codes)
-                delay = (
-                    float(spec.retry["backoff_seconds"][retry_index])
-                    if retry_index + 1 < maximum else 0.0
-                )
-                elapsed = monotonic() - started_monotonic
-                retry = (
-                    status == "retryable_failure"
-                    and retry_index + 1 < maximum
-                    and elapsed + delay < float(spec.retry["deadline_seconds"])
-                    and elapsed + delay < float(spec.timeout["overall_seconds"])
-                )
-                disposition = "retry" if retry else (
-                    "exhausted" if status == "retryable_failure" else "none"
-                )
-                receipt = _finish_receipt(
-                    base, ended=now(), work_status=status, reason=reason, process_exit=code,
-                    locks=lock_rows, child_pid=child_pid, termination=termination,
-                    retry_disposition=disposition,
-                )
-                _write_final(running_path, final_path, receipt)
-                receipt_paths.append(final_path)
-                try:
-                    projector(receipt, ops_dir)
-                except Exception as exc:
-                    print(f"[run-job] receipt projection unavailable: {type(exc).__name__}",
-                          file=sys.stderr)
-                final_receipt = receipt
-                if not retry:
-                    break
-                sleep(delay)
-            prune_receipts(logs_dir / "job-runs", spec.retention_days, now())
-            status = str(final_receipt["work_status"])
-            return RunResult(STATUS_EXIT[status], tuple(receipt_paths), final_receipt)
+                    elapsed = monotonic() - started_monotonic
+                    remaining = min(
+                        float(spec.timeout["overall_seconds"]),
+                        float(spec.retry["deadline_seconds"]),
+                    ) - elapsed
+                    (process_exit, child_pid, child_identity, termination,
+                     forwarded) = _wait_child(
+                        argv, env=child_env, cwd=repo_root,
+                        timeout_seconds=max(
+                            0.001, min(float(spec.timeout["attempt_seconds"]), remaining)
+                        ),
+                        term_grace_seconds=float(spec.timeout["term_grace_seconds"]),
+                        popen=popen, pass_fds=pass_fds, on_started=child_started,
+                    )
+                    status, reason = _status_for_exit(
+                        process_exit, termination, retry_codes, forwarded
+                    )
+            delay = (
+                float(spec.retry["backoff_seconds"][retry_index])
+                if retry_index + 1 < maximum else 0.0
+            )
+            elapsed = monotonic() - started_monotonic
+            retry = (
+                status == "retryable_failure"
+                and retry_index + 1 < maximum
+                and elapsed + delay < float(spec.retry["deadline_seconds"])
+                and elapsed + delay < float(spec.timeout["overall_seconds"])
+            )
+            disposition = "retry" if retry else (
+                "exhausted" if status == "retryable_failure" else "none"
+            )
+            receipt = _finish_receipt(
+                base, ended=now(), work_status=status, reason=reason,
+                process_exit=process_exit, locks=lock_rows, child_pid=child_pid,
+                child_process_identity=child_identity, termination=termination,
+                forwarded_signal=forwarded, retry_disposition=disposition,
+            )
+            running_path = destination / f"{attempt}.running.json"
+            publish(receipt, final_path, running_path if running_path.exists() else None)
+            final_receipt = receipt
+            if not retry:
+                break
+            sleep(delay)
+        return finish(final_receipt)
 
 
 def plan_catch_up(spec: JobSpec, missed: Iterable[datetime], now: datetime) -> CatchUpPlan:

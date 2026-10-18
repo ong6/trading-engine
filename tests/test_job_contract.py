@@ -26,7 +26,7 @@ runner_mode = "synthetic"
 schedules = []
 calendar = "always"
 locks = [{{ name = "job:{job_id}", mode = "exclusive", wait_seconds = 0, timeout_status = "superseded" }}]
-idempotency = {{ template = "{{job_id}}:{{version}}:{{scheduled_for}}", completion_probe = {{ kind = "receipt" }} }}
+idempotency = {{ template = "{{job_id}}:{{version}}:{{scheduled_for}}", completion_probe = {{ kind = "command", argv = ["python", "-m", "fixture_probe"], timeout_seconds = 1 }} }}
 run_record = {{ retention_days = 180 }}
 timeout = {{ attempt_seconds = 10, term_grace_seconds = 1, overall_seconds = 10 }}
 retry = {{ max_attempts = 1, exit_codes = [], backoff_seconds = [], deadline_seconds = 10 }}
@@ -100,7 +100,7 @@ def test_every_on_calendar_round_trips_in_source_order():
     [
         ('argv = ["python", "-m", "fixture"]', 'argv = ["sh", "-c", "echo bad"]',
          "command shell"),
-        ('idempotency = { template = "{job_id}:{version}:{scheduled_for}", completion_probe = { kind = "receipt" } }', "", "idempotency"),
+        ('idempotency = { template = "{job_id}:{version}:{scheduled_for}", completion_probe = { kind = "command", argv = ["python", "-m", "fixture_probe"], timeout_seconds = 1 } }', "", "idempotency"),
         ("timeout = { attempt_seconds = 10, term_grace_seconds = 1, overall_seconds = 10 }",
          "", "timeout"),
         ("retention_days = 180", "retention_days = 181", "retention"),

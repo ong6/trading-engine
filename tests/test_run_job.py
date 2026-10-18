@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import fcntl
 import json
+import os
 import sqlite3
 import sys
+import time
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -33,8 +35,9 @@ def _spec(
     catch_up: tuple[str, int, int] = ("none", 0, 0),
     memory_required: int = 0,
     min_free_bytes: int = 0,
-    completion_probe_code: str | None = None,
+    completion_probe_code: str | None = "raise SystemExit(1)\n",
     runner_enabled: bool = True,
+    retention_days: int = 180,
 ) -> tuple[job_contract.JobSpec, Path]:
     repo = tmp_path / "repo"
     repo.mkdir(parents=True)
@@ -47,7 +50,8 @@ def _spec(
             f'{{ kind = "command", argv = ["{sys.executable}", '
             '"{repo}/completion_probe.py"], timeout_seconds = 1 }'
         )
-    manifest = repo / "jobs.toml"
+    manifest = repo / "ops" / "jobs.toml"
+    manifest.parent.mkdir()
     lock_text = locks or (
         f'[{{ name = "job:{job_id}", mode = "exclusive", wait_seconds = 0, '
         'timeout_status = "superseded" }]'
@@ -70,7 +74,7 @@ schedules = []
 calendar = "always"
 locks = {lock_text}
 idempotency = {{ template = "{{job_id}}:{{version}}:{{scheduled_for}}", completion_probe = {completion_probe} }}
-run_record = {{ retention_days = 180 }}
+run_record = {{ retention_days = {retention_days} }}
 timeout = {{ attempt_seconds = {attempt_seconds}, term_grace_seconds = {term_grace_seconds}, overall_seconds = 20 }}
 retry = {{ max_attempts = {max_attempts}, exit_codes = {list(retry_codes)}, backoff_seconds = {list(backoffs)}, deadline_seconds = 20 }}
 alert = {{ severity = "FAIL", grace_seconds = 0 }}
@@ -103,6 +107,37 @@ def _execute(spec, repo, tmp_path, **kwargs):
         executor_verified=True,
         **kwargs,
     )
+
+
+def _destination(logs_dir, spec, parameters=None, explicit_key=None):
+    clean = run_job.validate_parameters(spec, parameters or {})
+    parameter_hash = run_job._hash_json(clean)
+    operator_key, canonical_key, scope = run_job._invocation_keys(
+        spec, SLOT, parameter_hash, explicit_key
+    )
+    return (
+        run_job._receipt_directory(logs_dir, spec, SLOT, canonical_key),
+        operator_key,
+        canonical_key,
+        scope,
+    )
+
+
+def _exited_process_identity():
+    process = run_job.subprocess.Popen([sys.executable, "-c", "pass"])
+    identity = run_job._process_identity(process.pid)
+    process.wait()
+    assert identity is not None
+    return process.pid, identity
+
+
+def _wait_for(predicate, timeout=5):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.01)
+    raise AssertionError("timed out waiting for synthetic process state")
 
 
 def test_success_receipt_environment_and_completed_key_noop(tmp_path):
@@ -159,12 +194,63 @@ def test_committed_production_jobs_are_audit_only_runner_refusals(tmp_path):
 def test_live_idempotency_key_refuses_a_concurrent_child(tmp_path):
     spec, repo = _spec(tmp_path, "pass\n")
     key = "same-key"
-    lock = run_job._lock_path(tmp_path / "logs", "idempotency", key)
+    lock = run_job._lock_path(
+        tmp_path / "logs", "idempotency", f"{spec.job_id}:{key}"
+    )
     lock.parent.mkdir(parents=True)
     with lock.open("a+") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         with pytest.raises(run_job.JobRunError, match="live run"):
             _execute(spec, repo, tmp_path, idempotency_key=key)
+
+
+def test_explicit_key_is_bound_to_parameter_and_spec_scope(tmp_path):
+    parameters = '{ state = { type = "string", option = "--state", required = true } }'
+    first_state = tmp_path / "scope-a"
+    second_state = tmp_path / "scope-b"
+    spec, repo = _spec(
+        tmp_path,
+        """import argparse
+from pathlib import Path
+p=argparse.ArgumentParser(); p.add_argument('--state'); a=p.parse_args()
+Path(a.state).write_text('ran')
+""",
+        parameters=parameters,
+    )
+    first = _execute(
+        spec, repo, tmp_path, parameters={"state": str(first_state)},
+        idempotency_key="operator-key",
+    )
+    second = _execute(
+        spec, repo, tmp_path, parameters={"state": str(second_state)},
+        idempotency_key="operator-key",
+    )
+
+    assert first.final["work_status"] == "success"
+    assert second.exit_code == 1
+    assert second.final["work_status"] == "terminal_failure"
+    assert second.final["reason"] == "idempotency-scope-mismatch"
+    assert first.final["idempotency_key"] != second.final["idempotency_key"]
+    assert first_state.read_text() == "ran" and not second_state.exists()
+
+
+def test_distinct_keys_in_one_slot_reserve_distinct_terminal_paths(tmp_path):
+    effects = tmp_path / "effects"
+    spec, repo = _spec(
+        tmp_path,
+        """import os
+from pathlib import Path
+path=Path(""" + repr(str(effects)) + ")\n"
+        "with path.open('a') as handle: handle.write(os.environ['ENGINE_JOB_IDEMPOTENCY_KEY']+'\\n')\n",
+    )
+
+    first = _execute(spec, repo, tmp_path, idempotency_key="key-a")
+    second = _execute(spec, repo, tmp_path, idempotency_key="key-b")
+
+    assert first.final["work_status"] == second.final["work_status"] == "success"
+    assert first.receipts[-1] != second.receipts[-1]
+    assert first.receipts[-1].name == second.receipts[-1].name == "1.json"
+    assert len(effects.read_text().splitlines()) == 2
 
 
 def test_stale_running_attempt_is_interrupted_then_resumed(tmp_path):
@@ -179,20 +265,27 @@ path=Path(a.state); path.write_text(str(int(path.read_text())+1 if path.exists()
 """,
         parameters=parameters,
     )
-    destination = run_job._receipt_directory(tmp_path / "logs", spec, SLOT)
+    destination, operator_key, canonical_key, scope = _destination(
+        tmp_path / "logs", spec, {"state": str(state)}, "resume-key"
+    )
+    child_pid, child_identity = _exited_process_identity()
     stale = {
         "schema_version": 1,
         "run_id": "old",
         "job_id": spec.job_id,
         "spec_version": 1,
         "spec_sha256": spec.spec_sha256,
-        "idempotency_key": "resume-key",
+        "idempotency_key": canonical_key,
+        "operator_idempotency_key": operator_key,
+        "idempotency_scope_sha256": scope,
         "scheduled_for": "2026-10-18T12:00:00Z",
         "started_at": "2026-10-18T11:59:00Z",
         "attempt": 1,
         "argv": list(spec.argv),
         "parameter_sha256": "0" * 64,
         "source_sha": "unknown",
+        "child_pid": child_pid,
+        "child_process_identity": child_identity,
         "state": "running",
     }
     run_job._atomic_json(destination / "1.running.json", stale)
@@ -220,14 +313,19 @@ def test_task_completion_probe_prevents_duplicate_stale_side_effect(tmp_path):
             f"raise SystemExit(0 if Path({str(state)!r}).exists() else 1)\n"
         ),
     )
-    destination = run_job._receipt_directory(tmp_path / "logs", spec, SLOT)
+    destination, operator_key, canonical_key, scope = _destination(
+        tmp_path / "logs", spec, explicit_key="probe-key"
+    )
+    child_pid, child_identity = _exited_process_identity()
     stale = {
         "schema_version": 1, "run_id": "old", "job_id": spec.job_id,
         "spec_version": 1, "spec_sha256": spec.spec_sha256,
-        "idempotency_key": "probe-key", "scheduled_for": "2026-10-18T12:00:00Z",
+        "idempotency_key": canonical_key, "operator_idempotency_key": operator_key,
+        "idempotency_scope_sha256": scope, "scheduled_for": "2026-10-18T12:00:00Z",
         "started_at": "2026-10-18T11:59:00Z", "attempt": 1,
         "argv": list(spec.argv), "parameter_sha256": "0" * 64, "source_sha": "unknown",
         "state": "running",
+        "child_pid": child_pid, "child_process_identity": child_identity,
     }
     run_job._atomic_json(destination / "1.running.json", stale)
 
@@ -238,6 +336,60 @@ def test_task_completion_probe_prevents_duplicate_stale_side_effect(tmp_path):
     ]
     assert result.final["reason"] == "task-completion-probe"
     assert not launched.exists()
+
+
+def test_wrapper_sigkill_cannot_duplicate_a_surviving_child(tmp_path):
+    started = tmp_path / "started"
+    completed = tmp_path / "completed"
+    effects = tmp_path / "effects"
+    spec, repo = _spec(
+        tmp_path,
+        """import time
+from pathlib import Path
+Path(""" + repr(str(started)) + ").touch()\n"
+        "time.sleep(1)\n"
+        "with Path(" + repr(str(effects)) + ").open('a') as handle: handle.write('once\\n')\n"
+        "Path(" + repr(str(completed)) + ").touch()\n",
+        completion_probe_code=(
+            "from pathlib import Path\n"
+            f"raise SystemExit(0 if Path({str(completed)!r}).exists() else 1)\n"
+        ),
+    )
+    wrapper = run_job.subprocess.Popen(
+        [
+            sys.executable, "-m", "tools.run_job", "_execute", spec.job_id,
+            "--repo-root", str(repo), "--logs-dir", str(tmp_path / "logs"),
+            "--scheduled-for", _iso_for_cli(SLOT), "--idempotency-key", "crash-key",
+        ],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "PYTHONPATH": str(ROOT),
+            run_job.TRANSIENT_SPEC_ENV: spec.spec_sha256,
+        },
+        stdout=run_job.subprocess.DEVNULL,
+        stderr=run_job.subprocess.DEVNULL,
+    )
+    _wait_for(started.exists)
+    wrapper.kill()
+    wrapper.wait()
+
+    with pytest.raises(run_job.JobRunError, match="live run"):
+        _execute(spec, repo, tmp_path, idempotency_key="crash-key")
+
+    running = next((tmp_path / "logs/job-runs" / spec.job_id).glob("**/*.running.json"))
+    running_row = json.loads(running.read_text())
+    child_pid = running_row["child_pid"]
+    child_identity = running_row["child_process_identity"]
+    _wait_for(completed.exists)
+    _wait_for(lambda: run_job._process_identity(child_pid) != child_identity)
+    resumed = _execute(spec, repo, tmp_path, idempotency_key="crash-key")
+
+    assert [json.loads(path.read_text())["work_status"] for path in resumed.receipts] == [
+        "interrupted", "noop"
+    ]
+    assert resumed.final["reason"] == "task-completion-probe"
+    assert effects.read_text().splitlines() == ["once"]
 
 
 @pytest.mark.parametrize(("fail_until", "statuses"), [(1, ["retryable_failure", "success"]),
@@ -319,6 +471,57 @@ def test_lock_timeout_and_resource_refusal_never_launch_child(tmp_path, monkeypa
     assert refused.final["reason"] == "resource-refusal:disk-reserve"
 
 
+def test_retryable_lock_refusal_uses_bounded_attempt_policy(tmp_path):
+    marker = tmp_path / "launched"
+    locks = (
+        '[{ name = "job:synthetic-job", mode = "exclusive", wait_seconds = 0, '
+        'timeout_status = "superseded" }, { name = "market-writer", mode = "exclusive", '
+        'wait_seconds = 0, timeout_status = "retryable_failure" }]'
+    )
+    spec, repo = _spec(
+        tmp_path, f"from pathlib import Path\nPath({str(marker)!r}).touch()\n",
+        locks=locks, max_attempts=3, retry_codes=(9,), backoffs=(0, 0),
+    )
+    held = run_job._lock_path(tmp_path / "logs", "domains", "market-writer")
+    held.parent.mkdir(parents=True)
+    with held.open("a+") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        released = False
+
+        def release_after_first(_delay):
+            nonlocal released
+            if not released:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+                released = True
+
+        result = _execute(spec, repo, tmp_path, sleep=release_after_first)
+
+    assert [json.loads(path.read_text())["work_status"] for path in result.receipts] == [
+        "retryable_failure", "success"
+    ]
+    assert json.loads(result.receipts[0].read_text())["retry_disposition"] == "retry"
+    assert marker.exists()
+
+    exhausted_root = tmp_path / "exhausted"
+    exhausted_spec, exhausted_repo = _spec(
+        exhausted_root, "raise AssertionError('must not launch')\n", locks=locks,
+        max_attempts=3, retry_codes=(9,), backoffs=(0, 0),
+    )
+    exhausted_lock = run_job._lock_path(
+        exhausted_root / "logs", "domains", "market-writer"
+    )
+    exhausted_lock.parent.mkdir(parents=True)
+    with exhausted_lock.open("a+") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        exhausted = _execute(
+            exhausted_spec, exhausted_repo, exhausted_root, sleep=lambda _delay: None
+        )
+    assert [json.loads(path.read_text())["work_status"] for path in exhausted.receipts] == [
+        "retryable_failure", "retryable_failure", "retryable_failure"
+    ]
+    assert exhausted.final["retry_disposition"] == "exhausted"
+
+
 @pytest.mark.parametrize(("code", "status", "runner_exit"),
                          [(0, "success", 0), (75, "degraded", 75), (2, "terminal_failure", 1)])
 def test_status_and_process_exit_are_distinct(tmp_path, code, status, runner_exit):
@@ -331,7 +534,8 @@ def test_status_and_process_exit_are_distinct(tmp_path, code, status, runner_exi
 
 def test_malformed_and_immutable_receipts_fail_closed(tmp_path):
     spec, repo = _spec(tmp_path, "pass\n")
-    broken = run_job._receipt_directory(tmp_path / "logs", spec, SLOT) / "1.json"
+    destination, _operator, _canonical, _scope = _destination(tmp_path / "logs", spec)
+    broken = destination / "1.json"
     broken.parent.mkdir(parents=True)
     broken.write_text("not json")
     with pytest.raises(run_job.JobRunError, match="malformed"):
@@ -354,14 +558,30 @@ def test_projection_outage_is_fail_soft_and_receipts_prune_at_180_days(tmp_path,
     assert "projection unavailable: OSError" in capsys.readouterr().err
     old = dict(result.final)
     old["ended_at"] = "2026-04-20T11:59:59Z"
-    old_path = tmp_path / "old" / "job-runs" / spec.job_id / "slot" / "1.json"
+    receipt_root = tmp_path / "old" / "job-runs" / spec.job_id
+    old_path = receipt_root / "slot" / "key" / "1.json"
     run_job._atomic_json(old_path, old)
     boundary = dict(old)
     boundary["ended_at"] = "2026-04-21T12:00:00Z"
     keep = old_path.with_name("2.json")
     run_job._atomic_json(keep, boundary)
-    assert run_job.prune_receipts(tmp_path / "old" / "job-runs", 180, SLOT) == 1
+    assert run_job.prune_receipts(receipt_root, 180, SLOT) == 1
     assert not old_path.exists() and keep.exists()
+
+
+def test_short_retention_job_cannot_prune_another_jobs_evidence(tmp_path):
+    spec, repo = _spec(tmp_path, "pass\n", retention_days=7)
+    other = tmp_path / "logs/job-runs/long-retention/slot/1.json"
+    old = {
+        "schema_version": 1,
+        "ended_at": (SLOT - timedelta(days=8)).isoformat().replace("+00:00", "Z"),
+    }
+    run_job._atomic_json(other, old)
+
+    result = _execute(spec, repo, tmp_path, now=lambda: SLOT)
+
+    assert result.exit_code == 0
+    assert other.exists()
 
 
 def test_terminal_receipt_projects_into_existing_ops_database(tmp_path):
