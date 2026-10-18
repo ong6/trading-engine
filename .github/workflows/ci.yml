@@ -17,6 +17,9 @@ jobs:
         tz: [UTC, Asia/Singapore]
     env:
       TZ: ${{ matrix.tz }}
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,7 +28,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install uv
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.29"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
       - run: uv sync --extra dev --frozen
       - run: uv export --frozen --no-dev --no-emit-project --no-annotate --output-file /tmp/runtime-requirements.txt
       - run: uvx --from pip-audit==2.10.1 pip-audit -r /tmp/runtime-requirements.txt --disable-pip --strict --progress-spinner off
@@ -55,4 +62,10 @@ jobs:
       - run: npm ci
       - run: npm audit --omit=dev --audit-level=moderate
       - run: npm test
+      - uses: actions/cache@v4
+        with:
+          path: ui/.next/cache
+          key: ${{ runner.os }}-next-${{ hashFiles('ui/package-lock.json') }}-${{ hashFiles('ui/app/**', 'ui/next.config.*', 'ui/jsconfig.json', 'ui/tsconfig.json') }}
+          restore-keys: |
+            ${{ runner.os }}-next-${{ hashFiles('ui/package-lock.json') }}-
       - run: npm run build
