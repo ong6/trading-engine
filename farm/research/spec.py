@@ -268,12 +268,18 @@ def _features(value: object) -> list[dict[str, Any]]:
         if any(dependency not in names for dependency in dependencies):
             raise ContractError(f"{path}.dependencies must name earlier feature nodes")
         names.add(name)
+        output_schema = _columns(row["output_schema"], f"{path}.output_schema")
+        availability = _string(row["availability"], f"{path}.availability")
+        schema_by_name = {column["name"]: column for column in output_schema}
+        if (availability not in schema_by_name
+                or schema_by_name[availability]["dtype"] not in {"date", "datetime"}):
+            raise ContractError(f"{path}.availability must name a date/datetime output column")
         rows.append({
             "name": name,
             "callback": _callback(row["callback"], f"{path}.callback"),
             "dependencies": dependencies,
-            "availability": _string(row["availability"], f"{path}.availability"),
-            "output_schema": _columns(row["output_schema"], f"{path}.output_schema"),
+            "availability": availability,
+            "output_schema": output_schema,
             "parameters": _json_mapping(row["parameters"], f"{path}.parameters"),
         })
     return rows
@@ -281,16 +287,25 @@ def _features(value: object) -> list[dict[str, Any]]:
 
 def _outcomes(value: object) -> dict[str, Any]:
     path = "outcomes"
-    row = _mapping(value, path, ("callback", "horizons", "availability", "output_schema"))
+    row = _mapping(
+        value, path, ("callback", "parameters", "horizons", "availability", "output_schema")
+    )
     horizons = [_integer(item, f"{path}.horizons[{index}]", minimum=1)
                 for index, item in enumerate(_list(row["horizons"], f"{path}.horizons"))]
     if horizons != sorted(set(horizons)):
         raise ContractError(f"{path}.horizons must be sorted and unique")
+    output_schema = _columns(row["output_schema"], f"{path}.output_schema")
+    availability = _string(row["availability"], f"{path}.availability")
+    schema_by_name = {column["name"]: column for column in output_schema}
+    if (availability not in schema_by_name
+            or schema_by_name[availability]["dtype"] not in {"date", "datetime"}):
+        raise ContractError(f"{path}.availability must name a date/datetime output column")
     return {
         "callback": _callback(row["callback"], f"{path}.callback"),
+        "parameters": _json_mapping(row["parameters"], f"{path}.parameters"),
         "horizons": horizons,
-        "availability": _string(row["availability"], f"{path}.availability"),
-        "output_schema": _columns(row["output_schema"], f"{path}.output_schema"),
+        "availability": availability,
+        "output_schema": output_schema,
     }
 
 
@@ -315,8 +330,8 @@ def _strategy(value: object) -> dict[str, Any]:
 def _evaluation(value: object) -> dict[str, Any]:
     path = "evaluation"
     row = _mapping(value, path, (
-        "variants", "controls", "folds", "benchmark_mode", "statistics", "dsr_census", "rules",
-        "holdout", "missing_data_policy",
+        "callback", "variants", "controls", "folds", "benchmark_mode", "statistics",
+        "dsr_census", "rules", "holdout", "missing_data_policy",
     ))
     variants = []
     for index, item in enumerate(_list(row["variants"], f"{path}.variants")):
@@ -346,11 +361,24 @@ def _evaluation(value: object) -> dict[str, Any]:
     if len(folds) != len({item["name"] for item in folds}):
         raise ContractError(f"{path}.folds has duplicate names")
     census = _mapping(row["dsr_census"], f"{path}.dsr_census", (
-        "path", "sha256", "selection_n",
+        "path", "sha256", "selection_n", "register_sha256", "row_sha256",
     ))
     rules = _mapping(row["rules"], f"{path}.rules", ("pass", "admit", "kill"))
+    normalized_rules = {}
+    for name in ("pass", "admit", "kill"):
+        item_path = f"{path}.rules.{name}"
+        item = _mapping(rules[name], item_path, ("metric", "operator", "threshold"))
+        operator = _string(item["operator"], f"{item_path}.operator")
+        if operator not in {">", ">=", "<", "<=", "==", "!="}:
+            raise ContractError(f"{item_path}.operator is unsupported")
+        normalized_rules[name] = {
+            "metric": _string(item["metric"], f"{item_path}.metric"),
+            "operator": operator,
+            "threshold": _number(item["threshold"], f"{item_path}.threshold"),
+        }
     holdout = _mapping(row["holdout"], f"{path}.holdout", ("lease_id", "marker"))
     return {
+        "callback": _callback(row["callback"], f"{path}.callback"),
         "variants": variants,
         "controls": _unique_strings(row["controls"], f"{path}.controls"),
         "folds": folds,
@@ -360,9 +388,12 @@ def _evaluation(value: object) -> dict[str, Any]:
             "path": _relative_path(census["path"], f"{path}.dsr_census.path"),
             "sha256": _sha(census["sha256"], f"{path}.dsr_census.sha256"),
             "selection_n": _integer(census["selection_n"], f"{path}.dsr_census.selection_n", minimum=1),
+            "register_sha256": _sha(
+                census["register_sha256"], f"{path}.dsr_census.register_sha256"
+            ),
+            "row_sha256": _sha(census["row_sha256"], f"{path}.dsr_census.row_sha256"),
         },
-        "rules": {name: _string(rules[name], f"{path}.rules.{name}")
-                  for name in ("pass", "admit", "kill")},
+        "rules": normalized_rules,
         "holdout": {
             "lease_id": _string(holdout["lease_id"], f"{path}.holdout.lease_id"),
             "marker": _relative_path(holdout["marker"], f"{path}.holdout.marker"),
@@ -500,6 +531,14 @@ class StudySpec:
     def as_dict(self) -> dict[str, Any]:
         return json.loads(canonical_bytes(self.document))
 
+    @property
+    def study_identity_sha256(self) -> str:
+        """Registration identity excluding the self-referential census seal bytes."""
+        document = self.as_dict()
+        census = document["evaluation"]["dsr_census"]
+        document["evaluation"]["dsr_census"] = {"selection_n": census["selection_n"]}
+        return canonical_sha256(document)
+
     def resolve(self, base_dir: str | Path) -> ResolvedStudy:
         base = Path(base_dir).resolve()
         evidence: dict[str, Path] = {}
@@ -519,7 +558,11 @@ class StudySpec:
                 raise ContractError(f"evidence hash differs: {relative}")
             evidence[relative] = path
         callbacks = [node["callback"] for node in self.document["features"]]
-        callbacks.extend((self.document["strategy"]["callback"], self.document["outcomes"]["callback"]))
+        callbacks.extend((
+            self.document["strategy"]["callback"],
+            self.document["outcomes"]["callback"],
+            self.document["evaluation"]["callback"],
+        ))
         resolved_callbacks: dict[str, Path] = {}
         for callback in callbacks:
             references = [{"module": callback["module"], "sha256": callback["sha256"]},
@@ -589,19 +632,11 @@ class StudySpec:
     def cache_identity(self, kind: str) -> dict[str, Any]:
         if kind not in {"panel", "universe", "feature", "label"}:
             raise ContractError(f"unknown cache object kind: {kind}")
-        inputs = self.document["inputs"]
         identity: dict[str, Any] = {
             "kind": kind,
-            "source": {
-                "generation_sha256": inputs["generation_sha256"],
-                "parts": inputs["parts"],
-                "schema": inputs["schema"],
-                "availability": inputs["availability"],
-                "price_basis": inputs["price_basis"],
-            },
-            "quality": inputs["quality"],
-            "calendar": inputs["calendar"],
-            "membership": inputs["membership"],
+            "inputs": self.document["inputs"],
+            "universe_rule": self.document["strategy"]["universe_rule"],
+            "liquidity_rule": self.document["strategy"]["liquidity_rule"],
         }
         if kind == "universe":
             identity["recipe"] = self.document["strategy"]["universe_rule"]

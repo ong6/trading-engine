@@ -4,14 +4,39 @@ import os
 
 
 def feature_recipe(inputs, parameters):
-    return {"rows": inputs, "parameters": parameters}
+    rows = inputs.read_json("parts/0.json")
+    return [
+        {
+            "session": row["session"],
+            "score": float(row["close"]) / 100.0,
+            "available_at": f"{row['session']}T21:00:00+00:00",
+        }
+        for row in rows
+    ]
+
+
+def malformed_feature_recipe(inputs, parameters):
+    return [{"scores": [1, 2, 3], "future_return": 9.0}]
+
+
+def label_recipe(inputs, parameters):
+    rows = inputs.read_json("parts/0.json")
+    return [
+        {
+            "session": row["session"],
+            "return_h1": (float(rows[min(index + 1, len(rows) - 1)]["close"])
+                          / float(row["close"]) - 1),
+            "available_at": f"{row['session']}T22:00:00+00:00",
+        }
+        for index, row in enumerate(rows)
+    ]
 
 
 def strategy(features, parameters, seed, mode):
     if "OUTCOME_ROOT" in os.environ:
         raise AssertionError("outcome namespace leaked into the strategy child")
     return {
-        "features": features.read_json("features.json"),
+        "features": features.read_json("nodes/fixture.json"),
         "mode": mode,
         "parameters": parameters,
         "pid": os.getpid(),
@@ -19,17 +44,17 @@ def strategy(features, parameters, seed, mode):
     }
 
 
-def outcomes(predictions, labels, evaluation):
+def evaluation_recipe(predictions, labels, evaluation):
     return {
-        "evaluation": evaluation["benchmark_mode"],
+        "metrics": {"score": 1.0},
         "labels": labels.read_json("labels.json"),
-        "predictions": predictions,
+        "job_count": len(predictions["jobs"]),
     }
 
 
 def deterministic_strategy(features, parameters, seed, mode):
     return {
-        "features": features.read_json("features.json"),
+        "features": features.read_json("nodes/fixture.json"),
         "mode": mode,
         "parameters": parameters,
         "seed": seed,
@@ -45,7 +70,7 @@ def slow_strategy(features, parameters, seed, mode):
 
     time.sleep(0.15)
     return {
-        "features": features.read_json("features.json"),
+        "features": features.read_json("nodes/fixture.json"),
         "job": parameters["_study_job"],
         "seed": seed,
     }
@@ -83,4 +108,4 @@ def adversarial_strategy(features, parameters, seed, mode):
     blocked("proc", lambda: Path("/proc/self/cmdline").read_bytes())
     blocked("network", lambda: socket.socket())
     blocked("process", lambda: subprocess.run(["/usr/bin/true"], check=True))
-    return {"checks": checks, "feature": features.read_json("features.json")}
+    return {"checks": checks, "feature": features.read_json("nodes/fixture.json")}

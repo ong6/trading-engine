@@ -98,6 +98,7 @@ def execute(request: dict) -> dict:
     required = {
         "strategy": common | {"parameters", "seed", "phase"},
         "evaluation": common | {"predictions", "evaluation"},
+        "recipe": common | {"parameters"},
     }
     if (not isinstance(request, dict) or request.get("mode") not in required
             or set(request) != required[request["mode"]]):
@@ -114,12 +115,14 @@ def execute(request: dict) -> dict:
                 request["seed"],
                 request["phase"],
             )
-        else:
+        elif request["mode"] == "evaluation":
             payload = callback(
                 request["predictions"],
                 ReadOnlyMount("/labels"),
                 request["evaluation"],
             )
+        else:
+            payload = callback(ReadOnlyMount("/features"), request["parameters"])
     return {
         "payload": payload,
         "worker_pid": os.getpid(),

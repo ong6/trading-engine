@@ -14,9 +14,19 @@ def complete_contract(root: Path) -> dict:
     membership_path = root / "membership.json"
     quality_path = root / "quality.json"
     census_path = root / "census.jsonl"
-    write_text_atomic(input_path, '{"rows":2}\n')
-    write_text_atomic(membership_path, '{"point_in_time":true}\n')
-    write_text_atomic(quality_path, '{"status":"accepted"}\n')
+    write_text_atomic(input_path, (
+        '[{"_availability":{"close":"session close","session":"session open"},'
+        '"close":100.0,"session":"2024-01-02"},'
+        '{"_availability":{"close":"session close","session":"session open"},'
+        '"close":101.0,"session":"2024-01-03"}]\n'
+    ))
+    write_text_atomic(membership_path, (
+        '{"coverage":1.0,"point_in_time":true,"survivor_status":"point_in_time"}\n'
+    ))
+    write_text_atomic(quality_path, (
+        '{"invalid_rows":0,"policy":"reject invalid OHLC geometry",'
+        '"status":"accepted","version":"fixture-v1"}\n'
+    ))
     write_text_atomic(census_path, '{"selection_n":140}\n')
     callback_path = Path(__file__).with_name("fixture_callbacks.py")
     callback = {
@@ -66,15 +76,24 @@ def complete_contract(root: Path) -> dict:
             "name": "fixture",
             "callback": callback,
             "dependencies": [],
-            "availability": "after prior session close",
-            "output_schema": [{"name": "score", "dtype": "float64", "nullable": False}],
+            "availability": "available_at",
+            "output_schema": [
+                {"name": "session", "dtype": "date", "nullable": False},
+                {"name": "score", "dtype": "float64", "nullable": False},
+                {"name": "available_at", "dtype": "datetime", "nullable": False},
+            ],
             "parameters": {"window": 2},
         }],
         "outcomes": {
-            "callback": callback | {"function": "outcomes"},
+            "callback": callback | {"function": "label_recipe"},
+            "parameters": {"horizon": 1},
             "horizons": [1],
-            "availability": "after next session close",
-            "output_schema": [{"name": "return_h1", "dtype": "float64", "nullable": False}],
+            "availability": "available_at",
+            "output_schema": [
+                {"name": "session", "dtype": "date", "nullable": False},
+                {"name": "return_h1", "dtype": "float64", "nullable": False},
+                {"name": "available_at", "dtype": "datetime", "nullable": False},
+            ],
         },
         "strategy": {
             "callback": callback | {"function": "strategy"},
@@ -87,6 +106,7 @@ def complete_contract(root: Path) -> dict:
             "capital": 10_000,
         },
         "evaluation": {
+            "callback": callback | {"function": "evaluation_recipe"},
             "variants": [{"name": "base", "parameters": {}}],
             "controls": ["cash"],
             "folds": [{"name": "development-1", "start": "2024-01-01", "end": "2024-07-01"}],
@@ -96,8 +116,14 @@ def complete_contract(root: Path) -> dict:
                 "path": "census.jsonl",
                 "sha256": file_sha256(census_path),
                 "selection_n": 140,
+                "register_sha256": "4" * 64,
+                "row_sha256": "5" * 64,
             },
-            "rules": {"pass": "never", "admit": "never", "kill": "always"},
+            "rules": {
+                "pass": {"metric": "score", "operator": ">=", "threshold": 2},
+                "admit": {"metric": "score", "operator": ">=", "threshold": 1},
+                "kill": {"metric": "score", "operator": "<", "threshold": 1},
+            },
             "holdout": {"lease_id": "fixture-holdout-v1", "marker": "holdout/opened.json"},
             "missing_data_policy": "refuse incomplete rows",
         },

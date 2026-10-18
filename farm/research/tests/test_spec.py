@@ -14,7 +14,7 @@ def test_complete_contract_has_canonical_golden_bytes_and_derived_markdown(tmp_p
     second = StudySpec.from_dict(json.loads(first.canonical_bytes))
     assert first.canonical_bytes == second.canonical_bytes
     assert first.sha256 == second.sha256
-    assert first.sha256 == "e6a8a524a6b1ceb4f8e645d8260ce7f2b293a2d0fd76ceec719529893077f8d9"
+    assert first.sha256 == "dfc80e16849c23d044d74fe71797399e26a2759d093515ec99472056a287b2d8"
     assert first.resolve(tmp_path).spec == first
     markdown = first.to_markdown()
     assert f"Contract SHA-256: `{first.sha256}`" in markdown
@@ -77,3 +77,31 @@ def test_contract_identity_moves_with_late_revision_quality_calendar_or_callback
         != baseline.cache_identity("feature")["identity_sha256"]
         for item in mutations
     )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "kind"),
+    [
+        (lambda value: value["inputs"].__setitem__("timezone", "UTC"), "feature"),
+        (lambda value: value["inputs"]["coverage"].__setitem__("minimum", 0.95), "feature"),
+        (lambda value: value["inputs"]["coverage"].__setitem__("unit", "rows"), "feature"),
+        (lambda value: value["inputs"].__setitem__("survivor_status", "unknown"), "feature"),
+        (lambda value: value["inputs"].__setitem__("price_basis", "raw"), "panel"),
+        (lambda value: value["inputs"]["calendar"].__setitem__("version", "fixture-v2"), "panel"),
+        (lambda value: value["inputs"]["availability"][0].__setitem__("known_at", "prior day"), "feature"),
+        (lambda value: value["inputs"]["schema"][0].__setitem__("nullable", True), "feature"),
+        (lambda value: value["inputs"]["membership"].__setitem__("point_in_time", False), "universe"),
+        (lambda value: value["inputs"]["quality"].__setitem__("version", "fixture-v2"), "feature"),
+        (lambda value: value["strategy"].__setitem__("universe_rule", "changed universe"), "feature"),
+        (lambda value: value["strategy"].__setitem__("liquidity_rule", "changed liquidity"), "feature"),
+    ],
+)
+def test_every_semantic_input_and_universe_declaration_moves_cache_identity(
+    tmp_path, mutation, kind,
+):
+    baseline_document = complete_contract(tmp_path)
+    changed_document = complete_contract(tmp_path)
+    mutation(changed_document)
+    baseline = StudySpec.from_dict(baseline_document).cache_identity(kind)
+    changed = StudySpec.from_dict(changed_document).cache_identity(kind)
+    assert changed["identity_sha256"] != baseline["identity_sha256"]

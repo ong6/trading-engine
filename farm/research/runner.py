@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import math
+import operator
 import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -11,7 +13,8 @@ from pathlib import Path
 
 from engine.lib.resources import write_text_atomic
 
-from .cache import CacheObject, ResearchCache
+from .artifacts import build_study_artifacts, validate_study_object
+from .cache import CacheObject, ResearchCache, repository_containing
 from .canonical import canonical_bytes, file_sha256, fsync_tree
 from .sandbox import build_callback_package, prepare_sandbox_runtime, run_sandboxed
 from .spec import ResolvedStudy, StudySpec
@@ -62,6 +65,27 @@ def _max_concurrency(executions: list[dict]) -> int:
     return peak
 
 
+def _verdict(result: object, rules: dict) -> str:
+    if not isinstance(result, dict) or not isinstance(result.get("metrics"), dict):
+        raise StudyRunError("evaluation callback must return a metrics object")
+    operations = {
+        ">": operator.gt, ">=": operator.ge, "<": operator.lt,
+        "<=": operator.le, "==": operator.eq, "!=": operator.ne,
+    }
+    matched = []
+    for name in ("pass", "admit", "kill"):
+        rule = rules[name]
+        value = result["metrics"].get(rule["metric"])
+        if (isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))):
+            raise StudyRunError(f"evaluation metric is unavailable or non-finite: {rule['metric']}")
+        if operations[rule["operator"]](float(value), rule["threshold"]):
+            matched.append(name)
+    if len(matched) != 1:
+        raise StudyRunError(f"evaluation rules must derive exactly one verdict, got {matched}")
+    return matched[0]
+
+
 class StudyRunner:
     def __init__(
         self,
@@ -73,21 +97,49 @@ class StudyRunner:
         self.resolved = resolved
         self.ledger = ledger
         self.work_root = Path(work_root).resolve()
-        repository = _repo_root().resolve()
-        if self.work_root.is_relative_to(repository):
+        if repository_containing(self.work_root) is not None:
             raise ValueError("study output root must be outside the repository")
 
     def _registered(self, trial: str) -> None:
         rows = [row for row in self.ledger.read()
                 if row["kind"] == "registered" and row["trial_id"] == trial]
-        if len(rows) != 1 or rows[0]["payload"]["study_sha256"] != self.resolved.spec.sha256:
+        if (len(rows) != 1 or rows[0]["payload"]["study_sha256"]
+                != self.resolved.spec.study_identity_sha256):
             raise TrialLedgerError("study must be registered with this exact contract before running")
+
+    def _reconciliation(self) -> dict:
+        declared = self.resolved.spec.document["evaluation"]["dsr_census"]
+        evidence_path = self.resolved.evidence_paths[declared["path"]]
+        if self.ledger.path.resolve() != evidence_path.resolve():
+            raise TrialLedgerError("runner ledger differs from the StudySpec census source")
+        receipt = self.ledger.reconciliation_receipt()
+        if (file_sha256(evidence_path) != declared["sha256"]
+                or receipt["selection_n"] != declared["selection_n"]
+                or receipt["register_sha256"] != declared["register_sha256"]
+                or receipt["row_sha256"] != declared["row_sha256"]):
+            raise TrialLedgerError("StudySpec census seal differs from the complete ledger")
+        return receipt
+
+    def _reconciliation_still_bounds_attempt(
+        self, receipt: dict, *, trial: str, attempt: str,
+    ) -> None:
+        records = self.ledger.read()
+        tail = records[receipt["reconciliation_sequence"]:]
+        allowed = all(
+            row["trial_id"] == trial
+            and (row["kind"] == "evaluation_started" and row["attempt_id"] == attempt
+                 or row["kind"] == "holdout_opened" and row["attempt_id"] is None)
+            for row in tail
+        )
+        if (not allowed or self.ledger.summary().selection_n != receipt["selection_n"]):
+            raise TrialLedgerError("trial census changed after evaluation started")
 
     def _cache_object(self, obj: CacheObject, kind: str) -> None:
         expected_identity = self.resolved.spec.cache_identity(kind)
         expected = ResearchCache.digest(kind, expected_identity)
         if obj.kind != kind or obj.digest != expected or obj.manifest["identity"] != expected_identity:
             raise StudyRunError(f"{kind} cache identity differs from the study contract")
+        validate_study_object(self.resolved, obj)
 
     def _open_holdout(self, trial: str, run_directory: Path) -> None:
         holdout = self.resolved.spec.document["evaluation"]["holdout"]
@@ -130,12 +182,24 @@ class StudyRunner:
         outcomes: CacheObject | None = None,
     ) -> StudyRun:
         self._registered(trial)
+        reconciliation = self._reconciliation()
         self._cache_object(features, "feature")
         phase = self.resolved.spec.document["study"]["phase"]
         if phase == "pilot" and outcomes is not None:
             raise StudyRunError("pilot runs cannot receive an outcome object")
         if phase != "pilot" and outcomes is None:
             raise StudyRunError("result-bearing runs require a separate label object")
+        pin_objects = [features, *([outcomes] if outcomes is not None else [])]
+        cache_root = features.path.parents[3]
+        if any(obj.path.parents[3] != cache_root for obj in pin_objects):
+            raise StudyRunError("study cache objects must share one private root")
+        ResearchCache(cache_root).pin(
+            f"study:{trial}",
+            pin_objects,
+            {key: reconciliation[key] for key in (
+                "status", "row_sha256", "register_sha256", "selection_n"
+            )},
+        )
         output_subdir = self.resolved.spec.document["execution"]["output_subdir"]
         output_root = (self.work_root / output_subdir).resolve()
         if not output_root.is_relative_to(self.work_root):
@@ -222,8 +286,11 @@ class StudyRunner:
             result_path, result_sha, outcome_accessed = None, None, False
             if phase != "pilot":
                 assert outcomes is not None
+                self._reconciliation_still_bounds_attempt(
+                    reconciliation, trial=trial, attempt=attempt,
+                )
                 self._cache_object(outcomes, "label")
-                outcome_reference = self.resolved.spec.document["outcomes"]["callback"]
+                outcome_reference = self.resolved.spec.document["evaluation"]["callback"]
                 outcome_package = build_callback_package(
                     self.resolved, outcome_reference, run_directory,
                 )
@@ -242,7 +309,14 @@ class StudyRunner:
                     runtime_root=run_directory,
                     timeout=execution["expected_seconds"],
                 )
-                result = outcome_response["payload"]
+                evaluation_result = outcome_response["payload"]
+                result = {
+                    "evaluation": evaluation_result,
+                    "verdict": _verdict(
+                        evaluation_result,
+                        self.resolved.spec.document["evaluation"]["rules"],
+                    ),
+                }
                 result_path = run_directory / "result.json"
                 write_text_atomic(result_path, canonical_bytes(result, newline=True).decode())
                 result_path.chmod(0o444)
@@ -258,6 +332,7 @@ class StudyRunner:
                 "result_sha256": result_sha,
                 "study_sha256": self.resolved.spec.sha256,
                 "trial_id": trial,
+                "census_reconciliation": reconciliation,
                 "strategy_workers": {
                     "requested": execution["workers"],
                     "used": worker_count,
@@ -316,15 +391,20 @@ def main(argv: list[str] | None = None) -> int:
     spec = StudySpec.from_path(args.spec)
     resolved = spec.resolve(args.base_dir)
     cache = ResearchCache(args.cache_root)
-    features = cache.get("feature", spec.cache_identity("feature"))
-    outcomes = None if spec.document["study"]["phase"] == "pilot" else cache.get(
-        "label", spec.cache_identity("label")
+    artifacts = build_study_artifacts(
+        cache,
+        resolved,
+        args.work_root / "artifact-build",
+        include_labels=spec.document["study"]["phase"] != "pilot",
     )
-    if features is None or (spec.document["study"]["phase"] != "pilot" and outcomes is None):
-        parser.error("required content-addressed cache objects are unavailable")
     StudyRunner(
         resolved, ledger=JsonlTrialLedger(args.ledger), work_root=args.work_root,
-    ).run(trial=args.trial, attempt=args.attempt, features=features, outcomes=outcomes)
+    ).run(
+        trial=args.trial,
+        attempt=args.attempt,
+        features=artifacts.features,
+        outcomes=artifacts.labels,
+    )
     return 0
 
 

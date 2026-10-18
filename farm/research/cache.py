@@ -46,9 +46,19 @@ class CacheConflict(CacheError):
     pass
 
 
-def _repo_root(start: Path) -> Path | None:
+class CachePinned(CacheError):
+    pass
+
+
+def repository_containing(start: Path) -> Path | None:
     for candidate in (start, *start.parents):
-        if (candidate / ".git").exists():
+        marker = candidate / ".git"
+        file_marker = (marker.is_file() and marker.read_text(
+            encoding="utf-8", errors="replace").startswith("gitdir:"))
+        directory_marker = marker.is_dir() and (
+            (marker / "HEAD").is_file() or (marker / "config").is_file()
+        )
+        if file_marker or directory_marker:
             return candidate
     return None
 
@@ -126,9 +136,9 @@ class ResearchCache:
 
     def __init__(self, root: str | Path, *, repository_root: str | Path | None = None):
         self.root = Path(root).resolve()
-        repository = (Path(repository_root).resolve() if repository_root is not None
-                      else _repo_root(Path.cwd().resolve()))
-        if repository is not None and self.root.is_relative_to(repository):
+        detected = repository_containing(self.root)
+        explicit = Path(repository_root).resolve() if repository_root is not None else None
+        if detected is not None or (explicit is not None and self.root.is_relative_to(explicit)):
             raise ValueError("research cache root must be outside the repository")
         self.root.mkdir(parents=True, exist_ok=True)
 
@@ -216,6 +226,95 @@ class ResearchCache:
         digest = self.digest(kind, identity)
         target = self._object_path(kind, digest)
         return self._load(kind, digest, hit=True) if target.exists() else None
+
+    def pin(
+        self,
+        reference_id: str,
+        objects: Sequence[CacheObject],
+        reconciliation: Mapping[str, Any],
+    ) -> Path:
+        required = {"status", "row_sha256", "register_sha256", "selection_n"}
+        if (not reference_id or not objects or set(reconciliation) != required
+                or reconciliation["status"] != "complete"
+                or any(not isinstance(reconciliation[name], str)
+                       or len(reconciliation[name]) != 64
+                       for name in ("row_sha256", "register_sha256"))
+                or type(reconciliation["selection_n"]) is not int):
+            raise CacheError("cache pin requires a complete reconciled registration")
+        rows = sorted(
+            ({"kind": obj.kind, "digest": obj.digest} for obj in objects),
+            key=lambda item: (item["kind"], item["digest"]),
+        )
+        if len({(row["kind"], row["digest"]) for row in rows}) != len(rows):
+            raise CacheError("cache pin objects must be unique")
+        payload = {
+            "schema_version": 1,
+            "reference_id": reference_id,
+            "objects": rows,
+            "reconciliation": dict(reconciliation),
+        }
+        digest = canonical_sha256({
+            "reference_id": reference_id,
+            "reconciliation_row_sha256": reconciliation["row_sha256"],
+        })
+        target = self.root / "references" / "active" / f"{digest}.json"
+        if target.exists():
+            if json.loads(target.read_text()) != payload:
+                raise CacheConflict("cache reference id was reused with different content")
+            return target
+        write_text_atomic(target, canonical_bytes(payload, newline=True).decode())
+        target.chmod(0o444)
+        return target
+
+    def release(self, reference_id: str, terminal: Mapping[str, Any]) -> Path:
+        if (set(terminal) != {"kind", "row_sha256"}
+                or terminal["kind"] not in {"retired", "confirmed"}
+                or not isinstance(terminal["row_sha256"], str)
+                or len(terminal["row_sha256"]) != 64):
+            raise CacheError("cache release requires a terminal ledger event")
+        active_root = self.root / "references" / "active"
+        active = [
+            path for path in sorted(active_root.glob("*.json"))
+            if json.loads(path.read_text()).get("reference_id") == reference_id
+        ] if active_root.exists() else []
+        if not active:
+            raise CacheError("cache reference is unavailable")
+        payload = {
+            "schema_version": 1,
+            "reference_id": reference_id,
+            "active_sha256s": [file_sha256(path) for path in active],
+            "terminal": dict(terminal),
+        }
+        reference = canonical_sha256({"reference_id": reference_id})
+        target = self.root / "references" / "released" / f"{reference}.json"
+        if target.exists() and json.loads(target.read_text()) != payload:
+            raise CacheConflict("cache release differs")
+        if not target.exists():
+            write_text_atomic(target, canonical_bytes(payload, newline=True).decode())
+            target.chmod(0o444)
+        return target
+
+    def pinned_digests(self) -> frozenset[str]:
+        result = set()
+        active_root = self.root / "references" / "active"
+        released_root = self.root / "references" / "released"
+        released_ids = {
+            json.loads(path.read_text())["reference_id"]
+            for path in sorted(released_root.glob("*.json"))
+        } if released_root.exists() else set()
+        for path in sorted(active_root.glob("*.json")) if active_root.exists() else ():
+            payload = json.loads(path.read_text())
+            if payload["reference_id"] not in released_ids:
+                result.update(row["digest"] for row in payload["objects"])
+        return frozenset(result)
+
+    def delete_unreferenced(self, obj: CacheObject) -> None:
+        if obj.digest in self.pinned_digests():
+            raise CachePinned(f"cache object is pinned: {obj.digest}")
+        expected = self._object_path(obj.kind, obj.digest)
+        if obj.path.resolve() != expected.resolve() or not expected.is_dir():
+            raise CacheError("cache deletion target differs")
+        shutil.rmtree(expected)
 
     def build(
         self,

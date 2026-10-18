@@ -427,6 +427,22 @@ class JsonlTrialLedger:
             raise TrialLedgerError(f"trial ledger is {summary.status}; DSR census is unavailable")
         return summary.selection_n
 
+    def reconciliation_receipt(self) -> dict[str, Any]:
+        records = self.read()
+        summary = _summary(records, self.genesis)
+        reconciliations = [row for row in records if row["kind"] == "inventory_reconciliation"]
+        if summary.status != "complete" or not reconciliations:
+            raise TrialLedgerError(f"trial ledger is {summary.status}; reconciliation is unavailable")
+        latest = reconciliations[-1]
+        return {
+            "status": "complete",
+            "row_sha256": latest["row_sha256"],
+            "register_sha256": latest["payload"]["register_sha256"],
+            "selection_n": latest["payload"]["selection_n"],
+            "sealed_through_sequence": latest["payload"]["sealed_through_sequence"],
+            "reconciliation_sequence": latest["sequence"],
+        }
+
 
 def _summary(records: Sequence[Mapping[str, Any]], genesis: CensusGenesis) -> LedgerSummary:
     _validate_records(records, genesis)

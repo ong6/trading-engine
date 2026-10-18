@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from engine.lib.resources import write_text_atomic
-from farm.research.cache import CacheCorruption, ResearchCache
+from farm.research.cache import CacheCorruption, CacheError, CachePinned, ResearchCache
 from farm.study.bench import build_market
 
 pytest = importlib.import_module("pytest")
@@ -155,6 +155,48 @@ def test_cache_root_inside_repository_is_refused(tmp_path):
     (repository / ".git").mkdir()
     with pytest.raises(ValueError, match="outside"):
         ResearchCache(repository / "cache", repository_root=repository)
+
+
+def test_cache_root_guard_finds_other_and_nested_worktrees_independent_of_cwd(
+    tmp_path, monkeypatch,
+):
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    other_repository = tmp_path / "private-repository"
+    other_repository.mkdir()
+    write_text_atomic(other_repository / ".git", "gitdir: elsewhere\n")
+    monkeypatch.chdir(unrelated)
+    with pytest.raises(ValueError, match="outside"):
+        ResearchCache(other_repository / "artifacts" / "cache")
+
+    nested = other_repository / "nested"
+    nested.mkdir()
+    (nested / ".git").mkdir()
+    write_text_atomic(nested / ".git" / "HEAD", "ref: refs/heads/main\n")
+    with pytest.raises(ValueError, match="outside"):
+        ResearchCache(nested / "cache")
+
+
+def test_reconciled_reference_pins_object_until_terminal_release(tmp_path):
+    cache = ResearchCache(tmp_path / "cache")
+    obj = cache.build(
+        "feature", _identity("feature", "pinned"),
+        lambda path: _write_fixture(path, "features.json", "{}\n"),
+    )
+    reconciliation = {
+        "status": "complete",
+        "row_sha256": "a" * 64,
+        "register_sha256": "b" * 64,
+        "selection_n": 140,
+    }
+    with pytest.raises(CacheError, match="complete"):
+        cache.pin("trial-a", [obj], reconciliation | {"status": "stale"})
+    cache.pin("trial-a", [obj], reconciliation)
+    with pytest.raises(CachePinned, match="pinned"):
+        cache.delete_unreferenced(obj)
+    cache.release("trial-a", {"kind": "retired", "row_sha256": "c" * 64})
+    cache.delete_unreferenced(obj)
+    assert cache.get("feature", _identity("feature", "pinned")) is None
 
 
 def _write_fixture(path, filename, content):
