@@ -199,7 +199,7 @@ class StudyRunner:
             request_path.write_bytes(canonical_bytes(request, newline=True))
             environment = {
                 "PATH": os.environ.get("PATH", ""),
-                "PYTHONPATH": str(_repo_root()),
+                "PYTHONPATH": os.pathsep.join((str(_repo_root()), str(self.resolved.base_dir))),
                 "PYTHONNOUSERSITE": "1",
                 "PYTHONDONTWRITEBYTECODE": "1",
                 "TMPDIR": str(run_directory),
