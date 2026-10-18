@@ -363,6 +363,25 @@ def child_argv(spec: JobSpec, repo_root: Path, parameters: Mapping[str, Any]) ->
     return argv
 
 
+def completion_probe_argv(
+    spec: JobSpec, repo_root: Path, parameters: Mapping[str, Any]
+) -> list[str] | None:
+    probe = spec.completion_probe
+    if probe["kind"] == "receipt":
+        return None
+    argv = []
+    for registered in probe["argv"]:
+        value = registered.replace("{repo}", str(repo_root)).replace(
+            "%h/trading-engine", str(repo_root)
+        )
+        for name, parameter in parameters.items():
+            value = value.replace(f"{{parameter:{name}}}", str(parameter))
+        if "{parameter:" in value:
+            raise JobRunError("completion probe references an unavailable parameter")
+        argv.append(value)
+    return argv
+
+
 def _wait_child(
     argv: list[str],
     *,
@@ -520,6 +539,68 @@ def execute_job(
             maximum = int(spec.retry["max_attempts"])
             retry_codes = set(spec.retry["exit_codes"])
             argv = child_argv(spec, repo_root, clean_parameters)
+            probe_argv = completion_probe_argv(spec, repo_root, clean_parameters)
+            if probe_argv is not None:
+                probe_env = dict(os.environ)
+                probe_env.update(
+                    {
+                        "PYTHONPATH": str(repo_root),
+                        "ENGINE_JOB_RUN_ID": run_id,
+                        "ENGINE_JOB_SCHEDULED_FOR": _iso(scheduled_for),
+                        "ENGINE_JOB_IDEMPOTENCY_KEY": key,
+                        "ENGINE_JOB_PARAMETERS_SHA256": parameter_hash,
+                    }
+                )
+                probe_exit, probe_pid, probe_termination = _wait_child(
+                    probe_argv, env=probe_env, cwd=repo_root,
+                    timeout_seconds=float(spec.completion_probe["timeout_seconds"]),
+                    term_grace_seconds=float(spec.timeout["term_grace_seconds"]), popen=popen,
+                )
+                if probe_exit == 0 and probe_termination is None:
+                    base = _base_receipt(
+                        spec, scheduled_for=scheduled_for, idempotency_key=key,
+                        attempt=next_attempt, run_id=run_id, started=began,
+                        parameter_hash=parameter_hash, source_sha=source_sha,
+                    )
+                    receipt = _finish_receipt(
+                        base, ended=now(), work_status="noop", reason="task-completion-probe",
+                        process_exit=0, locks=lock_rows, child_pid=probe_pid,
+                        evidence=["registered-completion-probe"],
+                    )
+                    final = destination / f"{next_attempt}.json"
+                    _atomic_json(final, receipt)
+                    receipt_paths.append(final)
+                    try:
+                        projector(receipt, ops_dir)
+                    except Exception as exc:
+                        print(
+                            f"[run-job] receipt projection unavailable: {type(exc).__name__}",
+                            file=sys.stderr,
+                        )
+                    prune_receipts(logs_dir / "job-runs", spec.retention_days, now())
+                    return RunResult(0, tuple(receipt_paths), receipt)
+                if probe_exit != 1 or probe_termination is not None:
+                    base = _base_receipt(
+                        spec, scheduled_for=scheduled_for, idempotency_key=key,
+                        attempt=next_attempt, run_id=run_id, started=began,
+                        parameter_hash=parameter_hash, source_sha=source_sha,
+                    )
+                    receipt = _finish_receipt(
+                        base, ended=now(), work_status="terminal_failure",
+                        reason="completion-probe-failed", process_exit=probe_exit,
+                        locks=lock_rows, child_pid=probe_pid, termination=probe_termination,
+                    )
+                    final = destination / f"{next_attempt}.json"
+                    _atomic_json(final, receipt)
+                    receipt_paths.append(final)
+                    try:
+                        projector(receipt, ops_dir)
+                    except Exception as exc:
+                        print(
+                            f"[run-job] receipt projection unavailable: {type(exc).__name__}",
+                            file=sys.stderr,
+                        )
+                    return RunResult(1, tuple(receipt_paths), receipt)
             final_receipt: Mapping[str, Any] = {}
             for retry_index in range(maximum):
                 attempt = next_attempt + retry_index

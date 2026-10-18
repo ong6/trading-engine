@@ -64,6 +64,7 @@ class JobSpec:
     calendar: str
     locks: tuple[LockSpec, ...]
     idempotency_template: str
+    completion_probe: Mapping[str, Any]
     retention_days: int
     timeout: Mapping[str, Any]
     retry: Mapping[str, Any]
@@ -220,6 +221,17 @@ def _validate_job(raw: Mapping[str, Any], manifest: Path, retention_limit: int) 
     template = idempotency.get("template")
     if not isinstance(template, str) or "{job_id}" not in template or "{version}" not in template:
         raise JobContractError(f"{label}: incomplete idempotency template")
+    completion_probe = _mapping(
+        idempotency.get("completion_probe"), f"{label}.idempotency.completion_probe"
+    )
+    if completion_probe.get("kind") not in {"receipt", "command"}:
+        raise JobContractError(f"{label}: invalid completion probe")
+    if completion_probe["kind"] == "command":
+        _validate_argv(completion_probe.get("argv"), f"{label}.idempotency.completion_probe.argv")
+        _positive_number(
+            completion_probe.get("timeout_seconds"),
+            f"{label}.idempotency.completion_probe.timeout_seconds",
+        )
     run_record = _mapping(raw.get("run_record"), f"{label}.run_record")
     retention = run_record.get("retention_days")
     if isinstance(retention, bool) or not isinstance(retention, int) or not 1 <= retention <= retention_limit:
@@ -321,6 +333,7 @@ def _validate_job(raw: Mapping[str, Any], manifest: Path, retention_limit: int) 
         job_id=job_id, owner=owner, repository=repository, version=version, argv=argv,
         parameters=parameters, authority=authority, enabled=raw["enabled"], schedules=schedules,
         calendar=calendar, locks=tuple(locks), idempotency_template=template,
+        completion_probe=MappingProxyType(dict(completion_probe)),
         retention_days=retention, timeout=MappingProxyType(dict(timeout)),
         retry=MappingProxyType(dict(retry)), alert=MappingProxyType(dict(alert)),
         catch_up=MappingProxyType(dict(catch_up)), resources=MappingProxyType(dict(resources)),

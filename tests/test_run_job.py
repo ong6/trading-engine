@@ -33,11 +33,19 @@ def _spec(
     catch_up: tuple[str, int, int] = ("none", 0, 0),
     memory_required: int = 0,
     min_free_bytes: int = 0,
+    completion_probe_code: str | None = None,
 ) -> tuple[job_contract.JobSpec, Path]:
     repo = tmp_path / "repo"
     repo.mkdir(parents=True)
     script = repo / "synthetic_job.py"
     script.write_text(code)
+    completion_probe = '{ kind = "receipt" }'
+    if completion_probe_code is not None:
+        (repo / "completion_probe.py").write_text(completion_probe_code)
+        completion_probe = (
+            f'{{ kind = "command", argv = ["{sys.executable}", '
+            '"{repo}/completion_probe.py"], timeout_seconds = 1 }'
+        )
     manifest = repo / "jobs.toml"
     lock_text = locks or (
         f'[{{ name = "job:{job_id}", mode = "exclusive", wait_seconds = 0, '
@@ -58,7 +66,7 @@ enabled = true
 schedules = []
 calendar = "always"
 locks = {lock_text}
-idempotency = {{ template = "{{job_id}}:{{version}}:{{scheduled_for}}" }}
+idempotency = {{ template = "{{job_id}}:{{version}}:{{scheduled_for}}", completion_probe = {completion_probe} }}
 run_record = {{ retention_days = 180 }}
 timeout = {{ attempt_seconds = {attempt_seconds}, term_grace_seconds = {term_grace_seconds}, overall_seconds = 20 }}
 retry = {{ max_attempts = {max_attempts}, exit_codes = {list(retry_codes)}, backoff_seconds = {list(backoffs)}, deadline_seconds = 20 }}
@@ -175,6 +183,38 @@ path=Path(a.state); path.write_text(str(int(path.read_text())+1 if path.exists()
     ]
     assert result.final["attempt"] == 2 and state.read_text() == "1"
     assert not list(destination.glob("*.running.json"))
+
+
+def test_task_completion_probe_prevents_duplicate_stale_side_effect(tmp_path):
+    state = tmp_path / "completed"
+    launched = tmp_path / "launched"
+    state.write_text("done")
+    spec, repo = _spec(
+        tmp_path,
+        f"from pathlib import Path\nPath({str(launched)!r}).touch()\n",
+        completion_probe_code=(
+            "from pathlib import Path\n"
+            f"raise SystemExit(0 if Path({str(state)!r}).exists() else 1)\n"
+        ),
+    )
+    destination = run_job._receipt_directory(tmp_path / "logs", spec, SLOT)
+    stale = {
+        "schema_version": 1, "run_id": "old", "job_id": spec.job_id,
+        "spec_version": 1, "spec_sha256": spec.spec_sha256,
+        "idempotency_key": "probe-key", "scheduled_for": "2026-10-18T12:00:00Z",
+        "started_at": "2026-10-18T11:59:00Z", "attempt": 1,
+        "argv": list(spec.argv), "parameter_sha256": "0" * 64, "source_sha": "unknown",
+        "state": "running",
+    }
+    run_job._atomic_json(destination / "1.running.json", stale)
+
+    result = _execute(spec, repo, tmp_path, idempotency_key="probe-key")
+
+    assert [json.loads(path.read_text())["work_status"] for path in result.receipts] == [
+        "interrupted", "noop"
+    ]
+    assert result.final["reason"] == "task-completion-probe"
+    assert not launched.exists()
 
 
 @pytest.mark.parametrize(("fail_until", "statuses"), [(1, ["retryable_failure", "success"]),
@@ -357,6 +397,39 @@ def test_backfill_validates_parameters_and_builds_a_bounded_transient_unit(tmp_p
         run_job.validate_backfill_parameters(spec, "2026-10-03", "2026-10-02", "incident-1")
     with pytest.raises(run_job.JobRunError, match="must not be empty"):
         run_job.validate_backfill_parameters(spec, "2026-10-01", "2026-10-02", " ")
+
+
+def test_completed_synthetic_backfill_is_an_evidenced_noop(tmp_path):
+    state = tmp_path / "backfill-count"
+    parameters = (
+        '{ from = { type = "date", option = "--from", required = true }, '
+        'through = { type = "date", option = "--through", required = true }, '
+        'reason = { type = "string", option = "--reason", required = true } }'
+    )
+    spec, repo = _spec(
+        tmp_path,
+        """import argparse
+from pathlib import Path
+p=argparse.ArgumentParser(); p.add_argument('--from'); p.add_argument('--through'); p.add_argument('--reason')
+p.parse_args()
+path=Path(""" + repr(str(state)) + ")\npath.write_text(str(int(path.read_text())+1 if path.exists() else 1))\n",
+        parameters=parameters,
+    )
+    values = run_job.validate_backfill_parameters(
+        spec, "2026-10-01", "2026-10-02", "incident-1"
+    )
+
+    first = _execute(
+        spec, repo, tmp_path, parameters=values, idempotency_key="backfill-scope-1"
+    )
+    second = _execute(
+        spec, repo, tmp_path, parameters=values, idempotency_key="backfill-scope-1"
+    )
+
+    assert first.final["work_status"] == "success"
+    assert second.final["work_status"] == "noop"
+    assert second.final["business_receipts"] == [str(first.receipts[-1])]
+    assert state.read_text() == "1"
 
 
 def test_public_read_only_registry_audit_runs_through_common_runner(tmp_path):
