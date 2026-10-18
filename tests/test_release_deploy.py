@@ -411,7 +411,9 @@ def test_receipt_refuses_changed_inputs_without_rerunning(tmp_path):
     journal = release_deploy.ReceiptJournal(store)
     calls = []
     journal.run("example", {"value": 1}, lambda: calls.append(1) or {"ok": True})
+    receipt = (store.directory / "receipts/example.json").read_bytes()
     assert journal.run("example", {"value": 1}, lambda: calls.append(2)) == {"ok": True}
+    assert (store.directory / "receipts/example.json").read_bytes() == receipt
     with pytest.raises(release_deploy.DeployError, match="inputs changed"):
         journal.run("example", {"value": 2}, lambda: calls.append(3))
     assert calls == [1]
@@ -946,3 +948,18 @@ def test_cli_defaults_to_plan_and_fault_injection_requires_opt_in(monkeypatch, c
     monkeypatch.setattr(release_deploy, "StateStore", lambda _path: object())
     assert release_deploy.main(["--fail-after", "source-switch", "verify", "/tmp/state"]) == 1
     assert json.loads(capsys.readouterr().out)["status"] == "failed"
+
+
+def test_cli_database_default_is_relative_to_selected_checkout(tmp_path):
+    args = release_deploy._parser().parse_args(
+        [
+            "--repo-root",
+            str(tmp_path),
+            "prepare",
+            str(tmp_path / "state"),
+            "--approved-sha",
+            NEW_SHA,
+        ]
+    )
+    assert not args.database.is_absolute()
+    assert (args.repo_root.resolve() / args.database) == tmp_path / "store/market.duckdb"

@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from engine.lib.settings import DEFAULT_DB, REPO_ROOT
+from engine.lib.settings import REPO_ROOT
 from tools import (
     backup_database,
     install_automation,
@@ -275,9 +275,11 @@ class ReceiptJournal:
         if not path.exists():
             return None
         receipt = _regular_json(path)
+        transaction_id = _regular_json(self.directory.parent / "state.json").get("transaction_id")
         if (
             receipt.get("schema_version") != RECEIPT_SCHEMA_VERSION
             or receipt.get("step") != step
+            or receipt.get("transaction_id") != transaction_id
             or receipt.get("status") != "complete"
             or not isinstance(receipt.get("result"), dict)
         ):
@@ -291,7 +293,10 @@ class ReceiptJournal:
         action: Callable[[], dict[str, Any] | None],
     ) -> dict[str, Any]:
         path = self._path(step)
-        fingerprint = _digest(inputs)
+        transaction_id = _regular_json(self.directory.parent / "state.json").get("transaction_id")
+        if not isinstance(transaction_id, str):
+            raise DeployError("receipt has no transaction identity")
+        fingerprint = _digest({"transaction_id": transaction_id, "inputs": inputs})
         if path.exists():
             prior = _regular_json(path)
             if prior.get("input_sha256") != fingerprint:
@@ -301,6 +306,7 @@ class ReceiptJournal:
         started = {
             "schema_version": RECEIPT_SCHEMA_VERSION,
             "step": step,
+            "transaction_id": transaction_id,
             "input_sha256": fingerprint,
             "status": "running",
             "started_at": _utc_now(),
@@ -1869,7 +1875,7 @@ class ReleaseDeployment:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, default=REPO_ROOT)
-    parser.add_argument("--database", type=Path, default=DEFAULT_DB)
+    parser.add_argument("--database", type=Path, default=Path("store/market.duckdb"))
     parser.add_argument("--home", type=Path, default=Path.home())
     parser.add_argument("--host-command-dir", type=Path)
     parser.add_argument("--api-url", default="http://127.0.0.1:8000")
