@@ -9,108 +9,66 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib
 import json
 import re
 import subprocess
 import sys
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from types import ModuleType
 
 import duckdb
 
+from engine import migrations as migration_registry
 from engine.lib import db as engine_db
 from engine.lib.provenance import canonical_sha256
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 
-MIGRATION_TABLE = "schema_migrations"
-MIGRATION_MODULES = ("engine.migrations.0000_post_r15_baseline",)
-CURRENT_SCHEMA_ID = len(MIGRATION_MODULES) - 1
-MINIMUM_SCHEMA_ID = 0
+MIGRATION_TABLE = migration_registry.MIGRATION_TABLE
+MIGRATION_MODULES = migration_registry.MIGRATION_MODULES
+CURRENT_SCHEMA_ID = migration_registry.CURRENT_SCHEMA_ID
+MINIMUM_SCHEMA_ID = migration_registry.MINIMUM_SCHEMA_ID
+Migration = migration_registry.Migration
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _GIT_SHA = re.compile(r"^[0-9a-f]{40}$")
+EMPTY_RECOVERY_SHA256 = hashlib.sha256(b"").hexdigest()
 
 
 class SchemaMigrationError(RuntimeError):
     """The database schema cannot be identified or safely migrated."""
 
 
-@dataclass(frozen=True)
-class Migration:
-    migration_id: int
-    description: str
-    sha256: str
-    statements: tuple[str, ...]
-
-
-def _module_migration(name: str) -> Migration:
-    module: ModuleType = importlib.import_module(name)
-    source = Path(module.__file__ or "").read_bytes()
-    migration_id = getattr(module, "MIGRATION_ID", None)
-    description = getattr(module, "DESCRIPTION", None)
-    statements = getattr(module, "STATEMENTS", None)
-    if (
-        type(migration_id) is not int
-        or not isinstance(description, str)
-        or not description
-        or not isinstance(statements, tuple)
-        or any(not isinstance(statement, str) or not statement.strip() for statement in statements)
-    ):
-        raise SchemaMigrationError(f"invalid migration module: {name}")
-    return Migration(
-        migration_id=migration_id,
-        description=description,
-        sha256=hashlib.sha256(source).hexdigest(),
-        statements=statements,
-    )
-
-
 def migrations() -> tuple[Migration, ...]:
-    loaded = tuple(_module_migration(name) for name in MIGRATION_MODULES)
-    if tuple(item.migration_id for item in loaded) != tuple(range(len(loaded))):
-        raise SchemaMigrationError("migration IDs must be contiguous from zero")
-    return loaded
+    try:
+        return migration_registry.migrations()
+    except migration_registry.SchemaIdentityError as exc:
+        raise SchemaMigrationError(str(exc)) from exc
 
 
 def _database_name(con: duckdb.DuckDBPyConnection) -> str:
-    return str(con.execute("SELECT current_database()").fetchone()[0])
+    return migration_registry.database_name(con)
 
 
 def catalog(con: duckdb.DuckDBPyConnection) -> dict:
     """Return the stable catalog, excluding the migration ledger itself."""
-    return engine_db.database_catalog(con)
+    return migration_registry.catalog(con)
 
 
 def catalog_sha256(con: duckdb.DuckDBPyConnection) -> str:
-    return engine_db.database_catalog_sha256(con)
-
-
-def _has_migration_table(con: duckdb.DuckDBPyConnection) -> bool:
-    return con.execute(
-        "SELECT 1 FROM information_schema.tables "
-        "WHERE table_schema='main' AND table_name=?",
-        [MIGRATION_TABLE],
-    ).fetchone() is not None
+    return migration_registry.catalog_sha256(con)
 
 
 def _records(con: duckdb.DuckDBPyConnection) -> list[tuple]:
-    if not _has_migration_table(con):
-        return []
     try:
-        return con.execute(
-            f"SELECT migration_id, migration_sha256, source_commit, "
-            f"pre_catalog_sha256, post_catalog_sha256, recovery_manifest_sha256 "
-            f"FROM {MIGRATION_TABLE} ORDER BY migration_id"
-        ).fetchall()
-    except duckdb.Error as exc:
-        raise SchemaMigrationError("schema migration ledger has an invalid shape") from exc
+        return migration_registry.records(con)
+    except migration_registry.SchemaIdentityError as exc:
+        raise SchemaMigrationError(str(exc)) from exc
 
 
 def schema_id(con: duckdb.DuckDBPyConnection) -> int | None:
-    records = _records(con)
-    return None if not records else int(records[-1][0])
+    try:
+        return migration_registry.schema_id(con)
+    except migration_registry.SchemaIdentityError as exc:
+        raise SchemaMigrationError(str(exc)) from exc
 
 
 def require_compatible_schema(
@@ -120,30 +78,12 @@ def require_compatible_schema(
     maximum: int = CURRENT_SCHEMA_ID,
 ) -> dict:
     """Return the verified schema identity or refuse an unversioned/drifted DB."""
-    expected = migrations()
-    records = _records(con)
-    if not records:
-        raise SchemaMigrationError("database has no recorded operational schema migration")
-    ids = tuple(int(row[0]) for row in records)
-    if ids != tuple(range(len(records))) or ids[-1] >= len(expected):
-        raise SchemaMigrationError("database migration history is not supported")
-    for row, migration in zip(records, expected, strict=False):
-        if row[1] != migration.sha256:
-            raise SchemaMigrationError(
-                f"database migration {migration.migration_id:04d} hash does not match source"
-            )
-        for value in row[3:]:
-            if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
-                raise SchemaMigrationError("database migration history contains an invalid hash")
-    current = ids[-1]
-    if not minimum <= current <= maximum:
-        raise SchemaMigrationError(
-            f"database schema ID {current} is outside supported range {minimum}..{maximum}"
+    try:
+        return migration_registry.require_compatible_schema(
+            con, minimum=minimum, maximum=maximum,
         )
-    actual_catalog = catalog_sha256(con)
-    if records[-1][4] != actual_catalog:
-        raise SchemaMigrationError("database catalog changed outside the migration sequence")
-    return {"database_schema_id": current, "catalog_sha256": actual_catalog}
+    except migration_registry.SchemaIdentityError as exc:
+        raise SchemaMigrationError(str(exc)) from exc
 
 
 def plan(con: duckdb.DuckDBPyConnection) -> dict:
@@ -205,18 +145,19 @@ def _create_ledger(con: duckdb.DuckDBPyConnection) -> None:
 
 def apply(
     database: Path,
-    backup_bundle: Path,
+    backup_bundle: Path | None,
     *,
     expected_backup_manifest_sha256: str,
     expected_source_commit: str,
     expected_pre_catalog_sha256: str,
     repo_root: Path = REPO_ROOT,
+    fresh_empty: bool = False,
+    target_schema_id: int = CURRENT_SCHEMA_ID,
 ) -> dict:
     """Apply every pending migration after exact source/catalog/backup checks."""
     from tools import backup_database  # avoids an engine import cycle at startup
 
     for label, value, pattern in (
-        ("backup manifest", expected_backup_manifest_sha256, _SHA256),
         ("source commit", expected_source_commit, _GIT_SHA),
         ("pre-migration catalog", expected_pre_catalog_sha256, _SHA256),
     ):
@@ -224,39 +165,67 @@ def apply(
             raise SchemaMigrationError(f"expected {label} identity is invalid")
     repo_root = repo_root.resolve(strict=True)
     database = database.resolve(strict=True)
+    if type(target_schema_id) is not int or not 0 <= target_schema_id <= CURRENT_SCHEMA_ID:
+        raise SchemaMigrationError("target schema ID is invalid")
     if _source_commit(repo_root) != expected_source_commit:
         raise SchemaMigrationError("migration source commit does not match")
-    try:
-        verified = backup_database.verify_backup(backup_bundle)
-    except (backup_database.BackupError, OSError) as exc:
-        raise SchemaMigrationError(str(exc)) from exc
-    if verified["manifest_sha256"] != expected_backup_manifest_sha256:
-        raise SchemaMigrationError("verified recovery bundle identity does not match")
-    if verified["source_database"] != _source_location(repo_root, database):
-        raise SchemaMigrationError("verified recovery bundle names a different database")
+    verified = None
+    if fresh_empty:
+        if backup_bundle is not None or expected_backup_manifest_sha256 != EMPTY_RECOVERY_SHA256:
+            raise SchemaMigrationError("fresh-empty bootstrap must not name a recovery bundle")
+    else:
+        if (
+            backup_bundle is None
+            or not isinstance(expected_backup_manifest_sha256, str)
+            or _SHA256.fullmatch(expected_backup_manifest_sha256) is None
+        ):
+            raise SchemaMigrationError("expected backup manifest identity is invalid")
+        try:
+            verified = backup_database.verify_backup(backup_bundle)
+        except (backup_database.BackupError, OSError) as exc:
+            raise SchemaMigrationError(str(exc)) from exc
+        if verified["manifest_sha256"] != expected_backup_manifest_sha256:
+            raise SchemaMigrationError("verified recovery bundle identity does not match")
+        if verified["source_database"] != _source_location(repo_root, database):
+            raise SchemaMigrationError("verified recovery bundle names a different database")
 
-    with backup_database._exclusive_backup_window(repo_root):
+    with backup_database._exclusive_backup_window(repo_root), engine_db.schema_change_authority():
         con = engine_db.connect(database, wait_s=0)
         try:
             existing = _records(con)
-            if existing:
-                identity = require_compatible_schema(con)
+            if existing and int(existing[-1][0]) >= target_schema_id:
+                identity = require_compatible_schema(con, maximum=target_schema_id)
                 return {"status": "current", **identity, "applied": []}
             before_catalog = catalog_sha256(con)
             if before_catalog != expected_pre_catalog_sha256:
                 raise SchemaMigrationError("pre-migration catalog identity does not match")
-            before_snapshot = backup_database.database_snapshot(con, _database_name(con))
-            if canonical_sha256(before_snapshot) != verified["database_snapshot_sha256"]:
-                raise SchemaMigrationError("verified recovery bundle is stale")
-            pending = migrations()
+            if fresh_empty:
+                if any(catalog(con).values()):
+                    raise SchemaMigrationError("fresh-empty bootstrap database is not empty")
+            else:
+                before_snapshot = backup_database.database_snapshot(con, _database_name(con))
+                if canonical_sha256(before_snapshot) != verified["database_snapshot_sha256"]:
+                    raise SchemaMigrationError("verified recovery bundle is stale")
+            pending = migrations()[len(existing):target_schema_id + 1]
             with engine_db.transaction(con):
-                _create_ledger(con)
+                if not existing:
+                    _create_ledger(con)
                 applied: list[int] = []
                 for migration in pending:
                     pre_hash = catalog_sha256(con)
+                    bootstrap = getattr(migration.module, "bootstrap", None)
+                    expected_post = getattr(migration.module, "EXPECTED_CATALOG_SHA256", None)
+                    if migration.migration_id == 0 and pre_hash != expected_post:
+                        if bootstrap is None:
+                            raise SchemaMigrationError("baseline migration cannot bootstrap catalog")
+                        bootstrap(con)
                     for statement in migration.statements:
                         con.execute(statement)
                     post_hash = catalog_sha256(con)
+                    if expected_post is not None and post_hash != expected_post:
+                        raise SchemaMigrationError(
+                            f"migration {migration.migration_id:04d} produced an unexpected catalog"
+                        )
                     con.execute(
                         f"INSERT INTO {MIGRATION_TABLE} VALUES (?, ?, ?, ?, ?, ?, ?)",
                         [migration.migration_id, migration.sha256, expected_source_commit,
@@ -264,8 +233,8 @@ def apply(
                          expected_backup_manifest_sha256],
                     )
                     applied.append(migration.migration_id)
-                identity = require_compatible_schema(con)
-        except duckdb.Error as exc:
+                identity = require_compatible_schema(con, maximum=target_schema_id)
+        except (duckdb.Error, ValueError) as exc:
             raise SchemaMigrationError(f"schema migration failed: {exc}") from exc
         finally:
             con.close()
@@ -279,8 +248,12 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("plan")
     apply_parser = subparsers.add_parser("apply")
-    apply_parser.add_argument("backup_bundle", type=Path)
-    apply_parser.add_argument("--backup-manifest-sha256", required=True)
+    apply_parser.add_argument("backup_bundle", type=Path, nargs="?")
+    apply_parser.add_argument(
+        "--backup-manifest-sha256", default=EMPTY_RECOVERY_SHA256,
+    )
+    apply_parser.add_argument("--fresh-empty", action="store_true")
+    apply_parser.add_argument("--target-schema-id", type=int, default=CURRENT_SCHEMA_ID)
     apply_parser.add_argument("--source-commit", required=True)
     apply_parser.add_argument("--pre-catalog-sha256", required=True)
     args = parser.parse_args(argv)
@@ -298,6 +271,8 @@ def main(argv: list[str] | None = None) -> int:
                 expected_source_commit=args.source_commit,
                 expected_pre_catalog_sha256=args.pre_catalog_sha256,
                 repo_root=args.repo_root,
+                fresh_empty=args.fresh_empty,
+                target_schema_id=args.target_schema_id,
             )
     except (OSError, SchemaMigrationError) as exc:
         print(json.dumps({"status": "failed", "reason": str(exc)}, sort_keys=True))

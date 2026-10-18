@@ -15,17 +15,18 @@ import math
 import re
 import time
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from contextvars import ContextVar
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
 import duckdb
 import pandas as pd
 
+from engine import migrations as schema_registry
 from engine.lib import settings
 from engine.lib.data_quality import PRICE_VALIDATOR_VERSION, observation_reasons, split_like_factor
 from engine.lib.log import get_logger
-from engine.lib.provenance import canonical_sha256
 
 log = get_logger("db")
 
@@ -50,10 +51,9 @@ REAL_BAR_SQL = (
 )
 MARKET_DATE_MIN_NAMES = 1_000
 MARKET_DATE_MIN_COVERAGE = 0.90
-MIGRATION_TABLE = "schema_migrations"
-MINIMUM_DATABASE_SCHEMA_ID = 0
-CURRENT_DATABASE_SCHEMA_ID = 0
-_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+MIGRATION_TABLE = schema_registry.MIGRATION_TABLE
+MINIMUM_DATABASE_SCHEMA_ID = schema_registry.MINIMUM_SCHEMA_ID
+CURRENT_DATABASE_SCHEMA_ID = schema_registry.CURRENT_SCHEMA_ID
 
 
 @contextmanager
@@ -157,6 +157,25 @@ _LOCK_MARKERS = (
     "lock",
 )
 _LOCK_RETRY_S = 5.0
+_SCHEMA_CHANGE_AUTHORITY: ContextVar[bool] = ContextVar(
+    "schema_change_authority", default=False,
+)
+_CREATE_OBJECT = re.compile(
+    r'^CREATE\s+(?:OR\s+REPLACE\s+)?(TABLE|VIEW|INDEX)\s+(?:IF\s+NOT\s+EXISTS\s+)?'
+    r'(?:(?:"?main"?)\.)?"?([A-Za-z_][A-Za-z0-9_]*)"?',
+)
+_ALTER_ADD = re.compile(
+    r'^ALTER\s+TABLE\s+(?:(?:"?main"?)\.)?"?([A-Za-z_][A-Za-z0-9_]*)"?\s+'
+    r'ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+"?([A-Za-z_][A-Za-z0-9_]*)"?',
+)
+_ALTER_NULLABLE = re.compile(
+    r'^ALTER\s+TABLE\s+(?:(?:"?main"?)\.)?"?([A-Za-z_][A-Za-z0-9_]*)"?\s+'
+    r'ALTER\s+COLUMN\s+"?([A-Za-z_][A-Za-z0-9_]*)"?\s+DROP\s+NOT\s+NULL',
+)
+_NULL_BACKFILL = re.compile(
+    r'^UPDATE\s+"?([A-Za-z_][A-Za-z0-9_]*)"?\s+SET\s+'
+    r'"?([A-Za-z_][A-Za-z0-9_]*)"?\s*=.*\s+WHERE\s+\2\s+IS\s+NULL$',
+)
 
 
 class DBBusyError(RuntimeError):
@@ -170,6 +189,122 @@ class DBBusyError(RuntimeError):
 
 class SchemaMigrationRequired(RuntimeError):
     """An existing table has a legacy shape that runtime may not upgrade."""
+
+
+@contextmanager
+def schema_change_authority():
+    """Permit schema DDL only inside the recovery-gated migration transaction."""
+    token = _SCHEMA_CHANGE_AUTHORITY.set(True)
+    try:
+        yield
+    finally:
+        _SCHEMA_CHANGE_AUTHORITY.reset(token)
+
+
+class GuardedConnection:
+    """Proxy that turns runtime initializer DDL into catalog assertions."""
+
+    def __init__(
+        self,
+        connection: duckdb.DuckDBPyConnection,
+        *,
+        versioned: bool,
+        generation_pin=None,
+    ):
+        self._connection = connection
+        self._versioned = versioned
+        self._generation_pin = generation_pin
+
+    def _object_exists(self, kind: str, name: str) -> bool:
+        source = {"TABLE": "duckdb_tables()", "VIEW": "duckdb_views()",
+                  "INDEX": "duckdb_indexes()"}[kind]
+        column = {"TABLE": "table_name", "VIEW": "view_name", "INDEX": "index_name"}[kind]
+        return self._connection.execute(
+            f"SELECT 1 FROM {source} WHERE {column}=?", [name],
+        ).fetchone() is not None
+
+    def _assert_schema_statement(self, statement: str) -> bool:
+        if not self._versioned or _SCHEMA_CHANGE_AUTHORITY.get():
+            return False
+        normalized = " ".join(statement.strip().rstrip(";").split())
+        upper = normalized.upper()
+        if " TEMP " in f" {upper} " or upper.startswith("CREATE TEMP"):
+            return False
+        match = _CREATE_OBJECT.match(upper)
+        if match:
+            kind, name = match.groups()
+            if "IF NOT EXISTS" in upper or "OR REPLACE VIEW" in upper:
+                if self._object_exists(kind, name.lower()):
+                    return True
+            raise SchemaMigrationRequired(
+                f"runtime schema creation requires an explicit migration: {name.lower()}"
+            )
+        match = _ALTER_ADD.match(upper)
+        if match:
+            table, column = (value.lower() for value in match.groups())
+            if column in _columns(self._connection, table):
+                return True
+            raise SchemaMigrationRequired(
+                f"{table} requires an explicit schema migration for column: {column}"
+            )
+        match = _ALTER_NULLABLE.match(upper)
+        if match:
+            table, column = (value.lower() for value in match.groups())
+            nullable = self._connection.execute(
+                "SELECT is_nullable FROM information_schema.columns "
+                "WHERE table_schema='main' AND table_name=? AND column_name=?",
+                [table, column],
+            ).fetchone()
+            if nullable == ("YES",):
+                return True
+            raise SchemaMigrationRequired(
+                f"{table} requires an explicit schema migration for column: {column}"
+            )
+        match = _NULL_BACKFILL.match(upper)
+        if match:
+            table, column = (value.lower() for value in match.groups())
+            pending = self._connection.execute(
+                f'SELECT 1 FROM "{table}" WHERE "{column}" IS NULL LIMIT 1'
+            ).fetchone()
+            if pending is None:
+                return True
+            raise SchemaMigrationRequired(
+                f"{table} requires an explicit schema migration backfill: {column}"
+            )
+        if upper.startswith(("ALTER TABLE", "DROP TABLE", "DROP VIEW", "CREATE TABLE",
+                             "CREATE VIEW", "CREATE INDEX")):
+            raise SchemaMigrationRequired("runtime schema DDL requires an explicit migration")
+        return False
+
+    def execute(self, statement: str, parameters=None):
+        if self._assert_schema_statement(statement):
+            self._connection.execute("SELECT NULL WHERE FALSE")
+        elif parameters is None:
+            self._connection.execute(statement)
+        else:
+            self._connection.execute(statement, parameters)
+        return self
+
+    def executemany(self, statement: str, parameters):
+        self._connection.executemany(statement, parameters)
+        return self
+
+    def close(self) -> None:
+        try:
+            self._connection.close()
+        finally:
+            if self._generation_pin is not None:
+                self._generation_pin.close()
+                self._generation_pin = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+    def __getattr__(self, name: str):
+        return getattr(self._connection, name)
 
 
 def is_lock_error(exc: Exception) -> bool:
@@ -199,6 +334,18 @@ def connect(path: str | Path | None = None, *,
     After the window the original DuckDB exception is re-raised unchanged.
     """
     path = Path(path) if path is not None else settings.DEFAULT_DB
+    generation_pin = None
+    if (
+        read_only
+        and not _SCHEMA_CHANGE_AUTHORITY.get()
+        and path.absolute() == Path(settings.DEFAULT_DB).absolute()
+    ):
+        from engine.lib.snapshots import GenerationError, pin_latest_generation
+        try:
+            generation_pin = pin_latest_generation(path, max_age=timedelta(hours=24))
+        except GenerationError as exc:
+            raise DBBusyError(str(exc)) from exc
+        path = generation_pin.info.path
     if not read_only:
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -210,8 +357,18 @@ def connect(path: str | Path | None = None, *,
     tries = max(1, math.ceil(wait_s / _LOCK_RETRY_S)) if wait_s > 0 else 1
     for attempt in range(1, tries + 1):
         try:
-            return duckdb.connect(str(path), read_only=read_only)
+            connection = duckdb.connect(str(path), read_only=read_only)
+            versioned = connection.execute(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema='main' AND table_name=?", [MIGRATION_TABLE],
+            ).fetchone() is not None
+            return GuardedConnection(
+                connection, versioned=versioned, generation_pin=generation_pin,
+            )
         except Exception as exc:  # duckdb.IOException et al.
+            if generation_pin is not None:
+                generation_pin.close()
+                raise
             if not is_lock_error(exc) or attempt >= tries:
                 raise
             log.info(f"[db] store locked (attempt {attempt}/{tries}) — "
@@ -223,20 +380,23 @@ def connect(path: str | Path | None = None, *,
 def _require_columns(
     con: duckdb.DuckDBPyConnection, table: str, required: frozenset[str],
 ) -> None:
-    columns = {
-        row[0]
-        for row in con.execute(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema='main' AND table_name=?",
-            [table],
-        ).fetchall()
-    }
+    columns = _columns(con, table)
     missing = sorted(required - columns)
     if missing:
         raise SchemaMigrationRequired(
             f"{table} requires an explicit schema migration for columns: "
             + ", ".join(missing)
         )
+
+
+def _columns(con: duckdb.DuckDBPyConnection, table: str) -> set[str]:
+    return {
+        row[0]
+        for row in con.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='main' AND table_name=?", [table],
+        ).fetchall()
+    }
 
 
 def _table_exists(con: duckdb.DuckDBPyConnection, table: str) -> bool:
@@ -249,46 +409,18 @@ def _table_exists(con: duckdb.DuckDBPyConnection, table: str) -> bool:
 
 def database_catalog(con: duckdb.DuckDBPyConnection) -> dict:
     """Stable operational catalog identity, excluding its migration ledger."""
-    database = str(con.execute("SELECT current_database()").fetchone()[0])
-    return {
-        "tables": con.execute(
-            "SELECT schema_name, table_name, sql FROM duckdb_tables() "
-            "WHERE database_name=? AND NOT internal AND NOT temporary "
-            "AND table_name<>? ORDER BY schema_name, table_name",
-            [database, MIGRATION_TABLE],
-        ).fetchall(),
-        "views": con.execute(
-            "SELECT schema_name, view_name, sql FROM duckdb_views() "
-            "WHERE database_name=? AND NOT internal AND NOT temporary "
-            "ORDER BY schema_name, view_name", [database],
-        ).fetchall(),
-        "indexes": con.execute(
-            "SELECT schema_name, index_name, table_name, is_unique, is_primary, sql "
-            "FROM duckdb_indexes() WHERE database_name=? AND table_name<>? "
-            "ORDER BY schema_name, index_name", [database, MIGRATION_TABLE],
-        ).fetchall(),
-        "sequences": con.execute(
-            "SELECT schema_name, sequence_name, sql FROM duckdb_sequences() "
-            "WHERE database_name=? AND NOT temporary ORDER BY schema_name, sequence_name",
-            [database],
-        ).fetchall(),
-    }
+    return schema_registry.catalog(con)
 
 
 def database_catalog_sha256(con: duckdb.DuckDBPyConnection) -> str:
-    return canonical_sha256(database_catalog(con))
+    return schema_registry.catalog_sha256(con)
 
 
 def recorded_schema_id(con: duckdb.DuckDBPyConnection) -> int | None:
-    if not _table_exists(con, MIGRATION_TABLE):
-        return None
     try:
-        row = con.execute(
-            f"SELECT MAX(migration_id) FROM {MIGRATION_TABLE}"
-        ).fetchone()
-    except duckdb.Error as exc:
-        raise SchemaMigrationRequired("schema migration ledger has an invalid shape") from exc
-    return None if row is None or row[0] is None else int(row[0])
+        return schema_registry.schema_id(con)
+    except schema_registry.SchemaIdentityError as exc:
+        raise SchemaMigrationRequired(str(exc)) from exc
 
 
 def require_compatible_database_schema(
@@ -298,32 +430,12 @@ def require_compatible_database_schema(
     maximum: int = CURRENT_DATABASE_SCHEMA_ID,
 ) -> dict:
     """Verify the recorded range and current catalog without changing the DB."""
-    current = recorded_schema_id(con)
-    if current is None:
-        raise SchemaMigrationRequired("database has no recorded operational schema migration")
     try:
-        records = con.execute(
-            f"SELECT migration_id, migration_sha256, pre_catalog_sha256, "
-            f"post_catalog_sha256, recovery_manifest_sha256 FROM {MIGRATION_TABLE} "
-            "ORDER BY migration_id"
-        ).fetchall()
-    except duckdb.Error as exc:
-        raise SchemaMigrationRequired("schema migration ledger has an invalid shape") from exc
-    if tuple(int(row[0]) for row in records) != tuple(range(len(records))):
-        raise SchemaMigrationRequired("database migration history is not contiguous")
-    if not minimum <= current <= maximum:
-        raise SchemaMigrationRequired(
-            f"database schema ID {current} is outside supported range {minimum}..{maximum}"
+        return schema_registry.require_compatible_schema(
+            con, minimum=minimum, maximum=maximum,
         )
-    if any(
-        not isinstance(value, str) or _SHA256_PATTERN.fullmatch(value) is None
-        for row in records for value in row[1:]
-    ):
-        raise SchemaMigrationRequired("database migration history contains an invalid hash")
-    catalog_hash = database_catalog_sha256(con)
-    if records[-1][3] != catalog_hash:
-        raise SchemaMigrationRequired("database catalog changed outside the migration sequence")
-    return {"database_schema_id": current, "catalog_sha256": catalog_hash}
+    except schema_registry.SchemaIdentityError as exc:
+        raise SchemaMigrationRequired(str(exc)) from exc
 
 
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:

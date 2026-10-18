@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import duckdb
 import pytest
 
 from engine import schema_migrations
+from engine.lib import db as engine_db
 from engine.lib.provenance import canonical_sha256
 from tools import backup_database
 
@@ -14,30 +16,28 @@ SOURCE_COMMIT = "a" * 40
 BACKUP_MANIFEST = "b" * 64
 
 
-def _database(path: Path) -> None:
+def _database(path: Path, shape: str = "r15") -> None:
     con = duckdb.connect(str(path))
-    con.execute("CREATE TABLE prices (date DATE, ticker VARCHAR, volume BIGINT)")
-    con.execute("INSERT INTO prices VALUES ('2026-10-16', 'SPY', 100)")
-    con.execute("CREATE TABLE jobs (id INTEGER, state VARCHAR)")
+    migration = schema_migrations.migrations()[0]
+    calls = migration.module.BOOTSTRAP_CALLS
+    limits = {"pre-v2": 7, "v2": 14, "r15": len(calls)}
+    for module_name, function_name in calls[:limits[shape]]:
+        module = __import__(module_name, fromlist=[function_name])
+        getattr(module, function_name)(con)
     con.execute(
-        "CREATE TABLE portfolios (id VARCHAR, name VARCHAR, strategy VARCHAR, "
-        "config VARCHAR, created DATE, active BOOLEAN, cash DOUBLE, initial_cash DOUBLE, "
-        "execution_profile VARCHAR)"
-    )
-    con.execute("CREATE TABLE sim_orders (id INTEGER)")
-    con.execute("CREATE TABLE sim_fills (id INTEGER)")
-    con.execute(
-        "CREATE TABLE sim_equity (portfolio_id VARCHAR, date DATE, equity DOUBLE, "
-        "cash DOUBLE, n_positions INTEGER)"
+        "INSERT INTO prices (ticker,date,open,high,low,close,volume,first_fetched_at) "
+        "VALUES ('SPY','2026-10-16',1,1,1,1,100,'2026-10-16')"
     )
     con.close()
 
 
-def _prepare(tmp_path: Path, monkeypatch) -> tuple[Path, Path, dict, str]:
+def _prepare(
+    tmp_path: Path, monkeypatch, *, shape: str = "r15",
+) -> tuple[Path, Path, dict, str]:
     root = tmp_path / "repo"
     database = root / "store" / "market.duckdb"
     database.parent.mkdir(parents=True)
-    _database(database)
+    _database(database, shape)
     con = duckdb.connect(str(database), read_only=True)
     try:
         expected_catalog = schema_migrations.catalog_sha256(con)
@@ -81,21 +81,21 @@ def test_baseline_plan_apply_and_idempotency(tmp_path, monkeypatch):
         con.close()
     assert planned["status"] == "planned"
     assert planned["expected_pre_catalog_sha256"] == expected_catalog
-    assert [item["migration_id"] for item in planned["pending"]] == [0]
+    assert [item["migration_id"] for item in planned["pending"]] == [0, 1]
 
     applied = _apply(root, database, expected_catalog)
     again = _apply(root, database, expected_catalog)
 
     assert applied == {
         "status": "applied",
-        "database_schema_id": 0,
-        "catalog_sha256": expected_catalog,
-        "applied": [0],
+        "database_schema_id": 1,
+        "catalog_sha256": schema_migrations.migrations()[0].module.EXPECTED_CATALOG_SHA256,
+        "applied": [0, 1],
     }
     assert again == {
         "status": "current",
-        "database_schema_id": 0,
-        "catalog_sha256": expected_catalog,
+        "database_schema_id": 1,
+        "catalog_sha256": schema_migrations.migrations()[0].module.EXPECTED_CATALOG_SHA256,
         "applied": [],
     }
     con = duckdb.connect(str(database), read_only=True)
@@ -107,7 +107,9 @@ def test_baseline_plan_apply_and_idempotency(tmp_path, monkeypatch):
     finally:
         con.close()
     assert record == (
-        0, SOURCE_COMMIT, expected_catalog, expected_catalog, BACKUP_MANIFEST,
+        0, SOURCE_COMMIT, expected_catalog,
+        schema_migrations.migrations()[0].module.EXPECTED_CATALOG_SHA256,
+        BACKUP_MANIFEST,
     )
 
 
@@ -156,6 +158,7 @@ def test_interrupted_statement_rolls_back_ledger_and_catalog(tmp_path, monkeypat
         description="interruption fixture",
         sha256="d" * 64,
         statements=("CREATE TABLE migration_probe (id INTEGER)", "invalid SQL"),
+        module=SimpleNamespace(EXPECTED_CATALOG_SHA256=expected_catalog),
     )
     monkeypatch.setattr(schema_migrations, "migrations", lambda: (migration,))
 
@@ -173,6 +176,126 @@ def test_interrupted_statement_rolls_back_ledger_and_catalog(tmp_path, monkeypat
         assert "schema_migrations" not in tables
         assert "migration_probe" not in tables
         assert schema_migrations.catalog_sha256(con) == expected_catalog
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("shape", ["pre-v2", "v2", "r15"])
+def test_supported_deployed_shapes_reach_exact_baseline(tmp_path, monkeypatch, shape):
+    root, database, _verified, expected_catalog = _prepare(
+        tmp_path, monkeypatch, shape=shape,
+    )
+
+    result = _apply(root, database, expected_catalog)
+
+    con = duckdb.connect(str(database), read_only=True)
+    try:
+        migration = schema_migrations.migrations()[0]
+        catalog = schema_migrations.catalog(con)
+        assert schema_migrations.catalog_sha256(con) == migration.module.EXPECTED_CATALOG_SHA256
+        assert {row[1] for row in catalog["tables"]} == migration.module.EXPECTED_TABLES
+        assert {row[1] for row in catalog["views"]} == migration.module.EXPECTED_VIEWS
+        assert {row[1] for row in catalog["sequences"]} == migration.module.EXPECTED_SEQUENCES
+    finally:
+        con.close()
+    assert result["database_schema_id"] == 1
+
+
+def test_fresh_empty_bootstrap_reaches_exact_baseline(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    database = root / "store" / "market.duckdb"
+    database.parent.mkdir(parents=True)
+    duckdb.connect(str(database)).close()
+    monkeypatch.setattr(schema_migrations, "_source_commit", lambda _root: SOURCE_COMMIT)
+    con = duckdb.connect(str(database), read_only=True)
+    try:
+        expected_pre = schema_migrations.catalog_sha256(con)
+    finally:
+        con.close()
+
+    result = schema_migrations.apply(
+        database, None,
+        expected_backup_manifest_sha256=schema_migrations.EMPTY_RECOVERY_SHA256,
+        expected_source_commit=SOURCE_COMMIT,
+        expected_pre_catalog_sha256=expected_pre,
+        repo_root=root,
+        fresh_empty=True,
+    )
+
+    assert result["catalog_sha256"] == (
+        schema_migrations.migrations()[0].module.EXPECTED_CATALOG_SHA256
+    )
+
+
+def test_baseline_rejects_arbitrary_backed_up_catalog(tmp_path, monkeypatch):
+    root, database, _verified, expected_catalog = _prepare(tmp_path, monkeypatch)
+    con = duckdb.connect(str(database))
+    con.execute("CREATE TABLE definitely_not_the_r15_catalog (id INTEGER)")
+    con.close()
+    # Make the supplied pre-identity and backup agree with the arbitrary shape.
+    con = duckdb.connect(str(database), read_only=True)
+    expected_catalog = schema_migrations.catalog_sha256(con)
+    snapshot_sha = canonical_sha256(
+        backup_database.database_snapshot(
+            con, con.execute("SELECT current_database()").fetchone()[0],
+        )
+    )
+    con.close()
+    monkeypatch.setattr(
+        backup_database, "verify_backup", lambda _bundle: {
+            "manifest_sha256": BACKUP_MANIFEST,
+            "database_snapshot_sha256": snapshot_sha,
+            "source_database": {"kind": "repository-relative", "path": "store/market.duckdb"},
+        },
+    )
+
+    with pytest.raises(schema_migrations.SchemaMigrationError, match="not a supported"):
+        _apply(root, database, expected_catalog)
+
+
+def test_versioned_connection_turns_runtime_initializers_into_assertions(
+    tmp_path, monkeypatch,
+):
+    root, database, _verified, expected_catalog = _prepare(tmp_path, monkeypatch)
+    _apply(root, database, expected_catalog)
+    con = engine_db.connect(database)
+    try:
+        before = schema_migrations.catalog_sha256(con)
+        schema_migrations.migrations()[0].module.bootstrap(con)
+        assert schema_migrations.catalog_sha256(con) == before
+        con.execute(
+            "INSERT INTO portfolios (id,name,active,cash,initial_cash,execution_profile) "
+            "VALUES ('legacy-null','legacy-null',TRUE,1,NULL,NULL)"
+        )
+        from sim.schema import init_sim_schema
+        with pytest.raises(engine_db.SchemaMigrationRequired, match="backfill"):
+            init_sim_schema(con)
+        assert con.execute(
+            "SELECT initial_cash,execution_profile FROM portfolios WHERE id='legacy-null'"
+        ).fetchone() == (None, None)
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize(
+    ("column", "value", "message"),
+    [
+        ("migration_sha256", "f" * 64, "hash does not match"),
+        ("source_commit", "not-a-git-commit", "source commit is invalid"),
+    ],
+)
+def test_one_shared_runtime_verifier_rejects_false_ledger_identity(
+    tmp_path, monkeypatch, column, value, message,
+):
+    root, database, _verified, expected_catalog = _prepare(tmp_path, monkeypatch)
+    _apply(root, database, expected_catalog)
+    con = duckdb.connect(str(database))
+    try:
+        con.execute(f"UPDATE schema_migrations SET {column}=?", [value])
+        with pytest.raises(schema_migrations.SchemaMigrationError, match=message):
+            schema_migrations.require_compatible_schema(con)
+        with pytest.raises(engine_db.SchemaMigrationRequired, match=message):
+            engine_db.require_compatible_database_schema(con)
     finally:
         con.close()
 
