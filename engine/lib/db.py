@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import time
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
@@ -24,6 +25,7 @@ import pandas as pd
 from engine.lib import settings
 from engine.lib.data_quality import PRICE_VALIDATOR_VERSION, observation_reasons, split_like_factor
 from engine.lib.log import get_logger
+from engine.lib.provenance import canonical_sha256
 
 log = get_logger("db")
 
@@ -48,6 +50,10 @@ REAL_BAR_SQL = (
 )
 MARKET_DATE_MIN_NAMES = 1_000
 MARKET_DATE_MIN_COVERAGE = 0.90
+MIGRATION_TABLE = "schema_migrations"
+MINIMUM_DATABASE_SCHEMA_ID = 0
+CURRENT_DATABASE_SCHEMA_ID = 0
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 @contextmanager
@@ -243,6 +249,85 @@ def _table_exists(con: duckdb.DuckDBPyConnection, table: str) -> bool:
         "WHERE table_schema='main' AND table_name=?",
         [table],
     ).fetchone() is not None
+
+
+def database_catalog(con: duckdb.DuckDBPyConnection) -> dict:
+    """Stable operational catalog identity, excluding its migration ledger."""
+    database = str(con.execute("SELECT current_database()").fetchone()[0])
+    return {
+        "tables": con.execute(
+            "SELECT schema_name, table_name, sql FROM duckdb_tables() "
+            "WHERE database_name=? AND NOT internal AND NOT temporary "
+            "AND table_name<>? ORDER BY schema_name, table_name",
+            [database, MIGRATION_TABLE],
+        ).fetchall(),
+        "views": con.execute(
+            "SELECT schema_name, view_name, sql FROM duckdb_views() "
+            "WHERE database_name=? AND NOT internal AND NOT temporary "
+            "ORDER BY schema_name, view_name", [database],
+        ).fetchall(),
+        "indexes": con.execute(
+            "SELECT schema_name, index_name, table_name, is_unique, is_primary, sql "
+            "FROM duckdb_indexes() WHERE database_name=? AND table_name<>? "
+            "ORDER BY schema_name, index_name", [database, MIGRATION_TABLE],
+        ).fetchall(),
+        "sequences": con.execute(
+            "SELECT schema_name, sequence_name, sql FROM duckdb_sequences() "
+            "WHERE database_name=? AND NOT temporary ORDER BY schema_name, sequence_name",
+            [database],
+        ).fetchall(),
+    }
+
+
+def database_catalog_sha256(con: duckdb.DuckDBPyConnection) -> str:
+    return canonical_sha256(database_catalog(con))
+
+
+def recorded_schema_id(con: duckdb.DuckDBPyConnection) -> int | None:
+    if not _table_exists(con, MIGRATION_TABLE):
+        return None
+    try:
+        row = con.execute(
+            f"SELECT MAX(migration_id) FROM {MIGRATION_TABLE}"
+        ).fetchone()
+    except duckdb.Error as exc:
+        raise SchemaMigrationRequired("schema migration ledger has an invalid shape") from exc
+    return None if row is None or row[0] is None else int(row[0])
+
+
+def require_compatible_database_schema(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    minimum: int = MINIMUM_DATABASE_SCHEMA_ID,
+    maximum: int = CURRENT_DATABASE_SCHEMA_ID,
+) -> dict:
+    """Verify the recorded range and current catalog without changing the DB."""
+    current = recorded_schema_id(con)
+    if current is None:
+        raise SchemaMigrationRequired("database has no recorded operational schema migration")
+    try:
+        records = con.execute(
+            f"SELECT migration_id, migration_sha256, pre_catalog_sha256, "
+            f"post_catalog_sha256, recovery_manifest_sha256 FROM {MIGRATION_TABLE} "
+            "ORDER BY migration_id"
+        ).fetchall()
+    except duckdb.Error as exc:
+        raise SchemaMigrationRequired("schema migration ledger has an invalid shape") from exc
+    if tuple(int(row[0]) for row in records) != tuple(range(len(records))):
+        raise SchemaMigrationRequired("database migration history is not contiguous")
+    if not minimum <= current <= maximum:
+        raise SchemaMigrationRequired(
+            f"database schema ID {current} is outside supported range {minimum}..{maximum}"
+        )
+    if any(
+        not isinstance(value, str) or _SHA256_PATTERN.fullmatch(value) is None
+        for row in records for value in row[1:]
+    ):
+        raise SchemaMigrationRequired("database migration history contains an invalid hash")
+    catalog_hash = database_catalog_sha256(con)
+    if records[-1][3] != catalog_hash:
+        raise SchemaMigrationRequired("database catalog changed outside the migration sequence")
+    return {"database_schema_id": current, "catalog_sha256": catalog_hash}
 
 
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:

@@ -80,40 +80,11 @@ def _database_name(con: duckdb.DuckDBPyConnection) -> str:
 
 def catalog(con: duckdb.DuckDBPyConnection) -> dict:
     """Return the stable catalog, excluding the migration ledger itself."""
-    database = _database_name(con)
-    tables = con.execute(
-        "SELECT schema_name, table_name, sql FROM duckdb_tables() "
-        "WHERE database_name=? AND NOT internal AND NOT temporary "
-        "AND table_name<>? ORDER BY schema_name, table_name",
-        [database, MIGRATION_TABLE],
-    ).fetchall()
-    views = con.execute(
-        "SELECT schema_name, view_name, sql FROM duckdb_views() "
-        "WHERE database_name=? AND NOT internal AND NOT temporary "
-        "ORDER BY schema_name, view_name",
-        [database],
-    ).fetchall()
-    indexes = con.execute(
-        "SELECT schema_name, index_name, table_name, is_unique, is_primary, sql "
-        "FROM duckdb_indexes() WHERE database_name=? AND table_name<>? "
-        "ORDER BY schema_name, index_name",
-        [database, MIGRATION_TABLE],
-    ).fetchall()
-    sequences = con.execute(
-        "SELECT schema_name, sequence_name, sql FROM duckdb_sequences() "
-        "WHERE database_name=? AND NOT temporary ORDER BY schema_name, sequence_name",
-        [database],
-    ).fetchall()
-    return {
-        "tables": tables,
-        "views": views,
-        "indexes": indexes,
-        "sequences": sequences,
-    }
+    return engine_db.database_catalog(con)
 
 
 def catalog_sha256(con: duckdb.DuckDBPyConnection) -> str:
-    return canonical_sha256(catalog(con))
+    return engine_db.database_catalog_sha256(con)
 
 
 def _has_migration_table(con: duckdb.DuckDBPyConnection) -> bool:

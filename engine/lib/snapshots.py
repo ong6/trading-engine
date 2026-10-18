@@ -177,8 +177,12 @@ def _generation_info(
         or not isinstance(body.get("metrics"), dict)
     ):
         return None
-    from engine import schema_migrations
-    if not schema_migrations.MINIMUM_SCHEMA_ID <= schema_id <= schema_migrations.CURRENT_SCHEMA_ID:
+    from engine.lib import db as engine_db
+    if not (
+        engine_db.MINIMUM_DATABASE_SCHEMA_ID
+        <= schema_id
+        <= engine_db.CURRENT_DATABASE_SCHEMA_ID
+    ):
         return None
     parts: list[dict] = []
     for record in body["parts"]:

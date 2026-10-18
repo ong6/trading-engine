@@ -19,7 +19,7 @@ from pathlib import Path
 
 import duckdb
 
-from engine import schema_migrations
+from engine.lib import db as engine_db
 from engine.lib.settings import DEFAULT_DB, REPO_ROOT
 from engine.lib.snapshots import LATEST_NAME, latest_snapshot, snapshot_directory
 from tools import backup_database
@@ -94,7 +94,7 @@ def _qualified(schema: str, table: str, *, database: str | None = None) -> str:
 def _schema_identity(path: Path) -> dict:
     connection = duckdb.connect(str(path), read_only=True)
     try:
-        return schema_migrations.require_compatible_schema(connection)
+        return engine_db.require_compatible_database_schema(connection)
     finally:
         connection.close()
 
@@ -611,7 +611,7 @@ def publish_snapshot(
         return manifest
     except (
         OSError, ValueError, backup_database.BackupError,
-        schema_migrations.SchemaMigrationError,
+        engine_db.SchemaMigrationRequired,
     ) as exc:
         raise SnapshotError(str(exc)) from exc
     finally:

@@ -21,7 +21,7 @@ from pathlib import Path
 
 import duckdb
 
-from engine import schema_migrations
+from engine.lib import db as engine_db
 from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import write_text_atomic
 from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT
@@ -1117,7 +1117,7 @@ def _restore_generation(info: SnapshotInfo, destination: Path) -> dict:
         snapshot = database_snapshot(connection, connection.execute(
             "SELECT current_database()"
         ).fetchone()[0])
-        schema_identity = schema_migrations.require_compatible_schema(connection)
+        schema_identity = engine_db.require_compatible_database_schema(connection)
     except duckdb.Error as exc:
         raise BackupError(f"generation restore failed: {exc}") from exc
     finally:
@@ -1158,10 +1158,10 @@ def _legacy_unversioned_source(source: Path) -> bool:
     try:
         connection = duckdb.connect(str(source), read_only=True)
         try:
-            return schema_migrations.schema_id(connection) is None
+            return engine_db.recorded_schema_id(connection) is None
         finally:
             connection.close()
-    except (duckdb.Error, OSError, schema_migrations.SchemaMigrationError):
+    except (duckdb.Error, OSError, engine_db.SchemaMigrationRequired):
         return False
 
 
