@@ -355,17 +355,30 @@ Path(""" + repr(str(started)) + ").touch()\n"
             f"raise SystemExit(0 if Path({str(completed)!r}).exists() else 1)\n"
         ),
     )
+    wrapper_script = tmp_path / "wrapper.py"
+    wrapper_script.write_text(
+        """import sys
+from datetime import datetime
+from pathlib import Path
+from engine.job_contract import load_registry
+from tools.run_job import execute_job
+repo=Path(sys.argv[1]); logs=Path(sys.argv[2])
+spec=load_registry(repo).get('synthetic-job')
+result=execute_job(spec, scheduled_for=datetime.fromisoformat(sys.argv[3]),
+                   idempotency_key='crash-key', repo_root=repo, logs_dir=logs,
+                   executor_verified=True, projector=lambda receipt, ops: None)
+raise SystemExit(result.exit_code)
+"""
+    )
     wrapper = run_job.subprocess.Popen(
         [
-            sys.executable, "-m", "tools.run_job", "_execute", spec.job_id,
-            "--repo-root", str(repo), "--logs-dir", str(tmp_path / "logs"),
-            "--scheduled-for", _iso_for_cli(SLOT), "--idempotency-key", "crash-key",
+            sys.executable, str(wrapper_script), str(repo), str(tmp_path / "logs"),
+            SLOT.isoformat(),
         ],
         cwd=ROOT,
         env={
             **os.environ,
             "PYTHONPATH": str(ROOT),
-            run_job.TRANSIENT_SPEC_ENV: spec.spec_sha256,
         },
         stdout=run_job.subprocess.DEVNULL,
         stderr=run_job.subprocess.DEVNULL,
@@ -660,8 +673,13 @@ def test_run_uses_transient_resources_and_internal_executor_is_not_public(tmp_pa
         run_job.execute_job(
             spec, scheduled_for=SLOT, repo_root=ROOT, logs_dir=tmp_path / "direct"
         )
+    monkeypatch.setenv(run_job.TRANSIENT_SPEC_ENV, spec.spec_sha256)
+    monkeypatch.setenv("INVOCATION_ID", "spoofed")
+    with pytest.raises(run_job.JobRunError, match="transient cgroup"):
+        run_job.verify_transient_executor(spec)
 
     monkeypatch.delenv(run_job.TRANSIENT_SPEC_ENV, raising=False)
+    monkeypatch.delenv("INVOCATION_ID", raising=False)
     assert run_job.main([
         "_execute", "registry-audit", "--repo-root", str(ROOT),
         "--logs-dir", str(tmp_path / "logs"), "--scheduled-for", _iso_for_cli(SLOT),

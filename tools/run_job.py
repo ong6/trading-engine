@@ -63,6 +63,19 @@ def require_runner_admission(spec: JobSpec) -> None:
         raise JobRunError("scheduled/catch-up execution requires a later migration")
 
 
+def verify_transient_executor(spec: JobSpec) -> None:
+    if os.environ.get(TRANSIENT_SPEC_ENV) != spec.spec_sha256:
+        raise JobRunError("internal executor lacks the registered spec identity")
+    if not os.environ.get("INVOCATION_ID"):
+        raise JobRunError("internal executor is not a systemd invocation")
+    try:
+        cgroup = Path("/proc/self/cgroup").read_text()
+    except OSError as exc:
+        raise JobRunError("internal executor cgroup is unverifiable") from exc
+    if "trading-engine-job-" not in cgroup and "trading\\x2dengine\\x2djob\\x2d" not in cgroup:
+        raise JobRunError("internal executor is outside the registered transient cgroup")
+
+
 def _iso(moment: datetime) -> str:
     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -1002,8 +1015,7 @@ def main(argv: list[str] | None = None) -> int:
                 check=False,
             )
             return result.returncode
-        if os.environ.get(TRANSIENT_SPEC_ENV) != spec.spec_sha256:
-            raise JobRunError("internal executor lacks a verified transient unit identity")
+        verify_transient_executor(spec)
         parameters = json.loads(args.parameters_json)
         if not isinstance(parameters, dict):
             raise JobRunError("parameters JSON must be an object")
