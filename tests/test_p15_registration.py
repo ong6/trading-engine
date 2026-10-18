@@ -275,34 +275,8 @@ def test_p15_registration_revision_and_self_hash():
     recorded = registration.pop("registration_sha256")
 
     assert registration["schema_version"] == 1
-    assert registration["registration_revision"] == 14
-    assert registration["revision_reason"] == (
-        "P22 on top of revision 13's validator and label-timing corrections; owner decision "
-        "2026-10-06: ibkr_pro_tiered_v1 commissions from the migration --d0; book evaluation "
-        "clocks restart at D0; account engine; scoring, labels, gates and schedules unchanged"
-        "; round-3 chronological accounting, observable opening financing, debit checkpoints, "
-        "corporate-action lot results and route-preserving migration (revision 14 undeployed)"
-        "; round-4 shared fee-aware sizing, historical dividends, FIFO preview, risk-event replay "
-        "and lot/equity verification (revision 14 remains undeployed)"
-        "; round-6 complete inception folds, immutable receipt units and as-known risk replace checkpoint restoration and historical-risk replay (revision 14 remains undeployed)"
-        "; revision-14 defect fixes before deployment, each reproduced first in BUILDLOG: (a)"
-        " registered store writers wait out a reader; (b) walk-forward drops a fold with "
-        "fewer than two training sessions; (c) TradingView windows retry after a cool-down "
-        "and record lasting refusals; (d) the nightly league leaves P15 marks to their "
-        "window; (e) the price-fetch record covers active liquid names and records the "
-        "source's no-data answer as missing, revising delivery.price_fetch_attempts and "
-        "labels.fetch_attempt_evidence (on the 2026-10-15 copy it releases two horizon-1 "
-        "labels, WBD and BLFS, each equal to its ungated outcome, and changes no stored label"
-        " or score); (f) a split-like re-fetch triggers the actions fetch and "
-        "back-adjustment; (g) a real bar needs a positive open, high and low (8 of 21.1M "
-        "rows; no stored label, screen or P15 universe changes); (h) the weekly full price "
-        "verify keeps its own key; (i) driver data commits are titled by their driver; (j) "
-        "the ops digest trusts systemd's result; (k) a delisted holding closes at its last "
-        "real traded close (WBD in high_52wk at 30.94); and the E1, sector and XS runtime "
-        "migrations accept the deployed records (revision 14 remains undeployed)"
-        "; pre-deploy amendment 2026-10-17 under orchestrator D1: XS complete retained-prefix continuity is separate from restarted evaluation counts, with the count partition, equity hash, signal boundary, baseline and ledger gates preserved; undeployed XS v22 source re-pinned once, with E1 v7 and sector v11 unchanged and no frozen outcome or verdict-rule change"
-        "; second pre-deploy amendment 2026-10-17 authorized under D1 for the same retained-prefix continuity defect class found by the fresh rehearsal: sector complete-prefix counts are partitioned at the prior clock with schema-v1 behavior exact and all equity hash, baseline and ledger checks preserved; undeployed sector v11 source bound in one follow-up revision-14 registration, with E1 v7 and XS v22 unchanged; shared sector/XS repeated-review regression and E1 checkpoint audit pass without frozen outcome or verdict-rule changes"
-    )
+    assert registration["registration_revision"] == 15
+    assert registration["revision_reason"] == 'Revision 15 after verified v2: r15-data rejects scalar/calendar/interval and unverified basis observations, retains originals and cleans hard-invalid bars; r15-money refuses nonfinite/overflow money and uses shared trusted bars for fills, marks, settlement and P15 recovery; r15-flow reduces repeated intraday windows, offline report rendering, latest-close scans and history snapshot copies; r15-ops reports recorded process/work outcomes and moves Sunday history 07:40 to 01:40; board-2 joins dated rejected-bar quality and separates prospective eligibility from early review with eight scored criteria; r15-tests reuses private fixture templates, caps native threads, work-steals and caches CI setup. E1 v8, sector v12 and XS v23 migrate exact revision-14 checkpoints after the v2 break. Verdict rules, scores, labels, gates, strategy schedules and frozen valid-data outcomes are unchanged.'
     assert registration["status"] == "registered_inactive"
     assert registration["activated_at"] == p15_evaluation.ACTIVATED_AT.isoformat()
     assert recorded == canonical_sha256(registration)
