@@ -241,6 +241,38 @@ def test_codec_works_in_scheduler_minimal_path():
     assert int(result.stdout.strip()) >= raw_payload.MIN_ZSTD_VERSION_NUMBER
 
 
+def test_decoder_accepts_valid_unknown_size_streaming_frame():
+    executable = shutil.which("zstd")
+    assert executable is not None
+    body = b"legacy-frame" * 100
+    result = subprocess.run(
+        [executable, "-q", "-6", "-c"], input=body,
+        capture_output=True, check=False,
+    )
+    assert result.returncode == 0
+    source = raw_payload.ctypes.create_string_buffer(result.stdout)
+    declared = raw_payload._codec().ZSTD_getFrameContentSize(source, len(result.stdout))
+    assert declared == raw_payload.ZSTD_CONTENTSIZE_UNKNOWN
+    assert raw_payload.decode(result.stdout, max_output_size=len(body)) == body
+
+
+def test_decoder_rejects_declared_size_above_receipt_before_output_allocation(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    encoded = raw_payload.encode(b"x" * 1024)
+    original = raw_payload.ctypes.create_string_buffer
+    allocations = []
+
+    def record_allocation(value, size=None):
+        allocations.append(len(value) if isinstance(value, bytes) else int(value))
+        return original(value) if size is None else original(value, size)
+
+    monkeypatch.setattr(raw_payload.ctypes, "create_string_buffer", record_allocation)
+    with pytest.raises(FreeSourceError, match="exceeds the allowed decoded size"):
+        raw_payload.decode(encoded, max_output_size=8)
+    assert allocations == [len(encoded)]
+
+
 def test_empty_payload_round_trips_and_converts(tmp_path: Path):
     body = b""
     digest = hashlib.sha256(body).hexdigest()
