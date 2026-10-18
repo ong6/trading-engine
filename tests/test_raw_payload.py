@@ -176,6 +176,53 @@ def test_converter_refuses_validly_hashed_manifest_that_differs_from_payload(tmp
         )
 
 
+def test_converter_repairs_existing_compressed_mode_before_removing_original(tmp_path: Path):
+    path = _plain(tmp_path)
+    path.chmod(0o600)
+    body = path.read_bytes()
+    target = raw_payload.seal(path, body, mode=0o600)
+    target.chmod(0o666)
+    manifest_path = tmp_path / "manifest.json"
+
+    manifest = convert_raw_payloads.convert(
+        [path], base=tmp_path, apply=True, remove_originals=True,
+        manifest_path=manifest_path,
+    )
+    assert not path.exists()
+    assert target.stat().st_mode & 0o777 == 0o600
+    assert manifest["entries"][0]["mode"] == "0600"
+    assert convert_raw_payloads.verify_manifest(manifest_path, base=tmp_path) == manifest
+
+
+def test_manifest_refuses_path_hash_that_differs_from_source_identity(tmp_path: Path):
+    body = b"source-b"
+    source_sha = hashlib.sha256(body).hexdigest()
+    wrong_name_sha = hashlib.sha256(b"source-a").hexdigest()
+    logical = tmp_path / f"{wrong_name_sha}.raw"
+    target = raw_payload.seal(logical, body, expected_sha256=source_sha)
+    compressed = target.read_bytes()
+    manifest = {
+        "schema_version": 1,
+        "zstd_level": raw_payload.ZSTD_LEVEL,
+        "remove_originals": False,
+        "entries": [{
+            "path": logical.name,
+            "source_sha256": source_sha,
+            "source_size": len(body),
+            "compressed_path": target.name,
+            "compressed_sha256": hashlib.sha256(compressed).hexdigest(),
+            "compressed_size": len(compressed),
+            "mode": "0600",
+        }],
+    }
+    manifest["manifest_sha256"] = convert_raw_payloads._manifest_identity(manifest)
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest))
+
+    with pytest.raises(FreeSourceError, match="existing conversion manifest is invalid"):
+        convert_raw_payloads.verify_manifest(manifest_path, base=tmp_path)
+
+
 def test_codec_works_in_scheduler_minimal_path():
     root = Path(__file__).resolve().parents[1]
     result = subprocess.run(

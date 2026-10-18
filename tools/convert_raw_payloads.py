@@ -106,10 +106,12 @@ def _load_manifest(path: Path) -> dict | None:
                 "compressed_sha256", "compressed_size", "mode",
             }
             entry_path = Path(entry.get("path", "")) if isinstance(entry, dict) else Path()
+            identity = CANDIDATE.fullmatch(entry_path.name)
             if (not isinstance(entry, dict) or set(entry) != required
                     or not isinstance(entry["path"], str) or entry["path"] in seen
                     or entry_path.is_absolute() or ".." in entry_path.parts
-                    or not CANDIDATE.fullmatch(Path(entry["path"]).name)
+                    or identity is None or entry_path.suffix not in {".json", ".raw"}
+                    or identity.group("sha") != entry["source_sha256"]
                     or not re.fullmatch(r"[0-9a-f]{64}", entry["source_sha256"])
                     or not re.fullmatch(r"[0-9a-f]{64}", entry["compressed_sha256"])
                     or not isinstance(entry["source_size"], int) or entry["source_size"] < 0
@@ -136,7 +138,8 @@ def _verify_manifest_entry(entry: dict, base: Path) -> None:
     compressed = target.read_bytes()
     if (len(body) != entry["source_size"]
             or len(compressed) != entry["compressed_size"]
-            or hashlib.sha256(compressed).hexdigest() != entry["compressed_sha256"]):
+            or hashlib.sha256(compressed).hexdigest() != entry["compressed_sha256"]
+            or stat.S_IMODE(target.stat().st_mode) != int(entry["mode"], 8)):
         raise FreeSourceError("compressed payload differs from conversion manifest")
 
 

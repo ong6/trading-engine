@@ -158,6 +158,17 @@ def fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
+def fsync_file(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise FreeSourceError("sealed raw payload path is unsafe")
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def seal(
     path: Path, body: bytes, *, expected_sha256: str | None = None,
     level: int = ZSTD_LEVEL, mode: int = 0o600,
@@ -177,6 +188,10 @@ def seal(
         if existing != body:
             raise FreeSourceError("raw payload differs from its content identity")
         if target.exists():
+            if stat.S_IMODE(target.lstat().st_mode) != mode:
+                target.chmod(mode)
+                fsync_file(target)
+                fsync_directory(target.parent)
             return target
     encoded = encode(body, level=level)
     temporary: Path | None = None
@@ -198,4 +213,6 @@ def seal(
         if temporary is not None:
             temporary.unlink(missing_ok=True)
     read_compressed(logical, expected_sha256=digest, expected_size=len(body))
+    if stat.S_IMODE(target.stat().st_mode) != mode:
+        raise FreeSourceError("sealed raw payload permissions are invalid")
     return target
