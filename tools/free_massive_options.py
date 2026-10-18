@@ -404,14 +404,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--underlying", action="append")
     parser.add_argument("--limit-pages", type=int)
     parser.add_argument("--contracts-only", action="store_true")
-    parser.add_argument("--check-enabled", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
         "--prior-close", action="append",
         help="verified TICKER=PRICE override for an isolated contracts smoke run",
     )
     args = parser.parse_args(argv)
-    if args.check_enabled:
-        return 0 if COLLECTION_ENABLED else 1
     try:
         result = capture(
             database=args.database, data_dir=args.data_dir,
