@@ -155,6 +155,11 @@ def main() -> int:
     ).strip()
     subprocess.run(["git", "checkout", "-B", "main", original], cwd=root, check=True)
     (root / ".venv").symlink_to(repo / ".venv")
+    excludes = output / "git-excludes"
+    excludes.write_text(".venv\n")
+    subprocess.run(
+        ["git", "config", "core.excludesFile", str(excludes)], cwd=root, check=True
+    )
     shutil.rmtree(root / "data")
     shutil.copytree(args.evidence, root / "data")
     database = root / "store/market.duckdb"
