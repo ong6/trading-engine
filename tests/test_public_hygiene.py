@@ -88,15 +88,16 @@ def test_added_home_and_data_paths_are_redacted(tmp_path, capsys):
     root, _remote = _repository(tmp_path)
     base = _git(root, "rev-parse", "HEAD").stdout.strip()
     private_home = "/" + "home" + "/private-user/project"
+    root_home = "/" + "root" + "/project"
     private_mount = "/" + "data" + "00/archive"
-    (root / "paths.txt").write_text(f"{private_home}\n{private_mount}\n")
+    (root / "paths.txt").write_text(f"{private_home}\n{root_home}\n{private_mount}\n")
     head = _commit(root)
 
     result = public_hygiene.main(["--repo-root", str(root), "--range", f"{base}..{head}"])
     output = capsys.readouterr()
 
     assert result == 1
-    assert {"absolute_home_path", "absolute_data_mount"} <= {
+    assert {"absolute_home_path", "absolute_root_home", "absolute_data_mount"} <= {
         row.rule for row in public_hygiene.RepositoryScanner(root).scan_range(f"{base}..{head}")
     }
     assert private_home not in output.out + output.err
