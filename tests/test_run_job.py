@@ -81,6 +81,7 @@ timeout = {{ attempt_seconds = {attempt_seconds}, term_grace_seconds = {term_gra
 retry = {{ max_attempts = {max_attempts}, exit_codes = {list(retry_codes)}, backoff_seconds = {list(backoffs)}, deadline_seconds = {overall_seconds} }}
 alert = {{ severity = "FAIL", grace_seconds = 0 }}
 catch_up = {{ mode = "{catch_up[0]}", max_age_seconds = {catch_up[1]}, max_count = {catch_up[2]} }}
+approval = {{ kind = "{'synthetic_fixture' if runner_enabled else 'none'}" }}
 [jobs.resources]
 nice = 0
 io_scheduling_class = "best-effort"
@@ -107,6 +108,7 @@ def _execute(spec, repo, tmp_path, **kwargs):
         logs_dir=tmp_path / "logs",
         projector=kwargs.pop("projector", lambda receipt, ops: None),
         executor_verified=True,
+        source_identity=kwargs.pop("source_identity", lambda _root: "a" * 40),
         **kwargs,
     )
 
@@ -191,6 +193,53 @@ def test_committed_production_jobs_are_audit_only_runner_refusals(tmp_path):
                 logs_dir=tmp_path / "logs", popen=forbidden_popen, executor_verified=True,
             )
     assert launched is False
+
+
+def _git_repo(path: Path) -> Path:
+    path.mkdir()
+    script = path / "job.py"
+    script.write_text("print('ok')\n")
+    script.chmod(0o755)
+    run_job.subprocess.run(["git", "init", "-q", str(path)], check=True)
+    run_job.subprocess.run(["git", "-C", str(path), "add", "job.py"], check=True)
+    run_job.subprocess.run(
+        [
+            "git", "-C", str(path), "-c", "user.name=Fixture",
+            "-c", "user.email=fixture@example.invalid", "-c", "core.hooksPath=/dev/null",
+            "commit", "-q", "-m", "fixture",
+        ],
+        check=True,
+    )
+    return path
+
+
+def test_source_identity_requires_clean_committed_executable_bytes(tmp_path):
+    clean = _git_repo(tmp_path / "clean")
+    identity = run_job._source_identity(clean)
+    assert len(identity) == 40
+
+    tracked = _git_repo(tmp_path / "tracked")
+    (tracked / "job.py").write_text("print('dirty')\n")
+    with pytest.raises(run_job.JobRunError, match="source tree is dirty"):
+        run_job._source_identity(tracked)
+
+    staged = _git_repo(tmp_path / "staged")
+    (staged / "job.py").write_text("print('staged')\n")
+    run_job.subprocess.run(["git", "-C", str(staged), "add", "job.py"], check=True)
+    with pytest.raises(run_job.JobRunError, match="source tree is dirty"):
+        run_job._source_identity(staged)
+
+    untracked = _git_repo(tmp_path / "untracked")
+    extra = untracked / "untracked_job.py"
+    extra.write_text("print('untracked')\n")
+    extra.chmod(0o755)
+    with pytest.raises(run_job.JobRunError, match="source tree is dirty"):
+        run_job._source_identity(untracked)
+
+    nongit = tmp_path / "not-git"
+    nongit.mkdir()
+    with pytest.raises(run_job.JobRunError, match="identity is unavailable"):
+        run_job._source_identity(nongit)
 
 
 def test_live_idempotency_key_refuses_a_concurrent_child(tmp_path):
@@ -368,7 +417,8 @@ repo=Path(sys.argv[1]); logs=Path(sys.argv[2])
 spec=load_registry(repo).get('synthetic-job')
 result=execute_job(spec, scheduled_for=datetime.fromisoformat(sys.argv[3]),
                    idempotency_key='crash-key', repo_root=repo, logs_dir=logs,
-                   executor_verified=True, projector=lambda receipt, ops: None)
+                   executor_verified=True, projector=lambda receipt, ops: None,
+                   source_identity=lambda root: 'a'*40)
 raise SystemExit(result.exit_code)
 """
     )
@@ -730,7 +780,7 @@ def test_terminal_receipt_projects_into_existing_ops_database(tmp_path):
     logs = tmp_path / "logs"
     result = run_job.execute_job(
         spec, scheduled_for=SLOT, repo_root=repo, logs_dir=logs, ops_dir=logs / "ops",
-        executor_verified=True,
+        executor_verified=True, source_identity=lambda _root: "a" * 40,
     )
 
     with closing(sqlite3.connect(logs / "ops/ops.sqlite")) as db:
@@ -786,6 +836,32 @@ def test_backfill_validates_parameters_and_builds_a_bounded_transient_unit(tmp_p
         run_job.validate_backfill_parameters(spec, "2026-10-03", "2026-10-02", "incident-1")
     with pytest.raises(run_job.JobRunError, match="must not be empty"):
         run_job.validate_backfill_parameters(spec, "2026-10-01", "2026-10-02", " ")
+
+
+def test_backfill_defaults_to_plan_without_launch(tmp_path, monkeypatch, capsys):
+    parameters = (
+        '{ from = { type = "date", option = "--from", required = true }, '
+        'through = { type = "date", option = "--through", required = true }, '
+        'reason = { type = "string", option = "--reason", required = true } }'
+    )
+    _spec(tmp_path, "pass\n", parameters=parameters)
+
+    def forbidden_launch(*args, **kwargs):
+        raise AssertionError("backfill plan launched systemd")
+
+    monkeypatch.setattr(run_job.subprocess, "run", forbidden_launch)
+    result = run_job.main([
+        "backfill", "synthetic-job", "--from", "2026-10-01", "--through", "2026-10-02",
+        "--reason", "incident-1", "--idempotency-key", "planned-key",
+        "--repo-root", str(tmp_path / "repo"), "--logs-dir", str(tmp_path / "logs"),
+    ])
+    plan = json.loads(capsys.readouterr().out)
+
+    assert result == 0
+    assert plan["action"] == "backfill-plan" and plan["requires_apply"] is True
+    assert plan["idempotency_key"] == "planned-key"
+    assert plan["locks"] and plan["resources"]["memory_max_bytes"] == 2097152
+    assert plan["existing_completion_state"] == []
 
 
 def test_run_uses_transient_resources_and_internal_executor_is_not_public(tmp_path, monkeypatch):
@@ -874,6 +950,25 @@ path=Path(""" + repr(str(state)) + ")\npath.write_text(str(int(path.read_text())
     assert second.final["work_status"] == "noop"
     assert second.final["business_receipts"] == [str(first.receipts[-1])]
     assert state.read_text() == "1"
+    plan = run_job.backfill_plan(
+        spec, scheduled_for=SLOT,
+        idempotency_key="backfill-scope-1", parameters=values,
+        logs_dir=tmp_path / "logs",
+    )
+    assert plan["existing_completion_state"] == [
+        {
+            "attempt": 1,
+            "status": "success",
+            "scope_matches": True,
+            "receipt": str(first.receipts[-1]),
+        },
+        {
+            "attempt": 2,
+            "status": "noop",
+            "scope_matches": True,
+            "receipt": str(second.receipts[-1]),
+        },
+    ]
 
 
 def test_public_read_only_registry_audit_runs_through_common_runner(tmp_path):
@@ -885,6 +980,7 @@ def test_public_read_only_registry_audit_runs_through_common_runner(tmp_path):
         logs_dir=tmp_path / "logs",
         projector=lambda receipt, ops: None,
         executor_verified=True,
+        source_identity=lambda _root: "a" * 40,
     )
     assert result.exit_code == 0 and result.final["work_status"] == "success"
     assert json.loads(result.receipts[-1].read_text())["job_id"] == "registry-audit"

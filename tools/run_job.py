@@ -70,6 +70,15 @@ def require_runner_admission(spec: JobSpec) -> None:
         raise JobRunError(f"job is audit-only and not admitted to the runner: {spec.job_id}")
     if spec.schedules or spec.catch_up["mode"] != "none":
         raise JobRunError("scheduled/catch-up execution requires a later migration")
+    if spec.runner_mode == "read_only" and (
+        spec.authority != "data" or spec.parameters or spec.approval["kind"] != "read_only"
+    ):
+        raise JobRunError("read-only runner lacks its authority contract")
+    if spec.runner_mode == "synthetic" and (
+        spec.authority != "data" or spec.owner != "test" or spec.repository != "fixture"
+        or spec.approval["kind"] != "synthetic_fixture"
+    ):
+        raise JobRunError("synthetic runner is not a test fixture")
 
 
 def _current_systemd_unit(cgroup_text: str | None = None) -> str:
@@ -278,19 +287,33 @@ def _running_receipts(logs_dir: Path, spec: JobSpec) -> list[tuple[Path, dict[st
     return [(path, _read_json(path)) for path in sorted(root.glob("**/*.running.json"))]
 
 
-def _source_sha(repo_root: Path) -> str:
+def _source_identity(repo_root: Path) -> str:
+    """Return clean executable source identity or refuse ambiguous bytes."""
     try:
-        result = subprocess.run(
+        revision = subprocess.run(
             ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
             timeout=10,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError):
-        return "unknown"
-    value = result.stdout.strip()
-    return value if result.returncode == 0 and len(value) == 40 else "unknown"
+        status = subprocess.run(
+            ["git", "-C", str(repo_root), "status", "--porcelain=v1", "--untracked-files=all"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise JobRunError("execution source identity is unavailable") from exc
+    value = revision.stdout.strip()
+    if revision.returncode != 0 or len(value) != 40 or not all(c in "0123456789abcdef" for c in value):
+        raise JobRunError("execution source identity is unavailable")
+    if status.returncode != 0:
+        raise JobRunError("execution source cleanliness is unverifiable")
+    if status.stdout.strip():
+        raise JobRunError("execution source tree is dirty")
+    return value
 
 
 def _base_receipt(
@@ -488,6 +511,8 @@ def validate_parameters(spec: JobSpec, supplied: Mapping[str, Any]) -> dict[str,
 def validate_backfill_parameters(
     spec: JobSpec, from_date: str, through: str, reason: str
 ) -> dict[str, Any]:
+    if spec.runner_mode != "synthetic" or spec.approval["kind"] != "synthetic_fixture":
+        raise JobRunError("schema v1 backfill is limited to approved synthetic fixtures")
     parameters = validate_parameters(
         spec, {"from": from_date, "through": through, "reason": reason}
     )
@@ -736,6 +761,7 @@ def execute_job(
     popen: Callable[..., subprocess.Popen] = subprocess.Popen,
     projector: Callable[[Mapping[str, Any], Path], None] = _project,
     executor_verified: bool = False,
+    source_identity: Callable[[Path], str] = _source_identity,
 ) -> RunResult:
     """Execute one admitted one-off inside a verified transient resource boundary."""
     require_runner_admission(spec)
@@ -752,7 +778,7 @@ def execute_job(
     destination = _receipt_directory(logs_dir, spec, scheduled_for, key)
     ops_dir = ops_dir or logs_dir / "ops"
     receipt_paths: list[Path] = []
-    source_sha = _source_sha(repo_root)
+    source_sha = source_identity(repo_root)
     run_id = str(uuid.uuid4())
 
     def base_receipt(attempt: int, started: datetime) -> dict[str, Any]:
@@ -1170,6 +1196,48 @@ def _backfill_command(
     )
 
 
+def backfill_plan(
+    spec: JobSpec,
+    *,
+    scheduled_for: datetime,
+    idempotency_key: str,
+    parameters: Mapping[str, Any],
+    logs_dir: Path,
+) -> dict[str, Any]:
+    parameter_hash = _hash_json(parameters)
+    operator_key, canonical_key, scope_sha256 = _invocation_keys(
+        spec, scheduled_for, parameter_hash, idempotency_key
+    )
+    existing = [
+        {
+            "attempt": row.get("attempt"),
+            "status": row.get("work_status"),
+            "scope_matches": row.get("idempotency_scope_sha256") == scope_sha256,
+            "receipt": str(path),
+        }
+        for path, row in _job_receipts(logs_dir, spec)
+        if _receipt_operator_key(row) == operator_key
+    ]
+    return {
+        "action": "backfill-plan",
+        "job_id": spec.job_id,
+        "authority": spec.authority,
+        "runner_mode": spec.runner_mode,
+        "scheduled_for": _iso(scheduled_for),
+        "idempotency_key": operator_key,
+        "canonical_key_sha256": hashlib.sha256(canonical_key.encode()).hexdigest(),
+        "scope_sha256": scope_sha256,
+        "parameter_sha256": parameter_hash,
+        "locks": [
+            {"name": lock.name, "mode": lock.mode, "wait_seconds": lock.wait_seconds}
+            for lock in spec.locks
+        ],
+        "resources": dict(spec.resources),
+        "existing_completion_state": existing,
+        "requires_apply": True,
+    }
+
+
 def _child_exec(start_fd: int, argv: list[str]) -> int:
     """Wait for the durable parent marker, then replace this launcher with the task."""
     if argv[:1] == ["--"]:
@@ -1210,6 +1278,7 @@ def _parser() -> argparse.ArgumentParser:
     backfill.add_argument("--through", required=True)
     backfill.add_argument("--reason", required=True)
     backfill.add_argument("--idempotency-key", required=True)
+    backfill.add_argument("--apply", action="store_true")
     backfill.add_argument("--repo-root", type=Path, default=REPO_ROOT)
     backfill.add_argument("--logs-dir", type=Path, default=LOGS_DIR)
 
@@ -1240,6 +1309,13 @@ def main(argv: list[str] | None = None) -> int:
                 spec, args.from_date, args.through, args.reason
             )
             scheduled_for = backfill_scheduled_for(parameters)
+            plan = backfill_plan(
+                spec, scheduled_for=scheduled_for, idempotency_key=args.idempotency_key,
+                parameters=parameters, logs_dir=args.logs_dir.resolve(),
+            )
+            print(json.dumps(plan, sort_keys=True))
+            if not args.apply:
+                return 0
             command = _backfill_command(
                 spec, repo_root=repo_root, logs_dir=args.logs_dir.resolve(),
                 scheduled_for=scheduled_for, idempotency_key=args.idempotency_key,

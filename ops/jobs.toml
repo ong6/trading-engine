@@ -39,6 +39,9 @@ mode = "none"
 max_age_seconds = 0
 max_count = 0
 
+[defaults.approval]
+kind = "none"
+
 [defaults.resources]
 nice = 19
 io_scheduling_class = "idle"
@@ -877,3 +880,6 @@ memory_max_bytes = 1073741824
 minimum_available_memory_bytes = 16777216
 tasks_max = 32
 min_free_bytes = 1048576
+
+[jobs.approval]
+kind = "read_only"

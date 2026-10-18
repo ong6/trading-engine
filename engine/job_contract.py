@@ -68,6 +68,7 @@ class JobSpec:
     locks: tuple[LockSpec, ...]
     idempotency_template: str
     completion_probe: Mapping[str, Any]
+    approval: Mapping[str, Any]
     retention_days: int
     timeout: Mapping[str, Any]
     retry: Mapping[str, Any]
@@ -304,6 +305,17 @@ def _validate_job(raw: Mapping[str, Any], manifest: Path, retention_limit: int) 
     memory_max = resources["memory_max_bytes"]
     if memory_high and memory_max and memory_high > memory_max:
         raise JobContractError(f"{label}: memory_high_bytes exceeds memory_max_bytes")
+    owner = raw.get("owner")
+    repository = raw.get("repository")
+    authority = raw.get("authority")
+    if not all(isinstance(value, str) and value for value in (owner, repository)):
+        raise JobContractError(f"{label}: owner and repository are required")
+    if authority not in {"data", "shadow", "paper"}:
+        raise JobContractError(f"{label}: invalid authority")
+    parameters = _validate_parameters(raw.get("parameters", {}), f"{label}.parameters")
+    approval = _mapping(raw.get("approval"), f"{label}.approval")
+    if approval.get("kind") not in {"none", "read_only", "synthetic_fixture"}:
+        raise JobContractError(f"{label}: invalid approval contract")
     if (resources.get("memory_max_bytes") == 0 or resources.get("cpu_quota_percent") == 0
             or resources.get("tasks_max") == 0):
         reason = resources.get("unlimited_reason")
@@ -324,6 +336,15 @@ def _validate_job(raw: Mapping[str, Any], manifest: Path, retention_limit: int) 
             for field in ("cpu_quota_percent", "memory_high_bytes", "memory_max_bytes", "tasks_max")
         ):
             raise JobContractError(f"{label}: admitted runner needs explicit resource limits")
+        if runner_mode == "read_only" and (
+            authority != "data" or parameters or approval["kind"] != "read_only"
+        ):
+            raise JobContractError(f"{label}: read-only runner lacks its authority contract")
+        if runner_mode == "synthetic" and (
+            authority != "data" or owner != "test" or repository != "fixture"
+            or approval["kind"] != "synthetic_fixture"
+        ):
+            raise JobContractError(f"{label}: synthetic runner is not a test fixture")
         if schedules or catch_up["mode"] != "none":
             raise JobContractError(
                 f"{label}: scheduled/catch-up runner execution requires a later migration"
@@ -359,16 +380,8 @@ def _validate_job(raw: Mapping[str, Any], manifest: Path, retention_limit: int) 
     elif schedules:
         raise JobContractError(f"{label}: scheduled job has no audit source")
 
-    owner = raw.get("owner")
-    repository = raw.get("repository")
-    authority = raw.get("authority")
-    if not all(isinstance(value, str) and value for value in (owner, repository)):
-        raise JobContractError(f"{label}: owner and repository are required")
-    if authority not in {"data", "shadow", "paper"}:
-        raise JobContractError(f"{label}: invalid authority")
     if not isinstance(raw.get("enabled"), bool):
         raise JobContractError(f"{label}: enabled must be boolean")
-    parameters = _validate_parameters(raw.get("parameters", {}), f"{label}.parameters")
     frozen_raw = MappingProxyType(dict(raw))
     return JobSpec(
         job_id=job_id, owner=owner, repository=repository, version=version, argv=argv,
@@ -376,6 +389,7 @@ def _validate_job(raw: Mapping[str, Any], manifest: Path, retention_limit: int) 
         runner_enabled=runner_enabled, runner_mode=runner_mode, schedules=schedules,
         calendar=calendar, locks=tuple(locks), idempotency_template=template,
         completion_probe=MappingProxyType(dict(completion_probe)),
+        approval=MappingProxyType(dict(approval)),
         retention_days=retention, timeout=MappingProxyType(dict(timeout)),
         retry=MappingProxyType(dict(retry)), alert=MappingProxyType(dict(alert)),
         catch_up=MappingProxyType(dict(catch_up)), resources=MappingProxyType(dict(resources)),
