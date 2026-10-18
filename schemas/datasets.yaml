@@ -1,0 +1,707 @@
+catalogue_version: 1
+source_baseline: revision-15
+contract:
+  coverage: Every persistent CREATE TABLE, VIEW, or SEQUENCE declaration and every managed file family is listed exactly once.
+  deployment_state: Catalogue coverage does not imply that built-inert, scratch, future, or remote-only objects are present in the operational database.
+  temporary_objects: TEMP and TEMPORARY relations are connection-scoped working state and are not datasets.
+
+datasets:
+  - id: operational.daily_prices
+    kind: duckdb_objects
+    location: store/market.duckdb
+    deployment: revision_15
+    objects:
+      - table:prices
+      - table:intraday_prices
+      - table:price_observation_rejects
+      - table:price_quarantine
+    schema_owner: [engine/lib/db.py, sim/schema.py]
+    producer: [engine.collect, engine.intraday, engine.actions]
+    readers: [screen, simulator, P15, farm, API, verifier, backup]
+    semantics: mutable_projection_and_append_only_evidence
+    clock_and_key: ticker and session; rejects additionally preserve observed_at and source identity
+    retention: Retain trusted projections and every reject while any decision or evidence refers to them.
+    backup: Daily verified private logical export; operational snapshots retain two generations.
+    rebuild: not_rebuildable; restore the exact backup vintage because historical provider responses are incomplete
+    registration: P15 and frozen forward records pin valid price semantics and source identities.
+    quality_gate: OHLC geometry, finite positive prices, basis verification, session calendar, and exact reject receipts
+
+  - id: operational.universe_and_screens
+    kind: duckdb_objects
+    location: store/market.duckdb
+    deployment: revision_15
+    objects: [table:universe, table:universe_snapshot, table:screen_results]
+    schema_owner: engine/lib/db.py
+    producer: [engine.universe, engine.screen]
+    readers: [collect, screen, league, API, farm]
+    semantics: current_state_and_point_in_time_evidence
+    clock_and_key: universe ticker; snapshots and screens keyed by as_of/run_date plus ticker
+    retention: Retain registered and frozen cohorts indefinitely; current universe is mutable.
+    backup: Daily verified private logical export.
+    rebuild: Current reports are derived; historical snapshots and screen rows must restore from the exact backup vintage.
+    registration: Frozen research and forward records pin historical cohorts.
+    quality_gate: Unique keys, point-in-time membership, and report-to-table equality
+
+  - id: operational.corporate_actions
+    kind: duckdb_objects
+    location: store/market.duckdb
+    deployment: revision_15
+    objects: [table:corporate_actions, table:split_adjustments, table:actions_fetch_log]
+    schema_owner: engine/lib/db.py
+    producer: engine.actions
+    readers: [price reconciliation, simulator, settlement, evidence monitors]
+    semantics: authoritative_and_append_only_evidence
+    clock_and_key: ticker, action type, ex-date, source availability, and adjudication identity
+    retention: Preserve every accepted action, adjudication, and fetch outcome.
+    backup: Daily verified private logical export.
+    rebuild: Exact retained raw receipt where available; otherwise restore the exact backup vintage.
+    registration: P15 and account replay depend on action semantics.
+    quality_gate: Source identity, split-basis reconciliation, replay equality, and append-only audit
+
+  - id: operational.fundamental_event_macro_pit
+    kind: duckdb_objects
+    location: store/market.duckdb
+    deployment: revision_15
+    objects:
+      - table:fundamentals
+      - table:fundamentals_fetch_log
+      - table:earnings_calendar
+      - table:earnings_fetch_log
+      - table:macro_signals
+      - table:pit_import_batches
+      - table:pit_import_rows
+    schema_owner: [engine/lib/db.py, engine/pit_import.py]
+    producer: [engine.fundamentals, engine.earnings, engine.signals, engine.pit_import]
+    readers: [screens, strategies, P15, research, readiness]
+    semantics: append_only_evidence
+    clock_and_key: Natural fact key plus source availability, ingestion, and revision clocks
+    retention: Retain every vintage used by a decision.
+    backup: Daily verified private logical export.
+    rebuild: Only from exact retained raw bytes with original availability metadata; otherwise restore backup.
+    registration: Registered strategies and research cohorts may pin individual vintages.
+    quality_gate: Bitemporal visibility, source receipt equality, and no latest-row collapse
+
+  - id: operational.queue_and_experiments
+    kind: duckdb_objects
+    location: store/market.duckdb
+    deployment: revision_15
+    objects: [table:jobs, table:job_resolutions, table:experiment_results]
+    schema_owner: [engine/lib/db.py, engine/job_resolutions.py, farm/experiment.py]
+    producer: [engine.queue_runner, engine.job_resolutions, farm.experiment]
+    readers: [drivers, ops, farm, E1 monitor]
+    semantics: current_state_and_frozen_results
+    clock_and_key: Job identity and state transition time; experiment identity and run time
+    retention: Retain failures, resolutions, and frozen experiment results; prune scratch only after a receipt-backed rebuild is named.
+    backup: Daily verified private logical export.
+    rebuild: Job state is not rebuildable; reports may be rendered from retained result rows.
+    registration: E1 and registered experiments pin their result identity.
+    quality_gate: Terminal-state consistency, explicit resolutions, and report equality
+
+  - id: operational.bitemporal_and_tradingview
+    kind: duckdb_objects
+    location: store/market.duckdb
+    deployment: revision_15
+    objects:
+      - table:source_response_receipts
+      - table:bitemporal_facts
+      - table:tradingview_history_cohorts
+      - table:tradingview_history_symbols
+      - table:tradingview_history_attempts
+    schema_owner: [engine/bitemporal_facts.py, engine/tradingview_history_archive.py]
+    producer: [engine.bitemporal_facts, engine.tradingview_history_archive]
+    readers: [P15, agent context, readiness, research, backup]
+    semantics: append_only_evidence
+    clock_and_key: Source fact key plus availability, ingestion, revision, and response identity
+    retention: Retain all revisions and response identities.
+    backup: Daily verified private logical export.
+    rebuild: Exact response receipts only; never collapse to latest rows.
+    registration: P14 and P15 registrations pin archive and event-source behavior.
+    quality_gate: Receipt hash, bitemporal visibility, and cohort completeness
+
+  - id: operational.agent_evidence
+    kind: duckdb_objects
+    location: store/market.duckdb
+    deployment: revision_15_and_built_inert
+    objects:
+      - table:agent_corporate_action_observations
+      - table:agent_daily_price_observations
+      - table:agent_data_discrepancy_decisions
+      - table:agent_evaluation_decisions
+      - table:agent_evaluation_execution_links
+      - table:agent_evaluation_labels
+      - table:agent_evaluation_labels_v2
+      - table:agent_evaluation_traces
+      - table:agent_fault_drill_runs
+      - table:agent_independent_price_observations
+      - table:agent_independent_price_responses
+      - table:agent_paper_book_attribution
+      - table:agent_paper_decision_receipts
+      - table:agent_paper_order_attribution
+      - table:agent_proposals
+      - table:agent_provider_response_links
+      - table:agent_provider_responses
+      - table:agent_provider_source_observations
+      - table:agent_release_review_observations
+      - table:agent_shadow_attempts
+      - table:agent_shadow_events
+    schema_owner: server/agent_*.py
+    producer: Agent capture, evaluation, shadow, attribution, and review modules
+    readers: [evaluation, status, board, P15 validation, recovery]
+    semantics: append_only_evidence
+    clock_and_key: Stable decision or response identity plus observed, available, and recorded timestamps
+    retention: Retain indefinitely for every registered cohort; built-inert ledgers remain empty until separately activated.
+    backup: Deployed objects are included in the verified recovery bundle.
+    rebuild: not_rebuildable; labels may mature mechanically but original decisions and responses are immutable
+    registration: P8, P9, P11, P15, and inert authority designs pin subsets.
+    quality_gate: Canonical payload hash, source links, append-only replay, and no execution-authority escalation
+
+  - id: operational.daily_opportunity
+    kind: duckdb_objects
+    location: store/market.duckdb
+    deployment: revision_15
+    objects:
+      - table:daily_opportunity_runs
+      - table:daily_opportunity_assessments
+      - table:daily_opportunity_alerts
+      - table:daily_opportunity_alert_events
+      - table:daily_opportunity_news_responses
+      - table:daily_opportunity_order_attribution
+      - table:daily_opportunity_tool_attempts
+      - table:daily_opportunity_exit_rules
+      - table:daily_opportunity_exit_events
+      - table:daily_opportunity_execution_quality
+    schema_owner: server/daily_opportunity_store.py
+    producer: P8 daily opportunity runner and simulator tool
+    readers: [P8, evaluation, API, board, recovery]
+    semantics: append_only_evidence
+    clock_and_key: Run, attempt, alert, order, and exit identities with recorded timestamps
+    retention: Retain through verdict and thereafter as frozen evidence.
+    backup: Daily verified private logical export.
+    rebuild: not_rebuildable; market data alone cannot reconstruct model decisions or attempts
+    registration: P8 v1 and linked agent evaluation contracts
+    quality_gate: Canonical request/response identity, attribution, and terminal outcome consistency
+
+  - id: operational.p15_evidence_and_books
+    kind: duckdb_objects
+    location: store/market.duckdb
+    deployment: revision_15
+    objects:
+      - table:p15_book_contracts
+      - table:p15_book_fills
+      - table:p15_book_state
+      - table:p15_book_windows
+      - table:p15_evaluation_look_anchors
+      - table:p15_evaluation_looks
+      - table:p15_evaluation_origin_grid
+      - table:p15_event_calls
+      - table:p15_event_decisions
+      - table:p15_event_labels
+      - table:p15_event_source_state
+      - table:p15_event_triggers
+      - table:p15_event_windows
+      - table:p15_execution_quality
+      - table:p15_limit_attempts
+      - table:p15_limit_labels
+      - table:p15_open_label_fetch_receipts
+      - table:p15_order_intents
+      - table:p15_position_rules
+      - table:p15_preopen_decisions
+      - table:p15_preopen_news_responses
+      - table:p15_preopen_runs
+      - table:p15_price_fetch_batches
+      - table:p15_rss_checkpoints
+      - table:p15_rss_failures
+      - table:p15_scoring_news_responses
+      - table:p15_scoring_runs
+      - table:p15_scoring_samples
+      - table:price_fetch_attempts
+    schema_owner: [sim/p15_books.py, engine/p15_evaluation.py, engine/p15_event_sources.py, server/p15_preopen.py, server/p15_price_fetch_attempts.py, server/p15_scoring_store.py]
+    producer: P15 scoring, pre-open, event, labeling, and book runners
+    readers: [P15 reports, league, registration validators, API, backup]
+    semantics: frozen_prospective_evidence_and_mutable_in_progress_state
+    clock_and_key: Registered run/window/sample identity plus market, availability, and recorded clocks
+    retention: Retain terminal evidence, receipts, attempts, and registered cohorts indefinitely.
+    backup: Daily verified private logical export and registered recovery bundle.
+    rebuild: State may fold from the complete event, intent, and fill sequence; source decisions and receipts are not rebuildable.
+    registration: server/p15-registration.json revision 15
+    quality_gate: Registered hashes, prospective eligibility, exact label identity, and book replay within 0.005
+
+  - id: operational.accounts_and_simulator
+    kind: duckdb_objects
+    location: store/market.duckdb
+    deployment: revision_15
+    objects:
+      - sequence:sim_order_id_seq
+      - view:portfolio_accounts_v
+      - table:account_events
+      - table:account_reconciliations
+      - table:account_state
+      - table:account_watch
+      - table:audit_log
+      - table:disc_tickets
+      - table:instruments
+      - table:paper_account_intakes
+      - table:paper_account_specs
+      - table:portfolio_accounts
+      - table:portfolios
+      - table:review_markers
+      - table:sim_book_breaks
+      - table:sim_cash_events
+      - table:sim_day_trades
+      - table:sim_dividends
+      - table:sim_equity
+      - table:sim_execution_attempts
+      - table:sim_fill_costs
+      - table:sim_fill_details
+      - table:sim_fill_fees
+      - table:sim_fills
+      - table:sim_order_details
+      - table:sim_orders
+      - table:sim_position_lots
+      - table:sim_positions
+      - table:sim_settlements
+    schema_owner: [sim/schema.py, sim/settle.py, engine/paper_accounts.py, engine/account_watch.py]
+    producer: League, account service, execution, settlement, and ledger folds
+    readers: [league, P15, accounts, money and risk, API, verdict reports, recovery]
+    semantics: authoritative_ledgers_and_foldable_state
+    clock_and_key: Account, order, fill, event, and effective-date identities
+    retention: Preserve frozen trial ledgers permanently; state caches remain reconstructable from authoritative events.
+    backup: Daily verified private logical export and registered recovery bundle.
+    rebuild: Fold complete account events, orders, fills, actions, cash, and financing; restore exact evidence first.
+    registration: P15 revision 15 and P22 account contracts
+    quality_gate: Chronological replay, isolated accounts, and money reconciliation within 0.005
+
+  - id: inert.p16_evaluation_and_books
+    kind: duckdb_objects
+    location: store/market.duckdb
+    deployment: built_inert
+    objects:
+      - table:p16_book_contracts
+      - table:p16_book_fills
+      - table:p16_book_state
+      - table:p16_book_windows
+      - table:p16_calibrations
+      - table:p16_challenger_attempts
+      - table:p16_challenger_outputs
+      - table:p16_challenger_receipts
+      - table:p16_challenger_runs
+      - table:p16_construct_targets
+      - table:p16_evaluation_artifacts
+      - table:p16_filing_acceptance
+      - table:p16_filing_accessions
+      - table:p16_filing_bundles
+      - table:p16_filing_cik_responses
+      - table:p16_filing_decisions
+      - table:p16_filing_labels
+      - table:p16_filing_scans
+      - table:p16_filing_score_attempts
+      - table:p16_filing_work_events
+      - table:p16_fill_manifests
+      - table:p16_fill_measurements
+      - table:p16_fill_source_captures
+      - table:p16_limit_attempts
+      - table:p16_limit_labels
+      - table:p16_order_intents
+      - table:p16_position_rules
+      - table:p16_screen_versions
+      - table:p16_sec_request_events
+      - table:p16_sequential_origin_events
+      - table:p16_trial_register_v4
+    schema_owner: [engine/p16_screen_inputs.py, server/p16_*.py]
+    producer: Inert P16 challenger, filing, fill, book, and evaluation modules
+    readers: [P16 offline reports and registration validators]
+    semantics: append_only_evidence_and_inert_state
+    clock_and_key: Registered trial, run, source, and recorded identities
+    retention: Empty until activation; once used, retain registered evidence indefinitely.
+    backup: Included only after separately admitted activation and recovery coverage.
+    rebuild: not_rebuildable after use; before activation an empty schema is reproducible
+    registration: P16 W9b is required before activation.
+    quality_gate: Registration identity, append-only hashes, source timestamps, and no authority before activation
+
+  - id: inert.broker_paper_design
+    kind: duckdb_objects
+    location: store/market.duckdb
+    deployment: built_inert
+    objects:
+      - table:broker_cancellation_events
+      - table:broker_emergency_stop_events
+      - table:broker_executions
+      - table:broker_human_paper_approval_observations
+      - table:broker_intents
+      - table:broker_order_observations
+      - table:broker_paper_authority_retained_events
+      - table:broker_paper_authority_risk_evaluations
+      - table:broker_reconciliations
+      - table:broker_reconciliation_differences
+      - table:broker_risk_control_events
+      - table:broker_risk_decisions
+      - table:broker_snapshots
+      - table:broker_submission_events
+      - table:broker_submission_resolutions
+      - table:simulator_broker_order_keys
+    schema_owner: [server/broker_*.py, server/simulator_broker_adapter.py, tools/migrate_agent_paper_authority_store.py]
+    producer: None on this host; schema and read-model design only
+    readers: [inert broker-paper validators]
+    semantics: inactive_append_only_design
+    clock_and_key: Intent, submission, execution, reconciliation, and authority-event identities
+    retention: Empty and inactive; if a later plan activates them, preserve every authority and execution event.
+    backup: Excluded until a separately approved personal-host plan activates the schema.
+    rebuild: Empty schema is reproducible; any activated evidence would be not_rebuildable.
+    registration: Future Stage-2 plan required; no broker authority exists here.
+    quality_gate: No adapter connection, credentials, submission route, or live-capital authority
+
+  - id: pit.free_sources
+    kind: duckdb_objects
+    location: store/pit/free-sources.duckdb
+    deployment: isolated_active
+    objects:
+      - table:free_company_tickers
+      - table:free_daily_bars
+      - table:free_daily_bars_rejected
+      - table:free_delisting_notice_details
+      - table:free_delisting_notices
+      - table:free_insider_nonderiv_trans
+      - table:free_insider_owners
+      - table:free_insider_submissions
+      - table:free_security_master
+      - table:free_splits
+      - view:free_cik_ticker_history
+      - view:free_daily_bars_adjusted
+    schema_owner: [engine/free_sources.py, engine/free_sec.py]
+    producer: Tiingo, Massive grouped-daily, and SEC free-source loaders
+    readers: [P3 audit and offline research]
+    semantics: append_only_point_in_time_evidence
+    clock_and_key: Provider natural key plus source availability, request, and load identity
+    retention: Retain logical state and exact raw receipts; do not substitute a newer vendor vintage.
+    backup: Requires a current research evidence checkpoint; primary daily backup excludes PIT.
+    rebuild: Exact retained raw bodies and receipts only.
+    registration: P3 research-only; no operational-price or execution authority.
+    quality_gate: Raw receipt hash, admission checks, PIT availability, and restore equality
+
+  - id: remote.sec_bulk_store
+    kind: duckdb_objects
+    location: store/pit/sec-bulk.duckdb
+    deployment: remote_only
+    objects:
+      - table:sec_archive_loads
+      - table:sec_cik_ticker_history
+      - table:sec_earnings_events
+      - table:sec_facts
+      - table:sec_submission_index
+      - table:sec_submission_pages
+      - view:sec_earnings_events_with_ticker
+      - view:sec_facts_available
+      - view:sec_facts_with_ticker
+    schema_owner: engine/free_sec_bulk.py
+    producer: SEC bulk archive loader
+    readers: [P3 offline audit]
+    semantics: retired_append_only_evidence
+    clock_and_key: SEC accession, fact, acceptance timestamp, archive, and load identity
+    retention: Local payload retired after exact release proof; keep the catalogue and restore recipe.
+    backup: Exact private research release named by store/pit/RESTORE.md.
+    rebuild: Restore the exact release; do not create an empty database at the retired path.
+    registration: P3 evidence release
+    quality_gate: Release member hashes and restored row/view equality
+
+  - id: pit.massive_minute
+    kind: duckdb_objects
+    location: store/pit/massive-minute.duckdb
+    deployment: isolated_active
+    objects: [table:massive_minute_bars, table:massive_minute_chunks]
+    schema_owner: engine/free_massive_minute.py
+    producer: Massive minute capture
+    readers: [offline opening and path research]
+    semantics: append_only_point_in_time_evidence_and_progress
+    clock_and_key: Ticker, minute timestamp, capture window, response identity, and chunk status
+    retention: Keep the database, WAL cohort, raw bodies, and progress receipts consistently.
+    backup: Owner RPO decision pending; not covered by the primary daily backup.
+    rebuild: Exact retained raw pages and progress receipts only.
+    registration: Frozen P3 host-only capture manifest
+    quality_gate: Manifest membership, request window, raw hash, deduplication, and resumability
+
+  - id: future.massive_options
+    kind: duckdb_objects
+    location: store/pit/options.duckdb
+    deployment: future_isolated
+    objects: [table:option_contracts, table:option_daily_bars, table:option_capture_receipts]
+    schema_owner: engine/free_massive_options.py
+    producer: Future Massive options daily capture
+    readers: [P22 research-only options readers]
+    semantics: append_only_point_in_time_evidence
+    clock_and_key: Contract, session, request, availability, and receipt identity
+    retention: Keep DB, raw bodies, and receipts as one recoverable cohort.
+    backup: Excluded until capture activation names an RPO and restore target.
+    rebuild: Exact retained raw responses only.
+    registration: Capture does not grant options execution authority.
+    quality_gate: Contract identity, receipt hash, point-in-time timestamps, and no quote/execution claims
+
+  - id: research.replay_lab
+    kind: duckdb_objects
+    location: scratch/replay/**/replay.duckdb
+    deployment: research_only
+    objects:
+      - table:replay_clock
+      - table:replay_decisions
+      - table:replay_labels
+      - table:replay_notes
+      - table:replay_postmortems
+      - table:replay_price_scale_state
+      - table:replay_price_watermark
+      - table:w4_evidence_records
+      - table:w4_lockbox_arms
+      - table:w4_lockbox_events
+      - table:w4_lockbox_markers
+      - table:w4_lockbox_sessions
+      - table:w4_store_identity
+    schema_owner: farm/replay/*.py
+    producer: P16 replay and lockbox research runners
+    readers: [P16 research reports and audit]
+    semantics: research_evidence_and_cache
+    clock_and_key: Replay session, decision, note, lockbox event, and source identity
+    retention: Delete ordinary scratch after successful reports; retain frozen evidence named by a registration.
+    backup: Registered reports and manifests only; scratch DBs are excluded.
+    rebuild: Re-run only from the exact registered source snapshot and policy identity.
+    registration: P16 historical replay and lockbox contracts
+    quality_gate: Source snapshot hash, chronological replay, lockbox boundary, and deterministic report equality
+
+  - id: scratch.proof_and_experiment_relations
+    kind: duckdb_objects
+    location: scratch/**.duckdb
+    deployment: scratch_only
+    objects:
+      - table:credit_confirmed_action_coverage
+      - table:credit_confirmed_fold_controls
+      - table:hs
+      - table:sr_stored
+    schema_owner: [farm/credit_confirmed_experiment.py, farm/backtest/proofs.py]
+    producer: Backtest proof and frozen experiment harnesses
+    readers: [the creating proof or experiment process]
+    semantics: cache
+    clock_and_key: Harness-specific frozen input identity
+    retention: Delete on successful completion; keep only when an incident or registration explicitly pins it.
+    backup: Excluded; durable result reports carry source identities.
+    rebuild: Re-run the harness against the exact named input snapshot.
+    registration: CREDIT-CONFIRMED-SPY charter and proof harness only
+    quality_gate: Disposable input identity and deterministic output equivalence
+
+  - id: ops.digest_metrics
+    kind: sqlite_objects
+    location: logs/ops/ops.sqlite
+    deployment: active
+    objects:
+      - table:file_offsets
+      - table:footprint
+      - table:hours
+      - table:log_counts
+      - table:meta
+      - table:meta_status
+      - table:probes
+      - table:signatures
+      - table:stage_runs
+      - table:unit_runs
+    schema_owner: tools/ops_digest.py
+    producer: Hourly operations digest
+    readers: [ops digest report]
+    semantics: derived_metrics_and_cursors
+    clock_and_key: UTC hour plus source, unit, stage, or file identity
+    retention: Metrics 180 days, reports 30 days, and current cursor state.
+    backup: Accepted operational exclusion; reconstruct from retained logs where available.
+    rebuild: Metrics are derived, but expired source logs make old windows not_rebuildable.
+    registration: P23 operations only; no trading evidence authority.
+    quality_gate: Idempotent hourly aggregation, monotonic file offsets, and visible probe failures
+
+  - id: files.primary_database
+    kind: file_set
+    location: store/market.duckdb
+    schema_owner: engine/lib/settings.py
+    producer: All operational writers through engine.lib.db.connect
+    readers: [operational writers, publisher, backup]
+    semantics: authoritative
+    clock_and_key: One mutable database plus transient WAL under single-writer discipline
+    retention: Keep the sole mutable operational source and its active WAL.
+    backup: Daily verified private logical export and complete recovery bundle.
+    rebuild: Restore a complete verified bundle; never reconstruct selected tables.
+    registration: P15 revision 15 and account runtime contracts
+    quality_gate: Producer locks, complete catalog hash, table checksums, and recovery verification
+
+  - id: files.published_snapshots
+    kind: generation
+    location: store/snapshots/**
+    schema_owner: [tools/publish_snapshot.py, engine/lib/snapshots.py]
+    producer: tools.publish_snapshot
+    readers: [API fallback, research, backup]
+    semantics: immutable_generation
+    clock_and_key: market timestamp, source commit, database hash, length, and exact as_of
+    retention: Exactly two complete generations until revision 16 replaces the format.
+    backup: Rebuildable from a consistent primary; backup may consume a sufficiently fresh generation.
+    rebuild: Publish from a consistent primary without changing the source as_of.
+    registration: Publisher and snapshot resolver are revision-pinned infrastructure.
+    quality_gate: Manifest shape, file hash and length, invariants, atomic pointer swap, and source freshness
+
+  - id: files.nasdaq_universe_source
+    kind: file_set
+    location: store/nasdaqtraded-*.txt
+    schema_owner: engine/universe.py
+    producer: engine.universe
+    readers: [universe audit and recovery]
+    semantics: append_only_evidence
+    clock_and_key: Retrieval date and exact source bytes
+    retention: Retain sealed daily bytes; compression requires path-aware receipt readers.
+    backup: No current daily off-host coverage.
+    rebuild: not_rebuildable as the same retrieval vintage
+    registration: Universe snapshots may cite the source date.
+    quality_gate: Nasdaq file completeness and exact retained bytes
+
+  - id: files.agent_shadow_control
+    kind: file_set
+    location: store/agent-shadow-control.json
+    schema_owner: server/agent_shadow_schedule.py
+    producer: Agent shadow scheduler
+    readers: [agent runners, recovery bundle]
+    semantics: current_state
+    clock_and_key: Current schedule-control payload and atomic lock
+    retention: Keep current file; lock is transient.
+    backup: Recovery bundle optional operational control file.
+    rebuild: Restore the exact backed-up control state or initialize only under the owning plan.
+    registration: P9 shadow schedule
+    quality_gate: JSON contract, atomic update, and lock discipline
+
+  - id: files.free_source_raw
+    kind: file_set
+    location: store/pit/free-sources/**
+    schema_owner: [engine/free_sources.py, engine/free_sec.py, tools/free_sources.py, tools/free_sec.py]
+    producer: Tiingo, Massive grouped-daily, and SEC raw capture
+    readers: [free-source loaders and audit]
+    semantics: append_only_evidence
+    clock_and_key: Content hash, request identity, received time, and receipt
+    retention: Keep logical bytes; lossless compression may replace only an exactly verified encoding.
+    backup: Current research checkpoint required before local retirement.
+    rebuild: not_rebuildable as the same response without retained bytes
+    registration: P3 research-only evidence
+    quality_gate: Decompressed byte length and SHA-256 equal the receipt
+
+  - id: files.massive_minute_raw
+    kind: file_set
+    location: store/pit/massive-minute/**
+    schema_owner: [engine/free_massive_minute.py, tools/free_massive_minute.py]
+    producer: Massive minute capture
+    readers: [minute loader, resume logic, offline audit]
+    semantics: append_only_evidence_and_progress
+    clock_and_key: Page content hash or ticker/window chunk identity
+    retention: Keep raw pages and mutable chunk receipts with the database/WAL cohort.
+    backup: Owner RPO decision pending.
+    rebuild: Raw pages are unique observations; progress receipts are reconstructable only from the complete cohort.
+    registration: Frozen host-only minute capture manifest
+    quality_gate: Response hash, window coverage, deduplication, and resumability
+
+  - id: files.options_raw
+    kind: file_set
+    location: store/pit/options/**
+    schema_owner: engine/free_massive_options.py
+    producer: Future Massive options capture
+    readers: [future options loader and audit]
+    semantics: append_only_evidence
+    clock_and_key: Request, contract, session, and response hash
+    retention: Keep with options.duckdb and receipts as one recoverable cohort.
+    backup: Excluded until capture activation names an RPO.
+    rebuild: not_rebuildable as the same response without retained bytes
+    registration: Research-only; no execution authority
+    quality_gate: Receipt hash and contract/session identity
+
+  - id: files.retired_pit_archives
+    kind: file_set
+    location: store/pit/{sec-bulk,short-data,frozen-archive}/**
+    schema_owner: [engine/free_sec_bulk.py, tools/free_sec_bulk.py, tools/free_frozen_archive.py]
+    producer: Retired SEC bulk, short-data, and frozen-archive tools
+    readers: [offline restore on demand]
+    semantics: remote_only_append_only_evidence
+    clock_and_key: Exact release asset and member hashes
+    retention: Local payloads retired; retain catalogue entry and restore instructions.
+    backup: Exact private research release identified by store/pit/RESTORE.md.
+    rebuild: Fetch and verify the exact release; never create empty old paths.
+    registration: P3 evidence archive
+    quality_gate: Release asset and member hash verification
+
+  - id: files.price_verifier_receipts
+    kind: file_set
+    location: data/price-verify/**
+    schema_owner: engine/verify_prices.py
+    producer: Independent price verifier
+    readers: [meta, board, backup]
+    semantics: append_only_evidence
+    clock_and_key: Response SHA-256 and request metadata
+    retention: Never subject to generic report or log retention.
+    backup: Recovery bundle mirrors every completed member.
+    rebuild: not_rebuildable as the same response
+    registration: Price verification evidence contracts
+    quality_gate: Exact response bytes, metadata identity, and digest
+
+  - id: files.committed_operational_outputs
+    kind: file_set
+    location: data/{_meta.json,universe.csv,eod/**,screens/**,reports/**}
+    schema_owner: [engine/resources.py, engine/universe.py, engine/screen.py, sim/league.py, farm/**/*.py]
+    producer: Engine, simulator, farm, evaluation, and metrics renderers
+    readers: [API, board, operators, registrations, recovery]
+    semantics: derived_and_registered_evidence
+    clock_and_key: Output-specific market date, run identity, source hash, and registration
+    retention: Keep current operational artifacts and every registered or frozen report; delete only named unreferenced derived outputs.
+    backup: Required subset is included in the recovery bundle; committed data is pushed separately.
+    rebuild: Derived outputs may render from exact retained tables and inputs; registered reports are retained byte-for-byte.
+    registration: Release manifests and trial registrations pin selected files.
+    quality_gate: Atomic writes, source identity, renderer determinism, and report/table equality
+
+  - id: files.operational_logs
+    kind: file_set
+    location: logs/**
+    schema_owner: [engine/lib/driver.sh, tools/ops_digest.py, server/*.service]
+    producer: Drivers, services, observers, and operations digest
+    readers: [driver monitor, scheduler monitor, ops digest, operators]
+    semantics: diagnostic_and_derived_metrics
+    clock_and_key: Run, service, timestamp, inode, and cursor offset
+    retention: Source logs require bounded rotation with cursor preservation; metrics 180 days and reports 30 days.
+    backup: Diagnostic logs are excluded except named recovery artifacts such as friday-postflight.json.
+    rebuild: not_rebuildable after source rotation; metrics can be regenerated only while sources remain
+    registration: No trading authority; selected postflight evidence may be release-bound.
+    quality_gate: Cursor-safe rotation, visible failures, and no response-receipt deletion
+
+  - id: files.research_scratch
+    kind: file_set
+    location: scratch/**
+    schema_owner: [farm/backtest, farm/walkforward, farm/sweep, farm/experiment]
+    producer: Offline research and proof runners
+    readers: [the owning job]
+    semantics: cache
+    clock_and_key: Job, source generation, configuration, and process identity
+    retention: Delete after successful durable reports; preserve only explicitly pinned incident inputs.
+    backup: Excluded.
+    rebuild: Re-run from the exact named immutable input generation.
+    registration: Scratch never grants strategy authority.
+    quality_gate: Private per-job paths, cleanup on success, and durable report identity
+
+  - id: external.private_operational_backup
+    kind: external_backup
+    location: private-backup/engine/{schema.sql,manifest.json,tables/**,evidence/**,bundle-manifest.json}
+    schema_owner: Private backup repository
+    producer: Daily backup exporter
+    readers: [disaster restore]
+    semantics: immutable_backup_generations
+    clock_and_key: Backup commit, bundle manifest, schema, table segment, and evidence hashes
+    retention: Immutable Parquet deltas in private Git with complete restore checks.
+    backup: This is the off-host backup target.
+    rebuild: Restore every manifest sequentially and verify the complete database and evidence tree.
+    registration: Recovery boundary, not strategy authority
+    quality_gate: Same-host restore every run and periodic independently fetched remote restore
+
+  - id: external.private_research_release
+    kind: external_backup
+    location: private-research-release/**
+    schema_owner: Private data evidence archive
+    producer: Research evidence archive publisher
+    readers: [offline PIT restore]
+    semantics: immutable_backup_generation
+    clock_and_key: Release identity, asset identity, member length, and SHA-256
+    retention: Retain exact fixed checkpoints and their restore instructions.
+    backup: This is the off-host research archive target.
+    rebuild: Fetch the exact release and verify every member before loading.
+    registration: P3 fixed evidence checkpoints
+    quality_gate: Independent fetched restore and exact member verification
