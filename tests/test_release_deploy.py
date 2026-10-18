@@ -398,13 +398,49 @@ def test_changed_source_and_unknown_migration_are_refused(transaction):
     operations.head = "3" * 40
     with pytest.raises(release_deploy.DeployError, match="source changed"):
         deployment.apply(execute=True, approve_plan=None)
-
     operations.head = OLD_SHA
     state = deployment.store.load()
     state.prepared["migrations"] = [{"migration_id": "unknown", "version": 1}]
     deployment.store.save(state)
     with pytest.raises(release_deploy.DeployError, match="migration registry"):
         deployment.apply(execute=True, approve_plan=None)
+
+
+def test_source_check_allows_only_transaction_selected_runtime_links(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "ui").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", repo], check=True)
+    (repo / "tracked").write_text("tracked\n")
+    subprocess.run(["git", "-C", repo, "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            repo,
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-qm",
+            "fixture",
+        ],
+        check=True,
+    )
+    target = tmp_path / "prepared-build"
+    target.mkdir()
+    (repo / "ui/.next").symlink_to(target)
+    operations = release_deploy.ReleaseOperations(
+        release_deploy.StateStore(tmp_path / "state"),
+        home=tmp_path,
+        command_runner=release_deploy.CommandRunner(),
+        api_url="http://invalid",
+        ui_url="http://invalid",
+        minimum_free_bytes=0,
+    )
+    with pytest.raises(release_deploy.DeployError, match="ui/.next"):
+        operations._source_status(repo)
+    assert operations._source_status(repo, allowed_paths=frozenset({"ui/.next"})) == []
 
 
 def test_receipt_refuses_changed_inputs_without_rerunning(tmp_path):

@@ -527,7 +527,9 @@ class ReleaseOperations:
             )
         return {"free_bytes": free, "required_bytes": required, "database_bytes": database_size}
 
-    def _source_status(self, root: Path) -> list[str]:
+    def _source_status(
+        self, root: Path, *, allowed_paths: frozenset[str] = frozenset()
+    ) -> list[str]:
         raw = self.runner.run(
             [self._tool("git"), "status", "--porcelain=v1", "-z", "--untracked-files=all"],
             cwd=root,
@@ -547,7 +549,7 @@ class ReleaseOperations:
                 raise DeployError(f"index is not clean: {path}")
             if status[0] in "RC" or status[1] in "RC":
                 raise DeployError("renamed or copied paths are not deployable")
-            if not path.startswith(("data/", "logs/")):
+            if path not in allowed_paths and not path.startswith(("data/", "logs/")):
                 changed.append(path)
         if changed:
             raise DeployError(f"source changed outside generated paths: {', '.join(changed)}")
@@ -745,7 +747,8 @@ class ReleaseOperations:
         root = Path(state.repo_root)
         if self._head(root) != expected:
             raise DeployError("release checkout source changed")
-        self._source_status(root)
+        allowed = frozenset(state.prior_runtimes) if expected == state.approved_sha else frozenset()
+        self._source_status(root, allowed_paths=allowed)
         migrations = state.prepared.get("migrations")
         if migrations != [asdict(item) for item in ADAPTERS.get(state.adapter_set, ())]:
             raise DeployError("unknown or changed migration registry")

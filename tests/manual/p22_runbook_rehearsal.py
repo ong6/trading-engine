@@ -281,7 +281,7 @@ def main() -> int:
         for path in output.rglob("*.duckdb*"):
             if path.is_file() or path.is_symlink():
                 deleted.append(
-                    {"path": str(path.relative_to(output)), "bytes": path.stat().st_size}
+                    {"path": str(path.relative_to(output)), "bytes": path.lstat().st_size}
                 )
                 path.unlink()
         if root.exists():
