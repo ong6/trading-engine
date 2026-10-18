@@ -18,7 +18,7 @@ import subprocess
 import sys
 from collections import Counter
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 MAX_TEXT_BYTES = 2 * 1024 * 1024
@@ -70,10 +70,12 @@ _SECRET_RULES = (
     (
         "credential_assignment",
         re.compile(
-            r"(?i)\b(?:api[_-]?key|access[_-]?token|client[_-]?secret|password)\b"
-            r"\s*[:=]\s*[\"']([^\"'\s]{24,})[\"']"
+            r"(?im)^[ \t]*(?:export[ \t]+)?"
+            r"(?:api[_-]?key|access[_-]?token|client[_-]?secret|password)"
+            r"[ \t]*[:=][ \t]*([\"']?)([A-Za-z0-9_./+=:@-]{24,})\1"
+            r"[ \t]*(?:#.*)?$"
         ),
-        1,
+        2,
     ),
 )
 _TOOL_COAUTHOR_RE = re.compile(
@@ -148,11 +150,15 @@ def public_identity_error(name: str, email: str) -> str | None:
     return None
 
 
-def _public_fixture(value: str) -> bool:
+def _public_fixture(path: str, value: str) -> bool:
+    parts = PurePosixPath(path).parts
+    if "tests" not in parts:
+        return False
     lowered = value.casefold()
-    if any(word in lowered for word in _PUBLIC_FIXTURE_WORDS):
-        return True
-    return len(set(lowered)) <= 4
+    return any(
+        lowered == word or lowered.startswith(f"{word}-") or lowered.startswith(f"{word}_")
+        for word in _PUBLIC_FIXTURE_WORDS
+    )
 
 
 def _sensitive_path(path: str, denylist: tuple[str, ...]) -> bool:
@@ -163,7 +169,7 @@ def _sensitive_path(path: str, denylist: tuple[str, ...]) -> bool:
     for rule, pattern, group in _SECRET_RULES:
         for match in pattern.finditer(path):
             candidate = match.group(group)
-            if rule != "credential_assignment" or not _public_fixture(candidate):
+            if rule != "credential_assignment" or not _public_fixture(path, candidate):
                 return True
     return False
 
@@ -190,7 +196,7 @@ def _scan_value(
         for rule, pattern, group in _SECRET_RULES:
             for match in pattern.finditer(value):
                 candidate = match.group(group)
-                if rule == "credential_assignment" and _public_fixture(candidate):
+                if rule == "credential_assignment" and _public_fixture(path, candidate):
                     continue
                 findings.add(_finding(path, rule, candidate, redact_path=redact_path))
     return findings

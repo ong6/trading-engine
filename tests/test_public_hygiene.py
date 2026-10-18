@@ -65,13 +65,56 @@ def _rules(findings: set[public_hygiene.Finding]) -> set[str]:
 def test_safe_public_fixture_and_binary_commit_pass(tmp_path):
     root, _remote = _repository(tmp_path)
     base = _git(root, "rev-parse", "HEAD").stdout.strip()
-    (root / "fixture.txt").write_text('api_key = "fixture-secret-value-long-enough"\n')
+    (root / "tests").mkdir()
+    (root / "tests" / "fixture.txt").write_text(
+        'api_key = "fixture-secret-value-long-enough"\n'
+    )
     (root / "binary.bin").write_bytes(b"\x00" + b"AKIA" + b"A" * 16)
     head = _commit(root)
 
     scanner = public_hygiene.RepositoryScanner(root)
 
     assert scanner.scan_range(f"{base}..{head}") == set()
+
+
+def test_unquoted_env_and_yaml_credentials_are_redacted(tmp_path, capsys):
+    root, _remote = _repository(tmp_path)
+    base = _git(root, "rev-parse", "HEAD").stdout.strip()
+    candidates = [
+        "A" * 24 + suffix for suffix in ("Api9", "Token8", "Secret7", "Password6")
+    ]
+    (root / ".env").write_text(
+        "\n".join(
+            (
+                f"API_KEY={candidates[0]}",
+                f"ACCESS_TOKEN: {candidates[1]}",
+                f"export CLIENT_SECRET={candidates[2]}",
+                f"PASSWORD: {candidates[3]} # private",
+            )
+        )
+        + "\n"
+    )
+    head = _commit(root)
+
+    findings = public_hygiene.RepositoryScanner(root).scan_range(f"{base}..{head}")
+    result = public_hygiene.main(["--repo-root", str(root), "--range", f"{base}..{head}"])
+    output = capsys.readouterr()
+
+    assert result == 1
+    assert len([item for item in findings if item.rule == "credential_assignment"]) == 4
+    assert not any(candidate in output.out + output.err for candidate in candidates)
+
+
+def test_fixture_word_outside_test_path_does_not_exempt_credential(tmp_path):
+    root, _remote = _repository(tmp_path)
+    base = _git(root, "rev-parse", "HEAD").stdout.strip()
+    candidate = "fixture-" + "A" * 28
+    (root / ".env").write_text(f"API_KEY={candidate}\n")
+    head = _commit(root)
+
+    findings = public_hygiene.RepositoryScanner(root).scan_range(f"{base}..{head}")
+
+    assert "credential_assignment" in _rules(findings)
 
 
 def test_checker_source_does_not_trigger_its_path_rules():
