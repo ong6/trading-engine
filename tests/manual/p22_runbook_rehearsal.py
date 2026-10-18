@@ -165,7 +165,11 @@ def main() -> int:
     database = root / "store/market.duckdb"
     database.parent.mkdir(exist_ok=True)
     shutil.copy2(args.snapshot, database)
-    (root / "logs").mkdir(exist_ok=True)
+    evidence_logs = args.evidence.resolve().parent / "logs"
+    if evidence_logs.is_dir():
+        shutil.copytree(evidence_logs, root / "logs", dirs_exist_ok=True)
+    else:
+        (root / "logs").mkdir(exist_ok=True)
     (home / ".config/systemd/user").mkdir(parents=True)
     fake_host = _fake_host(output)
     cron = output / "crontab"
