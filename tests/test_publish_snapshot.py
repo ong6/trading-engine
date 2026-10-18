@@ -429,7 +429,12 @@ def test_new_payload_directory_chain_is_synced_before_pointer(tmp_path, monkeypa
     original_sync = publish_snapshot._sync_directory
 
     def recording_sync(path):
-        synced.append(path.relative_to(source.parent / "snapshots").as_posix() or ".")
+        snapshots_root = source.parent / "snapshots"
+        synced.append(
+            path.relative_to(snapshots_root).as_posix()
+            if path.is_relative_to(snapshots_root)
+            else "parent"
+        )
         original_sync(path)
 
     monkeypatch.setattr(publish_snapshot, "_sync_directory", recording_sync)
@@ -448,7 +453,12 @@ def test_directory_fsync_failure_never_advances_pointer(tmp_path, monkeypatch, f
     original_sync = publish_snapshot._sync_directory
 
     def failing_sync(path):
-        relative = path.relative_to(source.parent / "snapshots")
+        snapshots_root = source.parent / "snapshots"
+        relative = (
+            path.relative_to(snapshots_root)
+            if path.is_relative_to(snapshots_root)
+            else Path("parent")
+        )
         is_part = failure == "part-directory" and path.name == "intraday_prices"
         is_blob = (
             failure == "blob-prefix"

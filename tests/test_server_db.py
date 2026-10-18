@@ -1,5 +1,6 @@
 """API database connections fail closed on transient DuckDB contention."""
 
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -76,3 +77,37 @@ def test_versioned_store_without_generation_fails_closed(tmp_path, monkeypatch):
 
     with pytest.raises(DBBusyError, match="no valid published generation"):
         db.read_con()
+
+
+def test_dataset_freshness_and_generation_identity_are_forwarded(monkeypatch):
+    calls = []
+    connection = SimpleNamespace(close=lambda: None)
+
+    def pin(*_args, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            info=SimpleNamespace(
+                path=Path("generation.duckdb"),
+                as_of=datetime(2026, 10, 19, tzinfo=timezone.utc),
+                generation_id="market-20261019T000000000000Z",
+            ),
+            close=lambda: None,
+        )
+
+    monkeypatch.setattr(db, "pin_latest_generation", pin)
+    monkeypatch.setattr(db.engine_db, "connect", lambda *_args, **_kwargs: connection)
+
+    with db.response_data_source() as state:
+        db.read_con().close()
+        assert state["generation_id"] == "market-20261019T000000000000Z"
+    with db.require_fresh_evidence_snapshot():
+        db.read_con().close()
+
+    assert calls[0] == {
+        "newer_than_database": False,
+        "max_age": db.DATASET_GENERATION_MAX_AGE["board"],
+    }
+    assert calls[1] == {
+        "newer_than_database": True,
+        "max_age": db.DATASET_GENERATION_MAX_AGE["evidence"],
+    }

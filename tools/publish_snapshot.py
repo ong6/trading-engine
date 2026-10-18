@@ -51,9 +51,12 @@ class SnapshotError(RuntimeError):
 def _publication_window(directory: Path):
     """Serialize install, pointer publication, verification, and garbage collection."""
     lock_path = directory / ".generation-publish.lock"
+    created = not lock_path.exists()
     flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(lock_path, flags, 0o600)
     try:
+        if created:
+            _sync_directory(directory)
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise SnapshotError("generation publication lock is not a regular file")
         fcntl.flock(descriptor, fcntl.LOCK_EX)
@@ -607,6 +610,10 @@ def _prune_unreachable_payloads(directory: Path) -> None:
 
 
 def _retain_newest(directory: Path) -> None:
+    if not _PUBLICATION_LOCK_HELD.get():
+        with _publication_window(directory):
+            _retain_newest(directory)
+        return
     snapshots = sorted(
         path for path in directory.glob("market-*.duckdb")
         if path.name != LATEST_NAME and not path.is_symlink()
@@ -638,7 +645,7 @@ def publish_snapshot(
     repo_root = repo_root.resolve()
     source = source.resolve(strict=True)
     directory = snapshot_directory(source)
-    directory.mkdir(parents=True, exist_ok=True)
+    _mkdir_durable(source.parent, directory)
     with _publication_window(directory):
         return _publish_locked(
             repo_root, source, directory, now=now, held_locks=held_locks,
