@@ -23,14 +23,17 @@ from pathlib import Path
 
 import duckdb
 
-from engine import migrations as schema_registry
 from engine.lib.provenance import canonical_sha256
 from engine.lib.resources import write_text_atomic
 from engine.lib.settings import DATA_DIR, DEFAULT_DB, REPO_ROOT
 from engine.lib.snapshots import (
+    CURRENT_SCHEMA_ID,
     GenerationError,
+    SchemaIdentityError,
     SnapshotInfo,
     pin_latest_generation,
+    require_compatible_schema,
+    sequence_state,
 )
 from server import nightly_monitor
 from server.driver_monitor import DRIVER_SCHEDULES
@@ -115,7 +118,7 @@ SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 RENAME_NOREPLACE = 1
 MIN_FREE_BYTES = 70 * 1024**3
-CURRENT_DATABASE_SCHEMA_ID = schema_registry.CURRENT_SCHEMA_ID
+CURRENT_DATABASE_SCHEMA_ID = CURRENT_SCHEMA_ID
 
 # Interface owned here and implemented by the private trading-data exporter.
 # The exporter must preserve these identities, fingerprint complete immutable
@@ -1126,7 +1129,7 @@ def database_snapshot(connection: duckdb.DuckDBPyConnection, database: str) -> d
         "job_states": job_states,
         "active_portfolio_count": len(active_portfolios),
         "active_portfolios_sha256": canonical_sha256(active_portfolios),
-        "sequence_state": schema_registry.sequence_state(connection, database),
+        "sequence_state": sequence_state(connection, database),
     }
 
 
@@ -1307,8 +1310,8 @@ def _generation_identity(info: SnapshotInfo) -> dict:
 
 def _generation_schema_identity(connection: duckdb.DuckDBPyConnection) -> dict:
     try:
-        return schema_registry.require_compatible_schema(connection)
-    except schema_registry.SchemaIdentityError as exc:
+        return require_compatible_schema(connection)
+    except SchemaIdentityError as exc:
         raise BackupError(str(exc)) from exc
 
 

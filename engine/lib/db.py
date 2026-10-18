@@ -23,8 +23,8 @@ from uuid import uuid4
 import duckdb
 import pandas as pd
 
-from engine import migrations as schema_registry
 from engine.lib import settings
+from engine.lib import snapshots as schema_registry
 from engine.lib.data_quality import PRICE_VALIDATOR_VERSION, observation_reasons, split_like_factor
 from engine.lib.log import get_logger
 
@@ -418,7 +418,7 @@ def database_catalog_sha256(con: duckdb.DuckDBPyConnection) -> str:
 
 def recorded_schema_id(con: duckdb.DuckDBPyConnection) -> int | None:
     try:
-        return schema_registry.schema_id(con)
+        return schema_registry.recorded_schema_id(con)
     except schema_registry.SchemaIdentityError as exc:
         raise SchemaMigrationRequired(str(exc)) from exc
 

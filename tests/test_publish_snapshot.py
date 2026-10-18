@@ -440,3 +440,27 @@ def test_new_payload_directory_chain_is_synced_before_pointer(tmp_path, monkeypa
     assert "blobs" in synced
     assert any(value.startswith("blobs/") for value in synced)
     assert synced[-1] == "."
+
+
+@pytest.mark.parametrize("failure", ["part-directory", "blob-prefix"])
+def test_directory_fsync_failure_never_advances_pointer(tmp_path, monkeypatch, failure):
+    root, source = _repo(tmp_path, cold=failure == "part-directory")
+    original_sync = publish_snapshot._sync_directory
+
+    def failing_sync(path):
+        relative = path.relative_to(source.parent / "snapshots")
+        is_part = failure == "part-directory" and path.name == "intraday_prices"
+        is_blob = (
+            failure == "blob-prefix"
+            and len(relative.parts) == 2
+            and relative.parts[0] == "blobs"
+        )
+        if is_part or is_blob:
+            raise OSError(f"{failure} fsync failed")
+        original_sync(path)
+
+    monkeypatch.setattr(publish_snapshot, "_sync_directory", failing_sync)
+
+    with pytest.raises(publish_snapshot.SnapshotError, match="fsync failed"):
+        publish_snapshot.publish_snapshot(root, source, now=NOW)
+    assert not (source.parent / "snapshots" / snapshots.LATEST_NAME).exists()
