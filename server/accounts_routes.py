@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date, datetime, timezone
 from threading import Lock
 from typing import Annotated, Iterator
@@ -20,6 +21,9 @@ from . import db as server_db
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 _WRITER_LOCK = Lock()
+_ACTIVE_WRITE_CONNECTION: ContextVar[duckdb.DuckDBPyConnection | None] = ContextVar(
+    "account_active_write_connection", default=None,
+)
 
 
 @contextmanager
@@ -45,7 +49,11 @@ def _write_connection() -> Iterator[duckdb.DuckDBPyConnection]:
     try:
         with _WRITER_LOCK:
             with _connection(_write_con) as con:
-                yield con
+                token = _ACTIVE_WRITE_CONNECTION.set(con)
+                try:
+                    yield con
+                finally:
+                    _ACTIVE_WRITE_CONNECTION.reset(token)
     except duckdb.TransactionException as exc:
         raise HTTPException(503, "account writer contention; retry",
                             headers={"Retry-After": "1"}) from exc
@@ -68,8 +76,10 @@ def _require_account_access(con, account_id: str, authorization: str | None) -> 
 
 
 def _require_account_mutation(account_id: str, authorization: str | None) -> None:
-    with _connection(server_db.read_con) as con:
-        _invoke(_require_account_access, con, account_id, authorization)
+    con = _ACTIVE_WRITE_CONNECTION.get()
+    if con is None:
+        raise RuntimeError("account mutation check requires the active writer connection")
+    _invoke(_require_account_access, con, account_id, authorization)
     _require_token(authorization)
 
 
@@ -167,11 +177,11 @@ def get_results(account_id: str, authorization: Annotated[str | None, Header()] 
 @router.post("/{account_id}/orders")
 def submit_order(account_id: str, body: dict,
                  authorization: Annotated[str | None, Header()] = None):
-    _require_account_mutation(account_id, authorization)
     received_at = datetime.now(timezone.utc)  # authoritative: before writer acquisition
     if body.get("account_id") != account_id:
         raise HTTPException(422, "path and intent account identifiers differ")
     with _write_connection() as con:
+        _require_account_mutation(account_id, authorization)
         with account_sources.production_sources(con, tickers=[body.get("instrument_id", "")]):
             return _invoke(service.submit, con, body, received_at=received_at)
 
@@ -179,27 +189,27 @@ def submit_order(account_id: str, body: dict,
 @router.post("/{account_id}/orders/{order_id}/cancel")
 def cancel_order(account_id: str, order_id: int,
                  authorization: Annotated[str | None, Header()] = None):
-    _require_account_mutation(account_id, authorization)
     received_at = datetime.now(timezone.utc)
     with _write_connection() as con:
+        _require_account_mutation(account_id, authorization)
         return _invoke(service.cancel, con, account_id, order_id, now=received_at)
 
 
 @router.post("/{account_id}/reconciliations")
 def post_reconciliation(account_id: str, body: dict,
                         authorization: Annotated[str | None, Header()] = None):
-    _require_account_mutation(account_id, authorization)
     received_at = datetime.now(timezone.utc)
     with _write_connection() as con:
+        _require_account_mutation(account_id, authorization)
         return _invoke(service.reconcile, con, account_id, body, now=received_at)
 
 
 @router.post("/{account_id}/halt")
 def halt_account(account_id: str, body: dict | None = None,
                  authorization: Annotated[str | None, Header()] = None):
-    _require_account_mutation(account_id, authorization)
     received_at = datetime.now(timezone.utc)
     with _write_connection() as con:
+        _require_account_mutation(account_id, authorization)
         return _invoke(service.halt, con, account_id, note=(body or {}).get("note", ""),
                        now=received_at)
 
@@ -207,28 +217,28 @@ def halt_account(account_id: str, body: dict | None = None,
 @router.post("/{account_id}/resume")
 def resume_account(account_id: str, body: dict,
                    authorization: Annotated[str | None, Header()] = None):
-    _require_account_mutation(account_id, authorization)
     received_at = datetime.now(timezone.utc)
     if set(body) - {'by', 'note'}:
         raise HTTPException(409, 'resume is effective at receipt; a supplied effective time is not accepted')
     with _write_connection() as con:
+        _require_account_mutation(account_id, authorization)
         return _invoke(service.resume, con, account_id, resumed_by=body.get("by"),
                        note=body.get("note", ""), now=received_at)
 
 
 @router.post("/{account_id}/retire")
 def retire_account(account_id: str, authorization: Annotated[str | None, Header()] = None):
-    _require_account_mutation(account_id, authorization)
     received_at = datetime.now(timezone.utc)
     with _write_connection() as con:
+        _require_account_mutation(account_id, authorization)
         return _invoke(service.retire, con, account_id, now=received_at)
 
 
 @router.post("/{account_id}/watch")
 def replace_account_watch(account_id: str, body: dict,
                           authorization: Annotated[str | None, Header()] = None):
-    _require_account_mutation(account_id, authorization)
     received_at = datetime.now(timezone.utc)
     with _write_connection() as con:
+        _require_account_mutation(account_id, authorization)
         return _invoke(service.replace_watch, con, account_id, body.get("tickers"),
                        now=received_at)

@@ -18,7 +18,7 @@ import subprocess
 import sys
 import tempfile
 from contextlib import ExitStack, contextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import duckdb
@@ -131,7 +131,7 @@ REMOTE_RESTORE_INTERFACE = {
     "required_restore_receipt_fields": [
         "remote_commit", "fetched_at", "backup_manifest_sha256",
         "generation_manifest_sha256", "engine_database_sha256",
-        "research_database_sha256", "semantic_health_sha256",
+        "research_database_sha256", "semantic_health_sha256", "rpo_hours",
     ],
     "partition_contract": {
         "fingerprint": "ordered paths, lengths, and sha256 for every complete partition",
@@ -234,10 +234,13 @@ def remote_restore_drill(
     receipt_path: Path,
     *,
     scratch_parent: Path,
+    rpo_hours: float = 24,
 ) -> dict:
     """Fetch one exact remote commit, verify/health-check it, and clean scratch."""
     if not isinstance(commit, str) or GIT_SHA_PATTERN.fullmatch(commit) is None:
         raise BackupError("remote restore commit is invalid")
+    if not isinstance(rpo_hours, (int, float)) or not 1 <= rpo_hours <= 24 * 31:
+        raise BackupError("remote restore RPO must be from 1 hour through 31 days")
     receipt_path = receipt_path.absolute()
     if os.path.lexists(receipt_path):
         raise BackupError("remote restore receipt already exists")
@@ -299,6 +302,9 @@ def remote_restore_drill(
             "research": research_results,
         }
         manifest, backup_manifest_sha256 = _load_manifest(engine_bundle)
+        created_at = datetime.fromisoformat(manifest["created_at"])
+        if created_at < datetime.now(timezone.utc) - timedelta(hours=rpo_hours):
+            raise BackupError("remote engine backup exceeds the configured RPO")
         generation = manifest.get("generation")
         if not isinstance(generation, dict):
             raise BackupError("remote engine bundle is not generation-backed")
@@ -310,6 +316,7 @@ def remote_restore_drill(
             "engine_database_sha256": engine["database_sha256"],
             "research_database_sha256": canonical_sha256(research_results),
             "semantic_health_sha256": canonical_sha256(health),
+            "rpo_hours": rpo_hours,
         }
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         write_text_atomic(receipt_path, json.dumps(receipt, indent=2, sort_keys=True) + "\n")
@@ -1801,6 +1808,7 @@ def main(argv: list[str] | None = None) -> int:
     remote.add_argument("commit")
     remote.add_argument("receipt", type=Path)
     remote.add_argument("--scratch-parent", type=Path, required=True)
+    remote.add_argument("--rpo-hours", type=float, default=24)
     args = parser.parse_args(argv)
     repo_root = args.repo_root.resolve()
     try:
@@ -1818,6 +1826,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.commit,
                 _resolve_from_repo(repo_root, args.receipt),
                 scratch_parent=args.scratch_parent,
+                rpo_hours=args.rpo_hours,
             )
     except (BackupError, OSError) as exc:
         print(json.dumps({"status": "failed", "reason": str(exc)}, sort_keys=True))
