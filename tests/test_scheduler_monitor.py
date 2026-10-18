@@ -12,6 +12,8 @@ from server import (
     scheduler_monitor,
 )
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 def _installed_crontab(repo_root):
     return "\n".join(
@@ -1254,3 +1256,40 @@ def test_last_backup_commit_normalizes_git_time(monkeypatch, tmp_path):
     assert calls[0][:4] == ["git", "-C", str(tmp_path), "log"]
     monkeypatch.setattr(host, "run_bounded", lambda _args: _Completed("", returncode=128))
     assert host.last_backup_commit(tmp_path) is None
+
+def _registry_repo(tmp_path: Path) -> Path:
+    (tmp_path / "ops").mkdir()
+    (tmp_path / "ops/jobs.toml").write_text((ROOT / "ops/jobs.toml").read_text())
+    server = tmp_path / "server"
+    server.mkdir()
+    for path in (ROOT / "server").glob("*.service"):
+        if path.name in scheduler_monitor.job_contract.render_units(
+            scheduler_monitor.job_contract.load_registry(ROOT)
+        ):
+            (server / path.name).write_text(path.read_text())
+    for path in (ROOT / "server").glob("*.timer"):
+        (server / path.name).write_text(path.read_text())
+    return tmp_path
+
+
+def test_job_registry_audits_legacy_sources_without_becoming_scheduler():
+    audit = scheduler_monitor.registry_audit(ROOT)
+    assert audit == {
+        "status": "ok",
+        "mode": "audit-only",
+        "jobs": 20,
+        "scheduled_jobs": 19,
+        "registered_timers": 13,
+        "registered_cron": 6,
+        "errors": [],
+    }
+
+
+def test_job_registry_reports_an_undocumented_source_timer(tmp_path):
+    repo = _registry_repo(tmp_path)
+    (repo / "server/rogue.timer").write_text("[Timer]\nOnCalendar=*-*-* 00:00:00 UTC\n")
+
+    audit = scheduler_monitor.registry_audit(repo)
+
+    assert audit["status"] == "mismatch"
+    assert audit["errors"] == ["undocumented-timer:rogue.timer"]

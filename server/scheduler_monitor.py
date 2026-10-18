@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from engine import job_contract
 from engine.lib.settings import REPO_ROOT
 
 from . import friday_postflight, schedule_contract, scheduler_host
@@ -261,6 +262,44 @@ def expected_auxiliary_cron_entries(repo_root: Path = REPO_ROOT) -> dict[str, st
     }
 
 
+def registry_audit(repo_root: Path = REPO_ROOT) -> dict | None:
+    """Compare JobSpec rendering with legacy sources without changing scheduler authority."""
+    if not (repo_root / job_contract.DEFAULT_MANIFEST).is_file():
+        return None
+    try:
+        registry = job_contract.load_registry(repo_root)
+        expected_cron = {
+            **expected_cron_entries(repo_root),
+            **expected_auxiliary_cron_entries(repo_root),
+        }
+        rendered_cron = job_contract.render_cron_entries(registry, repo_root)
+        source_timers = {path.name for path in (repo_root / "server").glob("*.timer")}
+        registered_timers = {job.timer_unit for job in registry.jobs if job.timer_unit}
+        source_audit = job_contract.audit_sources(repo_root, registry)
+    except job_contract.JobContractError as exc:
+        return {"status": "invalid", "errors": [f"invalid:{exc}"]}
+    errors = list(source_audit["differences"])
+    errors.extend(
+        f"cron-mismatch:{name}"
+        for name in sorted(set(expected_cron) | set(rendered_cron))
+        if expected_cron.get(name) != rendered_cron.get(name)
+    )
+    errors.extend(f"undocumented-timer:{name}" for name in sorted(source_timers - registered_timers))
+    errors.extend(
+        f"registered-timer-source-missing:{name}"
+        for name in sorted(registered_timers - source_timers)
+    )
+    return {
+        "status": "ok" if not errors else "mismatch",
+        "mode": "audit-only",
+        "jobs": len(registry.jobs),
+        "scheduled_jobs": sum(bool(job.schedules) for job in registry.jobs),
+        "registered_timers": len(registered_timers),
+        "registered_cron": len(rendered_cron),
+        "errors": errors,
+    }
+
+
 def managed_log_targets(repo_root: Path = REPO_ROOT) -> dict[str, Path]:
     """Return every file that a managed cron entry redirects output into."""
     targets = {
@@ -429,7 +468,7 @@ def evaluate_scheduler(
         and not unsafe_log_targets
         and log_directory_writable
     )
-    return {
+    result = {
         "status": _scheduler_state(
             service_state, service_enabled, timezone_ok, schedule, launch_ready
         ),
@@ -445,6 +484,12 @@ def evaluate_scheduler(
         "unsafe_log_targets": sorted(unsafe_log_targets),
         "log_directory_writable": log_directory_writable,
     }
+    registry = registry_audit(repo_root)
+    if registry is not None:
+        result["job_registry"] = registry
+        if registry["status"] != "ok" and result["status"] == "ok":
+            result["status"] = "misconfigured"
+    return result
 
 
 def invalid_status(
@@ -644,7 +689,7 @@ def _project_observation(observation: _SchedulerObservation, repo_root: Path) ->
         observation.backup_state, observation.backup_state_at, observation.backup_commit_at
     )
     if observation.crontab_error is not None or observation.crontab_text is None:
-        return invalid_status(
+        result = invalid_status(
             observation.crontab_error or "crontab-unreadable",
             cron_service=observation.service_state,
             cron_service_unit=observation.service_unit,
@@ -657,6 +702,10 @@ def _project_observation(observation: _SchedulerObservation, repo_root: Path) ->
             user_units=user_units,
             backup=backup,
         )
+        registry = registry_audit(repo_root)
+        if registry is not None:
+            result["job_registry"] = registry
+        return result
     cron = evaluate_scheduler(
         observation.crontab_text,
         observation.service_state,

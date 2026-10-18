@@ -608,6 +608,9 @@ def plan(repo_root: Path = REPO_ROOT, home: Path | None = None) -> tuple[dict, s
     errors.extend(launch_errors)
     host = _host_continuity(repo_root)
     errors.extend(_host_errors(host))
+    registry = scheduler_monitor.registry_audit(repo_root)
+    if registry is not None and registry["status"] != "ok":
+        errors.extend(f"job-registry:{item}" for item in registry["errors"])
     try:
         current_crontab = _read_crontab()
         desired_crontab = render_crontab(current_crontab, repo_root)
@@ -643,6 +646,7 @@ def plan(repo_root: Path = REPO_ROOT, home: Path | None = None) -> tuple[dict, s
         "launch_sources": launch_sources,
         "linger": linger,
         "host": host,
+        "job_registry": registry,
         "managed_cron_entries": len(managed_entries(repo_root)),
     }
     return summary, desired_crontab

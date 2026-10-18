@@ -123,6 +123,26 @@ def test_plan_reports_drift_without_writing(tmp_path, monkeypatch):
     )
 
 
+def test_plan_surfaces_registry_mismatch_without_rendering_or_installing_it(
+    tmp_path, monkeypatch
+):
+    root, home = _repo(tmp_path)
+    monkeypatch.setattr(install_automation, "_read_crontab", lambda: "")
+    audit = {
+        "status": "mismatch",
+        "mode": "audit-only",
+        "errors": ["undocumented-timer:rogue.timer"],
+    }
+    monkeypatch.setattr(install_automation.scheduler_monitor, "registry_audit", lambda _root: audit)
+
+    summary, _desired = install_automation.plan(root, home)
+
+    assert summary["status"] == "invalid"
+    assert summary["job_registry"] == audit
+    assert summary["errors"] == ["job-registry:undocumented-timer:rogue.timer"]
+    assert "rogue.timer" not in summary["service_units"]
+
+
 def test_p22_data_and_account_units_are_registered_with_required_schedules():
     expected = {
         "massive-options-daily.service",
