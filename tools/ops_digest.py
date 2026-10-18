@@ -556,6 +556,46 @@ def collect_job_receipts(
     return fresh, gaps
 
 
+def registered_receipt_alerts(
+    receipts: list[dict], now: datetime, repo_root: Path = REPO_ROOT
+) -> tuple[list[dict], list[dict], list[str]]:
+    """Apply the exact registered alert policy to immutable generic receipts."""
+    try:
+        registry = job_contract.load_registry(repo_root)
+    except job_contract.JobContractError as exc:
+        return [], [], [f"invalid-registry-for-receipts:{exc}"]
+    failures, warnings, errors = [], [], []
+    for receipt in receipts:
+        identity = f"{receipt.get('run_id', '?')}:{receipt.get('attempt', '?')}"
+        spec = registry.by_id.get(str(receipt.get("job_id", "")))
+        if spec is None:
+            errors.append(f"unknown-job-receipt:{receipt.get('job_id', '?')}:{identity}")
+            continue
+        if (receipt.get("spec_version") != spec.version
+                or receipt.get("spec_sha256") != spec.spec_sha256):
+            errors.append(f"job-receipt-spec-mismatch:{spec.job_id}:{identity}")
+            continue
+        status = receipt.get("work_status")
+        if status in {"success", "noop"}:
+            continue
+        ended = datetime.fromisoformat(str(receipt["ended_at"]).replace("Z", "+00:00"))
+        grace = timedelta(seconds=float(spec.alert["grace_seconds"]))
+        if now.astimezone(UTC) - ended.astimezone(UTC) < grace:
+            continue
+        severity = spec.alert["severity"]
+        if severity == "ignore":
+            continue
+        transient = (
+            status in {"degraded", "superseded"}
+            or receipt.get("retry_disposition") == "retry"
+        )
+        if severity == "WARN" or transient:
+            warnings.append(receipt)
+        else:
+            failures.append(receipt)
+    return failures, warnings, errors
+
+
 def store_runs(db: sqlite3.Connection, runs: list[UnitRun]) -> list[dict]:
     """Insert runs, closing a run that started in an earlier hour. Return stored rows."""
     stored = []
@@ -928,12 +968,19 @@ def collect_hour(
     probes, sections, fp, degraded, contract, invariants, gateway_report = (
         [], {}, {}, [], None, None, None)
     job_receipts, config_errors = [], []
+    failed_job_receipts: list[dict] = []
+    warned_job_receipts: list[dict] = []
     receipt_projection_gaps: list[str] = []
     if last:
         collect_files(db, logs_dir, ops_dir, signals)
         job_receipts, receipt_projection_gaps = collect_job_receipts(db, logs_dir, since)
         gaps.extend(receipt_projection_gaps)
-        config_errors = registry_schedule_audit(run)
+        config_errors = registry_schedule_audit(run, repo_root=REPO_ROOT)
+        (failed_job_receipts, warned_job_receipts,
+         receipt_policy_errors) = registered_receipt_alerts(
+            job_receipts, now, repo_root=REPO_ROOT
+        )
+        config_errors.extend(receipt_policy_errors)
         gaps.extend(f"job registry config error: {item}" for item in config_errors)
         first_seen = db.execute("SELECT value FROM meta WHERE key='stages_seen'").fetchone()
         if first_seen and (logs_dir / "stage-timings.jsonl").is_file():
@@ -962,16 +1009,6 @@ def collect_hour(
     # "Succeeded.", and a failure's result follows its exit line even across an hour.
     failed = [r for r in runs if r["result"] not in ("success", "running", SKIPPED_RESULT)]
     failed_stages = [row for row in stages if row["exit"] != 0]
-    failed_job_receipts = [
-        row for row in job_receipts
-        if row["work_status"] in {"retryable_failure", "terminal_failure", "interrupted"}
-        and row.get("retry_disposition") != "retry"
-    ]
-    warned_job_receipts = [
-        row for row in job_receipts
-        if row["work_status"] in {"degraded", "superseded"}
-        or row.get("retry_disposition") == "retry"
-    ]
     errors = sum(sig.counts["error"] for sig in signals.values())
     warns = sum(sig.counts["warn"] for sig in signals.values())
     health = next((p for p in probes if p["target"] == "/health"), None)

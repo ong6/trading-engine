@@ -295,13 +295,16 @@ def test_stage_flow_preserves_zero_ignores_malformed_and_deduplicates(tmp_path):
     }
 
 
-def _registered_receipt(**changes):
+def _registered_receipt(spec=None, **changes):
+    spec = spec or ops_digest.job_contract.load_registry(ops_digest.REPO_ROOT).get(
+        "registry-audit"
+    )
     receipt = {
         "schema_version": 1,
         "run_id": "run-1",
-        "job_id": "registry-audit",
-        "spec_version": 1,
-        "spec_sha256": "a" * 64,
+        "job_id": spec.job_id,
+        "spec_version": spec.version,
+        "spec_sha256": spec.spec_sha256,
         "idempotency_key": "registry-audit:1:2026-10-10T02:00:00Z",
         "scheduled_for": "2026-10-10T02:00:00Z",
         "started_at": "2026-10-10T02:10:00Z",
@@ -311,7 +314,7 @@ def _registered_receipt(**changes):
         "work_status": "success",
         "reason": "process-exit-0",
         "retry_disposition": "none",
-        "catch_up_disposition": "scheduled",
+        "catch_up_disposition": "not-applicable",
     }
     receipt.update(changes)
     return receipt
@@ -360,6 +363,84 @@ def test_malformed_registered_receipt_makes_the_digest_warn(tmp_path):
 
     assert hour["status"] == "WARN"
     assert "malformed registered job receipt" in hour["text"]
+
+
+def _alert_registry(tmp_path, severity, grace_seconds):
+    repo = tmp_path / f"registry-{severity.lower()}-{grace_seconds}"
+    (repo / "ops").mkdir(parents=True)
+    source = (ops_digest.REPO_ROOT / "ops/jobs.toml").read_text()
+    source = source.replace(
+        '[defaults.alert]\nseverity = "FAIL"\ngrace_seconds = 300',
+        f'[defaults.alert]\nseverity = "{severity}"\ngrace_seconds = {grace_seconds}',
+    )
+    (repo / "ops/jobs.toml").write_text(source)
+    spec = ops_digest.job_contract.load_registry(repo).get("registry-audit")
+    return repo, spec
+
+
+def test_registered_alert_severity_and_grace_control_digest_escalation(tmp_path):
+    public = ops_digest.job_contract.load_registry(ops_digest.REPO_ROOT).get("registry-audit")
+    within_grace = _registered_receipt(
+        spec=public, work_status="terminal_failure", process_exit=1,
+        started_at="2026-10-10T03:03:00Z", ended_at="2026-10-10T03:04:00Z",
+    )
+    failures, warnings, errors = ops_digest.registered_receipt_alerts(
+        [within_grace], NOW
+    )
+    assert (failures, warnings, errors) == ([], [], [])
+
+    expired = {**within_grace, "started_at": "2026-10-10T02:58:00Z",
+               "ended_at": "2026-10-10T02:59:00Z"}
+    failures, warnings, errors = ops_digest.registered_receipt_alerts([expired], NOW)
+    assert failures == [expired] and warnings == [] and errors == []
+
+    ignore_repo, ignore_spec = _alert_registry(tmp_path, "ignore", 0)
+    ignored = _registered_receipt(
+        spec=ignore_spec, work_status="terminal_failure", process_exit=1
+    )
+    assert ops_digest.registered_receipt_alerts(
+        [ignored], NOW, ignore_repo
+    ) == ([], [], [])
+
+    warn_repo, warn_spec = _alert_registry(tmp_path, "WARN", 0)
+    warned = _registered_receipt(
+        spec=warn_spec, work_status="terminal_failure", process_exit=1
+    )
+    assert ops_digest.registered_receipt_alerts(
+        [warned], NOW, warn_repo
+    ) == ([], [warned], [])
+
+
+def test_ignore_alert_registration_keeps_terminal_receipt_out_of_hour_status(
+    tmp_path, monkeypatch
+):
+    repo, spec = _alert_registry(tmp_path, "ignore", 0)
+    monkeypatch.setattr(ops_digest, "REPO_ROOT", repo)
+    receipt = _registered_receipt(
+        spec=spec, work_status="terminal_failure", process_exit=1,
+        reason="best-effort-failure",
+    )
+    path = tmp_path / "logs/job-runs/registry-audit/slot/key/1.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(receipt))
+
+    [hour] = _collect(tmp_path, {})
+
+    assert hour["status"] == "OK"
+    assert "terminal_failure" in hour["text"]
+
+
+def test_registered_alerts_fail_on_unknown_or_mismatched_spec_identity():
+    unknown = _registered_receipt(job_id="unknown-job")
+    mismatch = _registered_receipt(spec_sha256="0" * 64)
+    failures, warnings, errors = ops_digest.registered_receipt_alerts(
+        [unknown, mismatch], NOW
+    )
+    assert failures == [] and warnings == []
+    assert errors == [
+        "unknown-job-receipt:unknown-job:run-1:1",
+        "job-receipt-spec-mismatch:registry-audit:run-1:1",
+    ]
 
 
 def test_failed_run_marks_hour_and_report_lists_it(tmp_path):
