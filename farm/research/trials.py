@@ -10,10 +10,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .canonical import canonical_bytes, canonical_sha256
+from .canonical import canonical_bytes, canonical_sha256, file_sha256
 
 TRIAL_SCHEMA_VERSION = 1
-GENESIS_SELECTION_N = 139
+PUBLIC_CENSUS_SHA256 = "07ba583900406735b422d91437ebd21db4cfdd59ba4d160db86f7f73a34395b7"
 EVENT_KINDS = frozenset({
     "registered",
     "evaluation_started",
@@ -24,6 +24,8 @@ EVENT_KINDS = frozenset({
     "confirmed",
     "retired",
     "alias",
+    "withdrawn",
+    "legacy_outcome",
     "inventory_reconciliation",
 })
 ATTEMPT_KINDS = frozenset({"evaluation_started", "evaluated", "failed", "abandoned"})
@@ -50,7 +52,7 @@ def trial_id(study_sha256: str, parameters: Mapping[str, Any]) -> str:
 
 def _event_core(
     *, kind: str, event_id: str, trial: str | None, attempt: str | None,
-    event_at: str, payload: Mapping[str, Any],
+    event_at: str | None, payload: Mapping[str, Any],
 ) -> dict[str, Any]:
     return {
         "kind": kind,
@@ -100,11 +102,62 @@ def _registration_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     return json.loads(canonical_bytes(payload))
 
 
-def _validate_records(records: Sequence[Mapping[str, Any]]) -> None:
+@dataclass(frozen=True)
+class CensusGenesis:
+    source: str
+    source_sha256: str
+    row_count: int
+    n_contribution: int
+    register_sha256: str
+    reconciliation_sha256: str
+
+    @classmethod
+    def from_public_census(cls, path: str | Path) -> "CensusGenesis":
+        source = Path(path)
+        observed = file_sha256(source)
+        if observed != PUBLIC_CENSUS_SHA256:
+            raise TrialLedgerError("accepted public census hash differs")
+        try:
+            rows = json.loads(source.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise TrialLedgerError("accepted public census is unreadable") from exc
+        if (not isinstance(rows, list) or not rows
+                or any(not isinstance(row, dict) or type(row.get("n_contribution")) is not int
+                       or row["n_contribution"] < 0 for row in rows)):
+            raise TrialLedgerError("accepted public census rows differ")
+        contribution = sum(row["n_contribution"] for row in rows)
+        register = canonical_sha256(rows)
+        material = {
+            "source_sha256": observed,
+            "row_count": len(rows),
+            "n_contribution": contribution,
+            "register_sha256": register,
+        }
+        return cls(
+            "docs/p16-trial-census.json", observed, len(rows), contribution, register,
+            canonical_sha256(material),
+        )
+
+    @classmethod
+    def accepted(cls) -> "CensusGenesis":
+        return cls.from_public_census(Path(__file__).resolve().parents[2] / "docs" / "p16-trial-census.json")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "source": self.source,
+            "source_sha256": self.source_sha256,
+            "row_count": self.row_count,
+            "n_contribution": self.n_contribution,
+            "register_sha256": self.register_sha256,
+            "reconciliation_sha256": self.reconciliation_sha256,
+        }
+
+
+def _validate_records(records: Sequence[Mapping[str, Any]], genesis: CensusGenesis) -> None:
     previous, event_ids, registrations = None, {}, {}
     attempts: dict[tuple[str, str], list[str]] = {}
     holdouts, retired = set(), set()
-    selection_n = GENESIS_SELECTION_N
+    selection_n = genesis.n_contribution
     required = {
         "schema_version", "sequence", "kind", "event_id", "trial_id", "attempt_id",
         "event_at", "payload", "recorded_at", "previous_row_sha256", "row_sha256",
@@ -121,11 +174,15 @@ def _validate_records(records: Sequence[Mapping[str, Any]]) -> None:
                 or not isinstance(row["payload"], Mapping)):
             raise TrialLedgerError(f"trial row {index} identity differs")
         try:
-            event_at = datetime.fromisoformat(row["event_at"].replace("Z", "+00:00"))
+            event_at = (None if row["event_at"] is None else
+                        datetime.fromisoformat(row["event_at"].replace("Z", "+00:00")))
             recorded_at = datetime.fromisoformat(row["recorded_at"].replace("Z", "+00:00"))
         except (AttributeError, ValueError) as exc:
             raise TrialLedgerError(f"trial row {index} timestamp differs") from exc
-        if event_at.utcoffset() != timezone.utc.utcoffset(event_at) or recorded_at < event_at:
+        if ((event_at is None and row["kind"] not in {"withdrawn", "legacy_outcome"})
+                or (event_at is not None and (
+                    event_at.utcoffset() != timezone.utc.utcoffset(event_at)
+                    or recorded_at < event_at))):
             raise TrialLedgerError(f"trial row {index} timestamp differs")
         core = _event_core(
             kind=row["kind"], event_id=row["event_id"], trial=row["trial_id"],
@@ -152,7 +209,7 @@ def _validate_records(records: Sequence[Mapping[str, Any]]) -> None:
                 raise TrialLedgerError("reconciliation cannot name a trial or attempt")
             expected = {
                 "sealed_through_sequence", "sealed_row_sha256", "register_sha256",
-                "selection_n", "source_hashes",
+                "selection_n", "source_hashes", "genesis",
             }
             payload = row["payload"]
             bound = index - 1
@@ -163,6 +220,7 @@ def _validate_records(records: Sequence[Mapping[str, Any]]) -> None:
                         [item["row_sha256"] for item in before]
                     )
                     or payload["selection_n"] != selection_n
+                    or payload["genesis"] != genesis.as_dict()
                     or not isinstance(payload["source_hashes"], Mapping)
                     or any(not isinstance(key, str) or not key or not isinstance(value, str)
                            or len(value) != 64 for key, value in payload["source_hashes"].items())):
@@ -201,6 +259,12 @@ def _validate_records(records: Sequence[Mapping[str, Any]]) -> None:
                 target = row["payload"].get("canonical_trial_id")
                 if target not in registrations or target == current_trial:
                     raise TrialLedgerError("trial alias target is invalid")
+            elif kind in {"withdrawn", "legacy_outcome"}:
+                provenance = row["payload"].get("time_provenance")
+                if (row["event_at"] is not None or not isinstance(provenance, dict)
+                        or provenance.get("kind") != "unknown_after_registration"
+                        or not isinstance(row["payload"].get("source_row"), dict)):
+                    raise TrialLedgerError("legacy lifecycle provenance differs")
         previous = row["row_sha256"]
 
 
@@ -219,11 +283,11 @@ class LedgerSummary:
 class JsonlTrialLedger:
     """Process-safe JSONL adapter; reports and CSVs are projections of these events."""
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, genesis: CensusGenesis | None = None):
         self.path = Path(path)
+        self.genesis = genesis or CensusGenesis.accepted()
 
-    @staticmethod
-    def _read_stream(stream) -> list[dict[str, Any]]:
+    def _read_stream(self, stream) -> list[dict[str, Any]]:
         stream.seek(0)
         raw = stream.read()
         if raw and not raw.endswith("\n"):
@@ -235,7 +299,7 @@ class JsonlTrialLedger:
             except json.JSONDecodeError as exc:
                 raise TrialLedgerError(f"trial row {index} is not JSON") from exc
             records.append(row)
-        _validate_records(records)
+        _validate_records(records, self.genesis)
         return records
 
     def read(self) -> tuple[dict[str, Any], ...]:
@@ -258,6 +322,7 @@ class JsonlTrialLedger:
         attempt: str | None = None,
         event_at: datetime | None = None,
         recorded_at: datetime | None = None,
+        event_time_known: bool = True,
     ) -> dict[str, Any]:
         if kind not in EVENT_KINDS:
             raise TrialLedgerError(f"unknown trial event kind: {kind}")
@@ -267,7 +332,7 @@ class JsonlTrialLedger:
             event_id=event_id,
             trial=trial,
             attempt=attempt,
-            event_at=_timestamp(event_time),
+            event_at=_timestamp(event_time) if event_time_known else None,
             payload=payload,
         )
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -294,7 +359,7 @@ class JsonlTrialLedger:
                     recorded_at=_timestamp(recorded_time),
                     previous=records[-1]["row_sha256"] if records else None,
                 )
-                _validate_records([*records, row])
+                _validate_records([*records, row], self.genesis)
                 stream.seek(0, os.SEEK_END)
                 stream.write(canonical_bytes(row, newline=True).decode("utf-8"))
                 stream.flush()
@@ -338,7 +403,7 @@ class JsonlTrialLedger:
         event_at: datetime | None = None,
     ) -> dict[str, Any]:
         records = self.read()
-        summary = _summary(records)
+        summary = _summary(records, self.genesis)
         return self.append(
             kind="inventory_reconciliation",
             event_id=event_id,
@@ -348,12 +413,13 @@ class JsonlTrialLedger:
                 "register_sha256": canonical_sha256([row["row_sha256"] for row in records]),
                 "selection_n": summary.selection_n,
                 "source_hashes": dict(source_hashes),
+                "genesis": self.genesis.as_dict(),
             },
             event_at=event_at,
         )
 
     def summary(self) -> LedgerSummary:
-        return _summary(self.read())
+        return _summary(self.read(), self.genesis)
 
     def selection_n(self, *, require_reconciled: bool = True) -> int:
         summary = self.summary()
@@ -362,12 +428,12 @@ class JsonlTrialLedger:
         return summary.selection_n
 
 
-def _summary(records: Sequence[Mapping[str, Any]]) -> LedgerSummary:
-    _validate_records(records)
+def _summary(records: Sequence[Mapping[str, Any]], genesis: CensusGenesis) -> LedgerSummary:
+    _validate_records(records, genesis)
     registrations = [row for row in records if row["kind"] == "registered"]
     selection_n = max(
         (row["payload"]["selection_end"] for row in registrations),
-        default=GENESIS_SELECTION_N,
+        default=genesis.n_contribution,
     )
     contributions = sum(row["payload"]["n_contribution"] for row in registrations)
     reconciliations = [row for row in records if row["kind"] == "inventory_reconciliation"]

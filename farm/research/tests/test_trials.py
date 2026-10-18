@@ -2,10 +2,11 @@ import concurrent.futures
 import importlib
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from engine.lib.resources import write_text_atomic
 from farm.research.canonical import canonical_sha256
-from farm.research.trials import JsonlTrialLedger, TrialLedgerError, trial_id
+from farm.research.trials import CensusGenesis, JsonlTrialLedger, TrialLedgerError, trial_id
 
 pytest = importlib.import_module("pytest")
 
@@ -125,3 +126,19 @@ def test_trial_id_is_canonical():
     assert trial_id("d" * 64, {"b": 2, "a": 1}) == canonical_sha256({
         "parameters": {"a": 1, "b": 2}, "study_sha256": "d" * 64,
     })
+
+
+def test_genesis_is_derived_from_exact_accepted_public_census_and_refuses_drift(tmp_path):
+    accepted = CensusGenesis.accepted()
+    assert accepted.row_count == 103
+    assert accepted.n_contribution == 139
+    assert accepted.source_sha256 == (
+        "07ba583900406735b422d91437ebd21db4cfdd59ba4d160db86f7f73a34395b7"
+    )
+    source = Path(__file__).resolve().parents[3] / "docs" / "p16-trial-census.json"
+    changed = tmp_path / "p16-trial-census.json"
+    rows = json.loads(source.read_text())
+    rows[0]["n_contribution"] += 1
+    write_text_atomic(changed, json.dumps(rows))
+    with pytest.raises(TrialLedgerError, match="public census hash differs"):
+        CensusGenesis.from_public_census(changed)
